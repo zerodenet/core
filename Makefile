@@ -15,9 +15,9 @@ help:
 	@echo   make test         - cargo test --workspace
 	@echo   make clippy       - cargo clippy --workspace --all-targets
 	@echo   make build        - cargo build
-	@echo   make build-full   - cargo build --features full,status_api
+	@echo   make build-full   - cargo build --features full,status-api
 	@echo   make release      - cargo build --release
-	@echo   make release-full - cargo build --release --features full,status_api
+	@echo   make release-full - cargo build --release --features full,status-api
 	@echo   make strip        - strip release binary (减小文件大小)
 	@echo   make clean        - cargo clean
 	@echo   make install      - install to $(PREFIX)/bin
@@ -49,13 +49,13 @@ build:
 	$(CARGO) build
 
 build-full:
-	$(CARGO) build --features full,status_api
+	$(CARGO) build --features full,status-api
 
 release:
 	$(CARGO) build --release
 
 release-full:
-	$(CARGO) build --release --features full,status_api
+	$(CARGO) build --release --features full,status-api
 
 strip:
 	strip target/release/zero

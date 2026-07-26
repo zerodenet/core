@@ -42,7 +42,7 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --features full
+        run: cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
 
   check-and-test:
     name: Check & Test (Linux)
@@ -58,17 +58,49 @@ jobs:
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
-      - name: Check (full)
-        run: cargo check --workspace --features full,status_api
+      - name: Check (all features)
+        run: cargo check --workspace --all-features
 
-      - name: Check (panel_connector)
-        run: cargo check --workspace --features full,status_api,panel_connector
-
-      - name: Test (workspace)
-        run: cargo test --workspace --features full,status_api
+      - name: Test (workspace, including connector webhook delivery)
+        run: cargo test --workspace --all-features
 
       - name: Architecture boundary tests
         run: cargo test -p zero-proxy --test runtime_boundary --all-features
+
+  linux-musl-compat:
+    name: Build Linux musl compatibility artifact
+    runs-on: ubuntu-22.04
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl toolchain
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
+
+      - name: Build compatibility binary
+        run: cargo build --features full,status-api,connector --release --target x86_64-unknown-linux-musl
+
+      - name: Verify static linkage
+        shell: bash
+        run: |
+          BINARY="target/x86_64-unknown-linux-musl/release/zero"
+          file "$BINARY"
+          if readelf --program-headers "$BINARY" | grep -q 'INTERP'; then
+            echo "::error::The musl compatibility binary is dynamically linked"
+            readelf --program-headers "$BINARY" | grep 'INTERP' || true
+            exit 1
+          fi
+          if readelf --version-info "$BINARY" 2>/dev/null | grep -q 'GLIBC_'; then
+            echo "::error::The musl compatibility binary still requires glibc"
+            readelf --version-info "$BINARY" | grep 'GLIBC_' || true
+            exit 1
+          fi
 
   proxy-feature-matrix:
     name: Proxy feature (${{ matrix.name }})
@@ -115,10 +147,10 @@ jobs:
       fail-fast: false
       matrix:
         feature:
-          - status_api
-          - event_dispatcher
-          - panel_connector
-          - grpc_api
+          - status-api
+          - event-dispatcher
+          - connector
+          - grpc-api
     steps:
       - uses: actions/checkout@v4
 
