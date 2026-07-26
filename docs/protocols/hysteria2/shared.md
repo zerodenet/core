@@ -1,6 +1,6 @@
 # Hysteria2 公共约定
 
-Hysteria2 入站和出站共享鉴权信息、TLS/QUIC 端点信息和协议级参数。协议私有值由 Hysteria2 构造器和验证 API 解析，通用代理运行时不重建密钥、证书或鉴权状态。
+Hysteria2 入站和出站共享鉴权信息、TLS/QUIC 端点信息和协议级参数。公开互操作基线使用 `h3` ALPN、HTTP/3 `POST /auth`、状态 `233`、标准 TCPRequest/TCPResponse 与 UDPMessage。协议私有值由 Hysteria2 构造器和验证 API 解析，通用代理运行时不重建密钥、证书、鉴权状态或协议帧。
 
 ## 边界
 

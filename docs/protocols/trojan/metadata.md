@@ -49,4 +49,4 @@ impl ProtocolMetadata for TrojanProtocol {
 
 互操作测试文件：`crates/proxy/tests/trojan_xray_interop.rs`（Xray/sing-box/Mihomo 三大族，本地手动执行，`#[ignore]`）。
 
-TLS 客户端指纹（`client_fingerprint`，chrome/firefox/safari/ios/edge/randomized）在 TCP 出站、UDP fresh-socket、以及 **relay-stream**（UDP relay-chain 末跳）三条路径上均已支持，回归测试见 `socks5_udp/relays_udp_through_socks5_to_trojan_relay_chain_with_tls_fingerprint.rs`（CI 自跑）。
+TLS 客户端指纹预设（`client_fingerprint`，chrome/firefox/safari/ios/edge/randomized）在 TCP 出站、UDP fresh-socket、以及 **relay-stream**（UDP relay-chain 末跳）三条路径上均已支持，当前应用 rustls cipher/ALPN 预设，不承诺完整浏览器 ClientHello 仿真。回归测试见 `socks5_udp/relays_udp_through_socks5_to_trojan_relay_chain_with_tls_fingerprint.rs`（CI 自跑）。

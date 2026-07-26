@@ -68,4 +68,4 @@ ShadowsocksAeadStream::outbound(stream, outbound_session, password)
 
 `CipherKind::is_blake3()` 派发到 SIP022 路径：`send_request_2022` 写入 `salt + fixed-header chunk (nonce 0) + variable-header chunk (nonce 1)`，body length/payload 对从 nonce 2 继续；inbound `accept_request_2022` 以**单次读取**接收 salt + fixed-header（SIP022 3.1.3 检测防御），失败时 drain 后再关闭。响应流的 fixed-header chunk（nonce 0，含 request-salt 回填）兼作首个 length chunk，首个 payload chunk 在 nonce 1。三个 blake3 cipher 均覆盖。
 
-验证：TCP 入站已通过 `shadowsocks-rust` 参考客户端 `sslocal` 端到端互操作（HTTP 200）；TCP 出站管线已通过 Zero→Zero 验证；常规 AEAD 与 2022 路径由 `is_blake3()` 在 `send_request` / `accept_request` / `ShadowsocksAeadStream` 中区分。
+验证：TCP 入站已通过 `shadowsocks-rust` 参考客户端 `sslocal` 端到端互操作（HTTP 200）；SIP023 AES 2022 TCP/UDP 双向路径已通过 `shadowsocks-rust` 1.24.0 的 `sslocal` / `ssserver` 验证；常规 AEAD 与 2022 路径由 `is_blake3()` 在 `send_request` / `accept_request` / `ShadowsocksAeadStream` 中区分。

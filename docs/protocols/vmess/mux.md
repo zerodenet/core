@@ -66,10 +66,11 @@ struct PoolKey {
 
 ### 池管理
 
-- 按 `(server, port, uuid, cipher, transport)` 五元组分桶
+- 按服务端、端口、UUID、加密方式、传输方案、MUX 空闲策略和响应积压策略分桶
 - 同一分桶内的多路 TCP/UDP 子连接共享底层 VMess TLS stream
 - `mux_concurrency` 限制最大并发子连接数
-- `mux_idle_timeout_secs` 控制空闲连接回收
+- `mux_idle_timeout_secs` 控制物理载体的无帧活动回收；真实上下行帧都会刷新期限，超时后读写两半共同关闭，后续逻辑流新建载体
+- 入站回程与出站下行响应使用 Zero 自有的有界积压：`mux_response_backlog_frames` 控制每逻辑流帧数（`1..=4096`，默认 32），`mux_response_backlog_bytes` 控制每物理载体总字节（16 KiB..=64 MiB，默认 1 MiB）；慢消费者越界时显式终止该逻辑流并归还字节预算，不形成无界 `mpsc` 队列，不同策略的出站也不会共池
 
 ### UDP over MUX
 

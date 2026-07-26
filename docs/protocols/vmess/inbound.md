@@ -26,7 +26,7 @@ pub async fn accept_tcp_multi(
 - `VmessReadBuffer` 一次读取 wire data
 - 多个 `VmessUser` 的 uuid 依次尝试解密 header
 - 认证失败：发送 rejection response（非静默断开）
-- 支持 per-user `credential_id`、`principal_key`、rate limits
+- 支持 per-user `principal_key` 和 rate limits
 
 ### VmessUser
 
@@ -34,7 +34,6 @@ pub async fn accept_tcp_multi(
 pub struct VmessUser {
     pub id: Uuid,
     pub cipher: VmessCipher,
-    pub credential_id: Option<String>,
     pub principal_key: Option<String>,
 }
 ```

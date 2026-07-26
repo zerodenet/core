@@ -54,6 +54,8 @@ pub struct VmessTcpSessionTarget {
 
 - `mux_concurrency`: 启用 VMess TCP MUX 连接池，指定最大并发子连接数
 - `mux_idle_timeout_secs`: 可选，连接池空闲超时
+- `mux_response_backlog_frames`: 可选，每逻辑流响应积压帧数，范围 `1..=4096`，默认 32
+- `mux_response_backlog_bytes`: 可选，每物理载体响应积压总字节，范围 16 KiB..=64 MiB，默认 1 MiB
 
 ## 已验证路径
 

@@ -62,7 +62,7 @@
 }
 ```
 
-`tls`、`reality`、`ws`、`grpc`、`h2`、`http_upgrade` 和 `split_http`（XHTTP，配置字段名沿用 `split_http`，支持 `mode`：`auto`/`stream-one` 单连接、`packet-up`/`stream-up` 双连接）是可选传输配置。`reality` 不能和这些非 raw TCP 传输组合。`quic` 字段保留以向后兼容，但 XTLS 已弃用 VLESS 独立 QUIC 传输（继任者为 XHTTP `stream-one` H3）。
+`tls`、`reality`、`ws`、`grpc`、`h2`、`http_upgrade` 和 `split_http`（XHTTP，配置字段名沿用 `split_http`，支持 `mode`：`auto`/`stream-one` 单连接、`packet-up`/`stream-up` 双连接）是可选传输配置。`stream-one` 出站使用 H2/H2C，入站按首包同时接受 H2/H2C 与 HTTP/1.1 chunked；path 会规范化为尾随 `/`，并使用 XHTTP 默认请求/响应 padding。`reality` 不能和这些非 raw TCP 传输组合。`quic` 字段保留以向后兼容，但 XTLS 已弃用 VLESS 独立 QUIC 传输（继任者为 XHTTP `stream-one` H3）。
 
 ### Shadowsocks
 
@@ -72,11 +72,30 @@
   "listen": { "address": "0.0.0.0", "port": 8388 },
   "protocol": {
     "type": "shadowsocks",
-    "password": "your-secret-password",
-    "cipher": "chacha20-ietf-poly1305"
+    "cipher": "chacha20-ietf-poly1305",
+    "users": [{
+      "password": "your-secret-password",
+      "principal_key": "account:1001"
+    }]
   }
 }
 ```
+
+`users` 用于面板管理的多用户入站，并支持在线原子替换；旧式单用户 `password` 仍兼容。legacy AEAD 直接使用各用户的 password。Shadowsocks 2022 单端口多用户使用 SIP023 EIH，AES 2022 入站必须另外配置固定的 `identity_password`（服务器 iPSK），每个 `users[*].password` 是独立的 uPSK：
+
+```json
+{
+  "type": "shadowsocks",
+  "cipher": "2022-blake3-aes-128-gcm",
+  "identity_password": "MDEyMzQ1Njc4OWFiY2RlZg==",
+  "users": [{
+    "password": "ZmVkY2JhOTg3NjU0MzIxMA==",
+    "principal_key": "account:1001"
+  }]
+}
+```
+
+`identity_password` 不参与面板用户替换；同步为空用户集时仍保留 iPSK，但拒绝全部认证，避免退化成静态单用户节点。iPSK 与所有 uPSK 必须不同。SIP023 EIH 只适用于两个 AES 2022 方法，`2022-blake3-chacha20-poly1305` 不允许配置多用户 EIH。
 
 支持 cipher：
 
@@ -87,7 +106,7 @@
 - `2022-blake3-aes-256-gcm`
 - `2022-blake3-chacha20-poly1305`
 
-AEAD 2022 的 `password` 必须是标准 base64 key material：AES-128 为 16 字节，AES-256 和 chacha20 为 32 字节。AES 2022 可以使用 `i_psk:u_psk` 形式，Zero 使用最后一段作为用户 PSK。
+AEAD 2022 的 PSK 必须是标准 base64 key material：AES-128 为 16 字节，AES-256 和 chacha20 为 32 字节。出站 `password` 可使用 SIP023 的 `iPSK[:iPSK...]:uPSK` 身份链；Zero 为 TCP/UDP 生成 EIH，并以最后一段 uPSK 加密负载。
 
 ### Trojan
 
@@ -97,7 +116,10 @@ AEAD 2022 的 `password` 必须是标准 base64 key material：AES-128 为 16 �
   "listen": { "address": "0.0.0.0", "port": 443 },
   "protocol": {
     "type": "trojan",
-    "password": "your-secret-password",
+    "users": [{
+      "password": "your-secret-password",
+      "principal_key": "account:1001"
+    }],
     "tls": {
       "cert_path": "certs/fullchain.pem",
       "key_path": "certs/privkey.pem"
@@ -105,6 +127,8 @@ AEAD 2022 的 `password` 必须是标准 base64 key material：AES-128 为 16 �
   }
 }
 ```
+
+静态单用户节点仍可使用旧的顶层 `password`。面板管理节点使用 `users`，两种形式不能同时配置；`users` 可为空以表示暂时拒绝所有认证。
 
 ### Hysteria2
 
@@ -114,12 +138,17 @@ AEAD 2022 的 `password` 必须是标准 base64 key material：AES-128 为 16 �
   "listen": { "address": "0.0.0.0", "port": 8443 },
   "protocol": {
     "type": "hysteria2",
-    "password": "your-secret-password",
+    "users": [{
+      "password": "your-secret-password",
+      "principal_key": "account:1001"
+    }],
     "cert_path": "certs/fullchain.pem",
     "key_path": "certs/privkey.pem"
   }
 }
 ```
+
+面板托管节点使用 `users`，认证身份会同时投影到该 QUIC 连接承载的 TCP stream 与 UDP datagram；旧式单用户 `password` 继续兼容。空 `users` 表示拒绝全部新认证。
 
 ### Mieru
 
@@ -191,12 +220,20 @@ VMess inbound 当前要求 `tls`。可选传输为 raw TLS、WebSocket over TLS�
     "server": "example.com",
     "port": 443,
     "id": "11111111-2222-3333-4444-555555555555",
+    "mux_concurrency": 8,
+    "xudp_concurrency": 8,
+    "mux_response_backlog_frames": 32,
+    "mux_response_backlog_bytes": 1048576,
     "tls": {
       "server_name": "example.com"
     }
   }
 }
 ```
+
+`mux_concurrency` 与 `xudp_concurrency` 是 Zero 原生且彼此独立的能力开关：前者启用 TCP MUX 子流池，后者启用 XUDP 会话池；两者取值范围均为 `1..=65535`。`flow` 只表达 VLESS flow，不再隐式开启 MUX/XUDP。`mux_idle_timeout_secs` 是物理 MUX 载体的无帧活动超时：任一真实上行或下行 MUX 帧都会刷新期限，超过期限后读写两半同时关闭，后续逻辑流会新建载体；不同超时策略不会共用同一个池。
+
+VLESS 与 VMess 入站、出站都可设置 Zero 原生容量策略 `mux_response_backlog_frames` 和 `mux_response_backlog_bytes`。前者控制每个逻辑流可积压的响应帧数，范围 `1..=4096`；后者控制每个物理载体可积压的响应总字节，范围 `16384..=67108864`。省略时分别使用安全默认值 32 帧和 1 MiB。慢消费者越界时只终止对应逻辑流并释放已保留字节；出站池键包含完整容量策略，因此不同配置不会错误复用同一物理载体。
 
 ### Shadowsocks
 

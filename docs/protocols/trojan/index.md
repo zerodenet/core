@@ -24,7 +24,7 @@ Trojan 是 `partial` 协议能力。基线 TCP 和 UDP-over-stream 路径存在�
 - 外部互操作覆盖不足
 - MUX 未实现
 
-中继链最终跳的 TLS 客户端指纹已支持：经 `connect_tls_stream` → ztls 自定义 TLS 1.3 ClientHello 在已建立的 TCP 中继流上运行，与单跳共用 `client_fingerprint`（见 e2e 测试 `relays_udp_through_socks5_to_trojan_relay_chain_with_tls_fingerprint`）。
+中继链最终跳的 TLS 客户端指纹预设已支持：经 `connect_tls_stream` 在已建立的 TCP 中继流上应用与单跳一致的 rustls cipher/ALPN 预设（见 e2e 测试 `relays_udp_through_socks5_to_trojan_relay_chain_with_tls_fingerprint`）。该字段当前不承诺完整复刻浏览器 ClientHello 扩展顺序。
 
 ## 外部互操作
 
