@@ -61,7 +61,7 @@ cargo build --release --features full,status-api,connector
 }
 ```
 
-gRPC 调用 `Control.Execute`，payload 使用完全相同的 JSON，并通过 metadata `authorization: Bearer <api.control key>` 认证。内置 gRPC 是明文 HTTP/2；跨主机部署应在同机可信代理终止 TLS。Zero 原样使用 `url`，不会追加 `/register`、`/sync`、`/traffic`、`/presence` 或任何其他路径。
+gRPC 调用 `Control.Execute`，payload 使用完全相同的 JSON。认证和传输安全可按部署组合：Bearer metadata `authorization: Bearer <api.control key>`、Zero 原生 TLS、mTLS，或可信代理上的外部 TLS 终止。非 loopback 明文必须显式开启，远程关闭 Bearer 时必须使用 mTLS；详细字段见[控制面配置](../control-plane-api/configuration.md#api-control)。Zero 原样使用 `url`，不会追加 `/register`、`/sync`、`/traffic`、`/presence` 或任何其他路径。
 
 注册数量和拓扑不受节点或代理协议约束：
 

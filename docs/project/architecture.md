@@ -72,7 +72,7 @@ Zero 的架构遵循以下原则：
 | crate | 职责 |
 |-------|------|
 | `zero-api` | 控制面和观测数据类型 |
-| `zero-connector` | 事件分发、JSONL sink、webhook 和面板推送 |
+| `zero-connector` | 控制端中立的事件分发、JSONL sink 和 Webhook 投递 |
 | `zero-grpc` | 可选的 gRPC 控制面适配器 |
 | `zero-ffi` | C 兼容嵌入式接口 |
 | `zero-logging` | 非阻塞结构化日志和事件桥接 |
