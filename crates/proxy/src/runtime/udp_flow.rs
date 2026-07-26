@@ -16,6 +16,8 @@ pub(crate) mod packet_path;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod packet_path_chain;
 #[cfg(feature = "udp-runtime")]
+pub(crate) mod rate_limit;
+#[cfg(feature = "udp-runtime")]
 pub(crate) mod registered;
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) mod response;

@@ -125,6 +125,7 @@ async fn registered_udp_state_forwards_with_restored_opaque_resume() {
         },
         client_session_id: None,
         passive_relay_selections: Vec::new(),
+        rate_limiters: crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters::default(),
     };
     let config =
         RuntimeConfig::parse(r#"{ "route": { "rules": [], "final": { "type": "direct" } } }"#)

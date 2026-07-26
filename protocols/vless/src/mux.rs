@@ -2,20 +2,12 @@
 //
 // Encodes multiple TCP/UDP streams within a single VLESS connection.
 //
-// Frame format (Xray Mux.Cool compatible):
-//   0               1               2
-//   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
-//  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//  |              length (u16 BE)                      |
-//  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//  |            session_id (u16 BE)                    |
-//  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//  |   status (u8)    |   options (u8)                 |
-//  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//  |               payload (variable)                  |
-//  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// Native Mux.Cool frame:
+//   [metadata length: u16]
+//   [session ID: u16][status: u8][options: u8][optional target/global ID]
+//   [data length: u16][data...] when OPTION_DATA is set
 //
-// length covers session_id(2) + status(1) + options(1) + payload
+// The metadata length never includes the independent data-length field or data.
 //
 // Status codes:
 //   0x01 StatusNew      — New connection request
@@ -23,14 +15,8 @@
 //   0x03 StatusEnd      — Session termination
 //   0x04 StatusKeepAlive — Keep-alive signal
 //
-// New Stream request (session_id=0, status=STATUS_NEW):
-//   payload: [network:1][port:2][atyp:1][address…]
-// New Stream response (session_id=0, status=STATUS_NEW):
-//   payload: [assigned_id:2][status:1(0=ok,1=fail)]
-//
-// Data frames (status=STATUS_KEEP, options=OPTION_DATA):
-//   TCP: [payload_bytes…]
-//   UDP: [network:1][port:2][atyp:1][address…][payload_bytes…]
+// A generic MUX client owns its non-zero sub-session IDs. The single-session
+// XUDP form may use ID 0. Servers do not assign IDs or send an acceptance frame.
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -45,15 +31,21 @@ use zero_core::{
 };
 use zero_traits::AsyncSocket;
 
-use crate::shared::{read_exact, write_address, ATYP_DOMAIN, ATYP_IPV4, ATYP_IPV6};
+use crate::shared::{ATYP_DOMAIN, ATYP_IPV4, ATYP_IPV6};
+
+pub(crate) mod backlog;
+mod codec;
+#[cfg(all(test, feature = "reality"))]
+mod tests;
+
+pub(crate) use backlog::MuxResponseBacklogPolicy;
+#[cfg(feature = "reality")]
+use backlog::{BufferedMuxResponse, MuxResponseBacklog};
 
 // ── Constants ──
 
-pub const MUX_FRAME_HEADER_LEN: usize = 6;
-pub const MUX_MAX_PAYLOAD: usize = 16384; // keep inside one TLS record
-
-// Session ID 0 for control frames (new stream, keepalive)
-pub const MUX_STREAM_NEW: u16 = 0;
+pub const MUX_MAX_METADATA: usize = 512;
+pub const MUX_MAX_PAYLOAD: usize = 8192;
 
 // Status codes
 pub const STATUS_NEW: u8 = 0x01;
@@ -63,6 +55,7 @@ pub const STATUS_KEEP_ALIVE: u8 = 0x04;
 
 // Option flags
 pub const OPTION_DATA: u8 = 0x01;
+pub const OPTION_ERROR: u8 = 0x02;
 
 // Network types
 pub const NETWORK_TCP: u8 = 0x01;
@@ -72,24 +65,22 @@ pub const NETWORK_UDP: u8 = 0x02;
 pub const MUX_NETWORK_TCP: u8 = NETWORK_TCP;
 pub const MUX_NETWORK_UDP: u8 = NETWORK_UDP;
 
-// Response status (for new stream response)
-pub const MUX_STATUS_OK: u8 = 0x00;
-pub const MUX_STATUS_FAIL: u8 = 0x01;
-
 // ── Types ──
 
-/// Parsed MUX frame.
+/// Parsed Mux.Cool frame.
 #[derive(Debug, Clone)]
 pub(crate) struct MuxFrame {
     pub session_id: u16,
     pub status: u8,
     pub options: u8,
+    pub target: Option<MuxTarget>,
+    pub global_id: Option<[u8; 8]>,
     pub payload: Vec<u8>,
 }
 
 /// Target info for a new MUX stream.
 #[derive(Debug, Clone)]
-struct MuxTarget {
+pub(crate) struct MuxTarget {
     pub network: u8,
     pub port: u16,
     pub address: Address,
@@ -128,10 +119,23 @@ impl MuxTarget {
 #[derive(Debug, Clone)]
 enum MuxServerEvent {
     KeepAlive,
-    NewStream { session_id: u16, target: MuxTarget },
-    Data { session_id: u16, payload: Vec<u8> },
-    End { session_id: u16 },
-    Unknown { session_id: u16 },
+    NewStream {
+        session_id: u16,
+        target: MuxTarget,
+        global_id: Option<[u8; 8]>,
+        initial_payload: Vec<u8>,
+    },
+    Data {
+        session_id: u16,
+        target: Option<MuxTarget>,
+        payload: Vec<u8>,
+    },
+    End {
+        session_id: u16,
+    },
+    Unknown {
+        session_id: u16,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -140,9 +144,12 @@ enum VlessInboundMuxAction {
     OpenStream {
         session_id: u16,
         session: Box<Session>,
+        global_id: Option<[u8; 8]>,
+        initial_payload: Vec<u8>,
     },
     Data {
         session_id: u16,
+        target: Option<MuxTarget>,
         payload: Vec<u8>,
     },
     End {
@@ -157,6 +164,8 @@ enum VlessInboundMuxAction {
 struct VlessInboundMuxOpenedStream {
     session_id: u16,
     session: Box<Session>,
+    global_id: Option<[u8; 8]>,
+    termination_probe: zero_core::InboundMuxUdpTerminationProbe,
     up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
 }
 
@@ -252,17 +261,35 @@ impl VlessInboundMuxOpenedStream {
     fn new(
         session_id: u16,
         session: Box<Session>,
+        global_id: Option<[u8; 8]>,
+        termination_probe: zero_core::InboundMuxUdpTerminationProbe,
         up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
     ) -> Self {
         Self {
             session_id,
             session,
+            global_id,
+            termination_probe,
             up_rx,
         }
     }
 
-    fn into_parts(self) -> (u16, Session, mpsc::UnboundedReceiver<Vec<u8>>) {
-        (self.session_id, *self.session, self.up_rx)
+    fn into_parts(
+        self,
+    ) -> (
+        u16,
+        Session,
+        Option<[u8; 8]>,
+        zero_core::InboundMuxUdpTerminationProbe,
+        mpsc::UnboundedReceiver<Vec<u8>>,
+    ) {
+        (
+            self.session_id,
+            *self.session,
+            self.global_id,
+            self.termination_probe,
+            self.up_rx,
+        )
     }
 
     fn into_route_with_auth(
@@ -270,7 +297,7 @@ impl VlessInboundMuxOpenedStream {
         auth: Option<&SessionAuth>,
         writer: VlessInboundMuxWriter,
     ) -> VlessInboundMuxOpenedRoute {
-        let (session_id, mut session, up_rx) = self.into_parts();
+        let (session_id, mut session, global_id, termination_probe, up_rx) = self.into_parts();
         if let Some(auth) = auth {
             session.apply_auth(auth.clone());
         }
@@ -288,6 +315,10 @@ impl VlessInboundMuxOpenedStream {
                     session_id,
                 ),
                 auth.cloned(),
+                global_id
+                    .filter(|global_id| *global_id != [0; 8])
+                    .and_then(|global_id| zero_core::UdpContinuityKey::from_bytes(&global_id)),
+                termination_probe,
             )),
         }
     }
@@ -299,6 +330,8 @@ pub struct VlessInboundMuxUdpRelay {
     up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
     responder: crate::udp::VlessInboundMuxUdpResponder,
     auth: Option<SessionAuth>,
+    continuity_key: Option<zero_core::UdpContinuityKey>,
+    termination_probe: zero_core::InboundMuxUdpTerminationProbe,
 }
 
 #[cfg(feature = "reality")]
@@ -308,12 +341,16 @@ impl VlessInboundMuxUdpRelay {
         up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
         responder: crate::udp::VlessInboundMuxUdpResponder,
         auth: Option<SessionAuth>,
+        continuity_key: Option<zero_core::UdpContinuityKey>,
+        termination_probe: zero_core::InboundMuxUdpTerminationProbe,
     ) -> Self {
         Self {
             session_id,
             up_rx,
             responder,
             auth,
+            continuity_key,
+            termination_probe,
         }
     }
 }
@@ -361,6 +398,14 @@ impl InboundMuxUdpRelay for VlessInboundMuxUdpRelay {
         self.session_id
     }
 
+    fn continuity_key(&self) -> Option<&zero_core::UdpContinuityKey> {
+        self.continuity_key.as_ref()
+    }
+
+    fn termination_probe(&self) -> Option<zero_core::InboundMuxUdpTerminationProbe> {
+        Some(self.termination_probe.clone())
+    }
+
     fn auth(&self) -> Option<&SessionAuth> {
         self.auth.as_ref()
     }
@@ -369,19 +414,40 @@ impl InboundMuxUdpRelay for VlessInboundMuxUdpRelay {
 #[cfg(feature = "reality")]
 #[derive(Clone)]
 pub(crate) struct VlessInboundMuxWriter {
-    down_tx: mpsc::UnboundedSender<VlessInboundMuxDownlink>,
+    down_tx: mpsc::Sender<BufferedMuxResponse<VlessInboundMuxDownlink>>,
+    backlog: MuxResponseBacklog,
 }
 
 #[cfg(feature = "reality")]
 #[derive(Default)]
 struct VlessInboundMuxStreams {
-    streams: alloc::collections::BTreeMap<u16, mpsc::UnboundedSender<Vec<u8>>>,
+    streams: alloc::collections::BTreeMap<u16, VlessInboundMuxStreamState>,
+}
+
+#[cfg(feature = "reality")]
+struct VlessInboundMuxStreamState {
+    network: MuxNetwork,
+    target: Address,
+    port: u16,
+    upload: mpsc::UnboundedSender<Vec<u8>>,
+    termination_probe: zero_core::InboundMuxUdpTerminationProbe,
 }
 
 #[cfg(feature = "reality")]
 struct VlessInboundMuxDownlink {
     session_id: u16,
-    payload: Vec<u8>,
+    kind: VlessInboundMuxDownlinkKind,
+}
+
+#[cfg(feature = "reality")]
+enum VlessInboundMuxDownlinkKind {
+    Data(Vec<u8>),
+    Udp {
+        target: Address,
+        port: u16,
+        payload: Vec<u8>,
+    },
+    End,
 }
 
 #[cfg(feature = "reality")]
@@ -389,14 +455,14 @@ pub struct VlessInboundMuxServer {
     mux: VlessInboundMuxSession,
     streams: VlessInboundMuxStreams,
     writer: VlessInboundMuxWriter,
-    down_rx: mpsc::UnboundedReceiver<VlessInboundMuxDownlink>,
+    down_rx: mpsc::Receiver<BufferedMuxResponse<VlessInboundMuxDownlink>>,
     auth: Option<SessionAuth>,
 }
 
 #[cfg(feature = "reality")]
 impl VlessInboundMuxServer {
-    fn new(mux: VlessInboundMuxSession) -> Self {
-        let (writer, down_rx) = VlessInboundMuxWriter::channel();
+    fn new(mux: VlessInboundMuxSession, backlog_policy: MuxResponseBacklogPolicy) -> Self {
+        let (writer, down_rx) = VlessInboundMuxWriter::channel(backlog_policy);
         Self {
             mux,
             streams: VlessInboundMuxStreams::new(),
@@ -409,8 +475,13 @@ impl VlessInboundMuxServer {
     pub(crate) fn from_master_uuid_with_auth(
         master_uuid: [u8; 16],
         auth: Option<SessionAuth>,
+        backlog_policy: MuxResponseBacklogPolicy,
     ) -> Self {
-        Self::new(VlessInboundMuxSession::with_encryption(&master_uuid)).with_auth(auth)
+        Self::new(
+            VlessInboundMuxSession::with_encryption(&master_uuid),
+            backlog_policy,
+        )
+        .with_auth(auth)
     }
 
     fn with_auth(mut self, auth: Option<SessionAuth>) -> Self {
@@ -430,14 +501,17 @@ impl VlessInboundMuxServer {
     where
         S: AsyncSocket,
     {
-        let opened = loop {
+        loop {
             tokio::select! {
                 action = self.mux.read_inbound_action(stream) => {
-                    let opened = self
+                    if let Some(opened) = self
                         .streams
                         .apply_inbound_action(&mut self.mux, stream, action?)
-                        .await?;
-                    break opened;
+                        .await?
+                    {
+                        let writer = self.writer();
+                        return Ok(Some(opened.into_route_with_auth(auth, writer)));
+                    }
                 }
                 downlink = self.down_rx.recv() => {
                     let Some(downlink) = downlink else {
@@ -445,13 +519,11 @@ impl VlessInboundMuxServer {
                     };
                     let _ = self
                         .streams
-                        .send_inbound_downlink(&mut self.mux, stream, downlink)
+                        .send_inbound_downlink(&mut self.mux, stream, downlink.into_inner())
                         .await?;
                 }
             }
-        };
-        let writer = self.writer();
-        Ok(opened.map(|opened| opened.into_route_with_auth(auth, writer)))
+        }
     }
 
     async fn next_opened_route<S>(
@@ -475,6 +547,10 @@ where
 {
     type TcpRelay = VlessInboundMuxTcpRelay;
     type UdpRelay = VlessInboundMuxUdpRelay;
+
+    fn auth(&self) -> Option<&SessionAuth> {
+        self.auth.as_ref()
+    }
 
     async fn dispatch_next_opened_route<E, FTcp, FUdp>(
         &mut self,
@@ -510,20 +586,66 @@ impl VlessInboundMuxStreams {
         Self::default()
     }
 
-    fn open_stream(&mut self, session_id: u16) -> mpsc::UnboundedReceiver<Vec<u8>> {
+    fn open_stream(
+        &mut self,
+        session_id: u16,
+        session: &Session,
+    ) -> (
+        mpsc::UnboundedReceiver<Vec<u8>>,
+        zero_core::InboundMuxUdpTerminationProbe,
+    ) {
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
-        self.streams.insert(session_id, tx);
-        rx
+        let termination_probe = zero_core::InboundMuxUdpTerminationProbe::transport_attached();
+        let network = match session.network {
+            Network::Tcp => MuxNetwork::Tcp,
+            Network::Udp => MuxNetwork::Udp,
+        };
+        self.streams.insert(
+            session_id,
+            VlessInboundMuxStreamState {
+                network,
+                target: session.target.clone(),
+                port: session.port,
+                upload: tx,
+                termination_probe: termination_probe.clone(),
+            },
+        );
+        (rx, termination_probe)
     }
 
-    fn push_stream_data(&self, session_id: u16, payload: Vec<u8>) -> bool {
-        self.streams
-            .get(&session_id)
-            .is_some_and(|tx| tx.send(payload).is_ok())
+    fn push_stream_data(
+        &mut self,
+        session_id: u16,
+        target: Option<MuxTarget>,
+        payload: Vec<u8>,
+    ) -> Result<bool, Error> {
+        let Some(stream) = self.streams.get_mut(&session_id) else {
+            return Ok(false);
+        };
+        let payload = match stream.network {
+            MuxNetwork::Tcp => payload,
+            MuxNetwork::Udp => {
+                if let Some(target) = target {
+                    if target.network_kind()? != MuxNetwork::Udp {
+                        return Err(Error::Protocol("MUX UDP stream received a non-UDP target"));
+                    }
+                    stream.target = target.address;
+                    stream.port = target.port;
+                }
+                crate::udp::encode_udp_flow_packet(&stream.target, stream.port, &payload)?
+            }
+        };
+        Ok(stream.upload.send(payload).is_ok())
     }
 
-    fn close_inbound_stream(&mut self, session_id: u16) -> bool {
-        self.streams.remove(&session_id).is_some()
+    fn close_inbound_stream(&mut self, session_id: u16, explicit_end: bool) -> bool {
+        let Some(stream) = self.streams.remove(&session_id) else {
+            return false;
+        };
+        if explicit_end {
+            stream.termination_probe.mark_explicit_end();
+        }
+        true
     }
 
     fn contains_stream(&self, session_id: u16) -> bool {
@@ -544,29 +666,46 @@ impl VlessInboundMuxStreams {
             VlessInboundMuxAction::OpenStream {
                 session_id,
                 session,
+                global_id,
+                initial_payload,
             } => {
-                mux.accept_inbound_stream(stream, session_id).await?;
-                let up_rx = self.open_stream(session_id);
+                if self.contains_stream(session_id) {
+                    mux.reject_inbound_stream(stream, session_id).await?;
+                    return Ok(None);
+                }
+                let (up_rx, termination_probe) = self.open_stream(session_id, &session);
+                if !initial_payload.is_empty()
+                    && !self.push_stream_data(session_id, None, initial_payload)?
+                {
+                    self.close_inbound_stream(session_id, true);
+                    mux.end_inbound_stream(stream, session_id).await?;
+                    return Ok(None);
+                }
                 Ok(Some(VlessInboundMuxOpenedStream::new(
-                    session_id, session, up_rx,
+                    session_id,
+                    session,
+                    global_id,
+                    termination_probe,
+                    up_rx,
                 )))
             }
             VlessInboundMuxAction::Data {
                 session_id,
+                target,
                 payload,
             } => {
-                if !self.push_stream_data(session_id, payload) {
+                if !self.push_stream_data(session_id, target, payload)? {
                     mux.end_inbound_stream(stream, session_id).await?;
                 }
                 Ok(None)
             }
             VlessInboundMuxAction::End { session_id } => {
-                self.close_inbound_stream(session_id);
+                self.close_inbound_stream(session_id, true);
                 Ok(None)
             }
             VlessInboundMuxAction::Unknown { session_id } => {
-                mux.reject_inbound_stream(stream).await?;
-                self.close_inbound_stream(session_id);
+                mux.reject_inbound_stream(stream, session_id).await?;
+                self.close_inbound_stream(session_id, true);
                 Ok(None)
             }
         }
@@ -587,11 +726,25 @@ impl VlessInboundMuxStreams {
         }
 
         let should_close = downlink.is_end();
-        let (sid, payload) = downlink.into_parts();
-        mux.send_inbound_stream_payload(stream, sid, &payload)
-            .await?;
+        let (sid, kind) = downlink.into_parts();
+        match kind {
+            VlessInboundMuxDownlinkKind::Data(payload) => {
+                mux.send_inbound_stream_data(stream, sid, &payload).await?;
+            }
+            VlessInboundMuxDownlinkKind::Udp {
+                target,
+                port,
+                payload,
+            } => {
+                mux.send_inbound_udp_payload(stream, sid, &target, port, &payload)
+                    .await?;
+            }
+            VlessInboundMuxDownlinkKind::End => {
+                mux.end_inbound_stream(stream, sid).await?;
+            }
+        }
         if should_close {
-            self.close_inbound_stream(sid);
+            self.close_inbound_stream(sid, true);
         }
         Ok(true)
     }
@@ -599,10 +752,28 @@ impl VlessInboundMuxStreams {
 
 #[cfg(feature = "reality")]
 impl VlessInboundMuxDownlink {
-    fn new(session_id: u16, payload: Vec<u8>) -> Self {
+    fn data(session_id: u16, payload: Vec<u8>) -> Self {
         Self {
             session_id,
-            payload,
+            kind: VlessInboundMuxDownlinkKind::Data(payload),
+        }
+    }
+
+    fn udp(session_id: u16, target: Address, port: u16, payload: Vec<u8>) -> Self {
+        Self {
+            session_id,
+            kind: VlessInboundMuxDownlinkKind::Udp {
+                target,
+                port,
+                payload,
+            },
+        }
+    }
+
+    fn end(session_id: u16) -> Self {
+        Self {
+            session_id,
+            kind: VlessInboundMuxDownlinkKind::End,
         }
     }
 
@@ -611,37 +782,52 @@ impl VlessInboundMuxDownlink {
     }
 
     fn is_end(&self) -> bool {
-        self.payload.is_empty()
+        matches!(&self.kind, VlessInboundMuxDownlinkKind::End)
     }
 
-    fn into_parts(self) -> (u16, Vec<u8>) {
-        (self.session_id, self.payload)
+    fn into_parts(self) -> (u16, VlessInboundMuxDownlinkKind) {
+        (self.session_id, self.kind)
     }
 }
 
 #[cfg(feature = "reality")]
 impl VlessInboundMuxWriter {
-    fn new(down_tx: mpsc::UnboundedSender<VlessInboundMuxDownlink>) -> Self {
-        Self { down_tx }
+    fn new(
+        down_tx: mpsc::Sender<BufferedMuxResponse<VlessInboundMuxDownlink>>,
+        backlog: MuxResponseBacklog,
+    ) -> Self {
+        Self { down_tx, backlog }
     }
 
-    fn channel() -> (Self, mpsc::UnboundedReceiver<VlessInboundMuxDownlink>) {
-        let (down_tx, down_rx) = mpsc::unbounded_channel::<VlessInboundMuxDownlink>();
-        (Self::new(down_tx), down_rx)
+    fn channel(
+        policy: MuxResponseBacklogPolicy,
+    ) -> (
+        Self,
+        mpsc::Receiver<BufferedMuxResponse<VlessInboundMuxDownlink>>,
+    ) {
+        let (down_tx, down_rx) = mpsc::channel(policy.frames());
+        let backlog = MuxResponseBacklog::from_policy(policy);
+        (Self::new(down_tx, backlog), down_rx)
+    }
+
+    fn try_send(&self, bytes: usize, downlink: VlessInboundMuxDownlink) -> Result<(), Error> {
+        let response = self
+            .backlog
+            .try_buffer(bytes, downlink)
+            .map_err(|_| Error::Io("VLESS MUX response backlog byte limit exceeded"))?;
+        self.down_tx
+            .try_send(response)
+            .map_err(|_| Error::Io("VLESS MUX response backlog frame limit exceeded"))
     }
 
     pub(crate) fn data(&self, session_id: u16, payload: Vec<u8>) -> Result<usize, Error> {
         let len = payload.len();
-        self.down_tx
-            .send(VlessInboundMuxDownlink::new(session_id, payload))
-            .map_err(|_| Error::Io("failed to queue VLESS MUX data"))?;
+        self.try_send(len, VlessInboundMuxDownlink::data(session_id, payload))?;
         Ok(len)
     }
 
     pub(crate) fn end(&self, session_id: u16) -> Result<usize, Error> {
-        self.down_tx
-            .send(VlessInboundMuxDownlink::new(session_id, Vec::new()))
-            .map_err(|_| Error::Io("failed to queue VLESS MUX end"))?;
+        self.try_send(0, VlessInboundMuxDownlink::end(session_id))?;
         Ok(0)
     }
 
@@ -661,11 +847,18 @@ impl VlessInboundMuxWriter {
         }
     }
 
-    pub(crate) fn frame(&self, session_id: u16, frame: Vec<u8>) -> Result<usize, Error> {
-        let len = frame.len();
-        self.down_tx
-            .send(VlessInboundMuxDownlink::new(session_id, frame))
-            .map_err(|_| Error::Io("failed to queue VLESS MUX frame"))?;
+    pub(crate) fn udp(
+        &self,
+        session_id: u16,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+    ) -> Result<usize, Error> {
+        let len = payload.len();
+        self.try_send(
+            len,
+            VlessInboundMuxDownlink::udp(session_id, target.clone(), port, payload.to_vec()),
+        )?;
         Ok(len)
     }
 }
@@ -720,122 +913,60 @@ async fn relay_inbound_mux_stream<S>(
     let _ = writer.write_inbound_stream_payload(session_id, Vec::new());
 }
 
-/// Encode a MUX frame: [length:2(BE)][session_id:2(BE)][status:1][options:1][payload…]
-/// length covers session_id(2) + status(1) + options(1) + payload.
-fn encode_frame(session_id: u16, status: u8, options: u8, payload: &[u8]) -> Vec<u8> {
-    // length = 4 + payload.len() (session_id:2 + status:1 + options:1 + payload)
-    let total_len = 4u16
-        .checked_add(payload.len() as u16)
-        .expect("MUX frame payload too large for u16 length");
-    let mut buf = Vec::with_capacity(6 + payload.len());
-    buf.extend_from_slice(&total_len.to_be_bytes());
-    buf.extend_from_slice(&session_id.to_be_bytes());
-    buf.push(status);
-    buf.push(options);
-    buf.extend_from_slice(payload);
-    buf
-}
+// ── Mux.Cool frame encoding ──
 
-/// Read a complete MUX frame from the stream.
-async fn read_mux_frame<S>(stream: &mut S) -> Result<MuxFrame, Error>
-where
-    S: AsyncSocket,
-{
-    let mut header = [0u8; MUX_FRAME_HEADER_LEN];
-    read_exact(stream, &mut header).await?;
-
-    let total_len = u16::from_be_bytes([header[0], header[1]]) as usize;
-    if total_len < 4 {
-        return Err(Error::Protocol("MUX frame length too short (min 4)"));
-    }
-    let session_id = u16::from_be_bytes([header[2], header[3]]);
-    let status = header[4];
-    let options = header[5];
-
-    let payload_len = total_len
-        .checked_sub(4)
-        .ok_or(Error::Protocol("MUX frame length underflow"))?;
-
-    if payload_len > MUX_MAX_PAYLOAD {
-        return Err(Error::Protocol("MUX frame payload too large"));
-    }
-
-    let mut payload = alloc::vec![0u8; payload_len];
-    if payload_len > 0 {
-        read_exact(stream, &mut payload).await?;
-    }
-
-    Ok(MuxFrame {
-        session_id,
-        status,
-        options,
-        payload,
-    })
-}
-
-// ── New stream request/response ──
-
-/// Build a new-stream request frame (session_id=0, status=STATUS_NEW).
-/// payload: [network:1][port:2][atyp:1][address…]
+/// Build a metadata-only new-stream request using a client-owned session ID.
 pub(crate) fn encode_new_stream(
+    session_id: u16,
     network: u8,
     port: u16,
     address: &Address,
 ) -> Result<Vec<u8>, Error> {
-    let mut payload = Vec::with_capacity(24);
-    payload.push(network);
-    payload.extend_from_slice(&port.to_be_bytes());
-    write_address(&mut payload, address)?;
-    Ok(encode_frame(MUX_STREAM_NEW, STATUS_NEW, 0, &payload))
+    codec::encode_new_stream(session_id, network, port, address)
 }
 
-/// Parse a new-stream payload into target info.
-fn parse_new_stream(payload: &[u8]) -> Result<MuxTarget, Error> {
-    if payload.len() < 4 {
-        return Err(Error::Protocol("MUX new stream payload too short"));
-    }
-    let network = payload[0];
-    if network != NETWORK_TCP && network != NETWORK_UDP {
-        return Err(Error::Protocol("MUX new stream unknown network type"));
-    }
-    let port = u16::from_be_bytes([payload[1], payload[2]]);
-    if port == 0 {
-        return Err(Error::Protocol("MUX target port must not be 0"));
-    }
-    let atyp = payload[3];
-    let address = parse_address_from_bytes(atyp, &payload[4..])?;
-    Ok(MuxTarget {
-        network,
-        port,
-        address,
-    })
-}
-
-/// Build a new-stream response frame.
-fn encode_new_stream_response(assigned_id: u16, status: u8) -> Vec<u8> {
-    let mut payload = Vec::with_capacity(3);
-    payload.extend_from_slice(&assigned_id.to_be_bytes());
-    payload.push(status);
-    encode_frame(MUX_STREAM_NEW, STATUS_NEW, 0, &payload)
-}
-
-// Parse a new-stream response payload → (assigned_id, status).
 // ── Data / End / KeepAlive frame helpers ──
 
 /// Build a TCP data frame (STATUS_KEEP | OPTION_DATA).
-pub(crate) fn encode_data_frame(session_id: u16, data: &[u8]) -> Vec<u8> {
-    encode_frame(session_id, STATUS_KEEP, OPTION_DATA, data)
+pub(crate) fn encode_data_frame(session_id: u16, data: &[u8]) -> Result<Vec<u8>, Error> {
+    codec::encode_data_frame(session_id, data)
 }
 
-/// Format: [network:1][port:2][atyp:1][address…][data…]
+pub(crate) fn encode_new_udp_data_frame(
+    session_id: u16,
+    target: &Address,
+    port: u16,
+    global_id: [u8; 8],
+    data: &[u8],
+) -> Result<Vec<u8>, Error> {
+    codec::encode_new_udp_data_frame(session_id, target, port, global_id, data)
+}
+
+pub(crate) fn encode_udp_data_frame(
+    session_id: u16,
+    target: &Address,
+    port: u16,
+    data: &[u8],
+) -> Result<Vec<u8>, Error> {
+    codec::encode_keep_udp_data_frame(session_id, target, port, data)
+}
+
 /// Build an END frame (terminate the session).
-pub(crate) fn encode_end_frame(session_id: u16) -> Vec<u8> {
-    encode_frame(session_id, STATUS_END, 0, &[])
+pub(crate) fn encode_end_frame(session_id: u16) -> Result<Vec<u8>, Error> {
+    codec::encode_end_frame(session_id)
+}
+
+#[cfg(feature = "reality")]
+pub(crate) async fn read_mux_frame_tokio<R>(reader: &mut R) -> Result<MuxFrame, Error>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    codec::read_frame_tokio(reader).await
 }
 
 // ── Address parsing (internal helper) ──
 
-fn parse_address_from_bytes(atyp: u8, data: &[u8]) -> Result<Address, Error> {
+fn parse_address_from_bytes_with_len(atyp: u8, data: &[u8]) -> Result<(Address, usize), Error> {
     match atyp {
         ATYP_IPV4 => {
             if data.len() < 4 {
@@ -843,7 +974,7 @@ fn parse_address_from_bytes(atyp: u8, data: &[u8]) -> Result<Address, Error> {
             }
             let mut bytes = [0u8; 4];
             bytes.copy_from_slice(&data[..4]);
-            Ok(Address::Ipv4(bytes))
+            Ok((Address::Ipv4(bytes), 4))
         }
         ATYP_IPV6 => {
             if data.len() < 16 {
@@ -851,7 +982,7 @@ fn parse_address_from_bytes(atyp: u8, data: &[u8]) -> Result<Address, Error> {
             }
             let mut bytes = [0u8; 16];
             bytes.copy_from_slice(&data[..16]);
-            Ok(Address::Ipv6(bytes))
+            Ok((Address::Ipv6(bytes), 16))
         }
         ATYP_DOMAIN => {
             if data.is_empty() {
@@ -863,7 +994,7 @@ fn parse_address_from_bytes(atyp: u8, data: &[u8]) -> Result<Address, Error> {
             }
             let domain = alloc::string::String::from_utf8(data[1..1 + len].to_vec())
                 .map_err(|_| Error::Protocol("MUX domain not valid UTF-8"))?;
-            Ok(Address::Domain(domain))
+            Ok((Address::Domain(domain), 1 + len))
         }
         _ => Err(Error::Unsupported("MUX address type not supported")),
     }
@@ -875,11 +1006,7 @@ fn parse_address_from_bytes(atyp: u8, data: &[u8]) -> Result<Address, Error> {
 // ── mux server ─────────────────────────────────────────
 
 /// MUX server-side handler — reads frames and dispatches.
-struct MuxServer {
-    next_id: u16,
-    #[cfg(feature = "reality")]
-    crypto: Option<crate::mux_crypto::MuxCrypto>,
-}
+struct MuxServer {}
 
 struct VlessInboundMuxSession {
     server: MuxServer,
@@ -899,9 +1026,9 @@ impl VlessInboundMuxSession {
     }
 
     #[cfg(feature = "reality")]
-    fn with_encryption(master_uuid: &[u8; 16]) -> Self {
+    fn with_encryption(_master_uuid: &[u8; 16]) -> Self {
         Self {
-            server: MuxServer::with_encryption(master_uuid),
+            server: MuxServer {},
         }
     }
 
@@ -929,32 +1056,18 @@ impl VlessInboundMuxSession {
         self.next_action(stream).await
     }
 
-    async fn accept_stream<S>(&mut self, stream: &mut S, sid: u16) -> Result<(), Error>
+    async fn reject_stream<S>(&mut self, stream: &mut S, sid: u16) -> Result<(), Error>
     where
         S: AsyncSocket,
     {
-        self.server.write_new_stream_accepted(stream, sid).await
+        self.server.write_end(stream, sid).await
     }
 
-    async fn accept_inbound_stream<S>(&mut self, stream: &mut S, sid: u16) -> Result<(), Error>
+    async fn reject_inbound_stream<S>(&mut self, stream: &mut S, sid: u16) -> Result<(), Error>
     where
         S: AsyncSocket,
     {
-        self.accept_stream(stream, sid).await
-    }
-
-    async fn reject_stream<S>(&mut self, stream: &mut S) -> Result<(), Error>
-    where
-        S: AsyncSocket,
-    {
-        self.server.write_new_stream_rejected(stream).await
-    }
-
-    async fn reject_inbound_stream<S>(&mut self, stream: &mut S) -> Result<(), Error>
-    where
-        S: AsyncSocket,
-    {
-        self.reject_stream(stream).await
+        self.reject_stream(stream, sid).await
     }
 
     async fn send_data<S>(&mut self, stream: &mut S, sid: u16, payload: &[u8]) -> Result<(), Error>
@@ -976,20 +1089,20 @@ impl VlessInboundMuxSession {
         self.send_data(stream, sid, payload).await
     }
 
-    async fn send_inbound_stream_payload<S>(
+    async fn send_inbound_udp_payload<S>(
         &mut self,
         stream: &mut S,
         sid: u16,
+        target: &Address,
+        port: u16,
         payload: &[u8],
     ) -> Result<(), Error>
     where
         S: AsyncSocket,
     {
-        if payload.is_empty() {
-            self.end_inbound_stream(stream, sid).await
-        } else {
-            self.send_inbound_stream_data(stream, sid, payload).await
-        }
+        self.server
+            .write_udp_data(stream, sid, target, port, payload)
+            .await
     }
 
     async fn end_stream<S>(&mut self, stream: &mut S, sid: u16) -> Result<(), Error>
@@ -1011,18 +1124,27 @@ impl From<MuxServerEvent> for VlessInboundMuxAction {
     fn from(event: MuxServerEvent) -> Self {
         match event {
             MuxServerEvent::KeepAlive => Self::KeepAlive,
-            MuxServerEvent::NewStream { session_id, target } => match target.into_session() {
+            MuxServerEvent::NewStream {
+                session_id,
+                target,
+                global_id,
+                initial_payload,
+            } => match target.into_session() {
                 Ok(session) => Self::OpenStream {
                     session_id,
                     session: Box::new(session),
+                    global_id,
+                    initial_payload,
                 },
                 Err(_) => Self::Unknown { session_id },
             },
             MuxServerEvent::Data {
                 session_id,
+                target,
                 payload,
             } => Self::Data {
                 session_id,
+                target,
                 payload,
             },
             MuxServerEvent::End { session_id } => Self::End { session_id },
@@ -1039,28 +1161,7 @@ impl Default for MuxServer {
 
 impl MuxServer {
     fn new() -> Self {
-        Self {
-            next_id: 1,
-            #[cfg(feature = "reality")]
-            crypto: None,
-        }
-    }
-
-    #[cfg(feature = "reality")]
-    fn with_encryption(master_uuid: &[u8; 16]) -> Self {
-        Self {
-            next_id: 1,
-            crypto: Some(crate::mux_crypto::MuxCrypto::new(master_uuid)),
-        }
-    }
-
-    fn alloc_id(&mut self) -> u16 {
-        let id = self.next_id;
-        self.next_id = self.next_id.wrapping_add(1);
-        if self.next_id == 0 {
-            self.next_id = 1;
-        }
-        id
+        Self {}
     }
 
     async fn recv_event<S>(&mut self, stream: &mut S) -> Result<MuxServerEvent, Error>
@@ -1071,12 +1172,20 @@ impl MuxServer {
         match frame.status {
             STATUS_KEEP_ALIVE => Ok(MuxServerEvent::KeepAlive),
             STATUS_NEW => {
-                let target = parse_new_stream(&frame.payload)?;
-                let session_id = self.alloc_id();
-                Ok(MuxServerEvent::NewStream { session_id, target })
+                let target = frame
+                    .target
+                    .ok_or(Error::Protocol("MUX new stream target is missing"))?;
+                Ok(MuxServerEvent::NewStream {
+                    session_id: frame.session_id,
+                    target,
+                    global_id: frame.global_id,
+                    initial_payload: frame.payload,
+                })
             }
+            STATUS_KEEP if frame.options & OPTION_DATA == 0 => Ok(MuxServerEvent::KeepAlive),
             STATUS_KEEP => Ok(MuxServerEvent::Data {
                 session_id: frame.session_id,
+                target: frame.target,
                 payload: frame.payload,
             }),
             STATUS_END => Ok(MuxServerEvent::End {
@@ -1088,49 +1197,12 @@ impl MuxServer {
         }
     }
 
-    async fn write_new_stream_accepted<S>(
-        &self,
-        stream: &mut S,
-        assigned_id: u16,
-    ) -> Result<(), Error>
-    where
-        S: AsyncSocket,
-    {
-        self.write_new_stream_response(stream, assigned_id, MUX_STATUS_OK)
-            .await
-    }
-
-    async fn write_new_stream_rejected<S>(&self, stream: &mut S) -> Result<(), Error>
-    where
-        S: AsyncSocket,
-    {
-        self.write_new_stream_response(stream, 0, MUX_STATUS_FAIL)
-            .await
-    }
-
-    async fn write_new_stream_response<S>(
-        &self,
-        stream: &mut S,
-        assigned_id: u16,
-        status: u8,
-    ) -> Result<(), Error>
-    where
-        S: AsyncSocket,
-    {
-        let resp = encode_new_stream_response(assigned_id, status);
-        stream
-            .write_all(&resp)
-            .await
-            .map_err(|_| Error::Io("failed to write MUX new-stream response"))
-    }
-
-    /// Read next frame (with decryption for non-control frames).
+    /// Read the next standard Mux.Cool frame.
     async fn recv<S>(&mut self, stream: &mut S) -> Result<MuxFrame, Error>
     where
         S: AsyncSocket,
     {
-        let frame = read_mux_frame(stream).await?;
-        self.decrypt_frame_c2s(frame)
+        codec::read_frame(stream).await
     }
 
     /// Write data to a stream as a STATUS_KEEP frame.
@@ -1138,12 +1210,29 @@ impl MuxServer {
     where
         S: AsyncSocket,
     {
-        let payload = self.encrypt_payload_s2c(sid, data);
-        let frame = encode_data_frame(sid, &payload);
+        let frame = encode_data_frame(sid, data)?;
         stream
             .write_all(&frame)
             .await
             .map_err(|_| Error::Io("failed to write MUX data frame"))
+    }
+
+    async fn write_udp_data<S>(
+        &mut self,
+        stream: &mut S,
+        sid: u16,
+        target: &Address,
+        port: u16,
+        data: &[u8],
+    ) -> Result<(), Error>
+    where
+        S: AsyncSocket,
+    {
+        let frame = encode_udp_data_frame(sid, target, port, data)?;
+        stream
+            .write_all(&frame)
+            .await
+            .map_err(|_| Error::Io("failed to write MUX UDP data frame"))
     }
 
     /// Write an END frame for a stream.
@@ -1151,45 +1240,10 @@ impl MuxServer {
     where
         S: AsyncSocket,
     {
-        let frame = encode_end_frame(sid);
+        let frame = encode_end_frame(sid)?;
         stream
             .write_all(&frame)
             .await
             .map_err(|_| Error::Io("failed to write MUX end frame"))
-    }
-
-    fn encrypt_payload_s2c(&mut self, sid: u16, data: &[u8]) -> Vec<u8> {
-        #[cfg(not(feature = "reality"))]
-        let _ = sid;
-        #[cfg(feature = "reality")]
-        if sid != MUX_STREAM_NEW {
-            if let Some(ref mut crypto) = self.crypto {
-                return crypto
-                    .encrypt_s2c(sid, data)
-                    .unwrap_or_else(|_| data.to_vec());
-            }
-        }
-        data.to_vec()
-    }
-
-    fn decrypt_frame_c2s(&mut self, frame: MuxFrame) -> Result<MuxFrame, Error> {
-        #[cfg(feature = "reality")]
-        if frame.session_id != MUX_STREAM_NEW
-            && frame.status != STATUS_KEEP_ALIVE
-            && !frame.payload.is_empty()
-        {
-            if let Some(ref mut crypto) = self.crypto {
-                let decrypted = crypto.decrypt_c2s(frame.session_id, &frame.payload)?;
-                return Ok(MuxFrame {
-                    session_id: frame.session_id,
-                    status: frame.status,
-                    options: frame.options,
-                    payload: decrypted,
-                });
-            }
-        }
-        #[cfg(not(feature = "reality"))]
-        let _ = frame;
-        Ok(frame)
     }
 }

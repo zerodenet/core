@@ -57,6 +57,8 @@ struct VmessUdpFlowResume {
 pub(crate) struct VmessUdpFlowPlan {
     resume: VmessUdpFlowResume,
     mux_concurrency: Option<u32>,
+    mux_idle_timeout_secs: Option<u64>,
+    mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,10 +68,17 @@ pub struct PreparedVmessUdpFlowPlan {
 }
 
 impl VmessUdpFlowPlan {
-    fn new(resume: VmessUdpFlowResume, mux_concurrency: Option<u32>) -> Self {
+    fn new(
+        resume: VmessUdpFlowResume,
+        mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
+    ) -> Self {
         Self {
             resume,
             mux_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog,
         }
     }
 
@@ -77,14 +86,28 @@ impl VmessUdpFlowPlan {
         id: &str,
         cipher: &str,
         mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Result<Self, Error> {
-        udp_direct_flow_resume_from_config(id, cipher)
-            .map(|resume| VmessUdpFlowPlan::new(resume, mux_concurrency))
+        udp_direct_flow_resume_from_config(id, cipher).map(|resume| {
+            VmessUdpFlowPlan::new(
+                resume,
+                mux_concurrency,
+                mux_idle_timeout_secs,
+                mux_response_backlog,
+            )
+        })
     }
 
     pub(crate) fn relay_from_config(id: &str, cipher: &str) -> Result<Self, Error> {
-        udp_relay_flow_resume_from_config(id, cipher)
-            .map(|resume| VmessUdpFlowPlan::new(resume, None))
+        udp_relay_flow_resume_from_config(id, cipher).map(|resume| {
+            VmessUdpFlowPlan::new(
+                resume,
+                None,
+                None,
+                crate::mux::MuxResponseBacklogPolicy::default(),
+            )
+        })
     }
 
     pub fn connector_flow(
@@ -128,7 +151,13 @@ impl VmessUdpFlowPlan {
         let resume = self.resume();
         if let Some(max_concurrency) = self.mux_concurrency() {
             let key = resume
-                .udp_mux_pool_key_from_transport_config(server, port, profile)
+                .udp_mux_pool_key_from_transport_config(
+                    server,
+                    port,
+                    profile,
+                    self.mux_idle_timeout_secs,
+                    self.mux_response_backlog,
+                )
                 .map_err(E::from)?;
             let stream = mux_pool
                 .open_udp_stream(
@@ -267,8 +296,17 @@ impl VmessUdpFlowResume {
         server: &str,
         port: u16,
         profile: crate::mux::VmessMuxTransportProfile<'_>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Result<crate::mux::VmessMuxPoolKey, Error> {
-        crate::mux::pool_key_from_transport_config(server, port, self.mux_pool_identity(), profile)
+        crate::mux::pool_key_from_transport_config(
+            server,
+            port,
+            self.mux_pool_identity(),
+            profile,
+            mux_idle_timeout_secs,
+            mux_response_backlog,
+        )
     }
 
     fn flow_requires_relay_upstream(&self) -> bool {

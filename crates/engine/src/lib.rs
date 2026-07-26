@@ -1,49 +1,40 @@
 mod api;
-mod completed_sessions;
 mod error;
-mod event_log;
-mod export;
-mod flow_observation;
 mod groups;
-mod handle;
-mod hook;
-mod outbound_health;
-mod passive_relay_health;
+mod health;
+mod observability;
 mod plan;
-mod probe_trigger;
-mod resolve;
+mod principal;
 mod runtime;
-mod session_lifecycle;
-mod session_registry;
-mod stats;
-mod traffic_sampler;
-mod view;
+mod session;
 
-pub use api::register_build_features;
-pub use completed_sessions::CompletedSessionRecord;
+pub use api::{register_build_features, EngineHandle, EventSubscriber};
 pub use error::EngineError;
 pub type EventsSinceResult = zero_api::EventReplay;
-pub use flow_observation::{
-    FlowFailureObservation, FlowPathObservation, FlowRemoteEndpoint, FlowRouteObservation,
-    MatchedRouteRule,
-};
 // Re-export snapshot types from zero-api so downstream code doesn't need
 // to import from two different crates for the same logical types.
 pub use groups::{UrlTestGroupState, UrlTestMemberState};
-pub use handle::{EngineHandle, EventSubscriber};
-pub use hook::{BlockReason, FlowContext, FlowHook, FlowHookChain, FlowTraffic};
-pub use passive_relay_health::{PassiveRelayHealthKey, PassiveRelayOutcome, PassiveRelaySelection};
-pub use plan::{
-    EnginePlan, FallbackGroupPlan, LoadBalanceGroupPlan, OutboundTarget, SelectorGroupPlan,
-    TargetId, TargetKind, TargetNode, UrlTestGroupPlan,
+pub use health::{
+    PassiveRelayHealthKey, PassiveRelayOutcome, PassiveRelaySelection, ProbeTrigger,
+    ProbeTriggerRegistry,
 };
-pub use probe_trigger::{ProbeTrigger, ProbeTriggerRegistry};
-pub use resolve::{OutboundIdentity, ResolvedLeafOutbound, ResolvedOutbound};
+pub use observability::SessionOutcome;
+pub use plan::{
+    EnginePlan, FallbackGroupPlan, LoadBalanceGroupPlan, OutboundIdentity, OutboundTarget,
+    ResolvedLeafOutbound, ResolvedOutbound, SelectorGroupPlan, TargetId, TargetKind, TargetNode,
+    UrlTestGroupPlan,
+};
+pub use principal::{
+    inspect_principal_quota_state, PrincipalCancellationRegistration, PrincipalDeviceRegistration,
+    PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
+};
 pub use runtime::Engine;
 pub use runtime::{RouteDecision, RouteTrace};
-pub use session_lifecycle::SessionHandle;
-pub use session_registry::ActiveSession;
-pub use stats::SessionOutcome;
+pub use session::{
+    ActiveSession, BlockReason, CompletedSessionRecord, FlowContext, FlowFailureObservation,
+    FlowHook, FlowHookChain, FlowPathObservation, FlowRemoteEndpoint, FlowRouteObservation,
+    FlowTraffic, MatchedRouteRule, SessionHandle,
+};
 pub use zero_api::{
     AddressSnapshot, AuthSnapshot, CompletedFlowSnapshot, ConfigSnapshot, FlowSnapshot,
     ListenerSnapshot, ModeSnapshot, OutboundTargetSnapshot, PolicyMemberSnapshot, PolicySnapshot,

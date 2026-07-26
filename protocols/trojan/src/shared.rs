@@ -53,8 +53,7 @@ pub(crate) async fn read_request<S: AsyncSocket>(
 
 /// Write a Trojan UDP packet over a TCP stream.
 ///
-/// Format: `[2 bytes length BE][ATYP][ADDR][PORT][payload]`
-/// The length covers everything after the length field itself.
+/// Format: `[ATYP][ADDR][PORT][2 bytes payload length BE][CRLF][payload]`.
 pub(crate) async fn write_udp_packet<S: AsyncSocket>(
     stream: &mut S,
     addr: &Address,
@@ -72,12 +71,7 @@ pub(crate) async fn write_udp_packet<S: AsyncSocket>(
 
 /// Build a Trojan UDP packet in memory.
 pub(crate) fn build_udp_packet(addr: &Address, port: u16, payload: &[u8]) -> Vec<u8> {
-    // Body = ATYP + ADDR + PORT + payload
-    let body = build_address_body(addr, port, payload);
-    let mut packet = Vec::with_capacity(2 + body.len());
-    packet.extend_from_slice(&(body.len() as u16).to_be_bytes());
-    packet.extend_from_slice(&body);
-    packet
+    build_address_body(addr, port, payload)
 }
 
 /// Read a Trojan UDP packet from a TCP stream.
@@ -86,17 +80,22 @@ pub(crate) fn build_udp_packet(addr: &Address, port: u16, payload: &[u8]) -> Vec
 pub(crate) async fn read_udp_packet<S: AsyncSocket>(
     stream: &mut S,
 ) -> Result<(Address, u16, Vec<u8>), Error> {
-    // Read 2-byte length header
+    let (target, port) = read_address(stream).await?;
+
     let mut len_buf = [0u8; 2];
     read_exact(stream, &mut len_buf).await?;
-    let body_len = u16::from_be_bytes(len_buf) as usize;
+    let payload_len = u16::from_be_bytes(len_buf) as usize;
 
-    // Read body
-    let mut body = vec![0u8; body_len];
-    read_exact(stream, &mut body).await?;
+    let mut crlf = [0u8; 2];
+    read_exact(stream, &mut crlf).await?;
+    if crlf != CRLF {
+        return Err(Error::Protocol("trojan udp: expected CRLF before payload"));
+    }
 
-    // Parse body: ATYP + ADDR + PORT + payload
-    parse_udp_packet_body(&body)
+    let mut payload = vec![0u8; payload_len];
+    read_exact(stream, &mut payload).await?;
+
+    Ok((target, port, payload))
 }
 
 // Internal helpers.
@@ -120,65 +119,10 @@ fn build_address_body(addr: &Address, port: u16, payload: &[u8]) -> Vec<u8> {
         }
     }
     body.extend_from_slice(&port.to_be_bytes());
+    body.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    body.extend_from_slice(CRLF);
     body.extend_from_slice(payload);
     body
-}
-
-fn parse_address(data: &[u8]) -> Result<(Address, u16, usize), Error> {
-    if data.is_empty() {
-        return Err(Error::Protocol("trojan udp: empty address body"));
-    }
-    let mut off = 0;
-    let addr = match data[off] {
-        ATYP_IPV4 => {
-            off += 1;
-            if data.len() < off + 4 {
-                return Err(Error::Protocol("trojan udp: truncated ipv4"));
-            }
-            let mut bytes = [0u8; 4];
-            bytes.copy_from_slice(&data[off..off + 4]);
-            off += 4;
-            Address::Ipv4(bytes)
-        }
-        ATYP_IPV6 => {
-            off += 1;
-            if data.len() < off + 16 {
-                return Err(Error::Protocol("trojan udp: truncated ipv6"));
-            }
-            let mut bytes = [0u8; 16];
-            bytes.copy_from_slice(&data[off..off + 16]);
-            off += 16;
-            Address::Ipv6(bytes)
-        }
-        ATYP_DOMAIN => {
-            off += 1;
-            if data.len() < off + 1 {
-                return Err(Error::Protocol("trojan udp: truncated domain len"));
-            }
-            let len = data[off] as usize;
-            off += 1;
-            if data.len() < off + len {
-                return Err(Error::Protocol("trojan udp: truncated domain"));
-            }
-            let domain = String::from_utf8(data[off..off + len].to_vec())
-                .map_err(|_| Error::Protocol("trojan udp: invalid domain encoding"))?;
-            off += len;
-            Address::Domain(domain)
-        }
-        _ => return Err(Error::Protocol("trojan udp: unsupported address type")),
-    };
-    if data.len() < off + 2 {
-        return Err(Error::Protocol("trojan udp: truncated port"));
-    }
-    let port = u16::from_be_bytes([data[off], data[off + 1]]);
-    off += 2;
-    Ok((addr, port, off))
-}
-
-pub(crate) fn parse_udp_packet_body(body: &[u8]) -> Result<(Address, u16, Vec<u8>), Error> {
-    let (addr, port, payload_offset) = parse_address(body)?;
-    let payload = body[payload_offset..].to_vec();
-    Ok((addr, port, payload))
 }
 
 #[cfg(feature = "crypto")]

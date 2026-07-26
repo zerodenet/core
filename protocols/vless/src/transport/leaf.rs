@@ -69,6 +69,10 @@ impl VlessOutboundLeaf {
             protocol.id,
             protocol.flow,
             protocol.mux_concurrency,
+            protocol.xudp_concurrency,
+            protocol.mux_idle_timeout_secs,
+            protocol.mux_response_backlog_frames,
+            protocol.mux_response_backlog_bytes,
             tls,
             reality.as_ref(),
             ws,
@@ -90,6 +94,10 @@ impl VlessOutboundLeaf {
         id: &str,
         flow: Option<&str>,
         mux_concurrency: Option<u32>,
+        xudp_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog_frames: Option<u32>,
+        mux_response_backlog_bytes: Option<u64>,
         tls: Option<&TTls>,
         reality: Option<&VlessRealityClientProfile>,
         ws: Option<&TWs>,
@@ -122,10 +130,14 @@ impl VlessOutboundLeaf {
             quic,
         );
         let protocol =
-            crate::outbound::PreparedVlessOutboundRequestBundle::from_config_with_transport_hints(
+            crate::outbound::PreparedVlessOutboundRequestBundle::from_config_with_transport_hints_and_mux_policy(
                 id,
                 flow,
                 mux_concurrency,
+                xudp_concurrency,
+                mux_idle_timeout_secs,
+                mux_response_backlog_frames,
+                mux_response_backlog_bytes,
                 transport.mux_transport_hints(),
             )?;
         Ok(Self::new(tag, server, port, transport, protocol, mux_pool))

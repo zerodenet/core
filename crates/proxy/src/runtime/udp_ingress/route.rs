@@ -9,12 +9,10 @@ use crate::protocol_registry::UdpAdapterContext;
 use crate::runtime::udp_dispatch::{FlowFailure, FlowStartResult, UdpDispatch};
 
 impl UdpIngressRuntime {
-    pub(crate) fn route_decision(&self, session: &Session) -> RouteDecision {
-        let trace = self.tcp_services.engine().route_trace_with_inbound(
-            &session.target,
-            session.sni.as_deref(),
-            session.inbound_tag.as_deref(),
-        );
+    pub(crate) async fn route_decision(&self, session: &Session) -> RouteDecision {
+        let trace =
+            crate::runtime::route_runtime::route_trace_for_session(&self.tcp_services, session)
+                .await;
         self.tcp_services
             .engine()
             .record_session_route(session.id, &trace);

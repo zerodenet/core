@@ -100,12 +100,7 @@ impl DohDnsResolver {
         let client = reqwest::Client::builder()
             .timeout(DNS_TIMEOUT)
             .build()
-            .map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("failed to build doh client: {e}"),
-                )
-            })?;
+            .map_err(|e| io::Error::other(format!("failed to build doh client: {e}")))?;
 
         Ok(Self { client, url })
     }
@@ -130,22 +125,19 @@ impl DohDnsResolver {
             .body(msg)
             .send()
             .await
-            .map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, format!("doh request failed: {e}"))
-            })?;
+            .map_err(|e| io::Error::other(format!("doh request failed: {e}")))?;
 
         let status = response.status();
         if !status.is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("doh server returned HTTP {status}"),
-            ));
+            return Err(io::Error::other(format!(
+                "doh server returned HTTP {status}"
+            )));
         }
 
         let body = response
             .bytes()
             .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("doh read failed: {e}")))?;
+            .map_err(|e| io::Error::other(format!("doh read failed: {e}")))?;
 
         crate::udp::parse_response(&body, qtype)
     }
@@ -171,7 +163,7 @@ impl DotDnsResolver {
         })?;
 
         let server_name = server_name.unwrap_or(address);
-        let mut roots =
+        let roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let tls_config = Arc::new(
             rustls::ClientConfig::builder()
@@ -216,9 +208,7 @@ impl DotDnsResolver {
             tokio::time::timeout(DNS_TIMEOUT, connector.connect(server_name, tcp_stream))
                 .await
                 .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "dot tls handshake timeout"))?
-                .map_err(|e| {
-                    io::Error::new(io::ErrorKind::Other, format!("dot tls failed: {e}"))
-                })?;
+                .map_err(|e| io::Error::other(format!("dot tls failed: {e}")))?;
 
         // Build DNS query
         let msg = crate::udp::build_query(domain, qtype);

@@ -14,6 +14,7 @@ pub(crate) async fn run_protocol_mux_udp_task<R>(
 {
     run_protocol_mux_udp_relay(
         runtime.udp_runtime(),
+        runtime.mux_udp_continuity(),
         relay,
         runtime.inbound_tag(),
         protocol,
@@ -39,6 +40,7 @@ pub(crate) async fn run_protocol_mux_udp_task_with_accept_log<R>(
     }
     run_protocol_mux_udp_relay(
         runtime.udp_runtime(),
+        runtime.mux_udp_continuity(),
         relay,
         runtime.inbound_tag(),
         protocol,

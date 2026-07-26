@@ -34,7 +34,7 @@ pub(in crate::transport) struct VlessTransportOptions<'a> {
 
 impl<'a> VlessTransportOptions<'a> {
     pub(in crate::transport) fn uses_deferred_tcp_response(self) -> bool {
-        self.reality.is_some()
+        true
     }
 }
 

@@ -1,13 +1,15 @@
 use std::error::Error;
 
 use crate::cli::Command;
+#[cfg(any(feature = "status-api", feature = "grpc-api"))]
 use std::env;
 use zero_engine::{Engine, EngineHandle};
 use zero_proxy::{Proxy, ProxyHandle};
 
-#[cfg(feature = "status_api")]
+use super::services::ApplicationServices;
+#[cfg(feature = "status-api")]
 use crate::http_adapter;
-use crate::{hooks, ipc, rule_set_fetch};
+use crate::{ipc, rule_set_fetch};
 
 pub async fn execute(command: Command) -> Result<(), Box<dyn Error>> {
     let Command::Run {
@@ -36,27 +38,14 @@ async fn run(
 ) -> Result<(), Box<dyn Error>> {
     let mut config = zero_config::RuntimeConfig::load_from_path(config_path)?;
     rule_set_fetch::pre_fetch_rule_sets(&mut config.route.rule_sets, config.source_dir.as_deref());
-    let proxy = Proxy::from_engine(zero_engine::Engine::new(config)?)?;
+    let engine = zero_engine::Engine::new_with_config_path(config, config_path)?;
+    let proxy = Proxy::from_engine(engine)?;
     let engine = proxy.engine().clone();
 
-    // Build hook chain from config/cli options.
-    let warning_handler = {
-        let engine = engine.clone();
-        Some(std::sync::Arc::new(move |code: &str, msg: &str| {
-            engine.emit_warning(code, msg);
-        })
-            as std::sync::Arc<dyn Fn(&str, &str) + Send + Sync>)
-    };
-    let hook_chain =
-        hooks::build_hook_chain(ipc_hook_socket, &engine.config().api, warning_handler);
-    let engine = if !hook_chain.is_empty() {
-        engine.with_flow_hook_chain(hook_chain)
-    } else {
-        engine
-    };
-
     let engine_handle = EngineHandle::new(engine.clone());
-    let ipc_handle = ProxyHandle::new(engine_handle.clone(), proxy.clone());
+    let base_handle = ProxyHandle::new(engine_handle.clone(), proxy.clone());
+    let services = ApplicationServices::start(engine.clone(), ipc_hook_socket).await?;
+    let ipc_handle = base_handle.with_config_apply_reconciler(services.clone());
 
     // Bridge tracing warn/error ->?engine.warning events.
     {
@@ -66,26 +55,8 @@ async fn run(
         });
     }
 
-    #[cfg(not(any(feature = "status_api", feature = "grpc_api")))]
+    #[cfg(not(any(feature = "status-api", feature = "grpc-api")))]
     ensure_status_api_not_configured(&engine, status_listen)?;
-
-    let event_dispatcher = spawn_event_dispatcher_if_configured(&engine)?;
-
-    // Bridge dispatcher sink status into Engine so /api/v1/sinks is live.
-    #[cfg(feature = "event_dispatcher")]
-    if let Some(ref dispatcher) = event_dispatcher {
-        engine.update_sink_status(dispatcher.sink_status());
-        // Periodically refresh sink status in the background.
-        let engine_ref = engine.clone();
-        let dispatcher_status = dispatcher.status_handle();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-            loop {
-                interval.tick().await;
-                engine_ref.update_sink_status(dispatcher_status.sink_status());
-            }
-        });
-    }
 
     tracing::info!(config = %config_path, "loaded proxy configuration");
 
@@ -93,10 +64,10 @@ async fn run(
     let ipc_socket_path = ipc::resolve_ipc_path(control_socket)?;
     let ipc_server = ipc::spawn_ipc_server(ipc_handle.clone(), &ipc_socket_path).await?;
 
-    #[cfg(any(feature = "status_api", feature = "grpc_api"))]
+    #[cfg(any(feature = "status-api", feature = "grpc-api"))]
     let status_spec = status_server_spec(&engine, status_listen)?;
 
-    #[cfg(feature = "status_api")]
+    #[cfg(feature = "status-api")]
     let http_server = {
         if let Some(ref status) = status_spec {
             Some(
@@ -112,57 +83,61 @@ async fn run(
         }
     };
 
-    #[cfg(feature = "grpc_api")]
+    #[cfg(feature = "grpc-api")]
     let grpc_server = {
         if let Some(ref status) = status_spec {
             let addr: std::net::SocketAddr = status
                 .grpc_listen
                 .parse()
                 .map_err(|e| std::io::Error::other(format!("gRPC listen address: {e}")))?;
-            Some(zero_grpc::spawn(engine_handle.clone(), addr).await?)
+            Some(zero_grpc::spawn(ipc_handle.clone(), addr, status.grpc_security.clone()).await?)
         } else {
             None
         }
     };
 
-    let running = proxy.spawn();
     let stats_sampler = spawn_stats_sampler(engine.clone());
-    let push_connector = spawn_push_connector_if_configured(&engine)?;
+    let running = proxy.spawn();
 
     wait_for_shutdown_signal().await;
 
-    engine.push_engine_stopped("signal");
-    // Allow the event dispatcher a brief window to flush the event.
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
     stats_sampler.abort();
-    shutdown_push_connector(push_connector).await;
+    running.shutdown().await?;
+    // Proxy shutdown emits terminal flow.completed facts. Stop only status
+    // polling here; the dispatcher remains alive for the terminal events.
+    services.shutdown_status_monitor().await;
 
-    shutdown_event_dispatcher(event_dispatcher).await;
+    engine.push_engine_stopped("signal");
+    // Allow the event dispatcher to observe the terminal engine event before
+    // its final drain persists any remaining deliveries to the outbox.
+    tokio::task::yield_now().await;
+
+    services.shutdown_dispatcher().await;
     ipc_server.shutdown().await?;
-    #[cfg(feature = "status_api")]
+    #[cfg(feature = "status-api")]
     if let Some(s) = http_server {
         s.shutdown().await?;
     }
-    #[cfg(feature = "grpc_api")]
+    #[cfg(feature = "grpc-api")]
     if let Some(s) = grpc_server {
         s.shutdown().await;
     }
-    running.shutdown().await?;
-
     Ok(())
 }
 
-#[cfg(any(feature = "status_api", feature = "grpc_api"))]
+#[cfg(any(feature = "status-api", feature = "grpc-api"))]
 struct StatusServerSpec {
+    #[cfg(feature = "status-api")]
     listen: String,
-    #[cfg(feature = "grpc_api")]
+    #[cfg(feature = "grpc-api")]
     grpc_listen: String,
-    #[cfg(feature = "status_api")]
+    #[cfg(feature = "status-api")]
     auth: Option<http_adapter::HttpServerAuth>,
+    #[cfg(feature = "grpc-api")]
+    grpc_security: zero_grpc::GrpcServerSecurity,
 }
 
-#[cfg(any(feature = "status_api", feature = "grpc_api"))]
+#[cfg(any(feature = "status-api", feature = "grpc-api"))]
 fn status_server_spec(
     engine: &Engine,
     cli_listen: Option<&str>,
@@ -178,11 +153,14 @@ fn status_server_spec(
 
     if let Some(listen) = cli_listen {
         return Ok(Some(StatusServerSpec {
+            #[cfg(feature = "status-api")]
             listen: listen.to_owned(),
-            #[cfg(feature = "grpc_api")]
-            grpc_listen: next_port(listen),
-            #[cfg(feature = "status_api")]
+            #[cfg(feature = "grpc-api")]
+            grpc_listen: next_port(listen)?,
+            #[cfg(feature = "status-api")]
             auth: None,
+            #[cfg(feature = "grpc-api")]
+            grpc_security: zero_grpc::GrpcServerSecurity::default(),
         }));
     }
 
@@ -195,48 +173,123 @@ fn status_server_spec(
         .as_ref()
         .expect("config validation requires api.control.listen");
 
-    #[cfg(feature = "status_api")]
+    #[cfg(feature = "status-api")]
     let auth = {
         let key = config_api_key(control.api_key.as_ref(), control.api_key_env.as_ref())?;
         Some(http_adapter::HttpServerAuth::single_admin(key))
     };
+    #[cfg(feature = "grpc-api")]
+    let grpc_security = grpc_server_security(control, engine.config().source_dir())?;
 
+    let control_listen = format!("{}:{}", listen.address, listen.port);
     Ok(Some(StatusServerSpec {
-        listen: format!("{}:{}", listen.address, listen.port),
-        #[cfg(feature = "grpc_api")]
-        grpc_listen: format!("{}:{}", listen.address, listen.port + 1),
-        #[cfg(feature = "status_api")]
+        #[cfg(feature = "status-api")]
+        listen: control_listen.clone(),
+        #[cfg(feature = "grpc-api")]
+        grpc_listen: next_port(&control_listen)?,
+        #[cfg(feature = "status-api")]
         auth,
+        #[cfg(feature = "grpc-api")]
+        grpc_security,
     }))
 }
 
-#[cfg(feature = "grpc_api")]
-fn next_port(listen: &str) -> String {
-    if let Some(idx) = listen.rfind(':') {
-        let (host, port_str) = listen.split_at(idx + 1);
-        if let Ok(port) = port_str.parse::<u16>() {
-            return format!("{host}{}", port + 1);
-        }
-    }
-    // fallback: append :9091
-    format!("{listen}:9091")
+#[cfg(feature = "grpc-api")]
+fn grpc_server_security(
+    control: &zero_config::ControlApiConfig,
+    source_dir: Option<&std::path::Path>,
+) -> Result<zero_grpc::GrpcServerSecurity, Box<dyn Error>> {
+    let grpc = control.grpc.as_ref().cloned().unwrap_or_default();
+    let auth = if grpc.bearer_auth {
+        let key = config_api_key(control.api_key.as_ref(), control.api_key_env.as_ref())?;
+        Some(zero_grpc::GrpcServerAuth::single_admin(key))
+    } else {
+        None
+    };
+    let tls = grpc
+        .tls
+        .as_ref()
+        .map(|tls| load_grpc_tls(tls, source_dir))
+        .transpose()?;
+    Ok(zero_grpc::GrpcServerSecurity {
+        auth,
+        tls,
+        allow_insecure_remote: grpc.allow_insecure_remote,
+    })
 }
 
-#[cfg(not(any(feature = "status_api", feature = "grpc_api")))]
+#[cfg(feature = "grpc-api")]
+fn load_grpc_tls(
+    config: &zero_config::ControlGrpcTlsConfig,
+    source_dir: Option<&std::path::Path>,
+) -> Result<zero_grpc::GrpcServerTls, Box<dyn Error>> {
+    let cert_path = resolve_config_path(&config.cert_path, source_dir);
+    let key_path = resolve_config_path(&config.key_path, source_dir);
+    let cert_pem = std::fs::read(&cert_path).map_err(|error| {
+        std::io::Error::other(format!(
+            "read gRPC TLS certificate `{}`: {error}",
+            cert_path.display()
+        ))
+    })?;
+    let key_pem = std::fs::read(&key_path).map_err(|error| {
+        std::io::Error::other(format!(
+            "read gRPC TLS private key `{}`: {error}",
+            key_path.display()
+        ))
+    })?;
+    let mut tls = zero_grpc::GrpcServerTls::new(cert_pem, key_pem);
+    if let Some(path) = &config.client_ca_cert_path {
+        let path = resolve_config_path(path, source_dir);
+        let client_ca = std::fs::read(&path).map_err(|error| {
+            std::io::Error::other(format!(
+                "read gRPC mTLS client CA `{}`: {error}",
+                path.display()
+            ))
+        })?;
+        tls = tls.with_client_ca(client_ca);
+    }
+    Ok(tls)
+}
+
+#[cfg(feature = "grpc-api")]
+fn resolve_config_path(path: &str, source_dir: Option<&std::path::Path>) -> std::path::PathBuf {
+    let path = std::path::PathBuf::from(path);
+    if path.is_absolute() {
+        path
+    } else {
+        source_dir.map_or(path.clone(), |source_dir| source_dir.join(path))
+    }
+}
+
+#[cfg(feature = "grpc-api")]
+fn next_port(listen: &str) -> Result<String, std::io::Error> {
+    let mut address = listen.parse::<std::net::SocketAddr>().map_err(|error| {
+        std::io::Error::other(format!(
+            "control listen address `{listen}` is invalid: {error}"
+        ))
+    })?;
+    let port = address.port().checked_add(1).ok_or_else(|| {
+        std::io::Error::other("gRPC companion port is unavailable after control port 65535")
+    })?;
+    address.set_port(port);
+    Ok(address.to_string())
+}
+
+#[cfg(not(any(feature = "status-api", feature = "grpc-api")))]
 fn ensure_status_api_not_configured(
     engine: &Engine,
     cli_listen: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     if let Some(status_listen) = cli_listen {
         return Err(std::io::Error::other(format!(
-            "`--status-listen {status_listen}` requires Cargo feature `status_api`"
+            "`--status-listen {status_listen}` requires Cargo feature `status-api`"
         ))
         .into());
     }
 
     if engine.config().api.control.enabled {
         return Err(std::io::Error::other(
-            "`api.control.enabled` requires Cargo feature `status_api`",
+            "`api.control.enabled` requires Cargo feature `status-api`",
         )
         .into());
     }
@@ -244,7 +297,7 @@ fn ensure_status_api_not_configured(
     Ok(())
 }
 
-#[cfg(feature = "status_api")]
+#[cfg(any(feature = "status-api", feature = "grpc-api"))]
 fn config_api_key(
     api_key: Option<&String>,
     api_key_env: Option<&String>,
@@ -285,110 +338,5 @@ fn spawn_stats_sampler(engine: Engine) -> tokio::task::JoinHandle<()> {
         }
     })
 }
-
-#[cfg(feature = "event_dispatcher")]
-fn spawn_event_dispatcher_if_configured(
-    engine: &Engine,
-) -> Result<Option<zero_connector::EventDispatcherHandle>, Box<dyn Error>> {
-    let config = engine.config();
-    let dispatcher = zero_connector::spawn_event_dispatcher(
-        engine.clone(),
-        config.api.clone(),
-        config.source_dir.clone(),
-        zero_connector::EventDispatcherOptions::default(),
-    )?;
-    Ok(dispatcher)
-}
-
-#[cfg(not(feature = "event_dispatcher"))]
-fn spawn_event_dispatcher_if_configured(
-    engine: &Engine,
-) -> Result<Option<EventDispatcherUnavailable>, Box<dyn Error>> {
-    if engine.config().api.event_sinks.is_empty() {
-        return Ok(None);
-    }
-
-    Err(std::io::Error::other("`api.event_sinks` requires Cargo feature `event_dispatcher`").into())
-}
-
-#[cfg(feature = "event_dispatcher")]
-async fn shutdown_event_dispatcher(dispatcher: Option<zero_connector::EventDispatcherHandle>) {
-    if let Some(dispatcher) = dispatcher {
-        dispatcher.shutdown().await;
-    }
-}
-
-#[cfg(not(feature = "event_dispatcher"))]
-async fn shutdown_event_dispatcher(_dispatcher: Option<EventDispatcherUnavailable>) {}
-
-#[cfg(feature = "panel_connector")]
-fn spawn_push_connector_if_configured(
-    engine: &Engine,
-) -> Result<Option<zero_connector::PushConnectorHandle>, Box<dyn Error>> {
-    let config = &engine.config().push;
-    if !config.enabled() {
-        return Ok(None);
-    }
-
-    let engine_clone = engine.clone();
-    let build_id = env!("CARGO_PKG_VERSION").to_owned();
-
-    let handle = zero_connector::spawn_push_connector(
-        config,
-        engine_clone,
-        {
-            move || {
-                // uptime is approximated from the events log; use a simple counter.
-                // The engine doesn't store start time, so we track it here.
-                static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-                let start = START.get_or_init(std::time::Instant::now);
-                start.elapsed().as_secs()
-            }
-        },
-        {
-            let engine = engine.clone();
-            move || engine.stats_snapshot().active_sessions as usize
-        },
-        {
-            let engine = engine.clone();
-            move || engine.stats_snapshot().bytes_up
-        },
-        {
-            let engine = engine.clone();
-            move || engine.stats_snapshot().bytes_down
-        },
-        &build_id,
-    )?;
-
-    Ok(handle)
-}
-
-#[cfg(not(feature = "panel_connector"))]
-fn spawn_push_connector_if_configured(
-    engine: &Engine,
-) -> Result<Option<PushConnectorUnavailable>, Box<dyn Error>> {
-    if engine.config().push.enabled() {
-        return Err(
-            std::io::Error::other("`push` requires Cargo feature `panel_connector`").into(),
-        );
-    }
-    Ok(None)
-}
-
-#[cfg(feature = "panel_connector")]
-async fn shutdown_push_connector(connector: Option<zero_connector::PushConnectorHandle>) {
-    if let Some(c) = connector {
-        c.shutdown().await;
-    }
-}
-
-#[cfg(not(feature = "panel_connector"))]
-async fn shutdown_push_connector(_connector: Option<PushConnectorUnavailable>) {}
-
-#[cfg(not(feature = "panel_connector"))]
-struct PushConnectorUnavailable;
-
-#[cfg(not(feature = "event_dispatcher"))]
-struct EventDispatcherUnavailable;
 
 // ── IPC client commands ───────────────────────────────────────────────

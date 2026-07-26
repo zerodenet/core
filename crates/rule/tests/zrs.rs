@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use zero_rule::zrs::{
     encode, verify, MappedRuleSet, PrewarmPolicy, VerifiedRuleSet, VerifyMode, ZrsError,
 };
-use zero_rule::{PreparedRuleQuery, Rule, RuleMatch, RuleSet, RuleSetCompiler};
+use zero_rule::{PreparedRuleQuery, Rule, RuleMatch, RuleMatcher, RuleSet, RuleSetCompiler};
 
 fn compiled() -> zero_rule::CompiledRuleSet {
     RuleSetCompiler
@@ -155,6 +155,28 @@ fn mmap_view_owns_mapping_for_queries_and_is_thread_safe() {
             scope.spawn(|| assert!(mapped.matches(&query)));
         }
     });
+    drop(mapped);
+    fs::remove_file(path).expect("remove fixture");
+}
+
+#[test]
+fn domain_only_zrs_does_not_require_destination_ip() {
+    let domain_only = RuleSetCompiler
+        .compile(RuleSet::new(vec![Rule::DomainSuffix(
+            "example.com".to_owned(),
+        )]))
+        .expect("compile domain-only rules")
+        .0;
+    let bytes = encode(&domain_only).expect("encode domain-only rules");
+    let verified =
+        VerifiedRuleSet::from_bytes(&bytes, VerifyMode::FullChecksum).expect("verify rules");
+    assert!(!verified.requires_destination_ip());
+
+    let path =
+        std::env::temp_dir().join(format!("zero-rule-domain-only-{}.zrs", std::process::id()));
+    fs::write(&path, bytes).expect("write fixture");
+    let mapped = MappedRuleSet::open(&path, VerifyMode::FullChecksum).expect("map fixture");
+    assert!(!mapped.requires_destination_ip());
     drop(mapped);
     fs::remove_file(path).expect("remove fixture");
 }

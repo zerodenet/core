@@ -16,12 +16,15 @@ impl UdpDispatch {
         protocols: &crate::inventory::ProtocolInventory,
     ) -> Result<Self, EngineError> {
         let direct_socket = TokioDatagramSocket::bind("0.0.0.0:0").await?;
+        let (cancel_tx, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(Self {
             runtime,
             inbound_tag: inbound_tag.to_owned(),
             flows: UdpSessionFlows::default(),
             direct_socket,
             flow_state: UdpFlowState::new(protocols.registered_udp_handlers()),
+            cancel_tx,
+            cancel_rx,
         })
     }
 

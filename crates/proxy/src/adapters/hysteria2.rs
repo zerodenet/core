@@ -1,8 +1,11 @@
 use async_trait::async_trait;
 
+#[cfg(feature = "hysteria2")]
+use ::hysteria2::inbound::Hysteria2InboundProfileStore;
 use ::hysteria2::transport::{
     Hysteria2AuthenticatedInboundProfile, Hysteria2InboundBindOptionsRef, Hysteria2InboundBindPlan,
-    Hysteria2InboundOptionsRef, Hysteria2OutboundOptionsRef, Hysteria2TransportLeaf,
+    Hysteria2InboundOptionsRef, Hysteria2InboundUserRef, Hysteria2OutboundOptionsRef,
+    Hysteria2TransportLeaf,
 };
 use zero_config::{InboundConfig, InboundProtocolConfig, OutboundProtocolConfig};
 use zero_engine::EngineError;
@@ -25,8 +28,43 @@ mod tcp;
 pub(crate) mod udp;
 
 #[cfg(feature = "hysteria2")]
-#[derive(Debug)]
-pub(crate) struct Hysteria2Adapter;
+#[derive(Debug, Default)]
+pub(crate) struct Hysteria2Adapter {
+    inbound_profiles: Hysteria2InboundProfileStore,
+}
+
+#[cfg(feature = "hysteria2")]
+fn inbound_user_refs<'a>(
+    password: &'a str,
+    users: &'a [zero_config::Hysteria2UserConfig],
+) -> Vec<Hysteria2InboundUserRef<'a>> {
+    if users.is_empty() {
+        return (!password.is_empty())
+            .then_some(Hysteria2InboundUserRef {
+                password,
+                principal_key: None,
+                up_bps: None,
+                down_bps: None,
+                device_limit: None,
+                quota_remaining_bytes: None,
+                policy_revision: None,
+            })
+            .into_iter()
+            .collect();
+    }
+    users
+        .iter()
+        .map(|user| Hysteria2InboundUserRef {
+            password: user.password.as_str(),
+            principal_key: user.principal_key.as_deref(),
+            up_bps: user.up_bps,
+            down_bps: user.down_bps,
+            device_limit: user.device_limit,
+            quota_remaining_bytes: user.quota_remaining_bytes,
+            policy_revision: user.policy_revision,
+        })
+        .collect()
+}
 
 fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hysteria2TransportLeaf> {
     let OutboundProtocolConfig::Hysteria2 {
@@ -54,6 +92,19 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
 impl NamedProtocolAdapter for Hysteria2Adapter {
     const PROTOCOL_NAME: &'static str = "hysteria2";
     const FEATURE_NAME: &'static str = "hysteria2";
+
+    fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
+        for inbound in &config.inbounds {
+            let InboundProtocolConfig::Hysteria2 {
+                password, users, ..
+            } = &inbound.protocol
+            else {
+                continue;
+            };
+            let users = inbound_user_refs(password, users);
+            self.inbound_profiles.replace(&inbound.tag, &users);
+        }
+    }
 }
 
 #[cfg(feature = "hysteria2")]
@@ -128,12 +179,17 @@ impl InboundListenerCapability for Hysteria2Adapter {
         EngineError,
     > {
         let profile = match &inbound.protocol {
-            InboundProtocolConfig::Hysteria2 { password, .. } => {
+            InboundProtocolConfig::Hysteria2 {
+                password, users, ..
+            } => {
+                let users = inbound_user_refs(password, users);
+                let profile = self.inbound_profiles.replace(&inbound.tag, &users);
                 Hysteria2AuthenticatedInboundProfile::from_options_refs(
                     Hysteria2InboundOptionsRef {
-                        password: password.as_str(),
+                        users: users.iter().copied(),
                     },
                 )
+                .with_profile(profile)
             }
             _ => {
                 return Err(EngineError::Io(std::io::Error::new(

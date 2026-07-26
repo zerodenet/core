@@ -5,9 +5,12 @@ use zero_traits::AsyncSocket;
 use zero_transport::RuntimeError;
 
 use super::{
-    options::{Hysteria2InboundBindOptionsRef, Hysteria2InboundOptionsRef},
-    quic_alpn_protocols, Hysteria2AuthenticatedInboundProfile,
-    Hysteria2AuthenticatedQuicConnection, Hysteria2InboundTcpResponseProtocol, Hysteria2Stream,
+    inbound_quic_alpn_protocols,
+    options::{
+        Hysteria2InboundBindOptionsRef, Hysteria2InboundOptionsRef, Hysteria2InboundUserRef,
+    },
+    Hysteria2AuthenticatedInboundProfile, Hysteria2AuthenticatedQuicConnection,
+    Hysteria2InboundTcpResponseProtocol, Hysteria2Stream,
 };
 
 #[derive(Debug, Clone)]
@@ -41,7 +44,7 @@ impl Hysteria2InboundBindPlan {
         &self,
         listen_addr: &str,
     ) -> Result<zero_transport::quic::QuicInbound, RuntimeError> {
-        let alpn_protocols = quic_alpn_protocols();
+        let alpn_protocols = inbound_quic_alpn_protocols();
         zero_transport::quic::QuicInbound::bind(
             listen_addr,
             &self.cert_path,
@@ -60,14 +63,22 @@ fn inbound_tcp_acceptor() -> Hysteria2InboundTcpResponseProtocol {
 }
 
 impl Hysteria2AuthenticatedInboundProfile {
-    pub fn from_options_refs(options: Hysteria2InboundOptionsRef<'_>) -> Self {
-        Self::new(crate::inbound::inbound_profile_from_config_password(
-            options.password,
+    pub fn from_options_refs<'a, I>(options: Hysteria2InboundOptionsRef<I>) -> Self
+    where
+        I: IntoIterator<Item = Hysteria2InboundUserRef<'a>>,
+    {
+        Self::new(crate::inbound::Hysteria2InboundProfile::from_config_users(
+            options.users,
         ))
     }
 
     fn new(protocol: crate::inbound::Hysteria2InboundProfile) -> Self {
         Self { protocol }
+    }
+
+    pub fn with_profile(mut self, profile: crate::inbound::Hysteria2InboundProfile) -> Self {
+        self.protocol = profile;
+        self
     }
 
     pub fn tcp_response_protocol(&self) -> Hysteria2InboundTcpResponseProtocol {
@@ -78,12 +89,29 @@ impl Hysteria2AuthenticatedInboundProfile {
         &self,
         connection: quinn::Connection,
     ) -> Result<Hysteria2AuthenticatedQuicConnection, RuntimeError> {
-        let protocol = self
-            .protocol
-            .accept_authenticated_quic_session(connection, Hysteria2Stream::new)
-            .await
-            .map_err(RuntimeError::from)?;
-        Ok(Hysteria2AuthenticatedQuicConnection { protocol })
+        if super::connection::negotiated_alpn(&connection).as_deref() == Some(b"h3") {
+            let raw_connection = connection.clone();
+            let (auth, http3) =
+                super::auth::authenticate_http3_inbound(connection, &self.protocol).await?;
+            let protocol = crate::inbound::Hysteria2AcceptedQuicConnection::new(
+                std::sync::Arc::new(raw_connection),
+                auth,
+            );
+            Ok(Hysteria2AuthenticatedQuicConnection {
+                protocol,
+                _http3: Some(http3),
+            })
+        } else {
+            let protocol = self
+                .protocol
+                .accept_authenticated_quic_session(connection, Hysteria2Stream::new)
+                .await
+                .map_err(RuntimeError::from)?;
+            Ok(Hysteria2AuthenticatedQuicConnection {
+                protocol,
+                _http3: None,
+            })
+        }
     }
 }
 
@@ -105,6 +133,14 @@ where
 }
 
 impl Hysteria2AuthenticatedQuicConnection {
+    pub fn auth(&self) -> &zero_core::SessionAuth {
+        self.protocol.auth()
+    }
+
+    pub fn close(&self, reason: &str) {
+        self.protocol.close(reason);
+    }
+
     pub fn datagram_source(&self) -> std::sync::Arc<quinn::Connection> {
         self.protocol.connection()
     }

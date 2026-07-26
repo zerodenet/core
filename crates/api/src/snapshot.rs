@@ -1,6 +1,6 @@
 //! Strongly-typed snapshot definitions for control plane queries.
 //!
-//! These types live in `zero-api` so that all consumers (GUI, panel, CLI, FFI)
+//! These types live in `zero-api` so that all consumers (GUI, controllers, CLI, FFI)
 //! can depend on the same contract without pulling in engine internals.
 //!
 //! **Forward compatibility rules:**
@@ -250,8 +250,6 @@ pub struct AddressSnapshot {
 pub struct AuthSnapshot {
     #[serde(default)]
     pub scheme: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credential_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub principal_key: Option<String>,
 }

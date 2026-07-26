@@ -6,6 +6,98 @@ use zero_core::{Address, Network, ProtocolType, Session};
 use zero_engine::{Engine, EngineHandle};
 
 #[test]
+fn generated_event_ids_do_not_collide_across_engine_instances() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "inbounds": [],
+            "outbounds": [{ "tag": "direct", "protocol": { "type": "direct" } }],
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse config");
+    let first = Engine::new(config.clone()).expect("build first engine");
+    let second = Engine::new(config).expect("build second engine");
+    let filter = EventFilter {
+        event_types: vec![event_type::ENGINE_STARTED.to_owned()],
+        ..EventFilter::default()
+    };
+
+    let first_event = first
+        .latest(1, filter.clone())
+        .expect("read first engine event")
+        .into_iter()
+        .next()
+        .expect("first engine started event");
+    let second_event = second
+        .latest(1, filter)
+        .expect("read second engine event")
+        .into_iter()
+        .next()
+        .expect("second engine started event");
+
+    assert_ne!(first_event.event_id, second_event.event_id);
+    for event in [first_event, second_event] {
+        let (epoch, local_id) = event
+            .event_id
+            .split_once(':')
+            .expect("generated event id includes an engine epoch");
+        assert_eq!(epoch.len(), 32);
+        assert!(epoch.chars().all(|character| character.is_ascii_hexdigit()));
+        assert_eq!(local_id, "engine-1");
+    }
+}
+
+#[test]
+fn runtime_event_log_capacity_evicts_oldest_events() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": { "event_log_capacity": 2 },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse config");
+    let engine = Engine::new(config).expect("build engine");
+
+    engine.emit_warning("first", "first retained warning");
+    engine.emit_warning("second", "second retained warning");
+
+    let events = engine
+        .latest(usize::MAX, EventFilter::default())
+        .expect("read retained events");
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].payload["code"], "first");
+    assert_eq!(events[1].payload["code"], "second");
+}
+
+#[test]
+fn live_reload_resizes_the_runtime_event_log() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": { "event_log_capacity": 4 },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse config");
+    let engine = Engine::new(config.clone()).expect("build engine");
+    engine.emit_warning("first", "first warning");
+    engine.emit_warning("second", "second warning");
+    engine.emit_warning("third", "third warning");
+
+    let mut reloaded = config;
+    reloaded.runtime.event_log_capacity = 2;
+    engine
+        .reload_runtime_config(reloaded)
+        .expect("reload runtime config");
+
+    let events = engine
+        .latest(usize::MAX, EventFilter::default())
+        .expect("read resized event log");
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].payload["code"], "third");
+    assert_eq!(events[1].event_type, event_type::CONFIG_CHANGED);
+}
+
+#[test]
 fn streams_policy_probe_events_from_the_engine_event_log() {
     let config = RuntimeConfig::parse(
         r#"{
@@ -145,7 +237,9 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
     );
     session.source_ip = Some(Address::Ipv4([192, 168, 1, 8]));
     session.source_port = Some(49152);
-    engine.prepare_session(&mut session, "socks-in");
+    engine
+        .prepare_session(&mut session, "socks-in")
+        .expect("session should be admitted");
     engine.record_session_inbound_rx(session.id, 64);
     engine.record_session_outbound_tx(session.id, 64);
     engine.record_session_outbound_rx(session.id, 32);

@@ -1,4 +1,3 @@
-use std::io;
 use std::sync::Arc;
 
 use zero_core::Address;
@@ -6,9 +5,10 @@ use zero_traits::DatagramCodec;
 use zero_transport::RuntimeError;
 
 use super::{
-    open_quic_connection, quic_alpn_protocols, Hysteria2ManagedDatagramFlowResume,
-    Hysteria2ManagedUdpPacketPathCarrierBuild, Hysteria2QuicProfile, Hysteria2Stream,
-    QuicConnectionOptions,
+    auth::authenticate_http3, connection::negotiated_alpn, open_quic_connection,
+    outbound_quic_alpn_protocols, Hysteria2AuthenticatedConnection,
+    Hysteria2ManagedDatagramFlowResume, Hysteria2ManagedUdpPacketPathCarrierBuild,
+    Hysteria2QuicProfile, QuicConnectionOptions,
 };
 
 pub fn managed_datagram_connector_flow_from_resume(
@@ -23,32 +23,40 @@ async fn open_udp_profile_connection(
     server: &str,
     port: u16,
     profile: crate::udp::Hysteria2UdpConnectorProfile,
-) -> Result<quinn::Connection, RuntimeError> {
+) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
     let quic_profile = Hysteria2QuicProfile::from_parts(profile.client_fingerprint());
     let connection = open_quic_connection(QuicConnectionOptions {
         server,
         port,
-        alpn: quic_alpn_protocols(),
+        alpn: outbound_quic_alpn_protocols(),
         quic_profile,
         datagram_receive_buffer_size: Some(65536),
     })
     .await?;
-    let (send, recv) = connection.open_bi().await.map_err(|error| {
-        RuntimeError::Io(io::Error::other(format!("hysteria2 open_bi: {error}")))
-    })?;
-    let mut stream = Hysteria2Stream::new(send, recv);
-    profile
-        .authenticate_connection(&connection, &mut stream)
-        .await
-        .map_err(RuntimeError::Core)?;
-    Ok(connection)
+    if negotiated_alpn(&connection).as_deref() == Some(b"h3") {
+        authenticate_http3(connection, profile.password())
+            .await
+            .map(Arc::new)
+    } else {
+        let (send, recv) = connection.open_bi().await.map_err(|error| {
+            RuntimeError::Io(std::io::Error::other(format!("hysteria2 open_bi: {error}")))
+        })?;
+        let mut stream = super::Hysteria2Stream::new(send, recv);
+        profile
+            .authenticate_connection(&connection, &mut stream)
+            .await
+            .map_err(RuntimeError::Core)?;
+        Ok(Arc::new(Hysteria2AuthenticatedConnection::legacy(
+            connection,
+        )))
+    }
 }
 
 pub async fn open_hysteria2_udp_packet_path_build(
     build: Hysteria2ManagedUdpPacketPathCarrierBuild,
 ) -> Result<
     (
-        quinn::Connection,
+        Arc<Hysteria2AuthenticatedConnection>,
         Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     ),
     RuntimeError,
@@ -69,7 +77,7 @@ pub async fn establish_hysteria2_udp_flow_connection(
 ) -> Result<crate::udp::Hysteria2UdpFlowConnection, RuntimeError> {
     let flow = managed_datagram_connector_flow_from_resume(&resume, server, port);
     let profile = flow.into_connection_parts().into_profile();
-    let connection = Arc::new(open_udp_profile_connection(server, port, profile).await?);
+    let connection = open_udp_profile_connection(server, port, profile).await?;
     Ok(crate::udp::start_udp_flow_with_initial_packet(
         connection,
         target,

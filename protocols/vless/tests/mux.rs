@@ -21,6 +21,28 @@ struct MockSocket {
     tx: mpsc::UnboundedSender<u8>,
 }
 
+#[derive(Default)]
+struct CaptureSocket {
+    written: Vec<u8>,
+}
+
+impl AsyncSocket for CaptureSocket {
+    type Error = ();
+
+    async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::Error> {
+        Err(())
+    }
+
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.written.extend_from_slice(buf);
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
 impl AsyncSocket for MockSocket {
     type Error = ();
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
@@ -84,4 +106,20 @@ async fn mux_handshake_establishes() {
 
     let session = server_h.await.unwrap().unwrap();
     assert!(VlessInbound::is_mux_session(&session));
+}
+
+#[tokio::test]
+async fn mux_request_omits_target_fields() {
+    let id = uuid();
+    let mut socket = CaptureSocket::default();
+    establish_outbound_mux_connection(&mut socket, &id)
+        .await
+        .expect("write MUX request");
+
+    let mut expected = Vec::with_capacity(19);
+    expected.push(vless::VLESS_VERSION);
+    expected.extend_from_slice(&id);
+    expected.push(0);
+    expected.push(3);
+    assert_eq!(socket.written, expected);
 }

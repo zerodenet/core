@@ -9,6 +9,8 @@ pub enum CommandRequest {
     ConfigValidate(ConfigValidateCommand),
     #[serde(rename = "config.apply")]
     ConfigApply(ConfigApplyCommand),
+    #[serde(rename = "config.apply_runtime")]
+    ConfigApplyRuntime(ConfigApplyCommand),
     #[serde(rename = "flows.close")]
     FlowClose(FlowCloseCommand),
     #[serde(rename = "policies.select")]
@@ -38,7 +40,9 @@ pub enum CommandRequest {
 impl CommandRequest {
     pub fn required_permission(&self) -> Permission {
         match self {
-            Self::ConfigValidate(_) | Self::ConfigApply(_) => Permission::Config,
+            Self::ConfigValidate(_) | Self::ConfigApply(_) | Self::ConfigApplyRuntime(_) => {
+                Permission::Config
+            }
             Self::FlowClose(_) | Self::PolicySelect(_) | Self::PolicyProbe(_) => {
                 Permission::Control
             }

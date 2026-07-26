@@ -9,21 +9,19 @@ homepage.workspace = true
 
 [features]
 default = []
-event_dispatcher = []
-sink_jsonl = ["event_dispatcher"]
-webhook = ["event_dispatcher", "zero-api/webhook"]
-panel_connector = ["webhook", "dep:reqwest", "dep:sha2"]
+event-dispatcher = []
+sink-jsonl = ["event-dispatcher"]
+webhook = ["event-dispatcher", "dep:reqwest"]
 
 [dependencies]
+async-trait = "0.1"
+fs2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 zero-api = { path = "../api" }
 zero-config = { path = "../config" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
-sha2 = { version = "0.10", optional = true }
-
-[dev-dependencies]
-tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"], optional = true }

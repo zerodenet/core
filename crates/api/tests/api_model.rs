@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::json;
 use zero_api::{
-    event_type, ApiErrorCode, ApiEvent, AuthContext, AuthInfo, CommandRequest,
+    event_type, ApiErrorCode, ApiEvent, AuthContext, AuthInfo, CommandRequest, ConfigApplyCommand,
     ConfigValidateCommand, EndpointRef, FlowEventPayload, FlowOutcome, FlowTiming, Network,
     Permission, PolicySelectCommand, RouteDecision, TargetAddress, TrafficStats, EVENT_SCHEMA_ID,
 };
@@ -19,6 +19,17 @@ fn command_permissions_follow_cqrs_boundaries() {
 
     assert_eq!(config.required_permission(), Permission::Config);
     assert_eq!(select.required_permission(), Permission::Control);
+}
+
+#[test]
+fn runtime_config_apply_is_an_explicit_non_persistent_command() {
+    let command = CommandRequest::ConfigApplyRuntime(ConfigApplyCommand {
+        config: json!({ "inbounds": [] }),
+    });
+
+    assert_eq!(command.required_permission(), Permission::Config);
+    let value = serde_json::to_value(command).expect("serialize runtime config apply");
+    assert_eq!(value["method"], "config.apply_runtime");
 }
 
 #[test]
@@ -61,7 +72,6 @@ fn admin_auth_context_implies_all_permissions() {
 #[test]
 fn flow_completed_event_serializes_as_normalized_envelope() {
     let mut auth = AuthInfo::new("vless");
-    auth.credential_id = Some("vless-user-10003-phone".to_owned());
     auth.principal_key = Some("user:10003".to_owned());
     auth.attributes
         .insert("uuid_hash".to_owned(), "sha256:31cd...e920".to_owned());
@@ -121,10 +131,6 @@ fn flow_completed_event_serializes_as_normalized_envelope() {
     assert_eq!(value["event_type"], "flow.completed");
     assert_eq!(value["principal_key"], "user:10003");
     assert_eq!(value["payload"]["network"], "udp");
-    assert_eq!(
-        value["payload"]["auth"]["credential_id"],
-        "vless-user-10003-phone"
-    );
     assert_eq!(value["payload"]["traffic"]["bytes_down"], 8800);
     assert_eq!(value["payload"]["outcome"], "chained_relayed");
 }

@@ -1,4 +1,6 @@
-use zero_engine::{OutboundIdentity, ResolvedLeafOutbound};
+#[cfg(feature = "socks5")]
+use zero_engine::OutboundIdentity;
+use zero_engine::ResolvedLeafOutbound;
 
 use crate::runtime::path::TcpPathCategory;
 
@@ -79,6 +81,7 @@ fn block_outbound_leaf_is_kernel_fact_not_adapter_protocol() {
     );
 
     assert_eq!(claimed.runtime.tcp_path, TcpPathCategory::Block);
+    #[cfg(feature = "udp-runtime")]
     assert_eq!(claimed.runtime.health_tag, None);
     assert_eq!(claimed.runtime.endpoint, None);
     assert_eq!(claimed.runtime.kernel_tag, Some("blocked".to_owned()));

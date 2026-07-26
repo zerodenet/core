@@ -97,16 +97,44 @@ fn packet_path_carrier_descriptor(
 async fn build_packet_path(
     plan: Hysteria2ManagedUdpPacketPathPlan,
 ) -> Result<std::sync::Arc<dyn PacketPathCarrier>, EngineError> {
-    let (conn, codec): (
-        quinn::Connection,
+    let (connection, codec): (
+        std::sync::Arc<::hysteria2::transport::Hysteria2AuthenticatedConnection>,
         std::sync::Arc<dyn DatagramCodec<zero_core::Address, Error = zero_core::Error>>,
     ) = ::hysteria2::transport::open_hysteria2_udp_packet_path_build(plan.into_carrier_build())
         .await?;
-    crate::runtime::udp_flow::packet_path_chain::carriers::quic_datagram_carrier::build(
-        std::sync::Arc::new(conn),
-        codec,
-    )
-    .await
+    let carrier =
+        crate::runtime::udp_flow::packet_path_chain::carriers::quic_datagram_carrier::build(
+            std::sync::Arc::new(connection.connection().clone()),
+            codec,
+        )
+        .await?;
+    Ok(std::sync::Arc::new(
+        AuthenticatedHysteria2PacketPathCarrier {
+            carrier,
+            _connection: connection,
+        },
+    ))
+}
+
+struct AuthenticatedHysteria2PacketPathCarrier {
+    carrier: std::sync::Arc<dyn PacketPathCarrier>,
+    _connection: std::sync::Arc<::hysteria2::transport::Hysteria2AuthenticatedConnection>,
+}
+
+#[async_trait::async_trait]
+impl PacketPathCarrier for AuthenticatedHysteria2PacketPathCarrier {
+    async fn send_to(
+        &self,
+        target: &zero_core::Address,
+        port: u16,
+        payload: &[u8],
+    ) -> Result<(), EngineError> {
+        self.carrier.send_to(target, port, payload).await
+    }
+
+    async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError> {
+        self.carrier.recv_from(buf).await
+    }
 }
 
 struct Hysteria2PacketPathOperation {

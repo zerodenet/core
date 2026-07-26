@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
-use zero_core::{Address, Error, Network, ProtocolType, Session};
+use zero_core::{Address, Network, ProtocolType, Session};
 use zero_traits::AsyncSocket;
 
 use vmess::inbound::{VmessInbound, VmessInboundProfile};
@@ -89,18 +89,54 @@ fn cipher_auto_maps_to_aead_baseline() {
 }
 
 #[test]
-fn inbound_profile_requires_at_least_one_user() {
-    let error = match VmessInboundProfile::from_config_parts(Vec::<
+fn inbound_profile_allows_an_empty_authorization_set() {
+    let profile = VmessInboundProfile::from_config_parts(Vec::<
         vmess::inbound::VmessInboundUserConfigParts,
     >::new())
-    {
-        Ok(_) => panic!("empty users should fail"),
-        Err(error) => error,
-    };
-    assert!(matches!(
-        error,
-        Error::Protocol(message) if message == "vmess requires at least one user"
-    ));
+    .expect("empty managed user set");
+    assert_eq!(profile.user_count(), 0);
+}
+
+#[test]
+fn transport_runtime_atomically_replaces_shared_inbound_users() {
+    use vmess::transport::{VmessInboundUserRef, VmessTransportRuntime};
+
+    let runtime = VmessTransportRuntime::default();
+    let old_users = [VmessInboundUserRef {
+        id: "11111111-1111-1111-1111-111111111111",
+        cipher: "aes-128-gcm",
+        principal_key: Some("account:old"),
+        up_bps: None,
+        down_bps: None,
+        device_limit: None,
+        quota_remaining_bytes: None,
+        policy_revision: None,
+    }];
+    let profile = runtime
+        .replace_inbound_profile("vmess-in", &old_users)
+        .expect("initial VMess profile");
+    assert_eq!(profile.user_count(), 1);
+
+    let new_users = [VmessInboundUserRef {
+        id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        cipher: "chacha20-poly1305",
+        principal_key: Some("account:new"),
+        up_bps: Some(1_000),
+        down_bps: Some(2_000),
+        device_limit: Some(2),
+        quota_remaining_bytes: Some(4096),
+        policy_revision: Some(2),
+    }];
+    let replacement = runtime
+        .replace_inbound_profile("vmess-in", &new_users)
+        .expect("replacement VMess profile");
+    assert_eq!(profile.user_count(), 1);
+    assert_eq!(replacement.user_count(), 1);
+
+    runtime
+        .replace_inbound_profile("vmess-in", &[])
+        .expect("empty VMess profile");
+    assert_eq!(profile.user_count(), 0);
 }
 
 #[test]
@@ -311,7 +347,9 @@ async fn roundtrip_cipher(cipher: VmessCipher) {
             "11111111-2222-3333-4444-555555555555".to_owned(),
             cipher.name().to_owned(),
             None::<String>,
-            None::<String>,
+            None::<u64>,
+            None::<u64>,
+            None::<u32>,
             None::<u64>,
             None::<u64>,
         )])
@@ -388,7 +426,9 @@ async fn shutdown_roundtrip_cipher(cipher: VmessCipher) {
             "11111111-2222-3333-4444-555555555555".to_owned(),
             cipher.name().to_owned(),
             None::<String>,
-            None::<String>,
+            None::<u64>,
+            None::<u64>,
+            None::<u32>,
             None::<u64>,
             None::<u64>,
         )])

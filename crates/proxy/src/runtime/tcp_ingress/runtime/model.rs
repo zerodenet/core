@@ -31,13 +31,17 @@ impl TcpIngressRuntime {
         self.source_addr
     }
 
-    #[cfg(feature = "managed-stream-runtime")]
-    pub(crate) fn without_source_addr(&self) -> Self {
-        Self {
-            services: self.services.clone(),
-            inbound_tag: self.inbound_tag.clone(),
-            source_addr: None,
-        }
+    pub(crate) fn acquire_principal_device(
+        &self,
+        auth: Option<&zero_core::SessionAuth>,
+    ) -> Result<Option<zero_engine::PrincipalDeviceRegistration>, zero_engine::EngineError> {
+        let source_ip = self.source_addr.map(|addr| match addr.ip() {
+            std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
+            std::net::IpAddr::V6(ip) => zero_core::Address::Ipv6(ip.octets()),
+        });
+        self.services
+            .engine()
+            .acquire_principal_device(auth, source_ip.as_ref())
     }
 
     pub(crate) fn runtime_services(&self) -> TcpRuntimeServices {

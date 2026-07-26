@@ -24,7 +24,8 @@ pub use inbound::ShadowsocksInbound;
 #[cfg(feature = "runtime")]
 pub use inbound::{
     inbound_profile_from_config_cipher_password, ShadowsocksAccept, ShadowsocksInboundProfile,
-    ShadowsocksInboundTcpAcceptor, ShadowsocksInboundTcpState,
+    ShadowsocksInboundProfileStore, ShadowsocksInboundTcpAcceptor, ShadowsocksInboundTcpState,
+    ShadowsocksInboundUserRef, ShadowsocksUser,
 };
 pub use metadata::ShadowsocksProtocol;
 #[cfg(feature = "runtime")]

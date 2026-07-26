@@ -222,6 +222,29 @@ impl DnsSystem {
             }),
         }
     }
+
+    /// Resolve a domain through the configured real DNS backends.
+    ///
+    /// Unlike [`DnsResolver::resolve`], this never allocates or returns a
+    /// synthetic fake IP. Internal routing and upstream dialing use this path
+    /// after a fake-IP target has been restored to its original domain.
+    pub async fn resolve_real(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
+        match self.snapshot() {
+            Some(snapshot) => resolve_snapshot(domain, snapshot).await,
+            None => self.resolve_system(domain).await,
+        }
+    }
+
+    async fn resolve_system(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
+        let sys_resolver = {
+            let guard = self.inner.read().expect("dns system lock poisoned");
+            match &*guard {
+                DnsSystemInner::System(resolver) => *resolver,
+                _ => TokioSystemResolver,
+            }
+        };
+        sys_resolver.resolve(domain).await
+    }
 }
 
 impl DnsResolver for DnsSystem {
@@ -230,18 +253,7 @@ impl DnsResolver for DnsSystem {
     async fn resolve(&self, domain: &str) -> Result<Vec<IpAddress>, Self::Error> {
         let snapshot = match self.snapshot() {
             Some(s) => s,
-            None => {
-                // System resolver fallback — extract the resolver from
-                // the lock, drop the guard, then await.
-                let sys_resolver = {
-                    let guard = self.inner.read().expect("dns system lock poisoned");
-                    match &*guard {
-                        DnsSystemInner::System(r) => *r,
-                        _ => TokioSystemResolver,
-                    }
-                };
-                return sys_resolver.resolve(domain).await;
-            }
+            None => return self.resolve_system(domain).await,
         };
 
         // Fake IP path: return synthetic IP instead of real resolution.
@@ -253,39 +265,43 @@ impl DnsResolver for DnsSystem {
             }
         }
 
-        // 1. Check cache.
-        if let Some(ref c) = snapshot.cache {
-            if let Some(ips) = c.get(domain).await {
-                return Ok(ips);
-            }
-        }
-
-        // 2. Route → primary index, reorder so primary is first.
-        let primary = snapshot.router.route(domain);
-        let ordered = {
-            let n = snapshot.servers.len();
-            let mut v: Vec<Arc<ResolverBackend>> = Vec::with_capacity(n);
-            if primary < n {
-                v.push(Arc::clone(&snapshot.servers[primary]));
-            }
-            for i in 0..n {
-                if i != primary {
-                    v.push(Arc::clone(&snapshot.servers[i]));
-                }
-            }
-            v
-        };
-
-        // 3. Race all backends concurrently, take first success.
-        let result = race_resolve(domain, &ordered).await;
-
-        // 4. Cache on success (default TTL 300s).
-        if let (Some(c), Ok(ref ips)) = (&snapshot.cache, &result) {
-            c.put(domain.to_owned(), ips.clone(), 300).await;
-        }
-
-        result
+        resolve_snapshot(domain, snapshot).await
     }
+}
+
+async fn resolve_snapshot(domain: &str, snapshot: ResolveSnapshot) -> io::Result<Vec<IpAddress>> {
+    // 1. Check cache.
+    if let Some(ref cache) = snapshot.cache {
+        if let Some(ips) = cache.get(domain).await {
+            return Ok(ips);
+        }
+    }
+
+    // 2. Route → primary index, reorder so primary is first.
+    let primary = snapshot.router.route(domain);
+    let ordered = {
+        let server_count = snapshot.servers.len();
+        let mut ordered = Vec::with_capacity(server_count);
+        if primary < server_count {
+            ordered.push(Arc::clone(&snapshot.servers[primary]));
+        }
+        for index in 0..server_count {
+            if index != primary {
+                ordered.push(Arc::clone(&snapshot.servers[index]));
+            }
+        }
+        ordered
+    };
+
+    // 3. Race all backends concurrently, take first success.
+    let result = race_resolve(domain, &ordered).await;
+
+    // 4. Cache on success (default TTL 300s).
+    if let (Some(cache), Ok(ips)) = (&snapshot.cache, &result) {
+        cache.put(domain.to_owned(), ips.clone(), 300).await;
+    }
+
+    result
 }
 
 /// Fire all backends concurrently via `JoinSet`, return first success.

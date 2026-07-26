@@ -1,5 +1,8 @@
 //! Trojan inbound protocol handler.
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
+
 use zero_core::{Error, InboundStreamUdpRelay, Network, ProtocolType, Session, SessionAuth};
 use zero_traits::AsyncSocket;
 
@@ -11,15 +14,94 @@ use crate::udp::TrojanInboundUdpResponder;
 pub struct TrojanInbound;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanUser {
+    pub password: String,
+    pub principal_key: Option<String>,
+    pub up_bps: Option<u64>,
+    pub down_bps: Option<u64>,
+    pub device_limit: Option<u32>,
+    pub quota_remaining_bytes: Option<u64>,
+    pub policy_revision: Option<u64>,
+}
+
+impl TrojanUser {
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_config(
+        password: impl Into<String>,
+        principal_key: Option<String>,
+        up_bps: Option<u64>,
+        down_bps: Option<u64>,
+        device_limit: Option<u32>,
+        quota_remaining_bytes: Option<u64>,
+        policy_revision: Option<u64>,
+    ) -> Self {
+        Self {
+            password: password.into(),
+            principal_key,
+            up_bps,
+            down_bps,
+            device_limit,
+            quota_remaining_bytes,
+            policy_revision,
+        }
+    }
+
+    fn auth(&self) -> SessionAuth {
+        SessionAuth {
+            scheme: "trojan".into(),
+            principal_key: self
+                .principal_key
+                .clone()
+                .or_else(|| Some(self.password.clone())),
+            up_bps: self.up_bps,
+            down_bps: self.down_bps,
+            device_limit: self.device_limit,
+            quota_remaining_bytes: self.quota_remaining_bytes,
+            policy_revision: self.policy_revision,
+        }
+    }
+}
+
+pub type TrojanInboundUserConfigParts = (
+    String,
+    Option<String>,
+    Option<u64>,
+    Option<u64>,
+    Option<u32>,
+    Option<u64>,
+    Option<u64>,
+);
+
+#[derive(Debug, Clone, Copy)]
+pub struct TrojanInboundUserRef<'a> {
+    pub password: &'a str,
+    pub principal_key: Option<&'a str>,
+    pub up_bps: Option<u64>,
+    pub down_bps: Option<u64>,
+    pub device_limit: Option<u32>,
+    pub quota_remaining_bytes: Option<u64>,
+    pub policy_revision: Option<u64>,
+}
+
+#[derive(Clone)]
 pub struct TrojanInboundProfile {
-    password: String,
+    users: Arc<RwLock<Arc<[TrojanUser]>>>,
+}
+
+impl core::fmt::Debug for TrojanInboundProfile {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("TrojanInboundProfile")
+            .field("user_count", &self.user_count())
+            .finish()
+    }
 }
 
 impl TrojanInboundProfile {
     pub fn from_config(password: impl Into<String>) -> Self {
-        Self {
-            password: password.into(),
-        }
+        Self::from_users(vec![TrojanUser::from_config(
+            password, None, None, None, None, None, None,
+        )])
     }
 
     pub fn from_config_parts(password: impl Into<String>) -> Self {
@@ -30,18 +112,109 @@ impl TrojanInboundProfile {
         Self::from_config_parts(password)
     }
 
-    pub fn inbound_auth(&self) -> SessionAuth {
-        TrojanInbound.inbound_auth(self.password.clone())
+    pub fn from_users(users: Vec<TrojanUser>) -> Self {
+        Self {
+            users: Arc::new(RwLock::new(users.into())),
+        }
+    }
+
+    pub fn user_count(&self) -> usize {
+        self.users
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .len()
+    }
+
+    pub fn replace_users(&self, users: Vec<TrojanUser>) {
+        *self
+            .users
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = users.into();
+    }
+
+    pub fn from_config_users<I, U>(users: I) -> Self
+    where
+        I: IntoIterator<Item = U>,
+        U: IntoTrojanInboundUserConfig,
+    {
+        Self::from_users(
+            users
+                .into_iter()
+                .map(IntoTrojanInboundUserConfig::into_trojan_inbound_user_config)
+                .map(
+                    |(
+                        password,
+                        principal_key,
+                        up_bps,
+                        down_bps,
+                        device_limit,
+                        quota_remaining_bytes,
+                        policy_revision,
+                    )| {
+                        TrojanUser::from_config(
+                            password,
+                            principal_key,
+                            up_bps,
+                            down_bps,
+                            device_limit,
+                            quota_remaining_bytes,
+                            policy_revision,
+                        )
+                    },
+                )
+                .collect(),
+        )
+    }
+
+    pub fn replace_config_users<I, U>(&self, users: I)
+    where
+        I: IntoIterator<Item = U>,
+        U: IntoTrojanInboundUserConfig,
+    {
+        let replacement = users
+            .into_iter()
+            .map(IntoTrojanInboundUserConfig::into_trojan_inbound_user_config)
+            .map(
+                |(
+                    password,
+                    principal_key,
+                    up_bps,
+                    down_bps,
+                    device_limit,
+                    quota_remaining_bytes,
+                    policy_revision,
+                )| {
+                    TrojanUser::from_config(
+                        password,
+                        principal_key,
+                        up_bps,
+                        down_bps,
+                        device_limit,
+                        quota_remaining_bytes,
+                        policy_revision,
+                    )
+                },
+            )
+            .collect();
+        self.replace_users(replacement);
     }
 
     async fn accept<S: AsyncSocket>(
         &self,
         inbound: TrojanInbound,
         stream: &mut S,
-    ) -> Result<TrojanAccept, Error> {
-        inbound
-            .accept(stream, core::slice::from_ref(&self.password))
-            .await
+    ) -> Result<(TrojanAccept, SessionAuth), Error> {
+        let users = self
+            .users
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        let accept = inbound.accept(stream, &users).await?;
+        let auth = users
+            .get(accept.user_index)
+            .expect("accepted Trojan user index must exist")
+            .auth();
+        Ok((accept, auth))
     }
 
     pub async fn accept_session<S: AsyncSocket>(
@@ -49,9 +222,9 @@ impl TrojanInboundProfile {
         inbound: TrojanInbound,
         stream: &mut S,
     ) -> Result<Session, Error> {
-        let accept = self.accept(inbound, stream).await?;
+        let (accept, auth) = self.accept(inbound, stream).await?;
         let mut session = accept.session;
-        session.apply_auth(self.inbound_auth());
+        session.apply_auth(auth);
         Ok(session)
     }
 
@@ -71,21 +244,63 @@ impl TrojanInboundProfile {
         inbound: TrojanInbound,
         mut stream: S,
     ) -> Result<TrojanInboundAcceptedSession<S>, Error> {
-        let password = self.password;
-        let accept = inbound
-            .accept(&mut stream, core::slice::from_ref(&password))
-            .await?;
-        let mut session = accept.session;
-        session.apply_auth(TrojanInbound.inbound_auth(password));
+        let session = self.accept_session(inbound, &mut stream).await?;
         Ok(TrojanInboundAcceptedSession::from_session_stream(
             session, stream,
         ))
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TrojanInboundProfileStore {
+    profiles: Arc<Mutex<HashMap<String, TrojanInboundProfile>>>,
+}
+
+impl TrojanInboundProfileStore {
+    pub fn replace(&self, tag: &str, users: &[TrojanInboundUserRef<'_>]) -> TrojanInboundProfile {
+        let mut profiles = self
+            .profiles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(profile) = profiles.get(tag) {
+            profile.replace_config_users(users.iter().copied());
+            return profile.clone();
+        }
+
+        let profile = TrojanInboundProfile::from_config_users(users.iter().copied());
+        profiles.insert(tag.to_owned(), profile.clone());
+        profile
+    }
+}
+
+pub trait IntoTrojanInboundUserConfig {
+    fn into_trojan_inbound_user_config(self) -> TrojanInboundUserConfigParts;
+}
+
+impl IntoTrojanInboundUserConfig for TrojanInboundUserConfigParts {
+    fn into_trojan_inbound_user_config(self) -> TrojanInboundUserConfigParts {
+        self
+    }
+}
+
+impl IntoTrojanInboundUserConfig for TrojanInboundUserRef<'_> {
+    fn into_trojan_inbound_user_config(self) -> TrojanInboundUserConfigParts {
+        (
+            self.password.to_owned(),
+            self.principal_key.map(str::to_owned),
+            self.up_bps,
+            self.down_bps,
+            self.device_limit,
+            self.quota_remaining_bytes,
+            self.policy_revision,
+        )
+    }
+}
+
 /// Result of accepting a Trojan connection.
 struct TrojanAccept {
     session: Session,
+    user_index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,25 +446,26 @@ impl TrojanInbound {
     async fn accept<S: AsyncSocket>(
         &self,
         stream: &mut S,
-        passwords: &[String],
+        users: &[TrojanUser],
     ) -> Result<TrojanAccept, Error> {
         let password_hash = read_password(stream).await?;
 
         // Validate password.
-        if !passwords.iter().any(|p| {
+        let Some(user_index) = users.iter().position(|user| {
             #[cfg(feature = "crypto")]
             {
                 use sha2::{Digest, Sha224};
-                password_hash == super::shared::hex::encode(&Sha224::digest(p.as_bytes()))
+                password_hash
+                    == super::shared::hex::encode(&Sha224::digest(user.password.as_bytes()))
             }
             #[cfg(not(feature = "crypto"))]
             {
-                let _ = (p, &password_hash);
+                let _ = (user, &password_hash);
                 false
             }
-        }) {
+        }) else {
             return Err(Error::Protocol("trojan: invalid password"));
-        }
+        };
 
         let (cmd, addr, port) = read_request(stream).await?;
 
@@ -261,6 +477,7 @@ impl TrojanInbound {
 
         Ok(TrojanAccept {
             session: Session::new(0, addr, port, network, ProtocolType::new("trojan")),
+            user_index,
         })
     }
 }

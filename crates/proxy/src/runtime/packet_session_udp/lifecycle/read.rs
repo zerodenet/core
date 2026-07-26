@@ -7,12 +7,18 @@ use crate::runtime::packet_session_udp::contract::{
 };
 use crate::runtime::udp_dispatch::UdpDispatch;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PacketSessionUdpReadControl {
+    Continue,
+    End,
+}
+
 pub(super) async fn process_packet_session_read(
     context: &PacketSessionUdpLoopContext<'_>,
     dispatch: &mut UdpDispatch,
     last_activity: &mut TokioInstant,
     read: Result<PacketSessionUdpReadResult, PacketSessionUdpReadFailure>,
-) -> bool {
+) -> PacketSessionUdpReadControl {
     match read {
         Ok(PacketSessionUdpReadResult::Dispatch(inbound_dispatch)) => {
             *last_activity = TokioInstant::now();
@@ -27,9 +33,9 @@ pub(super) async fn process_packet_session_read(
                     "packet session udp dispatch failed"
                 );
             }
-            true
+            PacketSessionUdpReadControl::Continue
         }
-        Ok(PacketSessionUdpReadResult::End) => false,
+        Ok(PacketSessionUdpReadResult::End) => PacketSessionUdpReadControl::End,
         Err(failure) => {
             warn!(
                 error = %failure.error,
@@ -38,8 +44,10 @@ pub(super) async fn process_packet_session_read(
             );
             match failure.action {
                 #[cfg(feature = "managed-stream-runtime")]
-                PacketSessionUdpReadFailureAction::Continue => true,
-                PacketSessionUdpReadFailureAction::End => false,
+                PacketSessionUdpReadFailureAction::Continue => {
+                    PacketSessionUdpReadControl::Continue
+                }
+                PacketSessionUdpReadFailureAction::End => PacketSessionUdpReadControl::End,
             }
         }
     }

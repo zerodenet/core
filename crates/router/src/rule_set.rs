@@ -29,6 +29,10 @@ impl RuleSetMatcher {
     pub fn matches(&self, query: &PreparedRuleQuery) -> bool {
         self.matcher.matches(query)
     }
+
+    pub fn requires_destination_ip(&self) -> bool {
+        self.matcher.requires_destination_ip()
+    }
 }
 
 impl fmt::Debug for RuleSetMatcher {

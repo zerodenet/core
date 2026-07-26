@@ -7,6 +7,7 @@ use zero_engine::PassiveRelaySelection;
 use zero_engine::{CompletedSessionRecord, FlowFailureObservation, SessionHandle, SessionOutcome};
 
 use crate::runtime::udp_flow::outbound::UdpFlowOutbound;
+use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
 use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -72,6 +73,7 @@ pub(super) struct UdpFlow {
     pub(super) client_session_id: Option<u64>,
     pub(super) passive_relay_selections: Vec<PassiveRelaySelection>,
     pub(super) passive_health_confirmed: AtomicBool,
+    pub(super) rate_limiters: UdpFlowRateLimiters,
 }
 
 impl UdpFlow {
@@ -81,6 +83,7 @@ impl UdpFlow {
             outbound: self.outbound.clone(),
             client_session_id: self.client_session_id,
             passive_relay_selections: self.passive_relay_selections.clone(),
+            rate_limiters: self.rate_limiters.clone(),
         }
     }
 
@@ -119,6 +122,28 @@ impl UdpFlow {
             .handle
             .finish_with_failure("upstream_error", failure)
             .expect("udp flow should be active before failure");
+
+        CompletedUdpFlow {
+            record,
+            upstream,
+            passive_relay_selections: self.passive_relay_selections,
+            passive_health_confirmed,
+        }
+    }
+
+    pub(super) fn finish_cancelled(mut self) -> CompletedUdpFlow {
+        let upstream = self.outbound.completion().upstream;
+        let passive_health_confirmed = self
+            .passive_health_confirmed
+            .load(std::sync::atomic::Ordering::Acquire);
+        let reason = self
+            .handle
+            .cancellation_reason()
+            .unwrap_or_else(|| "cancelled".to_owned());
+        let record = self
+            .handle
+            .finish_with_reason(SessionOutcome::Cancelled, Some(reason))
+            .expect("cancelled udp flow should be active before finish");
 
         CompletedUdpFlow {
             record,

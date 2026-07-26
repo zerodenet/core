@@ -4,7 +4,10 @@ use alloc::borrow::ToOwned;
 #[cfg(feature = "tokio")]
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+#[cfg(feature = "tokio")]
+use alloc::vec;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use zero_core::{
     Address, DatagramUdpResponder, Error, InboundDatagramUdpRelay, InboundUdpDispatch,
@@ -22,7 +25,7 @@ use zero_traits::AsyncSocket;
 /// One plaintext UDP payload to encode into a Hysteria2 UDP datagram.
 #[derive(Debug, Clone, Copy)]
 pub struct Hysteria2UdpPacketTarget<'a> {
-    pub session_id: u16,
+    pub session_id: u32,
     pub packet_id: u16,
     pub target: &'a Address,
     pub port: u16,
@@ -32,8 +35,10 @@ pub struct Hysteria2UdpPacketTarget<'a> {
 /// Parsed Hysteria2 UDP datagram.
 #[derive(Debug, Clone)]
 pub struct Hysteria2UdpPacket {
-    session_id: u16,
+    session_id: u32,
     packet_id: u16,
+    fragment_id: u8,
+    fragment_count: u8,
     target: Address,
     port: u16,
     payload: Vec<u8>,
@@ -41,7 +46,7 @@ pub struct Hysteria2UdpPacket {
 
 impl Hysteria2UdpPacket {
     pub fn new(
-        session_id: u16,
+        session_id: u32,
         packet_id: u16,
         target: Address,
         port: u16,
@@ -50,18 +55,48 @@ impl Hysteria2UdpPacket {
         Self {
             session_id,
             packet_id,
+            fragment_id: 0,
+            fragment_count: 1,
             target,
             port,
             payload,
         }
     }
 
-    pub fn session_id(&self) -> u16 {
+    pub fn session_id(&self) -> u32 {
         self.session_id
     }
 
     pub fn packet_id(&self) -> u16 {
         self.packet_id
+    }
+
+    pub fn fragment_id(&self) -> u8 {
+        self.fragment_id
+    }
+
+    pub fn fragment_count(&self) -> u8 {
+        self.fragment_count
+    }
+
+    fn new_fragment(
+        session_id: u32,
+        packet_id: u16,
+        fragment_id: u8,
+        fragment_count: u8,
+        target: Address,
+        port: u16,
+        payload: Vec<u8>,
+    ) -> Self {
+        Self {
+            session_id,
+            packet_id,
+            fragment_id,
+            fragment_count,
+            target,
+            port,
+            payload,
+        }
     }
 
     pub fn target(&self) -> &Address {
@@ -76,7 +111,7 @@ impl Hysteria2UdpPacket {
         &self.payload
     }
 
-    pub fn into_parts(self) -> (u16, u16, Address, u16, Vec<u8>) {
+    pub fn into_parts(self) -> (u32, u16, Address, u16, Vec<u8>) {
         (
             self.session_id,
             self.packet_id,
@@ -93,7 +128,7 @@ impl Hysteria2UdpPacket {
 
 /// Protocol-owned decoded inbound UDP request.
 pub struct Hysteria2InboundUdpRequest {
-    session_id: u16,
+    session_id: u32,
     target: Address,
     port: u16,
     payload: Vec<u8>,
@@ -101,7 +136,7 @@ pub struct Hysteria2InboundUdpRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hysteria2InboundUdpDispatchParts {
-    request_session_id: u16,
+    request_session_id: u32,
     target: Address,
     port: u16,
     payload: Vec<u8>,
@@ -143,7 +178,7 @@ impl Hysteria2InboundUdpDispatchParts {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hysteria2InboundUdpTrackedDispatch {
-    request_session_id: u16,
+    request_session_id: u32,
     dispatch: InboundUdpDispatch,
 }
 
@@ -209,7 +244,7 @@ impl Hysteria2InboundUdpRequest {
         &self.payload
     }
 
-    pub fn session_id(&self) -> u16 {
+    pub fn session_id(&self) -> u32 {
         self.session_id
     }
 
@@ -233,7 +268,8 @@ impl Hysteria2InboundUdpRequest {
 /// Stateful inbound UDP bridge for Hysteria2 datagram sessions.
 #[cfg(feature = "tokio")]
 pub struct Hysteria2InboundUdpSession {
-    h2_sessions_by_proxy_session: BTreeMap<u64, u16>,
+    h2_sessions_by_proxy_session: BTreeMap<u64, u32>,
+    reassembler: Hysteria2UdpReassembler,
 }
 
 #[cfg(feature = "tokio")]
@@ -245,6 +281,7 @@ pub struct Hysteria2InboundUdpResponder {
 #[cfg(feature = "tokio")]
 pub struct Hysteria2InboundUdpRelay {
     responder: Hysteria2InboundUdpResponder,
+    auth: Option<SessionAuth>,
 }
 
 #[cfg(feature = "tokio")]
@@ -252,36 +289,45 @@ impl Hysteria2InboundUdpSession {
     pub fn new() -> Self {
         Self {
             h2_sessions_by_proxy_session: BTreeMap::new(),
+            reassembler: Hysteria2UdpReassembler::default(),
         }
     }
 
-    pub fn decode_request(&self, data: &[u8]) -> Result<Hysteria2InboundUdpRequest, Error> {
-        Hysteria2InboundUdpCodec
-            .decode_datagram(data)
-            .map(Hysteria2InboundUdpRequest::from_packet)
+    pub fn decode_request(
+        &mut self,
+        data: &[u8],
+    ) -> Result<Option<Hysteria2InboundUdpRequest>, Error> {
+        let packet = Hysteria2InboundUdpCodec.decode_datagram(data)?;
+        self.reassembler
+            .push(packet)
+            .map(|packet| packet.map(Hysteria2InboundUdpRequest::from_packet))
     }
 
     pub fn decode_dispatch_parts(
-        &self,
+        &mut self,
         data: &[u8],
-    ) -> Result<Hysteria2InboundUdpDispatchParts, Error> {
+    ) -> Result<Option<Hysteria2InboundUdpDispatchParts>, Error> {
         self.decode_request(data)
-            .map(Hysteria2InboundUdpRequest::into_dispatch_parts)
+            .map(|request| request.map(Hysteria2InboundUdpRequest::into_dispatch_parts))
     }
 
     pub async fn read_dispatch_parts_from_datagram(
-        &self,
+        &mut self,
         conn: &quinn::Connection,
     ) -> Result<Hysteria2InboundUdpDispatchParts, Error> {
-        let data = conn
-            .read_datagram()
-            .await
-            .map_err(|_| Error::Io("failed to read Hysteria2 UDP datagram"))?;
-        self.decode_dispatch_parts(&data)
+        loop {
+            let data = conn
+                .read_datagram()
+                .await
+                .map_err(|_| Error::Io("failed to read Hysteria2 UDP datagram"))?;
+            if let Some(dispatch) = self.decode_dispatch_parts(&data)? {
+                return Ok(dispatch);
+            }
+        }
     }
 
     pub async fn read_inbound_dispatch_from_datagram(
-        &self,
+        &mut self,
         conn: &quinn::Connection,
     ) -> Result<Hysteria2InboundUdpTrackedDispatch, Error> {
         self.read_dispatch_parts_from_datagram(conn)
@@ -289,7 +335,7 @@ impl Hysteria2InboundUdpSession {
             .map(Hysteria2InboundUdpDispatchParts::into_tracked_inbound_dispatch)
     }
 
-    fn record_proxy_session(&mut self, proxy_session_id: u64, request_session_id: u16) {
+    fn record_proxy_session(&mut self, proxy_session_id: u64, request_session_id: u32) {
         self.h2_sessions_by_proxy_session
             .insert(proxy_session_id, request_session_id);
     }
@@ -437,11 +483,21 @@ impl Hysteria2InboundUdpResponder {
 #[cfg(feature = "tokio")]
 impl Hysteria2InboundUdpRelay {
     pub fn new(responder: Hysteria2InboundUdpResponder) -> Self {
-        Self { responder }
+        Self {
+            responder,
+            auth: None,
+        }
+    }
+
+    pub fn with_auth(responder: Hysteria2InboundUdpResponder, auth: SessionAuth) -> Self {
+        Self {
+            responder,
+            auth: Some(auth),
+        }
     }
 
     fn into_parts(self) -> (Hysteria2InboundUdpResponder, Option<SessionAuth>) {
-        (self.responder, None)
+        (self.responder, self.auth)
     }
 }
 
@@ -489,79 +545,203 @@ impl Default for Hysteria2InboundUdpSession {
     }
 }
 
-/// Build a Hysteria2 UDP datagram.
-/// Format: [session_id:2][pkt_id:2][addr_type:1][addr:var][port:2][payload:var]
+/// Build a standard unfragmented Hysteria2 UDPMessage.
+/// Format: [session_id:4][packet_id:2][fragment_id:1][fragment_count:1]
+///         [varint address length][host:port][payload].
 pub(crate) fn build_udp_datagram(
-    session_id: u16,
+    session_id: u32,
     packet_id: u16,
     address: &Address,
     port: u16,
     payload: &[u8],
 ) -> Result<Vec<u8>, Error> {
-    let addr_bytes = crate::shared::encode_address(address)?;
-    let mut buf = Vec::with_capacity(4 + addr_bytes.len() + 2 + payload.len());
+    build_udp_fragment(session_id, packet_id, 0, 1, address, port, payload)
+}
+
+fn build_udp_fragment(
+    session_id: u32,
+    packet_id: u16,
+    fragment_id: u8,
+    fragment_count: u8,
+    address: &Address,
+    port: u16,
+    payload: &[u8],
+) -> Result<Vec<u8>, Error> {
+    if fragment_count == 0 || fragment_id >= fragment_count {
+        return Err(Error::Protocol("hysteria2: invalid UDP fragment index"));
+    }
+    let authority = crate::shared::encode_authority(address, port)?;
+    let mut buf = Vec::with_capacity(16 + authority.len() + payload.len());
     buf.extend_from_slice(&session_id.to_be_bytes());
     buf.extend_from_slice(&packet_id.to_be_bytes());
-    buf.extend_from_slice(&addr_bytes);
-    buf.extend_from_slice(&port.to_be_bytes());
+    buf.push(fragment_id);
+    buf.push(fragment_count);
+    crate::shared::encode_varint(authority.len() as u64, &mut buf)?;
+    buf.extend_from_slice(authority.as_bytes());
     buf.extend_from_slice(payload);
     Ok(buf)
 }
 
+static NEXT_UDP_PACKET_ID: AtomicU32 = AtomicU32::new(1);
+
+fn build_udp_fragments(
+    session_id: u32,
+    address: &Address,
+    port: u16,
+    payload: &[u8],
+    max_datagram_size: usize,
+) -> Result<Vec<Vec<u8>>, Error> {
+    let packet_id = NEXT_UDP_PACKET_ID.fetch_add(1, Ordering::Relaxed) as u16;
+    let header_len = build_udp_fragment(session_id, packet_id, 0, 1, address, port, &[])?.len();
+    let fragment_payload_size = max_datagram_size
+        .checked_sub(header_len)
+        .filter(|size| *size > 0)
+        .ok_or(Error::Protocol(
+            "hysteria2: QUIC datagram limit is too small",
+        ))?;
+    let fragment_count = payload.len().max(1).div_ceil(fragment_payload_size);
+    if fragment_count > 64 {
+        return Err(Error::Protocol(
+            "hysteria2: UDP payload requires too many fragments",
+        ));
+    }
+    let fragment_count = fragment_count as u8;
+    let mut fragments = Vec::with_capacity(usize::from(fragment_count));
+    if payload.is_empty() {
+        fragments.push(build_udp_fragment(
+            session_id, packet_id, 0, 1, address, port, payload,
+        )?);
+        return Ok(fragments);
+    }
+    for (fragment_id, chunk) in payload.chunks(fragment_payload_size).enumerate() {
+        fragments.push(build_udp_fragment(
+            session_id,
+            packet_id,
+            fragment_id as u8,
+            fragment_count,
+            address,
+            port,
+            chunk,
+        )?);
+    }
+    Ok(fragments)
+}
+
 /// Parse a Hysteria2 UDP datagram.
 pub(crate) fn parse_udp_datagram(data: &[u8]) -> Result<Hysteria2UdpPacket, Error> {
-    if data.len() < 5 {
+    if data.len() < 9 {
         return Err(Error::Protocol("hysteria2: truncated UDP datagram"));
     }
-    let session_id = u16::from_be_bytes([data[0], data[1]]);
-    let packet_id = u16::from_be_bytes([data[2], data[3]]);
-    let addr_type = data[4];
-    let (target, addr_end) = match addr_type {
-        crate::shared::ADDR_TYPE_IPV4 => {
-            if data.len() < 9 {
-                return Err(Error::Protocol("hysteria2: truncated IPv4 in datagram"));
-            }
-            let mut bytes = [0u8; 4];
-            bytes.copy_from_slice(&data[5..9]);
-            (Address::Ipv4(bytes), 9)
-        }
-        crate::shared::ADDR_TYPE_IPV6 => {
-            if data.len() < 21 {
-                return Err(Error::Protocol("hysteria2: truncated IPv6 in datagram"));
-            }
-            let mut bytes = [0u8; 16];
-            bytes.copy_from_slice(&data[5..21]);
-            (Address::Ipv6(bytes), 21)
-        }
-        crate::shared::ADDR_TYPE_DOMAIN => {
-            if data.len() < 6 {
-                return Err(Error::Protocol("hysteria2: truncated domain in datagram"));
-            }
-            let len = data[5] as usize;
-            if data.len() < 6 + len + 2 {
-                return Err(Error::Protocol(
-                    "hysteria2: truncated domain payload in datagram",
-                ));
-            }
-            let domain = String::from_utf8(data[6..6 + len].to_vec())
-                .map_err(|_| Error::Protocol("hysteria2: invalid domain UTF-8"))?;
-            (Address::Domain(domain), 6 + len)
-        }
-        _ => {
-            return Err(Error::Unsupported(
-                "hysteria2: unknown address type in datagram",
-            ))
-        }
-    };
-    if data.len() < addr_end + 2 {
-        return Err(Error::Protocol("hysteria2: truncated port in datagram"));
+    let session_id = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+    let packet_id = u16::from_be_bytes([data[4], data[5]]);
+    let fragment_id = data[6];
+    let fragment_count = data[7];
+    if fragment_count == 0 || fragment_id >= fragment_count {
+        return Err(Error::Protocol("hysteria2: invalid UDP fragment index"));
     }
-    let port = u16::from_be_bytes([data[addr_end], data[addr_end + 1]]);
-    let payload = data[addr_end + 2..].to_vec();
+    let (address_len, address_len_len) = crate::shared::decode_varint(&data[8..])?;
+    let address_start = 8 + address_len_len;
+    let address_len = usize::try_from(address_len)
+        .map_err(|_| Error::Protocol("hysteria2: UDP address length overflow"))?;
+    let address_end = address_start
+        .checked_add(address_len)
+        .ok_or(Error::Protocol("hysteria2: UDP address length overflow"))?;
+    if data.len() < address_end {
+        return Err(Error::Protocol("hysteria2: truncated UDP address"));
+    }
+    let authority = core::str::from_utf8(&data[address_start..address_end])
+        .map_err(|_| Error::Protocol("hysteria2: invalid UDP address"))?;
+    let (target, port) = crate::shared::parse_authority(authority)?;
+    let payload = data[address_end..].to_vec();
 
-    Ok(Hysteria2UdpPacket::new(
-        session_id, packet_id, target, port, payload,
+    Ok(Hysteria2UdpPacket::new_fragment(
+        session_id,
+        packet_id,
+        fragment_id,
+        fragment_count,
+        target,
+        port,
+        payload,
     ))
+}
+
+#[cfg(feature = "tokio")]
+struct FragmentAssembly {
+    target: Address,
+    port: u16,
+    parts: Vec<Option<Vec<u8>>>,
+    received: usize,
+}
+
+#[cfg(feature = "tokio")]
+#[derive(Default)]
+struct Hysteria2UdpReassembler {
+    pending: BTreeMap<(u32, u16), FragmentAssembly>,
+}
+
+#[cfg(feature = "tokio")]
+impl Hysteria2UdpReassembler {
+    fn push(&mut self, packet: Hysteria2UdpPacket) -> Result<Option<Hysteria2UdpPacket>, Error> {
+        if packet.fragment_count == 1 {
+            return Ok(Some(packet));
+        }
+        if packet.fragment_count > 64 {
+            return Err(Error::Protocol(
+                "hysteria2: UDP fragment count exceeds limit",
+            ));
+        }
+        let key = (packet.session_id, packet.packet_id);
+        if !self.pending.contains_key(&key) && self.pending.len() >= 64 {
+            if let Some(oldest) = self.pending.keys().next().copied() {
+                self.pending.remove(&oldest);
+            }
+        }
+        let assembly = self.pending.entry(key).or_insert_with(|| FragmentAssembly {
+            target: packet.target.clone(),
+            port: packet.port,
+            parts: vec![None; usize::from(packet.fragment_count)],
+            received: 0,
+        });
+        if assembly.parts.len() != usize::from(packet.fragment_count)
+            || assembly.target != packet.target
+            || assembly.port != packet.port
+        {
+            self.pending.remove(&key);
+            return Err(Error::Protocol("hysteria2: inconsistent UDP fragments"));
+        }
+        let index = usize::from(packet.fragment_id);
+        if assembly.parts[index].is_none() {
+            assembly.parts[index] = Some(packet.payload);
+            assembly.received += 1;
+        }
+        if assembly.received != assembly.parts.len() {
+            return Ok(None);
+        }
+        let assembly = self
+            .pending
+            .remove(&key)
+            .expect("completed Hysteria2 fragment assembly");
+        let total_len = assembly
+            .parts
+            .iter()
+            .filter_map(Option::as_ref)
+            .map(Vec::len)
+            .sum();
+        let mut payload = Vec::with_capacity(total_len);
+        for part in assembly.parts {
+            payload.extend_from_slice(
+                part.as_deref()
+                    .ok_or(Error::Protocol("hysteria2: missing UDP fragment"))?,
+            );
+        }
+        Ok(Some(Hysteria2UdpPacket::new(
+            key.0,
+            key.1,
+            assembly.target,
+            assembly.port,
+            payload,
+        )))
+    }
 }
 
 pub(crate) fn encode_udp_flow_packet(
@@ -581,7 +761,7 @@ fn decode_inbound_udp_datagram(data: &[u8]) -> Result<Hysteria2UdpPacket, Error>
 }
 
 fn encode_inbound_udp_datagram(
-    session_id: u16,
+    session_id: u32,
     target: &Address,
     port: u16,
     payload: &[u8],
@@ -599,7 +779,7 @@ impl Hysteria2InboundUdpCodec {
 
     pub fn encode_datagram(
         &self,
-        session_id: u16,
+        session_id: u32,
         target: &Address,
         port: u16,
         payload: &[u8],
@@ -611,16 +791,22 @@ impl Hysteria2InboundUdpCodec {
     pub fn send_datagram(
         &self,
         conn: &quinn::Connection,
-        session_id: u16,
+        session_id: u32,
         target: &Address,
         port: u16,
         payload: &[u8],
     ) -> Result<usize, Error> {
-        let datagram = self.encode_datagram(session_id, target, port, payload)?;
-        let len = datagram.len();
-        conn.send_datagram(datagram.into())
-            .map_err(|_| Error::Io("failed to send Hysteria2 UDP datagram"))?;
-        Ok(len)
+        let max_datagram_size = conn
+            .max_datagram_size()
+            .ok_or(Error::Io("Hysteria2 peer does not support QUIC datagrams"))?;
+        let fragments = build_udp_fragments(session_id, target, port, payload, max_datagram_size)?;
+        let mut encoded_len = 0;
+        for fragment in fragments {
+            encoded_len += fragment.len();
+            conn.send_datagram(fragment.into())
+                .map_err(|_| Error::Io("failed to send Hysteria2 UDP datagram"))?;
+        }
+        Ok(encoded_len)
     }
 }
 
@@ -890,12 +1076,37 @@ impl Hysteria2UdpFlowPacket {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Hysteria2UdpFlowIo;
+static NEXT_UDP_SESSION_ID: AtomicU32 = AtomicU32::new(1);
+
+#[derive(Debug, Clone, Copy)]
+pub struct Hysteria2UdpFlowIo {
+    session_id: u32,
+}
+
+impl Hysteria2UdpFlowIo {
+    fn new() -> Self {
+        let session_id = NEXT_UDP_SESSION_ID.fetch_add(1, Ordering::Relaxed);
+        Self {
+            session_id: session_id.max(1),
+        }
+    }
+}
+
+impl Default for Hysteria2UdpFlowIo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Hysteria2UdpFlowIo {
     pub fn encode_packet(&self, packet: &UdpFlowPacket) -> Result<Vec<u8>, Error> {
-        encode_udp_flow_packet(&packet.target, packet.port, &packet.payload)
+        build_udp_datagram(
+            self.session_id,
+            0,
+            &packet.target,
+            packet.port,
+            &packet.payload,
+        )
     }
 
     pub fn encode_initial_packet(
@@ -904,13 +1115,27 @@ impl Hysteria2UdpFlowIo {
         port: u16,
         payload: &[u8],
     ) -> Result<Vec<u8>, Error> {
-        encode_udp_flow_packet(target, port, payload)
+        build_udp_datagram(self.session_id, 0, target, port, payload)
     }
 
     pub fn decode_packet(&self, data: &[u8]) -> Option<UdpFlowPacket> {
         let decoded = decode_udp_flow_packet(data).ok()?;
         let (target, port, payload) = decoded.into_datagram_parts();
         Some(UdpFlowPacket::new(target, port, payload))
+    }
+
+    fn encode_fragments(
+        &self,
+        packet: &UdpFlowPacket,
+        max_datagram_size: usize,
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        build_udp_fragments(
+            self.session_id,
+            &packet.target,
+            packet.port,
+            &packet.payload,
+            max_datagram_size,
+        )
     }
 }
 
@@ -1009,9 +1234,9 @@ impl Hysteria2UdpFlowSender {
     }
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "runtime")]
 pub fn spawn_udp_flow(
-    conn: Arc<quinn::Connection>,
+    conn: Arc<crate::transport::Hysteria2AuthenticatedConnection>,
     initial_packet: Hysteria2InitialUdpFlowPacket,
     flow_io: Hysteria2UdpFlowIo,
 ) -> Hysteria2UdpFlowHandle {
@@ -1027,9 +1252,9 @@ pub fn spawn_udp_flow(
     }
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "runtime")]
 pub fn start_udp_flow_with_initial_packet(
-    conn: Arc<quinn::Connection>,
+    conn: Arc<crate::transport::Hysteria2AuthenticatedConnection>,
     target: &Address,
     port: u16,
     payload: &[u8],
@@ -1044,42 +1269,58 @@ pub fn start_udp_flow_with_initial_packet(
     )))
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "runtime")]
 fn spawn_send_task(
-    conn: Arc<quinn::Connection>,
+    conn: Arc<crate::transport::Hysteria2AuthenticatedConnection>,
     initial_packet: Hysteria2InitialUdpFlowPacket,
     flow_io: Hysteria2UdpFlowIo,
     mut send_rx: mpsc::Receiver<UdpFlowPacket>,
 ) {
     tokio::spawn(async move {
-        if let Ok(datagram) = flow_io.encode_packet(&initial_packet.packet) {
-            if conn.send_datagram(datagram.into()).is_err() {
+        let Some(max_datagram_size) = conn.connection().max_datagram_size() else {
+            return;
+        };
+        let Ok(fragments) = flow_io.encode_fragments(&initial_packet.packet, max_datagram_size)
+        else {
+            return;
+        };
+        for fragment in fragments {
+            if conn.connection().send_datagram(fragment.into()).is_err() {
                 return;
             }
         }
         while let Some(packet) = send_rx.recv().await {
-            let Ok(datagram) = flow_io.encode_packet(&packet) else {
+            let Ok(fragments) = flow_io.encode_fragments(&packet, max_datagram_size) else {
                 break;
             };
-            if conn.send_datagram(datagram.into()).is_err() {
-                break;
+            for fragment in fragments {
+                if conn.connection().send_datagram(fragment.into()).is_err() {
+                    return;
+                }
             }
         }
     });
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "runtime")]
 fn spawn_recv_task(
-    conn: Arc<quinn::Connection>,
+    conn: Arc<crate::transport::Hysteria2AuthenticatedConnection>,
     flow_io: Hysteria2UdpFlowIo,
     responses: Hysteria2UdpFlowResponses,
 ) {
     tokio::spawn(async move {
-        while let Ok(data) = conn.read_datagram().await {
-            let Some(packet) = flow_io.decode_packet(&data) else {
+        let mut reassembler = Hysteria2UdpReassembler::default();
+        while let Ok(data) = conn.connection().read_datagram().await {
+            let Ok(fragment) = parse_udp_datagram(&data) else {
                 continue;
             };
-            let (target, port, payload) = packet.into_parts();
+            if fragment.session_id != flow_io.session_id {
+                continue;
+            }
+            let Ok(Some(packet)) = reassembler.push(fragment) else {
+                continue;
+            };
+            let (_, _, target, port, payload) = packet.into_parts();
             if responses.send((target, port, payload)).is_err() {
                 break;
             }
@@ -1174,7 +1415,7 @@ impl Hysteria2UdpFlowResume {
     }
 
     pub fn flow_io(&self) -> Hysteria2UdpFlowIo {
-        Hysteria2UdpFlowIo
+        Hysteria2UdpFlowIo::new()
     }
 
     pub fn encode_packet(
@@ -1297,6 +1538,10 @@ pub struct Hysteria2UdpConnectorProfile {
 }
 
 impl Hysteria2UdpConnectorProfile {
+    pub(crate) fn password(&self) -> &str {
+        &self.password
+    }
+
     pub fn client_fingerprint(&self) -> Option<&str> {
         self.client_fingerprint.as_deref()
     }

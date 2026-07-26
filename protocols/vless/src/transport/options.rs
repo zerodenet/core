@@ -2,10 +2,12 @@
 pub struct VlessInboundUserRef<'a> {
     pub id: &'a str,
     pub flow: Option<&'a str>,
-    pub credential_id: Option<&'a str>,
     pub principal_key: Option<&'a str>,
     pub up_bps: Option<u64>,
     pub down_bps: Option<u64>,
+    pub device_limit: Option<u32>,
+    pub quota_remaining_bytes: Option<u64>,
+    pub policy_revision: Option<u64>,
 }
 
 pub struct VlessInboundOptionsRef<
@@ -28,6 +30,8 @@ pub struct VlessInboundOptionsRef<
     pub http_upgrade: Option<&'a THttp>,
     pub split_http: Option<&'a TSplit>,
     pub fallback: Option<&'a TFallback>,
+    pub mux_response_backlog_frames: Option<u32>,
+    pub mux_response_backlog_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -35,6 +39,10 @@ pub struct VlessOutboundOptionsRef<'a> {
     pub id: &'a str,
     pub flow: Option<&'a str>,
     pub mux_concurrency: Option<u32>,
+    pub xudp_concurrency: Option<u32>,
+    pub mux_idle_timeout_secs: Option<u64>,
+    pub mux_response_backlog_frames: Option<u32>,
+    pub mux_response_backlog_bytes: Option<u64>,
     pub reality: Option<VlessRealityClientOptionsRef<'a>>,
     pub quic: Option<VlessQuicClientOptionsRef<'a>>,
 }

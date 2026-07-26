@@ -4,6 +4,7 @@ use zero_engine::EngineError;
 
 use super::accounting::{record_tcp_download, record_tcp_upload};
 use crate::protocol_registry::TcpRuntimeServices;
+use crate::runtime::principal_rate_limit::TrafficRateLimiters;
 use crate::transport::{relay_bidirectional_metered_throttled, TcpRelayStream};
 
 #[async_trait]
@@ -25,12 +26,11 @@ pub(crate) trait InboundProtocol: Send + Sync {
         upstream: TcpRelayStream,
         services: TcpRuntimeServices,
         session_id: u64,
-        up_bps: Option<u64>,
-        down_bps: Option<u64>,
+        rate_limiters: TrafficRateLimiters,
     ) -> Result<(), EngineError> {
         let upload_services = services.clone();
         let download_services = services;
-        relay_bidirectional_metered_throttled(
+        let result = relay_bidirectional_metered_throttled(
             client,
             upstream,
             move |bytes| {
@@ -39,11 +39,11 @@ pub(crate) trait InboundProtocol: Send + Sync {
             move |bytes| {
                 record_tcp_download(&download_services, session_id, bytes);
             },
-            up_bps,
-            down_bps,
+            rate_limiters.upload(),
+            rate_limiters.download(),
         )
-        .await
-        .map(|_| ())
-        .map_err(EngineError::Io)
+        .await;
+        drop(rate_limiters);
+        result.map(|_| ()).map_err(EngineError::Io)
     }
 }

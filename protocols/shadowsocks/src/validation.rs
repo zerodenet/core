@@ -74,16 +74,15 @@ pub fn validate_password(cipher: &str, password: &str) -> Result<(), String> {
 
     #[cfg(feature = "blake3")]
     {
-        let key = if matches!(
-            cipher,
-            CipherKind::Blake3Aes128Gcm | CipherKind::Blake3Aes256Gcm
-        ) {
-            password.rsplit(':').next().unwrap_or(password)
-        } else {
-            password
-        };
-        decode_blake3_master_key(cipher, key.as_bytes())
-            .map(|_| ())
+        let keys = password.split(':').collect::<Vec<_>>();
+        if keys.iter().any(|key| key.is_empty()) {
+            return Err("2022 password chain contains an empty PSK".into());
+        }
+        if keys.len() > 1 && cipher == CipherKind::Blake3Chacha20Poly1305 {
+            return Err("SIP023 EIH requires a 2022 AES method".into());
+        }
+        keys.into_iter()
+            .try_for_each(|key| decode_blake3_master_key(cipher, key.as_bytes()).map(|_| ()))
             .map_err(|error| error.to_string())
     }
 

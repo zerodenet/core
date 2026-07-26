@@ -187,8 +187,18 @@ async fn udp_stream_framing_roundtrips_packet() {
     .expect("write trojan udp packet");
 
     assert_eq!(writer.writes.len(), 1);
-    let body_len = u16::from_be_bytes([writer.writes[0][0], writer.writes[0][1]]) as usize;
-    assert_eq!(body_len, writer.writes[0].len() - 2);
+    assert_eq!(writer.writes[0][0], 0x01);
+    assert_eq!(&writer.writes[0][1..5], &[8, 8, 8, 8]);
+    assert_eq!(
+        u16::from_be_bytes([writer.writes[0][5], writer.writes[0][6]]),
+        53
+    );
+    assert_eq!(
+        u16::from_be_bytes([writer.writes[0][7], writer.writes[0][8]]),
+        5
+    );
+    assert_eq!(&writer.writes[0][9..11], CRLF);
+    assert_eq!(&writer.writes[0][11..], b"query");
 
     let mut reader = RecordingSocket {
         read_buf: writer.writes[0].clone(),
@@ -219,22 +229,41 @@ async fn inbound_udp_helpers_roundtrip_response_packet() {
         .await
         .expect("write trojan udp handshake");
 
-    let route = TrojanInboundProfile::from_config_password(password)
-        .accept_client_owned(
-            TrojanInbound,
-            RecordingSocket {
-                read_buf: handshake_writer.writes[0].clone(),
-                ..RecordingSocket::default()
-            },
-        )
-        .await
-        .expect("accept trojan udp route");
+    let route = TrojanInboundProfile::from_config_users([(
+        password.to_owned(),
+        Some("account:42".to_owned()),
+        Some(1_000),
+        Some(2_000),
+        Some(3),
+        Some(4096),
+        Some(2),
+    )])
+    .accept_client_owned(
+        TrojanInbound,
+        RecordingSocket {
+            read_buf: handshake_writer.writes[0].clone(),
+            ..RecordingSocket::default()
+        },
+    )
+    .await
+    .expect("accept trojan udp route");
 
     InboundStreamRoute::dispatch_inbound_route(
         route,
         |_, _| async { panic!("expected trojan udp route") },
-        |_, relay| async move {
-            let (_, mut udp_responder, _) = relay.into_stream_udp_parts();
+        |session, relay| async move {
+            let auth = session.auth.expect("Trojan session auth");
+            assert_eq!(auth.principal_key.as_deref(), Some("account:42"));
+            assert_eq!(auth.up_bps, Some(1_000));
+            assert_eq!(auth.down_bps, Some(2_000));
+            assert_eq!(auth.device_limit, Some(3));
+            assert_eq!(auth.quota_remaining_bytes, Some(4096));
+            assert_eq!(auth.policy_revision, Some(2));
+            let (_, mut udp_responder, relay_auth) = relay.into_stream_udp_parts();
+            assert_eq!(
+                relay_auth.and_then(|auth| auth.principal_key),
+                Some("account:42".to_owned())
+            );
             let mut writer = RecordingSocket::default();
 
             StreamUdpResponder::write_response_for_target(

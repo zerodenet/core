@@ -4,6 +4,7 @@ use zero_engine::EngineError;
 
 use super::super::UdpDispatch;
 use crate::runtime::path::UdpPathCategory;
+use crate::runtime::udp_dispatch::model::UdpFlowCancellation;
 use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
 use crate::runtime::udp_socket::send_direct_udp_packet;
 
@@ -19,6 +20,12 @@ impl UdpDispatch {
     ) -> Result<(), EngineError> {
         let services = self.runtime.runtime_services();
         let started_at = Instant::now();
+        if !flow.rate_limiters.throttle_upload(payload.len()).await {
+            self.finish_cancelled_flow(UdpFlowCancellation::new(flow.session.id, false));
+            return Err(EngineError::Io(std::io::Error::other(
+                "UDP flow cancelled while upload was rate limited",
+            )));
+        }
         services.record_session_inbound_rx(flow.session.id, payload.len() as u64);
 
         match flow.outbound.path_category() {

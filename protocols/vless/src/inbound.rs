@@ -24,30 +24,37 @@ pub struct VlessInbound;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VlessUser {
-    pub credential_id: Option<String>,
     pub principal_key: Option<String>,
     pub up_bps: Option<u64>,
     pub down_bps: Option<u64>,
+    pub device_limit: Option<u32>,
+    pub quota_remaining_bytes: Option<u64>,
+    pub policy_revision: Option<u64>,
     pub flow: Option<&'static str>,
 }
 
 impl VlessUser {
     pub fn new() -> Self {
         Self {
-            credential_id: None,
             principal_key: None,
             up_bps: None,
             down_bps: None,
+            device_limit: None,
+            quota_remaining_bytes: None,
+            policy_revision: None,
             flow: None,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn from_config(
         flow: Option<&str>,
-        credential_id: Option<String>,
         principal_key: Option<String>,
         up_bps: Option<u64>,
         down_bps: Option<u64>,
+        device_limit: Option<u32>,
+        quota_remaining_bytes: Option<u64>,
+        policy_revision: Option<u64>,
     ) -> Result<Self, Error> {
         #[cfg(feature = "reality")]
         let flow = flow.map(crate::flow::parse_flow).transpose()?;
@@ -61,10 +68,12 @@ impl VlessUser {
             None
         };
         Ok(Self {
-            credential_id,
             principal_key,
             up_bps,
             down_bps,
+            device_limit,
+            quota_remaining_bytes,
+            policy_revision,
             flow,
         })
     }
@@ -90,23 +99,36 @@ pub type VlessInboundUserConfigParts = (
     String,
     Option<String>,
     Option<String>,
-    Option<String>,
+    Option<u64>,
+    Option<u64>,
+    Option<u32>,
     Option<u64>,
     Option<u64>,
 );
 
 impl VlessConfiguredUser {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_config(
         id: &str,
         flow: Option<&str>,
-        credential_id: Option<String>,
         principal_key: Option<String>,
         up_bps: Option<u64>,
         down_bps: Option<u64>,
+        device_limit: Option<u32>,
+        quota_remaining_bytes: Option<u64>,
+        policy_revision: Option<u64>,
     ) -> Result<Self, Error> {
         Ok(Self {
             id: parse_uuid(id)?,
-            user: VlessUser::from_config(flow, credential_id, principal_key, up_bps, down_bps)?,
+            user: VlessUser::from_config(
+                flow,
+                principal_key,
+                up_bps,
+                down_bps,
+                device_limit,
+                quota_remaining_bytes,
+                policy_revision,
+            )?,
         })
     }
 }
@@ -259,6 +281,7 @@ impl<S> VlessAcceptedClient<S> {
     pub(crate) async fn into_route_with_sni(
         self,
         sni: Option<String>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Result<VlessAcceptedClientRoute<S>, Error>
     where
         S: AsyncSocket,
@@ -274,7 +297,9 @@ impl<S> VlessAcceptedClient<S> {
                 #[cfg(feature = "reality")]
                 {
                     let auth = session.auth.clone();
-                    let responder = VlessInbound.accept_udp_session(&mut stream).await?;
+                    let responder = VlessInbound
+                        .accept_udp_session(&mut stream, &session)
+                        .await?;
                     Ok(VlessAcceptedClientRoute::udp(
                         session,
                         VlessInboundUdpRelay::new(stream, responder, auth),
@@ -292,7 +317,12 @@ impl<S> VlessAcceptedClient<S> {
                 {
                     let auth = session.auth.clone();
                     let mux_server = VlessInbound
-                        .accept_mux_session_with_auth(&mut stream, mux_master_uuid, auth)
+                        .accept_mux_session_with_auth(
+                            &mut stream,
+                            mux_master_uuid,
+                            auth,
+                            mux_response_backlog,
+                        )
                         .await?;
                     Ok(VlessAcceptedClientRoute::mux(mux_server, stream))
                 }
@@ -549,16 +579,39 @@ fn classify_inbound_session(session: &Session) -> VlessInboundSessionKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct VlessInboundProfile {
-    users: Arc<[VlessConfiguredUser]>,
+    users: Arc<std::sync::RwLock<Arc<[VlessConfiguredUser]>>>,
+}
+
+impl core::fmt::Debug for VlessInboundProfile {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("VlessInboundProfile")
+            .field("user_count", &self.user_count())
+            .finish()
+    }
 }
 
 impl VlessInboundProfile {
     pub fn from_users(users: Vec<VlessConfiguredUser>) -> Self {
         Self {
-            users: users.into(),
+            users: Arc::new(std::sync::RwLock::new(users.into())),
         }
+    }
+
+    pub fn user_count(&self) -> usize {
+        self.users
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .len()
+    }
+
+    pub fn replace_users(&self, users: Vec<VlessConfiguredUser>) {
+        *self
+            .users
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = users.into();
     }
 
     pub fn from_config_parts<I>(users: I) -> Result<Self, Error>
@@ -568,14 +621,25 @@ impl VlessInboundProfile {
         users
             .into_iter()
             .map(
-                |(id, flow, credential_id, principal_key, up_bps, down_bps)| {
+                |(
+                    id,
+                    flow,
+                    principal_key,
+                    up_bps,
+                    down_bps,
+                    device_limit,
+                    quota_remaining_bytes,
+                    policy_revision,
+                )| {
                     VlessConfiguredUser::from_config(
                         &id,
                         flow.as_deref(),
-                        credential_id,
                         principal_key,
                         up_bps,
                         down_bps,
+                        device_limit,
+                        quota_remaining_bytes,
+                        policy_revision,
                     )
                 },
             )
@@ -591,6 +655,42 @@ impl VlessInboundProfile {
         Self::from_config_parts(users.into_iter().map(U::into_vless_inbound_user_config))
     }
 
+    pub fn replace_config_users<I, U>(&self, users: I) -> Result<(), Error>
+    where
+        I: IntoIterator<Item = U>,
+        U: IntoVlessInboundUserConfig,
+    {
+        let replacement = users
+            .into_iter()
+            .map(IntoVlessInboundUserConfig::into_vless_inbound_user_config)
+            .map(
+                |(
+                    id,
+                    flow,
+                    principal_key,
+                    up_bps,
+                    down_bps,
+                    device_limit,
+                    quota_remaining_bytes,
+                    policy_revision,
+                )| {
+                    VlessConfiguredUser::from_config(
+                        &id,
+                        flow.as_deref(),
+                        principal_key,
+                        up_bps,
+                        down_bps,
+                        device_limit,
+                        quota_remaining_bytes,
+                        policy_revision,
+                    )
+                },
+            )
+            .collect::<Result<Vec<_>, Error>>()?;
+        self.replace_users(replacement);
+        Ok(())
+    }
+
     pub async fn accept_tcp_with_auth_and_id<S>(
         &self,
         inbound: VlessInbound,
@@ -599,7 +699,12 @@ impl VlessInboundProfile {
     where
         S: AsyncSocket,
     {
-        let auth = VlessConfiguredUsers::new(&self.users);
+        let users = self
+            .users
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        let auth = VlessConfiguredUsers::new(users.as_ref());
         inbound.accept_tcp_with_auth_and_id(stream, &auth).await
     }
 
@@ -611,7 +716,11 @@ impl VlessInboundProfile {
     where
         S: AsyncSocket,
     {
-        let users = self.users;
+        let users = self
+            .users
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
         let auth = VlessConfiguredUsers::new(users.as_ref());
         match inbound
             .accept_tcp_with_auth_and_id(&mut stream, &auth)
@@ -633,7 +742,12 @@ impl VlessInboundProfile {
     where
         S: AsyncSocket,
     {
-        let auth = VlessConfiguredUsers::new(&self.users);
+        let users = self
+            .users
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        let auth = VlessConfiguredUsers::new(users.as_ref());
         inbound.accept_tcp_with_auth(stream, &auth).await
     }
 }
@@ -654,10 +768,12 @@ impl IntoVlessInboundUserConfig for crate::transport::VlessInboundUserRef<'_> {
         (
             self.id.to_owned(),
             self.flow.map(str::to_owned),
-            self.credential_id.map(str::to_owned),
             self.principal_key.map(str::to_owned),
             self.up_bps,
             self.down_bps,
+            self.device_limit,
+            self.quota_remaining_bytes,
+            self.policy_revision,
         )
     }
 }
@@ -673,12 +789,19 @@ impl VlessInbound {
         stream: &mut S,
         mux_master_uuid: [u8; 16],
         auth: Option<SessionAuth>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Result<crate::mux::VlessInboundMuxServer, Error>
     where
         S: AsyncSocket,
     {
         self.send_response(stream).await?;
-        Ok(crate::mux::VlessInboundMuxServer::from_master_uuid_with_auth(mux_master_uuid, auth))
+        Ok(
+            crate::mux::VlessInboundMuxServer::from_master_uuid_with_auth(
+                mux_master_uuid,
+                auth,
+                mux_response_backlog,
+            ),
+        )
     }
 
     /// Accept a VLESS connection, authenticate the user, and return both
@@ -699,10 +822,12 @@ impl VlessInbound {
                 return Err(Error::Unsupported("VLESS user is not authorized"));
             };
             let mut sa = SessionAuth::new("vless");
-            sa.credential_id = user.credential_id;
             sa.principal_key = user.principal_key;
             sa.up_bps = user.up_bps;
             sa.down_bps = user.down_bps;
+            sa.device_limit = user.device_limit;
+            sa.quota_remaining_bytes = user.quota_remaining_bytes;
+            sa.policy_revision = user.policy_revision;
             session.apply_auth(sa);
             Ok((session, id))
         }
@@ -713,10 +838,12 @@ impl VlessInbound {
                 return Err(Error::Unsupported("VLESS user is not authorized"));
             };
             let mut sa = SessionAuth::new("vless");
-            sa.credential_id = user.credential_id;
             sa.principal_key = user.principal_key;
             sa.up_bps = user.up_bps;
             sa.down_bps = user.down_bps;
+            sa.device_limit = user.device_limit;
+            sa.quota_remaining_bytes = user.quota_remaining_bytes;
+            sa.policy_revision = user.policy_revision;
             session.apply_auth(sa);
             Ok((session, id))
         }
@@ -738,9 +865,13 @@ impl VlessInbound {
                 return Err(Error::Unsupported("VLESS user is not authorized"));
             };
             let mut sa = SessionAuth::new("vless");
-            sa.credential_id = user.credential_id;
             sa.principal_key = user.principal_key;
-            session.auth = Some(sa);
+            sa.up_bps = user.up_bps;
+            sa.down_bps = user.down_bps;
+            sa.device_limit = user.device_limit;
+            sa.quota_remaining_bytes = user.quota_remaining_bytes;
+            sa.policy_revision = user.policy_revision;
+            session.apply_auth(sa);
             Ok(session)
         }
         #[cfg(not(feature = "reality"))]
@@ -750,9 +881,13 @@ impl VlessInbound {
                 return Err(Error::Unsupported("VLESS user is not authorized"));
             };
             let mut sa = SessionAuth::new("vless");
-            sa.credential_id = user.credential_id;
             sa.principal_key = user.principal_key;
-            session.auth = Some(sa);
+            sa.up_bps = user.up_bps;
+            sa.down_bps = user.down_bps;
+            sa.device_limit = user.device_limit;
+            sa.quota_remaining_bytes = user.quota_remaining_bytes;
+            sa.policy_revision = user.policy_revision;
+            session.apply_auth(sa);
             Ok(session)
         }
     }
@@ -861,6 +996,9 @@ where
     read_addon(stream).await?;
     let mut command = [0_u8; 1];
     read_exact(stream, &mut command).await?;
+    if command[0] == CMD_MUX {
+        return command_to_session(CMD_MUX, Address::Domain(String::new()), 0, id);
+    }
     let mut port = [0_u8; 2];
     read_exact(stream, &mut port).await?;
     let port = u16::from_be_bytes(port);
@@ -897,6 +1035,9 @@ where
     } else {
         let mut command = [0_u8; 1];
         read_exact(stream, &mut command).await?;
+        if command[0] == CMD_MUX {
+            return command_to_session(CMD_MUX, Address::Domain(String::new()), 0, id);
+        }
         let mut port = [0_u8; 2];
         read_exact(stream, &mut port).await?;
         let port = u16::from_be_bytes(port);
@@ -940,11 +1081,6 @@ where
             if command[0] != CMD_MUX {
                 return Err(Error::Protocol("VLESS MUX expected"));
             }
-            let mut port = [0_u8; 2];
-            read_exact(stream, &mut port).await?;
-            let mut atyp = [0_u8; 1];
-            read_exact(stream, &mut atyp).await?;
-            let _ = read_address(stream, atyp[0]).await?;
         }
     }
     #[cfg(not(feature = "reality"))]
@@ -955,11 +1091,6 @@ where
         if command[0] != CMD_MUX {
             return Err(Error::Protocol("VLESS MUX expected"));
         }
-        let mut port = [0_u8; 2];
-        read_exact(stream, &mut port).await?;
-        let mut atyp = [0_u8; 1];
-        read_exact(stream, &mut atyp).await?;
-        let _ = read_address(stream, atyp[0]).await?;
     }
 
     Ok((

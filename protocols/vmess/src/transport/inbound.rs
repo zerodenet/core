@@ -17,6 +17,7 @@ pub struct VmessInboundListenerRequest {
     ws: Option<OwnedWebSocketProfile>,
     grpc: Option<OwnedGrpcProfile>,
     protocol_name: &'static str,
+    mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
 }
 
 impl VmessInboundListenerRequest {
@@ -33,6 +34,7 @@ impl VmessInboundListenerRequest {
         tls: Option<&TTls>,
         ws: Option<&TWs>,
         grpc: Option<&TGrpc>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Result<Self, RuntimeError>
     where
         TTls: ServerTlsProfile + ?Sized,
@@ -61,6 +63,7 @@ impl VmessInboundListenerRequest {
             ws: ws.map(OwnedWebSocketProfile::from_profile),
             grpc: grpc.map(OwnedGrpcProfile::from_profile),
             protocol_name,
+            mux_response_backlog,
         })
     }
 
@@ -79,9 +82,20 @@ impl VmessInboundListenerRequest {
             tls,
             ws,
             grpc,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
         } = options;
         let profile = crate::inbound::VmessInboundProfile::from_config_users(users)?;
-        Self::from_profile_refs(source_dir, profile, tls, ws, grpc)
+        let mux_response_backlog = crate::mux::MuxResponseBacklogPolicy::from_config(
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+        )?;
+        Self::from_profile_refs(source_dir, profile, tls, ws, grpc, mux_response_backlog)
+    }
+
+    pub fn with_profile(mut self, profile: crate::inbound::VmessInboundProfile) -> Self {
+        self.profile = profile;
+        self
     }
 
     pub fn protocol_name(&self) -> &'static str {
@@ -111,7 +125,11 @@ impl VmessInboundListenerRequest {
         )
         .await?;
         self.profile
-            .accept_client_owned(crate::inbound::VmessInbound, stream)
+            .accept_client_owned(
+                crate::inbound::VmessInbound,
+                stream,
+                self.mux_response_backlog,
+            )
             .await
             .map_err(RuntimeError::from)
     }

@@ -201,7 +201,10 @@ async fn relays_tcp_through_urltest_group_after_probe_selects_direct() {
 }
 
 async fn wait_for_probe_event(subscriber: &EventSubscriber, trigger: &str) -> RawApiEvent {
-    for _ in 0..200 {
+    // A probe may spend up to five seconds on each member. Keep the test
+    // window above that production bound so a slow unreachable member does
+    // not hide the completion event on platforms with delayed connect errors.
+    for _ in 0..600 {
         if let Some(event) = subscriber.try_recv() {
             if event.payload["trigger"] == trigger {
                 return event;

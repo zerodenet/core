@@ -34,6 +34,23 @@ pub(crate) struct VmessAdapter {
 }
 
 #[cfg(feature = "vmess")]
+fn inbound_user_refs(users: &[zero_config::VmessUserConfig]) -> Vec<VmessInboundUserRef<'_>> {
+    users
+        .iter()
+        .map(|user| VmessInboundUserRef {
+            id: user.id.as_str(),
+            cipher: user.cipher.as_str(),
+            principal_key: user.principal_key.as_deref(),
+            up_bps: user.up_bps,
+            down_bps: user.down_bps,
+            device_limit: user.device_limit,
+            quota_remaining_bytes: user.quota_remaining_bytes,
+            policy_revision: user.policy_revision,
+        })
+        .collect()
+}
+
+#[cfg(feature = "vmess")]
 #[async_trait::async_trait]
 impl ProxyTransportTcpLeaf for VmessOutboundLeaf {
     const TCP_CONNECT_STAGE: &'static str = "connect_upstream_vmess";
@@ -110,6 +127,9 @@ fn outbound_options<'a>(
         id,
         cipher,
         mux_concurrency,
+        mux_idle_timeout_secs,
+        mux_response_backlog_frames,
+        mux_response_backlog_bytes,
         tls,
         ws,
         grpc,
@@ -126,6 +146,9 @@ fn outbound_options<'a>(
             id,
             cipher,
             mux_concurrency: *mux_concurrency,
+            mux_idle_timeout_secs: *mux_idle_timeout_secs,
+            mux_response_backlog_frames: *mux_response_backlog_frames,
+            mux_response_backlog_bytes: *mux_response_backlog_bytes,
         },
         tls: tls.as_deref(),
         ws: ws.as_deref(),
@@ -244,8 +267,21 @@ impl NamedProtocolAdapter for VmessAdapter {
     const PROTOCOL_NAME: &'static str = "vmess";
     const FEATURE_NAME: &'static str = "vmess";
 
-    fn on_config_reloaded(&self) {
+    fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
         self.runtime.on_config_reloaded();
+        for inbound in &config.inbounds {
+            let InboundProtocolConfig::Vmess { users, .. } = &inbound.protocol else {
+                continue;
+            };
+            let users = inbound_user_refs(users);
+            if let Err(error) = self.runtime.replace_inbound_profile(&inbound.tag, &users) {
+                tracing::error!(
+                    inbound_tag = %inbound.tag,
+                    %error,
+                    "validated VMess users could not be applied to the live profile"
+                );
+            }
+        }
     }
 }
 
@@ -272,23 +308,28 @@ impl InboundListenerCapability for VmessAdapter {
                 tls,
                 ws,
                 grpc,
-            } => VmessInboundListenerRequest::from_options_refs(
-                source_dir,
-                VmessInboundOptionsRef {
-                    users: users.iter().map(|user| VmessInboundUserRef {
-                        id: user.id.as_str(),
-                        cipher: user.cipher.as_str(),
-                        credential_id: user.credential_id.as_deref(),
-                        principal_key: user.principal_key.as_deref(),
-                        up_bps: user.up_bps,
-                        down_bps: user.down_bps,
-                    }),
-                    tls: tls.as_deref(),
-                    ws: ws.as_deref(),
-                    grpc: grpc.as_deref(),
-                },
-            )
-            .map_err(EngineError::from)?,
+                mux_response_backlog_frames,
+                mux_response_backlog_bytes,
+            } => {
+                let user_refs = inbound_user_refs(users);
+                let profile = self
+                    .runtime
+                    .replace_inbound_profile(&inbound.tag, &user_refs)
+                    .map_err(EngineError::from)?;
+                VmessInboundListenerRequest::from_options_refs(
+                    source_dir,
+                    VmessInboundOptionsRef {
+                        users: user_refs.iter().copied(),
+                        tls: tls.as_deref(),
+                        ws: ws.as_deref(),
+                        grpc: grpc.as_deref(),
+                        mux_response_backlog_frames: *mux_response_backlog_frames,
+                        mux_response_backlog_bytes: *mux_response_backlog_bytes,
+                    },
+                )
+                .map_err(EngineError::from)?
+                .with_profile(profile)
+            }
             _ => {
                 return Err(EngineError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,

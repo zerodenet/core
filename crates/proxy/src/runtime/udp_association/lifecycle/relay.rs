@@ -43,7 +43,8 @@ where
     let mut upstream_buf = vec![0_u8; 64 * 1024];
 
     loop {
-        let (direct_sock, upstream_udp, idle_deadline, chain_tasks) = dispatch.poll_refs();
+        let (direct_sock, upstream_udp, idle_deadline, chain_tasks, cancel_rx) =
+            dispatch.poll_refs();
 
         select! {
             control = client.read(&mut control_probe) => {
@@ -93,6 +94,11 @@ where
             }
             _ = wait_for_upstream_idle(idle_deadline) => {
                 handle_idle_timeout(&context, &mut dispatch);
+            }
+            Some(session_id) = cancel_rx.recv() => {
+                if dispatch.finish_cancelled_flow(session_id) {
+                    break;
+                }
             }
         }
     }

@@ -22,7 +22,8 @@ where
     R: DatagramUdpResponder<S>,
 {
     loop {
-        let (direct_sock, upstream_udp, upstream_idle_deadline, chain_tasks) = dispatch.poll_refs();
+        let (direct_sock, upstream_udp, upstream_idle_deadline, chain_tasks, cancel_rx) =
+            dispatch.poll_refs();
         select! {
             read = responder.read_inbound_dispatch(source) => {
                 if !process_datagram_read::<S, R>(context, dispatch, responder, read).await {
@@ -61,6 +62,11 @@ where
             _ = wait_for_upstream_idle(upstream_idle_deadline) => {}
             Some(chain_result) = chain_tasks.join_next() => {
                 handle_chain_result(context, dispatch, source, responder, chain_result).await;
+            }
+            Some(session_id) = cancel_rx.recv() => {
+                if dispatch.finish_cancelled_flow(session_id) {
+                    break;
+                }
             }
         }
     }

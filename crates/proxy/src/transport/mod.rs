@@ -6,10 +6,12 @@
 //! Concrete carrier implementations remain in the `zero-transport` crate.
 
 mod direct;
+mod rate_limit;
 mod tcp_outbound;
 mod tcp_relay;
 
 pub(crate) use direct::DirectConnector;
+pub(crate) use rate_limit::SharedRateLimiter;
 pub(crate) use tcp_outbound::{
     extract_tcp_stream, is_block_error, EstablishedTcpOutbound, TcpOutboundFailure, TcpRouteResult,
 };

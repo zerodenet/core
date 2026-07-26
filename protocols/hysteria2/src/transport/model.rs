@@ -23,6 +23,7 @@ pub struct Hysteria2InboundTcpResponseProtocol {
 
 pub struct Hysteria2AuthenticatedQuicConnection {
     pub(super) protocol: crate::inbound::Hysteria2AcceptedQuicConnection,
+    pub(super) _http3: Option<super::auth::Hysteria2Http3ServerGuard>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

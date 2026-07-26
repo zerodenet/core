@@ -14,7 +14,21 @@ use crate::runtime::packet_session_udp::contract::{
     PacketSessionUdpFailurePolicy, PacketSessionUdpHandler, PacketSessionUdpRelayRequest,
 };
 use crate::runtime::udp_delivery::log_completed_udp_flow;
+use crate::runtime::udp_dispatch::UdpDispatch;
 use crate::runtime::udp_ingress::UdpIngressRuntime;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PacketSessionUdpLoopExit {
+    InboundEnded,
+    IdleTimeout,
+    AssociationCancelled,
+}
+
+pub(crate) struct PacketSessionUdpRelayExit<H> {
+    pub(crate) handler: H,
+    pub(crate) dispatch: UdpDispatch,
+    pub(crate) outcome: Result<PacketSessionUdpLoopExit, EngineError>,
+}
 
 pub(super) struct PacketSessionUdpLoopContext<'a> {
     pub(super) runtime: &'a UdpIngressRuntime,
@@ -33,7 +47,7 @@ where
     H: PacketSessionUdpHandler,
 {
     let PacketSessionUdpRelayRequest {
-        mut handler,
+        handler,
         inbound_tag,
         protocol,
         auth,
@@ -43,6 +57,7 @@ where
     let mut dispatch = match runtime.new_dispatch(inbound_tag).await {
         Ok(dispatch) => dispatch,
         Err(error) => {
+            let mut handler = handler;
             return handle_runtime_failure(
                 &mut handler,
                 failure_policy,
@@ -54,6 +69,52 @@ where
             .await;
         }
     };
+
+    let exit = run_packet_session_udp_relay_with_dispatch(
+        runtime,
+        PacketSessionUdpRelayRequest {
+            handler,
+            inbound_tag,
+            protocol,
+            auth,
+            failure_policy,
+        },
+        dispatch,
+    )
+    .await;
+
+    dispatch = exit.dispatch;
+    for completed in dispatch.finish_all() {
+        log_completed_udp_flow(completed);
+    }
+
+    let mut handler = exit.handler;
+    let _ = handler.finish().await;
+
+    info!(
+        inbound_tag = inbound_tag,
+        protocol = protocol,
+        "packet session udp relay ended"
+    );
+
+    exit.outcome.map(|_| ())
+}
+
+pub(crate) async fn run_packet_session_udp_relay_with_dispatch<H>(
+    runtime: UdpIngressRuntime,
+    request: PacketSessionUdpRelayRequest<'_, H>,
+    mut dispatch: UdpDispatch,
+) -> PacketSessionUdpRelayExit<H>
+where
+    H: PacketSessionUdpHandler,
+{
+    let PacketSessionUdpRelayRequest {
+        mut handler,
+        inbound_tag,
+        protocol,
+        auth,
+        failure_policy,
+    } = request;
 
     let timeout = runtime.services().udp_upstream_idle_timeout();
     let mut last_activity = TokioInstant::now();
@@ -77,7 +138,7 @@ where
     );
 
     #[cfg(feature = "upstream-association-runtime")]
-    run_loop(
+    let outcome = run_loop(
         &context,
         &mut handler,
         &mut dispatch,
@@ -85,29 +146,21 @@ where
         direct_buf.as_mut_slice(),
         upstream_buf.as_mut_slice(),
     )
-    .await?;
+    .await;
 
     #[cfg(not(feature = "upstream-association-runtime"))]
-    run_loop(
+    let outcome = run_loop(
         &context,
         &mut handler,
         &mut dispatch,
         &mut last_activity,
         direct_buf.as_mut_slice(),
     )
-    .await?;
+    .await;
 
-    for completed in dispatch.finish_all() {
-        log_completed_udp_flow(completed);
+    PacketSessionUdpRelayExit {
+        handler,
+        dispatch,
+        outcome,
     }
-
-    let _ = handler.finish().await;
-
-    info!(
-        inbound_tag = inbound_tag,
-        protocol = protocol,
-        "packet session udp relay ended"
-    );
-
-    Ok(())
 }

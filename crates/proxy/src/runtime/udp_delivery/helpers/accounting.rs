@@ -1,4 +1,5 @@
 use crate::protocol_registry::UdpRuntimeServices;
+use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
 
 fn record_udp_inbound_response_rx(
     services: &UdpRuntimeServices,
@@ -23,6 +24,7 @@ fn record_udp_inbound_response_tx(
 pub(crate) struct UdpInboundResponseAccounting {
     services: UdpRuntimeServices,
     session_id: Option<u64>,
+    rate_limiters: UdpFlowRateLimiters,
 }
 
 impl UdpInboundResponseAccounting {
@@ -30,12 +32,18 @@ impl UdpInboundResponseAccounting {
         services: &UdpRuntimeServices,
         session_id: Option<u64>,
         payload_len: usize,
+        rate_limiters: UdpFlowRateLimiters,
     ) -> Self {
         record_udp_inbound_response_rx(services, session_id, payload_len);
         Self {
             services: services.clone(),
             session_id,
+            rate_limiters,
         }
+    }
+
+    pub(crate) async fn throttle_download(&self, payload_len: usize) -> bool {
+        self.rate_limiters.throttle_download(payload_len).await
     }
 
     pub(crate) fn record_sent(&self, written_len: usize) {

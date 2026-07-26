@@ -1,6 +1,7 @@
-#[derive(Debug, Clone, Copy)]
-pub struct TrojanInboundOptionsRef<'a> {
-    pub password: &'a str,
+pub use crate::inbound::TrojanInboundUserRef;
+
+pub struct TrojanInboundOptionsRef<I> {
+    pub users: I,
 }
 
 #[derive(Debug, Clone, Copy)]

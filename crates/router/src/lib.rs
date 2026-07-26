@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use zero_core::Address;
@@ -68,16 +69,27 @@ impl RuleSet {
     }
 
     pub fn decide_ref_with_context(&self, context: RouteContext<'_>) -> &RouteAction {
-        let rule_query = condition::prepare_rule_query(context.address);
+        self.decide_ref_with_context_and_resolved_ips(context, &[])
+    }
+
+    pub fn decide_ref_with_context_and_resolved_ips(
+        &self,
+        context: RouteContext<'_>,
+        resolved_ips: &[IpAddr],
+    ) -> &RouteAction {
+        let route_queries = condition::prepare_route_queries(context.address, resolved_ips);
         self.rules
             .iter()
             .find(|rule| {
-                condition::condition_matches(
-                    &rule.condition,
-                    context,
-                    self.geoip_db.as_deref(),
-                    rule_query.as_ref(),
-                )
+                route_queries.iter().any(|query| {
+                    condition::condition_matches(
+                        &rule.condition,
+                        context,
+                        self.geoip_db.as_deref(),
+                        query.rule_query(),
+                        query.resolved_ip(),
+                    )
+                })
             })
             .map(|rule| &rule.action)
             .unwrap_or(&self.final_action)
@@ -89,6 +101,15 @@ impl RuleSet {
 
     pub fn decide_with_context(&self, context: RouteContext<'_>) -> RouteAction {
         self.decide_ref_with_context(context).clone()
+    }
+
+    pub fn decide_with_context_and_resolved_ips(
+        &self,
+        context: RouteContext<'_>,
+        resolved_ips: &[IpAddr],
+    ) -> RouteAction {
+        self.decide_ref_with_context_and_resolved_ips(context, resolved_ips)
+            .clone()
     }
 
     /// Like [`decide`](Self::decide) but also returns which rule matched
@@ -103,14 +124,25 @@ impl RuleSet {
     }
 
     pub fn decide_trace_with_context(&self, context: RouteContext<'_>) -> RouteDecision {
-        let rule_query = condition::prepare_rule_query(context.address);
+        self.decide_trace_with_context_and_resolved_ips(context, &[])
+    }
+
+    pub fn decide_trace_with_context_and_resolved_ips(
+        &self,
+        context: RouteContext<'_>,
+        resolved_ips: &[IpAddr],
+    ) -> RouteDecision {
+        let route_queries = condition::prepare_route_queries(context.address, resolved_ips);
         if let Some((index, rule)) = self.rules.iter().enumerate().find(|(_, rule)| {
-            condition::condition_matches(
-                &rule.condition,
-                context,
-                self.geoip_db.as_deref(),
-                rule_query.as_ref(),
-            )
+            route_queries.iter().any(|query| {
+                condition::condition_matches(
+                    &rule.condition,
+                    context,
+                    self.geoip_db.as_deref(),
+                    query.rule_query(),
+                    query.resolved_ip(),
+                )
+            })
         }) {
             RouteDecision {
                 action: rule.action.clone(),
@@ -125,6 +157,12 @@ impl RuleSet {
                 matched_rule: None,
             }
         }
+    }
+
+    pub fn requires_resolved_ip(&self) -> bool {
+        self.rules
+            .iter()
+            .any(|rule| condition::requires_resolved_ip(&rule.condition))
     }
 }
 

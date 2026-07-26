@@ -70,7 +70,7 @@ impl TcpIngressRuntime {
         &self,
         session: &mut Session,
     ) -> Result<TcpRouteResult, EngineError> {
-        self.prepare_session(session);
+        self.prepare_session(session)?;
         TcpPipe::new(self).dispatch(TcpPipeInput { session }).await
     }
 }

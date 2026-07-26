@@ -3,7 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use zero_core::{Address, Error, Session};
 use zero_dns::DnsSystem;
 use zero_platform_tokio::TokioSocket;
-use zero_traits::{DnsResolver, IpAddress};
+use zero_traits::IpAddress;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DirectConnector;
@@ -92,7 +92,7 @@ async fn resolve_host(
     error_message: &'static str,
 ) -> Result<SocketAddr, Error> {
     let resolved = resolver
-        .resolve(host)
+        .resolve_real(host)
         .await
         .map_err(|_| Error::Io(error_message))?;
     let ip = resolved

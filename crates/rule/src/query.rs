@@ -26,6 +26,14 @@ pub trait RuleMatcher: Send + Sync {
     fn matches(&self, query: &PreparedRuleQuery) -> bool {
         self.lookup(query).is_some()
     }
+
+    /// Whether this matcher can accept a destination IP.
+    ///
+    /// Unknown implementations conservatively return `true` so callers do not
+    /// skip DNS-backed routing facts that the matcher may need.
+    fn requires_destination_ip(&self) -> bool {
+        true
+    }
 }
 
 /// The semantic rule category that accepted a query.

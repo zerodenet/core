@@ -60,6 +60,11 @@ impl RuleMatcher for VerifiedRuleSet<'_> {
     fn lookup(&self, query: &PreparedRuleQuery) -> Option<RuleMatch> {
         VerifiedRuleSet::lookup(self, query)
     }
+
+    fn requires_destination_ip(&self) -> bool {
+        read_u32(slice(self.bytes, self.layout.ipv4), 0) != 0
+            || read_u32(slice(self.bytes, self.layout.ipv6), 0) != 0
+    }
 }
 
 pub struct MappedRuleSet {
@@ -198,6 +203,10 @@ fn section_endpoints(section: Section) -> (usize, usize) {
 impl RuleMatcher for MappedRuleSet {
     fn lookup(&self, query: &PreparedRuleQuery) -> Option<RuleMatch> {
         MappedRuleSet::lookup(self, query)
+    }
+
+    fn requires_destination_ip(&self) -> bool {
+        read_u32(self.ipv4.as_ref(), 0) != 0 || read_u32(self.ipv6.as_ref(), 0) != 0
     }
 }
 

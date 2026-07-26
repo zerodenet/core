@@ -1,15 +1,16 @@
-#![cfg(feature = "panel_connector")]
+#![cfg(feature = "webhook")]
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use serde_json::json;
 use zero_api::{event_type, ApiEvent, EventFilter, EventSource, EventStream, RawApiEvent};
-use zero_config::{ApiConfig, EventSinkConfig};
+use zero_config::{ApiConfig, EventDispatcherConfig, EventSinkConfig};
 use zero_connector::{spawn_event_dispatcher, EventDispatcherOptions};
 
 #[derive(Clone)]
@@ -80,7 +81,7 @@ impl EventSource for StaticEventSource {
 }
 
 #[tokio::test]
-async fn dispatcher_posts_events_to_panel_webhook_with_api_key() {
+async fn dispatcher_posts_events_to_registered_webhook_with_opaque_headers() {
     let (url, server) = spawn_http_server();
 
     let mut event = ApiEvent::new(
@@ -95,12 +96,14 @@ async fn dispatcher_posts_events_to_panel_webhook_with_api_key() {
     };
     let api = ApiConfig {
         event_sinks: vec![EventSinkConfig::Webhook {
-            tag: "panel".to_owned(),
+            tag: "receiver".to_owned(),
             url,
             events: vec![event_type::FLOW_COMPLETED.to_owned()],
             source_id: Some("edge-test".to_owned()),
-            api_key: Some("panel-key".to_owned()),
-            api_key_env: None,
+            headers: BTreeMap::from([(
+                "authorization".to_owned(),
+                "Bearer receiver-key".to_owned(),
+            )]),
             allow_insecure: true,
         }],
         control: Default::default(),
@@ -125,11 +128,505 @@ async fn dispatcher_posts_events_to_panel_webhook_with_api_key() {
     assert!(request.starts_with("POST /events HTTP/1.1\r\n"));
     assert!(request
         .to_ascii_lowercase()
-        .contains("authorization: bearer panel-key"));
+        .contains("authorization: bearer receiver-key"));
     let body = request_body(&request);
     let value = serde_json::from_str::<serde_json::Value>(body).expect("event json");
     assert_eq!(value["event_id"], "event-1");
     assert_eq!(value["source_id"], "edge-test");
+}
+
+#[tokio::test]
+async fn dispatcher_routes_each_event_to_every_matching_webhook_registration() {
+    let (traffic_url, traffic_server) = spawn_http_server();
+    let (operations_url, operations_server) = spawn_http_server();
+
+    let mut flow = ApiEvent::new(
+        "event-flow",
+        event_type::FLOW_COMPLETED,
+        1_760_000_000_000,
+        json!({ "bytes": 42 }),
+    );
+    flow.sequence = Some(1);
+    let mut warning = ApiEvent::new(
+        "event-warning",
+        event_type::ENGINE_WARNING,
+        1_760_000_000_001,
+        json!({ "message": "degraded" }),
+    );
+    warning.sequence = Some(2);
+
+    let api = ApiConfig {
+        event_sinks: vec![
+            EventSinkConfig::Webhook {
+                tag: "traffic-delivery".to_owned(),
+                url: traffic_url,
+                events: vec![event_type::FLOW_COMPLETED.to_owned()],
+                source_id: None,
+                headers: BTreeMap::new(),
+                allow_insecure: true,
+            },
+            EventSinkConfig::Webhook {
+                tag: "operations-delivery".to_owned(),
+                url: operations_url,
+                events: vec![event_type::ENGINE_WARNING.to_owned()],
+                source_id: None,
+                headers: BTreeMap::new(),
+                allow_insecure: true,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![flow, warning])),
+        },
+        api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn dispatcher")
+    .expect("dispatcher handle");
+
+    let traffic_request = traffic_server.join().expect("traffic server thread");
+    let operations_request = operations_server.join().expect("operations server thread");
+    dispatcher.shutdown().await;
+
+    let traffic_event: serde_json::Value =
+        serde_json::from_str(request_body(&traffic_request)).expect("traffic event json");
+    let operations_event: serde_json::Value =
+        serde_json::from_str(request_body(&operations_request)).expect("operations event json");
+    assert_eq!(traffic_event["event_type"], event_type::FLOW_COMPLETED);
+    assert_eq!(operations_event["event_type"], event_type::ENGINE_WARNING);
+}
+
+#[tokio::test]
+async fn stalled_webhook_does_not_block_an_independent_registration() {
+    let (stalled_url, stalled_received, release_stalled, stalled_server) =
+        spawn_stalled_http_server();
+    let (healthy_url, healthy_server) = spawn_http_server();
+
+    let mut event = ApiEvent::new(
+        "event-isolation",
+        event_type::ENGINE_WARNING,
+        1_760_000_000_000,
+        json!({ "message": "isolate registrations" }),
+    );
+    event.sequence = Some(1);
+    let api = ApiConfig {
+        event_sinks: vec![
+            EventSinkConfig::Webhook {
+                tag: "stalled".to_owned(),
+                url: stalled_url,
+                events: vec![event_type::ENGINE_WARNING.to_owned()],
+                source_id: None,
+                headers: BTreeMap::new(),
+                allow_insecure: true,
+            },
+            EventSinkConfig::Webhook {
+                tag: "healthy".to_owned(),
+                url: healthy_url,
+                events: vec![event_type::ENGINE_WARNING.to_owned()],
+                source_id: None,
+                headers: BTreeMap::new(),
+                allow_insecure: true,
+            },
+        ],
+        dispatcher: EventDispatcherConfig {
+            webhook_timeout_ms: 5_000,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![event])),
+        },
+        api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn isolated dispatcher")
+    .expect("isolated dispatcher handle");
+
+    stalled_received
+        .recv_timeout(Duration::from_secs(2))
+        .expect("stalled registration received request");
+    let healthy_request = healthy_server
+        .join()
+        .expect("healthy registration must complete independently");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(request_body(&healthy_request))
+            .expect("healthy event")["event_id"],
+        "event-isolation"
+    );
+
+    release_stalled.send(()).expect("release stalled server");
+    stalled_server.join().expect("stalled server");
+    dispatcher.shutdown().await;
+}
+
+#[tokio::test]
+async fn webhook_treats_non_retryable_http_status_as_final_rejection() {
+    const BAD_REQUEST: &[u8] =
+        b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let (url, server) = spawn_scripted_http_server(vec![BAD_REQUEST]);
+    let mut event = ApiEvent::new(
+        "event-rejected",
+        event_type::ENGINE_WARNING,
+        1_760_000_000_000,
+        json!({"message": "rejected"}),
+    );
+    event.sequence = Some(1);
+    let api = ApiConfig {
+        event_sinks: vec![EventSinkConfig::Webhook {
+            tag: "receiver".to_owned(),
+            url,
+            events: vec![event_type::ENGINE_WARNING.to_owned()],
+            source_id: Some("edge-rejected".to_owned()),
+            headers: BTreeMap::new(),
+            allow_insecure: true,
+        }],
+        ..Default::default()
+    };
+
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![event])),
+        },
+        api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 3,
+        },
+    )
+    .expect("spawn dispatcher")
+    .expect("dispatcher handle");
+
+    let requests = server.join().expect("server thread");
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let status = dispatcher.sink_status();
+    dispatcher.shutdown().await;
+
+    assert_eq!(requests.len(), 1, "HTTP 400 must not be retried");
+    let receiver = status
+        .into_iter()
+        .find(|item| item.name == "receiver")
+        .expect("receiver status");
+    assert_eq!(receiver.total_failed, 1);
+    assert_eq!(receiver.pending, 0);
+}
+
+#[tokio::test]
+async fn dispatcher_recovers_unacknowledged_webhook_delivery_from_outbox() {
+    let outbox_path = temp_path("zero-connector-outbox.jsonl");
+    let _ = std::fs::remove_file(&outbox_path);
+    let (url, first_request_rx, server) = spawn_recovery_http_server();
+
+    let mut event = ApiEvent::new(
+        "event-recover-1",
+        event_type::FLOW_COMPLETED,
+        1_760_000_000_000,
+        json!({ "value": 1 }),
+    );
+    event.sequence = Some(1);
+    let api = ApiConfig {
+        event_sinks: vec![EventSinkConfig::Webhook {
+            tag: "receiver".to_owned(),
+            url,
+            events: vec![event_type::FLOW_COMPLETED.to_owned()],
+            source_id: Some("edge-recovery".to_owned()),
+            headers: BTreeMap::from([(
+                "authorization".to_owned(),
+                "Bearer receiver-key".to_owned(),
+            )]),
+            allow_insecure: true,
+        }],
+        outbox_path: Some(outbox_path.display().to_string()),
+        ..Default::default()
+    };
+
+    let first = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![event])),
+        },
+        api.clone(),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 3,
+        },
+    )
+    .expect("spawn first dispatcher")
+    .expect("first dispatcher handle");
+    let first_status = first.status_handle();
+
+    first_request_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("first failed delivery");
+    wait_for_sink_pending(&first_status, "receiver", 1).await;
+    wait_for_sink_failures(&first_status, "receiver", 1).await;
+    let failed = first_status
+        .sink_status()
+        .into_iter()
+        .find(|status| status.name == "receiver")
+        .expect("receiver sink status after failure");
+    assert_eq!(failed.pending, 1);
+    assert_eq!(failed.total_failed, 1);
+    first.shutdown().await;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&outbox_path)
+        .expect("open outbox tail")
+        .write_all(b"{\"op\":\"pu")
+        .expect("write incomplete crash tail");
+
+    let mut recovery_api = api;
+    // Recovery must still be able to write an ACK while new PUT records are
+    // paused by the filesystem reserve.
+    recovery_api.dispatcher.outbox_min_free_bytes =
+        fs2::available_space(outbox_path.parent().expect("outbox parent"))
+            .expect("available outbox space");
+    recovery_api.dispatcher.outbox_min_free_percent = 1;
+    let second = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(Vec::new())),
+        },
+        recovery_api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 3,
+        },
+    )
+    .expect("spawn recovery dispatcher")
+    .expect("recovery dispatcher handle");
+    let second_status = second.status_handle();
+
+    let requests = server.join().expect("recovery server thread");
+    wait_for_sink_pending(&second_status, "receiver", 0).await;
+    second.shutdown().await;
+
+    let recovered = second_status
+        .sink_status()
+        .into_iter()
+        .find(|status| status.name == "receiver")
+        .expect("receiver sink status after recovery");
+    assert_eq!(recovered.pending, 0);
+    assert_eq!(recovered.total_delivered, 1);
+    assert!(
+        recovered
+            .outbox_storage
+            .is_some_and(|storage| storage.write_blocked),
+        "recovered ACK must drain even while new PUT records are blocked"
+    );
+
+    assert_eq!(requests.len(), 2);
+    for request in requests {
+        let body = request_body(&request);
+        let value = serde_json::from_str::<serde_json::Value>(body).expect("event json");
+        assert_eq!(value["event_id"], "event-recover-1");
+        assert_eq!(value["source_id"], "edge-recovery");
+    }
+    let journal = std::fs::read_to_string(&outbox_path).expect("outbox journal");
+    assert!(journal.contains("\"op\":\"put\""));
+    assert!(journal.contains("\"op\":\"ack\""));
+    let _ = std::fs::remove_file(outbox_path);
+}
+
+#[tokio::test]
+async fn dispatcher_fails_closed_on_corrupt_outbox_record() {
+    let outbox_path = temp_path("zero-connector-corrupt-outbox.jsonl");
+    std::fs::write(&outbox_path, b"{\"op\":\"put\",\"delivery\":\n")
+        .expect("write corrupt outbox record");
+    let api = ApiConfig {
+        event_sinks: vec![EventSinkConfig::Webhook {
+            tag: "receiver".to_owned(),
+            url: "http://127.0.0.1:9/events".to_owned(),
+            events: vec![event_type::FLOW_COMPLETED.to_owned()],
+            source_id: Some("edge-corrupt".to_owned()),
+            headers: BTreeMap::from([(
+                "authorization".to_owned(),
+                "Bearer receiver-key".to_owned(),
+            )]),
+            allow_insecure: true,
+        }],
+        outbox_path: Some(outbox_path.display().to_string()),
+        ..Default::default()
+    };
+
+    let result = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(Vec::new())),
+        },
+        api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    );
+    let error = result
+        .err()
+        .expect("corrupt outbox must prevent dispatcher startup");
+    assert!(
+        error
+            .to_string()
+            .contains("invalid delivery outbox journal"),
+        "unexpected corrupt outbox error: {error}"
+    );
+    let retained = std::fs::read_to_string(&outbox_path).expect("read retained corrupt outbox");
+    assert_eq!(retained, "{\"op\":\"put\",\"delivery\":\n");
+
+    let _ = std::fs::remove_file(outbox_path);
+}
+
+#[tokio::test]
+async fn dispatcher_spills_backlog_to_disk_and_pages_a_bounded_working_set() {
+    const SERVER_ERROR: &[u8] =
+        b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    const SUCCESS: &[u8] =
+        b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+    let outbox_path = temp_path("zero-connector-bounded-outbox.jsonl");
+    let _ = std::fs::remove_file(&outbox_path);
+    let (url, server) = spawn_scripted_http_server(
+        std::iter::repeat_n(SERVER_ERROR, 2)
+            .chain(std::iter::repeat_n(SUCCESS, 5))
+            .collect(),
+    );
+    let events = (1..=5)
+        .map(|sequence| {
+            let mut event = ApiEvent::new(
+                format!("event-spill-{sequence}"),
+                event_type::FLOW_COMPLETED,
+                1_760_000_000_000 + sequence,
+                json!({ "sequence": sequence }),
+            );
+            event.sequence = Some(sequence);
+            event
+        })
+        .collect::<Vec<_>>();
+    let api = ApiConfig {
+        event_sinks: vec![EventSinkConfig::Webhook {
+            tag: "receiver".to_owned(),
+            url,
+            events: vec![event_type::FLOW_COMPLETED.to_owned()],
+            source_id: Some("edge-bounded".to_owned()),
+            headers: BTreeMap::from([(
+                "authorization".to_owned(),
+                "Bearer receiver-key".to_owned(),
+            )]),
+            allow_insecure: true,
+        }],
+        outbox_path: Some(outbox_path.display().to_string()),
+        dispatcher: EventDispatcherConfig {
+            max_in_memory_deliveries: 2,
+            replay_batch_size: 16,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let first = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(events)),
+        },
+        api.clone(),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 10,
+        },
+    )
+    .expect("spawn bounded dispatcher")
+    .expect("bounded dispatcher handle");
+    let first_status = first.status_handle();
+    wait_for_sink_pending(&first_status, "receiver", 5).await;
+    first.shutdown().await;
+
+    let second = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(Vec::new())),
+        },
+        api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 10,
+        },
+    )
+    .expect("spawn paged recovery dispatcher")
+    .expect("paged recovery dispatcher handle");
+    let second_status = second.status_handle();
+
+    let requests = server.join().expect("scripted webhook server");
+    wait_for_sink_pending(&second_status, "receiver", 0).await;
+    second.shutdown().await;
+
+    assert_eq!(requests.len(), 7);
+    for sequence in 1..=5 {
+        let event_id = format!("event-spill-{sequence}");
+        let deliveries = requests
+            .iter()
+            .filter(|request| request_body(request).contains(&event_id))
+            .count();
+        assert_eq!(deliveries, if sequence <= 2 { 2 } else { 1 });
+    }
+    let recovered = second_status
+        .sink_status()
+        .into_iter()
+        .find(|status| status.name == "receiver")
+        .expect("paged receiver status");
+    assert_eq!(recovered.pending, 0);
+    assert_eq!(recovered.total_delivered, 5);
+    let _ = std::fs::remove_file(outbox_path);
+}
+
+async fn wait_for_sink_pending(
+    status: &zero_connector::EventDispatcherStatusHandle,
+    sink: &str,
+    expected: u64,
+) {
+    for _ in 0..100 {
+        let pending = status
+            .sink_status()
+            .into_iter()
+            .find(|item| item.name == sink)
+            .map(|item| item.pending);
+        if pending == Some(expected) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("sink `{sink}` pending count did not become {expected}");
+}
+
+async fn wait_for_sink_failures(
+    status: &zero_connector::EventDispatcherStatusHandle,
+    sink: &str,
+    expected: u64,
+) {
+    for _ in 0..100 {
+        let failures = status
+            .sink_status()
+            .into_iter()
+            .find(|item| item.name == sink)
+            .map(|item| item.total_failed);
+        if failures == Some(expected) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("sink `{sink}` failure count did not become {expected}");
 }
 
 fn spawn_http_server() -> (String, JoinHandle<String>) {
@@ -143,6 +640,9 @@ fn spawn_http_server() -> (String, JoinHandle<String>) {
         for _ in 0..100 {
             match listener.accept() {
                 Ok((mut stream, _)) => {
+                    stream
+                        .set_nonblocking(false)
+                        .expect("set blocking connection");
                     stream
                         .set_read_timeout(Some(Duration::from_secs(5)))
                         .expect("read timeout");
@@ -165,6 +665,101 @@ fn spawn_http_server() -> (String, JoinHandle<String>) {
     });
 
     (format!("http://{address}/events"), handle)
+}
+
+fn spawn_stalled_http_server() -> (String, mpsc::Receiver<()>, mpsc::Sender<()>, JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind stalled server");
+    let address = listener.local_addr().expect("stalled server address");
+    let (received_tx, received_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let (_request, mut stream) = accept_http_request(&listener);
+        received_tx.send(()).expect("signal stalled request");
+        release_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("release stalled response");
+        stream
+            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .expect("write stalled response");
+    });
+    (
+        format!("http://{address}/events"),
+        received_rx,
+        release_tx,
+        handle,
+    )
+}
+
+fn spawn_recovery_http_server() -> (String, mpsc::Receiver<()>, JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind recovery server");
+    listener
+        .set_nonblocking(true)
+        .expect("set recovery listener nonblocking");
+    let address = listener.local_addr().expect("recovery server address");
+    let (first_request_tx, first_request_rx) = mpsc::channel();
+
+    let handle = thread::spawn(move || {
+        let mut requests = Vec::new();
+        for response in [
+            None,
+            Some(
+                b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    .as_slice(),
+            ),
+        ] {
+            let mut request = accept_http_request(&listener);
+            requests.push(request.0);
+            if let Some(response) = response {
+                request.1.write_all(response).expect("write response");
+            }
+            if requests.len() == 1 {
+                first_request_tx.send(()).expect("signal first request");
+            }
+        }
+        requests
+    });
+
+    (format!("http://{address}/events"), first_request_rx, handle)
+}
+
+fn spawn_scripted_http_server(responses: Vec<&'static [u8]>) -> (String, JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind scripted server");
+    listener
+        .set_nonblocking(true)
+        .expect("set scripted listener nonblocking");
+    let address = listener.local_addr().expect("scripted server address");
+    let handle = thread::spawn(move || {
+        let mut requests = Vec::with_capacity(responses.len());
+        for response in responses {
+            let (request, mut stream) = accept_http_request(&listener);
+            requests.push(request);
+            stream.write_all(response).expect("write scripted response");
+        }
+        requests
+    });
+    (format!("http://{address}/events"), handle)
+}
+
+fn accept_http_request(listener: &TcpListener) -> (String, TcpStream) {
+    for _ in 0..250 {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                stream
+                    .set_nonblocking(false)
+                    .expect("set blocking connection");
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .expect("read timeout");
+                let request = read_http_request(&mut stream);
+                return (request, stream);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => panic!("accept request: {error}"),
+        }
+    }
+    panic!("webhook request was not received");
 }
 
 fn read_http_request(stream: &mut TcpStream) -> String {
@@ -201,4 +796,12 @@ fn request_body(request: &str) -> &str {
         .split_once("\r\n\r\n")
         .map(|(_, body)| body)
         .expect("request body")
+}
+
+fn temp_path(name: &str) -> std::path::PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock")
+        .as_nanos();
+    std::env::temp_dir().join(format!("{unique}-{name}"))
 }

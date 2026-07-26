@@ -38,9 +38,13 @@ pub fn config_path_from_args(args: &[String]) -> Option<&str> {
             }
             None
         }
+        "connector" => match iter.next().map(String::as_str) {
+            Some("state") => iter.find(|arg| !arg.starts_with('-')).map(String::as_str),
+            _ => None,
+        },
         // Commands that talk to a running daemon via IPC — no config needed.
-        "select" | "flows" | "policies" | "events" | "build_info" | "version" | "mode" | "help"
-        | "--help" | "-h" | "--version" | "-V" => None,
+        "select" | "flows" | "policies" | "events" | "build_info" | "build-info" | "version"
+        | "mode" | "help" | "--help" | "-h" | "--version" | "-V" => None,
         _ if first.starts_with('-') => None,
         _ => Some(first),
     }
@@ -79,6 +83,10 @@ pub enum Command {
     },
     Validate {
         config_path: String,
+    },
+    ConnectorState {
+        config_path: String,
+        json: bool,
     },
     Mode {
         mode: String,
@@ -150,6 +158,7 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, Cli
         }),
         "reload" => parse_reload(args.collect()),
         "validate" => parse_validate(args.collect()),
+        "connector" => parse_connector(args.collect()),
         "mode" => parse_mode(args.collect()),
         "tun" => {
             let remaining: Vec<String> = args.collect();
@@ -166,7 +175,7 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, Cli
                 )),
             }
         }
-        "build_info" | "version" | "--version" | "-V" => Ok(Command::BuildInfo),
+        "build_info" | "build-info" | "version" | "--version" | "-V" => Ok(Command::BuildInfo),
         "help" | "--help" | "-h" => Ok(Command::Help),
         _ if first.starts_with('-') => Err(CliError::new(format!(
             "unknown option `{first}`\n\n{}",
@@ -189,11 +198,12 @@ pub fn usage() -> &'static str {
   zero events [--socket PATH]
   zero reload CONFIG [--socket PATH]
   zero validate CONFIG
+  zero connector state [--json] CONFIG
   zero mode <rule|direct|global> [outbound] [--socket PATH]
   zero tun start --addr IP --tag TAG [--name NAME] [--mask MASK] [--mtu MTU] [--socket PATH]
   zero tun stop [--socket PATH]
   zero tun status [--socket PATH]
-  zero build_info
+  zero build-info
   zero version
   zero -V, --version
   zero help
@@ -361,6 +371,47 @@ fn parse_validate(args: Vec<String>) -> Result<Command, CliError> {
             ))
         })?;
     Ok(Command::Validate { config_path })
+}
+
+fn parse_connector(args: Vec<String>) -> Result<Command, CliError> {
+    let mut iter = args.into_iter();
+    match iter.next().as_deref() {
+        Some("state") => parse_connector_state(iter.collect()),
+        _ => Err(CliError::new(format!(
+            "`connector` requires subcommand: state\n\n{}",
+            usage()
+        ))),
+    }
+}
+
+fn parse_connector_state(args: Vec<String>) -> Result<Command, CliError> {
+    let mut config_path = None;
+    let mut json = false;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            _ if arg.starts_with('-') => {
+                return Err(CliError::new(format!(
+                    "unknown connector state option `{arg}`\n\n{}",
+                    usage()
+                )));
+            }
+            _ if config_path.is_none() => config_path = Some(arg),
+            _ => {
+                return Err(CliError::new(format!(
+                    "`connector state` accepts one config path\n\n{}",
+                    usage()
+                )));
+            }
+        }
+    }
+    let config_path = config_path.ok_or_else(|| {
+        CliError::new(format!(
+            "`connector state` requires a config file path\n\n{}",
+            usage()
+        ))
+    })?;
+    Ok(Command::ConnectorState { config_path, json })
 }
 
 fn parse_tun_start(args: Vec<String>) -> Result<Command, CliError> {

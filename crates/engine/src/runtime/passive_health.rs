@@ -4,8 +4,8 @@ use zero_api::PassiveRelayHealthState;
 use zero_core::Address;
 
 use super::{Engine, RouteDecision};
-use crate::passive_relay_health::PassiveRelayHealthTransition;
-use crate::resolve::resolve_target_id_with_urltest_selector;
+use crate::health::PassiveRelayHealthTransition;
+use crate::plan::resolve_target_id_with_urltest_selector;
 use crate::{
     EngineError, EnginePlan, PassiveRelayHealthKey, PassiveRelayOutcome, PassiveRelaySelection,
     ResolvedOutbound, TargetId,

@@ -618,7 +618,7 @@ fn proxy_handle_capabilities_use_protocol_inventory() {
         assert_eq!(shadowsocks.status, "partial");
         assert_eq!(
             shadowsocks.compatibility_baseline,
-            "shadowsocks_rust_sip022"
+            "shadowsocks_rust_sip022_sip023"
         );
         assert!(shadowsocks.inbound.tcp.supported);
         assert_eq!(shadowsocks.inbound.tcp.level, "supported");

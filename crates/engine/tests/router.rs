@@ -1,4 +1,5 @@
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -290,6 +291,60 @@ fn zero_rule_ir_routes_mixed_domain_and_ip_matchers() {
     ));
 
     cleanup_temp_dir(&project_dir);
+}
+
+#[test]
+fn domain_route_trace_can_fall_through_to_resolved_ip() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "outbounds": [
+                { "tag": "direct", "protocol": { "type": "direct" } },
+                {
+                    "tag": "proxy",
+                    "protocol": {
+                        "type": "socks5",
+                        "server": "127.0.0.1",
+                        "port": 1080
+                    }
+                }
+            ],
+            "route": {
+                "rules": [
+                    {
+                        "condition": {
+                            "type": "ip",
+                            "values": ["10.0.0.0/8"]
+                        },
+                        "action": { "type": "route", "outbound": "direct" }
+                    }
+                ],
+                "final": { "type": "route", "outbound": "proxy" }
+            }
+        }"#,
+    )
+    .expect("config should parse");
+    let engine = Engine::new(config).expect("engine should build");
+    let target = zero_core::Address::Domain("domestic.example".to_owned());
+
+    let unresolved = engine.route_trace_with_inbound(&target, None, None);
+    assert!(matches!(
+        unresolved.decision,
+        zero_engine::RouteDecision::Route(ref tag) if tag == "proxy"
+    ));
+    assert!(unresolved.matched_rule.is_none());
+
+    let resolved = engine.route_trace_with_inbound_and_resolved_ips(
+        &target,
+        None,
+        None,
+        &[IpAddr::V4(Ipv4Addr::new(10, 1, 2, 3))],
+    );
+    assert!(matches!(
+        resolved.decision,
+        zero_engine::RouteDecision::Route(ref tag) if tag == "direct"
+    ));
+    assert_eq!(resolved.matched_rule.expect("matched IP rule").index, 0);
+    assert!(engine.route_requires_resolved_ip());
 }
 
 #[test]

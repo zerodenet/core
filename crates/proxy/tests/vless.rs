@@ -48,11 +48,19 @@ mod relays_tcp_through_vless_ws_inbound;
 #[cfg(feature = "vless")]
 #[path = "vless/relays_tcp_through_vless_wss_chained_outbound.rs"]
 mod relays_tcp_through_vless_wss_chained_outbound;
+#[path = "vless/vless_device_limit_enforces_unique_source_ips.rs"]
+mod vless_device_limit_enforces_unique_source_ips;
 #[cfg(feature = "vless")]
 #[path = "vless/vless_outbound_tls_insecure_skip_verification.rs"]
 mod vless_outbound_tls_insecure_skip_verification;
+#[path = "vless/vless_principal_cancellation_closes_active_tcp.rs"]
+mod vless_principal_cancellation_closes_active_tcp;
+#[path = "vless/vless_quota_exhaustion_closes_principal.rs"]
+mod vless_quota_exhaustion_closes_principal;
 #[path = "vless/vless_tls_with_alpn_config.rs"]
 mod vless_tls_with_alpn_config;
+#[path = "vless/vless_user_reload_updates_live_listener.rs"]
+mod vless_user_reload_updates_live_listener;
 
 fn vless_request_for_ipv4(id: &str, address: [u8; 4], port: u16) -> Vec<u8> {
     let id = parse_uuid(id).expect("uuid");

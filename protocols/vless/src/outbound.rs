@@ -10,20 +10,18 @@ use zero_traits::DeferredTcpTunnelProtocol;
 use zero_traits::StreamMuxTransportHints;
 use zero_traits::{AsyncSocket, TcpTunnelProtocol};
 
-#[cfg(feature = "reality")]
+#[cfg(feature = "tokio")]
 use std::pin::Pin;
-#[cfg(feature = "reality")]
+#[cfg(feature = "tokio")]
 use std::task::{Context, Poll};
-#[cfg(feature = "reality")]
+#[cfg(feature = "tokio")]
 use tokio::io::ReadBuf;
 #[cfg(feature = "tokio")]
 use tokio::io::{AsyncRead, AsyncWrite};
 
 #[cfg(feature = "reality")]
 use crate::flow::flow_build_request;
-use crate::shared::{
-    parse_uuid, read_response, read_response_len, write_address, CMD_MUX, VLESS_VERSION,
-};
+use crate::shared::{parse_uuid, read_response_len, write_address, CMD_MUX, VLESS_VERSION};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct VlessOutbound;
@@ -154,7 +152,6 @@ where
         .write_all(&request)
         .await
         .map_err(|_| Error::Io("failed to write VLESS MUX request"))?;
-    read_response(stream).await?;
     Ok(())
 }
 
@@ -167,8 +164,19 @@ impl<'a> VlessOutboundParts<'a> {
         VlessTcpConnectRequest::from_config(self.id, self.flow)
     }
 
-    fn udp_direct_flow_plan(self) -> Result<crate::udp::VlessUdpFlowPlan, Error> {
-        crate::udp::VlessUdpFlowPlan::direct_from_config(self.id, self.flow)
+    fn udp_direct_flow_plan(
+        self,
+        xudp_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
+    ) -> Result<crate::udp::VlessUdpFlowPlan, Error> {
+        crate::udp::VlessUdpFlowPlan::direct_from_config(
+            self.id,
+            self.flow,
+            xudp_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog,
+        )
     }
 
     fn udp_relay_final_hop_plan(self) -> Result<crate::udp::VlessUdpFlowPlan, Error> {
@@ -187,6 +195,8 @@ struct VlessOutboundRequestBundle {
     udp_relay_final_hop: crate::udp::VlessUdpFlowPlan,
     udp_relay_paired_transport: crate::udp::VlessUdpFlowPlan,
     mux_concurrency: Option<u32>,
+    mux_idle_timeout_secs: Option<u64>,
+    mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
 }
 
 impl VlessOutboundRequestBundle {
@@ -194,14 +204,28 @@ impl VlessOutboundRequestBundle {
         id: &str,
         flow: Option<&str>,
         mux_concurrency: Option<u32>,
+        xudp_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog_frames: Option<u32>,
+        mux_response_backlog_bytes: Option<u64>,
     ) -> Result<Self, Error> {
         let parts = VlessOutboundParts::new(id, flow);
+        let mux_response_backlog = crate::mux::MuxResponseBacklogPolicy::from_config(
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+        )?;
         Ok(Self {
             tcp_connect: parts.tcp_connect_request()?,
-            udp_direct: parts.udp_direct_flow_plan()?,
+            udp_direct: parts.udp_direct_flow_plan(
+                xudp_concurrency,
+                mux_idle_timeout_secs,
+                mux_response_backlog,
+            )?,
             udp_relay_final_hop: parts.udp_relay_final_hop_plan()?,
             udp_relay_paired_transport: parts.udp_relay_paired_transport_plan()?,
             mux_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog,
         })
     }
 
@@ -223,6 +247,14 @@ impl VlessOutboundRequestBundle {
 
     fn mux_concurrency(&self) -> Option<u32> {
         self.mux_concurrency
+    }
+
+    fn mux_idle_timeout_secs(&self) -> Option<u64> {
+        self.mux_idle_timeout_secs
+    }
+
+    fn mux_response_backlog(&self) -> crate::mux::MuxResponseBacklogPolicy {
+        self.mux_response_backlog
     }
 
     #[cfg(feature = "reality")]
@@ -269,20 +301,34 @@ impl PreparedVlessOutboundRequestBundle {
         id: &str,
         flow: Option<&str>,
         mux_concurrency: Option<u32>,
+        xudp_concurrency: Option<u32>,
     ) -> Result<Self, Error> {
         #[cfg(feature = "reality")]
         {
-            Self::from_config_with_transport_hints(
+            Self::from_config_with_transport_hints_and_mux_policy(
                 id,
                 flow,
                 mux_concurrency,
+                xudp_concurrency,
+                None,
+                None,
+                None,
                 StreamMuxTransportHints::default(),
             )
         }
 
         #[cfg(not(feature = "reality"))]
         {
-            VlessOutboundRequestBundle::from_config(id, flow, mux_concurrency).map(Self::new)
+            VlessOutboundRequestBundle::from_config(
+                id,
+                flow,
+                mux_concurrency,
+                xudp_concurrency,
+                None,
+                None,
+                None,
+            )
+            .map(Self::new)
         }
     }
 
@@ -291,10 +337,64 @@ impl PreparedVlessOutboundRequestBundle {
         id: &str,
         flow: Option<&str>,
         mux_concurrency: Option<u32>,
+        xudp_concurrency: Option<u32>,
         hints: StreamMuxTransportHints,
     ) -> Result<Self, Error> {
-        VlessOutboundRequestBundle::from_config(id, flow, mux_concurrency)
-            .map(|requests| requests.prepare_with_transport_hints(hints))
+        Self::from_config_with_transport_hints_and_mux_policy(
+            id,
+            flow,
+            mux_concurrency,
+            xudp_concurrency,
+            None,
+            None,
+            None,
+            hints,
+        )
+    }
+
+    #[cfg(feature = "reality")]
+    pub fn from_config_with_transport_hints_and_idle_timeout(
+        id: &str,
+        flow: Option<&str>,
+        mux_concurrency: Option<u32>,
+        xudp_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        hints: StreamMuxTransportHints,
+    ) -> Result<Self, Error> {
+        Self::from_config_with_transport_hints_and_mux_policy(
+            id,
+            flow,
+            mux_concurrency,
+            xudp_concurrency,
+            mux_idle_timeout_secs,
+            None,
+            None,
+            hints,
+        )
+    }
+
+    #[cfg(feature = "reality")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_config_with_transport_hints_and_mux_policy(
+        id: &str,
+        flow: Option<&str>,
+        mux_concurrency: Option<u32>,
+        xudp_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog_frames: Option<u32>,
+        mux_response_backlog_bytes: Option<u64>,
+        hints: StreamMuxTransportHints,
+    ) -> Result<Self, Error> {
+        VlessOutboundRequestBundle::from_config(
+            id,
+            flow,
+            mux_concurrency,
+            xudp_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+        )
+        .map(|requests| requests.prepare_with_transport_hints(hints))
     }
 
     pub async fn establish_tcp_outbound_tunnel<S>(
@@ -360,6 +460,8 @@ impl PreparedVlessOutboundRequestBundle {
                 self.mux_transport_profile.as_borrowed(),
                 deferred_response,
                 self.requests.mux_concurrency(),
+                self.requests.mux_idle_timeout_secs(),
+                self.requests.mux_response_backlog(),
                 mux_pool,
                 open_stream,
             )
@@ -439,13 +541,13 @@ struct VlessTcpTunnelTarget<'a> {
     pub id: &'a [u8; 16],
 }
 
-#[cfg(feature = "reality")]
+#[cfg(feature = "tokio")]
 enum VlessTcpOutboundStream<S> {
     Standard(S),
     Deferred(crate::deferred_response::DeferredVlessResponseStream<S>),
 }
 
-#[cfg(feature = "reality")]
+#[cfg(feature = "tokio")]
 impl<S> AsyncRead for VlessTcpOutboundStream<S>
 where
     S: AsyncRead + Unpin,
@@ -462,7 +564,7 @@ where
     }
 }
 
-#[cfg(feature = "reality")]
+#[cfg(feature = "tokio")]
 impl<S> AsyncWrite for VlessTcpOutboundStream<S>
 where
     S: AsyncWrite + Unpin,
@@ -598,6 +700,8 @@ impl VlessTcpConnectRequest {
         profile: crate::mux_pool::MuxTransportProfile<'_>,
         deferred_response: bool,
         mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
         mux_pool: &crate::mux_pool::MuxConnectionPool,
         open_stream: OpenStream,
     ) -> Result<VlessTcpStreamOpen, E>
@@ -608,11 +712,18 @@ impl VlessTcpConnectRequest {
         E: From<Error>,
     {
         let config = self.config();
-        if let Some(key) = config.tcp_mux_pool_key_from_transport_config(server, port, profile) {
+        if let Some(max_concurrency) = mux_concurrency {
+            let key = config.tcp_mux_pool_key_from_transport_config(
+                server,
+                port,
+                profile,
+                mux_idle_timeout_secs,
+                mux_response_backlog,
+            );
             let stream = mux_pool
                 .open_tcp_stream(
                     key,
-                    mux_concurrency.unwrap_or(8),
+                    max_concurrency,
                     session.port,
                     &session.target,
                     open_stream,
@@ -652,9 +763,10 @@ impl VlessTcpConnectRequest {
             )));
         }
 
-        let mut stream = open_transport().await?;
-        self.config()
-            .establish_tcp_relay_hop(&mut stream, session)
+        let stream = open_transport().await?;
+        let (stream, _, _) = self
+            .config()
+            .establish_tcp_outbound_stream(stream, session, true)
             .await
             .map_err(E::from)?;
         Ok(Box::new(stream))
@@ -681,11 +793,6 @@ impl VlessTcpConnectConfig {
     }
 
     #[cfg(feature = "reality")]
-    fn should_open_mux_pool_for_tcp(&self) -> bool {
-        self.flow == Some(crate::flow::FLOW_XTLS_RPRX_VISION)
-    }
-
-    #[cfg(feature = "reality")]
     fn has_flow(&self) -> bool {
         self.flow.is_some()
     }
@@ -701,15 +808,17 @@ impl VlessTcpConnectConfig {
         server: &str,
         port: u16,
         profile: crate::mux_pool::MuxTransportProfile<'_>,
-    ) -> Option<crate::mux_pool::PoolKey> {
-        self.should_open_mux_pool_for_tcp().then(|| {
-            crate::mux_pool::pool_key_from_transport_config(
-                server,
-                port,
-                self.mux_pool_identity(),
-                profile,
-            )
-        })
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
+    ) -> crate::mux_pool::PoolKey {
+        crate::mux_pool::pool_key_from_transport_config(
+            server,
+            port,
+            self.mux_pool_identity(),
+            profile,
+            mux_idle_timeout_secs,
+            mux_response_backlog,
+        )
     }
 
     async fn establish_tcp_outbound_tunnel_with_traffic<S>(
@@ -721,13 +830,14 @@ impl VlessTcpConnectConfig {
     where
         S: AsyncSocket,
     {
-        #[cfg(not(feature = "reality"))]
-        let _ = deferred_response;
-
-        #[cfg(feature = "reality")]
         if deferred_response {
+            #[cfg(feature = "reality")]
             let request_len = crate::outbound::VlessOutbound
                 .send_tcp_request_with_flow(stream, session, &self.id, self.flow)
+                .await?;
+            #[cfg(not(feature = "reality"))]
+            let request_len = crate::outbound::VlessOutbound
+                .send_tcp_request(stream, session, &self.id)
                 .await?;
             return Ok((request_len as u64, 0));
         }
@@ -785,20 +895,7 @@ impl VlessTcpConnectConfig {
         ))
     }
 
-    pub(crate) async fn establish_tcp_relay_hop<S>(
-        &self,
-        stream: &mut S,
-        session: &Session,
-    ) -> Result<(), Error>
-    where
-        S: AsyncSocket,
-    {
-        self.establish_tcp_outbound_tunnel_with_traffic(stream, session, false)
-            .await
-            .map(|_| ())
-    }
-
-    #[cfg(all(feature = "reality", feature = "tokio"))]
+    #[cfg(feature = "tokio")]
     fn wrap_tcp_outbound_stream<S>(
         &self,
         stream: S,
@@ -814,18 +911,6 @@ impl VlessTcpConnectConfig {
         } else {
             VlessTcpOutboundStream::Standard(stream)
         }
-    }
-
-    #[cfg(all(not(feature = "reality"), feature = "tokio"))]
-    fn wrap_tcp_outbound_stream<S>(
-        &self,
-        stream: S,
-        _deferred_response: bool,
-    ) -> impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static
-    where
-        S: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-    {
-        stream
     }
 }
 
@@ -915,15 +1000,11 @@ fn build_tcp_request(session: &Session, id: &[u8; 16]) -> Result<Vec<u8>, Error>
 }
 
 fn build_mux_request(id: &[u8; 16]) -> Result<Vec<u8>, Error> {
-    let mut request = Vec::with_capacity(24);
+    let mut request = Vec::with_capacity(19);
     request.push(VLESS_VERSION);
     request.extend_from_slice(id);
     request.push(0x00);
     request.push(CMD_MUX);
-    // Dummy target — ignored by the MUX server
-    request.extend_from_slice(&0u16.to_be_bytes());
-    request.push(0x01); // ATYP_IPV4
-    request.extend_from_slice(&[0u8; 4]);
 
     Ok(request)
 }

@@ -45,6 +45,8 @@ pub enum EngineError {
     },
     #[error("outbound `{tag}` is temporarily unhealthy")]
     UnhealthyOutbound { tag: String },
+    #[error("flow admission denied: {reason}")]
+    AdmissionDenied { reason: String },
 }
 
 impl EngineError {
@@ -64,6 +66,7 @@ impl EngineError {
             Self::SelectorGroupTypeMismatch { .. } => "selector_group_type_mismatch",
             Self::SelectorTargetNotFound { .. } => "selector_target_not_found",
             Self::UnhealthyOutbound { .. } => "unhealthy_outbound",
+            Self::AdmissionDenied { .. } => "admission_denied",
         }
     }
 }

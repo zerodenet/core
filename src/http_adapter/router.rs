@@ -25,7 +25,11 @@ pub enum RouteResult {
 }
 
 /// Route the request to the appropriate handler, enforcing permissions.
-pub fn route(request: &HttpRequest, handle: &ProxyHandle, auth_ctx: &AuthContext) -> RouteResult {
+pub async fn route(
+    request: &HttpRequest,
+    handle: &ProxyHandle,
+    auth_ctx: &AuthContext,
+) -> RouteResult {
     let method = request.method.as_str();
     let path = request.path.as_str();
     let route_path = path_path_part(path);
@@ -49,7 +53,7 @@ pub fn route(request: &HttpRequest, handle: &ProxyHandle, auth_ctx: &AuthContext
             ("GET", "/stats") => read_json(handlers::stats(handle), auth_ctx),
             ("GET", "/flows") => read_json(handlers::flows_list(handle, query), auth_ctx),
             ("POST", "/commands") => {
-                command_permission(handlers::commands(handle, &request.body, auth_ctx))
+                command_permission(handlers::commands(handle, &request.body, auth_ctx).await)
             }
             ("GET", "/events/stream") => {
                 if let Some(denied) = require_permission(auth_ctx, Permission::Read) {

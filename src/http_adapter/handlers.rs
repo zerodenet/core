@@ -94,7 +94,7 @@ pub fn events_snapshot(handle: &ProxyHandle) -> io::Result<Vec<u8>> {
 }
 
 /// Handle POST /api/v1/commands.
-pub fn commands(
+pub async fn commands(
     handle: &ProxyHandle,
     body: &[u8],
     auth_ctx: &AuthContext,
@@ -123,7 +123,7 @@ pub fn commands(
         return Err((status, body));
     }
 
-    match handle.execute(command) {
+    match handle.execute_acknowledged(command).await {
         Ok(response) => {
             let body = ApiResponse::ok(response);
             Ok(serde_json::to_vec_pretty(&body).unwrap_or_default())

@@ -1,5 +1,6 @@
 use std::io;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
@@ -8,11 +9,28 @@ use zero_traits::AsyncSocket;
 pub struct Hysteria2Stream {
     send: quinn::SendStream,
     recv: quinn::RecvStream,
+    _connection_guard: Option<Arc<super::Hysteria2AuthenticatedConnection>>,
 }
 
 impl Hysteria2Stream {
     pub fn new(send: quinn::SendStream, recv: quinn::RecvStream) -> Self {
-        Self { send, recv }
+        Self {
+            send,
+            recv,
+            _connection_guard: None,
+        }
+    }
+
+    pub fn with_connection_guard(
+        send: quinn::SendStream,
+        recv: quinn::RecvStream,
+        connection: Arc<super::Hysteria2AuthenticatedConnection>,
+    ) -> Self {
+        Self {
+            send,
+            recv,
+            _connection_guard: Some(connection),
+        }
     }
 }
 

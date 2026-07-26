@@ -8,10 +8,10 @@ response bridging.
 
 | Area | Current fact |
 |------|--------------|
-| TCP inbound | Accepts AEAD stream requests (legacy + 2022 SIP022) and returns `ShadowsocksAccept` |
-| TCP outbound | Writes the initial target request (legacy + 2022 SIP022) and returns `ShadowsocksOutboundSession` |
+| TCP inbound | Accepts AEAD stream requests (legacy + 2022 SIP022), selects AES 2022 users through SIP023 EIH, and returns `ShadowsocksAccept` |
+| TCP outbound | Writes the initial target request (legacy + 2022 SIP022), emits SIP023 EIH for AES 2022 password chains, and returns `ShadowsocksOutboundSession` |
 | TCP stream | `ShadowsocksAeadStream` owns chunk encryption, decryption, response salt, and download key derivation |
-| UDP datagram | `UdpDatagramFraming` encodes and decodes Shadowsocks UDP packets; AEAD 2022 outbound client packets use the SIP022 UDP header format |
+| UDP datagram | `UdpDatagramFraming` encodes and decodes Shadowsocks UDP packets; AES 2022 supports SIP023 EIH user selection and response encryption with the selected uPSK |
 | UDP composition | `ShadowsocksDatagramCodec` is used by generic packet-path orchestration; Shadowsocks final-hop UDP chains support SOCKS5 and Shadowsocks packet-path carriers |
 | MUX | Not applicable |
 
@@ -31,6 +31,12 @@ In-tree validation covers these Shadowsocks paths:
   ASSOCIATE or Shadowsocks UDP.
 - Local external UDP interoperability against `shadowsocks-rust ssserver -U`
   for every supported cipher listed below.
+- SIP023 TCP and UDP EIH wire probes for both AES 2022 methods, password-chain
+  outbound to EIH inbound round trips, selected-uPSK responses, and atomic
+  managed-user replacement while retaining the static server iPSK.
+- Bidirectional TCP and UDP interoperability with `shadowsocks-rust` 1.24.0 for
+  both AES 2022 EIH methods (`sslocal` to Zero and Zero to `ssserver`). Run with
+  `cargo test -p shadowsocks --all-features --test external_sip023 -- --ignored`.
 
 Supported cipher names:
 
@@ -44,9 +50,12 @@ Supported cipher names:
 For AEAD 2022 cipher names, `password` is standard base64 key material. The
 decoded length must match the method key length: 16 bytes for
 `2022-blake3-aes-128-gcm`, and 32 bytes for
-`2022-blake3-aes-256-gcm` and `2022-blake3-chacha20-poly1305`. AES 2022
-passwords may include colon-separated identity keys; Zero uses the last segment
-as the user PSK and does not emit EIH identity headers.
+`2022-blake3-aes-256-gcm` and `2022-blake3-chacha20-poly1305`. AES 2022 outbound
+passwords may contain `iPSK[:iPSK...]:uPSK`; Zero validates every segment,
+emits SIP023 TCP/UDP EIH, and uses the final uPSK for payload and responses.
+Managed AES 2022 inbound profiles use a separate static `identity_password` and
+an atomically replaceable uPSK user set. SIP023 EIH does not apply to the 2022
+chacha20 method.
 
 ## Boundaries
 
@@ -65,8 +74,9 @@ src/metadata.rs  - protocol capability descriptor
   3.2.3 echo of client session id, DNS round-trip probe).
 - **SIP022 3.2.4** per-session sliding-window replay filtering and per-client
   session-id flow isolation are implemented and tested.
+- **SIP023** EIH is implemented for AES 2022 TCP and UDP, including O(1) user
+  identity lookup. Both directions have been validated against independent
+  `shadowsocks-rust` 1.24.0 TCP and UDP implementations.
 - The remaining limitation is `shadowsocks_2022_hardening_not_externally_validated`:
   the detection-prevention drain and sliding-window replay filter have not been
-  validated against real active probes/replay attacks, and direct interop with
-  an external `ssserver` is pending (blocked by a Windows-env single-read bug in
-  the available `ssserver` build, exonerated by a reference-pair control test).
+  validated against real active probes/replay attacks.

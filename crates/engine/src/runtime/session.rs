@@ -1,20 +1,37 @@
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use zero_core::Session;
+use zero_core::{Address, Session, SessionAuth};
 
 use super::Engine;
-use crate::completed_sessions::CompletedSessionRecord;
-use crate::hook::{FlowContext, FlowHook, FlowTraffic};
-use crate::session_lifecycle::SessionHandle;
-use crate::stats::SessionOutcome;
+use crate::observability::SessionOutcome;
+use crate::session::{CompletedSessionRecord, FlowContext, FlowHook, FlowTraffic, SessionHandle};
 use crate::{
     EngineError, FlowFailureObservation, FlowRemoteEndpoint, FlowRouteObservation, RouteDecision,
     RouteTrace,
 };
 
 impl Engine {
-    pub fn prepare_session(&self, session: &mut Session, inbound_tag: &str) {
+    pub(crate) fn register_session_cancellation<F>(&self, id: u64, cancel: F) -> bool
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.session_registry.register_cancellation(id, cancel)
+    }
+
+    pub(crate) fn session_is_cancelled(&self, id: u64) -> bool {
+        self.session_registry.is_cancelled(id)
+    }
+
+    pub(crate) fn session_cancellation_reason(&self, id: u64) -> Option<String> {
+        self.session_registry.cancellation_reason(id)
+    }
+
+    pub fn prepare_session(
+        &self,
+        session: &mut Session,
+        inbound_tag: &str,
+    ) -> Result<(), EngineError> {
         session.id = self.next_session_id.fetch_add(1, Ordering::Relaxed);
         session.inbound_tag = Some(inbound_tag.to_owned());
         let now_ms = SystemTime::now()
@@ -22,19 +39,68 @@ impl Engine {
             .unwrap_or_default()
             .as_millis() as u64;
         let mode = self.mode.lock().unwrap_or_else(|error| error.into_inner());
-        if let Some(hook) = &self.flow_hook {
+        self.principal_policies.validate(session.auth.as_ref())?;
+        let hook = self
+            .flow_hook
+            .read()
+            .expect("flow hook lock poisoned")
+            .clone();
+        if let Some(hook) = hook {
             let context = FlowContext::from_session(session, mode.kind(), now_ms);
             if let Err(reason) = hook.on_flow_start(&context) {
                 tracing::warn!(flow_id = session.id, reason = %reason.message, "flow blocked by hook");
-                self.stats.record_finish(SessionOutcome::Cancelled);
-                return;
+                return Err(EngineError::AdmissionDenied {
+                    reason: reason.message,
+                });
             }
         }
-        self.session_registry.insert(session, mode.kind());
+        let device_registration =
+            self.acquire_principal_device(session.auth.as_ref(), session.source_ip.as_ref())?;
+        let quota_registration = self.principal_quotas.acquire(session.auth.as_ref())?;
+        self.session_registry.insert(
+            session,
+            mode.kind(),
+            device_registration,
+            quota_registration,
+        );
         self.stats.record_start();
         if let Some(active) = self.session_registry.snapshot_one(session.id) {
             self.event_log.push_flow_started(&active);
         }
+        Ok(())
+    }
+
+    pub fn acquire_principal_device(
+        &self,
+        auth: Option<&SessionAuth>,
+        source_ip: Option<&Address>,
+    ) -> Result<Option<crate::PrincipalDeviceRegistration>, EngineError> {
+        self.principal_policies.validate(auth)?;
+        let Some(auth) = auth else {
+            return Ok(None);
+        };
+        let Some(limit) = auth.device_limit.filter(|limit| *limit > 0) else {
+            return Ok(None);
+        };
+        let principal_key =
+            auth.principal_key
+                .as_deref()
+                .ok_or_else(|| EngineError::AdmissionDenied {
+                    reason: "device-limited session has no principal identity".to_owned(),
+                })?;
+        let source_ip = source_ip
+            .cloned()
+            .ok_or_else(|| EngineError::AdmissionDenied {
+                reason: format!(
+                    "device-limited principal `{principal_key}` has no observable source IP"
+                ),
+            })?;
+        self.principal_devices
+            .acquire(principal_key, source_ip, limit)
+            .map(Some)
+            .ok_or_else(|| EngineError::AdmissionDenied {
+                reason: format!("principal `{principal_key}` exceeded its {limit}-device limit"),
+            })
     }
 
     pub fn set_session_outbound(&self, session: &Session) {
@@ -90,16 +156,16 @@ impl Engine {
     }
 
     pub fn record_session_upload(&self, id: u64, bytes: u64) {
-        self.session_registry.record_upload(id, bytes);
+        self.cancel_if_quota_exhausted(self.session_registry.record_upload(id, bytes));
     }
     pub fn record_session_download(&self, id: u64, bytes: u64) {
-        self.session_registry.record_download(id, bytes);
+        self.cancel_if_quota_exhausted(self.session_registry.record_download(id, bytes));
     }
     pub fn record_session_inbound_rx(&self, id: u64, bytes: u64) {
-        self.session_registry.record_inbound_rx(id, bytes);
+        self.cancel_if_quota_exhausted(self.session_registry.record_inbound_rx(id, bytes));
     }
     pub fn record_session_inbound_tx(&self, id: u64, bytes: u64) {
-        self.session_registry.record_inbound_tx(id, bytes);
+        self.cancel_if_quota_exhausted(self.session_registry.record_inbound_tx(id, bytes));
     }
     pub fn record_session_outbound_rx(&self, id: u64, bytes: u64) {
         self.session_registry.record_outbound_rx(id, bytes);
@@ -170,9 +236,36 @@ impl Engine {
             record.bytes_down,
         );
         self.completed_sessions.push(record.clone());
-        self.event_log
-            .push_flow_completed(&record, |tag| self.outbound_protocol_for_tag(tag));
-        if let Some(hook) = &self.flow_hook {
+        let completed_event = self
+            .event_log
+            .prepare_flow_completed(&record, |tag| self.outbound_protocol_for_tag(tag));
+        let completion_sink = self
+            .flow_completion_sink
+            .read()
+            .expect("flow completion sink lock poisoned")
+            .clone();
+        if let Some(sink) = completion_sink {
+            match sink.0.publish(&completed_event) {
+                Ok(result) if result.delivered => {}
+                Ok(result) => self.emit_warning(
+                    "flow_completion_persistence_failed",
+                    result
+                        .message
+                        .as_deref()
+                        .unwrap_or("flow completion sink did not confirm durable delivery"),
+                ),
+                Err(error) => {
+                    self.emit_warning("flow_completion_persistence_failed", &error.to_string())
+                }
+            }
+        }
+        self.event_log.push_prepared_generated(completed_event);
+        let hook = self
+            .flow_hook
+            .read()
+            .expect("flow hook lock poisoned")
+            .clone();
+        if let Some(hook) = hook {
             hook.on_flow_end(
                 &FlowContext::from_completed(&record),
                 outcome,
@@ -194,7 +287,7 @@ impl Engine {
     pub fn record_outbound_success(&self, tag: &str) {
         self.outbound_health.record_success(tag);
     }
-    pub fn probe_trigger_registry(&self) -> &crate::probe_trigger::ProbeTriggerRegistry {
+    pub fn probe_trigger_registry(&self) -> &crate::health::ProbeTriggerRegistry {
         &self.probe_trigger_registry
     }
 
@@ -215,14 +308,44 @@ impl Engine {
                 "invalid flow id",
             ))
         })?;
-        self.finish_session_with_reason(id, SessionOutcome::Cancelled, Some("manual".to_owned()))
-            .map(|_| ())
-            .ok_or_else(|| {
-                EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("flow `{flow_id}` not found or already completed"),
-                ))
-            })
+        if self.session_registry.cancel(id, "manual") {
+            Ok(())
+        } else {
+            Err(EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("flow `{flow_id}` not found or already completed"),
+            )))
+        }
+    }
+
+    pub fn close_principal_flows(&self, principal_key: &str, reason: &str) -> Vec<u64> {
+        let cancelled = self
+            .session_registry
+            .cancel_principal(principal_key, reason);
+        self.principal_cancellations.cancel(principal_key, reason);
+        cancelled
+    }
+
+    pub fn forget_principal_policy_state(&self, principal_key: &str) {
+        self.principal_quotas.forget(principal_key);
+    }
+
+    fn cancel_if_quota_exhausted(&self, principal_key: Option<String>) {
+        if let Some(principal_key) = principal_key {
+            self.close_principal_flows(&principal_key, "quota_exhausted");
+        }
+    }
+
+    pub fn register_principal_cancellation<F>(
+        &self,
+        principal_key: &str,
+        callback: F,
+    ) -> crate::PrincipalCancellationRegistration
+    where
+        F: FnOnce(String) + Send + 'static,
+    {
+        self.principal_cancellations
+            .register(principal_key, callback)
     }
 
     fn outbound_protocol_for_tag(&self, tag: &str) -> Option<&'static str> {

@@ -1,3 +1,4 @@
+use std::sync::{Arc, RwLock};
 use zero_core::{Error, Network, ProtocolType, Session, SessionAuth};
 use zero_traits::AsyncSocket;
 
@@ -12,20 +13,25 @@ use crate::{parse_uuid, VmessCipher};
 pub struct VmessUser {
     pub id: [u8; 16],
     pub cipher: VmessCipher,
-    pub credential_id: Option<String>,
     pub principal_key: Option<String>,
     pub up_bps: Option<u64>,
     pub down_bps: Option<u64>,
+    pub device_limit: Option<u32>,
+    pub quota_remaining_bytes: Option<u64>,
+    pub policy_revision: Option<u64>,
 }
 
 impl VmessUser {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_config(
         id: &str,
         cipher: &str,
-        credential_id: Option<String>,
         principal_key: Option<String>,
         up_bps: Option<u64>,
         down_bps: Option<u64>,
+        device_limit: Option<u32>,
+        quota_remaining_bytes: Option<u64>,
+        policy_revision: Option<u64>,
     ) -> Result<Self, Error> {
         let id = parse_uuid(id)?;
         let cipher =
@@ -33,10 +39,12 @@ impl VmessUser {
         Ok(Self {
             id,
             cipher,
-            credential_id,
             principal_key,
             up_bps,
             down_bps,
+            device_limit,
+            quota_remaining_bytes,
+            policy_revision,
         })
     }
 }
@@ -45,26 +53,46 @@ pub type VmessInboundUserConfigParts = (
     String,
     String,
     Option<String>,
-    Option<String>,
+    Option<u64>,
+    Option<u64>,
+    Option<u32>,
     Option<u64>,
     Option<u64>,
 );
 
 #[derive(Clone)]
 pub struct VmessInboundProfile {
-    users: Vec<VmessUser>,
+    users: Arc<RwLock<Arc<[VmessUser]>>>,
+}
+
+impl core::fmt::Debug for VmessInboundProfile {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("VmessInboundProfile")
+            .field("user_count", &self.user_count())
+            .finish()
+    }
 }
 
 impl VmessInboundProfile {
     pub fn from_users(users: Vec<VmessUser>) -> Self {
-        Self { users }
+        Self {
+            users: Arc::new(RwLock::new(users.into())),
+        }
     }
 
-    fn from_non_empty_users(users: Vec<VmessUser>) -> Result<Self, Error> {
-        if users.is_empty() {
-            return Err(Error::Protocol("vmess requires at least one user"));
-        }
-        Ok(Self::from_users(users))
+    pub fn user_count(&self) -> usize {
+        self.users
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .len()
+    }
+
+    pub fn replace_users(&self, users: Vec<VmessUser>) {
+        *self
+            .users
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = users.into();
     }
 
     pub fn from_config_parts<I>(users: I) -> Result<Self, Error>
@@ -74,19 +102,30 @@ impl VmessInboundProfile {
         users
             .into_iter()
             .map(
-                |(id, cipher, credential_id, principal_key, up_bps, down_bps)| {
+                |(
+                    id,
+                    cipher,
+                    principal_key,
+                    up_bps,
+                    down_bps,
+                    device_limit,
+                    quota_remaining_bytes,
+                    policy_revision,
+                )| {
                     VmessUser::from_config(
                         &id,
                         &cipher,
-                        credential_id,
                         principal_key,
                         up_bps,
                         down_bps,
+                        device_limit,
+                        quota_remaining_bytes,
+                        policy_revision,
                     )
                 },
             )
             .collect::<Result<Vec<_>, Error>>()
-            .and_then(Self::from_non_empty_users)
+            .map(Self::from_users)
     }
 
     pub fn from_config_users<I, U>(users: I) -> Result<Self, Error>
@@ -96,15 +135,57 @@ impl VmessInboundProfile {
     {
         Self::from_config_parts(users.into_iter().map(U::into_vmess_inbound_user_config))
     }
+
+    pub fn replace_config_users<I, U>(&self, users: I) -> Result<(), Error>
+    where
+        I: IntoIterator<Item = U>,
+        U: IntoVmessInboundUserConfig,
+    {
+        let replacement = users
+            .into_iter()
+            .map(IntoVmessInboundUserConfig::into_vmess_inbound_user_config)
+            .map(
+                |(
+                    id,
+                    cipher,
+                    principal_key,
+                    up_bps,
+                    down_bps,
+                    device_limit,
+                    quota_remaining_bytes,
+                    policy_revision,
+                )| {
+                    VmessUser::from_config(
+                        &id,
+                        &cipher,
+                        principal_key,
+                        up_bps,
+                        down_bps,
+                        device_limit,
+                        quota_remaining_bytes,
+                        policy_revision,
+                    )
+                },
+            )
+            .collect::<Result<Vec<_>, Error>>()?;
+        self.replace_users(replacement);
+        Ok(())
+    }
+
     async fn accept_tcp<S: AsyncSocket>(
         &self,
         inbound: VmessInbound,
         stream: &mut S,
     ) -> Result<VmessAccept, Error> {
-        if self.users.len() == 1 {
-            inbound.accept_tcp(stream, &self.users[0]).await
+        let users = self
+            .users
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        if users.len() == 1 {
+            inbound.accept_tcp(stream, &users[0]).await
         } else {
-            inbound.accept_tcp_multi(stream, &self.users).await
+            inbound.accept_tcp_multi(stream, &users).await
         }
     }
 
@@ -129,33 +210,26 @@ impl VmessInboundProfile {
     {
         let (session, client) = self.accept_tcp_stream(inbound, stream).await?;
         Ok(crate::mux::VmessInboundAcceptedStream::from_session_stream(
-            session, client,
+            session,
+            client,
+            crate::mux::MuxResponseBacklogPolicy::default(),
         ))
     }
 
-    pub async fn accept_client_owned<S>(
+    pub(crate) async fn accept_client_owned<S>(
         self,
         inbound: VmessInbound,
-        mut stream: S,
+        stream: S,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Result<crate::mux::VmessInboundAcceptedStream<crate::stream::VmessAeadStream<S>>, Error>
     where
         S: AsyncSocket + tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     {
-        let accepted = if self.users.len() == 1 {
-            let user = self
-                .users
-                .into_iter()
-                .next()
-                .expect("single-user profile should contain one user");
-            inbound.accept_tcp(&mut stream, &user).await?
-        } else {
-            let users = self.users;
-            inbound.accept_tcp_multi(&mut stream, &users).await?
-        };
-        let session = accepted.session().clone();
-        let client = crate::stream::wrap_tcp_inbound_stream(stream, accepted)?;
+        let (session, client) = self.accept_tcp_stream(inbound, stream).await?;
         Ok(crate::mux::VmessInboundAcceptedStream::from_session_stream(
-            session, client,
+            session,
+            client,
+            mux_response_backlog,
         ))
     }
 }
@@ -176,10 +250,12 @@ impl IntoVmessInboundUserConfig for crate::transport::VmessInboundUserRef<'_> {
         (
             self.id.to_owned(),
             self.cipher.to_owned(),
-            self.credential_id.map(str::to_owned),
             self.principal_key.map(str::to_owned),
             self.up_bps,
             self.down_bps,
+            self.device_limit,
+            self.quota_remaining_bytes,
+            self.policy_revision,
         )
     }
 }
@@ -479,13 +555,15 @@ fn parse_command_body(plaintext: &[u8], user: &VmessUser) -> Result<ParsedComman
 fn apply_user_auth(session: &mut Session, user: &VmessUser) {
     let auth = SessionAuth {
         scheme: "vmess-uuid".into(),
-        credential_id: user.credential_id.clone(),
         principal_key: user
             .principal_key
             .clone()
             .or_else(|| Some(hex::encode(&user.id))),
         up_bps: user.up_bps,
         down_bps: user.down_bps,
+        device_limit: user.device_limit,
+        quota_remaining_bytes: user.quota_remaining_bytes,
+        policy_revision: user.policy_revision,
     };
     session.apply_auth(auth);
 }

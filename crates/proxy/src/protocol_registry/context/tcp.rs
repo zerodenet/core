@@ -6,12 +6,14 @@ use zero_engine::Engine;
 
 use super::{OutboundAdapterContext, UpstreamConnectServices};
 use crate::inventory::ProtocolInventory;
+use crate::runtime::principal_rate_limit::{PrincipalRateLimitRegistry, TrafficRateLimiters};
 
 #[derive(Clone)]
 pub(crate) struct TcpRuntimeServices {
     pub(super) engine: Engine,
     config: Arc<RuntimeConfig>,
     pub(super) upstream: UpstreamConnectServices,
+    principal_rate_limits: PrincipalRateLimitRegistry,
 }
 
 impl TcpRuntimeServices {
@@ -20,11 +22,13 @@ impl TcpRuntimeServices {
         config: Arc<RuntimeConfig>,
         resolver: Arc<DnsSystem>,
         protocols: ProtocolInventory,
+        principal_rate_limits: PrincipalRateLimitRegistry,
     ) -> Self {
         Self {
             engine,
             config,
             upstream: UpstreamConnectServices::new(resolver, protocols),
+            principal_rate_limits,
         }
     }
 
@@ -47,6 +51,13 @@ impl TcpRuntimeServices {
 
     pub(crate) fn upstream(&self) -> UpstreamConnectServices {
         self.upstream.clone()
+    }
+
+    pub(crate) fn traffic_rate_limiters(
+        &self,
+        session: &zero_core::Session,
+    ) -> TrafficRateLimiters {
+        self.principal_rate_limits.acquire(session)
     }
 
     pub(crate) async fn connect_upstream_owned(

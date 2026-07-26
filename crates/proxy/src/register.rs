@@ -37,23 +37,19 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
     #[cfg(feature = "hysteria2")]
     {
         use crate::adapters::hysteria2::Hysteria2Adapter;
-        registry.register_managed_capability(
-            Arc::new(Hysteria2Adapter),
-            Hysteria2Adapter::claim_outbound_leaf_impl,
-        );
+        let adapter = Arc::new(Hysteria2Adapter::default());
+        registry.register_managed_capability(adapter, Hysteria2Adapter::claim_outbound_leaf_impl);
     }
     #[cfg(feature = "shadowsocks")]
     {
         use crate::adapters::shadowsocks::ShadowsocksAdapter;
-        registry.register_managed_capability(
-            Arc::new(ShadowsocksAdapter),
-            ShadowsocksAdapter::claim_outbound_leaf_impl,
-        );
+        let adapter = Arc::new(ShadowsocksAdapter::default());
+        registry.register_managed_capability(adapter, ShadowsocksAdapter::claim_outbound_leaf_impl);
     }
     #[cfg(feature = "trojan")]
     {
         use crate::adapters::trojan::TrojanAdapter;
-        let adapter = Arc::new(TrojanAdapter);
+        let adapter = Arc::new(TrojanAdapter::default());
         registry.register_managed_capability(adapter, TrojanAdapter::claim_outbound_leaf_impl);
     }
     #[cfg(feature = "vmess")]

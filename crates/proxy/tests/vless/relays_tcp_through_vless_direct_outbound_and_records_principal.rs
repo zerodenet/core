@@ -18,7 +18,6 @@ async fn relays_tcp_through_vless_direct_outbound_and_records_principal() {
                         "users": [
                             {{
                                 "id": "{USER_ID}",
-                                "credential_id": "node-user-1",
                                 "principal_key": "user:10001"
                             }}
                         ]
@@ -89,10 +88,6 @@ async fn relays_tcp_through_vless_direct_outbound_and_records_principal() {
         .find(|event| event.event_type == event_type::FLOW_COMPLETED)
         .expect("flow completed event");
     assert_eq!(completed_event.principal_key.as_deref(), Some("user:10001"));
-    assert_eq!(
-        completed_event.payload["auth"]["credential_id"],
-        "node-user-1"
-    );
 
     engine_handle.shutdown().await.expect("shutdown engine");
     echo_task.await.expect("echo task");

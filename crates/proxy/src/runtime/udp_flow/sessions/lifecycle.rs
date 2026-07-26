@@ -2,6 +2,7 @@ use zero_core::{Address, Session};
 use zero_engine::{FlowFailureObservation, PassiveRelaySelection, SessionHandle};
 
 use crate::runtime::udp_flow::outbound::UdpFlowOutbound;
+use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
 use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
 
 use super::model::{CompletedUdpFlow, UdpFlow, UdpFlowKey, UdpSessionFlows};
@@ -41,6 +42,7 @@ impl UdpSessionFlows {
         outbound: UdpFlowOutbound,
         client_session_id: Option<u64>,
         passive_relay_selections: Vec<PassiveRelaySelection>,
+        rate_limiters: UdpFlowRateLimiters,
     ) {
         let key = UdpFlowKey::new(&session.target, session.port, client_session_id);
         self.index_flow(&key, &outbound);
@@ -53,8 +55,23 @@ impl UdpSessionFlows {
                 client_session_id,
                 passive_relay_selections,
                 passive_health_confirmed: std::sync::atomic::AtomicBool::new(false),
+                rate_limiters,
             },
         );
+    }
+
+    pub(crate) fn rate_limiters_by_session_id(
+        &self,
+        session_id: Option<u64>,
+    ) -> UdpFlowRateLimiters {
+        let Some(session_id) = session_id else {
+            return UdpFlowRateLimiters::default();
+        };
+        self.flows
+            .values()
+            .find(|flow| flow.session.id == session_id)
+            .map(|flow| flow.rate_limiters.clone())
+            .unwrap_or_default()
     }
 
     pub(crate) fn confirm_passive_health(
@@ -85,6 +102,16 @@ impl UdpSessionFlows {
         let flow = self.flows.remove(&key)?;
         self.unindex_flow(&key, &flow.outbound);
         Some(flow.finish_with_failure(failure))
+    }
+
+    pub(crate) fn finish_cancelled(&mut self, session_id: u64) -> Option<CompletedUdpFlow> {
+        let key = self
+            .flows
+            .iter()
+            .find_map(|(key, flow)| (flow.session.id == session_id).then(|| key.clone()))?;
+        let flow = self.flows.remove(&key)?;
+        self.unindex_flow(&key, &flow.outbound);
+        Some(flow.finish_cancelled())
     }
 
     pub(crate) fn finish_all(&mut self) -> Vec<CompletedUdpFlow> {

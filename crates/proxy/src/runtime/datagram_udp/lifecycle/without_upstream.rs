@@ -19,7 +19,7 @@ where
     R: DatagramUdpResponder<S>,
 {
     loop {
-        let (direct_sock, chain_tasks) = dispatch.poll_sockets();
+        let (direct_sock, chain_tasks, cancel_rx) = dispatch.poll_sockets();
         select! {
             read = responder.read_inbound_dispatch(source) => {
                 if !process_datagram_read::<S, R>(context, dispatch, responder, read).await {
@@ -32,6 +32,11 @@ where
             }
             Some(chain_result) = chain_tasks.join_next() => {
                 handle_chain_result(context, dispatch, source, responder, chain_result).await;
+            }
+            Some(session_id) = cancel_rx.recv() => {
+                if dispatch.finish_cancelled_flow(session_id) {
+                    break;
+                }
             }
         }
     }

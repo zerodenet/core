@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-#[cfg(all(feature = "runtime", feature = "reality"))]
+#[cfg(feature = "runtime")]
 pub mod deferred_response;
 #[cfg(all(feature = "runtime", feature = "reality"))]
 pub mod flow;

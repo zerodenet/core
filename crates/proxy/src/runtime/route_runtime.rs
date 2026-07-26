@@ -14,4 +14,4 @@ pub(crate) use listener::{InboundListenerRuntime, InboundListenerRuntimeFactory}
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) use mux::MuxSubstreamRuntime;
 pub(crate) use route::{InboundRouteRuntime, InboundRouteRuntimeFactory};
-pub(crate) use shared::SharedIngressRuntimeServices;
+pub(crate) use shared::{route_trace_for_session, SharedIngressRuntimeServices};

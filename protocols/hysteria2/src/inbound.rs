@@ -2,6 +2,11 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+#[cfg(feature = "crypto")]
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, RwLock},
+};
 use zero_core::{Error, InboundClientResponse, Network, ProtocolType, Session, SessionAuth};
 use zero_traits::AsyncSocket;
 
@@ -10,9 +15,26 @@ use zero_traits::AsyncSocket;
 pub struct Hysteria2Inbound;
 
 /// Per-user configuration for Hysteria2 authentication.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hysteria2User {
     pub password: String,
+    pub principal_key: Option<String>,
+    pub up_bps: Option<u64>,
+    pub down_bps: Option<u64>,
+    pub device_limit: Option<u32>,
+    pub quota_remaining_bytes: Option<u64>,
+    pub policy_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Hysteria2InboundUserRef<'a> {
+    pub password: &'a str,
+    pub principal_key: Option<&'a str>,
+    pub up_bps: Option<u64>,
+    pub down_bps: Option<u64>,
+    pub device_limit: Option<u32>,
+    pub quota_remaining_bytes: Option<u64>,
+    pub policy_revision: Option<u64>,
 }
 
 /// Protocol-owned validated inbound profile.
@@ -20,9 +42,9 @@ pub struct Hysteria2User {
 /// Proxy listener code owns QUIC accept and task scheduling; this profile owns
 /// Hysteria2 authentication material and protocol response framing.
 #[cfg(feature = "crypto")]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Hysteria2InboundProfile {
-    password: String,
+    users: Arc<RwLock<Arc<[Hysteria2User]>>>,
 }
 
 /// Protocol-owned TCP stream accept/response helper.
@@ -38,14 +60,16 @@ pub struct Hysteria2InboundTcpAcceptor {
 pub struct Hysteria2AcceptedQuicConnection {
     conn: std::sync::Arc<quinn::Connection>,
     tcp_acceptor: Hysteria2InboundTcpAcceptor,
+    auth: SessionAuth,
 }
 
 #[cfg(all(feature = "tokio", feature = "crypto"))]
 impl Hysteria2AcceptedQuicConnection {
-    pub fn new(conn: quinn::Connection) -> Self {
+    pub fn new(conn: std::sync::Arc<quinn::Connection>, auth: SessionAuth) -> Self {
         Self {
-            conn: std::sync::Arc::new(conn),
+            conn,
             tcp_acceptor: Hysteria2InboundTcpAcceptor::new(),
+            auth,
         }
     }
 
@@ -53,8 +77,20 @@ impl Hysteria2AcceptedQuicConnection {
         self.conn.clone()
     }
 
+    pub fn auth(&self) -> &SessionAuth {
+        &self.auth
+    }
+
+    pub fn close(&self, reason: &str) {
+        self.conn
+            .close(quinn::VarInt::from_u32(0), reason.as_bytes());
+    }
+
     pub fn accept_udp_session(&self) -> crate::udp::Hysteria2InboundUdpRelay {
-        Hysteria2Inbound.accept_udp_session()
+        crate::udp::Hysteria2InboundUdpRelay::with_auth(
+            Hysteria2Inbound.udp_responder(),
+            self.auth.clone(),
+        )
     }
 
     pub async fn accept_next_tcp_stream<S, F>(
@@ -71,7 +107,8 @@ impl Hysteria2AcceptedQuicConnection {
             .await
             .map_err(|_| Error::Io("hysteria2: accept tcp stream"))?;
         let mut stream = stream_factory(send, recv);
-        let session = self.tcp_acceptor.accept_stream(&mut stream).await?;
+        let mut session = self.tcp_acceptor.accept_stream(&mut stream).await?;
+        session.apply_auth(self.auth.clone());
         Ok(Some((session, stream)))
     }
 }
@@ -127,8 +164,29 @@ where
 #[cfg(feature = "crypto")]
 impl Hysteria2InboundProfile {
     pub fn from_config(password: &str) -> Self {
+        Self::from_config_users([Hysteria2InboundUserRef {
+            password,
+            principal_key: None,
+            up_bps: None,
+            down_bps: None,
+            device_limit: None,
+            quota_remaining_bytes: None,
+            policy_revision: None,
+        }])
+    }
+
+    pub fn from_config_users<'a, I>(users: I) -> Self
+    where
+        I: IntoIterator<Item = Hysteria2InboundUserRef<'a>>,
+    {
         Self {
-            password: String::from(password),
+            users: Arc::new(RwLock::new(
+                users
+                    .into_iter()
+                    .map(Hysteria2User::from_ref)
+                    .collect::<Vec<_>>()
+                    .into(),
+            )),
         }
     }
 
@@ -140,13 +198,58 @@ impl Hysteria2InboundProfile {
         Self::from_config_parts(password)
     }
 
-    fn authenticate_client(&self, salt: &[u8; 32], auth_frame: &[u8]) -> Result<(), Error> {
+    pub fn user_count(&self) -> usize {
+        self.users_snapshot().len()
+    }
+
+    pub fn replace_config_users<'a, I>(&self, users: I)
+    where
+        I: IntoIterator<Item = Hysteria2InboundUserRef<'a>>,
+    {
+        let users = users
+            .into_iter()
+            .map(Hysteria2User::from_ref)
+            .collect::<Vec<_>>();
+        *self
+            .users
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = users.into();
+    }
+
+    fn users_snapshot(&self) -> Arc<[Hysteria2User]> {
+        self.users
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    fn authenticate_client(
+        &self,
+        salt: &[u8; 32],
+        auth_frame: &[u8],
+    ) -> Result<SessionAuth, Error> {
         let client_hmac = crate::shared::parse_auth_frame(auth_frame)?;
-        if crate::shared::verify_hmac(&self.password, salt, &client_hmac) {
-            Ok(())
-        } else {
-            Err(Error::Protocol("hysteria2: authentication failed"))
-        }
+        self.authenticate_hmac(salt, &client_hmac)
+    }
+
+    pub fn authenticate_hmac(
+        &self,
+        salt: &[u8; 32],
+        client_hmac: &[u8; 32],
+    ) -> Result<SessionAuth, Error> {
+        self.users_snapshot()
+            .iter()
+            .find(|user| crate::shared::verify_hmac(&user.password, salt, client_hmac))
+            .map(Hysteria2User::auth)
+            .ok_or(Error::Protocol("hysteria2: authentication failed"))
+    }
+
+    pub(crate) fn authenticate_password(&self, password: &str) -> Result<SessionAuth, Error> {
+        self.users_snapshot()
+            .iter()
+            .find(|user| user.password == password)
+            .map(Hysteria2User::auth)
+            .ok_or(Error::Protocol("hysteria2: authentication failed"))
     }
 
     fn auth_ok_response(&self) -> Vec<u8> {
@@ -157,7 +260,11 @@ impl Hysteria2InboundProfile {
         crate::shared::build_auth_error(message)
     }
 
-    async fn authenticate_connection<S>(&self, stream: &mut S, salt: &[u8; 32]) -> Result<(), Error>
+    async fn authenticate_connection<S>(
+        &self,
+        stream: &mut S,
+        salt: &[u8; 32],
+    ) -> Result<SessionAuth, Error>
     where
         S: AsyncSocket,
     {
@@ -170,17 +277,21 @@ impl Hysteria2InboundProfile {
             return Err(Error::Protocol("hysteria2: EOF on auth stream"));
         }
 
-        if self.authenticate_client(salt, &auth_buf[..n]).is_err() {
-            let err_resp = self.auth_error_response("authentication failed");
-            let _ = stream.write_all(&err_resp).await;
-            return Err(Error::Protocol("hysteria2: auth failed"));
-        }
+        let auth = match self.authenticate_client(salt, &auth_buf[..n]) {
+            Ok(auth) => auth,
+            Err(_) => {
+                let err_resp = self.auth_error_response("authentication failed");
+                let _ = stream.write_all(&err_resp).await;
+                return Err(Error::Protocol("hysteria2: auth failed"));
+            }
+        };
 
         let ok_resp = self.auth_ok_response();
         stream
             .write_all(&ok_resp)
             .await
-            .map_err(|_| Error::Io("hysteria2: write auth ok"))
+            .map_err(|_| Error::Io("hysteria2: write auth ok"))?;
+        Ok(auth)
     }
 
     #[cfg(all(feature = "tokio", feature = "crypto"))]
@@ -188,7 +299,7 @@ impl Hysteria2InboundProfile {
         &self,
         conn: &quinn::Connection,
         stream: &mut S,
-    ) -> Result<(), Error>
+    ) -> Result<SessionAuth, Error>
     where
         S: AsyncSocket,
     {
@@ -204,7 +315,7 @@ impl Hysteria2InboundProfile {
         &self,
         conn: &quinn::Connection,
         stream_factory: F,
-    ) -> Result<(), Error>
+    ) -> Result<SessionAuth, Error>
     where
         S: AsyncSocket,
         F: FnOnce(quinn::SendStream, quinn::RecvStream) -> S,
@@ -228,9 +339,76 @@ impl Hysteria2InboundProfile {
         S: AsyncSocket,
         F: FnOnce(quinn::SendStream, quinn::RecvStream) -> S,
     {
-        self.accept_authenticated_quic_connection(&conn, stream_factory)
+        let auth = self
+            .accept_authenticated_quic_connection(&conn, stream_factory)
             .await?;
-        Ok(Hysteria2AcceptedQuicConnection::new(conn))
+        let conn = std::sync::Arc::new(conn);
+        Ok(Hysteria2AcceptedQuicConnection::new(conn, auth))
+    }
+}
+
+#[cfg(feature = "crypto")]
+impl core::fmt::Debug for Hysteria2InboundProfile {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("Hysteria2InboundProfile")
+            .field("user_count", &self.user_count())
+            .finish()
+    }
+}
+
+impl Hysteria2User {
+    fn from_ref(user: Hysteria2InboundUserRef<'_>) -> Self {
+        Self {
+            password: user.password.to_owned(),
+            principal_key: user.principal_key.map(str::to_owned),
+            up_bps: user.up_bps,
+            down_bps: user.down_bps,
+            device_limit: user.device_limit,
+            quota_remaining_bytes: user.quota_remaining_bytes,
+            policy_revision: user.policy_revision,
+        }
+    }
+
+    fn auth(&self) -> SessionAuth {
+        let mut auth = SessionAuth::new("hysteria2");
+        auth.principal_key = self
+            .principal_key
+            .clone()
+            .or_else(|| Some(self.password.clone()));
+        auth.up_bps = self.up_bps;
+        auth.down_bps = self.down_bps;
+        auth.device_limit = self.device_limit;
+        auth.quota_remaining_bytes = self.quota_remaining_bytes;
+        auth.policy_revision = self.policy_revision;
+        auth
+    }
+}
+
+#[cfg(feature = "crypto")]
+#[derive(Debug, Clone, Default)]
+pub struct Hysteria2InboundProfileStore {
+    profiles: Arc<Mutex<HashMap<String, Hysteria2InboundProfile>>>,
+}
+
+#[cfg(feature = "crypto")]
+impl Hysteria2InboundProfileStore {
+    pub fn replace(
+        &self,
+        tag: &str,
+        users: &[Hysteria2InboundUserRef<'_>],
+    ) -> Hysteria2InboundProfile {
+        let mut profiles = self
+            .profiles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(profile) = profiles.get(tag) {
+            profile.replace_config_users(users.iter().copied());
+            return profile.clone();
+        }
+        let profile = Hysteria2InboundProfile::from_config_users(users.iter().copied());
+        profiles.insert(tag.to_owned(), profile.clone());
+        profile
     }
 }
 

@@ -15,7 +15,7 @@ impl ProtocolMetadata for ShadowsocksProtocol {
             protocol: "shadowsocks",
             feature: "shadowsocks",
             status: ProtocolCapabilityLevel::Partial,
-            compatibility_baseline: "shadowsocks_rust_sip022",
+            compatibility_baseline: "shadowsocks_rust_sip022_sip023",
             inbound: ProtocolNetworkCapability::new(supported, supported),
             outbound: ProtocolNetworkCapability::new(supported, supported),
             transports: &["tcp", "udp"],

@@ -40,6 +40,10 @@ pub enum InboundProtocolConfig {
     Vless {
         users: Vec<VlessUserConfig>,
         #[serde(default)]
+        mux_response_backlog_frames: Option<u32>,
+        #[serde(default)]
+        mux_response_backlog_bytes: Option<u64>,
+        #[serde(default)]
         tls: Option<Box<TlsConfig>>,
         #[serde(default)]
         reality: Option<Box<InboundRealityConfig>>,
@@ -60,7 +64,10 @@ pub enum InboundProtocolConfig {
     },
     #[serde(rename = "hysteria2")]
     Hysteria2 {
+        #[serde(default)]
         password: String,
+        #[serde(default)]
+        users: Vec<Hysteria2UserConfig>,
         #[serde(default)]
         cert_path: Option<String>,
         #[serde(default)]
@@ -72,7 +79,13 @@ pub enum InboundProtocolConfig {
     },
     #[serde(rename = "shadowsocks")]
     Shadowsocks {
+        #[serde(default)]
         password: String,
+        /// Static SIP023 server identity PSK for managed 2022 AES credentials.
+        #[serde(default)]
+        identity_password: Option<String>,
+        #[serde(default)]
+        users: Vec<ShadowsocksUserConfig>,
         #[serde(default = "default_ss_cipher")]
         cipher: String,
         #[serde(default)]
@@ -82,7 +95,10 @@ pub enum InboundProtocolConfig {
     },
     #[serde(rename = "trojan")]
     Trojan {
+        #[serde(default)]
         password: String,
+        #[serde(default)]
+        users: Vec<TrojanUserConfig>,
         #[serde(default)]
         sni: Option<String>,
         #[serde(default)]
@@ -95,6 +111,10 @@ pub enum InboundProtocolConfig {
     #[serde(rename = "vmess")]
     Vmess {
         users: Vec<VmessUserConfig>,
+        #[serde(default)]
+        mux_response_backlog_frames: Option<u32>,
+        #[serde(default)]
+        mux_response_backlog_bytes: Option<u64>,
         #[serde(default)]
         tls: Option<Box<TlsConfig>>,
         #[serde(default)]
@@ -151,6 +171,38 @@ impl InboundProtocolConfig {
                 up_bps, down_bps, ..
             } => (*up_bps, *down_bps),
             _ => (None, None),
+        }
+    }
+
+    /// Runtime-neutral principal policy facts declared by authenticated entries.
+    ///
+    /// Consumers such as the engine use this surface instead of matching on
+    /// concrete protocol variants. Credentials without a complete policy identity
+    /// are intentionally omitted because the runtime cannot associate them with
+    /// a stable principal policy.
+    pub fn principal_policy_revisions(&self) -> Vec<(&str, u64)> {
+        match self {
+            Self::Vless { users, .. } => users
+                .iter()
+                .filter_map(|user| Some((user.principal_key.as_deref()?, user.policy_revision?)))
+                .collect(),
+            Self::Vmess { users, .. } => users
+                .iter()
+                .filter_map(|user| Some((user.principal_key.as_deref()?, user.policy_revision?)))
+                .collect(),
+            Self::Trojan { users, .. } => users
+                .iter()
+                .filter_map(|user| Some((user.principal_key.as_deref()?, user.policy_revision?)))
+                .collect(),
+            Self::Shadowsocks { users, .. } => users
+                .iter()
+                .filter_map(|user| Some((user.principal_key.as_deref()?, user.policy_revision?)))
+                .collect(),
+            Self::Hysteria2 { users, .. } => users
+                .iter()
+                .filter_map(|user| Some((user.principal_key.as_deref()?, user.policy_revision?)))
+                .collect(),
+            _ => Vec::new(),
         }
     }
 }
@@ -329,11 +381,72 @@ pub struct VlessUserConfig {
     #[serde(default)]
     pub flow: Option<String>,
     #[serde(default)]
-    pub credential_id: Option<String>,
+    pub principal_key: Option<String>,
+    #[serde(default)]
+    pub up_bps: Option<u64>,
+    #[serde(default)]
+    pub down_bps: Option<u64>,
+    /// Maximum concurrent unique source IP addresses for this principal.
+    /// The runtime enforces this across TCP, UDP, MUX, and QUIC carriers.
+    #[serde(default)]
+    pub device_limit: Option<u32>,
+    #[serde(default)]
+    pub quota_remaining_bytes: Option<u64>,
+    /// Principal policy revision that owns `quota_remaining_bytes`.
+    #[serde(default)]
+    pub policy_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrojanUserConfig {
+    pub password: String,
     #[serde(default)]
     pub principal_key: Option<String>,
     #[serde(default)]
     pub up_bps: Option<u64>,
     #[serde(default)]
     pub down_bps: Option<u64>,
+    #[serde(default)]
+    pub device_limit: Option<u32>,
+    #[serde(default)]
+    pub quota_remaining_bytes: Option<u64>,
+    #[serde(default)]
+    pub policy_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShadowsocksUserConfig {
+    pub password: String,
+    #[serde(default)]
+    pub principal_key: Option<String>,
+    #[serde(default)]
+    pub up_bps: Option<u64>,
+    #[serde(default)]
+    pub down_bps: Option<u64>,
+    #[serde(default)]
+    pub device_limit: Option<u32>,
+    #[serde(default)]
+    pub quota_remaining_bytes: Option<u64>,
+    #[serde(default)]
+    pub policy_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Hysteria2UserConfig {
+    pub password: String,
+    #[serde(default)]
+    pub principal_key: Option<String>,
+    #[serde(default)]
+    pub up_bps: Option<u64>,
+    #[serde(default)]
+    pub down_bps: Option<u64>,
+    #[serde(default)]
+    pub device_limit: Option<u32>,
+    #[serde(default)]
+    pub quota_remaining_bytes: Option<u64>,
+    #[serde(default)]
+    pub policy_revision: Option<u64>,
 }

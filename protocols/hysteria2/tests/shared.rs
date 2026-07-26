@@ -37,6 +37,10 @@ fn test_tcp_connect_header_roundtrip() {
     let (parsed_addr, parsed_port) = parse_tcp_connect_header(&header).unwrap();
     assert_eq!(parsed_addr, addr);
     assert_eq!(parsed_port, 443);
+    assert_eq!(&header[..2], &[0x44, 0x01]);
+    assert!(header
+        .windows(b"example.com:443".len())
+        .any(|part| part == b"example.com:443"));
 }
 
 #[test]
@@ -51,13 +55,14 @@ fn test_tcp_connect_ipv4() {
 #[test]
 fn test_connect_response_ok() {
     let resp = build_connect_ok();
-    assert_eq!(resp[0], 0x01);
+    assert_eq!(resp, [0x00, 0x00, 0x00]);
 }
 
 #[test]
 fn test_connect_response_err() {
     let resp = build_connect_error("connection refused");
-    assert_eq!(resp[0], 0x00);
-    let msg_len = u16::from_be_bytes([resp[1], resp[2]]) as usize;
-    assert_eq!(&resp[3..3 + msg_len], b"connection refused");
+    assert_eq!(resp[0], 0x01);
+    let msg_len = usize::from(resp[1]);
+    assert_eq!(&resp[2..2 + msg_len], b"connection refused");
+    assert_eq!(resp[2 + msg_len], 0x00);
 }

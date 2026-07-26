@@ -133,6 +133,7 @@ pub enum MieruInboundSessionKind {
     Udp,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum MieruInboundAcceptedSession<S> {
     Tcp {
         session: Session,

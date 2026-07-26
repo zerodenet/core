@@ -5,19 +5,19 @@
 //! `quic` transport was removed in favour of XHTTP `stream-one` over H3.
 //!
 //! ## Modes (`SplitHttpTransportProfile::mode`)
-//! - **stream-one** (default, also selected by `auto`): a single
-//!   bidirectional connection 鈥?a chunked POST body carries upload and a
-//!   chunked response body carries download, both over the same TCP/TLS
-//!   socket. This is the only mode that works as a **relay-chain final hop**,
-//!   where the relay prefix provides a single stream. `XhttpStreamOne`
-//!   implements it.
+//! - **stream-one** (default, also selected by `auto`): a single bidirectional
+//!   request stream. Outbound uses H2/H2C; inbound sniffs and accepts either
+//!   H2/H2C or HTTP/1.1 chunked, which is used by cleartext Xray clients. This
+//!   is the only mode that works as a **relay-chain final hop**, where the
+//!   relay prefix provides one carrier.
 //! - **packet-up** / **stream-up**: the legacy two-connection model 鈥?a POST
 //!   connection uploads, a separate GET connection downloads, paired by the
 //!   server-side `SplitHttpRegistry`. Single-hop direct only; cannot be a
 //!   relay final hop.
 //!
 //! ## Architecture
-//! - Client `stream-one`: `connect_xhttp_stream_one` 鈥?one connection.
+//! - Client `stream-one`: `connect_xhttp_stream_one` — one H2/H2C stream.
+//! - Server `stream-one`: `accept_xhttp_stream_one` — H2/H2C or HTTP/1.1.
 //! - Client two-connection: `connect_split_http` 鈥?POST + GET on two sockets.
 //! - Server two-connection: `accept_split_http` pairs POST/GET by session ID.
 
@@ -41,11 +41,12 @@ pub use legacy::{accept_split_http, connect_split_http};
 pub use paired::{SplitHttpPairedStream, SplitHttpStream};
 pub use registry::SplitHttpRegistry;
 pub use stream_one::{
-    accept_xhttp_stream_one, connect_xhttp_stream_one, XhttpMode, XhttpStreamOne,
+    accept_xhttp_stream_one, accept_xhttp_stream_one_http1, connect_xhttp_stream_one,
+    connect_xhttp_stream_one_http1, AcceptedXhttpStreamOne, XhttpMode, XhttpStreamOne,
 };
 /// Accepted inbound XHTTP/SplitHTTP stream.
 pub enum AcceptedSplitHttpInboundStream<S> {
-    StreamOne(XhttpStreamOne<S>),
+    StreamOne(AcceptedXhttpStreamOne<S>),
     Paired(SplitHttpStream<S>),
 }
 

@@ -107,8 +107,11 @@ impl ShadowsocksOutbound {
     ) -> Result<ShadowsocksOutboundSession, Error> {
         use super::shared::{
             build_2022_request_fixed_header, build_2022_request_var_header, derive_session_key,
-            encrypt_tcp_2022_single_chunk, now_unix_seconds, random_2022_padding,
+            encode_tcp_2022_identity_headers, encrypt_tcp_2022_single_chunk, now_unix_seconds,
+            parse_2022_key_chain, random_2022_padding,
         };
+
+        let key_chain = parse_2022_key_chain(cipher, password)?;
 
         let salt_len = cipher.salt_len();
         let mut salt = vec![0u8; salt_len];
@@ -117,7 +120,13 @@ impl ShadowsocksOutbound {
             .fill(&mut salt)
             .map_err(|_| Error::Protocol("ss: random failed"))?;
 
-        let key = derive_session_key(cipher, password, &salt)?;
+        let key = derive_session_key(cipher, &key_chain.user_password, &salt)?;
+        let identity_headers = encode_tcp_2022_identity_headers(
+            cipher,
+            &key_chain.identity_keys,
+            &key_chain.user_key,
+            &salt,
+        )?;
 
         // No initial payload is available at request time (the relay has not
         // started), so per SIP022 3.1.3 we MUST include non-zero padding.
@@ -133,8 +142,11 @@ impl ShadowsocksOutbound {
         let enc_fixed = encrypt_tcp_2022_single_chunk(cipher, &key, &mut nonce, &fixed_header)?;
         let enc_var = encrypt_tcp_2022_single_chunk(cipher, &key, &mut nonce, &var_header)?;
 
-        let mut request = Vec::with_capacity(salt.len() + enc_fixed.len() + enc_var.len());
+        let mut request = Vec::with_capacity(
+            salt.len() + identity_headers.len() + enc_fixed.len() + enc_var.len(),
+        );
         request.extend_from_slice(&salt);
+        request.extend_from_slice(&identity_headers);
         request.extend_from_slice(&enc_fixed);
         request.extend_from_slice(&enc_var);
         stream
@@ -168,6 +180,7 @@ pub struct ShadowsocksTcpTarget<'a> {
 pub struct ShadowsocksTcpConnectConfig {
     cipher: super::shared::CipherKind,
     password: alloc::vec::Vec<u8>,
+    response_password: alloc::vec::Vec<u8>,
 }
 
 #[cfg(feature = "crypto")]
@@ -175,9 +188,23 @@ impl ShadowsocksTcpConnectConfig {
     pub fn from_config(cipher: &str, password: &str) -> Result<Self, Error> {
         let cipher = super::shared::CipherKind::from_str(cipher)
             .ok_or(Error::Protocol("ss: unknown tcp cipher"))?;
+        let password = password.as_bytes().to_vec();
+        let response_password = if cipher.is_blake3() {
+            #[cfg(feature = "blake3")]
+            {
+                super::shared::parse_2022_key_chain(cipher, &password)?.user_password
+            }
+            #[cfg(not(feature = "blake3"))]
+            {
+                password.clone()
+            }
+        } else {
+            password.clone()
+        };
         Ok(Self {
             cipher,
-            password: password.as_bytes().to_vec(),
+            password,
+            response_password,
         })
     }
 
@@ -210,7 +237,11 @@ impl ShadowsocksTcpConnectConfig {
         stream: S,
         session: ShadowsocksOutboundSession,
     ) -> super::stream::ShadowsocksAeadStream<S> {
-        super::stream::ShadowsocksAeadStream::outbound(stream, session, self.password.clone())
+        super::stream::ShadowsocksAeadStream::outbound(
+            stream,
+            session,
+            self.response_password.clone(),
+        )
     }
 }
 

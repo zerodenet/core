@@ -10,7 +10,7 @@ mod runtime;
 mod transport;
 
 pub use inventory::ProtocolInventory;
-pub use runtime::{Proxy, ProxyHandle, RunningProxy};
+pub use runtime::{ConfigApplyReconciler, ConfigReconcileResult, Proxy, ProxyHandle, RunningProxy};
 
 pub fn compiled_protocol_features() -> Vec<String> {
     register::compiled_protocol_features()

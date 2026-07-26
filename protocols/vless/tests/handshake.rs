@@ -3,8 +3,9 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use vless::inbound::{VlessInbound, VlessUser, VlessUserStore};
+use vless::inbound::{VlessInbound, VlessInboundProfile, VlessUser, VlessUserStore};
 use vless::outbound::VlessOutbound;
+use vless::transport::VlessInboundUserRef;
 use vless::udp::{decode_inbound_dispatch, encode_response_packet, VlessUdpPacketV2Codec};
 use vless::{format_uuid, parse_uuid};
 use zero_core::{Address, Error, Network, ProtocolType, Session};
@@ -12,6 +13,22 @@ use zero_traits::AsyncSocket;
 use zero_traits::UdpPacketFraming;
 
 const USER_ID: &str = "11111111-2222-3333-4444-555555555555";
+const REPLACEMENT_USER_ID: &str = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+fn tcp_request(user_id: &str) -> Vec<u8> {
+    let id = parse_uuid(user_id).expect("uuid");
+    let mut request = vec![0x00];
+    request.extend_from_slice(&id);
+    request.extend_from_slice(&[
+        0x00, // addon length
+        0x01, // tcp command
+        0x01, 0xbb, // port 443
+        0x02, // domain
+        0x0b,
+    ]);
+    request.extend_from_slice(b"example.com");
+    request
+}
 
 #[derive(Debug, Default)]
 struct MockSocket {
@@ -102,11 +119,13 @@ impl VlessUserStore for TestUsers {
     fn find_user(&self, id: &[u8; 16]) -> Option<VlessUser> {
         if id == &self.id {
             Some(VlessUser {
-                credential_id: Some("node-user-1".to_owned()),
                 principal_key: Some("user:10001".to_owned()),
                 flow: None,
                 up_bps: None,
                 down_bps: None,
+                device_limit: Some(2),
+                quota_remaining_bytes: Some(4096),
+                policy_revision: Some(2),
             })
         } else {
             None
@@ -121,6 +140,72 @@ fn parses_and_formats_uuid() {
     assert_eq!(format_uuid(&id), USER_ID);
     assert_eq!(parse_uuid("11111111222233334444555555555555"), Ok(id));
     assert!(parse_uuid("not-a-uuid").is_err());
+}
+
+#[tokio::test]
+async fn shared_inbound_profile_atomically_replaces_authorized_users() {
+    let profile = VlessInboundProfile::from_config_users([VlessInboundUserRef {
+        id: USER_ID,
+        flow: None,
+        principal_key: Some("account:old"),
+        up_bps: None,
+        down_bps: None,
+        device_limit: None,
+        quota_remaining_bytes: None,
+        policy_revision: None,
+    }])
+    .expect("initial profile");
+    let shared_profile = profile.clone();
+
+    let accepted = shared_profile
+        .accept_tcp_with_auth(VlessInbound, &mut MockSocket::new(&tcp_request(USER_ID)))
+        .await
+        .expect("initial user accepted");
+    assert_eq!(
+        accepted.auth.and_then(|auth| auth.principal_key),
+        Some("account:old".to_owned())
+    );
+
+    profile
+        .replace_config_users([VlessInboundUserRef {
+            id: REPLACEMENT_USER_ID,
+            flow: None,
+            principal_key: Some("account:new"),
+            up_bps: None,
+            down_bps: None,
+            device_limit: Some(2),
+            quota_remaining_bytes: Some(4096),
+            policy_revision: Some(2),
+        }])
+        .expect("replace profile");
+
+    assert!(shared_profile
+        .accept_tcp_with_auth(VlessInbound, &mut MockSocket::new(&tcp_request(USER_ID)))
+        .await
+        .is_err());
+    let accepted = shared_profile
+        .accept_tcp_with_auth(
+            VlessInbound,
+            &mut MockSocket::new(&tcp_request(REPLACEMENT_USER_ID)),
+        )
+        .await
+        .expect("replacement user accepted");
+    assert_eq!(
+        accepted.auth.and_then(|auth| auth.principal_key),
+        Some("account:new".to_owned())
+    );
+
+    profile
+        .replace_config_users(std::iter::empty::<VlessInboundUserRef<'_>>())
+        .expect("disable every user");
+    assert_eq!(shared_profile.user_count(), 0);
+    assert!(shared_profile
+        .accept_tcp_with_auth(
+            VlessInbound,
+            &mut MockSocket::new(&tcp_request(REPLACEMENT_USER_ID)),
+        )
+        .await
+        .is_err());
 }
 
 #[tokio::test]
@@ -151,7 +236,6 @@ async fn inbound_accepts_authorized_tcp_request_with_domain_target() {
     assert_eq!(session.protocol, ProtocolType::new("vless"));
     let auth = session.auth.expect("auth");
     assert_eq!(auth.scheme, "vless");
-    assert_eq!(auth.credential_id.as_deref(), Some("node-user-1"));
     assert_eq!(auth.principal_key.as_deref(), Some("user:10001"));
     assert_eq!(socket.writes, vec![0x00, 0x00]);
 }
@@ -195,7 +279,7 @@ async fn outbound_establishes_tcp_tunnel_for_ipv4_target() {
         ProtocolType::new("vless"),
     );
 
-    vless::outbound::PreparedVlessOutboundRequestBundle::from_config(USER_ID, None, None)
+    vless::outbound::PreparedVlessOutboundRequestBundle::from_config(USER_ID, None, None, None)
         .expect("request bundle")
         .establish_tcp_outbound_tunnel(&mut socket, &session, false)
         .await
@@ -218,7 +302,7 @@ async fn outbound_establishes_tcp_tunnel_for_ipv4_target() {
 async fn outbound_deferred_tcp_tunnel_request_does_not_read_response() {
     let mut socket = MockSocket::new(&[]);
     let request =
-        vless::outbound::PreparedVlessOutboundRequestBundle::from_config(USER_ID, None, None)
+        vless::outbound::PreparedVlessOutboundRequestBundle::from_config(USER_ID, None, None, None)
             .expect("request bundle");
     let session = Session::new(
         0,
@@ -251,7 +335,7 @@ async fn outbound_stream_reports_handshake_traffic() {
         0x00, 0x00, // response version + addon length
     ]);
     let request =
-        vless::outbound::PreparedVlessOutboundRequestBundle::from_config(USER_ID, None, None)
+        vless::outbound::PreparedVlessOutboundRequestBundle::from_config(USER_ID, None, None, None)
             .expect("request bundle");
     let session = Session::new(
         0,
@@ -549,18 +633,14 @@ fn mux_udp_response_encoder_wraps_vless_packet() {
     let frame = vless::udp::encode_mux_response_packet(7, &Address::Ipv4([8, 8, 8, 8]), 53, b"dns")
         .expect("encode mux response");
 
-    assert_eq!(u16::from_be_bytes([frame[0], frame[1]]), 4 + 7 + 3);
+    assert_eq!(u16::from_be_bytes([frame[0], frame[1]]), 12);
     assert_eq!(u16::from_be_bytes([frame[2], frame[3]]), 7);
     assert_eq!(frame[4], vless::mux::STATUS_KEEP);
     assert_eq!(frame[5], vless::mux::OPTION_DATA);
-
-    let parsed =
-        <VlessOutbound as UdpPacketFraming<vless::udp::VlessUdpPacketTarget>>::decode_udp_packet(
-            &VlessOutbound,
-            &frame[6..],
-        )
-        .expect("parse mux payload");
-    assert_eq!(parsed.target(), &Address::Ipv4([8, 8, 8, 8]));
-    assert_eq!(parsed.port(), 53);
-    assert_eq!(parsed.payload(), b"dns");
+    assert_eq!(frame[6], vless::mux::NETWORK_UDP);
+    assert_eq!(u16::from_be_bytes([frame[7], frame[8]]), 53);
+    assert_eq!(frame[9], 0x01);
+    assert_eq!(&frame[10..14], &[8, 8, 8, 8]);
+    assert_eq!(u16::from_be_bytes([frame[14], frame[15]]), 3);
+    assert_eq!(&frame[16..], b"dns");
 }

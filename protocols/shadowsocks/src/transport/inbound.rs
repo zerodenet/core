@@ -5,7 +5,7 @@ use zero_transport::RuntimeError;
 use super::model::{
     ShadowsocksInboundBindings, ShadowsocksInboundProfile, ShadowsocksInboundTcpAcceptor,
 };
-use super::ShadowsocksInboundOptionsRef;
+use super::{ShadowsocksInboundOptionsRef, ShadowsocksInboundUserRef};
 
 impl ShadowsocksInboundProfile {
     fn new(protocol: crate::ShadowsocksInboundProfile) -> Self {
@@ -38,18 +38,34 @@ impl ShadowsocksInboundTcpAcceptor {
 }
 
 impl ShadowsocksInboundBindings {
-    pub fn from_options_refs(
-        options: ShadowsocksInboundOptionsRef<'_>,
-    ) -> Result<Self, RuntimeError> {
-        crate::inbound_profile_from_config_cipher_password(options.cipher, options.password)
-            .map(ShadowsocksInboundProfile::new)
-            .map(ShadowsocksInboundProfile::into_listener_bindings)
-            .map_err(|error| {
-                RuntimeError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("invalid shadowsocks inbound profile: {error}"),
-                ))
-            })
+    pub fn from_options_refs<'a, I>(
+        options: ShadowsocksInboundOptionsRef<'a, I>,
+    ) -> Result<Self, RuntimeError>
+    where
+        I: IntoIterator<Item = ShadowsocksInboundUserRef<'a>>,
+    {
+        crate::ShadowsocksInboundProfile::from_config_users_with_identity(
+            options.cipher,
+            options.identity_password,
+            options.users,
+        )
+        .map(ShadowsocksInboundProfile::new)
+        .map(ShadowsocksInboundProfile::into_listener_bindings)
+        .map_err(|error| {
+            RuntimeError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid shadowsocks inbound profile: {error}"),
+            ))
+        })
+    }
+
+    pub fn from_profile(profile: crate::ShadowsocksInboundProfile) -> Self {
+        ShadowsocksInboundProfile::new(profile).into_listener_bindings()
+    }
+
+    pub fn with_profile(self, profile: crate::ShadowsocksInboundProfile) -> Self {
+        let _ = self;
+        Self::from_profile(profile)
     }
 
     pub fn into_parts(

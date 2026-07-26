@@ -1,6 +1,8 @@
 use core::future::Future;
+use core::sync::atomic::{AtomicU8, Ordering};
 
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use zero_traits::{AsyncSocket, SocketAddress};
@@ -17,6 +19,58 @@ pub struct UdpFlowPacket {
     pub target: Address,
     pub port: u16,
     pub payload: Vec<u8>,
+}
+
+/// Opaque, protocol-supplied identity for reconnecting one logical UDP session.
+///
+/// The runtime may scope this key by inbound, protocol and authenticated
+/// principal, but must not parse its bytes or derive protocol semantics from
+/// them. Protocol implementations remain responsible for validating their wire
+/// identity before constructing the key.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UdpContinuityKey(Vec<u8>);
+
+impl UdpContinuityKey {
+    pub const MAX_LEN: usize = 64;
+
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        (!bytes.is_empty() && bytes.len() <= Self::MAX_LEN).then(|| Self(bytes.to_vec()))
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InboundMuxUdpTermination {
+    TransportDetached,
+    ExplicitEnd,
+}
+
+#[derive(Debug, Clone)]
+pub struct InboundMuxUdpTerminationProbe {
+    state: Arc<AtomicU8>,
+}
+
+impl InboundMuxUdpTerminationProbe {
+    pub fn transport_attached() -> Self {
+        Self {
+            state: Arc::new(AtomicU8::new(0)),
+        }
+    }
+
+    pub fn mark_explicit_end(&self) {
+        self.state.store(1, Ordering::Release);
+    }
+
+    pub fn reason(&self) -> InboundMuxUdpTermination {
+        if self.state.load(Ordering::Acquire) == 1 {
+            InboundMuxUdpTermination::ExplicitEnd
+        } else {
+            InboundMuxUdpTermination::TransportDetached
+        }
+    }
 }
 
 /// Neutral outbound datagram built by a protocol-owned inbound UDP association.
@@ -84,6 +138,14 @@ pub trait InboundMuxUdpRelay: Send {
 
     fn mux_session_id(&self) -> u16;
 
+    fn continuity_key(&self) -> Option<&UdpContinuityKey> {
+        None
+    }
+
+    fn termination_probe(&self) -> Option<InboundMuxUdpTerminationProbe> {
+        None
+    }
+
     fn auth(&self) -> Option<&SessionAuth> {
         None
     }
@@ -105,6 +167,10 @@ pub trait InboundMuxTcpRelay: Send + 'static {
 pub trait InboundMuxServer<R>: Send {
     type TcpRelay: InboundMuxTcpRelay;
     type UdpRelay: InboundMuxUdpRelay;
+
+    fn auth(&self) -> Option<&SessionAuth> {
+        None
+    }
 
     async fn dispatch_next_opened_route<E, FTcp, FUdp>(
         &mut self,

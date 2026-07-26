@@ -76,6 +76,14 @@ pub async fn open_quic_connection(
         .map_err(|error| RuntimeError::Io(io::Error::other(format!("quic connection: {error}"))))
 }
 
+pub fn negotiated_alpn(connection: &quinn::Connection) -> Option<Vec<u8>> {
+    connection
+        .handshake_data()?
+        .downcast::<quinn::crypto::rustls::HandshakeData>()
+        .ok()?
+        .protocol
+}
+
 #[derive(Debug)]
 struct SkipVerify;
 

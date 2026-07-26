@@ -21,11 +21,6 @@ pub struct RuntimeConfig {
     pub route: RouteConfig,
     #[serde(default)]
     pub api: ApiConfig,
-    /// Node push connector — actively reports to an external management
-    /// endpoint.  Generic: the receiver can be a panel, monitoring system,
-    /// or any HTTP service.
-    #[serde(default)]
-    pub push: PushConfig,
     #[serde(skip)]
     pub source_dir: Option<PathBuf>,
 }
@@ -49,7 +44,16 @@ impl RuntimeConfig {
         self.source_dir.as_deref()
     }
 
-    fn parse_with_source_dir(raw: &str, source_dir: Option<PathBuf>) -> Result<Self, ConfigError> {
+    /// Parse an in-memory configuration using the supplied directory as the
+    /// base for relative state, credential, and artifact paths.
+    ///
+    /// Control-plane configuration replacement should pass the current
+    /// configuration's source directory so a hot apply has the same path
+    /// semantics as process startup.
+    pub fn parse_with_source_dir(
+        raw: &str,
+        source_dir: Option<PathBuf>,
+    ) -> Result<Self, ConfigError> {
         let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
         let mut config = serde_json::from_str::<Self>(raw)?;
         config.source_dir = source_dir;
@@ -75,9 +79,16 @@ impl RuntimeConfig {
 pub struct RuntimeOptionsConfig {
     #[serde(default = "default_udp_upstream_idle_timeout_seconds")]
     pub udp_upstream_idle_timeout_seconds: u64,
+    /// Maximum number of runtime events retained for replay.
+    #[serde(default = "default_event_log_capacity")]
+    pub event_log_capacity: usize,
     /// Global URL used by end-to-end outbound latency probes.
     #[serde(default)]
     pub latency_test_url: Option<String>,
+    /// Optional crash-recovery snapshot for shared principal quota balances.
+    /// Relative paths resolve beside the runtime config.
+    #[serde(default)]
+    pub principal_quota_state_path: Option<String>,
     #[serde(default)]
     pub network: NetworkOptionsConfig,
     #[serde(default)]
@@ -93,7 +104,9 @@ impl Default for RuntimeOptionsConfig {
     fn default() -> Self {
         Self {
             udp_upstream_idle_timeout_seconds: default_udp_upstream_idle_timeout_seconds(),
+            event_log_capacity: default_event_log_capacity(),
             latency_test_url: None,
+            principal_quota_state_path: None,
             network: NetworkOptionsConfig::default(),
             udp: UdpPolicyConfig::default(),
             log: LogConfig::default(),
@@ -103,6 +116,7 @@ impl Default for RuntimeOptionsConfig {
 }
 
 pub const DEFAULT_LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204";
+pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 
 impl RuntimeOptionsConfig {
     pub fn effective_latency_test_url(&self) -> &str {
@@ -139,6 +153,10 @@ const fn default_network_mtu() -> u16 {
 
 const fn default_udp_upstream_idle_timeout_seconds() -> u64 {
     30
+}
+
+const fn default_event_log_capacity() -> usize {
+    DEFAULT_EVENT_LOG_CAPACITY
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

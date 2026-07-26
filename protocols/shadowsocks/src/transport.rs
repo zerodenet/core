@@ -14,7 +14,9 @@ pub use model::{
     ShadowsocksManagedUdpPacketPathDatagramSourceBuild, ShadowsocksManagedUdpPacketPathPlan,
     ShadowsocksTransportLeaf, ShadowsocksUdpResponse,
 };
-pub use options::{ShadowsocksInboundOptionsRef, ShadowsocksOutboundOptionsRef};
+pub use options::{
+    ShadowsocksInboundOptionsRef, ShadowsocksInboundUserRef, ShadowsocksOutboundOptionsRef,
+};
 pub use tcp::{apply_shadowsocks_tcp_relay_hop, establish_shadowsocks_tcp_connect};
 pub use udp_socket::{
     establish_shadowsocks_udp_socket_flow, establish_shadowsocks_udp_socket_flow_with_resume,

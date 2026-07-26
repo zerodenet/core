@@ -68,17 +68,27 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
     runtime.resolve_fake_ip_target(&mut session).await;
     runtime.apply_url_rewrite(&mut session);
     runtime.apply_kernel_rate_limits(&mut session);
-    runtime.prepare_session(&mut session);
+    runtime.prepare_session(&mut session)?;
+    let traffic_rate_limiters = runtime.traffic_rate_limiters(&session);
 
     let mut handle = runtime.track_session(session.id);
+    let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel();
+    handle.register_cancellation(move || {
+        let _ = cancel_tx.send(());
+    });
     let started_at = Instant::now();
 
-    match TcpPipe::new(runtime)
-        .dispatch(TcpPipeInput {
-            session: &mut session,
-        })
-        .await
-    {
+    let mut pipe = TcpPipe::new(runtime);
+    let dispatch_result = tokio::select! {
+        result = pipe.dispatch(TcpPipeInput { session: &mut session }) => result,
+        _ = &mut cancel_rx => {
+            let reason = handle.cancellation_reason().unwrap_or_else(|| "cancelled".to_owned());
+            let _ = handle.finish_with_reason(SessionOutcome::Cancelled, Some(reason));
+            return Ok(());
+        }
+    };
+
+    match dispatch_result {
         Ok(result) => {
             runtime.log_session_accepted(&session, &result.route_action);
 
@@ -99,18 +109,23 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
 
             protocol.send_ok(&mut client).await?;
 
-            let relay_result = tokio::time::timeout(
-                runtime.idle_timeout(),
-                protocol.relay(
-                    client,
-                    result.upstream,
-                    runtime.runtime_services(),
-                    session.id,
-                    session.up_bps,
-                    session.down_bps,
-                ),
-            )
-            .await;
+            let relay_result = tokio::select! {
+                result = tokio::time::timeout(
+                    runtime.idle_timeout(),
+                    protocol.relay(
+                        client,
+                        result.upstream,
+                        runtime.runtime_services(),
+                        session.id,
+                        traffic_rate_limiters,
+                    ),
+                ) => result,
+                _ = &mut cancel_rx => {
+                    let reason = handle.cancellation_reason().unwrap_or_else(|| "cancelled".to_owned());
+                    let _ = handle.finish_with_reason(SessionOutcome::Cancelled, Some(reason));
+                    return Ok(());
+                }
+            };
 
             match relay_result {
                 Ok(Ok(())) => {

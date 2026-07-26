@@ -110,8 +110,8 @@ impl<'a> ClaimedRelayChain<'a> {
 }
 
 impl ProtocolInventory {
-    pub(crate) fn on_config_reloaded(&self) {
-        self.registry.on_config_reloaded();
+    pub(crate) fn on_config_reloaded(&self, config: &RuntimeConfig) {
+        self.registry.on_config_reloaded(config);
     }
 
     pub(crate) fn claim_outbound_leaf<'a>(

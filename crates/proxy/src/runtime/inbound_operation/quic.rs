@@ -31,6 +31,9 @@ pub(crate) trait AuthenticatedQuicInboundConnection: Send + Sync + 'static {
     type ResponseProtocol: InboundClientResponse<Self::Stream> + Send + Sync + Copy + 'static;
     type UdpRelay: InboundDatagramUdpRelay<Arc<quinn::Connection>> + Send + 'static;
 
+    fn auth(&self) -> Option<&zero_core::SessionAuth>;
+    fn close(&self, reason: &str);
+
     fn datagram_source(&self) -> Arc<quinn::Connection>;
     fn udp_relay(&self) -> Self::UdpRelay;
     fn response_protocol(&self) -> Self::ResponseProtocol;
@@ -101,6 +104,23 @@ where
     P: AuthenticatedQuicInboundProfile,
 {
     let connection = profile.accept_authenticated_connection(connection).await?;
+    let device_registration = match runtime.acquire_principal_device(connection.auth()) {
+        Ok(registration) => registration,
+        Err(error) => {
+            connection.close("device_limit");
+            return Err(error);
+        }
+    };
+    let (principal_cancel_tx, mut principal_cancel_rx) =
+        tokio::sync::mpsc::unbounded_channel::<String>();
+    let principal_registration = connection
+        .auth()
+        .and_then(|auth| auth.principal_key.as_deref())
+        .map(|principal_key| {
+            runtime.register_principal_cancellation(principal_key, move |reason| {
+                let _ = principal_cancel_tx.send(reason);
+            })
+        });
     let mut tasks = tokio::task::JoinSet::new();
     let udp_source = connection.datagram_source();
     let udp_relay = connection.udp_relay();
@@ -139,10 +159,16 @@ where
                     Some(Err(_)) | None => {}
                 }
             }
+            Some(reason) = principal_cancel_rx.recv() => {
+                connection.close(&reason);
+                break;
+            }
         }
     }
 
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
+    drop(principal_registration);
+    drop(device_registration);
     Ok(())
 }

@@ -37,7 +37,7 @@ where
                 state.reconcile_reload(proxy).await;
             }
             result = state.listeners.join_next(), if !state.listeners.is_empty() => {
-                handle_listener_result(result, shutting_down)?;
+                handle_listener_result(result, shutting_down, &mut state.expected_listener_exits)?;
             }
             result = state.urltests.join_next(), if !state.urltests.is_empty() => {
                 handle_urltest_result(result, shutting_down)?;
@@ -49,9 +49,14 @@ where
 fn handle_listener_result(
     result: Option<Result<Result<(), EngineError>, tokio::task::JoinError>>,
     shutting_down: bool,
+    expected_exits: &mut usize,
 ) -> Result<(), EngineError> {
     match result {
         Some(Ok(Ok(()))) if shutting_down => Ok(()),
+        Some(Ok(Ok(()))) if *expected_exits > 0 => {
+            *expected_exits -= 1;
+            Ok(())
+        }
         Some(Ok(Ok(()))) => Err(EngineError::InboundTaskExited),
         Some(Ok(Err(error))) => Err(error),
         Some(Err(error)) => Err(io::Error::other(error).into()),

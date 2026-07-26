@@ -31,6 +31,7 @@ pub struct VlessInboundListenerRequest {
     profile: crate::inbound::VlessInboundProfile,
     transport: OwnedVlessInboundTransportPlan,
     fallback_enabled: bool,
+    mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
 }
 
 pub enum VlessTcpFallbackReplay {
@@ -67,11 +68,13 @@ impl VlessInboundListenerRequest {
         profile: crate::inbound::VlessInboundProfile,
         transport: OwnedVlessInboundTransportPlan,
         fallback_enabled: bool,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Self {
         Self {
             profile,
             transport,
             fallback_enabled,
+            mux_response_backlog,
         }
     }
 
@@ -87,6 +90,7 @@ impl VlessInboundListenerRequest {
         http_upgrade: Option<&THttp>,
         split_http: Option<&TSplit>,
         fallback: Option<&TFallback>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Result<Self, RuntimeError>
     where
         TTls: ServerTlsProfile + ?Sized,
@@ -109,7 +113,12 @@ impl VlessInboundListenerRequest {
             fallback,
         )?;
 
-        Ok(Self::new(profile, transport, fallback.is_some()))
+        Ok(Self::new(
+            profile,
+            transport,
+            fallback.is_some(),
+            mux_response_backlog,
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -137,9 +146,15 @@ impl VlessInboundListenerRequest {
             http_upgrade,
             split_http,
             fallback,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
         } = options;
         let profile = crate::inbound::VlessInboundProfile::from_config_users(users)?;
         let reality = reality.map(crate::reality::VlessRealityServerProfile::from);
+        let mux_response_backlog = crate::mux::MuxResponseBacklogPolicy::from_config(
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+        )?;
         Self::from_profile_refs(
             source_dir,
             profile,
@@ -151,7 +166,13 @@ impl VlessInboundListenerRequest {
             http_upgrade,
             split_http,
             fallback,
+            mux_response_backlog,
         )
+    }
+
+    pub fn with_profile(mut self, profile: crate::inbound::VlessInboundProfile) -> Self {
+        self.profile = profile;
+        self
     }
 
     pub fn protocol_name(&self) -> &'static str {
@@ -187,9 +208,16 @@ impl VlessInboundListenerRequest {
             profile,
             transport,
             fallback_enabled,
+            mux_response_backlog,
         } = self;
         transport
-            .accept_tcp_route(profile, fallback_enabled, socket, wrap_stream)
+            .accept_tcp_route(
+                profile,
+                fallback_enabled,
+                mux_response_backlog,
+                socket,
+                wrap_stream,
+            )
             .await
     }
 
@@ -214,9 +242,18 @@ impl VlessInboundListenerRequest {
         let Self {
             profile,
             fallback_enabled,
+            mux_response_backlog,
             ..
         } = self;
-        accept_vless_stream_route(profile, fallback_enabled, stream, sni, wrap_stream).await
+        accept_vless_stream_route(
+            profile,
+            fallback_enabled,
+            mux_response_backlog,
+            stream,
+            sni,
+            wrap_stream,
+        )
+        .await
     }
 
     pub async fn accept_recorded_tcp_route(

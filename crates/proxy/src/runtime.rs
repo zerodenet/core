@@ -37,6 +37,7 @@ pub(crate) mod packet_session_udp;
 mod passive_relay_health;
 pub(crate) mod path;
 pub(crate) mod pipe;
+pub(crate) mod principal_rate_limit;
 mod reload;
 pub(crate) mod route_runtime;
 mod running;
@@ -63,7 +64,7 @@ pub(crate) mod udp_ingress;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod udp_socket;
 
-pub use handle::ProxyHandle;
+pub use handle::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
 pub use running::RunningProxy;
 
 #[derive(Debug, Clone)]
@@ -74,6 +75,17 @@ pub struct Proxy {
     pub(crate) protocols: ProtocolInventory,
     pub(crate) tun_shutdown: Arc<std::sync::Mutex<Option<tokio::sync::watch::Sender<bool>>>>,
     pub(crate) tun_info: Arc<std::sync::Mutex<Option<TunInfo>>>,
+    orchestration_ready: tokio::sync::watch::Sender<bool>,
+    reload_ack: Arc<std::sync::Mutex<Option<PendingReloadAck>>>,
+    reload_apply_lock: Arc<tokio::sync::Mutex<()>>,
+    principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry,
+}
+
+#[derive(Debug)]
+struct PendingReloadAck {
+    expected: RuntimeConfig,
+    persist: bool,
+    sender: oneshot::Sender<Result<(), String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +111,7 @@ impl Proxy {
         let config = engine.config();
         protocols.validate_config(&config)?;
         let dns = DnsSystem::build(config.runtime.dns.as_ref()).map_err(EngineError::Io)?;
+        let (orchestration_ready, _) = tokio::sync::watch::channel(false);
         Ok(Self {
             config,
             engine,
@@ -106,6 +119,10 @@ impl Proxy {
             protocols,
             tun_shutdown: Arc::new(std::sync::Mutex::new(None)),
             tun_info: Arc::new(std::sync::Mutex::new(None)),
+            orchestration_ready,
+            reload_ack: Arc::new(std::sync::Mutex::new(None)),
+            reload_apply_lock: Arc::new(tokio::sync::Mutex::new(())),
+            principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry::default(),
         })
     }
 
@@ -113,16 +130,54 @@ impl Proxy {
         &self.engine
     }
 
+    pub(crate) fn mark_orchestration_ready(&self) {
+        self.orchestration_ready.send_replace(true);
+    }
+
+    pub(crate) fn complete_reload(&self, expected: &RuntimeConfig, result: Result<(), String>) {
+        let pending = {
+            let mut pending = self.reload_ack.lock().expect("reload ack lock poisoned");
+            if pending
+                .as_ref()
+                .is_some_and(|pending| pending.expected == *expected)
+            {
+                pending.take()
+            } else {
+                None
+            }
+        };
+        if let Some(pending) = pending {
+            let _ = pending.sender.send(result);
+        }
+    }
+
+    pub(crate) fn pending_reload_persists(&self, expected: &RuntimeConfig) -> bool {
+        self.reload_ack
+            .lock()
+            .expect("reload ack lock poisoned")
+            .as_ref()
+            .filter(|pending| pending.expected == *expected)
+            .is_none_or(|pending| pending.persist)
+    }
+
     pub(crate) fn tcp_runtime_services(&self) -> TcpRuntimeServices {
+        self.tcp_runtime_services_for_config(self.config.clone())
+    }
+
+    pub(crate) fn tcp_runtime_services_for_config(
+        &self,
+        config: Arc<RuntimeConfig>,
+    ) -> TcpRuntimeServices {
         TcpRuntimeServices::new(
             self.engine().clone(),
-            self.config.clone(),
+            config,
             self.resolver.clone(),
             self.protocols.clone(),
+            self.principal_rate_limits.clone(),
         )
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "udp-runtime"))]
     pub(crate) fn udp_runtime_services(&self) -> crate::protocol_registry::UdpRuntimeServices {
         crate::protocol_registry::UdpRuntimeServices::new(self.tcp_runtime_services())
     }

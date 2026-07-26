@@ -113,6 +113,7 @@ impl OwnedVlessInboundTransportPlan {
         self,
         profile: crate::inbound::VlessInboundProfile,
         fallback_enabled: bool,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
         socket: TokioSocket,
         wrap_stream: FWrap,
     ) -> Result<
@@ -140,7 +141,7 @@ impl OwnedVlessInboundTransportPlan {
                     .await
                 {
                     Ok(accepted) => accepted
-                        .into_route_with_sni(sni)
+                        .into_route_with_sni(sni, mux_response_backlog)
                         .await
                         .map(|route| Some(zero_core::InboundRouteAccept::Route(route)))
                         .map_err(RuntimeError::from),
@@ -182,6 +183,7 @@ enum VlessTcpInboundAcceptResult {
 pub(super) async fn accept_vless_stream_route<T, S, FWrap>(
     profile: crate::inbound::VlessInboundProfile,
     fallback_enabled: bool,
+    mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     stream: T,
     sni: Option<String>,
     wrap_stream: FWrap,
@@ -203,7 +205,7 @@ where
         .await
     {
         Ok(accepted) => accepted
-            .into_route_with_sni(sni)
+            .into_route_with_sni(sni, mux_response_backlog)
             .await
             .map(zero_core::InboundRouteAccept::Route)
             .map_err(RuntimeError::from),

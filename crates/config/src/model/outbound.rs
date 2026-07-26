@@ -42,7 +42,13 @@ pub enum OutboundProtocolConfig {
         #[serde(default)]
         mux_concurrency: Option<u32>,
         #[serde(default)]
+        xudp_concurrency: Option<u32>,
+        #[serde(default)]
         mux_idle_timeout_secs: Option<u64>,
+        #[serde(default)]
+        mux_response_backlog_frames: Option<u32>,
+        #[serde(default)]
+        mux_response_backlog_bytes: Option<u64>,
         #[serde(default)]
         tls: Option<Box<ClientTlsConfig>>,
         #[serde(default)]
@@ -101,6 +107,10 @@ pub enum OutboundProtocolConfig {
         mux_concurrency: Option<u32>,
         #[serde(default)]
         mux_idle_timeout_secs: Option<u64>,
+        #[serde(default)]
+        mux_response_backlog_frames: Option<u32>,
+        #[serde(default)]
+        mux_response_backlog_bytes: Option<u64>,
         #[serde(default)]
         tls: Option<Box<ClientTlsConfig>>,
         #[serde(default)]
@@ -222,13 +232,17 @@ pub struct VmessUserConfig {
     #[serde(default = "default_vmess_cipher")]
     pub cipher: String,
     #[serde(default)]
-    pub credential_id: Option<String>,
-    #[serde(default)]
     pub principal_key: Option<String>,
     #[serde(default)]
     pub up_bps: Option<u64>,
     #[serde(default)]
     pub down_bps: Option<u64>,
+    #[serde(default)]
+    pub device_limit: Option<u32>,
+    #[serde(default)]
+    pub quota_remaining_bytes: Option<u64>,
+    #[serde(default)]
+    pub policy_revision: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

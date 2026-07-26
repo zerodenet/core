@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 
-use zero_config::{InboundConfig, InboundProtocolConfig, OutboundConfig, OutboundProtocolConfig};
+use zero_config::{
+    InboundConfig, InboundProtocolConfig, OutboundConfig, OutboundProtocolConfig, RuntimeConfig,
+};
 use zero_engine::EngineError;
 use zero_traits::ProtocolMetadata;
 
@@ -93,7 +95,7 @@ pub(crate) trait ProtocolSupportCapability: ProtocolMetadata + Send + Sync {
     fn has_inbound(&self) -> bool;
     fn has_outbound(&self) -> bool;
 
-    fn on_config_reloaded(&self) {}
+    fn on_config_reloaded(&self, _config: &RuntimeConfig) {}
 }
 
 #[async_trait]

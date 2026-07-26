@@ -31,6 +31,14 @@ impl AuthenticatedQuicInboundConnection for Hysteria2AuthenticatedQuicConnection
     type ResponseProtocol = Hysteria2InboundTcpResponseProtocol;
     type UdpRelay = ::hysteria2::udp::Hysteria2InboundUdpRelay;
 
+    fn auth(&self) -> Option<&zero_core::SessionAuth> {
+        Some(Hysteria2AuthenticatedQuicConnection::auth(self))
+    }
+
+    fn close(&self, reason: &str) {
+        Hysteria2AuthenticatedQuicConnection::close(self, reason);
+    }
+
     fn datagram_source(&self) -> std::sync::Arc<quinn::Connection> {
         Hysteria2AuthenticatedQuicConnection::datagram_source(self)
     }

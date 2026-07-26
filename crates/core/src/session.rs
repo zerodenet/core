@@ -26,20 +26,28 @@ impl ProtocolType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionAuth {
     pub scheme: String,
-    pub credential_id: Option<String>,
     pub principal_key: Option<String>,
     pub up_bps: Option<u64>,
     pub down_bps: Option<u64>,
+    /// Maximum number of distinct concurrently active source IP addresses.
+    /// `None` means unlimited.
+    pub device_limit: Option<u32>,
+    /// Shared remaining traffic budget for this policy revision.
+    pub quota_remaining_bytes: Option<u64>,
+    /// Monotonic principal policy revision that owns the quota snapshot.
+    pub policy_revision: Option<u64>,
 }
 
 impl SessionAuth {
     pub fn new(scheme: impl Into<String>) -> Self {
         Self {
             scheme: scheme.into(),
-            credential_id: None,
             principal_key: None,
             up_bps: None,
             down_bps: None,
+            device_limit: None,
+            quota_remaining_bytes: None,
+            policy_revision: None,
         }
     }
 }
@@ -54,9 +62,11 @@ pub struct Session {
     pub network: Network,
     pub protocol: ProtocolType,
     pub auth: Option<SessionAuth>,
-    /// Per-connection upload rate limit in bytes/s. `None` = unlimited.
+    /// Upload rate limit in bytes/s. Authenticated sessions with the same Zero
+    /// principal policy share one aggregate timeline; anonymous sessions use
+    /// an independent timeline. `None` = unlimited.
     pub up_bps: Option<u64>,
-    /// Per-connection download rate limit in bytes/s. `None` = unlimited.
+    /// Download counterpart of [`Self::up_bps`]. `None` = unlimited.
     pub down_bps: Option<u64>,
     /// TLS Server Name Indication from ClientHello, if peeked.
     pub sni: Option<String>,

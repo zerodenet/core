@@ -15,6 +15,27 @@ impl InboundRouteRuntime {
         self.tcp_runtime.source_addr()
     }
 
+    pub(crate) fn register_principal_cancellation<F>(
+        &self,
+        principal_key: &str,
+        callback: F,
+    ) -> zero_engine::PrincipalCancellationRegistration
+    where
+        F: FnOnce(String) + Send + 'static,
+    {
+        self.tcp_runtime
+            .runtime_services()
+            .engine()
+            .register_principal_cancellation(principal_key, callback)
+    }
+
+    pub(crate) fn acquire_principal_device(
+        &self,
+        auth: Option<&zero_core::SessionAuth>,
+    ) -> Result<Option<zero_engine::PrincipalDeviceRegistration>, zero_engine::EngineError> {
+        self.tcp_runtime.acquire_principal_device(auth)
+    }
+
     pub(crate) fn select_http_redirect(
         &self,
         session: &zero_core::Session,
@@ -24,12 +45,17 @@ impl InboundRouteRuntime {
 
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn udp_runtime(&self) -> UdpIngressRuntime {
-        self.udp_runtime.clone()
+        self.udp_runtime.with_source_addr(self.source_addr())
     }
 
     #[cfg(feature = "managed-stream-runtime")]
     pub(crate) fn into_mux_substream_runtime(self) -> MuxSubstreamRuntime {
-        MuxSubstreamRuntime::new(self.tcp_runtime.without_source_addr(), self.udp_runtime)
+        let source_addr = self.tcp_runtime.source_addr();
+        MuxSubstreamRuntime::new(
+            self.tcp_runtime,
+            self.udp_runtime.with_source_addr(source_addr),
+            self.mux_udp_continuity,
+        )
     }
 }
 

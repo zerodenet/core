@@ -13,17 +13,18 @@ use zero_traits::{DatagramCodec, UdpDatagramFraming};
 #[cfg(feature = "crypto")]
 pub struct ShadowsocksInboundUdpRelay {
     responder: ShadowsocksInboundUdpResponder,
-    auth: SessionAuth,
 }
 
 #[cfg(feature = "crypto")]
 impl ShadowsocksInboundUdpRelay {
-    pub fn new(responder: ShadowsocksInboundUdpResponder, auth: SessionAuth) -> Self {
-        Self { responder, auth }
+    pub fn from_profile(profile: crate::inbound::ShadowsocksInboundProfile) -> Self {
+        Self {
+            responder: ShadowsocksInboundUdpResponder::from_profile(profile),
+        }
     }
 
-    fn into_parts(self) -> (ShadowsocksInboundUdpResponder, SessionAuth) {
-        (self.responder, self.auth)
+    fn into_parts(self) -> ShadowsocksInboundUdpResponder {
+        self.responder
     }
 }
 
@@ -32,8 +33,7 @@ impl InboundDatagramUdpRelay<std::sync::Arc<tokio::net::UdpSocket>> for Shadowso
     type Responder = ShadowsocksInboundUdpResponder;
 
     fn into_datagram_udp_parts(self) -> (Self::Responder, Option<SessionAuth>) {
-        let (responder, auth) = self.into_parts();
-        (responder, Some(auth))
+        (self.into_parts(), None)
     }
 }
 
@@ -202,6 +202,7 @@ impl<'a> ShadowsocksInboundUdpClientResponse<'a> {
 pub struct ShadowsocksInboundUdpCodec {
     cipher: crate::shared::CipherKind,
     password: Vec<u8>,
+    identity_password: Option<Vec<u8>>,
     #[cfg(feature = "blake3")]
     replay_windows: std::collections::HashMap<u64, crate::shared::ReplayWindow>,
 }
@@ -212,6 +213,21 @@ impl ShadowsocksInboundUdpCodec {
         Self {
             cipher,
             password: password.to_vec(),
+            identity_password: None,
+            #[cfg(feature = "blake3")]
+            replay_windows: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn new_eih(
+        cipher: crate::shared::CipherKind,
+        identity_password: &[u8],
+        user_password: &[u8],
+    ) -> Self {
+        Self {
+            cipher,
+            password: user_password.to_vec(),
+            identity_password: Some(identity_password.to_vec()),
             #[cfg(feature = "blake3")]
             replay_windows: std::collections::HashMap::new(),
         }
@@ -224,12 +240,20 @@ impl ShadowsocksInboundUdpCodec {
         if self.cipher.is_blake3() {
             #[cfg(feature = "blake3")]
             {
-                let (target, port, payload, client_session_id, packet_id) =
-                    crate::shared::decode_udp_datagram_2022_session(
+                let decoded = match self.identity_password.as_deref() {
+                    Some(identity_password) => crate::shared::decode_udp_datagram_2022_eih_session(
+                        self.cipher,
+                        identity_password,
+                        &self.password,
+                        datagram,
+                    ),
+                    None => crate::shared::decode_udp_datagram_2022_session(
                         self.cipher,
                         &self.password,
                         datagram,
-                    )?;
+                    ),
+                }?;
+                let (target, port, payload, client_session_id, packet_id) = decoded;
                 if !self
                     .replay_windows
                     .entry(client_session_id)
@@ -341,9 +365,21 @@ pub struct ShadowsocksInboundUdpSession {
 
 #[cfg(feature = "crypto")]
 pub struct ShadowsocksInboundUdpResponder {
-    session: ShadowsocksInboundUdpSession,
+    mode: ShadowsocksInboundUdpResponderMode,
     pending_client: Option<std::net::SocketAddr>,
     read_buf: Vec<u8>,
+}
+
+#[cfg(feature = "crypto")]
+enum ShadowsocksInboundUdpResponderMode {
+    Single(ShadowsocksInboundUdpSession),
+    Profile {
+        profile: crate::inbound::ShadowsocksInboundProfile,
+        sessions: std::collections::HashMap<String, ShadowsocksInboundUdpSession>,
+        proxy_users: std::collections::HashMap<u64, String>,
+        current_user: Option<String>,
+        current_auth: Option<SessionAuth>,
+    },
 }
 
 #[cfg(feature = "crypto")]
@@ -570,7 +606,21 @@ impl ShadowsocksInboundUdpSession {
 impl ShadowsocksInboundUdpResponder {
     pub fn new(session: ShadowsocksInboundUdpSession) -> Self {
         Self {
-            session,
+            mode: ShadowsocksInboundUdpResponderMode::Single(session),
+            pending_client: None,
+            read_buf: vec![0_u8; 64 * 1024],
+        }
+    }
+
+    pub fn from_profile(profile: crate::inbound::ShadowsocksInboundProfile) -> Self {
+        Self {
+            mode: ShadowsocksInboundUdpResponderMode::Profile {
+                profile,
+                sessions: std::collections::HashMap::new(),
+                proxy_users: std::collections::HashMap::new(),
+                current_user: None,
+                current_auth: None,
+            },
             pending_client: None,
             read_buf: vec![0_u8; 64 * 1024],
         }
@@ -580,7 +630,67 @@ impl ShadowsocksInboundUdpResponder {
         &mut self,
         datagram: &[u8],
     ) -> Result<InboundUdpDispatch, Error> {
-        self.session.decode_inbound_dispatch(datagram)
+        match &mut self.mode {
+            ShadowsocksInboundUdpResponderMode::Single(session) => {
+                session.decode_inbound_dispatch(datagram)
+            }
+            ShadowsocksInboundUdpResponderMode::Profile {
+                profile,
+                sessions,
+                current_user,
+                current_auth,
+                ..
+            } => {
+                let users = profile.users_snapshot();
+                let active = users
+                    .iter()
+                    .map(crate::inbound::ShadowsocksUser::cache_key)
+                    .collect::<std::collections::HashSet<_>>();
+                sessions.retain(|key, _| active.contains(key));
+                if profile.uses_eih() {
+                    #[cfg(feature = "blake3")]
+                    {
+                        let user = profile.identify_udp_user(datagram)?;
+                        let key = user.cache_key();
+                        let identity_password = profile
+                            .identity_password()
+                            .ok_or(Error::Protocol("ss: SIP023 identity key is not configured"))?;
+                        let session = sessions.entry(key.clone()).or_insert_with(|| {
+                            ShadowsocksInboundUdpSession::new(ShadowsocksInboundUdpCodec::new_eih(
+                                profile.cipher(),
+                                identity_password,
+                                user.password(),
+                            ))
+                        });
+                        let dispatch = session.decode_inbound_dispatch(datagram)?;
+                        *current_user = Some(key);
+                        *current_auth = Some(user.auth());
+                        return Ok(dispatch);
+                    }
+                    #[cfg(not(feature = "blake3"))]
+                    return Err(Error::Protocol(
+                        "ss: SIP023 udp accept requires `blake3` feature",
+                    ));
+                }
+                for user in users.iter() {
+                    let key = user.cache_key();
+                    let session = sessions.entry(key.clone()).or_insert_with(|| {
+                        ShadowsocksInboundUdpSession::new(ShadowsocksInboundUdpCodec::new(
+                            profile.cipher(),
+                            user.password(),
+                        ))
+                    });
+                    if let Ok(dispatch) = session.decode_inbound_dispatch(datagram) {
+                        *current_user = Some(key);
+                        *current_auth = Some(user.auth());
+                        return Ok(dispatch);
+                    }
+                }
+                *current_user = None;
+                *current_auth = None;
+                Err(Error::Protocol("ss: udp user authentication failed"))
+            }
+        }
     }
 
     pub async fn read_inbound_dispatch_from_socket_tokio(
@@ -592,10 +702,8 @@ impl ShadowsocksInboundUdpResponder {
                 .recv_from(&mut self.read_buf)
                 .await
                 .map_err(|_| Error::Io("ss udp recv error"))?;
-            let dispatch = {
-                let buf = &self.read_buf[..n];
-                self.session.decode_inbound_dispatch(buf)
-            };
+            let datagram = self.read_buf[..n].to_vec();
+            let dispatch = self.decode_inbound_dispatch(&datagram);
             match dispatch {
                 Ok(dispatch) => {
                     self.pending_client = Some(client);
@@ -612,8 +720,26 @@ impl ShadowsocksInboundUdpResponder {
         client_session_id: Option<u64>,
         client: std::net::SocketAddr,
     ) {
-        self.session
-            .record_dispatch_success(proxy_session_id, client_session_id, client);
+        match &mut self.mode {
+            ShadowsocksInboundUdpResponderMode::Single(session) => {
+                session.record_dispatch_success(proxy_session_id, client_session_id, client);
+            }
+            ShadowsocksInboundUdpResponderMode::Profile {
+                sessions,
+                proxy_users,
+                current_user,
+                ..
+            } => {
+                let Some(user_key) = current_user.clone() else {
+                    return;
+                };
+                let Some(session) = sessions.get_mut(&user_key) else {
+                    return;
+                };
+                session.record_dispatch_success(proxy_session_id, client_session_id, client);
+                proxy_users.insert(proxy_session_id, user_key);
+            }
+        }
     }
 
     pub fn record_pending_dispatch_success(
@@ -634,15 +760,52 @@ impl ShadowsocksInboundUdpResponder {
         port: u16,
         payload: &[u8],
     ) -> Result<Option<usize>, Error> {
-        self.session
-            .send_response_for_target_proxy_session_to_client_tokio(
-                socket,
-                proxy_session_id,
-                target,
-                port,
-                payload,
-            )
-            .await
+        match &self.mode {
+            ShadowsocksInboundUdpResponderMode::Single(session) => {
+                session
+                    .send_response_for_target_proxy_session_to_client_tokio(
+                        socket,
+                        proxy_session_id,
+                        target,
+                        port,
+                        payload,
+                    )
+                    .await
+            }
+            ShadowsocksInboundUdpResponderMode::Profile {
+                sessions,
+                proxy_users,
+                ..
+            } => {
+                let Some(proxy_session_id) = proxy_session_id else {
+                    return Ok(None);
+                };
+                let Some(user_key) = proxy_users.get(&proxy_session_id) else {
+                    return Ok(None);
+                };
+                let Some(session) = sessions.get(user_key) else {
+                    return Ok(None);
+                };
+                session
+                    .send_proxy_session_response_to_client_tokio(
+                        socket,
+                        proxy_session_id,
+                        target,
+                        port,
+                        payload,
+                    )
+                    .await
+            }
+        }
+    }
+
+    fn current_auth(&self) -> Option<&SessionAuth> {
+        match &self.mode {
+            ShadowsocksInboundUdpResponderMode::Single(_) => None,
+            ShadowsocksInboundUdpResponderMode::Profile { current_auth, .. } => {
+                current_auth.as_ref()
+            }
+        }
     }
 }
 
@@ -651,6 +814,10 @@ impl ShadowsocksInboundUdpResponder {
 impl DatagramUdpResponder<std::sync::Arc<tokio::net::UdpSocket>>
     for ShadowsocksInboundUdpResponder
 {
+    fn auth(&self) -> Option<&SessionAuth> {
+        self.current_auth()
+    }
+
     async fn read_inbound_dispatch(
         &mut self,
         socket: &std::sync::Arc<tokio::net::UdpSocket>,

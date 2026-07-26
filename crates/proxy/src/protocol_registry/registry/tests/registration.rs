@@ -42,7 +42,7 @@ fn focused_capability_views_share_one_adapter_instance() {
 #[cfg(feature = "hysteria2")]
 #[test]
 fn managed_handler_provider_shares_the_registered_adapter_instance() {
-    let adapter = Arc::new(crate::adapters::hysteria2::Hysteria2Adapter);
+    let adapter = Arc::new(crate::adapters::hysteria2::Hysteria2Adapter::default());
     let expected = Arc::as_ptr(&adapter) as *const ();
     let mut registry = ProtocolRegistry::default();
     registry.register_managed_capability(

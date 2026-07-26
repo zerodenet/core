@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
 use crate::{
-    ConfigError, InboundProtocolConfig, InboundRealityConfig, MieruUserConfig,
-    OutboundProtocolConfig, RealityConfig, Socks5UserConfig, VlessUserConfig, VmessUserConfig,
+    ConfigError, Hysteria2UserConfig, InboundProtocolConfig, InboundRealityConfig, MieruUserConfig,
+    OutboundProtocolConfig, RealityConfig, ShadowsocksUserConfig, Socks5UserConfig,
+    TrojanUserConfig, VlessUserConfig, VmessUserConfig,
 };
 
 pub(super) fn validate_inbound_protocol(
@@ -16,6 +17,8 @@ pub(super) fn validate_inbound_protocol(
         InboundProtocolConfig::HttpConnect => Ok(()),
         InboundProtocolConfig::Vless {
             users,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
             tls,
             reality,
             ws,
@@ -91,15 +94,22 @@ pub(super) fn validate_inbound_protocol(
             if let Some(split_http) = split_http {
                 validate_xhttp_mode("inbound", &split_http.mode)?;
             }
+            validate_mux_response_backlog(
+                "vless inbound",
+                *mux_response_backlog_frames,
+                *mux_response_backlog_bytes,
+                vless::validation::validate_mux_response_backlog,
+            )?;
             Ok(())
         }
         InboundProtocolConfig::Hysteria2 {
             password,
+            users,
             cert_path,
             key_path,
             ..
         } => {
-            validate_inbound_optional_non_empty("hysteria2 password", password)?;
+            validate_hysteria2_users(password, users)?;
             if cert_path.is_some() != key_path.is_some() {
                 return Err(ConfigError::InvalidInbound(
                     "hysteria2 tls requires both cert_path and key_path, or neither".to_owned(),
@@ -114,24 +124,26 @@ pub(super) fn validate_inbound_protocol(
             Ok(())
         }
         InboundProtocolConfig::Shadowsocks {
-            password, cipher, ..
+            password,
+            identity_password,
+            users,
+            cipher,
+            ..
         } => {
-            validate_inbound_optional_non_empty("shadowsocks password", password)?;
             validate_shadowsocks_cipher("inbound", cipher)?;
-            validate_shadowsocks_password("inbound", cipher, password)?;
-            Ok(())
+            validate_shadowsocks_users(password, identity_password.as_deref(), users, cipher)
         }
         InboundProtocolConfig::Trojan {
             password,
+            users,
             sni: _,
             tls: _,
             ..
-        } => {
-            validate_inbound_optional_non_empty("trojan password", password)?;
-            Ok(())
-        }
+        } => validate_trojan_users(password, users),
         InboundProtocolConfig::Vmess {
             users,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
             tls,
             ws,
             grpc,
@@ -156,6 +168,12 @@ pub(super) fn validate_inbound_protocol(
                     validate_inbound_optional_non_empty("vmess grpc.service_names", name)?;
                 }
             }
+            validate_mux_response_backlog(
+                "vmess inbound",
+                *mux_response_backlog_frames,
+                *mux_response_backlog_bytes,
+                vmess::validation::validate_mux_response_backlog,
+            )?;
             Ok(())
         }
         InboundProtocolConfig::Direct { .. } => Ok(()),
@@ -175,8 +193,11 @@ pub(super) fn validate_outbound_protocol(
             port,
             id,
             flow: _,
-            mux_concurrency: _,
-            mux_idle_timeout_secs: _,
+            mux_concurrency,
+            xudp_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
             tls,
             reality,
             ws,
@@ -259,6 +280,15 @@ pub(super) fn validate_outbound_protocol(
             if let Some(split_http) = split_http {
                 validate_xhttp_mode("outbound", &split_http.mode)?;
             }
+            validate_optional_mux_concurrency("vless mux_concurrency", *mux_concurrency)?;
+            validate_optional_mux_concurrency("vless xudp_concurrency", *xudp_concurrency)?;
+            validate_optional_positive("vless mux_idle_timeout_secs", *mux_idle_timeout_secs)?;
+            validate_mux_response_backlog(
+                "vless outbound",
+                *mux_response_backlog_frames,
+                *mux_response_backlog_bytes,
+                vless::validation::validate_mux_response_backlog,
+            )?;
             Ok(())
         }
         OutboundProtocolConfig::Hysteria2 { server, port, .. } => {
@@ -288,6 +318,8 @@ pub(super) fn validate_outbound_protocol(
             cipher,
             mux_concurrency,
             mux_idle_timeout_secs,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
             tls,
             ws,
             grpc,
@@ -312,6 +344,12 @@ pub(super) fn validate_outbound_protocol(
             }
             validate_optional_positive("vmess mux_concurrency", mux_concurrency.map(u64::from))?;
             validate_optional_positive("vmess mux_idle_timeout_secs", *mux_idle_timeout_secs)?;
+            validate_mux_response_backlog(
+                "vmess outbound",
+                *mux_response_backlog_frames,
+                *mux_response_backlog_bytes,
+                vmess::validation::validate_mux_response_backlog,
+            )?;
             if let Some(ws) = ws {
                 validate_outbound_optional_non_empty("vmess ws.path", &ws.path)?;
                 validate_outbound_ws_headers("vmess ws.headers", &ws.headers)?;
@@ -363,12 +401,6 @@ fn validate_mieru_users(users: &[MieruUserConfig]) -> Result<(), ConfigError> {
 }
 
 fn validate_vless_users(users: &[VlessUserConfig]) -> Result<(), ConfigError> {
-    if users.is_empty() {
-        return Err(ConfigError::InvalidInbound(
-            "`vless` inbound requires at least one user".to_owned(),
-        ));
-    }
-
     let mut seen = HashSet::new();
     for user in users {
         vless::parse_uuid(&user.id).map_err(|error| {
@@ -382,9 +414,6 @@ fn validate_vless_users(users: &[VlessUserConfig]) -> Result<(), ConfigError> {
             ));
         }
 
-        if let Some(credential_id) = &user.credential_id {
-            validate_inbound_optional_non_empty("vless credential_id", credential_id)?;
-        }
         if let Some(principal_key) = &user.principal_key {
             validate_inbound_optional_non_empty("vless principal_key", principal_key)?;
         }
@@ -394,12 +423,6 @@ fn validate_vless_users(users: &[VlessUserConfig]) -> Result<(), ConfigError> {
 }
 
 fn validate_vmess_users(users: &[VmessUserConfig]) -> Result<(), ConfigError> {
-    if users.is_empty() {
-        return Err(ConfigError::InvalidInbound(
-            "`vmess` inbound requires at least one user".to_owned(),
-        ));
-    }
-
     let mut seen = HashSet::new();
     for user in users {
         vmess::parse_uuid(&user.id).map_err(|error| {
@@ -414,14 +437,195 @@ fn validate_vmess_users(users: &[VmessUserConfig]) -> Result<(), ConfigError> {
         }
 
         validate_vmess_cipher("inbound", &user.cipher)?;
-        if let Some(credential_id) = &user.credential_id {
-            validate_inbound_optional_non_empty("vmess credential_id", credential_id)?;
-        }
         if let Some(principal_key) = &user.principal_key {
             validate_inbound_optional_non_empty("vmess principal_key", principal_key)?;
         }
     }
 
+    Ok(())
+}
+
+fn validate_trojan_users(
+    legacy_password: &str,
+    users: &[TrojanUserConfig],
+) -> Result<(), ConfigError> {
+    if users.is_empty() {
+        return if legacy_password.is_empty() {
+            Ok(())
+        } else {
+            validate_inbound_optional_non_empty("trojan password", legacy_password)
+        };
+    }
+    if !legacy_password.is_empty() {
+        return Err(ConfigError::InvalidInbound(
+            "`trojan` inbound cannot configure both legacy `password` and `users`".to_owned(),
+        ));
+    }
+
+    let mut passwords = HashSet::new();
+    let mut principals = HashSet::new();
+    for user in users {
+        validate_inbound_optional_non_empty("trojan user password", &user.password)?;
+        if !passwords.insert(user.password.as_str()) {
+            return Err(ConfigError::InvalidInbound(
+                "`trojan` inbound contains duplicate user password".to_owned(),
+            ));
+        }
+        if let Some(principal_key) = user.principal_key.as_deref() {
+            validate_inbound_optional_non_empty("trojan principal_key", principal_key)?;
+            if !principals.insert(principal_key) {
+                return Err(ConfigError::InvalidInbound(format!(
+                    "`trojan` inbound contains duplicate principal_key `{principal_key}`"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_hysteria2_users(
+    legacy_password: &str,
+    users: &[Hysteria2UserConfig],
+) -> Result<(), ConfigError> {
+    if users.is_empty() {
+        return if legacy_password.is_empty() {
+            Ok(())
+        } else {
+            validate_inbound_optional_non_empty("hysteria2 password", legacy_password)
+        };
+    }
+    if !legacy_password.is_empty() {
+        return Err(ConfigError::InvalidInbound(
+            "`hysteria2` inbound cannot configure both legacy `password` and `users`".to_owned(),
+        ));
+    }
+
+    let mut passwords = HashSet::new();
+    let mut principals = HashSet::new();
+    for user in users {
+        validate_inbound_optional_non_empty("hysteria2 user password", &user.password)?;
+        if !passwords.insert(user.password.as_str()) {
+            return Err(ConfigError::InvalidInbound(
+                "`hysteria2` inbound contains duplicate user password".to_owned(),
+            ));
+        }
+        if let Some(principal_key) = user.principal_key.as_deref() {
+            validate_inbound_optional_non_empty("hysteria2 principal_key", principal_key)?;
+            if !principals.insert(principal_key) {
+                return Err(ConfigError::InvalidInbound(format!(
+                    "`hysteria2` inbound contains duplicate principal_key `{principal_key}`"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_shadowsocks_users(
+    legacy_password: &str,
+    identity_password: Option<&str>,
+    users: &[ShadowsocksUserConfig],
+    cipher: &str,
+) -> Result<(), ConfigError> {
+    if users.is_empty() {
+        if let Some(identity_password) = identity_password {
+            if !legacy_password.is_empty() {
+                return Err(ConfigError::InvalidInbound(
+                    "`shadowsocks` inbound cannot configure both `password` and `identity_password`"
+                        .to_owned(),
+                ));
+            }
+            validate_inbound_optional_non_empty(
+                "shadowsocks identity_password",
+                identity_password,
+            )?;
+            if identity_password.contains(':') {
+                return Err(ConfigError::InvalidInbound(
+                    "`shadowsocks.identity_password` must contain exactly one 2022 PSK".to_owned(),
+                ));
+            }
+            if !cipher.starts_with("2022-blake3-aes-") {
+                return Err(ConfigError::InvalidInbound(
+                    "`shadowsocks.identity_password` requires a 2022 AES cipher".to_owned(),
+                ));
+            }
+            validate_shadowsocks_password("inbound identity", cipher, identity_password)?;
+        }
+        return if legacy_password.is_empty() || identity_password.is_some() {
+            Ok(())
+        } else {
+            validate_inbound_optional_non_empty("shadowsocks password", legacy_password)?;
+            if cipher.starts_with("2022-") && legacy_password.contains(':') {
+                return Err(ConfigError::InvalidInbound(
+                    "`shadowsocks` inbound single-user password must contain exactly one 2022 PSK"
+                        .to_owned(),
+                ));
+            }
+            validate_shadowsocks_password("inbound", cipher, legacy_password)
+        };
+    }
+    if cipher.starts_with("2022-") {
+        if cipher == "2022-blake3-chacha20-poly1305" {
+            return Err(ConfigError::InvalidInbound(
+                "`shadowsocks` SIP023 EIH multi-user mode requires a 2022 AES cipher".to_owned(),
+            ));
+        }
+        if !legacy_password.is_empty() {
+            return Err(ConfigError::InvalidInbound(
+                "`shadowsocks` 2022 managed inbound uses `identity_password`; legacy `password` must be empty"
+                    .to_owned(),
+            ));
+        }
+        let Some(identity_password) = identity_password else {
+            return Err(ConfigError::InvalidInbound(
+                "`shadowsocks` 2022 multi-user inbound requires `identity_password` as the SIP023 server identity PSK"
+                    .to_owned(),
+            ));
+        };
+        validate_inbound_optional_non_empty("shadowsocks identity_password", identity_password)?;
+        if identity_password.contains(':') {
+            return Err(ConfigError::InvalidInbound(
+                "`shadowsocks.identity_password` must contain exactly one 2022 PSK".to_owned(),
+            ));
+        }
+        validate_shadowsocks_password("inbound identity", cipher, identity_password)?;
+    } else if !legacy_password.is_empty() {
+        return Err(ConfigError::InvalidInbound(
+            "`shadowsocks` legacy AEAD inbound cannot configure both `password` and `users`"
+                .to_owned(),
+        ));
+    }
+
+    let mut passwords = HashSet::new();
+    let mut principals = HashSet::new();
+    for user in users {
+        validate_inbound_optional_non_empty("shadowsocks user password", &user.password)?;
+        if cipher.starts_with("2022-") && user.password.contains(':') {
+            return Err(ConfigError::InvalidInbound(
+                "`shadowsocks` managed user password must contain exactly one 2022 uPSK".to_owned(),
+            ));
+        }
+        validate_shadowsocks_password("inbound", cipher, &user.password)?;
+        if identity_password.is_some_and(|identity| identity == user.password) {
+            return Err(ConfigError::InvalidInbound(
+                "`shadowsocks` SIP023 server identity PSK must differ from every user PSK"
+                    .to_owned(),
+            ));
+        }
+        if !passwords.insert(user.password.as_str()) {
+            return Err(ConfigError::InvalidInbound(
+                "`shadowsocks` inbound contains duplicate user password".to_owned(),
+            ));
+        }
+        if let Some(principal_key) = user.principal_key.as_deref() {
+            validate_inbound_optional_non_empty("shadowsocks principal_key", principal_key)?;
+            if !principals.insert(principal_key) {
+                return Err(ConfigError::InvalidInbound(format!(
+                    "`shadowsocks` inbound contains duplicate principal_key `{principal_key}`"
+                )));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -692,6 +896,34 @@ fn validate_optional_positive(name: &str, value: Option<u64>) -> Result<(), Conf
         )));
     }
     Ok(())
+}
+
+fn validate_optional_mux_concurrency(name: &str, value: Option<u32>) -> Result<(), ConfigError> {
+    validate_optional_positive(name, value.map(u64::from))?;
+    if value.is_some_and(|value| value > u16::MAX as u32) {
+        return Err(ConfigError::InvalidOutbound(format!(
+            "`{name}` must not exceed {}",
+            u16::MAX
+        )));
+    }
+    Ok(())
+}
+
+fn validate_mux_response_backlog(
+    name: &str,
+    frames: Option<u32>,
+    bytes: Option<u64>,
+    validate: fn(Option<u32>, Option<u64>) -> Result<(), &'static str>,
+) -> Result<(), ConfigError> {
+    let invalid = |message: String| {
+        if name.contains("inbound") {
+            ConfigError::InvalidInbound(message)
+        } else {
+            ConfigError::InvalidOutbound(message)
+        }
+    };
+
+    validate(frames, bytes).map_err(|error| invalid(format!("`{name}` {error}")))
 }
 
 fn validate_shadowsocks_password(

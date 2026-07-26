@@ -11,4 +11,7 @@ pub(crate) use contract::{
     PacketSessionUdpFailurePolicy, PacketSessionUdpHandler, PacketSessionUdpReadFailure,
     PacketSessionUdpReadFailureAction, PacketSessionUdpReadResult, PacketSessionUdpRelayRequest,
 };
-pub(crate) use lifecycle::run_packet_session_udp_relay;
+pub(crate) use lifecycle::{
+    run_packet_session_udp_relay, run_packet_session_udp_relay_with_dispatch,
+    PacketSessionUdpLoopExit,
+};

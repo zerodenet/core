@@ -11,6 +11,20 @@ use support::{free_port, free_udp_port, spawn_engine, wait_for_listener};
 
 const PASSWORD: &str = "test-trojan-password";
 
+async fn wait_for_echo(echo: tokio::task::JoinHandle<()>) {
+    timeout(Duration::from_secs(5), echo)
+        .await
+        .expect("echo task timed out")
+        .expect("echo task");
+}
+
+async fn shutdown_zero(zero: zero_proxy::RunningProxy) {
+    timeout(Duration::from_secs(5), zero.shutdown())
+        .await
+        .expect("zero shutdown timed out")
+        .expect("shutdown zero");
+}
+
 // ── Zero → Xray interop ─────────────────────────────────────────────
 
 #[tokio::test]
@@ -81,15 +95,14 @@ async fn zero_trojan_outbound_interops_with_xray_trojan_inbound_tcp() {
     };
     assert_eq!(echoed, payload, "xray={}", xray.logs());
 
-    zero.shutdown().await.expect("shutdown zero");
     xray.kill();
-    echo.await.expect("echo task");
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
 }
 
 /// Same as the TCP interop above, but sets `client_fingerprint: "chrome"` on
-/// Zero's trojan outbound. This exercises the custom uTLS-style ClientHello
-/// (cipher suites / key share ordering) against a stock Xray TLS 1.3 server,
-/// guarding the relay-stream fingerprint path that previously deadlocked.
+/// Zero's trojan outbound. This verifies that the fingerprint-selected cipher
+/// and ALPN profile remains wire-compatible with a stock Xray TLS server.
 #[tokio::test]
 #[ignore = "requires XRAY_BIN pointing to an Xray executable"]
 async fn zero_trojan_outbound_with_fingerprint_interops_with_xray_trojan_inbound_tcp() {
@@ -159,9 +172,9 @@ async fn zero_trojan_outbound_with_fingerprint_interops_with_xray_trojan_inbound
     };
     assert_eq!(echoed, payload, "xray={}", xray.logs());
 
-    zero.shutdown().await.expect("shutdown zero");
     xray.kill();
-    echo.await.expect("echo task");
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
 }
 
 #[tokio::test]
@@ -228,9 +241,9 @@ async fn zero_trojan_outbound_interops_with_xray_trojan_inbound_udp() {
     };
     assert_eq!(echoed, payload, "xray={}", xray.logs());
 
-    zero.shutdown().await.expect("shutdown zero");
     xray.kill();
-    echo.await.expect("echo task");
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
 }
 
 // ── Xray → Zero interop ──────────────────────────────────────────────
@@ -303,9 +316,9 @@ async fn xray_trojan_outbound_interops_with_zero_trojan_inbound_tcp() {
     };
     assert_eq!(echoed, payload, "xray={}", xray.logs());
 
-    zero.shutdown().await.expect("shutdown zero");
     xray.kill();
-    echo.await.expect("echo task");
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
 }
 
 #[tokio::test]
@@ -372,9 +385,9 @@ async fn xray_trojan_outbound_interops_with_zero_trojan_inbound_udp() {
     };
     assert_eq!(echoed, payload, "xray={}", xray.logs());
 
-    zero.shutdown().await.expect("shutdown zero");
     xray.kill();
-    echo.await.expect("echo task");
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
 }
 
 // ── Zero → sing-box interop ──────────────────────────────────────────
@@ -456,9 +469,9 @@ async fn zero_trojan_outbound_interops_with_sing_box_trojan_inbound_tcp() {
     };
     assert_eq!(echoed, payload, "sing-box={}", sing_box.logs());
 
-    zero.shutdown().await.expect("shutdown zero");
     sing_box.kill();
-    echo.await.expect("echo task");
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
 }
 
 #[tokio::test]
@@ -534,9 +547,9 @@ async fn zero_trojan_outbound_interops_with_sing_box_trojan_inbound_udp() {
     };
     assert_eq!(echoed, payload, "sing-box={}", sing_box.logs());
 
-    zero.shutdown().await.expect("shutdown zero");
     sing_box.kill();
-    echo.await.expect("echo task");
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
 }
 
 // ── Mihomo → Zero interop ────────────────────────────────────────────
@@ -611,9 +624,9 @@ async fn mihomo_trojan_outbound_interops_with_zero_trojan_inbound_tcp() {
     };
     assert_eq!(echoed, payload, "mihomo={}", mihomo.logs());
 
-    zero.shutdown().await.expect("shutdown zero");
     mihomo.kill();
-    echo.await.expect("echo task");
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
 }
 
 #[tokio::test]
@@ -682,9 +695,9 @@ async fn mihomo_trojan_outbound_interops_with_zero_trojan_inbound_udp() {
     };
     assert_eq!(echoed, payload, "mihomo={}", mihomo.logs());
 
-    zero.shutdown().await.expect("shutdown zero");
     mihomo.kill();
-    echo.await.expect("echo task");
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
 }
 
 // ── External config builders ─────────────────────────────────────────
@@ -725,11 +738,7 @@ fn xray_trojan_inbound_config(port: u16, tls: &TestTlsMaterial) -> String {
     )
 }
 
-fn xray_trojan_outbound_config(
-    socks_port: u16,
-    trojan_port: u16,
-    _tls: &TestTlsMaterial,
-) -> String {
+fn xray_trojan_outbound_config(socks_port: u16, trojan_port: u16, tls: &TestTlsMaterial) -> String {
     format!(
         r#"{{
             "log": {{ "loglevel": "debug" }},
@@ -758,13 +767,14 @@ fn xray_trojan_outbound_config(
                         "security": "tls",
                         "tlsSettings": {{
                             "serverName": "localhost",
-                            "allowInsecure": true,
+                            "pinnedPeerCertSha256": "{}",
                             "fingerprint": "chrome"
                         }}
                     }}
                 }}
             ]
-        }}"#
+        }}"#,
+        tls.cert_sha256_hex
     )
 }
 

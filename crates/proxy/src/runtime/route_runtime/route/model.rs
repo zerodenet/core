@@ -9,6 +9,8 @@ use super::super::SharedIngressRuntimeServices;
 #[derive(Clone)]
 pub(crate) struct InboundRouteRuntime {
     pub(super) tcp_runtime: TcpIngressRuntime,
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(super) mux_udp_continuity: crate::runtime::mux_udp::MuxUdpContinuityRegistry,
     #[cfg(feature = "udp-runtime")]
     pub(super) udp_runtime: UdpIngressRuntime,
 }
@@ -21,6 +23,8 @@ impl InboundRouteRuntime {
     ) -> Self {
         let tcp_runtime = shared.tcp_runtime(inbound_tag, source_addr);
         Self {
+            #[cfg(feature = "managed-stream-runtime")]
+            mux_udp_continuity: shared.mux_udp_continuity(),
             #[cfg(feature = "udp-runtime")]
             udp_runtime: shared.udp_runtime(),
             tcp_runtime,

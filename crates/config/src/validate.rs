@@ -1,6 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::{Component, Path, PathBuf};
 
-use crate::{ConfigError, ModeConfig, RuntimeConfig, RuntimeOptionsConfig};
+use crate::{ConfigError, EventSinkConfig, ModeConfig, RuntimeConfig, RuntimeOptionsConfig};
 
 mod api;
 mod group;
@@ -61,9 +62,103 @@ impl RuntimeConfig {
         validate_runtime(&self.runtime)?;
         validate_mode(&self.mode, &route_target_tags)?;
         validate_api(&self.api)?;
+        validate_connector_state_paths(self)?;
 
         Ok(())
     }
+}
+
+fn validate_connector_state_paths(config: &RuntimeConfig) -> Result<(), ConfigError> {
+    let mut paths = Vec::new();
+    if let Some(path) = config.runtime.principal_quota_state_path.as_deref() {
+        paths.push(("runtime.principal_quota_state_path".to_owned(), path, true));
+    }
+    if let Some(path) = config.api.outbox_path.as_deref() {
+        paths.push(("api.outbox_path".to_owned(), path, true));
+    }
+    if let Some(path) = config.api.dead_letter_path.as_deref() {
+        paths.push(("api.dead_letter_path".to_owned(), path, true));
+    }
+    for (index, sink) in config.api.event_sinks.iter().enumerate() {
+        if let EventSinkConfig::JsonLines { path, .. } = sink {
+            paths.push((
+                format!("api.event_sinks[{index}].path"),
+                path.as_str(),
+                true,
+            ));
+        }
+    }
+    let mut owners = HashMap::new();
+    let mut normalized_paths = Vec::new();
+    for (field, path, leased) in paths {
+        let normalized = normalize_connector_state_path(path, config.source_dir());
+        let key = connector_state_path_key(&normalized);
+        if let Some(other_field) = owners.insert(key, field.clone()) {
+            return Err(ConfigError::InvalidApi(format!(
+                "{field} must not share a file with {other_field}"
+            )));
+        }
+        normalized_paths.push((field, normalized, leased));
+    }
+    for (field, path, leased) in &normalized_paths {
+        if !leased {
+            continue;
+        }
+        let lock_path = connector_state_lock_path(path);
+        let lock_key = connector_state_path_key(&lock_path);
+        if let Some(other_field) = owners.get(&lock_key) {
+            return Err(ConfigError::InvalidApi(format!(
+                "{other_field} must not use the lock file reserved for {field}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn normalize_connector_state_path(path: &str, source_dir: Option<&Path>) -> PathBuf {
+    let path = PathBuf::from(path);
+    let resolved = if path.is_absolute() {
+        path
+    } else {
+        let source_dir = source_dir.unwrap_or_else(|| Path::new("."));
+        let base = if source_dir.is_absolute() {
+            source_dir.to_path_buf()
+        } else {
+            std::env::current_dir().unwrap_or_default().join(source_dir)
+        };
+        base.join(path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in resolved.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if normalized.file_name().is_some() {
+                    normalized.pop();
+                } else if !normalized.has_root() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+#[cfg(windows)]
+fn connector_state_path_key(path: &Path) -> String {
+    path.to_string_lossy().to_lowercase()
+}
+
+#[cfg(not(windows))]
+fn connector_state_path_key(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
+fn connector_state_lock_path(path: &Path) -> PathBuf {
+    let mut lock_path = path.as_os_str().to_os_string();
+    lock_path.push(".zero.lock");
+    PathBuf::from(lock_path)
 }
 
 pub(crate) fn validate_tag(
@@ -110,9 +205,23 @@ fn validate_mode(
 }
 
 fn validate_runtime(runtime: &RuntimeOptionsConfig) -> Result<(), ConfigError> {
+    if runtime
+        .principal_quota_state_path
+        .as_deref()
+        .is_some_and(|path| path.trim().is_empty())
+    {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.principal_quota_state_path must not be empty".to_owned(),
+        ));
+    }
     if runtime.udp_upstream_idle_timeout_seconds == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.udp_upstream_idle_timeout_seconds` must be greater than 0".to_owned(),
+        ));
+    }
+    if runtime.event_log_capacity == 0 {
+        return Err(ConfigError::InvalidRuntime(
+            "`runtime.event_log_capacity` must be greater than 0".to_owned(),
         ));
     }
 

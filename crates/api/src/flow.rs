@@ -157,7 +157,6 @@ pub struct EndpointRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthInfo {
     pub scheme: String,
-    pub credential_id: Option<String>,
     pub principal_key: Option<String>,
     pub attributes: BTreeMap<String, String>,
 }
@@ -166,7 +165,6 @@ impl AuthInfo {
     pub fn new(scheme: impl Into<String>) -> Self {
         Self {
             scheme: scheme.into(),
-            credential_id: None,
             principal_key: None,
             attributes: BTreeMap::new(),
         }

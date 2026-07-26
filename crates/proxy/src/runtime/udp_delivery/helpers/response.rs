@@ -40,8 +40,13 @@ pub(crate) fn record_upstream_udp_response_received(
         None => udp_response_session_id(dispatch, &target, port),
     };
     dispatch.confirm_passive_health(session_id);
-    let accounting =
-        UdpInboundResponseAccounting::record_received(services, session_id, payload.len());
+    let rate_limiters = dispatch.rate_limiters_by_session_id(session_id);
+    let accounting = UdpInboundResponseAccounting::record_received(
+        services,
+        session_id,
+        payload.len(),
+        rate_limiters,
+    );
     UdpUpstreamResponseParts {
         target,
         port,
@@ -58,7 +63,8 @@ fn record_direct_udp_response_received(
 ) -> UdpInboundResponseAccounting {
     let session_id = dispatch.direct_response_session_id(sender);
     dispatch.confirm_passive_health(session_id);
-    UdpInboundResponseAccounting::record_received(services, session_id, payload_len)
+    let rate_limiters = dispatch.rate_limiters_by_session_id(session_id);
+    UdpInboundResponseAccounting::record_received(services, session_id, payload_len, rate_limiters)
 }
 
 pub(crate) fn record_direct_udp_response_parts<'payload>(
@@ -79,10 +85,12 @@ pub(crate) fn record_direct_udp_response_parts<'payload>(
 
 fn record_chain_udp_response_received(
     services: &UdpRuntimeServices,
+    dispatch: &UdpDispatch,
     session_id: Option<u64>,
     payload_len: usize,
 ) -> UdpInboundResponseAccounting {
-    UdpInboundResponseAccounting::record_received(services, session_id, payload_len)
+    let rate_limiters = dispatch.rate_limiters_by_session_id(session_id);
+    UdpInboundResponseAccounting::record_received(services, session_id, payload_len, rate_limiters)
 }
 
 pub(crate) fn record_chain_udp_response_parts(
@@ -94,7 +102,8 @@ pub(crate) fn record_chain_udp_response_parts(
     session_id: Option<u64>,
 ) -> UdpChainResponseParts {
     dispatch.confirm_passive_health(session_id);
-    let accounting = record_chain_udp_response_received(services, session_id, payload.len());
+    let accounting =
+        record_chain_udp_response_received(services, dispatch, session_id, payload.len());
     UdpChainResponseParts {
         target,
         port,

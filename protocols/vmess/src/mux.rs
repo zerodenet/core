@@ -2,11 +2,13 @@ use core::future::Future;
 use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use zero_core::{
     Address, Error, InboundMuxTcpRelay, InboundMuxUdpReadFailure, InboundMuxUdpReadFailureAction,
     InboundMuxUdpRelay, InboundStreamUdpRelay, MuxUdpDecodeFailure, MuxUdpResponder, Network,
@@ -19,8 +21,12 @@ use crate::shared::{parse_address_from_bytes, write_address};
 use crate::stream::VmessAeadStream;
 use crate::VmessCipher;
 
+mod backlog;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use backlog::MuxResponseBacklogPolicy;
+use backlog::{BufferedMuxResponse, MuxResponseBacklog};
 
 pub const MUX_MAX_META_LEN: usize = 512;
 pub const MUX_MAX_DATA_LEN: usize = 16 * 1024;
@@ -39,6 +45,8 @@ pub(crate) struct VmessMuxPoolKey {
     port: u16,
     identity: VmessMuxIdentity,
     transport: VmessMuxTransportKey,
+    idle_timeout: Option<Duration>,
+    response_backlog: MuxResponseBacklogPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -89,6 +97,8 @@ struct VmessMuxPoolKeyConfig {
     tls_server_name: Option<String>,
     ws_path: Option<String>,
     grpc_service_names: Option<Vec<String>>,
+    idle_timeout: Option<Duration>,
+    response_backlog: MuxResponseBacklogPolicy,
 }
 
 impl VmessMuxPoolKeyConfig {
@@ -100,6 +110,8 @@ impl VmessMuxPoolKeyConfig {
             tls_server_name: None,
             ws_path: None,
             grpc_service_names: None,
+            idle_timeout: None,
+            response_backlog: MuxResponseBacklogPolicy::default(),
         }
     }
 
@@ -118,6 +130,16 @@ impl VmessMuxPoolKeyConfig {
         self
     }
 
+    fn with_idle_timeout_secs(mut self, idle_timeout_secs: Option<u64>) -> Self {
+        self.idle_timeout = idle_timeout_secs.map(Duration::from_secs);
+        self
+    }
+
+    fn with_response_backlog(mut self, response_backlog: MuxResponseBacklogPolicy) -> Self {
+        self.response_backlog = response_backlog;
+        self
+    }
+
     fn into_pool_key(self) -> Result<VmessMuxPoolKey, Error> {
         VmessMuxPoolKey::from_config_parts(
             self.server,
@@ -126,6 +148,8 @@ impl VmessMuxPoolKeyConfig {
             self.tls_server_name.as_deref(),
             self.ws_path.as_deref(),
             self.grpc_service_names,
+            self.idle_timeout,
+            self.response_backlog,
         )
     }
 }
@@ -135,11 +159,15 @@ pub(crate) fn pool_key_from_transport_config(
     port: u16,
     identity: VmessMuxIdentity,
     profile: VmessMuxTransportProfile<'_>,
+    idle_timeout_secs: Option<u64>,
+    response_backlog: MuxResponseBacklogPolicy,
 ) -> Result<VmessMuxPoolKey, Error> {
     VmessMuxPoolKeyConfig::new(server, port, identity)
         .with_tls_server_name(profile.tls_server_name)
         .with_ws_path(profile.ws_path)
         .with_grpc_service_names(profile.grpc_service_names)
+        .with_idle_timeout_secs(idle_timeout_secs)
+        .with_response_backlog(response_backlog)
         .into_pool_key()
 }
 
@@ -203,15 +231,20 @@ impl VmessMuxPoolKey {
         port: u16,
         identity: VmessMuxIdentity,
         transport: VmessMuxTransportKey,
+        idle_timeout: Option<Duration>,
+        response_backlog: MuxResponseBacklogPolicy,
     ) -> Self {
         Self {
             server,
             port,
             identity,
             transport,
+            idle_timeout,
+            response_backlog,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn from_config_parts(
         server: String,
         port: u16,
@@ -219,12 +252,16 @@ impl VmessMuxPoolKey {
         tls_server_name: Option<&str>,
         ws_path: Option<&str>,
         grpc_service_names: Option<Vec<String>>,
+        idle_timeout: Option<Duration>,
+        response_backlog: MuxResponseBacklogPolicy,
     ) -> Result<Self, Error> {
         Ok(Self::from_identity(
             server,
             port,
             identity,
             transport_key_from_config(tls_server_name, ws_path, grpc_service_names)?,
+            idle_timeout,
+            response_backlog,
         ))
     }
 
@@ -247,7 +284,12 @@ impl VmessMuxPoolKey {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        VmessMuxConn::new(stream, max_concurrency)
+        VmessMuxConn::new(
+            stream,
+            max_concurrency,
+            self.idle_timeout,
+            self.response_backlog,
+        )
     }
 }
 
@@ -344,7 +386,7 @@ impl VmessMuxConnectionPool {
         OpenStreamFut: Future<Output = Result<S, E>>,
         E: From<Error>,
     {
-        let conn = self
+        let (conn, session_id) = self
             .get_or_create_conn(key, max_concurrency, |key, max_concurrency| async move {
                 let stream = match open_stream().await {
                     Ok(stream) => stream,
@@ -357,7 +399,7 @@ impl VmessMuxConnectionPool {
                 Ok(key.into_pool_conn(stream, max_concurrency))
             })
             .await?;
-        Ok(conn.open_stream(target, port, network))
+        Ok(conn.open_reserved_stream(session_id, target, port, network))
     }
 
     async fn get_or_create_conn<F, Fut, E>(
@@ -365,7 +407,7 @@ impl VmessMuxConnectionPool {
         key: VmessMuxPoolKey,
         max_concurrency: u32,
         create_conn: F,
-    ) -> Result<Arc<VmessMuxConn>, E>
+    ) -> Result<(Arc<VmessMuxConn>, u16), E>
     where
         F: FnOnce(VmessMuxPoolKey, u32) -> Fut,
         Fut: Future<Output = Result<VmessMuxConn, E>>,
@@ -377,17 +419,21 @@ impl VmessMuxConnectionPool {
             .get(&key)
             .cloned();
 
-        match cached {
-            Some(conn) if conn.has_capacity() => Ok(conn),
-            _ => {
-                let conn = Arc::new(create_conn(key.clone(), max_concurrency).await?);
-                self.pool
-                    .lock()
-                    .expect("vmess mux pool poisoned")
-                    .insert(key, conn.clone());
-                Ok(conn)
+        if let Some(conn) = cached {
+            if let Some(session_id) = conn.try_reserve_stream_id() {
+                return Ok((conn, session_id));
             }
         }
+
+        let conn = Arc::new(create_conn(key.clone(), max_concurrency).await?);
+        let session_id = conn
+            .try_reserve_stream_id()
+            .expect("new VMess MUX connection accepts its first stream");
+        self.pool
+            .lock()
+            .expect("vmess mux pool poisoned")
+            .insert(key, conn.clone());
+        Ok((conn, session_id))
     }
 }
 
@@ -567,8 +613,15 @@ impl VmessInboundMuxOpenedStream {
         (self.session_id, *self.session, self.up_rx)
     }
 
-    fn into_route(self, writer: VmessInboundMuxWriter) -> VmessInboundMuxOpenedRoute {
-        let (session_id, session, up_rx) = self.into_parts();
+    fn into_route_with_auth(
+        self,
+        writer: VmessInboundMuxWriter,
+        auth: Option<&SessionAuth>,
+    ) -> VmessInboundMuxOpenedRoute {
+        let (session_id, mut session, up_rx) = self.into_parts();
+        if let Some(auth) = auth {
+            session.apply_auth(auth.clone());
+        }
         match session.network {
             Network::Tcp => VmessInboundMuxOpenedRoute::tcp(
                 Box::new(session),
@@ -585,6 +638,7 @@ impl VmessInboundMuxOpenedStream {
                         writer,
                         session_id,
                     ),
+                    auth.cloned(),
                 ))
             }
         }
@@ -595,6 +649,7 @@ pub struct VmessInboundMuxUdpRelay {
     session_id: u16,
     up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
     responder: crate::udp::VmessInboundMuxUdpResponder,
+    auth: Option<SessionAuth>,
 }
 
 impl VmessInboundMuxUdpRelay {
@@ -602,11 +657,13 @@ impl VmessInboundMuxUdpRelay {
         session_id: u16,
         up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
         responder: crate::udp::VmessInboundMuxUdpResponder,
+        auth: Option<SessionAuth>,
     ) -> Self {
         Self {
             session_id,
             up_rx,
             responder,
+            auth,
         }
     }
 }
@@ -651,6 +708,10 @@ impl InboundMuxUdpRelay for VmessInboundMuxUdpRelay {
 
     fn mux_session_id(&self) -> u16 {
         self.session_id
+    }
+
+    fn auth(&self) -> Option<&SessionAuth> {
+        self.auth.as_ref()
     }
 }
 
@@ -759,7 +820,11 @@ impl<S> VmessInboundAcceptedStream<S> {
         }
     }
 
-    pub(crate) fn from_session_stream(session: Session, stream: S) -> Self
+    pub(crate) fn from_session_stream(
+        session: Session,
+        stream: S,
+        mux_response_backlog: MuxResponseBacklogPolicy,
+    ) -> Self
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
@@ -773,10 +838,15 @@ impl<S> VmessInboundAcceptedStream<S> {
                 Self::udp(session, VmessInboundUdpRelay::new(stream, responder, auth))
             }
             VmessInboundSessionKind::Mux => {
+                let auth = session.auth.clone();
                 let (reader, writer) = tokio::io::split(stream);
                 Self::mux(
                     reader,
-                    crate::inbound::VmessInbound.accept_mux_session_from_tokio_writer(writer),
+                    crate::inbound::VmessInbound.accept_mux_session_from_tokio_writer(
+                        writer,
+                        auth,
+                        mux_response_backlog,
+                    ),
                 )
             }
         }
@@ -1051,17 +1121,23 @@ pub struct VmessInboundMuxServer {
     session: VmessInboundMuxSession,
     streams: VmessInboundMuxStreams,
     writer: VmessInboundMuxWriter,
+    auth: Option<SessionAuth>,
 }
 
 impl VmessInboundMuxServer {
-    fn from_tokio_writer<W>(writer: W) -> Self
+    fn from_tokio_writer<W>(
+        writer: W,
+        auth: Option<SessionAuth>,
+        mux_response_backlog: MuxResponseBacklogPolicy,
+    ) -> Self
     where
         W: AsyncWrite + Unpin + Send + 'static,
     {
         Self {
             session: VmessInboundMuxSession::new(),
             streams: VmessInboundMuxStreams::new(),
-            writer: VmessInboundMuxWriter::from_tokio_writer(writer),
+            writer: VmessInboundMuxWriter::from_tokio_writer(writer, mux_response_backlog),
+            auth,
         }
     }
 
@@ -1084,9 +1160,10 @@ impl VmessInboundMuxServer {
         R: tokio::io::AsyncRead + Unpin,
     {
         let writer = self.writer();
+        let auth = self.auth.clone();
         self.read_opened_stream(reader)
             .await
-            .map(|opened| opened.map(|opened| opened.into_route(writer)))
+            .map(|opened| opened.map(|opened| opened.into_route_with_auth(writer, auth.as_ref())))
     }
 
     fn writer(&self) -> VmessInboundMuxWriter {
@@ -1101,6 +1178,10 @@ where
 {
     type TcpRelay = VmessInboundMuxTcpRelay;
     type UdpRelay = VmessInboundMuxUdpRelay;
+
+    fn auth(&self) -> Option<&SessionAuth> {
+        self.auth.as_ref()
+    }
 
     async fn dispatch_next_opened_route<E, FTcp, FUdp>(
         &mut self,
@@ -1131,11 +1212,16 @@ where
 }
 
 impl crate::inbound::VmessInbound {
-    fn accept_mux_session_from_tokio_writer<W>(&self, writer: W) -> VmessInboundMuxServer
+    fn accept_mux_session_from_tokio_writer<W>(
+        &self,
+        writer: W,
+        auth: Option<SessionAuth>,
+        mux_response_backlog: MuxResponseBacklogPolicy,
+    ) -> VmessInboundMuxServer
     where
         W: AsyncWrite + Unpin + Send + 'static,
     {
-        VmessInboundMuxServer::from_tokio_writer(writer)
+        VmessInboundMuxServer::from_tokio_writer(writer, auth, mux_response_backlog)
     }
 }
 
@@ -1204,29 +1290,36 @@ impl VmessInboundMuxSession {
 
 #[derive(Clone)]
 pub(crate) struct VmessInboundMuxWriter {
-    write_tx: mpsc::UnboundedSender<Vec<u8>>,
+    write_tx: mpsc::Sender<BufferedMuxResponse<Vec<u8>>>,
+    backlog: MuxResponseBacklog,
 }
 
 impl VmessInboundMuxWriter {
-    fn new(write_tx: mpsc::UnboundedSender<Vec<u8>>) -> Self {
-        Self { write_tx }
+    fn new(
+        write_tx: mpsc::Sender<BufferedMuxResponse<Vec<u8>>>,
+        backlog: MuxResponseBacklog,
+    ) -> Self {
+        Self { write_tx, backlog }
     }
 
-    fn from_tokio_writer<W>(writer: W) -> Self
+    fn from_tokio_writer<W>(writer: W, policy: MuxResponseBacklogPolicy) -> Self
     where
         W: AsyncWrite + Unpin + Send + 'static,
     {
-        let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (write_tx, write_rx) = mpsc::channel(policy.frames());
         spawn_mux_write_relay(writer, write_rx);
-        Self::new(write_tx)
+        Self::new(write_tx, MuxResponseBacklog::from_policy(policy))
     }
 
     pub(crate) fn data(&self, session_id: u16, payload: &[u8]) -> Result<usize, Error> {
-        queue_keep_stream(&self.write_tx, session_id, payload)
+        let frame = encode_keep_stream(session_id, payload)?;
+        self.frame(frame)?;
+        Ok(payload.len())
     }
 
     pub(crate) fn end(&self, session_id: u16) -> Result<usize, Error> {
-        queue_end_stream(&self.write_tx, session_id)
+        self.frame(encode_end_stream(session_id)?)?;
+        Ok(0)
     }
 
     pub(crate) fn end_inbound_stream(&self, session_id: u16) -> Result<usize, Error> {
@@ -1235,9 +1328,13 @@ impl VmessInboundMuxWriter {
 
     pub(crate) fn frame(&self, frame: Vec<u8>) -> Result<usize, Error> {
         let len = frame.len();
+        let response = self
+            .backlog
+            .try_buffer(len, frame)
+            .map_err(|_| Error::Io("VMess MUX response backlog byte limit exceeded"))?;
         self.write_tx
-            .send(frame)
-            .map_err(|_| Error::Io("failed to queue VMess MUX frame"))?;
+            .try_send(response)
+            .map_err(|_| Error::Io("VMess MUX response backlog frame limit exceeded"))?;
         Ok(len)
     }
 }
@@ -1377,66 +1474,82 @@ impl From<VmessMuxServerEvent> for VmessInboundMuxAction {
     }
 }
 
-fn queue_keep_stream(
-    write_tx: &mpsc::UnboundedSender<Vec<u8>>,
-    session_id: u16,
-    payload: &[u8],
-) -> Result<usize, Error> {
-    let frame = encode_keep_stream(session_id, payload)?;
-    let len = frame.len();
-    write_tx
-        .send(frame)
-        .map_err(|_| Error::Io("failed to queue VMess MUX keep frame"))?;
-    Ok(len)
-}
-
-fn queue_end_stream(
-    write_tx: &mpsc::UnboundedSender<Vec<u8>>,
-    session_id: u16,
-) -> Result<usize, Error> {
-    let frame = encode_end_stream(session_id)?;
-    let len = frame.len();
-    write_tx
-        .send(frame)
-        .map_err(|_| Error::Io("failed to queue VMess MUX end frame"))?;
-    Ok(len)
-}
-
 struct VmessMuxStream {
     session_id: u16,
     target: Address,
     port: u16,
     network: Network,
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
-    read_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    read_rx: mpsc::Receiver<VmessMuxDownlink>,
     write_buf: Vec<u8>,
     write_pos: usize,
     read_buf: Vec<u8>,
     read_pos: usize,
     opened: bool,
     ended: bool,
-    active: Option<Arc<Mutex<usize>>>,
+    conn: Option<Arc<VmessMuxConn>>,
 }
 
 struct VmessMuxConn {
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
-    streams: Arc<Mutex<std::collections::HashMap<u16, mpsc::UnboundedSender<Vec<u8>>>>>,
+    streams: Arc<Mutex<std::collections::HashMap<u16, mpsc::Sender<VmessMuxDownlink>>>>,
     next_id: Mutex<u16>,
     active: Arc<Mutex<usize>>,
     max_concurrency: u32,
+    closed: Arc<AtomicBool>,
+    activity_tx: Option<watch::Sender<tokio::time::Instant>>,
+    response_backlog_frames: usize,
+}
+
+enum VmessMuxDownlink {
+    Data(BufferedMuxResponse<Vec<u8>>),
+    Overflow,
 }
 
 impl VmessMuxConn {
-    fn new<S>(stream: S, max_concurrency: u32) -> Self
+    fn new<S>(
+        stream: S,
+        max_concurrency: u32,
+        idle_timeout: Option<Duration>,
+        response_backlog_policy: MuxResponseBacklogPolicy,
+    ) -> Self
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let (reader, writer) = tokio::io::split(stream);
         let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let streams = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let closed = Arc::new(AtomicBool::new(false));
+        let response_backlog = MuxResponseBacklog::from_policy(response_backlog_policy);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let activity_tx = idle_timeout.map(|idle_timeout| {
+            let (activity_tx, activity_rx) = watch::channel(tokio::time::Instant::now());
+            spawn_mux_idle_monitor(
+                idle_timeout,
+                activity_rx,
+                closed.clone(),
+                shutdown_tx.clone(),
+            );
+            activity_tx
+        });
 
-        spawn_mux_write_relay(writer, write_rx);
-        spawn_mux_read_relay(reader, streams.clone());
+        spawn_mux_write_relay_with_shutdown(
+            writer,
+            write_rx,
+            closed.clone(),
+            shutdown_tx.clone(),
+            shutdown_rx.clone(),
+            activity_tx.clone(),
+        );
+        spawn_mux_read_relay_with_shutdown(
+            reader,
+            streams.clone(),
+            closed.clone(),
+            shutdown_tx.clone(),
+            shutdown_rx,
+            activity_tx.clone(),
+            response_backlog,
+        );
 
         Self {
             write_tx,
@@ -1444,21 +1557,20 @@ impl VmessMuxConn {
             next_id: Mutex::new(1),
             active: Arc::new(Mutex::new(0)),
             max_concurrency,
+            closed,
+            activity_tx,
+            response_backlog_frames: response_backlog_policy.frames(),
         }
     }
 
-    fn has_capacity(&self) -> bool {
-        *self.active.lock().unwrap() < self.max_concurrency as usize
-    }
-
-    fn open_stream(
-        &self,
+    fn open_reserved_stream(
+        self: &Arc<Self>,
+        session_id: u16,
         target: Address,
         port: u16,
         network: Network,
     ) -> impl AsyncRead + AsyncWrite + Send + Unpin + 'static {
-        let session_id = self.allocate_stream_id();
-        let (down_tx, down_rx) = mpsc::unbounded_channel();
+        let (down_tx, down_rx) = mpsc::channel(self.response_backlog_frames + 1);
         self.streams.lock().unwrap().insert(session_id, down_tx);
 
         VmessMuxStream::new_with_network(
@@ -1468,31 +1580,55 @@ impl VmessMuxConn {
             network,
             self.write_tx.clone(),
             down_rx,
-            self.active.clone(),
+            self.clone(),
         )
     }
 
-    fn allocate_stream_id(&self) -> u16 {
-        let session_id = {
+    fn try_reserve_stream_id(&self) -> Option<u16> {
+        let streams = self.streams.lock().unwrap();
+        let mut active = self.active.lock().unwrap();
+        if self.closed.load(Ordering::Acquire) || *active >= self.max_concurrency as usize {
+            return None;
+        }
+        let session_id = loop {
             let mut next = self.next_id.lock().unwrap();
             let id = *next;
             *next = next.wrapping_add(1);
             if *next == 0 {
                 *next = 1;
             }
-            id
+            drop(next);
+            if !streams.contains_key(&id) {
+                break id;
+            }
         };
-        *self.active.lock().unwrap() += 1;
-        session_id
+        *active += 1;
+        self.touch_idle();
+        Some(session_id)
+    }
+
+    fn release_stream(self: &Arc<Self>, session_id: u16) {
+        self.streams.lock().unwrap().remove(&session_id);
+        let mut active = self.active.lock().unwrap();
+        *active = active.saturating_sub(1);
+    }
+
+    fn touch_idle(&self) {
+        if let Some(activity_tx) = &self.activity_tx {
+            activity_tx.send_replace(tokio::time::Instant::now());
+        }
     }
 }
 
-fn spawn_mux_write_relay<W>(mut writer: W, mut write_rx: mpsc::UnboundedReceiver<Vec<u8>>)
-where
+fn spawn_mux_write_relay<W>(
+    mut writer: W,
+    mut write_rx: mpsc::Receiver<BufferedMuxResponse<Vec<u8>>>,
+) where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
         while let Some(frame) = write_rx.recv().await {
+            let frame = frame.into_inner();
             if writer.write_all(&frame).await.is_err() {
                 break;
             }
@@ -1504,18 +1640,78 @@ where
     });
 }
 
-fn spawn_mux_read_relay<R>(
+fn spawn_mux_write_relay_with_shutdown<W>(
+    mut writer: W,
+    mut write_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    closed: Arc<AtomicBool>,
+    shutdown_tx: watch::Sender<bool>,
+    mut shutdown_rx: watch::Receiver<bool>,
+    activity_tx: Option<watch::Sender<tokio::time::Instant>>,
+) where
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                biased;
+                changed = shutdown_rx.changed() => {
+                    if changed.is_err() || *shutdown_rx.borrow() {
+                        break;
+                    }
+                }
+                frame = write_rx.recv() => {
+                    let Some(frame) = frame else {
+                        break;
+                    };
+                    if writer.write_all(&frame).await.is_err() {
+                        break;
+                    }
+                    if writer.flush().await.is_err() {
+                        break;
+                    }
+                    if let Some(activity_tx) = &activity_tx {
+                        activity_tx.send_replace(tokio::time::Instant::now());
+                    }
+                }
+            }
+        }
+        let _ = writer.shutdown().await;
+        closed.store(true, Ordering::Release);
+        let _ = shutdown_tx.send(true);
+    });
+}
+
+fn spawn_mux_read_relay_with_shutdown<R>(
     mut reader: R,
-    streams: Arc<Mutex<std::collections::HashMap<u16, mpsc::UnboundedSender<Vec<u8>>>>>,
+    streams: Arc<Mutex<std::collections::HashMap<u16, mpsc::Sender<VmessMuxDownlink>>>>,
+    closed: Arc<AtomicBool>,
+    shutdown_tx: watch::Sender<bool>,
+    mut shutdown_rx: watch::Receiver<bool>,
+    activity_tx: Option<watch::Sender<tokio::time::Instant>>,
+    response_backlog: MuxResponseBacklog,
 ) where
     R: AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
         loop {
-            let event = match read_mux_server_event(&mut reader).await {
-                Ok(event) => event,
-                Err(_) => break,
+            let event = tokio::select! {
+                biased;
+                changed = shutdown_rx.changed() => {
+                    if changed.is_err() || *shutdown_rx.borrow() {
+                        break;
+                    }
+                    continue;
+                }
+                event = read_mux_server_event(&mut reader) => {
+                    match event {
+                        Ok(event) => event,
+                        Err(_) => break,
+                    }
+                }
             };
+            if let Some(activity_tx) = &activity_tx {
+                activity_tx.send_replace(tokio::time::Instant::now());
+            }
             match event {
                 VmessMuxServerEvent::KeepAlive => continue,
                 VmessMuxServerEvent::Data {
@@ -1530,23 +1726,70 @@ fn spawn_mux_read_relay<R>(
                     let tx = streams.lock().unwrap().get(&session_id).cloned();
                     if let Some(tx) = tx {
                         if !payload.is_empty() {
-                            let _ = tx.send(payload);
+                            let payload_len = payload.len();
+                            if !try_queue_mux_response(&response_backlog, &tx, payload, payload_len)
+                            {
+                                streams.lock().unwrap().remove(&session_id);
+                            }
                         }
                     }
                 }
-                VmessMuxServerEvent::End { session_id } => {
-                    let tx = streams.lock().unwrap().get(&session_id).cloned();
-                    if let Some(tx) = tx {
-                        let _ = tx.send(Vec::new());
-                        streams.lock().unwrap().remove(&session_id);
+                VmessMuxServerEvent::End { session_id }
+                | VmessMuxServerEvent::Unknown { session_id, .. } => {
+                    streams.lock().unwrap().remove(&session_id);
+                }
+            }
+        }
+        closed.store(true, Ordering::Release);
+        let _ = shutdown_tx.send(true);
+        streams.lock().unwrap().clear();
+    });
+}
+
+fn try_queue_mux_response(
+    backlog: &MuxResponseBacklog,
+    tx: &mpsc::Sender<VmessMuxDownlink>,
+    payload: Vec<u8>,
+    bytes: usize,
+) -> bool {
+    if tx.capacity() <= 1 {
+        let _ = tx.try_send(VmessMuxDownlink::Overflow);
+        return false;
+    }
+    let Ok(response) = backlog.try_buffer(bytes, payload) else {
+        let _ = tx.try_send(VmessMuxDownlink::Overflow);
+        return false;
+    };
+    if tx.try_send(VmessMuxDownlink::Data(response)).is_err() {
+        let _ = tx.try_send(VmessMuxDownlink::Overflow);
+        return false;
+    }
+    true
+}
+
+fn spawn_mux_idle_monitor(
+    idle_timeout: Duration,
+    mut activity_rx: watch::Receiver<tokio::time::Instant>,
+    closed: Arc<AtomicBool>,
+    shutdown_tx: watch::Sender<bool>,
+) {
+    tokio::spawn(async move {
+        loop {
+            let deadline = *activity_rx.borrow() + idle_timeout;
+            tokio::select! {
+                changed = activity_rx.changed() => {
+                    if changed.is_err() {
+                        return;
                     }
                 }
-                VmessMuxServerEvent::Unknown { session_id, .. } => {
-                    let tx = streams.lock().unwrap().get(&session_id).cloned();
-                    if let Some(tx) = tx {
-                        let _ = tx.send(Vec::new());
-                        streams.lock().unwrap().remove(&session_id);
+                _ = tokio::time::sleep_until(deadline) => {
+                    if tokio::time::Instant::now() < *activity_rx.borrow() + idle_timeout {
+                        continue;
                     }
+                    if !closed.swap(true, Ordering::AcqRel) {
+                        let _ = shutdown_tx.send(true);
+                    }
+                    return;
                 }
             }
         }
@@ -1560,8 +1803,8 @@ impl VmessMuxStream {
         port: u16,
         network: Network,
         write_tx: mpsc::UnboundedSender<Vec<u8>>,
-        read_rx: mpsc::UnboundedReceiver<Vec<u8>>,
-        active: Arc<Mutex<usize>>,
+        read_rx: mpsc::Receiver<VmessMuxDownlink>,
+        conn: Arc<VmessMuxConn>,
     ) -> Self {
         Self {
             session_id,
@@ -1576,7 +1819,7 @@ impl VmessMuxStream {
             read_pos: 0,
             opened: false,
             ended: false,
-            active: Some(active),
+            conn: Some(conn),
         }
     }
 
@@ -1650,10 +1893,8 @@ impl Drop for VmessMuxStream {
                 .send(encode_end_stream(self.session_id).unwrap_or_default());
             self.ended = true;
         }
-        if let Some(active) = self.active.take() {
-            if let Ok(mut count) = active.lock() {
-                *count = count.saturating_sub(1);
-            }
+        if let Some(conn) = self.conn.take() {
+            conn.release_stream(self.session_id);
         }
     }
 }
@@ -1676,11 +1917,8 @@ impl AsyncRead for VmessMuxStream {
         }
 
         match Pin::new(&mut self.read_rx).poll_recv(cx) {
-            Poll::Ready(Some(chunk)) => {
-                if chunk.is_empty() {
-                    self.ended = true;
-                    return Poll::Ready(Ok(()));
-                }
+            Poll::Ready(Some(VmessMuxDownlink::Data(chunk))) => {
+                let chunk = chunk.into_inner();
                 let n = chunk.len().min(buf.remaining());
                 buf.put_slice(&chunk[..n]);
                 if n < chunk.len() {
@@ -1688,6 +1926,10 @@ impl AsyncRead for VmessMuxStream {
                     self.read_pos = n;
                 }
                 Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Some(VmessMuxDownlink::Overflow)) => {
+                self.ended = true;
+                Poll::Ready(Err(io::Error::other("VMess MUX response backlog exceeded")))
             }
             Poll::Ready(None) => {
                 self.ended = true;

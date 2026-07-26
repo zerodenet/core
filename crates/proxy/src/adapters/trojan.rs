@@ -1,8 +1,10 @@
 #[cfg(feature = "trojan")]
 mod listener;
+#[cfg(feature = "trojan")]
+use ::trojan::inbound::TrojanInboundProfileStore;
 use ::trojan::transport::{
-    TrojanInboundListenerRequest, TrojanInboundOptionsRef, TrojanOutboundBuildOptionsRef,
-    TrojanOutboundLeaf, TrojanOutboundOptionsRef,
+    TrojanInboundListenerRequest, TrojanInboundOptionsRef, TrojanInboundUserRef,
+    TrojanOutboundBuildOptionsRef, TrojanOutboundLeaf, TrojanOutboundOptionsRef,
 };
 #[cfg(feature = "trojan")]
 use zero_config::InboundConfig;
@@ -28,7 +30,42 @@ use crate::runtime::udp_flow::managed::{
 
 #[cfg(feature = "trojan")]
 #[derive(Debug, Default)]
-pub(crate) struct TrojanAdapter;
+pub(crate) struct TrojanAdapter {
+    inbound_profiles: TrojanInboundProfileStore,
+}
+
+#[cfg(feature = "trojan")]
+fn inbound_user_refs<'a>(
+    password: &'a str,
+    users: &'a [zero_config::TrojanUserConfig],
+) -> Vec<TrojanInboundUserRef<'a>> {
+    if users.is_empty() {
+        return (!password.is_empty())
+            .then_some(TrojanInboundUserRef {
+                password,
+                principal_key: None,
+                up_bps: None,
+                down_bps: None,
+                device_limit: None,
+                quota_remaining_bytes: None,
+                policy_revision: None,
+            })
+            .into_iter()
+            .collect();
+    }
+    users
+        .iter()
+        .map(|user| TrojanInboundUserRef {
+            password: user.password.as_str(),
+            principal_key: user.principal_key.as_deref(),
+            up_bps: user.up_bps,
+            down_bps: user.down_bps,
+            device_limit: user.device_limit,
+            quota_remaining_bytes: user.quota_remaining_bytes,
+            policy_revision: user.policy_revision,
+        })
+        .collect()
+}
 
 #[cfg(feature = "trojan")]
 #[async_trait::async_trait]
@@ -229,6 +266,19 @@ impl TrojanAdapter {
 impl NamedProtocolAdapter for TrojanAdapter {
     const PROTOCOL_NAME: &'static str = "trojan";
     const FEATURE_NAME: &'static str = "trojan";
+
+    fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
+        for inbound in &config.inbounds {
+            let InboundProtocolConfig::Trojan {
+                password, users, ..
+            } = &inbound.protocol
+            else {
+                continue;
+            };
+            let users = inbound_user_refs(password, users);
+            self.inbound_profiles.replace(&inbound.tag, &users);
+        }
+    }
 }
 
 #[cfg(feature = "trojan")]
@@ -249,13 +299,23 @@ impl InboundListenerCapability for TrojanAdapter {
         EngineError,
     > {
         let request = match &inbound.protocol {
-            InboundProtocolConfig::Trojan { password, tls, .. } => {
+            InboundProtocolConfig::Trojan {
+                password,
+                users,
+                tls,
+                ..
+            } => {
+                let user_refs = inbound_user_refs(password, users);
+                let profile = self.inbound_profiles.replace(&inbound.tag, &user_refs);
                 TrojanInboundListenerRequest::from_options_refs(
                     source_dir,
-                    TrojanInboundOptionsRef { password },
+                    TrojanInboundOptionsRef {
+                        users: user_refs.iter().copied(),
+                    },
                     tls.as_ref(),
                 )
                 .map_err(EngineError::from)?
+                .with_profile(profile)
             }
             _ => {
                 return Err(EngineError::Io(std::io::Error::new(

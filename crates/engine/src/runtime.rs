@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -8,20 +9,20 @@ use zero_config::{ModeConfig, RuntimeConfig};
 use zero_core::Address;
 use zero_router::{RouteAction, RouteContext, RuleSet};
 
-use super::completed_sessions::CompletedSessionHistory;
 use super::error::EngineError;
-use super::event_log::EngineEventLog;
 use super::groups::OutboundGroupStateStore;
-use super::hook::{FlowHook, FlowHookChain};
-use super::outbound_health::OutboundHealth;
-use super::passive_relay_health::PassiveRelayHealth;
-use super::plan::{EnginePlan, TargetId};
-use super::probe_trigger::ProbeTriggerRegistry;
-use super::resolve::{
-    resolve_target_chains, resolve_target_id, ResolvedLeafOutbound, ResolvedOutbound,
+use super::health::{OutboundHealth, PassiveRelayHealth, ProbeTriggerRegistry};
+use super::observability::EngineEventLog;
+use super::observability::EngineStats;
+use super::plan::{
+    resolve_target_chains, resolve_target_id, EnginePlan, ResolvedLeafOutbound, ResolvedOutbound,
+    TargetId,
 };
-use super::session_registry::SessionRegistry;
-use super::stats::EngineStats;
+use super::principal::{
+    PrincipalCancellationRegistry, PrincipalDeviceRegistry, PrincipalPolicyRegistry,
+    PrincipalQuotaRegistry,
+};
+use super::session::{CompletedSessionHistory, FlowHook, FlowHookChain, SessionRegistry};
 
 mod configuration;
 mod diagnostics;
@@ -38,12 +39,17 @@ pub struct Engine {
     mode: Arc<std::sync::Mutex<ModeConfig>>,
     next_session_id: Arc<AtomicU64>,
     session_registry: Arc<SessionRegistry>,
+    principal_cancellations: Arc<PrincipalCancellationRegistry>,
+    principal_devices: Arc<PrincipalDeviceRegistry>,
+    principal_policies: Arc<PrincipalPolicyRegistry>,
+    principal_quotas: Arc<PrincipalQuotaRegistry>,
     completed_sessions: Arc<CompletedSessionHistory>,
     event_log: Arc<EngineEventLog>,
     stats: Arc<EngineStats>,
     pub(crate) outbound_group_state: Arc<OutboundGroupStateStore>,
     pub(crate) probe_trigger_registry: Arc<ProbeTriggerRegistry>,
-    flow_hook: Option<Arc<FlowHookChain>>,
+    flow_hook: Arc<std::sync::RwLock<Option<Arc<FlowHookChain>>>>,
+    flow_completion_sink: Arc<std::sync::RwLock<Option<FlowCompletionSink>>>,
     pub(crate) outbound_health: Arc<OutboundHealth>,
     pub(crate) passive_relay_health: Arc<PassiveRelayHealth>,
     udp_upstream_idle_timeout: Duration,
@@ -145,12 +151,33 @@ impl Engine {
             outbound_group_state.initialize_loadbalance(group_id);
         }
 
-        let event_log = EngineEventLog::shared();
+        let event_log_capacity = config.runtime.event_log_capacity;
+        let event_log = EngineEventLog::shared(event_log_capacity);
 
-        info!(build_id = env!("CARGO_PKG_VERSION"), "engine started");
+        info!(
+            build_id = env!("CARGO_PKG_VERSION"),
+            event_log_capacity, "engine started"
+        );
         event_log.push_engine_started(env!("CARGO_PKG_VERSION"));
 
         let mode = Arc::new(std::sync::Mutex::new(config.mode.clone()));
+        let principal_policies = Arc::new(PrincipalPolicyRegistry::from_config(&config));
+        let principal_quota_state_path = config
+            .runtime
+            .principal_quota_state_path
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .map(|path| {
+                if path.is_absolute() {
+                    path
+                } else {
+                    config
+                        .source_dir()
+                        .unwrap_or_else(|| std::path::Path::new("."))
+                        .join(path)
+                }
+            });
+        let principal_quotas = Arc::new(PrincipalQuotaRegistry::open(principal_quota_state_path)?);
         Ok(Self {
             config: Arc::new(std::sync::RwLock::new(Arc::new(config))),
             mode,
@@ -158,6 +185,10 @@ impl Engine {
             router,
             next_session_id: Arc::new(AtomicU64::new(1)),
             session_registry: SessionRegistry::shared(),
+            principal_cancellations: Arc::new(PrincipalCancellationRegistry::default()),
+            principal_devices: Arc::new(PrincipalDeviceRegistry::default()),
+            principal_policies,
+            principal_quotas,
             completed_sessions: CompletedSessionHistory::shared(),
             event_log,
             stats: EngineStats::shared(),
@@ -165,7 +196,8 @@ impl Engine {
             probe_trigger_registry: ProbeTriggerRegistry::shared(),
             outbound_health: Arc::new(OutboundHealth::new()),
             passive_relay_health: Arc::new(PassiveRelayHealth::default()),
-            flow_hook: None,
+            flow_hook: Arc::new(std::sync::RwLock::new(None)),
+            flow_completion_sink: Arc::new(std::sync::RwLock::new(None)),
             udp_upstream_idle_timeout,
             reload_notify: Arc::new(std::sync::Mutex::new(Vec::new())),
             config_path: None,
@@ -177,6 +209,13 @@ impl Engine {
 
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, EngineError> {
         let config = RuntimeConfig::load_from_path(path.as_ref())?;
+        Self::new_with_config_path(config, path)
+    }
+
+    pub fn new_with_config_path(
+        config: RuntimeConfig,
+        path: impl AsRef<Path>,
+    ) -> Result<Self, EngineError> {
         let mut engine = Self::new(config)?;
         engine.config_path = Some(path.as_ref().to_owned());
         Ok(engine)
@@ -205,18 +244,50 @@ impl Engine {
         self
     }
 
-    pub fn with_flow_hook(mut self, hook: impl FlowHook + 'static) -> Self {
+    pub fn with_flow_hook(self, hook: impl FlowHook + 'static) -> Self {
         let mut chain = FlowHookChain::empty();
         chain.push(Arc::new(hook));
-        self.flow_hook = Some(Arc::new(chain));
+        *self.flow_hook.write().expect("flow hook lock poisoned") = Some(Arc::new(chain));
         self
     }
 
-    pub fn with_flow_hook_chain(mut self, chain: FlowHookChain) -> Self {
-        if !chain.is_empty() {
-            self.flow_hook = Some(Arc::new(chain));
-        }
+    pub fn with_flow_hook_chain(self, chain: FlowHookChain) -> Self {
+        self.replace_flow_hook_chain((!chain.is_empty()).then_some(chain));
         self
+    }
+
+    /// Replace the active flow-hook chain for future lifecycle callbacks.
+    ///
+    /// Existing callbacks already in progress retain their cloned chain.
+    pub fn replace_flow_hook_chain(&self, chain: Option<FlowHookChain>) {
+        *self.flow_hook.write().expect("flow hook lock poisoned") = chain.map(Arc::new);
+    }
+
+    /// Persist completed-flow events synchronously before they are exposed to
+    /// the in-memory event log. The sink must return `delivered=true` only
+    /// after its durable write has completed.
+    pub fn with_flow_completion_sink(
+        self,
+        sink: Arc<dyn zero_api::EventSink + Send + Sync>,
+    ) -> Self {
+        self.replace_flow_completion_sink(Some(sink));
+        self
+    }
+
+    /// Replace the synchronous completed-flow persistence sink.
+    ///
+    /// The replacement is visible to subsequently completed sessions. A
+    /// caller that manages a reporter must prepare the new sink before
+    /// publishing this pointer and keep the previous sink alive until its
+    /// reporter has drained.
+    pub fn replace_flow_completion_sink(
+        &self,
+        sink: Option<Arc<dyn zero_api::EventSink + Send + Sync>>,
+    ) {
+        *self
+            .flow_completion_sink
+            .write()
+            .expect("flow completion sink lock poisoned") = sink.map(FlowCompletionSink);
     }
 
     pub fn udp_upstream_idle_timeout(&self) -> Duration {
@@ -263,6 +334,16 @@ impl Engine {
         sni: Option<&str>,
         inbound_tag: Option<&str>,
     ) -> RouteTrace {
+        self.route_trace_with_inbound_and_resolved_ips(address, sni, inbound_tag, &[])
+    }
+
+    pub fn route_trace_with_inbound_and_resolved_ips(
+        &self,
+        address: &Address,
+        sni: Option<&str>,
+        inbound_tag: Option<&str>,
+        resolved_ips: &[IpAddr],
+    ) -> RouteTrace {
         let mode = self.mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
         match &mode {
             ModeConfig::Rule => {
@@ -270,11 +351,14 @@ impl Engine {
                     .router
                     .lock()
                     .expect("router lock poisoned")
-                    .decide_trace_with_context(RouteContext {
-                        address,
-                        sni,
-                        inbound_tag,
-                    });
+                    .decide_trace_with_context_and_resolved_ips(
+                        RouteContext {
+                            address,
+                            sni,
+                            inbound_tag,
+                        },
+                        resolved_ips,
+                    );
                 let decision = match trace.action {
                     RouteAction::Route(tag) => RouteDecision::Route(tag),
                     RouteAction::Direct => RouteDecision::Direct,
@@ -300,6 +384,17 @@ impl Engine {
                 matched_rule: None,
             },
         }
+    }
+
+    pub fn route_requires_resolved_ip(&self) -> bool {
+        if !matches!(self.current_mode(), ModeConfig::Rule) {
+            return false;
+        }
+
+        self.router
+            .lock()
+            .expect("router lock poisoned")
+            .requires_resolved_ip()
     }
 
     pub fn resolve_route_decision(
@@ -378,5 +473,17 @@ impl Engine {
             )
         };
         Ok((resolved, plan))
+    }
+}
+
+#[derive(Clone)]
+struct FlowCompletionSink(Arc<dyn zero_api::EventSink + Send + Sync>);
+
+impl std::fmt::Debug for FlowCompletionSink {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("FlowCompletionSink")
+            .field(&self.0.name())
+            .finish()
     }
 }

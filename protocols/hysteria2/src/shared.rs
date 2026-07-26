@@ -1,6 +1,7 @@
 // Hysteria2 protocol constants and helpers — shared.rs
 
-use alloc::string::String;
+use alloc::format;
+use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -11,13 +12,6 @@ pub const HYSTERIA2_VERSION: u8 = 0x02;
 
 pub const AUTH_OK: u8 = 0x01;
 pub const AUTH_ERR: u8 = 0x00;
-
-pub const STREAM_TYPE_TCP: u8 = 0x00;
-pub const STREAM_TYPE_UDP: u8 = 0x01;
-
-pub const ADDR_TYPE_IPV4: u8 = 0x01;
-pub const ADDR_TYPE_DOMAIN: u8 = 0x02;
-pub const ADDR_TYPE_IPV6: u8 = 0x03;
 
 /// Build an authentication frame to send to the server.
 /// Format: [version:1][auth_len:2][auth_payload:auth_len]
@@ -69,37 +63,44 @@ pub fn parse_auth_frame(data: &[u8]) -> Result<[u8; 32], Error> {
     Ok(hmac)
 }
 
-/// Build a TCP stream connect header.
-/// Format: [type:1][addr_len:2][addr:var][port:2]
+/// Build the standard Hysteria2 TCPRequest message.
+/// Format: [varint 0x401][varint address length][host:port][varint padding length][padding].
 pub fn build_tcp_connect_header(address: &Address, port: u16) -> Result<Vec<u8>, Error> {
-    let addr_bytes = encode_address(address)?;
-    let mut header = Vec::with_capacity(3 + addr_bytes.len() + 2);
-    header.push(STREAM_TYPE_TCP);
-    header.extend_from_slice(&(addr_bytes.len() as u16).to_be_bytes());
-    header.extend_from_slice(&addr_bytes);
-    header.extend_from_slice(&port.to_be_bytes());
+    let authority = encode_authority(address, port)?;
+    let mut header = Vec::with_capacity(16 + authority.len());
+    encode_varint(0x401, &mut header)?;
+    encode_varint(authority.len() as u64, &mut header)?;
+    header.extend_from_slice(authority.as_bytes());
+    encode_varint(0, &mut header)?;
     Ok(header)
 }
 
-/// Parse a TCP stream connect header.
-/// Returns the target address and port.
+/// Parse a standard Hysteria2 TCPRequest message.
 pub fn parse_tcp_connect_header(data: &[u8]) -> Result<(Address, u16), Error> {
-    if data.len() < 4 {
-        return Err(Error::Protocol("hysteria2: truncated connect header"));
+    let (request_id, request_id_len) = decode_varint(data)?;
+    if request_id != 0x401 {
+        return Err(Error::Protocol("hysteria2: expected TCPRequest"));
     }
-    let stream_type = data[0];
-    if stream_type != STREAM_TYPE_TCP {
-        return Err(Error::Protocol("hysteria2: expected TCP stream"));
+    let (address_len, address_len_len) = decode_varint(&data[request_id_len..])?;
+    let address_start = request_id_len + address_len_len;
+    let address_len = usize::try_from(address_len)
+        .map_err(|_| Error::Protocol("hysteria2: address length overflow"))?;
+    let address_end = address_start
+        .checked_add(address_len)
+        .ok_or(Error::Protocol("hysteria2: address length overflow"))?;
+    if data.len() < address_end {
+        return Err(Error::Protocol("hysteria2: truncated TCPRequest address"));
     }
-    let addr_len = u16::from_be_bytes([data[1], data[2]]) as usize;
-    if data.len() < 3 + addr_len + 2 {
-        return Err(Error::Protocol(
-            "hysteria2: truncated address in connect header",
-        ));
+    let authority = core::str::from_utf8(&data[address_start..address_end])
+        .map_err(|_| Error::Protocol("hysteria2: invalid TCPRequest address"))?;
+    let (padding_len, padding_len_len) = decode_varint(&data[address_end..])?;
+    let padding_start = address_end + padding_len_len;
+    let padding_len = usize::try_from(padding_len)
+        .map_err(|_| Error::Protocol("hysteria2: padding length overflow"))?;
+    if data.len() < padding_start.saturating_add(padding_len) {
+        return Err(Error::Protocol("hysteria2: truncated TCPRequest padding"));
     }
-    let addr = decode_address(&data[3..3 + addr_len])?;
-    let port = u16::from_be_bytes([data[3 + addr_len], data[3 + addr_len + 1]]);
-    Ok((addr, port))
+    parse_authority(authority)
 }
 
 /// Build an auth error response.
@@ -119,82 +120,98 @@ pub fn build_auth_ok() -> Vec<u8> {
 
 /// Build a TCP connect success response.
 pub fn build_connect_ok() -> Vec<u8> {
-    vec![0x01]
+    vec![0x00, 0x00, 0x00]
 }
 
 /// Build a TCP connect error response.
 pub fn build_connect_error(msg: &str) -> Vec<u8> {
     let msg_bytes = msg.as_bytes();
-    let mut resp = Vec::with_capacity(3 + msg_bytes.len());
-    resp.push(0x00);
-    resp.extend_from_slice(&(msg_bytes.len() as u16).to_be_bytes());
+    let mut resp = Vec::with_capacity(4 + msg_bytes.len());
+    resp.push(0x01);
+    let _ = encode_varint(msg_bytes.len() as u64, &mut resp);
     resp.extend_from_slice(msg_bytes);
+    let _ = encode_varint(0, &mut resp);
     resp
 }
 
-// — address encoding helpers —
-
-pub(crate) fn encode_address(addr: &Address) -> Result<Vec<u8>, Error> {
-    match addr {
-        Address::Ipv4(bytes) => {
-            let mut buf = Vec::with_capacity(5);
-            buf.push(ADDR_TYPE_IPV4);
-            buf.extend_from_slice(bytes);
-            Ok(buf)
+pub(crate) fn encode_varint(value: u64, output: &mut Vec<u8>) -> Result<(), Error> {
+    match value {
+        0..=63 => output.push(value as u8),
+        64..=16_383 => {
+            let encoded = (value as u16) | 0x4000;
+            output.extend_from_slice(&encoded.to_be_bytes());
         }
+        16_384..=1_073_741_823 => {
+            let encoded = (value as u32) | 0x8000_0000;
+            output.extend_from_slice(&encoded.to_be_bytes());
+        }
+        1_073_741_824..=4_611_686_018_427_387_903 => {
+            let encoded = value | 0xc000_0000_0000_0000;
+            output.extend_from_slice(&encoded.to_be_bytes());
+        }
+        _ => return Err(Error::Protocol("hysteria2: QUIC varint overflow")),
+    }
+    Ok(())
+}
+
+pub(crate) fn decode_varint(data: &[u8]) -> Result<(u64, usize), Error> {
+    let first = *data
+        .first()
+        .ok_or(Error::Protocol("hysteria2: truncated QUIC varint"))?;
+    let width = 1usize << (first >> 6);
+    if data.len() < width {
+        return Err(Error::Protocol("hysteria2: truncated QUIC varint"));
+    }
+    let mut value = u64::from(first & 0x3f);
+    for byte in &data[1..width] {
+        value = (value << 8) | u64::from(*byte);
+    }
+    Ok((value, width))
+}
+
+pub(crate) fn encode_authority(address: &Address, port: u16) -> Result<String, Error> {
+    match address {
+        Address::Ipv4(bytes) => Ok(format!(
+            "{}.{}.{}.{}:{port}",
+            bytes[0], bytes[1], bytes[2], bytes[3]
+        )),
         Address::Ipv6(bytes) => {
-            let mut buf = Vec::with_capacity(17);
-            buf.push(ADDR_TYPE_IPV6);
-            buf.extend_from_slice(bytes);
-            Ok(buf)
+            let address = core::net::Ipv6Addr::from(*bytes);
+            Ok(format!("[{address}]:{port}"))
         }
-        Address::Domain(domain) => {
-            let b = domain.as_bytes();
-            if b.is_empty() || b.len() > u8::MAX as usize {
-                return Err(Error::Protocol("hysteria2: invalid domain length"));
-            }
-            let mut buf = Vec::with_capacity(2 + b.len());
-            buf.push(ADDR_TYPE_DOMAIN);
-            buf.push(b.len() as u8);
-            buf.extend_from_slice(b);
-            Ok(buf)
-        }
+        Address::Domain(domain) if !domain.is_empty() => Ok(format!("{domain}:{port}")),
+        Address::Domain(_) => Err(Error::Protocol("hysteria2: empty target domain")),
     }
 }
 
-fn decode_address(data: &[u8]) -> Result<Address, Error> {
-    if data.is_empty() {
-        return Err(Error::Protocol("hysteria2: empty address data"));
+pub(crate) fn parse_authority(authority: &str) -> Result<(Address, u16), Error> {
+    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+        let (host, port) = rest
+            .split_once("]:")
+            .ok_or(Error::Protocol("hysteria2: invalid IPv6 authority"))?;
+        (host, port)
+    } else {
+        authority
+            .rsplit_once(':')
+            .ok_or(Error::Protocol("hysteria2: target port missing"))?
+    };
+    if host.is_empty() {
+        return Err(Error::Protocol("hysteria2: empty target host"));
     }
-    match data[0] {
-        ADDR_TYPE_IPV4 => {
-            if data.len() < 5 {
-                return Err(Error::Protocol("hysteria2: truncated IPv4"));
-            }
-            let mut bytes = [0u8; 4];
-            bytes.copy_from_slice(&data[1..5]);
-            Ok(Address::Ipv4(bytes))
-        }
-        ADDR_TYPE_IPV6 => {
-            if data.len() < 17 {
-                return Err(Error::Protocol("hysteria2: truncated IPv6"));
-            }
-            let mut bytes = [0u8; 16];
-            bytes.copy_from_slice(&data[1..17]);
-            Ok(Address::Ipv6(bytes))
-        }
-        ADDR_TYPE_DOMAIN => {
-            let len = data[1] as usize;
-            if data.len() < 2 + len {
-                return Err(Error::Protocol("hysteria2: truncated domain"));
-            }
-            let domain = String::from_utf8(data[2..2 + len].to_vec())
-                .map_err(|_| Error::Protocol("hysteria2: invalid domain UTF-8"))?;
-            Ok(Address::Domain(domain))
-        }
-        _ => Err(Error::Unsupported("hysteria2: unknown address type")),
-    }
+    let port = port
+        .parse::<u16>()
+        .map_err(|_| Error::Protocol("hysteria2: invalid target port"))?;
+    let address = if let Ok(ipv4) = host.parse::<core::net::Ipv4Addr>() {
+        Address::Ipv4(ipv4.octets())
+    } else if let Ok(ipv6) = host.parse::<core::net::Ipv6Addr>() {
+        Address::Ipv6(ipv6.octets())
+    } else {
+        Address::Domain(host.to_string())
+    };
+    Ok((address, port))
 }
+
+// — address encoding helpers —
 
 /// Read exact number of bytes from stream.
 pub async fn read_exact<S: AsyncSocket>(stream: &mut S, buf: &mut [u8]) -> Result<(), Error> {

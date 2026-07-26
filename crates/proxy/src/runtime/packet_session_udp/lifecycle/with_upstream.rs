@@ -3,8 +3,8 @@ use tokio::time::Instant as TokioInstant;
 use zero_engine::EngineError;
 
 use super::failure::handle_runtime_failure;
-use super::read::process_packet_session_read;
-use super::relay::PacketSessionUdpLoopContext;
+use super::read::{process_packet_session_read, PacketSessionUdpReadControl};
+use super::relay::{PacketSessionUdpLoopContext, PacketSessionUdpLoopExit};
 use super::response::{handle_chain_result, handle_direct_response, handle_upstream_response};
 use crate::runtime::packet_session_udp::contract::PacketSessionUdpHandler;
 use crate::runtime::udp_delivery::wait_for_upstream_idle;
@@ -16,12 +16,13 @@ pub(super) async fn run_loop<H>(
     last_activity: &mut TokioInstant,
     direct_buf: &mut [u8],
     upstream_buf: &mut [u8],
-) -> Result<(), EngineError>
+) -> Result<PacketSessionUdpLoopExit, EngineError>
 where
     H: PacketSessionUdpHandler,
 {
     loop {
-        let (direct_sock, upstream_udp, upstream_idle_deadline, chain_tasks) = dispatch.poll_refs();
+        let (direct_sock, upstream_udp, upstream_idle_deadline, chain_tasks, cancel_rx) =
+            dispatch.poll_refs();
 
         select! {
             _ = tokio::time::sleep_until(*last_activity + context.timeout) => {
@@ -30,11 +31,13 @@ where
                     protocol = context.protocol,
                     "packet session udp relay idle timeout"
                 );
-                break;
+                return Ok(PacketSessionUdpLoopExit::IdleTimeout);
             }
             read = handler.read_inbound_dispatch() => {
-                if !process_packet_session_read(context, dispatch, last_activity, read).await {
-                    break;
+                if process_packet_session_read(context, dispatch, last_activity, read).await
+                    == PacketSessionUdpReadControl::End
+                {
+                    return Ok(PacketSessionUdpLoopExit::InboundEnded);
                 }
             }
             recv = direct_sock.recv_from_addr(direct_buf) => {
@@ -59,7 +62,8 @@ where
                             "packet session udp direct recv failed",
                             error.into(),
                         )
-                        .await;
+                        .await
+                        .map(|_| PacketSessionUdpLoopExit::InboundEnded);
                     }
                 }
             }
@@ -70,8 +74,11 @@ where
             Some(chain_result) = chain_tasks.join_next() => {
                 handle_chain_result(context, handler, dispatch, last_activity, chain_result).await?;
             }
+            Some(session_id) = cancel_rx.recv() => {
+                if dispatch.finish_cancelled_flow(session_id) {
+                    return Ok(PacketSessionUdpLoopExit::AssociationCancelled);
+                }
+            }
         }
     }
-
-    Ok(())
 }

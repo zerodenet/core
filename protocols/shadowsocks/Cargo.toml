@@ -55,3 +55,11 @@ required-features = ["runtime"]
 [[test]]
 name = "shared"
 required-features = ["runtime"]
+
+[[test]]
+name = "user_profile"
+required-features = ["runtime"]
+
+[[test]]
+name = "external_sip023"
+required-features = ["runtime"]

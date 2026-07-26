@@ -14,6 +14,10 @@ crypto = ["dep:ring", "dep:subtle"]
 runtime = [
     "crypto",
     "tokio",
+    "dep:bytes",
+    "dep:h3",
+    "dep:h3-quinn",
+    "dep:http",
     "dep:rustls",
     "dep:tracing",
     "dep:zero-transport",
@@ -22,6 +26,10 @@ tokio = ["dep:quinn", "dep:tokio"]
 
 [dependencies]
 async-trait = "0.1"
+bytes = { version = "1", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+http = { version = "1", optional = true }
 ring = { version = "0.17", optional = true }
 subtle = { version = "2.6", optional = true }
 quinn = { version = "0.11", default-features = false, features = ["rustls-ring"], optional = true }

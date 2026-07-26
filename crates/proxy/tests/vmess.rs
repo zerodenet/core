@@ -13,7 +13,7 @@ use zero_config::RuntimeConfig;
 use zero_core::Address;
 use zero_proxy::Proxy as Engine;
 
-use support::{free_port, spawn_engine, wait_for_listener};
+use support::{free_port, spawn_engine, wait_for, wait_for_listener};
 
 const USER_ID: &str = "11111111-2222-3333-4444-555555555555";
 static NEXT_TLS_DIR: AtomicU64 = AtomicU64::new(0);
@@ -26,7 +26,7 @@ async fn relays_tcp_through_vmess_tls_outbound_for_all_explicit_ciphers() {
 }
 
 async fn relays_tcp_through_vmess_tls_outbound(cipher: &str) {
-    relays_tcp_through_vmess_outbound(cipher, VmessTransport::RawTls, None).await;
+    relays_tcp_through_vmess_outbound(cipher, VmessTransport::RawTls, None, None).await;
 }
 
 #[tokio::test]
@@ -34,6 +34,7 @@ async fn relays_tcp_through_vmess_wss_outbound() {
     relays_tcp_through_vmess_outbound(
         "chacha20-poly1305",
         VmessTransport::Wss { path: "/vmess-wss" },
+        None,
         None,
     )
     .await;
@@ -47,13 +48,26 @@ async fn relays_tcp_through_vmess_grpc_outbound() {
             service_name: "/zero.vmess.grpc/Tun",
         },
         None,
+        None,
     )
     .await;
 }
 
 #[tokio::test]
 async fn relays_tcp_through_vmess_mux_outbound() {
-    relays_tcp_through_vmess_outbound("chacha20-poly1305", VmessTransport::RawTls, Some(8)).await;
+    relays_tcp_through_vmess_outbound("chacha20-poly1305", VmessTransport::RawTls, Some(8), None)
+        .await;
+}
+
+#[tokio::test]
+async fn vmess_mux_idle_timeout_closes_the_upstream_carrier() {
+    relays_tcp_through_vmess_outbound(
+        "chacha20-poly1305",
+        VmessTransport::RawTls,
+        Some(8),
+        Some(1),
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -348,6 +362,16 @@ async fn relays_udp_through_vmess_mux_outbound() {
     assert_eq!(response.port, echo_port);
     assert_eq!(response.payload, b"vmux-udp");
 
+    let upstream_active = upstream_handle.active_sessions();
+    assert_eq!(upstream_active.len(), 1);
+    assert_eq!(
+        upstream_active[0]
+            .auth
+            .as_ref()
+            .and_then(|auth| auth.principal_key.as_deref()),
+        Some("node:vmess-mux-udp")
+    );
+
     outer_handle
         .shutdown()
         .await
@@ -390,6 +414,7 @@ async fn relays_tcp_through_vmess_outbound(
     cipher: &str,
     transport: VmessTransport<'_>,
     mux_concurrency: Option<u32>,
+    mux_idle_timeout_secs: Option<u64>,
 ) {
     let echo_port = free_port();
     let upstream_port = free_port();
@@ -400,6 +425,9 @@ async fn relays_tcp_through_vmess_outbound(
     let outbound_transport = inbound_transport.clone();
     let mux_config = mux_concurrency
         .map(|value| format!(r#", "mux_concurrency": {value}"#))
+        .unwrap_or_default();
+    let mux_idle_config = mux_idle_timeout_secs
+        .map(|value| format!(r#", "mux_idle_timeout_secs": {value}"#))
         .unwrap_or_default();
 
     let echo_task = spawn_echo_server(echo_port, payload.len()).await;
@@ -439,6 +467,18 @@ async fn relays_tcp_through_vmess_outbound(
     let upstream_handle =
         spawn_engine(Engine::new(upstream_config).expect("build upstream engine"));
     wait_for_listener(upstream_port).await;
+    let carrier_proxy = if mux_idle_timeout_secs.is_some() {
+        let proxy_port = free_port();
+        Some((
+            proxy_port,
+            support::interop::TcpResetProxy::start(proxy_port, upstream_port).await,
+        ))
+    } else {
+        None
+    };
+    let outbound_port = carrier_proxy
+        .as_ref()
+        .map_or(upstream_port, |(proxy_port, _)| *proxy_port);
 
     let outer_config = RuntimeConfig::parse(&format!(
         r#"{{
@@ -455,9 +495,9 @@ async fn relays_tcp_through_vmess_outbound(
                     "protocol": {{
                         "type": "vmess",
                         "server": "127.0.0.1",
-                        "port": {upstream_port},
+                        "port": {outbound_port},
                         "id": "{USER_ID}",
-                        "cipher": "{cipher}"{mux_config},
+                        "cipher": "{cipher}"{mux_config}{mux_idle_config},
                         "tls": {{
                             "server_name": "localhost",
                             "ca_cert_path": "{}"
@@ -511,6 +551,18 @@ async fn relays_tcp_through_vmess_outbound(
         .expect("read payload");
     assert_eq!(echoed, payload.as_bytes(), "cipher: {cipher}");
 
+    client.shutdown().await.expect("shutdown SOCKS client");
+    drop(client);
+    echo_task.await.expect("echo task");
+    if let Some((_, proxy)) = &carrier_proxy {
+        assert_eq!(proxy.accepted_connections(), 1);
+        wait_for(
+            "VMess MUX physical carrier to close after its idle timeout",
+            || proxy.active_connections() == 0,
+        )
+        .await;
+    }
+
     outer_handle
         .shutdown()
         .await
@@ -519,7 +571,9 @@ async fn relays_tcp_through_vmess_outbound(
         .shutdown()
         .await
         .expect("shutdown upstream engine");
-    echo_task.await.expect("echo task");
+    if let Some((_, proxy)) = carrier_proxy {
+        proxy.shutdown().await;
+    }
 }
 
 async fn spawn_echo_server(port: u16, payload_len: usize) -> tokio::task::JoinHandle<()> {

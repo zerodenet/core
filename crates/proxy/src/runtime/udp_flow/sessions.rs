@@ -6,5 +6,7 @@
 mod index;
 mod lifecycle;
 mod model;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use model::{CompletedUdpFlow, UdpSessionFlows};

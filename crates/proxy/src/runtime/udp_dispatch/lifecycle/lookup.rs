@@ -4,8 +4,16 @@ use std::net::SocketAddr;
 use zero_core::Address;
 
 use crate::runtime::udp_dispatch::UdpDispatch;
+use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
 
 impl UdpDispatch {
+    pub(crate) fn rate_limiters_by_session_id(
+        &self,
+        session_id: Option<u64>,
+    ) -> UdpFlowRateLimiters {
+        self.flows.rate_limiters_by_session_id(session_id)
+    }
+
     pub(crate) fn confirm_passive_health(&self, session_id: Option<u64>) {
         let Some(session_id) = session_id else {
             return;

@@ -449,8 +449,8 @@ fn production_protocol_registry_is_assembled_only_in_register() {
 
 #[test]
 fn engine_resolved_proxy_leaf_carries_only_opaque_identity() {
-    let resolve = read(&workspace_root().join("crates/engine/src/resolve.rs"));
-    let plan = read(&workspace_root().join("crates/engine/src/plan.rs"));
+    let resolve = read(&workspace_root().join("crates/engine/src/plan/resolve.rs"));
+    let plan = read(&workspace_root().join("crates/engine/src/plan/mod.rs"));
     assert!(resolve.contains("Proxy { identity: OutboundIdentity }"));
     assert!(!resolve.contains("pub fn protocol_name(&self)"));
     assert!(!resolve.contains("pub fn proxy_endpoint(&self)"));
@@ -2742,7 +2742,7 @@ fn udp_ingress_root_stays_facade_only() {
     for forbidden in [
         "struct UdpIngressRuntime",
         "pub(crate) async fn new_dispatch",
-        "pub(crate) fn route_decision",
+        "pub(crate) async fn route_decision",
         "pub(crate) fn prepare_udp_session",
         "pub(crate) async fn dispatch_inbound_packet",
     ] {
@@ -2754,7 +2754,7 @@ fn udp_ingress_root_stays_facade_only() {
     for expected in [
         "pub(crate) struct UdpIngressRuntime",
         "pub(crate) async fn new_dispatch",
-        "pub(crate) fn route_decision",
+        "pub(crate) async fn route_decision",
         "pub(crate) fn prepare_udp_session",
         "pub(crate) async fn dispatch_inbound_packet",
     ] {
@@ -2775,7 +2775,7 @@ fn tcp_ingress_runtime_root_stays_facade_only() {
     for forbidden in [
         "pub(crate) struct TcpIngressRuntime",
         "pub(crate) async fn serve<P>(",
-        "pub(crate) fn route_decision",
+        "pub(crate) async fn route_decision",
         "pub(crate) fn prepare_session",
         "pub(crate) async fn open_tcp_upstream",
     ] {
@@ -2787,7 +2787,7 @@ fn tcp_ingress_runtime_root_stays_facade_only() {
     for expected in [
         "pub(crate) struct TcpIngressRuntime",
         "pub(crate) async fn serve<P>(",
-        "pub(crate) fn route_decision",
+        "pub(crate) async fn route_decision",
         "pub(crate) fn prepare_session",
         "pub(crate) async fn open_tcp_upstream",
     ] {

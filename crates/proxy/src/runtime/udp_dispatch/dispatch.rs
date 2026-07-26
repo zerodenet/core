@@ -3,10 +3,12 @@ use std::time::Instant;
 use zero_core::{Network, Session};
 use zero_engine::{EngineError, SessionOutcome};
 
+use super::model::UdpFlowCancellation;
 use super::{FlowStartResult, UdpDispatch};
 use crate::logging::{log_session_failed, log_session_finished, session_failure_observation};
 use crate::runtime::passive_relay_health::classify_relay_outcome;
 use crate::runtime::pipe::UdpPipeInput;
+use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
 
 impl UdpDispatch {
     /// Dispatch a UDP packet: route, select outbound, send.
@@ -30,7 +32,7 @@ impl UdpDispatch {
         let runtime = self.runtime.clone();
         let mut session = Session::new(0, input.target, input.port, Network::Udp, input.protocol);
         if let Some(auth) = input.auth {
-            session.auth = Some(auth.clone());
+            session.apply_auth(auth.clone());
         }
         if let Some(source_addr) = input.source_addr {
             session.source_ip = Some(match source_addr.ip() {
@@ -40,14 +42,39 @@ impl UdpDispatch {
             session.source_port = Some(source_addr.port());
         }
         runtime.resolve_fake_ip_target(&mut session).await;
-        runtime.prepare_udp_session(&mut session, &self.inbound_tag);
+        runtime.prepare_udp_session(&mut session, &self.inbound_tag)?;
         let mut session_handle = runtime.track_session(session.id);
+        let rate_limiters = UdpFlowRateLimiters::new(runtime.traffic_rate_limiters(&session));
+        let cancellation_rate_limiters = rate_limiters.clone();
+        let cancel_tx = self.cancel_tx.clone();
+        let cancelled_session_id = session.id;
+        let close_association = session
+            .auth
+            .as_ref()
+            .is_some_and(|auth| auth.principal_key.is_some());
+        session_handle.register_cancellation(move || {
+            cancellation_rate_limiters.cancel();
+            let _ = cancel_tx.send(UdpFlowCancellation::new(
+                cancelled_session_id,
+                close_association,
+            ));
+        });
+        if !rate_limiters.throttle_upload(input.payload.len()).await {
+            let reason = session_handle
+                .cancellation_reason()
+                .unwrap_or_else(|| "cancelled".to_owned());
+            let _ =
+                session_handle.finish_with_reason(SessionOutcome::Cancelled, Some(reason.clone()));
+            return Err(EngineError::Io(std::io::Error::other(format!(
+                "UDP flow cancelled while upload was rate limited: {reason}"
+            ))));
+        }
         let started_at = Instant::now();
         runtime
             .services()
             .record_session_inbound_rx(session.id, input.payload.len() as u64);
 
-        let action = runtime.route_decision(&session);
+        let action = runtime.route_decision(&session).await;
         let (resolved, passive_relay_selections) = match runtime.resolve_outbound(&action, &session)
         {
             Ok(resolved) => resolved,
@@ -84,6 +111,7 @@ impl UdpDispatch {
                     *outbound,
                     input.client_session_id,
                     passive_relay_selections.clone(),
+                    rate_limiters,
                 );
                 runtime
                     .services()
@@ -128,3 +156,6 @@ impl UdpDispatch {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

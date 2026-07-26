@@ -25,4 +25,8 @@ impl RuleMatcher for CompiledRuleSet {
     fn lookup(&self, query: &PreparedRuleQuery) -> Option<RuleMatch> {
         CompiledRuleSet::lookup(self, query)
     }
+
+    fn requires_destination_ip(&self) -> bool {
+        !self.ipv4_ranges().is_empty() || !self.ipv6_ranges().is_empty()
+    }
 }

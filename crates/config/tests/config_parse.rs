@@ -120,7 +120,6 @@ fn parses_vless_inbound_and_outbound_config() {
                         "users": [
                             {
                                 "id": "11111111-2222-3333-4444-555555555555",
-                                "credential_id": "node-user-1",
                                 "principal_key": "user:10001"
                             }
                         ]
@@ -148,7 +147,6 @@ fn parses_vless_inbound_and_outbound_config() {
 
     match &config.inbounds[0].protocol {
         InboundProtocolConfig::Vless { users, .. } => {
-            assert_eq!(users[0].credential_id.as_deref(), Some("node-user-1"));
             assert_eq!(users[0].principal_key.as_deref(), Some("user:10001"));
         }
         _ => panic!("expected vless inbound"),
@@ -158,6 +156,237 @@ fn parses_vless_inbound_and_outbound_config() {
         config.outbounds[0].protocol,
         OutboundProtocolConfig::Vless { .. }
     ));
+}
+
+#[test]
+fn parses_native_vless_mux_and_xudp_concurrency() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "outbounds": [
+                {
+                    "tag": "vless-mux",
+                    "protocol": {
+                        "type": "vless",
+                        "server": "127.0.0.1",
+                        "port": 443,
+                        "id": "11111111-2222-3333-4444-555555555555",
+                        "mux_concurrency": 16,
+                        "xudp_concurrency": 32,
+                        "mux_idle_timeout_secs": 60,
+                        "mux_response_backlog_frames": 128,
+                        "mux_response_backlog_bytes": 2097152
+                    }
+                }
+            ],
+            "route": {
+                "rules": [],
+                "final": { "type": "route", "outbound": "vless-mux" }
+            }
+        }"#,
+    )
+    .expect("native VLESS MUX/XUDP config should parse");
+
+    match &config.outbounds[0].protocol {
+        OutboundProtocolConfig::Vless {
+            mux_concurrency,
+            xudp_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+            ..
+        } => {
+            assert_eq!(*mux_concurrency, Some(16));
+            assert_eq!(*xudp_concurrency, Some(32));
+            assert_eq!(*mux_idle_timeout_secs, Some(60));
+            assert_eq!(*mux_response_backlog_frames, Some(128));
+            assert_eq!(*mux_response_backlog_bytes, Some(2 * 1024 * 1024));
+        }
+        _ => panic!("expected vless outbound"),
+    }
+}
+
+#[test]
+fn parses_native_mux_response_backlog_policy_for_vless_and_vmess_inbounds() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "inbounds": [
+                {
+                    "tag": "vless-in",
+                    "listen": { "address": "127.0.0.1", "port": 1443 },
+                    "protocol": {
+                        "type": "vless",
+                        "users": [
+                            { "id": "11111111-2222-3333-4444-555555555555" }
+                        ],
+                        "mux_response_backlog_frames": 1,
+                        "mux_response_backlog_bytes": 16384
+                    }
+                },
+                {
+                    "tag": "vmess-in",
+                    "listen": { "address": "127.0.0.1", "port": 2443 },
+                    "protocol": {
+                        "type": "vmess",
+                        "users": [
+                            {
+                                "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                                "cipher": "none"
+                            }
+                        ],
+                        "tls": {
+                            "cert_path": "server.crt",
+                            "key_path": "server.key"
+                        },
+                        "mux_response_backlog_frames": 4096,
+                        "mux_response_backlog_bytes": 67108864
+                    }
+                }
+            ],
+            "route": {
+                "rules": [],
+                "final": { "type": "direct" }
+            }
+        }"#,
+    )
+    .expect("native inbound MUX response backlog policy should parse");
+
+    match &config.inbounds[0].protocol {
+        InboundProtocolConfig::Vless {
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+            ..
+        } => {
+            assert_eq!(*mux_response_backlog_frames, Some(1));
+            assert_eq!(*mux_response_backlog_bytes, Some(16 * 1024));
+        }
+        _ => panic!("expected vless inbound"),
+    }
+    match &config.inbounds[1].protocol {
+        InboundProtocolConfig::Vmess {
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+            ..
+        } => {
+            assert_eq!(*mux_response_backlog_frames, Some(4096));
+            assert_eq!(*mux_response_backlog_bytes, Some(64 * 1024 * 1024));
+        }
+        _ => panic!("expected vmess inbound"),
+    }
+}
+
+#[test]
+fn parses_native_vmess_mux_response_backlog_policy() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "outbounds": [
+                {
+                    "tag": "vmess-mux",
+                    "protocol": {
+                        "type": "vmess",
+                        "server": "127.0.0.1",
+                        "port": 443,
+                        "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                        "cipher": "none",
+                        "mux_concurrency": 8,
+                        "mux_response_backlog_frames": 64,
+                        "mux_response_backlog_bytes": 1048576
+                    }
+                }
+            ],
+            "route": {
+                "rules": [],
+                "final": { "type": "route", "outbound": "vmess-mux" }
+            }
+        }"#,
+    )
+    .expect("native VMess MUX response backlog policy should parse");
+
+    match &config.outbounds[0].protocol {
+        OutboundProtocolConfig::Vmess {
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+            ..
+        } => {
+            assert_eq!(*mux_response_backlog_frames, Some(64));
+            assert_eq!(*mux_response_backlog_bytes, Some(1024 * 1024));
+        }
+        _ => panic!("expected vmess outbound"),
+    }
+}
+
+#[test]
+fn rejects_native_mux_response_backlog_values_outside_safe_bounds() {
+    for protocol in ["vless", "vmess"] {
+        for (field, value) in [
+            ("mux_response_backlog_frames", 0_u64),
+            ("mux_response_backlog_frames", 4097),
+            ("mux_response_backlog_bytes", 16383),
+            ("mux_response_backlog_bytes", 67_108_865),
+        ] {
+            let cipher = if protocol == "vmess" {
+                r#", "cipher": "none""#
+            } else {
+                ""
+            };
+            let config = format!(
+                r#"{{
+                    "outbounds": [
+                        {{
+                            "tag": "mux",
+                            "protocol": {{
+                                "type": "{protocol}",
+                                "server": "127.0.0.1",
+                                "port": 443,
+                                "id": "11111111-2222-3333-4444-555555555555"
+                                {cipher},
+                                "{field}": {value}
+                            }}
+                        }}
+                    ],
+                    "route": {{
+                        "rules": [],
+                        "final": {{ "type": "route", "outbound": "mux" }}
+                    }}
+                }}"#
+            );
+            assert!(
+                RuntimeConfig::parse(&config).is_err(),
+                "{protocol} {field}={value} should be rejected"
+            );
+        }
+    }
+}
+
+#[test]
+fn rejects_invalid_native_vless_mux_concurrency() {
+    for field in ["mux_concurrency", "xudp_concurrency"] {
+        for value in [0_u32, u16::MAX as u32 + 1] {
+            let config = format!(
+                r#"{{
+                    "outbounds": [
+                        {{
+                            "tag": "vless-mux",
+                            "protocol": {{
+                                "type": "vless",
+                                "server": "127.0.0.1",
+                                "port": 443,
+                                "id": "11111111-2222-3333-4444-555555555555",
+                                "{field}": {value}
+                            }}
+                        }}
+                    ],
+                    "route": {{
+                        "rules": [],
+                        "final": {{ "type": "route", "outbound": "vless-mux" }}
+                    }}
+                }}"#
+            );
+            assert!(
+                RuntimeConfig::parse(&config).is_err(),
+                "{field}={value} should be rejected"
+            );
+        }
+    }
 }
 
 #[test]
@@ -174,7 +403,6 @@ fn parses_vmess_inbound_and_outbound_config() {
                             {
                                 "id": "11111111-2222-3333-4444-555555555555",
                                 "cipher": "chacha20-poly1305",
-                                "credential_id": "node-user-1",
                                 "principal_key": "user:10001"
                             }
                         ],
@@ -970,12 +1198,14 @@ fn parses_api_event_sinks_and_control_config() {
             "api": {
                 "event_sinks": [
                     {
-                        "tag": "panel",
+                        "tag": "receiver",
                         "type": "webhook",
-                        "url": "https://panel.example.com/api/zero/events",
+                        "url": "https://receiver.example.com/hooks/zero",
                         "events": ["flow.completed", "engine.warning"],
                         "source_id": "edge-01",
-                        "api_key_env": "ZERO_PANEL_API_KEY"
+                        "headers": {
+                            "authorization": "Bearer receiver-token"
+                        }
                     },
                     {
                         "tag": "local-events",
@@ -987,7 +1217,26 @@ fn parses_api_event_sinks_and_control_config() {
                 "control": {
                     "enabled": true,
                     "listen": { "address": "127.0.0.1", "port": 9090 },
-                    "api_key_env": "ZERO_NODE_API_KEY"
+                    "api_key_env": "ZERO_NODE_API_KEY",
+                    "grpc": {
+                        "bearer_auth": false,
+                        "tls": {
+                            "cert_path": "managed/grpc/server.pem",
+                            "key_path": "managed/grpc/server-key.pem",
+                            "client_ca_cert_path": "managed/grpc/client-ca.pem"
+                        }
+                    }
+                },
+                "dispatcher": {
+                    "max_in_memory_deliveries": 128,
+                    "replay_batch_size": 256,
+                    "max_retry_attempts": 5,
+                    "retry_initial_delay_ms": 250,
+                    "retry_max_delay_ms": 8000,
+                    "webhook_timeout_ms": 3000,
+                    "outbox_min_free_bytes": 2147483648,
+                    "outbox_min_free_percent": 8,
+                    "exhausted_delivery_policy": "discard"
                 }
             },
             "route": {
@@ -1004,23 +1253,217 @@ fn parses_api_event_sinks_and_control_config() {
         url,
         events,
         source_id,
-        api_key_env,
+        headers,
         ..
     } = &config.api.event_sinks[0]
     else {
         panic!("expected webhook sink");
     };
-    assert_eq!(tag, "panel");
-    assert_eq!(url, "https://panel.example.com/api/zero/events");
+    assert_eq!(tag, "receiver");
+    assert_eq!(url, "https://receiver.example.com/hooks/zero");
     assert_eq!(events, &["flow.completed", "engine.warning"]);
     assert_eq!(source_id.as_deref(), Some("edge-01"));
-    assert_eq!(api_key_env.as_deref(), Some("ZERO_PANEL_API_KEY"));
+    assert_eq!(
+        headers.get("authorization").map(String::as_str),
+        Some("Bearer receiver-token")
+    );
 
     assert!(config.api.control.enabled);
+    assert_eq!(config.api.dispatcher.max_in_memory_deliveries, 128);
+    assert_eq!(config.api.dispatcher.replay_batch_size, 256);
+    assert_eq!(config.api.dispatcher.max_retry_attempts, 5);
+    assert_eq!(config.api.dispatcher.retry_initial_delay_ms, 250);
+    assert_eq!(config.api.dispatcher.retry_max_delay_ms, 8_000);
+    assert_eq!(config.api.dispatcher.webhook_timeout_ms, 3_000);
+    assert_eq!(
+        config.api.dispatcher.outbox_min_free_bytes,
+        2 * 1024 * 1024 * 1024
+    );
+    assert_eq!(config.api.dispatcher.outbox_min_free_percent, 8);
+    assert_eq!(
+        config.api.dispatcher.exhausted_delivery_policy,
+        zero_config::ExhaustedDeliveryPolicy::Discard
+    );
     assert_eq!(
         config.api.control.listen.as_ref().expect("listen").port,
         9090
     );
+    let grpc = config.api.control.grpc.as_ref().expect("gRPC policy");
+    assert!(!grpc.bearer_auth);
+    let grpc_tls = grpc.tls.as_ref().expect("gRPC TLS");
+    assert_eq!(grpc_tls.cert_path, "managed/grpc/server.pem");
+    assert_eq!(
+        grpc_tls.client_ca_cert_path.as_deref(),
+        Some("managed/grpc/client-ca.pem")
+    );
+}
+
+#[test]
+fn remote_grpc_plaintext_requires_explicit_opt_in() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "api": {
+                "control": {
+                    "enabled": true,
+                    "listen": { "address": "0.0.0.0", "port": 9090 },
+                    "api_key": "secret",
+                    "grpc": {}
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect_err("remote plaintext must require opt-in");
+    assert!(
+        error.to_string().contains("allow_insecure_remote"),
+        "{error}"
+    );
+
+    RuntimeConfig::parse(
+        r#"{
+            "api": {
+                "control": {
+                    "enabled": true,
+                    "listen": { "address": "0.0.0.0", "port": 9090 },
+                    "api_key": "secret",
+                    "grpc": { "allow_insecure_remote": true }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("explicit remote plaintext");
+}
+
+#[test]
+fn remote_http_control_does_not_require_a_grpc_policy() {
+    RuntimeConfig::parse(
+        r#"{
+            "api": {
+                "control": {
+                    "enabled": true,
+                    "listen": { "address": "0.0.0.0", "port": 9090 },
+                    "api_key": "secret"
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("HTTP-only builds must not be constrained by an absent gRPC policy");
+}
+
+#[test]
+fn remote_grpc_without_bearer_requires_mtls() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "api": {
+                "control": {
+                    "enabled": true,
+                    "listen": { "address": "0.0.0.0", "port": 9090 },
+                    "api_key": "http-secret",
+                    "grpc": {
+                        "bearer_auth": false,
+                        "tls": {
+                            "cert_path": "server.pem",
+                            "key_path": "server-key.pem"
+                        }
+                    }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect_err("server-only TLS still needs caller authentication");
+    assert!(error.to_string().contains("requires mTLS"), "{error}");
+
+    RuntimeConfig::parse(
+        r#"{
+            "api": {
+                "control": {
+                    "enabled": true,
+                    "listen": { "address": "0.0.0.0", "port": 9090 },
+                    "api_key": "http-secret",
+                    "grpc": {
+                        "bearer_auth": false,
+                        "tls": {
+                            "cert_path": "server.pem",
+                            "key_path": "server-key.pem",
+                            "client_ca_cert_path": "client-ca.pem"
+                        }
+                    }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("mTLS provides remote caller authentication");
+}
+
+#[test]
+fn native_grpc_tls_rejects_insecure_remote_override() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "api": {
+                "control": {
+                    "enabled": true,
+                    "listen": { "address": "0.0.0.0", "port": 9090 },
+                    "api_key": "secret",
+                    "grpc": {
+                        "allow_insecure_remote": true,
+                        "tls": {
+                            "cert_path": "server.pem",
+                            "key_path": "server-key.pem"
+                        }
+                    }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect_err("native TLS and insecure override are contradictory");
+    assert!(error.to_string().contains("must be false"), "{error}");
+}
+
+#[test]
+fn outbox_disk_reserve_requires_safe_non_zero_values() {
+    for (field, value) in [
+        ("outbox_min_free_bytes", serde_json::json!(0)),
+        ("outbox_min_free_percent", serde_json::json!(0)),
+        ("outbox_min_free_percent", serde_json::json!(51)),
+    ] {
+        let mut dispatcher = serde_json::Map::new();
+        dispatcher.insert(field.to_owned(), value);
+        let raw = serde_json::json!({
+            "api": { "dispatcher": dispatcher },
+            "route": {
+                "rules": [],
+                "final": { "type": "direct" }
+            }
+        })
+        .to_string();
+        let error = RuntimeConfig::parse(&raw).expect_err("unsafe disk reserve must fail");
+        assert!(error.to_string().contains(field), "{error}");
+    }
+}
+
+#[test]
+fn dead_letter_exhaustion_policy_requires_a_dead_letter_path() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "api": {
+                "dispatcher": {
+                    "exhausted_delivery_policy": "dead_letter"
+                }
+            },
+            "route": {
+                "rules": [],
+                "final": { "type": "direct" }
+            }
+        }"#,
+    )
+    .expect_err("dead-letter policy without storage should fail");
+
+    assert!(error.to_string().contains("requires api.dead_letter_path"));
 }
 
 #[test]
@@ -1030,11 +1473,10 @@ fn rejects_unknown_api_event_type() {
             "api": {
                 "event_sinks": [
                     {
-                        "tag": "panel",
+                        "tag": "receiver",
                         "type": "webhook",
-                        "url": "https://panel.example.com/api/zero/events",
-                        "events": ["panel.user.changed"],
-                        "api_key": "secret"
+                        "url": "https://receiver.example.com/hooks/zero",
+                        "events": ["receiver.user.changed"]
                     }
                 ]
             },
@@ -1056,11 +1498,10 @@ fn rejects_insecure_webhook_without_explicit_opt_in() {
             "api": {
                 "event_sinks": [
                     {
-                        "tag": "panel",
+                        "tag": "receiver",
                         "type": "webhook",
                         "url": "http://127.0.0.1:9000/events",
-                        "events": ["flow.completed"],
-                        "api_key": "secret"
+                        "events": ["flow.completed"]
                     }
                 ]
             },
@@ -1089,7 +1530,26 @@ fn runtime_idle_timeout_defaults_to_thirty_seconds() {
     .expect("config should parse");
 
     assert_eq!(config.runtime.udp_upstream_idle_timeout_seconds, 30);
+    assert_eq!(config.runtime.event_log_capacity, 1024);
     assert!(config.runtime.udp.enabled);
+}
+
+#[test]
+fn parses_event_log_capacity_override() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "event_log_capacity": 2048
+            },
+            "route": {
+                "rules": [],
+                "final": { "type": "direct" }
+            }
+        }"#,
+    )
+    .expect("config should parse");
+
+    assert_eq!(config.runtime.event_log_capacity, 2048);
 }
 
 #[test]
@@ -1141,6 +1601,50 @@ fn rejects_zero_udp_upstream_idle_timeout() {
     .expect_err("config should fail");
 
     assert!(matches!(error, zero_config::ConfigError::InvalidRuntime(_)));
+}
+
+#[test]
+fn rejects_zero_event_log_capacity() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "event_log_capacity": 0
+            },
+            "route": {
+                "rules": [],
+                "final": { "type": "direct" }
+            }
+        }"#,
+    )
+    .expect_err("config should fail");
+
+    assert!(matches!(error, zero_config::ConfigError::InvalidRuntime(_)));
+}
+
+#[test]
+fn parses_and_validates_principal_quota_recovery_path() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": { "principal_quota_state_path": "state/principal-quotas.json" },
+            "outbounds": [{ "tag": "direct", "protocol": { "type": "direct" } }],
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("valid quota recovery path");
+    assert_eq!(
+        config.runtime.principal_quota_state_path.as_deref(),
+        Some("state/principal-quotas.json")
+    );
+
+    let error = RuntimeConfig::parse(
+        r#"{
+            "runtime": { "principal_quota_state_path": "  " },
+            "outbounds": [{ "tag": "direct", "protocol": { "type": "direct" } }],
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect_err("empty quota recovery path must fail");
+    assert!(error.to_string().contains("principal_quota_state_path"));
 }
 
 #[test]

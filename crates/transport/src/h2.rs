@@ -20,19 +20,24 @@ use zero_platform_tokio::ClientStream;
 
 /// Bidirectional HTTP/2 stream.
 pub struct H2Stream {
-    read_rx: mpsc::Receiver<Vec<u8>>,
+    read_rx: mpsc::Receiver<Result<Vec<u8>, String>>,
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
     read_buffer: Vec<u8>,
     read_offset: usize,
+    write_closed: bool,
 }
 
 impl H2Stream {
-    fn new(read_rx: mpsc::Receiver<Vec<u8>>, write_tx: mpsc::UnboundedSender<Vec<u8>>) -> Self {
+    fn new(
+        read_rx: mpsc::Receiver<Result<Vec<u8>, String>>,
+        write_tx: mpsc::UnboundedSender<Vec<u8>>,
+    ) -> Self {
         Self {
             read_rx,
             write_tx,
             read_buffer: Vec::new(),
             read_offset: 0,
+            write_closed: false,
         }
     }
 }
@@ -49,16 +54,6 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     TProfile: H2TransportProfile + ?Sized,
 {
-    let (mut h2, conn) = h2::client::handshake(stream)
-        .await
-        .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 client handshake: {e}"))))?;
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            tracing::warn!(error = %e, "h2 client connection error");
-        }
-    });
-
     let host = h2_config
         .host()
         .map(str::to_owned)
@@ -77,24 +72,31 @@ where
         .body(())
         .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 request build: {e}"))))?;
 
-    let (resp_future, send_stream) = h2
+    connect_h2_request(stream, request).await
+}
+
+pub(crate) async fn connect_h2_request<S>(
+    stream: S,
+    request: Request<()>,
+) -> Result<H2Stream, RuntimeError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut client, conn) = h2::client::handshake(stream)
+        .await
+        .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 client handshake: {e}"))))?;
+
+    tokio::spawn(async move {
+        if let Err(error) = conn.await {
+            tracing::warn!(%error, "h2 client connection error");
+        }
+    });
+
+    let (response, send_stream) = client
         .send_request(request, false)
         .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 send request: {e}"))))?;
 
-    let resp = resp_future
-        .await
-        .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 response: {e}"))))?;
-
-    if !resp.status().is_success() {
-        return Err(RuntimeError::Io(io::Error::new(
-            io::ErrorKind::ConnectionRefused,
-            format!("h2 server returned {}", resp.status()),
-        )));
-    }
-
-    let recv_stream = resp.into_body();
-
-    build_h2_stream(send_stream, recv_stream)
+    Ok(build_h2_client_stream(send_stream, response))
 }
 
 // 鈹€鈹€ server (inbound) accept 鈹€鈹€
@@ -106,6 +108,26 @@ pub async fn accept_h2<S, TProfile>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     TProfile: H2TransportProfile + ?Sized,
+{
+    let expected_path = if h2_config.path().starts_with('/') {
+        h2_config.path()
+    } else {
+        "/"
+    };
+    let mut response = Response::new(());
+    response
+        .headers_mut()
+        .insert("content-type", "application/octet-stream".parse().unwrap());
+    accept_h2_with_response(stream, expected_path, response).await
+}
+
+pub(crate) async fn accept_h2_with_response<S>(
+    stream: S,
+    expected_path: &str,
+    response: Response<()>,
+) -> Result<H2Stream, RuntimeError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let mut conn = h2::server::handshake(stream)
         .await
@@ -122,11 +144,6 @@ where
         })?
         .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 accept: {e}"))))?;
 
-    let expected_path = if h2_config.path().starts_with('/') {
-        h2_config.path()
-    } else {
-        "/"
-    };
     let got_path = request.uri().path();
     if got_path != expected_path {
         let mut resp = Response::new(());
@@ -140,15 +157,26 @@ where
         )));
     }
 
-    let mut resp = Response::new(());
-    resp.headers_mut()
-        .insert("content-type", "application/octet-stream".parse().unwrap());
-
     let send_stream = respond
-        .send_response(resp, false)
+        .send_response(response, false)
         .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 respond: {e}"))))?;
 
     let recv_stream = request.into_body();
+    tokio::spawn(async move {
+        while let Some(result) = conn.accept().await {
+            match result {
+                Ok((_, mut respond)) => {
+                    let mut response = Response::new(());
+                    *response.status_mut() = http::StatusCode::SERVICE_UNAVAILABLE;
+                    let _ = respond.send_response(response, true);
+                }
+                Err(error) => {
+                    tracing::debug!(%error, "h2 server connection failed");
+                    return;
+                }
+            }
+        }
+    });
 
     build_h2_stream(send_stream, recv_stream)
 }
@@ -156,39 +184,97 @@ where
 // 鈹€鈹€ common H2 stream builder 鈹€鈹€
 
 fn build_h2_stream(
-    mut send_stream: h2::SendStream<Bytes>,
-    mut recv_stream: h2::RecvStream,
+    send_stream: h2::SendStream<Bytes>,
+    recv_stream: h2::RecvStream,
 ) -> Result<H2Stream, RuntimeError> {
-    let (write_tx, mut write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
-    let (read_tx, read_rx) = mpsc::channel::<Vec<u8>>(32);
+    let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (read_tx, read_rx) = mpsc::channel::<Result<Vec<u8>, String>>(32);
 
-    // Write relay: mpsc 鈫?h2 DATA frames
+    spawn_h2_write_relay(send_stream, write_rx);
+    spawn_h2_read_relay(recv_stream, read_tx);
+
+    Ok(H2Stream::new(read_rx, write_tx))
+}
+
+fn build_h2_client_stream(
+    send_stream: h2::SendStream<Bytes>,
+    response: h2::client::ResponseFuture,
+) -> H2Stream {
+    let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (read_tx, read_rx) = mpsc::channel::<Result<Vec<u8>, String>>(32);
+
+    spawn_h2_write_relay(send_stream, write_rx);
+    tokio::spawn(async move {
+        let response = match response.await {
+            Ok(response) => response,
+            Err(error) => {
+                let _ = read_tx
+                    .send(Err(format!("h2 response failed: {error}")))
+                    .await;
+                return;
+            }
+        };
+        let status = response.status();
+        if !status.is_success() {
+            let _ = read_tx
+                .send(Err(format!(
+                    "h2 server returned non-success status {status}"
+                )))
+                .await;
+            return;
+        }
+        read_h2_data(response.into_body(), read_tx).await;
+    });
+
+    H2Stream::new(read_rx, write_tx)
+}
+
+fn spawn_h2_write_relay(
+    mut send_stream: h2::SendStream<Bytes>,
+    mut write_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+) {
     tokio::spawn(async move {
         while let Some(data) = write_rx.recv().await {
+            if data.is_empty() {
+                let _ = send_stream.send_data(Bytes::new(), true);
+                return;
+            }
             if send_stream.send_data(Bytes::from(data), false).is_err() {
                 return;
             }
         }
         let _ = send_stream.send_data(Bytes::new(), true);
     });
+}
 
-    // Read relay: h2 DATA frames 鈫?mpsc
-    tokio::spawn(async move {
-        loop {
-            match recv_stream.data().await {
-                Some(Ok(data)) => {
-                    let _ = recv_stream.flow_control().release_capacity(data.len()).ok();
-                    if read_tx.send(data.to_vec()).await.is_err() {
-                        return;
-                    }
+fn spawn_h2_read_relay(
+    recv_stream: h2::RecvStream,
+    read_tx: mpsc::Sender<Result<Vec<u8>, String>>,
+) {
+    tokio::spawn(read_h2_data(recv_stream, read_tx));
+}
+
+async fn read_h2_data(
+    mut recv_stream: h2::RecvStream,
+    read_tx: mpsc::Sender<Result<Vec<u8>, String>>,
+) {
+    loop {
+        match recv_stream.data().await {
+            Some(Ok(data)) => {
+                let _ = recv_stream.flow_control().release_capacity(data.len());
+                if read_tx.send(Ok(data.to_vec())).await.is_err() {
+                    return;
                 }
-                Some(Err(_)) => return,
-                None => return,
             }
+            Some(Err(error)) => {
+                let _ = read_tx
+                    .send(Err(format!("h2 response body failed: {error}")))
+                    .await;
+                return;
+            }
+            None => return,
         }
-    });
-
-    Ok(H2Stream::new(read_rx, write_tx))
+    }
 }
 
 // 鈹€鈹€ AsyncRead / AsyncWrite / AsyncSocket / ClientStream 鈹€鈹€
@@ -212,7 +298,7 @@ impl AsyncRead for H2Stream {
         }
 
         match self.read_rx.poll_recv(cx) {
-            Poll::Ready(Some(data)) => {
+            Poll::Ready(Some(Ok(data))) => {
                 let to_copy = data.len().min(buf.remaining());
                 buf.put_slice(&data[..to_copy]);
                 if to_copy < data.len() {
@@ -220,6 +306,9 @@ impl AsyncRead for H2Stream {
                     self.read_offset = to_copy;
                 }
                 Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Some(Err(error))) => {
+                Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionAborted, error)))
             }
             Poll::Ready(None) => Poll::Ready(Ok(())),
             Poll::Pending => Poll::Pending,
@@ -233,6 +322,12 @@ impl AsyncWrite for H2Stream {
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
+        if self.write_closed {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "h2 write side closed",
+            )));
+        }
         match self.write_tx.send(buf.to_vec()) {
             Ok(()) => Poll::Ready(Ok(buf.len())),
             Err(_) => Poll::Ready(Err(io::Error::new(
@@ -246,7 +341,14 @@ impl AsyncWrite for H2Stream {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        if !self.write_closed {
+            self.write_closed = true;
+            let _ = self.write_tx.send(Vec::new());
+        }
         Poll::Ready(Ok(()))
     }
 }

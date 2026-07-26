@@ -106,6 +106,7 @@ zero-stack = { path = "../stack" }
 zero-transport = { path = "../transport" }
 
 [dev-dependencies]
+tempfile.workspace = true
 futures-util = "0.3"
 rcgen = "0.14"
 rustls = { workspace = true }

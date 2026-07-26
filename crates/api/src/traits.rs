@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+use std::future::Future;
+use std::pin::Pin;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -15,6 +17,22 @@ pub trait QueryService {
 
 pub trait CommandService {
     fn execute(&self, command: CommandRequest) -> ApiResult<CommandResponse>;
+
+    /// Execute a command and resolve only after runtime-visible effects have
+    /// been acknowledged by the owning service.
+    ///
+    /// Purely synchronous implementations inherit the immediate default.
+    /// Runtime adapters override this for operations such as listener
+    /// reconciliation.
+    fn execute_acknowledged(
+        &self,
+        command: CommandRequest,
+    ) -> Pin<Box<dyn Future<Output = ApiResult<CommandResponse>> + Send + '_>>
+    where
+        Self: Sync,
+    {
+        Box::pin(async move { self.execute(command) })
+    }
 }
 
 /// A live stream returned by [`EventSource::subscribe`].

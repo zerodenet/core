@@ -750,9 +750,25 @@ async fn zero_ss_outbound_interops_with_ssrust_inbound_udp_all_ciphers() {
             ssrust.logs()
         );
 
-        zero.shutdown().await.expect("shutdown zero");
+        timeout(Duration::from_secs(10), zero.shutdown())
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "zero shutdown timed out for cipher {cipher}: {error}; ssrust={}",
+                    ssrust.logs()
+                )
+            })
+            .expect("shutdown zero");
         ssrust.kill();
-        echo.await.expect("echo task");
+        timeout(Duration::from_secs(5), echo)
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "UDP echo task did not finish for cipher {cipher}: {error}; ssrust={}",
+                    ssrust.logs()
+                )
+            })
+            .expect("echo task");
     }
 }
 
@@ -857,7 +873,10 @@ fn ssrust_server_args(cipher: &str, password: &str, port: u16, udp: bool) -> Vec
         password.to_owned(),
     ];
     if udp {
-        args.push("-u".to_owned());
+        // shadowsocks-rust uses `-u` for UDP_ONLY and `-U` for
+        // TCP_AND_UDP. This test uses the TCP listener as its readiness
+        // barrier before exercising UDP, so it requires the combined mode.
+        args.push("-U".to_owned());
     }
     args
 }

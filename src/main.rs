@@ -3,10 +3,11 @@ use std::error::Error;
 use std::process;
 
 mod application;
+mod artifact;
 mod cli;
 mod error_report;
 mod hooks;
-#[cfg(feature = "status_api")]
+#[cfg(feature = "status-api")]
 mod http_adapter;
 mod ipc;
 mod output;
@@ -58,20 +59,20 @@ fn init_tracing_from_config(config_path: &str) {
 /// Collect compiled feature flags for the capabilities endpoint.
 fn collect_build_features() -> Vec<String> {
     let mut features = Vec::new();
-    if cfg!(feature = "status_api") {
-        features.push("status_api".to_owned());
+    if cfg!(feature = "status-api") {
+        features.push("status-api".to_owned());
     }
-    if cfg!(feature = "event_dispatcher") {
-        features.push("event_dispatcher".to_owned());
+    if cfg!(feature = "event-dispatcher") {
+        features.push("event-dispatcher".to_owned());
     }
-    if cfg!(feature = "sink_jsonl") {
-        features.push("sink_jsonl".to_owned());
+    if cfg!(feature = "sink-jsonl") {
+        features.push("sink-jsonl".to_owned());
     }
-    if cfg!(feature = "panel_connector") {
-        features.push("panel_connector".to_owned());
+    if cfg!(feature = "connector") {
+        features.push("connector".to_owned());
     }
-    if cfg!(feature = "grpc_api") {
-        features.push("grpc_api".to_owned());
+    if cfg!(feature = "grpc-api") {
+        features.push("grpc-api".to_owned());
     }
     features.extend(zero_proxy::compiled_protocol_features());
     if cfg!(feature = "dns") {

@@ -14,14 +14,10 @@ use zero_platform_tokio::TcpRelayStream;
 
 mod certificates;
 mod client_hello;
-mod fingerprint;
 mod inbound_stream;
 
 use certificates::{load_certs, load_private_key, resolve_path};
 use client_hello::{parse_extensions, read_exact, skip_exact};
-use fingerprint::{
-    connect_stream as connect_tls13_stream, connect_upstream as connect_tls13_upstream,
-};
 pub use inbound_stream::InboundTlsStream;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -257,16 +253,6 @@ where
 
     let server_name_str = server_name.clone();
 
-    // Use custom TLS 1.3 handshake when fingerprint is specified
-    if let Some(ref fp) = fingerprint {
-        tracing::debug!(
-            sni = %server_name_str,
-            fingerprint = %tls.client_fingerprint().unwrap_or(""),
-            "connecting via custom TLS 1.3 handshake"
-        );
-        return connect_tls13_upstream(socket, &server_name_str, fp).await;
-    }
-
     let connector = TlsConnector::from(Arc::new(config));
     let server_name = rustls::pki_types::ServerName::try_from(server_name.as_str())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid tls server_name"))?
@@ -330,21 +316,26 @@ where
         }
     }
 
-    // Route fingerprint TLS through the generic ztls async handshake path
-    if let Some(fp) = tls
+    let fingerprint = tls
         .client_fingerprint()
-        .and_then(crate::fingerprint::lookup_fingerprint)
-    {
-        return connect_tls13_stream(stream, &server_name, &fp).await;
-    }
+        .and_then(crate::fingerprint::lookup_fingerprint);
+
+    let config_base = if let Some(ref fingerprint) = fingerprint {
+        let provider = Arc::new(crate::fingerprint::build_provider(fingerprint));
+        ClientConfig::builder_with_provider(provider)
+            .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
+    } else {
+        ClientConfig::builder()
+    };
 
     let mut config = if tls.insecure() {
-        ClientConfig::builder()
+        config_base
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(InsecureCertVerifier))
             .with_no_client_auth()
     } else {
-        ClientConfig::builder()
+        config_base
             .with_root_certificates(roots)
             .with_no_client_auth()
     };
@@ -359,6 +350,8 @@ where
             .iter()
             .map(|proto| proto.as_bytes().to_vec())
             .collect();
+    } else if fingerprint.is_some() {
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     }
 
     let connector = TlsConnector::from(Arc::new(config));

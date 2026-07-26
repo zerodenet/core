@@ -7,17 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
-[features]
-default = []
-webhook = ["dep:reqwest"]
-
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-
-[dependencies.reqwest]
-version = "0.12"
-default-features = false
-features = ["blocking", "json", "rustls-tls"]
-optional = true

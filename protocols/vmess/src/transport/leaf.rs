@@ -51,6 +51,9 @@ impl VmessOutboundLeaf {
             protocol.id,
             protocol.cipher,
             protocol.mux_concurrency,
+            protocol.mux_idle_timeout_secs,
+            protocol.mux_response_backlog_frames,
+            protocol.mux_response_backlog_bytes,
             tls,
             ws,
             grpc,
@@ -67,6 +70,9 @@ impl VmessOutboundLeaf {
         id: &str,
         cipher: &str,
         mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog_frames: Option<u32>,
+        mux_response_backlog_bytes: Option<u64>,
         tls: Option<&TTls>,
         ws: Option<&TWs>,
         grpc: Option<&TGrpc>,
@@ -81,10 +87,13 @@ impl VmessOutboundLeaf {
             source_dir, server, port, tls, ws, grpc,
         );
         let protocol =
-            crate::outbound::PreparedVmessOutboundRequestBundle::from_config_with_transport_hints(
+            crate::outbound::PreparedVmessOutboundRequestBundle::from_config_with_transport_hints_and_mux_policy(
                 id,
                 cipher,
                 mux_concurrency,
+                mux_idle_timeout_secs,
+                mux_response_backlog_frames,
+                mux_response_backlog_bytes,
                 transport.mux_transport_hints(),
             )?;
         Ok(Self::new(tag, server, port, transport, protocol, mux_pool))

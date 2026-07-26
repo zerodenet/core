@@ -178,7 +178,7 @@ async fn serve_connection(
         .await;
     }
 
-    match router::route(&request, &handle, &auth_ctx) {
+    match router::route(&request, &handle, &auth_ctx).await {
         RouteResult::Respond(status, body) => write_response(&mut stream, &status, &body).await,
         RouteResult::Sse {
             subscriber,

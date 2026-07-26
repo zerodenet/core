@@ -5,7 +5,7 @@ use zero_traits::ServerTlsProfile;
 use zero_transport::tls::{InboundTlsStream, TlsAcceptor};
 use zero_transport::RuntimeError;
 
-use super::options::TrojanInboundOptionsRef;
+use super::options::{TrojanInboundOptionsRef, TrojanInboundUserRef};
 
 type TrojanInboundTlsStream = InboundTlsStream<TokioSocket>;
 
@@ -44,19 +44,25 @@ impl TrojanInboundListenerRequest {
         ))
     }
 
-    pub fn from_options_refs<TTls>(
+    pub fn from_options_refs<'a, I, TTls>(
         source_dir: Option<&Path>,
-        options: TrojanInboundOptionsRef<'_>,
+        options: TrojanInboundOptionsRef<I>,
         tls: Option<&TTls>,
     ) -> Result<Self, RuntimeError>
     where
+        I: IntoIterator<Item = TrojanInboundUserRef<'a>>,
         TTls: ServerTlsProfile + ?Sized,
     {
         Self::from_profile_refs(
             source_dir,
-            crate::inbound::TrojanInboundProfile::from_config_password(options.password),
+            crate::inbound::TrojanInboundProfile::from_config_users(options.users),
             tls,
         )
+    }
+
+    pub fn with_profile(mut self, profile: crate::inbound::TrojanInboundProfile) -> Self {
+        self.profile = profile;
+        self
     }
 
     pub fn protocol_name(&self) -> &'static str {

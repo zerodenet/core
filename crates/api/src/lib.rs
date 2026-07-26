@@ -9,8 +9,6 @@ pub mod response;
 pub mod sink;
 pub mod snapshot;
 pub mod traits;
-#[cfg(feature = "webhook")]
-pub mod webhook;
 
 pub use auth::{AuthContext, Permission};
 pub use capabilities::{
@@ -42,8 +40,8 @@ pub use query::{
 };
 pub use response::{ApiResponse, EnvelopeError, RawResponse};
 pub use sink::{
-    CallbackEventSink, DeadLetterSink, JsonLineEventSink, MemorySink, RotatingFileSink,
-    SinkManager, SinkStatus,
+    CallbackEventSink, DeadLetterSink, JsonLineEventSink, MemorySink, OutboxStorageStatus,
+    RotatingFileSink, SinkManager, SinkStatus,
 };
 pub use snapshot::{
     AddressSnapshot, AuthSnapshot, CompletedFlowSnapshot, ConfigSnapshot, FlowSnapshot,
@@ -54,8 +52,6 @@ pub use snapshot::{
 pub use traits::{
     ApiAuth, ApiCodec, CommandService, EventSink, EventSource, EventStream, QueryService,
 };
-#[cfg(feature = "webhook")]
-pub use webhook::{WebhookEventSink, WebhookEventSinkConfig};
 
 pub const API_ID: &str = "zero.api.v1";
 pub const EVENT_SCHEMA_ID: &str = "zero.event.v1";

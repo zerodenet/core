@@ -46,6 +46,8 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     #[cfg(feature = "vless")]
     configs.push(InboundProtocolConfig::Vless {
         users: Vec::new(),
+        mux_response_backlog_frames: None,
+        mux_response_backlog_bytes: None,
         tls: None,
         reality: None,
         ws: None,
@@ -59,6 +61,7 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     #[cfg(feature = "hysteria2")]
     configs.push(InboundProtocolConfig::Hysteria2 {
         password: "password".to_string(),
+        users: Vec::new(),
         cert_path: None,
         key_path: None,
         up_bps: None,
@@ -67,6 +70,8 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     #[cfg(feature = "shadowsocks")]
     configs.push(InboundProtocolConfig::Shadowsocks {
         password: "password".to_string(),
+        identity_password: None,
+        users: Vec::new(),
         cipher: "chacha20-ietf-poly1305".to_string(),
         up_bps: None,
         down_bps: None,
@@ -74,6 +79,7 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     #[cfg(feature = "trojan")]
     configs.push(InboundProtocolConfig::Trojan {
         password: "password".to_string(),
+        users: Vec::new(),
         sni: None,
         tls: None,
         up_bps: None,
@@ -82,6 +88,8 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     #[cfg(feature = "vmess")]
     configs.push(InboundProtocolConfig::Vmess {
         users: Vec::new(),
+        mux_response_backlog_frames: None,
+        mux_response_backlog_bytes: None,
         tls: None,
         ws: None,
         grpc: None,
@@ -159,7 +167,10 @@ pub(super) fn compiled_in_outbound_leaves(
                 id: "00000000-0000-0000-0000-000000000000".to_owned(),
                 flow: None,
                 mux_concurrency: None,
+                xudp_concurrency: None,
                 mux_idle_timeout_secs: None,
+                mux_response_backlog_frames: None,
+                mux_response_backlog_bytes: None,
                 tls: None,
                 reality: None,
                 ws: None,
@@ -229,6 +240,8 @@ pub(super) fn compiled_in_outbound_leaves(
                 cipher: "aes-128-gcm".to_owned(),
                 mux_concurrency: None,
                 mux_idle_timeout_secs: None,
+                mux_response_backlog_frames: None,
+                mux_response_backlog_bytes: None,
                 tls: None,
                 ws: None,
                 grpc: None,

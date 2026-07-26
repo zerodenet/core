@@ -7,6 +7,8 @@
 mod lifecycle;
 mod model;
 mod protocol;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use model::MuxSessionLoop;
 pub(crate) use protocol::run_protocol_mux_session;

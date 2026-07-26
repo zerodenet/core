@@ -15,6 +15,13 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<usize, E>>,
 {
+    if !response
+        .accounting
+        .throttle_download(response.payload.len())
+        .await
+    {
+        return Ok(0);
+    }
     let written = write().await?;
     response.accounting.record_sent(written);
     Ok(written)
@@ -29,6 +36,13 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Option<usize>, E>>,
 {
+    if !response
+        .accounting
+        .throttle_download(response.payload.len())
+        .await
+    {
+        return Ok(None);
+    }
     let written = write().await?;
     if let Some(written) = written {
         response.accounting.record_sent(written);
@@ -45,6 +59,13 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<usize, E>>,
 {
+    if !response
+        .accounting
+        .throttle_download(response.payload.len())
+        .await
+    {
+        return Ok(0);
+    }
     let written = write().await?;
     response.accounting.record_sent(written);
     Ok(written)
@@ -65,6 +86,13 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Option<usize>, E>>,
 {
+    if !response
+        .accounting
+        .throttle_download(response.payload.len())
+        .await
+    {
+        return Ok(None);
+    }
     let written = write().await?;
     if let Some(written) = written {
         response.accounting.record_sent(written);
@@ -81,6 +109,13 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<usize, E>>,
 {
+    if !response
+        .accounting
+        .throttle_download(response.payload.len())
+        .await
+    {
+        return Ok(0);
+    }
     let written = write().await?;
     response.accounting.record_sent(written);
     Ok(written)
@@ -95,6 +130,13 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Option<usize>, E>>,
 {
+    if !response
+        .accounting
+        .throttle_download(response.payload.len())
+        .await
+    {
+        return Ok(None);
+    }
     let written = write().await?;
     if let Some(written) = written {
         response.accounting.record_sent(written);

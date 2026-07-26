@@ -83,8 +83,9 @@ where
             )
         })?;
 
-        serde_json::to_writer(&mut *writer, event).map_err(serialization_error)?;
-        writer.write_all(b"\n").map_err(io_error)?;
+        let mut frame = serde_json::to_vec(event).map_err(serialization_error)?;
+        frame.push(b'\n');
+        writer.write_all(&frame).map_err(io_error)?;
         writer.flush().map_err(io_error)?;
 
         Ok(PublishResult::delivered())
@@ -178,11 +179,32 @@ impl EventSink for MemorySink {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SinkStatus {
     pub name: String,
+    /// Current durable/in-memory backlog waiting for delivery or ACK.
+    #[serde(default)]
+    pub pending: u64,
     pub total_delivered: u64,
     pub total_failed: u64,
+    /// Number of detected event-sequence gaps. Unlike `last_error`, this
+    /// counter remains visible after later successful deliveries.
+    #[serde(default)]
+    pub replay_gaps: u64,
     pub last_success_at_unix_ms: Option<u64>,
     pub last_failure_at_unix_ms: Option<u64>,
     pub last_error: Option<String>,
+    /// Filesystem safety state for the durable outbox, when enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outbox_storage: Option<OutboxStorageStatus>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutboxStorageStatus {
+    pub available_bytes: u64,
+    pub total_bytes: u64,
+    pub reserve_bytes: u64,
+    /// Emergency floor retained while writing ACKs or compacting the journal.
+    pub maintenance_reserve_bytes: u64,
+    /// True when new outbox PUT records are paused to preserve the reserve.
+    pub write_blocked: bool,
 }
 
 /// Coordinates multiple `EventSink` instances with delivery tracking.
@@ -266,11 +288,14 @@ impl SinkManager {
             .zip(self.stats.iter())
             .map(|(managed, stat)| SinkStatus {
                 name: managed.sink.name().to_owned(),
+                pending: 0,
                 total_delivered: stat.delivered.load(Ordering::Relaxed),
                 total_failed: stat.failed.load(Ordering::Relaxed),
+                replay_gaps: 0,
                 last_success_at_unix_ms: *stat.last_success.lock().unwrap(),
                 last_failure_at_unix_ms: *stat.last_failure.lock().unwrap(),
                 last_error: stat.last_error.lock().unwrap().clone(),
+                outbox_storage: None,
             })
             .collect()
     }

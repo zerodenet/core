@@ -19,6 +19,7 @@ struct VmessOutboundParts<'a> {
     id: &'a str,
     cipher: &'a str,
     mux_concurrency: Option<u32>,
+    mux_idle_timeout_secs: Option<u64>,
 }
 
 impl VmessOutbound {
@@ -34,11 +35,17 @@ impl VmessOutbound {
 }
 
 impl<'a> VmessOutboundParts<'a> {
-    fn new(id: &'a str, cipher: &'a str, mux_concurrency: Option<u32>) -> Self {
+    fn new(
+        id: &'a str,
+        cipher: &'a str,
+        mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+    ) -> Self {
         Self {
             id,
             cipher,
             mux_concurrency,
+            mux_idle_timeout_secs,
         }
     }
 
@@ -46,8 +53,17 @@ impl<'a> VmessOutboundParts<'a> {
         VmessTcpConnectRequest::from_config(self.id, self.cipher)
     }
 
-    fn udp_direct_flow_plan(self) -> Result<crate::udp::VmessUdpFlowPlan, Error> {
-        crate::udp::VmessUdpFlowPlan::direct_from_config(self.id, self.cipher, self.mux_concurrency)
+    fn udp_direct_flow_plan(
+        self,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
+    ) -> Result<crate::udp::VmessUdpFlowPlan, Error> {
+        crate::udp::VmessUdpFlowPlan::direct_from_config(
+            self.id,
+            self.cipher,
+            self.mux_concurrency,
+            self.mux_idle_timeout_secs,
+            mux_response_backlog,
+        )
     }
 
     fn udp_relay_flow_plan(self) -> Result<crate::udp::VmessUdpFlowPlan, Error> {
@@ -61,16 +77,31 @@ struct VmessOutboundRequestBundle {
     udp_direct: crate::udp::VmessUdpFlowPlan,
     udp_relay: crate::udp::VmessUdpFlowPlan,
     mux_concurrency: Option<u32>,
+    mux_idle_timeout_secs: Option<u64>,
+    mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
 }
 
 impl VmessOutboundRequestBundle {
-    fn from_config(id: &str, cipher: &str, mux_concurrency: Option<u32>) -> Result<Self, Error> {
-        let parts = VmessOutboundParts::new(id, cipher, mux_concurrency);
+    fn from_config(
+        id: &str,
+        cipher: &str,
+        mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog_frames: Option<u32>,
+        mux_response_backlog_bytes: Option<u64>,
+    ) -> Result<Self, Error> {
+        let parts = VmessOutboundParts::new(id, cipher, mux_concurrency, mux_idle_timeout_secs);
+        let mux_response_backlog = crate::mux::MuxResponseBacklogPolicy::from_config(
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+        )?;
         Ok(Self {
             tcp_connect: parts.tcp_connect_request()?,
-            udp_direct: parts.udp_direct_flow_plan()?,
+            udp_direct: parts.udp_direct_flow_plan(mux_response_backlog)?,
             udp_relay: parts.udp_relay_flow_plan()?,
             mux_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog,
         })
     }
 
@@ -88,6 +119,14 @@ impl VmessOutboundRequestBundle {
 
     fn mux_concurrency(&self) -> Option<u32> {
         self.mux_concurrency
+    }
+
+    fn mux_idle_timeout_secs(&self) -> Option<u64> {
+        self.mux_idle_timeout_secs
+    }
+
+    fn mux_response_backlog(&self) -> crate::mux::MuxResponseBacklogPolicy {
+        self.mux_response_backlog
     }
 
     fn prepare_with_transport_hints(
@@ -127,10 +166,13 @@ impl PreparedVmessOutboundRequestBundle {
         cipher: &str,
         mux_concurrency: Option<u32>,
     ) -> Result<Self, Error> {
-        Self::from_config_with_transport_hints(
+        Self::from_config_with_transport_hints_and_mux_policy(
             id,
             cipher,
             mux_concurrency,
+            None,
+            None,
+            None,
             StreamMuxTransportHints::default(),
         )
     }
@@ -141,8 +183,54 @@ impl PreparedVmessOutboundRequestBundle {
         mux_concurrency: Option<u32>,
         hints: StreamMuxTransportHints,
     ) -> Result<Self, Error> {
-        VmessOutboundRequestBundle::from_config(id, cipher, mux_concurrency)
-            .map(|requests| requests.prepare_with_transport_hints(hints))
+        Self::from_config_with_transport_hints_and_mux_policy(
+            id,
+            cipher,
+            mux_concurrency,
+            None,
+            None,
+            None,
+            hints,
+        )
+    }
+
+    pub fn from_config_with_transport_hints_and_idle_timeout(
+        id: &str,
+        cipher: &str,
+        mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        hints: StreamMuxTransportHints,
+    ) -> Result<Self, Error> {
+        Self::from_config_with_transport_hints_and_mux_policy(
+            id,
+            cipher,
+            mux_concurrency,
+            mux_idle_timeout_secs,
+            None,
+            None,
+            hints,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_config_with_transport_hints_and_mux_policy(
+        id: &str,
+        cipher: &str,
+        mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog_frames: Option<u32>,
+        mux_response_backlog_bytes: Option<u64>,
+        hints: StreamMuxTransportHints,
+    ) -> Result<Self, Error> {
+        VmessOutboundRequestBundle::from_config(
+            id,
+            cipher,
+            mux_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+        )
+        .map(|requests| requests.prepare_with_transport_hints(hints))
     }
 
     pub async fn open_tcp_stream_with_transport_or_mux<S, OpenStream, OpenStreamFut, E>(
@@ -166,6 +254,8 @@ impl PreparedVmessOutboundRequestBundle {
                 server,
                 port,
                 self.requests.mux_concurrency(),
+                self.requests.mux_idle_timeout_secs(),
+                self.requests.mux_response_backlog(),
                 self.mux_transport_profile.as_borrowed(),
                 mux_pool,
                 open_stream,
@@ -309,6 +399,8 @@ impl VmessTcpConnectRequest {
         server: &str,
         port: u16,
         mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
         profile: crate::mux::VmessMuxTransportProfile<'_>,
         mux_pool: &crate::mux::VmessMuxConnectionPool,
         open_stream: OpenStream,
@@ -322,7 +414,13 @@ impl VmessTcpConnectRequest {
         let config = self.config();
         if let Some(max_concurrency) = mux_concurrency {
             let key = config
-                .tcp_mux_pool_key_from_transport_config(server, port, profile)
+                .tcp_mux_pool_key_from_transport_config(
+                    server,
+                    port,
+                    profile,
+                    mux_idle_timeout_secs,
+                    mux_response_backlog,
+                )
                 .map_err(E::from)?;
             let stream = mux_pool
                 .open_tcp_stream(
@@ -389,8 +487,17 @@ impl VmessTcpConnectConfig {
         server: &str,
         port: u16,
         profile: crate::mux::VmessMuxTransportProfile<'_>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Result<crate::mux::VmessMuxPoolKey, Error> {
-        crate::mux::pool_key_from_transport_config(server, port, self.mux_pool_identity(), profile)
+        crate::mux::pool_key_from_transport_config(
+            server,
+            port,
+            self.mux_pool_identity(),
+            profile,
+            mux_idle_timeout_secs,
+            mux_response_backlog,
+        )
     }
 
     async fn establish_tcp_outbound_session_with_request_len<S>(

@@ -1,5 +1,5 @@
 use zero_core::{Address, Session};
-use zero_engine::SessionHandle;
+use zero_engine::{EngineError, SessionHandle};
 
 use super::super::lifecycle::apply_kernel_rate_limits_from_config;
 use super::model::TcpIngressRuntime;
@@ -49,7 +49,7 @@ impl TcpIngressRuntime {
         apply_kernel_rate_limits_from_config(self.services.config(), session, &self.inbound_tag);
     }
 
-    pub(crate) fn prepare_session(&self, session: &mut Session) {
+    pub(crate) fn prepare_session(&self, session: &mut Session) -> Result<(), EngineError> {
         if let Some(addr) = self.source_addr {
             session.source_ip = Some(match addr.ip() {
                 std::net::IpAddr::V4(v4) => Address::Ipv4(v4.octets()),
@@ -67,10 +67,17 @@ impl TcpIngressRuntime {
 
         self.services
             .engine()
-            .prepare_session(session, &self.inbound_tag);
+            .prepare_session(session, &self.inbound_tag)
     }
 
     pub(crate) fn track_session(&self, session_id: u64) -> SessionHandle {
         self.services.engine().track_session(session_id)
+    }
+
+    pub(crate) fn traffic_rate_limiters(
+        &self,
+        session: &Session,
+    ) -> crate::runtime::principal_rate_limit::TrafficRateLimiters {
+        self.services.traffic_rate_limiters(session)
     }
 }

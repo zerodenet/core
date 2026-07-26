@@ -17,7 +17,13 @@ fn local_status_listener_exposes_live_runtime_view() {
     let _lock = acquire_port_lock();
     let socks_port = free_port();
     let status_port = free_port();
-    let echo_port = free_port();
+    // With `grpc-api` enabled the run command also binds status_port + 1.
+    // Ephemeral ports returned by Windows are commonly consecutive, so avoid
+    // accidentally assigning that companion port to the echo server.
+    let mut echo_port = free_port();
+    while echo_port == status_port.saturating_add(1) {
+        echo_port = free_port();
+    }
 
     let config = format!(
         r#"{{
@@ -162,7 +168,10 @@ fn local_status_listener_can_switch_selector_group() {
     let _lock = acquire_port_lock();
     let socks_port = free_port();
     let status_port = free_port();
-    let echo_port = free_port();
+    let mut echo_port = free_port();
+    while echo_port == status_port.saturating_add(1) {
+        echo_port = free_port();
+    }
 
     let config = format!(
         r#"{{

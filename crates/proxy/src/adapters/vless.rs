@@ -60,6 +60,10 @@ fn outbound_options<'a>(
         id,
         flow,
         mux_concurrency,
+        xudp_concurrency,
+        mux_idle_timeout_secs,
+        mux_response_backlog_frames,
+        mux_response_backlog_bytes,
         tls,
         reality,
         ws,
@@ -81,6 +85,10 @@ fn outbound_options<'a>(
             id,
             flow: flow.as_deref(),
             mux_concurrency: *mux_concurrency,
+            xudp_concurrency: *xudp_concurrency,
+            mux_idle_timeout_secs: *mux_idle_timeout_secs,
+            mux_response_backlog_frames: *mux_response_backlog_frames,
+            mux_response_backlog_bytes: *mux_response_backlog_bytes,
             reality: reality
                 .as_deref()
                 .map(|reality| VlessRealityClientOptionsRef {
@@ -106,6 +114,23 @@ fn outbound_options<'a>(
 
 #[cfg(feature = "vless")]
 const TCP_PATH: TcpPathCategory = TcpPathCategory::Tunnel;
+
+#[cfg(feature = "vless")]
+fn inbound_user_refs(users: &[zero_config::VlessUserConfig]) -> Vec<VlessInboundUserRef<'_>> {
+    users
+        .iter()
+        .map(|user| VlessInboundUserRef {
+            id: user.id.as_str(),
+            flow: user.flow.as_deref(),
+            principal_key: user.principal_key.as_deref(),
+            up_bps: user.up_bps,
+            down_bps: user.down_bps,
+            device_limit: user.device_limit,
+            quota_remaining_bytes: user.quota_remaining_bytes,
+            policy_revision: user.policy_revision,
+        })
+        .collect()
+}
 
 #[cfg(feature = "vless")]
 #[cfg(feature = "vless")]
@@ -303,8 +328,21 @@ impl NamedProtocolAdapter for VlessAdapter {
     const PROTOCOL_NAME: &'static str = "vless";
     const FEATURE_NAME: &'static str = "vless";
 
-    fn on_config_reloaded(&self) {
+    fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
         self.runtime.on_config_reloaded();
+        for inbound in &config.inbounds {
+            let InboundProtocolConfig::Vless { users, .. } = &inbound.protocol else {
+                continue;
+            };
+            let users = inbound_user_refs(users);
+            if let Err(error) = self.runtime.replace_inbound_profile(&inbound.tag, &users) {
+                tracing::error!(
+                    inbound_tag = %inbound.tag,
+                    %error,
+                    "validated VLESS users could not be applied to the live profile"
+                );
+            }
+        }
     }
 }
 
@@ -362,19 +400,19 @@ impl InboundListenerCapability for VlessAdapter {
                 http_upgrade,
                 split_http,
                 fallback,
+                mux_response_backlog_frames,
+                mux_response_backlog_bytes,
                 ..
             } => {
+                let user_refs = inbound_user_refs(users);
+                let profile = self
+                    .runtime
+                    .replace_inbound_profile(&inbound.tag, &user_refs)
+                    .map_err(EngineError::from)?;
                 let request = VlessInboundListenerRequest::from_options_refs(
                     source_dir,
                     VlessInboundOptionsRef {
-                        users: users.iter().map(|user| VlessInboundUserRef {
-                            id: user.id.as_str(),
-                            flow: user.flow.as_deref(),
-                            credential_id: user.credential_id.as_deref(),
-                            principal_key: user.principal_key.as_deref(),
-                            up_bps: user.up_bps,
-                            down_bps: user.down_bps,
-                        }),
+                        users: user_refs.iter().copied(),
                         reality: reality
                             .as_deref()
                             .map(|reality| VlessRealityServerOptionsRef {
@@ -390,9 +428,12 @@ impl InboundListenerCapability for VlessAdapter {
                         http_upgrade: http_upgrade.as_deref(),
                         split_http: split_http.as_deref(),
                         fallback: fallback.as_deref(),
+                        mux_response_backlog_frames: *mux_response_backlog_frames,
+                        mux_response_backlog_bytes: *mux_response_backlog_bytes,
                     },
                 )
-                .map_err(EngineError::from)?;
+                .map_err(EngineError::from)?
+                .with_profile(profile);
                 let fallback_target = fallback
                     .as_deref()
                     .map(crate::runtime::InboundFallbackTarget::from_profile);
