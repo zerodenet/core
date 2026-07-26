@@ -10,7 +10,8 @@ homepage.workspace = true
 [dependencies]
 futures-core = "0.3"
 prost = "0.13"
-tonic = { version = "0.12", features = ["transport"] }
+rustls.workspace = true
+tonic = { version = "0.12", features = ["transport", "tls"] }
 tokio = { workspace = true, features = ["sync", "rt", "net"] }
 tokio-stream = "0.1"
 tracing.workspace = true
@@ -22,4 +23,5 @@ zero-engine = { path = "../engine" }
 tonic-build = "0.12"
 
 [dev-dependencies]
-tonic = { version = "0.12", features = ["transport", "channel"] }
+rcgen = "0.14"
+tonic = { version = "0.12", features = ["transport", "channel", "tls"] }
