@@ -17,8 +17,10 @@ Root `src/main.rs` builds the `zero` binary and is limited to process initializa
 - `zero-platform-tokio` — tokio runtime implementation of the traits abstractions (`TokioSocket`, `TokioListener`, `TokioDatagramSocket`, `TcpRelayStream`, `ClientStream`, `TransportConnector`). Depends on `zero-traits`.
 - `zero-transport` — concrete carrier implementations (QUIC, TLS, WebSocket, gRPC, H2, HTTP-Upgrade, split-HTTP, REALITY) plus protocol transport plans/leaves/bridge operations. It must not import or project `ResolvedLeafOutbound`; engine-leaf projection belongs to owning proxy adapters. Feature-gated per transport. Depends on `zero-config`, `zero-core`, `zero-engine` error contracts, `zero-platform-tokio`, `zero-traits`.
 - `zero-proxy` — the orchestration layer: `Proxy`, `ProxyHandle`, `RunningProxy`, reload/reconcile, `ProtocolRegistry` capability dispatch, protocol-local inbound listener entrypoints, `serve_inbound` unified TCP pipeline, TCP/UDP dispatch, upstream connect helpers. Depends on config/core/dns/engine/platform/traits/transport/tun/stack.
-- `zero-connector` — event dispatcher and panel push connector. Optional (`event_dispatcher`, `sink_jsonl`, `panel_connector` features).
-- `zero-grpc` — gRPC control plane adapter. Optional (`grpc_api` feature).
+- `zero-connector` — event dispatcher and outbound sink delivery. Optional (`event-dispatcher`, `sink-jsonl`, `connector` features).
+- `zero-connector` provides controller-neutral event delivery. A controller registers a webhook by applying `api.event_sinks` through the existing Zero API over HTTP/IPC/gRPC. Connector sends the `zero.event.v1` envelope to the complete configured URL, applies only the documented HTTP acknowledgement classification, and owns retry/outbox/dead-letter delivery state. It must not prescribe receiver paths, node registration, synchronization, presence, traffic endpoints, authentication schemes, panel workflows, user/plan/billing models, inbound/protocol configuration, or a second command/configuration API. Direct management uses `zero-api`, HTTP/IPC, or gRPC. External systems adapt to Zero or run an external compatibility bridge; Zero contains no third-party dialect or public adapter SPI.
+- `api.event_sinks` is a zero-to-many delivery-channel registry. `tag` is only the node-local sink/status/outbox identity, `url` is a complete receiver address that registrations and nodes may reuse, `events` is the event-type capability filter, and `source_id` is optional envelope metadata. Webhooks must never be bound or selected by node identity, inbound, credential, or proxy protocol. External systems own decisions such as limiting, disabling, upgrading, and notification; they use generic Zero API/gRPC/configuration methods where applicable and keep deployment upgrades outside Connector. Connector only converts, filters, and reliably delivers kernel events.
+- `zero-grpc` — gRPC control plane adapter. Optional (`grpc-api` feature).
 - `zero-ffi` — C-compatible FFI bindings.
 - `zero-tun` — platform-agnostic TUN device abstraction.
 - `zero-stack` — user-space network stack (TCP termination + UDP forwarding from raw IP packets).
@@ -38,12 +40,13 @@ External protocol implementations under `protocols/`: `socks5`, `http`, `vless`,
 
 ## Features & Build
 
-Default build is `--features full,status_api`. Optional features:
+Default build is `--features full,status-api`. Optional features:
 - `socks5`, `http`, `mixed`, `vless`
 - `hysteria2`, `shadowsocks`, `trojan`, `vmess`, `mieru`, `dns`
-- `status_api` enables runtime control endpoint and selector switching
-- `event_dispatcher`, `sink_jsonl`, `panel_connector` enable event delivery and panel connector support
-- `grpc_api` enables the gRPC control plane adapter
+- `status-api` enables runtime control endpoint and selector switching
+- `event-dispatcher` enables generic event delivery, `sink-jsonl` enables the local JSONL sink, and `connector` enables webhook delivery
+- `connector` does not imply `status-api` or `grpc-api`; control transports are selected independently
+- `grpc-api` enables the gRPC control plane adapter
 
 If a config references an uncompiled protocol, it fails early with a clear error.
 
@@ -141,6 +144,7 @@ If you change protocol behavior, config parsing, routing, or runtime wiring, run
 - Protocol registry unit tests follow the same facade rule: `protocol_registry/registry/tests/mod.rs` only wires test modules, fixtures live in `registry/tests/fixtures.rs`, inbound registry coverage lives in `registry/tests/inbound.rs`, and outbound/block runtime coverage lives in `registry/tests/outbound.rs`.
 - `ProtocolInventory` is the runtime-facing facade. Runtime code asks it to bind/spawn inbounds, connect TCP leaves/hops, start UDP leaf flows, start UDP relay final hops, and resolve UDP packet-path candidates. Runtime modules must not resolve adapter trait objects directly.
 - `runtime.rs` owns `Proxy` construction and the run loop. Control-plane handle details live behind the facade root `runtime/handle.rs` with query/command/event/util splits under `runtime/handle/`; spawned proxy handle details live in `runtime/running.rs`; reload channel bridging lives in `runtime/reload.rs`.
+- A listener-shape change on reload must restart the same-tag listener, while authentication-entry-only changes stay on protocol hot-update paths. All configuration application, regardless of whether its request arrived through HTTP, IPC, gRPC, or a future Connector carrier, uses the application-owned `ProxyHandle::apply_config_and_wait` transaction; success is returned only after listener reconciliation, and bind failure must restore the last-known-good config/listener. Connector must not interpret or project that configuration itself.
 - Concrete protocol crate accessors must not be exposed on `ProtocolInventory`; `inventory/protocols.rs` exposes only neutral proxy-owned helpers such as the direct connector. Compiled adapter collection lives in `crates/proxy/src/register.rs`; inventory dispatch modules must not import protocol crates directly.
 - Port conflicts surface eagerly (before accept loop spawn) via `bind_inbound_listener`.
 - Per-protocol TCP connect glue stays in the owning adapter capability bridge. For VLESS/VMess/Trojan, the adapter roots (`crates/proxy/src/adapters/{vless,vmess,trojan}.rs`) route `ResolvedLeafOutbound` through the proxy-local `ProtocolTransportLeafResolver` integration hook and call the neutral TCP orchestration in `crates/proxy/src/transport/tcp_outbound.rs` directly; `crates/proxy/src/adapters/common.rs` must not host another wrapper layer for those calls. Carrier opening still delegates through the transport-owned bridge objects (`VlessStreamBridge`, `VmessStreamBridge`, `TrojanTlsBridge`) plus protocol-owned requests. Transport-leaf endpoint facts, TCP open-result normalization (`ProtocolTransportLeaf`, `ProtocolTcpTransportOpenResult`), and bridge-local stage / expected-leaf metadata (`ProtocolTcpTransportBridgeMetadata`) are implemented in `zero-transport`, not in proxy adapter modules. Do not recreate `crates/proxy/src/transport/*` protocol shells, `crates/proxy/src/outbound/<protocol>.rs`, protocol-specific `leaf.rs` wrappers, proxy `tcp.rs` bridge shells, or `tcp/connect/*` forwarding buckets for those protocols.

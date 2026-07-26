@@ -26,8 +26,8 @@
 
 | # | 决策 | 设计方案 | 详细文档 |
 | --- | --- | --- | --- |
-| 1 | 控制面模式 | 被动 API + 主动 Connector 双模式 | [07-node-heartbeat-and-push.md](./07-node-heartbeat-and-push.md) |
-| 2 | 节点上报 | 节点主动连接中心，支持内网/NAT | [07-node-heartbeat-and-push.md](./07-node-heartbeat-and-push.md) |
+| 1 | 控制面模式 | 中心使用 Zero API；节点通过已注册 Webhook 回传事件 | [Connector 边界](../project/connector-architecture.md) |
+| 2 | 节点上报 | 中心以 `config.apply` 注册完整 URL，Connector 可靠投递 | [Connector 边界](../project/connector-architecture.md) |
 | 3 | 机场集成 | 预留能力，不实现业务逻辑 | [06-service-provider-integration.md](./06-service-provider-integration.md) |
 | 4 | 性能承载 | 单节点 5万~10万并发连接 | [08-performance-and-rate-limiting.md](./08-performance-and-rate-limiting.md) |
 | 5 | 控制面开销 | 占总开销 < 5% | [08-performance-and-rate-limiting.md](./08-performance-and-rate-limiting.md) |
@@ -276,7 +276,7 @@
 | 阶段 | 交付物 | 代码位置 |
 |------|--------|----------|
 | 1 · 核心模型 | 6 个 trait、13 种 Query、11 种 Command、12 种事件、7 种错误码、4 级权限 | `crates/api/src/` |
-| 2 · In-process | `EngineHandle`（Query + Command + EventSource）+ 内存事件总线 | `crates/engine/src/handle.rs`、`api.rs` |
+| 2 · In-process | `EngineHandle`（Query + Command + EventSource）+ 内存事件总线 | `crates/engine/src/api/` |
 | 3 · HTTP | `/api/v1/*` 端点 + Bearer Token + 限流 + SSE | `src/http_adapter/` |
 | 4 · Sink | 6 种 Sink 实现 + SinkManager + 事件分发器 + DeadLetter | `crates/api/src/sink.rs`、`crates/connector/src/` |
 | 5 · IPC | Unix Socket + Windows Named Pipe + 多路复用 + CLI 集成 | `src/ipc/` |

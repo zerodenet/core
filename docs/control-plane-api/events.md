@@ -7,7 +7,7 @@
 ```json
 {
   "schema_id": "zero.event.v1",
-  "event_id": "flow.completed:42:1713500000000",
+  "event_id": "9f20d4e11ac24cc590df30d90a47c821:flow.completed:42:1713500000000",
   "event_type": "flow.completed",
   "occurred_at_unix_ms": 1713500000000,
   "source_id": null,
@@ -21,13 +21,15 @@
 | 字段 | 说明 |
 |------|------|
 | `schema_id` | 事件格式标识 |
-| `event_id` | 唯一标识，格式 `{type}:{flow_id}:{timestamp}` |
+| `event_id` | 跨引擎启动唯一且在重放中稳定的不透明标识；消费者只能用于去重，不得解析其格式 |
 | `event_type` | 事件类型，用于过滤 |
 | `occurred_at_unix_ms` | 事件时间戳（毫秒） |
 | `source_id` | 节点标识（sink 投递时注入） |
 | `sequence` | 单调递增序号，用于 SSE 断点续传 |
-| `principal_key` | 关联的用户标识 |
+| `principal_key` | 关联的主体标识 |
 | `payload` | 事件负载（类型相关） |
+
+引擎生成的事件 ID 当前包含随机启动 epoch 和事件本地标识，用于避免进程重启后 flow ID、序号和毫秒时间戳复用造成消费者或 Sink 去重碰撞。该组成方式不是公共协议；所有消费者必须把完整字符串作为不透明幂等键。
 
 ## 事件类型总览
 
@@ -179,7 +181,7 @@
   "flow_id": "42",
   "network": "tcp",
   "inbound": { "tag": "socks5", "protocol": "socks5" },
-  "auth": { "scheme": "noauth", "credential_id": null, "principal_key": null, "attributes": {} },
+  "auth": { "scheme": "noauth", "principal_key": null, "attributes": {} },
   "target": { "host": "example.com", "port": 443 },
   "route": { "mode": "rule", "target": null },
   "policy": null,
@@ -270,7 +272,7 @@
 
 ### flow.completed
 
-flow 终结事件，是流量统计和计费的核心数据来源。`payload.record` 是自包含的最终事实，消费者收到后不需要再查询内核历史记录。
+flow 终结事件，是完成流量统计的权威事实。`payload.record` 是自包含的最终事实，消费者收到后不需要再查询内核历史记录；消费者如何用于监控、审计或计费不属于 Zero 合同。
 
 > **时间戳说明**：事件信封上层的 `occurred_at_unix_ms` 记录 flow 结束时间；payload 内 `timing.started_at_unix_ms` / `ended_at_unix_ms` / `duration_ms` 提供完整时间窗口。
 
@@ -279,7 +281,7 @@ flow 终结事件，是流量统计和计费的核心数据来源。`payload.rec
   "flow_id": "42",
   "network": "tcp",
   "inbound": { "tag": "socks5", "protocol": "socks5" },
-  "auth": { "scheme": "socks5", "credential_id": null, "principal_key": "user-001", "attributes": {} },
+  "auth": { "scheme": "socks5", "principal_key": "user-001", "attributes": {} },
   "target": { "host": "example.com", "port": 443 },
   "route": { "mode": "rule", "target": null },
   "policy": null,
@@ -309,7 +311,7 @@ flow 终结事件，是流量统计和计费的核心数据来源。`payload.rec
 | `network` | `tcp` 或 `udp` |
 | `inbound.tag` | 入站 tag |
 | `inbound.protocol` | 入站协议 |
-| `auth.principal_key` | 用户标识（面板按此聚合计费） |
+| `auth.principal_key` | 稳定、非敏感的 Zero 主体标识 |
 | `target.host` | 目标地址 |
 | `target.port` | 目标端口 |
 | `traffic.bytes_up` | 上行字节数（用户→代理） |
@@ -338,7 +340,7 @@ outcome 值：
 
 `close_reason` 为 `flow.completed` 负载上的可选字符串字段，用于区分终止原因（标准原因为 `"manual"`、`"idle_timeout"`、`"upstream_error"`）。对于常规对端关闭或 session 生命周期中手动处理之外的其他 finish 路径，会省略该字段。
 
-GUI、面板或其他消费者应自行决定完成记录的内存上限、索引和持久化策略。需要长期可靠留存时配置 JSONL/Webhook sink；不要依赖内核的有限诊断窗口作为历史数据库。
+GUI 或其他消费者应自行决定完成记录的内存上限、索引和持久化策略。需要长期可靠留存时配置 JSONL/Webhook sink；不要依赖内核的有限诊断窗口作为历史数据库。
 
 ### policy.selected
 
@@ -376,7 +378,7 @@ url_test 探测完成后发射，包含每个成员的探测结果。
 
 ### stats.sampled
 
-本地控制面默认每 1 秒发射一次。该事件面向 GUI 和本地观测，远程面板心跳/批量上报应使用独立间隔，不应直接绑定本地采样频率。查询接口（HTTP `GET /api/v1/stats` / IPC `{"stats":{}}`）始终返回调用时的当前快照。
+本地控制面默认每 1 秒发射一次。该事件面向 GUI 和本地观测，远程控制器同步或批量上报应使用独立间隔，不应直接绑定本地采样频率。查询接口（HTTP `GET /api/v1/stats` / IPC `{"stats":{}}`）始终返回调用时的当前快照。
 
 ```json
 {
@@ -452,7 +454,7 @@ url_test 探测完成后发射，包含每个成员的探测结果。
 
 IPC 和 SSE 的**事件 JSON 格式完全相同**（都是 `ApiEvent<P>` 信封），消费者只需一套解析代码。
 
-GUI 的 IPC/HTTP/gRPC 连接和 EventDispatcher 都消费统一的 `EventSource` 语义，但前者面向交互式实时状态，后者面向 JSONL/Webhook 的持久投递。PushConnector 不消费该事件流；它只负责面板心跳和远程命令。组件边界见 [Push Connector](./push-connector.md#与-gui-和事件-sink-的职责边界)。
+GUI 的 IPC/HTTP/gRPC 连接和 EventDispatcher 都消费统一的 `EventSource` 语义，但前者面向交互式实时状态，后者面向 JSONL/Webhook 的持久投递。中心通过 Zero API/gRPC 的 `config.apply` 注册 Webhook，Connector 只负责把筛选后的 `zero.event.v1` envelope 投递到完整 URL 并处理 HTTP 确认。组件边界见 [Connector](./connector.md)。
 
 | 方式 | 过滤 | 回放 | 格式 |
 |------|------|------|------|

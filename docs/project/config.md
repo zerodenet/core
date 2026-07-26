@@ -10,6 +10,7 @@ Zero 使用 JSON。当前顶层结构如下：
   "runtime": {
     "udp_upstream_idle_timeout_seconds": 30,
     "latency_test_url": "http://www.gstatic.com/generate_204",
+    "principal_quota_state_path": "state/principal-quotas.json",
     "network": { "mtu": 1500 },
     "dns": {
       "servers": [{ "type": "system" }],
@@ -23,7 +24,6 @@ Zero 使用 JSON。当前顶层结构如下：
     "control": { "enabled": false },
     "hooks": []
   },
-  "push": {},
   "mode": { "type": "rule" },
   "route": {
     "rule_sets": [],
@@ -36,11 +36,14 @@ Zero 使用 JSON。当前顶层结构如下：
 
 这里仅记录当前已实现的配置。模式和节点组的长期设计见 [modes-and-groups.md](modes-and-groups.md)。
 
-> `push` 是顶层键（不在 `api` 下），用于节点主动向外部管理端点上报心跳与拉取远程命令。详见 [面板与节点对接](panel-node-connector.md) 与 [配置模型参考](../control-plane-api/configuration.md#push)。
+> Connector Webhook 作为 `api.event_sinks` 配置，不存在独立顶层 `push`。外部控制器通过 Zero API/gRPC 的 `config.apply` 注册完整 URL。详见 [Connector 通信边界](connector-architecture.md) 与 [配置模型参考](../control-plane-api/configuration.md#apievent_sinks)。
 
 ## runtime
 
 `runtime.udp_upstream_idle_timeout_seconds` 控制上游 `SOCKS5` UDP 关联的空闲超时。
+
+`runtime.event_log_capacity` 控制内核为事件回放保留的环形日志条数，默认 `1024`。
+该值必须大于 `0`；运行时 reload 修改后会立即裁剪现有事件历史。
 
 - 默认值：`30`
 - 单位：秒
@@ -49,6 +52,8 @@ Zero 使用 JSON。当前顶层结构如下：
 `runtime.latency_test_url` 是全局经代理延迟测速地址，仅支持 `http://`。未配置时默认使用
 `http://www.gstatic.com/generate_204`。普通单节点测速统一使用该地址；`url_test` 组设置了
 自己的 `url` 时优先使用组内地址，否则继承全局地址。
+
+`runtime.principal_quota_state_path` 是可选的主体共享余额恢复快照。配置后，限额用户的当前 revision、初始余额与剩余字节会在独立后台线程中合并写入原子快照；relay I/O 不等待磁盘。正常停机强制写入最终快照，重启按相同 `principal_key + policy_revision + initial_bytes` 恢复。活动流量以约 50ms 合并窗口落盘，主机突然断电可能损失最近一个合并窗口；若后台持久化失败，后续限额用户 admission 会 fail closed。该路径不能在 live reload 中修改。
 
 `runtime.network.mtu` 控制用户态网络栈的 MTU，并将同一数值传给 TUN 后端配置接口；默认
 `1500`，最小 `576`。
@@ -128,22 +133,26 @@ Zero 使用 JSON。当前顶层结构如下：
 }
 ```
 
-面板 webhook：
+通用 Webhook：
 
 ```json
 {
-  "tag": "panel",
+  "tag": "central-events",
   "type": "webhook",
-  "url": "https://panel.example.com/api/zero/events",
+  "url": "https://central.example/receivers/zero/node-17",
   "events": ["flow.completed", "engine.warning"],
   "source_id": "edge-shanghai-01",
-  "api_key_env": "ZERO_PANEL_API_KEY"
+  "headers": {
+    "authorization": "Bearer receiver-defined-token"
+  }
 }
 ```
 
-`webhook` 使用 `Authorization: Bearer <api-key>`。推荐使用 `api_key_env`；`api_key` 也支持用于测试。`http://` webhook 需要显式 `allow_insecure: true`。
+`url` 是注册方提供的完整地址，Zero 不拼接路径。`headers` 是不透明字段，Zero 不规定认证方案。`http://` webhook 需要显式 `allow_insecure: true`。
 
-当 `event_dispatcher` feature 已编译且 `api.event_sinks` 不为空时，内核启动一个 dispatcher owner 负责投递生命周期，并向管控面暴露一个只读的 sink 状态视图。`GET /api/v1/sinks` 报告每个 sink 的投递计数器、最近成功/失败时间戳和最近错误文本。
+当 `event-dispatcher` feature 已编译且 `api.event_sinks` 不为空时，应用层启动一个 dispatcher owner 负责投递生命周期，并向管控面暴露只读 sink 状态。`GET /api/v1/sinks` 报告 `pending` 积压、投递计数器、最近成功/失败时间戳和最近错误文本。
+
+生产计费 Sink 应同时配置 `api.outbox_path`。dispatcher 会先同步写入 delivery journal，再调用 Sink；成功后写 ACK，重启时恢复未 ACK 记录。每个 sink 使用独立 worker，单个接收端超时不会阻塞其他注册地址。`api.dispatcher` 配置活跃内存工作集、event-log replay 批量、Webhook timeout、重试阈值、初始/最大退避、耗尽策略，以及 outbox 文件系统的绝对/比例空闲保留水位；默认 `retry_forever` 不会隐式删除可重试 delivery。水位不足时新的持久投递 fail-closed 且不推进事件游标，已有 delivery 仍可投递和 ACK。`GET /api/v1/sinks` 的 `pending` 统计完整 durable backlog，`outbox_storage` 报告磁盘保护状态。不可重试 delivery 或显式 `dead_letter` 策略使用 `api.dead_letter_path`。接收端必须按 `event_id` 幂等。
 
 ### control
 
@@ -158,6 +167,8 @@ Zero 使用 JSON。当前顶层结构如下：
 ```
 
 当前管控面使用 `Authorization: Bearer <api-key>` 或 `X-Zero-Api-Key: <api-key>`。建议仅监听 localhost、内网或受防火墙保护的地址。
+
+编译 `grpc-api` 时，gRPC 使用同一监听 IP 的下一端口。`control.grpc` 可选配置原生 TLS、客户端 CA（mTLS）、Bearer 开关或显式远程明文；Bearer 与 mTLS 可以单独使用或叠加。默认远程明文不会启动，外部 TLS 终止仍受支持。详细字段与示例见 [控制面配置](../control-plane-api/configuration.md#apicontrol)。
 
 当前 HTTP 管控面支持：
 
@@ -316,7 +327,7 @@ SOCKS5 入站默认无认证。配置 `users` 启用 RFC 1929 用户名/密码�
 
 `mixed.socks5_users` 遵循与 SOCKS5 入站 users 相同的用户名/密码默认规则。
 
-VLESS 入站必须配置 user UUID。`credential_id` 和 `principal_key` 是可观测性归因字段，会出现在 `flow.completed` 的 `auth` 和事件顶层的 `principal_key` 中；UUID 本身默认不会发送给面板：
+VLESS 入站必须配置 user UUID。`principal_key` 是稳定、非敏感的策略与计费归因键，会出现在 `flow.completed` 的 `auth` 和事件顶层；UUID 本身默认不会发送给面板：
 
 ```json
 {
@@ -327,7 +338,6 @@ VLESS 入站必须配置 user UUID。`credential_id` 和 `principal_key` 是可�
     "users": [
       {
         "id": "11111111-2222-3333-4444-555555555555",
-        "credential_id": "node-user-1",
         "principal_key": "user:10001"
       }
     ]
@@ -396,7 +406,7 @@ WebSocket 可以与 TLS 结合使用 (WSS)：
 
 ### VMess 入站
 
-VMess 入站处于实验阶段，需要 TLS。每个 user 必须提供 VMess UUID。`credential_id` 和 `principal_key` 是可观测性归因字段，`cipher` 省略时默认为 `aes-128-gcm`：
+VMess 入站处于实验阶段，需要 TLS。每个 user 必须提供 VMess UUID。`principal_key` 是稳定、非敏感的策略与计费归因键，`cipher` 省略时默认为 `aes-128-gcm`：
 
 ```json
 {
@@ -408,7 +418,6 @@ VMess 入站处于实验阶段，需要 TLS。每个 user 必须提供 VMess UUI
       {
         "id": "11111111-2222-3333-4444-555555555555",
         "cipher": "aes-128-gcm",
-        "credential_id": "node-user-1",
         "principal_key": "user:10001"
       }
     ],
@@ -463,12 +472,14 @@ Shadowsocks 入站使用 AEAD cipher 进行加密传输：
 ```
 
 Shadowsocks 配置字段：
-- `password` -- 必填，加密密码
+- `password` -- legacy 或静态单用户入站密码；与 `users` / `identity_password` 互斥
+- `identity_password` -- 可选，SIP023 AES 2022 多用户服务器 iPSK；配置后必须使用 `users`，热更新用户时保持不变
+- `users` -- 可选，面板托管用户数组；AES 2022 模式下每个 password 必须是单个 uPSK
 - `cipher` -- 可选，加密算法，默认 `chacha20-ietf-poly1305`；支持的值为 `aes-128-gcm`、`aes-256-gcm`、`chacha20-ietf-poly1305`、`2022-blake3-aes-128-gcm`、`2022-blake3-aes-256-gcm` 和 `2022-blake3-chacha20-poly1305`
 - `up_bps` -- 可选，上传速率限制，单位 bytes/sec（内核 GCRA）
 - `down_bps` -- 可选，下载速率限制，单位 bytes/sec（内核 GCRA）
 
-对于 AEAD 2022 cipher 名称，`password` 必须是标准 base64 密钥材料：`2022-blake3-aes-128-gcm` 需要 16 字节解码后密钥，`2022-blake3-aes-256-gcm` 和 `2022-blake3-chacha20-poly1305` 需要 32 字节解码后密钥。AES 2022 密码可以是冒号分隔的身份密钥链；Zero 验证并使用最后一段作为用户 PSK。
+对于 AEAD 2022 cipher 名称，每个 PSK 必须是标准 base64 密钥材料：`2022-blake3-aes-128-gcm` 需要 16 字节解码后密钥，`2022-blake3-aes-256-gcm` 和 `2022-blake3-chacha20-poly1305` 需要 32 字节解码后密钥。SIP023 多用户入站只支持 AES 2022，要求独立的 `identity_password`，且 iPSK 不得与任何 uPSK 相同。同步为空 `users` 时保持 fail-closed，不会把 iPSK 当作普通用户密码。
 
 ### Trojan 入站
 
@@ -480,7 +491,10 @@ Trojan 入站需要 TLS，在 TLS 隧道内进行密码认证，然后转发目�
   "listen": { "address": "0.0.0.0", "port": 443 },
   "protocol": {
     "type": "trojan",
-    "password": "your-secret-password",
+    "users": [{
+      "password": "your-secret-password",
+      "principal_key": "account:1001"
+    }],
     "tls": {
       "cert_path": "certs/fullchain.pem",
       "key_path": "certs/privkey.pem"
@@ -490,7 +504,8 @@ Trojan 入站需要 TLS，在 TLS 隧道内进行密码认证，然后转发目�
 ```
 
 Trojan 入站配置字段：
-- `password` -- 必填，认证密码（SHA224 散列后比对）
+- `users` -- 多用户或面板管理配置；每项包含 `password`、可选稳定身份、用户限速和设备限制策略
+- `password` -- 静态单用户兼容字段（SHA224 散列后比对），不能与 `users` 同时配置
 - `sni` -- 可选，TLS SNI 值
 - `tls` -- 必填，TLS 证书配置
   - `cert_path` -- 证书文件路径
@@ -1129,15 +1144,17 @@ UDP 出站选择由内核 UDP 分发路径处理。当前 TCP、UDP、MUX、传�
 - 出站组的成员必须是已定义的出站或已定义的组
 - 出站组不能有循环引用
 - `runtime.udp_upstream_idle_timeout_seconds` 必须大于 `0`
+- `runtime.event_log_capacity` 必须大于 `0`
 - `runtime.latency_test_url` 如果设置，必须是非空的 `http://` URL
+- `runtime.principal_quota_state_path` 如果设置，必须是非空路径
 - `runtime.network.mtu` 不能小于 `576`
 - `rule_sets[*].tag` 不能为空且不能重复
 - `rule_set` 条件引用的 `tag` 必须存在
 - `url_test.url` 可省略；如果设置，当前必须是 `http://`
 - `url_test.interval_seconds` 必须大于 `0`
-- Hysteria2 入站 `password` 不能为空；出站 `server` 不能为空，`port` 必须大于 `0`
-- Shadowsocks 入站和出站 `password` 不能为空；`cipher` 必须是支持的 Shadowsocks cipher 名称之一；AEAD 2022 密码必须解码为对应方法密钥长度
-- Trojan 入站必须配置 `tls`，`cert_path` 和 `key_path` 不能为空，`password` 不能为空；出站 `server` 不能为空，`port` 必须大于 `0`，`password` 不能为空
+- Hysteria2 入站使用旧式单 `password` 或面板托管 `users`（空 `users` 表示拒绝全部新认证）；出站 `server` 不能为空，`port` 必须大于 `0`
+- Shadowsocks 入站使用旧式单 `password` 或面板托管 `users`（空 `users` 表示拒绝全部认证），出站 `password` 不能为空；`cipher` 必须是支持的 Shadowsocks cipher 名称之一；AEAD 2022 PSK 必须解码为对应方法密钥长度；SIP023 托管多用户要求 AES 2022、独立 `identity_password` 和单段 uPSK，iPSK 与 uPSK 不得复用
+- Trojan 入站必须配置 `tls`，`cert_path` 和 `key_path` 不能为空，并配置旧式 `password` 或 `users`（空 `users` 表示拒绝全部认证）；出站 `server` 不能为空，`port` 必须大于 `0`，`password` 不能为空
 - `domain_regex` 条件要求在 `values` 中至少有一个模式
 - `url_rewrite` 规则要求至少设置 `from` 或 `from_regex` 之一，且 `to` 不能为空
 - `idle_timeout_secs` 如果设置则必须大于 `0`
@@ -1166,7 +1183,8 @@ IPC 等价命令：
 
 - 路由规则、模式、DNS 配置 -- 热交换
 - outbound_groups 调整 -- 热交换
-- inbounds/outbounds 添加/删除/修改 -- 需要重启
+- inbound 添加/删除或监听形态修改 -- 运行时 reconcile；同 tag 变更会短暂重绑
+- connector 确认式 reload 在监听绑定失败时恢复上一份配置；普通 `config.apply` 仍只表示命令已接受，自动化发布方应复核运行状态
 
 ### 配置验证
 

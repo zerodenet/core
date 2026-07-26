@@ -98,8 +98,14 @@ zero --version
 ```
 build_id: <build-id>
 build_time: <build-time>
+build_profile: <debug-or-release>
+features: <comma-separated-compiled-features>
+binary_sha256: <sha256-of-this-executable>
 git: <git-describe>
+git_hash: <source-commit>
 ```
+
+`git` 保留便于人工识别的 tag/describe；`git_hash` 始终独立输出源码 commit，供发布候选、长稳 manifest 和升级记录做机器核对。`build_profile` 与 `features` 证明产物本身的优化等级和编译能力，不能用外部文件替候选二进制声明。`binary_sha256` 由正在执行的 Zero 进程读取自身可执行文件计算，归档时必须与外部哈希复核。
 
 ### zero validate
 

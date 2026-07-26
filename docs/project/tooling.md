@@ -96,7 +96,7 @@ Linux/macOS 对应命令为 `./scripts/release.sh 0.0.17-dev --start-development
 
 | Feature | 说明 |
 |---------|------|
-| `default` | 等同于 `full,status_api` |
+| `default` | 等同于 `full,status-api` |
 | `full` | 启用全部协议能力和 `dns` |
 | `dns` | DNS 子系统 |
 | `socks5` | SOCKS5 入站和出站，包括 TCP CONNECT 与 UDP ASSOCIATE |
@@ -108,11 +108,11 @@ Linux/macOS 对应命令为 `./scripts/release.sh 0.0.17-dev --start-development
 | `trojan` | Trojan 入站和出站 |
 | `vmess` | VMess 入站和出站 |
 | `mieru` | Mieru 入站和出站 |
-| `status_api` | 运行时控制端点和 selector 切换 |
-| `event_dispatcher` | 事件分发基础设施和 sink 投递状态 |
-| `sink_jsonl` | JSON Lines 事件 sink；依赖 `event_dispatcher` |
-| `panel_connector` | 面板连接器；依赖 `status_api` 和 `event_dispatcher` |
-| `grpc_api` | gRPC 控制面适配器 |
+| `status-api` | 运行时控制端点和 selector 切换 |
+| `event-dispatcher` | 事件分发基础设施和 sink 投递状态 |
+| `sink-jsonl` | JSON Lines 事件 sink；依赖 `event-dispatcher` |
+| `connector` | 通用 Webhook 事件投递；仅依赖 `event-dispatcher`，控制入口按需启用 |
+| `grpc-api` | gRPC 控制面适配器 |
 
 `zero-proxy` 还有面向内部接线的 transport feature。外部构建者应使用根 package feature，不应依赖内部 crate 当前的 feature 组合。
 

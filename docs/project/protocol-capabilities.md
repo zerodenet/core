@@ -61,7 +61,7 @@
 | `mixed` | `supported` | `supported` | `supported` | `unsupported` | `unsupported` | `not_applicable` | `kernel_builtin` |
 | `vless` | `partial` | `supported` | `partial` | `supported` | `partial` | `partial` | `xray_core_vless` |
 | `hysteria2` | `partial` | `supported` | `partial` | `supported` | `partial` | `unsupported` | `hysteria` |
-| `shadowsocks` | `partial` | `supported` | `supported` | `supported` | `supported` | `unsupported` | `shadowsocks_rust_sip022` |
+| `shadowsocks` | `partial` | `supported` | `supported` | `supported` | `supported` | `unsupported` | `shadowsocks_rust_sip022_sip023` |
 | `trojan` | `partial` | `supported` | `partial` | `supported` | `partial` | `unsupported` | `trojan_go` |
 | `vmess` | `partial` | `partial` | `partial` | `partial` | `partial` | `partial` | `xray_core_vmess_aead` |
 | `mieru` | `supported` | `supported` | `supported` | `supported` | `supported` | `unsupported` | `mieru` |
@@ -70,9 +70,9 @@
 
 主要协议缺口：
 
-- `udp_relay_final_hop_not_externally_validated`: VLESS UDP 中继链支持 TCP 中继前缀，最终跳可包装已建立的 TCP 中继流：原始 TCP、TLS、Reality、WebSocket、gRPC、H2、HTTP Upgrade 和 XHTTP。XHTTP `stream-one`（默认 `auto`）单连接模式使 SplitHTTP/XHTTP 可作为 relay-chain 最终跳——此前 SplitHTTP 需双连接（POST+GET）而 relay 前缀仅提供单流，故无法作为最终跳；现经 `stream-one` 在单流上承载上行分块（POST body）与下行分块（response body）即解决。QUIC 因 XTLS 已弃用独立 VLESS QUIC 传输且需非 TCP 载体，不支持作为 UDP 中继链最终跳。该 stream-one 路径已有内部 e2e 覆盖（`relays_udp_through_socks5_to_vless_xhttp_stream_one_relay_chain`，验证 UDP over stream-one relay 最终跳），尚未与上游 Xray 服务器完成外部互通验证。
+- VLESS UDP 中继链支持 TCP 中继前缀，最终跳可包装已建立的 TCP 中继流：原始 TCP、TLS、Reality、WebSocket、gRPC、H2、HTTP Upgrade 和 XHTTP。XHTTP `stream-one`（默认 `auto`）出站使用一条 H2/H2C 双向流，入站按首包接受 H2/H2C 或 HTTP/1.1 chunked，可作为 relay-chain 最终跳；旧式 `packet-up`/`stream-up` 仍需要两条独立连接。内部 e2e `relays_udp_through_socks5_to_vless_xhttp_stream_one_relay_chain` 与真实 Xray v26.3.27 的双向直连 TCP/标准 VLESS UDP、经 SOCKS 首跳后的最终跳 TCP/UDP 均已通过。Zero 原生 MUX/XUDP 已使用标准 Mux.Cool 元数据与独立数据帧，并通过真实 Xray v26.3.27 双向 TCP MUX、A → B → A 多目标 XUDP 及同一 MUX 池并发 association；原生 GlobalID 连续性注册表可在异常断载体后转移完整 `UdpDispatch`、区分显式 END、轮询 principal 清退并按保留期定时结算。TCP 故障代理主动切断 Xray XHTTP 载体的黑盒回归已证明同一 SOCKS UDP association 自动重连后保持同一个 engine session，最终上下行计费无重复。仍需补重连窗口内配额耗尽、响应积压上限、独立 MUX 空闲回收和长稳证据。QUIC 因 XTLS 已弃用独立 VLESS QUIC 传输且需非 TCP 载体，不支持作为 UDP 中继链最终跳。
 - `external_interop_coverage_is_incomplete`: 内置数据包处理存在，但针对基线上游实现的端到端测试不足以将每个高级路径称为生产级兼容。对于 VMess，TCP 和 UDP 基线互操作性已覆盖：Xray 双向（原始 TLS `aes-128-gcm`/`none`、WS+TLS、gRPC+TLS）、Zero 出站到 sing-box 入站（TCP+UDP）、Mihomo 出站到 Zero 入站（TCP `auto`+UDP `CMD_UDP` 原始 datagram）。这些路径的证据不得推广到未测试的传输组合（如 H2、HTTPUpgrade、XHTTP `stream-one`）。
-- `shadowsocks_2022_hardening_not_externally_validated`: Shadowsocks AEAD 2022 (SIP022) **全部 spec 章节已实现并通过内置测试**（3.1.1 加密/nonce、3.1.2 格式、3.1.3 头部+检测防御、3.1.5 重放保护、3.2 UDP 含 3.2.4 滑动窗口）。SIP022 3.2.4 的按客户端 session id 隔离 UDP 中继流已实现：`UdpFlowKey` 增加了可选 `client_session_id` 维度，SS 2022 inbound 将客户端 SIP022 session id 传入 UDP 调度层，不同客户端 session id 到同一 `(target, port)` 会建立独立的出站流。具体：TCP 请求/响应头部、固定+变量头、30 秒时间戳窗口、请求 salt 回填校验、padding、SIP022 3.1.5 的 60 秒服务端重放 salt 池、SIP022 3.1.3 的单次读取+失败时 drain 检测防御、SIP022 3.2.4 的每会话 UDP 滑动窗口重放过滤、AEAD 2022 UDP 服务端响应（回填客户端 session id）。验证覆盖：TCP 入站方向已通过 `shadowsocks-rust` 参考客户端 (`sslocal`) 端到端互操作性、TCP 出站管线已通过 Zero→Zero、AEAD 2022 UDP 服务端响应已通过手动探针（DNS 往返）。尚未完成外部验证的部分：新的检测防御/drain 与滑动窗口对抗真实主动探测/重放攻击的行为，以及与未损坏的外部 `ssserver` 的直接互操作（此环境下的 `ssserver` 单次读取存在 Windows 环境缺陷，已通过参考对对照测试排除 Zero 自身缺陷）。
+- `shadowsocks_2022_hardening_not_externally_validated`: Shadowsocks AEAD 2022 SIP022 全部章节及 SIP023 AES EIH 已实现并通过内置测试。SIP023 覆盖 TCP/UDP EIH、身份链出站、基于预计算身份哈希的 O(1) 用户选择、选定 uPSK 响应、原子用户热更新和空快照 fail-closed；SIP022 覆盖 TCP 请求/响应头、时间戳、padding、检测防御、服务端 salt 重放池、UDP 滑动窗口、按 client session id 隔离流及状态化服务端响应。两种 AES 2022 方法的 TCP/UDP 双向路径均已与 `shadowsocks-rust` 1.24.0 验证（`sslocal` → Zero、Zero → `ssserver`）；剩余缺口是用真实主动探测器和重放工具验证检测防御、drain 与滑动窗口的对抗行为。
 - `vless_quic_transport_deprecated_by_xtls`: XTLS 已移除独立 VLESS `quic` 传输，其继任者为 XHTTP `stream-one` over H3。项目保留 `quic` 配置字段以向后兼容，但 metadata `transports` 不再列出 `quic`，且不作最终跳推荐。
 
 ## 基线完备
@@ -86,9 +86,9 @@
 | `socks5` | 完备 | 无剩余协议缺口 |
 | `http` | 完备 | UDP 不适用 |
 | `mixed` | 完备 | Mixed 是内核入站多路复用器：SOCKS5 TCP CONNECT 和 UDP ASSOCIATE 使用 SOCKS5 运行时路径；HTTP CONNECT 使用 HTTP TCP 运行时路径 |
-| `vless` | TCP 和 UDP-over-stream 基线路径完备 | UDP MUX outbound 尚未接入 VlessUdpOutboundManager；XHTTP `stream-one` 最终跳路径尚未与上游 Xray 完成外部互通验证；QUIC 传输已被 XTLS 弃用 |
+| `vless` | TCP 和 UDP-over-stream 基线路径完备；XHTTP `stream-one` 双向直连及 relay-chain 最终跳已与 Xray v26.3.27 完成 TCP/标准 VLESS UDP 外部互通；Zero 原生标准 Mux.Cool TCP/XUDP 已完成双向 TCP MUX、A → B → A 多目标 XUDP 与并发 association 外部互通；原生 GlobalID 注册表可跨异常断开的载体转移完整 `UdpDispatch`、及时处理 detached principal 清退并定时结算过期状态；Xray 主动断载体黑盒保持同一 engine session 且最终计费无重复 | 尚缺重连窗口内配额耗尽、响应积压上限、独立 MUX 空闲超时和长稳；QUIC 传输已被 XTLS 弃用 |
 | `trojan` | TCP 和 UDP-over-stream 基线路径完备 | 外部互操作性覆盖不完整（中继流 TLS 指纹已支持，见 `relay_stream_tls_client_fingerprint_is_not_supported`） |
-| `shadowsocks` | 普通 AEAD TCP 和 UDP datagram 路径完备，包括 Shadowsocks UDP over SOCKS5、大 TCP 载荷分块、错误密码拒绝、数据包路径中继链以及针对 `shadowsocks-rust` 的本地外部 UDP 出站互操作性（覆盖所有支持的 cipher）；AEAD 2022 (SIP022) **spec 全部章节已实现**——TCP 请求/响应头部协议（固定+变量头、30 秒时间戳窗口、请求 salt 回填校验、padding）、SIP022 3.1.3 检测防御（salt+固定头单次读取 + 失败时 drain）、SIP022 3.1.5 服务端重放 salt 池（60 秒）、SIP022 3.2.4 每会话 UDP 滑动窗口重放过滤 + 按客户端 session id 隔离 UDP 中继流（`client_session_id` 传入 UDP 调度层，不同客户端到同一 target 不复用出站流）、AEAD 2022 UDP 服务端响应（回填客户端 session id），覆盖三个 blake3 cipher 双向基线路径；TCP 入站方向已通过 `shadowsocks-rust` 参考客户端 (`sslocal`) 端到端互操作性验证，AEAD 2022 UDP 服务端响应已通过手动探针（DNS 往返）验证，TCP 出站管线已通过 Zero→Zero 端到端验证 | 新增的检测防御/drain 与滑动窗口尚未对抗真实主动探测/重放攻击完成外部验证；TCP 出站方向尚未在未损坏的外部 `ssserver` 上完成端到端验证（此环境下的 `ssserver` 单次读取有 Windows 环境缺陷，已通过参考对对照测试排除 Zero 自身缺陷） |
+| `shadowsocks` | 普通 AEAD TCP/UDP 路径及 AEAD 2022 SIP022 全部章节完备；SIP023 AES EIH 支持 TCP/UDP、多用户 O(1) 身份选择、选定 uPSK 响应与热更新 fail-closed；两种 AES 2022 方法已完成 `shadowsocks-rust` 1.24.0 TCP/UDP 双向互操作 | 检测防御、失败 drain 与 UDP 滑动窗口尚未用真实主动探测器和重放工具完成对抗验证 |
 | `hysteria2` | QUIC TCP 流和 UDP datagram 基线路径完备 | 外部互操作性覆盖不完整（QUIC UDP 链载体已实现，见 `udp_relay_chain_quic_path_not_supported`） |
 | `mieru` | TCP 流和 UDP associate 基线路径完备；出站 TCP/UDP 已与外部 mita 互通验证，入站经 `protocols/mieru/tests/loopback.rs` 对已验证出站配对验证 | 无剩余协议缺口 |
 | `vmess` | 基线 TCP 握手、TCP/UDP MUX、UDP-over-stream、同协议 `vmess -> vmess` UDP 中继链和 body relay 已针对内置运行时实现；原始 TLS、WSS、gRPC、`cipher: auto` 规范化、`cipher: none` / `cipher: zero`、本地 TCP MUX、本地 MUX UDP、本地 UDP 单跳中继和本地同协议 UDP 中继链具有内置覆盖；body AEAD 支持认证长度、块掩码（SHAKE128）、全局填充和定期密钥旋转（2^14 块）；外部 TCP 和 UDP 基线互操作性已覆盖：Xray 双向、Zero 出站到 sing-box 入站、Mihomo 出站到 Zero 入站；Xray WS/gRPC TCP 传输互操作性已覆盖双向 | 外部互操作性覆盖和主流 `cipher: zero` 兼容性仍不完整 |
@@ -126,7 +126,7 @@
 13. `UdpDatagramFraming` 针对 Shadowsocks UDP datagram 实现。Shadowsocks crate 拥有目标数据编码、盐生成、AEAD/2022 KDF 选择、UDP 加密、UDP 解密、AEAD 2022 客户端数据包头部处理和目标数据解析。代理拥有 UDP socket、上游缓存、响应匹配、路由、fallback、会话生命周期、统计和事件。UDP 中继链使用通用 datagram-over-packet-path 模型：`UdpPacketPath` 载体承载 `DatagramCodec` 编码的 datagram。已实现的 Shadowsocks 最终跳载体为 SOCKS5 UDP ASSOCIATE 和 Shadowsocks UDP。添加新组合需要实现这两个特征，而不是创建按协议对特定的模块。
     Shadowsocks TCP 入站 accept 返回 `ShadowsocksAccept`，协议 crate 拥有 AEAD 流封装器、服务器到客户端响应盐生成、下载密钥派生、块加密和块解密。代理拥有监听器生命周期、认证归因、TCP 管道入口、路由、计量、会话生命周期、统计和事件。
     内置验证覆盖所有支持的 Shadowsocks TCP cipher、大 TCP 载荷分块、错误密码 TCP 拒绝、SOCKS5-to-Shadowsocks UDP 中继、所有支持的 Shadowsocks UDP cipher 和基于已实现数据包路径载体的 Shadowsocks UDP 中继链。本地外部验证覆盖 SOCKS5 UDP ASSOCIATE 通过 Shadowsocks 出站到 `shadowsocks-rust ssserver -U`，覆盖所有支持的 cipher，包括 AEAD 2022 AES-GCM 和 AEAD 2022 XChaCha20Poly1305 UDP 数据包格式。
-    AEAD 2022 TCP 仍缺少 SIP022 TCP 请求/响应头部协议。AEAD 2022 UDP 服务器端响应仍需要状态化响应上下文，Zero 才能作为完全兼容的外部 AEAD 2022 UDP 服务器运行。
+    AEAD 2022 SIP022 TCP 请求/响应头、状态化 UDP 服务端响应和 SIP023 AES EIH 已实现，并完成 `shadowsocks-rust` 1.24.0 TCP/UDP 双向互操作；剩余门槛是主动探测与重放攻击验证。
 14. `UdpDatagramFraming` 针对 Hysteria2 UDP datagram 载荷实现。Hysteria2 crate 拥有 UDP datagram 目标编码/解码；代理拥有 QUIC 连接设置、认证、UDP datagram 发送/接收、路由、fallback、会话生命周期、统计和事件。Hysteria2 还提供 `UdpPacketPath` 载体，用于 packet-path relay chain；当前落点是 `[Hysteria2, Shadowsocks]`。Hysteria2 使用代理运行时中的传输特定 connector，因为 QUIC 连接设置与协议协商集成，不分解为流级握手。
 15. Mieru TCP 使用 `TcpSessionProtocol` 进行加密流会话设置。在 TCP 中继链中，Mieru 可以作为中间跳，因为代理运行 Mieru 会话握手并在应用下一跳之前用 `MieruTcpStream` 包装中继流。`UdpPacketFraming` 针对 Mieru UDP associate 封装实现。Mieru UDP 通过加密 Mieru 流集成在代理 UDP 分发路径中；协议 crate 拥有 Mieru 段加密/解密状态和 UDP associate 帧封装，而代理拥有路由、中继前缀设置、上游缓存、任务调度、统计和事件。UDP 中继链针对 TCP 中继前缀和 Mieru 作为最终跳实现。
 

@@ -25,13 +25,57 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | — | 暂无待发布的兼容性变更 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | 构建脚本、事件消费者、Webhook 接收端 | 公开 Cargo feature 改用 kebab-case；引擎生成的 `event_id` 增加每次启动唯一的随机 epoch；开发期固定中心 API 被撤销，Connector 收缩为通用 Webhook 事件投递；认证项速率改为 Zero 主体策略聚合 <!-- version-contract:unreleased-row --> |
 | `0.0.15-rc.1` | 进程内 Rust `EventSource`、事件 Sink | Rust 实现者必须迁移到实时 `EventStream`；IPC/HTTP/gRPC GUI wire 无变化 |
 | `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
 
 ## Unreleased
 
-<!-- 在这里登记已实现但尚未封板的兼容性变更。 -->
+### 撤销开发期固定中心 API
+
+项目尚未发布 Connector 合同，因此开发期的节点注册、同步、traffic、presence、访问配置和私有命令设计直接撤销，不保留兼容层。
+
+已移除顶层 `push`、`PushConfig`、`/api/v1/nodes/{node_id}/*`、中心 OpenAPI、conformance 和 production gate。外部控制器通过 Zero API/gRPC 管理节点，并使用 `config.apply` 注册通用 `api.event_sinks`。Connector 只向完整 Webhook URL 推送 `zero.event.v1`，并定义 HTTP 状态确认分类。
+
+### 公开 Cargo feature 改用 kebab-case
+
+构建入口不再暴露下划线式能力名。构建脚本、CI 和制品 feature 校验需要完成以下迁移：
+
+| 旧名称 | 新名称 |
+| --- | --- |
+| `status_api` | `status-api` |
+| `event_dispatcher` | `event-dispatcher` |
+| `sink_jsonl` | `sink-jsonl` |
+| `panel_connector` | `connector` |
+| `grpc_api` | `grpc-api` |
+
+Rust 函数、模块和变量仍按语言规范使用 `snake_case`；本次变化只影响 Cargo feature 名称和二进制对外报告的 feature 字符串。历史候选证据保留其原始名称，不得重写后冒充新候选。
+
+### 引擎生成事件使用跨启动唯一 ID
+
+旧事件 ID 仅由事件类型、进程内 flow ID/序号和毫秒时间戳组成。进程快速重启后这些值可能复用，使 Connector 接收端或 Sink 把新事实误判为已处理事件。
+
+新语义：
+
+- 每个 `EngineEventLog` 创建时生成一个 128 位随机 epoch；
+- 所有引擎内部生成的事件 ID 均以前述 epoch 限定，在同一进程内重放时保持不变；
+- 通过进程内 `emit()` 注入、由调用者拥有 ID 的外部事件保持原 ID；
+- `event_id` 的内部拼接形式不是公共契约，消费者只能比较完整字符串并用于幂等去重。
+
+该变化不修改 `zero.event.v1` 的 JSON 字段形状，但修正了跨进程启动的唯一性语义。任何依赖旧 `{type}:{flow_id}:{timestamp}` 格式解析的消费者必须删除该解析逻辑，改用 `event_type`、`payload.record.flow_id` 和 `occurred_at_unix_ms` 等正式字段。
+
+### 用户速率改为 Zero 主体策略聚合
+
+开发态预资格期间，`up_bps` / `down_bps` 曾被描述并执行为单条 TCP/UDP flow 的限制。该语义允许同一主体通过增加并发连接绕过带宽策略，不满足 Zero 主体策略的定义。
+
+新语义：
+
+- 同一 `principal_key`、`policy_revision` 和双向速率组成一个 Zero 主体策略身份；
+- 该身份下的并发 TCP/UDP 会话共享上传、下载 GCRA 时间线；
+- revision 或速率变化建立新时间线，旧会话在确认式清退前继续持有旧策略；
+- 没有 `principal_key` 的入站默认限速仍按会话独立执行。
+
+JSON 字段形状和当时的 `zero.panel.v1` schema ID 不变。该修正发生在首个清洁 release candidate 和正式生产签字之前；历史开发态 manifest 只能证明当时的每流实现，不得继续作为当前候选产物证据。接收端无需修改 wire payload，但容量规划和限速验收必须改为并发 TCP/UDP 聚合测试。
 
 ## 0.0.15-rc.1
 

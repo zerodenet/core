@@ -105,8 +105,8 @@ if (checkDist) {
   const html = readFileSync(htmlPath, 'utf8');
   for (const content of [source, html]) {
     assert(content.includes('工程规则'), '构建产物缺少 UTF-8 中文标题');
-    assert(content.includes('status_api'), '构建产物缺少当前 feature: status_api');
-    assert(content.includes('event_dispatcher'), '构建产物缺少当前 feature: event_dispatcher');
+    assert(content.includes('status-api'), '构建产物缺少当前 feature: status-api');
+    assert(content.includes('event-dispatcher'), '构建产物缺少当前 feature: event-dispatcher');
   }
 }
 

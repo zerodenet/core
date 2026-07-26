@@ -82,7 +82,8 @@
 | `policies.probe` | `policy_tag` | 探测 url_test 组延迟（异步，结果经事件/查询取） |
 | `flows.close` | `flow_id` | 关闭指定流 |
 | `config.validate` | `config` (完整 JSON) | 验证配置 |
-| `config.apply` | `config` (完整 JSON) | 热加载配置 |
+| `config.apply` | `config` (完整 JSON) | 持久化并等待 proxy 与进程级服务热重建；失败回滚 |
+| `config.apply_runtime` | `config` (完整 JSON) | 不写回源文件，并等待 proxy 与进程级服务热重建；失败回滚 |
 | `mode.set` | `mode`, `outbound?` | 设置全局模式 |
 | `tun.start` | `name?`, `addr`, `mask?`, `mtu?`, `tag` | 启动 TUN |
 | `tun.stop` | — | 停止 TUN |
@@ -168,7 +169,7 @@ IPC 响应使用统一信封格式（`zero_api::ApiResponse`），包含 `api_id
 | `QueryRequest::Policies` | `"policies"` | `[policy, ...]` |
 | `QueryRequest::Policy` | `"policy"` | `{tag, kind, outbounds, selected, ...}` |
 | `QueryRequest::Diagnostics` | `"diagnostics"` | `{healthy, active_sessions, ...}` |
-| `QueryRequest::Sinks` | `"sinks"` | `{sinks: [{name, total_delivered, ...}]}` |
+| `QueryRequest::Sinks` | `"sinks"` | `{sinks: [{name, pending, total_delivered, total_failed, replay_gaps, ...}]}` |
 | `QueryRequest::TunStatus` | `"tun_status"` | `{running, name, addr, tag}` |
 
 > **注意：** 这是 IPC 通道的格式。HTTP 通道的 `result` 字段**不包含**变体名 key——直接就是内部数据。例如 HTTP `GET /api/v1/health` 返回 `result: {"engine_build_id":"build-id",...}`，而 IPC 返回 `result: {"health":{"engine_build_id":"build-id",...}}`。

@@ -181,13 +181,13 @@ curl -s http://127.0.0.1:9090/api/v1/runtime
 | 集成对象 | 推荐入口 | 覆盖能力 |
 |----------|----------|----------|
 | 本地 GUI 客户端 | [GUI 接入指南](gui-integration.md) | IPC/HTTP 查询、命令、实时 flow 与状态恢复 |
-| 机场面板 | [机场面板接入指南](panel-integration.md) | 节点心跳、用户归因、流量计费、Webhook 和远程运维 |
+| 外部控制器 | [Connector 接入指南](connector-integration.md) | Zero API/gRPC 管理与 Webhook 事件回传 |
 
-机场面板集成使用三条独立链路：PushConnector 负责节点心跳和命令，EventDispatcher/Webhook 负责 `flow.completed` 计费事件，Control API 负责受保护的运维查询。订阅、套餐和支付仍由面板自身实现。
+外部控制器通过 Zero HTTP/gRPC Control API 执行查询、命令和 `config.apply`；需要节点主动回传时，由中心在 `api.event_sinks` 注册完整 Webhook URL，Connector 可靠投递 `zero.event.v1`。订阅、套餐和支付仍由外部系统自身实现。
 
 ## 下一步
 
 - [完整配置参考](../control-plane-api/configuration.md)
 - [GUI 接入指南](gui-integration.md)
-- [机场面板接入指南](panel-integration.md)
+- [Connector 接入指南](connector-integration.md)
 - [控制面 API 参考](../control-plane-api/)

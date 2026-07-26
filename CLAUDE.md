@@ -44,7 +44,7 @@ Zero is a network proxy kernel written in Rust.
 - Commands: policy select, probe, flow close, config apply
 - Events: SSE stream with `Last-Event-ID` resumption; File (JSON-line rotation) / Webhook / Memory / Callback dispatchers
 - Hooks: FlowHook trait, IPC external process decision
-- Push connector: heartbeat + remote commands for node reporting
+- Connector: controller-registered webhook delivery of Zero events
 - Embedded: `zero-ffi` crate — C-compatible `cdylib` + `staticlib` for Go/Python/mobile
 
 ## Common Commands
@@ -53,7 +53,7 @@ Zero is a network proxy kernel written in Rust.
 # Build
 cargo build
 cargo build --release
-cargo build --features full,status_api          # default feature set
+cargo build --features full,status-api          # default feature set
 
 # Test
 cargo test --workspace
@@ -136,7 +136,7 @@ make fmt / check / test / clippy / build / release / run / run-status / status /
 
 7. **Support Crates**
    - `crates/api` (`zero-api`) — control plane API types
-   - `crates/connector` (`zero-connector`) — event dispatcher connectors (jsonl sink, webhook, push)
+   - `crates/connector` (`zero-connector`) — event dispatcher sinks (JSONL and webhook)
    - `crates/crypto` (`zero-crypto`) — crypto utilities (Reality, TLS)
    - `crates/logging` (`zero-logging`) — structured logging
    - `crates/ztls` (`ztls`) — custom TLS 1.3 client with ClientHello control (uTLS-level fingerprinting); used by `zero-transport`
@@ -209,10 +209,10 @@ Always included: config parsing, routing, `EnginePlan`/`EngineState`, `direct`/`
 
 Optional protocol features:
 - `socks5`, `http`, `mixed`, `vless`, `hysteria2`, `shadowsocks`, `trojan`, `vmess`, `mieru`, `dns`
-- `status_api` — HTTP status endpoint
-- `event_dispatcher`, `sink_jsonl`, `panel_connector` — event connectors
+- `status-api` — HTTP status endpoint
+- `event-dispatcher`, `sink-jsonl`, `connector` — event connectors
 
-Default: `full,status_api` (all protocols + status API)
+Default: `full,status-api` (all protocols + status API)
 
 ## Configuration Format
 

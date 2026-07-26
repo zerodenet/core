@@ -283,7 +283,7 @@ event {
 
 事件可以用于外部系统构建自己的投影，例如按 `principal_key` 统计流量消耗。但这些外部投影不反向成为 `zero-engine` 的状态来源。
 
-当前已实现的归因来源是 VLESS 入站用户配置。`protocol.users[*].principal_key` 会进入事件顶层 `principal_key`，`credential_id` 和 `principal_key` 会进入 `payload.auth`；VLESS UUID 作为认证凭据使用，不会默认写入事件。
+当前已实现的归因来源是入站访问配置。`protocol.users[*].principal_key` 会进入事件顶层和 `payload.auth`；协议 UUID 或密码只作为认证秘密使用，不会默认写入事件。
 
 ## Webhook 和外部回调
 
@@ -370,7 +370,7 @@ HTTP adapter 将这些能力暴露在 `/api/v1/*` 命名空间下，IPC 和 CLI 
 - `diagnostics.trace_route`
   - 已实现。查看路由规则匹配结果
 
-热重载已实现，覆盖路由规则、出站组/出站、运行模式、入站 listener、DNS 配置。通过 `config.apply` 命令触发，走 staged apply：validate → plan rebuild → atomic swap → proxy reconciliation。
+热重载已实现，覆盖路由规则、出站组/出站、运行模式、入站 listener、DNS 配置、flow hooks、EventDispatcher 和原生 connector。`config.apply` 是持久化部署边界；`config.apply_runtime` 是不写回源文件的运行时覆盖边界。两者通过可等待确认的公共命令服务依次完成 proxy reconciliation 与 application service reconciliation；任一阶段失败都会恢复 last-known-good。`api.control` 的监听地址和鉴权不能在承载当前命令时自替换，变更会被拒绝并要求显式重启。
 
 `policies.select` 通过 HTTP `POST /api/v1/commands` 调用，请求体示例：
 

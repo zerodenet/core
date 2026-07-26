@@ -18,5 +18,4 @@ title: 控制面设计档案
 | [事件系统设计](./04-event-system.md) | 事件总线与 Sink 方案 |
 | [认证与权限设计](./05-auth-and-permissions.md) | 认证和权限模型 |
 | [服务提供者集成](./06-service-provider-integration.md) | 内核与上层业务边界 |
-| [节点心跳与上报](./07-node-heartbeat-and-push.md) | Connector 、心跳和命令下发方案 |
 | [性能与限流设计](./08-performance-and-rate-limiting.md) | 性能估算和限流分层 |

@@ -109,7 +109,7 @@ API 能力列表。
       "limitations": []
     }
   ],
-  "build_features": ["status_api", "socks5", "http", "mixed", "vless"],
+  "build_features": ["status-api", "socks5", "http", "mixed", "vless"],
   "permissions": ["read"]
 }
 ```
@@ -245,7 +245,33 @@ API 能力列表。
 
 ### GET /api/v1/sinks
 
-事件接收器投递状态快照。
+事件 sink 的投递状态快照。`pending` 表示尚未投递或尚未持久 ACK 的当前积压。
+
+```json
+{
+  "sinks": [
+    {
+      "name": "connector-traffic",
+      "pending": 12,
+      "total_delivered": 4200,
+      "total_failed": 3,
+      "replay_gaps": 1,
+      "last_success_at_unix_ms": 1713500000000,
+      "last_failure_at_unix_ms": 1713499900000,
+      "last_error": null,
+      "outbox_storage": {
+        "available_bytes": 8589934592,
+        "total_bytes": 107374182400,
+        "reserve_bytes": 5368709120,
+        "maintenance_reserve_bytes": 1342177280,
+        "write_blocked": false
+      }
+    }
+  ]
+}
+```
+
+`replay_gaps` 是单调累计的事件序列断档数；后续投递恢复成功只会清除 `last_error`，不会清零该计数。事件 sink 的 `pending` 在配置 outbox 时统计完整磁盘 backlog，包括尚未载入内存页的未 ACK 事件。配置 outbox 时还会返回 `outbox_storage`；`reserve_bytes` 是绝对值与比例配置计算出的有效 PUT 保留水位，`maintenance_reserve_bytes` 是 ACK 和压缩仍不得突破的紧急水位。`write_blocked: true` 表示新的 outbox PUT 已暂停，但只要尚未到紧急水位，现有 delivery 仍可投递和 ACK。未配置 outbox 时该字段省略。
 
 ### GET /api/v1/tun_status
 
@@ -384,16 +410,42 @@ Response：
 
 #### config.apply
 
-热加载配置。成功后路由规则、出站组、模式原子替换，活动连接不受影响。
+持久化并热加载完整运维配置。响应会等待 proxy listener、flow hooks 和 EventDispatcher 等进程级服务完成 reconciliation；任一步失败都会恢复上一份运行态和源文件。
 
 Params：`config` (object, 完整配置)
 
 Response：
 ```json
-{ "applied": true }
+{
+  "applied": true,
+  "persistence": "source_file",
+  "reconciled": true,
+  "application_components": ["event-dispatcher"]
+}
 ```
 
-错误：`invalid_argument` — 配置无效
+错误：
+- `invalid_argument` — 配置无效
+- `internal` — listener 或 application service 重建失败，响应 message 会说明回滚结果
+- `api.control` 的 listener/credential 变更会 fail-closed；当前不支持在承载命令的控制面上自替换，需显式重启
+
+权限：`config`
+
+#### config.apply_runtime
+
+应用不写回运维配置文件的运行时覆盖。HTTP、IPC 与 gRPC 都通过可等待确认的公共命令入口执行；响应只会在 proxy 与 application service reconcile 完成后返回。
+
+Params：`config` (object, 完整配置)
+
+Response：
+```json
+{
+  "applied": true,
+  "persistence": "runtime_only",
+  "reconciled": true,
+  "application_components": []
+}
+```
 
 权限：`config`
 

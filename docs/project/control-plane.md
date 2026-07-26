@@ -2,15 +2,15 @@
 
 Zero 的控制面和观测模型以自有核心规范为准。
 
-Clash、sing-box、Xray 等项目只作为行业经验参考，不作为 Zero 内核的 API 契约来源。项目可以在外层提供兼容适配，但内核、SDK、面板和客户端应优先围绕 Zero 自己的统一模型设计。
+Clash、sing-box、Xray 等项目只作为行业经验参考，不作为 Zero 内核的 API 契约来源。任何兼容转换由外部项目负责；Zero 内核、SDK 和客户端围绕统一的 Zero 模型设计。
 
 ## 原则
 
 - 核心规范先行，外部兼容后置
 - 内核能力不继承外部项目的历史包袱
-- 面板、客户端、SDK 面向 Zero 规范，而不是面向某个第三方 API
-- Clash / sing-box / Xray 兼容可以作为 adapter、gateway 或额外工具存在
-- adapter 不应反向约束 `zero-engine`、配置模型、运行时状态和长期 API
+- 外部系统、客户端和 SDK 面向 Zero 规范，而不是面向某个第三方 API
+- Clash / sing-box / Xray 兼容只能作为 Zero 仓库和进程之外的转换工具存在
+- 外部转换工具不得反向约束 `zero-engine`、配置模型、运行时状态和长期 API
 
 ## 边界
 
@@ -32,7 +32,7 @@ Clash、sing-box、Xray 等项目只作为行业经验参考，不作为 Zero �
 - `policy`：选择或组合策略，例如 `selector`、`fallback`、`url_test`
 - `target`：路由和模式引用的统一目标，可以指向 outbound 或 policy
 - `route`：匹配条件到 target 的决策规则
-- `event`：面向控制面和面板消费的运行时事件
+- `event`：面向控制面消费者的运行时事件
 
 不要把内部实现名固化为外部 API：
 
@@ -42,7 +42,7 @@ Clash、sing-box、Xray 等项目只作为行业经验参考，不作为 Zero �
 外部适配层负责处理：
 
 - 第三方 API 路径和字段名
-- 第三方面板协议
+- 外部系统私有协议
 - 第三方历史字段
 - 语义不完全一致时的映射和降级
 
@@ -53,9 +53,9 @@ Clash、sing-box、Xray 等项目只作为行业经验参考，不作为 Zero �
 新增观测或控制能力应先回答：
 
 - 这个字段是否属于 Zero 核心规范
-- 它是否能被面板、客户端和 SDK 长期复用
+- 它是否能被外部系统、客户端和 SDK 长期复用
 - 它是否只是某个外部生态的兼容字段
-- 如果是兼容字段，是否应该放在 adapter 而不是内核导出里
+- 如果是外部兼容字段，是否应完全留在 Zero 之外
 
 ## GUI 接入短期优先级
 

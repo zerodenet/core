@@ -713,7 +713,7 @@ Error: invalid dns config: `dns.fake_ip.cidr` is not a valid CIDR: not-a-cidr
     { "protocol": "socks5", "feature": "socks5", "inbound": true, "outbound": true },
     { "protocol": "vless", "feature": "vless", "inbound": true, "outbound": true }
   ],
-  "features": ["status_api", "config_snapshot"],
+  "features": ["status-api", "config_snapshot"],
   "adapters": [{ "kind": "in_process", "enabled": true }]
 }
 ```
