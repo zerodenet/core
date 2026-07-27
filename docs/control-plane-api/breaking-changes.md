@@ -25,11 +25,16 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | 构建脚本、事件消费者、Webhook 接收端 | 公开 Cargo feature 改用 kebab-case；引擎生成的 `event_id` 增加每次启动唯一的随机 epoch；开发期固定中心 API 被撤销，Connector 收缩为通用 Webhook 事件投递；认证项速率改为 Zero 主体策略聚合 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | — | 暂无待发布的兼容性变更 <!-- version-contract:unreleased-row --> |
+| `0.0.15-rc.2` | 构建脚本、事件消费者、Webhook 接收端 | 公开 Cargo feature 改用 kebab-case；引擎生成的 `event_id` 增加每次启动唯一的随机 epoch；开发期固定中心 API 被撤销，Connector 收缩为通用 Webhook 事件投递；认证项速率改为 Zero 主体策略聚合 |
 | `0.0.15-rc.1` | 进程内 Rust `EventSource`、事件 Sink | Rust 实现者必须迁移到实时 `EventStream`；IPC/HTTP/gRPC GUI wire 无变化 |
 | `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
 
 ## Unreleased
+
+<!-- 在这里登记已实现但尚未封板的兼容性变更。 -->
+
+## 0.0.15-rc.2
 
 ### 撤销开发期固定中心 API
 
