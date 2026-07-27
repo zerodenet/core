@@ -134,11 +134,7 @@ pub(super) fn validate_inbound_protocol(
             validate_shadowsocks_users(password, identity_password.as_deref(), users, cipher)
         }
         InboundProtocolConfig::Trojan {
-            password,
-            users,
-            sni: _,
-            tls: _,
-            ..
+            password, users, ..
         } => validate_trojan_users(password, users),
         InboundProtocolConfig::Vmess {
             users,
