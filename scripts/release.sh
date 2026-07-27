@@ -137,6 +137,23 @@ assert_development_contract() {
     echo "$current"
 }
 
+assert_unsealed_contract() {
+    local cargo=${1:-$CARGO_TOML} breaking=${2:-$BREAKING_CHANGES}
+    local current
+    current=$(workspace_version "$cargo")
+    [[ -n "$current" ]] || fail "workspace package version was not found"
+    if [[ "$current" == *-dev ]]; then
+        validate_version "$current" development
+        if grep -Fq "$current" "$breaking"; then
+            fail "development version '$current' must not be bound into the compatibility ledger"
+        fi
+    else
+        validate_version "$current" release
+    fi
+    assert_common_contract "$breaking"
+    echo "$current"
+}
+
 assert_release_contract() {
     local cargo=$1 breaking=$2 release_version=$3
     local current row
@@ -205,7 +222,7 @@ render_release_docs() {
 prepare_release_contract() {
     local release_version=$1 dry_run=$2
     local current body cargo_tmp docs_tmp
-    current=$(assert_development_contract "$CARGO_TOML" "$BREAKING_CHANGES")
+    current=$(assert_unsealed_contract "$CARGO_TOML" "$BREAKING_CHANGES")
     validate_version "$release_version" release
     if grep -Eq "^## ${release_version//./\\.}\r?$" "$BREAKING_CHANGES"; then
         fail "release '$release_version' already exists in breaking changes"
@@ -238,6 +255,9 @@ start_development() {
     current=$(workspace_version "$CARGO_TOML")
     if [[ "$current" == *-dev ]]; then
         assert_development_contract "$CARGO_TOML" "$BREAKING_CHANGES" >/dev/null
+    elif [[ "$(unreleased_row "$BREAKING_CHANGES")" != "$EMPTY_ROW" ]] || \
+        unreleased_body "$BREAKING_CHANGES" | body_is_substantive; then
+        assert_unsealed_contract "$CARGO_TOML" "$BREAKING_CHANGES" >/dev/null
     else
         assert_release_contract "$CARGO_TOML" "$BREAKING_CHANGES" "$current"
     fi
@@ -267,6 +287,10 @@ case "$MODE" in
         if [[ "$current" == *-dev ]]; then
             assert_development_contract "$CARGO_TOML" "$BREAKING_CHANGES" >/dev/null
             echo "Development contract is valid ($current, Unreleased)."
+        elif [[ "$(unreleased_row "$BREAKING_CHANGES")" != "$EMPTY_ROW" ]] || \
+            unreleased_body "$BREAKING_CHANGES" | body_is_substantive; then
+            assert_unsealed_contract "$CARGO_TOML" "$BREAKING_CHANGES" >/dev/null
+            echo "Unsealed release contract is valid ($current, Unreleased)."
         else
             assert_release_contract "$CARGO_TOML" "$BREAKING_CHANGES" "$current"
             echo "Release contract is valid ($current)."

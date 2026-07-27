@@ -118,6 +118,22 @@ function Assert-DevelopmentContract([string]$CargoContent, [string]$BreakingCont
     return $currentVersion
 }
 
+function Assert-UnsealedContract([string]$CargoContent, [string]$BreakingContent) {
+    $currentVersion = Get-WorkspaceVersion $CargoContent
+    if ($currentVersion.EndsWith("-dev", [System.StringComparison]::Ordinal)) {
+        Assert-Version $currentVersion $true
+        if ($BreakingContent.IndexOf($currentVersion, [System.StringComparison]::Ordinal) -ge 0) {
+            throw "Development version '$currentVersion' must not be bound into the compatibility ledger."
+        }
+    }
+    else {
+        Assert-Version $currentVersion $false
+    }
+    [void](Get-UnreleasedRow $BreakingContent)
+    [void](Get-UnreleasedBody $BreakingContent)
+    return $currentVersion
+}
+
 function Assert-ReleaseContract(
     [string]$CargoContent,
     [string]$BreakingContent,
@@ -147,7 +163,7 @@ function Prepare-ReleaseContract(
     [string]$BreakingContent,
     [string]$ReleaseVersion
 ) {
-    [void](Assert-DevelopmentContract $CargoContent $BreakingContent)
+    [void](Assert-UnsealedContract $CargoContent $BreakingContent)
     Assert-Version $ReleaseVersion $false
     if ($BreakingContent -match ('(?m)^## ' + [regex]::Escape($ReleaseVersion) + '\r?$')) {
         throw "Release '$ReleaseVersion' already exists in breaking changes."
@@ -205,6 +221,11 @@ if ($Check) {
         [void](Assert-DevelopmentContract $cargoContent $breakingContent)
         Write-Host "Development contract is valid ($currentVersion, Unreleased)." -ForegroundColor Green
     }
+    elseif ((Get-UnreleasedRow $breakingContent) -ne $emptyRow -or
+        (Test-SubstantiveBody (Get-UnreleasedBody $breakingContent))) {
+        [void](Assert-UnsealedContract $cargoContent $breakingContent)
+        Write-Host "Unsealed release contract is valid ($currentVersion, Unreleased)." -ForegroundColor Green
+    }
     else {
         Assert-ReleaseContract $cargoContent $breakingContent $currentVersion
         Write-Host "Release contract is valid ($currentVersion)." -ForegroundColor Green
@@ -225,6 +246,10 @@ if ($StartDevelopment) {
     $currentVersion = Get-WorkspaceVersion $cargoContent
     if ($currentVersion.EndsWith("-dev")) {
         [void](Assert-DevelopmentContract $cargoContent $breakingContent)
+    }
+    elseif ((Get-UnreleasedRow $breakingContent) -ne $emptyRow -or
+        (Test-SubstantiveBody (Get-UnreleasedBody $breakingContent))) {
+        [void](Assert-UnsealedContract $cargoContent $breakingContent)
     }
     else {
         Assert-ReleaseContract $cargoContent $breakingContent $currentVersion
