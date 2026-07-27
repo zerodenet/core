@@ -12,7 +12,7 @@ use super::reality_client_verify::{
     verify_certificate_hmac, verify_certificate_verify_signature,
 };
 use ztls::aead::{decrypt_handshake_message, AeadKey};
-use ztls::cipher::{CipherSuite, DEFAULT_CIPHER_SUITES};
+use ztls::cipher::CipherSuite;
 use ztls::common::{
     ALERT_DESC_CLOSE_NOTIFY, ALERT_LEVEL_WARNING, CIPHERTEXT_READ_BUF_CAPACITY, CONTENT_TYPE_ALERT,
     CONTENT_TYPE_APPLICATION_DATA, CONTENT_TYPE_CHANGE_CIPHER_SPEC, CONTENT_TYPE_HANDSHAKE,
@@ -20,12 +20,13 @@ use ztls::common::{
     HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS, HANDSHAKE_TYPE_FINISHED, OUTGOING_BUFFER_LIMIT,
     PLAINTEXT_READ_BUF_CAPACITY, TLS_MAX_RECORD_SIZE, TLS_RECORD_HEADER_SIZE,
 };
+use ztls::fingerprint::ClientHelloProfile;
 use ztls::keys::{
     compute_finished_verify_data, derive_application_secrets, derive_handshake_keys,
     derive_traffic_keys,
 };
 use ztls::messages::{
-    construct_client_hello, construct_finished, write_record_header, DEFAULT_ALPN_PROTOCOLS,
+    construct_client_hello_with_profile, construct_finished, write_record_header,
 };
 use ztls::reader_writer::{RealityReader, RealityWriter};
 use ztls::reality_io_state::RealityIoState;
@@ -44,6 +45,8 @@ pub struct RealityClientConfig {
     pub server_name: String,
     /// Supported TLS 1.3 cipher suites (empty = use defaults)
     pub cipher_suites: Vec<CipherSuite>,
+    /// Browser-family ClientHello template.
+    pub client_hello_profile: ClientHelloProfile,
     /// Handshake timeout in milliseconds (default: 10000 = 10 seconds)
     pub handshake_timeout_ms: u64,
 }
@@ -55,6 +58,7 @@ impl Default for RealityClientConfig {
             short_id: [0u8; 8],
             server_name: String::new(),
             cipher_suites: Vec::new(),
+            client_hello_profile: ClientHelloProfile::DEFAULT,
             handshake_timeout_ms: 10_000,
         }
     }
@@ -199,18 +203,24 @@ impl RealityClientConnection {
         // Build ClientHello with plaintext SessionId first
         // Use configured cipher suites or defaults if none specified
         let cipher_suites = if self.config.cipher_suites.is_empty() {
-            DEFAULT_CIPHER_SUITES.to_vec()
+            self.config
+                .client_hello_profile
+                .cipher_suites()
+                .iter()
+                .filter_map(|id| CipherSuite::from_id(*id))
+                .collect()
         } else {
             self.config.cipher_suites.clone()
         };
         let cipher_suite_ids: Vec<u16> = cipher_suites.iter().map(|cs| cs.id()).collect();
-        let mut client_hello = construct_client_hello(
+        let mut client_hello = construct_client_hello_with_profile(
             &client_random,
             &session_id_for_hello,
             our_public_key_bytes.as_bytes(),
             &self.config.server_name,
             &cipher_suite_ids,
-            DEFAULT_ALPN_PROTOCOLS,
+            self.config.client_hello_profile.alpn_protocols(),
+            self.config.client_hello_profile,
         )?;
 
         // Now encrypt the SessionId using the ClientHello with zeroed SessionId as AAD

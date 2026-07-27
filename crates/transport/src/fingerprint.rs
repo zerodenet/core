@@ -16,6 +16,7 @@ use rustls::SupportedCipherSuite;
 pub struct TlsFingerprint {
     pub cipher_suites: Vec<SupportedCipherSuite>,
     pub kx_groups: Vec<&'static dyn rustls::crypto::SupportedKxGroup>,
+    pub client_hello_profile: ztls::fingerprint::ClientHelloProfile,
 }
 
 // 鈹€鈹€ Cipher suite aliases 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -112,6 +113,7 @@ fn chrome() -> TlsFingerprint {
             tls12_rsa_aes256(),
         ],
         kx_groups: vec![kx_x25519(), kx_p256(), kx_p384()],
+        client_hello_profile: ztls::fingerprint::ClientHelloProfile::Chrome120,
     }
 }
 
@@ -129,6 +131,7 @@ fn firefox() -> TlsFingerprint {
             tls12_rsa_aes256(),
         ],
         kx_groups: vec![kx_x25519(), kx_p256(), kx_p384()],
+        client_hello_profile: ztls::fingerprint::ClientHelloProfile::Firefox120,
     }
 }
 
@@ -144,6 +147,7 @@ fn safari() -> TlsFingerprint {
             tls12_rsa_aes256(),
         ],
         kx_groups: vec![kx_p256(), kx_x25519(), kx_p384()],
+        client_hello_profile: ztls::fingerprint::ClientHelloProfile::Safari160,
     }
 }
 
@@ -159,6 +163,7 @@ fn ios() -> TlsFingerprint {
             tls12_rsa_aes256(),
         ],
         kx_groups: vec![kx_p256(), kx_x25519(), kx_p384()],
+        client_hello_profile: ztls::fingerprint::ClientHelloProfile::Safari160,
     }
 }
 
@@ -189,5 +194,6 @@ fn randomized() -> TlsFingerprint {
     TlsFingerprint {
         cipher_suites: all,
         kx_groups: vec![kx_x25519(), kx_p256(), kx_p384()],
+        client_hello_profile: ztls::fingerprint::ClientHelloProfile::Chrome120,
     }
 }

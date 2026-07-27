@@ -10,6 +10,7 @@ pub mod aead;
 pub mod buf_reader;
 pub mod cipher;
 pub mod common;
+pub mod fingerprint;
 pub mod handshake;
 pub mod keys;
 pub mod messages;

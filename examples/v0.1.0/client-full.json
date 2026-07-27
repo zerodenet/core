@@ -49,7 +49,8 @@
         "reality": {
           "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
           "short_id": "0123456789abcdef",
-          "server_name": "www.microsoft.com"
+          "server_name": "www.microsoft.com",
+          "client_fingerprint": "chrome"
         }
       }
     },

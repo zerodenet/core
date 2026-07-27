@@ -73,6 +73,7 @@ pub(super) async fn build_vless_outbound_transport_over_stream(
                         short_id: &reality.short_id,
                         server_name,
                         cipher_suites: &reality.cipher_suites,
+                        client_fingerprint: &reality.client_fingerprint,
                     },
                 )
                 .await?;

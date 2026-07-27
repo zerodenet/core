@@ -59,6 +59,12 @@ pub fn validate_reality_cipher_suites(cipher_suites: &[String]) -> Result<(), St
     Ok(())
 }
 
+pub fn validate_reality_client_fingerprint(value: &str) -> Result<(), String> {
+    value
+        .parse::<ztls::fingerprint::ClientHelloProfile>()
+        .map(|_| ())
+}
+
 pub fn validate_xhttp_mode(mode: &str) -> Result<(), String> {
     match mode {
         "" | "auto" | "packet-up" | "stream-up" | "stream-one" => Ok(()),

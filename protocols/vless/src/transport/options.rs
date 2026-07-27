@@ -87,6 +87,7 @@ pub struct VlessRealityClientOptionsRef<'a> {
     pub short_id: &'a str,
     pub server_name: Option<&'a str>,
     pub cipher_suites: &'a [String],
+    pub client_fingerprint: &'a str,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -108,6 +108,7 @@ pub struct StreamMuxTransportHints {
     grpc_service_names: Option<Vec<String>>,
     reality_public_key: Option<String>,
     reality_server_name: Option<String>,
+    reality_client_fingerprint: Option<String>,
 }
 
 impl StreamMuxTransportHints {
@@ -124,7 +125,13 @@ impl StreamMuxTransportHints {
             grpc_service_names,
             reality_public_key,
             reality_server_name,
+            reality_client_fingerprint: None,
         }
+    }
+
+    pub fn with_reality_client_fingerprint(mut self, fingerprint: Option<String>) -> Self {
+        self.reality_client_fingerprint = fingerprint;
+        self
     }
 
     pub fn tls_server_name(&self) -> Option<&str> {
@@ -145,6 +152,10 @@ impl StreamMuxTransportHints {
 
     pub fn reality_server_name(&self) -> Option<&str> {
         self.reality_server_name.as_deref()
+    }
+
+    pub fn reality_client_fingerprint(&self) -> Option<&str> {
+        self.reality_client_fingerprint.as_deref()
     }
 }
 

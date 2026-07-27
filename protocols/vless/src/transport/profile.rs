@@ -11,6 +11,7 @@ pub struct VlessRealityClientProfile {
     pub short_id: String,
     pub server_name: Option<String>,
     pub cipher_suites: Vec<String>,
+    pub client_fingerprint: String,
 }
 
 impl VlessRealityClientProfile {
@@ -19,12 +20,14 @@ impl VlessRealityClientProfile {
         short_id: impl Into<String>,
         server_name: Option<String>,
         cipher_suites: Vec<String>,
+        client_fingerprint: impl Into<String>,
     ) -> Self {
         Self {
             public_key: public_key.into(),
             short_id: short_id.into(),
             server_name,
             cipher_suites,
+            client_fingerprint: client_fingerprint.into(),
         }
     }
 }
@@ -36,6 +39,7 @@ impl From<VlessRealityClientOptionsRef<'_>> for VlessRealityClientProfile {
             options.short_id,
             options.server_name.map(str::to_owned),
             options.cipher_suites.to_vec(),
+            options.client_fingerprint,
         )
     }
 }

@@ -243,6 +243,11 @@ impl OwnedVlessOutboundTransportPlan {
                 .reality
                 .and_then(|config| config.server_name.clone()),
         )
+        .with_reality_client_fingerprint(
+            transport
+                .reality
+                .map(|config| config.client_fingerprint.clone()),
+        )
     }
 
     pub(in crate::transport) async fn open_direct<OpenSocket, OpenSocketFut, E>(

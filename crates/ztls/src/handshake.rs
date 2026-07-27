@@ -7,10 +7,17 @@
 //! - Standard ECDSA/RSA CertificateVerify verification
 
 use std::io::{self, Read, Write};
+use std::sync::Arc;
 use std::time::Instant;
 
 use rand::RngCore;
 use ring::digest;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::WebPkiServerVerifier;
+use rustls::internal::msgs::codec::{Codec, Reader};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{DigitallySignedStruct, RootCertStore};
+use subtle::ConstantTimeEq;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::aead::{decrypt_handshake_message, AeadKey};
@@ -22,12 +29,14 @@ use crate::common::{
     HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS, HANDSHAKE_TYPE_FINISHED, OUTGOING_BUFFER_LIMIT,
     PLAINTEXT_READ_BUF_CAPACITY, TLS_MAX_RECORD_SIZE, TLS_RECORD_HEADER_SIZE,
 };
+use crate::fingerprint::ClientHelloProfile;
 use crate::keys::{
     compute_finished_verify_data, derive_application_secrets, derive_handshake_keys,
     derive_traffic_keys,
 };
 use crate::messages::{
-    construct_client_hello, construct_finished, write_record_header, DEFAULT_ALPN_PROTOCOLS,
+    construct_client_hello_with_profile, construct_finished, write_record_header,
+    DEFAULT_ALPN_PROTOCOLS,
 };
 use crate::record::{RecordDecryptor, RecordEncryptor};
 use crate::slide_buffer::SlideBuffer;
@@ -42,8 +51,215 @@ pub struct Tls13Config {
     pub cipher_suites: Vec<CipherSuite>,
     /// ALPN protocols (default: ["h2", "http/1.1"]).
     pub alpn_protocols: Vec<String>,
+    /// Browser-family ClientHello template.
+    pub client_hello_profile: ClientHelloProfile,
+    /// Certificate verification policy. `None` uses the public WebPKI roots.
+    pub server_verifier: Option<Arc<dyn ServerCertVerifier>>,
     /// Handshake timeout in milliseconds.
     pub handshake_timeout_ms: u64,
+}
+
+fn default_server_verifier() -> io::Result<Arc<WebPkiServerVerifier>> {
+    let roots = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    WebPkiServerVerifier::builder(Arc::new(roots))
+        .build()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))
+}
+
+fn verify_server_certificate(
+    verifier: &dyn ServerCertVerifier,
+    certificates: &[CertificateDer<'static>],
+    server_name: &str,
+) -> io::Result<ServerCertVerified> {
+    let (end_entity, intermediates) = certificates
+        .split_first()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "empty certificate chain"))?;
+    let server_name = ServerName::try_from(server_name.to_owned())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
+    verifier
+        .verify_server_cert(
+            end_entity,
+            intermediates,
+            &server_name,
+            &[],
+            UnixTime::now(),
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, format!("{error:?}")))
+}
+
+fn verify_server_signature(
+    verifier: &dyn ServerCertVerifier,
+    message: &[u8],
+    certificate: &CertificateDer<'_>,
+    signed: &DigitallySignedStruct,
+) -> io::Result<HandshakeSignatureValid> {
+    verifier
+        .verify_tls13_signature(message, certificate, signed)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+}
+
+fn parse_certificate_chain(message: &[u8]) -> io::Result<Vec<CertificateDer<'static>>> {
+    if message.len() < 8 || message[0] != HANDSHAKE_TYPE_CERTIFICATE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid Certificate message",
+        ));
+    }
+    let body_len = read_u24(&message[1..4]);
+    if body_len + 4 != message.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid Certificate message length",
+        ));
+    }
+    let context_len = message[4] as usize;
+    let list_len_offset = 5 + context_len;
+    if list_len_offset + 3 > message.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "truncated Certificate request context",
+        ));
+    }
+    let list_len = read_u24(&message[list_len_offset..list_len_offset + 3]);
+    let mut offset = list_len_offset + 3;
+    let end = offset + list_len;
+    if end != message.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid Certificate list length",
+        ));
+    }
+    let mut certificates = Vec::new();
+    while offset < end {
+        if offset + 3 > end {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated certificate length",
+            ));
+        }
+        let cert_len = read_u24(&message[offset..offset + 3]);
+        offset += 3;
+        if offset + cert_len + 2 > end {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated certificate entry",
+            ));
+        }
+        certificates.push(CertificateDer::from(
+            message[offset..offset + cert_len].to_vec(),
+        ));
+        offset += cert_len;
+        let extensions_len = u16::from_be_bytes([message[offset], message[offset + 1]]) as usize;
+        offset += 2;
+        if offset + extensions_len > end {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated certificate extensions",
+            ));
+        }
+        offset += extensions_len;
+    }
+    if certificates.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "empty certificate chain",
+        ));
+    }
+    Ok(certificates)
+}
+
+fn parse_certificate_verify(message: &[u8]) -> io::Result<DigitallySignedStruct> {
+    if message.len() < 8 || message[0] != HANDSHAKE_TYPE_CERTIFICATE_VERIFY {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid CertificateVerify message",
+        ));
+    }
+    let body_len = read_u24(&message[1..4]);
+    if body_len + 4 > message.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "truncated CertificateVerify message",
+        ));
+    }
+    let signature_len = u16::from_be_bytes([message[6], message[7]]) as usize;
+    if signature_len + 8 != body_len + 4 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid CertificateVerify signature length",
+        ));
+    }
+    let mut reader = Reader::init(&message[4..4 + body_len]);
+    DigitallySignedStruct::read(&mut reader)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, format!("{error:?}")))
+}
+
+fn tls13_server_certificate_verify_message(transcript_hash: &[u8]) -> Vec<u8> {
+    let mut message = vec![0x20; 64];
+    message.extend_from_slice(b"TLS 1.3, server CertificateVerify");
+    message.push(0);
+    message.extend_from_slice(transcript_hash);
+    message
+}
+
+fn verify_server_finished(
+    cipher_suite: CipherSuite,
+    server_hs_secret: &[u8],
+    transcript_prefix: &[u8],
+    handshake_messages: &[u8],
+    finished_offset: usize,
+) -> io::Result<()> {
+    let finished = &handshake_messages[finished_offset..];
+    if finished.len() < 4 || finished[0] != HANDSHAKE_TYPE_FINISHED {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid Finished message",
+        ));
+    }
+    let verify_len = read_u24(&finished[1..4]);
+    if finished.len() < 4 + verify_len {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "truncated Finished verify_data",
+        ));
+    }
+    let mut transcript = digest::Context::new(cipher_suite.digest_algorithm());
+    transcript.update(transcript_prefix);
+    transcript.update(&handshake_messages[..finished_offset]);
+    let transcript_hash = transcript.finish();
+    let expected =
+        compute_finished_verify_data(cipher_suite, server_hs_secret, transcript_hash.as_ref())?;
+    if expected
+        .as_slice()
+        .ct_eq(&finished[4..4 + verify_len])
+        .into()
+    {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid server Finished",
+        ))
+    }
+}
+
+fn find_handshake_message(messages: &[u8], expected_type: u8) -> Option<usize> {
+    let mut offset = 0;
+    while offset + 4 <= messages.len() {
+        let message_len = read_u24(&messages[offset + 1..offset + 4]);
+        if offset + 4 + message_len > messages.len() {
+            return None;
+        }
+        if messages[offset] == expected_type {
+            return Some(offset);
+        }
+        offset += 4 + message_len;
+    }
+    None
+}
+
+fn read_u24(bytes: &[u8]) -> usize {
+    ((bytes[0] as usize) << 16) | ((bytes[1] as usize) << 8) | bytes[2] as usize
 }
 
 impl Default for Tls13Config {
@@ -55,6 +271,8 @@ impl Default for Tls13Config {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            client_hello_profile: ClientHelloProfile::DEFAULT,
+            server_verifier: None,
             handshake_timeout_ms: 10_000,
         }
     }
@@ -77,9 +295,6 @@ enum State {
         transcript_bytes: Vec<u8>,
         handshake_seq: u64,
         accumulated_plaintext: Vec<u8>,
-        messages_found: u8,
-        certificate_der: Option<Vec<u8>>,
-        cert_verify_offset: Option<usize>,
     },
     /// Handshake complete.
     Complete,
@@ -172,13 +387,14 @@ impl Tls13Connection {
             &alpn_strs
         };
 
-        let client_hello = construct_client_hello(
+        let client_hello = construct_client_hello_with_profile(
             &client_random,
             &session_id,
             our_public_key.as_bytes(),
             &self.config.server_name,
             &cipher_suite_ids,
             alpn_refs,
+            self.config.client_hello_profile,
         )?;
 
         let mut record = write_record_header(CONTENT_TYPE_HANDSHAKE, client_hello.len() as u16);
@@ -380,9 +596,6 @@ impl Tls13Connection {
             transcript_bytes,
             handshake_seq: 0,
             accumulated_plaintext: Vec::new(),
-            messages_found: 0,
-            certificate_der: None,
-            cert_verify_offset: None,
         };
         Ok(true)
     }
@@ -396,9 +609,6 @@ impl Tls13Connection {
             transcript_bytes,
             handshake_seq,
             accumulated_plaintext,
-            messages_found,
-            certificate_der,
-            cert_verify_offset,
         } = &self.state
         else {
             unreachable!()
@@ -412,9 +622,6 @@ impl Tls13Connection {
         let transcript_bytes = transcript_bytes.clone();
         let mut handshake_seq = *handshake_seq;
         let mut accumulated_plaintext = accumulated_plaintext.clone();
-        let mut messages_found = *messages_found;
-        let mut certificate_der = certificate_der.clone();
-        let mut cert_verify_offset = *cert_verify_offset;
 
         let (server_hs_key, server_hs_iv) = derive_traffic_keys(&server_hs_secret, cipher_suite)?;
 
@@ -457,43 +664,25 @@ impl Tls13Connection {
         )?;
         handshake_seq += 1;
 
-        let prev_len = accumulated_plaintext.len();
         accumulated_plaintext.extend_from_slice(&plaintext);
 
-        // Parse handshake messages
-        let mut offset = prev_len;
-        while offset < accumulated_plaintext.len() && messages_found < 4 {
-            if offset + 4 > accumulated_plaintext.len() {
-                break;
-            }
-            let msg_type = accumulated_plaintext[offset];
-            let msg_len = u32::from_be_bytes([
-                0,
-                accumulated_plaintext[offset + 1],
-                accumulated_plaintext[offset + 2],
-                accumulated_plaintext[offset + 3],
-            ]) as usize;
-            if offset + 4 + msg_len > accumulated_plaintext.len() {
-                break;
-            }
+        // Re-scan from the beginning so a message split across TLS records is
+        // parsed only after its complete body has arrived.
+        let encrypted_extensions_offset =
+            find_handshake_message(&accumulated_plaintext, HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS);
+        let certificate_offset =
+            find_handshake_message(&accumulated_plaintext, HANDSHAKE_TYPE_CERTIFICATE);
+        let cert_verify_offset =
+            find_handshake_message(&accumulated_plaintext, HANDSHAKE_TYPE_CERTIFICATE_VERIFY);
+        let finished_offset =
+            find_handshake_message(&accumulated_plaintext, HANDSHAKE_TYPE_FINISHED);
 
-            match msg_type {
-                HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS => {}
-                HANDSHAKE_TYPE_CERTIFICATE => {
-                    certificate_der =
-                        Some(accumulated_plaintext[offset..offset + 4 + msg_len].to_vec());
-                }
-                HANDSHAKE_TYPE_CERTIFICATE_VERIFY => {
-                    cert_verify_offset = Some(offset);
-                }
-                HANDSHAKE_TYPE_FINISHED => {}
-                _ => {}
-            }
-            messages_found += 1;
-            offset += 4 + msg_len;
-        }
-
-        if messages_found < 4 {
+        let (Some(_), Some(certificate_offset), Some(cert_verify_offset), Some(finished_offset)) = (
+            encrypted_extensions_offset,
+            certificate_offset,
+            cert_verify_offset,
+            finished_offset,
+        ) else {
             self.state = State::ProcessingHandshake {
                 client_hs_secret,
                 server_hs_secret,
@@ -502,20 +691,44 @@ impl Tls13Connection {
                 transcript_bytes,
                 handshake_seq,
                 accumulated_plaintext,
-                messages_found,
-                certificate_der,
-                cert_verify_offset,
             };
             return Ok(true);
-        }
+        };
 
-        // Verify Certificate (standard webpki path — relaxed for now)
-        // FUTURE: use webpki for full chain validation
-        let _ = certificate_der;
+        // Verify the certificate chain and bind the server identity to SNI.
+        let certificate_len =
+            read_u24(&accumulated_plaintext[certificate_offset + 1..certificate_offset + 4]);
+        let certificate_message =
+            &accumulated_plaintext[certificate_offset..certificate_offset + 4 + certificate_len];
+        let certificates = parse_certificate_chain(certificate_message)?;
+        let verifier = match &self.config.server_verifier {
+            Some(verifier) => Arc::clone(verifier),
+            None => default_server_verifier()?,
+        };
+        verify_server_certificate(verifier.as_ref(), &certificates, &self.config.server_name)?;
 
-        // Verify CertificateVerify signature (standard ECDSA/RSA)
-        // FUTURE: implement standard TLS 1.3 cert verify
-        let _ = cert_verify_offset;
+        // Verify the TLS 1.3 CertificateVerify signature.
+        let signature = parse_certificate_verify(&accumulated_plaintext[cert_verify_offset..])?;
+        let mut cert_verify_transcript = digest::Context::new(cipher_suite.digest_algorithm());
+        cert_verify_transcript.update(&transcript_bytes);
+        cert_verify_transcript.update(&accumulated_plaintext[..cert_verify_offset]);
+        let cert_verify_hash = cert_verify_transcript.finish();
+        let cert_verify_message =
+            tls13_server_certificate_verify_message(cert_verify_hash.as_ref());
+        verify_server_signature(
+            verifier.as_ref(),
+            &cert_verify_message,
+            &certificates[0],
+            &signature,
+        )?;
+
+        verify_server_finished(
+            cipher_suite,
+            &server_hs_secret,
+            &transcript_bytes,
+            &accumulated_plaintext,
+            finished_offset,
+        )?;
 
         // Compute handshake hash and send client Finished
         let mut hs_ctx = digest::Context::new(cipher_suite.digest_algorithm());
@@ -593,3 +806,7 @@ impl Tls13Connection {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/handshake_messages.rs"]
+mod tests;

@@ -7,6 +7,7 @@ use crate::common::{
     HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS, HANDSHAKE_TYPE_FINISHED, HANDSHAKE_TYPE_SERVER_HELLO,
     VERSION_TLS_1_2_MAJOR, VERSION_TLS_1_2_MINOR,
 };
+use crate::fingerprint::ClientHelloProfile;
 use std::io::Result;
 
 /// Construct Finished message
@@ -145,6 +146,26 @@ pub fn construct_client_hello(
     cipher_suites: &[u16],
     alpn_protocols: &[&str],
 ) -> Result<Vec<u8>> {
+    construct_client_hello_with_profile(
+        client_random,
+        session_id,
+        client_public_key,
+        server_name,
+        cipher_suites,
+        alpn_protocols,
+        ClientHelloProfile::DEFAULT,
+    )
+}
+
+pub fn construct_client_hello_with_profile(
+    client_random: &[u8; 32],
+    session_id: &[u8; 32],
+    client_public_key: &[u8],
+    server_name: &str,
+    cipher_suites: &[u16],
+    alpn_protocols: &[&str],
+    profile: ClientHelloProfile,
+) -> Result<Vec<u8>> {
     let mut hello = Vec::with_capacity(512);
 
     // Handshake message type: ClientHello (0x01)
@@ -215,14 +236,16 @@ pub fn construct_client_hello(
         extensions.push(0x00);
     }
 
-    // supported_groups (10) — Chrome 120+: x25519, secp256r1, secp384r1
+    // supported_groups (10), ordered by the selected ClientHello profile.
     {
+        let groups = profile.supported_groups();
+        let groups_len = groups.len() * 2;
         extensions.extend_from_slice(&[0x00, 0x0a]);
-        extensions.extend_from_slice(&[0x00, 0x08]);
-        extensions.extend_from_slice(&[0x00, 0x06]);
-        extensions.extend_from_slice(&[0x00, 0x1d]); // x25519
-        extensions.extend_from_slice(&[0x00, 0x17]); // secp256r1
-        extensions.extend_from_slice(&[0x00, 0x18]); // secp384r1
+        extensions.extend_from_slice(&((groups_len + 2) as u16).to_be_bytes());
+        extensions.extend_from_slice(&(groups_len as u16).to_be_bytes());
+        for group in groups {
+            extensions.extend_from_slice(&group.to_be_bytes());
+        }
     }
 
     // key_share (51)
@@ -232,7 +255,7 @@ pub fn construct_client_hello(
         extensions.extend_from_slice(&(key_share_len as u16).to_be_bytes());
         let key_share_list_len = 4 + client_public_key.len();
         extensions.extend_from_slice(&(key_share_list_len as u16).to_be_bytes());
-        extensions.extend_from_slice(&[0x00, 0x1d]); // x25519
+        extensions.extend_from_slice(&profile.key_share_group().to_be_bytes());
         extensions.extend_from_slice(&(client_public_key.len() as u16).to_be_bytes());
         extensions.extend_from_slice(client_public_key);
     }
@@ -303,6 +326,8 @@ pub fn construct_client_hello(
         extensions.push(0x01);
     }
 
+    extensions = order_extensions(extensions, profile)?;
+
     // Temporary: write extensions length without padding, compute size,
     // then add RFC 7685 padding extension to round to 512-byte boundary.
     let extensions_len_before_padding = extensions.len();
@@ -333,6 +358,44 @@ pub fn construct_client_hello(
         .copy_from_slice(&(message_length as u32).to_be_bytes()[1..]);
 
     Ok(hello)
+}
+
+fn order_extensions(encoded: Vec<u8>, profile: ClientHelloProfile) -> Result<Vec<u8>> {
+    let mut extensions = Vec::new();
+    let mut offset = 0;
+    while offset < encoded.len() {
+        if encoded.len() - offset < 4 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "truncated ClientHello extension header",
+            ));
+        }
+        let extension_type = u16::from_be_bytes([encoded[offset], encoded[offset + 1]]);
+        let body_len = u16::from_be_bytes([encoded[offset + 2], encoded[offset + 3]]) as usize;
+        let end = offset + 4 + body_len;
+        if end > encoded.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "truncated ClientHello extension body",
+            ));
+        }
+        extensions.push((extension_type, encoded[offset..end].to_vec()));
+        offset = end;
+    }
+
+    let mut ordered = Vec::with_capacity(encoded.len());
+    for expected in profile.extension_order() {
+        if let Some(index) = extensions
+            .iter()
+            .position(|(extension_type, _)| extension_type == expected)
+        {
+            ordered.extend_from_slice(&extensions.remove(index).1);
+        }
+    }
+    for (_, extension) in extensions {
+        ordered.extend_from_slice(&extension);
+    }
+    Ok(ordered)
 }
 
 /// Write TLS record header

@@ -268,6 +268,7 @@ impl VlessOutboundRequestBundle {
                 hints.tls_server_name().map(str::to_owned),
                 hints.reality_public_key().map(str::to_owned),
                 hints.reality_server_name().map(str::to_owned),
+                hints.reality_client_fingerprint().map(str::to_owned),
             ),
         )
     }

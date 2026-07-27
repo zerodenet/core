@@ -96,6 +96,7 @@ fn outbound_options<'a>(
                     short_id: reality.short_id.as_str(),
                     server_name: reality.server_name.as_deref(),
                     cipher_suites: reality.cipher_suites.as_slice(),
+                    client_fingerprint: reality.client_fingerprint.as_str(),
                 }),
             quic: quic.as_deref().map(|quic| VlessQuicClientOptionsRef {
                 server_name: quic.server_name.as_deref(),

@@ -70,11 +70,9 @@ VLESS 是 Xray 项目的核心入站/出站协议，无状态、轻量级，使�
 
 ### TLS 指纹
 
-Reality 模式通过自研 `ztls` 实现完整 ClientHello 控制。非 Reality TLS 路径同样使用 `ztls`（`connect_tls13_upstream`），但存在透传缺陷：
+Reality 客户端通过 `ztls` 构造可控 ClientHello。`reality.client_fingerprint` 支持 `chrome`、`firefox`、`safari` 和 `edge`，默认 `chrome`；短名称固定到版本化模板，控制 TLS 1.3 cipher suite、扩展顺序、supported groups 和 ALPN。不同指纹会形成不同的 MUX 连接池键，避免复用已有的不同线特征载体。
 
-> `connect_tls13_upstream` 接收 `_fp: &TlsFingerprint` 参数但未使用——始终传 `DEFAULT_CIPHER_SUITES`，fingerprint 定义的套件列表和 `kx_groups` 未透传到 `ztls`。非 bug，但 fingerprint 配置在此路径下不生效。
-
-**结论**：不需要 uTLS 外部库——`ztls` 已覆盖 TLS 指纹需求。待修的是一个参数透传问题。
+普通 TLS 传输继续使用 `zero-transport` 的 rustls profile；Reality 指纹配置只作用于 Reality 客户端，不改变入站 Reality 或普通 TLS 配置。
 
 ## 待实现
 
@@ -83,9 +81,6 @@ Reality 模式通过自研 `ztls` 实现完整 ClientHello 控制。非 Reality 
 
 ### QUIC 0-RTT
 Xray 支持 QUIC 0-RTT 握手加速，当前使用标准握手。
-
-### TLS 指纹透传
-`connect_tls13_upstream` 应将 `TlsFingerprint` 的 `cipher_suites` 和 `kx_groups` 传给 `ztls::handshake::Tls13Config`。
 
 ## 架构
 

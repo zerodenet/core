@@ -692,7 +692,14 @@ fn validate_vless_reality(reality: &RealityConfig) -> Result<(), ConfigError> {
         ConfigError::InvalidOutbound(format!(
             "`vless` outbound `reality.cipher_suites` contains {error}"
         ))
-    })
+    })?;
+    vless::validation::validate_reality_client_fingerprint(&reality.client_fingerprint).map_err(
+        |error| {
+            ConfigError::InvalidOutbound(format!(
+                "`vless` outbound `reality.client_fingerprint` {error}"
+            ))
+        },
+    )
 }
 
 /// Validate the XHTTP `mode` field on a `vless` `split_http` transport config.

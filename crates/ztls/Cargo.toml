@@ -10,7 +10,10 @@ homepage.workspace = true
 [dependencies]
 rand = "0.9"
 ring = "0.17"
+rustls.workspace = true
+subtle = "2.6"
 tokio = { workspace = true, features = ["net", "rt"] }
 tracing = { workspace = true }
+webpki-roots = "1"
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets"] }
 zero-core = { path = "../core" }

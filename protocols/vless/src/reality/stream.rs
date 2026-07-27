@@ -17,6 +17,7 @@ pub struct RealityClientOptions<'a> {
     pub short_id: &'a str,
     pub server_name: &'a str,
     pub cipher_suites: &'a [String],
+    pub client_fingerprint: &'a str,
 }
 
 pub struct RealityServerOptions<'a> {
@@ -112,6 +113,10 @@ where
         short_id: decode_short_id(options.short_id)?,
         server_name: options.server_name.to_owned(),
         cipher_suites: parse_cipher_suites(options.cipher_suites)?,
+        client_hello_profile: options
+            .client_fingerprint
+            .parse()
+            .map_err(|error: String| io::Error::new(io::ErrorKind::InvalidInput, error))?,
         handshake_timeout_ms: 10_000,
     };
 

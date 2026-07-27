@@ -55,7 +55,9 @@ fn tls13_config(
         server_name: server_name.to_owned(),
         cipher_suites,
         alpn_protocols: vec!["h2".to_owned(), "http/1.1".to_owned()],
+        client_hello_profile: fingerprint.client_hello_profile,
         handshake_timeout_ms: 15_000,
+        ..ztls::handshake::Tls13Config::default()
     }
 }
 

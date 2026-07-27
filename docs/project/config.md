@@ -639,7 +639,8 @@ TLS 配置字段：
     "reality": {
       "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       "short_id": "0123456789abcdef",
-      "server_name": "www.cloudflare.com"
+      "server_name": "www.cloudflare.com",
+      "client_fingerprint": "chrome"
     }
   }
 }
@@ -650,6 +651,7 @@ Reality 配置字段：
 - `short_id` -- 可选，0 到 16 个十六进制字符，默认为空
 - `server_name` -- 可选，Reality ClientHello 中使用的 SNI，默认为 `server`
 - `cipher_suites` -- 可选，TLS 1.3 cipher suite 名称列表；支持 `TLS_AES_128_GCM_SHA256`、`TLS_AES_256_GCM_SHA384`、`TLS_CHACHA20_POLY1305_SHA256`
+- `client_fingerprint` -- 可选，支持 `chrome`、`firefox`、`safari` 或 `edge`；短名称固定到版本化 ztls ClientHello 模板，默认 `chrome`
 
 VLESS 出站支持 WebSocket 传输，通过 `ws` 启用：
 
@@ -1136,7 +1138,7 @@ UDP 出站选择由内核 UDP 分发路径处理。当前 TCP、UDP、MUX、传�
 - SOCKS5 出站可以省略两个认证字段以使用无认证模式，或仅省略 `username` 使其默认为 `password`；仅配置 `username` 无效
 - VLESS 入站必须至少有一个用户，`id` 必须是 UUID；启用 TLS 时 `cert_path` 和 `key_path` 不能为空；启用 WebSocket 时 `ws.path` 不能为空
 - VLESS 出站 `server` 不能为空，`port` 必须大于 `0`，`id` 必须是 UUID；`tls.server_name`、`tls.ca_cert_path` 和 `reality.server_name` 如果配置则不能为空
-- VLESS 出站 `reality.public_key` 必须是 32 字节 base64url 无填充值；`reality.short_id` 最多 16 个十六进制字符；`reality` 不能与 `tls` 或 `ws` 组合
+- VLESS 出站 `reality.public_key` 必须是 32 字节 base64url 无填充值；`reality.short_id` 最多 16 个十六进制字符；`reality.client_fingerprint` 只接受 `chrome`、`firefox`、`safari` 或 `edge`；`reality` 不能与 `tls` 或 `ws` 组合
 - 同一对象类型内的 tag 不能重复
 - 相同的 `address:port` 只能有一个入站
 - 同一端口需要 SOCKS5 TCP/UDP 和 HTTP CONNECT TCP 时，使用 `mixed`

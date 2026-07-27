@@ -103,6 +103,14 @@ pub struct RealityConfig {
     pub server_name: Option<String>,
     #[serde(default)]
     pub cipher_suites: Vec<String>,
+    /// Versioned ztls ClientHello template. Short aliases currently pin to
+    /// chrome-120, firefox-120, safari-16.0, or edge-120.
+    #[serde(default = "default_reality_client_fingerprint")]
+    pub client_fingerprint: String,
+}
+
+fn default_reality_client_fingerprint() -> String {
+    "chrome".to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

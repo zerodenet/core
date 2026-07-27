@@ -10,6 +10,12 @@ VLESS 出站通过注册的 TCP 和 UDP 能力接入运行时。适配器把引�
 4. `protocols/vless` 完成 VLESS 请求与响应处理。
 5. 运行时统一归一化结果、错误和流量记录。
 
+## Reality ClientHello 指纹
+
+VLESS Reality 出站可通过 `reality.client_fingerprint` 选择 `chrome`、`firefox`、`safari` 或 `edge`，默认使用 `chrome`。短名称固定到版本化 ztls ClientHello 模板，控制 TLS 1.3 cipher suite、扩展顺序、supported groups 和 ALPN；不同指纹不会共享同一个 MUX 连接池载体。
+
+该字段只作用于 Reality 客户端。普通 VLESS TLS 仍使用通用 TLS profile，Reality 入站也不读取客户端指纹配置。
+
 ## UDP
 
 VLESS UDP 流计划属于 `protocols/vless` 的 `udp` 模块。传输桥保存协议流计划和中立载体选项，通用运行时只管理流生命周期、中继顺序和计量。

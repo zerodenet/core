@@ -22,6 +22,7 @@ async fn eviction_through_a_bridge_clone_removes_cached_mux_connections() {
         None,
         None,
         None,
+        None,
         MuxResponseBacklogPolicy::default(),
     );
     let (stream, _peer) = tokio::io::duplex(64);
@@ -84,6 +85,7 @@ async fn mux_activity_refreshes_the_idle_timeout_before_the_carrier_closes() {
         None,
         None,
         None,
+        None,
         Some(Duration::from_millis(500)),
         MuxResponseBacklogPolicy::default(),
     );
@@ -120,6 +122,7 @@ fn different_response_backlog_policies_do_not_share_a_pool_key() {
         None,
         None,
         None,
+        None,
         MuxResponseBacklogPolicy::default(),
     );
     let tuned_key = PoolKey::from_config_parts(
@@ -130,11 +133,41 @@ fn different_response_backlog_policies_do_not_share_a_pool_key() {
         None,
         None,
         None,
+        None,
         MuxResponseBacklogPolicy::from_config(Some(64), Some(2 * 1024 * 1024))
             .expect("valid tuned VLESS backlog policy"),
     );
 
     assert!(default_key != tuned_key);
+}
+
+#[test]
+fn different_reality_fingerprints_do_not_share_a_pool_key() {
+    let identity = MuxIdentity::from_uuid([12; 16]);
+    let chrome = PoolKey::from_config_parts(
+        "vless.test".to_owned(),
+        443,
+        identity.clone(),
+        None,
+        Some("public-key"),
+        Some("example.com"),
+        Some("chrome"),
+        None,
+        MuxResponseBacklogPolicy::default(),
+    );
+    let firefox = PoolKey::from_config_parts(
+        "vless.test".to_owned(),
+        443,
+        identity,
+        None,
+        Some("public-key"),
+        Some("example.com"),
+        Some("firefox"),
+        None,
+        MuxResponseBacklogPolicy::default(),
+    );
+
+    assert!(chrome != firefox);
 }
 
 #[tokio::test]

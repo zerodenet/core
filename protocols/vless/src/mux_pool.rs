@@ -55,6 +55,7 @@ enum TransportKey {
     Reality {
         public_key: String,
         server_name: String,
+        client_fingerprint: String,
     },
 }
 
@@ -63,6 +64,7 @@ pub(crate) struct MuxTransportProfile<'a> {
     tls_server_name: Option<&'a str>,
     reality_public_key: Option<&'a str>,
     reality_server_name: Option<&'a str>,
+    reality_client_fingerprint: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +72,7 @@ pub(crate) struct OwnedMuxTransportProfile {
     tls_server_name: Option<String>,
     reality_public_key: Option<String>,
     reality_server_name: Option<String>,
+    reality_client_fingerprint: Option<String>,
 }
 
 #[derive(Clone)]
@@ -84,6 +87,7 @@ struct PoolKeyConfig {
     tls_server_name: Option<String>,
     reality_public_key: Option<String>,
     reality_server_name: Option<String>,
+    reality_client_fingerprint: Option<String>,
     idle_timeout: Option<Duration>,
     response_backlog: MuxResponseBacklogPolicy,
 }
@@ -97,6 +101,7 @@ impl PoolKeyConfig {
             tls_server_name: None,
             reality_public_key: None,
             reality_server_name: None,
+            reality_client_fingerprint: None,
             idle_timeout: None,
             response_backlog: MuxResponseBacklogPolicy::default(),
         }
@@ -107,9 +112,15 @@ impl PoolKeyConfig {
         self
     }
 
-    fn with_reality(mut self, public_key: Option<&str>, server_name: Option<&str>) -> Self {
+    fn with_reality(
+        mut self,
+        public_key: Option<&str>,
+        server_name: Option<&str>,
+        client_fingerprint: Option<&str>,
+    ) -> Self {
         self.reality_public_key = public_key.map(ToOwned::to_owned);
         self.reality_server_name = server_name.map(ToOwned::to_owned);
+        self.reality_client_fingerprint = client_fingerprint.map(ToOwned::to_owned);
         self
     }
 
@@ -131,6 +142,7 @@ impl PoolKeyConfig {
             self.tls_server_name.as_deref(),
             self.reality_public_key.as_deref(),
             self.reality_server_name.as_deref(),
+            self.reality_client_fingerprint.as_deref(),
             self.idle_timeout,
             self.response_backlog,
         )
@@ -141,15 +153,22 @@ fn transport_key_from_config(
     tls_server_name: Option<&str>,
     reality_public_key: Option<&str>,
     reality_server_name: Option<&str>,
+    reality_client_fingerprint: Option<&str>,
     fallback_server: &str,
 ) -> TransportKey {
-    match (tls_server_name, reality_public_key, reality_server_name) {
-        (Some(server_name), None, _) => TransportKey::Tls {
+    match (
+        tls_server_name,
+        reality_public_key,
+        reality_server_name,
+        reality_client_fingerprint,
+    ) {
+        (Some(server_name), None, _, _) => TransportKey::Tls {
             server_name: Some(server_name.to_owned()),
         },
-        (None, Some(public_key), server_name) => TransportKey::Reality {
+        (None, Some(public_key), server_name, client_fingerprint) => TransportKey::Reality {
             public_key: public_key.to_owned(),
             server_name: server_name.unwrap_or(fallback_server).to_owned(),
+            client_fingerprint: client_fingerprint.unwrap_or("chrome").to_owned(),
         },
         _ => TransportKey::Raw,
     }
@@ -165,7 +184,11 @@ pub(crate) fn pool_key_from_transport_config(
 ) -> PoolKey {
     PoolKeyConfig::new(server, port, identity)
         .with_tls_server_name(profile.tls_server_name)
-        .with_reality(profile.reality_public_key, profile.reality_server_name)
+        .with_reality(
+            profile.reality_public_key,
+            profile.reality_server_name,
+            profile.reality_client_fingerprint,
+        )
         .with_idle_timeout_secs(idle_timeout_secs)
         .with_response_backlog(response_backlog)
         .into_pool_key()
@@ -176,11 +199,13 @@ impl<'a> MuxTransportProfile<'a> {
         tls_server_name: Option<&'a str>,
         reality_public_key: Option<&'a str>,
         reality_server_name: Option<&'a str>,
+        reality_client_fingerprint: Option<&'a str>,
     ) -> Self {
         Self {
             tls_server_name,
             reality_public_key,
             reality_server_name,
+            reality_client_fingerprint,
         }
     }
 }
@@ -190,11 +215,13 @@ impl OwnedMuxTransportProfile {
         tls_server_name: Option<String>,
         reality_public_key: Option<String>,
         reality_server_name: Option<String>,
+        reality_client_fingerprint: Option<String>,
     ) -> Self {
         Self {
             tls_server_name,
             reality_public_key,
             reality_server_name,
+            reality_client_fingerprint,
         }
     }
 
@@ -203,6 +230,7 @@ impl OwnedMuxTransportProfile {
             self.tls_server_name.as_deref(),
             self.reality_public_key.as_deref(),
             self.reality_server_name.as_deref(),
+            self.reality_client_fingerprint.as_deref(),
         )
     }
 }
@@ -244,6 +272,7 @@ impl PoolKey {
         tls_server_name: Option<&str>,
         reality_public_key: Option<&str>,
         reality_server_name: Option<&str>,
+        reality_client_fingerprint: Option<&str>,
         idle_timeout: Option<Duration>,
         response_backlog: MuxResponseBacklogPolicy,
     ) -> Self {
@@ -251,6 +280,7 @@ impl PoolKey {
             tls_server_name,
             reality_public_key,
             reality_server_name,
+            reality_client_fingerprint,
             &server,
         );
         Self::from_identity(

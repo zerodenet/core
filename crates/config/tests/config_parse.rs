@@ -699,6 +699,7 @@ fn parses_vless_reality_outbound_config() {
                             "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                             "short_id": "0123456789abcdef",
                             "server_name": "www.cloudflare.com",
+                            "client_fingerprint": "firefox",
                             "cipher_suites": [
                                 "TLS_AES_128_GCM_SHA256",
                                 "TLS_CHACHA20_POLY1305_SHA256"
@@ -721,9 +722,38 @@ fn parses_vless_reality_outbound_config() {
             assert_eq!(reality.server_name.as_deref(), Some("www.cloudflare.com"));
             assert_eq!(reality.short_id, "0123456789abcdef");
             assert_eq!(reality.cipher_suites.len(), 2);
+            assert_eq!(reality.client_fingerprint, "firefox");
         }
         _ => panic!("expected vless outbound"),
     }
+}
+
+#[test]
+fn rejects_unknown_vless_reality_client_fingerprint() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "outbounds": [{
+                "tag": "vless-reality-chain",
+                "protocol": {
+                    "type": "vless",
+                    "server": "edge.example.com",
+                    "port": 443,
+                    "id": "11111111-2222-3333-4444-555555555555",
+                    "reality": {
+                        "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                        "client_fingerprint": "netscape"
+                    }
+                }
+            }],
+            "route": {
+                "rules": [],
+                "final": { "type": "route", "outbound": "vless-reality-chain" }
+            }
+        }"#,
+    )
+    .expect_err("unknown fingerprint should fail");
+
+    assert!(error.to_string().contains("unsupported client fingerprint"));
 }
 
 #[test]
