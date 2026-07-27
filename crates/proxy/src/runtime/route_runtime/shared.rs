@@ -82,3 +82,51 @@ fn resolved_route_ips(addresses: impl IntoIterator<Item = IpAddress>) -> Vec<IpA
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use zero_config::RuntimeConfig;
+    use zero_core::{Address, Network, ProtocolType, Session};
+    use zero_engine::RouteDecision;
+
+    use super::route_trace_for_session;
+
+    #[tokio::test]
+    async fn domain_trace_rechecks_resolved_ip_rules() {
+        let config = RuntimeConfig::parse(
+            r#"{
+                "outbounds": [
+                    { "tag": "proxy", "protocol": { "type": "direct" } }
+                ],
+                "route": {
+                    "rules": [
+                        {
+                            "condition": {
+                                "type": "ip",
+                                "values": ["127.0.0.0/8", "::1/128"]
+                            },
+                            "action": { "type": "direct" }
+                        }
+                    ],
+                    "final": { "type": "route", "outbound": "proxy" }
+                }
+            }"#,
+        )
+        .expect("parse routing config");
+        let proxy = crate::runtime::Proxy::new(config).expect("build proxy");
+        let session = Session::new(
+            1,
+            Address::Domain("localhost".to_owned()),
+            80,
+            Network::Tcp,
+            ProtocolType::UNKNOWN,
+        );
+
+        let trace = route_trace_for_session(&proxy.tcp_runtime_services(), &session).await;
+
+        assert_eq!(trace.decision, RouteDecision::Direct);
+        let matched = trace.matched_rule.expect("resolved IP rule matched");
+        assert_eq!(matched.index, 0);
+        assert_eq!(matched.condition, "ip: 127.0.0.0/8, ::1/128");
+    }
+}

@@ -245,6 +245,7 @@ fn engine_diagnostics_do_not_execute_network_io() {
     let proxy = read(&proxy_src().join("runtime/handle/command/diagnostics.rs"));
     assert!(proxy.contains("execute_diagnostics_probe_target"));
     assert!(proxy.contains("execute_diagnostics_dns_lookup"));
+    assert!(proxy.contains("execute_diagnostics_trace_route"));
     assert!(proxy.contains(".claim_outbound_leaf("));
     assert!(!proxy.contains("config.outbounds"));
 }

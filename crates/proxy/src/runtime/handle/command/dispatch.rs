@@ -2,7 +2,7 @@ use super::super::ProxyHandle;
 use super::diagnostics::{
     execute_diagnostics_dns_cache, execute_diagnostics_dns_lookup,
     execute_diagnostics_fakeip_lookup, execute_diagnostics_probe_outbound,
-    execute_diagnostics_probe_target,
+    execute_diagnostics_probe_target, execute_diagnostics_trace_route,
 };
 use super::tun::{execute_tun_start, execute_tun_stop};
 
@@ -33,6 +33,9 @@ impl zero_api::CommandService for ProxyHandle {
             }
             zero_api::CommandRequest::DiagnosticsFakeipLookup(cmd) => {
                 execute_diagnostics_fakeip_lookup(self, cmd)
+            }
+            zero_api::CommandRequest::DiagnosticsTraceRoute(cmd) => {
+                execute_diagnostics_trace_route(self, cmd)
             }
             _ => self.inner.execute(command),
         }

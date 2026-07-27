@@ -368,7 +368,7 @@ HTTP adapter 将这些能力暴露在 `/api/v1/*` 命名空间下，IPC 和 CLI 
 - `diagnostics.dns_lookup`
   - 已实现。解析域名
 - `diagnostics.trace_route`
-  - 已实现。查看路由规则匹配结果
+  - 已实现。按真实会话路由流程查看规则匹配结果；域名未命中且规则需要目标 IP 时会解析 DNS 后复算
 
 热重载已实现，覆盖路由规则、出站组/出站、运行模式、入站 listener、DNS 配置、flow hooks、EventDispatcher 和原生 connector。`config.apply` 是持久化部署边界；`config.apply_runtime` 是不写回源文件的运行时覆盖边界。两者通过可等待确认的公共命令服务依次完成 proxy reconciliation 与 application service reconciliation；任一阶段失败都会恢复 last-known-good。`api.control` 的监听地址和鉴权不能在承载当前命令时自替换，变更会被拒绝并要求显式重启。
 

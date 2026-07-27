@@ -1,4 +1,6 @@
 use crate::groups::UrlTestRuntime;
+use crate::runtime::route_runtime::route_trace_for_session;
+use zero_core::{Network, ProtocolType, Session};
 use zero_traits::{DnsResolver, IpAddress};
 
 use super::super::util::parse_ip_address;
@@ -90,6 +92,50 @@ pub(super) fn execute_diagnostics_dns_lookup(
     })
 }
 
+pub(super) fn execute_diagnostics_trace_route(
+    handle: &ProxyHandle,
+    cmd: &zero_api::DiagnosticsTraceRouteCommand,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    let proxy = handle.proxy.clone();
+    let target = cmd.target.clone();
+    let port = cmd.port;
+    let inbound_tag = cmd.inbound_tag.clone();
+    let (protocol, network) = trace_protocol(cmd.protocol.as_deref())?;
+
+    with_current_runtime("no tokio runtime available for trace_route command", |rt| {
+        rt.block_on(async move {
+            let mut session = Session::new(0, trace_target_address(&target), port, network, ProtocolType::UNKNOWN);
+            session.inbound_tag = inbound_tag;
+
+            let services = proxy.tcp_runtime_services();
+            let trace = route_trace_for_session(&services, &session).await;
+            let matched_rule = trace.matched_rule.map(|matched| {
+                serde_json::json!({
+                    "index": matched.index,
+                    "condition": matched.condition,
+                })
+            });
+
+            Ok(zero_api::CommandResponse {
+                accepted: true,
+                result: Some(serde_json::json!({
+                    "target": target,
+                    "port": port,
+                    "protocol": protocol,
+                    "inbound_tag": session.inbound_tag,
+                    "effective_mode": trace.mode,
+                    "route_action": match trace.decision {
+                        zero_engine::RouteDecision::Route(tag) => serde_json::json!({ "route": tag }),
+                        zero_engine::RouteDecision::Direct => serde_json::json!("direct"),
+                        zero_engine::RouteDecision::Reject => serde_json::json!("reject"),
+                    },
+                    "matched_rule": matched_rule,
+                })),
+            })
+        })
+    })
+}
+
 fn probe_target_endpoint(
     proxy: &crate::runtime::Proxy,
     target_tag: &str,
@@ -134,6 +180,26 @@ fn ip_address_string(address: IpAddress) -> String {
     match address {
         IpAddress::V4(bytes) => std::net::Ipv4Addr::from(bytes).to_string(),
         IpAddress::V6(bytes) => std::net::Ipv6Addr::from(bytes).to_string(),
+    }
+}
+
+fn trace_protocol(protocol: Option<&str>) -> zero_api::ApiResult<(&'static str, Network)> {
+    match protocol {
+        None => Ok(("tcp", Network::Tcp)),
+        Some(value) if value.eq_ignore_ascii_case("tcp") => Ok(("tcp", Network::Tcp)),
+        Some(value) if value.eq_ignore_ascii_case("udp") => Ok(("udp", Network::Udp)),
+        Some(value) => Err(zero_api::ApiError::new(
+            zero_api::ApiErrorCode::InvalidArgument,
+            format!("invalid protocol `{value}`; expected `tcp` or `udp`"),
+        )),
+    }
+}
+
+fn trace_target_address(target: &str) -> zero_core::Address {
+    match target.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(value)) => zero_core::Address::Ipv4(value.octets()),
+        Ok(std::net::IpAddr::V6(value)) => zero_core::Address::Ipv6(value.octets()),
+        Err(_) => zero_core::Address::Domain(target.to_owned()),
     }
 }
 

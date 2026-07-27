@@ -644,7 +644,7 @@ Response（反向）：
 
 #### diagnostics.trace_route
 
-查看路由规则对指定目标的匹配结果。
+查看路由规则对指定目标的匹配结果。域名目标会复用真实会话的路由流程：如果当前规则需要目标 IP 且原始域名未命中，内核会先解析真实 DNS，再用解析出的 IP 重新匹配规则。
 
 Params：`target` (string), `port` (number), `protocol` (string, 可选，默认 `"tcp"`), `inbound_tag` (string, 可选)
 
