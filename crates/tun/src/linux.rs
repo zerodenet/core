@@ -148,21 +148,6 @@ impl AsyncRead for LinuxTun {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Requires root: `sudo cargo test -p zero-tun -- --ignored`
-    #[test]
-    #[ignore]
-    fn test_create_linux_tun() {
-        let tun = LinuxTun::create(Some("tun%d")).expect("create tun");
-        assert!(!tun.name().is_empty());
-        assert!(tun.name().starts_with("tun"));
-        drop(tun);
-    }
-}
-
 impl AsyncWrite for LinuxTun {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -199,5 +184,20 @@ impl AsyncWrite for LinuxTun {
 
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Requires root: `sudo cargo test -p zero-tun -- --ignored`
+    #[test]
+    #[ignore]
+    fn test_create_linux_tun() {
+        let tun = LinuxTun::create(Some("tun%d")).expect("create tun");
+        assert!(!tun.name().is_empty());
+        assert!(tun.name().starts_with("tun"));
+        drop(tun);
     }
 }
