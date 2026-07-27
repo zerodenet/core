@@ -16,6 +16,7 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use zero_core::{Address, Network, ProtocolType, Session};
 use zero_traits::{AsyncSocket, DatagramCodec};
 
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 struct ChildGuard(Child);

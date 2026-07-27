@@ -232,9 +232,9 @@ impl RealityClientConnection {
         client_hello[39..71].fill(0);
 
         log::debug!("REALITY CLIENT: Encrypting SessionId");
-        log::debug!("  auth_key={:02x?}", &auth_key);
+        log::debug!("  auth_key={:02x?}", auth_key);
         log::debug!("  nonce={:02x?}", nonce);
-        log::debug!("  plaintext={:02x?}", &session_id_plaintext);
+        log::debug!("  plaintext={:02x?}", session_id_plaintext);
         log::debug!(
             "  aad_len={} (ClientHello with zero SessionId)",
             client_hello.len()
@@ -247,7 +247,7 @@ impl RealityClientConnection {
 
         log::debug!(
             "REALITY CLIENT: Encrypted SessionId={:02x?}",
-            &encrypted_session_id
+            encrypted_session_id
         );
 
         client_hello[39..71].copy_from_slice(&encrypted_session_id);
@@ -508,7 +508,7 @@ impl RealityClientConnection {
             log::debug!(
                 "REALITY CLIENT: Server HS key={:02x?}, iv={:02x?}",
                 &server_hs_key[..16],
-                &server_hs_iv
+                server_hs_iv
             );
         }
 
