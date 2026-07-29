@@ -91,7 +91,7 @@ Connector 只解释 HTTP 结果，不解释响应正文：
 | 网络、连接或超时错误 | 未确认，可重试 |
 | 其他 HTTP 状态 | 未确认、不可重试，进入失败/死信处理 |
 
-每个 sink 拥有独立投递 worker；某个接收端阻塞或超时不会串行阻塞其他 sink。启用 `api.outbox_path` 后，未确认事件在进程重启后继续投递。超时、退避、重试阈值与耗尽行为由 `api.dispatcher` 配置；默认 `retry_forever` 不会在固定次数后删除可重试事件。`dead_letter` 和 `discard` 必须由部署方显式选择。Connector 提供的是至少一次投递；接收方应按 `event_id` 幂等处理。
+每个 sink 拥有独立投递 worker；某个接收端阻塞或超时不会串行阻塞其他 sink。启用 `api.outbox_path` 后，未确认的事实事件在进程重启后继续投递。超时、退避、重试阈值与耗尽行为由 `api.dispatcher` 配置；默认 `retry_forever` 不会在固定次数后删除可重试事件。`dead_letter` 和 `discard` 必须由部署方显式选择。Connector 对事实事件提供至少一次投递；接收方应按 `event_id` 幂等处理。`flow.updated` 和 `stats.sampled` 是 best-effort 采样，不写入 outbox；内存工作集满时淘汰最旧采样或丢弃新采样，避免接收端故障期间形成无界历史积压。
 
 outbox 不使用固定容量上限。每次新增持久记录前，Connector 都会读取 outbox 所在文件系统的实时可用空间，并保留 `max(outbox_min_free_bytes, total_space × outbox_min_free_percent)`。默认保留 1 GiB 或 5%，取较大值。低于水位时新的 PUT 会 fail-closed：当前事件与尚未完成的 sink 集合留在 dispatcher 中，事件游标不前移，也不会被静默转成 dead letter；已经持久化的 delivery 仍可投递并写 ACK，从而允许积压自行回落。ACK 和压缩可使用正常保留空间，但仍保留有效水位 25%（至少 64 MiB、且不超过有效水位）的紧急维护空间，避免恢复日志反过来写满磁盘。`GET /api/v1/sinks` 通过 `outbox_storage.write_blocked`、`reserve_bytes`、`maintenance_reserve_bytes` 和容量字段暴露该状态。
 

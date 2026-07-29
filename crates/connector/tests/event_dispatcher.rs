@@ -140,6 +140,115 @@ async fn dispatcher_writes_matching_events_to_jsonl_sink() {
 }
 
 #[tokio::test]
+async fn outbox_only_workset_still_delivers_fact_events() {
+    let events_path = temp_path("zero-connector-outbox-only-events.jsonl");
+    let outbox_path = temp_path("zero-connector-outbox-only.jsonl");
+    cleanup_persistent_path(&events_path);
+    cleanup_persistent_path(&outbox_path);
+
+    let mut event = ApiEvent::new(
+        "outbox-only-event",
+        event_type::FLOW_COMPLETED,
+        1_760_000_000_000,
+        json!({ "value": 1 }),
+    );
+    event.sequence = Some(1);
+    let api = ApiConfig {
+        event_sinks: vec![EventSinkConfig::JsonLines {
+            tag: "outbox-only".to_owned(),
+            path: events_path.display().to_string(),
+            events: Vec::new(),
+            source_id: None,
+        }],
+        outbox_path: Some(outbox_path.display().to_string()),
+        dispatcher: EventDispatcherConfig {
+            max_in_memory_deliveries: 0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![event])),
+        },
+        api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn outbox-only dispatcher")
+    .expect("outbox-only dispatcher");
+
+    let written = wait_for_file_contains(&events_path, "outbox-only-event").await;
+    dispatcher.shutdown().await;
+
+    assert!(written.contains("outbox-only-event"));
+    cleanup_persistent_path(&events_path);
+    cleanup_persistent_path(&outbox_path);
+}
+
+#[tokio::test]
+async fn outbox_only_workset_makes_progress_for_every_sink() {
+    let first_path = temp_path("zero-connector-outbox-only-first.jsonl");
+    let second_path = temp_path("zero-connector-outbox-only-second.jsonl");
+    let outbox_path = temp_path("zero-connector-outbox-only-multi.jsonl");
+    for path in [&first_path, &second_path, &outbox_path] {
+        cleanup_persistent_path(path);
+    }
+
+    let mut event = ApiEvent::new(
+        "outbox-only-multi-event",
+        event_type::FLOW_COMPLETED,
+        1_760_000_000_000,
+        json!({ "value": 1 }),
+    );
+    event.sequence = Some(1);
+    let sinks = [("first", &first_path), ("second", &second_path)]
+        .into_iter()
+        .map(|(tag, path)| EventSinkConfig::JsonLines {
+            tag: tag.to_owned(),
+            path: path.display().to_string(),
+            events: Vec::new(),
+            source_id: None,
+        })
+        .collect();
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![event])),
+        },
+        ApiConfig {
+            event_sinks: sinks,
+            outbox_path: Some(outbox_path.display().to_string()),
+            dispatcher: EventDispatcherConfig {
+                max_in_memory_deliveries: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn multi-sink outbox-only dispatcher")
+    .expect("multi-sink outbox-only dispatcher");
+
+    let first = wait_for_file_contains(&first_path, "outbox-only-multi-event").await;
+    let second = wait_for_file_contains(&second_path, "outbox-only-multi-event").await;
+    dispatcher.shutdown().await;
+
+    assert!(first.contains("outbox-only-multi-event"));
+    assert!(second.contains("outbox-only-multi-event"));
+    for path in [&first_path, &second_path, &outbox_path] {
+        cleanup_persistent_path(path);
+    }
+}
+
+#[tokio::test]
 async fn graceful_shutdown_flushes_ready_deliveries_without_an_outbox() {
     let path = temp_path("zero-connector-shutdown-flush.jsonl");
     let _ = fs::remove_file(&path);

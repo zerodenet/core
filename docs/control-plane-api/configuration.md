@@ -36,7 +36,7 @@
     "dispatcher": {
       "max_in_memory_deliveries": 4096,
       "replay_batch_size": 4096,
-      "max_retry_attempts": 3,
+      "max_retry_attempts": 10,
       "retry_initial_delay_ms": 4000,
       "retry_max_delay_ms": 64000,
       "webhook_timeout_ms": 10000,
@@ -139,9 +139,9 @@ Flow 生命周期钩子，按数组顺序执行。
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
-| `max_in_memory_deliveries` | `4096` | 活跃内存工作集；其余持久 delivery 留在 outbox |
+| `max_in_memory_deliveries` | `4096` | 活跃内存工作集；`0` 表示仅写入 outbox（必须配置 `outbox_path`） |
 | `replay_batch_size` | `4096` | 每轮从 engine event log 补偿 live queue 断档的最大事件数 |
-| `max_retry_attempts` | `3` | 首次投递失败后最多重试次数 |
+| `max_retry_attempts` | `10` | 首次投递失败后最多重试次数 |
 | `retry_initial_delay_ms` | `4000` | 首次退避 |
 | `retry_max_delay_ms` | `64000` | 指数退避上限 |
 | `webhook_timeout_ms` | `10000` | 单次 Webhook 请求超时 |
@@ -149,7 +149,7 @@ Flow 生命周期钩子，按数组顺序执行。
 | `outbox_min_free_percent` | `5` | outbox 所在文件系统必须保留的可用空间比例 |
 | `exhausted_delivery_policy` | `retry_forever` | `retry_forever`、`dead_letter` 或 `discard` |
 
-所有数值必须大于零，且初始退避不得大于退避上限；`outbox_min_free_percent` 必须在 1–50 之间。磁盘保护的有效水位取绝对值与文件系统总容量比例中的较大值。达到水位后，dispatcher 暂停新的 outbox PUT，不推进对应事件游标；已有 delivery 的投递、ACK 和压缩可以使用保留空间继续排空，但仍会保留有效水位 25%（至少 64 MiB、且不超过有效水位）的紧急维护空间。`GET /api/v1/sinks` 的 `outbox_storage` 会报告总容量、可用空间、有效保留水位、紧急维护水位和 `write_blocked` 状态。
+除 `max_in_memory_deliveries` 可设为 `0` 外，其余数值必须大于零，且初始退避不得大于退避上限；`outbox_min_free_percent` 必须在 1–50 之间。磁盘保护的有效水位取绝对值与文件系统总容量比例中的较大值。达到水位后，dispatcher 暂停新的 outbox PUT，不推进对应事件游标；已有 delivery 的投递、ACK 和压缩可以使用保留空间继续排空，但仍会保留有效水位 25%（至少 64 MiB、且不超过有效水位）的紧急维护空间。`GET /api/v1/sinks` 的 `outbox_storage` 会报告总容量、可用空间、有效保留水位、紧急维护水位和 `write_blocked` 状态。
 
 `dead_letter` 策略要求同时配置 `api.dead_letter_path`。默认 `retry_forever` 会在达到阈值后继续按有界退避重试，不会隐式确认或删除可重试事件。
 

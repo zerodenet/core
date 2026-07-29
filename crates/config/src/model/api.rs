@@ -26,8 +26,9 @@ pub struct ApiConfig {
     /// deliveries after a process restart.
     #[serde(default)]
     pub outbox_path: Option<String>,
-    /// Bounded dispatcher working set. Additional durable deliveries remain
-    /// indexed in the outbox and are paged into memory as slots become free.
+    /// Bounded dispatcher working set. `0` means outbox-only delivery and
+    /// requires `outbox_path`; additional durable deliveries remain indexed
+    /// in the outbox and are paged into memory as slots become free.
     #[serde(default)]
     pub dispatcher: EventDispatcherConfig,
 }
@@ -101,7 +102,7 @@ fn default_dispatcher_replay_batch_size() -> usize {
 }
 
 fn default_dispatcher_max_retry_attempts() -> u32 {
-    3
+    10
 }
 
 fn default_dispatcher_retry_initial_delay_ms() -> u64 {

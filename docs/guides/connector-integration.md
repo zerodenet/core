@@ -48,7 +48,7 @@ cargo build --release --features full,status-api,connector
         "outbox_path": "state/event-outbox.jsonl",
         "dispatcher": {
           "webhook_timeout_ms": 10000,
-          "max_retry_attempts": 3,
+          "max_retry_attempts": 10,
           "retry_initial_delay_ms": 4000,
           "retry_max_delay_ms": 64000,
           "outbox_min_free_bytes": 1073741824,
@@ -76,7 +76,7 @@ gRPC 调用 `Control.Execute`，payload 使用完全相同的 JSON。认证和�
 
 接收端接受 `POST` 和 `zero.event.v1` JSON。成功持久化或幂等确认后返回任意 `2xx`。需要节点稍后重试时返回 `429` 或 `5xx`。其他状态表示不可重试拒绝。
 
-接收端应使用 `event_id` 去重，因为断网、超时和崩溃恢复会产生至少一次投递。完整 envelope 和状态分类见 [Connector 合同](../control-plane-api/connector.md)。
+接收端应使用 `event_id` 去重，因为事实事件在断网、超时和崩溃恢复后采用至少一次投递。`flow.updated` 和 `stats.sampled` 是可丢弃的 best-effort 采样，不进入 outbox。完整 envelope 和状态分类见 [Connector 合同](../control-plane-api/connector.md)。
 
 每个 sink 独立投递。默认耗尽策略 `retry_forever` 会持续保留并重试可恢复故障；只有明确选择 `dead_letter` 或 `discard` 才会在达到阈值后结束可重试 delivery。
 

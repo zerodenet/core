@@ -8,9 +8,14 @@ use crate::{
 use super::validate_tag;
 
 pub(super) fn validate_api(api: &ApiConfig) -> Result<(), ConfigError> {
-    if api.dispatcher.max_in_memory_deliveries == 0 || api.dispatcher.replay_batch_size == 0 {
+    if api.dispatcher.replay_batch_size == 0 {
         return Err(ConfigError::InvalidApi(
-            "api.dispatcher limits must be greater than zero".to_owned(),
+            "api.dispatcher.replay_batch_size must be greater than zero".to_owned(),
+        ));
+    }
+    if api.dispatcher.max_in_memory_deliveries == 0 && api.outbox_path.is_none() {
+        return Err(ConfigError::InvalidApi(
+            "api.dispatcher.max_in_memory_deliveries=0 requires api.outbox_path".to_owned(),
         ));
     }
     if api.dispatcher.max_retry_attempts == 0

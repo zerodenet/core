@@ -591,6 +591,163 @@ async fn dispatcher_spills_backlog_to_disk_and_pages_a_bounded_working_set() {
     let _ = std::fs::remove_file(outbox_path);
 }
 
+#[tokio::test]
+async fn transient_samples_are_delivered_best_effort_but_never_persisted() {
+    const SUCCESS: &[u8] =
+        b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+    let outbox_path = temp_path("zero-connector-sample-outbox.jsonl");
+    let _ = std::fs::remove_file(&outbox_path);
+    let (url, server) = spawn_scripted_http_server(vec![SUCCESS, SUCCESS]);
+    let events = vec![
+        sequenced_event("sample-not-durable", event_type::FLOW_UPDATED, 1),
+        sequenced_event("fact-is-durable", event_type::FLOW_COMPLETED, 2),
+    ];
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(events)),
+        },
+        webhook_api(url, Some(outbox_path.clone()), 8),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn best-effort dispatcher")
+    .expect("best-effort dispatcher");
+
+    let requests = server.join().expect("best-effort webhook server");
+    dispatcher.shutdown().await;
+
+    assert_eq!(requests.len(), 2);
+    let journal = std::fs::read_to_string(&outbox_path).expect("sample outbox");
+    assert!(journal.contains("fact-is-durable"));
+    assert!(!journal.contains("sample-not-durable"));
+    let _ = std::fs::remove_file(outbox_path);
+}
+
+#[tokio::test]
+async fn full_memory_workset_replaces_samples_without_evicting_facts() {
+    const SUCCESS: &[u8] =
+        b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+    let (url, server) = spawn_scripted_http_server(vec![SUCCESS, SUCCESS]);
+    let events = vec![
+        sequenced_event("sample-old", event_type::FLOW_UPDATED, 1),
+        sequenced_event("sample-new", event_type::STATS_SAMPLED, 2),
+        sequenced_event("fact-after-samples", event_type::FLOW_COMPLETED, 3),
+    ];
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(events)),
+        },
+        webhook_api(url, None, 1),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn bounded sample dispatcher")
+    .expect("bounded sample dispatcher");
+
+    let requests = server.join().expect("bounded sample webhook server");
+    dispatcher.shutdown().await;
+    let bodies = requests
+        .iter()
+        .map(|request| request_body(request))
+        .collect::<Vec<_>>();
+
+    assert_eq!(bodies.len(), 2);
+    assert!(bodies.iter().any(|body| body.contains("sample-new")));
+    assert!(bodies
+        .iter()
+        .any(|body| body.contains("fact-after-samples")));
+    assert!(!bodies.iter().any(|body| body.contains("sample-old")));
+}
+
+#[tokio::test]
+async fn no_outbox_backpressure_preserves_every_fact_event() {
+    const SUCCESS: &[u8] =
+        b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+    let (url, server) = spawn_scripted_http_server(vec![SUCCESS, SUCCESS, SUCCESS]);
+    let events = (1..=3)
+        .map(|sequence| {
+            sequenced_event(
+                &format!("bounded-fact-{sequence}"),
+                event_type::FLOW_COMPLETED,
+                sequence,
+            )
+        })
+        .collect();
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(events)),
+        },
+        webhook_api(url, None, 1),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn bounded fact dispatcher")
+    .expect("bounded fact dispatcher");
+
+    let requests = server.join().expect("bounded fact webhook server");
+    dispatcher.shutdown().await;
+    let bodies = requests
+        .iter()
+        .map(|request| request_body(request))
+        .collect::<Vec<_>>();
+
+    assert_eq!(bodies.len(), 3);
+    for sequence in 1..=3 {
+        assert!(
+            bodies
+                .iter()
+                .any(|body| body.contains(&format!("bounded-fact-{sequence}"))),
+            "fact {sequence} was lost while applying backpressure"
+        );
+    }
+}
+
+fn sequenced_event(event_id: &str, event_type: &str, sequence: u64) -> RawApiEvent {
+    let mut event = ApiEvent::new(
+        event_id,
+        event_type,
+        1_760_000_000_000 + sequence,
+        json!({ "sequence": sequence }),
+    );
+    event.sequence = Some(sequence);
+    event
+}
+
+fn webhook_api(
+    url: String,
+    outbox_path: Option<std::path::PathBuf>,
+    max_in_memory_deliveries: usize,
+) -> ApiConfig {
+    ApiConfig {
+        event_sinks: vec![EventSinkConfig::Webhook {
+            tag: "receiver".to_owned(),
+            url,
+            events: Vec::new(),
+            source_id: Some("bounded-test".to_owned()),
+            headers: BTreeMap::new(),
+            allow_insecure: true,
+        }],
+        outbox_path: outbox_path.map(|path| path.display().to_string()),
+        dispatcher: EventDispatcherConfig {
+            max_in_memory_deliveries,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
 async fn wait_for_sink_pending(
     status: &zero_connector::EventDispatcherStatusHandle,
     sink: &str,

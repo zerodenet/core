@@ -627,7 +627,8 @@ fn fill_pending_from_outbox(
         .iter()
         .filter(|worker| worker.in_flight.is_some())
         .count();
-    let room = limit.saturating_sub(pending.len().saturating_add(in_flight));
+    let room = effective_pending_limit(limit, workers.len())
+        .saturating_sub(pending.len().saturating_add(in_flight));
     if room == 0 {
         return;
     }
@@ -662,7 +663,27 @@ fn dispatch_event(
         }
 
         let prepared = worker.prepare_event(&blocked.event);
-        let delivery = PendingDelivery::new(worker.tag.clone(), prepared);
+
+        // Throughput samples are deliberately lossy. They are useful while
+        // the sink is healthy, but retaining every stale sample during an
+        // outage would turn the outbox into an unbounded backlog.
+        if is_discardable_sample(&blocked.event) {
+            let delivery = PendingDelivery::new(worker.tag.clone(), prepared, false);
+            blocked.persisted_sinks.insert(worker.tag.clone());
+            enqueue_sample(pending, delivery, max_in_memory_deliveries);
+            continue;
+        }
+
+        let delivery = PendingDelivery::new(worker.tag.clone(), prepared, outbox.is_some());
+
+        // Without an outbox, stop consuming source events once the bounded
+        // in-memory workset is full. This keeps backpressure bounded instead
+        // of allowing a slow sink to grow the process indefinitely.
+        let pending_limit = effective_pending_limit(max_in_memory_deliveries, workers.len());
+        if outbox.is_none() && pending.len() >= pending_limit {
+            return false;
+        }
+
         if let Err(error) = persist_delivery(outbox, &delivery) {
             if blocked.reported_failures.insert(worker.tag.clone()) {
                 record_outbox_failure(stats, &worker.tag, &error);
@@ -670,13 +691,51 @@ fn dispatch_event(
             return false;
         }
         blocked.persisted_sinks.insert(worker.tag.clone());
-        if outbox.is_some() && pending.len() >= max_in_memory_deliveries {
+        if outbox.is_some()
+            && pending.len() >= effective_pending_limit(max_in_memory_deliveries, workers.len())
+        {
             continue;
         }
 
         pending.push_back(delivery);
     }
     true
+}
+
+fn is_discardable_sample(event: &RawApiEvent) -> bool {
+    matches!(
+        event.event_type.as_str(),
+        event_type::FLOW_UPDATED | event_type::STATS_SAMPLED
+    )
+}
+
+fn enqueue_sample(
+    pending: &mut VecDeque<PendingDelivery>,
+    delivery: PendingDelivery,
+    max_in_memory_deliveries: usize,
+) {
+    if max_in_memory_deliveries == 0 {
+        return;
+    }
+    if pending.len() < max_in_memory_deliveries {
+        pending.push_back(delivery);
+        return;
+    }
+
+    // Prefer evicting the oldest sample. If the queue contains only
+    // lifecycle facts, drop the incoming sample instead.
+    if let Some(index) = pending.iter().position(|queued| {
+        queued.sink_tag == delivery.sink_tag && is_discardable_sample(&queued.event)
+    }) {
+        pending.remove(index);
+        pending.push_back(delivery);
+    }
+}
+
+fn effective_pending_limit(configured_limit: usize, worker_count: usize) -> usize {
+    // An outbox-only configuration still needs one queued item per worker to
+    // make progress. Durable backlog beyond that minimum remains on disk.
+    configured_limit.max(worker_count.max(1))
 }
 
 fn submit_pending(
@@ -901,6 +960,7 @@ struct PendingDelivery {
     next_due: Instant,
     message: Option<String>,
     awaiting_ack: bool,
+    uses_outbox: bool,
 }
 
 struct BlockedEvent {
@@ -920,7 +980,7 @@ impl BlockedEvent {
 }
 
 impl PendingDelivery {
-    fn new(sink_tag: String, event: RawApiEvent) -> Self {
+    fn new(sink_tag: String, event: RawApiEvent, uses_outbox: bool) -> Self {
         Self {
             sink_tag,
             event,
@@ -928,6 +988,7 @@ impl PendingDelivery {
             next_due: Instant::now(),
             message: None,
             awaiting_ack: false,
+            uses_outbox,
         }
     }
 
@@ -939,6 +1000,7 @@ impl PendingDelivery {
             next_due: Instant::now(),
             message: delivery.message,
             awaiting_ack: false,
+            uses_outbox: true,
         }
     }
 
@@ -960,6 +1022,9 @@ fn persist_delivery(
     outbox: &mut Option<DeliveryOutbox>,
     delivery: &PendingDelivery,
 ) -> ConnectorResult<()> {
+    if !delivery.uses_outbox {
+        return Ok(());
+    }
     let Some(outbox) = outbox.as_mut() else {
         return Ok(());
     };
@@ -979,6 +1044,9 @@ fn ack_delivery(
     outbox: &mut Option<DeliveryOutbox>,
     delivery: &PendingDelivery,
 ) -> ConnectorResult<()> {
+    if !delivery.uses_outbox {
+        return Ok(());
+    }
     let Some(outbox) = outbox.as_mut() else {
         return Ok(());
     };

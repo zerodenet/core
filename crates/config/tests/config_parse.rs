@@ -1477,6 +1477,40 @@ fn outbox_disk_reserve_requires_safe_non_zero_values() {
 }
 
 #[test]
+fn zero_memory_delivery_workset_requires_an_outbox() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "api": {
+                "dispatcher": { "max_in_memory_deliveries": 0 }
+            },
+            "route": {
+                "rules": [],
+                "final": { "type": "direct" }
+            }
+        }"#,
+    )
+    .expect_err("zero memory workset without an outbox should fail");
+    assert!(error.to_string().contains("requires api.outbox_path"));
+}
+
+#[test]
+fn zero_memory_delivery_workset_is_valid_with_an_outbox() {
+    RuntimeConfig::parse(
+        r#"{
+            "api": {
+                "outbox_path": "events.outbox",
+                "dispatcher": { "max_in_memory_deliveries": 0 }
+            },
+            "route": {
+                "rules": [],
+                "final": { "type": "direct" }
+            }
+        }"#,
+    )
+    .expect("zero memory workset with an outbox should be valid");
+}
+
+#[test]
 fn dead_letter_exhaustion_policy_requires_a_dead_letter_path() {
     let error = RuntimeConfig::parse(
         r#"{
