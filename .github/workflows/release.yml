@@ -142,11 +142,6 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           ARCHIVE="zero-${{ matrix.name }}.${{ matrix.ext }}"
-          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
-            # Managed old-glibc deployments require the compatibility archive
-            # and checksum to be tied to the exact release tag.
-            ARCHIVE="zero-${GITHUB_REF_NAME}-${{ matrix.name }}.${{ matrix.ext }}"
-          fi
           tar czf "$ARCHIVE" zero
           sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
 
@@ -266,7 +261,7 @@ jobs:
             echo "| Platform | Archive |"
             echo "|----------|---------|"
             echo "| Linux x86_64 (GNU/glibc) | \`zero-linux-x86_64.tar.gz\`      |"
-            echo "| Linux x86_64 (musl, compatible) | \`zero-${CURRENT_TAG}-linux-x86_64-musl.tar.gz\` |"
+            echo "| Linux x86_64 (musl, compatible) | \`zero-linux-x86_64-musl.tar.gz\` |"
             echo "| macOS x86_64             | \`zero-darwin-x86_64.tar.gz\`     |"
             echo "| macOS aarch64            | \`zero-darwin-aarch64.tar.gz\`    |"
             echo "| Windows x86_64           | \`zero-windows-x86_64.zip\`       |"
