@@ -5,10 +5,10 @@
 
 相关文档：
 
-- [协议能力](./protocol-capabilities.md)
+- [公开协议能力参考](https://docs.zerodenet.org/projects/core/reference/protocol-capabilities)
 - [执行计划](./engine-plan.md)
 - [生命周期](./lifecycle.md)
-- [配置](./config.md)
+- [公开配置参考](https://docs.zerodenet.org/projects/core/configuration/)
 - [控制面](./control-plane.md)
 - [工程规则](./tooling.md)
 

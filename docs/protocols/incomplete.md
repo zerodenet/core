@@ -1,6 +1,6 @@
 # 未完成项
 
-本页只记录协议层**尚未完成**的能力缺口。已完成项已移除（实现与验证记录见各协议 `index.md` 与 [protocol-capabilities.md](../project/protocol-capabilities.md)）。能力事实以运行时 `capabilities.protocols`（各协议 metadata）为准。
+本页只记录协议层**尚未完成**的能力缺口。已完成项已移除，实现与验证记录见各协议 `index.md`；公开能力事实见[协议能力参考](https://docs.zerodenet.org/projects/core/reference/protocol-capabilities)，运行时权威来源是 `capabilities.protocols`（各协议 metadata）。
 
 ## Shadowsocks
 

@@ -10,4 +10,4 @@ Hysteria2 入站和出站共享鉴权信息、TLS/QUIC 端点信息和协议级�
 | 证书、密钥与 QUIC 载体构建 | 协议适配器与传输层 |
 | 流生命周期、路由和计量 | 通用运行时 |
 
-完整字段与校验规则见 [配置参考](../../project/config.md)。
+完整字段与校验规则见[公开配置参考](https://docs.zerodenet.org/projects/core/configuration/)。

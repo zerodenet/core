@@ -227,8 +227,6 @@ Route supports `mode` (`rule`/`global`/`direct`), `rules` array, and `final` act
 
 ## Key Documentation
 
-- `docs/project/config.md` — configuration specification
-- `docs/project/modes-and-groups.md` — routing modes and outbound groups
 - `docs/project/architecture.md` — architecture layers and dependency rules
 - `docs/project/logging.md` — structured logging
 - `https://docs.zerodenet.org/projects/core/` — public user and integration documentation

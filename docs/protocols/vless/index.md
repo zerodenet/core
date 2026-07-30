@@ -16,4 +16,4 @@ Zero 的 VLESS 实现覆盖 TCP 入站与出站，并通过通用传输层组合
 - [入站](./inbound.md)
 - [出站](./outbound.md)
 - [公共约定](./shared.md)
-- [完整配置参考](../../project/config.md)
+- [公开配置参考](https://docs.zerodenet.org/projects/core/configuration/)

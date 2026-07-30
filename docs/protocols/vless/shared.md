@@ -11,4 +11,4 @@ VLESS 入站和出站共享用户标识、flow 和地址编解码语义。这些
 | 目标地址 | 按 VLESS 地址格式编码和解码 |
 | 传输配置 | 由通用传输层构建，不在 VLESS 协议模块内重复实现 |
 
-完整字段形状和组合约束见 [配置参考](../../project/config.md)。
+完整字段形状和组合约束见[公开配置参考](https://docs.zerodenet.org/projects/core/configuration/)。
