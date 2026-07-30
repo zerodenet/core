@@ -392,9 +392,14 @@ async fn dispatcher_recovers_unacknowledged_webhook_delivery_from_outbox() {
     let mut recovery_api = api;
     // Recovery must still be able to write an ACK while new PUT records are
     // paused by the filesystem reserve.
+    // Leave enough headroom above the sampled free space that unrelated file
+    // deletion on a shared CI volume cannot make PUTs writable between this
+    // probe and the dispatcher's storage-status probe.
+    const PUT_BLOCK_HEADROOM_BYTES: u64 = 64 * 1024 * 1024;
     recovery_api.dispatcher.outbox_min_free_bytes =
         fs2::available_space(outbox_path.parent().expect("outbox parent"))
-            .expect("available outbox space");
+            .expect("available outbox space")
+            .saturating_add(PUT_BLOCK_HEADROOM_BYTES);
     recovery_api.dispatcher.outbox_min_free_percent = 1;
     let second = spawn_event_dispatcher(
         StaticEventSource {
