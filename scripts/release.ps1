@@ -38,8 +38,8 @@ Set-Location $repoRoot
 $cargoTomlPath = "Cargo.toml"
 $breakingChangesPath = "release/breaking-changes.md"
 $rowMarker = "<!-- version-contract:unreleased-row -->"
-$emptyRow = "| ``Unreleased`` | — | 暂无待发布的兼容性变更 $rowMarker |"
-$emptyBodyComment = "<!-- 在这里登记已实现但尚未封板的兼容性变更。 -->"
+$emptyRow = "| ``Unreleased`` | - | No pending compatibility changes $rowMarker |"
+$emptyBodyComment = "<!-- Record implemented but unsealed compatibility changes here. -->"
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Read-Utf8([string]$Path) {
@@ -169,15 +169,17 @@ function Prepare-ReleaseContract(
         throw "Release '$ReleaseVersion' already exists in breaking changes."
     }
 
+    $newline = if ($BreakingContent.Contains("`r`n")) { "`r`n" } else { "`n" }
     $unreleasedBody = Get-UnreleasedBody $BreakingContent
-    if (-not (Test-SubstantiveBody $unreleasedBody)) {
-        throw "Cannot prepare a release with an empty Unreleased section."
+    $releasedBody = if (Test-SubstantiveBody $unreleasedBody) {
+        $unreleasedBody
+    }
+    else {
+        "$newline<!-- No compatibility changes in this release. -->$newline$newline"
     }
     $unreleasedRow = Get-UnreleasedRow $BreakingContent
     $releasedRow = $unreleasedRow.Replace('`Unreleased`', "``$ReleaseVersion``").Replace($rowMarker, '')
     $releasedRow = [regex]::Replace($releasedRow, '\s+\|$', ' |')
-    $newline = if ($BreakingContent.Contains("`r`n")) { "`r`n" } else { "`n" }
-
     $rowPattern = '(?m)^\| `Unreleased` \|[^\r\n]*' + [regex]::Escape($rowMarker) + '[^\r\n]*\r?$'
     $rowReplacement = $emptyRow + $newline + $releasedRow
     $nextBreaking = [regex]::Replace(
@@ -186,10 +188,10 @@ function Prepare-ReleaseContract(
         [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $rowReplacement },
         1
     )
-    $headingReplacement = "## Unreleased${newline}${newline}${emptyBodyComment}${newline}${newline}## $ReleaseVersion"
+    $headingReplacement = "## Unreleased${newline}${newline}${emptyBodyComment}${newline}${newline}## $ReleaseVersion${newline}${releasedBody}"
     $nextBreaking = [regex]::Replace(
         $nextBreaking,
-        '(?m)^## Unreleased\r?$',
+        '(?ms)^## Unreleased\r?\n.*?(?=^## |\z)',
         [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $headingReplacement },
         1
     )

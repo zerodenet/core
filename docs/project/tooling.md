@@ -53,6 +53,9 @@ cargo test <test_name>
 
 Linux/macOS 使用 `./scripts/release.sh --check`。正式版本测试完成后，可先只读预览封板差异：
 
+`Unreleased` 没有兼容性变化时也允许发布。脚本仍会生成对应版本的矩阵行和章节，
+明确记录该版本没有需要消费者迁移的语义变化；空台账不是跳过 Cargo、tag 或版本一致性校验。
+
 ```powershell
 ./scripts/release.ps1 -Version 0.0.16 -DryRun
 ```

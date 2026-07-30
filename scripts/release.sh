@@ -49,8 +49,8 @@ cd "${ZERO_REPO_ROOT:-$SCRIPT_DIR/..}"
 CARGO_TOML=Cargo.toml
 BREAKING_CHANGES=release/breaking-changes.md
 ROW_MARKER='<!-- version-contract:unreleased-row -->'
-EMPTY_ROW="| \`Unreleased\` | — | 暂无待发布的兼容性变更 ${ROW_MARKER} |"
-EMPTY_BODY_COMMENT='<!-- 在这里登记已实现但尚未封板的兼容性变更。 -->'
+EMPTY_ROW="| \`Unreleased\` | - | No pending compatibility changes ${ROW_MARKER} |"
+EMPTY_BODY_COMMENT='<!-- Record implemented but unsealed compatibility changes here. -->'
 
 fail() {
     echo "Version contract error: $*" >&2
@@ -188,12 +188,13 @@ render_cargo_version() {
 }
 
 render_release_docs() {
-    local source=$1 destination=$2 version=$3
+    local source=$1 destination=$2 version=$3 has_changes=$4
     awk \
         -v version="$version" \
         -v marker="$ROW_MARKER" \
         -v empty_row="$EMPTY_ROW" \
-        -v empty_comment="$EMPTY_BODY_COMMENT" '
+        -v empty_comment="$EMPTY_BODY_COMMENT" \
+        -v has_changes="$has_changes" '
         { sub(/\r$/, "") }
         index($0, marker) {
             released=$0
@@ -211,9 +212,17 @@ render_release_docs() {
             print empty_comment
             print ""
             print "## " version
+            if (has_changes == "false") {
+                print ""
+                print "<!-- No compatibility changes in this release. -->"
+                print ""
+                skip_released_body=1
+            }
             heading_changed=1
             next
         }
+        skip_released_body && /^## / { skip_released_body=0 }
+        skip_released_body { next }
         { print }
         END { if (!row_changed || !heading_changed) exit 2 }
     ' "$source" > "$destination"
@@ -221,21 +230,21 @@ render_release_docs() {
 
 prepare_release_contract() {
     local release_version=$1 dry_run=$2
-    local current body cargo_tmp docs_tmp
+    local current cargo_tmp docs_tmp has_changes
     current=$(assert_unsealed_contract "$CARGO_TOML" "$BREAKING_CHANGES")
     validate_version "$release_version" release
     if grep -Eq "^## ${release_version//./\\.}\r?$" "$BREAKING_CHANGES"; then
         fail "release '$release_version' already exists in breaking changes"
     fi
-    body=$(unreleased_body "$BREAKING_CHANGES")
-    printf '%s\n' "$body" | body_is_substantive || \
-        fail "cannot prepare a release with an empty Unreleased section"
-
+    has_changes=false
+    if unreleased_body "$BREAKING_CHANGES" | body_is_substantive; then
+        has_changes=true
+    fi
     cargo_tmp=$(mktemp "${CARGO_TOML}.version.XXXXXX")
     docs_tmp=$(mktemp "${BREAKING_CHANGES}.version.XXXXXX")
     trap 'rm -f "${cargo_tmp:-}" "${docs_tmp:-}"' RETURN
     render_cargo_version "$CARGO_TOML" "$cargo_tmp" "$release_version"
-    render_release_docs "$BREAKING_CHANGES" "$docs_tmp" "$release_version"
+    render_release_docs "$BREAKING_CHANGES" "$docs_tmp" "$release_version" "$has_changes"
     assert_release_contract "$cargo_tmp" "$docs_tmp" "$release_version"
 
     if [[ "$dry_run" == true ]]; then
