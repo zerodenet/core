@@ -25,14 +25,28 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | — | 暂无待发布的兼容性变更 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | Diagnostics API 消费者、Connector 运维与事件 Sink | `diagnostics.trace_route` 改为执行真实会话路由追踪；Connector 对事实事件施加有界内存与可选 outbox 背压，采样事件改为仅 best-effort 且不持久化；默认重试次数由 3 调整为 10 <!-- version-contract:unreleased-row --> |
 | `0.0.15-rc.2` | 构建脚本、事件消费者、Webhook 接收端 | 公开 Cargo feature 改用 kebab-case；引擎生成的 `event_id` 增加每次启动唯一的随机 epoch；开发期固定中心 API 被撤销，Connector 收缩为通用 Webhook 事件投递；认证项速率改为 Zero 主体策略聚合 |
 | `0.0.15-rc.1` | 进程内 Rust `EventSource`、事件 Sink | Rust 实现者必须迁移到实时 `EventStream`；IPC/HTTP/gRPC GUI wire 无变化 |
 | `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
 
 ## Unreleased
 
-<!-- 在这里登记已实现但尚未封板的兼容性变更。 -->
+### Diagnostics 路由追踪使用真实会话语义
+
+`diagnostics.trace_route` 现在构造 TCP 或 UDP 会话并复用代理运行时的路由追踪路径。域名规则没有直接命中且路由需要解析 IP 时，会通过真实 DNS 解析结果再次匹配 IP 规则。响应中的 `effective_mode`、`route_action` 和 `matched_rule` 因此反映实际运行时决策，不再使用简化推断。依赖旧诊断结果的控制端应以新结果为准。
+
+### Connector backlog 改为有界工作集
+
+Connector 不再让慢速或失联 Sink 导致进程内待投递队列无界增长：
+
+- 配置 outbox 时，事实事件先写入持久化 journal，内存只保留有界工作集，其余记录按空位从磁盘分页恢复；
+- 未配置 outbox 时，事实事件通过停止继续消费事件源施加背压，不会静默丢弃；
+- `flow.updated` 与 `stats.sampled` 是可丢弃采样，只做 best-effort 投递、不会写入 outbox；工作集已满时优先替换同一 Sink 的旧采样，不驱逐事实事件；
+- `api.dispatcher.max_in_memory_deliveries = 0` 表示 outbox-only 模式，因此必须同时配置 `api.outbox_path`；
+- `max_retry_attempts` 默认值由 `3` 调整为 `10`，显式配置不受影响。
+
+事件 Sink 不应把吞吐采样当作可靠事实流；需要恢复保证的消费者应使用事实事件并配置 outbox。
 
 ## 0.0.15-rc.2
 
