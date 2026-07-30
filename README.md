@@ -14,10 +14,11 @@ cargo run -- status --json examples/v0.0.1/basic.json
 
 ## Documentation
 
-- [Quick start](docs/guides/quickstart.md)
-- [Configuration](docs/project/config.md)
-- [Architecture](docs/project/architecture.md)
-- [Control plane API](docs/control-plane-api/README.md)
+- [Zero documentation](https://docs.zerodenet.org/projects/core/)
+- [Quick start](https://docs.zerodenet.org/projects/core/guides/quickstart)
+- [Configuration](https://docs.zerodenet.org/projects/core/configuration/)
+- [Control plane API](https://docs.zerodenet.org/projects/core/control-plane/)
+- [Internal architecture notes](docs/project/architecture.md)
 - [Examples](examples/)
 
 ## License

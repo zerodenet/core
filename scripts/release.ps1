@@ -36,7 +36,7 @@ $repoRoot = if ($env:ZERO_REPO_ROOT) { $env:ZERO_REPO_ROOT } else { Join-Path $P
 Set-Location $repoRoot
 
 $cargoTomlPath = "Cargo.toml"
-$breakingChangesPath = "docs/control-plane-api/breaking-changes.md"
+$breakingChangesPath = "release/breaking-changes.md"
 $rowMarker = "<!-- version-contract:unreleased-row -->"
 $emptyRow = "| ``Unreleased`` | — | 暂无待发布的兼容性变更 $rowMarker |"
 $emptyBodyComment = "<!-- 在这里登记已实现但尚未封板的兼容性变更。 -->"
@@ -314,7 +314,7 @@ Write-Utf8 $cargoTomlPath $prepared[0]
 Write-Utf8 $breakingChangesPath $prepared[1]
 Assert-ReleaseContract (Read-Utf8 $cargoTomlPath) (Read-Utf8 $breakingChangesPath) $Version
 
-git add Cargo.toml docs/control-plane-api/breaking-changes.md
+git add Cargo.toml release/breaking-changes.md
 git commit -m $Message
 git tag -a $tagName -m $Message
 

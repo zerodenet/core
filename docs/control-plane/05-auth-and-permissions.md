@@ -1,7 +1,7 @@
 # 认证与权限模型设计
 
 > [!IMPORTANT]
-> 本文是认证与权限设计背景。当前公开接口及实际权限行为以代码和[控制面 API](../control-plane-api/index.md)为准。
+> 本文是认证与权限设计背景。当前公开接口及实际权限行为以代码和[公开控制面 API](https://docs.zerodenet.org/projects/core/control-plane/)为准。
 
 本文档详细规划控制面的认证、授权和权限检查机制。
 

@@ -36,7 +36,7 @@ Zero 使用 JSON。当前顶层结构如下：
 
 这里仅记录当前已实现的配置。模式和节点组的长期设计见 [modes-and-groups.md](modes-and-groups.md)。
 
-> Connector Webhook 作为 `api.event_sinks` 配置，不存在独立顶层 `push`。外部控制器通过 Zero API/gRPC 的 `config.apply` 注册完整 URL。详见 [Connector 通信边界](connector-architecture.md) 与 [配置模型参考](../control-plane-api/configuration.md#api-event-sinks)。
+> Connector Webhook 作为 `api.event_sinks` 配置，不存在独立顶层 `push`。外部控制器通过 Zero API/gRPC 的 `config.apply` 注册完整 URL。详见 [Connector 通信边界](connector-architecture.md) 与 [公开配置模型参考](https://docs.zerodenet.org/projects/core/control-plane/configuration#api-event-sinks)。
 
 ## runtime
 
@@ -168,7 +168,7 @@ Zero 使用 JSON。当前顶层结构如下：
 
 当前管控面使用 `Authorization: Bearer <api-key>` 或 `X-Zero-Api-Key: <api-key>`。建议仅监听 localhost、内网或受防火墙保护的地址。
 
-编译 `grpc-api` 时，gRPC 使用同一监听 IP 的下一端口。`control.grpc` 可选配置原生 TLS、客户端 CA（mTLS）、Bearer 开关或显式远程明文；Bearer 与 mTLS 可以单独使用或叠加。默认远程明文不会启动，外部 TLS 终止仍受支持。详细字段与示例见 [控制面配置](../control-plane-api/configuration.md#api-control)。
+编译 `grpc-api` 时，gRPC 使用同一监听 IP 的下一端口。`control.grpc` 可选配置原生 TLS、客户端 CA（mTLS）、Bearer 开关或显式远程明文；Bearer 与 mTLS 可以单独使用或叠加。默认远程明文不会启动，外部 TLS 终止仍受支持。详细字段与示例见[公开控制面配置](https://docs.zerodenet.org/projects/core/control-plane/configuration#api-control)。
 
 当前 HTTP 管控面支持：
 

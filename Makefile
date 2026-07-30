@@ -6,7 +6,7 @@ STATUS_LISTEN ?= 127.0.0.1:9090
 PREFIX ?= /usr/local
 BUILD_ID := $(shell grep -m1 'version = ' Cargo.toml | sed 's/.*= *"//;s/".*//')
 
-.PHONY: help fmt check test clippy build build-full release release-full strip clean install uninstall run run-status status status-json build-info docs-dev docs-build docs-preview docs-install hooks
+.PHONY: help fmt check test clippy build build-full release release-full strip clean install uninstall run run-status status status-json build-info hooks
 
 help:
 	@echo Available targets:
@@ -28,10 +28,6 @@ help:
 	@echo   make status-json  - print JSON status for CONFIG=$(CONFIG)
 	@echo   make build-info  - show build info
 	@echo   make hooks       - install git hooks (pre-commit: fmt + clippy)
-	@echo   make docs-dev    - start VitePress dev server
-	@echo   make docs-build  - build static docs site
-	@echo   make docs-preview- preview built docs site
-	@echo   make docs-install- install docs npm dependencies
 
 fmt:
 	$(CARGO) fmt --all
@@ -89,15 +85,3 @@ build-info:
 hooks:
 	@git config core.hooksPath scripts/hooks
 	@echo "git hooks -> scripts/hooks (pre-commit: fmt + clippy)"
-
-docs-install:
-	cd docs && npm install
-
-docs-dev:
-	cd docs && npm run dev
-
-docs-build:
-	cd docs && npm run check
-
-docs-preview:
-	cd docs && npm run preview

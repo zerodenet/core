@@ -5,21 +5,19 @@ on:
     branches: [develop, main]
     paths:
       - "Cargo.toml"
-      - "docs/control-plane-api/breaking-changes.md"
+      - "release/breaking-changes.md"
       - "scripts/release.ps1"
       - "scripts/release.sh"
       - ".github/workflows/release.yml"
-      - ".github/workflows/docs.yml"
       - ".github/workflows/version-contract.yml"
   pull_request:
     branches: [develop, main]
     paths:
       - "Cargo.toml"
-      - "docs/control-plane-api/breaking-changes.md"
+      - "release/breaking-changes.md"
       - "scripts/release.ps1"
       - "scripts/release.sh"
       - ".github/workflows/release.yml"
-      - ".github/workflows/docs.yml"
       - ".github/workflows/version-contract.yml"
 
 permissions:

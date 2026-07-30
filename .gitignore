@@ -9,13 +9,9 @@ node_modules/
 __pycache__/
 *.py[cod]
 
-# Docs
-docs/.vitepress/dist/
+# Generated documentation artifacts from checkouts predating the standalone site.
 docs/.vitepress/cache/
-docs/node_modules/
-docs/package-lock.json
-docs/pnpm-lock.yaml
-docs/pnpm-workspace.yaml
+docs/.vitepress/dist/
 
 # Logs / generated
 *.log

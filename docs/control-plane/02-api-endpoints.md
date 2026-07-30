@@ -1,9 +1,9 @@
 # HTTP API 端点
 
 > [!IMPORTANT]
-> 本文是历史设计稿。当前 HTTP 端点以[HTTP JSON API](../control-plane-api/http-api.md)为准。
+> 本文是历史设计稿。当前 HTTP 端点以[公开 HTTP JSON API](https://docs.zerodenet.org/projects/core/control-plane/http-api)为准。
 
-本文档是当前本地 HTTP 控制面的索引。详细的线路契约见 [http-api.md](../control-plane-api/http-api.md)。
+本文档是当前本地 HTTP 控制面的历史索引。详细线路契约见[公开 HTTP JSON API](https://docs.zerodenet.org/projects/core/control-plane/http-api)。
 
 ## 基础路径
 

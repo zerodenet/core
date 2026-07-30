@@ -1,7 +1,7 @@
 # 事件系统与 Sink 设计
 
 > [!IMPORTANT]
-> 本文是事件系统的历史设计材料。当前事件名称和负载以[事件 API](../control-plane-api/events.md)为准。
+> 本文是事件系统的历史设计材料。当前事件名称和负载以[公开事件 API](https://docs.zerodenet.org/projects/core/control-plane/events)为准。
 
 本文档详细规划事件总线、归一化事件格式和事件 Sink 框架的实现。
 

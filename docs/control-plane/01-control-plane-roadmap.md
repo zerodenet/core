@@ -1,7 +1,7 @@
 # 控制面实现路线图
 
 > [!IMPORTANT]
-> 本文是历史设计与路线图，不是当前 API 契约。当前实现以[控制面 API](../control-plane-api/index.md)为准。
+> 本文是历史设计与路线图，不是当前 API 契约。当前实现以[公开控制面 API](https://docs.zerodenet.org/projects/core/control-plane/)为准。
 
 本文档详细规划 Zero 控制面的实现步骤、模块划分和验收标准。
 

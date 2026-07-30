@@ -38,12 +38,8 @@ cargo test <test_name>
 
 修改协议行为、配置解析、路由、运行时接线或日志后，应运行完整测试集。
 
-文档站检查：
-
-```powershell
-cd docs
-npm run check
-```
+公开文档站由 `zerodenet/docs` 仓库独立构建和部署。本仓库只维护工程资料；
+公开文档变更应提交到该仓库并运行其 `pnpm check:build`。
 
 ## 版本契约与封板
 
@@ -88,7 +84,7 @@ Linux/macOS 对应命令为 `./scripts/release.sh 0.0.17-dev --start-development
 | 普通 release 命令 | 是 | 将 `Unreleased` 封板为正式版本、更新 Cargo、提交并打 tag |
 | `-CheckRelease` / `--check-release` | 否 | 校验 Cargo、兼容矩阵和版本章节与 tag 一致 |
 
-独立 CI workflow 会在 Cargo、兼容文档、发布脚本或 workflow 变化时分别执行 Bash 和 PowerShell 契约检查；tag release 和文档部署还会再次执行 `check-release`。
+独立 CI workflow 会在 Cargo、兼容台账、发布脚本或 workflow 变化时分别执行 Bash 和 PowerShell 契约检查；tag release 还会再次执行 `check-release`。
 
 ## 根 package 的 feature
 
@@ -136,9 +132,9 @@ Linux/macOS 对应命令为 `./scripts/release.sh 0.0.17-dev --start-development
 
 - 配置结构变化时，同步更新配置文档、协议配置速查和示例。
 - 协议能力变化时，同步更新协议详情、能力矩阵和限制说明。
-- 控制面请求、响应或事件变化时，同步更新 `control-plane-api/` 和 GUI 指南。
+- 控制面请求、响应或事件变化时，在 `zerodenet/docs` 仓库同步更新公开控制面文档和 GUI 指南。
 - 运行时分层变化时，同步更新 `docs/project/`。
-- `control-plane-api/` 描述当前外部契约；`control-plane/` 仅保存历史设计背景，不作为实现依据。
+- `https://docs.zerodenet.org/projects/core/control-plane/` 描述当前外部契约；`control-plane/` 仅保存历史设计背景，不作为实现依据。
 - 文档只描述当前事实，避免使用“从某版本开始”“截至目前”等版本历史措辞。
 - Rust 标识符、配置字段、协议名称和标准术语可以保留英文；普通叙述和章节标题统一使用中文。
-- 新增或修改文档后必须运行 `npm run check`。
+- 修改本仓库工程文档后检查本地链接；修改公开文档时在 `zerodenet/docs` 仓库运行 `pnpm check:build`。

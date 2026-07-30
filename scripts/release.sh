@@ -47,7 +47,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "${ZERO_REPO_ROOT:-$SCRIPT_DIR/..}"
 
 CARGO_TOML=Cargo.toml
-BREAKING_CHANGES=docs/control-plane-api/breaking-changes.md
+BREAKING_CHANGES=release/breaking-changes.md
 ROW_MARKER='<!-- version-contract:unreleased-row -->'
 EMPTY_ROW="| \`Unreleased\` | — | 暂无待发布的兼容性变更 ${ROW_MARKER} |"
 EMPTY_BODY_COMMENT='<!-- 在这里登记已实现但尚未封板的兼容性变更。 -->'
@@ -345,7 +345,7 @@ if [[ ! "$CONFIRM" =~ ^[yY] ]]; then
 fi
 
 prepare_release_contract "$VERSION" false
-git add Cargo.toml docs/control-plane-api/breaking-changes.md
+git add Cargo.toml release/breaking-changes.md
 git commit -m "$MESSAGE"
 git tag -a "$TAG_NAME" -m "$MESSAGE"
 

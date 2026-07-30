@@ -160,19 +160,6 @@ jobs:
           name: zero-${{ matrix.name }}
           path: target/${{ matrix.target }}/release/zero-*.${{ matrix.ext }}*
 
-  docs:
-    name: Build Docs (non-blocking)
-    runs-on: ubuntu-22.04
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install and build
-        run: |
-          cd docs && npm install && npm run build
-
   release:
     name: Create Release
     runs-on: ubuntu-22.04

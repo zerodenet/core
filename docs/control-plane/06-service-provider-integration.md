@@ -1,7 +1,7 @@
 # 机场（服务提供商）集成边界
 
 > [!IMPORTANT]
-> 本文讨论上层业务集成边界，不是 Zero 内核的 API 契约。当前节点接口见[控制面 API](../control-plane-api/index.md)。
+> 本文讨论上层业务集成边界，不是 Zero 内核的 API 契约。当前节点接口见[公开控制面 API](https://docs.zerodenet.org/projects/core/control-plane/)。
 
 本文档明确 Zero 内核与上层机场管理系统的边界，以及内核需要预留的集成点。
 

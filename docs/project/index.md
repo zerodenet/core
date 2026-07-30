@@ -30,4 +30,4 @@ title: 项目概览
 - [日志](./logging.md)、[工程规则](./tooling.md)、[发布边界](./release-boundary.md)
 - [项目定位](./positioning.md)、[项目目标](./goals.md)
 - [API 能力模型](./api.md)、[控制面规范](./control-plane.md)、[Connector 通信边界](./connector-architecture.md)、[通用受管材料事务设计](./managed-materials.md)
-- [Connector 真实实现审查报告](./connector-change-review-2026-07-24.md)、[Connector 接入指南](../guides/connector-integration.md)
+- [Connector 真实实现审查报告](./connector-change-review-2026-07-24.md)、[公开 Connector 接入指南](https://docs.zerodenet.org/projects/core/guides/connector-integration)

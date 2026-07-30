@@ -231,7 +231,6 @@ Route supports `mode` (`rule`/`global`/`direct`), `rules` array, and `final` act
 - `docs/project/modes-and-groups.md` — routing modes and outbound groups
 - `docs/project/architecture.md` — architecture layers and dependency rules
 - `docs/project/logging.md` — structured logging
-- `docs/guides/quickstart.md` — quick start guide
-- `docs/guides/gui-integration.md` — GUI/embedding integration guide
-- `docs/control-plane-api/README.md` — control plane API reference
+- `https://docs.zerodenet.org/projects/core/` — public user and integration documentation
+- `release/breaking-changes.md` — release compatibility ledger
 - `docs/control-plane/README.md` — control plane design docs
