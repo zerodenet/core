@@ -59,6 +59,7 @@ trojan = [
     "zero-transport/tls",
     "dep:ring",
     "dep:trojan",
+    "trojan/runtime",
     "dep:tokio-rustls",
 ]
 vmess = [
