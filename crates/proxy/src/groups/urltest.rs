@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use futures_util::stream::{self, StreamExt};
 use tokio::sync::{watch, Notify};
 use tokio::time::{interval, timeout, MissedTickBehavior};
 use tracing::{debug, info, warn};
@@ -15,6 +16,8 @@ use zero_engine::{
 };
 
 use super::super::logging::log_urltest_group_target_changed;
+
+const MAX_CONCURRENT_URLTEST_PROBES: usize = 8;
 
 #[derive(Clone)]
 pub(crate) struct UrlTestRuntime {
@@ -69,6 +72,7 @@ impl UrlTestRuntime {
             group_tag = %group_tag,
             url = probe.url.as_str(),
             interval_seconds,
+            max_concurrent_probes = MAX_CONCURRENT_URLTEST_PROBES,
             "urltest group started"
         );
 
@@ -130,64 +134,89 @@ impl UrlTestRuntime {
         let mut best: Option<ProbeSuccess> = None;
         let started_at_unix_ms = unix_timestamp_ms();
         let started_at = Instant::now();
-        let mut member_states = Vec::with_capacity(urltest.members().len());
 
-        for member_id in urltest.members() {
-            let member = self
-                .target_tag(*member_id)
-                .unwrap_or_else(|| "<unknown>".to_owned());
-            let effective_chains = self.resolve_target_chains(*member_id);
-            let Some((candidate, _plan)) = self.resolve_target_id(*member_id) else {
-                member_states.push(UrlTestMemberState {
-                    member_id: *member_id,
-                    healthy: false,
-                    latency_ms: None,
-                    last_checked_unix_ms: Some(started_at_unix_ms),
-                    last_error: Some("failed to resolve probe target".to_owned()),
-                    effective_chains,
-                });
-                continue;
-            };
-
-            match self.probe_outbound(candidate, probe).await {
-                Ok(latency_ms) => {
-                    if best
-                        .as_ref()
-                        .map(|current| latency_ms < current.latency_ms)
-                        .unwrap_or(true)
-                    {
-                        best = Some(ProbeSuccess {
-                            outbound_id: *member_id,
-                            latency_ms,
-                        });
-                    }
-
-                    member_states.push(UrlTestMemberState {
-                        member_id: *member_id,
-                        healthy: true,
-                        latency_ms: Some(latency_ms),
-                        last_checked_unix_ms: Some(started_at_unix_ms),
-                        last_error: None,
-                        effective_chains,
-                    });
-                }
-                Err(error) => {
-                    debug!(
-                        group_tag = group_tag,
-                        outbound_tag = member,
-                        error = %error,
-                        "urltest probe failed"
+        // Each member retains its own five-second timeout, but independent
+        // outbound checks no longer run serially. Bounded concurrency keeps a
+        // large urltest group from taking N * timeout seconds without opening
+        // an unbounded burst of sockets.
+        let mut probe_results = stream::iter(urltest.members().iter().copied().enumerate())
+            .map(|(index, member_id)| async move {
+                let member = self
+                    .target_tag(member_id)
+                    .unwrap_or_else(|| "<unknown>".to_owned());
+                let effective_chains = self.resolve_target_chains(member_id);
+                let Some((candidate, _plan)) = self.resolve_target_id(member_id) else {
+                    return (
+                        index,
+                        UrlTestMemberState {
+                            member_id,
+                            healthy: false,
+                            latency_ms: None,
+                            last_checked_unix_ms: Some(started_at_unix_ms),
+                            last_error: Some("failed to resolve probe target".to_owned()),
+                            effective_chains,
+                        },
+                        None,
                     );
-                    member_states.push(UrlTestMemberState {
-                        member_id: *member_id,
-                        healthy: false,
-                        latency_ms: None,
-                        last_checked_unix_ms: Some(started_at_unix_ms),
-                        last_error: Some(error.to_string()),
-                        effective_chains,
-                    });
+                };
+
+                match self.probe_outbound(candidate, probe).await {
+                    Ok(latency_ms) => (
+                        index,
+                        UrlTestMemberState {
+                            member_id,
+                            healthy: true,
+                            latency_ms: Some(latency_ms),
+                            last_checked_unix_ms: Some(started_at_unix_ms),
+                            last_error: None,
+                            effective_chains,
+                        },
+                        Some(ProbeSuccess {
+                            outbound_id: member_id,
+                            latency_ms,
+                        }),
+                    ),
+                    Err(error) => {
+                        debug!(
+                            group_tag = group_tag,
+                            outbound_tag = member,
+                            error = %error,
+                            "urltest probe failed"
+                        );
+                        (
+                            index,
+                            UrlTestMemberState {
+                                member_id,
+                                healthy: false,
+                                latency_ms: None,
+                                last_checked_unix_ms: Some(started_at_unix_ms),
+                                last_error: Some(error.to_string()),
+                                effective_chains,
+                            },
+                            None,
+                        )
+                    }
+                }
+            })
+            .buffer_unordered(MAX_CONCURRENT_URLTEST_PROBES)
+            .collect::<Vec<_>>()
+            .await;
+
+        // Preserve configured member order in snapshots and events even though
+        // the probes complete out of order.
+        probe_results.sort_by_key(|(index, _, _)| *index);
+        let mut member_states = Vec::with_capacity(probe_results.len());
+        for (_, member_state, success) in probe_results {
+            if let Some(success) = success {
+                if best
+                    .as_ref()
+                    .map(|current| success.latency_ms < current.latency_ms)
+                    .unwrap_or(true)
+                {
+                    best = Some(success);
                 }
             }
+            member_states.push(member_state);
         }
 
         let previous = self.urltest_selected_target(group_id);
