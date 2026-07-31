@@ -7,7 +7,10 @@
 
 #![cfg(feature = "crypto")]
 
-use mieru::{inbound::MieruInbound, MieruOutbound};
+use mieru::{
+    inbound::{MieruInbound, MieruInboundProfile},
+    MieruOutbound,
+};
 use zero_traits::AsyncSocket;
 
 /// Adapter implementing `AsyncSocket` over a tokio duplex half.
@@ -59,4 +62,82 @@ async fn mieru_outbound_inbound_handshake_loopback() {
         .expect("inbound accept should succeed");
     // Both sides completed the mieru handshake: openSessionRequest ->
     // openSessionResponse, with matching key derivation and nonce handling.
+}
+
+#[tokio::test]
+async fn mieru_inbound_attributes_the_matched_user() {
+    let (client_io, server_io) = tokio::io::duplex(1 << 16);
+    let mut client = DuplexSock(client_io);
+    let mut server = DuplexSock(server_io);
+    let profile = MieruInboundProfile::from_config_users([
+        ("first-user", "first-secret", Some("subscription:first")),
+        ("second-user", "second-secret", Some("subscription:second")),
+    ]);
+
+    let client_handle = tokio::spawn(async move {
+        MieruOutbound::connect(&mut client, "second-user", "second-secret").await
+    });
+    let server_handle = tokio::spawn(async move { profile.accept_request(&mut server).await });
+
+    let _outbound = client_handle
+        .await
+        .expect("client task join")
+        .expect("outbound connect should succeed");
+    let accept = server_handle
+        .await
+        .expect("server task join")
+        .expect("inbound accept should succeed");
+
+    assert_eq!(
+        accept.auth().principal_key.as_deref(),
+        Some("subscription:second")
+    );
+}
+
+#[tokio::test]
+async fn mieru_inbound_uses_the_matched_username_as_default_principal() {
+    let (client_io, server_io) = tokio::io::duplex(1 << 16);
+    let mut client = DuplexSock(client_io);
+    let mut server = DuplexSock(server_io);
+    let users = vec![("subscriber-7".to_owned(), "secret-7".to_owned())];
+
+    let client_handle = tokio::spawn(async move {
+        MieruOutbound::connect(&mut client, "subscriber-7", "secret-7").await
+    });
+    let server_handle =
+        tokio::spawn(async move { MieruInbound.accept_request(&mut server, &users).await });
+
+    let _outbound = client_handle
+        .await
+        .expect("client task join")
+        .expect("outbound connect should succeed");
+    let accept = server_handle
+        .await
+        .expect("server task join")
+        .expect("inbound accept should succeed");
+
+    assert_eq!(accept.auth().principal_key.as_deref(), Some("subscriber-7"));
+}
+
+#[tokio::test]
+async fn mieru_inbound_rejects_modified_credentials() {
+    let (client_io, server_io) = tokio::io::duplex(1 << 16);
+    let mut client = DuplexSock(client_io);
+    let mut server = DuplexSock(server_io);
+    let users = vec![("subscriber-7".to_owned(), "secret-7".to_owned())];
+
+    let client_handle = tokio::spawn(async move {
+        MieruOutbound::connect(&mut client, "subscriber-7", "modified-secret").await
+    });
+    let server_handle =
+        tokio::spawn(async move { MieruInbound.accept_request(&mut server, &users).await });
+
+    let server_result = server_handle.await.expect("server task join");
+    assert!(server_result.is_err(), "modified credentials were accepted");
+
+    let client_result = client_handle.await.expect("client task join");
+    assert!(
+        client_result.is_err(),
+        "client unexpectedly completed a rejected handshake"
+    );
 }

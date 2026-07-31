@@ -26,19 +26,25 @@ pub struct MieruInbound;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MieruInboundProfile {
-    users: Vec<(String, String)>,
+    users: Vec<MieruInboundUser>,
 }
 
 impl MieruInboundProfile {
     pub fn from_config(users: Vec<(String, String)>) -> Self {
-        Self { users }
+        Self::from_config_parts(users)
     }
 
     pub fn from_config_parts<I>(users: I) -> Self
     where
-        I: IntoIterator<Item = (String, String)>,
+        I: IntoIterator,
+        I::Item: IntoMieruInboundUserConfig,
     {
-        Self::from_config(users.into_iter().collect())
+        Self {
+            users: users
+                .into_iter()
+                .map(IntoMieruInboundUserConfig::into_mieru_inbound_user_config)
+                .collect(),
+        }
     }
 
     pub fn from_config_users<I, U>(users: I) -> Self
@@ -46,18 +52,16 @@ impl MieruInboundProfile {
         I: IntoIterator<Item = U>,
         U: IntoMieruInboundUserConfig,
     {
-        Self::from_config_parts(users.into_iter().map(U::into_mieru_inbound_user_config))
-    }
-
-    pub fn inbound_auth(&self) -> SessionAuth {
-        MieruInbound.inbound_auth()
+        Self::from_config_parts(users)
     }
 
     pub async fn accept_request<S: AsyncSocket>(
         &self,
         stream: &mut S,
     ) -> Result<MieruAccept, Error> {
-        MieruInbound.accept_request(stream, &self.users).await
+        MieruInbound
+            .accept_request_for_configured_users(stream, &self.users)
+            .await
     }
 
     pub async fn accept_tunneled_stream<S>(
@@ -68,9 +72,10 @@ impl MieruInboundProfile {
         S: AsyncSocket + AsyncRead + AsyncWrite + Unpin,
     {
         let accept = self.accept_request(&mut stream).await?;
+        let auth = accept.auth().clone();
         let mut client = MieruInboundStream::new(stream, accept);
         let mut session = client.accept_tunneled_socks5_session().await?;
-        session.apply_auth(self.inbound_auth());
+        session.apply_auth(auth);
         Ok((session, client))
     }
 
@@ -96,19 +101,61 @@ where
     MieruInboundProfile::from_config_users(users)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruInboundUser {
+    username: String,
+    password: String,
+    principal_key: Option<String>,
+}
+
+impl MieruInboundUser {
+    pub fn new(
+        username: impl Into<String>,
+        password: impl Into<String>,
+        principal_key: Option<String>,
+    ) -> Self {
+        Self {
+            username: username.into(),
+            password: password.into(),
+            principal_key,
+        }
+    }
+
+    fn auth(&self) -> SessionAuth {
+        let mut auth = SessionAuth::new("mieru");
+        auth.principal_key = self
+            .principal_key
+            .clone()
+            .or_else(|| Some(self.username.clone()));
+        auth
+    }
+}
+
 pub trait IntoMieruInboundUserConfig {
-    fn into_mieru_inbound_user_config(self) -> (String, String);
+    fn into_mieru_inbound_user_config(self) -> MieruInboundUser;
 }
 
 impl IntoMieruInboundUserConfig for (String, String) {
-    fn into_mieru_inbound_user_config(self) -> (String, String) {
-        self
+    fn into_mieru_inbound_user_config(self) -> MieruInboundUser {
+        MieruInboundUser::new(self.0, self.1, None)
+    }
+}
+
+impl IntoMieruInboundUserConfig for (String, String, Option<String>) {
+    fn into_mieru_inbound_user_config(self) -> MieruInboundUser {
+        MieruInboundUser::new(self.0, self.1, self.2)
     }
 }
 
 impl IntoMieruInboundUserConfig for (&str, &str) {
-    fn into_mieru_inbound_user_config(self) -> (String, String) {
-        (self.0.to_owned(), self.1.to_owned())
+    fn into_mieru_inbound_user_config(self) -> MieruInboundUser {
+        MieruInboundUser::new(self.0, self.1, None)
+    }
+}
+
+impl IntoMieruInboundUserConfig for (&str, &str, Option<&str>) {
+    fn into_mieru_inbound_user_config(self) -> MieruInboundUser {
+        MieruInboundUser::new(self.0, self.1, self.2.map(str::to_owned))
     }
 }
 
@@ -122,9 +169,16 @@ pub struct MieruAccept {
     mieru_session: MieruSession,
     client_cipher: MieruCipher,
     server_cipher: MieruCipher,
+    auth: SessionAuth,
     /// Bytes already decrypted from the first segment beyond its metadata
     /// (usually empty for socks5-in-tunnel clients).
     remaining_payload: Vec<u8>,
+}
+
+impl MieruAccept {
+    pub fn auth(&self) -> &SessionAuth {
+        &self.auth
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -500,12 +554,6 @@ impl MieruInbound {
         ProtocolType::new("mieru")
     }
 
-    pub fn inbound_auth(&self) -> SessionAuth {
-        let mut auth = SessionAuth::new("mieru");
-        auth.principal_key = Some("mieru".to_owned());
-        auth
-    }
-
     pub fn udp_session(&self) -> crate::udp::MieruInboundUdpSession {
         crate::udp::MieruInboundUdpSession::new()
     }
@@ -528,6 +576,21 @@ impl MieruInbound {
         stream: &mut S,
         users: &[(String, String)],
     ) -> Result<MieruAccept, Error> {
+        let users = users
+            .iter()
+            .map(|(username, password)| {
+                MieruInboundUser::new(username.clone(), password.clone(), None)
+            })
+            .collect::<Vec<_>>();
+        self.accept_request_for_configured_users(stream, &users)
+            .await
+    }
+
+    async fn accept_request_for_configured_users<S: AsyncSocket>(
+        &self,
+        stream: &mut S,
+        users: &[MieruInboundUser],
+    ) -> Result<MieruAccept, Error> {
         // Read first segment: nonce(24) + encrypted_meta(32) + tag(16) = 72 bytes.
         // Upstream mieru (and Zero's outbound) emit no leading padding0, so the
         // nonce is at offset 0.
@@ -541,17 +604,17 @@ impl MieruInbound {
             .as_secs();
 
         // Try each user's key to decrypt the openSessionRequest metadata.
-        let mut matched: Option<(MieruCipher, MieruCipher, SessionMetadata)> = None;
+        let mut matched: Option<(MieruCipher, MieruCipher, SessionMetadata, SessionAuth)> = None;
 
-        for (username, password) in users {
-            let keys = try_derive_keys(username, password, unix_now);
+        for user in users {
+            let keys = try_derive_keys(&user.username, &user.password, unix_now);
             for key in &keys {
                 let mut c = MieruCipher::new(key);
                 if let Ok(pt) = c.decrypt(true, &first) {
                     if pt.len() >= METADATA_LEN {
                         let meta = SessionMetadata::decode(&pt[..METADATA_LEN]);
                         if meta.protocol_type == OPEN_SESSION_REQUEST {
-                            matched = Some((c, MieruCipher::new(key), meta));
+                            matched = Some((c, MieruCipher::new(key), meta, user.auth()));
                             break;
                         }
                     }
@@ -562,7 +625,7 @@ impl MieruInbound {
             }
         }
 
-        let (mut client_cipher, mut server_cipher, open_req) =
+        let (mut client_cipher, mut server_cipher, open_req, auth) =
             matched.ok_or(Error::Protocol("mieru: no valid user key found"))?;
 
         // socks5-in-tunnel clients send no target in openSessionRequest. Consume
@@ -598,6 +661,7 @@ impl MieruInbound {
             mieru_session: session,
             client_cipher,
             server_cipher,
+            auth,
             remaining_payload,
         })
     }

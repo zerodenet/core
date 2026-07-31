@@ -101,6 +101,7 @@ impl InboundListenerCapability for MieruAdapter {
                     MieruInboundUserRef {
                         username: user.username.as_str(),
                         password: user.password.as_str(),
+                        principal_key: user.principal_key.as_deref(),
                     }
                 }))
             }

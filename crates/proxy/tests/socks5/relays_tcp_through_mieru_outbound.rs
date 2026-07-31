@@ -2,6 +2,7 @@ use super::*;
 
 const USERNAME: &str = "test-user";
 const PASSWORD: &str = "test-password";
+const PRINCIPAL_KEY: &str = "subscription:mieru-test";
 
 #[tokio::test]
 #[cfg(all(feature = "socks5", feature = "mieru"))]
@@ -29,7 +30,11 @@ async fn relays_tcp_through_mieru_outbound() {
                     "protocol": {{
                         "type": "mieru",
                         "users": [
-                            {{ "username": "{USERNAME}", "password": "{PASSWORD}" }}
+                            {{
+                                "username": "{USERNAME}",
+                                "password": "{PASSWORD}",
+                                "principal_key": "{PRINCIPAL_KEY}"
+                            }}
                         ]
                     }}
                 }}
@@ -117,6 +122,38 @@ async fn relays_tcp_through_mieru_outbound() {
     let mut echoed = [0_u8; 4];
     client.read_exact(&mut echoed).await.expect("read payload");
     assert_eq!(&echoed, b"mrtg");
+
+    drop(client);
+    wait_for("completed attributed mieru flow", || {
+        !upstream_handle.completed_sessions().is_empty()
+    })
+    .await;
+
+    let completed = upstream_handle.completed_sessions();
+    assert_eq!(
+        completed[0]
+            .auth
+            .as_ref()
+            .and_then(|auth| auth.principal_key.as_deref()),
+        Some(PRINCIPAL_KEY)
+    );
+    let events = upstream_handle
+        .latest(
+            usize::MAX,
+            EventFilter {
+                principal_keys: vec![PRINCIPAL_KEY.to_owned()],
+                ..EventFilter::default()
+            },
+        )
+        .expect("read upstream event history");
+    let completed_event = events
+        .iter()
+        .find(|event| event.event_type == event_type::FLOW_COMPLETED)
+        .expect("completed Mieru event");
+    assert_eq!(
+        completed_event.principal_key.as_deref(),
+        Some(PRINCIPAL_KEY)
+    );
 
     outer_handle
         .shutdown()

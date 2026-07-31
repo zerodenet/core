@@ -381,14 +381,22 @@ fn validate_mieru_users(users: &[MieruUserConfig]) -> Result<(), ConfigError> {
         ));
     }
 
-    let mut seen = HashSet::new();
+    let mut usernames = HashSet::new();
+    let mut principals = HashSet::new();
     for user in users {
         validate_inbound_optional_non_empty("mieru username", &user.username)?;
         validate_inbound_optional_non_empty("mieru password", &user.password)?;
-        if !seen.insert(user.username.as_str()) {
+        if !usernames.insert(user.username.as_str()) {
             return Err(ConfigError::InvalidInbound(format!(
                 "`mieru` inbound contains duplicate username `{}`",
                 user.username
+            )));
+        }
+        let principal_key = user.principal_key.as_deref().unwrap_or(&user.username);
+        validate_inbound_optional_non_empty("mieru principal_key", principal_key)?;
+        if !principals.insert(principal_key) {
+            return Err(ConfigError::InvalidInbound(format!(
+                "`mieru` inbound contains duplicate effective principal_key `{principal_key}`"
             )));
         }
     }

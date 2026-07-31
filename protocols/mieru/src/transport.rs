@@ -49,7 +49,9 @@ impl MieruInboundListenerRequest {
         I: IntoIterator<Item = MieruInboundUserRef<'a>>,
     {
         Self::new(crate::inbound::inbound_profile_from_config_users(
-            users.into_iter().map(|user| (user.username, user.password)),
+            users
+                .into_iter()
+                .map(|user| (user.username, user.password, user.principal_key)),
         ))
     }
 

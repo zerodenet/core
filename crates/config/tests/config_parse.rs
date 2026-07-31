@@ -1934,7 +1934,10 @@ fn parses_mieru_username_defaults_from_password() {
                     "protocol": {
                         "type": "mieru",
                         "users": [
-                            { "password": "inbound-secret" }
+                            {
+                                "password": "inbound-secret",
+                                "principal_key": "subscription:42"
+                            }
                         ]
                     }
                 }
@@ -1974,9 +1977,57 @@ fn parses_mieru_username_defaults_from_password() {
         InboundProtocolConfig::Mieru { users } => {
             assert_eq!(users[0].username, "inbound-secret");
             assert_eq!(users[0].password, "inbound-secret");
+            assert_eq!(users[0].principal_key.as_deref(), Some("subscription:42"));
         }
         _ => panic!("expected mieru inbound"),
     }
+}
+
+#[test]
+fn rejects_duplicate_mieru_effective_principal_keys() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "inbounds": [
+                {
+                    "tag": "mieru-in",
+                    "listen": { "address": "127.0.0.1", "port": 2998 },
+                    "protocol": {
+                        "type": "mieru",
+                        "users": [
+                            {
+                                "username": "first",
+                                "password": "first-secret",
+                                "principal_key": "subscription:42"
+                            },
+                            {
+                                "username": "second",
+                                "password": "second-secret",
+                                "principal_key": "subscription:42"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "outbounds": [
+                {
+                    "tag": "direct",
+                    "protocol": { "type": "direct" }
+                }
+            ],
+            "route": {
+                "rules": [],
+                "final": { "type": "route", "outbound": "direct" }
+            }
+        }"#,
+    )
+    .expect_err("duplicate effective Mieru principals should be rejected");
+
+    assert!(
+        error
+            .to_string()
+            .contains("duplicate effective principal_key `subscription:42`"),
+        "unexpected error: {error}"
+    );
 }
 
 #[test]

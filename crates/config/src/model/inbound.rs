@@ -304,6 +304,8 @@ pub struct MieruUserConfig {
     #[serde(default)]
     pub username: String,
     pub password: String,
+    #[serde(default)]
+    pub principal_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
