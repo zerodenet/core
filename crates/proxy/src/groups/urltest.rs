@@ -125,13 +125,8 @@ impl UrlTestRuntime {
         let mut schedule = interval(Duration::from_secs(interval_seconds));
         schedule.set_missed_tick_behavior(MissedTickBehavior::Skip);
         schedule.tick().await;
-        self.refresh_urltest_group_guarded(
-            group_id,
-            &probe,
-            "startup",
-            probe_running.as_ref(),
-        )
-        .await;
+        self.refresh_urltest_group_guarded(group_id, &probe, "startup", probe_running.as_ref())
+            .await;
         schedule.reset();
 
         loop {
