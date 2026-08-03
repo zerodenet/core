@@ -27,7 +27,7 @@ impl UrlTestRuntime {
     }
 
     pub(crate) fn group_ids(&self) -> Vec<TargetId> {
-        self.services.engine().plan().urltest_groups().to_vec()
+        self.services.snapshot().plan().urltest_groups().to_vec()
     }
 
     pub(crate) fn clear_probe_triggers(&self) {
@@ -39,7 +39,7 @@ impl UrlTestRuntime {
         group_id: TargetId,
         mut shutdown: watch::Receiver<bool>,
     ) -> Result<(), EngineError> {
-        let plan = self.services.engine().plan();
+        let plan = self.services.snapshot().plan();
         let group = plan
             .target(group_id)
             .expect("engine plan should resolve urltest group");
@@ -111,7 +111,7 @@ impl UrlTestRuntime {
         probe: &UrlTestProbe,
         trigger: &'static str,
     ) {
-        let plan = self.services.engine().plan();
+        let plan = self.services.snapshot().plan();
         let Some(group) = plan.target(group_id) else {
             debug!(
                 group_id = group_id.index(),
@@ -286,7 +286,7 @@ impl UrlTestRuntime {
                 tag: target_tag.to_owned(),
                 message,
             })?;
-        let plan = self.services.engine().plan();
+        let plan = self.services.snapshot().plan();
         let Some(target_id) = plan.target_id(target_tag) else {
             return Err(EngineError::SelectorGroupNotFound {
                 tag: target_tag.to_owned(),
@@ -365,15 +365,21 @@ impl UrlTestRuntime {
         &self,
         target_id: TargetId,
     ) -> Option<(ResolvedOutbound<'static>, Arc<zero_engine::EnginePlan>)> {
-        self.services.engine().resolve_target_id(target_id)
+        self.services
+            .engine()
+            .resolve_target_id_in_snapshot(self.services.snapshot(), target_id)
     }
 
     fn resolve_target_chains(&self, target_id: TargetId) -> Vec<Vec<TargetId>> {
-        self.services.engine().resolve_target_chains(target_id)
+        self.services
+            .engine()
+            .resolve_target_chains_in_snapshot(self.services.snapshot(), target_id)
     }
 
     fn target_tag(&self, target_id: TargetId) -> Option<String> {
-        self.services.engine().target_tag(target_id)
+        self.services
+            .engine()
+            .target_tag_in_snapshot(self.services.snapshot(), target_id)
     }
 
     fn urltest_selected_target(&self, group_id: TargetId) -> Option<TargetId> {

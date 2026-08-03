@@ -21,6 +21,7 @@ impl InboundRouteRuntime {
         inbound_tag: String,
         source_addr: Option<SocketAddr>,
     ) -> Self {
+        let shared = shared.with_current_snapshot();
         let tcp_runtime = shared.tcp_runtime(inbound_tag, source_addr);
         Self {
             #[cfg(feature = "managed-stream-runtime")]

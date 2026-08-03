@@ -161,16 +161,16 @@ impl Proxy {
     }
 
     pub(crate) fn tcp_runtime_services(&self) -> TcpRuntimeServices {
-        self.tcp_runtime_services_for_config(self.config.clone())
+        self.tcp_runtime_services_for_snapshot(self.engine.runtime_snapshot())
     }
 
-    pub(crate) fn tcp_runtime_services_for_config(
+    pub(crate) fn tcp_runtime_services_for_snapshot(
         &self,
-        config: Arc<RuntimeConfig>,
+        snapshot: Arc<zero_engine::EngineRuntimeSnapshot>,
     ) -> TcpRuntimeServices {
         TcpRuntimeServices::new(
             self.engine().clone(),
-            config,
+            snapshot,
             self.resolver.clone(),
             self.protocols.clone(),
             self.principal_rate_limits.clone(),

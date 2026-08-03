@@ -3,7 +3,7 @@ use std::sync::Arc;
 use zero_api::PassiveRelayHealthState;
 use zero_core::Address;
 
-use super::{Engine, RouteDecision};
+use super::{Engine, EngineRuntimeSnapshot, RouteDecision};
 use crate::health::PassiveRelayHealthTransition;
 use crate::plan::resolve_target_id_with_urltest_selector;
 use crate::{
@@ -24,12 +24,23 @@ impl Engine {
         target: &Address,
         port: u16,
     ) -> Result<PassiveRelayResolution, EngineError> {
+        let snapshot = self.runtime_snapshot();
+        self.resolve_route_decision_for_flow_in_snapshot(&snapshot, action, target, port)
+    }
+
+    pub fn resolve_route_decision_for_flow_in_snapshot(
+        &self,
+        snapshot: &EngineRuntimeSnapshot,
+        action: RouteDecision,
+        target: &Address,
+        port: u16,
+    ) -> Result<PassiveRelayResolution, EngineError> {
         let RouteDecision::Route(tag) = action else {
-            let (resolved, plan) = self.resolve_route_decision(action)?;
+            let (resolved, plan) = self.resolve_route_decision_in_snapshot(snapshot, action)?;
             return Ok((resolved, plan, Vec::new()));
         };
 
-        let plan = self.plan();
+        let plan = snapshot.plan().clone();
         let target_id = plan
             .target_id(&tag)
             .ok_or_else(|| EngineError::MissingRouteTarget { tag: tag.clone() })?;

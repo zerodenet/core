@@ -28,7 +28,7 @@ pub use principal::{
     inspect_principal_quota_state, PrincipalCancellationRegistration, PrincipalDeviceRegistration,
     PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
 };
-pub use runtime::Engine;
+pub use runtime::{Engine, EngineRuntimeSnapshot};
 pub use runtime::{RouteDecision, RouteTrace};
 pub use session::{
     ActiveSession, BlockReason, CompletedSessionRecord, FlowContext, FlowFailureObservation,

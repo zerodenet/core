@@ -70,6 +70,6 @@ impl InboundRouteRuntimeFactory {
 
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn udp_runtime(&self) -> UdpIngressRuntime {
-        self.shared.udp_runtime()
+        self.shared.with_current_snapshot().udp_runtime()
     }
 }

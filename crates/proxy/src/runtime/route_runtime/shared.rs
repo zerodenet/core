@@ -36,6 +36,17 @@ impl SharedIngressRuntimeServices {
         TcpIngressRuntime::new(self.tcp_services.clone(), inbound_tag, source_addr)
     }
 
+    pub(super) fn with_current_snapshot(&self) -> Self {
+        let tcp_services = self.tcp_services.with_current_snapshot();
+        Self {
+            tcp_services: tcp_services.clone(),
+            #[cfg(feature = "managed-stream-runtime")]
+            mux_udp_continuity: self.mux_udp_continuity.clone(),
+            #[cfg(feature = "udp-runtime")]
+            udp_runtime: UdpIngressRuntime::new(tcp_services),
+        }
+    }
+
     #[cfg(feature = "udp-runtime")]
     pub(super) fn udp_runtime(&self) -> UdpIngressRuntime {
         self.udp_runtime.clone()
@@ -52,16 +63,20 @@ pub(crate) async fn route_trace_for_session(
     session: &Session,
 ) -> RouteTrace {
     let engine = services.engine();
-    let mut trace = engine.route_trace_with_inbound(
+    let snapshot = services.snapshot();
+    let mut trace = engine.route_trace_in_snapshot_with_inbound_and_resolved_ips(
+        snapshot,
         &session.target,
         session.sni.as_deref(),
         session.inbound_tag.as_deref(),
+        &[],
     );
-    if trace.matched_rule.is_none() && engine.route_requires_resolved_ip() {
+    if trace.matched_rule.is_none() && engine.route_requires_resolved_ip_in_snapshot(snapshot) {
         if let Address::Domain(domain) = &session.target {
             if let Ok(resolved) = services.resolver().resolve_real(domain).await {
                 let resolved_ips = resolved_route_ips(resolved);
-                trace = engine.route_trace_with_inbound_and_resolved_ips(
+                trace = engine.route_trace_in_snapshot_with_inbound_and_resolved_ips(
+                    snapshot,
                     &session.target,
                     session.sni.as_deref(),
                     session.inbound_tag.as_deref(),

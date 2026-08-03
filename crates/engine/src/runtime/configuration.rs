@@ -48,15 +48,17 @@ impl Engine {
             }
         }
 
-        *self
-            .router
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = new_router;
-        *self.plan.lock().unwrap_or_else(|error| error.into_inner()) = new_plan;
         *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = new_config.mode.clone();
 
         self.principal_policies.replace_from_config(&new_config);
-        *self.config.write().expect("config lock poisoned") = Arc::new(new_config);
+        *self
+            .runtime_snapshot
+            .write()
+            .expect("runtime snapshot lock poisoned") = Arc::new(super::EngineRuntimeSnapshot {
+            config: Arc::new(new_config),
+            plan: new_plan,
+            router: new_router,
+        });
         self.passive_relay_health.clear();
         self.event_log.set_capacity(event_log_capacity);
         self.event_log.push_config_changed();

@@ -26,7 +26,12 @@ impl UdpIngressRuntime {
     ) -> Result<(ResolvedOutbound<'static>, Vec<PassiveRelaySelection>), EngineError> {
         self.tcp_services
             .engine()
-            .resolve_route_decision_for_flow(action.clone(), &session.target, session.port)
+            .resolve_route_decision_for_flow_in_snapshot(
+                self.tcp_services.snapshot(),
+                action.clone(),
+                &session.target,
+                session.port,
+            )
             .map(|(resolved, _, selections)| (resolved, selections))
     }
 

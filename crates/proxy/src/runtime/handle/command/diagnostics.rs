@@ -140,19 +140,23 @@ fn probe_target_endpoint(
     proxy: &crate::runtime::Proxy,
     target_tag: &str,
 ) -> zero_api::ApiResult<Option<(String, u16)>> {
-    let plan = proxy.engine().plan();
+    let snapshot = proxy.engine().runtime_snapshot();
+    let plan = snapshot.plan();
     let target_id = plan.target_id(target_tag).ok_or_else(|| {
         zero_api::ApiError::new(
             zero_api::ApiErrorCode::NotFound,
             format!("target `{target_tag}` was not found"),
         )
     })?;
-    let (resolved, _plan) = proxy.engine().resolve_target_id(target_id).ok_or_else(|| {
-        zero_api::ApiError::new(
-            zero_api::ApiErrorCode::NotFound,
-            format!("target `{target_tag}` could not be resolved"),
-        )
-    })?;
+    let (resolved, _plan) = proxy
+        .engine()
+        .resolve_target_id_in_snapshot(&snapshot, target_id)
+        .ok_or_else(|| {
+            zero_api::ApiError::new(
+                zero_api::ApiErrorCode::NotFound,
+                format!("target `{target_tag}` could not be resolved"),
+            )
+        })?;
     let leaf = match &resolved {
         zero_engine::ResolvedOutbound::Single(leaf) => Some(leaf),
         zero_engine::ResolvedOutbound::Fallback { candidates } => candidates.first(),
@@ -163,7 +167,7 @@ fn probe_target_endpoint(
     };
     let runtime = proxy
         .protocols
-        .claim_outbound_leaf(proxy.config.as_ref(), leaf.clone())
+        .claim_outbound_leaf(snapshot.config().as_ref(), leaf.clone())
         .map_err(|error| {
             zero_api::ApiError::new(
                 zero_api::ApiErrorCode::InvalidArgument,
@@ -209,17 +213,19 @@ pub(super) fn execute_diagnostics_probe_outbound(
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
     let proxy = handle.proxy.clone();
     let target_tag = cmd.target_tag.clone();
-    let config = handle.proxy.engine().config();
-    let url = config
+    let snapshot = handle.proxy.engine().runtime_snapshot();
+    let url = snapshot
+        .config()
         .runtime
         .latency_test_url_or(cmd.url.as_deref())
         .to_owned();
+    let services = proxy.tcp_runtime_services_for_snapshot(snapshot);
 
     with_current_runtime(
         "no tokio runtime available for probe_outbound command",
         |rt| {
             rt.block_on(async move {
-                match UrlTestRuntime::new(proxy.tcp_runtime_services())
+                match UrlTestRuntime::new(services)
                     .probe_outbound_single(&target_tag, &url)
                     .await
                 {

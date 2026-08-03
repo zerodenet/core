@@ -7,7 +7,7 @@ use std::time::Duration;
 use tracing::info;
 use zero_config::{ModeConfig, RuntimeConfig};
 use zero_core::Address;
-use zero_router::{RouteAction, RouteContext, RuleSet};
+use zero_router::{RouteAction, RouteContext};
 
 use super::error::EngineError;
 use super::groups::OutboundGroupStateStore;
@@ -30,12 +30,13 @@ mod observability;
 mod passive_health;
 mod policy;
 mod session;
+mod snapshot;
+
+pub use snapshot::EngineRuntimeSnapshot;
 
 #[derive(Debug, Clone)]
 pub struct Engine {
-    pub(crate) config: Arc<std::sync::RwLock<Arc<RuntimeConfig>>>,
-    pub(crate) plan: Arc<std::sync::Mutex<Arc<EnginePlan>>>,
-    pub(crate) router: Arc<std::sync::Mutex<Arc<RuleSet>>>,
+    runtime_snapshot: Arc<std::sync::RwLock<Arc<EngineRuntimeSnapshot>>>,
     mode: Arc<std::sync::Mutex<ModeConfig>>,
     next_session_id: Arc<AtomicU64>,
     session_registry: Arc<SessionRegistry>,
@@ -112,11 +113,9 @@ fn started_at_unix_ms() -> u64 {
 
 impl Engine {
     pub fn new(config: RuntimeConfig) -> Result<Self, EngineError> {
-        let router = Arc::new(std::sync::Mutex::new(Arc::new(
-            config.route.compile(config.source_dir())?,
-        )));
-        let plan = Arc::new(std::sync::Mutex::new(Arc::new(EnginePlan::build(&config)?)));
-        let plan_inner = plan.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let router = Arc::new(config.route.compile(config.source_dir())?);
+        let plan = Arc::new(EnginePlan::build(&config)?);
+        let plan_inner = plan.clone();
         let udp_upstream_idle_timeout =
             Duration::from_secs(config.runtime.udp_upstream_idle_timeout_seconds);
         let outbound_group_state = OutboundGroupStateStore::shared();
@@ -179,10 +178,12 @@ impl Engine {
             });
         let principal_quotas = Arc::new(PrincipalQuotaRegistry::open(principal_quota_state_path)?);
         Ok(Self {
-            config: Arc::new(std::sync::RwLock::new(Arc::new(config))),
+            runtime_snapshot: Arc::new(std::sync::RwLock::new(Arc::new(EngineRuntimeSnapshot {
+                config: Arc::new(config),
+                plan,
+                router,
+            }))),
             mode,
-            plan,
-            router,
             next_session_id: Arc::new(AtomicU64::new(1)),
             session_registry: SessionRegistry::shared(),
             principal_cancellations: Arc::new(PrincipalCancellationRegistry::default()),
@@ -222,7 +223,14 @@ impl Engine {
     }
 
     pub fn config(&self) -> Arc<RuntimeConfig> {
-        self.config.read().expect("config lock poisoned").clone()
+        self.runtime_snapshot().config.clone()
+    }
+
+    pub fn runtime_snapshot(&self) -> Arc<EngineRuntimeSnapshot> {
+        self.runtime_snapshot
+            .read()
+            .expect("runtime snapshot lock poisoned")
+            .clone()
     }
 
     /// The config file path used to start or reload this engine.
@@ -236,7 +244,7 @@ impl Engine {
     }
 
     pub fn plan(&self) -> Arc<EnginePlan> {
-        self.plan.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.runtime_snapshot().plan.clone()
     }
 
     pub fn with_udp_upstream_idle_timeout(mut self, timeout: Duration) -> Self {
@@ -344,21 +352,35 @@ impl Engine {
         inbound_tag: Option<&str>,
         resolved_ips: &[IpAddr],
     ) -> RouteTrace {
+        let snapshot = self.runtime_snapshot();
+        self.route_trace_in_snapshot_with_inbound_and_resolved_ips(
+            &snapshot,
+            address,
+            sni,
+            inbound_tag,
+            resolved_ips,
+        )
+    }
+
+    pub fn route_trace_in_snapshot_with_inbound_and_resolved_ips(
+        &self,
+        snapshot: &EngineRuntimeSnapshot,
+        address: &Address,
+        sni: Option<&str>,
+        inbound_tag: Option<&str>,
+        resolved_ips: &[IpAddr],
+    ) -> RouteTrace {
         let mode = self.mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
         match &mode {
             ModeConfig::Rule => {
-                let trace = self
-                    .router
-                    .lock()
-                    .expect("router lock poisoned")
-                    .decide_trace_with_context_and_resolved_ips(
-                        RouteContext {
-                            address,
-                            sni,
-                            inbound_tag,
-                        },
-                        resolved_ips,
-                    );
+                let trace = snapshot.router.decide_trace_with_context_and_resolved_ips(
+                    RouteContext {
+                        address,
+                        sni,
+                        inbound_tag,
+                    },
+                    resolved_ips,
+                );
                 let decision = match trace.action {
                     RouteAction::Route(tag) => RouteDecision::Route(tag),
                     RouteAction::Direct => RouteDecision::Direct,
@@ -387,18 +409,29 @@ impl Engine {
     }
 
     pub fn route_requires_resolved_ip(&self) -> bool {
+        let snapshot = self.runtime_snapshot();
+        self.route_requires_resolved_ip_in_snapshot(&snapshot)
+    }
+
+    pub fn route_requires_resolved_ip_in_snapshot(&self, snapshot: &EngineRuntimeSnapshot) -> bool {
         if !matches!(self.current_mode(), ModeConfig::Rule) {
             return false;
         }
 
-        self.router
-            .lock()
-            .expect("router lock poisoned")
-            .requires_resolved_ip()
+        snapshot.router.requires_resolved_ip()
     }
 
     pub fn resolve_route_decision(
         &self,
+        action: RouteDecision,
+    ) -> Result<(ResolvedOutbound<'static>, Option<Arc<EnginePlan>>), EngineError> {
+        let snapshot = self.runtime_snapshot();
+        self.resolve_route_decision_in_snapshot(&snapshot, action)
+    }
+
+    pub fn resolve_route_decision_in_snapshot(
+        &self,
+        snapshot: &EngineRuntimeSnapshot,
         action: RouteDecision,
     ) -> Result<(ResolvedOutbound<'static>, Option<Arc<EnginePlan>>), EngineError> {
         match action {
@@ -411,7 +444,7 @@ impl Engine {
                 None,
             )),
             RouteDecision::Route(tag) => {
-                let (resolved, plan) = self.resolve_target(&tag)?;
+                let (resolved, plan) = self.resolve_target_in_snapshot(snapshot, &tag)?;
                 Ok((resolved, Some(plan)))
             }
         }
@@ -428,7 +461,16 @@ impl Engine {
         &self,
         target_id: TargetId,
     ) -> Option<(ResolvedOutbound<'static>, Arc<EnginePlan>)> {
-        let plan = self.plan();
+        let snapshot = self.runtime_snapshot();
+        self.resolve_target_id_in_snapshot(&snapshot, target_id)
+    }
+
+    pub fn resolve_target_id_in_snapshot(
+        &self,
+        snapshot: &EngineRuntimeSnapshot,
+        target_id: TargetId,
+    ) -> Option<(ResolvedOutbound<'static>, Arc<EnginePlan>)> {
+        let plan = snapshot.plan.clone();
         // SAFETY: plan is returned in the tuple.  The resolved outbound
         // borrows from data inside `plan`, which stays alive as long as
         // the caller holds the returned `Arc<EnginePlan>`.
@@ -447,16 +489,36 @@ impl Engine {
         resolve_target_chains(&plan, &self.outbound_group_state, target_id)
     }
 
+    pub fn resolve_target_chains_in_snapshot(
+        &self,
+        snapshot: &EngineRuntimeSnapshot,
+        target_id: TargetId,
+    ) -> Vec<Vec<TargetId>> {
+        resolve_target_chains(&snapshot.plan, &self.outbound_group_state, target_id)
+    }
+
     pub fn target_tag(&self, target_id: TargetId) -> Option<String> {
         let plan = self.plan();
         plan.target(target_id).map(|target| target.tag().to_owned())
     }
 
-    fn resolve_target(
+    pub fn target_tag_in_snapshot(
         &self,
+        snapshot: &EngineRuntimeSnapshot,
+        target_id: TargetId,
+    ) -> Option<String> {
+        snapshot
+            .plan
+            .target(target_id)
+            .map(|target| target.tag().to_owned())
+    }
+
+    fn resolve_target_in_snapshot(
+        &self,
+        snapshot: &EngineRuntimeSnapshot,
         tag: &str,
     ) -> Result<(ResolvedOutbound<'static>, Arc<EnginePlan>), EngineError> {
-        let plan = self.plan();
+        let plan = snapshot.plan.clone();
         let Some(target_id) = plan.target_id(tag) else {
             return Err(EngineError::MissingRouteTarget {
                 tag: tag.to_owned(),

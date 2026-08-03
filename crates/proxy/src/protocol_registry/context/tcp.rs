@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use zero_config::RuntimeConfig;
 use zero_dns::DnsSystem;
-use zero_engine::Engine;
+use zero_engine::{Engine, EngineRuntimeSnapshot};
 
 use super::{OutboundAdapterContext, UpstreamConnectServices};
 use crate::inventory::ProtocolInventory;
@@ -11,7 +11,7 @@ use crate::runtime::principal_rate_limit::{PrincipalRateLimitRegistry, TrafficRa
 #[derive(Clone)]
 pub(crate) struct TcpRuntimeServices {
     pub(super) engine: Engine,
-    config: Arc<RuntimeConfig>,
+    snapshot: Arc<EngineRuntimeSnapshot>,
     pub(super) upstream: UpstreamConnectServices,
     principal_rate_limits: PrincipalRateLimitRegistry,
 }
@@ -19,14 +19,14 @@ pub(crate) struct TcpRuntimeServices {
 impl TcpRuntimeServices {
     pub(crate) fn new(
         engine: Engine,
-        config: Arc<RuntimeConfig>,
+        snapshot: Arc<EngineRuntimeSnapshot>,
         resolver: Arc<DnsSystem>,
         protocols: ProtocolInventory,
         principal_rate_limits: PrincipalRateLimitRegistry,
     ) -> Self {
         Self {
             engine,
-            config,
+            snapshot,
             upstream: UpstreamConnectServices::new(resolver, protocols),
             principal_rate_limits,
         }
@@ -37,7 +37,17 @@ impl TcpRuntimeServices {
     }
 
     pub(crate) fn config(&self) -> &RuntimeConfig {
-        self.config.as_ref()
+        self.snapshot.config().as_ref()
+    }
+
+    pub(crate) fn snapshot(&self) -> &EngineRuntimeSnapshot {
+        self.snapshot.as_ref()
+    }
+
+    pub(crate) fn with_current_snapshot(&self) -> Self {
+        let mut services = self.clone();
+        services.snapshot = services.engine.runtime_snapshot();
+        services
     }
 
     pub(crate) fn resolver(&self) -> &DnsSystem {
@@ -100,7 +110,7 @@ impl TcpRuntimeServices {
     {
         self.upstream
             .protocols
-            .prepare_tcp_outbound(OutboundAdapterContext::new(self.config.as_ref()), resolved)
+            .prepare_tcp_outbound(OutboundAdapterContext::new(self.config()), resolved)
     }
 
     #[cfg(feature = "udp-runtime")]

@@ -24,7 +24,9 @@ use zero_core::{Address, Network, ProtocolType};
 
 impl Engine {
     pub fn export_config(&self) -> ConfigSnapshot {
-        let config = self.config();
+        let snapshot = self.runtime_snapshot();
+        let config = snapshot.config();
+        let plan = snapshot.plan();
         ConfigSnapshot {
             mode: mode_to_snapshot(&config.mode),
             rule_count: config.route.rules.len(),
@@ -34,11 +36,10 @@ impl Engine {
                 .outbound_groups
                 .iter()
                 .map(|group| {
-                    let plan = self.plan();
                     let group_id = plan
                         .target_id(group.tag())
                         .expect("engine plan should resolve outbound group");
-                    build_policy_snapshot(&plan, &self.outbound_group_state, group_id)
+                    build_policy_snapshot(plan, &self.outbound_group_state, group_id)
                 })
                 .collect(),
         }

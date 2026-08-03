@@ -17,15 +17,12 @@ impl Engine {
             Ok(std::net::IpAddr::V6(value)) => Address::Ipv6(value.octets()),
             Err(_) => Address::Domain(target.to_owned()),
         };
-        let decision = self
-            .router
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .decide_trace_with_context(RouteContext {
-                address: &address,
-                sni: None,
-                inbound_tag,
-            });
+        let snapshot = self.runtime_snapshot();
+        let decision = snapshot.router.decide_trace_with_context(RouteContext {
+            address: &address,
+            sni: None,
+            inbound_tag,
+        });
         let matched_rule = decision.matched_rule.map(
             |matched| serde_json::json!({"index": matched.index, "condition": matched.condition}),
         );

@@ -76,11 +76,13 @@ impl OrchestrationState {
     }
 
     pub(super) async fn reconcile_reload(&mut self, proxy: &Proxy) {
-        let new_config = proxy.engine.config();
-        let candidate_runtime_factory =
-            InboundListenerRuntimeFactory::new(SharedIngressRuntimeServices::new(
-                proxy.tcp_runtime_services_for_config(new_config.clone()),
-            ));
+        let new_snapshot = proxy.engine.runtime_snapshot();
+        let new_config = new_snapshot.config().clone();
+        let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot);
+        let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
+            SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),
+        );
+        let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services);
         let rollback_runtime_factory = self.inbound_runtime_factory.clone();
         let source_dir = self.source_dir.clone();
         if let Err(error) = proxy.resolver.reload(new_config.runtime.dns.as_ref()) {
@@ -120,10 +122,15 @@ impl OrchestrationState {
             proxy.complete_reload(&new_config, Err(acknowledgement));
             return;
         }
-        listeners::reconcile_urltests(&self.urltest_runtime, &self.shutdown_rx, &mut self.urltests)
-            .await;
+        listeners::reconcile_urltests(
+            &candidate_urltest_runtime,
+            &self.shutdown_rx,
+            &mut self.urltests,
+        )
+        .await;
         proxy.protocols.on_config_reloaded(&new_config);
         self.inbound_runtime_factory = candidate_runtime_factory;
+        self.urltest_runtime = candidate_urltest_runtime;
         self.applied_config = new_config.clone();
         log_reload_reconciled(&new_config);
         proxy.complete_reload(&new_config, Ok(()));
