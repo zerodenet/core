@@ -7,7 +7,5 @@ mod inbound;
 mod metadata;
 mod parse;
 
-pub use inbound::{
-    HttpConnectInbound, HttpConnectResponse, HttpInboundMode, HttpInboundRequest,
-};
+pub use inbound::{HttpConnectInbound, HttpConnectResponse, HttpInboundMode, HttpInboundRequest};
 pub use metadata::HttpConnectProtocol;
