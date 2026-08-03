@@ -88,9 +88,7 @@ fn parse_absolute_http_uri(uri: &str) -> Result<(Address, u16, String), Error> {
         ));
     }
 
-    let target_start = remainder
-        .find(|character| character == '/' || character == '?')
-        .unwrap_or(remainder.len());
+    let target_start = remainder.find(['/', '?']).unwrap_or(remainder.len());
     let authority = &remainder[..target_start];
     let suffix = &remainder[target_start..];
 
