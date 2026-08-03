@@ -54,9 +54,17 @@ git tag -a v0.0.15 -m v0.0.15
 
 [[ "$(run_release --next dev)" == "0.0.16-dev.1" ]]
 [[ "$(run_release --next rc)" == "0.0.16-rc.1" ]]
+expect_fail 0.0.16-dev --start-development
 expect_fail 0.0.15 --seal-only
 expect_fail 0.0.16-rc.2 --seal-only
 
+run_release 0.0.16-dev.1 --start-development
+git add Cargo.toml
+git commit -qm "release: v0.0.16-dev.1"
+git tag -a v0.0.16-dev.1 -m v0.0.16-dev.1
+
+[[ "$(run_release --next dev)" == "0.0.16-dev.2" ]]
+[[ "$(run_release --next rc)" == "0.0.16-rc.1" ]]
 run_release 0.0.16-rc.1 --seal-only
 git add Cargo.toml release/breaking-changes.md
 git commit -qm "release: v0.0.16-rc.1"

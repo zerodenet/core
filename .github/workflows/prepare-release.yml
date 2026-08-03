@@ -7,11 +7,9 @@ on:
         description: Target release stage
         required: true
         type: choice
-        default: rc
+        default: dev
         options:
           - dev
-          - alpha
-          - beta
           - rc
           - stable
       bump:
@@ -23,6 +21,10 @@ on:
           - patch
           - minor
           - major
+      source_tag:
+        description: Optional dev/rc promotion-source override (normally leave empty)
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -39,8 +41,80 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
+
+      - name: Select authoritative source
+        id: source
+        shell: bash
+        env:
+          STAGE: ${{ inputs.stage }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          git fetch origin main develop --tags --force
+          case "$STAGE" in
+            dev)
+              test -z "$SOURCE_TAG" || {
+                echo "::error::source_tag is not used for dev releases"
+                exit 1
+              }
+              git checkout --detach origin/develop
+              echo "base=develop" >> "$GITHUB_OUTPUT"
+              echo "source=develop" >> "$GITHUB_OUTPUT"
+              ;;
+            rc)
+              if [ -z "$SOURCE_TAG" ]; then
+                git checkout --detach origin/main
+                echo "source=main" >> "$GITHUB_OUTPUT"
+              else
+                [[ "$SOURCE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(dev|rc)\.[1-9][0-9]*$ ]] || {
+                  echo "::error::rc source_tag must be a dev or preceding rc tag"
+                  exit 1
+                }
+                git rev-parse --verify "refs/tags/$SOURCE_TAG^{commit}" >/dev/null
+                if [[ "$SOURCE_TAG" == *-dev.* ]]; then
+                  git merge-base --is-ancestor origin/main "$SOURCE_TAG" || {
+                    echo "::error::$SOURCE_TAG is not based on the current main release line"
+                    exit 1
+                  }
+                else
+                  git merge-base --is-ancestor "$SOURCE_TAG" origin/main || {
+                    echo "::error::$SOURCE_TAG is not contained in the current main release line"
+                    exit 1
+                  }
+                fi
+                git checkout --detach "$SOURCE_TAG"
+                echo "source=$SOURCE_TAG" >> "$GITHUB_OUTPUT"
+              fi
+              echo "base=main" >> "$GITHUB_OUTPUT"
+              ;;
+            stable)
+              if [ -z "$SOURCE_TAG" ]; then
+                SOURCE_VERSION=$(git show origin/main:Cargo.toml | awk '
+                  /^\[workspace\.package\][[:space:]]*$/ { in_workspace=1; next }
+                  in_workspace && /^\[/ { exit }
+                  in_workspace && /^version[[:space:]]*=/ {
+                    if (match($0, /"[^"]+"/)) {
+                      print substr($0, RSTART + 1, RLENGTH - 2)
+                      exit
+                    }
+                  }
+                ')
+                SOURCE_TAG="v$SOURCE_VERSION"
+              fi
+              [[ "$SOURCE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || {
+                echo "::error::stable requires main to contain an rc version (or an explicit rc source_tag)"
+                exit 1
+              }
+              git rev-parse --verify "refs/tags/$SOURCE_TAG^{commit}" >/dev/null
+              git merge-base --is-ancestor "$SOURCE_TAG" origin/main || {
+                echo "::error::$SOURCE_TAG is not contained in the current main release line"
+                exit 1
+              }
+              git checkout --detach "$SOURCE_TAG"
+              echo "base=main" >> "$GITHUB_OUTPUT"
+              echo "source=$SOURCE_TAG" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
 
       - name: Calculate next version
         id: version
@@ -49,7 +123,6 @@ jobs:
           STAGE: ${{ inputs.stage }}
           BUMP: ${{ inputs.bump }}
         run: |
-          git fetch origin main --tags --force
           VERSION=$(./scripts/release.sh --next "$STAGE" --bump "$BUMP")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "branch=release/v$VERSION" >> "$GITHUB_OUTPUT"
@@ -70,11 +143,19 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           STAGE: ${{ inputs.stage }}
+          SOURCE: ${{ steps.source.outputs.source }}
         run: |
           if [ "$STAGE" = "dev" ]; then
             ./scripts/release.sh "$VERSION" --start-development
           else
             ./scripts/release.sh "$VERSION" --seal-only
+          fi
+          if [ "$STAGE" = "dev" ]; then
+            printf 'develop@%s\n' "$(git rev-parse HEAD)" > release/promotion-source
+          elif [ "$SOURCE" = "main" ]; then
+            printf 'main@%s\n' "$(git rev-parse HEAD)" > release/promotion-source
+          else
+            printf '%s\n' "$SOURCE" > release/promotion-source
           fi
           ./scripts/release.sh --check
 
@@ -87,7 +168,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
-          git add Cargo.toml release/breaking-changes.md
+          git add Cargo.toml release/breaking-changes.md release/promotion-source
           git commit -m "release: prepare v$VERSION"
           git push --set-upstream origin "$BRANCH"
 
@@ -99,29 +180,31 @@ jobs:
           BRANCH: ${{ steps.version.outputs.branch }}
           STAGE: ${{ inputs.stage }}
           BUMP: ${{ inputs.bump }}
+          SOURCE: ${{ steps.source.outputs.source }}
         run: |
           cat > /tmp/release-pr.md <<EOF
           ## Summary
 
-          Prepare Zero Core version \`$VERSION\` from the current \`main\` branch.
+          Prepare Zero Core version \`$VERSION\` from \`$SOURCE\`.
 
           ## Release policy
 
           - Stage: \`$STAGE\`
           - Requested bump: \`$BUMP\`
-          - Base branch: \`main\`
+          - Promotion source: \`$SOURCE\`
+          - Base branch: \`${{ steps.source.outputs.base }}\`
           - Tag creation is deferred until this PR is merged and the Publish Release workflow passes.
 
           ## Validation
 
           - Version format and forward-only transition checked by \`scripts/release.sh\`
           - Cargo workspace version and compatibility ledger sealed together
-          - Pull request CI will revalidate the transition from \`main\`
+          - Pull request CI will revalidate the transition from \`${{ steps.source.outputs.base }}\`
           EOF
 
           gh pr create \
             --draft \
-            --base main \
+            --base "${{ steps.source.outputs.base }}" \
             --head "$BRANCH" \
             --title "release: prepare v$VERSION" \
             --body-file /tmp/release-pr.md
@@ -136,4 +219,5 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Version: \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Branch: \`$BRANCH\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Base: \`main\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source: \`${{ steps.source.outputs.source }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Base: \`${{ steps.source.outputs.base }}\`" >> "$GITHUB_STEP_SUMMARY"

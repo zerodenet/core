@@ -44,7 +44,7 @@ cargo test <test_name>
 
 完整的版本格式、状态转换、分支来源、Release PR、标签创建和失败处理规则见[版本演化与发布流程](./release-process.md)。该流程属于 Core 仓库内部工程规范，不需要同步到外部文档仓库。
 
-当前 `main` 是唯一权威发布来源。`develop` 完成与 `main` 的同步前，不得作为标签或发布制品来源。
+`develop` 是 `-dev.N` 的构建与发布来源，`main` 是 RC 和正式版来源。dev/RC 的阶段编号由脚本自动递增，正式版自动识别 `main` 当前 RC。RC 也可从明确的 dev/前序 RC 标签晋级，但不能直接使用浮动的 `develop` HEAD。
 
 发布规则统一实现在 `scripts/release.sh`。`scripts/release.ps1` 只负责将 Windows 参数转发到 Git for Windows Bash，避免维护两套不同的状态机。
 
@@ -82,10 +82,10 @@ cargo test <test_name>
 
 日常发布不应直接使用本地脚本提交和推送标签。标准入口是：
 
-1. GitHub Actions `Prepare Release` 计算版本并创建目标为 `main` 的 Draft PR；
+1. GitHub Actions `Prepare Release` 根据所选阶段自动计算完整版本号；dev 创建目标为 `develop` 的 Draft PR，RC/正式版创建目标为 `main` 的 PR，通常不填写 `source_tag`；
 2. PR 通过版本契约和仓库质量检查后合并；
-3. GitHub Actions `Publish Release Tag` 从已合并的 `main` 重新验证并创建标签；
-4. 标签触发 `Release` workflow 构建制品和 GitHub Release。
+3. GitHub Actions `Publish Release Tag` 从阶段对应的权威分支重新验证来源并创建标签；
+4. 标签触发 `Release` workflow 构建制品和 GitHub Release；RC 成功后清理同版本 dev，正式版 Draft 实际公开后清理同版本 RC。
 
 命令语义：
 
@@ -94,7 +94,7 @@ cargo test <test_name>
 | `--check` | 否 | 检查 Cargo 与兼容性台账当前状态 |
 | `--next <stage>` | 否 | 根据当前版本计算唯一的下一版本 |
 | `--check-transition <base> <head>` | 否 | 检查两个 Git ref 的版本是否向前演进 |
-| `--verify-tag <tag>` | 否 | 检查标签格式、版本、台账、历史和 `main` 归属 |
+| `--verify-tag <tag>` | 否 | 检查标签格式、版本、台账、历史和阶段对应的分支归属 |
 | `--start-development` | 是 | 开启严格的 `X.Y.Z-dev.N` 开发版本 |
 | `--seal-only` | 是 | 更新 Cargo 并将 `Unreleased` 封板到候选或正式版本 |
 | 普通 release 命令 | 是 | 兼容的本地发布入口；标准流程不使用它直接推送标签 |
@@ -109,7 +109,7 @@ X.Y.Z-rc.N
 X.Y.Z
 ```
 
-阶段固定按 `dev < alpha < beta < rc < stable` 向前演进。阶段编号默认连续，新阶段必须从 `.1` 开始，正式版本必须由同一基础版本的 RC 演进。
+标准发布阶段为可选的 `dev`、随后 `rc < stable`；底层状态机继续兼容历史 alpha/beta。阶段编号默认连续，新阶段必须从 `.1` 开始，正式版本必须由同一基础版本的 RC 演进。
 
 ## 根 package 的 feature
 

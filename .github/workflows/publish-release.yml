@@ -3,8 +3,13 @@ name: Publish Release Tag
 on:
   workflow_dispatch:
     inputs:
+      stage:
+        description: Stage to publish from its authoritative branch
+        required: true
+        type: choice
+        options: [dev, rc, stable]
       confirm:
-        description: Confirm that the merged main version should be tagged
+        description: Confirm that the merged authoritative branch version should be tagged
         required: true
         type: boolean
         default: false
@@ -24,14 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ inputs.stage == 'dev' && 'develop' || 'main' }}
           fetch-depth: 0
 
       - name: Read release version
         id: version
         shell: bash
         run: |
-          git fetch origin main --tags --force
+          git fetch origin main develop --tags --force
           VERSION=$(awk '
             /^\[workspace\.package\][[:space:]]*$/ { in_workspace=1; next }
             in_workspace && /^\[/ { exit }
@@ -50,7 +55,45 @@ jobs:
         shell: bash
         env:
           TAG: ${{ steps.version.outputs.tag }}
+          STAGE: ${{ inputs.stage }}
         run: |
+          case "$STAGE" in
+            dev) [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev\.[1-9][0-9]*$ ]] ;;
+            rc) [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] ;;
+            stable) [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ;;
+          esac || { echo "::error::Version $TAG does not match requested stage $STAGE"; exit 1; }
+
+          SOURCE=$(tr -d '\r\n' < release/promotion-source)
+          case "$STAGE" in
+            dev)
+              [[ "$SOURCE" =~ ^develop@[0-9a-f]{40}$ ]] || {
+                echo "::error::Invalid promotion source '$SOURCE' for dev"
+                exit 1
+              }
+              SOURCE_REF=${SOURCE#develop@}
+              ;;
+            rc)
+              if [[ "$SOURCE" =~ ^main@[0-9a-f]{40}$ ]]; then
+                SOURCE_REF=${SOURCE#main@}
+              elif [[ "$SOURCE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(dev|rc)\.[1-9][0-9]*$ ]]; then
+                SOURCE_REF=$SOURCE
+              else
+                echo "::error::Invalid promotion source '$SOURCE' for rc"
+                exit 1
+              fi
+              ;;
+            stable)
+              [[ "$SOURCE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || {
+                echo "::error::Invalid promotion source '$SOURCE' for stable"
+                exit 1
+              }
+              SOURCE_REF=$SOURCE
+              ;;
+          esac
+          git merge-base --is-ancestor "$SOURCE_REF" HEAD || {
+            echo "::error::Promotion source $SOURCE is not an ancestor of the release commit"
+            exit 1
+          }
           ./scripts/release.sh --check
           ./scripts/release.sh --verify-tag "$TAG"
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
@@ -94,5 +137,5 @@ jobs:
           echo "## Release tag published" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tag: \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Source: \`main\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source: \`${{ inputs.stage == 'dev' && 'develop' || 'main' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Quality gate: format, clippy, and all-feature tests" >> "$GITHUB_STEP_SUMMARY"

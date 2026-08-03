@@ -9,23 +9,26 @@ permissions:
 
 jobs:
   guard:
-    name: Verify release tag and main ancestry
+    name: Verify release tag ancestry
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Fetch authoritative branch and tags
-        run: git fetch origin main --tags --force
+      - name: Fetch authoritative branches and tags
+        run: git fetch origin main develop --tags --force
 
       - name: Validate tag policy
         run: ./scripts/release.sh --verify-tag "$GITHUB_REF_NAME"
 
-      - name: Ensure tag points to main
+      - name: Ensure tag points to its authoritative branch
+        shell: bash
         run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Tag ${GITHUB_REF_NAME} is not contained in main"
+          BRANCH=main
+          if [[ "$GITHUB_REF_NAME" == *-dev.* ]]; then BRANCH=develop; fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$BRANCH"; then
+            echo "::error::Tag ${GITHUB_REF_NAME} is not contained in $BRANCH"
             exit 1
           fi
 
@@ -224,3 +227,24 @@ jobs:
           draft: ${{ steps.kind.outputs.draft }}
           prerelease: ${{ steps.kind.outputs.prerelease }}
           make_latest: ${{ steps.kind.outputs.make_latest }}
+
+      - name: Remove superseded prereleases
+        if: success() && contains(github.ref_name, '-rc.')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=${CURRENT_TAG#v}
+          BASE=${VERSION%%-*}
+          STAGE=dev
+
+          git tag --list "v${BASE}-${STAGE}.*" | while IFS= read -r OLD_TAG; do
+            test -n "$OLD_TAG" || continue
+            echo "Removing superseded prerelease $OLD_TAG"
+            if gh release view "$OLD_TAG" >/dev/null 2>&1; then
+              gh release delete "$OLD_TAG" --cleanup-tag --yes
+            else
+              git push origin ":refs/tags/$OLD_TAG"
+            fi
+          done

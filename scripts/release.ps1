@@ -40,11 +40,6 @@ else {
 }
 
 function Find-Bash {
-    $command = Get-Command bash -ErrorAction SilentlyContinue
-    if ($command) {
-        return $command.Source
-    }
-
     $candidates = @(
         "$env:ProgramFiles\Git\bin\bash.exe",
         "$env:ProgramFiles\Git\usr\bin\bash.exe",
@@ -54,6 +49,11 @@ function Find-Bash {
         if ($candidate -and (Test-Path $candidate)) {
             return $candidate
         }
+    }
+
+    $command = Get-Command bash -ErrorAction SilentlyContinue
+    if ($command -and $command.Source -notlike "$env:WINDIR\System32\bash.exe") {
+        return $command.Source
     }
 
     throw "Git Bash was not found. Install Git for Windows or add bash to PATH."

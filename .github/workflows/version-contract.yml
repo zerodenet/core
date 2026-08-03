@@ -6,6 +6,7 @@ on:
     paths:
       - "Cargo.toml"
       - "release/breaking-changes.md"
+      - "release/promotion-source"
       - "scripts/release.ps1"
       - "scripts/release.sh"
       - "scripts/test-release-policy.sh"
@@ -14,12 +15,14 @@ on:
       - ".github/workflows/prepare-release.yml"
       - ".github/workflows/publish-release.yml"
       - ".github/workflows/release.yml"
+      - ".github/workflows/cleanup-prereleases.yml"
       - ".github/workflows/version-contract.yml"
   pull_request:
     branches: [main, develop]
     paths:
       - "Cargo.toml"
       - "release/breaking-changes.md"
+      - "release/promotion-source"
       - "scripts/release.ps1"
       - "scripts/release.sh"
       - "scripts/test-release-policy.sh"
@@ -28,6 +31,7 @@ on:
       - ".github/workflows/prepare-release.yml"
       - ".github/workflows/publish-release.yml"
       - ".github/workflows/release.yml"
+      - ".github/workflows/cleanup-prereleases.yml"
       - ".github/workflows/version-contract.yml"
 
 permissions:

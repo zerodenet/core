@@ -534,7 +534,7 @@ assert_clean_tree() {
 }
 
 verify_tag() {
-    local tag=$1 version current branch
+    local tag=$1 version current branch expected_branch
     [[ "$tag" == v* ]] || fail "release tag must start with 'v'"
     version=${tag#v}
     validate_version "$version" any
@@ -547,9 +547,11 @@ verify_tag() {
         assert_release_contract "$CARGO_TOML" "$BREAKING_CHANGES" "$version"
     fi
     if git rev-parse --verify HEAD >/dev/null 2>&1; then
+        expected_branch=origin/main
+        if [[ "$V_STAGE" == dev ]]; then expected_branch=origin/develop; fi
         branch=$(git branch -r --contains HEAD 2>/dev/null | sed 's/^[ *]*//' || true)
-        if [[ -n "$branch" && "$branch" != *"origin/main"* ]]; then
-            fail "release tags must point to a commit contained in origin/main"
+        if [[ -n "$branch" && "$branch" != *"$expected_branch"* ]]; then
+            fail "release tag '$tag' must point to a commit contained in $expected_branch"
         fi
     fi
     echo "Release tag is valid ($tag)."

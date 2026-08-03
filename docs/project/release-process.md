@@ -6,24 +6,23 @@
 
 ## 基本原则
 
-1. `main` 是当前唯一权威发布分支。
+1. `develop` 是 dev 构建来源，`main` 是 RC 与正式版的权威发布分支。
 2. 标签是所有版本与质量检查通过后的结果，不是发布检查的起点。
 3. 版本号由发布工具根据当前版本和目标阶段计算，日常发布不手工拼写版本号。
 4. 版本只能向前演进，不能回退基础版本、阶段或阶段编号。
 5. `Cargo.toml`、兼容性台账、Git 标签和 GitHub Release 必须表示同一个版本。
-6. 已推送的公开标签不可移动、覆盖或复用。
-7. 正式版本必须经过同一基础版本的 RC 阶段。
+6. 标签不可移动、覆盖或复用；晋级成功后，上一阶段的临时 Release 与标签会被删除。
+7. RC 不依赖 dev：可从 `main` 开始，也可显式晋级 dev 或前序 RC；正式版本必须从同基础版本 RC 晋级。
 
 ## 当前分支模型
 
-当前 `develop` 落后于 `main`，因此在完成同步前：
+双分支的职责固定如下：
 
-- Release PR 必须以 `main` 为基线并合并回 `main`；
-- `develop` 不得作为标签或发布制品的来源；
-- 发布标签必须指向 `main` 已包含的提交；
-- `develop` 后续同步时应以 `main` 为事实来源，不能反向覆盖已经发布的版本状态。
-
-未来如果重新启用稳定的双分支模型，必须先修改本规范、发布脚本和工作流，并在同一个 PR 中完成验证。
+- `develop` 接受日常开发，并允许发布 `X.Y.Z-dev.N`；同一基础版本的后续构建依次使用 `dev.2`、`dev.3`，不允许无编号的 `-dev`。
+- 第一个 RC 默认从 `main` 创建 release 分支，也可以显式选择 dev 标签；它不能直接使用 `develop` 的浮动 HEAD。
+- 后续 RC 根据 `main` 当前 RC 自动递增；正式版自动使用 `main` 当前 RC 标签。`source_tag` 只用于显式覆盖来源。
+- `release/promotion-source` 记录晋级来源。创建标签前必须验证该来源是发布提交的祖先。
+- dev 标签必须属于 `develop`，RC 与正式标签必须属于 `main`。
 
 ## 版本格式
 
@@ -59,17 +58,13 @@ X.Y.Z
 
 ## 版本状态机
 
-阶段顺序固定为：
+版本规则仍能识别历史 alpha/beta 标签，但标准发布路径固定为：
 
 ```text
-dev < alpha < beta < rc < stable
+dev < rc < stable
 ```
 
-允许在不回退的前提下跳过中间预发布阶段，例如：
-
-```text
-0.0.16-dev.3 -> 0.0.16-rc.1
-```
+`alpha`、`beta` 不再由发布工作流创建。
 
 ### 同一阶段
 
@@ -93,15 +88,14 @@ dev < alpha < beta < rc < stable
 进入新阶段时编号必须从 `.1` 开始：
 
 ```text
-0.0.16-dev.5 -> 0.0.16-beta.1
-0.0.16-beta.3 -> 0.0.16-rc.1
+0.0.16-dev.5 -> 0.0.16-rc.1
 ```
 
 以下变化会被拒绝：
 
 ```text
 0.0.16-dev.5 -> 0.0.16-rc.6
-0.0.16-rc.2 -> 0.0.16-beta.3
+0.0.16-rc.2 -> 0.0.16-dev.6
 ```
 
 ### 正式版本
@@ -120,11 +114,9 @@ dev < alpha < beta < rc < stable
 
 ```text
 0.0.15 -> 0.0.16-dev.1
-0.0.15 -> 0.1.0-alpha.1
-0.0.15 -> 1.0.0-rc.1
 ```
 
-新基础版本不能直接发布为正式版本。
+新基础版本可以从 `dev.1` 或 `rc.1` 开始，但不能直接发布正式版。
 
 ## 权威文件
 
@@ -134,6 +126,7 @@ dev < alpha < beta < rc < stable
 |---|---|
 | `Cargo.toml` | 当前构建身份 |
 | `release/breaking-changes.md` | 已封板版本的兼容性与迁移记录 |
+| `release/promotion-source` | 当前版本的不可变晋级来源 |
 | `docs/project/release-process.md` | 版本如何演化和发布 |
 
 `release/breaking-changes.md` 不记录工作流操作说明；本文件也不重复每个版本的消费者迁移内容。
@@ -160,7 +153,7 @@ dev < alpha < beta < rc < stable
 ./scripts/release.sh --check-transition origin/main HEAD
 ```
 
-验证标签、Cargo 版本、兼容性台账和 `main` 归属：
+验证标签、Cargo 版本、兼容性台账和阶段对应的分支归属：
 
 ```bash
 ./scripts/release.sh --verify-tag v0.0.16-rc.1
@@ -180,12 +173,12 @@ Windows 使用 `scripts/release.ps1`。PowerShell 文件只负责参数转发，
 
 在 GitHub Actions 中运行 `Prepare Release`：
 
-1. 选择目标阶段：`dev`、`alpha`、`beta`、`rc` 或 `stable`；
+1. 选择目标阶段：`dev`、`rc` 或 `stable`；
 2. 只有开启新基础版本时，`bump` 才决定使用 `patch`、`minor` 或 `major`；
-3. 工作流从当前 `main` 读取版本并计算唯一的下一版本；
+3. dev 从 `develop` 自动递增 `dev.N`；RC 从 `main` 自动产生或递增 `rc.N`；正式版自动识别 `main` 当前 RC。`source_tag` 仅为可选的来源覆盖；
 4. 工作流同步修改 `Cargo.toml` 和兼容性台账；
 5. 工作流创建 `release/v<version>` 分支；
-6. 工作流创建目标为 `main` 的 Draft PR。
+6. dev PR 目标为 `develop`，RC/正式版 PR 目标为 `main`。
 
 此时不会创建标签。
 
@@ -202,9 +195,9 @@ Release PR 至少经过：
 
 版本未变化的普通代码 PR 可以通过版本转换检查；一旦修改版本，就必须满足状态机。
 
-### 3. 合并到 main
+### 3. 合并到权威分支
 
-Release PR 通过检查后合并到 `main`。
+dev Release PR 合并到 `develop`；RC 与正式版 Release PR 合并到 `main`。
 
 合并只表示版本契约已经准备完成，不表示标签和制品已经发布。
 
@@ -212,12 +205,12 @@ Release PR 通过检查后合并到 `main`。
 
 在 GitHub Actions 中运行 `Publish Release Tag` 并明确确认：
 
-1. 工作流重新从 `main` 读取版本；
+1. 工作流按阶段从 `develop` 或 `main` 读取版本；
 2. 验证版本格式、历史演进、Cargo 与台账一致性；
 3. 验证远端不存在同名标签；
 4. 重新运行格式、Clippy 和全 feature 测试；
 5. 所有检查通过后创建 annotated tag；
-6. 标签推送触发 `Release` 工作流。
+6. 标签推送触发 `Release` 工作流。dev 在 `develop` 构建；RC/正式版在 `main` 构建。
 
 标签不能从本地开发分支直接推送作为标准发布方式。
 
@@ -228,12 +221,14 @@ Release PR 通过检查后合并到 `main`。
 - 标签符合严格格式；
 - 标签版本等于 Cargo 版本；
 - 兼容性台账已经封板；
-- 标签提交属于 `main`；
+- dev 标签提交属于 `develop`，RC/正式标签提交属于 `main`；
 - 发布质量检查通过。
 
 随后生成 Linux GNU、Linux musl、macOS Intel、macOS Apple Silicon 和 Windows 制品以及 SHA-256 校验文件。
 
 预发布版本创建 GitHub prerelease。正式版本创建 Draft Release，人工检查制品和发布说明后再公开并标记为 latest。
+
+新阶段成功后，工作流进行同基础版本的定向清理：RC prerelease 及其所有平台制品创建成功后，删除全部 `X.Y.Z-dev.*` Release 与标签；正式版 Draft 经人工确认并实际公开后，删除全部 `X.Y.Z-rc.*` Release 与标签。清理不会跨基础版本，也不会在构建、发布失败或正式版仍为 Draft 时运行。
 
 ## 兼容性台账规则
 
@@ -256,7 +251,7 @@ Release PR 通过检查后合并到 `main`。
 
 ### 标签已经创建但制品失败
 
-公开标签不得移动或覆盖。应修复构建流程，并在确认源提交没有变化的前提下重新运行对应 workflow；如果源代码必须变化，则创建下一个合法版本。
+标签不得移动或覆盖。应修复构建流程，并在确认源提交没有变化的前提下重新运行对应 workflow；如果源代码必须变化，则创建下一个合法版本。只有成功晋级后的定向清理可以删除上一阶段标签。
 
 ### GitHub Release 为 Draft
 
@@ -266,8 +261,8 @@ Draft 可以补充说明或重新上传同一标签对应的制品，但不能�
 
 紧急修复仍遵守状态机：
 
-1. 从当前 `main` 开启下一个 patch 基础版本；
-2. 至少发布一个 `rc.1`；
+1. 从当前 `main` 创建下一个 patch 基础版本并同步到 `develop`；
+2. 发布 `rc.1`（需要时可先发布 dev）；
 3. 验证后发布正式 patch；
 4. 将修复同步到后续开发线。
 
@@ -284,6 +279,7 @@ Draft 可以补充说明或重新上传同一标签对应的制品，但不能�
 - `.github/workflows/prepare-release.yml`；
 - `.github/workflows/publish-release.yml`；
 - `.github/workflows/release.yml`；
+- `.github/workflows/cleanup-prereleases.yml`；
 - `docs/project/release-process.md`；
 - `docs/project/tooling.md`。
 
