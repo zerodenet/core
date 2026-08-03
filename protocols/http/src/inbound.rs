@@ -102,13 +102,7 @@ impl HttpConnectInbound {
         };
 
         Ok(HttpInboundRequest {
-            session: Session::new(
-                0,
-                target,
-                port,
-                Network::Tcp,
-                ProtocolType::new("http"),
-            ),
+            session: Session::new(0, target, port, Network::Tcp, ProtocolType::new("http")),
             mode,
             replay,
         })
@@ -240,9 +234,7 @@ where
             .map_err(|_| Error::Io("failed to read HTTP request"))?;
 
         if read == 0 {
-            return Err(Error::Io(
-                "unexpected EOF while reading HTTP request",
-            ));
+            return Err(Error::Io("unexpected EOF while reading HTTP request"));
         }
 
         request.push(byte[0]);
