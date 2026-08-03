@@ -20,7 +20,14 @@ pub(super) async fn open_vless_quic_transport(
     let server_name = quic_config.server_name.as_deref().unwrap_or(server);
     let alpn_protocols = quic_config.alpn_protocols();
     Ok(TcpRelayStream::new(
-        quic::connect_quic(server_name, port, quic_config.insecure, &alpn_protocols).await?,
+        quic::connect_quic(
+            server,
+            port,
+            server_name,
+            quic_config.insecure,
+            &alpn_protocols,
+        )
+        .await?,
     ))
 }
 
@@ -82,7 +89,7 @@ pub(super) async fn build_vless_outbound_transport(
     // XHTTP is handled first because it is mutually exclusive with other transports.
     if let Some(cfg) = split_http_config {
         let mode = split_http::XhttpMode::parse(&cfg.mode);
-        // stream-one (and `auto`): a single bidirectional connection 閳?one TCP/TLS
+        // stream-one (and `auto`): a single bidirectional connection — one TCP/TLS
         // socket carries both the chunked upload and the chunked download.
         if mode.is_single_connection() {
             let carrier: TcpRelayStream = match tls_config {
