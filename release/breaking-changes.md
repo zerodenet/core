@@ -27,7 +27,6 @@
 |------|--------|----------|
 | `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
 | `0.0.15` | - | No pending compatibility changes |
-| `0.0.16` | - | No pending compatibility changes |
 | `0.0.15-rc.4` | - | No pending compatibility changes |
 | `0.0.15-rc.3` | Diagnostics API 消费者、Connector 运维与事件 Sink | `diagnostics.trace_route` 改为执行真实会话路由追踪；Connector 对事实事件施加有界内存与可选 outbox 背压，采样事件改为仅 best-effort 且不持久化；默认重试次数由 3 调整为 10 |
 | `0.0.15-rc.2` | 构建脚本、事件消费者、Webhook 接收端 | 公开 Cargo feature 改用 kebab-case；引擎生成的 `event_id` 增加每次启动唯一的随机 epoch；开发期固定中心 API 被撤销，Connector 收缩为通用 Webhook 事件投递；认证项速率改为 Zero 主体策略聚合 |
@@ -39,10 +38,6 @@
 <!-- Record implemented but unsealed compatibility changes here. -->
 
 ## 0.0.15
-
-<!-- No compatibility changes in this release. -->
-
-## 0.0.16
 
 <!-- No compatibility changes in this release. -->
 
@@ -186,4 +181,4 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 - GUI/SDK/面板的明确迁移步骤；
 - 对应回归测试位置。
 
-开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev` 构建号。完整测试通过后，由 `scripts/release.ps1` 或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
+开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev.N` 构建号。完整测试通过后，由 `Prepare Release` 工作流或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
