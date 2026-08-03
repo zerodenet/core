@@ -1,0 +1,139 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Target release stage
+        required: true
+        type: choice
+        default: rc
+        options:
+          - dev
+          - alpha
+          - beta
+          - rc
+          - stable
+      bump:
+        description: Base version bump when starting a new cycle
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Create release pull request
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Calculate next version
+        id: version
+        shell: bash
+        env:
+          STAGE: ${{ inputs.stage }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          git fetch origin main --tags --force
+          VERSION=$(./scripts/release.sh --next "$STAGE" --bump "$BUMP")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "branch=release/v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Next release version: $VERSION"
+
+      - name: Ensure release branch is new
+        shell: bash
+        env:
+          BRANCH: ${{ steps.version.outputs.branch }}
+        run: |
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "::error::Release branch '$BRANCH' already exists"
+            exit 1
+          fi
+
+      - name: Prepare version contract
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          STAGE: ${{ inputs.stage }}
+        run: |
+          if [ "$STAGE" = "dev" ]; then
+            ./scripts/release.sh "$VERSION" --start-development
+          else
+            ./scripts/release.sh "$VERSION" --seal-only
+          fi
+          ./scripts/release.sh --check
+
+      - name: Commit release contract
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BRANCH: ${{ steps.version.outputs.branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add Cargo.toml release/breaking-changes.md
+          git commit -m "release: prepare v$VERSION"
+          git push --set-upstream origin "$BRANCH"
+
+      - name: Create draft release pull request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BRANCH: ${{ steps.version.outputs.branch }}
+          STAGE: ${{ inputs.stage }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          cat > /tmp/release-pr.md <<EOF
+          ## Summary
+
+          Prepare Zero Core version \`$VERSION\` from the current \`main\` branch.
+
+          ## Release policy
+
+          - Stage: \`$STAGE\`
+          - Requested bump: \`$BUMP\`
+          - Base branch: \`main\`
+          - Tag creation is deferred until this PR is merged and the Publish Release workflow passes.
+
+          ## Validation
+
+          - Version format and forward-only transition checked by \`scripts/release.sh\`
+          - Cargo workspace version and compatibility ledger sealed together
+          - Pull request CI will revalidate the transition from \`main\`
+          EOF
+
+          gh pr create \
+            --draft \
+            --base main \
+            --head "$BRANCH" \
+            --title "release: prepare v$VERSION" \
+            --body-file /tmp/release-pr.md
+
+      - name: Job summary
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BRANCH: ${{ steps.version.outputs.branch }}
+        run: |
+          echo "## Release PR prepared" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: \`$BRANCH\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Base: \`main\`" >> "$GITHUB_STEP_SUMMARY"
