@@ -136,9 +136,7 @@ async fn rejects_origin_form_request_without_proxy_target() {
 
     assert_eq!(
         error,
-        zero_core::Error::Protocol(
-            "HTTP forward-proxy request target must use absolute-form"
-        )
+        zero_core::Error::Protocol("HTTP forward-proxy request target must use absolute-form")
     );
 }
 
