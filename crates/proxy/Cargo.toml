@@ -78,6 +78,7 @@ dns = ["zero-dns/udp"]
 
 [dependencies]
 async-trait = "0.1"
+futures-util = "0.3"
 regex = "1"
 quinn = { version = "0.11", default-features = false, features = ["rustls-ring"], optional = true }
 ring = { version = "0.17", optional = true }
@@ -107,7 +108,6 @@ zero-transport = { path = "../transport" }
 
 [dev-dependencies]
 tempfile.workspace = true
-futures-util = "0.3"
 rcgen = "0.14"
 rustls = { workspace = true }
 serde_json.workspace = true
