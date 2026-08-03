@@ -202,7 +202,10 @@ async fn read_http_head(stream: &mut TcpStream) -> Vec<u8> {
     let mut request = Vec::new();
     let mut byte = [0_u8; 1];
     while !request.ends_with(b"\r\n\r\n") {
-        stream.read_exact(&mut byte).await.expect("read request head");
+        stream
+            .read_exact(&mut byte)
+            .await
+            .expect("read request head");
         request.push(byte[0]);
     }
     request
