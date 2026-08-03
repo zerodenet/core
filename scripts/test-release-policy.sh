@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_UNDER_TEST=${1:-scripts/release.sh}
+SCRIPT_UNDER_TEST="$(cd "$(dirname "$SCRIPT_UNDER_TEST")" && pwd)/$(basename "$SCRIPT_UNDER_TEST")"
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 mkdir -p "$ROOT/release"
