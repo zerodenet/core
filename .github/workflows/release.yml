@@ -9,24 +9,25 @@ permissions:
 
 jobs:
   guard:
-    name: Verify tag is on main
+    name: Verify release tag and main ancestry
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Fetch authoritative branch and tags
+        run: git fetch origin main --tags --force
+
+      - name: Validate tag policy
+        run: ./scripts/release.sh --verify-tag "$GITHUB_REF_NAME"
+
       - name: Ensure tag points to main
         run: |
-          if ! git branch -r --contains "$GITHUB_REF" origin/main; then
-            echo "::error::Tag ${GITHUB_REF_NAME} is not on main branch"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} is not contained in main"
             exit 1
           fi
-
-      - name: Verify sealed version contract
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          ./scripts/release.sh "$VERSION" --check-release
 
   quality:
     name: Verify release quality
@@ -50,7 +51,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
 
-      - name: Test connector delivery and workspace contracts
+      - name: Test workspace contracts
         run: cargo test --workspace --all-features
 
   build:
@@ -61,8 +62,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Keep the existing GNU/glibc artifact and publish a separate,
-          # statically linked musl artifact for older Linux distributions.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             name: linux-x86_64
@@ -71,8 +70,6 @@ jobs:
             target: x86_64-unknown-linux-musl
             name: linux-x86_64-musl
             ext: tar.gz
-          # Build the Intel macOS artifact on the native Intel runner instead
-          # of cross-targeting from the arm64 `macos-latest` image.
           - os: macos-15-intel
             target: x86_64-apple-darwin
             name: darwin-x86_64
@@ -88,8 +85,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -99,10 +94,7 @@ jobs:
 
       - name: Install musl toolchain
         if: matrix.target == 'x86_64-unknown-linux-musl'
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes musl-tools
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
 
       - name: Configure LLVM linker (macOS)
         if: runner.os == 'macOS'
@@ -119,24 +111,22 @@ jobs:
       - name: Build release
         run: cargo build --features full,status-api,connector --release --target ${{ matrix.target }}
 
-      - name: Verify musl compatibility artifact
+      - name: Verify musl static linkage
         if: matrix.target == 'x86_64-unknown-linux-musl'
         shell: bash
         run: |
           BINARY="target/${{ matrix.target }}/release/zero"
           file "$BINARY"
           if readelf --program-headers "$BINARY" | grep -q 'INTERP'; then
-            echo "::error::The musl compatibility artifact is dynamically linked"
-            readelf --program-headers "$BINARY" | grep 'INTERP' || true
+            echo "::error::The musl artifact is dynamically linked"
             exit 1
           fi
           if readelf --version-info "$BINARY" 2>/dev/null | grep -q 'GLIBC_'; then
-            echo "::error::The musl compatibility artifact still requires glibc"
-            readelf --version-info "$BINARY" | grep 'GLIBC_' || true
+            echo "::error::The musl artifact requires glibc"
             exit 1
           fi
 
-      - name: Package (unix)
+      - name: Package Unix artifact
         if: runner.os != 'Windows'
         shell: bash
         run: |
@@ -145,23 +135,24 @@ jobs:
           tar czf "$ARCHIVE" zero
           sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
 
-      - name: Package (windows)
+      - name: Package Windows artifact
         if: runner.os == 'Windows'
         shell: bash
         run: |
           cd target/${{ matrix.target }}/release
-          7z a zero-${{ matrix.name }}.${{ matrix.ext }} zero.exe
-          sha256sum zero-${{ matrix.name }}.${{ matrix.ext }} \
-            > zero-${{ matrix.name }}.${{ matrix.ext }}.sha256
+          ARCHIVE="zero-${{ matrix.name }}.${{ matrix.ext }}"
+          7z a "$ARCHIVE" zero.exe
+          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: zero-${{ matrix.name }}
           path: target/${{ matrix.target }}/release/zero-*.${{ matrix.ext }}*
+          if-no-files-found: error
 
   release:
-    name: Create Release
+    name: Create GitHub release
     runs-on: ubuntu-22.04
     needs: build
     steps:
@@ -174,122 +165,62 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Flatten artifact tree
-        shell: bash
-        run: |
-          # merge-multiple flattens all files into artifacts/ directly
-          ls -la artifacts/
-
-      - name: Generate changelog
+      - name: Generate release notes
         shell: bash
         env:
           CURRENT_TAG: ${{ github.ref_name }}
         run: |
-          # Find the previous stable tag. Only an exact vX.Y.Z tag is stable;
-          # every suffix or other tag shape is a prerelease.
-          PREV_TAG=$(git tag --sort=-version:refname \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+          PREVIOUS_TAG=$(git tag --sort=-version:refname \
+            | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(dev|alpha|beta|rc)\.[1-9][0-9]*)?$' \
             | grep -vFx "$CURRENT_TAG" \
             | head -n 1 || true)
-          if [ -z "$PREV_TAG" ]; then
-            RANGE="$CURRENT_TAG"
+
+          if [ -n "$PREVIOUS_TAG" ]; then
+            RANGE="$PREVIOUS_TAG..$CURRENT_TAG"
           else
-            RANGE="${PREV_TAG}..${CURRENT_TAG}"
+            RANGE="$CURRENT_TAG"
           fi
-          echo "Changelog range: $RANGE"
-
-          # Extract commit log once; exclude merge commits and release commits
-          # (both "release:" and "release vX.Y.Z" forms).
-          COMMITS=$(git log "$RANGE" --no-merges --format="%s" 2>/dev/null | grep -ivE '^release([: ]|$)' || true)
-
-          # ── Helpers ────────────────────────────────────────────────
-
-          # Extract and format commits matching a prefix regex.
-          # $1 = pipe-separated prefixes (e.g. "improve|refactor|perf")
-          # Patterns accept an optional conventional-commit scope, e.g.
-          # "fix(ipc):" / "docs(vless):", not just "fix:".
-          extract() {
-            local result
-            result=$(echo "$COMMITS" | grep -iE "^(${1})(\([^)]*\))?:" 2>/dev/null || true)
-            if [ -n "$result" ]; then
-              echo "$result" | while IFS= read -r raw; do
-                # Strip the prefix label (e.g. "feat: " / "fix(ipc): ")
-                local body="${raw#*: }"
-                echo "- ${body}"
-              done
-            fi
-          }
-
-          # Count commits matching a prefix regex
-          count() {
-            local n
-            n=$(echo "$COMMITS" | grep -ciE "^(${1})(\([^)]*\))?:" 2>/dev/null || true)
-            echo "${n:-0}"
-          }
-
-          # Emit a section if there are commits in the category.
-          # $1 = section title (with emoji), $2 = grep pattern
-          section() {
-            local title="$1" pattern="$2" n body
-            n=$(count "$pattern")
-            if [ "$n" -gt 0 ]; then
-              echo "### ${title} (${n})"
-              echo ""
-              extract "$pattern"
-              echo ""
-            fi
-          }
-
-          # ── Build changelog ────────────────────────────────────────
 
           {
-            echo "## 📦 Assets"
+            echo "## Assets"
             echo ""
             echo "| Platform | Archive |"
-            echo "|----------|---------|"
-            echo "| Linux x86_64 (GNU/glibc) | \`zero-linux-x86_64.tar.gz\`      |"
-            echo "| Linux x86_64 (musl, compatible) | \`zero-linux-x86_64-musl.tar.gz\` |"
-            echo "| macOS x86_64             | \`zero-darwin-x86_64.tar.gz\`     |"
-            echo "| macOS aarch64            | \`zero-darwin-aarch64.tar.gz\`    |"
-            echo "| Windows x86_64           | \`zero-windows-x86_64.zip\`       |"
+            echo "|---|---|"
+            echo '| Linux x86_64 (GNU/glibc) | `zero-linux-x86_64.tar.gz` |'
+            echo '| Linux x86_64 (musl) | `zero-linux-x86_64-musl.tar.gz` |'
+            echo '| macOS x86_64 | `zero-darwin-x86_64.tar.gz` |'
+            echo '| macOS aarch64 | `zero-darwin-aarch64.tar.gz` |'
+            echo '| Windows x86_64 | `zero-windows-x86_64.zip` |'
             echo ""
-            echo "> **Quick download (latest):** \`https://github.com/\${{ github.repository }}/releases/latest/download/zero-{platform}.{ext}\`"
+            echo "## Changes"
             echo ""
-            echo "## 📝 Changes"
+            git log "$RANGE" --no-merges --format='- %s' \
+              | grep -ivE '^- release([: ]|$)' || true
             echo ""
-
-            section "🚀 Added"           "feat"
-            section "🐛 Fixed"           "fix"
-            section "🔨 Improved"        "improve|refactor|perf"
-            section "🔧 Maintenance"     "chore|ci|style|test|revert"
-            section "📖 Documentation"   "docs"
-
             echo "---"
-            echo "🤖 auto-generated by GitHub Actions"
-          } > /tmp/changelog.md
+            echo "Generated from $RANGE by GitHub Actions."
+          } > /tmp/release-notes.md
 
-      - name: Classify release tag
-        id: release_kind
+      - name: Classify release
+        id: kind
         shell: bash
         run: |
-          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "draft=true" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
             echo "make_latest=false" >> "$GITHUB_OUTPUT"
-            echo "${GITHUB_REF_NAME} is a stable release candidate; creating a draft pending release sign-off"
           else
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
             echo "draft=false" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
             echo "make_latest=false" >> "$GITHUB_OUTPUT"
-            echo "${GITHUB_REF_NAME} is a prerelease"
           fi
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
-          body_path: /tmp/changelog.md
+          body_path: /tmp/release-notes.md
           files: artifacts/*
-          draft: ${{ steps.release_kind.outputs.draft }}
-          prerelease: ${{ steps.release_kind.outputs.prerelease }}
-          make_latest: ${{ steps.release_kind.outputs.make_latest }}
+          draft: ${{ steps.kind.outputs.draft }}
+          prerelease: ${{ steps.kind.outputs.prerelease }}
+          make_latest: ${{ steps.kind.outputs.make_latest }}
