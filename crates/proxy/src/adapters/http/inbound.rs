@@ -39,10 +39,7 @@ impl HttpConnectInboundHandler {
     }
 }
 
-pub(crate) fn replay_http_request(
-    stream: TcpRelayStream,
-    replay: Vec<u8>,
-) -> TcpRelayStream {
+pub(crate) fn replay_http_request(stream: TcpRelayStream, replay: Vec<u8>) -> TcpRelayStream {
     if replay.is_empty() {
         return stream;
     }
@@ -168,9 +165,7 @@ impl crate::adapters::http::HttpConnectAdapter {
                                 .map_err(EngineError::from)
                         } else {
                             let client = replay_http_request(metered.into_inner(), replay);
-                            context
-                                .serve(session, client, handler.for_mode(mode))
-                                .await
+                            context.serve(session, client, handler.for_mode(mode)).await
                         }
                     }
                     Err(error) => {
