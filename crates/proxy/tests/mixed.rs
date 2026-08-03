@@ -182,7 +182,7 @@ async fn mixed_inbound_routes_absolute_form_get_by_ip_cidr() {
                 "rules": [
                     {{
                         "condition": {{
-                            "type": "ip_cidr",
+                            "type": "ip",
                             "values": ["127.0.0.0/8"]
                         }},
                         "action": {{ "type": "direct" }}
