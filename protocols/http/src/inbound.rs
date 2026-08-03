@@ -5,10 +5,38 @@ use alloc::vec::Vec;
 use zero_core::{Error, Network, ProtocolType, Session};
 use zero_traits::AsyncSocket;
 
-use crate::parse::{first_line, parse_connect_request};
+use crate::parse::{first_line, parse_request_line, ParsedHttpRequestLine};
 
 const MAX_REQUEST_SIZE: usize = 8192;
 const HEADERS_END: &[u8] = b"\r\n\r\n";
+const LINE_END: &[u8] = b"\r\n";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpInboundMode {
+    Connect,
+    Forward,
+}
+
+#[derive(Debug)]
+pub struct HttpInboundRequest {
+    session: Session,
+    mode: HttpInboundMode,
+    replay: Vec<u8>,
+}
+
+impl HttpInboundRequest {
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+
+    pub fn mode(&self) -> HttpInboundMode {
+        self.mode
+    }
+
+    pub fn into_parts(self) -> (Session, HttpInboundMode, Vec<u8>) {
+        (self.session, self.mode, self.replay)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HttpConnectResponse {
@@ -47,21 +75,43 @@ impl HttpConnectInbound {
         ProtocolType::new("http")
     }
 
-    pub async fn accept_request<S>(&self, stream: &mut S) -> Result<Session, Error>
+    pub async fn accept_request<S>(&self, stream: &mut S) -> Result<HttpInboundRequest, Error>
     where
         S: AsyncSocket,
     {
         let request = read_request_head(stream).await?;
         let line = first_line(&request)?;
-        let (target, port) = parse_connect_request(line)?;
+        let line_end = request
+            .windows(LINE_END.len())
+            .position(|window| window == LINE_END)
+            .ok_or(Error::Protocol("HTTP request line is incomplete"))?;
 
-        Ok(Session::new(
-            0,
-            target,
-            port,
-            Network::Tcp,
-            ProtocolType::new("http"),
-        ))
+        let (target, port, mode, replay) = match parse_request_line(line)? {
+            ParsedHttpRequestLine::Connect { target, port } => {
+                (target, port, HttpInboundMode::Connect, Vec::new())
+            }
+            ParsedHttpRequestLine::Forward {
+                target,
+                port,
+                origin_form_line,
+            } => {
+                let mut replay = origin_form_line.into_bytes();
+                replay.extend_from_slice(&request[line_end + LINE_END.len()..]);
+                (target, port, HttpInboundMode::Forward, replay)
+            }
+        };
+
+        Ok(HttpInboundRequest {
+            session: Session::new(
+                0,
+                target,
+                port,
+                Network::Tcp,
+                ProtocolType::new("http"),
+            ),
+            mode,
+            replay,
+        })
     }
 
     pub async fn send_response<S>(
@@ -75,7 +125,7 @@ impl HttpConnectInbound {
         stream
             .write_all(response.status_line().as_bytes())
             .await
-            .map_err(|_| Error::Io("failed to write HTTP CONNECT response"))
+            .map_err(|_| Error::Io("failed to write HTTP response"))
     }
 
     pub async fn send_success_response<S>(&self, stream: &mut S) -> Result<(), Error>
@@ -156,17 +206,19 @@ impl HttpConnectInbound {
         stream
             .write_all(response.as_bytes())
             .await
-            .map_err(|_| Error::Io("failed to write HTTP CONNECT redirect response"))
+            .map_err(|_| Error::Io("failed to write HTTP redirect response"))
     }
 
-    pub async fn handshake<S>(&self, stream: &mut S) -> Result<Session, Error>
+    pub async fn handshake<S>(&self, stream: &mut S) -> Result<HttpInboundRequest, Error>
     where
         S: AsyncSocket,
     {
-        let session = self.accept_request(stream).await?;
-        self.send_response(stream, HttpConnectResponse::ConnectionEstablished)
-            .await?;
-        Ok(session)
+        let request = self.accept_request(stream).await?;
+        if request.mode() == HttpInboundMode::Connect {
+            self.send_response(stream, HttpConnectResponse::ConnectionEstablished)
+                .await?;
+        }
+        Ok(request)
     }
 }
 
@@ -178,18 +230,18 @@ where
 
     loop {
         if request.len() >= MAX_REQUEST_SIZE {
-            return Err(Error::Protocol("HTTP CONNECT request head is too large"));
+            return Err(Error::Protocol("HTTP request head is too large"));
         }
 
         let mut byte = [0_u8; 1];
         let read = stream
             .read(&mut byte)
             .await
-            .map_err(|_| Error::Io("failed to read HTTP CONNECT request"))?;
+            .map_err(|_| Error::Io("failed to read HTTP request"))?;
 
         if read == 0 {
             return Err(Error::Io(
-                "unexpected EOF while reading HTTP CONNECT request",
+                "unexpected EOF while reading HTTP request",
             ));
         }
 
