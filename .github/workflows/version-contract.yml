@@ -2,21 +2,31 @@ name: Version Contract
 
 on:
   push:
-    branches: [develop, main]
+    branches: [main, develop]
     paths:
       - "Cargo.toml"
       - "release/breaking-changes.md"
       - "scripts/release.ps1"
       - "scripts/release.sh"
+      - "scripts/test-release-policy.sh"
+      - "docs/project/release-process.md"
+      - "docs/project/tooling.md"
+      - ".github/workflows/prepare-release.yml"
+      - ".github/workflows/publish-release.yml"
       - ".github/workflows/release.yml"
       - ".github/workflows/version-contract.yml"
   pull_request:
-    branches: [develop, main]
+    branches: [main, develop]
     paths:
       - "Cargo.toml"
       - "release/breaking-changes.md"
       - "scripts/release.ps1"
       - "scripts/release.sh"
+      - "scripts/test-release-policy.sh"
+      - "docs/project/release-process.md"
+      - "docs/project/tooling.md"
+      - ".github/workflows/prepare-release.yml"
+      - ".github/workflows/publish-release.yml"
       - ".github/workflows/release.yml"
       - ".github/workflows/version-contract.yml"
 
@@ -24,15 +34,32 @@ permissions:
   contents: read
 
 jobs:
-  check:
-    name: Validate Cargo and compatibility versions
+  policy:
+    name: Validate release policy
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Bash contract
+      - name: Bash syntax
+        run: |
+          bash -n scripts/release.sh
+          bash -n scripts/test-release-policy.sh
+
+      - name: Release policy tests
+        run: bash scripts/test-release-policy.sh
+
+      - name: Current version contract
         run: ./scripts/release.sh --check
 
-      - name: PowerShell contract
+      - name: Pull request version transition
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: ./scripts/release.sh --check-transition "$BASE_SHA" "$HEAD_SHA"
+
+      - name: PowerShell wrapper contract
         shell: pwsh
         run: ./scripts/release.ps1 -Check
