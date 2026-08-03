@@ -1,10 +1,10 @@
-// QUIC transport 鈥?quic.rs
+// QUIC transport — quic.rs
 //
 // UDP-based transport with TLS 1.3 encryption built-in via QUIC.
 // Uses quinn (Rust QUIC implementation).
 
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -29,11 +29,12 @@ impl QuicStream {
     }
 }
 
-// 鈹€鈹€ client (outbound) connect 鈹€鈹€
+// ── client (outbound) connect ──
 
 pub async fn connect_quic(
-    server_name: &str,
+    server: &str,
     port: u16,
+    server_name: &str,
     _insecure: bool,
     alpn_protocols: &[Vec<u8>],
 ) -> Result<QuicStream, RuntimeError> {
@@ -54,31 +55,7 @@ pub async fn connect_quic(
     transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
     client_cfg.transport_config(Arc::new(transport));
 
-    let bind_addr = "0.0.0.0:0"
-        .parse::<std::net::SocketAddr>()
-        .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic bind addr: {e}"))))?;
-
-    let socket = std::net::UdpSocket::bind(bind_addr)
-        .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic bind socket: {e}"))))?;
-    let mut endpoint = quinn::Endpoint::new(
-        quinn::EndpointConfig::default(),
-        None,
-        socket,
-        Arc::new(quinn::TokioRuntime),
-    )
-    .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic endpoint: {e}"))))?;
-
-    endpoint.set_default_client_config(client_cfg);
-
-    let server_addr = format!("{server_name}:{port}")
-        .parse::<std::net::SocketAddr>()
-        .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic addr parse: {e}"))))?;
-
-    let conn = endpoint
-        .connect(server_addr, server_name)
-        .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic connect: {e}"))))?
-        .await
-        .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic connection: {e}"))))?;
+    let conn = connect_quic_endpoint(server, port, server_name, client_cfg).await?;
 
     let (send, recv) = conn
         .open_bi()
@@ -88,7 +65,95 @@ pub async fn connect_quic(
     Ok(QuicStream::new(send, recv))
 }
 
-// 鈹€鈹€ server (inbound) accept 鈹€鈹€
+async fn connect_quic_endpoint(
+    server: &str,
+    port: u16,
+    server_name: &str,
+    client_config: quinn::ClientConfig,
+) -> Result<quinn::Connection, RuntimeError> {
+    let server_addrs = resolve_server_addresses(server, port).await?;
+    let mut last_error = None;
+
+    for server_addr in server_addrs {
+        let bind_addr = wildcard_bind_addr(server_addr);
+        let socket = match std::net::UdpSocket::bind(bind_addr) {
+            Ok(socket) => socket,
+            Err(error) => {
+                last_error = Some(format!("bind {bind_addr} for {server_addr}: {error}"));
+                continue;
+            }
+        };
+        let mut endpoint = match quinn::Endpoint::new(
+            quinn::EndpointConfig::default(),
+            None,
+            socket,
+            Arc::new(quinn::TokioRuntime),
+        ) {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                last_error = Some(format!("create endpoint for {server_addr}: {error}"));
+                continue;
+            }
+        };
+        endpoint.set_default_client_config(client_config.clone());
+
+        let connecting = match endpoint.connect(server_addr, server_name) {
+            Ok(connecting) => connecting,
+            Err(error) => {
+                last_error = Some(format!("connect {server_addr}: {error}"));
+                continue;
+            }
+        };
+        match connecting.await {
+            Ok(connection) => return Ok(connection),
+            Err(error) => {
+                last_error = Some(format!("connect {server_addr}: {error}"));
+            }
+        }
+    }
+
+    Err(RuntimeError::Io(io::Error::other(format!(
+        "quic connection to {server}:{port} failed: {}",
+        last_error.unwrap_or_else(|| "no resolved address was connectable".to_owned())
+    ))))
+}
+
+async fn resolve_server_addresses(
+    server: &str,
+    port: u16,
+) -> Result<Vec<SocketAddr>, RuntimeError> {
+    let mut addresses = Vec::new();
+    let resolved = tokio::net::lookup_host((server, port))
+        .await
+        .map_err(|error| {
+            RuntimeError::Io(io::Error::other(format!(
+                "quic resolve {server}:{port}: {error}"
+            )))
+        })?;
+
+    for address in resolved {
+        if !addresses.contains(&address) {
+            addresses.push(address);
+        }
+    }
+
+    if addresses.is_empty() {
+        return Err(RuntimeError::Io(io::Error::other(format!(
+            "quic resolve {server}:{port}: no addresses returned"
+        ))));
+    }
+
+    Ok(addresses)
+}
+
+fn wildcard_bind_addr(server_addr: SocketAddr) -> SocketAddr {
+    match server_addr {
+        SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
+        SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
+    }
+}
+
+// ── server (inbound) accept ──
 
 pub struct QuicInbound {
     endpoint: quinn::Endpoint,
@@ -193,7 +258,7 @@ impl QuicInbound {
     }
 }
 
-// 鈹€鈹€ SkipServerVerification for QUIC client 鈹€鈹€
+// ── SkipServerVerification for QUIC client ──
 
 #[derive(Debug)]
 struct SkipServerVerification;
@@ -243,7 +308,7 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
     }
 }
 
-// 鈹€鈹€ AsyncRead / AsyncWrite / AsyncSocket / ClientStream 鈹€鈹€
+// ── AsyncRead / AsyncWrite / AsyncSocket / ClientStream ──
 
 impl AsyncRead for QuicStream {
     fn poll_read(
@@ -268,7 +333,7 @@ impl AsyncWrite for QuicStream {
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         Pin::new(&mut self.send)
-            .poll_flush(cx)
+            .poll_flush(cx, buf)
             .map_err(io::Error::other)
     }
 
@@ -316,4 +381,24 @@ fn resolve_path(base_dir: Option<&Path>, path: &str) -> PathBuf {
     base_dir
         .map(|base_dir| base_dir.join(&path))
         .unwrap_or(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wildcard_bind_addr;
+    use std::net::SocketAddr;
+
+    #[test]
+    fn uses_ipv4_wildcard_for_ipv4_server() {
+        let server: SocketAddr = "192.0.2.1:443".parse().unwrap();
+
+        assert_eq!(wildcard_bind_addr(server), "0.0.0.0:0".parse().unwrap());
+    }
+
+    #[test]
+    fn uses_ipv6_wildcard_for_ipv6_server() {
+        let server: SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+
+        assert_eq!(wildcard_bind_addr(server), "[::]:0".parse().unwrap());
+    }
 }
