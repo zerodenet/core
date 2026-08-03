@@ -147,6 +147,14 @@ dev < rc < stable
 ./scripts/release.sh --next stable
 ```
 
+在 `develop` 使用本地兼容发布入口时，只需提供基础版本：
+
+```bash
+./scripts/release.sh 0.0.17
+```
+
+脚本会根据当前 Cargo 版本和已有标签自动解析为下一个 `0.0.17-dev.N`。如果对应正式标签已经存在，则该基础版本已关闭，不能重新创建 dev。
+
 检查两个 Git ref 的版本变化：
 
 ```bash

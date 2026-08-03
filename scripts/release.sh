@@ -12,6 +12,7 @@
 #   ./scripts/release.sh --verify-tag v0.0.16-rc.1
 #   ./scripts/release.sh 0.0.16-rc.1 --seal-only
 #   ./scripts/release.sh 0.0.17-dev.1 --start-development
+#   ./scripts/release.sh 0.0.17  # on develop: resolves to the next 0.0.17-dev.N
 set -euo pipefail
 
 MODE=release
@@ -46,6 +47,9 @@ Accepted versions:
   X.Y.Z-beta.N
   X.Y.Z-rc.N
   X.Y.Z
+
+On develop, a positional X.Y.Z is treated as the development base and the
+script calculates the next X.Y.Z-dev.N automatically.
 USAGE
     exit 1
 }
@@ -528,6 +532,33 @@ next_version() {
     fi
 }
 
+next_development_for_base() {
+    local base=$1 current current_base max_seq=0 candidate tag version
+    validate_version "$base" stable
+    if git rev-parse --verify "refs/tags/v${base}^{commit}" >/dev/null 2>&1; then
+        fail "stable version '$base' already exists; its dev stage is closed"
+    fi
+
+    current=$(workspace_version "$CARGO_TOML")
+    validate_version "$current" any
+    current_base="$V_MAJOR.$V_MINOR.$V_PATCH"
+    if [[ "$current_base" == "$base" && "$V_STAGE" == dev ]]; then
+        max_seq=$V_SEQ
+    fi
+
+    while IFS= read -r tag; do
+        [[ -n "$tag" ]] || continue
+        version=${tag#v}
+        validate_version "$version" development
+        if [[ "$V_SEQ" -gt "$max_seq" ]]; then max_seq=$V_SEQ; fi
+    done < <(git tag --list "v${base}-dev.*")
+
+    candidate="${base}-dev.$((max_seq + 1))"
+    assert_transition "$current" "$candidate"
+    assert_history_transition "$candidate"
+    printf '%s\n' "$candidate"
+}
+
 assert_clean_tree() {
     [[ -z "$(git status --porcelain)" ]] || \
         fail "working tree is not clean; commit or stash changes before changing versions"
@@ -615,9 +646,9 @@ case "$MODE" in
 esac
 
 [[ -n "$VERSION" ]] || fail "release version is required"
-validate_version "$VERSION" release
 
 if [[ "$SEAL_ONLY" == true ]]; then
+    validate_version "$VERSION" release
     prepare_release_contract "$VERSION" "$DRY_RUN"
     exit 0
 fi
@@ -626,6 +657,19 @@ assert_clean_tree
 [[ -n "$(git remote get-url "$REMOTE" 2>/dev/null || true)" ]] || \
     fail "Git remote '$REMOTE' is not configured"
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+validate_version "$VERSION" any
+if [[ "$CURRENT_BRANCH" == develop ]]; then
+    if [[ "$V_STAGE" == stable ]]; then
+        VERSION=$(next_development_for_base "$VERSION")
+        validate_version "$VERSION" development
+    elif [[ "$V_STAGE" != dev ]]; then
+        fail "develop may only publish dev versions"
+    fi
+elif [[ "$V_STAGE" == dev ]]; then
+    fail "dev versions may only be published from develop"
+fi
+
 CURRENT_VERSION=$(workspace_version "$CARGO_TOML")
 TAG_NAME="v${VERSION}"
 MESSAGE="${MESSAGE:-release: v${VERSION}}"
@@ -636,7 +680,12 @@ echo "Tag: $TAG_NAME"
 echo "Remote: $REMOTE"
 
 if [[ "$DRY_RUN" == true ]]; then
-    prepare_release_contract "$VERSION" true
+    validate_version "$VERSION" any
+    if [[ "$V_STAGE" == dev ]]; then
+        start_development "$VERSION" true
+    else
+        prepare_release_contract "$VERSION" true
+    fi
     echo "[DRY RUN] Would commit, tag $TAG_NAME, and push to $REMOTE"
     exit 0
 fi
@@ -644,8 +693,16 @@ fi
 read -r -p "Proceed with release v${VERSION}? [y/N] " CONFIRM
 if [[ ! "$CONFIRM" =~ ^[yY] ]]; then echo "Aborted."; exit 0; fi
 
-prepare_release_contract "$VERSION" false
-git add Cargo.toml release/breaking-changes.md
+validate_version "$VERSION" any
+if [[ "$V_STAGE" == dev ]]; then
+    SOURCE_SHA=$(git rev-parse HEAD)
+    start_development "$VERSION" false
+    printf 'develop@%s\n' "$SOURCE_SHA" > release/promotion-source
+    git add Cargo.toml release/promotion-source
+else
+    prepare_release_contract "$VERSION" false
+    git add Cargo.toml release/breaking-changes.md
+fi
 git commit -m "$MESSAGE"
 git tag -a "$TAG_NAME" -m "$MESSAGE"
 

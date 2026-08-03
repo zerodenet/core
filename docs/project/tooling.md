@@ -48,6 +48,8 @@ cargo test <test_name>
 
 发布规则统一实现在 `scripts/release.sh`。`scripts/release.ps1` 只负责将 Windows 参数转发到 Git for Windows Bash，避免维护两套不同的状态机。
 
+在 `develop` 上，本地兼容入口接受基础版本并自动补全阶段编号。例如 `./scripts/release.sh 0.0.16` 会解析为下一个可用的 `0.0.16-dev.N`；如果 `v0.0.16` 正式标签已经存在，则拒绝重新开启该基础版本的 dev 阶段。
+
 检查当前版本契约：
 
 ```bash

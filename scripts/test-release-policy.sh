@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_UNDER_TEST=${1:-scripts/release.sh}
 SCRIPT_UNDER_TEST="$(cd "$(dirname "$SCRIPT_UNDER_TEST")" && pwd)/$(basename "$SCRIPT_UNDER_TEST")"
 ROOT=$(mktemp -d)
-trap 'rm -rf "$ROOT"' EXIT
+REMOTE_ROOT=$(mktemp -d)
+trap 'rm -rf "$ROOT" "$REMOTE_ROOT"' EXIT
 mkdir -p "$ROOT/release"
 
 cat > "$ROOT/Cargo.toml" <<'TOML'
@@ -46,11 +47,18 @@ expect_fail() {
 
 cd "$ROOT"
 git init -q
+git branch -m develop
 git config user.name "Release Policy Test"
 git config user.email "release-policy@example.invalid"
+git init --bare -q "$REMOTE_ROOT/origin.git"
+git remote add origin "$REMOTE_ROOT/origin.git"
 git add Cargo.toml release/breaking-changes.md
 git commit -qm "initial"
 git tag -a v0.0.15 -m v0.0.15
+
+DEVELOP_PREVIEW=$(printf 'n\n' | run_release 0.0.16 2>&1)
+[[ "$DEVELOP_PREVIEW" == *"Cargo version: 0.0.15 -> 0.0.16-dev.1"* ]]
+[[ "$DEVELOP_PREVIEW" == *"Tag: v0.0.16-dev.1"* ]]
 
 [[ "$(run_release --next dev)" == "0.0.16-dev.1" ]]
 [[ "$(run_release --next rc)" == "0.0.16-rc.1" ]]
