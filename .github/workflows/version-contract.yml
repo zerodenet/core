@@ -48,7 +48,7 @@ jobs:
           bash -n scripts/test-release-policy.sh
 
       - name: Release policy tests
-        run: ./scripts/test-release-policy.sh
+        run: bash scripts/test-release-policy.sh
 
       - name: Current version contract
         run: ./scripts/release.sh --check
