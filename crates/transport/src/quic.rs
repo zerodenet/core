@@ -333,7 +333,7 @@ impl AsyncWrite for QuicStream {
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         Pin::new(&mut self.send)
-            .poll_flush(cx, buf)
+            .poll_flush(cx)
             .map_err(io::Error::other)
     }
 
