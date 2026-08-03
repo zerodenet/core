@@ -72,6 +72,78 @@ async fn relays_tcp_through_http_direct_outbound() {
 }
 
 #[tokio::test]
+async fn relays_absolute_form_get_through_http_direct_outbound() {
+    let origin_port = free_port();
+    let proxy_port = free_port();
+
+    let origin_task = tokio::spawn(async move {
+        let listener = TcpListener::bind(("127.0.0.1", origin_port))
+            .await
+            .expect("bind origin");
+        let (mut stream, _) = listener.accept().await.expect("accept origin");
+        let request = read_http_head(&mut stream).await;
+        assert_eq!(
+            request,
+            format!(
+                "GET /status?view=full HTTP/1.1\r\nHost: 127.0.0.1:{origin_port}\r\nConnection: close\r\n\r\n"
+            )
+            .as_bytes()
+        );
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong")
+            .await
+            .expect("write origin response");
+    });
+
+    let config = RuntimeConfig::parse(&format!(
+        r#"{{
+            "inbounds": [
+                {{
+                    "tag": "http-in",
+                    "listen": {{ "address": "127.0.0.1", "port": {proxy_port} }},
+                    "protocol": {{ "type": "http" }}
+                }}
+            ],
+            "outbounds": [],
+            "route": {{
+                "rules": [],
+                "final": {{ "type": "direct" }}
+            }}
+        }}"#
+    ))
+    .expect("parse engine config");
+
+    let engine = Engine::new(config).expect("build engine");
+    let engine_handle = spawn_engine(engine);
+
+    wait_for_listener(proxy_port).await;
+
+    let mut client = TcpStream::connect(("127.0.0.1", proxy_port))
+        .await
+        .expect("connect proxy");
+    let request = format!(
+        "GET http://127.0.0.1:{origin_port}/status?view=full HTTP/1.1\r\nHost: 127.0.0.1:{origin_port}\r\nConnection: close\r\n\r\n"
+    );
+    client
+        .write_all(request.as_bytes())
+        .await
+        .expect("write request");
+
+    let mut response = Vec::new();
+    client
+        .read_to_end(&mut response)
+        .await
+        .expect("read response");
+    assert_eq!(
+        response,
+        b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong"
+    );
+
+    engine_handle.shutdown().await.expect("shutdown engine");
+    let _ = origin_task.await;
+}
+
+#[tokio::test]
 async fn rejects_http_blocked_domain_via_route_rule() {
     let proxy_port = free_port();
 
@@ -124,4 +196,14 @@ async fn rejects_http_blocked_domain_via_route_rule() {
     );
 
     engine_handle.shutdown().await.expect("shutdown engine");
+}
+
+async fn read_http_head(stream: &mut TcpStream) -> Vec<u8> {
+    let mut request = Vec::new();
+    let mut byte = [0_u8; 1];
+    while !request.ends_with(b"\r\n\r\n") {
+        stream.read_exact(&mut byte).await.expect("read request head");
+        request.push(byte[0]);
+    }
+    request
 }
