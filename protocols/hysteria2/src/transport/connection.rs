@@ -1,4 +1,5 @@
 use std::io;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
 use zero_transport::RuntimeError;
@@ -51,29 +52,88 @@ pub async fn open_quic_connection(
     transport.datagram_receive_buffer_size(options.datagram_receive_buffer_size);
     client_config.transport_config(Arc::new(transport));
 
-    let bind_addr: std::net::SocketAddr = "0.0.0.0:0"
-        .parse()
-        .map_err(|error| RuntimeError::Io(io::Error::other(format!("quic bind addr: {error}"))))?;
-    let socket = std::net::UdpSocket::bind(bind_addr).map_err(|error| {
-        RuntimeError::Io(io::Error::other(format!("quic bind socket: {error}")))
-    })?;
-    let mut endpoint = quinn::Endpoint::new(
-        quinn::EndpointConfig::default(),
-        None,
-        socket,
-        Arc::new(quinn::TokioRuntime),
-    )
-    .map_err(|error| RuntimeError::Io(io::Error::other(format!("quic endpoint: {error}"))))?;
-    endpoint.set_default_client_config(client_config);
+    let server_addrs = resolve_server_addresses(options.server, options.port).await?;
+    let mut last_error = None;
 
-    let server_addr = format!("{}:{}", options.server, options.port)
-        .parse::<std::net::SocketAddr>()
-        .map_err(|error| RuntimeError::Io(io::Error::other(format!("quic addr: {error}"))))?;
-    endpoint
-        .connect(server_addr, options.server)
-        .map_err(|error| RuntimeError::Io(io::Error::other(format!("quic connect: {error}"))))?
+    for server_addr in server_addrs {
+        let bind_addr = wildcard_bind_addr(server_addr);
+        let socket = match std::net::UdpSocket::bind(bind_addr) {
+            Ok(socket) => socket,
+            Err(error) => {
+                last_error = Some(format!("bind {bind_addr} for {server_addr}: {error}"));
+                continue;
+            }
+        };
+        let mut endpoint = match quinn::Endpoint::new(
+            quinn::EndpointConfig::default(),
+            None,
+            socket,
+            Arc::new(quinn::TokioRuntime),
+        ) {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                last_error = Some(format!("create endpoint for {server_addr}: {error}"));
+                continue;
+            }
+        };
+        endpoint.set_default_client_config(client_config.clone());
+
+        let connecting = match endpoint.connect(server_addr, options.server) {
+            Ok(connecting) => connecting,
+            Err(error) => {
+                last_error = Some(format!("connect {server_addr}: {error}"));
+                continue;
+            }
+        };
+        match connecting.await {
+            Ok(connection) => return Ok(connection),
+            Err(error) => {
+                last_error = Some(format!("connect {server_addr}: {error}"));
+            }
+        }
+    }
+
+    Err(RuntimeError::Io(io::Error::other(format!(
+        "quic connection to {}:{} failed: {}",
+        options.server,
+        options.port,
+        last_error.unwrap_or_else(|| "no resolved address was connectable".to_owned())
+    ))))
+}
+
+async fn resolve_server_addresses(
+    server: &str,
+    port: u16,
+) -> Result<Vec<SocketAddr>, RuntimeError> {
+    let mut addresses = Vec::new();
+    let resolved = tokio::net::lookup_host((server, port))
         .await
-        .map_err(|error| RuntimeError::Io(io::Error::other(format!("quic connection: {error}"))))
+        .map_err(|error| {
+            RuntimeError::Io(io::Error::other(format!(
+                "quic resolve {server}:{port}: {error}"
+            )))
+        })?;
+
+    for address in resolved {
+        if !addresses.contains(&address) {
+            addresses.push(address);
+        }
+    }
+
+    if addresses.is_empty() {
+        return Err(RuntimeError::Io(io::Error::other(format!(
+            "quic resolve {server}:{port}: no addresses returned"
+        ))));
+    }
+
+    Ok(addresses)
+}
+
+fn wildcard_bind_addr(server_addr: SocketAddr) -> SocketAddr {
+    match server_addr {
+        SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
+        SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
+    }
 }
 
 pub fn negotiated_alpn(connection: &quinn::Connection) -> Option<Vec<u8>> {
@@ -123,5 +183,25 @@ impl rustls::client::danger::ServerCertVerifier for SkipVerify {
             rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
             rustls::SignatureScheme::ED25519,
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wildcard_bind_addr;
+    use std::net::SocketAddr;
+
+    #[test]
+    fn uses_ipv4_wildcard_for_ipv4_server() {
+        let server: SocketAddr = "192.0.2.1:443".parse().unwrap();
+
+        assert_eq!(wildcard_bind_addr(server), "0.0.0.0:0".parse().unwrap());
+    }
+
+    #[test]
+    fn uses_ipv6_wildcard_for_ipv6_server() {
+        let server: SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+
+        assert_eq!(wildcard_bind_addr(server), "[::]:0".parse().unwrap());
     }
 }
