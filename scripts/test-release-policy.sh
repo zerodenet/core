@@ -5,7 +5,8 @@ SCRIPT_UNDER_TEST=${1:-scripts/release.sh}
 SCRIPT_UNDER_TEST="$(cd "$(dirname "$SCRIPT_UNDER_TEST")" && pwd)/$(basename "$SCRIPT_UNDER_TEST")"
 ROOT=$(mktemp -d)
 REMOTE_ROOT=$(mktemp -d)
-trap 'rm -rf "$ROOT" "$REMOTE_ROOT"' EXIT
+MIRROR_ROOT=$(mktemp -d)
+trap 'rm -rf "$ROOT" "$REMOTE_ROOT" "$MIRROR_ROOT"' EXIT
 mkdir -p "$ROOT/release"
 
 cat > "$ROOT/Cargo.toml" <<'TOML'
@@ -51,7 +52,9 @@ git branch -m develop
 git config user.name "Release Policy Test"
 git config user.email "release-policy@example.invalid"
 git init --bare -q "$REMOTE_ROOT/origin.git"
+git init --bare -q "$MIRROR_ROOT/mirror.git"
 git remote add origin "$REMOTE_ROOT/origin.git"
+git remote add mirror "$MIRROR_ROOT/mirror.git"
 git add Cargo.toml release/breaking-changes.md
 git commit -qm "initial"
 git tag -a v0.0.15 -m v0.0.15
@@ -59,6 +62,7 @@ git tag -a v0.0.15 -m v0.0.15
 DEVELOP_PREVIEW=$(printf 'n\n' | run_release 0.0.16 2>&1)
 [[ "$DEVELOP_PREVIEW" == *"Cargo version: 0.0.15 -> 0.0.16-dev.1"* ]]
 [[ "$DEVELOP_PREVIEW" == *"Tag: v0.0.16-dev.1"* ]]
+[[ "$DEVELOP_PREVIEW" == *"Remotes: mirror origin"* ]]
 
 [[ "$(run_release --next dev)" == "0.0.16-dev.1" ]]
 [[ "$(run_release --next rc)" == "0.0.16-rc.1" ]]
@@ -66,10 +70,11 @@ expect_fail 0.0.16-dev --start-development
 expect_fail 0.0.15 --seal-only
 expect_fail 0.0.16-rc.2 --seal-only
 
-run_release 0.0.16-dev.1 --start-development
-git add Cargo.toml
-git commit -qm "release: v0.0.16-dev.1"
-git tag -a v0.0.16-dev.1 -m v0.0.16-dev.1
+printf 'y\n' | run_release 0.0.16 >/dev/null
+git --git-dir="$REMOTE_ROOT/origin.git" rev-parse --verify refs/heads/develop >/dev/null
+git --git-dir="$REMOTE_ROOT/origin.git" rev-parse --verify refs/tags/v0.0.16-dev.1 >/dev/null
+git --git-dir="$MIRROR_ROOT/mirror.git" rev-parse --verify refs/heads/develop >/dev/null
+git --git-dir="$MIRROR_ROOT/mirror.git" rev-parse --verify refs/tags/v0.0.16-dev.1 >/dev/null
 
 [[ "$(run_release --next dev)" == "0.0.16-dev.2" ]]
 [[ "$(run_release --next rc)" == "0.0.16-rc.1" ]]

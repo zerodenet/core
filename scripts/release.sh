@@ -26,7 +26,7 @@ BASE_REF=""
 HEAD_REF="HEAD"
 NEXT_STAGE=""
 BUMP="patch"
-REMOTE="origin"
+REMOTE="all"
 TAG_NAME=""
 
 usage() {
@@ -39,7 +39,7 @@ Usage:
   release.sh <version> --check-release
   release.sh <version> --start-development [--dry-run]
   release.sh <version> --seal-only [--dry-run]
-  release.sh <version> [--dry-run] [--no-push] [--remote origin]
+  release.sh <version> [--dry-run] [--no-push] [--remote <name|all>]
 
 Accepted versions:
   X.Y.Z-dev.N
@@ -50,6 +50,8 @@ Accepted versions:
 
 On develop, a positional X.Y.Z is treated as the development base and the
 script calculates the next X.Y.Z-dev.N automatically.
+By default, a completed local release pushes its branch and tag to every
+configured Git remote. Use --remote <name> to restrict the push to one remote.
 USAGE
     exit 1
 }
@@ -654,9 +656,19 @@ if [[ "$SEAL_ONLY" == true ]]; then
 fi
 
 assert_clean_tree
-[[ -n "$(git remote get-url "$REMOTE" 2>/dev/null || true)" ]] || \
-    fail "Git remote '$REMOTE' is not configured"
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+PUSH_REMOTES=()
+if [[ "$NO_PUSH" != true ]]; then
+    if [[ "$REMOTE" == all ]]; then
+        mapfile -t PUSH_REMOTES < <(git remote)
+        [[ "${#PUSH_REMOTES[@]}" -gt 0 ]] || fail "no Git remotes are configured"
+    else
+        [[ -n "$(git remote get-url --push "$REMOTE" 2>/dev/null || true)" ]] || \
+            fail "Git remote '$REMOTE' is not configured"
+        PUSH_REMOTES=("$REMOTE")
+    fi
+fi
 
 validate_version "$VERSION" any
 if [[ "$CURRENT_BRANCH" == develop ]]; then
@@ -677,7 +689,11 @@ MESSAGE="${MESSAGE:-release: v${VERSION}}"
 echo "Current branch: $CURRENT_BRANCH"
 echo "Cargo version: $CURRENT_VERSION -> $VERSION"
 echo "Tag: $TAG_NAME"
-echo "Remote: $REMOTE"
+if [[ "$NO_PUSH" == true ]]; then
+    echo "Remotes: none (--no-push)"
+else
+    echo "Remotes: ${PUSH_REMOTES[*]}"
+fi
 
 if [[ "$DRY_RUN" == true ]]; then
     validate_version "$VERSION" any
@@ -686,7 +702,11 @@ if [[ "$DRY_RUN" == true ]]; then
     else
         prepare_release_contract "$VERSION" true
     fi
-    echo "[DRY RUN] Would commit, tag $TAG_NAME, and push to $REMOTE"
+    if [[ "$NO_PUSH" == true ]]; then
+        echo "[DRY RUN] Would commit and tag $TAG_NAME without pushing"
+    else
+        echo "[DRY RUN] Would commit, tag $TAG_NAME, and push to ${PUSH_REMOTES[*]}"
+    fi
     exit 0
 fi
 
@@ -707,9 +727,10 @@ git commit -m "$MESSAGE"
 git tag -a "$TAG_NAME" -m "$MESSAGE"
 
 if [[ "$NO_PUSH" != true ]]; then
-    git push "$REMOTE" "$CURRENT_BRANCH"
-    git push "$REMOTE" "$TAG_NAME"
-    echo "$REMOTE: pushed $CURRENT_BRANCH + $TAG_NAME"
+    for push_remote in "${PUSH_REMOTES[@]}"; do
+        git push --atomic "$push_remote" "$CURRENT_BRANCH" "$TAG_NAME"
+        echo "$push_remote: pushed $CURRENT_BRANCH + $TAG_NAME"
+    done
 else
     echo "Skipped push (--no-push). Commit and tag are local only."
 fi

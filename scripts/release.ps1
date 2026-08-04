@@ -22,7 +22,7 @@ param(
     [switch]$StartDevelopment,
     [switch]$SealOnly,
     [switch]$AllowGap,
-    [string]$Remote = "origin",
+    [string]$Remote = "all",
     [string]$Next,
     [ValidateSet("patch", "minor", "major")]
     [string]$Bump = "patch",
