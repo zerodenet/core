@@ -8,6 +8,19 @@ pub const DEFAULT_MUX_RESPONSE_BACKLOG_BYTES: u64 = 1024 * 1024;
 pub const MAX_MUX_RESPONSE_BACKLOG_FRAMES: u32 = 4096;
 pub const MIN_MUX_RESPONSE_BACKLOG_BYTES: u64 = 16 * 1024;
 pub const MAX_MUX_RESPONSE_BACKLOG_BYTES: u64 = 64 * 1024 * 1024;
+pub use crate::flow_name::{
+    FLOW_XTLS_RPRX_VISION, FLOW_XTLS_RPRX_VISION_UDP_LEGACY, FLOW_ZERO_AEAD_V1,
+};
+
+pub fn validate_flow(flow: &str) -> Result<(), &'static str> {
+    match flow {
+        FLOW_XTLS_RPRX_VISION | FLOW_ZERO_AEAD_V1 => Ok(()),
+        FLOW_XTLS_RPRX_VISION_UDP_LEGACY => {
+            Err("flow `xtls-rprx-vision-udp443` is obsolete; use `xtls-rprx-vision`")
+        }
+        _ => Err("flow must be `xtls-rprx-vision` or `zero-aead-v1`"),
+    }
+}
 
 pub fn validate_mux_response_backlog(
     frames: Option<u32>,

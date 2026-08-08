@@ -21,7 +21,7 @@
         "server": "example.com",
         "port": 443,
         "id": "b831381d-6324-4d53-ad4f-8cda48b30811",
-        "flow": "xtls-rprx-vision",
+        "flow": "zero-aead-v1",
         "mux_concurrency": 8,
         "mux_idle_timeout_secs": 300,
         "tls": { "server_name": "example.com" }

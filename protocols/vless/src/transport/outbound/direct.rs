@@ -168,7 +168,11 @@ pub(super) async fn build_vless_outbound_transport(
                     },
                 )
                 .await?;
-                Ok(TcpRelayStream::new(reality_stream))
+                let control = reality_stream.transport_bypass_control();
+                Ok(TcpRelayStream::with_transport_bypass_control(
+                    reality_stream,
+                    control,
+                ))
             }
             _ => Err(RuntimeError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,

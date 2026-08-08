@@ -10,7 +10,8 @@ pub mod udp_flow;
 pub use outbound_leaf::ProtocolOutboundLeaf;
 pub use udp_flow::{ProtocolRelayTwoStreamUdpFlowLeaf, ProtocolUdpFlowLeaf};
 
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
+use core::sync::atomic::{AtomicU8, Ordering};
 pub use protocol::{
     ClientTlsProfile, DatagramCodec, DeferredTcpTunnelProtocol, GrpcTransportProfile,
     H2TransportProfile, HttpUpgradeTransportProfile, InboundFallbackProfile,
@@ -55,8 +56,46 @@ impl SocketAddress {
 
 // I/O traits
 
+const READ_BYPASS: u8 = 0x01;
+const WRITE_BYPASS: u8 = 0x02;
+
+/// Optional control surface for a stream transport that can hand its raw
+/// carrier back to the protocol after an authenticated in-band transition.
+///
+/// The control is deliberately transport-neutral. Protocols may request the
+/// transition, while the owning transport decides whether and how it can be
+/// performed without losing buffered bytes.
+#[derive(Debug, Clone, Default)]
+pub struct TransportBypassControl {
+    state: Arc<AtomicU8>,
+}
+
+impl TransportBypassControl {
+    pub fn request_read_bypass(&self) {
+        self.state.fetch_or(READ_BYPASS, Ordering::Release);
+    }
+
+    pub fn request_write_bypass(&self) {
+        self.state.fetch_or(WRITE_BYPASS, Ordering::Release);
+    }
+
+    pub fn read_bypass_requested(&self) -> bool {
+        self.state.load(Ordering::Acquire) & READ_BYPASS != 0
+    }
+
+    pub fn write_bypass_requested(&self) -> bool {
+        self.state.load(Ordering::Acquire) & WRITE_BYPASS != 0
+    }
+}
+
 pub trait AsyncSocket: Send + Sync + Unpin {
     type Error;
+
+    /// Returns a transport-owned mode control when the carrier supports an
+    /// authenticated transition to its underlying raw byte stream.
+    fn transport_bypass_control(&self) -> Option<TransportBypassControl> {
+        None
+    }
 
     fn read<'a>(
         &'a mut self,

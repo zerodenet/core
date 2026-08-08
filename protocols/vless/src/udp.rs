@@ -137,6 +137,7 @@ impl VlessUdpFlowPlan {
             )));
         }
         let resume = self.resume();
+        resume.ensure_udp_supported().map_err(E::from)?;
         if let Some(key) = resume.udp_mux_pool_key_from_transport_config(server, port, profile) {
             let global_id = session.id.to_be_bytes();
             let max_concurrency = resume
@@ -182,6 +183,7 @@ impl VlessUdpFlowPlan {
             VlessUdpFlowMode::RelayPairedTransport => stream,
         };
 
+        self.resume().ensure_udp_supported().map_err(E::from)?;
         establish_udp_flow_with_resume(stream, session, self.resume())
             .await
             .map_err(E::from)
@@ -278,6 +280,16 @@ impl VlessUdpFlowResume {
         self.xudp_concurrency
     }
 
+    fn ensure_udp_supported(&self) -> Result<(), Error> {
+        #[cfg(feature = "reality")]
+        if crate::flow::is_vision_flow(self.flow.as_deref()) {
+            return Err(Error::Unsupported(
+                "VLESS `xtls-rprx-vision` currently supports TCP sessions only",
+            ));
+        }
+        Ok(())
+    }
+
     #[cfg(feature = "reality")]
     fn mux_pool_identity(&self) -> crate::mux_pool::MuxIdentity {
         crate::mux_pool::MuxIdentity::from_uuid(self.identity.uuid)
@@ -331,6 +343,14 @@ impl VlessUdpConnectorFlow {
 
 impl<'a> VlessUdpFlowConfig<'a> {
     fn new(id: &str, flow: Option<&'a str>) -> Result<Self, Error> {
+        #[cfg(feature = "reality")]
+        let flow = flow.map(crate::flow::parse_flow).transpose()?;
+        #[cfg(not(feature = "reality"))]
+        if flow.is_some() {
+            return Err(Error::Unsupported(
+                "VLESS flow requires the `reality` feature",
+            ));
+        }
         Ok(Self {
             identity: parse_udp_identity(id)?,
             flow,

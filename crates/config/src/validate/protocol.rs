@@ -188,7 +188,7 @@ pub(super) fn validate_outbound_protocol(
             server,
             port,
             id,
-            flow: _,
+            flow,
             mux_concurrency,
             xudp_concurrency,
             mux_idle_timeout_secs,
@@ -208,6 +208,22 @@ pub(super) fn validate_outbound_protocol(
                 let message = error.to_string();
                 ConfigError::InvalidOutbound(format!("`vless` outbound `id` {message}"))
             })?;
+            if let Some(flow) = flow {
+                vless::validation::validate_flow(flow).map_err(|message| {
+                    ConfigError::InvalidOutbound(format!("`vless` outbound {message}"))
+                })?;
+                if flow == vless::validation::FLOW_XTLS_RPRX_VISION && reality.is_none() {
+                    return Err(ConfigError::InvalidOutbound(
+                        "`vless` outbound flow `xtls-rprx-vision` requires `reality`".to_owned(),
+                    ));
+                }
+                if flow == vless::validation::FLOW_XTLS_RPRX_VISION && mux_concurrency.is_some() {
+                    return Err(ConfigError::InvalidOutbound(
+                        "`vless` outbound flow `xtls-rprx-vision` cannot be combined with `mux_concurrency`"
+                            .to_owned(),
+                    ));
+                }
+            }
             if let Some(tls) = tls {
                 if let Some(server_name) = &tls.server_name {
                     validate_outbound_optional_non_empty("vless tls.server_name", server_name)?;
@@ -420,6 +436,17 @@ fn validate_vless_users(users: &[VlessUserConfig]) -> Result<(), ConfigError> {
 
         if let Some(principal_key) = &user.principal_key {
             validate_inbound_optional_non_empty("vless principal_key", principal_key)?;
+        }
+        if let Some(flow) = &user.flow {
+            vless::validation::validate_flow(flow).map_err(|message| {
+                ConfigError::InvalidInbound(format!("`vless` inbound user {message}"))
+            })?;
+            if flow == vless::validation::FLOW_XTLS_RPRX_VISION {
+                return Err(ConfigError::InvalidInbound(
+                    "`vless` inbound flow `xtls-rprx-vision` is not implemented; outbound over `reality` is supported"
+                        .to_owned(),
+                ));
+            }
         }
     }
 

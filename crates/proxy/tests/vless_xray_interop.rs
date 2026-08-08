@@ -1,7 +1,6 @@
 #![cfg(all(feature = "socks5", feature = "vless"))]
 
 mod support;
-
 use tokio::time::{timeout, Duration};
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy as Engine;
@@ -15,6 +14,9 @@ const XRAY_WS_PATH: &str = "/zero-vless-ws";
 const XRAY_GRPC_SERVICE_NAME: &str = "zero.vless.grpc";
 const ZERO_GRPC_SERVICE_PATH: &str = "/zero.vless.grpc/Tun";
 const XRAY_XHTTP_PATH: &str = "/zero-vless-xhttp/";
+
+#[path = "vless_xray_interop/reality_vision.rs"]
+mod reality_vision;
 
 #[derive(Debug, Clone, Copy)]
 enum VlessTransport {
