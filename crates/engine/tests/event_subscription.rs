@@ -1,9 +1,41 @@
 use zero_api::{
-    event_type, ApiEvent, EventFilter, EventSource, PolicyProbeCompletedPayload, PolicyProbeMember,
+    event_type, ApiEvent, CommandRequest, CommandService, EventFilter, EventSource, FlowListQuery,
+    PolicyProbeCommand, PolicyProbeCompletedPayload, PolicyProbeMember, QueryRequest,
+    QueryResponse, QueryService,
 };
 use zero_config::RuntimeConfig;
 use zero_core::{Address, Network, ProtocolType, Session};
-use zero_engine::{Engine, EngineHandle};
+use zero_engine::{Engine, EngineHandle, ProbeTrigger, ProbeTriggerAck, SessionOutcome};
+
+#[test]
+fn policy_probe_command_returns_the_effective_operation_identity() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse config");
+    let engine = Engine::new(config).expect("build engine");
+    engine.probe_trigger_registry().register(
+        "auto",
+        ProbeTrigger::new(|operation_id| ProbeTriggerAck {
+            operation_id,
+            coalesced: false,
+        }),
+    );
+
+    let response = engine
+        .execute(CommandRequest::PolicyProbe(PolicyProbeCommand {
+            policy_tag: "auto".to_owned(),
+            operation_id: Some("client-operation".to_owned()),
+        }))
+        .expect("execute policy probe command");
+    let result = response.result.expect("policy probe acknowledgement");
+    assert_eq!(result["operation_id"], "client-operation");
+    assert_eq!(result["coalesced"], false);
+    assert_eq!(result["core_instance_id"], engine.core_instance_id());
+    assert_eq!(result["config_revision"], 1);
+}
 
 #[test]
 fn generated_event_ids_do_not_collide_across_engine_instances() {
@@ -36,7 +68,8 @@ fn generated_event_ids_do_not_collide_across_engine_instances() {
         .expect("second engine started event");
 
     assert_ne!(first_event.event_id, second_event.event_id);
-    for event in [first_event, second_event] {
+    assert_ne!(first.core_instance_id(), second.core_instance_id());
+    for (event, engine) in [(&first_event, &first), (&second_event, &second)] {
         let (epoch, local_id) = event
             .event_id
             .split_once(':')
@@ -44,7 +77,22 @@ fn generated_event_ids_do_not_collide_across_engine_instances() {
         assert_eq!(epoch.len(), 32);
         assert!(epoch.chars().all(|character| character.is_ascii_hexdigit()));
         assert_eq!(local_id, "engine-1");
+        assert_eq!(
+            event.core_instance_id.as_deref(),
+            Some(engine.core_instance_id())
+        );
+        assert_eq!(event.config_revision, Some(1));
     }
+
+    let replay = second
+        .since(
+            first.latest_event_sequence(),
+            usize::MAX,
+            EventFilter::default(),
+        )
+        .expect("read replay from second engine with first engine cursor");
+    assert_eq!(replay.core_instance_id, second.core_instance_id());
+    assert_ne!(replay.core_instance_id, first.core_instance_id());
 }
 
 #[test]
@@ -56,7 +104,7 @@ fn runtime_event_log_capacity_evicts_oldest_events() {
         }"#,
     )
     .expect("parse config");
-    let engine = Engine::new(config).expect("build engine");
+    let engine = Engine::new(config.clone()).expect("build engine");
 
     engine.emit_warning("first", "first retained warning");
     engine.emit_warning("second", "second retained warning");
@@ -95,6 +143,12 @@ fn live_reload_resizes_the_runtime_event_log() {
     assert_eq!(events.len(), 2);
     assert_eq!(events[0].payload["code"], "third");
     assert_eq!(events[1].event_type, event_type::CONFIG_CHANGED);
+    assert_eq!(
+        events[1].core_instance_id.as_deref(),
+        Some(engine.core_instance_id())
+    );
+    assert_eq!(events[1].config_revision, Some(2));
+    assert_eq!(events[1].payload["config_revision"], 2);
 }
 
 #[test]
@@ -107,7 +161,7 @@ fn streams_policy_probe_events_from_the_engine_event_log() {
         }"#,
     )
     .expect("parse config");
-    let engine = Engine::new(config).expect("build engine");
+    let engine = Engine::new(config.clone()).expect("build engine");
     let handle = EngineHandle::new(engine.clone());
     let subscriber = handle
         .subscribe(EventFilter {
@@ -116,20 +170,31 @@ fn streams_policy_probe_events_from_the_engine_event_log() {
         })
         .expect("subscribe to policy probes");
 
+    engine
+        .reload_runtime_config(config)
+        .expect("activate a newer configuration generation");
+    assert_eq!(engine.config_revision(), 2);
+
     engine.push_policy_probe_completed(
         "auto",
         PolicyProbeCompletedPayload {
+            operation_id: "manual-1".to_owned(),
+            core_instance_id: String::new(),
+            config_revision: 1,
             policy_tag: "auto".to_owned(),
             trigger: "manual".to_owned(),
             url: "http://example.com/".to_owned(),
             started_at_unix_ms: 100,
             completed_at_unix_ms: 125,
             duration_ms: 25,
+            terminal_status: "succeeded".to_owned(),
             selected: Some("direct".to_owned()),
+            selection: None,
             members: vec![PolicyProbeMember {
                 target_tag: "direct".to_owned(),
                 healthy: true,
                 latency_ms: Some(25),
+                error_code: None,
                 error: None,
             }],
         },
@@ -140,6 +205,12 @@ fn streams_policy_probe_events_from_the_engine_event_log() {
         .expect("receive live policy probe event");
     assert_eq!(event.event_type, event_type::POLICY_PROBE_COMPLETED);
     assert_eq!(event.payload["trigger"], "manual");
+    assert_eq!(event.payload["operation_id"], "manual-1");
+    assert_eq!(event.payload["core_instance_id"], engine.core_instance_id());
+    assert_eq!(event.payload["config_revision"], 1);
+    assert_eq!(event.payload["terminal_status"], "succeeded");
+    assert_eq!(event.config_revision, Some(1));
+    assert_eq!(engine.config_revision(), 2);
     assert_eq!(event.payload["started_at_unix_ms"], 100);
     assert_eq!(event.payload["completed_at_unix_ms"], 125);
     assert_eq!(event.payload["duration_ms"], 25);
@@ -237,6 +308,9 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
     );
     session.source_ip = Some(Address::Ipv4([192, 168, 1, 8]));
     session.source_port = Some(49152);
+    session.process_id = Some(4242);
+    session.process_name = Some("browser".to_owned());
+    session.process_path = Some("/opt/browser".to_owned());
     engine
         .prepare_session(&mut session, "socks-in")
         .expect("session should be admitted");
@@ -274,6 +348,28 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
         64
     );
 
+    let QueryResponse::ActiveFlows(active) = handle
+        .query(QueryRequest::ActiveFlows(FlowListQuery {
+            limit: None,
+            filter: Default::default(),
+        }))
+        .expect("query active flows")
+    else {
+        panic!("expected active flow query response");
+    };
+    let active_record = active[0]
+        .record
+        .as_ref()
+        .expect("active query includes canonical record");
+    assert_eq!(active_record.revision, 5);
+    let source = active_record.source.as_ref().expect("active flow source");
+    assert_eq!(source.ip, "192.168.1.8");
+    assert_eq!(source.port, Some(49152));
+    assert_eq!(source.process_id, Some(4242));
+    assert_eq!(source.process_name.as_deref(), Some("browser"));
+    assert_eq!(source.process_path.as_deref(), Some("/opt/browser"));
+    assert!(active_record.throughput.sampled_at_unix_ms > 0);
+
     let trace = engine.route_trace_with_inbound(&session.target, None, Some("socks-in"));
     engine.record_session_route(session.id, &trace);
     session.outbound_tag = Some("direct".to_owned());
@@ -291,6 +387,40 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
         routed.payload["record"]["path"]["outbound"]["tag"],
         "direct"
     );
+
+    engine
+        .finish_session(session.id, SessionOutcome::DirectRelayed)
+        .expect("finish observed session");
+    let QueryResponse::RecentFlows(recent) = handle
+        .query(QueryRequest::RecentFlows(FlowListQuery {
+            limit: None,
+            filter: Default::default(),
+        }))
+        .expect("query recent flows")
+    else {
+        panic!("expected recent flow query response");
+    };
+    let completed_record = recent[0]
+        .record
+        .as_ref()
+        .expect("recent query includes canonical record");
+    assert_eq!(completed_record.state, zero_api::FlowState::Completed);
+    assert!(completed_record.revision > active_record.revision);
+    assert_eq!(
+        completed_record
+            .source
+            .as_ref()
+            .and_then(|source| source.process_path.as_deref()),
+        Some("/opt/browser")
+    );
+    assert_eq!(
+        completed_record.throughput.sampled_at_unix_ms,
+        completed_record
+            .timing
+            .ended_at_unix_ms
+            .expect("completed timestamp")
+    );
+    assert!(completed_record.result.is_some());
 }
 
 #[test]

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::plan::TargetId;
+use super::plan::{TargetId, UrlTestSelection};
 
 #[derive(Debug, Default)]
 pub(crate) struct OutboundGroupStateStore {
@@ -53,6 +53,7 @@ impl OutboundGroupStateStore {
                     selected,
                     latency_ms: None,
                     last_checked_unix_ms: None,
+                    selection: None,
                     members: members
                         .iter()
                         .map(|member_id| UrlTestMemberState {
@@ -74,6 +75,7 @@ impl OutboundGroupStateStore {
         selected: TargetId,
         latency_ms: Option<u64>,
         members: Vec<UrlTestMemberState>,
+        selection: UrlTestSelection,
     ) {
         self.urltest
             .lock()
@@ -85,6 +87,7 @@ impl OutboundGroupStateStore {
                     latency_ms,
                     last_checked_unix_ms: Some(unix_timestamp_ms()),
                     members,
+                    selection: Some(selection),
                 },
             );
     }
@@ -136,6 +139,7 @@ pub struct UrlTestGroupState {
     pub latency_ms: Option<u64>,
     pub last_checked_unix_ms: Option<u64>,
     pub members: Vec<UrlTestMemberState>,
+    pub selection: Option<UrlTestSelection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

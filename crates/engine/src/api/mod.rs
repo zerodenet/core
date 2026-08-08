@@ -76,6 +76,8 @@ fn query_engine(engine: &Engine, request: QueryRequest) -> zero_api::ApiResult<Q
         QueryRequest::Capabilities(_) => Ok(QueryResponse::Capabilities(capabilities())),
         QueryRequest::Health(_) => Ok(QueryResponse::Health(zero_api::HealthSnapshot {
             engine_build_id: env!("CARGO_PKG_VERSION").to_owned(),
+            core_instance_id: engine.core_instance_id().to_owned(),
+            config_revision: engine.config_revision(),
             started_at_unix_ms: Some(engine.started_at_unix_ms()),
             healthy: true,
         })),
@@ -175,6 +177,9 @@ fn session_to_flow_from_completed(record: &crate::session::CompletedSessionRecor
     use self::export::address_to_snapshot;
     use self::export::auth_to_snapshot;
     FlowSnapshot {
+        record: Some(Box::new(crate::observability::completed_flow_record(
+            record,
+        ))),
         id: record.id,
         inbound_tag: record.inbound_tag.clone(),
         outbound_tag: record.outbound_tag.clone(),
@@ -234,12 +239,17 @@ fn execute_engine_command(
             Err(error) => Err(engine_error_to_api(error)),
         },
         CommandRequest::PolicyProbe(command) => {
-            match engine.trigger_urltest_probe(&command.policy_tag) {
-                Ok(()) => Ok(CommandResponse {
+            match engine.trigger_urltest_probe(&command.policy_tag, command.operation_id.as_deref())
+            {
+                Ok(ack) => Ok(CommandResponse {
                     accepted: true,
                     result: Some(json!({
                         "policy_tag": command.policy_tag,
                         "probe_triggered": true,
+                        "operation_id": ack.operation_id,
+                        "coalesced": ack.coalesced,
+                        "core_instance_id": engine.core_instance_id(),
+                        "config_revision": engine.config_revision(),
                     })),
                 }),
                 Err(error) => Err(engine_error_to_api(error)),
@@ -316,7 +326,11 @@ fn apply_config_command(
 
     Ok(CommandResponse {
         accepted: true,
-        result: Some(json!({ "applied": true })),
+        result: Some(json!({
+            "applied": true,
+            "core_instance_id": engine.core_instance_id(),
+            "config_revision": engine.config_revision(),
+        })),
     })
 }
 
@@ -331,7 +345,12 @@ fn apply_runtime_config_command(
 
     Ok(CommandResponse {
         accepted: true,
-        result: Some(json!({ "applied": true, "persistence": "runtime_only" })),
+        result: Some(json!({
+            "applied": true,
+            "persistence": "runtime_only",
+            "core_instance_id": engine.core_instance_id(),
+            "config_revision": engine.config_revision(),
+        })),
     })
 }
 
@@ -375,6 +394,10 @@ fn capabilities() -> ApiCapabilities {
         "runtime_snapshot".to_owned(),
         "flow_snapshot".to_owned(),
         "policy_snapshot".to_owned(),
+        "runtime_generation".to_owned(),
+        "operation_correlation".to_owned(),
+        "event_recovery".to_owned(),
+        "urltest_tolerance".to_owned(),
     ];
     capabilities.build_features = build_features;
     capabilities.permissions = vec![Permission::Read];

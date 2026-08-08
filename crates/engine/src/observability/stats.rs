@@ -36,10 +36,19 @@ impl EngineStats {
         Arc::new(Self::default())
     }
 
-    /// Record completed flow traffic — global + per-outbound.
-    pub fn record_traffic(&self, outbound_tag: Option<&str>, bytes_up: u64, bytes_down: u64) {
+    /// Add user-direction bytes as soon as an active flow observes them.
+    pub fn record_live_traffic(&self, bytes_up: u64, bytes_down: u64) {
         self.bytes_up.fetch_add(bytes_up, Ordering::Relaxed);
         self.bytes_down.fetch_add(bytes_down, Ordering::Relaxed);
+    }
+
+    /// Attribute final totals to an outbound after the flow completes.
+    pub fn record_completed_outbound_traffic(
+        &self,
+        outbound_tag: Option<&str>,
+        bytes_up: u64,
+        bytes_down: u64,
+    ) {
         if let Some(tag) = outbound_tag {
             let mut map = self
                 .per_outbound

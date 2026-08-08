@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigSnapshot {
     #[serde(default)]
+    pub config_revision: u64,
+    #[serde(default)]
     pub mode: ModeSnapshot,
     #[serde(default)]
     pub rule_count: usize,
@@ -32,6 +34,10 @@ pub struct ConfigSnapshot {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
+    #[serde(default)]
+    pub core_instance_id: String,
+    #[serde(default)]
+    pub config_revision: u64,
     #[serde(default)]
     pub stats: StatsSnapshot,
     #[serde(default)]
@@ -121,6 +127,28 @@ pub struct PolicySnapshot {
     pub effective_chains: Vec<Vec<String>>,
     #[serde(default)]
     pub url_test_members: Vec<PolicyMemberSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url_test_selection: Option<UrlTestSelectionSnapshot>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UrlTestSelectionSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_selected: Option<String>,
+    #[serde(default)]
+    pub selected: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best_candidate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_latency_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best_latency_ms: Option<u64>,
+    #[serde(default)]
+    pub tolerance_ms: u64,
+    #[serde(default)]
+    pub switched: bool,
+    #[serde(default)]
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,6 +171,10 @@ pub struct PolicyMemberSnapshot {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowSnapshot {
+    /// Canonical record shared with flow lifecycle events. Legacy flattened
+    /// fields remain during the compatibility migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<Box<crate::FlowRecord>>,
     #[serde(default)]
     pub id: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -189,6 +221,10 @@ pub struct FlowSnapshot {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompletedFlowSnapshot {
+    /// Canonical completed record shared with `flow.completed` events. Legacy
+    /// flattened fields remain during the compatibility migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<Box<crate::FlowRecord>>,
     #[serde(default)]
     pub id: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -272,10 +308,17 @@ pub struct StatsSnapshot {
     pub direct_sessions: u64,
     #[serde(default)]
     pub chained_sessions: u64,
+    /// Monotonic user-direction upload bytes observed by active and completed
+    /// flows in this engine instance.
     #[serde(default)]
     pub bytes_up: u64,
+    /// Monotonic user-direction download bytes observed by active and completed
+    /// flows in this engine instance.
     #[serde(default)]
     pub bytes_down: u64,
+    /// Completed-flow attribution by final outbound. Active bytes are exposed
+    /// by the global counters and flow snapshots until their outbound result is
+    /// final.
     #[serde(default)]
     pub per_outbound: Vec<(String, OutboundTrafficStats)>,
     #[serde(default)]

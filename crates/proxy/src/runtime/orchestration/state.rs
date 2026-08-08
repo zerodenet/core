@@ -107,11 +107,11 @@ impl OrchestrationState {
             warn!(%error, "config reload listener reconciliation failed; restoring last known-good config");
             let persist = proxy.pending_reload_persists(&new_config);
             let rollback = if persist {
-                proxy.engine.reload_config((*self.applied_config).clone())
+                proxy.engine.stage_config((*self.applied_config).clone())
             } else {
                 proxy
                     .engine
-                    .reload_runtime_config((*self.applied_config).clone())
+                    .stage_runtime_config((*self.applied_config).clone())
             };
             let acknowledgement = if let Err(rollback_error) = rollback {
                 warn!(%rollback_error, "failed to restore last known-good config after reload failure");

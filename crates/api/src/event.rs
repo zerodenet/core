@@ -72,6 +72,10 @@ pub struct ApiEvent<P = serde_json::Value> {
     pub event_id: String,
     pub event_type: String,
     pub occurred_at_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core_instance_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_revision: Option<u64>,
     pub source_id: Option<String>,
     pub sequence: Option<u64>,
     pub principal_key: Option<String>,
@@ -91,6 +95,8 @@ impl<P> ApiEvent<P> {
             event_id: event_id.into(),
             event_type: event_type.into(),
             occurred_at_unix_ms,
+            core_instance_id: None,
+            config_revision: None,
             source_id: None,
             sequence: None,
             principal_key: None,
@@ -114,6 +120,10 @@ pub struct EventFilter {
 /// query or synchronization snapshot before applying further deltas.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EventReplay {
+    /// Identity of the engine instance serving this replay. Consumers must
+    /// discard a cursor captured from a different instance.
+    #[serde(default)]
+    pub core_instance_id: String,
     pub requested_after: u64,
     pub actual_from: u64,
     pub has_gap: bool,

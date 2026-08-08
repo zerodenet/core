@@ -307,6 +307,10 @@ pub enum OutboundGroupKind {
         url: Option<String>,
         #[serde(default = "default_urltest_interval_seconds")]
         interval_seconds: u64,
+        /// Selection hysteresis in milliseconds. A healthy current member is
+        /// kept unless another member is faster by more than this value.
+        #[serde(default)]
+        tolerance_ms: u64,
     },
     #[serde(rename = "relay")]
     Relay { proxies: Vec<String> },

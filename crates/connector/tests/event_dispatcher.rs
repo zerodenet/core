@@ -8,7 +8,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::json;
 use zero_api::{event_type, ApiEvent, EventFilter, EventSource, EventStream, RawApiEvent};
 use zero_config::{ApiConfig, EventDispatcherConfig, EventSinkConfig};
-use zero_connector::{spawn_event_dispatcher, EventDispatcherOptions};
+use zero_connector::{
+    spawn_event_dispatcher, spawn_event_dispatcher_with_engine_started, EventDispatcherOptions,
+};
 
 #[derive(Clone)]
 struct StaticEventSource {
@@ -69,12 +71,57 @@ impl EventSource for StaticEventSource {
             .and_then(|event| event.sequence)
             .unwrap_or_else(|| sequence.saturating_add(1));
         Ok(zero_api::EventReplay {
+            core_instance_id: "test-core".to_owned(),
             requested_after: sequence,
             actual_from,
             has_gap: actual_from > sequence.saturating_add(1),
             events,
         })
     }
+}
+
+#[tokio::test]
+async fn startup_bootstrap_deduplicates_event_already_in_live_subscription() {
+    let path = temp_path("zero-connector-engine-started.jsonl");
+    let _ = fs::remove_file(&path);
+    let mut started = ApiEvent::new(
+        "engine-instance:engine-1",
+        event_type::ENGINE_STARTED,
+        1_760_000_000_000,
+        json!({ "build_id": "test" }),
+    );
+    started.sequence = Some(1);
+    let source = StaticEventSource {
+        events: Arc::new(Mutex::new(vec![started])),
+    };
+    let api = ApiConfig {
+        event_sinks: vec![EventSinkConfig::JsonLines {
+            tag: "startup-events".to_owned(),
+            path: path.display().to_string(),
+            events: vec![event_type::ENGINE_STARTED.to_owned()],
+            source_id: None,
+        }],
+        ..Default::default()
+    };
+
+    let dispatcher = spawn_event_dispatcher_with_engine_started(
+        source,
+        api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn dispatcher")
+    .expect("dispatcher handle");
+
+    wait_for_file_contains(&path, "engine.started").await;
+    dispatcher.shutdown().await;
+    let written = fs::read_to_string(&path).expect("read startup events");
+    let _ = fs::remove_file(&path);
+
+    assert_eq!(written.lines().count(), 1, "startup event was duplicated");
 }
 
 #[tokio::test]

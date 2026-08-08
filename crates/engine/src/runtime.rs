@@ -46,6 +46,7 @@ pub struct Engine {
     principal_quotas: Arc<PrincipalQuotaRegistry>,
     completed_sessions: Arc<CompletedSessionHistory>,
     event_log: Arc<EngineEventLog>,
+    config_revision: Arc<AtomicU64>,
     stats: Arc<EngineStats>,
     pub(crate) outbound_group_state: Arc<OutboundGroupStateStore>,
     pub(crate) probe_trigger_registry: Arc<ProbeTriggerRegistry>,
@@ -151,7 +152,8 @@ impl Engine {
         }
 
         let event_log_capacity = config.runtime.event_log_capacity;
-        let event_log = EngineEventLog::shared(event_log_capacity);
+        let config_revision = Arc::new(AtomicU64::new(1));
+        let event_log = EngineEventLog::shared(event_log_capacity, config_revision.clone());
 
         info!(
             build_id = env!("CARGO_PKG_VERSION"),
@@ -179,6 +181,7 @@ impl Engine {
         let principal_quotas = Arc::new(PrincipalQuotaRegistry::open(principal_quota_state_path)?);
         Ok(Self {
             runtime_snapshot: Arc::new(std::sync::RwLock::new(Arc::new(EngineRuntimeSnapshot {
+                config_revision: Arc::new(AtomicU64::new(1)),
                 config: Arc::new(config),
                 plan,
                 router,
@@ -192,6 +195,7 @@ impl Engine {
             principal_quotas,
             completed_sessions: CompletedSessionHistory::shared(),
             event_log,
+            config_revision,
             stats: EngineStats::shared(),
             outbound_group_state,
             probe_trigger_registry: ProbeTriggerRegistry::shared(),
@@ -241,6 +245,21 @@ impl Engine {
     /// UNIX epoch milliseconds when this engine was created.
     pub fn started_at_unix_ms(&self) -> u64 {
         self.started_at_unix_ms
+    }
+
+    pub fn core_instance_id(&self) -> &str {
+        self.event_log.core_instance_id()
+    }
+
+    pub fn config_revision(&self) -> u64 {
+        self.runtime_snapshot().config_revision()
+    }
+
+    pub fn operation_id(&self, requested: Option<&str>) -> String {
+        requested
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{:032x}", rand::random::<u128>()))
     }
 
     pub fn plan(&self) -> Arc<EnginePlan> {
@@ -314,7 +333,8 @@ impl Engine {
     pub fn set_mode(&self, new_mode: ModeConfig) {
         let mut mode = self.mode.lock().unwrap_or_else(|e| e.into_inner());
         *mode = new_mode.clone();
-        self.event_log.push_config_changed();
+        drop(mode);
+        self.commit_mode_change(new_mode.clone());
         info!(mode = new_mode.kind(), "proxy mode switched");
     }
 

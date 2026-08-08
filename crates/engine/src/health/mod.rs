@@ -5,7 +5,7 @@ mod passive_relay;
 mod probe;
 
 pub use passive_relay::{PassiveRelayHealthKey, PassiveRelayOutcome, PassiveRelaySelection};
-pub use probe::{ProbeTrigger, ProbeTriggerRegistry};
+pub use probe::{ProbeTrigger, ProbeTriggerAck, ProbeTriggerRegistry};
 
 pub(crate) use outbound::OutboundHealth;
 pub(crate) use passive_relay::{PassiveRelayHealth, PassiveRelayHealthTransition};

@@ -16,13 +16,13 @@ pub type EventsSinceResult = zero_api::EventReplay;
 pub use groups::{UrlTestGroupState, UrlTestMemberState};
 pub use health::{
     PassiveRelayHealthKey, PassiveRelayOutcome, PassiveRelaySelection, ProbeTrigger,
-    ProbeTriggerRegistry,
+    ProbeTriggerAck, ProbeTriggerRegistry,
 };
 pub use observability::SessionOutcome;
 pub use plan::{
     EnginePlan, FallbackGroupPlan, LoadBalanceGroupPlan, OutboundIdentity, OutboundTarget,
     ResolvedLeafOutbound, ResolvedOutbound, SelectorGroupPlan, TargetId, TargetKind, TargetNode,
-    UrlTestGroupPlan,
+    UrlTestGroupPlan, UrlTestSelection, UrlTestSelectionReason,
 };
 pub use principal::{
     inspect_principal_quota_state, PrincipalCancellationRegistration, PrincipalDeviceRegistration,

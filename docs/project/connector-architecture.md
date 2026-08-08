@@ -44,6 +44,8 @@ Connector 所维护的“保活”仅指投递任务持续运行、失败重试�
 
 Dispatcher 线程独占事件游标、outbox 和重试状态；每个 sink 使用独立阻塞 worker，仅执行该 sink 的一次投递。一个 URL 超时不会阻塞其他注册地址，worker 也不能直接修改 outbox。请求超时、退避、重试阈值和耗尽策略全部来自 `api.dispatcher`，不存在隐藏的固定三次删除策略。
 
+应用进程第一次启动已配置的 delivery sink 时，先建立实时订阅，再从内核保留事件中补取该 engine 实例的 `engine.started`。实时流与补取结果按事件 `sequence` 去重，因此启动时序不会造成漏投或重复投递。配置热更新重建 dispatcher 时不会再次补发同一进程的启动事件；`flow.snapshot` 的订阅同步和常规游标回放语义保持不变。
+
 ## 禁止边界
 
 Zero 不得在 Connector 中：

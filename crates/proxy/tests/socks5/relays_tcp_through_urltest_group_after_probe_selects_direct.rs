@@ -84,16 +84,47 @@ async fn relays_tcp_through_urltest_group_after_probe_selects_direct() {
     assert!(startup_event.payload["completed_at_unix_ms"]
         .as_u64()
         .is_some());
+    assert_eq!(
+        startup_event.payload["selection"]["reason"],
+        "current_unhealthy"
+    );
+    assert_eq!(startup_event.payload["selection"]["switched"], true);
+    assert_eq!(
+        startup_event.payload["selection"]["best_candidate"],
+        "direct"
+    );
 
     let scheduled_event = wait_for_probe_event(&subscriber, "scheduled").await;
     assert_eq!(scheduled_event.payload["selected"], "direct");
 
-    outer_handle
+    let first_ack = outer_handle
         .engine()
-        .trigger_urltest_probe("proxy")
+        .trigger_urltest_probe("proxy", Some("manual-operation-1"))
         .expect("trigger manual urltest probe");
+    let coalesced_ack = outer_handle
+        .engine()
+        .trigger_urltest_probe("proxy", Some("manual-operation-2"))
+        .expect("coalesce overlapping manual urltest probe");
+    assert_eq!(first_ack.operation_id, "manual-operation-1");
+    assert!(!first_ack.coalesced);
+    assert_eq!(coalesced_ack.operation_id, first_ack.operation_id);
+    assert!(coalesced_ack.coalesced);
     let manual_event = wait_for_probe_event(&subscriber, "manual").await;
     assert_eq!(manual_event.payload["selected"], "direct");
+    assert_eq!(manual_event.payload["operation_id"], first_ack.operation_id);
+    assert_eq!(
+        manual_event.payload["core_instance_id"],
+        outer_handle.engine().core_instance_id()
+    );
+    assert_eq!(manual_event.payload["config_revision"], 1);
+    assert_eq!(manual_event.payload["terminal_status"], "partial_failure");
+    assert_eq!(manual_event.config_revision, Some(1));
+    assert_eq!(
+        manual_event.payload["selection"]["reason"],
+        "within_tolerance"
+    );
+    assert_eq!(manual_event.payload["selection"]["tolerance_ms"], 0);
+    assert_eq!(manual_event.payload["selection"]["switched"], false);
 
     let status = outer_handle.export_status();
     let group = status
@@ -103,6 +134,13 @@ async fn relays_tcp_through_urltest_group_after_probe_selects_direct() {
         .find(|group| group.tag == "proxy")
         .expect("find urltest group");
     assert_eq!(group.selected.as_deref(), Some("direct"));
+    let selection = group
+        .url_test_selection
+        .as_ref()
+        .expect("urltest selection decision");
+    assert_eq!(selection.selected, "direct");
+    assert_eq!(selection.reason, "within_tolerance");
+    assert_eq!(selection.tolerance_ms, 0);
     assert!(group.latency_ms.is_some());
     assert!(group.last_checked_unix_ms.is_some());
     assert_eq!(
@@ -187,7 +225,7 @@ async fn relays_tcp_through_urltest_group_after_probe_selects_direct() {
     wait_for("removed urltest trigger to be cleared", || {
         outer_handle
             .engine()
-            .trigger_urltest_probe("proxy")
+            .trigger_urltest_probe("proxy", None)
             .is_err()
     })
     .await;

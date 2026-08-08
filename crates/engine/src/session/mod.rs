@@ -17,4 +17,4 @@ pub use observation::{
 pub use registry::ActiveSession;
 
 pub(crate) use completed::CompletedSessionHistory;
-pub(crate) use registry::SessionRegistry;
+pub(crate) use registry::{SessionRegistry, SessionTrafficUpdate};

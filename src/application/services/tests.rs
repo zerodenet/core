@@ -47,6 +47,65 @@ async fn wait_for_file_text(path: &Path, needle: &str) {
     .expect("event sink did not receive expected record");
 }
 
+fn count_event_type(path: &Path, event_type: &str) -> usize {
+    let needle = format!(r#""event_type":"{event_type}""#);
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .matches(&needle)
+        .count()
+}
+
+#[tokio::test]
+async fn first_configured_dispatcher_delivers_engine_started_exactly_once() {
+    let directory = tempfile::tempdir().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let config_path = directory.path().join("config.json");
+    let first_sink = directory.path().join("first-events.jsonl");
+    let replacement_sink = directory.path().join("replacement-events.jsonl");
+    let mut initial: serde_json::Value =
+        serde_json::from_str(&config_json("first-events.jsonl", port)).unwrap();
+    initial["api"]["event_sinks"][0]["events"] =
+        serde_json::json!(["engine.started", "engine.warning"]);
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&initial).unwrap()).unwrap();
+
+    let initial = RuntimeConfig::load_from_path(&config_path).unwrap();
+    let engine = Engine::new_with_config_path(initial, &config_path).unwrap();
+    let proxy = Proxy::from_engine(engine.clone()).unwrap();
+    let base_handle = ProxyHandle::new(EngineHandle::new(engine.clone()), proxy.clone());
+    let services = ApplicationServices::start(engine.clone(), None)
+        .await
+        .unwrap();
+    let handle = base_handle.with_config_apply_reconciler(services.clone());
+    let running = proxy.spawn();
+
+    wait_for_file_text(&first_sink, "engine.started").await;
+    assert_eq!(count_event_type(&first_sink, "engine.started"), 1);
+
+    let mut candidate: serde_json::Value =
+        serde_json::from_str(&config_json("replacement-events.jsonl", port)).unwrap();
+    candidate["api"]["event_sinks"][0]["events"] =
+        serde_json::json!(["engine.started", "engine.warning"]);
+    handle
+        .execute_acknowledged(CommandRequest::ConfigApply(ConfigApplyCommand {
+            config: candidate,
+        }))
+        .await
+        .expect("replace event dispatcher");
+
+    engine.emit_warning("replacement-ready", "replacement-ready");
+    wait_for_file_text(&replacement_sink, "replacement-ready").await;
+    assert_eq!(count_event_type(&first_sink, "engine.started"), 1);
+    assert_eq!(count_event_type(&replacement_sink, "engine.started"), 0);
+
+    running.shutdown().await.unwrap();
+    services.shutdown_status_monitor().await;
+    engine.push_engine_stopped("test");
+    tokio::task::yield_now().await;
+    services.shutdown_dispatcher().await;
+}
+
 #[tokio::test]
 async fn config_apply_rebuilds_event_dispatcher_without_process_restart() {
     let directory = tempfile::tempdir().unwrap();

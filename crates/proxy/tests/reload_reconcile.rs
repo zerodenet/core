@@ -91,14 +91,17 @@ async fn acknowledged_reload_restarts_changed_same_tag_listener() {
     let old_port = free_port().await;
     let new_port = free_port().await;
     let proxy = Proxy::new(config(old_port)).unwrap();
-    let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone());
+    let engine = proxy.engine().clone();
+    let handle = ProxyHandle::new(EngineHandle::new(engine.clone()), proxy.clone());
     let running = proxy.spawn();
     wait_for_connect(old_port).await;
+    assert_eq!(engine.config_revision(), 1);
 
     handle
         .apply_config_and_wait(config(new_port), Duration::from_secs(5))
         .await
         .expect("listener reconcile acknowledgement");
+    assert_eq!(engine.config_revision(), 2);
     wait_for_connect(new_port).await;
     assert!(TcpStream::connect(("127.0.0.1", old_port)).await.is_err());
 
@@ -124,6 +127,7 @@ async fn runtime_only_reload_does_not_replace_operator_config_file() {
         .await
         .expect("runtime-only listener reconcile acknowledgement");
 
+    assert_eq!(engine.config_revision(), 2);
     wait_for_connect(new_port).await;
     assert_eq!(engine.config().inbounds[0].listen.port, new_port);
     let persisted = RuntimeConfig::load_from_path(&config_path).unwrap();
@@ -152,6 +156,7 @@ async fn failed_runtime_only_reload_rolls_back_without_replacing_operator_config
         .await
         .expect_err("occupied runtime-only listener must reject reload");
 
+    assert_eq!(engine.config_revision(), 1);
     assert_eq!(engine.config().inbounds[0].listen.port, old_port);
     let persisted = RuntimeConfig::load_from_path(&config_path).unwrap();
     assert_eq!(persisted.inbounds[0].listen.port, old_port);
@@ -201,6 +206,7 @@ async fn failed_listener_rebind_restores_last_known_good_config() {
         .await
         .expect_err("occupied listener must reject acknowledged reload");
     assert!(!error.is_empty());
+    assert_eq!(engine.config_revision(), 1);
     assert_eq!(engine.config().inbounds[0].listen.port, old_port);
     wait_for_connect(old_port).await;
 
@@ -401,6 +407,7 @@ async fn application_reconcile_failure_restores_proxy_file_and_services() {
         error.contains("restored last-known-good configuration"),
         "{error}"
     );
+    assert_eq!(engine.config_revision(), 1);
     assert_eq!(engine.config().inbounds[0].listen.port, old_port);
     assert_eq!(
         RuntimeConfig::load_from_path(&config_path)

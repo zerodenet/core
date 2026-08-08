@@ -24,6 +24,8 @@ use super::SessionOutcome;
 pub struct EngineEventLog {
     capacity: AtomicUsize,
     event_epoch: u128,
+    core_instance_id: String,
+    config_revision: Arc<AtomicU64>,
     next_sequence: AtomicU64,
     inner: Mutex<VecDeque<RawApiEvent>>,
     subscribers: Mutex<Vec<SyncSender<RawApiEvent>>>,
@@ -37,17 +39,26 @@ impl Default for EngineEventLog {
 
 impl EngineEventLog {
     fn with_capacity(capacity: usize) -> Self {
+        let event_epoch = rand::random();
         Self {
             capacity: AtomicUsize::new(capacity),
-            event_epoch: rand::random(),
+            event_epoch,
+            core_instance_id: format!("{event_epoch:032x}"),
+            config_revision: Arc::new(AtomicU64::new(1)),
             next_sequence: AtomicU64::new(1),
             inner: Mutex::new(VecDeque::with_capacity(capacity)),
             subscribers: Mutex::new(Vec::new()),
         }
     }
 
-    pub fn shared(capacity: usize) -> Arc<Self> {
-        Arc::new(Self::with_capacity(capacity))
+    pub fn shared(capacity: usize, config_revision: Arc<AtomicU64>) -> Arc<Self> {
+        let mut log = Self::with_capacity(capacity);
+        log.config_revision = config_revision;
+        Arc::new(log)
+    }
+
+    pub(crate) fn core_instance_id(&self) -> &str {
+        &self.core_instance_id
     }
 
     pub(crate) fn set_capacity(&self, capacity: usize) {
@@ -127,14 +138,16 @@ impl EngineEventLog {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
+        let config_revision = payload.config_revision;
         let payload = serde_json::to_value(payload)
             .expect("policy probe completed event payload should be serializable");
-        let event = ApiEvent::new(
+        let mut event = ApiEvent::new(
             format!("probe-{}-{}", policy_tag, now_ms),
             event_type::POLICY_PROBE_COMPLETED,
             now_ms,
             payload,
         );
+        event.config_revision = Some(config_revision);
         self.push_generated(event);
     }
 
@@ -170,13 +183,14 @@ impl EngineEventLog {
         self.push_generated(event);
     }
 
-    pub fn push_config_changed(&self) {
+    pub fn push_config_changed(&self, config_revision: u64) {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
         let payload = json!({
             "changed_at_unix_ms": now_ms,
+            "config_revision": config_revision,
         });
         let event = ApiEvent::new(
             format!("config-{}", now_ms),
@@ -443,6 +457,7 @@ impl EngineEventLog {
             .unwrap_or(replay_start);
 
         EventReplay {
+            core_instance_id: self.core_instance_id.clone(),
             requested_after: since,
             actual_from,
             has_gap,
@@ -473,7 +488,15 @@ impl EngineEventLog {
 
     fn qualify_generated(&self, mut event: RawApiEvent) -> RawApiEvent {
         event.event_id = format!("{:032x}:{}", self.event_epoch, event.event_id);
+        self.qualify_metadata(&mut event);
         event
+    }
+
+    fn qualify_metadata(&self, event: &mut RawApiEvent) {
+        event.core_instance_id = Some(self.core_instance_id.clone());
+        if event.config_revision.is_none() {
+            event.config_revision = Some(self.config_revision.load(Ordering::Acquire));
+        }
     }
 
     fn push_generated(&self, event: RawApiEvent) {
@@ -481,6 +504,7 @@ impl EngineEventLog {
     }
 
     fn push(&self, mut event: RawApiEvent) {
+        self.qualify_metadata(&mut event);
         let sequence = self.next_sequence.fetch_add(1, Ordering::Relaxed);
         event.sequence = Some(sequence);
 
@@ -573,7 +597,7 @@ fn flow_completed_event(
     event
 }
 
-fn active_flow_record(
+pub(crate) fn active_flow_record(
     session: &ActiveSession,
     state: FlowState,
     sampled_at_unix_ms: u64,
@@ -619,7 +643,7 @@ fn active_flow_record(
     }
 }
 
-fn completed_flow_record(record: &CompletedSessionRecord) -> FlowRecord {
+pub(crate) fn completed_flow_record(record: &CompletedSessionRecord) -> FlowRecord {
     FlowRecord {
         flow_id: record.id.to_string(),
         revision: record.revision,

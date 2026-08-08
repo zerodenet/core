@@ -191,9 +191,9 @@ impl ProxyHandle {
             });
         }
         let result = if persist {
-            self.proxy.engine.reload_config(config)
+            self.proxy.engine.stage_config(config)
         } else {
-            self.proxy.engine.reload_runtime_config(config)
+            self.proxy.engine.stage_runtime_config(config)
         };
         if let Err(error) = result {
             self.clear_pending_reload();

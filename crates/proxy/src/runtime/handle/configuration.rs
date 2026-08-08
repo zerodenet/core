@@ -70,11 +70,15 @@ impl ProxyHandle {
             .await?;
 
         let Some(reconciler) = &self.config_reconciler else {
+            self.proxy.engine.commit_config_change();
             return Ok(Some(ConfigReconcileResult::default()));
         };
         let candidate = Arc::new(candidate);
         match reconciler.reconcile(candidate).await {
-            Ok(result) => Ok(Some(result)),
+            Ok(result) => {
+                self.proxy.engine.commit_config_change();
+                Ok(Some(result))
+            }
             Err(apply_error) => {
                 let proxy_rollback = self
                     .apply_proxy_config_under_guard((*previous).clone(), timeout, persist)

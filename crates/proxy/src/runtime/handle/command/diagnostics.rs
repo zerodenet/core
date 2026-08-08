@@ -13,23 +13,36 @@ pub(super) fn execute_diagnostics_probe_target(
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
     let proxy = handle.proxy.clone();
     let target_tag = cmd.target_tag.clone();
+    let snapshot = proxy.engine().runtime_snapshot();
+    let core_instance_id = proxy.engine().core_instance_id().to_owned();
+    let config_revision = snapshot.config_revision();
+    let operation_id = proxy.engine().operation_id(cmd.operation_id.as_deref());
 
     with_current_runtime(
         "no tokio runtime available for probe_target command",
         |rt| {
             rt.block_on(async move {
-                let Some((host, port)) = probe_target_endpoint(&proxy, &target_tag)? else {
+                let started_at_unix_ms = unix_timestamp_ms();
+                let started = std::time::Instant::now();
+                let Some((host, port)) = probe_target_endpoint(&proxy, &snapshot, &target_tag)? else {
                     return Ok(zero_api::CommandResponse {
                         accepted: true,
                         result: Some(serde_json::json!({
+                            "operation_id": operation_id,
+                            "core_instance_id": core_instance_id,
+                            "config_revision": config_revision,
                             "target_tag": target_tag,
                             "reachable": false,
+                            "terminal_status": "failed",
+                            "error_code": "no_fixed_endpoint",
                             "error": "outbound has no probeable fixed server",
+                            "started_at_unix_ms": started_at_unix_ms,
+                            "completed_at_unix_ms": unix_timestamp_ms(),
+                            "duration_ms": started.elapsed().as_millis() as u64,
                         })),
                     });
                 };
 
-                let started = std::time::Instant::now();
                 let reachable = matches!(
                     tokio::time::timeout(
                         std::time::Duration::from_secs(2),
@@ -45,11 +58,19 @@ pub(super) fn execute_diagnostics_probe_target(
                 Ok(zero_api::CommandResponse {
                     accepted: true,
                     result: Some(serde_json::json!({
+                        "operation_id": operation_id,
+                        "core_instance_id": core_instance_id,
+                        "config_revision": config_revision,
                         "target_tag": target_tag,
                         "server": host,
                         "port": port,
                         "reachable": reachable,
+                        "terminal_status": if reachable { "succeeded" } else { "failed" },
+                        "error_code": if reachable { None::<&str> } else { Some("connection_failed") },
                         "latency_ms": reachable.then(|| started.elapsed().as_millis() as u64),
+                        "started_at_unix_ms": started_at_unix_ms,
+                        "completed_at_unix_ms": unix_timestamp_ms(),
+                        "duration_ms": started.elapsed().as_millis() as u64,
                     })),
                 })
             })
@@ -138,9 +159,9 @@ pub(super) fn execute_diagnostics_trace_route(
 
 fn probe_target_endpoint(
     proxy: &crate::runtime::Proxy,
+    snapshot: &zero_engine::EngineRuntimeSnapshot,
     target_tag: &str,
 ) -> zero_api::ApiResult<Option<(String, u16)>> {
-    let snapshot = proxy.engine().runtime_snapshot();
     let plan = snapshot.plan();
     let target_id = plan.target_id(target_tag).ok_or_else(|| {
         zero_api::ApiError::new(
@@ -150,7 +171,7 @@ fn probe_target_endpoint(
     })?;
     let (resolved, _plan) = proxy
         .engine()
-        .resolve_target_id_in_snapshot(&snapshot, target_id)
+        .resolve_target_id_in_snapshot(snapshot, target_id)
         .ok_or_else(|| {
             zero_api::ApiError::new(
                 zero_api::ApiErrorCode::NotFound,
@@ -214,6 +235,12 @@ pub(super) fn execute_diagnostics_probe_outbound(
     let proxy = handle.proxy.clone();
     let target_tag = cmd.target_tag.clone();
     let snapshot = handle.proxy.engine().runtime_snapshot();
+    let core_instance_id = handle.proxy.engine().core_instance_id().to_owned();
+    let config_revision = snapshot.config_revision();
+    let operation_id = handle
+        .proxy
+        .engine()
+        .operation_id(cmd.operation_id.as_deref());
     let url = snapshot
         .config()
         .runtime
@@ -225,6 +252,8 @@ pub(super) fn execute_diagnostics_probe_outbound(
         "no tokio runtime available for probe_outbound command",
         |rt| {
             rt.block_on(async move {
+                let started_at_unix_ms = unix_timestamp_ms();
+                let started = std::time::Instant::now();
                 match UrlTestRuntime::new(services)
                     .probe_outbound_single(&target_tag, &url)
                     .await
@@ -232,28 +261,50 @@ pub(super) fn execute_diagnostics_probe_outbound(
                     Ok(latency_ms) => Ok(zero_api::CommandResponse {
                         accepted: true,
                         result: Some(serde_json::json!({
+                            "operation_id": operation_id,
+                            "core_instance_id": core_instance_id,
+                            "config_revision": config_revision,
                             "target_tag": target_tag,
                             "url": url,
                             "via": "through_proxy",
                             "reachable": true,
+                            "terminal_status": "succeeded",
                             "latency_ms": latency_ms,
+                            "started_at_unix_ms": started_at_unix_ms,
+                            "completed_at_unix_ms": unix_timestamp_ms(),
+                            "duration_ms": started.elapsed().as_millis() as u64,
                         })),
                     }),
                     Err(error) => Ok(zero_api::CommandResponse {
                         accepted: true,
                         result: Some(serde_json::json!({
+                            "operation_id": operation_id,
+                            "core_instance_id": core_instance_id,
+                            "config_revision": config_revision,
                             "target_tag": target_tag,
                             "url": url,
                             "via": "through_proxy",
                             "reachable": false,
+                            "terminal_status": "failed",
                             "latency_ms": null,
+                            "error_code": "probe_failed",
                             "error": error.to_string(),
+                            "started_at_unix_ms": started_at_unix_ms,
+                            "completed_at_unix_ms": unix_timestamp_ms(),
+                            "duration_ms": started.elapsed().as_millis() as u64,
                         })),
                     }),
                 }
             })
         },
     )
+}
+
+fn unix_timestamp_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 pub(super) fn execute_diagnostics_dns_cache(

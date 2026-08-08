@@ -229,6 +229,12 @@ pub struct PolicySelectedPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicyProbeCompletedPayload {
+    #[serde(default)]
+    pub operation_id: String,
+    #[serde(default)]
+    pub core_instance_id: String,
+    #[serde(default)]
+    pub config_revision: u64,
     pub policy_tag: String,
     #[serde(default)]
     pub trigger: String,
@@ -240,7 +246,11 @@ pub struct PolicyProbeCompletedPayload {
     pub completed_at_unix_ms: u64,
     #[serde(default)]
     pub duration_ms: u64,
+    #[serde(default)]
+    pub terminal_status: String,
     pub selected: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<crate::UrlTestSelectionSnapshot>,
     pub members: Vec<PolicyProbeMember>,
 }
 
@@ -249,6 +259,8 @@ pub struct PolicyProbeMember {
     pub target_tag: String,
     pub healthy: bool,
     pub latency_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
     pub error: Option<String>,
 }
 

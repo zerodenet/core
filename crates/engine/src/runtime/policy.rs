@@ -7,8 +7,12 @@ impl Engine {
     pub fn push_policy_probe_completed(
         &self,
         policy_tag: &str,
-        payload: zero_api::PolicyProbeCompletedPayload,
+        mut payload: zero_api::PolicyProbeCompletedPayload,
     ) {
+        payload.core_instance_id = self.core_instance_id().to_owned();
+        if payload.config_revision == 0 {
+            payload.config_revision = self.config_revision();
+        }
         self.event_log
             .push_policy_probe_completed(policy_tag, payload);
     }
@@ -94,8 +98,9 @@ impl Engine {
         selected: TargetId,
         latency_ms: Option<u64>,
         members: Vec<UrlTestMemberState>,
+        selection: crate::UrlTestSelection,
     ) {
         self.outbound_group_state
-            .update_urltest(group_id, selected, latency_ms, members);
+            .update_urltest(group_id, selected, latency_ms, members, selection);
     }
 }

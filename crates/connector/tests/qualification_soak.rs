@@ -109,6 +109,7 @@ impl EventSource for QualificationEventSource {
             .and_then(|event| event.sequence)
             .unwrap_or_else(|| sequence.saturating_add(1));
         Ok(zero_api::EventReplay {
+            core_instance_id: "test-core".to_owned(),
             requested_after: sequence,
             actual_from,
             has_gap: actual_from > sequence.saturating_add(1),

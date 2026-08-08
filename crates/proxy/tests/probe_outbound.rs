@@ -5,8 +5,168 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
+use zero_api::{
+    event_type, CommandRequest, CommandService, DiagnosticsProbeOutboundCommand, EventFilter,
+    EventSource,
+};
 use zero_config::RuntimeConfig;
-use zero_proxy::Proxy;
+use zero_engine::EngineHandle;
+use zero_proxy::{Proxy, ProxyHandle};
+
+#[tokio::test]
+async fn manual_policy_probe_coalesces_with_a_running_scheduled_cycle() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind controlled probe server");
+    let port = listener.local_addr().expect("local_addr").port();
+    let inbound_reservation = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("reserve inbound port");
+    let inbound_port = inbound_reservation
+        .local_addr()
+        .expect("inbound local_addr")
+        .port();
+    drop(inbound_reservation);
+    let (accepted_tx, mut accepted_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (release_tx, mut release_rx) = tokio::sync::mpsc::unbounded_channel();
+    let server = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.expect("accept probe");
+            let mut buf = [0_u8; 512];
+            let _ = socket.read(&mut buf).await;
+            accepted_tx.send(()).expect("report accepted probe");
+            if release_rx.recv().await.is_none() {
+                break;
+            }
+            socket
+                .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .expect("write controlled response");
+        }
+    });
+    let config = RuntimeConfig::parse(&format!(
+        r#"{{
+            "inbounds": [{{
+                "tag": "test-in",
+                "listen": {{ "address": "127.0.0.1", "port": {inbound_port} }},
+                "protocol": {{ "type": "socks5" }}
+            }}],
+            "outbounds": [{{ "tag": "direct", "protocol": {{ "type": "direct" }} }}],
+            "outbound_groups": [{{
+                "tag": "auto",
+                "type": "url_test",
+                "outbounds": ["direct"],
+                "url": "http://127.0.0.1:{port}/generate_204",
+                "interval_seconds": 1
+            }}],
+            "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+        }}"#
+    ))
+    .expect("parse urltest config");
+    let proxy = Proxy::new(config).expect("build proxy");
+    let engine = proxy.engine().clone();
+    let subscriber = engine
+        .subscribe(EventFilter {
+            event_types: vec![event_type::POLICY_PROBE_COMPLETED.to_owned()],
+            ..EventFilter::default()
+        })
+        .expect("subscribe to policy probes");
+    let running = proxy.spawn();
+
+    timeout(std::time::Duration::from_secs(5), accepted_rx.recv())
+        .await
+        .expect("startup probe connection")
+        .expect("startup probe report");
+    release_tx.send(()).expect("release startup probe");
+    wait_for_policy_probe(&subscriber, "startup").await;
+
+    timeout(std::time::Duration::from_secs(5), accepted_rx.recv())
+        .await
+        .expect("scheduled probe connection")
+        .expect("scheduled probe report");
+    let ack = engine
+        .trigger_urltest_probe("auto", Some("manual-during-scheduled"))
+        .expect("trigger during scheduled probe");
+    assert!(ack.coalesced);
+    assert_ne!(ack.operation_id, "manual-during-scheduled");
+    release_tx.send(()).expect("release scheduled probe");
+    let completed = wait_for_policy_probe(&subscriber, "scheduled").await;
+    assert_eq!(completed.payload["operation_id"], ack.operation_id);
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    while let Some(event) = subscriber.try_recv() {
+        assert_ne!(event.payload["trigger"], "manual");
+    }
+
+    running.shutdown().await.expect("shutdown proxy");
+    server.abort();
+}
+
+async fn wait_for_policy_probe(
+    subscriber: &zero_engine::EventSubscriber,
+    trigger: &str,
+) -> zero_api::RawApiEvent {
+    timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Some(event) = subscriber.try_recv() {
+                if event.payload["trigger"] == trigger {
+                    return event;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("policy probe completion")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnostics_probe_outbound_echoes_operation_and_generation() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind probe server");
+    let port = listener.local_addr().expect("local_addr").port();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept probe");
+        let mut buf = [0_u8; 512];
+        let _ = socket.read(&mut buf).await;
+        socket
+            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+            .await
+            .expect("write response");
+    });
+    let config = RuntimeConfig::parse(
+        r#"{
+            "inbounds": [],
+            "outbounds": [{ "tag": "direct", "protocol": { "type": "direct" } }],
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse config");
+    let proxy = Proxy::new(config).expect("build proxy");
+    let engine = proxy.engine().clone();
+    let handle = ProxyHandle::new(EngineHandle::new(engine.clone()), proxy);
+    let url = format!("http://127.0.0.1:{port}/generate_204");
+
+    let response = tokio::task::block_in_place(|| {
+        handle.execute(CommandRequest::DiagnosticsProbeOutbound(
+            DiagnosticsProbeOutboundCommand {
+                target_tag: "direct".to_owned(),
+                url: Some(url),
+                operation_id: Some("diagnostic-1".to_owned()),
+            },
+        ))
+    })
+    .expect("execute outbound diagnostic");
+    let result = response.result.expect("diagnostic result");
+    assert_eq!(result["operation_id"], "diagnostic-1");
+    assert_eq!(result["core_instance_id"], engine.core_instance_id());
+    assert_eq!(result["config_revision"], 1);
+    assert_eq!(result["terminal_status"], "succeeded");
+    assert_eq!(result["reachable"], true);
+    assert!(result["completed_at_unix_ms"].as_u64().is_some());
+    server.await.expect("probe server task");
+}
 
 /// A probe through a `direct` outbound must reach the target via the real proxy
 /// dispatch path (TLS-less here since the URL is plain HTTP) and report a

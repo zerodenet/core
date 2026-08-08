@@ -21,6 +21,24 @@ pub struct SessionRegistry {
     inner: Mutex<HashMap<u64, Arc<ActiveSessionEntry>>>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct SessionTrafficDelta {
+    pub(crate) bytes_up: u64,
+    pub(crate) bytes_down: u64,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct SessionTrafficUpdate {
+    pub(crate) delta: SessionTrafficDelta,
+    pub(crate) quota_exhausted_principal: Option<String>,
+}
+
+#[derive(Debug)]
+pub(crate) struct FinishedSession {
+    pub(crate) record: CompletedSessionRecord,
+    pub(crate) traffic_delta: SessionTrafficDelta,
+}
+
 impl SessionRegistry {
     pub fn shared() -> Arc<Self> {
         Arc::new(Self::default())
@@ -64,36 +82,40 @@ impl SessionRegistry {
         }
     }
 
-    pub fn record_upload(&self, session_id: u64, bytes: u64) -> Option<String> {
-        self.get(session_id)
-            .and_then(|session| session.record_upload(bytes))
+    pub fn record_upload(&self, session_id: u64, bytes: u64) -> Option<SessionTrafficUpdate> {
+        let session = self.get(session_id)?;
+        let quota_exhausted_principal = session.record_upload(bytes);
+        Some(session.traffic_update(quota_exhausted_principal))
     }
 
-    pub fn record_download(&self, session_id: u64, bytes: u64) -> Option<String> {
-        self.get(session_id)
-            .and_then(|session| session.record_download(bytes))
+    pub fn record_download(&self, session_id: u64, bytes: u64) -> Option<SessionTrafficUpdate> {
+        let session = self.get(session_id)?;
+        let quota_exhausted_principal = session.record_download(bytes);
+        Some(session.traffic_update(quota_exhausted_principal))
     }
 
-    pub fn record_inbound_rx(&self, session_id: u64, bytes: u64) -> Option<String> {
-        self.get(session_id)
-            .and_then(|session| session.record_inbound_rx(bytes))
+    pub fn record_inbound_rx(&self, session_id: u64, bytes: u64) -> Option<SessionTrafficUpdate> {
+        let session = self.get(session_id)?;
+        let quota_exhausted_principal = session.record_inbound_rx(bytes);
+        Some(session.traffic_update(quota_exhausted_principal))
     }
 
-    pub fn record_inbound_tx(&self, session_id: u64, bytes: u64) -> Option<String> {
-        self.get(session_id)
-            .and_then(|session| session.record_inbound_tx(bytes))
+    pub fn record_inbound_tx(&self, session_id: u64, bytes: u64) -> Option<SessionTrafficUpdate> {
+        let session = self.get(session_id)?;
+        let quota_exhausted_principal = session.record_inbound_tx(bytes);
+        Some(session.traffic_update(quota_exhausted_principal))
     }
 
-    pub fn record_outbound_rx(&self, session_id: u64, bytes: u64) {
-        if let Some(session) = self.get(session_id) {
-            session.record_outbound_rx(bytes);
-        }
+    pub fn record_outbound_rx(&self, session_id: u64, bytes: u64) -> Option<SessionTrafficUpdate> {
+        let session = self.get(session_id)?;
+        session.record_outbound_rx(bytes);
+        Some(session.traffic_update(None))
     }
 
-    pub fn record_outbound_tx(&self, session_id: u64, bytes: u64) {
-        if let Some(session) = self.get(session_id) {
-            session.record_outbound_tx(bytes);
-        }
+    pub fn record_outbound_tx(&self, session_id: u64, bytes: u64) -> Option<SessionTrafficUpdate> {
+        let session = self.get(session_id)?;
+        session.record_outbound_tx(bytes);
+        Some(session.traffic_update(None))
     }
 
     pub fn finish(
@@ -102,12 +124,20 @@ impl SessionRegistry {
         outcome: SessionOutcome,
         close_reason: Option<String>,
         failure: Option<FlowFailureObservation>,
-    ) -> Option<CompletedSessionRecord> {
+    ) -> Option<FinishedSession> {
         self.inner
             .lock()
             .expect("session registry lock poisoned")
             .remove(&session_id)
-            .map(|session| session.finish(outcome, close_reason, failure))
+            .map(|session| {
+                let record = session.finish(outcome, close_reason, failure);
+                let traffic_delta =
+                    session.claim_traffic_delta_for(record.bytes_up, record.bytes_down);
+                FinishedSession {
+                    record,
+                    traffic_delta,
+                }
+            })
     }
 
     pub fn snapshot(&self) -> Vec<ActiveSession> {
@@ -219,6 +249,8 @@ struct ActiveSessionEntry {
     inbound_tx_bytes: AtomicU64,
     outbound_rx_bytes: AtomicU64,
     outbound_tx_bytes: AtomicU64,
+    accounted_bytes_up: AtomicU64,
+    accounted_bytes_down: AtomicU64,
     throughput_sampler: TrafficSampler,
     revision: AtomicU64,
     last_emitted_revision: AtomicU64,
@@ -271,6 +303,8 @@ impl ActiveSessionEntry {
             inbound_tx_bytes: AtomicU64::new(0),
             outbound_rx_bytes: AtomicU64::new(0),
             outbound_tx_bytes: AtomicU64::new(0),
+            accounted_bytes_up: AtomicU64::new(0),
+            accounted_bytes_down: AtomicU64::new(0),
             throughput_sampler: TrafficSampler::new(started_at_unix_ms),
             revision: AtomicU64::new(1),
             last_emitted_revision: AtomicU64::new(1),
@@ -423,6 +457,38 @@ impl ActiveSessionEntry {
 
         self.outbound_tx_bytes.fetch_add(bytes, Ordering::Relaxed);
         self.touch();
+    }
+
+    fn traffic_update(&self, quota_exhausted_principal: Option<String>) -> SessionTrafficUpdate {
+        SessionTrafficUpdate {
+            delta: self.claim_traffic_delta(),
+            quota_exhausted_principal,
+        }
+    }
+
+    fn claim_traffic_delta(&self) -> SessionTrafficDelta {
+        let bytes_up = self
+            .inbound_rx_bytes
+            .load(Ordering::Relaxed)
+            .max(self.outbound_tx_bytes.load(Ordering::Relaxed));
+        let bytes_down = self
+            .outbound_rx_bytes
+            .load(Ordering::Relaxed)
+            .max(self.inbound_tx_bytes.load(Ordering::Relaxed));
+        self.claim_traffic_delta_for(bytes_up, bytes_down)
+    }
+
+    fn claim_traffic_delta_for(&self, bytes_up: u64, bytes_down: u64) -> SessionTrafficDelta {
+        let accounted_up = self
+            .accounted_bytes_up
+            .fetch_max(bytes_up, Ordering::Relaxed);
+        let accounted_down = self
+            .accounted_bytes_down
+            .fetch_max(bytes_down, Ordering::Relaxed);
+        SessionTrafficDelta {
+            bytes_up: bytes_up.saturating_sub(accounted_up),
+            bytes_down: bytes_down.saturating_sub(accounted_down),
+        }
     }
 
     fn snapshot(&self) -> ActiveSession {

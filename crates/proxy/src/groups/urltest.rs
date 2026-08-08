@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -14,8 +14,8 @@ use zero_traits::AsyncSocket;
 use crate::protocol_registry::TcpRuntimeServices;
 use crate::transport::extract_tcp_stream;
 use zero_engine::{
-    EngineError, PolicyProbeCompletedPayload, PolicyProbeMember, ProbeTrigger, ResolvedOutbound,
-    TargetId, UrlTestMemberState,
+    EngineError, PolicyProbeCompletedPayload, PolicyProbeMember, ProbeTrigger, ProbeTriggerAck,
+    ResolvedOutbound, TargetId, UrlTestMemberState,
 };
 
 use super::super::logging::log_urltest_group_target_changed;
@@ -29,6 +29,41 @@ struct ProbeKey {
     config_identity: usize,
     target_tag: String,
     url: String,
+}
+
+#[derive(Default)]
+struct ProbeOperationState {
+    current: Option<String>,
+    pending_manual: Option<String>,
+}
+
+impl ProbeOperationState {
+    fn request(&mut self, requested: String) -> ProbeTriggerAck {
+        if let Some(operation_id) = self.current.as_ref().or(self.pending_manual.as_ref()) {
+            return ProbeTriggerAck {
+                operation_id: operation_id.clone(),
+                coalesced: true,
+            };
+        }
+        self.pending_manual = Some(requested.clone());
+        ProbeTriggerAck {
+            operation_id: requested,
+            coalesced: false,
+        }
+    }
+
+    fn take_pending_manual(&mut self) -> Option<String> {
+        self.pending_manual.take()
+    }
+}
+
+fn generated_operation_id() -> String {
+    static NEXT_OPERATION: AtomicU64 = AtomicU64::new(1);
+    format!(
+        "probe-{:016x}-{:016x}",
+        unix_timestamp_ms(),
+        NEXT_OPERATION.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 fn global_probe_limiter() -> Arc<Semaphore> {
@@ -95,17 +130,19 @@ impl UrlTestRuntime {
         })?;
 
         let probe_notify = Arc::new(Notify::new());
-        let probe_running = Arc::new(AtomicBool::new(false));
+        let probe_operations = Arc::new(Mutex::new(ProbeOperationState::default()));
         let trigger = ProbeTrigger::new({
             let notify = Arc::clone(&probe_notify);
-            let running = Arc::clone(&probe_running);
-            move || {
-                // A completion already in progress is a fresh authoritative
-                // result for a concurrent manual click. Do not enqueue another
-                // full cycle behind it and probe every member twice.
-                if !running.load(Ordering::Acquire) {
+            let operations = Arc::clone(&probe_operations);
+            move |requested_operation_id| {
+                let ack = operations
+                    .lock()
+                    .expect("urltest probe operation lock poisoned")
+                    .request(requested_operation_id);
+                if !ack.coalesced {
                     notify.notify_one();
                 }
+                ack
             }
         });
         self.services
@@ -125,8 +162,14 @@ impl UrlTestRuntime {
         let mut schedule = interval(Duration::from_secs(interval_seconds));
         schedule.set_missed_tick_behavior(MissedTickBehavior::Skip);
         schedule.tick().await;
-        self.refresh_urltest_group_guarded(group_id, &probe, "startup", probe_running.as_ref())
-            .await;
+        self.run_probe_operation(
+            group_id,
+            &probe,
+            "startup",
+            generated_operation_id(),
+            probe_operations.as_ref(),
+        )
+        .await;
         schedule.reset();
 
         loop {
@@ -140,20 +183,28 @@ impl UrlTestRuntime {
                 }
                 _ = probe_notify.notified() => {
                     debug!(group_tag = %group_tag, "urltest probe triggered by api");
-                    self.refresh_urltest_group_guarded(
-                        group_id,
-                        &probe,
-                        "manual",
-                        probe_running.as_ref(),
-                    ).await;
+                    let operation_id = probe_operations
+                        .lock()
+                        .expect("urltest probe operation lock poisoned")
+                        .take_pending_manual();
+                    if let Some(operation_id) = operation_id {
+                        self.run_probe_operation(
+                            group_id,
+                            &probe,
+                            "manual",
+                            operation_id,
+                            probe_operations.as_ref(),
+                        ).await;
+                    }
                     schedule.reset();
                 }
                 _ = schedule.tick() => {
-                    self.refresh_urltest_group_guarded(
+                    self.run_probe_operation(
                         group_id,
                         &probe,
                         "scheduled",
-                        probe_running.as_ref(),
+                        generated_operation_id(),
+                        probe_operations.as_ref(),
                     ).await;
                     schedule.reset();
                 }
@@ -168,18 +219,28 @@ impl UrlTestRuntime {
         Ok(())
     }
 
-    async fn refresh_urltest_group_guarded(
+    async fn run_probe_operation(
         &self,
         group_id: TargetId,
         probe: &UrlTestProbe,
         trigger: &'static str,
-        running: &AtomicBool,
+        operation_id: String,
+        operations: &Mutex<ProbeOperationState>,
     ) {
-        if running.swap(true, Ordering::AcqRel) {
-            return;
+        {
+            let mut state = operations
+                .lock()
+                .expect("urltest probe operation lock poisoned");
+            state.current = Some(operation_id.clone());
         }
-        self.refresh_urltest_group(group_id, probe, trigger).await;
-        running.store(false, Ordering::Release);
+        self.refresh_urltest_group(group_id, probe, trigger, &operation_id)
+            .await;
+        let mut state = operations
+            .lock()
+            .expect("urltest probe operation lock poisoned");
+        if state.current.as_deref() == Some(operation_id.as_str()) {
+            state.current = None;
+        }
     }
 
     async fn refresh_urltest_group(
@@ -187,8 +248,11 @@ impl UrlTestRuntime {
         group_id: TargetId,
         probe: &UrlTestProbe,
         trigger: &'static str,
+        operation_id: &str,
     ) {
-        let plan = self.services.snapshot().plan();
+        let runtime_snapshot = self.services.snapshot();
+        let config_revision = runtime_snapshot.config_revision();
+        let plan = runtime_snapshot.plan();
         let Some(group) = plan.target(group_id) else {
             debug!(
                 group_id = group_id.index(),
@@ -204,7 +268,6 @@ impl UrlTestRuntime {
             return;
         };
         let group_tag = group.tag();
-        let mut best: Option<ProbeSuccess> = None;
         let started_at_unix_ms = unix_timestamp_ms();
         let started_at = Instant::now();
 
@@ -230,10 +293,7 @@ impl UrlTestRuntime {
                             last_error: None,
                             effective_chains,
                         },
-                        Some(ProbeSuccess {
-                            outbound_id: member_id,
-                            latency_ms,
-                        }),
+                        Some((member_id, latency_ms)),
                     ),
                     Err(error) => {
                         debug!(
@@ -265,36 +325,26 @@ impl UrlTestRuntime {
         // the probes complete out of order.
         probe_results.sort_by_key(|(index, _, _)| *index);
         let mut member_states = Vec::with_capacity(probe_results.len());
+        let mut successful_members = Vec::with_capacity(probe_results.len());
         for (_, member_state, success) in probe_results {
             if let Some(success) = success {
-                if best
-                    .as_ref()
-                    .map(|current| success.latency_ms < current.latency_ms)
-                    .unwrap_or(true)
-                {
-                    best = Some(success);
-                }
+                successful_members.push(success);
             }
             member_states.push(member_state);
         }
 
         let previous = self.urltest_selected_target(group_id);
-        let Some(selected) = best
-            .as_ref()
-            .map(|probe| probe.outbound_id)
-            .or(previous)
-            .or(Some(urltest.initial_member()))
-        else {
-            return;
-        };
+        let selection = urltest.select(previous, &successful_members);
+        let selected = selection.selected;
         let selected_tag = self
             .target_tag(selected)
             .unwrap_or_else(|| "<unknown>".to_owned());
         let previous_tag = previous.and_then(|target| self.target_tag(target));
 
-        let latency_ms = best
-            .as_ref()
-            .and_then(|probe| (probe.outbound_id == selected).then_some(probe.latency_ms));
+        let latency_ms = successful_members
+            .iter()
+            .find(|(member_id, _)| *member_id == selected)
+            .map(|(_, latency_ms)| *latency_ms);
 
         let probe_members: Vec<PolicyProbeMember> = member_states
             .iter()
@@ -306,6 +356,7 @@ impl UrlTestRuntime {
                     target_tag: tag,
                     healthy: state.healthy,
                     latency_ms: state.latency_ms,
+                    error_code: state.last_error.as_deref().map(probe_error_code),
                     error: state.last_error.clone(),
                 }
             })
@@ -313,18 +364,45 @@ impl UrlTestRuntime {
 
         let healthy_members = member_states.iter().filter(|member| member.healthy).count();
         let total_members = member_states.len();
-        self.update_urltest_state(group_id, selected, latency_ms, member_states);
+        self.update_urltest_state(
+            group_id,
+            selected,
+            latency_ms,
+            member_states,
+            selection.clone(),
+        );
 
         let completed_at_unix_ms = unix_timestamp_ms();
         let duration_ms = started_at.elapsed().as_millis() as u64;
+        let terminal_status = match healthy_members {
+            count if count == total_members => "succeeded",
+            0 => "failed",
+            _ => "partial_failure",
+        };
         let event_payload = PolicyProbeCompletedPayload {
+            operation_id: operation_id.to_owned(),
+            core_instance_id: self.services.engine().core_instance_id().to_owned(),
+            config_revision,
             policy_tag: group_tag.to_owned(),
             trigger: trigger.to_owned(),
             url: probe.url.clone(),
             started_at_unix_ms,
             completed_at_unix_ms,
             duration_ms,
+            terminal_status: terminal_status.to_owned(),
             selected: Some(selected_tag.clone()),
+            selection: Some(zero_api::UrlTestSelectionSnapshot {
+                previous_selected: selection
+                    .previous
+                    .and_then(|target| self.target_tag(target)),
+                selected: selected_tag.clone(),
+                best_candidate: selection.best.and_then(|target| self.target_tag(target)),
+                current_latency_ms: selection.current_latency_ms,
+                best_latency_ms: selection.best_latency_ms,
+                tolerance_ms: selection.tolerance_ms,
+                switched: selection.switched,
+                reason: selection.reason.as_str().to_owned(),
+            }),
             members: probe_members,
         };
 
@@ -337,6 +415,12 @@ impl UrlTestRuntime {
             started_at_unix_ms,
             completed_at_unix_ms,
             duration_ms,
+            operation_id,
+            config_revision,
+            terminal_status,
+            selection_reason = selection.reason.as_str(),
+            tolerance_ms = selection.tolerance_ms,
+            switched = selection.switched,
             selected = %selected_tag,
             healthy_members,
             total_members,
@@ -355,7 +439,7 @@ impl UrlTestRuntime {
             latency_ms,
         );
 
-        if best.is_none() {
+        if selection.best.is_none() {
             warn!(
                 group_tag = group_tag,
                 selected = selected_tag,
@@ -532,10 +616,11 @@ impl UrlTestRuntime {
         selected: TargetId,
         latency_ms: Option<u64>,
         members: Vec<UrlTestMemberState>,
+        selection: zero_engine::UrlTestSelection,
     ) {
         self.services
             .engine()
-            .update_urltest_state(group_id, selected, latency_ms, members);
+            .update_urltest_state(group_id, selected, latency_ms, members, selection);
     }
 }
 
@@ -547,6 +632,20 @@ fn normalize_probe_error(error: EngineError) -> String {
         .to_owned()
 }
 
+fn probe_error_code(error: &str) -> String {
+    let normalized = error.to_ascii_lowercase();
+    if normalized.contains("timed out") || normalized.contains("timeout") {
+        "timeout"
+    } else if normalized.contains("resolve") || normalized.contains("dns") {
+        "resolution_failed"
+    } else if normalized.contains("invalid") || normalized.contains("unsupported") {
+        "invalid_probe"
+    } else {
+        "probe_failed"
+    }
+    .to_owned()
+}
+
 fn unix_timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -554,11 +653,6 @@ fn unix_timestamp_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .expect("system clock should be after unix epoch")
         .as_millis() as u64
-}
-
-struct ProbeSuccess {
-    outbound_id: TargetId,
-    latency_ms: u64,
 }
 
 #[derive(Clone)]

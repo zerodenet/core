@@ -262,6 +262,10 @@ pub struct PolicyGetQuery {
 pub struct HealthSnapshot {
     #[serde(default)]
     pub engine_build_id: String,
+    #[serde(default)]
+    pub core_instance_id: String,
+    #[serde(default)]
+    pub config_revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at_unix_ms: Option<u64>,
     #[serde(default)]

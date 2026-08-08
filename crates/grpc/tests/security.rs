@@ -56,6 +56,7 @@ impl EventSource for UnusedService {
         _filter: EventFilter,
     ) -> zero_api::ApiResult<EventReplay> {
         Ok(EventReplay {
+            core_instance_id: "test-core".to_owned(),
             requested_after: sequence,
             actual_from: sequence.saturating_add(1),
             has_gap: false,

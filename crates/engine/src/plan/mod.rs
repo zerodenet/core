@@ -81,6 +81,7 @@ impl EnginePlan {
                     outbounds,
                     url,
                     interval_seconds,
+                    tolerance_ms,
                 } => {
                     urltest_groups.push(group_id);
                     TargetKind::UrlTest(UrlTestGroupPlan {
@@ -100,6 +101,7 @@ impl EnginePlan {
                             config.runtime.effective_latency_test_url().to_owned()
                         }),
                         interval: Duration::from_secs(*interval_seconds),
+                        tolerance_ms: *tolerance_ms,
                     })
                 }
                 OutboundGroupKind::Relay { proxies } => {
@@ -303,6 +305,7 @@ pub struct UrlTestGroupPlan {
     initial_member: TargetId,
     url: String,
     interval: Duration,
+    tolerance_ms: u64,
 }
 
 impl UrlTestGroupPlan {
@@ -321,6 +324,89 @@ impl UrlTestGroupPlan {
     pub fn interval(&self) -> Duration {
         self.interval
     }
+
+    pub fn tolerance_ms(&self) -> u64 {
+        self.tolerance_ms
+    }
+
+    pub fn select(
+        &self,
+        current: Option<TargetId>,
+        healthy_members: &[(TargetId, u64)],
+    ) -> UrlTestSelection {
+        let best = healthy_members
+            .iter()
+            .min_by_key(|(_, latency_ms)| *latency_ms)
+            .copied();
+        let current_latency_ms = current.and_then(|current_id| {
+            healthy_members
+                .iter()
+                .find(|(member_id, _)| *member_id == current_id)
+                .map(|(_, latency_ms)| *latency_ms)
+        });
+
+        let (selected, reason) = match (current, current_latency_ms, best) {
+            (_, _, None) => (
+                current.unwrap_or(self.initial_member),
+                UrlTestSelectionReason::NoHealthyMember,
+            ),
+            (None, _, Some((best_id, _))) => (best_id, UrlTestSelectionReason::Initial),
+            (Some(_), None, Some((best_id, _))) => {
+                (best_id, UrlTestSelectionReason::CurrentUnhealthy)
+            }
+            (Some(current_id), Some(current_latency), Some((best_id, best_latency))) => {
+                if current_latency > best_latency.saturating_add(self.tolerance_ms) {
+                    (best_id, UrlTestSelectionReason::BetterBeyondTolerance)
+                } else {
+                    (current_id, UrlTestSelectionReason::WithinTolerance)
+                }
+            }
+        };
+
+        UrlTestSelection {
+            previous: current,
+            selected,
+            best: best.map(|(member_id, _)| member_id),
+            current_latency_ms,
+            best_latency_ms: best.map(|(_, latency_ms)| latency_ms),
+            tolerance_ms: self.tolerance_ms,
+            switched: current.is_some_and(|current_id| current_id != selected),
+            reason,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UrlTestSelectionReason {
+    Initial,
+    CurrentUnhealthy,
+    BetterBeyondTolerance,
+    WithinTolerance,
+    NoHealthyMember,
+}
+
+impl UrlTestSelectionReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Initial => "initial",
+            Self::CurrentUnhealthy => "current_unhealthy",
+            Self::BetterBeyondTolerance => "better_beyond_tolerance",
+            Self::WithinTolerance => "within_tolerance",
+            Self::NoHealthyMember => "no_healthy_member",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UrlTestSelection {
+    pub previous: Option<TargetId>,
+    pub selected: TargetId,
+    pub best: Option<TargetId>,
+    pub current_latency_ms: Option<u64>,
+    pub best_latency_ms: Option<u64>,
+    pub tolerance_ms: u64,
+    pub switched: bool,
+    pub reason: UrlTestSelectionReason,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -2225,7 +2225,8 @@ fn accepts_urltest_group_type() {
                     "type": "url_test",
                     "outbounds": ["chain", "direct"],
                     "url": "http://127.0.0.1:8081/",
-                    "interval_seconds": 15
+                    "interval_seconds": 15,
+                    "tolerance_ms": 20
                 }
             ],
             "mode": {
@@ -2240,10 +2241,10 @@ fn accepts_urltest_group_type() {
     )
     .expect("config should parse");
 
-    assert!(matches!(
-        config.outbound_groups[0].group,
-        OutboundGroupKind::UrlTest { .. }
-    ));
+    let OutboundGroupKind::UrlTest { tolerance_ms, .. } = &config.outbound_groups[0].group else {
+        panic!("expected url_test group");
+    };
+    assert_eq!(*tolerance_ms, 20);
 }
 
 #[test]
@@ -2265,10 +2266,14 @@ fn accepts_urltest_without_own_url() {
     )
     .expect("config should parse");
 
-    let OutboundGroupKind::UrlTest { url, .. } = &config.outbound_groups[0].group else {
+    let OutboundGroupKind::UrlTest {
+        url, tolerance_ms, ..
+    } = &config.outbound_groups[0].group
+    else {
         panic!("expected url_test group");
     };
     assert!(url.is_none());
+    assert_eq!(*tolerance_ms, 0);
 }
 
 #[test]

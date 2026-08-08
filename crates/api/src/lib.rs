@@ -18,8 +18,9 @@ pub use capabilities::{
 pub use command::{
     CommandRequest, CommandResponse, ConfigApplyCommand, ConfigValidateCommand,
     DiagnosticsDnsCacheCommand, DiagnosticsDnsLookupCommand, DiagnosticsFakeipLookupCommand,
-    DiagnosticsProbeTargetCommand, DiagnosticsTraceRouteCommand, FlowCloseCommand, ModeSetCommand,
-    PolicyProbeCommand, PolicySelectCommand, TunStartCommand, TunStopCommand,
+    DiagnosticsProbeOutboundCommand, DiagnosticsProbeTargetCommand, DiagnosticsTraceRouteCommand,
+    FlowCloseCommand, ModeSetCommand, PolicyProbeCommand, PolicySelectCommand, TunStartCommand,
+    TunStopCommand,
 };
 pub use error::{ApiError, ApiErrorCode, ErrorDetail};
 pub use event::{
@@ -47,7 +48,7 @@ pub use snapshot::{
     AddressSnapshot, AuthSnapshot, CompletedFlowSnapshot, ConfigSnapshot, FlowSnapshot,
     ListenerSnapshot, ModeSnapshot, OutboundTargetSnapshot, OutboundTrafficStats,
     PolicyMemberSnapshot, PolicySnapshot, RuntimeSnapshot, StatsSnapshot, StatusSnapshot,
-    UdpUpstreamStats,
+    UdpUpstreamStats, UrlTestSelectionSnapshot,
 };
 pub use traits::{
     ApiAuth, ApiCodec, CommandService, EventSink, EventSource, EventStream, QueryService,

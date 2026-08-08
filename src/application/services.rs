@@ -21,6 +21,8 @@ struct ApplicationServiceState {
     dispatcher: Option<zero_connector::EventDispatcherHandle>,
     #[cfg(feature = "event-dispatcher")]
     status_monitor: Option<tokio::task::JoinHandle<()>>,
+    #[cfg(feature = "event-dispatcher")]
+    engine_started_bootstrapped: bool,
 }
 
 impl ApplicationServices {
@@ -39,6 +41,8 @@ impl ApplicationServices {
                 dispatcher: None,
                 #[cfg(feature = "event-dispatcher")]
                 status_monitor: None,
+                #[cfg(feature = "event-dispatcher")]
+                engine_started_bootstrapped: false,
             }),
         });
 
@@ -109,13 +113,27 @@ impl ApplicationServices {
 
         #[cfg(feature = "event-dispatcher")]
         {
-            state.dispatcher = zero_connector::spawn_event_dispatcher(
-                self.engine.clone(),
-                target.api.clone(),
-                target.source_dir.clone(),
-                zero_connector::EventDispatcherOptions::default(),
-            )
+            let has_delivery_sinks = !target.api.event_sinks.is_empty();
+            let bootstrap_engine_started = has_delivery_sinks && !state.engine_started_bootstrapped;
+            state.dispatcher = if bootstrap_engine_started {
+                zero_connector::spawn_event_dispatcher_with_engine_started(
+                    self.engine.clone(),
+                    target.api.clone(),
+                    target.source_dir.clone(),
+                    zero_connector::EventDispatcherOptions::default(),
+                )
+            } else {
+                zero_connector::spawn_event_dispatcher(
+                    self.engine.clone(),
+                    target.api.clone(),
+                    target.source_dir.clone(),
+                    zero_connector::EventDispatcherOptions::default(),
+                )
+            }
             .map_err(|error| error.to_string())?;
+            if bootstrap_engine_started && state.dispatcher.is_some() {
+                state.engine_started_bootstrapped = true;
+            }
         }
 
         #[cfg(feature = "event-dispatcher")]

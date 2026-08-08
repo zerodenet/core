@@ -7,17 +7,24 @@ use std::sync::{Arc, Mutex};
 /// probe cycle.  Created by the proxy and stored by the engine.
 #[derive(Clone)]
 pub struct ProbeTrigger {
-    inner: Arc<dyn Fn() + Send + Sync>,
+    inner: Arc<dyn Fn(String) -> ProbeTriggerAck + Send + Sync>,
 }
 
 impl ProbeTrigger {
-    pub fn new(f: impl Fn() + Send + Sync + 'static) -> Self {
+    pub fn new(f: impl Fn(String) -> ProbeTriggerAck + Send + Sync + 'static) -> Self {
         Self { inner: Arc::new(f) }
     }
 
-    pub fn trigger(&self) {
-        (self.inner)()
+    pub fn trigger(&self, operation_id: String) -> ProbeTriggerAck {
+        (self.inner)(operation_id)
     }
+}
+
+/// The effective identity accepted by a URLTest probe scheduler.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeTriggerAck {
+    pub operation_id: String,
+    pub coalesced: bool,
 }
 
 /// Registry of probe triggers, keyed by group tag.

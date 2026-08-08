@@ -29,6 +29,7 @@ impl OutboundGroupConfig {
                 outbounds,
                 url,
                 interval_seconds,
+                tolerance_ms: _,
             } => {
                 validate_group_outbounds("url_test", outbounds, target_tags)?;
 

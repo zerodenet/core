@@ -5,7 +5,9 @@ use zero_core::{Address, Session, SessionAuth};
 
 use super::Engine;
 use crate::observability::SessionOutcome;
-use crate::session::{CompletedSessionRecord, FlowContext, FlowHook, FlowTraffic, SessionHandle};
+use crate::session::{
+    CompletedSessionRecord, FlowContext, FlowHook, FlowTraffic, SessionHandle, SessionTrafficUpdate,
+};
 use crate::{
     EngineError, FlowFailureObservation, FlowRemoteEndpoint, FlowRouteObservation, RouteDecision,
     RouteTrace,
@@ -156,22 +158,22 @@ impl Engine {
     }
 
     pub fn record_session_upload(&self, id: u64, bytes: u64) {
-        self.cancel_if_quota_exhausted(self.session_registry.record_upload(id, bytes));
+        self.record_session_traffic(self.session_registry.record_upload(id, bytes));
     }
     pub fn record_session_download(&self, id: u64, bytes: u64) {
-        self.cancel_if_quota_exhausted(self.session_registry.record_download(id, bytes));
+        self.record_session_traffic(self.session_registry.record_download(id, bytes));
     }
     pub fn record_session_inbound_rx(&self, id: u64, bytes: u64) {
-        self.cancel_if_quota_exhausted(self.session_registry.record_inbound_rx(id, bytes));
+        self.record_session_traffic(self.session_registry.record_inbound_rx(id, bytes));
     }
     pub fn record_session_inbound_tx(&self, id: u64, bytes: u64) {
-        self.cancel_if_quota_exhausted(self.session_registry.record_inbound_tx(id, bytes));
+        self.record_session_traffic(self.session_registry.record_inbound_tx(id, bytes));
     }
     pub fn record_session_outbound_rx(&self, id: u64, bytes: u64) {
-        self.session_registry.record_outbound_rx(id, bytes);
+        self.record_session_traffic(self.session_registry.record_outbound_rx(id, bytes));
     }
     pub fn record_session_outbound_tx(&self, id: u64, bytes: u64) {
-        self.session_registry.record_outbound_tx(id, bytes);
+        self.record_session_traffic(self.session_registry.record_outbound_tx(id, bytes));
     }
     pub fn record_udp_upstream_association_created(&self) {
         self.stats.record_udp_upstream_association_created();
@@ -228,9 +230,14 @@ impl Engine {
         reason: Option<String>,
         failure: Option<FlowFailureObservation>,
     ) -> Option<CompletedSessionRecord> {
-        let record = self.session_registry.finish(id, outcome, reason, failure)?;
+        let finished = self.session_registry.finish(id, outcome, reason, failure)?;
+        let record = finished.record;
+        self.stats.record_live_traffic(
+            finished.traffic_delta.bytes_up,
+            finished.traffic_delta.bytes_down,
+        );
         self.stats.record_finish(outcome);
-        self.stats.record_traffic(
+        self.stats.record_completed_outbound_traffic(
             record.outbound_tag.as_deref(),
             record.bytes_up,
             record.bytes_down,
@@ -291,14 +298,19 @@ impl Engine {
         &self.probe_trigger_registry
     }
 
-    pub fn trigger_urltest_probe(&self, tag: &str) -> Result<(), EngineError> {
-        self.probe_trigger_registry
+    pub fn trigger_urltest_probe(
+        &self,
+        tag: &str,
+        requested_operation_id: Option<&str>,
+    ) -> Result<crate::health::ProbeTriggerAck, EngineError> {
+        let operation_id = self.operation_id(requested_operation_id);
+        Ok(self
+            .probe_trigger_registry
             .get(tag)
             .ok_or_else(|| EngineError::SelectorGroupNotFound {
                 tag: tag.to_owned(),
             })?
-            .trigger();
-        Ok(())
+            .trigger(operation_id))
     }
 
     pub fn close_flow(&self, flow_id: &str) -> Result<(), EngineError> {
@@ -334,6 +346,15 @@ impl Engine {
         if let Some(principal_key) = principal_key {
             self.close_principal_flows(&principal_key, "quota_exhausted");
         }
+    }
+
+    fn record_session_traffic(&self, update: Option<SessionTrafficUpdate>) {
+        let Some(update) = update else {
+            return;
+        };
+        self.stats
+            .record_live_traffic(update.delta.bytes_up, update.delta.bytes_down);
+        self.cancel_if_quota_exhausted(update.quota_exhausted_principal);
     }
 
     pub fn register_principal_cancellation<F>(

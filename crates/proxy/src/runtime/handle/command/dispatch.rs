@@ -92,6 +92,8 @@ impl zero_api::CommandService for ProxyHandle {
                         "applied": true,
                         "persistence": if persist { "source_file" } else { "runtime_only" },
                         "reconciled": true,
+                        "core_instance_id": self.proxy.engine.core_instance_id(),
+                        "config_revision": self.proxy.engine.config_revision(),
                         "application_components": reconciled.components,
                     })),
                 });

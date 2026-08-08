@@ -99,6 +99,10 @@ pub struct PolicySelectCommand {
 pub struct PolicyProbeCommand {
     #[serde(default)]
     pub policy_tag: String,
+    /// Optional caller-supplied correlation identity. An empty value is
+    /// treated as absent and the core generates an operation identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,6 +123,8 @@ impl Default for ConfigApplyCommand {
 pub struct DiagnosticsProbeTargetCommand {
     #[serde(default)]
     pub target_tag: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
 }
 
 /// Probe a single outbound **through the proxy** (full TLS + protocol
@@ -138,6 +144,8 @@ pub struct DiagnosticsProbeOutboundCommand {
     /// built-in default.
     #[serde(default)]
     pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

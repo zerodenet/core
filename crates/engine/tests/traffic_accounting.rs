@@ -45,6 +45,8 @@ fn user_direction_traffic_counts_each_relayed_byte_once() {
     assert_eq!(active[0].outbound_tx_bytes, 17);
     assert_eq!(active[0].outbound_rx_bytes, 23);
     assert_eq!(active[0].inbound_tx_bytes, 23);
+    assert_eq!(engine.stats_snapshot().bytes_up, 17);
+    assert_eq!(engine.stats_snapshot().bytes_down, 23);
 
     let completed = handle
         .finish(SessionOutcome::DirectRelayed)
@@ -53,6 +55,85 @@ fn user_direction_traffic_counts_each_relayed_byte_once() {
     assert_eq!(completed.bytes_down, 23);
     assert_eq!(engine.stats_snapshot().bytes_up, 17);
     assert_eq!(engine.stats_snapshot().bytes_down, 23);
+}
+
+#[test]
+fn mirrored_transport_boundaries_do_not_double_count_live_totals() {
+    let engine = engine();
+    let mut session = Session::new(
+        0,
+        Address::Domain("example.com".to_owned()),
+        443,
+        Network::Tcp,
+        ProtocolType::new("test"),
+    );
+    engine
+        .prepare_session(&mut session, "test-in")
+        .expect("prepare session");
+    let mut handle = engine.track_session(session.id);
+
+    engine.record_session_inbound_rx(session.id, 17);
+    assert_eq!(engine.stats_snapshot().bytes_up, 17);
+    engine.record_session_outbound_tx(session.id, 17);
+    assert_eq!(engine.stats_snapshot().bytes_up, 17);
+
+    engine.record_session_outbound_rx(session.id, 23);
+    assert_eq!(engine.stats_snapshot().bytes_down, 23);
+    engine.record_session_inbound_tx(session.id, 23);
+    assert_eq!(engine.stats_snapshot().bytes_down, 23);
+
+    handle
+        .finish(SessionOutcome::Failed)
+        .expect("finish session");
+    let stats = engine.stats_snapshot();
+    assert_eq!(stats.bytes_up, 17);
+    assert_eq!(stats.bytes_down, 23);
+    assert_eq!(stats.failed_sessions, 1);
+}
+
+#[test]
+fn concurrent_active_flows_contribute_to_one_monotonic_total() {
+    let engine = engine();
+    let mut first = Session::new(
+        0,
+        Address::Domain("first.example".to_owned()),
+        443,
+        Network::Tcp,
+        ProtocolType::new("test"),
+    );
+    let mut second = Session::new(
+        0,
+        Address::Domain("second.example".to_owned()),
+        443,
+        Network::Udp,
+        ProtocolType::new("test"),
+    );
+    engine
+        .prepare_session(&mut first, "test-in")
+        .expect("prepare first session");
+    engine
+        .prepare_session(&mut second, "test-in")
+        .expect("prepare second session");
+    let mut first_handle = engine.track_session(first.id);
+    let mut second_handle = engine.track_session(second.id);
+
+    engine.record_session_upload(first.id, 11);
+    engine.record_session_upload(second.id, 13);
+    engine.record_session_download(first.id, 17);
+    engine.record_session_download(second.id, 19);
+    let active = engine.stats_snapshot();
+    assert_eq!(active.bytes_up, 24);
+    assert_eq!(active.bytes_down, 36);
+
+    first_handle
+        .finish(SessionOutcome::Cancelled)
+        .expect("finish first session");
+    second_handle
+        .finish(SessionOutcome::DirectRelayed)
+        .expect("finish second session");
+    let completed = engine.stats_snapshot();
+    assert_eq!(completed.bytes_up, 24);
+    assert_eq!(completed.bytes_down, 36);
 }
 
 #[test]

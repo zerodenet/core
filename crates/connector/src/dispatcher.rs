@@ -152,6 +152,38 @@ pub fn spawn_event_dispatcher<S>(
 where
     S: EventSource + Send + Sync + 'static,
 {
+    spawn_event_dispatcher_inner(source, api, source_dir, options, false)
+}
+
+/// Start an event dispatcher and bootstrap the retained `engine.started`
+/// lifecycle fact after the live subscription has been registered.
+///
+/// The application uses this once for the first configured delivery sink in
+/// an engine process. Registering the live subscription first closes the race
+/// with a concurrent startup event; sequence de-duplication then guarantees
+/// that an event observed through both paths is delivered only once.
+pub fn spawn_event_dispatcher_with_engine_started<S>(
+    source: S,
+    api: ApiConfig,
+    source_dir: Option<PathBuf>,
+    options: EventDispatcherOptions,
+) -> ConnectorResult<Option<EventDispatcherHandle>>
+where
+    S: EventSource + Send + Sync + 'static,
+{
+    spawn_event_dispatcher_inner(source, api, source_dir, options, true)
+}
+
+fn spawn_event_dispatcher_inner<S>(
+    source: S,
+    api: ApiConfig,
+    source_dir: Option<PathBuf>,
+    options: EventDispatcherOptions,
+    bootstrap_engine_started: bool,
+) -> ConnectorResult<Option<EventDispatcherHandle>>
+where
+    S: EventSource + Send + Sync + 'static,
+{
     let (init_tx, init_rx) = mpsc::sync_channel(1);
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
 
@@ -249,10 +281,28 @@ where
                 return;
             }
         };
+        let bootstrap_events = if bootstrap_engine_started {
+            match source.latest(
+                1,
+                EventFilter {
+                    event_types: vec![event_type::ENGINE_STARTED.to_owned()],
+                    ..EventFilter::default()
+                },
+            ) {
+                Ok(events) => events,
+                Err(error) => {
+                    let _ = init_tx.send(Err(ConnectorError::Api(error)));
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
+        };
         let _ = init_tx.send(Ok(true));
         run_event_dispatcher(
             source,
             subscriber,
+            bootstrap_events,
             sinks,
             &stats_for_thread,
             options,
@@ -286,6 +336,7 @@ where
 fn run_event_dispatcher<S>(
     source: S,
     subscriber: S::Stream,
+    bootstrap_events: Vec<RawApiEvent>,
     sinks: Vec<ConfiguredEventSink>,
     stats: &SharedSinkStats,
     options: EventDispatcherOptions,
@@ -309,7 +360,10 @@ fn run_event_dispatcher<S>(
         .collect::<VecDeque<_>>();
     refresh_pending_stats(stats, &pending, &workers, outbox.as_ref());
     let mut last_sequence = None;
-    let mut blocked_events = VecDeque::new();
+    let mut blocked_events = bootstrap_events
+        .into_iter()
+        .map(BlockedEvent::new)
+        .collect::<VecDeque<_>>();
     let max_retry_attempts = if options.max_retry_attempts == 0 {
         dispatcher_config.max_retry_attempts
     } else {

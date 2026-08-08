@@ -129,7 +129,8 @@
         "trojan-node"
       ],
       "url": "http://cp.cloudflare.com/",
-      "interval_seconds": 300
+      "interval_seconds": 300,
+      "tolerance_ms": 50
     },
     {
       "tag": "fallback-proxy",
