@@ -7,7 +7,7 @@ use tokio::io::{copy_bidirectional, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWr
 use tokio::net::{lookup_host, TcpListener as TokioTcpListener, TcpStream, UdpSocket};
 use zero_traits::{
     AsyncSocket, DatagramSocket as DatagramSocketTrait, DnsResolver, IpAddress, SocketAddress,
-    TcpListener as TcpListenerTrait,
+    TcpListener as TcpListenerTrait, TransportBypassControl,
 };
 
 #[derive(Debug)]
@@ -352,6 +352,7 @@ impl ClientStream for TokioSocket {
 pub struct TcpRelayStream {
     inner: Box<dyn RelayIo>,
     local_addr: Option<SocketAddr>,
+    transport_bypass_control: Option<TransportBypassControl>,
 }
 
 trait RelayIo: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
@@ -366,6 +367,7 @@ impl TcpRelayStream {
         Self {
             inner: Box::new(stream),
             local_addr: None,
+            transport_bypass_control: None,
         }
     }
 
@@ -376,6 +378,18 @@ impl TcpRelayStream {
         Self {
             inner: Box::new(stream),
             local_addr: Some(addr),
+            transport_bypass_control: None,
+        }
+    }
+
+    pub fn with_transport_bypass_control<S>(stream: S, control: TransportBypassControl) -> Self
+    where
+        S: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    {
+        Self {
+            inner: Box::new(stream),
+            local_addr: None,
+            transport_bypass_control: Some(control),
         }
     }
 }
@@ -405,6 +419,10 @@ impl ClientStream for TcpRelayStream {
 
 impl AsyncSocket for TcpRelayStream {
     type Error = io::Error;
+
+    fn transport_bypass_control(&self) -> Option<TransportBypassControl> {
+        self.transport_bypass_control.clone()
+    }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         AsyncReadExt::read(&mut self.inner, buf).await

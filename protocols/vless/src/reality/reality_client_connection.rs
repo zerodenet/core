@@ -288,6 +288,18 @@ impl RealityClientConnection {
         Ok(n)
     }
 
+    pub(crate) fn next_tls_read_limit(&self) -> usize {
+        if self.ciphertext_read_buf.len() < TLS_RECORD_HEADER_SIZE {
+            return TLS_RECORD_HEADER_SIZE - self.ciphertext_read_buf.len();
+        }
+
+        let record_len =
+            u16::from_be_bytes([self.ciphertext_read_buf[3], self.ciphertext_read_buf[4]]) as usize;
+        (TLS_RECORD_HEADER_SIZE + record_len)
+            .saturating_sub(self.ciphertext_read_buf.len())
+            .max(1)
+    }
+
     /// Process buffered packets and advance state machine
     ///
     /// Like rustls, this loops until no more progress can be made, ensuring

@@ -16,6 +16,12 @@ VLESS Reality 出站可通过 `reality.client_fingerprint` 选择 `chrome`、`fi
 
 该字段只作用于 Reality 客户端。普通 VLESS TLS 仍使用通用 TLS profile，Reality 入站也不读取客户端指纹配置。
 
+## Flow 语义
+
+`flow: xtls-rprx-vision` 采用 Xray VLESS Addons protobuf，并在数据阶段实现 Vision UUID、`Continue` / `End` / `Direct` 帧、padding/unpadding 与 TLS 1.3 direct 切换。目前该标准 flow 仅支持 REALITY 上的 TCP 出站，不能与 `mux_concurrency` 组合；UDP 路径会明确拒绝。实现已通过 Zero → Xray v26.3.27 REALITY+Vision 黑盒测试，测试同时覆盖普通 TCP 负载和触发双向 `Direct` 的真实 TLS 1.3 会话。
+
+历史版本曾把 Zero 私有的请求头 AES-GCM 格式错误命名为 `xtls-rprx-vision`。该格式现仅以 `flow: zero-aead-v1` 显式保留，用于需要迁移的 Zero 对端；它不与 Xray Vision 互通。`xtls-rprx-vision-udp443` 不再作为别名接受，配置校验会提示改用标准名。迁移必须显式选择目标语义，内核不会静默猜测旧配置。
+
 ## UDP
 
 VLESS UDP 流计划属于 `protocols/vless` 的 `udp` 模块。传输桥保存协议流计划和中立载体选项，通用运行时只管理流生命周期、中继顺序和计量。

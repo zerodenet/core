@@ -12,7 +12,7 @@ use zero_core::{
 use zero_traits::AsyncSocket;
 
 #[cfg(feature = "reality")]
-use crate::flow::{flow_from_byte, flow_read_request, is_aead_flow};
+use crate::flow::{decode_addons, flow_read_request, FLOW_ZERO_AEAD_V1};
 #[cfg(not(feature = "reality"))]
 use crate::shared::read_addon;
 use crate::shared::{
@@ -57,7 +57,7 @@ impl VlessUser {
         policy_revision: Option<u64>,
     ) -> Result<Self, Error> {
         #[cfg(feature = "reality")]
-        let flow = flow.map(crate::flow::parse_flow).transpose()?;
+        let flow = flow.map(crate::flow::parse_inbound_flow).transpose()?;
         #[cfg(not(feature = "reality"))]
         let flow = {
             if flow.is_some() {
@@ -817,10 +817,11 @@ impl VlessInbound {
     {
         #[cfg(feature = "reality")]
         {
-            let (mut session, id) = read_request_with_flow(stream).await?;
+            let (mut session, id, flow) = read_request_with_flow(stream).await?;
             let Some(user) = auth.find_user(&id) else {
                 return Err(Error::Unsupported("VLESS user is not authorized"));
             };
+            validate_user_flow(user.flow, flow)?;
             let mut sa = SessionAuth::new("vless");
             sa.principal_key = user.principal_key;
             sa.up_bps = user.up_bps;
@@ -860,10 +861,11 @@ impl VlessInbound {
     {
         #[cfg(feature = "reality")]
         {
-            let (mut session, id) = read_request_with_flow(stream).await?;
+            let (mut session, id, flow) = read_request_with_flow(stream).await?;
             let Some(user) = auth.find_user(&id) else {
                 return Err(Error::Unsupported("VLESS user is not authorized"));
             };
+            validate_user_flow(user.flow, flow)?;
             let mut sa = SessionAuth::new("vless");
             sa.principal_key = user.principal_key;
             sa.up_bps = user.up_bps;
@@ -1014,7 +1016,9 @@ where
 // ── read_request_with_flow (reality) ──
 
 #[cfg(feature = "reality")]
-async fn read_request_with_flow<S>(stream: &mut S) -> Result<(Session, [u8; 16]), Error>
+async fn read_request_with_flow<S>(
+    stream: &mut S,
+) -> Result<(Session, [u8; 16], Option<&'static str>), Error>
 where
     S: AsyncSocket,
 {
@@ -1025,18 +1029,19 @@ where
     }
     let mut id = [0_u8; 16];
     read_exact(stream, &mut id).await?;
-    let mut flow_byte = [0_u8; 1];
-    read_exact(stream, &mut flow_byte).await?;
-    let flow = flow_from_byte(flow_byte[0]);
+    let (flow, zero_aead) = read_flow_addons(stream).await?;
 
-    if is_aead_flow(flow) {
-        let (command, port, target) = flow_read_request(stream, flow, &id).await?;
+    if zero_aead {
+        let (command, port, target) =
+            flow_read_request(stream, Some(FLOW_ZERO_AEAD_V1), &id).await?;
         command_to_session(command, target, port, id)
+            .map(|(session, id)| (session, id, Some(FLOW_ZERO_AEAD_V1)))
     } else {
         let mut command = [0_u8; 1];
         read_exact(stream, &mut command).await?;
         if command[0] == CMD_MUX {
-            return command_to_session(CMD_MUX, Address::Domain(String::new()), 0, id);
+            return command_to_session(CMD_MUX, Address::Domain(String::new()), 0, id)
+                .map(|(session, id)| (session, id, flow));
         }
         let mut port = [0_u8; 2];
         read_exact(stream, &mut port).await?;
@@ -1047,7 +1052,38 @@ where
         let mut atyp = [0_u8; 1];
         read_exact(stream, &mut atyp).await?;
         let target = read_address(stream, atyp[0]).await?;
-        command_to_session(command[0], target, port, id)
+        command_to_session(command[0], target, port, id).map(|(session, id)| (session, id, flow))
+    }
+}
+
+#[cfg(feature = "reality")]
+async fn read_flow_addons<S>(stream: &mut S) -> Result<(Option<&'static str>, bool), Error>
+where
+    S: AsyncSocket,
+{
+    let mut length = [0_u8; 1];
+    read_exact(stream, &mut length).await?;
+    if length[0] == 1 {
+        // Private Zero AEAD v1 used 0x01 as a marker before standard Addons
+        // support existed. It remains available only under `zero-aead-v1`.
+        return Ok((Some(FLOW_ZERO_AEAD_V1), true));
+    }
+    let mut encoded = vec![0_u8; length[0] as usize];
+    read_exact(stream, &mut encoded).await?;
+    decode_addons(&encoded).map(|flow| (flow, false))
+}
+
+#[cfg(feature = "reality")]
+fn validate_user_flow(
+    configured: Option<&'static str>,
+    requested: Option<&'static str>,
+) -> Result<(), Error> {
+    if configured == requested {
+        Ok(())
+    } else {
+        Err(Error::Unsupported(
+            "VLESS requested flow does not match the authorized user",
+        ))
     }
 }
 
@@ -1067,15 +1103,19 @@ where
 
     #[cfg(feature = "reality")]
     {
-        let mut flow_byte = [0_u8; 1];
-        read_exact(stream, &mut flow_byte).await?;
-        let flow = flow_from_byte(flow_byte[0]);
-        if is_aead_flow(flow) {
-            let (command, _port, _target) = flow_read_request(stream, flow, &id).await?;
+        let (flow, zero_aead) = read_flow_addons(stream).await?;
+        if zero_aead {
+            let (command, _port, _target) =
+                flow_read_request(stream, Some(FLOW_ZERO_AEAD_V1), &id).await?;
             if command != CMD_MUX {
                 return Err(Error::Protocol("VLESS MUX expected"));
             }
         } else {
+            if flow.is_some() {
+                return Err(Error::Unsupported(
+                    "VLESS flow is not supported for MUX commands",
+                ));
+            }
             let mut command = [0_u8; 1];
             read_exact(stream, &mut command).await?;
             if command[0] != CMD_MUX {

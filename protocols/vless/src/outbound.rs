@@ -20,7 +20,7 @@ use tokio::io::ReadBuf;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 #[cfg(feature = "reality")]
-use crate::flow::flow_build_request;
+use crate::flow::{encode_addons, flow_build_request, is_vision_flow, is_zero_aead_flow};
 use crate::shared::{parse_uuid, read_response_len, write_address, CMD_MUX, VLESS_VERSION};
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -546,6 +546,12 @@ struct VlessTcpTunnelTarget<'a> {
 enum VlessTcpOutboundStream<S> {
     Standard(S),
     Deferred(crate::deferred_response::DeferredVlessResponseStream<S>),
+    #[cfg(feature = "reality")]
+    Vision(crate::vision::VisionStream<S>),
+    #[cfg(feature = "reality")]
+    VisionDeferred(
+        crate::vision::VisionStream<crate::deferred_response::DeferredVlessResponseStream<S>>,
+    ),
 }
 
 #[cfg(feature = "tokio")]
@@ -561,6 +567,10 @@ where
         match self.as_mut().get_mut() {
             Self::Standard(stream) => Pin::new(stream).poll_read(cx, buf),
             Self::Deferred(stream) => Pin::new(stream).poll_read(cx, buf),
+            #[cfg(feature = "reality")]
+            Self::Vision(stream) => Pin::new(stream).poll_read(cx, buf),
+            #[cfg(feature = "reality")]
+            Self::VisionDeferred(stream) => Pin::new(stream).poll_read(cx, buf),
         }
     }
 }
@@ -578,6 +588,10 @@ where
         match self.as_mut().get_mut() {
             Self::Standard(stream) => Pin::new(stream).poll_write(cx, buf),
             Self::Deferred(stream) => Pin::new(stream).poll_write(cx, buf),
+            #[cfg(feature = "reality")]
+            Self::Vision(stream) => Pin::new(stream).poll_write(cx, buf),
+            #[cfg(feature = "reality")]
+            Self::VisionDeferred(stream) => Pin::new(stream).poll_write(cx, buf),
         }
     }
 
@@ -585,6 +599,10 @@ where
         match self.as_mut().get_mut() {
             Self::Standard(stream) => Pin::new(stream).poll_flush(cx),
             Self::Deferred(stream) => Pin::new(stream).poll_flush(cx),
+            #[cfg(feature = "reality")]
+            Self::Vision(stream) => Pin::new(stream).poll_flush(cx),
+            #[cfg(feature = "reality")]
+            Self::VisionDeferred(stream) => Pin::new(stream).poll_flush(cx),
         }
     }
 
@@ -592,6 +610,10 @@ where
         match self.as_mut().get_mut() {
             Self::Standard(stream) => Pin::new(stream).poll_shutdown(cx),
             Self::Deferred(stream) => Pin::new(stream).poll_shutdown(cx),
+            #[cfg(feature = "reality")]
+            Self::Vision(stream) => Pin::new(stream).poll_shutdown(cx),
+            #[cfg(feature = "reality")]
+            Self::VisionDeferred(stream) => Pin::new(stream).poll_shutdown(cx),
         }
     }
 }
@@ -903,8 +925,24 @@ impl VlessTcpConnectConfig {
         deferred_response: bool,
     ) -> impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static
     where
-        S: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+        S: AsyncSocket + AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     {
+        #[cfg(feature = "reality")]
+        if is_vision_flow(self.flow) {
+            let control = stream.transport_bypass_control();
+            return if deferred_response {
+                VlessTcpOutboundStream::VisionDeferred(crate::vision::VisionStream::new(
+                    crate::deferred_response::DeferredVlessResponseStream::new(stream),
+                    self.id,
+                    control,
+                ))
+            } else {
+                VlessTcpOutboundStream::Vision(crate::vision::VisionStream::new(
+                    stream, self.id, control,
+                ))
+            };
+        }
+
         if deferred_response {
             VlessTcpOutboundStream::Deferred(
                 crate::deferred_response::DeferredVlessResponseStream::new(stream),
@@ -1016,19 +1054,27 @@ fn build_tcp_request_with_flow(
     id: &[u8; 16],
     flow: Option<&str>,
 ) -> Result<Vec<u8>, Error> {
-    let (fbyte, payload) = flow_build_request(
-        id,
-        flow,
-        crate::shared::CMD_TCP,
-        session.port,
-        &session.target,
-    )?;
-
-    let mut request = Vec::with_capacity(24 + payload.len());
+    let mut request = Vec::with_capacity(64);
     request.push(VLESS_VERSION);
     request.extend_from_slice(id);
-    request.push(fbyte);
-    request.extend_from_slice(&payload);
+
+    if is_zero_aead_flow(flow) {
+        let (marker, payload) = flow_build_request(
+            id,
+            flow,
+            crate::shared::CMD_TCP,
+            session.port,
+            &session.target,
+        )?;
+        request.push(marker);
+        request.extend_from_slice(&payload);
+        return Ok(request);
+    }
+
+    request.extend_from_slice(&encode_addons(flow)?);
+    request.push(crate::shared::CMD_TCP);
+    request.extend_from_slice(&session.port.to_be_bytes());
+    write_address(&mut request, &session.target)?;
 
     Ok(request)
 }

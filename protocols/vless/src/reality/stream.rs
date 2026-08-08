@@ -1,4 +1,4 @@
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -9,6 +9,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use super::reality_client_connection::{RealityClientConfig, RealityClientConnection};
 use super::reality_server_connection::{RealityServerConfig, RealityServerConnection};
 use super::reality_util::{decode_private_key, decode_public_key, decode_short_id, encode_key};
+use zero_traits::TransportBypassControl;
 use ztls::cipher::{CipherSuite, DEFAULT_CIPHER_SUITES};
 use ztls::reader_writer::{RealityReader, RealityWriter};
 
@@ -336,6 +337,7 @@ pub struct RealityTlsStream<IO> {
     session: RealitySession,
     state: TlsState,
     need_flush: bool,
+    transport_bypass_control: TransportBypassControl,
 }
 
 enum RealitySession {
@@ -362,6 +364,13 @@ impl RealitySession {
         match self {
             Self::Client(session) => session.read_tls(rd),
             Self::Server(session) => session.read_tls(rd),
+        }
+    }
+
+    fn next_tls_read_limit(&self) -> usize {
+        match self {
+            Self::Client(session) => session.next_tls_read_limit(),
+            Self::Server(session) => session.next_tls_read_limit(),
         }
     }
 
@@ -409,6 +418,7 @@ impl<IO> RealityTlsStream<IO> {
             session: RealitySession::Client(session),
             state: TlsState::Stream,
             need_flush: false,
+            transport_bypass_control: TransportBypassControl::default(),
         }
     }
 
@@ -419,7 +429,12 @@ impl<IO> RealityTlsStream<IO> {
             session: RealitySession::Server(session),
             state: TlsState::Stream,
             need_flush: false,
+            transport_bypass_control: TransportBypassControl::default(),
         }
+    }
+
+    pub fn transport_bypass_control(&self) -> TransportBypassControl {
+        self.transport_bypass_control.clone()
     }
 }
 
@@ -463,6 +478,9 @@ where
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
+        if this.transport_bypass_control.read_bypass_requested() {
+            return Pin::new(&mut this.io).poll_read(cx, buf);
+        }
         if !this.state.readable() {
             return Poll::Ready(Ok(()));
         }
@@ -471,11 +489,13 @@ where
         let mut eof = false;
 
         while this.state.readable() && this.session.wants_read() {
-            let mut adapter = SyncReadAdapter {
+            let adapter = SyncReadAdapter {
                 io: &mut this.io,
                 cx,
             };
-            match this.session.read_tls(&mut adapter) {
+            let limit = this.session.next_tls_read_limit();
+            let mut limited = adapter.take(limit as u64);
+            match this.session.read_tls(&mut limited) {
                 Ok(0) => {
                     eof = true;
                     break;
@@ -513,11 +533,13 @@ where
                 } else if io_pending {
                     Poll::Pending
                 } else {
-                    let mut adapter = SyncReadAdapter {
+                    let adapter = SyncReadAdapter {
                         io: &mut this.io,
                         cx,
                     };
-                    match this.session.read_tls(&mut adapter) {
+                    let limit = this.session.next_tls_read_limit();
+                    let mut limited = adapter.take(limit as u64);
+                    match this.session.read_tls(&mut limited) {
                         Ok(0) => {
                             this.state.shutdown_read();
                             Poll::Ready(Ok(()))
@@ -553,6 +575,9 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if self.transport_bypass_control.write_bypass_requested() {
+            return Pin::new(&mut self.io).poll_write(cx, buf);
+        }
         if !self.state.writeable() {
             return Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -591,6 +616,9 @@ where
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.transport_bypass_control.write_bypass_requested() {
+            return Pin::new(&mut self.io).poll_flush(cx);
+        }
         self.session.writer().flush()?;
 
         while self.session.wants_write() {
@@ -616,6 +644,9 @@ where
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.transport_bypass_control.write_bypass_requested() {
+            return Pin::new(&mut self.io).poll_shutdown(cx);
+        }
         while self.session.wants_write() {
             match self.write_tls_direct(cx) {
                 Poll::Ready(Ok(0)) => return Poll::Ready(Err(io::ErrorKind::WriteZero.into())),
@@ -653,6 +684,10 @@ where
     IO: AsyncRead + AsyncWrite + Send + Sync + Unpin,
 {
     type Error = io::Error;
+
+    fn transport_bypass_control(&self) -> Option<TransportBypassControl> {
+        Some(self.transport_bypass_control())
+    }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         tokio::io::AsyncReadExt::read(self, buf).await

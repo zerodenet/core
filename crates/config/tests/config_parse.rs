@@ -2090,6 +2090,144 @@ fn rejects_duplicate_inbound_listen_endpoint() {
 }
 
 #[test]
+fn accepts_vless_vision_outbound_with_reality() {
+    RuntimeConfig::parse(
+        r#"{
+            "outbounds": [{
+                "tag": "vision",
+                "protocol": {
+                    "type": "vless",
+                    "server": "127.0.0.1",
+                    "port": 443,
+                    "id": "11111111-2222-3333-4444-555555555555",
+                    "flow": "xtls-rprx-vision",
+                    "reality": {
+                        "public_key": "9AwHi13y1rN6EWTSo8-HNCOhrzr251jNY7SSIxo0diA",
+                        "short_id": "0123456789abcdef",
+                        "server_name": "example.com"
+                    }
+                }
+            }],
+            "route": { "final": { "type": "route", "outbound": "vision" } }
+        }"#,
+    )
+    .expect("REALITY-backed Vision outbound should be valid");
+}
+
+#[test]
+fn rejects_vless_vision_without_reality() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "outbounds": [{
+                "tag": "vision",
+                "protocol": {
+                    "type": "vless",
+                    "server": "127.0.0.1",
+                    "port": 443,
+                    "id": "11111111-2222-3333-4444-555555555555",
+                    "flow": "xtls-rprx-vision"
+                }
+            }],
+            "route": { "final": { "type": "route", "outbound": "vision" } }
+        }"#,
+    )
+    .expect_err("Vision without REALITY should fail early");
+    assert!(error.to_string().contains("requires `reality`"));
+}
+
+#[test]
+fn rejects_vless_vision_with_mux() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "outbounds": [{
+                "tag": "vision",
+                "protocol": {
+                    "type": "vless",
+                    "server": "127.0.0.1",
+                    "port": 443,
+                    "id": "11111111-2222-3333-4444-555555555555",
+                    "flow": "xtls-rprx-vision",
+                    "mux_concurrency": 8,
+                    "reality": {
+                        "public_key": "9AwHi13y1rN6EWTSo8-HNCOhrzr251jNY7SSIxo0diA",
+                        "short_id": "0123456789abcdef",
+                        "server_name": "example.com"
+                    }
+                }
+            }],
+            "route": { "final": { "type": "route", "outbound": "vision" } }
+        }"#,
+    )
+    .expect_err("Vision with MUX should fail early");
+    assert!(error.to_string().contains("cannot be combined"));
+}
+
+#[test]
+fn rejects_obsolete_vless_vision_udp443_name() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "outbounds": [{
+                "tag": "vision",
+                "protocol": {
+                    "type": "vless",
+                    "server": "127.0.0.1",
+                    "port": 443,
+                    "id": "11111111-2222-3333-4444-555555555555",
+                    "flow": "xtls-rprx-vision-udp443"
+                }
+            }],
+            "route": { "final": { "type": "route", "outbound": "vision" } }
+        }"#,
+    )
+    .expect_err("obsolete flow name should fail early");
+    assert!(error.to_string().contains("obsolete"));
+}
+
+#[test]
+fn accepts_explicit_zero_aead_v1_name() {
+    RuntimeConfig::parse(
+        r#"{
+            "outbounds": [{
+                "tag": "zero-private",
+                "protocol": {
+                    "type": "vless",
+                    "server": "127.0.0.1",
+                    "port": 443,
+                    "id": "11111111-2222-3333-4444-555555555555",
+                    "flow": "zero-aead-v1"
+                }
+            }],
+            "route": { "final": { "type": "route", "outbound": "zero-private" } }
+        }"#,
+    )
+    .expect("explicit Zero-private flow should remain available");
+}
+
+#[test]
+fn rejects_vless_vision_inbound_until_inbound_codec_is_supported() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "inbounds": [{
+                "tag": "vision-in",
+                "listen": { "address": "127.0.0.1", "port": 2443 },
+                "protocol": {
+                    "type": "vless",
+                    "users": [{
+                        "id": "11111111-2222-3333-4444-555555555555",
+                        "flow": "xtls-rprx-vision"
+                    }]
+                }
+            }],
+            "route": { "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect_err("unsupported Vision inbound should fail early");
+    assert!(error
+        .to_string()
+        .contains("inbound flow `xtls-rprx-vision` is not implemented"));
+}
+
+#[test]
 fn parses_utf8_bom_prefixed_json() {
     let config = RuntimeConfig::parse(
         "\u{feff}{\n  \"inbounds\": [],\n  \"route\": { \"rules\": [], \"final\": { \"type\": \"direct\" } }\n}",

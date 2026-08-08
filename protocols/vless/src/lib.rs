@@ -7,6 +7,7 @@ extern crate alloc;
 pub mod deferred_response;
 #[cfg(all(feature = "runtime", feature = "reality"))]
 pub mod flow;
+mod flow_name;
 #[cfg(feature = "runtime")]
 pub mod inbound;
 pub mod metadata;
@@ -29,6 +30,8 @@ pub mod udp;
 mod uuid;
 #[cfg(feature = "validation")]
 pub mod validation;
+#[cfg(all(feature = "runtime", feature = "reality"))]
+pub mod vision;
 
 #[cfg(feature = "runtime")]
 pub use shared::VLESS_VERSION;

@@ -7,7 +7,7 @@
 // Key:  HKDF-SHA256(master_uuid, salt=stream_id_be, info="vless mux stream key")
 // Nonce: counter_be(8) || stream_id_be(2) || zeros(2)
 //
-// Enabled when flow is "xtls-rprx-vision" (mux_encryption flag).
+// Zero-private MUX payload protection. This is not Xray XTLS Vision.
 
 use alloc::vec::Vec;
 
