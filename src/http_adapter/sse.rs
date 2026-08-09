@@ -65,7 +65,7 @@ pub async fn run_sse_stream(
         let mut last_event_at = std::time::Instant::now();
         loop {
             if let Some(event) = subscriber.try_recv() {
-                if event_tx.send(SseItem::Event(event)).is_err() {
+                if event_tx.send(SseItem::Event(Box::new(event))).is_err() {
                     break;
                 }
                 last_event_at = std::time::Instant::now();
@@ -88,7 +88,7 @@ pub async fn run_sse_stream(
                 };
                 match item {
                     SseItem::Event(event) => {
-                        if write_sse_event(&mut stream, &event).await.is_err() {
+                        if write_sse_event(&mut stream, event.as_ref()).await.is_err() {
                             break;
                         }
                     }
@@ -107,6 +107,6 @@ pub async fn run_sse_stream(
 }
 
 enum SseItem {
-    Event(RawApiEvent),
+    Event(Box<RawApiEvent>),
     Heartbeat,
 }
