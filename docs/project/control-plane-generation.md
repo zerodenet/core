@@ -58,6 +58,28 @@ accept an optional `operation_id` and return it with the instance, captured
 configuration revision, timestamps, terminal status, and result/error facts.
 They do not emit a separate completion event.
 
+`diagnostics.probe_outbound` is a neutral, synchronous single-outbound latency
+operation. It resolves and probes the requested target against one captured
+runtime snapshot, returns `operation_kind: diagnostic_outbound`, and reports
+the enforced limit as `timeout_ms`. It shares only the bounded HTTP probe
+executor with URLTest. It does not run URLTest policy logic, change a group's
+selected member or member health, or emit `policy.probe.completed`.
+
+Failures use stable `error_code` values. Callers should branch on the code and
+treat `error` as diagnostic text. The current codes are `invalid_probe_url`,
+`target_not_found`, `target_resolution_failed`, `unsupported_target`,
+`probe_unavailable`, `probe_timeout`, `empty_response`, `connection_failed`,
+`probe_io_failed`, `invalid_probe`, `probe_protocol_failed`,
+`outbound_unhealthy`, and the forward-compatible fallback `probe_failed`.
+
+The core writes structured `started` and terminal `completed` records for this
+operation. Both records carry `source=core`, method, operation kind,
+`operation_id`, `core_instance_id`, captured `config_revision`, target, URL,
+start time, and `timeout_ms`. The terminal record also carries completion time,
+duration, reachability, terminal status, latency or stable error code, and
+diagnostic error text. These are native core observations; controllers do not
+need to synthesize completion from request logs.
+
 ## Reconnect reconciliation
 
 After reconnect, a client should:

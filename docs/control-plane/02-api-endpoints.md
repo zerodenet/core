@@ -77,6 +77,7 @@ HTTP 和 IPC 响应共享 `zero_api::ApiResponse` 信封：
 | `tun.start` | 启动 TUN |
 | `tun.stop` | 停止 TUN |
 | `diagnostics.probe_target` | 探测目标 TCP 端点 |
+| `diagnostics.probe_outbound` | 经指定出站执行 HTTP 延迟探测，不修改 URLTest 策略状态 |
 | `diagnostics.dns_lookup` | 解析主机名 |
 | `diagnostics.trace_route` | 追踪目标的路由决策 |
 

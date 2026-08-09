@@ -81,6 +81,7 @@ impl Permission {
 | config.validate | | | ✓ | ✓ |
 | config.apply | | | | ✓ |
 | diagnostics.probe_target | | | | ✓ |
+| diagnostics.probe_outbound | | | | ✓ |
 | diagnostics.dns_lookup | | | | ✓ |
 | diagnostics.trace_route | | | | ✓ |
 | mode.set | | | | ✓ |

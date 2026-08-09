@@ -5068,11 +5068,19 @@ fn non_transport_bridge_adapters_offer_claim_time_udp_projection() {
 }
 
 #[test]
-fn urltest_probe_uses_generic_tcp_outbound_dispatch() {
+fn outbound_probe_owns_generic_tcp_dispatch_outside_urltest_policy() {
     let urltest = read(&proxy_src().join("groups/urltest.rs"));
+    let urltest_refresh = read(&proxy_src().join("groups/urltest/refresh.rs"));
+    let outbound_probe = read(&proxy_src().join("runtime/outbound_probe.rs"));
     let runtime_urltest = read(&proxy_src().join("runtime/listeners/urltest.rs"));
     assert!(urltest.contains("struct UrlTestRuntime"));
-    assert!(urltest.contains("dispatch_tcp_outbound("));
+    assert!(urltest.contains("OutboundProbeRuntime"));
+    assert!(urltest_refresh.contains("probe_target_shared("));
+    assert!(!urltest.contains("dispatch_tcp_outbound("));
+    assert!(!urltest_refresh.contains("dispatch_tcp_outbound("));
+    assert!(outbound_probe.contains("dispatch_tcp_outbound("));
+    assert!(!outbound_probe.contains("crate::groups"));
+    assert!(!outbound_probe.to_ascii_lowercase().contains("urltest"));
     assert!(!urltest.contains("use crate::runtime::Proxy"));
     assert!(!urltest.contains("from_proxy("));
     assert!(!urltest.contains("prepare_tcp_candidate("));
