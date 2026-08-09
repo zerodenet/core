@@ -1,5 +1,8 @@
-use crate::groups::UrlTestRuntime;
+use crate::runtime::outbound_probe::{
+    OutboundProbeRequest, OutboundProbeRuntime, OUTBOUND_PROBE_TIMEOUT_MS,
+};
 use crate::runtime::route_runtime::route_trace_for_session;
+use tracing::info;
 use zero_core::{Network, ProtocolType, Session};
 use zero_traits::{DnsResolver, IpAddress};
 
@@ -254,46 +257,115 @@ pub(super) fn execute_diagnostics_probe_outbound(
             rt.block_on(async move {
                 let started_at_unix_ms = unix_timestamp_ms();
                 let started = std::time::Instant::now();
-                match UrlTestRuntime::new(services)
-                    .probe_outbound_single(&target_tag, &url)
-                    .await
-                {
-                    Ok(latency_ms) => Ok(zero_api::CommandResponse {
-                        accepted: true,
-                        result: Some(serde_json::json!({
-                            "operation_id": operation_id,
-                            "core_instance_id": core_instance_id,
-                            "config_revision": config_revision,
-                            "target_tag": target_tag,
-                            "url": url,
-                            "via": "through_proxy",
-                            "reachable": true,
-                            "terminal_status": "succeeded",
-                            "latency_ms": latency_ms,
-                            "started_at_unix_ms": started_at_unix_ms,
-                            "completed_at_unix_ms": unix_timestamp_ms(),
-                            "duration_ms": started.elapsed().as_millis() as u64,
-                        })),
-                    }),
-                    Err(error) => Ok(zero_api::CommandResponse {
-                        accepted: true,
-                        result: Some(serde_json::json!({
-                            "operation_id": operation_id,
-                            "core_instance_id": core_instance_id,
-                            "config_revision": config_revision,
-                            "target_tag": target_tag,
-                            "url": url,
-                            "via": "through_proxy",
-                            "reachable": false,
-                            "terminal_status": "failed",
-                            "latency_ms": null,
-                            "error_code": "probe_failed",
-                            "error": error.to_string(),
-                            "started_at_unix_ms": started_at_unix_ms,
-                            "completed_at_unix_ms": unix_timestamp_ms(),
-                            "duration_ms": started.elapsed().as_millis() as u64,
-                        })),
-                    }),
+                info!(
+                    source = "core",
+                    method = "diagnostics.probe_outbound",
+                    operation_kind = "diagnostic_outbound",
+                    phase = "started",
+                    operation_id,
+                    core_instance_id,
+                    config_revision,
+                    target_tag,
+                    url,
+                    started_at_unix_ms,
+                    timeout_ms = OUTBOUND_PROBE_TIMEOUT_MS,
+                    "outbound diagnostic probe started"
+                );
+                let request = OutboundProbeRequest::parse(&url);
+                let result = match request {
+                    Ok(request) => {
+                        OutboundProbeRuntime::new(services)
+                            .probe_target_tag(&target_tag, &request)
+                            .await
+                    }
+                    Err(error) => Err(error),
+                };
+                let completed_at_unix_ms = unix_timestamp_ms();
+                let duration_ms = started.elapsed().as_millis() as u64;
+                match result {
+                    Ok(latency_ms) => {
+                        info!(
+                            source = "core",
+                            method = "diagnostics.probe_outbound",
+                            operation_kind = "diagnostic_outbound",
+                            phase = "completed",
+                            operation_id,
+                            core_instance_id,
+                            config_revision,
+                            target_tag,
+                            url,
+                            started_at_unix_ms,
+                            completed_at_unix_ms,
+                            duration_ms,
+                            timeout_ms = OUTBOUND_PROBE_TIMEOUT_MS,
+                            terminal_status = "succeeded",
+                            reachable = true,
+                            latency_ms,
+                            "outbound diagnostic probe completed"
+                        );
+                        Ok(zero_api::CommandResponse {
+                            accepted: true,
+                            result: Some(serde_json::json!({
+                                "operation_id": operation_id,
+                                "core_instance_id": core_instance_id,
+                                "config_revision": config_revision,
+                                "operation_kind": "diagnostic_outbound",
+                                "target_tag": target_tag,
+                                "url": url,
+                                "via": "through_proxy",
+                                "reachable": true,
+                                "terminal_status": "succeeded",
+                                "latency_ms": latency_ms,
+                                "timeout_ms": OUTBOUND_PROBE_TIMEOUT_MS,
+                                "started_at_unix_ms": started_at_unix_ms,
+                                "completed_at_unix_ms": completed_at_unix_ms,
+                                "duration_ms": duration_ms,
+                            })),
+                        })
+                    }
+                    Err(error) => {
+                        info!(
+                            source = "core",
+                            method = "diagnostics.probe_outbound",
+                            operation_kind = "diagnostic_outbound",
+                            phase = "completed",
+                            operation_id,
+                            core_instance_id,
+                            config_revision,
+                            target_tag,
+                            url,
+                            started_at_unix_ms,
+                            completed_at_unix_ms,
+                            duration_ms,
+                            timeout_ms = OUTBOUND_PROBE_TIMEOUT_MS,
+                            terminal_status = "failed",
+                            reachable = false,
+                            error_code = error.code(),
+                            error = error.message(),
+                            "outbound diagnostic probe completed"
+                        );
+                        Ok(zero_api::CommandResponse {
+                            accepted: true,
+                            result: Some(serde_json::json!({
+                                "operation_id": operation_id,
+                                "core_instance_id": core_instance_id,
+                                "config_revision": config_revision,
+                                "operation_kind": "diagnostic_outbound",
+                                "target_tag": target_tag,
+                                "url": url,
+                                "via": "through_proxy",
+                                "reachable": false,
+                                "terminal_status": "failed",
+                                "latency_ms": null,
+                                "timeout_ms": OUTBOUND_PROBE_TIMEOUT_MS,
+                                "error_code": error.code(),
+                                "error": error.message(),
+                                "started_at_unix_ms": started_at_unix_ms,
+                                "completed_at_unix_ms": completed_at_unix_ms,
+                                "duration_ms": duration_ms,
+                            })),
+                        })
+                    }
                 }
             })
         },

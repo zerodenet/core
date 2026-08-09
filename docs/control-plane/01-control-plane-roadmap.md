@@ -284,7 +284,7 @@
 ### 路线图之外已实现
 
 - `mode.set` 命令（rule / global / direct 运行时切换）
-- `diagnostics.*` 三件套（probe_target / dns_lookup / trace_route）
+- `diagnostics.*`（probe_target / probe_outbound / dns_lookup / trace_route）
 - `tun.start` / `tun.stop` 命令（通过 ProxyHandle 拦截转发）
 - `ipc.connected` / `ipc.disconnected` 生命周期事件
 - HTTP 限流（Query 100/s、Command 10/s、SSE 5 并发）

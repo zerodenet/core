@@ -365,6 +365,8 @@ HTTP adapter 将这些能力暴露在 `/api/v1/*` 命名空间下，IPC 和 CLI 
   - 已实现。触发 `url_test` 立即探测
 - `diagnostics.probe_target`
   - 已实现。对指定出站做 TCP 可达性探测
+- `diagnostics.probe_outbound`
+  - 已实现。经指定出站执行中性的 HTTP 延迟探测，返回稳定错误码和实际超时上限，不修改 `url_test` 策略状态
 - `diagnostics.dns_lookup`
   - 已实现。解析域名
 - `diagnostics.trace_route`
@@ -399,6 +401,8 @@ HTTP adapter 将这些能力暴露在 `/api/v1/*` 命名空间下，IPC 和 CLI 
 
 - `diagnostics.probe_target`
   - 已实现。对指定出站做 TCP 可达性探测
+- `diagnostics.probe_outbound`
+  - 已实现。经指定出站执行中性的 HTTP 延迟探测；不触发 `url_test` 选路或策略事件
 - `diagnostics.dns_lookup`
   - 已实现。解析域名
 - `diagnostics.trace_route`

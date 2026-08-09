@@ -46,3 +46,10 @@ current and best latency, tolerance, switch flag, and one stable reason:
 Changing `tolerance_ms` through configuration reload takes effect with the new
 committed configuration generation. Manual and scheduled cycles use the same
 selection function.
+
+URLTest and `diagnostics.probe_outbound` share the neutral, process-bounded
+outbound HTTP probe executor, but not policy state. Only a URLTest cycle applies
+selection tolerance, updates member health/selection snapshots, and emits
+`policy.probe.completed`. A single-outbound diagnostic is read-only with
+respect to every URLTest group. Native completion logs distinguish the paths as
+`operation_kind=policy_urltest` and `operation_kind=diagnostic_outbound`.

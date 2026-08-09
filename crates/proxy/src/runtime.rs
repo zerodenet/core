@@ -32,6 +32,7 @@ pub(crate) mod mux_tcp;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod mux_udp;
 pub(crate) mod orchestration;
+pub(crate) mod outbound_probe;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod packet_session_udp;
 mod passive_relay_health;
@@ -231,9 +232,12 @@ impl Proxy {
         target_tag: &str,
         url: &str,
     ) -> Result<u64, EngineError> {
-        crate::groups::UrlTestRuntime::new(self.tcp_runtime_services())
-            .probe_outbound_single(target_tag, url)
+        let request = outbound_probe::OutboundProbeRequest::parse(url)
+            .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
+        outbound_probe::OutboundProbeRuntime::new(self.tcp_runtime_services())
+            .probe_target_tag(target_tag, &request)
             .await
+            .map_err(|error| EngineError::Io(std::io::Error::other(error)))
     }
 }
 
