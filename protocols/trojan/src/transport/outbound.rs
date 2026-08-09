@@ -5,7 +5,7 @@ use zero_platform_tokio::TokioSocket;
 use zero_transport::RuntimeError;
 use zero_transport::TcpRelayStream;
 
-pub(super) type TrojanTcpStreamOpen = crate::outbound::TrojanTcpStreamOpen<TcpRelayStream>;
+pub(super) type TrojanTcpStreamOpen = crate::outbound::TrojanErasedTcpStreamOpen;
 
 #[derive(Debug, Clone)]
 pub struct OwnedTrojanOutboundTlsPlan {

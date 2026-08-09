@@ -4,13 +4,12 @@ use zero_core::{InboundMuxServer, InboundMuxStreamRoute, Session, StreamUdpRespo
 use zero_engine::EngineError;
 
 use crate::runtime::inbound_route::recorded::helpers::{
-    into_recorded_tcp_relay_stream, run_recorded_protocol_mux_session,
-    run_recorded_protocol_stream_udp_relay,
+    run_recorded_protocol_mux_session, run_recorded_protocol_stream_udp_relay,
 };
 use crate::runtime::inbound_route::recorded::model::RecordedProtocolMuxDispatch;
 use crate::runtime::route_runtime::{InboundRouteRuntime, MuxSubstreamRuntime};
 use crate::runtime::tcp_ingress::InboundProtocol;
-use crate::transport::{ClientStream, MeteredStream, RecordingStream, TcpRelayStream};
+use crate::transport::{ClientStream, MeteredStream, RecordingStream};
 
 use crate::runtime::inbound_route::mux::{dispatch_protocol_mux_route, MuxRouteBridge};
 
@@ -22,16 +21,20 @@ pub(crate) async fn dispatch_recorded_protocol_mux_route<R, P, S, FTcp, FTcpFut,
 ) -> Result<(), EngineError>
 where
     S: ClientStream + 'static,
-    R: InboundMuxStreamRoute<
-        TcpStream = MeteredStream<RecordingStream<S>>,
-        MuxReader = MeteredStream<RecordingStream<S>>,
-    >,
+    R: InboundMuxStreamRoute<MuxReader = MeteredStream<RecordingStream<S>>>,
+    R::TcpStream: tokio::io::AsyncRead
+        + tokio::io::AsyncWrite
+        + zero_traits::AsyncSocket<Error = std::io::Error>
+        + Send
+        + Sync
+        + Unpin
+        + 'static,
     R::UdpRelay: zero_core::InboundStreamUdpRelay<Stream = MeteredStream<RecordingStream<S>>>,
     R::MuxServer: InboundMuxServer<MeteredStream<S>>,
     <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
         StreamUdpResponder<MeteredStream<S>>,
     R::MuxReader: Send,
-    P: InboundProtocol<ClientStream = TcpRelayStream> + 'static,
+    P: InboundProtocol<ClientStream = R::TcpStream> + 'static,
     FTcp: FnMut(
             MuxSubstreamRuntime,
             Session,
@@ -56,7 +59,7 @@ where
         MuxRouteBridge {
             runtime,
             protocol,
-            map_tcp_stream: into_recorded_tcp_relay_stream::<S>,
+            map_tcp_stream: core::convert::identity,
             run_udp: move |runtime: InboundRouteRuntime, session: Session, relay: R::UdpRelay| {
                 run_recorded_protocol_stream_udp_relay::<S, _>(
                     runtime,
@@ -93,16 +96,20 @@ pub(crate) async fn dispatch_recorded_protocol_mux_route_with_udp_logger<
 ) -> Result<(), EngineError>
 where
     S: ClientStream + 'static,
-    R: InboundMuxStreamRoute<
-        TcpStream = MeteredStream<RecordingStream<S>>,
-        MuxReader = MeteredStream<RecordingStream<S>>,
-    >,
+    R: InboundMuxStreamRoute<MuxReader = MeteredStream<RecordingStream<S>>>,
+    R::TcpStream: tokio::io::AsyncRead
+        + tokio::io::AsyncWrite
+        + zero_traits::AsyncSocket<Error = std::io::Error>
+        + Send
+        + Sync
+        + Unpin
+        + 'static,
     R::UdpRelay: zero_core::InboundStreamUdpRelay<Stream = MeteredStream<RecordingStream<S>>>,
     R::MuxServer: InboundMuxServer<MeteredStream<S>>,
     <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
         StreamUdpResponder<MeteredStream<S>>,
     R::MuxReader: Send,
-    P: InboundProtocol<ClientStream = TcpRelayStream> + 'static,
+    P: InboundProtocol<ClientStream = R::TcpStream> + 'static,
     FTcp: FnMut(
             MuxSubstreamRuntime,
             Session,

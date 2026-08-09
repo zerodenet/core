@@ -1,5 +1,6 @@
 //! Trojan outbound protocol handler.
 
+#[cfg(feature = "tokio")]
 use std::future::Future;
 use std::string::String;
 
@@ -101,6 +102,13 @@ struct TrojanOutboundRequestBundle {
     tcp_connect: TrojanTcpConnectRequest,
     udp_direct: crate::udp::TrojanUdpFlowPlan,
     udp_relay: crate::udp::TrojanUdpFlowPlan,
+    password: String,
+    sni: Option<String>,
+    insecure: bool,
+    client_fingerprint: Option<String>,
+    mux_concurrency: Option<u32>,
+    mux_idle_timeout_secs: Option<u64>,
+    mux_response_backlog: crate::validation::MuxResponseBacklogPolicy,
 }
 
 impl TrojanOutboundRequestBundle {
@@ -110,12 +118,47 @@ impl TrojanOutboundRequestBundle {
         insecure: bool,
         client_fingerprint: Option<&str>,
     ) -> Self {
+        Self::from_config_with_mux_policy(
+            password,
+            sni,
+            insecure,
+            client_fingerprint,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("default Trojan MUX policy is valid")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn from_config_with_mux_policy(
+        password: &str,
+        sni: Option<&str>,
+        insecure: bool,
+        client_fingerprint: Option<&str>,
+        mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog_frames: Option<u32>,
+        mux_response_backlog_bytes: Option<u64>,
+    ) -> Result<Self, Error> {
         let parts = TrojanOutboundParts::new(password, sni, insecure, client_fingerprint);
-        Self {
+        Ok(Self {
             tcp_connect: parts.tcp_connect_request(),
             udp_direct: parts.udp_direct_flow_plan(),
             udp_relay: parts.udp_relay_flow_plan(),
-        }
+            password: password.to_owned(),
+            sni: sni.map(ToOwned::to_owned),
+            insecure,
+            client_fingerprint: client_fingerprint.map(ToOwned::to_owned),
+            mux_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog: crate::validation::MuxResponseBacklogPolicy::from_config(
+                mux_response_backlog_frames,
+                mux_response_backlog_bytes,
+            )
+            .map_err(Error::Config)?,
+        })
     }
 
     fn tcp_connect_request(&self) -> TrojanTcpConnectRequest {
@@ -128,6 +171,20 @@ impl TrojanOutboundRequestBundle {
 
     fn udp_relay_flow_plan(&self) -> crate::udp::TrojanUdpFlowPlan {
         self.udp_relay.clone()
+    }
+
+    #[cfg(feature = "tokio")]
+    fn mux_pool_key(&self, server: &str, port: u16) -> crate::mux::TrojanMuxPoolKey {
+        crate::mux::pool_key_from_config(
+            server,
+            port,
+            &self.password,
+            self.sni.as_deref(),
+            self.insecure,
+            self.client_fingerprint.as_deref(),
+            self.mux_idle_timeout_secs,
+            self.mux_response_backlog,
+        )
     }
 }
 
@@ -153,6 +210,72 @@ impl PreparedTrojanOutboundRequestBundle {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_config_with_mux_policy(
+        password: &str,
+        sni: Option<&str>,
+        insecure: bool,
+        client_fingerprint: Option<&str>,
+        mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog_frames: Option<u32>,
+        mux_response_backlog_bytes: Option<u64>,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            requests: TrojanOutboundRequestBundle::from_config_with_mux_policy(
+                password,
+                sni,
+                insecure,
+                client_fingerprint,
+                mux_concurrency,
+                mux_idle_timeout_secs,
+                mux_response_backlog_frames,
+                mux_response_backlog_bytes,
+            )?,
+        })
+    }
+
+    #[cfg(feature = "tokio")]
+    pub async fn open_tcp_stream_with_transport_or_mux<S, OpenTransport, OpenTransportFut, E>(
+        &self,
+        session: &Session,
+        server: &str,
+        port: u16,
+        mux_pool: &crate::mux::TrojanMuxConnectionPool,
+        open_transport: OpenTransport,
+    ) -> Result<TrojanErasedTcpStreamOpen, E>
+    where
+        S: AsyncSocket + tokio::io::AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+        OpenTransport: FnOnce(OwnedTrojanResolvedTlsProfile) -> OpenTransportFut,
+        OpenTransportFut: Future<Output = Result<S, E>>,
+        E: From<Error> + From<std::io::Error>,
+    {
+        let request = self.requests.tcp_connect_request();
+        let tls_profile = request.owned_tls_profile();
+        if let Some(max_concurrency) = self.requests.mux_concurrency {
+            let key = self.requests.mux_pool_key(server, port);
+            let stream = mux_pool
+                .open_tcp_stream(
+                    key,
+                    max_concurrency,
+                    session.target.clone(),
+                    session.port,
+                    move || open_transport(tls_profile),
+                )
+                .await?;
+            return Ok(TrojanErasedTcpStreamOpen::new(Box::new(stream), 0));
+        }
+
+        let opened = request
+            .open_tcp_stream_with_transport(session, move || open_transport(tls_profile))
+            .await?;
+        let (stream, handshake_written_bytes) = opened.into_parts();
+        Ok(TrojanErasedTcpStreamOpen::new(
+            Box::new(stream),
+            handshake_written_bytes,
+        ))
+    }
+
     #[cfg(feature = "tokio")]
     pub async fn open_tcp_stream_with_transport<S, OpenTransport, OpenTransportFut, E>(
         &self,
@@ -174,6 +297,25 @@ impl PreparedTrojanOutboundRequestBundle {
 
     pub fn udp_direct_flow_plan(&self) -> crate::udp::PreparedTrojanUdpFlowPlan {
         crate::udp::PreparedTrojanUdpFlowPlan::new(self.requests.udp_direct_flow_plan())
+    }
+
+    pub(crate) fn udp_direct_flow_plan_with_mux(
+        &self,
+        server: &str,
+        port: u16,
+    ) -> crate::udp::PreparedTrojanUdpFlowPlan {
+        crate::udp::PreparedTrojanUdpFlowPlan::with_mux_config(
+            self.requests.udp_direct_flow_plan(),
+            server,
+            port,
+            &self.requests.password,
+            self.requests.sni.as_deref(),
+            self.requests.insecure,
+            self.requests.client_fingerprint.as_deref(),
+            self.requests.mux_concurrency,
+            self.requests.mux_idle_timeout_secs,
+            self.requests.mux_response_backlog,
+        )
     }
 
     pub fn udp_relay_flow_plan(&self) -> crate::udp::PreparedTrojanUdpFlowPlan {
@@ -510,4 +652,55 @@ impl<'a> TcpTunnelProtocol<TrojanTcpTunnelTarget<'a>> for TrojanOutbound {
 
 fn build_tcp_request(password: &str, addr: &Address, port: u16) -> Result<Vec<u8>, Error> {
     super::shared::build_request(password, addr, port, CMD_TCP)
+}
+
+#[cfg(feature = "tokio")]
+pub trait TrojanTcpStreamIo:
+    tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + Unpin + 'static
+{
+}
+
+#[cfg(feature = "tokio")]
+impl<T> TrojanTcpStreamIo for T where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + Unpin + 'static
+{
+}
+
+#[cfg(feature = "tokio")]
+pub struct TrojanErasedTcpStreamOpen {
+    stream: Box<dyn TrojanTcpStreamIo>,
+    handshake_written_bytes: u64,
+}
+
+#[cfg(feature = "tokio")]
+impl TrojanErasedTcpStreamOpen {
+    fn new(stream: Box<dyn TrojanTcpStreamIo>, handshake_written_bytes: u64) -> Self {
+        Self {
+            stream,
+            handshake_written_bytes,
+        }
+    }
+
+    pub fn into_parts(self) -> (Box<dyn TrojanTcpStreamIo>, u64) {
+        (self.stream, self.handshake_written_bytes)
+    }
+}
+
+#[cfg(feature = "tokio")]
+pub(crate) async fn establish_outbound_mux_connection<S>(
+    stream: &mut S,
+    password: &str,
+) -> Result<(), Error>
+where
+    S: AsyncSocket,
+{
+    let request = build_tcp_request(
+        password,
+        &Address::Domain(crate::shared::MUX_COOL_DOMAIN.to_owned()),
+        crate::shared::MUX_COOL_PORT,
+    )?;
+    stream
+        .write_all(&request)
+        .await
+        .map_err(|_| Error::Io("failed to write Trojan MUX request"))
 }

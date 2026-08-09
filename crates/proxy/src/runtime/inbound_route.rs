@@ -3,6 +3,7 @@ mod mux;
 #[cfg(feature = "managed-stream-runtime")]
 mod recorded;
 #[cfg(feature = "managed-stream-runtime")]
+#[allow(dead_code)]
 mod stream;
 
 #[cfg(feature = "managed-stream-runtime")]

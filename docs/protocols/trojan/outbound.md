@@ -37,6 +37,15 @@ pub struct TrojanTcpTunnelTarget {
 
 `TrojanUdpPacket` — CMD_UDP packet 格式：
 ```
+
+## Mux.Cool
+
+配置 `mux_concurrency` 后，出站首先以普通 Trojan TCP 请求连接 `v1.mux.cool:666`，随后在该 TLS 连接上承载 Mux.Cool TCP/UDP 子流。连接池键包含端点、密码、TLS SNI/校验策略、客户端指纹、空闲超时及回程 backlog 策略，避免不兼容配置误共池。relay final-hop 不跨越已有中继流复用 MUX。
+
+- `mux_concurrency`: 单条物理连接的最大并发子流数
+- `mux_idle_timeout_secs`: 无帧活动时关闭物理连接
+- `mux_response_backlog_frames`: 单子流回程帧数上限
+- `mux_response_backlog_bytes`: 物理连接回程字节预算
 [ATYP][ADDR][PORT][2-byte length][PAYLOAD]
 ```
 

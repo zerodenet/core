@@ -8,8 +8,8 @@ Zero 的 VLESS 实现覆盖 TCP 入站与出站，并通过通用传输层组合
 | --- | --- | --- |
 | TCP 入站 | `supported` | 鉴权后进入通用流路由 |
 | TCP 出站 | `supported` | 支持单跳与中继最终跳 |
-| UDP | `partial` | 包含 stream 和 MUX 路径，受传输组合约束 |
-| MUX | `partial` | 按 TCP/UDP 子流分别验证 |
+| UDP | `supported` | 包含标准 stream 与 MUX/XUDP 路径；非法传输组合在配置阶段拒绝 |
+| MUX | `supported` | TCP 子流与多目标 XUDP 均接入统一运行时 |
 
 ## 文档
 

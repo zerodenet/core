@@ -8,16 +8,7 @@ use crate::runtime::mux_session::{run_protocol_mux_session, MuxSessionLoop};
 use crate::runtime::route_runtime::{InboundRouteRuntime, MuxSubstreamRuntime};
 use crate::runtime::stream_udp::run_mapped_protocol_stream_udp_relay;
 use crate::runtime::udp_ingress::UdpIngressRuntime;
-use crate::transport::{ClientStream, MeteredStream, RecordingStream, TcpRelayStream};
-
-pub(crate) fn into_recorded_tcp_relay_stream<S>(
-    metered: MeteredStream<RecordingStream<S>>,
-) -> TcpRelayStream
-where
-    S: ClientStream + 'static,
-{
-    TcpRelayStream::new(metered.into_unrecorded_inner())
-}
+use crate::transport::{ClientStream, MeteredStream, RecordingStream};
 
 pub(crate) fn record_metered_inbound_traffic<S>(
     runtime: &UdpIngressRuntime,

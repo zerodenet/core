@@ -63,6 +63,14 @@ impl<S> VisionStream<S> {
         }
     }
 
+    pub(crate) fn inner(&self) -> &S {
+        &self.inner
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut S {
+        &mut self.inner
+    }
+
     fn copy_read_output(&mut self, buf: &mut ReadBuf<'_>) -> bool {
         if self.read_output.is_empty() || buf.remaining() == 0 {
             return false;

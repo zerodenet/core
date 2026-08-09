@@ -15,9 +15,9 @@ VMess 的主流传输基线（TLS / WS / gRPC）上的 TCP + UDP + MUX 已完整
 
 ## 能力分级总览
 
-VMess 当前能力等级为 `partial`：主流传输基线（TLS / WS / gRPC）上的 TCP + UDP + MUX 已完整实现并可生产使用，外部互通覆盖 Xray、sing-box、Mihomo 三大实现族。`cipher: zero` 主流兼容缺失是将其保留在 `partial` 而非 `supported` 的唯一原因。
+VMess 当前能力等级为 `supported`：主流传输基线（TLS / WS / gRPC）上的 TCP + UDP + MUX 已完整实现。`cipher: zero` 是明确标注的 Zero 扩展，不属于 `xray_core_vmess_aead` 兼容基线；主流部署应选择 `aes-128-gcm`、`chacha20-poly1305` 或 `none`。
 
-### 基础（partial 级，生产可用）
+### 基础能力
 
 | 能力 | 状态 | 说明 |
 |------|------|------|
@@ -45,7 +45,7 @@ VMess 当前能力等级为 `partial`：主流传输基线（TLS / WS / gRPC）�
 | `cipher: none` | ✅ 完成 | Xray TCP 互通已验证 |
 | VMess→VMess UDP relay chain | ✅ 完成 | 同协议链路 |
 | 外部互通 (Xray/sing-box/Mihomo) | ✅ 完成 | 三大家族全覆盖 |
-| ⚠ `cipher: zero` | ⚠ 受限 | Xray inbound 拒绝 |
+| `cipher: zero` | Zero 扩展 | 只承诺 Zero→Zero，不作为 Xray 兼容能力 |
 
 ### 特级（Zero 特色）
 

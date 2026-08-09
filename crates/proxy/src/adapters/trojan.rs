@@ -32,6 +32,7 @@ use crate::runtime::udp_flow::managed::{
 #[derive(Debug, Default)]
 pub(crate) struct TrojanAdapter {
     inbound_profiles: TrojanInboundProfileStore,
+    mux_pool: ::trojan::mux::TrojanMuxConnectionPool,
 }
 
 #[cfg(feature = "trojan")]
@@ -93,7 +94,7 @@ impl ProxyTransportTcpLeaf for TrojanOutboundLeaf {
         .await?;
         let (stream, handshake_written_bytes) = opened.into_parts();
         Ok((
-            stream,
+            crate::transport::TcpRelayStream::new(stream),
             zero_transport::StreamTraffic {
                 read_bytes: 0,
                 written_bytes: handshake_written_bytes,
@@ -138,6 +139,10 @@ fn outbound_options<'a>(
         sni,
         insecure,
         client_fingerprint,
+        mux_concurrency,
+        mux_idle_timeout_secs,
+        mux_response_backlog_frames,
+        mux_response_backlog_bytes,
         ..
     } = protocol
     else {
@@ -152,6 +157,10 @@ fn outbound_options<'a>(
             sni: sni.as_deref(),
             insecure: *insecure,
             client_fingerprint: client_fingerprint.as_deref(),
+            mux_concurrency: *mux_concurrency,
+            mux_idle_timeout_secs: *mux_idle_timeout_secs,
+            mux_response_backlog_frames: *mux_response_backlog_frames,
+            mux_response_backlog_bytes: *mux_response_backlog_bytes,
         },
     })
 }
@@ -245,17 +254,15 @@ impl TrojanAdapter {
         };
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
         let endpoint = Some(endpoint);
+        let tcp_mux_pool = self.mux_pool.clone();
+        let udp_mux_pool = self.mux_pool.clone();
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
             tcp: claim_transport_tcp_leaf(endpoint, move |source_dir| {
-                Ok::<TrojanOutboundLeaf, zero_core::Error>(TrojanOutboundLeaf::from_options_refs(
-                    source_dir, options,
-                ))
+                TrojanOutboundLeaf::from_options_refs(source_dir, options, tcp_mux_pool.clone())
             }),
             udp: Some(claim_transport_udp_leaf(endpoint, move |source_dir| {
-                Ok::<TrojanOutboundLeaf, zero_core::Error>(TrojanOutboundLeaf::from_options_refs(
-                    source_dir, options,
-                ))
+                TrojanOutboundLeaf::from_options_refs(source_dir, options, udp_mux_pool.clone())
             })),
             packet_path: None,
         })
@@ -268,6 +275,7 @@ impl NamedProtocolAdapter for TrojanAdapter {
     const FEATURE_NAME: &'static str = "trojan";
 
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
+        self.mux_pool.evict_all();
         for inbound in &config.inbounds {
             let InboundProtocolConfig::Trojan {
                 password, users, ..
@@ -303,6 +311,8 @@ impl InboundListenerCapability for TrojanAdapter {
                 password,
                 users,
                 tls,
+                mux_response_backlog_frames,
+                mux_response_backlog_bytes,
                 ..
             } => {
                 let user_refs = inbound_user_refs(password, users);
@@ -311,6 +321,8 @@ impl InboundListenerCapability for TrojanAdapter {
                     source_dir,
                     TrojanInboundOptionsRef {
                         users: user_refs.iter().copied(),
+                        mux_response_backlog_frames: *mux_response_backlog_frames,
+                        mux_response_backlog_bytes: *mux_response_backlog_bytes,
                     },
                     tls.as_ref(),
                 )

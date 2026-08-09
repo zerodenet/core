@@ -8,21 +8,18 @@ pub struct TrojanProtocol;
 
 impl ProtocolMetadata for TrojanProtocol {
     fn descriptor(&self) -> ProtocolCapabilityDescriptor {
-        let unsupported = ProtocolCapabilityState::unsupported(&[]);
         let supported = ProtocolCapabilityState::supported();
-        let partial =
-            ProtocolCapabilityState::partial(&["external_interop_coverage_is_incomplete"]);
 
         ProtocolCapabilityDescriptor {
             protocol: "trojan",
             feature: "trojan",
-            status: ProtocolCapabilityLevel::Partial,
+            status: ProtocolCapabilityLevel::Supported,
             compatibility_baseline: "trojan_go",
-            inbound: ProtocolNetworkCapability::new(supported, partial),
-            outbound: ProtocolNetworkCapability::new(supported, partial),
+            inbound: ProtocolNetworkCapability::new(supported, supported),
+            outbound: ProtocolNetworkCapability::new(supported, supported),
             transports: &["tcp", "tls"],
-            mux: unsupported,
-            limitations: &["external_interop_coverage_is_incomplete"],
+            mux: supported,
+            limitations: &[],
         }
     }
 }

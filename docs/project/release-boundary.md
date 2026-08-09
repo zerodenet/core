@@ -60,21 +60,20 @@
 | `socks5` | TCP CONNECT、UDP ASSOCIATE，入站和出站 |
 | `http` | TCP CONNECT 入站 |
 | `mixed` | 同端口入站多路复用，支持 SOCKS5 TCP CONNECT、SOCKS5 UDP ASSOCIATE 和 HTTP CONNECT TCP |
-| `vless` | TCP 和 UDP-over-stream 基线路径，覆盖支持的传输 |
-| `trojan` | TCP 和 UDP-over-stream 基线路径 |
+| `vless` | TCP、UDP-over-stream、Mux.Cool/XUDP 与 REALITY Vision 双向路径，覆盖支持的传输 |
+| `trojan` | TCP、UDP-over-stream 与 Mux.Cool TCP/UDP 连接池 |
 | `shadowsocks` | TCP 流和 UDP datagram 基线路径 |
 | `mieru` | TCP 流会话和 UDP associate 基线路径 |
 | `hysteria2` | TCP 流和 UDP datagram 基线路径，通过 QUIC |
-| `vmess` | TCP/UDP 基线兼容性，覆盖原始 TLS、WS+TLS 和 gRPC+TLS；用于 TCP 和 UDP 的 MUX 连接池；Xray/sing-box/Mihomo 互操作已验证；在主流 `cipher: zero` 兼容性解决之前保持实验性 |
+| `vmess` | TCP/UDP AEAD 基线，覆盖原始 TLS、WS+TLS 和 gRPC+TLS，以及 TCP/UDP MUX 连接池；`cipher: zero` 仅作为 Zero 扩展 |
 
 高级协议行为不要求初始边界包含：
 
 - 每个协议特定的 UDP 链传输路径；
 - Hysteria2 UDP 通过 QUIC 链式连接；
 - VLESS UDP over XHTTP `stream-one` 中继链最终跳（已实现，尚未与上游 Xray 完成外部互通验证）；QUIC 中继链最终跳不支持（XTLS 已弃用独立 VLESS QUIC 传输）；
-- 非 VMess UDP MUX 缺口；
 - 当前已实现路径之外的完整 TLS 指纹透传；
-- VMess `cipher: zero` 主流外部兼容性。
+- Zero 扩展 `cipher: zero` 的第三方兼容性（不属于 VMess AEAD 基线）。
 
 ## 链式代理边界
 

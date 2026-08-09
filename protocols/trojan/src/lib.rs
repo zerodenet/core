@@ -8,8 +8,11 @@
 
 pub mod inbound;
 pub mod metadata;
+#[cfg(feature = "tokio")]
+pub mod mux;
 pub mod outbound;
 mod shared;
 #[cfg(feature = "runtime")]
 pub mod transport;
 pub mod udp;
+pub mod validation;

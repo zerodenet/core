@@ -9,16 +9,14 @@ pub struct VlessProtocol;
 impl ProtocolMetadata for VlessProtocol {
     fn descriptor(&self) -> ProtocolCapabilityDescriptor {
         let supported = ProtocolCapabilityState::supported();
-        let partial_udp =
-            ProtocolCapabilityState::partial(&["udp_relay_final_hop_not_externally_validated"]);
 
         ProtocolCapabilityDescriptor {
             protocol: "vless",
             feature: "vless",
-            status: ProtocolCapabilityLevel::Partial,
+            status: ProtocolCapabilityLevel::Supported,
             compatibility_baseline: "xray_core_vless",
-            inbound: ProtocolNetworkCapability::new(supported, partial_udp),
-            outbound: ProtocolNetworkCapability::new(supported, partial_udp),
+            inbound: ProtocolNetworkCapability::new(supported, supported),
+            outbound: ProtocolNetworkCapability::new(supported, supported),
             transports: &[
                 "tcp",
                 "tls",
@@ -30,10 +28,7 @@ impl ProtocolMetadata for VlessProtocol {
                 "xhttp",
             ],
             mux: supported,
-            limitations: &[
-                "vless_quic_transport_deprecated_by_xtls",
-                "udp_relay_final_hop_not_externally_validated",
-            ],
+            limitations: &["vless_quic_transport_deprecated_by_xtls"],
         }
     }
 }

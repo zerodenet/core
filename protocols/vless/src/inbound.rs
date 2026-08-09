@@ -19,6 +19,11 @@ use crate::shared::{
     parse_uuid, read_address, read_exact, CMD_MUX, CMD_TCP, CMD_UDP, VLESS_VERSION,
 };
 
+#[cfg(feature = "reality")]
+mod vision;
+#[cfg(feature = "reality")]
+use vision::VlessInboundTcpStream;
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct VlessInbound;
 
@@ -155,6 +160,8 @@ impl VlessUserStore for VlessConfiguredUsers<'_> {
 struct VlessAcceptedSession {
     session: Session,
     mux_master_uuid: [u8; 16],
+    #[cfg(feature = "reality")]
+    flow: Option<&'static str>,
 }
 
 pub(crate) struct VlessAcceptedClient<S> {
@@ -165,6 +172,9 @@ pub(crate) struct VlessAcceptedClient<S> {
 enum VlessAcceptedClientRouteState<S> {
     Tcp {
         session: Session,
+        #[cfg(feature = "reality")]
+        stream: VlessInboundTcpStream<S>,
+        #[cfg(not(feature = "reality"))]
         stream: S,
     },
     #[cfg(feature = "reality")]
@@ -256,13 +266,25 @@ where
 }
 
 impl VlessAcceptedSession {
-    fn new(session: Session, user_id: [u8; 16]) -> Self {
+    fn new(
+        session: Session,
+        user_id: [u8; 16],
+        #[cfg(feature = "reality")] flow: Option<&'static str>,
+    ) -> Self {
         Self {
             session,
             mux_master_uuid: user_id,
+            #[cfg(feature = "reality")]
+            flow,
         }
     }
 
+    #[cfg(feature = "reality")]
+    fn into_parts(self) -> (Session, [u8; 16], Option<&'static str>) {
+        (self.session, self.mux_master_uuid, self.flow)
+    }
+
+    #[cfg(not(feature = "reality"))]
     fn into_parts(self) -> (Session, [u8; 16]) {
         (self.session, self.mux_master_uuid)
     }
@@ -273,6 +295,13 @@ impl<S> VlessAcceptedClient<S> {
         Self { accepted, stream }
     }
 
+    #[cfg(feature = "reality")]
+    fn into_parts(self) -> (Session, [u8; 16], Option<&'static str>, S) {
+        let (session, mux_master_uuid, flow) = self.accepted.into_parts();
+        (session, mux_master_uuid, flow, self.stream)
+    }
+
+    #[cfg(not(feature = "reality"))]
     fn into_parts(self) -> (Session, [u8; 16], S) {
         let (session, mux_master_uuid) = self.accepted.into_parts();
         (session, mux_master_uuid, self.stream)
@@ -286,10 +315,19 @@ impl<S> VlessAcceptedClient<S> {
     where
         S: AsyncSocket,
     {
+        #[cfg(feature = "reality")]
+        let (mut session, mux_master_uuid, flow, mut stream) = self.into_parts();
+        #[cfg(not(feature = "reality"))]
         let (mut session, mux_master_uuid, mut stream) = self.into_parts();
         match classify_inbound_session(&session) {
             VlessInboundSessionKind::Tcp => {
                 session.sni = sni;
+                #[cfg(feature = "reality")]
+                let stream = if crate::flow::is_vision_flow(flow) {
+                    VlessInboundTcpStream::vision(stream, mux_master_uuid)
+                } else {
+                    VlessInboundTcpStream::plain(stream)
+                };
                 Ok(VlessAcceptedClientRoute::tcp(session, stream))
             }
             VlessInboundSessionKind::Udp => {
@@ -371,6 +409,14 @@ where
 }
 
 impl<S> VlessAcceptedClientRoute<S> {
+    #[cfg(feature = "reality")]
+    fn tcp(session: Session, stream: VlessInboundTcpStream<S>) -> Self {
+        Self {
+            state: VlessAcceptedClientRouteState::Tcp { session, stream },
+        }
+    }
+
+    #[cfg(not(feature = "reality"))]
     fn tcp(session: Session, stream: S) -> Self {
         Self {
             state: VlessAcceptedClientRouteState::Tcp { session, stream },
@@ -399,7 +445,7 @@ impl<S> VlessAcceptedClientRoute<S> {
         mux: Mux,
     ) -> Result<(), E>
     where
-        Tcp: FnOnce(Session, S) -> TcpFut,
+        Tcp: FnOnce(Session, VlessInboundTcpStream<S>) -> TcpFut,
         TcpFut: core::future::Future<Output = Result<(), E>>,
         Udp: FnOnce(Session, VlessInboundUdpRelay<S>) -> UdpFut,
         UdpFut: core::future::Future<Output = Result<(), E>>,
@@ -438,7 +484,7 @@ impl<S> zero_core::InboundMuxStreamRoute for VlessAcceptedClientRoute<S>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin,
 {
-    type TcpStream = S;
+    type TcpStream = VlessInboundTcpStream<S>;
     type UdpRelay = VlessInboundUdpRelay<S>;
     type MuxReader = S;
     type MuxServer = crate::mux::VlessInboundMuxServer;
@@ -722,10 +768,22 @@ impl VlessInboundProfile {
             .unwrap_or_else(|error| error.into_inner())
             .clone();
         let auth = VlessConfiguredUsers::new(users.as_ref());
-        match inbound
+        #[cfg(feature = "reality")]
+        let accepted = inbound
+            .accept_tcp_with_auth_and_id_and_flow(&mut stream, &auth)
+            .await;
+        #[cfg(not(feature = "reality"))]
+        let accepted = inbound
             .accept_tcp_with_auth_and_id(&mut stream, &auth)
             .await
-        {
+            .map(|(session, user_id)| (session, user_id));
+        match accepted {
+            #[cfg(feature = "reality")]
+            Ok((session, user_id, flow)) => Ok(VlessAcceptedClient::new(
+                VlessAcceptedSession::new(session, user_id, flow),
+                stream,
+            )),
+            #[cfg(not(feature = "reality"))]
             Ok((session, user_id)) => Ok(VlessAcceptedClient::new(
                 VlessAcceptedSession::new(session, user_id),
                 stream,
@@ -817,20 +875,9 @@ impl VlessInbound {
     {
         #[cfg(feature = "reality")]
         {
-            let (mut session, id, flow) = read_request_with_flow(stream).await?;
-            let Some(user) = auth.find_user(&id) else {
-                return Err(Error::Unsupported("VLESS user is not authorized"));
-            };
-            validate_user_flow(user.flow, flow)?;
-            let mut sa = SessionAuth::new("vless");
-            sa.principal_key = user.principal_key;
-            sa.up_bps = user.up_bps;
-            sa.down_bps = user.down_bps;
-            sa.device_limit = user.device_limit;
-            sa.quota_remaining_bytes = user.quota_remaining_bytes;
-            sa.policy_revision = user.policy_revision;
-            session.apply_auth(sa);
-            Ok((session, id))
+            self.accept_tcp_with_auth_and_id_and_flow(stream, auth)
+                .await
+                .map(|(session, id, _flow)| (session, id))
         }
         #[cfg(not(feature = "reality"))]
         {
@@ -848,6 +895,32 @@ impl VlessInbound {
             session.apply_auth(sa);
             Ok((session, id))
         }
+    }
+
+    #[cfg(feature = "reality")]
+    async fn accept_tcp_with_auth_and_id_and_flow<S, A>(
+        &self,
+        stream: &mut S,
+        auth: &A,
+    ) -> Result<(Session, [u8; 16], Option<&'static str>), Error>
+    where
+        S: AsyncSocket,
+        A: VlessUserStore,
+    {
+        let (mut session, id, flow) = read_request_with_flow(stream).await?;
+        let Some(user) = auth.find_user(&id) else {
+            return Err(Error::Unsupported("VLESS user is not authorized"));
+        };
+        validate_user_flow(user.flow, flow)?;
+        let mut sa = SessionAuth::new("vless");
+        sa.principal_key = user.principal_key;
+        sa.up_bps = user.up_bps;
+        sa.down_bps = user.down_bps;
+        sa.device_limit = user.device_limit;
+        sa.quota_remaining_bytes = user.quota_remaining_bytes;
+        sa.policy_revision = user.policy_revision;
+        session.apply_auth(sa);
+        Ok((session, id, flow))
     }
 
     pub async fn accept_tcp_with_auth<S, A>(

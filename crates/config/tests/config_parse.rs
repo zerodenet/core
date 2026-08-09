@@ -2204,7 +2204,7 @@ fn accepts_explicit_zero_aead_v1_name() {
 }
 
 #[test]
-fn rejects_vless_vision_inbound_until_inbound_codec_is_supported() {
+fn rejects_vless_vision_inbound_without_reality() {
     let error = RuntimeConfig::parse(
         r#"{
             "inbounds": [{
@@ -2221,10 +2221,116 @@ fn rejects_vless_vision_inbound_until_inbound_codec_is_supported() {
             "route": { "final": { "type": "direct" } }
         }"#,
     )
-    .expect_err("unsupported Vision inbound should fail early");
+    .expect_err("Vision inbound without REALITY should fail early");
     assert!(error
         .to_string()
-        .contains("inbound flow `xtls-rprx-vision` is not implemented"));
+        .contains("inbound flow `xtls-rprx-vision` requires `reality`"));
+}
+
+#[test]
+fn parses_native_trojan_mux_policy() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "inbounds": [{
+                "tag": "trojan-in",
+                "listen": { "address": "127.0.0.1", "port": 443 },
+                "protocol": {
+                    "type": "trojan",
+                    "password": "secret",
+                    "mux_response_backlog_frames": 64,
+                    "mux_response_backlog_bytes": 1048576,
+                    "tls": { "cert_path": "cert.pem", "key_path": "key.pem" }
+                }
+            }],
+            "outbounds": [{
+                "tag": "trojan-mux",
+                "protocol": {
+                    "type": "trojan",
+                    "server": "127.0.0.1",
+                    "port": 443,
+                    "password": "secret",
+                    "mux_concurrency": 8,
+                    "mux_idle_timeout_secs": 30,
+                    "mux_response_backlog_frames": 64,
+                    "mux_response_backlog_bytes": 1048576
+                }
+            }],
+            "route": { "final": { "type": "route", "outbound": "trojan-mux" } }
+        }"#,
+    )
+    .expect("native Trojan MUX policy should parse");
+
+    match &config.outbounds[0].protocol {
+        OutboundProtocolConfig::Trojan {
+            mux_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+            ..
+        } => {
+            assert_eq!(*mux_concurrency, Some(8));
+            assert_eq!(*mux_idle_timeout_secs, Some(30));
+            assert_eq!(*mux_response_backlog_frames, Some(64));
+            assert_eq!(*mux_response_backlog_bytes, Some(1024 * 1024));
+        }
+        _ => panic!("expected trojan outbound"),
+    }
+}
+
+#[test]
+fn rejects_invalid_native_trojan_mux_policy() {
+    for fragment in [
+        r#""mux_concurrency": 0"#,
+        r#""mux_idle_timeout_secs": 0"#,
+        r#""mux_response_backlog_frames": 0"#,
+        r#""mux_response_backlog_bytes": 16383"#,
+    ] {
+        let config = format!(
+            r#"{{
+                "outbounds": [{{
+                    "tag": "trojan-mux",
+                    "protocol": {{
+                        "type": "trojan",
+                        "server": "127.0.0.1",
+                        "port": 443,
+                        "password": "secret",
+                        {fragment}
+                    }}
+                }}],
+                "route": {{ "final": {{ "type": "route", "outbound": "trojan-mux" }} }}
+            }}"#
+        );
+        assert!(
+            RuntimeConfig::parse(&config).is_err(),
+            "{fragment} should fail"
+        );
+    }
+}
+
+#[test]
+fn accepts_vless_vision_inbound_with_reality() {
+    RuntimeConfig::parse(
+        r#"{
+            "inbounds": [{
+                "tag": "vision-in",
+                "listen": { "address": "127.0.0.1", "port": 2443 },
+                "protocol": {
+                    "type": "vless",
+                    "users": [{
+                        "id": "11111111-2222-3333-4444-555555555555",
+                        "flow": "xtls-rprx-vision"
+                    }],
+                    "reality": {
+                        "private_key": "OKMOFBeltHBXaTQ8cIcsgabVQcqXeTB9Ih3lPtWMY04",
+                        "short_ids": ["0123456789abcdef"],
+                        "server_name": "www.cloudflare.com"
+                    }
+                }
+            }],
+            "route": { "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("Vision inbound over REALITY should parse");
 }
 
 #[test]

@@ -95,6 +95,14 @@ pub enum OutboundProtocolConfig {
         insecure: bool,
         #[serde(default)]
         client_fingerprint: Option<String>,
+        #[serde(default)]
+        mux_concurrency: Option<u32>,
+        #[serde(default)]
+        mux_idle_timeout_secs: Option<u64>,
+        #[serde(default)]
+        mux_response_backlog_frames: Option<u32>,
+        #[serde(default)]
+        mux_response_backlog_bytes: Option<u64>,
     },
     #[serde(rename = "vmess")]
     Vmess {

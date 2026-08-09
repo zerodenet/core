@@ -1,52 +1,14 @@
 # Trojan Metadata
 
-对应 `protocols/trojan/src/metadata.rs` — `TrojanProtocol` 实现 `ProtocolMetadata` trait。
+`protocols/trojan/src/metadata.rs` 是运行时 `capabilities.protocols` 的权威来源。
 
-## 能力描述符
-
-```rust
-impl ProtocolMetadata for TrojanProtocol {
-    fn descriptor(&self) -> ProtocolCapabilityDescriptor {
-        ProtocolCapabilityDescriptor {
-            protocol: "trojan",
-            feature: "trojan",
-            compatibility_baseline: "trojan_go",
-            status: ProtocolCapabilityLevel::Partial,
-            inbound: DirectionalCapability {
-                tcp: ProtocolCapabilityLevel::Supported,
-                udp: ProtocolCapabilityLevel::Partial,
-            },
-            outbound: DirectionalCapability {
-                tcp: ProtocolCapabilityLevel::Supported,
-                udp: ProtocolCapabilityLevel::Partial,
-            },
-            transports: vec!["tcp", "tls"],
-            mux: ProtocolCapabilityLevel::Unsupported,
-            limitations: vec!["external_interop_coverage_is_incomplete"],
-        }
-    }
-}
-```
-
-## 状态解释
-
-| 字段 | 值 | 理由 |
+| 字段 | 值 | 说明 |
 |------|-----|------|
-| `status` | `partial` | TCP 基线完成，UDP partial，MUX unsupported |
-| `inbound.tcp` | `supported` | TLS ingress + Trojan request |
-| `inbound.udp` | `partial` | UDP-over-stream 入站 |
-| `outbound.tcp` | `supported` | TLS + Trojan request 出站 |
-| `outbound.udp` | `partial` | 单跳 + TCP relay-prefix final-hop |
-| `transports` | `["tcp", "tls"]` | |
-| `mux` | `unsupported` | Trojan MUX 不在范围内 |
+| `status` | `supported` | 公开配置承诺的 TCP、UDP 和 MUX 均已接线 |
+| `inbound.tcp` / `outbound.tcp` | `supported` | TLS + Trojan TCP |
+| `inbound.udp` / `outbound.udp` | `supported` | CMD_UDP 与 Mux.Cool UDP |
+| `transports` | `tcp`, `tls` | Trojan 必须运行在 TLS 上 |
+| `mux` | `supported` | Mux.Cool TCP/UDP 子流 |
+| `limitations` | 空 | 外部互通覆盖作为验证证据单独维护，不再冒充实现缺口 |
 
-## 剩余缺口
-
-- `external_interop_coverage_is_incomplete`
-- `mux_udp_is_not_implemented` (Trojan 无 MUX)
-
-## 外部互操作
-
-互操作测试文件：`crates/proxy/tests/trojan_xray_interop.rs`（Xray/sing-box/Mihomo 三大族，本地手动执行，`#[ignore]`）。
-
-TLS 客户端指纹预设（`client_fingerprint`，chrome/firefox/safari/ios/edge/randomized）在 TCP 出站、UDP fresh-socket、以及 **relay-stream**（UDP relay-chain 末跳）三条路径上均已支持，当前应用 rustls cipher/ALPN 预设，不承诺完整浏览器 ClientHello 仿真。回归测试见 `socks5_udp/relays_udp_through_socks5_to_trojan_relay_chain_with_tls_fingerprint.rs`（CI 自跑）。
+Zero→Zero 回归覆盖普通与 MUX 模式下的 TCP、UDP、连接复用、回程限额及配置校验。外部 Xray/sing-box/Mihomo 测试入口继续保留为默认忽略测试。

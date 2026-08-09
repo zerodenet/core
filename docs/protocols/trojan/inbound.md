@@ -52,5 +52,7 @@ if sha224(password) != expected_password_hash {
 ## 边界说明
 
 用户集合由共享 profile 原子替换，现有 listener 无需解绑端口。Raw Trojan accept state is module-private.
+
+目标为 `v1.mux.cool:666` 的 TCP 请求会进入协议自有 Mux.Cool server，并通过中立 `InboundMuxStreamRoute` 把 TCP/UDP 子流交给通用运行时。普通 TCP 和 CMD_UDP 仍走原路径。`mux_response_backlog_frames` 与 `mux_response_backlog_bytes` 在入站限制回程排队，溢出只终止对应子流并释放预算。
 Downstream glue should use `accept_session()`, `accept_client()`, or the route helpers
 instead of depending on handshake-local accept models.

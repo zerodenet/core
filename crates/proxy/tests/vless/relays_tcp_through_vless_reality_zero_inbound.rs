@@ -3,11 +3,31 @@ use super::*;
 #[cfg(feature = "vless")]
 #[tokio::test]
 async fn relays_tcp_through_vless_reality_zero_inbound() {
+    exercise_vless_reality_zero_inbound(false).await;
+}
+
+#[cfg(feature = "vless")]
+#[tokio::test]
+async fn relays_tcp_through_vless_reality_vision_zero_inbound() {
+    exercise_vless_reality_zero_inbound(true).await;
+}
+
+async fn exercise_vless_reality_zero_inbound(vision: bool) {
     let echo_port = free_port();
     let upstream_port = free_port();
     let outer_port = free_port();
     let _echo = spawn_echo_server(echo_port).await;
     let (private_key, public_key) = vless::reality::generate_reality_key_pair();
+    let inbound_flow = if vision {
+        r#", "flow": "xtls-rprx-vision""#
+    } else {
+        ""
+    };
+    let outbound_flow = if vision {
+        r#", "flow": "xtls-rprx-vision""#
+    } else {
+        ""
+    };
 
     let upstream_config = format!(
         r#"{{
@@ -17,7 +37,7 @@ async fn relays_tcp_through_vless_reality_zero_inbound() {
                     "listen": {{ "address": "127.0.0.1", "port": {upstream_port} }},
                     "protocol": {{
                         "type": "vless",
-                        "users": [{{ "id": "{USER_ID}" }}],
+                        "users": [{{ "id": "{USER_ID}"{inbound_flow} }}],
                         "reality": {{
                             "private_key": "{private_key}",
                             "short_ids": ["0123456789abcdef"],
@@ -53,7 +73,7 @@ async fn relays_tcp_through_vless_reality_zero_inbound() {
                         "type": "vless",
                         "server": "127.0.0.1",
                         "port": {upstream_port},
-                        "id": "{USER_ID}",
+                        "id": "{USER_ID}"{outbound_flow},
                         "reality": {{
                             "public_key": "{public_key}",
                             "short_id": "0123456789abcdef",

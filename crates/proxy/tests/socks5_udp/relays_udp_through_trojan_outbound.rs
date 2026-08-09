@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::*;
+use tokio::net::TcpListener;
 
 const PASSWORD: &str = "test-password";
 static NEXT_TLS_DIR: AtomicUsize = AtomicUsize::new(1);
@@ -10,8 +11,19 @@ static NEXT_TLS_DIR: AtomicUsize = AtomicUsize::new(1);
 #[tokio::test]
 #[cfg(all(feature = "socks5", feature = "trojan"))]
 async fn relays_udp_through_trojan_outbound() {
+    exercise_trojan_udp_outbound(false).await;
+}
+
+#[tokio::test]
+#[cfg(all(feature = "socks5", feature = "trojan"))]
+async fn relays_udp_through_trojan_mux_outbound() {
+    exercise_trojan_udp_outbound(true).await;
+}
+
+async fn exercise_trojan_udp_outbound(mux: bool) {
     let tls = test_tls_material();
     let echo_port = free_udp_port();
+    let tcp_echo_port = free_port();
     let upstream_port = free_port();
     let outer_port = free_port();
 
@@ -27,6 +39,18 @@ async fn relays_udp_through_trojan_outbound() {
                 .await
                 .expect("send udp echo");
         }
+    });
+    let tcp_echo_task = tokio::spawn(async move {
+        let listener = TcpListener::bind(("127.0.0.1", tcp_echo_port))
+            .await
+            .expect("bind tcp echo");
+        let (mut stream, _) = listener.accept().await.expect("accept tcp echo");
+        let mut payload = [0_u8; 4];
+        stream
+            .read_exact(&mut payload)
+            .await
+            .expect("read tcp echo");
+        stream.write_all(&payload).await.expect("write tcp echo");
     });
 
     let upstream_config = RuntimeConfig::parse(&format!(
@@ -60,6 +84,8 @@ async fn relays_udp_through_trojan_outbound() {
 
     wait_for_listener(upstream_port).await;
 
+    let mux_config = if mux { r#", "mux_concurrency": 8"# } else { "" };
+
     let outer_config = RuntimeConfig::parse(&format!(
         r#"{{
             "inbounds": [
@@ -78,7 +104,7 @@ async fn relays_udp_through_trojan_outbound() {
                         "port": {upstream_port},
                         "password": "{PASSWORD}",
                         "sni": "localhost",
-                        "insecure": true
+                        "insecure": true{mux_config}
                     }}
                 }}
             ],
@@ -94,6 +120,42 @@ async fn relays_udp_through_trojan_outbound() {
     let outer_handle = spawn_engine(outer_engine);
 
     wait_for_listener(outer_port).await;
+
+    let mut tcp_client = TcpStream::connect(("127.0.0.1", outer_port))
+        .await
+        .expect("connect tcp client");
+    tcp_client
+        .write_all(&[0x05, 0x01, 0x00])
+        .await
+        .expect("write tcp auth");
+    let mut tcp_auth = [0_u8; 2];
+    tcp_client
+        .read_exact(&mut tcp_auth)
+        .await
+        .expect("read tcp auth");
+    assert_eq!(tcp_auth, [0x05, 0x00]);
+    let mut connect = vec![0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1];
+    connect.extend_from_slice(&tcp_echo_port.to_be_bytes());
+    tcp_client
+        .write_all(&connect)
+        .await
+        .expect("write tcp connect");
+    let mut tcp_response = [0_u8; 10];
+    tcp_client
+        .read_exact(&mut tcp_response)
+        .await
+        .expect("read tcp connect");
+    assert_eq!(tcp_response[1], 0x00);
+    tcp_client
+        .write_all(b"tmux")
+        .await
+        .expect("write tcp payload");
+    let mut tcp_echoed = [0_u8; 4];
+    tcp_client
+        .read_exact(&mut tcp_echoed)
+        .await
+        .expect("read tcp payload");
+    assert_eq!(&tcp_echoed, b"tmux");
 
     let mut control = timeout(
         Duration::from_secs(3),
@@ -175,33 +237,25 @@ async fn relays_udp_through_trojan_outbound() {
     assert_eq!(response.payload, b"tr2");
 
     wait_for("outer udp session to record trojan outbound", || {
-        outer_probe
-            .active_sessions()
-            .first()
-            .map(|session| {
-                session.network == zero_core::Network::Udp
-                    && session.outbound_tag.as_deref() == Some("trojan-udp-chain")
-                    && session.protocol == zero_core::ProtocolType::new("socks5")
-                    && session.bytes_up > 0
-                    && session.bytes_down > 0
-            })
-            .unwrap_or(false)
+        outer_probe.active_sessions().iter().any(|session| {
+            session.network == zero_core::Network::Udp
+                && session.outbound_tag.as_deref() == Some("trojan-udp-chain")
+                && session.protocol == zero_core::ProtocolType::new("socks5")
+                && session.bytes_up > 0
+                && session.bytes_down > 0
+        })
     })
     .await;
 
     drop(control);
     wait_for("outer udp trojan session to complete", || {
-        outer_probe
-            .completed_sessions()
-            .first()
-            .map(|session| {
-                session.network == zero_core::Network::Udp
-                    && session.outbound_tag.as_deref() == Some("trojan-udp-chain")
-                    && session.outcome.kind() == "chained_relayed"
-                    && session.bytes_up > 0
-                    && session.bytes_down > 0
-            })
-            .unwrap_or(false)
+        outer_probe.completed_sessions().iter().any(|session| {
+            session.network == zero_core::Network::Udp
+                && session.outbound_tag.as_deref() == Some("trojan-udp-chain")
+                && session.outcome.kind() == "chained_relayed"
+                && session.bytes_up > 0
+                && session.bytes_down > 0
+        })
     })
     .await;
 
@@ -217,6 +271,10 @@ async fn relays_udp_through_trojan_outbound() {
         .await
         .expect("join echo timeout")
         .expect("join echo task");
+    timeout(Duration::from_secs(3), tcp_echo_task)
+        .await
+        .expect("join tcp echo timeout")
+        .expect("join tcp echo task");
 }
 
 struct TestTlsMaterial {

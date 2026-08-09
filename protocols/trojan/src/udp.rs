@@ -1,3 +1,4 @@
+#[cfg(feature = "tokio")]
 use core::future::Future;
 use std::string::String;
 
@@ -11,6 +12,8 @@ use tokio::sync::{broadcast, mpsc};
 #[cfg(feature = "tokio")]
 use zero_core::UdpFlowPacket;
 use zero_core::{Address, Error, InboundUdpDispatch, ProtocolType, Session, StreamUdpResponder};
+#[cfg(feature = "tokio")]
+use zero_core::{MuxUdpDecodeFailure, MuxUdpResponder};
 use zero_traits::{AsyncSocket, UdpPacketStreamFraming, UdpPacketTunnelProtocol};
 
 use crate::outbound::{
@@ -107,6 +110,74 @@ struct TrojanInboundUdpSession {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TrojanInboundUdpResponder {
     session: TrojanInboundUdpSession,
+}
+
+#[cfg(feature = "tokio")]
+pub(crate) struct TrojanInboundMuxUdpResponder {
+    target: Address,
+    port: u16,
+    writer: crate::mux::TrojanInboundMuxWriter,
+    mux_session_id: u16,
+}
+
+#[cfg(feature = "tokio")]
+impl TrojanInboundMuxUdpResponder {
+    pub(crate) fn new(
+        target: Address,
+        port: u16,
+        writer: crate::mux::TrojanInboundMuxWriter,
+        mux_session_id: u16,
+    ) -> Self {
+        Self {
+            target,
+            port,
+            writer,
+            mux_session_id,
+        }
+    }
+
+    fn decode(&self, payload: &[u8]) -> InboundUdpDispatch {
+        InboundUdpDispatch::new(
+            ProtocolType::new("trojan"),
+            self.target.clone(),
+            self.port,
+            payload.to_vec(),
+            None,
+        )
+    }
+
+    fn write_response(&self, target: &Address, port: u16, payload: &[u8]) -> Result<usize, Error> {
+        if target != &self.target || port != self.port {
+            return Err(Error::Protocol(
+                "trojan mux UDP response target differs from the requested target",
+            ));
+        }
+        self.writer.data(self.mux_session_id, payload)
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl MuxUdpResponder for TrojanInboundMuxUdpResponder {
+    fn decode_inbound_dispatch(&mut self, payload: &[u8]) -> Result<InboundUdpDispatch, Error> {
+        Ok(self.decode(payload))
+    }
+
+    fn write_response_for_target(
+        &mut self,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+    ) -> Result<usize, Error> {
+        self.write_response(target, port, payload)
+    }
+
+    fn end_inbound_stream(&mut self) -> Result<usize, Error> {
+        self.writer.end_inbound_stream(self.mux_session_id)
+    }
+
+    fn decode_failure(&self) -> MuxUdpDecodeFailure {
+        MuxUdpDecodeFailure::End
+    }
 }
 
 impl TrojanInboundUdpSession {
@@ -371,6 +442,8 @@ pub type TrojanUdpFlowResponseReceiver = broadcast::Receiver<UdpFlowPacket>;
 #[derive(Clone)]
 struct TrojanUdpFlowSender {
     send_tx: mpsc::Sender<UdpFlowPacket>,
+    fixed_target: Option<(Address, u16)>,
+    max_payload_len: Option<usize>,
 }
 
 #[cfg(feature = "tokio")]
@@ -428,6 +501,25 @@ impl TrojanUdpFlowConnection {
 #[cfg(feature = "tokio")]
 impl TrojanUdpFlowSender {
     async fn send(&self, target: &Address, port: u16, payload: &[u8]) -> Result<usize, Error> {
+        if self
+            .fixed_target
+            .as_ref()
+            .is_some_and(|(expected_target, expected_port)| {
+                target != expected_target || port != *expected_port
+            })
+        {
+            return Err(Error::Protocol(
+                "Trojan MUX UDP substream target cannot change",
+            ));
+        }
+        if self
+            .max_payload_len
+            .is_some_and(|max_payload_len| payload.len() > max_payload_len)
+        {
+            return Err(Error::Protocol(
+                "Trojan MUX UDP payload exceeds frame limit",
+            ));
+        }
         let packet = UdpFlowPacket::from_parts(target, port, payload);
         let packet_len = packet.payload.len();
         self.send_tx
@@ -519,9 +611,77 @@ where
     spawn_recv_task(ReadOnlySocket(read_half), recv_tx.clone());
 
     TrojanUdpFlowHandle {
-        sender: TrojanUdpFlowSender { send_tx },
+        sender: TrojanUdpFlowSender {
+            send_tx,
+            fixed_target: None,
+            max_payload_len: None,
+        },
         responses: recv_tx,
     }
+}
+
+#[cfg(feature = "tokio")]
+pub(crate) fn start_mux_udp_flow<S>(
+    stream: S,
+    target: Address,
+    port: u16,
+) -> TrojanUdpFlowConnection
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + Unpin + 'static,
+{
+    let (mut read_half, mut write_half) = tokio::io::split(stream);
+    let (send_tx, mut send_rx) = mpsc::channel::<UdpFlowPacket>(32);
+    let (recv_tx, _) = broadcast::channel::<UdpFlowPacket>(32);
+    let recv_task_tx = recv_tx.clone();
+    let send_target = target.clone();
+    let fixed_target = target.clone();
+
+    tokio::spawn(async move {
+        while let Some(packet) = send_rx.recv().await {
+            if packet.target != send_target
+                || packet.port != port
+                || packet.payload.len() > crate::mux::MUX_MAX_DATA_LEN
+            {
+                break;
+            }
+            if write_half.write_all(&packet.payload).await.is_err()
+                || write_half.flush().await.is_err()
+            {
+                break;
+            }
+        }
+        let _ = write_half.shutdown().await;
+    });
+
+    tokio::spawn(async move {
+        let mut payload = vec![0_u8; crate::mux::MUX_MAX_DATA_LEN];
+        loop {
+            match read_half.read(&mut payload).await {
+                Ok(0) | Err(_) => break,
+                Ok(read) => {
+                    if recv_task_tx
+                        .send(UdpFlowPacket::new(
+                            target.clone(),
+                            port,
+                            payload[..read].to_vec(),
+                        ))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    TrojanUdpFlowConnection::new(TrojanUdpFlowSession::new(TrojanUdpFlowHandle {
+        sender: TrojanUdpFlowSender {
+            send_tx,
+            fixed_target: Some((fixed_target, port)),
+            max_payload_len: Some(crate::mux::MUX_MAX_DATA_LEN),
+        },
+        responses: recv_tx,
+    }))
 }
 
 #[cfg(feature = "tokio")]
@@ -654,6 +814,20 @@ pub(crate) struct TrojanUdpFlowPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrojanUdpFlowPlan {
     plan: TrojanUdpFlowPlan,
+    mux: Option<TrojanUdpMuxConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TrojanUdpMuxConfig {
+    server: String,
+    port: u16,
+    password: String,
+    sni: Option<String>,
+    insecure: bool,
+    client_fingerprint: Option<String>,
+    concurrency: u32,
+    idle_timeout_secs: Option<u64>,
+    response_backlog: crate::validation::MuxResponseBacklogPolicy,
 }
 
 impl TrojanUdpFlowPlan {
@@ -751,7 +925,34 @@ impl TrojanUdpFlowPlan {
 
 impl PreparedTrojanUdpFlowPlan {
     pub(crate) fn new(plan: TrojanUdpFlowPlan) -> Self {
-        Self { plan }
+        Self { plan, mux: None }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn with_mux_config(
+        plan: TrojanUdpFlowPlan,
+        server: &str,
+        port: u16,
+        password: &str,
+        sni: Option<&str>,
+        insecure: bool,
+        client_fingerprint: Option<&str>,
+        concurrency: Option<u32>,
+        idle_timeout_secs: Option<u64>,
+        response_backlog: crate::validation::MuxResponseBacklogPolicy,
+    ) -> Self {
+        let mux = concurrency.map(|concurrency| TrojanUdpMuxConfig {
+            server: server.to_owned(),
+            port,
+            password: password.to_owned(),
+            sni: sni.map(ToOwned::to_owned),
+            insecure,
+            client_fingerprint: client_fingerprint.map(ToOwned::to_owned),
+            concurrency,
+            idle_timeout_secs,
+            response_backlog,
+        });
+        Self { plan, mux }
     }
 
     pub fn connector_flow(
@@ -784,6 +985,60 @@ impl PreparedTrojanUdpFlowPlan {
         E: From<Error>,
     {
         let tls_profile = self.plan.owned_tls_profile(fallback_server_name);
+        let stream = open_stream(tls_profile).await?;
+        self.plan
+            .open_udp_flow_with_transport(session, move || async move { Ok(stream) })
+            .await
+    }
+
+    #[cfg(feature = "tokio")]
+    pub async fn open_udp_flow_with_transport_or_mux<S, OpenStream, OpenStreamFut, E>(
+        &self,
+        session: &Session,
+        fallback_server_name: Option<&str>,
+        mux_pool: &crate::mux::TrojanMuxConnectionPool,
+        open_stream: OpenStream,
+    ) -> Result<TrojanUdpFlowConnection, E>
+    where
+        S: AsyncSocket
+            + tokio::io::AsyncRead
+            + tokio::io::AsyncWrite
+            + Send
+            + Sync
+            + Unpin
+            + 'static,
+        OpenStream: FnOnce(OwnedTrojanResolvedTlsProfile) -> OpenStreamFut,
+        OpenStreamFut: Future<Output = Result<S, E>>,
+        E: From<Error>,
+    {
+        let tls_profile = self.plan.owned_tls_profile(fallback_server_name);
+        if let Some(mux) = &self.mux {
+            let key = crate::mux::pool_key_from_config(
+                &mux.server,
+                mux.port,
+                &mux.password,
+                mux.sni.as_deref(),
+                mux.insecure,
+                mux.client_fingerprint.as_deref(),
+                mux.idle_timeout_secs,
+                mux.response_backlog,
+            );
+            let stream = mux_pool
+                .open_udp_stream(
+                    key,
+                    mux.concurrency,
+                    session.target.clone(),
+                    session.port,
+                    move || open_stream(tls_profile),
+                )
+                .await?;
+            return Ok(start_mux_udp_flow(
+                stream,
+                session.target.clone(),
+                session.port,
+            ));
+        }
+
         let stream = open_stream(tls_profile).await?;
         self.plan
             .open_udp_flow_with_transport(session, move || async move { Ok(stream) })
