@@ -3,7 +3,7 @@ use std::io;
 
 use tokio::sync::watch;
 use tokio::task::JoinSet;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use zero_engine::EngineError;
 
 use crate::runtime::route_runtime::{InboundRouteRuntime, InboundRouteRuntimeFactory};
@@ -39,13 +39,23 @@ where
         "inbound listener ready"
     );
 
-    loop {
+    let stop_reason = loop {
         tokio::select! {
             changed = shutdown.changed() => {
                 match changed {
-                    Ok(()) if *shutdown.borrow() => break,
+                    Ok(()) if *shutdown.borrow() => break "shutdown_signal",
                     Ok(()) => {}
-                    Err(_) => break,
+                    Err(error) => {
+                        warn!(
+                            inbound_tag = %runtime_factory.inbound_tag(),
+                            protocol = protocol_name,
+                            transport = "quic",
+                            reason = "shutdown_channel_closed",
+                            error = %error,
+                            "inbound listener shutdown channel closed"
+                        );
+                        break "shutdown_channel_closed";
+                    }
                 }
             }
             accept_result = listener.accept() => {
@@ -61,6 +71,7 @@ where
                             error = %error,
                             protocol = protocol_name,
                             transport = "quic",
+                            reason = "accept_error",
                             "inbound accept error"
                         );
                         connections.abort_all();
@@ -68,8 +79,11 @@ where
                             if let Err(join_error) = result {
                                 if !join_error.is_cancelled() {
                                     error!(
+                                        inbound_tag = %runtime_factory.inbound_tag(),
                                         error = %join_error,
                                         protocol = protocol_name,
+                                        transport = "quic",
+                                        reason = "connection_task_panic_during_failed_listener_cleanup",
                                         "inbound connection task panicked during failed listener cleanup"
                                     );
                                 }
@@ -86,18 +100,32 @@ where
             result = connections.join_next(), if !connections.is_empty() => {
                 if let Some(Err(error)) = result {
                     if !error.is_cancelled() {
-                        error!(error = %error, protocol = protocol_name, "inbound connection task panicked");
+                        error!(
+                            inbound_tag = %runtime_factory.inbound_tag(),
+                            error = %error,
+                            protocol = protocol_name,
+                            transport = "quic",
+                            reason = "connection_task_panic",
+                            "inbound connection task panicked"
+                        );
                     }
                 }
             }
         }
-    }
+    };
 
     connections.abort_all();
     while let Some(result) = connections.join_next().await {
         if let Err(error) = result {
             if !error.is_cancelled() {
-                error!(error = %error, protocol = protocol_name, "inbound connection task panicked during shutdown");
+                error!(
+                    inbound_tag = %runtime_factory.inbound_tag(),
+                    error = %error,
+                    protocol = protocol_name,
+                    transport = "quic",
+                    reason = "connection_task_panic_during_shutdown",
+                    "inbound connection task panicked during shutdown"
+                );
             }
         }
     }
@@ -106,6 +134,7 @@ where
         inbound_tag = %runtime_factory.inbound_tag(),
         protocol = protocol_name,
         transport = "quic",
+        reason = stop_reason,
         "inbound listener stopped"
     );
     Ok(())
