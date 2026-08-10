@@ -18,6 +18,7 @@ pub struct TrojanOutboundLeaf {
     port: u16,
     transport: OwnedTrojanOutboundTlsPlan,
     protocol: crate::outbound::PreparedTrojanOutboundRequestBundle,
+    mux_pool: crate::mux::TrojanMuxConnectionPool,
 }
 
 impl TrojanOutboundLeaf {
@@ -31,21 +32,32 @@ impl TrojanOutboundLeaf {
         sni: Option<&str>,
         insecure: bool,
         client_fingerprint: Option<&str>,
-    ) -> Self {
-        let protocol = crate::outbound::PreparedTrojanOutboundRequestBundle::from_config(
-            password,
-            sni,
-            insecure,
-            client_fingerprint,
-        );
+        mux_concurrency: Option<u32>,
+        mux_idle_timeout_secs: Option<u64>,
+        mux_response_backlog_frames: Option<u32>,
+        mux_response_backlog_bytes: Option<u64>,
+        mux_pool: crate::mux::TrojanMuxConnectionPool,
+    ) -> Result<Self, zero_core::Error> {
+        let protocol =
+            crate::outbound::PreparedTrojanOutboundRequestBundle::from_config_with_mux_policy(
+                password,
+                sni,
+                insecure,
+                client_fingerprint,
+                mux_concurrency,
+                mux_idle_timeout_secs,
+                mux_response_backlog_frames,
+                mux_response_backlog_bytes,
+            )?;
         let transport = OwnedTrojanOutboundTlsPlan::from_parts(source_dir, server, port);
-        Self::new(tag, server, port, transport, protocol)
+        Ok(Self::new(tag, server, port, transport, protocol, mux_pool))
     }
 
     pub fn from_options_refs(
         source_dir: Option<&Path>,
         options: TrojanOutboundBuildOptionsRef<'_>,
-    ) -> Self {
+        mux_pool: crate::mux::TrojanMuxConnectionPool,
+    ) -> Result<Self, zero_core::Error> {
         let TrojanOutboundBuildOptionsRef {
             tag,
             server,
@@ -56,6 +68,10 @@ impl TrojanOutboundLeaf {
                     sni,
                     insecure,
                     client_fingerprint,
+                    mux_concurrency,
+                    mux_idle_timeout_secs,
+                    mux_response_backlog_frames,
+                    mux_response_backlog_bytes,
                 },
         } = options;
         Self::from_parts(
@@ -67,6 +83,11 @@ impl TrojanOutboundLeaf {
             sni,
             insecure,
             client_fingerprint,
+            mux_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+            mux_pool,
         )
     }
 
@@ -76,6 +97,7 @@ impl TrojanOutboundLeaf {
         port: u16,
         transport: OwnedTrojanOutboundTlsPlan,
         protocol: crate::outbound::PreparedTrojanOutboundRequestBundle,
+        mux_pool: crate::mux::TrojanMuxConnectionPool,
     ) -> Self {
         Self {
             tag: tag.to_owned(),
@@ -83,6 +105,7 @@ impl TrojanOutboundLeaf {
             port,
             protocol,
             transport,
+            mux_pool,
         }
     }
 
@@ -114,11 +137,17 @@ impl TrojanOutboundLeaf {
         let protocol = self.protocol.clone();
         let transport = self.owned_transport_plan();
         protocol
-            .open_tcp_stream_with_transport(session, move |tls_profile| async move {
-                transport
-                    .open_direct_with_profile(open_socket, tls_profile)
-                    .await
-            })
+            .open_tcp_stream_with_transport_or_mux(
+                session,
+                &self.server,
+                self.port,
+                &self.mux_pool,
+                move |tls_profile| async move {
+                    transport
+                        .open_direct_with_profile(open_socket, tls_profile)
+                        .await
+                },
+            )
             .await
     }
 
@@ -139,13 +168,16 @@ impl TrojanOutboundLeaf {
 
     pub(super) fn direct_udp_resume(&self) -> TrojanManagedUdpFlowResume {
         TrojanManagedUdpFlowResume::new(
+            self.mux_pool.clone(),
             self.owned_transport_plan(),
-            self.protocol.udp_direct_flow_plan(),
+            self.protocol
+                .udp_direct_flow_plan_with_mux(&self.server, self.port),
         )
     }
 
     pub(super) fn relay_final_hop_udp_resume(&self) -> TrojanManagedUdpFlowResume {
         TrojanManagedUdpFlowResume::new(
+            self.mux_pool.clone(),
             self.owned_transport_plan(),
             self.protocol.udp_relay_flow_plan(),
         )

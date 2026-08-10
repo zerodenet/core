@@ -11,6 +11,7 @@ homepage.workspace = true
 [features]
 default = ["tokio"]
 crypto = ["dep:ring", "dep:sha2"]
+validation = []
 runtime = [
     "crypto",
     "tokio",

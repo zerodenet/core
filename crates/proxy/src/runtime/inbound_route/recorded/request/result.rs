@@ -9,7 +9,7 @@ use crate::runtime::inbound_route::recorded::model::RecordedProtocolMuxDispatch;
 use crate::runtime::route_runtime::MuxSubstreamRuntime;
 use crate::runtime::tcp_ingress::InboundProtocol;
 use crate::runtime::PreparedInboundRouteAccept;
-use crate::transport::{ClientStream, MeteredStream, RecordingStream, TcpRelayStream};
+use crate::transport::{ClientStream, MeteredStream, RecordingStream};
 
 pub(crate) async fn dispatch_recorded_protocol_mux_tcp_request_result<
     R,
@@ -28,16 +28,20 @@ pub(crate) async fn dispatch_recorded_protocol_mux_tcp_request_result<
 ) -> Result<(), EngineError>
 where
     S: ClientStream + 'static,
-    R: InboundMuxStreamRoute<
-        TcpStream = MeteredStream<RecordingStream<S>>,
-        MuxReader = MeteredStream<RecordingStream<S>>,
-    >,
+    R: InboundMuxStreamRoute<MuxReader = MeteredStream<RecordingStream<S>>>,
+    R::TcpStream: tokio::io::AsyncRead
+        + tokio::io::AsyncWrite
+        + zero_traits::AsyncSocket<Error = std::io::Error>
+        + Send
+        + Sync
+        + Unpin
+        + 'static,
     R::UdpRelay: zero_core::InboundStreamUdpRelay<Stream = MeteredStream<RecordingStream<S>>>,
     R::MuxServer: InboundMuxServer<MeteredStream<S>>,
     <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
         zero_core::StreamUdpResponder<MeteredStream<S>>,
     R::MuxReader: Send,
-    P: InboundProtocol<ClientStream = TcpRelayStream> + 'static,
+    P: InboundProtocol<ClientStream = R::TcpStream> + 'static,
     FR: InboundFallbackReplay + 'static,
     FR::Stream: ClientStream,
     FTcp: FnMut(
@@ -80,16 +84,20 @@ pub(crate) async fn dispatch_recorded_protocol_mux_stream_request_result<
 ) -> Result<(), EngineError>
 where
     S: ClientStream + 'static,
-    R: InboundMuxStreamRoute<
-        TcpStream = MeteredStream<RecordingStream<S>>,
-        MuxReader = MeteredStream<RecordingStream<S>>,
-    >,
+    R: InboundMuxStreamRoute<MuxReader = MeteredStream<RecordingStream<S>>>,
+    R::TcpStream: tokio::io::AsyncRead
+        + tokio::io::AsyncWrite
+        + zero_traits::AsyncSocket<Error = std::io::Error>
+        + Send
+        + Sync
+        + Unpin
+        + 'static,
     R::UdpRelay: zero_core::InboundStreamUdpRelay<Stream = MeteredStream<RecordingStream<S>>>,
     R::MuxServer: InboundMuxServer<MeteredStream<S>>,
     <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
         zero_core::StreamUdpResponder<MeteredStream<S>>,
     R::MuxReader: Send,
-    P: InboundProtocol<ClientStream = TcpRelayStream> + 'static,
+    P: InboundProtocol<ClientStream = R::TcpStream> + 'static,
     FR: InboundFallbackReplay + 'static,
     FR::Stream: ClientStream,
     FTcp: FnMut(

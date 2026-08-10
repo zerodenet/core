@@ -19,5 +19,6 @@ zero-rule = { path = "../rule" }
 zero-traits = { path = "../traits" }
 shadowsocks = { path = "../../protocols/shadowsocks", default-features = false, features = ["validation", "blake3"] }
 socks5 = { path = "../../protocols/socks5", default-features = false, features = ["validation"] }
+trojan = { path = "../../protocols/trojan", default-features = false, features = ["validation"] }
 vmess = { path = "../../protocols/vmess", default-features = false, features = ["validation"] }
 vless = { path = "../../protocols/vless", default-features = false, features = ["validation"] }

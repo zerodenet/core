@@ -583,13 +583,12 @@ fn proxy_handle_capabilities_use_protocol_inventory() {
         .iter()
         .find(|protocol| protocol.protocol == "vless")
         .expect("vless capability");
-    assert_eq!(vless.status, "partial");
-    assert_eq!(vless.outbound.udp.level, "partial");
-    assert!(vless
-        .outbound
-        .udp
-        .notes
-        .contains(&"udp_relay_final_hop_not_externally_validated".to_owned()));
+    assert_eq!(vless.status, "supported");
+    assert_eq!(vless.inbound.tcp.level, "supported");
+    assert_eq!(vless.inbound.udp.level, "supported");
+    assert_eq!(vless.outbound.tcp.level, "supported");
+    assert_eq!(vless.outbound.udp.level, "supported");
+    assert_eq!(vless.mux.level, "supported");
 
     if let Some(mieru) = capabilities
         .protocols
@@ -652,18 +651,13 @@ fn proxy_handle_capabilities_use_protocol_inventory() {
         .iter()
         .find(|protocol| protocol.protocol == "vmess")
     {
-        assert_eq!(vmess.status, "partial");
-        assert_eq!(vmess.inbound.tcp.level, "partial");
-        assert_eq!(vmess.inbound.udp.level, "partial");
-        assert_eq!(vmess.outbound.tcp.level, "partial");
-        assert_eq!(vmess.outbound.udp.level, "partial");
-        assert_eq!(vmess.mux.level, "partial");
-        assert!(vmess
-            .limitations
-            .contains(&"external_interop_coverage_is_incomplete".to_owned()));
-        assert!(vmess
-            .limitations
-            .contains(&"cipher_zero_mainstream_compatibility_is_incomplete".to_owned()));
+        assert_eq!(vmess.status, "supported");
+        assert_eq!(vmess.inbound.tcp.level, "supported");
+        assert_eq!(vmess.inbound.udp.level, "supported");
+        assert_eq!(vmess.outbound.tcp.level, "supported");
+        assert_eq!(vmess.outbound.udp.level, "supported");
+        assert_eq!(vmess.mux.level, "supported");
+        assert!(vmess.limitations.is_empty());
         assert!(!vmess
             .limitations
             .contains(&"vmess_none_zero_cipher_is_not_supported".to_owned()));
@@ -673,6 +667,20 @@ fn proxy_handle_capabilities_use_protocol_inventory() {
         assert!(!vmess
             .limitations
             .contains(&"vmess_udp_is_not_implemented".to_owned()));
+    }
+
+    if let Some(trojan) = capabilities
+        .protocols
+        .iter()
+        .find(|protocol| protocol.protocol == "trojan")
+    {
+        assert_eq!(trojan.status, "supported");
+        assert_eq!(trojan.inbound.tcp.level, "supported");
+        assert_eq!(trojan.inbound.udp.level, "supported");
+        assert_eq!(trojan.outbound.tcp.level, "supported");
+        assert_eq!(trojan.outbound.udp.level, "supported");
+        assert_eq!(trojan.mux.level, "supported");
+        assert!(trojan.limitations.is_empty());
     }
 
     if let Some(hysteria2) = capabilities

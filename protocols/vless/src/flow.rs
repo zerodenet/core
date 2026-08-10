@@ -28,9 +28,7 @@ pub fn parse_flow(name: &str) -> Result<&'static str, Error> {
 pub(crate) fn parse_inbound_flow(name: &str) -> Result<&'static str, Error> {
     match parse_flow(name)? {
         FLOW_ZERO_AEAD_V1 => Ok(FLOW_ZERO_AEAD_V1),
-        FLOW_XTLS_RPRX_VISION => Err(Error::Unsupported(
-            "VLESS inbound `xtls-rprx-vision` is not implemented; outbound over REALITY is supported",
-        )),
+        FLOW_XTLS_RPRX_VISION => Ok(FLOW_XTLS_RPRX_VISION),
         _ => Err(Error::Unsupported("VLESS inbound flow is not supported")),
     }
 }

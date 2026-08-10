@@ -238,7 +238,7 @@ async fn inbound_udp_helpers_roundtrip_response_packet() {
         Some(4096),
         Some(2),
     )])
-    .accept_client_owned(
+    .accept_client(
         TrojanInbound,
         RecordingSocket {
             read_buf: handshake_writer.writes[0].clone(),

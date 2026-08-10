@@ -54,6 +54,10 @@ where
 {
     type Error = S::Error;
 
+    fn transport_bypass_control(&self) -> Option<zero_traits::TransportBypassControl> {
+        self.inner.transport_bypass_control()
+    }
+
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let read = self.inner.read(buf).await?;
         self.traffic.read_bytes = self.traffic.read_bytes.saturating_add(read as u64);

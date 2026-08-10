@@ -104,6 +104,10 @@ pub enum InboundProtocolConfig {
         #[serde(default)]
         tls: Option<TlsConfig>,
         #[serde(default)]
+        mux_response_backlog_frames: Option<u32>,
+        #[serde(default)]
+        mux_response_backlog_bytes: Option<u64>,
+        #[serde(default)]
         up_bps: Option<u64>,
         #[serde(default)]
         down_bps: Option<u64>,

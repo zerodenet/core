@@ -9,6 +9,7 @@ use super::outbound::OwnedTrojanOutboundTlsPlan;
 
 #[derive(Debug, Clone)]
 pub struct TrojanManagedUdpFlowResume {
+    mux_pool: crate::mux::TrojanMuxConnectionPool,
     transport: OwnedTrojanOutboundTlsPlan,
     protocol: crate::udp::PreparedTrojanUdpFlowPlan,
 }
@@ -17,10 +18,12 @@ pub type TrojanManagedUdpConnectorFlow = crate::udp::TrojanUdpConnectorFlow;
 
 impl TrojanManagedUdpFlowResume {
     pub(super) fn new(
+        mux_pool: crate::mux::TrojanMuxConnectionPool,
         transport: OwnedTrojanOutboundTlsPlan,
         protocol: crate::udp::PreparedTrojanUdpFlowPlan,
     ) -> Self {
         Self {
+            mux_pool,
             transport,
             protocol,
         }
@@ -46,11 +49,16 @@ impl TrojanManagedUdpFlowResume {
     {
         let transport = self.transport.clone();
         self.protocol
-            .open_udp_flow_with_transport(session, None, move |tls_profile| async move {
-                transport
-                    .open_direct_with_profile(open_socket, tls_profile)
-                    .await
-            })
+            .open_udp_flow_with_transport_or_mux(
+                session,
+                None,
+                &self.mux_pool,
+                move |tls_profile| async move {
+                    transport
+                        .open_direct_with_profile(open_socket, tls_profile)
+                        .await
+                },
+            )
             .await
     }
 

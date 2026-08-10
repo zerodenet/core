@@ -30,6 +30,15 @@ pub(super) fn validate_inbound_protocol(
             split_http,
         } => {
             validate_vless_users(users)?;
+            if users
+                .iter()
+                .any(|user| user.flow.as_deref() == Some(vless::validation::FLOW_XTLS_RPRX_VISION))
+                && reality.is_none()
+            {
+                return Err(ConfigError::InvalidInbound(
+                    "`vless` inbound flow `xtls-rprx-vision` requires `reality`".to_owned(),
+                ));
+            }
             if let Some(tls) = tls {
                 validate_inbound_optional_non_empty("vless tls.cert_path", &tls.cert_path)?;
                 validate_inbound_optional_non_empty("vless tls.key_path", &tls.key_path)?;
@@ -134,8 +143,20 @@ pub(super) fn validate_inbound_protocol(
             validate_shadowsocks_users(password, identity_password.as_deref(), users, cipher)
         }
         InboundProtocolConfig::Trojan {
-            password, users, ..
-        } => validate_trojan_users(password, users),
+            password,
+            users,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+            ..
+        } => {
+            validate_trojan_users(password, users)?;
+            validate_mux_response_backlog(
+                "trojan inbound",
+                *mux_response_backlog_frames,
+                *mux_response_backlog_bytes,
+                trojan::validation::validate_mux_response_backlog,
+            )
+        }
         InboundProtocolConfig::Vmess {
             users,
             mux_response_backlog_frames,
@@ -319,8 +340,24 @@ pub(super) fn validate_outbound_protocol(
             validate_shadowsocks_password("outbound", cipher, password)?;
             Ok(())
         }
-        OutboundProtocolConfig::Trojan { server, port, .. } => {
+        OutboundProtocolConfig::Trojan {
+            server,
+            port,
+            mux_concurrency,
+            mux_idle_timeout_secs,
+            mux_response_backlog_frames,
+            mux_response_backlog_bytes,
+            ..
+        } => {
             validate_outbound_endpoint("trojan", server, *port)?;
+            validate_optional_positive("trojan mux_concurrency", mux_concurrency.map(u64::from))?;
+            validate_optional_positive("trojan mux_idle_timeout_secs", *mux_idle_timeout_secs)?;
+            validate_mux_response_backlog(
+                "trojan outbound",
+                *mux_response_backlog_frames,
+                *mux_response_backlog_bytes,
+                trojan::validation::validate_mux_response_backlog,
+            )?;
             Ok(())
         }
         OutboundProtocolConfig::Vmess {
@@ -441,12 +478,6 @@ fn validate_vless_users(users: &[VlessUserConfig]) -> Result<(), ConfigError> {
             vless::validation::validate_flow(flow).map_err(|message| {
                 ConfigError::InvalidInbound(format!("`vless` inbound user {message}"))
             })?;
-            if flow == vless::validation::FLOW_XTLS_RPRX_VISION {
-                return Err(ConfigError::InvalidInbound(
-                    "`vless` inbound flow `xtls-rprx-vision` is not implemented; outbound over `reality` is supported"
-                        .to_owned(),
-                ));
-            }
         }
     }
 

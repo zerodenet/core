@@ -7,6 +7,9 @@ use zero_traits::AsyncSocket;
 pub const CMD_TCP: u8 = 0x01;
 pub const CMD_UDP: u8 = 0x03;
 
+pub const MUX_COOL_DOMAIN: &str = "v1.mux.cool";
+pub const MUX_COOL_PORT: u16 = 666;
+
 /// Address type constants (socks5 compatible).
 pub const ATYP_IPV4: u8 = 0x01;
 pub const ATYP_DOMAIN: u8 = 0x03;
@@ -123,6 +126,58 @@ fn build_address_body(addr: &Address, port: u16, payload: &[u8]) -> Vec<u8> {
     body.extend_from_slice(CRLF);
     body.extend_from_slice(payload);
     body
+}
+
+pub(crate) fn write_address(buf: &mut Vec<u8>, address: &Address) -> Result<(), Error> {
+    match address {
+        Address::Ipv4(address) => {
+            buf.push(ATYP_IPV4);
+            buf.extend_from_slice(address);
+        }
+        Address::Ipv6(address) => {
+            buf.push(ATYP_IPV6);
+            buf.extend_from_slice(address);
+        }
+        Address::Domain(domain) => {
+            let bytes = domain.as_bytes();
+            if bytes.is_empty() || bytes.len() > 255 {
+                return Err(Error::Protocol("trojan mux: invalid domain length"));
+            }
+            buf.push(ATYP_DOMAIN);
+            buf.push(bytes.len() as u8);
+            buf.extend_from_slice(bytes);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn parse_address_from_bytes(atyp: u8, bytes: &[u8]) -> Result<Address, Error> {
+    match atyp {
+        ATYP_IPV4 => bytes
+            .get(..4)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(Address::Ipv4)
+            .ok_or(Error::Protocol("trojan mux: truncated ipv4 address")),
+        ATYP_IPV6 => bytes
+            .get(..16)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(Address::Ipv6)
+            .ok_or(Error::Protocol("trojan mux: truncated ipv6 address")),
+        ATYP_DOMAIN => {
+            let length = bytes
+                .first()
+                .copied()
+                .ok_or(Error::Protocol("trojan mux: truncated domain length"))?
+                as usize;
+            let domain = bytes
+                .get(1..1 + length)
+                .ok_or(Error::Protocol("trojan mux: truncated domain"))?;
+            let domain = std::str::from_utf8(domain)
+                .map_err(|_| Error::Protocol("trojan mux: domain is not utf-8"))?;
+            Ok(Address::Domain(domain.to_owned()))
+        }
+        _ => Err(Error::Protocol("trojan mux: unsupported address type")),
+    }
 }
 
 #[cfg(feature = "crypto")]

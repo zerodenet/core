@@ -239,15 +239,24 @@ impl TrojanInboundProfile {
         ))
     }
 
-    pub async fn accept_client_owned<S: AsyncSocket>(
+    #[cfg(feature = "tokio")]
+    pub(crate) async fn accept_client_owned<S>(
         self,
         inbound: TrojanInbound,
         mut stream: S,
-    ) -> Result<TrojanInboundAcceptedSession<S>, Error> {
+        mux_response_backlog: crate::validation::MuxResponseBacklogPolicy,
+    ) -> Result<crate::mux::TrojanInboundAcceptedStream<S>, Error>
+    where
+        S: AsyncSocket + tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
         let session = self.accept_session(inbound, &mut stream).await?;
-        Ok(TrojanInboundAcceptedSession::from_session_stream(
-            session, stream,
-        ))
+        Ok(
+            crate::mux::TrojanInboundAcceptedStream::from_session_stream(
+                session,
+                stream,
+                mux_response_backlog,
+            ),
+        )
     }
 }
 

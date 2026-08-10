@@ -2,6 +2,7 @@ use super::model::InboundConnectionContext;
 
 impl InboundConnectionContext {
     #[cfg(feature = "managed-stream-runtime")]
+    #[allow(dead_code)]
     pub(crate) async fn dispatch_no_client_stream_route<R>(
         self,
         route: R,
