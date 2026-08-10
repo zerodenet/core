@@ -57,26 +57,26 @@ pub(in crate::runtime) fn spawn_inbound_listener(
     listeners.spawn(async move {
         info!(
             inbound_tag = %inbound_tag,
-            protocol,
+            protocol = protocol,
             listen_address = %listen_address,
-            listen_port,
+            listen_port = listen_port,
             "inbound listener task started"
         );
         let result = operation.execute(listener_runtime, bound, shutdown_rx).await;
         match &result {
             Ok(()) => info!(
                 inbound_tag = %inbound_tag,
-                protocol,
+                protocol = protocol,
                 listen_address = %listen_address,
-                listen_port,
+                listen_port = listen_port,
                 reason = "listener_task_returned",
                 "inbound listener task returned"
             ),
             Err(listener_error) => error!(
                 inbound_tag = %inbound_tag,
-                protocol,
+                protocol = protocol,
                 listen_address = %listen_address,
-                listen_port,
+                listen_port = listen_port,
                 reason = "listener_task_error",
                 error = %listener_error,
                 "inbound listener task failed"
