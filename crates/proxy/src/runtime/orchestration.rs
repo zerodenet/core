@@ -6,5 +6,7 @@
 mod lifecycle;
 mod logging;
 mod state;
+#[cfg(test)]
+mod tests;
 
 pub(super) use lifecycle::run_until;

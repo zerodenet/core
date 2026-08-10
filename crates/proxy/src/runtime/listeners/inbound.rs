@@ -3,7 +3,7 @@ use std::path::Path;
 
 use tokio::sync::watch;
 use tokio::task::JoinSet;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use zero_config::{InboundConfig, RuntimeConfig};
 use zero_engine::EngineError;
 
@@ -37,14 +37,55 @@ pub(in crate::runtime) fn spawn_inbound_listener(
     let operation = protocols
         .prepare_inbound_listener(inbound.clone(), source_dir)
         .map_err(|error| {
-            warn!(tag = %inbound.tag, error = %error, "inbound listener adapter preparation failed");
+            warn!(
+                inbound_tag = %inbound.tag,
+                protocol = inbound.protocol.protocol_name(),
+                listen_address = %inbound.listen.address,
+                listen_port = inbound.listen.port,
+                reason = "adapter_prepare_error",
+                error = %error,
+                "inbound listener adapter preparation failed"
+            );
             error
         })?;
-    listeners.spawn(operation.execute(
-        runtime_factory.for_inbound(inbound.tag.clone()),
-        bound,
-        shutdown_rx,
-    ));
+    let inbound_tag = inbound.tag.clone();
+    let protocol = inbound.protocol.protocol_name();
+    let listen_address = inbound.listen.address.clone();
+    let listen_port = inbound.listen.port;
+    let listener_runtime = runtime_factory.for_inbound(inbound_tag.clone());
+
+    listeners.spawn(async move {
+        info!(
+            inbound_tag = %inbound_tag,
+            protocol = protocol,
+            listen_address = %listen_address,
+            listen_port = listen_port,
+            "inbound listener task started"
+        );
+        let result = operation
+            .execute(listener_runtime, bound, shutdown_rx)
+            .await;
+        match &result {
+            Ok(()) => info!(
+                inbound_tag = %inbound_tag,
+                protocol = protocol,
+                listen_address = %listen_address,
+                listen_port = listen_port,
+                reason = "listener_task_returned",
+                "inbound listener task returned"
+            ),
+            Err(listener_error) => error!(
+                inbound_tag = %inbound_tag,
+                protocol = protocol,
+                listen_address = %listen_address,
+                listen_port = listen_port,
+                reason = "listener_task_error",
+                error = %listener_error,
+                "inbound listener task failed"
+            ),
+        }
+        result
+    });
     Ok(())
 }
 
@@ -68,7 +109,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         } else {
             let _ = shutdown.send(true);
             *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
-            info!(%tag, "signalled shutdown for removed inbound listener");
+            info!(%tag, reason = "config_removed", "signalled shutdown for removed inbound listener");
             false
         }
     });
@@ -91,7 +132,14 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         if let Some(shutdown) = state.listener_stops.remove(&inbound.tag) {
             let _ = shutdown.send(true);
             *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
-            info!(tag = %inbound.tag, "signalled shutdown for changed inbound listener");
+            info!(
+                inbound_tag = %inbound.tag,
+                protocol = inbound.protocol.protocol_name(),
+                listen_address = %inbound.listen.address,
+                listen_port = inbound.listen.port,
+                reason = "config_changed",
+                "signalled shutdown for changed inbound listener"
+            );
         }
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -112,16 +160,39 @@ pub(in crate::runtime) async fn reconcile_inbounds(
                     state
                         .active_inbounds
                         .insert(inbound.tag.clone(), inbound.clone());
-                    info!(tag = %inbound.tag, "started new inbound listener");
+                    info!(
+                        inbound_tag = %inbound.tag,
+                        protocol = inbound.protocol.protocol_name(),
+                        listen_address = %inbound.listen.address,
+                        listen_port = inbound.listen.port,
+                        reason = "config_reconciled",
+                        "started new inbound listener"
+                    );
                     continue;
                 }
                 Err(error) => {
-                    warn!(tag = %inbound.tag, error = %error, "failed to prepare inbound listener");
+                    warn!(
+                        inbound_tag = %inbound.tag,
+                        protocol = inbound.protocol.protocol_name(),
+                        listen_address = %inbound.listen.address,
+                        listen_port = inbound.listen.port,
+                        reason = "listener_prepare_error",
+                        error = %error,
+                        "failed to prepare inbound listener"
+                    );
                     error
                 }
             },
             Err(error) => {
-                warn!(tag = %inbound.tag, error = %error, "failed to bind inbound listener");
+                warn!(
+                    inbound_tag = %inbound.tag,
+                    protocol = inbound.protocol.protocol_name(),
+                    listen_address = %inbound.listen.address,
+                    listen_port = inbound.listen.port,
+                    reason = "listener_bind_error",
+                    error = %error,
+                    "failed to bind inbound listener"
+                );
                 error
             }
         };
@@ -138,17 +209,35 @@ pub(in crate::runtime) async fn reconcile_inbounds(
                     state.listeners,
                 ) {
                     Ok(()) => {
+                        info!(
+                            inbound_tag = %previous.tag,
+                            protocol = previous.protocol.protocol_name(),
+                            listen_address = %previous.listen.address,
+                            listen_port = previous.listen.port,
+                            reason = "reload_rollback",
+                            "restored previous inbound listener"
+                        );
                         state
                             .listener_stops
                             .insert(previous.tag.clone(), rollback_tx);
                         state.active_inbounds.insert(previous.tag.clone(), previous);
                     }
                     Err(rollback_error) => {
-                        warn!(tag = %inbound.tag, %rollback_error, "failed to prepare previous inbound during rollback");
+                        warn!(
+                            inbound_tag = %inbound.tag,
+                            reason = "rollback_prepare_error",
+                            %rollback_error,
+                            "failed to prepare previous inbound during rollback"
+                        );
                     }
                 },
                 Err(rollback_error) => {
-                    warn!(tag = %inbound.tag, %rollback_error, "failed to rebind previous inbound during rollback");
+                    warn!(
+                        inbound_tag = %inbound.tag,
+                        reason = "rollback_bind_error",
+                        %rollback_error,
+                        "failed to rebind previous inbound during rollback"
+                    );
                 }
             }
         }

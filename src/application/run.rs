@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::future::Future;
 
 use crate::cli::Command;
 #[cfg(any(feature = "status-api", feature = "grpc-api"))]
@@ -10,6 +11,9 @@ use super::services::ApplicationServices;
 #[cfg(feature = "status-api")]
 use crate::http_adapter;
 use crate::{ipc, rule_set_fetch};
+
+#[cfg(test)]
+mod tests;
 
 pub async fn execute(command: Command) -> Result<(), Box<dyn Error>> {
     let Command::Run {
@@ -97,17 +101,29 @@ async fn run(
     };
 
     let stats_sampler = spawn_stats_sampler(engine.clone());
-    let running = proxy.spawn();
 
-    wait_for_shutdown_signal().await;
+    // The proxy data plane is a critical application service. Run it under the
+    // root application lifecycle instead of detaching it into an unsupervised
+    // task. If listener orchestration exits unexpectedly, surface the error
+    // immediately so the process cannot remain control-plane alive while its
+    // configured inbound ports have already disappeared.
+    let proxy_result = run_supervised_proxy(&proxy, wait_for_shutdown_signal()).await;
+    if let Err(error) = &proxy_result {
+        tracing::error!(
+            core_instance_id = engine.core_instance_id(),
+            config_revision = engine.config_revision(),
+            reason = "runtime_error",
+            error = %error,
+            "proxy runtime terminated unexpectedly"
+        );
+    }
 
     stats_sampler.abort();
-    running.shutdown().await?;
     // Proxy shutdown emits terminal flow.completed facts. Stop only status
     // polling here; the dispatcher remains alive for the terminal events.
     services.shutdown_status_monitor().await;
 
-    engine.push_engine_stopped("signal");
+    engine.push_engine_stopped(proxy_stop_reason(&proxy_result));
     // Allow the event dispatcher to observe the terminal engine event before
     // its final drain persists any remaining deliveries to the outbox.
     tokio::task::yield_now().await;
@@ -122,7 +138,24 @@ async fn run(
     if let Some(s) = grpc_server {
         s.shutdown().await;
     }
+
+    proxy_result?;
     Ok(())
+}
+
+async fn run_supervised_proxy<F>(proxy: &Proxy, shutdown: F) -> Result<(), zero_engine::EngineError>
+where
+    F: Future<Output = ()> + Send,
+{
+    proxy.run_until(shutdown).await
+}
+
+fn proxy_stop_reason(result: &Result<(), zero_engine::EngineError>) -> &'static str {
+    if result.is_ok() {
+        "signal"
+    } else {
+        "runtime_error"
+    }
 }
 
 #[cfg(any(feature = "status-api", feature = "grpc-api"))]

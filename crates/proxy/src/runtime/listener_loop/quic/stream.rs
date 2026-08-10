@@ -1,8 +1,9 @@
 use std::future::Future;
+use std::io;
 
 use tokio::sync::watch;
 use tokio::task::JoinSet;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use zero_engine::EngineError;
 
 use crate::runtime::route_runtime::{InboundRouteRuntime, InboundRouteRuntimeFactory};
@@ -38,43 +39,93 @@ where
         "inbound listener ready"
     );
 
-    loop {
+    let stop_reason = loop {
         tokio::select! {
             changed = shutdown.changed() => {
                 match changed {
-                    Ok(()) if *shutdown.borrow() => break,
+                    Ok(()) if *shutdown.borrow() => break "shutdown_signal",
                     Ok(()) => {}
-                    Err(_) => break,
+                    Err(error) => {
+                        warn!(
+                            inbound_tag = %runtime_factory.inbound_tag(),
+                            protocol = protocol_name,
+                            transport = "quic",
+                            reason = "shutdown_channel_closed",
+                            error = %error,
+                            "inbound listener shutdown channel closed"
+                        );
+                        break "shutdown_channel_closed";
+                    }
                 }
             }
-            accept_result = listener.accept() => {
-                match accept_result {
-                    Ok(stream) => {
-                        let runtime = runtime_factory.for_connection(None);
-                        let handler = handler.clone();
-                        connections.spawn(handler(runtime, stream));
+            incoming = listener.accept_incoming() => {
+                let Some(incoming) = incoming else {
+                    error!(
+                        inbound_tag = %runtime_factory.inbound_tag(),
+                        protocol = protocol_name,
+                        transport = "quic",
+                        reason = "listener_endpoint_closed",
+                        "inbound listener endpoint closed unexpectedly"
+                    );
+                    connections.abort_all();
+                    while connections.join_next().await.is_some() {}
+                    return Err(io::Error::new(
+                        io::ErrorKind::ConnectionAborted,
+                        format!(
+                            "{protocol_name} QUIC inbound endpoint closed for {}",
+                            runtime_factory.inbound_tag()
+                        ),
+                    )
+                    .into());
+                };
+                let remote_address = incoming.remote_address();
+                let runtime = runtime_factory.for_connection(None);
+                let handler = handler.clone();
+                let inbound_tag = runtime_factory.inbound_tag().to_owned();
+                connections.spawn(async move {
+                    match crate::transport::QuicInbound::establish_incoming_stream(incoming).await {
+                        Ok(stream) => handler(runtime, stream).await,
+                        Err(connection_error) => error!(
+                            inbound_tag = %inbound_tag,
+                            protocol = protocol_name,
+                            transport = "quic",
+                            remote_address = %remote_address,
+                            reason = "connection_accept_error",
+                            error = %connection_error,
+                            "inbound QUIC connection failed before stream dispatch"
+                        ),
                     }
-                    Err(error) => {
-                        error!(error = %error, protocol = protocol_name, "inbound accept error");
-                        break;
-                    }
-                }
+                });
             }
             result = connections.join_next(), if !connections.is_empty() => {
                 if let Some(Err(error)) = result {
                     if !error.is_cancelled() {
-                        error!(error = %error, protocol = protocol_name, "inbound connection task panicked");
+                        error!(
+                            inbound_tag = %runtime_factory.inbound_tag(),
+                            error = %error,
+                            protocol = protocol_name,
+                            transport = "quic",
+                            reason = "connection_task_panic",
+                            "inbound connection task panicked"
+                        );
                     }
                 }
             }
         }
-    }
+    };
 
     connections.abort_all();
     while let Some(result) = connections.join_next().await {
         if let Err(error) = result {
             if !error.is_cancelled() {
-                error!(error = %error, protocol = protocol_name, "inbound connection task panicked during shutdown");
+                error!(
+                    inbound_tag = %runtime_factory.inbound_tag(),
+                    error = %error,
+                    protocol = protocol_name,
+                    transport = "quic",
+                    reason = "connection_task_panic_during_shutdown",
+                    "inbound connection task panicked during shutdown"
+                );
             }
         }
     }
@@ -83,6 +134,7 @@ where
         inbound_tag = %runtime_factory.inbound_tag(),
         protocol = protocol_name,
         transport = "quic",
+        reason = stop_reason,
         "inbound listener stopped"
     );
     Ok(())

@@ -107,6 +107,7 @@ zero-stack = { path = "../stack" }
 zero-transport = { path = "../transport" }
 
 [dev-dependencies]
+quinn = { version = "0.11", default-features = false, features = ["rustls-ring", "runtime-tokio"] }
 tempfile.workspace = true
 rcgen = "0.14"
 rustls = { workspace = true }

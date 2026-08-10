@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::io;
 
+use tracing::{error, info};
 use zero_engine::EngineError;
 
 use super::logging::log_stopped;
@@ -28,25 +29,63 @@ where
         tokio::select! {
             _ = &mut shutdown, if !shutting_down => {
                 shutting_down = true;
+                info!(
+                    core_instance_id = proxy.core_instance_id(),
+                    config_revision = proxy.config_revision(),
+                    reason = "shutdown_signal",
+                    "proxy orchestration shutdown requested"
+                );
                 state.propagate_shutdown();
             }
             Some(()) = state.reload_async_rx.recv() => {
                 if shutting_down {
                     continue;
                 }
+                info!(
+                    core_instance_id = proxy.core_instance_id(),
+                    config_revision = proxy.config_revision(),
+                    reason = "config_reload",
+                    "proxy orchestration reload requested"
+                );
                 state.reconcile_reload(proxy).await;
             }
             result = state.listeners.join_next(), if !state.listeners.is_empty() => {
-                handle_listener_result(result, shutting_down, &mut state.expected_listener_exits)?;
+                if let Err(listener_error) = handle_listener_result(
+                    result,
+                    shutting_down,
+                    &mut state.expected_listener_exits,
+                ) {
+                    error!(
+                        core_instance_id = proxy.core_instance_id(),
+                        config_revision = proxy.config_revision(),
+                        expected_listener_exits = state.expected_listener_exits,
+                        active_listener_tasks = state.listeners.len(),
+                        reason = "listener_task_exit",
+                        error = %listener_error,
+                        "proxy orchestration observed unexpected inbound listener termination"
+                    );
+                    return Err(listener_error);
+                }
             }
             result = state.urltests.join_next(), if !state.urltests.is_empty() => {
-                handle_urltest_result(result, shutting_down)?;
+                if let Err(urltest_error) = handle_urltest_result(result, shutting_down) {
+                    error!(
+                        core_instance_id = proxy.core_instance_id(),
+                        config_revision = proxy.config_revision(),
+                        active_listener_tasks = state.listeners.len(),
+                        active_urltest_tasks = state.urltests.len(),
+                        reason = "urltest_task_exit",
+                        error = %urltest_error,
+                        "proxy orchestration observed unexpected urltest termination"
+                    );
+                    return Err(urltest_error);
+                }
             }
         }
     }
 }
 
-fn handle_listener_result(
+pub(super) fn handle_listener_result(
     result: Option<Result<Result<(), EngineError>, tokio::task::JoinError>>,
     shutting_down: bool,
     expected_exits: &mut usize,
@@ -65,7 +104,7 @@ fn handle_listener_result(
     }
 }
 
-fn handle_urltest_result(
+pub(super) fn handle_urltest_result(
     result: Option<Result<Result<(), EngineError>, tokio::task::JoinError>>,
     shutting_down: bool,
 ) -> Result<(), EngineError> {

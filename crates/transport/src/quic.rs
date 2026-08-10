@@ -17,6 +17,8 @@ use zero_traits::AsyncSocket;
 
 use zero_platform_tokio::ClientStream;
 
+mod inbound_accept;
+
 /// Bidirectional QUIC stream wrapping quinn SendStream and RecvStream.
 pub struct QuicStream {
     send: quinn::SendStream,
@@ -228,33 +230,6 @@ impl QuicInbound {
         .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic endpoint: {e}"))))?;
 
         Ok(Self { endpoint })
-    }
-
-    pub async fn accept(&self) -> Result<QuicStream, RuntimeError> {
-        let conn = self.accept_connection().await?;
-
-        let (send, recv) = conn
-            .accept_bi()
-            .await
-            .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic accept stream: {e}"))))?;
-
-        Ok(QuicStream::new(send, recv))
-    }
-
-    /// Accept a raw QUIC connection for callers that need multi-stream support
-    /// and key export.
-    pub async fn accept_connection(&self) -> Result<quinn::Connection, RuntimeError> {
-        self.endpoint
-            .accept()
-            .await
-            .ok_or_else(|| {
-                RuntimeError::Io(io::Error::new(
-                    io::ErrorKind::ConnectionAborted,
-                    "quic endpoint closed",
-                ))
-            })?
-            .await
-            .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic connection: {e}"))))
     }
 }
 
