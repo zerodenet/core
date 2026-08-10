@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use tokio::sync::watch;
 use tokio::task::JoinSet;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use zero_config::{InboundConfig, RuntimeConfig};
 use zero_engine::EngineError;
 
@@ -72,7 +72,12 @@ impl OrchestrationState {
         for tx in self.listener_stops.values() {
             let _ = tx.send(true);
         }
-        info!("propagated proxy shutdown to background tasks");
+        info!(
+            listener_tasks = self.listeners.len(),
+            urltest_tasks = self.urltests.len(),
+            reason = "proxy_shutdown",
+            "propagated proxy shutdown to background tasks"
+        );
     }
 
     pub(super) async fn reconcile_reload(&mut self, proxy: &Proxy) {
@@ -86,7 +91,7 @@ impl OrchestrationState {
         let rollback_runtime_factory = self.inbound_runtime_factory.clone();
         let source_dir = self.source_dir.clone();
         if let Err(error) = proxy.resolver.reload(new_config.runtime.dns.as_ref()) {
-            warn!(%error, "failed to reload dns config");
+            warn!(%error, reason = "dns_reload_error", "failed to reload dns config");
         }
         let inbound_result = listeners::reconcile_inbounds(
             &proxy.protocols,
@@ -104,7 +109,13 @@ impl OrchestrationState {
         .await;
         if let Err(error) = inbound_result {
             let message = error.to_string();
-            warn!(%error, "config reload listener reconciliation failed; restoring last known-good config");
+            warn!(
+                core_instance_id = proxy.core_instance_id(),
+                config_revision = proxy.config_revision(),
+                reason = "listener_reconcile_error",
+                %error,
+                "config reload listener reconciliation failed; restoring last known-good config"
+            );
             let persist = proxy.pending_reload_persists(&new_config);
             let rollback = if persist {
                 proxy.engine.stage_config((*self.applied_config).clone())
@@ -114,7 +125,13 @@ impl OrchestrationState {
                     .stage_runtime_config((*self.applied_config).clone())
             };
             let acknowledgement = if let Err(rollback_error) = rollback {
-                warn!(%rollback_error, "failed to restore last known-good config after reload failure");
+                warn!(
+                    core_instance_id = proxy.core_instance_id(),
+                    config_revision = proxy.config_revision(),
+                    reason = "reload_rollback_error",
+                    %rollback_error,
+                    "failed to restore last known-good config after reload failure"
+                );
                 format!("{message}; last-known-good config restore failed: {rollback_error}")
             } else {
                 message
@@ -161,8 +178,24 @@ impl OrchestrationState {
         for group_id in self.urltest_runtime.group_ids() {
             let runtime = self.urltest_runtime.clone();
             let shutdown = self.shutdown_rx.clone();
-            self.urltests
-                .spawn(async move { runtime.run_urltest_group(group_id, shutdown).await });
+            self.urltests.spawn(async move {
+                info!(group_id, "urltest runtime task started");
+                let result = runtime.run_urltest_group(group_id, shutdown).await;
+                match &result {
+                    Ok(()) => info!(
+                        group_id,
+                        reason = "urltest_task_returned",
+                        "urltest runtime task returned"
+                    ),
+                    Err(urltest_error) => error!(
+                        group_id,
+                        reason = "urltest_task_error",
+                        error = %urltest_error,
+                        "urltest runtime task failed"
+                    ),
+                }
+                result
+            });
         }
     }
 }
