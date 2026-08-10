@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::io;
 
 use tokio::sync::watch;
 use tokio::task::JoinSet;
@@ -55,8 +56,30 @@ where
                         connections.spawn(handler(runtime, stream));
                     }
                     Err(error) => {
-                        error!(error = %error, protocol = protocol_name, "inbound accept error");
-                        break;
+                        error!(
+                            inbound_tag = %runtime_factory.inbound_tag(),
+                            error = %error,
+                            protocol = protocol_name,
+                            transport = "quic",
+                            "inbound accept error"
+                        );
+                        connections.abort_all();
+                        while let Some(result) = connections.join_next().await {
+                            if let Err(join_error) = result {
+                                if !join_error.is_cancelled() {
+                                    error!(
+                                        error = %join_error,
+                                        protocol = protocol_name,
+                                        "inbound connection task panicked during failed listener cleanup"
+                                    );
+                                }
+                            }
+                        }
+                        return Err(io::Error::other(format!(
+                            "{protocol_name} QUIC inbound accept failed for {}: {error}",
+                            runtime_factory.inbound_tag()
+                        ))
+                        .into());
                     }
                 }
             }
