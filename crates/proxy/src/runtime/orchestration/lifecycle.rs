@@ -85,7 +85,7 @@ where
     }
 }
 
-fn handle_listener_result(
+pub(super) fn handle_listener_result(
     result: Option<Result<Result<(), EngineError>, tokio::task::JoinError>>,
     shutting_down: bool,
     expected_exits: &mut usize,
@@ -104,7 +104,7 @@ fn handle_listener_result(
     }
 }
 
-fn handle_urltest_result(
+pub(super) fn handle_urltest_result(
     result: Option<Result<Result<(), EngineError>, tokio::task::JoinError>>,
     shutting_down: bool,
 ) -> Result<(), EngineError> {

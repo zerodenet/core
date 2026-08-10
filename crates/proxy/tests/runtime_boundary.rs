@@ -656,7 +656,8 @@ fn listener_and_task_lifecycle_are_runtime_owned() {
     assert!(!inventory_inbound.contains("JoinSet"));
     assert!(!inventory_inbound.contains("listeners.spawn("));
     assert!(!inventory_inbound.contains("operation.execute("));
-    assert!(runtime_listeners.contains("listeners.spawn(operation.execute("));
+    assert!(runtime_listeners.contains("listeners.spawn("));
+    assert!(runtime_listeners.contains(".execute(listener_runtime, bound, shutdown_rx)"));
 }
 
 #[test]
@@ -2549,7 +2550,8 @@ fn udp_ingress_runtime_collapses_proxy_and_services_for_session_loops() {
     let listener_inbound = read(&proxy_src().join("runtime/listeners/inbound.rs"));
     assert!(listener_inbound.contains("ProtocolInventory"));
     assert!(listener_inbound.contains("InboundListenerRuntimeFactory"));
-    assert!(listener_inbound.contains("listeners.spawn(operation.execute("));
+    assert!(listener_inbound.contains("listeners.spawn("));
+    assert!(listener_inbound.contains(".execute(listener_runtime, bound, shutdown_rx)"));
     assert!(!listener_inbound.contains("use super::super::Proxy"));
     assert!(!listener_inbound.contains("proxy: &Proxy"));
     assert!(!listener_inbound.contains("proxy.config.source_dir()"));

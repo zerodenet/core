@@ -58,44 +58,44 @@ where
                     }
                 }
             }
-            accept_result = listener.accept() => {
-                match accept_result {
-                    Ok(stream) => {
-                        let runtime = runtime_factory.for_connection(None);
-                        let handler = handler.clone();
-                        connections.spawn(handler(runtime, stream));
-                    }
-                    Err(error) => {
-                        error!(
-                            inbound_tag = %runtime_factory.inbound_tag(),
-                            error = %error,
+            incoming = listener.accept_incoming() => {
+                let Some(incoming) = incoming else {
+                    error!(
+                        inbound_tag = %runtime_factory.inbound_tag(),
+                        protocol = protocol_name,
+                        transport = "quic",
+                        reason = "listener_endpoint_closed",
+                        "inbound listener endpoint closed unexpectedly"
+                    );
+                    connections.abort_all();
+                    while connections.join_next().await.is_some() {}
+                    return Err(io::Error::new(
+                        io::ErrorKind::ConnectionAborted,
+                        format!(
+                            "{protocol_name} QUIC inbound endpoint closed for {}",
+                            runtime_factory.inbound_tag()
+                        ),
+                    )
+                    .into());
+                };
+                let remote_address = incoming.remote_address();
+                let runtime = runtime_factory.for_connection(None);
+                let handler = handler.clone();
+                let inbound_tag = runtime_factory.inbound_tag().to_owned();
+                connections.spawn(async move {
+                    match crate::transport::QuicInbound::establish_incoming_stream(incoming).await {
+                        Ok(stream) => handler(runtime, stream).await,
+                        Err(connection_error) => error!(
+                            inbound_tag = %inbound_tag,
                             protocol = protocol_name,
                             transport = "quic",
-                            reason = "accept_error",
-                            "inbound accept error"
-                        );
-                        connections.abort_all();
-                        while let Some(result) = connections.join_next().await {
-                            if let Err(join_error) = result {
-                                if !join_error.is_cancelled() {
-                                    error!(
-                                        inbound_tag = %runtime_factory.inbound_tag(),
-                                        error = %join_error,
-                                        protocol = protocol_name,
-                                        transport = "quic",
-                                        reason = "connection_task_panic_during_failed_listener_cleanup",
-                                        "inbound connection task panicked during failed listener cleanup"
-                                    );
-                                }
-                            }
-                        }
-                        return Err(io::Error::other(format!(
-                            "{protocol_name} QUIC inbound accept failed for {}: {error}",
-                            runtime_factory.inbound_tag()
-                        ))
-                        .into());
+                            remote_address = %remote_address,
+                            reason = "connection_accept_error",
+                            error = %connection_error,
+                            "inbound QUIC connection failed before stream dispatch"
+                        ),
                     }
-                }
+                });
             }
             result = connections.join_next(), if !connections.is_empty() => {
                 if let Some(Err(error)) = result {
