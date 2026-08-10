@@ -62,7 +62,9 @@ pub(in crate::runtime) fn spawn_inbound_listener(
             listen_port = listen_port,
             "inbound listener task started"
         );
-        let result = operation.execute(listener_runtime, bound, shutdown_rx).await;
+        let result = operation
+            .execute(listener_runtime, bound, shutdown_rx)
+            .await;
         match &result {
             Ok(()) => info!(
                 inbound_tag = %inbound_tag,
