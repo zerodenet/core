@@ -105,7 +105,13 @@ async fn run(
     // configured inbound ports have already disappeared.
     let proxy_result = proxy.run_until(wait_for_shutdown_signal()).await;
     if let Err(error) = &proxy_result {
-        tracing::error!(error = %error, "proxy runtime terminated unexpectedly");
+        tracing::error!(
+            core_instance_id = engine.core_instance_id(),
+            config_revision = engine.config_revision(),
+            reason = "runtime_error",
+            error = %error,
+            "proxy runtime terminated unexpectedly"
+        );
     }
 
     stats_sampler.abort();
