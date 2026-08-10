@@ -97,17 +97,27 @@ async fn run(
     };
 
     let stats_sampler = spawn_stats_sampler(engine.clone());
-    let running = proxy.spawn();
 
-    wait_for_shutdown_signal().await;
+    // The proxy data plane is a critical application service. Run it under the
+    // root application lifecycle instead of detaching it into an unsupervised
+    // task. If listener orchestration exits unexpectedly, surface the error
+    // immediately so the process cannot remain control-plane alive while its
+    // configured inbound ports have already disappeared.
+    let proxy_result = proxy.run_until(wait_for_shutdown_signal()).await;
+    if let Err(error) = &proxy_result {
+        tracing::error!(error = %error, "proxy runtime terminated unexpectedly");
+    }
 
     stats_sampler.abort();
-    running.shutdown().await?;
     // Proxy shutdown emits terminal flow.completed facts. Stop only status
     // polling here; the dispatcher remains alive for the terminal events.
     services.shutdown_status_monitor().await;
 
-    engine.push_engine_stopped("signal");
+    engine.push_engine_stopped(if proxy_result.is_ok() {
+        "signal"
+    } else {
+        "runtime_error"
+    });
     // Allow the event dispatcher to observe the terminal engine event before
     // its final drain persists any remaining deliveries to the outbox.
     tokio::task::yield_now().await;
@@ -122,6 +132,8 @@ async fn run(
     if let Some(s) = grpc_server {
         s.shutdown().await;
     }
+
+    proxy_result?;
     Ok(())
 }
 
