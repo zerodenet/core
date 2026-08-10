@@ -301,11 +301,41 @@ latest_strict_version() {
     printf '%s\n' "$latest"
 }
 
+latest_strict_version_before() {
+    local target=$1 latest="" candidate comparison
+    while IFS= read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        comparison=$(compare_versions "$candidate" "$target")
+        [[ "$comparison" -lt 0 ]] || continue
+        if [[ -z "$latest" || "$(compare_versions "$candidate" "$latest")" -gt 0 ]]; then
+            latest=$candidate
+        fi
+    done < <(strict_tag_versions)
+    printf '%s\n' "$latest"
+}
+
 assert_history_transition() {
     local target=$1 latest
     latest=$(latest_strict_version "$target")
     if [[ -n "$latest" && "$latest" != "$target" ]]; then
         assert_transition "$latest" "$target"
+    fi
+}
+
+assert_tag_history_transition() {
+    local target=$1 predecessor
+    predecessor=$(latest_strict_version_before "$target")
+    if [[ -n "$predecessor" ]]; then
+        assert_transition "$predecessor" "$target"
+    fi
+}
+
+assert_remote_predecessor() {
+    local remote=$1 target=$2 predecessor
+    predecessor=$(latest_strict_version "$target")
+    [[ -n "$predecessor" ]] || return 0
+    if ! git ls-remote --exit-code --tags "$remote" "refs/tags/v${predecessor}" >/dev/null 2>&1; then
+        fail "previous release tag 'v${predecessor}' is missing from remote '$remote'; push it before publishing v${target}"
     fi
 }
 
@@ -573,7 +603,7 @@ verify_tag() {
     validate_version "$version" any
     current=$(workspace_version "$CARGO_TOML")
     [[ "$current" == "$version" ]] || fail "tag '$tag' does not match Cargo version '$current'"
-    assert_history_transition "$version"
+    assert_tag_history_transition "$version"
     if [[ "$V_STAGE" == dev ]]; then
         assert_development_contract "$CARGO_TOML" "$BREAKING_CHANGES" >/dev/null
     else
@@ -685,6 +715,12 @@ fi
 CURRENT_VERSION=$(workspace_version "$CARGO_TOML")
 TAG_NAME="v${VERSION}"
 MESSAGE="${MESSAGE:-release: v${VERSION}}"
+
+if [[ "$NO_PUSH" != true ]]; then
+    for push_remote in "${PUSH_REMOTES[@]}"; do
+        assert_remote_predecessor "$push_remote" "$VERSION"
+    done
+fi
 
 echo "Current branch: $CURRENT_BRANCH"
 echo "Cargo version: $CURRENT_VERSION -> $VERSION"
