@@ -28,19 +28,19 @@ pub(in crate::runtime) async fn reconcile_urltests(
         let shutdown = shutdown_rx.clone();
         urltests.spawn(async move {
             info!(
-                group_id = group_id,
+                group_id = group_id.index(),
                 reason = "config_reload",
                 "urltest runtime task started"
             );
             let result = runtime.run_urltest_group(group_id, shutdown).await;
             match &result {
                 Ok(()) => info!(
-                    group_id = group_id,
+                    group_id = group_id.index(),
                     reason = "urltest_task_returned",
                     "urltest runtime task returned"
                 ),
                 Err(urltest_error) => error!(
-                    group_id = group_id,
+                    group_id = group_id.index(),
                     reason = "urltest_task_error",
                     error = %urltest_error,
                     "urltest runtime task failed"
