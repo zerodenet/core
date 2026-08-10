@@ -101,8 +101,8 @@ async fn zero_trojan_outbound_interops_with_xray_trojan_inbound_tcp() {
 }
 
 /// Same as the TCP interop above, but sets `client_fingerprint: "chrome"` on
-/// Zero's trojan outbound. This verifies that the fingerprint-selected cipher
-/// and ALPN profile remains wire-compatible with a stock Xray TLS server.
+/// Zero's trojan outbound. This verifies that the fingerprint-selected TLS
+/// provider remains wire-compatible with a stock Xray TLS server.
 #[tokio::test]
 #[ignore = "requires XRAY_BIN pointing to an Xray executable"]
 async fn zero_trojan_outbound_with_fingerprint_interops_with_xray_trojan_inbound_tcp() {

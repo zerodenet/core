@@ -94,7 +94,11 @@ where
             .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
     } else {
-        rustls::ServerConfig::builder()
+        rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
     };
 
     let mut config = config_builder
@@ -212,7 +216,7 @@ where
 
     // Build with optional fingerprint via custom CryptoProvider
     let config_base = if let Some(ref fp) = fingerprint {
-        let provider = Arc::new(crate::fingerprint::build_provider(fp));
+        let provider = Arc::new(crate::fingerprint::build_client_provider(fp));
         tracing::debug!(
             fingerprint = %tls.client_fingerprint().unwrap_or(""),
             cipher_count = fp.cipher_suites.len(),
@@ -222,7 +226,9 @@ where
             .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
     } else {
-        ClientConfig::builder()
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
     };
 
     let mut config = if tls.insecure() {
@@ -240,15 +246,13 @@ where
         config.enable_sni = false;
     }
 
-    // ALPN: use explicit config if provided, otherwise use fingerprint-suggested ALPN
+    // Raw proxy protocols only advertise explicitly configured ALPN values.
     if !tls.alpn().is_empty() {
         config.alpn_protocols = tls
             .alpn()
             .iter()
             .map(|proto| proto.as_bytes().to_vec())
             .collect();
-    } else if fingerprint.is_some() && config.alpn_protocols.is_empty() {
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     }
 
     let server_name_str = server_name.clone();
@@ -321,12 +325,14 @@ where
         .and_then(crate::fingerprint::lookup_fingerprint);
 
     let config_base = if let Some(ref fingerprint) = fingerprint {
-        let provider = Arc::new(crate::fingerprint::build_provider(fingerprint));
+        let provider = Arc::new(crate::fingerprint::build_client_provider(fingerprint));
         ClientConfig::builder_with_provider(provider)
             .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
     } else {
-        ClientConfig::builder()
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
     };
 
     let mut config = if tls.insecure() {
@@ -350,8 +356,6 @@ where
             .iter()
             .map(|proto| proto.as_bytes().to_vec())
             .collect();
-    } else if fingerprint.is_some() {
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     }
 
     let connector = TlsConnector::from(Arc::new(config));

@@ -11,6 +11,8 @@ use zero_traits::{AsyncSocket, ClientTlsProfile, TcpTunnelProtocol};
 
 use super::shared::CMD_TCP;
 
+const DEFAULT_CLIENT_FINGERPRINT: &str = "chrome";
+
 /// Trojan outbound handler.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TrojanOutbound;
@@ -142,6 +144,7 @@ impl TrojanOutboundRequestBundle {
         mux_response_backlog_frames: Option<u32>,
         mux_response_backlog_bytes: Option<u64>,
     ) -> Result<Self, Error> {
+        let client_fingerprint = Some(client_fingerprint.unwrap_or(DEFAULT_CLIENT_FINGERPRINT));
         let parts = TrojanOutboundParts::new(password, sni, insecure, client_fingerprint);
         Ok(Self {
             tcp_connect: parts.tcp_connect_request(),

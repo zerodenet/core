@@ -318,6 +318,22 @@ fn tcp_connect_config_exposes_profile_accessors() {
 }
 
 #[test]
+fn outbound_uses_chrome_fingerprint_when_config_omits_it() {
+    let request = PreparedTrojanOutboundRequestBundle::from_config(
+        "test-password",
+        Some("edge.example"),
+        false,
+        None,
+    );
+    let tls_profile = request.owned_tls_profile();
+
+    assert_eq!(
+        ClientTlsProfile::client_fingerprint(&tls_profile),
+        Some("chrome")
+    );
+}
+
+#[test]
 fn udp_flow_resume_tls_profile_uses_fallback_server_name() {
     let plan = PreparedTrojanOutboundRequestBundle::from_config(
         "test-password",

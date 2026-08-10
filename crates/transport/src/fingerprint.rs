@@ -1,8 +1,8 @@
 //! TLS client fingerprint presets.
 //!
-//! Each preset defines cipher suites and key exchange groups that
-//! match a known browser fingerprint.  Applied via a custom
-//! `CryptoProvider` at `ClientConfig` build time.
+//! Each preset defines browser-compatible cipher-suite and key-exchange
+//! preferences. Client connections use a modern AWS-LC provider shape; these
+//! presets are compatibility profiles, not byte-for-byte browser emulation.
 //!
 //! Presets: `"chrome"`, `"firefox"`, `"safari"`, `"ios"`, `"edge"`,
 //! `"randomized"`, `"none"`.
@@ -97,6 +97,36 @@ pub fn build_provider(fp: &TlsFingerprint) -> CryptoProvider {
         kx_groups: fp.kx_groups.clone(),
         ..base
     }
+}
+
+/// Build the client-side provider for a browser-shaped ClientHello.
+///
+/// AWS-LC supplies the hybrid X25519/ML-KEM key share used by current browser
+/// TLS stacks. Besides post-quantum negotiation, that key share keeps the
+/// ClientHello in the modern browser size class expected by some TLS edges.
+pub fn build_client_provider(fp: &TlsFingerprint) -> CryptoProvider {
+    let mut provider = rustls::crypto::aws_lc_rs::default_provider();
+    let preferred = fp
+        .cipher_suites
+        .iter()
+        .filter_map(|suite| {
+            provider
+                .cipher_suites
+                .iter()
+                .find(|candidate| candidate.suite() == suite.suite())
+                .copied()
+        })
+        .collect::<Vec<_>>();
+    if !preferred.is_empty() {
+        provider.cipher_suites = preferred;
+    }
+    provider
+        .kx_groups
+        .retain(|group| group.name() != rustls::NamedGroup::X25519MLKEM768);
+    provider
+        .kx_groups
+        .insert(0, rustls::crypto::aws_lc_rs::kx_group::X25519MLKEM768);
+    provider
 }
 
 // 鈹€鈹€ Presets 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€

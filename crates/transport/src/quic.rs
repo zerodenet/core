@@ -42,10 +42,14 @@ pub async fn connect_quic(
 ) -> Result<QuicStream, RuntimeError> {
     use quinn::crypto::rustls::QuicClientConfig;
 
-    let mut tls_config = rustls::ClientConfig::builder()
-        .dangerous()
-        .with_custom_certificate_verifier(SkipServerVerification::new())
-        .with_no_client_auth();
+    let mut tls_config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .map_err(|error| RuntimeError::Io(io::Error::other(format!("quic tls protocol: {error}"))))?
+    .dangerous()
+    .with_custom_certificate_verifier(SkipServerVerification::new())
+    .with_no_client_auth();
 
     tls_config.alpn_protocols = alpn_protocols.to_vec();
 
@@ -200,10 +204,14 @@ impl QuicInbound {
                 RuntimeError::Io(io::Error::other("quic key file contains no private key"))
             })?;
 
-        let mut tls_config = rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(certs, key)
-            .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic server tls cfg: {e}"))))?;
+        let mut tls_config = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(|error| RuntimeError::Io(io::Error::other(format!("quic tls protocol: {error}"))))?
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic server tls cfg: {e}"))))?;
         tls_config.alpn_protocols = alpn_protocols.to_vec();
 
         let quic_cfg = quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)
