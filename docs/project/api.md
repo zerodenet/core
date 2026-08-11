@@ -372,7 +372,7 @@ HTTP adapter 将这些能力暴露在 `/api/v1/*` 命名空间下，IPC 和 CLI 
 - `diagnostics.trace_route`
   - 已实现。按真实会话路由流程查看规则匹配结果；域名未命中且规则需要目标 IP 时会解析 DNS 后复算
 
-热重载已实现，覆盖路由规则、出站组/出站、运行模式、入站 listener、DNS 配置、flow hooks、EventDispatcher 和原生 connector。`config.apply` 是持久化部署边界；`config.apply_runtime` 是不写回源文件的运行时覆盖边界。两者通过可等待确认的公共命令服务依次完成 proxy reconciliation 与 application service reconciliation；任一阶段失败都会恢复 last-known-good。`api.control` 的监听地址和鉴权不能在承载当前命令时自替换，变更会被拒绝并要求显式重启。
+热重载已实现，覆盖路由规则、出站组/出站、运行模式、入站 listener、声明式 `runtime.tun`、DNS 配置、flow hooks、EventDispatcher 和原生 connector。`runtime.tun.dual_stack` 默认启用 IPv4/IPv6 双栈接管，并在同一设备配置两族地址；`secondary_addr` 可覆盖自动选择的另一族 TUN-local CIDR。命令式 `tun.start` 提供相同的 `dual_stack` 与 `secondary_addr` 选项。`config.apply` 是持久化部署边界；`config.apply_runtime` 是不写回源文件的运行时覆盖边界。两者通过可等待确认的公共命令服务依次完成 proxy reconciliation 与 application service reconciliation；TUN 设备或系统路由安装失败同样会恢复上一份 TUN 和 last-known-good 配置。`api.control` 的监听地址和鉴权不能在承载当前命令时自替换，变更会被拒绝并要求显式重启。
 
 `policies.select` 通过 HTTP `POST /api/v1/commands` 调用，请求体示例：
 

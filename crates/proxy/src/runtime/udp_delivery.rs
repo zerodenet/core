@@ -27,7 +27,6 @@ where
     Ok(written)
 }
 
-#[cfg(feature = "managed-datagram-runtime")]
 pub(crate) async fn write_optional_direct_response<F, Fut, E>(
     response: &UdpDirectResponseParts<'_>,
     write: F,
@@ -71,13 +70,7 @@ where
     Ok(written)
 }
 
-#[cfg(all(
-    feature = "upstream-association-runtime",
-    any(
-        feature = "managed-datagram-runtime",
-        feature = "managed-datagram-runtime"
-    )
-))]
+#[cfg(feature = "upstream-association-runtime")]
 pub(crate) async fn write_optional_upstream_response<F, Fut, E>(
     response: &UdpUpstreamResponseParts,
     write: F,
@@ -121,7 +114,6 @@ where
     Ok(written)
 }
 
-#[cfg(feature = "managed-datagram-runtime")]
 pub(crate) async fn write_optional_chain_response<F, Fut, E>(
     response: &UdpChainResponseParts,
     write: F,

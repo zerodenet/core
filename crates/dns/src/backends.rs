@@ -37,8 +37,15 @@ impl ResolverBackend {
             DnsServerConfig::System => Ok(Self::System(TokioSystemResolver)),
             #[cfg(feature = "udp")]
             DnsServerConfig::Udp { address, port } => {
-                let addr = format!("{address}:{port}");
-                Ok(Self::Udp(UdpDnsResolver::new(&addr)))
+                let address = address.parse::<std::net::IpAddr>().map_err(|error| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("invalid UDP DNS address `{address}`: {error}"),
+                    )
+                })?;
+                Ok(Self::Udp(UdpDnsResolver::new(std::net::SocketAddr::new(
+                    address, *port,
+                ))))
             }
             #[cfg(not(feature = "udp"))]
             DnsServerConfig::Udp { .. } => Err(io::Error::new(
@@ -155,12 +162,13 @@ pub(crate) struct DotDnsResolver {
 #[cfg(feature = "dot")]
 impl DotDnsResolver {
     fn new(address: String, port: u16, server_name: Option<String>) -> io::Result<Self> {
-        let addr: SocketAddr = format!("{address}:{port}").parse().map_err(|e| {
+        let ip = address.parse::<std::net::IpAddr>().map_err(|e| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("invalid dot address `{address}:{port}`: {e}"),
+                format!("invalid dot address `{address}`: {e}"),
             )
         })?;
+        let addr = SocketAddr::new(ip, port);
 
         let server_name = server_name.unwrap_or(address);
         let roots =

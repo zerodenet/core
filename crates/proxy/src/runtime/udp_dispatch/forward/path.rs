@@ -6,7 +6,6 @@ use super::super::UdpDispatch;
 use crate::runtime::path::UdpPathCategory;
 use crate::runtime::udp_dispatch::model::UdpFlowCancellation;
 use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
-use crate::runtime::udp_socket::send_direct_udp_packet;
 
 impl UdpDispatch {
     /// Forward a packet to an existing flow.
@@ -33,7 +32,7 @@ impl UdpDispatch {
                 let Some(target_addr) = flow.outbound.direct_target_addr() else {
                     unreachable!("Direct category maps to Direct variant only");
                 };
-                match send_direct_udp_packet(&self.direct_socket, target_addr, payload).await {
+                match self.direct_socket.send_to_addr(payload, target_addr).await {
                     Ok(sent) => {
                         services.record_session_outbound_tx(flow.session.id, sent as u64);
                     }

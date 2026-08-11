@@ -1,104 +1,185 @@
-# TUN 端到端验证方案
+# TUN 模式与端到端验证
+
+Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并配置设备、安装事务化系统路由，并将 TUN TCP/UDP 送入与普通入站相同的路由、出站、会话、统计和 block 管线；不需要提前手工创建 TUN 设备。
 
 ## 前置条件
 
 | 平台 | 要求 |
 |------|------|
-| Linux | `sudo ip tuntap add dev tun0 mode tun`（需要 root） |
-| macOS | utun 自动创建，无需手动操作 |
-| Windows | `wintun.dll` 在 `PATH` 或二进制同目录（需 Administrator） |
+| Linux | root，或具备创建 TUN、配置接口和路由所需的 capabilities；系统需提供 `ip` |
+| macOS | root；系统需提供 `/sbin/ifconfig` 和 `/sbin/route` |
+| Windows | Administrator；将匹配架构的 `wintun.dll` 放在 `zero.exe` 同目录或 `PATH` |
 
-## Linux 端到端测试
+默认行为：
 
-### 1. 创建 TUN 设备
+- `auto_route=true`：通过两条 `/1` 路由接管默认流量，不覆盖原默认路由；
+- `dual_stack=true`：在同一设备上配置 IPv4/IPv6 两个地址，并同时安装两组拆分默认路由；`secondary_addr` 可显式指定另一族 CIDR，省略时按主地址族使用 `10.66.0.1/24` 或 `fd66::1/64`；只有明确的单栈主机才应关闭，否则另一地址族仍可能绕过 TUN；
+- `strict_route=true`：接口、端点排除路由或任一半默认路由失败时，启动整体失败并回滚已安装项；
+- `dns_hijack=true`：TUN 内的 UDP/TCP 53 由 Zero DNS 回答，并使用已有缓存、DNS 路由和 Fake-IP；
+- 代理节点和 DNS 上游获得原物理网关主机路由，Zero 创建的 TCP/UDP socket 同时按 IPv4/IPv6 分别绑定各自原物理接口，避免代理自环。
+- 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。
 
-```bash
-sudo ip tuntap add dev tun0 mode tun user $(whoami)
-sudo ip addr add 10.0.0.1/24 dev tun0
-sudo ip link set dev tun0 up
-```
+调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。生产防泄露验证不应关闭这些选项。
 
-### 2. 启动 echo 服务器
+## DNS 前置约束
 
-```bash
-# 在另一个终端
-nc -l 127.0.0.1 8080
-```
+严格 DNS 劫持要求至少配置一个非 system DNS 后端，且上游地址必须是 IP 字面量。这样 DNS 上游能在安装全局路由前建立明确的物理出口排除，避免系统解析器递归进入 TUN。
 
-### 3. 配置 zero
+示例：
 
 ```json
 {
+  "runtime": {
+    "tun": {
+      "name": "ZeroTun",
+      "addr": "10.66.0.1/24",
+      "secondary_addr": "fd66::1/64",
+      "tag": "tun-in",
+      "auto_route": true,
+      "dual_stack": true,
+      "strict_route": true,
+      "dns_hijack": true
+    },
+    "dns": {
+      "servers": [
+        { "type": "udp", "address": "1.1.1.1", "port": 53 }
+      ],
+      "cache": { "max_entries": 1024 },
+      "fake_ip": {
+        "cidr": "198.18.0.0/15",
+        "ttl_seconds": 86400,
+        "exclude_domains": []
+      }
+    }
+  },
   "outbounds": [
-    { "tag": "direct", "protocol": { "type": "direct" } }
+    { "tag": "proxy", "protocol": { "type": "socks5", "server": "192.0.2.10", "port": 1080 } }
   ],
   "route": {
     "rules": [],
-    "final": { "type": "direct" }
+    "final": { "type": "route", "outbound": "proxy" }
   }
 }
 ```
 
-```bash
-cargo run -- run config.json &
-cargo run -- tun start --addr 10.0.0.1/24 --tag proxy config.json
-```
+DNS 后端和所选代理协议还必须由当前构建启用。TUN 启动需要 `zero-proxy` 的 `udp-runtime`；默认 `full` 构建已满足。
 
-### 4. 通过 TUN 发请求
+## 启动与状态
 
-```bash
-# TUN 设备现在是 10.0.0.1，代理所有流量
-# 从另一个网络命名空间或路由测试：
-curl --interface tun0 http://httpbin.org/get
-```
+推荐在 `runtime.tun` 中声明 TUN。此时 TUN 与代理监听器一起启动，`config.apply` 会事务化地新增、替换或移除设备；新设备或路由安装失败时恢复上一份配置和 TUN。配置管理的 TUN 不能通过 `tun stop` 单独停止，应删除 `runtime.tun` 并应用配置。`mtu` 可在 `runtime.tun.mtu` 单独覆盖，否则继承 `runtime.network.mtu`。双栈部署建议显式填写另一族的 `secondary_addr`（必须为 CIDR 且与 `addr` 地址族不同）；省略时使用上述默认地址。
 
-### 5. 验证：检查 zero 状态
+配置方式只需要启动主进程：
 
 ```bash
-cargo run -- status config.json
-# 确认 TUN 状态 running=true，active_sessions > 0
-cargo run -- tun status config.json
+cargo run -- run config.json
+cargo run -- tun status
 ```
 
-## macOS 端到端测试
+也可省略 `runtime.tun`，再通过控制命令临时启停 TUN：
+
+先启动 Zero 主进程，再通过同一控制 socket 启动 TUN：
 
 ```bash
-# 1. utun 自动创建
-cargo run -- run -c config.json &
-# 2. 验证
-cargo run -- tun status config.json
+cargo run -- run config.json
 ```
 
-## 预期行为
-
-| 步骤 | 预期 |
-|------|------|
-| `cargo run -- run` | TUN device created, "tun device created" 日志 |
-| `cargo run -- tun status` | `running: true`, `name: <device_name>`, `addr: ...` |
-| `cargo run -- status` | `active_sessions` 中有 TUN-tagged 会话 |
-| `cargo run -- tun stop` | TUN 设备停止，`running: false` |
-
-## 验证的三层握手
-
-用 `tcpdump` 抓包可验证：
+在另一个终端执行：
 
 ```bash
-sudo tcpdump -i tun0 -nn -v
+cargo run -- tun start --addr 10.66.0.1/24 --secondary-addr fd66::1/64 --tag tun-in
+cargo run -- tun status
 ```
 
-应该看到：
-```
-10.0.0.2.54321 > 10.0.0.1.443: Flags [S], seq 1000         # 客户端 SYN
-10.0.0.1.443 > 10.0.0.2.54321: Flags [S.], seq 1000000, ack 1001  # 我们 SYN-ACK (MSS 1500)
-10.0.0.2.54321 > 10.0.0.1.443: Flags [.], ack 1000001       # 客户端 ACK
-# 连接建立 → 通过 serve_inbound() 代理
+状态应包含：
+
+```text
+tun: running, healthy=true, managed_by_config=true, name=..., addr=10.66.0.1/24, addresses=10.66.0.1/24,fd66::1/64, mtu=1500, tag=tun-in, auto_route=true, dual_stack=true, strict_route=true, dns_hijack=true, egress=..., egress_v4=..., egress_v6=...
 ```
 
-## 故障排查
+停止并确认清理：
 
-| 问题 | 可能原因 | 排查 |
-|------|---------|------|
-| TUN 创建失败 | 缺少权限 | `sudo` 或 Administrator |
-| 无数据流量 | 路由未配置 | `ip route` 检查 |
-| checksum 错误 | checksum 计算 bug | `tcpdump -v` 检查校验和字段 |
-| MSS 未协商 | build_tcp_with_mss 未调用 | 检查 SYN-ACK 包中是否有 MSS 选项（TCP options field）|
+```bash
+cargo run -- tun stop
+cargo run -- tun status
+```
+
+如使用非默认控制 socket，三个命令都传入 `--socket PATH`。
+
+## TCP、UDP 与 DNS 验证
+
+### Linux
+
+```bash
+ip address show
+ip -4 route show 0.0.0.0/1
+ip -4 route show 128.0.0.0/1
+curl https://example.com/
+dig @8.8.8.8 example.com A
+```
+
+`dig` 的目标地址可以是任意 DNS 地址；启用 DNS 劫持时 UDP/TCP 53 查询不会发往该目标，而是由 Zero DNS 返回。启用 Fake-IP 后，A 响应应位于配置的 Fake-IP 网段，后续到该地址的 TCP/UDP 会在路由决策前恢复为原域名。
+
+### macOS
+
+```bash
+ifconfig | grep -A4 '^utun'
+route -n get -inet 0.0.0.0
+curl https://example.com/
+dig @8.8.8.8 example.com A
+```
+
+### Windows（管理员 PowerShell）
+
+```powershell
+Get-NetAdapter -Name ZeroTun
+Get-NetRoute -PolicyStore ActiveStore | Where-Object DestinationPrefix -in '0.0.0.0/1','128.0.0.0/1'
+curl.exe https://example.com/
+Resolve-DnsName example.com
+```
+
+## WebRTC/STUN 防泄露验证
+
+TUN 能接管浏览器发出的 STUN UDP，但最终是否暴露真实公网出口仍由 Zero 路由策略决定：
+
+- STUN 命中支持 UDP 的代理出站：server-reflexive candidate 应是代理出口；
+- STUN 命中 `block`：不应产生对应 candidate；
+- STUN 命中 `direct`：会使用真实物理出口，这是显式策略，不属于 TUN 绕过。
+
+验证时打开 WebRTC candidate 测试页或建立实际 PeerConnection，同时在物理接口抓包：
+
+```bash
+# Linux/macOS；把 physical0 换成 tun status 显示的 egress
+sudo tcpdump -i physical0 -nn 'udp port 3478 or udp port 5349'
+```
+
+物理接口上不应出现浏览器到公共 STUN 服务器的直连包；允许出现配置的代理节点或 DNS 上游流量。再检查 `zero status`/会话 API，确认 TUN UDP 会话带有 `tun-in` 入站标签并记录路由、流量和结果。
+
+## 回滚与故障验证
+
+1. 启动 TUN 后记录两条半默认路由和节点/DNS 主机排除路由。
+2. 执行 `tun stop`，确认半默认路由消失、原默认路由仍在。
+3. 使用无效接口权限或预置冲突 `/1` 路由再次启动；严格模式应返回错误，且第一条已安装路由必须回滚。
+4. 强制中止 TUN 数据通道；`tun status` 应变为 `running=false` 并显示 `last_error`。
+5. Windows 连续执行两轮 start/stop，确认阻塞 reader 被唤醒且同名 Wintun adapter 可复用。
+
+路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，下一次以相同 TUN 入站 `tag` 启动会先消费日志，并按日志记录的旧设备名清理残留的半默认路由与端点排除路由。
+
+## 自动化覆盖
+
+- `zero-tun`：并发读写、掩码、分流默认路由计划；
+- `zero-stack`：UDP 队列等待与原始 IPv4/IPv6 数据包；
+- `zero-dns`：DNS wire query、Fake-IP 和 EDNS 计数处理；
+- `zero-proxy`：TUN UDP direct、block、防网络泄露以及 DNS/Fake-IP 响应；
+- 平台 CI：Linux、macOS、Windows 原生检查并编译特权 E2E harness。
+
+真实路由和设备操作需要管理员权限，不能由普通单元测试模拟。仓库中的 `tun_privileged_e2e` 会直接读取系统网络状态，校验接口 MTU、地址、拆分默认路由、TCP、DNS 劫持、STUN 基线与 block、强杀后的恢复日志，以及配置移除后的设备和日志清理。IPv4/IPv6 STUN 用例分别以单栈配置运行，需要对应地址族的原生网络和可达 STUN 服务。独立的离线双栈用例通过本地模拟 DNS 和 SOCKS5 出站，验证同一设备的 IPv4/IPv6 地址、四条 `/1` 路由、双族 TCP/DNS 流量和两份恢复日志；它也覆盖物理出口仅有 IPv4 时 IPv6 经代理载荷出站的情形。为公网 STUN 用例提供可达服务并运行：
+
+```bash
+ZERO_TUN_E2E_STUN_ADDR=203.0.113.10:3478 \
+  cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
+ZERO_TUN_E2E_STUN_ADDR_V6='[2001:db8::10]:3478' \
+  cargo test --test tun_privileged_e2e privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
+cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
+```
+
+`.github/workflows/tun-e2e.yml` 将冒烟、两个单栈 STUN 和离线双栈用例分发到带 `tun` 标签的 Linux、macOS 和 Windows 隔离自托管 runner。STUN 用例需要对应地址族的原生连通性和可达服务，离线双栈用例不作此要求；Windows runner 还需预装匹配架构的 Wintun。

@@ -52,7 +52,8 @@ pub(super) fn execute_diagnostics_probe_target(
                         proxy.protocols.direct_connector().connect_host(
                             &host,
                             port,
-                            proxy.resolver.as_ref()
+                            proxy.resolver.as_ref(),
+                            &proxy.egress_interface,
                         ),
                     )
                     .await,

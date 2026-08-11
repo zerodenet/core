@@ -511,7 +511,8 @@ fn build_udp_v6(src: Ipv6Addr, dst: Ipv6Addr, sport: u16, dport: u16, payload: &
 // ── Checksums ─────────────────────────────────────────────────────────
 
 /// RFC 1071 ones' complement checksum over a byte slice.
-/// Returns the checksum in **network byte order** (big-endian).
+/// Returns the checksum as a host `u16`; callers serialize it with
+/// `u16::to_be_bytes` (or equivalent high/low-byte writes).
 pub fn checksum(data: &[u8]) -> u16 {
     let mut sum: u32 = 0;
     let len = data.len();
@@ -525,7 +526,7 @@ pub fn checksum(data: &[u8]) -> u16 {
     while sum >> 16 != 0 {
         sum = (sum & 0xffff) + (sum >> 16);
     }
-    (!(sum as u16)).to_be()
+    !(sum as u16)
 }
 
 /// TCP checksum with IPv4 pseudo-header.
@@ -547,7 +548,7 @@ fn tcp_checksum_v6(src: &Ipv6Addr, dst: &Ipv6Addr, tcp: &[u8]) -> u16 {
     let mut pseudo = Vec::with_capacity(40 + tcp.len());
     pseudo.extend_from_slice(&src.octets());
     pseudo.extend_from_slice(&dst.octets());
-    pseudo.extend_from_slice(&tcp_len.to_be_bytes()[4..]); // u32 as 4 bytes
+    pseudo.extend_from_slice(&tcp_len.to_be_bytes());
     pseudo.extend_from_slice(&[0, 0, 0]);
     pseudo.push(IPPROTO_TCP);
     pseudo.extend_from_slice(tcp);
@@ -567,7 +568,7 @@ fn udp_checksum_v4(src: &Ipv4Addr, dst: &Ipv4Addr, udp: &[u8]) -> u16 {
     pseudo.extend_from_slice(udp);
     let c = checksum(&pseudo);
     if c == 0 {
-        0xFFFFu16.to_be()
+        0xFFFF
     } else {
         c
     }
@@ -579,13 +580,13 @@ fn udp_checksum_v6(src: &Ipv6Addr, dst: &Ipv6Addr, udp: &[u8]) -> u16 {
     let mut pseudo = Vec::with_capacity(40 + udp.len());
     pseudo.extend_from_slice(&src.octets());
     pseudo.extend_from_slice(&dst.octets());
-    pseudo.extend_from_slice(&udp_len.to_be_bytes()[4..]);
+    pseudo.extend_from_slice(&udp_len.to_be_bytes());
     pseudo.extend_from_slice(&[0, 0, 0]);
     pseudo.push(IPPROTO_UDP);
     pseudo.extend_from_slice(udp);
     let c = checksum(&pseudo);
     if c == 0 {
-        0xFFFFu16.to_be()
+        0xFFFF
     } else {
         c
     }

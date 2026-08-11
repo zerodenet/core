@@ -1,0 +1,52 @@
+use zero_config::{DnsConfig, DnsServerConfig, FakeIpConfig};
+
+fn query(domain: &str, query_type: u16) -> Vec<u8> {
+    let mut query = vec![
+        0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    ];
+    for label in domain.split('.') {
+        query.push(label.len() as u8);
+        query.extend_from_slice(label.as_bytes());
+    }
+    query.push(0);
+    query.extend_from_slice(&query_type.to_be_bytes());
+    query.extend_from_slice(&1_u16.to_be_bytes());
+    // EDNS OPT is deliberately present; the response must clear ARCOUNT when
+    // it does not copy the additional section.
+    query.extend_from_slice(&[0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0]);
+    query
+}
+
+#[tokio::test]
+async fn tun_query_uses_fake_ip_and_returns_a_well_formed_header() {
+    let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
+        servers: vec![DnsServerConfig::System],
+        cache: None,
+        routes: Vec::new(),
+        fake_ip: Some(FakeIpConfig {
+            cidr: "198.18.0.0/15".to_owned(),
+            ttl_seconds: 60,
+            exclude_domains: Vec::new(),
+        }),
+    }))
+    .expect("build DNS");
+    let response = dns
+        .answer_udp_query(&query("webrtc.example", 1))
+        .await
+        .expect("answer query");
+
+    assert_eq!(&response[..2], &[0x12, 0x34]);
+    assert_eq!(u16::from_be_bytes([response[6], response[7]]), 1);
+    assert_eq!(u16::from_be_bytes([response[10], response[11]]), 0);
+    assert_eq!(
+        dns.lookup_fake_ip_domain("webrtc.example").await.as_deref(),
+        Some("198.18.0.1")
+    );
+}
+
+#[test]
+fn parser_rejects_multiple_questions() {
+    let mut request = query("example.com", 1);
+    request[5] = 2;
+    assert!(zero_dns::udp::parse_dns_question(&request).is_err());
+}

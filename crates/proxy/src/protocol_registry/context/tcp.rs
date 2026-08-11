@@ -22,12 +22,13 @@ impl TcpRuntimeServices {
         snapshot: Arc<EngineRuntimeSnapshot>,
         resolver: Arc<DnsSystem>,
         protocols: ProtocolInventory,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
         principal_rate_limits: PrincipalRateLimitRegistry,
     ) -> Self {
         Self {
             engine,
             snapshot,
-            upstream: UpstreamConnectServices::new(resolver, protocols),
+            upstream: UpstreamConnectServices::new(resolver, protocols, egress_interface),
             principal_rate_limits,
         }
     }
@@ -86,7 +87,11 @@ impl TcpRuntimeServices {
         self.upstream
             .protocols
             .direct_connector()
-            .connect(session, self.upstream.resolver.as_ref())
+            .connect(
+                session,
+                self.upstream.resolver.as_ref(),
+                &self.upstream.egress_interface,
+            )
             .await
             .map_err(Into::into)
     }

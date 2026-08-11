@@ -1755,6 +1755,112 @@ fn rejects_invalid_global_latency_url_and_network_mtu() {
 }
 
 #[test]
+fn parses_declarative_tun_runtime_with_safe_defaults() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "network": { "mtu": 1400 },
+                "dns": { "servers": [{ "type": "udp", "address": "1.1.1.1" }] },
+                "tun": { "addr": "10.23.0.1/24" }
+            },
+            "route": {
+                "rules": [{
+                    "condition": { "type": "inbound", "values": ["tun"] },
+                    "action": { "type": "direct" }
+                }],
+                "final": { "type": "direct" }
+            }
+        }"#,
+    )
+    .expect("declarative TUN config should parse");
+
+    let tun = config.runtime.tun.expect("TUN should be enabled");
+    assert_eq!(tun.addr, "10.23.0.1/24");
+    assert_eq!(tun.secondary_addr, None);
+    assert_eq!(tun.tag, "tun");
+    assert_eq!(tun.effective_mtu(config.runtime.network.mtu), 1400);
+    assert!(tun.auto_route);
+    assert!(tun.dual_stack);
+    assert!(tun.strict_route);
+    assert!(tun.dns_hijack);
+}
+
+#[test]
+fn validates_declarative_tun_address_mask_mtu_and_tag() {
+    for tun in [
+        r#"{ "addr": "bad" }"#,
+        r#"{ "addr": "10.0.0.1/33" }"#,
+        r#"{ "addr": "10.0.0.1", "mask": "ffff:ffff:ffff:ffff::" }"#,
+        r#"{ "addr": "10.0.0.1", "mask": "255.0.255.0" }"#,
+        r#"{ "addr": "10.0.0.1/24", "mtu": 575 }"#,
+        r#"{ "addr": "10.0.0.1/24", "tag": "" }"#,
+        r#"{ "addr": "10.0.0.1/24", "name": "" }"#,
+        r#"{ "addr": "10.0.0.1/24", "secondary_addr": "fd66::1" }"#,
+        r#"{ "addr": "10.0.0.1/24", "secondary_addr": "10.1.0.1/24" }"#,
+        r#"{ "addr": "10.0.0.1/24", "secondary_addr": "fd66::1/129" }"#,
+        r#"{ "addr": "10.0.0.1/24", "secondary_addr": "fd66::1/64", "dual_stack": false }"#,
+    ] {
+        let raw = format!(
+            r#"{{
+                "runtime": {{
+                    "dns": {{ "servers": [{{ "type": "udp", "address": "1.1.1.1" }}] }},
+                    "tun": {tun}
+                }},
+                "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+            }}"#
+        );
+        let error = RuntimeConfig::parse(&raw).expect_err("invalid TUN config must fail");
+        assert!(matches!(error, zero_config::ConfigError::InvalidRuntime(_)));
+    }
+}
+
+#[test]
+fn rejects_tun_tag_that_duplicates_a_listener_tag() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "runtime": { "tun": { "addr": "10.0.0.1/24", "tag": "entry" } },
+            "inbounds": [{
+                "tag": "entry",
+                "listen": { "address": "127.0.0.1", "port": 1080 },
+                "protocol": { "type": "socks5" }
+            }],
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect_err("TUN and listener tags share the inbound namespace");
+
+    assert!(matches!(error, zero_config::ConfigError::InvalidRuntime(_)));
+}
+
+#[test]
+fn strict_declarative_tun_rejects_recursive_or_hostname_dns_endpoints() {
+    for dns in [
+        r#"{ "servers": [] }"#,
+        r#"{ "servers": [{ "type": "system" }] }"#,
+        r#"{ "servers": [{ "type": "udp", "address": "dns.example" }] }"#,
+        r#"{ "servers": [{ "type": "doh", "url": "https://dns.example/dns-query" }] }"#,
+    ] {
+        let raw = format!(
+            r#"{{
+                "runtime": {{
+                    "dns": {dns},
+                    "tun": {{ "addr": "10.0.0.1/24" }}
+                }},
+                "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+            }}"#
+        );
+        let error = RuntimeConfig::parse(&raw).expect_err("unsafe TUN DNS must fail early");
+        assert!(matches!(error, zero_config::ConfigError::InvalidRuntime(_)));
+    }
+}
+
+#[test]
+fn versioned_tun_client_example_is_valid() {
+    RuntimeConfig::parse(include_str!("../../../examples/v0.1.0/tun-client.json"))
+        .expect("versioned declarative TUN example must remain valid");
+}
+
+#[test]
 fn rejects_undefined_outbound_reference() {
     let error = RuntimeConfig::parse(
         r#"{

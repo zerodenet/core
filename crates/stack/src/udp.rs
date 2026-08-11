@@ -7,7 +7,7 @@
 
 use std::collections::VecDeque;
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, Notify};
 use tracing::warn;
 
 use zero_traits::{SocketAddress, UdpStack};
@@ -52,6 +52,7 @@ fn sockaddr_to_ipaddr(sa: &SocketAddress) -> std::net::IpAddr {
 /// [`send_to`]: UdpStack::send_to
 pub struct UserUdpStack {
     datagrams: Mutex<VecDeque<Datagram>>,
+    available: Notify,
     outbound: mpsc::Sender<Vec<u8>>,
 }
 
@@ -59,6 +60,7 @@ impl UserUdpStack {
     pub(crate) fn new(outbound: mpsc::Sender<Vec<u8>>) -> Self {
         Self {
             datagrams: Mutex::new(VecDeque::new()),
+            available: Notify::new(),
             outbound,
         }
     }
@@ -88,14 +90,20 @@ impl UdpStack for UserUdpStack {
             src: endpoint_to_sockaddr(&udp.src),
             dst: endpoint_to_sockaddr(&udp.dst),
         });
+        drop(dgrams);
+        self.available.notify_one();
     }
 
     async fn recv_from(&self, buf: &mut [u8]) -> Option<(usize, SocketAddress, SocketAddress)> {
-        let mut dgrams = self.datagrams.lock().await;
-        let dgram = dgrams.pop_front()?;
-        let n = dgram.data.len().min(buf.len());
-        buf[..n].copy_from_slice(&dgram.data[..n]);
-        Some((n, dgram.src, dgram.dst))
+        loop {
+            let notified = self.available.notified();
+            if let Some(dgram) = self.datagrams.lock().await.pop_front() {
+                let n = dgram.data.len().min(buf.len());
+                buf[..n].copy_from_slice(&dgram.data[..n]);
+                return Some((n, dgram.src, dgram.dst));
+            }
+            notified.await;
+        }
     }
 
     async fn send_to(&self, data: &[u8], src: SocketAddress, dst: SocketAddress) {

@@ -1,300 +1,563 @@
-//! TUN inbound 鈥?virtual network interface.
-//!
-//! Reads raw IP packets from a [`TunDevice`], feeds them to a
-//! [`NetworkStack`] (which handles TCP termination and UDP forwarding),
-//! and dispatches established TCP connections through `serve_inbound()`.
-//!
-//! The stack is pluggable: `UserNetworkStack` (default), or future
-//! `SystemStack` / `MixedStack` 鈥?the inbound handler only depends on
-//! [`TcpStack`] / [`UdpStack`] traits.
+//! TUN inbound lifecycle and proxy-kernel integration.
 
-use std::collections::HashMap;
+mod config;
+mod runtime;
+#[cfg(feature = "udp-runtime")]
+mod udp;
+
+use std::collections::BTreeSet;
 use std::io;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
-use async_trait::async_trait;
-use tokio::io::AsyncReadExt;
-use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, watch, Mutex};
-use tokio::time::interval;
-use tracing::{error, info, warn};
-
-use zero_core::{Address, Network, ProtocolType, Session};
+use tracing::{debug, info, warn};
 use zero_engine::EngineError;
-use zero_stack::{UserNetworkStack, UserTcpStream};
-use zero_traits::{NetworkStack, SocketAddress as TraitsSocketAddr, TcpStack, UdpStack};
+use zero_stack::UserNetworkStack;
 use zero_tun::TunDevice;
 
-use crate::runtime::tcp_ingress::{InboundProtocol, TcpIngressRuntime};
-use crate::runtime::{Proxy, TunInfo};
+use crate::runtime::{Proxy, TunControl, TunInfo};
+use config::{configured_dns_endpoint_addresses, parse_interface_addresses};
 
-// 鈹€鈹€ Protocol handler 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+static NEXT_TUN_ID: AtomicU64 = AtomicU64::new(1);
 
-struct TunProtocol;
-
-#[async_trait]
-impl InboundProtocol for TunProtocol {
-    type ClientStream = UserTcpStream;
-
-    async fn send_ok(&self, _: &mut Self::ClientStream) -> Result<(), EngineError> {
-        Ok(())
-    }
-    async fn send_blocked(&self, _: &mut Self::ClientStream) -> Result<(), EngineError> {
-        Ok(())
-    }
-    async fn send_upstream_failure(&self, _: &mut Self::ClientStream) -> Result<(), EngineError> {
-        Ok(())
-    }
+#[derive(Clone, Copy, Debug)]
+pub struct TunRuntimeOptions {
+    pub auto_route: bool,
+    pub dual_stack: bool,
+    pub strict_route: bool,
+    pub dns_hijack: bool,
 }
 
-// 鈹€鈹€ Dispatch loop 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+#[derive(Clone, Copy, Debug)]
+pub struct TunInterfaceOptions<'a> {
+    pub name: Option<&'a str>,
+    pub addr: &'a str,
+    pub mask: &'a str,
+    pub secondary_addr: Option<&'a str>,
+}
 
-/// How often to clean up idle UDP relay tasks.
-const UDP_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
-/// Idle timeout for UDP relay tasks.
-const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+struct TunStartSpec<'a> {
+    name: Option<&'a str>,
+    addr: &'a str,
+    mask: &'a str,
+    secondary_addr: Option<&'a str>,
+    mtu: u16,
+    tag: &'a str,
+    options: TunRuntimeOptions,
+    managed_config: Option<zero_config::TunConfig>,
+    prepared_network: Option<PreparedTunNetwork>,
+}
 
-async fn tun_loop<S: NetworkStack + Send + Sync + 'static>(
-    proxy: Proxy,
-    device: Arc<Mutex<impl TunDevice + 'static>>,
-    stack: S,
-    tag: String,
-    mut shutdown: watch::Receiver<bool>,
-) where
-    S::Tcp: TcpStack<Connection = UserTcpStream>,
-{
-    let tcp = stack.tcp();
-    let udp = stack.udp();
-    let mut buf = vec![0u8; 65536];
-    let mut udp_buf = vec![0u8; 65536];
-    let mut cleanup_tick = interval(UDP_CLEANUP_INTERVAL);
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PreparedTunNetwork {
+    dns_hijack: bool,
+    route_exclusions: Vec<IpAddr>,
+}
 
-    // UDP relay: local socket for sending/receiving datagrams to destinations.
-    let relay_sock = match UdpSocket::bind("0.0.0.0:0").await {
-        Ok(s) => s,
-        Err(e) => {
-            error!(error = %e, "tun udp relay socket bind failed");
-            return;
+fn tun_route_exclusion_required(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            !address.is_unspecified()
+                && !address.is_loopback()
+                && !address.is_multicast()
+                && !address.is_broadcast()
+                && !address.is_link_local()
         }
-    };
-    // Track pending UDP requests: (src, dst) 鈫?last_active for response matching.
-    let pending = Mutex::new(HashMap::<(TraitsSocketAddr, TraitsSocketAddr), Instant>::new());
-
-    loop {
-        tokio::select! {
-            biased;
-
-            // 鈹€鈹€ Shutdown signal 鈹€鈹€
-            _ = shutdown.changed() => {
-                if *shutdown.borrow() {
-                    info!("tun shutdown requested");
-                    break;
-                }
-                continue;
-            }
-
-            // 鈹€鈹€ Established TCP connection from stack 鈹€鈹€
-            Some((stream, src, dst)) = tcp.accept() => {
-                let src_addr = sockaddr_to_std(&src);
-                let session = Session::new(
-                    0,
-                    sockaddr_to_address(&dst),
-                    dst.port,
-                    Network::Tcp,
-                    ProtocolType::UNKNOWN,
-                );
-                let p = proxy.clone();
-                let t = tag.clone();
-                tokio::spawn(async move {
-                    let runtime =
-                        TcpIngressRuntime::new(p.tcp_runtime_services(), t, Some(src_addr));
-                    let _ = runtime.serve(session, stream, &TunProtocol).await;
-                });
-            }
-
-            // 鈹€鈹€ UDP datagram from stack 鈫?forward to destination 鈹€鈹€
-            Some((n, src, dst)) = udp.recv_from(&mut udp_buf) => {
-                let target = sockaddr_to_std(&dst);
-                if let Err(e) = relay_sock.send_to(&udp_buf[..n], target).await {
-                    warn!(error = %e, %target, "tun udp send_to failed");
-                } else {
-                    pending.lock().await.insert((src, dst), Instant::now());
-                }
-            }
-
-            // 鈹€鈹€ Periodic cleanup 鈹€鈹€
-            _ = cleanup_tick.tick() => {
-                let mut pend = pending.lock().await;
-                pend.retain(|_, last| last.elapsed() < UDP_IDLE_TIMEOUT);
-            }
-
-            // 鈹€鈹€ Raw packet from TUN device 鈹€鈹€
-            r = async {
-                let mut dev = device.lock().await;
-                dev.read(&mut buf).await
-            } => {
-                match r {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        tcp.feed(&buf[..n]).await;
-                        udp.feed(&buf[..n]).await;
-                        // After feeding, poll for UDP responses.
-                        poll_udp_responses(&relay_sock, udp, &pending).await;
-                    }
-                    Err(e) => {
-                        error!(error = %e, "tun read");
-                        break;
-                    }
-                }
-            }
+        IpAddr::V6(address) => {
+            !address.is_unspecified()
+                && !address.is_loopback()
+                && !address.is_multicast()
+                && !address.is_unicast_link_local()
         }
     }
 }
 
-/// Non-blocking poll for UDP responses to pending TUN requests.
-///
-/// Tries to receive from the relay socket.  When a datagram arrives,
-/// looks up the sender's address in the pending map to determine the
-/// original TUN-side source; if matched, sends the response back
-/// through the UDP stack.
-async fn poll_udp_responses(
-    sock: &UdpSocket,
-    udp: &impl UdpStack,
-    pending: &Mutex<HashMap<(TraitsSocketAddr, TraitsSocketAddr), Instant>>,
-) {
-    let mut resp_buf = [0u8; 65536];
-    match sock.try_recv_from(&mut resp_buf) {
-        Ok((n, from)) => {
-            let mut pend = pending.lock().await;
-            let key = pend
-                .iter()
-                .find(|((_src, dst), _)| sockaddr_to_std(dst) == from)
-                .map(|((src, dst), _)| (*src, *dst));
-
-            if let Some((src, dst)) = key {
-                udp.send_to(&resp_buf[..n], dst, src).await;
-                pend.insert((src, dst), Instant::now());
-            }
-        }
-        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-            // Nothing available 鈥?expected.
-        }
-        Err(e) => {
-            warn!(error = %e, "tun udp recv error");
-        }
-    }
+fn configured_tun_is_current(
+    current: &TunInfo,
+    desired: &zero_config::TunConfig,
+    network_mtu: u16,
+    prepared: &PreparedTunNetwork,
+) -> bool {
+    current.managed_config.as_ref() == Some(desired)
+        && current.mtu == desired.effective_mtu(network_mtu)
+        && current.dns_hijack == prepared.dns_hijack
+        && current.route_exclusions == prepared.route_exclusions
 }
-
-// 鈹€鈹€ Address conversion helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-
-fn sockaddr_to_std(sa: &TraitsSocketAddr) -> SocketAddr {
-    zero_platform_tokio::socket_address_to_socket_addr(*sa)
-}
-
-fn sockaddr_to_address(sa: &TraitsSocketAddr) -> Address {
-    match sa.ip {
-        zero_traits::IpAddress::V4(o) => Address::Ipv4(o),
-        zero_traits::IpAddress::V6(o) => Address::Ipv6(o),
-    }
-}
-
-// 鈹€鈹€ Proxy entry points 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 impl Proxy {
     pub async fn start_tun(
         &self,
-        name: Option<&str>,
-        addr: &str,
-        mask: &str,
+        interface: TunInterfaceOptions<'_>,
         mtu: u16,
         tag: &str,
+        options: TunRuntimeOptions,
     ) -> Result<(), EngineError> {
-        {
-            let info = self.tun_info.lock().unwrap();
-            if info.is_some() {
-                return Err(EngineError::Io(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    "TUN is already running",
-                )));
-            }
-        }
+        let TunInterfaceOptions {
+            name,
+            addr,
+            mask,
+            secondary_addr,
+        } = interface;
+        self.start_tun_internal(TunStartSpec {
+            name,
+            addr,
+            mask,
+            secondary_addr,
+            mtu,
+            tag,
+            options,
+            managed_config: None,
+            prepared_network: None,
+        })
+        .await
+    }
 
-        let addr_ip = addr.parse().map_err(|error| {
-            EngineError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("invalid TUN address `{addr}`: {error}"),
-            ))
-        })?;
-        let mask_ip = mask.parse().map_err(|error| {
-            EngineError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("invalid TUN mask `{mask}`: {error}"),
-            ))
-        })?;
+    async fn start_tun_internal(&self, spec: TunStartSpec<'_>) -> Result<(), EngineError> {
+        let TunStartSpec {
+            name,
+            addr,
+            mask,
+            secondary_addr,
+            mtu,
+            tag,
+            options,
+            managed_config,
+            prepared_network,
+        } = spec;
+        let TunRuntimeOptions {
+            auto_route,
+            dual_stack,
+            strict_route,
+            dns_hijack,
+        } = options;
+        let _operation = self.tun_operation_lock.lock().await;
+        if !cfg!(feature = "udp-runtime") {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "TUN requires the zero-proxy `udp-runtime` feature",
+            )));
+        }
+        if self.tun_control.lock().unwrap().is_some() {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "TUN is already running",
+            )));
+        }
         if mtu < 576 {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "TUN MTU must be at least 576",
             )));
         }
+        let interface_addresses =
+            parse_interface_addresses(addr, mask, secondary_addr, dual_stack)?;
+        let primary = &interface_addresses[0];
+        let address = primary.address;
+        let prepared_network = match prepared_network {
+            Some(prepared) => prepared,
+            None => {
+                self.prepare_tun_network(address, auto_route, dual_stack, dns_hijack, strict_route)
+                    .await?
+            }
+        };
+        let dns_hijack = prepared_network.dns_hijack;
 
         let device = zero_tun::create(name).map_err(EngineError::Io)?;
+        let address_pairs = interface_addresses
+            .iter()
+            .map(|address| (address.address, address.netmask))
+            .collect::<Vec<_>>();
         device
-            .configure(addr_ip, mask_ip, mtu)
+            .configure_addresses(&address_pairs, mtu)
             .map_err(EngineError::Io)?;
-        let dn = device.name().to_owned();
-        info!(inbound_tag = tag, name = %dn, addr = %addr, mtu, "tun device created");
+        let device_name = device.name().to_owned();
+        debug!(name = %device_name, "TUN device configured");
+        let (device_writer, device_reader) = device.into_channels().map_err(EngineError::Io)?;
+        let stack = UserNetworkStack::new(device_writer, zero_stack::tcp_mss_for_mtu(mtu));
+        let (tcp, udp) = stack.into_parts();
 
-        let device = Arc::new(Mutex::new(device));
-
-        // Outbound packet channel: stack 鈫?writer task 鈫?TUN device.
-        let (outbound_tx, mut outbound_rx) = mpsc::channel::<Vec<u8>>(256);
-
-        // Writer task.
-        let writer_dev = device.clone();
-        tokio::spawn(async move {
-            use tokio::io::AsyncWriteExt;
-            while let Some(pkt) = outbound_rx.recv().await {
-                let mut dev = writer_dev.lock().await;
-                if let Err(e) = dev.write_all(&pkt).await {
-                    warn!(error = %e, "tun write failed");
+        let excluded_endpoints = prepared_network.route_exclusions;
+        let mut routes = Vec::new();
+        if auto_route {
+            for route_address in interface_addresses.iter().map(|address| address.address) {
+                match zero_tun::SystemRouteGuard::install(
+                    &device_name,
+                    tag,
+                    route_address,
+                    &excluded_endpoints,
+                ) {
+                    Ok(route) => {
+                        debug!(
+                            family = if route_address.is_ipv6() {
+                                "IPv6"
+                            } else {
+                                "IPv4"
+                            },
+                            "automatic TUN routes installed"
+                        );
+                        routes.push(route);
+                    }
+                    Err(error) if strict_route => return Err(EngineError::Io(error)),
+                    Err(error) => {
+                        warn!(family = if route_address.is_ipv6() { "IPv6" } else { "IPv4" }, error = %error, "automatic TUN route installation skipped");
+                    }
                 }
             }
-        });
+        }
+        let egress_v4 = routes
+            .iter()
+            .find(|route| !route.is_ipv6())
+            .map(|route| route.egress().clone());
+        let egress_v6 = routes
+            .iter()
+            .find(|route| route.is_ipv6())
+            .map(|route| route.egress().clone());
+        for (ipv6, egress) in [(false, egress_v4.as_ref()), (true, egress_v6.as_ref())] {
+            let Some(egress) = egress else {
+                continue;
+            };
+            let interface =
+                zero_platform_tokio::EgressInterface::new(egress.name().to_owned(), egress.index())
+                    .map_err(EngineError::Io)?;
+            self.egress_interface.replace_for(ipv6, Some(interface));
+        }
+        debug!("TUN physical egress bindings selected");
+        let egress_interface_v4 = egress_v4.map(|egress| egress.name().to_owned());
+        let egress_interface_v6 = egress_v6.map(|egress| egress.name().to_owned());
+        let egress_interface = if address.is_ipv6() {
+            egress_interface_v6.clone()
+        } else {
+            egress_interface_v4.clone()
+        };
+        let managed_by_config = managed_config.is_some();
 
-        let stack = UserNetworkStack::new(outbound_tx, zero_stack::tcp_mss_for_mtu(mtu));
-
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        *self.tun_shutdown.lock().unwrap() = Some(shutdown_tx);
+        let id = NEXT_TUN_ID.fetch_add(1, Ordering::Relaxed);
+        let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
+        let (done_tx, done) = tokio::sync::oneshot::channel();
         *self.tun_info.lock().unwrap() = Some(TunInfo {
-            name: dn,
+            id,
+            name: device_name.clone(),
             addr: addr.to_owned(),
+            addresses: interface_addresses
+                .iter()
+                .map(|address| address.cidr.clone())
+                .collect(),
             mtu,
             tag: tag.to_owned(),
+            auto_route: !routes.is_empty(),
+            dual_stack,
+            strict_route,
+            dns_hijack,
+            egress_interface,
+            egress_interface_v4,
+            egress_interface_v6,
+            route_exclusions: excluded_endpoints,
+            managed_config,
         });
+        self.tun_last_error.lock().unwrap().take();
+        *self.tun_control.lock().unwrap() = Some(TunControl {
+            id,
+            shutdown,
+            done,
+            routes,
+        });
+        debug!("TUN runtime state published");
 
+        info!(inbound_tag = tag, name = %device_name, %addr, mtu, "TUN device started");
         let proxy = self.clone();
-        let t = tag.to_owned();
+        let inbound_tag = tag.to_owned();
         tokio::spawn(async move {
-            tun_loop(proxy, device, stack, t, shutdown_rx).await;
+            let result = runtime::run(
+                proxy.clone(),
+                device_reader,
+                tcp,
+                udp,
+                runtime::TunIngressConfig {
+                    addresses: address_pairs,
+                    tag: inbound_tag,
+                    dns_hijack,
+                },
+                shutdown_rx,
+            )
+            .await;
+            if let Err(error) = result {
+                warn!(error = %error, "TUN runtime stopped unexpectedly");
+                *proxy.tun_last_error.lock().unwrap() = Some(error.to_string());
+                if managed_by_config {
+                    let _ = proxy.configured_tun_failures.send(error.to_string());
+                }
+            }
+            clear_matching_tun_state(&proxy, id);
+            let _ = done_tx.send(());
         });
 
         Ok(())
     }
 
-    pub fn stop_tun(&self) -> Result<(), EngineError> {
-        let mut s = self.tun_shutdown.lock().unwrap();
-        if let Some(tx) = s.take() {
-            let _ = tx.send(true);
-            *self.tun_info.lock().unwrap() = None;
-            Ok(())
+    pub(crate) async fn reconcile_configured_tun(
+        &self,
+        desired: Option<&zero_config::TunConfig>,
+        network_mtu: u16,
+    ) -> Result<(), EngineError> {
+        let current = self.tun_info.lock().unwrap().clone();
+        let prepared_network = if let Some(desired) = desired {
+            let interface_addresses = parse_interface_addresses(
+                &desired.addr,
+                &desired.mask,
+                desired.secondary_addr.as_deref(),
+                desired.dual_stack,
+            )?;
+            Some(
+                self.prepare_tun_network(
+                    interface_addresses[0].address,
+                    desired.auto_route,
+                    desired.dual_stack,
+                    desired.dns_hijack,
+                    desired.strict_route,
+                )
+                .await?,
+            )
         } else {
-            Err(EngineError::Io(io::Error::new(
-                io::ErrorKind::NotFound,
-                "TUN is not running",
-            )))
+            None
+        };
+        if let (Some(current), Some(desired)) = (&current, desired) {
+            if prepared_network.as_ref().is_some_and(|prepared| {
+                configured_tun_is_current(current, desired, network_mtu, prepared)
+            }) {
+                return Ok(());
+            }
+        }
+
+        if desired.is_none() {
+            if current
+                .as_ref()
+                .is_some_and(|current| current.managed_config.is_some())
+            {
+                self.stop_tun_internal(true).await?;
+            }
+            return Ok(());
+        }
+
+        if let Some(current) = current {
+            if current.managed_config.is_none() {
+                return Err(EngineError::Io(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "cannot enable configured TUN while a command-managed TUN is running",
+                )));
+            }
+            self.stop_tun_internal(true).await?;
+        }
+
+        let desired = desired.expect("configured TUN desired state checked above");
+        self.start_tun_internal(TunStartSpec {
+            name: desired.name.as_deref(),
+            addr: &desired.addr,
+            mask: &desired.mask,
+            secondary_addr: desired.secondary_addr.as_deref(),
+            mtu: desired.effective_mtu(network_mtu),
+            tag: &desired.tag,
+            options: TunRuntimeOptions {
+                auto_route: desired.auto_route,
+                dual_stack: desired.dual_stack,
+                strict_route: desired.strict_route,
+                dns_hijack: desired.dns_hijack,
+            },
+            managed_config: Some(desired.clone()),
+            prepared_network,
+        })
+        .await
+    }
+
+    pub(crate) async fn stop_tun_if_running(&self) -> Result<(), EngineError> {
+        if self.tun_control.lock().unwrap().is_none() {
+            return Ok(());
+        }
+        self.stop_tun_internal(true).await
+    }
+
+    async fn resolve_tun_route_exclusions(
+        &self,
+        ipv6: bool,
+        strict: bool,
+    ) -> Result<Vec<IpAddr>, EngineError> {
+        let mut addresses = BTreeSet::new();
+        for (host, _) in self
+            .engine()
+            .config()
+            .outbounds
+            .iter()
+            .filter_map(|outbound| outbound.protocol.endpoint())
+        {
+            if let Ok(address) = host.parse::<IpAddr>() {
+                if address.is_ipv6() == ipv6 {
+                    addresses.insert(address);
+                }
+                continue;
+            }
+            match self.resolver.resolve_real(host).await {
+                Ok(resolved) => {
+                    addresses.extend(resolved.into_iter().filter_map(|address| {
+                        let address = match address {
+                            zero_traits::IpAddress::V4(bytes) => IpAddr::from(bytes),
+                            zero_traits::IpAddress::V6(bytes) => IpAddr::from(bytes),
+                        };
+                        (address.is_ipv6() == ipv6).then_some(address)
+                    }));
+                }
+                Err(error) if strict => {
+                    return Err(EngineError::Io(io::Error::other(format!(
+                        "resolve TUN route exclusion `{host}`: {error}"
+                    ))));
+                }
+                Err(error) => {
+                    warn!(server = host, error = %error, "TUN route exclusion was not resolved");
+                }
+            }
+        }
+        Ok(addresses.into_iter().collect())
+    }
+
+    async fn prepare_tun_network(
+        &self,
+        address: IpAddr,
+        auto_route: bool,
+        dual_stack: bool,
+        dns_hijack: bool,
+        strict_route: bool,
+    ) -> Result<PreparedTunNetwork, EngineError> {
+        let (dns_hijack, dns_route_exclusions) =
+            self.prepare_tun_dns_hijack(dns_hijack, strict_route)?;
+        let mut route_exclusions = Vec::new();
+        if auto_route {
+            route_exclusions = self
+                .resolve_tun_route_exclusions(false, strict_route)
+                .await?;
+            if dual_stack || address.is_ipv6() {
+                route_exclusions.extend(
+                    self.resolve_tun_route_exclusions(true, strict_route)
+                        .await?,
+                );
+            }
+            route_exclusions.extend(dns_route_exclusions);
+            route_exclusions.retain(|address| tun_route_exclusion_required(*address));
+            route_exclusions.sort_unstable();
+            route_exclusions.dedup();
+        }
+        Ok(PreparedTunNetwork {
+            dns_hijack,
+            route_exclusions,
+        })
+    }
+
+    fn prepare_tun_dns_hijack(
+        &self,
+        requested: bool,
+        strict: bool,
+    ) -> Result<(bool, Vec<IpAddr>), EngineError> {
+        if !requested {
+            return Ok((false, Vec::new()));
+        }
+        let result = configured_dns_endpoint_addresses(self.engine().config().as_ref());
+        match result {
+            Ok(addresses) => Ok((true, addresses)),
+            Err(error) if strict => Err(EngineError::Io(error)),
+            Err(error) => {
+                warn!(error = %error, "TUN DNS hijack disabled");
+                Ok((false, Vec::new()))
+            }
         }
     }
+
+    pub async fn stop_tun(&self) -> Result<(), EngineError> {
+        self.stop_tun_internal(false).await
+    }
+
+    async fn stop_tun_internal(&self, allow_configured: bool) -> Result<(), EngineError> {
+        let _operation = self.tun_operation_lock.lock().await;
+        if !allow_configured
+            && self
+                .tun_info
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|info| info.managed_config.is_some())
+        {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "TUN is managed by `runtime.tun`; remove it with config.apply instead",
+            )));
+        }
+        let control = self.tun_control.lock().unwrap().take().ok_or_else(|| {
+            EngineError::Io(io::Error::new(
+                io::ErrorKind::NotFound,
+                "TUN is not running",
+            ))
+        })?;
+        let TunControl {
+            id,
+            shutdown,
+            done,
+            routes,
+        } = control;
+        let _ = shutdown.send(true);
+        let stopped = tokio::time::timeout(Duration::from_secs(5), done).await;
+        let mut route_cleanup = Ok(());
+        for routes in routes.into_iter().rev() {
+            if let Err(error) = routes.close() {
+                if route_cleanup.is_ok() {
+                    route_cleanup = Err(EngineError::Io(error));
+                }
+            }
+        }
+        self.egress_interface.clear();
+        clear_matching_tun_info(self, id);
+        let result = match stopped {
+            Ok(Ok(())) => route_cleanup,
+            Ok(Err(_)) => Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "TUN runtime exited without shutdown acknowledgement",
+            ))),
+            Err(_) => Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "timed out waiting for TUN runtime shutdown",
+            ))),
+        };
+        match &result {
+            Ok(()) => {
+                self.tun_last_error.lock().unwrap().take();
+            }
+            Err(error) => {
+                *self.tun_last_error.lock().unwrap() = Some(error.to_string());
+            }
+        }
+        result
+    }
 }
+
+fn clear_matching_tun_state(proxy: &Proxy, id: u64) {
+    clear_matching_tun_info(proxy, id);
+    let removed = {
+        let mut control = proxy.tun_control.lock().unwrap();
+        if control.as_ref().is_some_and(|control| control.id == id) {
+            control.take()
+        } else {
+            None
+        }
+    };
+    if removed.is_some() {
+        drop(removed);
+        proxy.egress_interface.clear();
+    }
+}
+
+fn clear_matching_tun_info(proxy: &Proxy, id: u64) {
+    let mut info = proxy.tun_info.lock().unwrap();
+    if info.as_ref().is_some_and(|info| info.id == id) {
+        debug!(id, "clearing TUN runtime state");
+        info.take();
+    }
+}
+
+#[cfg(test)]
+mod tests;

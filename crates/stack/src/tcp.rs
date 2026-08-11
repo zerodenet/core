@@ -20,7 +20,10 @@ use std::collections::HashMap;
 use std::io;
 use std::net::IpAddr;
 use std::pin::Pin;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
@@ -76,19 +79,19 @@ enum TcpState {
 /// Per-connection state tracked by the stack.
 struct Conn {
     state: TcpState,
-    /// Initial send sequence number (our side).
-    iss: u32,
     /// Next sequence number to send (our side).
-    snd_nxt: u32,
+    snd_nxt: Arc<AtomicU32>,
     /// Next expected receive sequence number (client side).
-    rcv_nxt: u32,
+    rcv_nxt: Arc<AtomicU32>,
     /// Sends inbound payload toward the proxy (UserTcpStream read side).
-    data_tx: mpsc::Sender<Vec<u8>>,
+    data_tx: Option<mpsc::Sender<Vec<u8>>>,
     /// Read-side receiver — extracted when transitioning to Established
     /// and passed into the `UserTcpStream`.
     data_rx: Option<mpsc::Receiver<Vec<u8>>>,
     /// Last time we saw activity on this connection.
     last_active: Instant,
+    /// Shared with the stream writer so the stack can retire a fully closed flow.
+    fin_sent: Arc<AtomicBool>,
 }
 
 // ── UserTcpStream ─────────────────────────────────────────────────────
@@ -100,9 +103,9 @@ struct Conn {
 ///   the outbound packet channel (back to TUN).
 pub struct UserTcpStream {
     /// Data from application (proxy reads this).
-    read_rx: Mutex<mpsc::Receiver<Vec<u8>>>,
+    read_rx: StdMutex<mpsc::Receiver<Vec<u8>>>,
     /// Connection metadata + outbound writer (proxy writes this).
-    write: Mutex<TcpWrite>,
+    write: StdMutex<TcpWrite>,
 }
 
 struct TcpWrite {
@@ -115,11 +118,11 @@ struct TcpWrite {
     sport: u16,
     dport: u16,
     /// Next send sequence.
-    snd_nxt: u32,
+    snd_nxt: Arc<AtomicU32>,
     /// Receive sequence (for ACK number).
-    rcv_nxt: u32,
+    rcv_nxt: Arc<AtomicU32>,
     /// Have we sent FIN?
-    fin_sent: bool,
+    fin_sent: Arc<AtomicBool>,
 }
 
 impl UserTcpStream {
@@ -127,23 +130,24 @@ impl UserTcpStream {
         data_rx: mpsc::Receiver<Vec<u8>>,
         outbound: mpsc::Sender<Vec<u8>>,
         conn_key: &ConnKey,
-        iss: u32,
-        rcv_nxt: u32,
+        snd_nxt: Arc<AtomicU32>,
+        rcv_nxt: Arc<AtomicU32>,
+        fin_sent: Arc<AtomicBool>,
     ) -> Self {
         // conn_key = (app_ip, app_port, our_ip, our_port)
         // We send FROM our side TO app side:
         let rev = key_reversed(conn_key);
         Self {
-            read_rx: Mutex::new(data_rx),
-            write: Mutex::new(TcpWrite {
+            read_rx: StdMutex::new(data_rx),
+            write: StdMutex::new(TcpWrite {
                 outbound,
-                src_ip: rev.0,                // our_ip
-                dst_ip: rev.2,                // app_ip
-                sport: rev.1,                 // our_port
-                dport: rev.3,                 // app_port
-                snd_nxt: iss.wrapping_add(1), // first data byte after SYN-ACK
+                src_ip: rev.0, // our_ip
+                dst_ip: rev.2, // app_ip
+                sport: rev.1,  // our_port
+                dport: rev.3,  // app_port
+                snd_nxt,
                 rcv_nxt,
-                fin_sent: false,
+                fin_sent,
             }),
         }
     }
@@ -155,10 +159,7 @@ impl AsyncRead for UserTcpStream {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        let mut rx = match self.read_rx.try_lock() {
-            Ok(r) => r,
-            Err(_) => return Poll::Pending,
-        };
+        let mut rx = self.read_rx.lock().expect("TCP read lock poisoned");
         match rx.poll_recv(cx) {
             Poll::Ready(Some(data)) => {
                 let n = data.len().min(buf.remaining());
@@ -174,14 +175,11 @@ impl AsyncRead for UserTcpStream {
 impl AsyncWrite for UserTcpStream {
     fn poll_write(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         data: &[u8],
     ) -> Poll<io::Result<usize>> {
-        let mut w = match self.write.try_lock() {
-            Ok(w) => w,
-            Err(_) => return Poll::Pending,
-        };
-        if w.fin_sent {
+        let w = self.write.lock().expect("TCP write lock poisoned");
+        if w.fin_sent.load(Ordering::Acquire) {
             return Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "connection closed",
@@ -192,17 +190,20 @@ impl AsyncWrite for UserTcpStream {
             w.dst_ip,
             w.sport,
             w.dport,
-            w.snd_nxt,
-            w.rcv_nxt,
+            w.snd_nxt.load(Ordering::Acquire),
+            w.rcv_nxt.load(Ordering::Acquire),
             tcp_flags::PSH | tcp_flags::ACK,
             data,
         );
         match w.outbound.try_send(pkt) {
             Ok(()) => {
-                w.snd_nxt = w.snd_nxt.wrapping_add(data.len() as u32);
+                w.snd_nxt.fetch_add(data.len() as u32, Ordering::AcqRel);
                 Poll::Ready(Ok(data.len()))
             }
-            Err(mpsc::error::TrySendError::Full(_)) => Poll::Pending,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed")))
             }
@@ -212,12 +213,9 @@ impl AsyncWrite for UserTcpStream {
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let mut w = match self.write.try_lock() {
-            Ok(w) => w,
-            Err(_) => return Poll::Pending,
-        };
-        if w.fin_sent {
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let w = self.write.lock().expect("TCP write lock poisoned");
+        if w.fin_sent.load(Ordering::Acquire) {
             return Poll::Ready(Ok(()));
         }
         let pkt = packet::build_tcp(
@@ -225,14 +223,25 @@ impl AsyncWrite for UserTcpStream {
             w.dst_ip,
             w.sport,
             w.dport,
-            w.snd_nxt,
-            w.rcv_nxt,
+            w.snd_nxt.load(Ordering::Acquire),
+            w.rcv_nxt.load(Ordering::Acquire),
             tcp_flags::FIN | tcp_flags::ACK,
             &[],
         );
-        let _ = w.outbound.try_send(pkt);
-        w.fin_sent = true;
-        Poll::Ready(Ok(()))
+        match w.outbound.try_send(pkt) {
+            Ok(()) => {
+                w.snd_nxt.fetch_add(1, Ordering::AcqRel);
+                w.fin_sent.store(true, Ordering::Release);
+                Poll::Ready(Ok(()))
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed")))
+            }
+        }
     }
 }
 
@@ -319,6 +328,7 @@ impl TcpStack for UserTcpStack {
                         return;
                     }
                     conn.state = TcpState::Established;
+                    tracing::trace!(?key, "user TCP handshake established");
 
                     // Extract the receiver that's been waiting since SYN.
                     let data_rx = conn.data_rx.take().expect("data_rx present in SynReceived");
@@ -327,64 +337,72 @@ impl TcpStack for UserTcpStack {
                         data_rx,
                         self.outbound.clone(),
                         &key,
-                        conn.iss,
-                        conn.rcv_nxt,
+                        Arc::clone(&conn.snd_nxt),
+                        Arc::clone(&conn.rcv_nxt),
+                        Arc::clone(&conn.fin_sent),
                     );
 
                     let src = endpoint_to_sockaddr(&tcp.src);
                     let dst = endpoint_to_sockaddr(&tcp.dst);
-                    if self
-                        .accept_tx
-                        .try_send(ReadyConn { stream, src, dst })
-                        .is_err()
-                    {
-                        warn!("tcp accept channel full, dropping connection");
-                        conns.remove(&key);
+                    match self.accept_tx.try_send(ReadyConn { stream, src, dst }) {
+                        Ok(()) => tracing::trace!(?key, "user TCP connection queued for accept"),
+                        Err(error) => {
+                            warn!("tcp accept channel rejected connection: {error}");
+                            conns.remove(&key);
+                        }
                     }
                 }
                 TcpState::Established => {
-                    // Data transfer.
+                    let mut needs_ack = false;
+
+                    // Data transfer. Pure ACKs do not elicit another ACK.
                     if !tcp.payload.is_empty() {
-                        if conn.data_tx.try_send(tcp.payload.to_vec()).is_err() {
+                        let Some(data_tx) = conn.data_tx.as_ref() else {
+                            return;
+                        };
+                        if data_tx.try_send(tcp.payload.to_vec()).is_err() {
                             // Channel full — proxy is slow.  Drop the packet;
                             // the client will retransmit.
                             warn!("tcp conn data channel full, dropping segment");
                             return;
                         }
-                        conn.rcv_nxt = conn.rcv_nxt.wrapping_add(tcp.payload.len() as u32);
+                        conn.rcv_nxt
+                            .fetch_add(tcp.payload.len() as u32, Ordering::AcqRel);
+                        needs_ack = true;
                     }
-                    // ACK.
-                    let ack = packet::build_tcp(
-                        rev.0,
-                        rev.2,
-                        rev.1,
-                        rev.3,
-                        conn.snd_nxt,
-                        conn.rcv_nxt,
-                        tcp_flags::ACK,
-                        &[],
-                    );
-                    self.send_response(ack);
 
                     // FIN from client → transition to CloseWait.
                     if tcp.fin {
-                        conn.rcv_nxt = conn.rcv_nxt.wrapping_add(1);
-                        // ACK the FIN.
-                        let fin_ack = packet::build_tcp(
+                        conn.rcv_nxt.fetch_add(1, Ordering::AcqRel);
+                        // Dropping the last sender makes AsyncRead return EOF so the
+                        // kernel relay can finish its half-close normally.
+                        conn.data_tx.take();
+                        conn.state = TcpState::CloseWait;
+                        needs_ack = true;
+                    }
+
+                    if needs_ack {
+                        let ack = packet::build_tcp(
                             rev.0,
                             rev.2,
                             rev.1,
                             rev.3,
-                            conn.snd_nxt,
-                            conn.rcv_nxt,
+                            conn.snd_nxt.load(Ordering::Acquire),
+                            conn.rcv_nxt.load(Ordering::Acquire),
                             tcp_flags::ACK,
                             &[],
                         );
-                        self.send_response(fin_ack);
-                        conn.state = TcpState::CloseWait;
+                        self.send_response(ack);
                     }
                 }
                 TcpState::CloseWait => {
+                    if tcp.ack_flag
+                        && conn.fin_sent.load(Ordering::Acquire)
+                        && tcp.ack == conn.snd_nxt.load(Ordering::Acquire)
+                    {
+                        conns.remove(&key);
+                        return;
+                    }
                     // Waiting for proxy to finish.  ACK any retransmitted FINs.
                     if tcp.fin {
                         let fin_ack = packet::build_tcp(
@@ -392,8 +410,8 @@ impl TcpStack for UserTcpStack {
                             rev.2,
                             rev.1,
                             rev.3,
-                            conn.snd_nxt,
-                            conn.rcv_nxt,
+                            conn.snd_nxt.load(Ordering::Acquire),
+                            conn.rcv_nxt.load(Ordering::Acquire),
                             tcp_flags::ACK,
                             &[],
                         );
@@ -406,11 +424,17 @@ impl TcpStack for UserTcpStack {
 
         // ── New connection: must be SYN ──
         if !tcp.syn {
+            tracing::trace!(?key, "user TCP packet did not match an existing connection");
             return;
         }
 
+        tracing::trace!(?key, "user TCP SYN created a connection");
+
         let iss = next_iss();
-        let rcv_nxt = tcp.seq.wrapping_add(1);
+        let initial_rcv_nxt = tcp.seq.wrapping_add(1);
+        let snd_nxt = Arc::new(AtomicU32::new(iss.wrapping_add(1)));
+        let rcv_nxt = Arc::new(AtomicU32::new(initial_rcv_nxt));
+        let fin_sent = Arc::new(AtomicBool::new(false));
 
         // SYN-ACK with MSS option.
         let syn_ack = packet::build_tcp_with_mss(
@@ -419,23 +443,22 @@ impl TcpStack for UserTcpStack {
             rev.1,
             rev.3,
             iss,
-            rcv_nxt,
+            initial_rcv_nxt,
             tcp_flags::SYN | tcp_flags::ACK,
             self.mss,
         );
-
         let (data_tx, data_rx) = mpsc::channel::<Vec<u8>>(256);
 
         conns.insert(
             key,
             Conn {
                 state: TcpState::SynReceived,
-                iss,
-                snd_nxt: iss.wrapping_add(1),
+                snd_nxt,
                 rcv_nxt,
-                data_tx,
+                data_tx: Some(data_tx),
                 data_rx: Some(data_rx),
                 last_active: Instant::now(),
+                fin_sent,
             },
         );
 
@@ -445,6 +468,7 @@ impl TcpStack for UserTcpStack {
     async fn accept(&self) -> Option<(Self::Connection, SocketAddress, SocketAddress)> {
         let mut rx = self.accept_rx.lock().await;
         let conn = rx.recv().await?;
+        tracing::trace!(source = ?conn.src, destination = ?conn.dst, "user TCP connection accepted");
         Some((conn.stream, conn.src, conn.dst))
     }
 }

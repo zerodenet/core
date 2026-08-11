@@ -8,6 +8,44 @@ use zero_api::{
 };
 
 #[test]
+fn tun_start_defaults_to_transactional_automatic_routes() {
+    let command: zero_api::TunStartCommand = serde_json::from_value(serde_json::json!({
+        "addr": "10.0.0.1",
+        "tag": "tun"
+    }))
+    .expect("deserialize TUN command");
+
+    assert!(command.auto_route);
+    assert!(command.dual_stack);
+    assert!(command.strict_route);
+    assert!(command.dns_hijack);
+    assert_eq!(command.secondary_addr, None);
+}
+
+#[test]
+fn tun_start_accepts_an_explicit_secondary_address() {
+    let command: zero_api::TunStartCommand = serde_json::from_value(serde_json::json!({
+        "addr": "10.0.0.1/24",
+        "secondary_addr": "fd77::1/64",
+        "tag": "tun"
+    }))
+    .expect("deserialize dual-stack TUN command");
+
+    assert_eq!(command.secondary_addr.as_deref(), Some("fd77::1/64"));
+}
+
+#[test]
+fn tun_status_defaults_to_command_managed_for_forward_compatibility() {
+    let status: zero_api::TunStatusSnapshot = serde_json::from_value(serde_json::json!({
+        "running": true,
+        "name": "tun0"
+    }))
+    .expect("deserialize legacy TUN status");
+
+    assert!(!status.managed_by_config);
+}
+
+#[test]
 fn command_permissions_follow_cqrs_boundaries() {
     let config = CommandRequest::ConfigValidate(ConfigValidateCommand {
         config: json!({ "inbounds": [] }),

@@ -18,6 +18,6 @@ pub use model::{
     QuicConfig, RealityConfig, RouteActionConfig, RouteConfig, RouteRuleConfig, RouteRuleSetConfig,
     RuleConditionConfig, RuleSetFormatConfig, RuleSetSourceType, RuntimeConfig,
     RuntimeOptionsConfig, ShadowsocksUserConfig, Socks5UserConfig, SplitHttpConfig, TlsConfig,
-    TrojanUserConfig, UrlRewriteRule, VlessUserConfig, VmessUserConfig, WebSocketConfig,
+    TrojanUserConfig, TunConfig, UrlRewriteRule, VlessUserConfig, VmessUserConfig, WebSocketConfig,
     DEFAULT_EVENT_LOG_CAPACITY, DEFAULT_LATENCY_TEST_URL,
 };

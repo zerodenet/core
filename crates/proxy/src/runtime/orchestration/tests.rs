@@ -1,6 +1,9 @@
 use zero_engine::EngineError;
 
-use super::lifecycle::{handle_listener_result, handle_urltest_result};
+use super::lifecycle::{
+    handle_configured_tun_failure, handle_listener_result, handle_urltest_result,
+    has_runtime_inbound,
+};
 
 #[test]
 fn unexpected_clean_listener_exit_is_fatal() {
@@ -52,4 +55,29 @@ fn clean_urltest_exit_is_allowed_during_shutdown() {
     let result = handle_urltest_result(Some(Ok(Ok(()))), true);
 
     assert!(result.is_ok());
+}
+
+#[test]
+fn declarative_tun_counts_as_a_runtime_inbound() {
+    let config = zero_config::RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": { "servers": [{ "type": "udp", "address": "1.1.1.1" }] },
+                "tun": { "addr": "10.0.0.1/24" }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("valid TUN-only runtime config");
+
+    assert!(config.inbounds.is_empty());
+    assert!(has_runtime_inbound(&config));
+}
+
+#[test]
+fn configured_tun_failure_is_fatal_to_orchestration() {
+    let error = handle_configured_tun_failure(Ok("device read failed".to_owned()))
+        .expect_err("configured TUN failure must fail the runtime");
+
+    assert!(error.to_string().contains("configured TUN runtime failed"));
 }

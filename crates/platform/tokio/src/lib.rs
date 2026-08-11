@@ -4,11 +4,15 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tokio::io::{copy_bidirectional, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::net::{lookup_host, TcpListener as TokioTcpListener, TcpStream, UdpSocket};
+use tokio::net::{lookup_host, TcpListener as TokioTcpListener, TcpSocket, TcpStream, UdpSocket};
 use zero_traits::{
     AsyncSocket, DatagramSocket as DatagramSocketTrait, DnsResolver, IpAddress, SocketAddress,
     TcpListener as TcpListenerTrait, TransportBypassControl,
 };
+
+mod egress;
+use egress::{bind_tcp_to_interface, bind_udp_to_interface};
+pub use egress::{EgressInterface, EgressInterfaceControl};
 
 #[derive(Debug)]
 pub struct TokioSocket {
@@ -25,7 +29,27 @@ impl TokioSocket {
     }
 
     pub async fn connect_addr(addr: SocketAddr) -> io::Result<Self> {
-        TcpStream::connect(addr).await.map(Self::new)
+        Self::connect_addr_on(addr, None).await
+    }
+
+    /// Connect while forcing the socket onto a physical egress interface.
+    ///
+    /// TUN runtimes use this before installing a default route through the
+    /// tunnel so Zero's own upstream and direct connections cannot re-enter
+    /// the TUN device.
+    pub async fn connect_addr_on(
+        addr: SocketAddr,
+        interface: Option<&EgressInterface>,
+    ) -> io::Result<Self> {
+        let socket = if addr.is_ipv4() {
+            TcpSocket::new_v4()?
+        } else {
+            TcpSocket::new_v6()?
+        };
+        if let Some(interface) = interface.filter(|_| !addr.ip().is_loopback()) {
+            bind_tcp_to_interface(&socket, addr, interface)?;
+        }
+        socket.connect(addr).await.map(Self::new)
     }
 
     pub fn into_inner(self) -> TcpStream {
@@ -274,6 +298,21 @@ impl TokioDatagramSocket {
 
     pub async fn bind_addr(addr: SocketAddr) -> io::Result<Self> {
         UdpSocket::bind(addr).await.map(|inner| Self { inner })
+    }
+
+    /// Bind a datagram socket and force its packets onto a physical egress
+    /// interface when one is selected by the active TUN route transaction.
+    pub async fn bind_addr_on(
+        addr: SocketAddr,
+        interface: Option<&EgressInterface>,
+    ) -> io::Result<Self> {
+        if interface.is_none() {
+            return Self::bind_addr(addr).await;
+        }
+        let socket = std::net::UdpSocket::bind(addr)?;
+        bind_udp_to_interface(&socket, addr, interface.expect("checked above"))?;
+        socket.set_nonblocking(true)?;
+        UdpSocket::from_std(socket).map(|inner| Self { inner })
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {

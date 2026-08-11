@@ -12,18 +12,19 @@ pub(in crate::runtime) async fn run_until<F>(proxy: &Proxy, shutdown: F) -> Resu
 where
     F: Future<Output = ()> + Send,
 {
-    if proxy.config.inbounds.is_empty() {
+    if !has_runtime_inbound(proxy.config.as_ref()) {
         return Err(EngineError::NoInbounds);
     }
 
     let mut state = OrchestrationState::new(proxy).await?;
     tokio::pin!(shutdown);
     let mut shutting_down = false;
+    let mut shutdown_error = None;
 
     loop {
         if shutting_down && state.is_idle() {
             log_stopped(proxy);
-            return Ok(());
+            return shutdown_error.map_or(Ok(()), Err);
         }
 
         tokio::select! {
@@ -36,6 +37,16 @@ where
                     "proxy orchestration shutdown requested"
                 );
                 state.propagate_shutdown();
+                if let Err(error) = proxy.stop_tun_if_running().await {
+                    error!(
+                        core_instance_id = proxy.core_instance_id(),
+                        config_revision = proxy.config_revision(),
+                        reason = "tun_shutdown_error",
+                        error = %error,
+                        "failed to stop TUN during proxy shutdown"
+                    );
+                    shutdown_error = Some(error);
+                }
             }
             Some(()) = state.reload_async_rx.recv() => {
                 if shutting_down {
@@ -81,7 +92,36 @@ where
                     return Err(urltest_error);
                 }
             }
+            failure = state.configured_tun_failures.recv(), if !shutting_down => {
+                if let Err(error) = handle_configured_tun_failure(failure) {
+                    error!(
+                        core_instance_id = proxy.core_instance_id(),
+                        config_revision = proxy.config_revision(),
+                        reason = "configured_tun_task_exit",
+                        error = %error,
+                        "proxy orchestration observed configured TUN termination"
+                    );
+                    state.propagate_shutdown();
+                    return Err(error);
+                }
+            }
         }
+    }
+}
+
+pub(super) fn has_runtime_inbound(config: &zero_config::RuntimeConfig) -> bool {
+    !config.inbounds.is_empty() || config.runtime.tun.is_some()
+}
+
+pub(super) fn handle_configured_tun_failure(
+    result: Result<String, tokio::sync::broadcast::error::RecvError>,
+) -> Result<(), EngineError> {
+    match result {
+        Ok(message) => Err(EngineError::Io(io::Error::other(format!(
+            "configured TUN runtime failed: {message}"
+        )))),
+        Err(tokio::sync::broadcast::error::RecvError::Lagged(_))
+        | Err(tokio::sync::broadcast::error::RecvError::Closed) => Ok(()),
     }
 }
 

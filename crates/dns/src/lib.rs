@@ -235,6 +235,24 @@ impl DnsSystem {
         }
     }
 
+    /// Answer one raw UDP DNS query through the configured resolver. The
+    /// regular resolver path is intentional: when Fake-IP is enabled, A
+    /// queries receive the synthetic address consumed by TUN TCP/UDP routing.
+    pub async fn answer_udp_query(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+        let question = udp::parse_dns_question(query)?;
+        let mut addresses = match question.query_type {
+            1 | 28 => DnsResolver::resolve(self, &question.domain).await?,
+            _ => Vec::new(),
+        };
+        addresses.retain(|address| {
+            matches!(
+                (question.query_type, address),
+                (1, IpAddress::V4(_)) | (28, IpAddress::V6(_))
+            )
+        });
+        Ok(udp::build_dns_response(query, &addresses))
+    }
+
     async fn resolve_system(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
         let sys_resolver = {
             let guard = self.inner.read().expect("dns system lock poisoned");

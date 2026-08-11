@@ -21,10 +21,12 @@ impl DirectConnector {
         &self,
         session: &Session,
         resolver: &DnsSystem,
+        egress: &zero_platform_tokio::EgressInterfaceControl,
     ) -> Result<(TokioSocket, SocketAddr), Error> {
         let addr = self.resolve_target_addr(session, resolver).await?;
 
-        TokioSocket::connect_addr(addr)
+        let interface = egress.current_for(addr.is_ipv6());
+        TokioSocket::connect_addr_on(addr, interface.as_ref())
             .await
             .map(|socket| (socket, addr))
             .map_err(|_| Error::Io("failed to connect direct target"))
@@ -51,6 +53,7 @@ impl DirectConnector {
         host: &str,
         port: u16,
         resolver: &DnsSystem,
+        egress: &zero_platform_tokio::EgressInterfaceControl,
     ) -> Result<TokioSocket, Error> {
         if port == 0 {
             return Err(Error::Config("target port is required"));
@@ -58,7 +61,8 @@ impl DirectConnector {
 
         let addr = resolve_host(host, port, resolver, "failed to resolve upstream target").await?;
 
-        TokioSocket::connect_addr(addr)
+        let interface = egress.current_for(addr.is_ipv6());
+        TokioSocket::connect_addr_on(addr, interface.as_ref())
             .await
             .map_err(|_| Error::Io("failed to connect upstream target"))
     }

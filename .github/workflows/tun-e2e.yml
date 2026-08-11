@@ -1,0 +1,74 @@
+name: Privileged TUN E2E
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: tun-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+# These jobs intentionally target dedicated self-hosted runners. Each runner
+# must be disposable, have administrator/root networking privileges, and have
+# reachable configured STUN endpoints for each native address family being
+# tested. The offline dual-stack case does not require native IPv6 Internet.
+# The Windows runner must also have the matching Wintun DLL next to the test
+# binary or on PATH.
+jobs:
+  linux:
+    runs-on: [self-hosted, linux, x64, tun]
+    timeout-minutes: 30
+    env:
+      ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
+      ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler iproute2
+      - name: Run privileged TUN smoke test
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run IPv4 privileged TUN E2E
+        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR=$ZERO_TUN_E2E_STUN_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run IPv6 privileged TUN E2E
+        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR_V6=$ZERO_TUN_E2E_STUN_ADDR_V6" cargo test --test tun_privileged_e2e privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run offline dual-stack privileged TUN E2E
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
+
+  macos:
+    runs-on: [self-hosted, macOS, x64, tun]
+    timeout-minutes: 30
+    env:
+      ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
+      ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run privileged TUN smoke test
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run IPv4 privileged TUN E2E
+        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR=$ZERO_TUN_E2E_STUN_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run IPv6 privileged TUN E2E
+        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR_V6=$ZERO_TUN_E2E_STUN_ADDR_V6" cargo test --test tun_privileged_e2e privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run offline dual-stack privileged TUN E2E
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
+
+  windows:
+    runs-on: [self-hosted, windows, x64, tun]
+    timeout-minutes: 30
+    env:
+      ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
+      ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run privileged TUN smoke test
+        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run IPv4 privileged TUN E2E
+        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run IPv6 privileged TUN E2E
+        run: cargo test --test tun_privileged_e2e privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run offline dual-stack privileged TUN E2E
+        run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture

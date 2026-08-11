@@ -1,4 +1,7 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
+
+use std::collections::BTreeSet;
+use std::net::IpAddr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +24,49 @@ pub struct DnsConfig {
     /// a domain↔IP mapping for transparent proxying.
     #[serde(default)]
     pub fake_ip: Option<FakeIpConfig>,
+}
+
+impl DnsConfig {
+    /// Return DNS endpoint addresses that can be safely excluded from a TUN
+    /// default route without recursively consulting the system resolver.
+    pub fn tun_route_exclusion_addresses(&self) -> Result<Vec<IpAddr>, String> {
+        if self.servers.is_empty() {
+            return Err("TUN DNS hijack requires configured non-system DNS servers".to_owned());
+        }
+        let mut addresses = BTreeSet::new();
+        for server in &self.servers {
+            let endpoint = match server {
+                DnsServerConfig::System => {
+                    return Err("TUN DNS hijack cannot use the system DNS backend".to_owned());
+                }
+                DnsServerConfig::Udp { address, .. } | DnsServerConfig::Dot { address, .. } => {
+                    address.parse().map_err(|error| {
+                        format!("TUN DNS endpoint `{address}` must be an IP address: {error}")
+                    })?
+                }
+                DnsServerConfig::Doh { url, .. } => parse_doh_ip(url)?,
+            };
+            addresses.insert(endpoint);
+        }
+        Ok(addresses.into_iter().collect())
+    }
+}
+
+fn parse_doh_ip(url: &str) -> Result<IpAddr, String> {
+    let authority = url
+        .split_once("://")
+        .map(|(_, remainder)| remainder)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    let host = if let Some(authority) = authority.strip_prefix('[') {
+        authority.split(']').next().unwrap_or_default()
+    } else {
+        authority.split(':').next().unwrap_or_default()
+    };
+    host.parse()
+        .map_err(|error| format!("TUN DoH URL host `{host}` must be an IP address: {error}"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

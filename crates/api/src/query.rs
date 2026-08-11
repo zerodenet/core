@@ -289,8 +289,32 @@ pub struct TunStatusSnapshot {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addr: Option<String>,
+    /// All effective interface addresses, including an automatically selected
+    /// secondary address in dual-stack mode.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub addresses: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mtu: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    #[serde(default)]
+    pub healthy: bool,
+    #[serde(default)]
+    pub auto_route: bool,
+    #[serde(default)]
+    pub dual_stack: bool,
+    #[serde(default)]
+    pub strict_route: bool,
+    #[serde(default)]
+    pub dns_hijack: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub egress_interface: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub egress_interface_v4: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub egress_interface_v6: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub managed_by_config: bool,
 }

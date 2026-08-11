@@ -12,7 +12,7 @@ use zero_engine::{Engine, EngineError};
 use crate::inventory::ProtocolInventory;
 use crate::protocol_registry::TcpRuntimeServices;
 
-#[cfg(feature = "managed-datagram-runtime")]
+#[cfg(feature = "udp-runtime")]
 pub(crate) mod datagram_udp;
 mod handle;
 pub(crate) mod http_redirect;
@@ -74,8 +74,12 @@ pub struct Proxy {
     pub(crate) config: Arc<RuntimeConfig>,
     pub(crate) resolver: Arc<DnsSystem>,
     pub(crate) protocols: ProtocolInventory,
-    pub(crate) tun_shutdown: Arc<std::sync::Mutex<Option<tokio::sync::watch::Sender<bool>>>>,
+    pub(crate) egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    pub(crate) tun_control: Arc<std::sync::Mutex<Option<TunControl>>>,
     pub(crate) tun_info: Arc<std::sync::Mutex<Option<TunInfo>>>,
+    pub(crate) tun_last_error: Arc<std::sync::Mutex<Option<String>>>,
+    pub(crate) tun_operation_lock: Arc<tokio::sync::Mutex<()>>,
+    pub(crate) configured_tun_failures: tokio::sync::broadcast::Sender<String>,
     orchestration_ready: tokio::sync::watch::Sender<bool>,
     reload_ack: Arc<std::sync::Mutex<Option<PendingReloadAck>>>,
     reload_apply_lock: Arc<tokio::sync::Mutex<()>>,
@@ -91,10 +95,29 @@ struct PendingReloadAck {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TunInfo {
+    pub id: u64,
     pub name: String,
     pub addr: String,
+    pub addresses: Vec<String>,
     pub mtu: u16,
     pub tag: String,
+    pub auto_route: bool,
+    pub dual_stack: bool,
+    pub strict_route: bool,
+    pub dns_hijack: bool,
+    pub egress_interface: Option<String>,
+    pub egress_interface_v4: Option<String>,
+    pub egress_interface_v6: Option<String>,
+    pub route_exclusions: Vec<std::net::IpAddr>,
+    pub managed_config: Option<zero_config::TunConfig>,
+}
+
+#[derive(Debug)]
+pub(crate) struct TunControl {
+    pub id: u64,
+    pub shutdown: tokio::sync::watch::Sender<bool>,
+    pub done: oneshot::Receiver<()>,
+    pub routes: Vec<zero_tun::SystemRouteGuard>,
 }
 
 impl Proxy {
@@ -113,13 +136,18 @@ impl Proxy {
         protocols.validate_config(&config)?;
         let dns = DnsSystem::build(config.runtime.dns.as_ref()).map_err(EngineError::Io)?;
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);
+        let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
         Ok(Self {
             config,
             engine,
             resolver: Arc::new(dns),
             protocols,
-            tun_shutdown: Arc::new(std::sync::Mutex::new(None)),
+            egress_interface: zero_platform_tokio::EgressInterfaceControl::default(),
+            tun_control: Arc::new(std::sync::Mutex::new(None)),
             tun_info: Arc::new(std::sync::Mutex::new(None)),
+            tun_last_error: Arc::new(std::sync::Mutex::new(None)),
+            tun_operation_lock: Arc::new(tokio::sync::Mutex::new(())),
+            configured_tun_failures,
             orchestration_ready,
             reload_ack: Arc::new(std::sync::Mutex::new(None)),
             reload_apply_lock: Arc::new(tokio::sync::Mutex::new(())),
@@ -174,6 +202,7 @@ impl Proxy {
             snapshot,
             self.resolver.clone(),
             self.protocols.clone(),
+            self.egress_interface.clone(),
             self.principal_rate_limits.clone(),
         )
     }

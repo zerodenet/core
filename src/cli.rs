@@ -97,8 +97,13 @@ pub enum Command {
         name: Option<String>,
         addr: String,
         mask: Option<String>,
+        secondary_addr: Option<String>,
         mtu: Option<u16>,
         tag: String,
+        auto_route: bool,
+        dual_stack: bool,
+        strict_route: bool,
+        dns_hijack: bool,
         socket_path: Option<String>,
     },
     TunStop {
@@ -200,7 +205,7 @@ pub fn usage() -> &'static str {
   zero validate CONFIG
   zero connector state [--json] CONFIG
   zero mode <rule|direct|global> [outbound] [--socket PATH]
-  zero tun start --addr IP --tag TAG [--name NAME] [--mask MASK] [--mtu MTU] [--socket PATH]
+  zero tun start --addr IP --tag TAG [--name NAME] [--mask MASK] [--secondary-addr CIDR] [--mtu MTU] [--no-auto-route] [--single-stack] [--no-strict-route] [--no-dns-hijack] [--socket PATH]
   zero tun stop [--socket PATH]
   zero tun status [--socket PATH]
   zero build-info
@@ -418,8 +423,13 @@ fn parse_tun_start(args: Vec<String>) -> Result<Command, CliError> {
     let mut name: Option<String> = None;
     let mut addr: Option<String> = None;
     let mut mask: Option<String> = None;
+    let mut secondary_addr: Option<String> = None;
     let mut mtu: Option<u16> = None;
     let mut tag: Option<String> = None;
+    let mut auto_route = true;
+    let mut dual_stack = true;
+    let mut strict_route = true;
+    let mut dns_hijack = true;
     let mut socket_path: Option<String> = None;
     let mut iter = args.into_iter();
 
@@ -428,6 +438,12 @@ fn parse_tun_start(args: Vec<String>) -> Result<Command, CliError> {
             "--name" => name = Some(iter.next().ok_or(CliError::new("--name requires value"))?),
             "--addr" => addr = Some(iter.next().ok_or(CliError::new("--addr requires value"))?),
             "--mask" => mask = Some(iter.next().ok_or(CliError::new("--mask requires value"))?),
+            "--secondary-addr" => {
+                secondary_addr = Some(
+                    iter.next()
+                        .ok_or(CliError::new("--secondary-addr requires value"))?,
+                )
+            }
             "--mtu" => {
                 mtu = Some(
                     iter.next()
@@ -437,6 +453,10 @@ fn parse_tun_start(args: Vec<String>) -> Result<Command, CliError> {
                 )
             }
             "--tag" => tag = Some(iter.next().ok_or(CliError::new("--tag requires value"))?),
+            "--no-auto-route" => auto_route = false,
+            "--single-stack" => dual_stack = false,
+            "--no-strict-route" => strict_route = false,
+            "--no-dns-hijack" => dns_hijack = false,
             "--socket" => {
                 socket_path = Some(
                     iter.next()
@@ -453,8 +473,13 @@ fn parse_tun_start(args: Vec<String>) -> Result<Command, CliError> {
         name,
         addr,
         mask,
+        secondary_addr,
         mtu,
         tag,
+        auto_route,
+        dual_stack,
+        strict_route,
+        dns_hijack,
         socket_path,
     })
 }

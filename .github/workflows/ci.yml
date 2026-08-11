@@ -67,6 +67,27 @@ jobs:
       - name: Architecture boundary tests
         run: cargo test -p zero-proxy --test runtime_boundary --all-features
 
+  tun-platform-check:
+    name: TUN platform check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: static
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check native TUN and socket backends
+        run: cargo check -p zero-tun -p zero-platform-tokio
+
+      - name: Compile privileged TUN E2E harness
+        run: cargo test --test tun_privileged_e2e --no-run
+
   linux-musl-compat:
     name: Build Linux musl compatibility artifact
     runs-on: ubuntu-22.04

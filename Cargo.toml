@@ -115,4 +115,5 @@ zero-connector = { path = "crates/connector", optional = true, default-features 
 zero-grpc = { path = "crates/grpc", optional = true }
 
 [dev-dependencies]
+socket2 = "0.6"
 tempfile.workspace = true

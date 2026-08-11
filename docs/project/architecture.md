@@ -321,7 +321,7 @@ UDP 数据包路径通过 `UdpPacketPath`、`DatagramCodec` 等中性接口组�
 
 ### `zero-tun`
 
-`zero-tun` 定义平台无关的 TUN 设备抽象。平台设备或驱动的部署由最终应用或安装器负责。
+`zero-tun` 定义平台无关的 TUN 设备抽象、Linux/macOS/Windows 设备实现和事务化系统路由。平台驱动的部署仍由最终应用或安装器负责。自动路由默认同时用两组 `/1` 接管 IPv4/IPv6，并按地址族记录和绑定各自的物理出口（例如 Windows 的 IPv4 以太网与 IPv6 Teredo 可以不同）。路由事务持有跨进程 lease，并持久记录 Zero 安装的半默认路由及端点排除项；异常退出后的同名设备启动先恢复残留项。
 
 TUN 入站的基本路径为：
 
@@ -333,7 +333,7 @@ TunDevice
   -> zero-proxy 运行时
 ```
 
-当前 TUN 入站使用 `UserNetworkStack`。系统重定向入站使用 `SystemTcpStack`，两者最终进入相同的代理 TCP 生命周期，但它们不是运行时可随意互换的同一个配置对象。
+当前 TUN 入站使用 `UserNetworkStack`，TCP 和 UDP 都进入 `zero-proxy` 的统一入口生命周期。系统重定向入站使用 `SystemTcpStack`，它们不是运行时可随意互换的同一个配置对象。声明式 `runtime.tun` 由代理编排层随启动、配置重载、回滚和关闭统一管理；命令式 `tun start/stop` 只用于未声明 `runtime.tun` 时的临时控制。
 
 ## 基础抽象和平台实现
 

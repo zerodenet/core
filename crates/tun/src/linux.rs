@@ -5,6 +5,7 @@ use std::io;
 use std::net::IpAddr;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
+use std::process::Command;
 use std::task::{Context, Poll};
 
 use tokio::io::unix::AsyncFd;
@@ -75,7 +76,12 @@ impl LinuxTun {
             .map(|&b| b as u8 as char)
             .collect::<String>();
 
-        let async_fd = AsyncFd::new(fd)?;
+        let async_fd = AsyncFd::new(fd).map_err(|error| {
+            // SAFETY: ownership was detached from `file` above and has not
+            // yet been transferred into the returned device.
+            unsafe { libc::close(fd) };
+            error
+        })?;
 
         Ok(Self {
             name: actual_name,
@@ -98,13 +104,60 @@ impl Drop for LinuxTun {
 }
 
 impl TunDevice for LinuxTun {
-    fn configure(&self, _addr: IpAddr, _mask: IpAddr, _mtu: u16) -> io::Result<()> {
+    fn configure(&self, addr: IpAddr, mask: IpAddr, mtu: u16) -> io::Result<()> {
+        if addr.is_ipv4() != mask.is_ipv4() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TUN address and mask families differ",
+            ));
+        }
+        let prefix = crate::mask_to_prefix(mask)?;
+        run_ip(&[
+            "address",
+            "replace",
+            &format!("{addr}/{prefix}"),
+            "dev",
+            &self.name,
+        ])?;
+        if let Err(error) = run_ip(&[
+            "link",
+            "set",
+            "dev",
+            &self.name,
+            "mtu",
+            &mtu.to_string(),
+            "up",
+        ]) {
+            let _ = run_ip(&[
+                "address",
+                "del",
+                &format!("{addr}/{prefix}"),
+                "dev",
+                &self.name,
+            ]);
+            return Err(error);
+        }
         Ok(())
     }
 
     fn name(&self) -> &str {
         &self.name
     }
+}
+
+fn run_ip(arguments: &[&str]) -> io::Result<()> {
+    let output = Command::new("ip")
+        .args(arguments)
+        .output()
+        .map_err(|error| io::Error::new(error.kind(), format!("execute `ip`: {error}")))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(io::Error::other(format!(
+        "`ip {}` failed: {}",
+        arguments.join(" "),
+        String::from_utf8_lossy(&output.stderr).trim()
+    )))
 }
 
 impl AsyncRead for LinuxTun {

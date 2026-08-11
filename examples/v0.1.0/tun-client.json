@@ -1,0 +1,44 @@
+{
+  "runtime": {
+    "network": { "mtu": 1500 },
+    "tun": {
+      "name": "ZeroTun",
+      "addr": "10.66.0.1/24",
+      "secondary_addr": "fd66::1/64",
+      "tag": "tun-in",
+      "auto_route": true,
+      "dual_stack": true,
+      "strict_route": true,
+      "dns_hijack": true
+    },
+    "dns": {
+      "servers": [
+        { "type": "udp", "address": "1.1.1.1", "port": 53 }
+      ],
+      "cache": { "max_entries": 1024 },
+      "fake_ip": {
+        "cidr": "198.18.0.0/15",
+        "ttl_seconds": 86400,
+        "exclude_domains": []
+      }
+    }
+  },
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": {
+        "type": "socks5",
+        "server": "192.0.2.10",
+        "port": 1080
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": { "type": "block" }
+    }
+  ],
+  "route": {
+    "rules": [],
+    "final": { "type": "route", "outbound": "proxy" }
+  }
+}

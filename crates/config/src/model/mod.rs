@@ -98,6 +98,9 @@ pub struct RuntimeOptionsConfig {
     /// Optional DNS subsystem configuration. Omit for system resolver.
     #[serde(default)]
     pub dns: Option<DnsConfig>,
+    /// Optional declarative TUN inbound managed by the proxy lifecycle.
+    #[serde(default)]
+    pub tun: Option<TunConfig>,
 }
 
 impl Default for RuntimeOptionsConfig {
@@ -111,6 +114,7 @@ impl Default for RuntimeOptionsConfig {
             udp: UdpPolicyConfig::default(),
             log: LogConfig::default(),
             dns: None,
+            tun: None,
         }
     }
 }
@@ -214,6 +218,7 @@ mod log;
 mod outbound;
 mod route;
 mod transport;
+mod tun;
 
 pub use api::*;
 pub use dns::*;
@@ -222,3 +227,4 @@ pub use log::*;
 pub use outbound::*;
 pub use route::*;
 pub use transport::*;
+pub use tun::*;

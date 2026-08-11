@@ -29,6 +29,10 @@ impl RuntimeConfig {
                 ConfigError::InvalidInbound(format!("inbounds[{i}] `{}`: {e}", inbound.tag))
             })?;
         }
+        if let Some(tun) = &self.runtime.tun {
+            validate_tag("TUN inbound", &tun.tag, &mut inbound_tags)
+                .map_err(|error| ConfigError::InvalidRuntime(error.to_string()))?;
+        }
 
         let mut outbound_tags = HashSet::new();
         let mut route_target_tags = HashSet::new();
@@ -235,11 +239,145 @@ fn validate_runtime(runtime: &RuntimeOptionsConfig) -> Result<(), ConfigError> {
         ));
     }
 
+    if let Some(tun) = &runtime.tun {
+        validate_tun_config(tun, runtime)?;
+    }
+
     if let Some(dns) = &runtime.dns {
         validate_dns_config(dns)?;
     }
 
     Ok(())
+}
+
+fn validate_tun_config(
+    tun: &crate::TunConfig,
+    runtime: &RuntimeOptionsConfig,
+) -> Result<(), ConfigError> {
+    if tun
+        .name
+        .as_deref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err(ConfigError::InvalidRuntime(
+            "`runtime.tun.name` must not be empty".to_owned(),
+        ));
+    }
+    let (address, prefix) = match tun.addr.split_once('/') {
+        Some((address, prefix)) => {
+            let address = address.parse::<std::net::IpAddr>().map_err(|error| {
+                ConfigError::InvalidRuntime(format!(
+                    "invalid `runtime.tun.addr` address `{address}`: {error}"
+                ))
+            })?;
+            let prefix = prefix.parse::<u8>().map_err(|error| {
+                ConfigError::InvalidRuntime(format!(
+                    "invalid `runtime.tun.addr` prefix `{prefix}`: {error}"
+                ))
+            })?;
+            (address, Some(prefix))
+        }
+        None => {
+            let address = tun.addr.parse::<std::net::IpAddr>().map_err(|error| {
+                ConfigError::InvalidRuntime(format!(
+                    "invalid `runtime.tun.addr` `{}`: {error}",
+                    tun.addr
+                ))
+            })?;
+            (address, None)
+        }
+    };
+    if let Some(prefix) = prefix {
+        let maximum = if address.is_ipv4() { 32 } else { 128 };
+        if prefix > maximum {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "invalid `runtime.tun.addr` prefix `{prefix}` for {address}"
+            )));
+        }
+    } else {
+        let mask = tun.mask.parse::<std::net::IpAddr>().map_err(|error| {
+            ConfigError::InvalidRuntime(format!(
+                "invalid `runtime.tun.mask` `{}`: {error}",
+                tun.mask
+            ))
+        })?;
+        if address.is_ipv4() != mask.is_ipv4() {
+            return Err(ConfigError::InvalidRuntime(
+                "`runtime.tun.addr` and `runtime.tun.mask` must use the same address family"
+                    .to_owned(),
+            ));
+        }
+        if !is_contiguous_mask(mask) {
+            return Err(ConfigError::InvalidRuntime(
+                "`runtime.tun.mask` must be a contiguous network mask".to_owned(),
+            ));
+        }
+    }
+    if let Some(secondary) = tun.secondary_addr.as_deref() {
+        if !tun.dual_stack {
+            return Err(ConfigError::InvalidRuntime(
+                "`runtime.tun.secondary_addr` requires `runtime.tun.dual_stack=true`".to_owned(),
+            ));
+        }
+        let (secondary_address, secondary_prefix) = secondary.split_once('/').ok_or_else(|| {
+            ConfigError::InvalidRuntime(
+                "`runtime.tun.secondary_addr` must use CIDR notation".to_owned(),
+            )
+        })?;
+        let secondary_address = secondary_address
+            .parse::<std::net::IpAddr>()
+            .map_err(|error| {
+                ConfigError::InvalidRuntime(format!(
+                    "invalid `runtime.tun.secondary_addr` address `{secondary_address}`: {error}"
+                ))
+            })?;
+        let secondary_prefix = secondary_prefix.parse::<u8>().map_err(|error| {
+            ConfigError::InvalidRuntime(format!(
+                "invalid `runtime.tun.secondary_addr` prefix `{secondary_prefix}`: {error}"
+            ))
+        })?;
+        let maximum = if secondary_address.is_ipv4() { 32 } else { 128 };
+        if secondary_prefix > maximum {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "invalid `runtime.tun.secondary_addr` prefix `{secondary_prefix}` for {secondary_address}"
+            )));
+        }
+        if secondary_address.is_ipv4() == address.is_ipv4() {
+            return Err(ConfigError::InvalidRuntime(
+                "`runtime.tun.addr` and `runtime.tun.secondary_addr` must use different address families"
+                    .to_owned(),
+            ));
+        }
+    }
+    if tun.effective_mtu(runtime.network.mtu) < 576 {
+        return Err(ConfigError::InvalidRuntime(
+            "`runtime.tun.mtu` must be at least 576".to_owned(),
+        ));
+    }
+    if tun.dns_hijack && tun.strict_route {
+        runtime
+            .dns
+            .as_ref()
+            .ok_or_else(|| {
+                ConfigError::InvalidRuntime(
+                    "TUN DNS hijack requires configured non-system DNS servers".to_owned(),
+                )
+            })?
+            .tun_route_exclusion_addresses()
+            .map_err(ConfigError::InvalidRuntime)?;
+    }
+    Ok(())
+}
+
+fn is_contiguous_mask(mask: std::net::IpAddr) -> bool {
+    let bits = match mask {
+        std::net::IpAddr::V4(mask) => u32::from(mask) as u128,
+        std::net::IpAddr::V6(mask) => u128::from(mask),
+    };
+    let width = if mask.is_ipv4() { 32 } else { 128 };
+    let relevant = if width == 32 { bits << 96 } else { bits };
+    let inverted = !relevant;
+    inverted == 0 || (inverted & inverted.wrapping_add(1)) == 0
 }
 
 pub(crate) fn validate_latency_test_url(scope: &str, url: &str) -> Result<(), ConfigError> {

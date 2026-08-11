@@ -25,6 +25,7 @@ pub(super) struct OrchestrationState {
     pub(super) urltest_runtime: UrlTestRuntime,
     pub(super) inbound_runtime_factory: InboundListenerRuntimeFactory,
     pub(super) applied_config: std::sync::Arc<RuntimeConfig>,
+    pub(super) configured_tun_failures: tokio::sync::broadcast::Receiver<String>,
 }
 
 impl OrchestrationState {
@@ -53,9 +54,28 @@ impl OrchestrationState {
             urltest_runtime,
             inbound_runtime_factory,
             applied_config: proxy.config.clone(),
+            configured_tun_failures: proxy.configured_tun_failures.subscribe(),
         };
 
-        state.start_inbounds(proxy).await?;
+        proxy
+            .reconcile_configured_tun(
+                proxy.config.runtime.tun.as_ref(),
+                proxy.config.runtime.network.mtu,
+            )
+            .await?;
+        if let Err(error) = state.start_inbounds(proxy).await {
+            if let Err(cleanup_error) = proxy
+                .reconcile_configured_tun(None, proxy.config.runtime.network.mtu)
+                .await
+            {
+                warn!(
+                    error = %cleanup_error,
+                    reason = "tun_startup_rollback_error",
+                    "failed to roll back configured TUN after listener startup failure"
+                );
+            }
+            return Err(error);
+        }
         state.start_urltests();
         log_started(proxy);
         proxy.mark_orchestration_ready();
@@ -93,6 +113,24 @@ impl OrchestrationState {
         if let Err(error) = proxy.resolver.reload(new_config.runtime.dns.as_ref()) {
             warn!(%error, reason = "dns_reload_error", "failed to reload dns config");
         }
+        if let Err(error) = proxy
+            .reconcile_configured_tun(
+                new_config.runtime.tun.as_ref(),
+                new_config.runtime.network.mtu,
+            )
+            .await
+        {
+            warn!(
+                core_instance_id = proxy.core_instance_id(),
+                config_revision = proxy.config_revision(),
+                reason = "tun_reconcile_error",
+                %error,
+                "config reload TUN reconciliation failed; restoring last known-good config"
+            );
+            self.reject_reload(proxy, &new_config, error.to_string())
+                .await;
+            return;
+        }
         let inbound_result = listeners::reconcile_inbounds(
             &proxy.protocols,
             source_dir.as_deref(),
@@ -116,27 +154,7 @@ impl OrchestrationState {
                 %error,
                 "config reload listener reconciliation failed; restoring last known-good config"
             );
-            let persist = proxy.pending_reload_persists(&new_config);
-            let rollback = if persist {
-                proxy.engine.stage_config((*self.applied_config).clone())
-            } else {
-                proxy
-                    .engine
-                    .stage_runtime_config((*self.applied_config).clone())
-            };
-            let acknowledgement = if let Err(rollback_error) = rollback {
-                warn!(
-                    core_instance_id = proxy.core_instance_id(),
-                    config_revision = proxy.config_revision(),
-                    reason = "reload_rollback_error",
-                    %rollback_error,
-                    "failed to restore last known-good config after reload failure"
-                );
-                format!("{message}; last-known-good config restore failed: {rollback_error}")
-            } else {
-                message
-            };
-            proxy.complete_reload(&new_config, Err(acknowledgement));
+            self.reject_reload(proxy, &new_config, message).await;
             return;
         }
         listeners::reconcile_urltests(
@@ -151,6 +169,54 @@ impl OrchestrationState {
         self.applied_config = new_config.clone();
         log_reload_reconciled(&new_config);
         proxy.complete_reload(&new_config, Ok(()));
+    }
+
+    async fn reject_reload(&mut self, proxy: &Proxy, rejected: &RuntimeConfig, message: String) {
+        let persist = proxy.pending_reload_persists(rejected);
+        let rollback = if persist {
+            proxy.engine.stage_config((*self.applied_config).clone())
+        } else {
+            proxy
+                .engine
+                .stage_runtime_config((*self.applied_config).clone())
+        };
+        let mut acknowledgement = message;
+        if let Err(rollback_error) = rollback {
+            warn!(
+                core_instance_id = proxy.core_instance_id(),
+                config_revision = proxy.config_revision(),
+                reason = "reload_rollback_error",
+                %rollback_error,
+                "failed to restore last known-good config after reload failure"
+            );
+            acknowledgement.push_str(&format!(
+                "; last-known-good config restore failed: {rollback_error}"
+            ));
+        } else {
+            if let Err(error) = proxy
+                .resolver
+                .reload(self.applied_config.runtime.dns.as_ref())
+            {
+                acknowledgement.push_str(&format!("; DNS rollback failed: {error}"));
+            }
+            if let Err(error) = proxy
+                .reconcile_configured_tun(
+                    self.applied_config.runtime.tun.as_ref(),
+                    self.applied_config.runtime.network.mtu,
+                )
+                .await
+            {
+                warn!(
+                    core_instance_id = proxy.core_instance_id(),
+                    config_revision = proxy.config_revision(),
+                    reason = "tun_reload_rollback_error",
+                    %error,
+                    "failed to restore last-known-good TUN after reload failure"
+                );
+                acknowledgement.push_str(&format!("; TUN rollback failed: {error}"));
+            }
+        }
+        proxy.complete_reload(rejected, Err(acknowledgement));
     }
 
     async fn start_inbounds(&mut self, proxy: &Proxy) -> Result<(), EngineError> {

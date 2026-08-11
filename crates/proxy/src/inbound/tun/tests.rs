@@ -1,0 +1,175 @@
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+use super::config::{
+    configured_dns_endpoint_addresses, parse_address_and_mask, parse_interface_addresses,
+    DEFAULT_TUN_IPV4_ADDR, DEFAULT_TUN_IPV6_ADDR,
+};
+use super::{configured_tun_is_current, tun_route_exclusion_required, PreparedTunNetwork, TunInfo};
+
+fn configured_tun_fixture() -> (zero_config::TunConfig, TunInfo) {
+    let config = zero_config::TunConfig {
+        name: Some("zero-test".to_owned()),
+        addr: "10.66.0.1/24".to_owned(),
+        mask: "255.255.255.0".to_owned(),
+        secondary_addr: None,
+        mtu: None,
+        tag: "tun-in".to_owned(),
+        auto_route: true,
+        dual_stack: false,
+        strict_route: true,
+        dns_hijack: true,
+    };
+    let route_exclusions = vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))];
+    let info = TunInfo {
+        id: 1,
+        name: "zero-test".to_owned(),
+        addr: config.addr.clone(),
+        addresses: vec![config.addr.clone()],
+        mtu: 1500,
+        tag: config.tag.clone(),
+        auto_route: true,
+        dual_stack: false,
+        strict_route: true,
+        dns_hijack: true,
+        egress_interface: None,
+        egress_interface_v4: None,
+        egress_interface_v6: None,
+        route_exclusions,
+        managed_config: Some(config.clone()),
+    };
+    (config, info)
+}
+
+#[test]
+fn tun_address_accepts_cidr_and_derives_mask() {
+    let (address, mask) =
+        parse_address_and_mask("10.10.0.1/24", "255.255.255.0").expect("parse IPv4 CIDR");
+    assert_eq!(address, IpAddr::V4(Ipv4Addr::new(10, 10, 0, 1)));
+    assert_eq!(mask, IpAddr::V4(Ipv4Addr::new(255, 255, 255, 0)));
+
+    let (address, mask) = parse_address_and_mask("fd00::1/64", "::").expect("parse IPv6 CIDR");
+    assert_eq!(address, IpAddr::V6("fd00::1".parse::<Ipv6Addr>().unwrap()));
+    assert_eq!(
+        mask,
+        IpAddr::V6("ffff:ffff:ffff:ffff::".parse::<Ipv6Addr>().unwrap())
+    );
+}
+
+#[test]
+fn tun_address_rejects_invalid_prefix_and_mixed_mask_family() {
+    assert!(parse_address_and_mask("10.0.0.1/33", "255.255.255.0").is_err());
+    assert!(parse_address_and_mask("10.0.0.1", "ffff:ffff::").is_err());
+}
+
+#[test]
+fn automatic_routes_are_dual_stack_by_default() {
+    let addresses = parse_interface_addresses("10.0.0.1/24", "255.255.255.0", None, true).unwrap();
+    assert_eq!(addresses.len(), 2);
+    assert_eq!(addresses[0].cidr, "10.0.0.1/24");
+    assert_eq!(addresses[1].cidr, DEFAULT_TUN_IPV6_ADDR);
+
+    let addresses = parse_interface_addresses("fd00::1/64", "::", None, true).unwrap();
+    assert_eq!(addresses[1].cidr, DEFAULT_TUN_IPV4_ADDR);
+
+    let addresses = parse_interface_addresses("fd00::1/64", "::", None, false).unwrap();
+    assert_eq!(addresses.len(), 1);
+}
+
+#[test]
+fn explicit_secondary_address_must_be_cidr_and_opposite_family() {
+    let addresses =
+        parse_interface_addresses("10.0.0.1/24", "255.255.255.0", Some("fd77::1/64"), true)
+            .unwrap();
+    assert_eq!(addresses[1].cidr, "fd77::1/64");
+    assert!(
+        parse_interface_addresses("10.0.0.1/24", "255.255.255.0", Some("fd77::1"), true).is_err()
+    );
+    assert!(
+        parse_interface_addresses("10.0.0.1/24", "255.255.255.0", Some("10.1.0.1/24"), true)
+            .is_err()
+    );
+}
+
+#[test]
+fn strict_dns_hijack_requires_literal_non_system_endpoints() {
+    let system = zero_config::RuntimeConfig::parse(
+        r#"{
+            "runtime":{"dns":{"servers":[{"type":"system"}]}},
+            "route":{"rules":[],"final":{"type":"direct"}}
+        }"#,
+    )
+    .expect("parse system DNS config");
+    assert!(configured_dns_endpoint_addresses(&system).is_err());
+
+    let udp = zero_config::RuntimeConfig::parse(
+        r#"{
+            "runtime":{"dns":{"servers":[{"type":"udp","address":"1.1.1.1"}]}},
+            "route":{"rules":[],"final":{"type":"direct"}}
+        }"#,
+    )
+    .expect("parse UDP DNS config");
+    assert_eq!(
+        configured_dns_endpoint_addresses(&udp).expect("literal DNS endpoint"),
+        vec![IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))]
+    );
+}
+
+#[test]
+fn doh_endpoint_parser_accepts_literal_v4_and_v6_hosts() {
+    let config = |url: &str| {
+        zero_config::RuntimeConfig::parse(&format!(
+            r#"{{
+                "runtime":{{"dns":{{"servers":[{{"type":"doh","url":"{url}"}}]}}}},
+                "route":{{"rules":[],"final":{{"type":"direct"}}}}
+            }}"#
+        ))
+        .expect("parse DoH config")
+    };
+    assert_eq!(
+        configured_dns_endpoint_addresses(&config("https://1.1.1.1/dns-query")).unwrap(),
+        vec![IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))]
+    );
+    assert_eq!(
+        configured_dns_endpoint_addresses(&config("https://[2606:4700:4700::1111]/dns-query"))
+            .unwrap(),
+        vec!["2606:4700:4700::1111".parse::<IpAddr>().unwrap()]
+    );
+    assert!(configured_dns_endpoint_addresses(&config("https://dns.example/dns-query")).is_err());
+}
+
+#[test]
+fn configured_tun_restarts_when_resolved_route_exclusions_change() {
+    let (config, info) = configured_tun_fixture();
+    let unchanged = PreparedTunNetwork {
+        dns_hijack: true,
+        route_exclusions: info.route_exclusions.clone(),
+    };
+    assert!(configured_tun_is_current(&info, &config, 1500, &unchanged));
+
+    let changed = PreparedTunNetwork {
+        dns_hijack: true,
+        route_exclusions: vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 11))],
+    };
+    assert!(!configured_tun_is_current(&info, &config, 1500, &changed));
+}
+
+#[test]
+fn loopback_and_link_local_endpoints_do_not_get_physical_host_routes() {
+    for address in [
+        "0.0.0.0",
+        "127.0.0.1",
+        "169.254.10.20",
+        "224.0.0.1",
+        "255.255.255.255",
+        "::",
+        "::1",
+        "fe80::1",
+        "ff02::1",
+    ] {
+        assert!(!tun_route_exclusion_required(address.parse().unwrap()));
+    }
+    assert!(tun_route_exclusion_required("1.1.1.1".parse().unwrap()));
+    assert!(tun_route_exclusion_required(
+        "2606:4700:4700::1111".parse().unwrap()
+    ));
+}

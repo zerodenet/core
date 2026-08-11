@@ -175,13 +175,22 @@ impl UdpNetworkServices {
             .resolve_address(address, port, self.upstream.resolver.as_ref(), context)
             .await
             .map_err(zero_transport::RuntimeError::from)?;
-        let socket = crate::runtime::udp_socket::bind_datagram_socket_for_peer(peer)
+        let socket = self
+            .upstream
+            .bind_datagram_socket(peer)
             .await
             .map_err(zero_transport::RuntimeError::from)?;
         Ok((
             zero_platform_tokio::socket_addr_to_socket_address(peer),
             socket,
         ))
+    }
+
+    pub(crate) async fn bind_datagram_socket(
+        &self,
+        peer: std::net::SocketAddr,
+    ) -> Result<zero_platform_tokio::TokioDatagramSocket, zero_engine::EngineError> {
+        self.upstream.bind_datagram_socket(peer).await
     }
 
     pub(crate) async fn resolve_direct_address(

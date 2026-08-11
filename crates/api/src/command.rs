@@ -212,8 +212,23 @@ pub struct TunStartCommand {
     pub mtu: Option<u16>,
     #[serde(default = "default_tun_mask")]
     pub mask: String,
+    /// Optional CIDR address for the other IP family in dual-stack mode.
+    #[serde(default)]
+    pub secondary_addr: Option<String>,
     #[serde(default)]
     pub tag: String,
+    /// Install split default routes through the TUN device.
+    #[serde(default = "default_true")]
+    pub auto_route: bool,
+    /// Install split-default routes for both IPv4 and IPv6.
+    #[serde(default = "default_true")]
+    pub dual_stack: bool,
+    /// Fail startup and roll back if automatic route installation fails.
+    #[serde(default = "default_true")]
+    pub strict_route: bool,
+    /// Intercept UDP/TCP port 53 from the TUN stack and answer through Zero DNS.
+    #[serde(default = "default_true")]
+    pub dns_hijack: bool,
 }
 
 impl Default for TunStartCommand {
@@ -223,9 +238,18 @@ impl Default for TunStartCommand {
             addr: String::new(),
             mtu: None,
             mask: default_tun_mask(),
+            secondary_addr: None,
             tag: String::new(),
+            auto_route: true,
+            dual_stack: true,
+            strict_route: true,
+            dns_hijack: true,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_tun_mask() -> String {

@@ -9,6 +9,7 @@ mod register;
 mod runtime;
 mod transport;
 
+pub use inbound::{TunInterfaceOptions, TunRuntimeOptions};
 pub use inventory::ProtocolInventory;
 pub use runtime::{ConfigApplyReconciler, ConfigReconcileResult, Proxy, ProxyHandle, RunningProxy};
 

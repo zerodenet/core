@@ -20,15 +20,17 @@ pub(crate) struct UdpDnsResolver {
 
 #[cfg(feature = "udp")]
 impl UdpDnsResolver {
-    pub(crate) fn new(addr: &str) -> Self {
-        let addr = addr
-            .parse()
-            .unwrap_or_else(|_| "8.8.8.8:53".parse().unwrap());
+    pub(crate) fn new(addr: SocketAddr) -> Self {
         Self { addr }
     }
 
     pub(crate) async fn resolve(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
-        let socket = UdpSocket::bind("0.0.0.0:0").await?;
+        let socket = UdpSocket::bind(if self.addr.is_ipv6() {
+            "[::]:0"
+        } else {
+            "0.0.0.0:0"
+        })
+        .await?;
         tokio::time::timeout(Duration::from_secs(10), async {
             let mut ips = self.query(&socket, domain, 0x0001).await?;
             if ips.is_empty() {
@@ -190,6 +192,7 @@ pub fn build_dns_response(query: &[u8], ips: &[IpAddress]) -> Vec<u8> {
     let ancount = ips.len() as u16;
     response[6] = (ancount >> 8) as u8;
     response[7] = ancount as u8;
+    response[8..12].fill(0); // no authority or additional records are copied
 
     // Copy question section.
     let mut offset = 12;
@@ -230,6 +233,66 @@ pub fn build_dns_response(query: &[u8], ips: &[IpAddress]) -> Vec<u8> {
     }
 
     response
+}
+
+/// The first Internet-class question from a UDP DNS request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DnsQuestion {
+    pub domain: String,
+    pub query_type: u16,
+}
+
+/// Parse the single question shape accepted by the TUN DNS interceptor.
+pub fn parse_dns_question(query: &[u8]) -> io::Result<DnsQuestion> {
+    if query.len() < 12 || u16::from_be_bytes([query[4], query[5]]) != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "DNS request must contain exactly one question",
+        ));
+    }
+    let mut offset = 12;
+    let mut labels = Vec::new();
+    loop {
+        let length = *query.get(offset).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "truncated DNS question name")
+        })? as usize;
+        offset += 1;
+        if length == 0 {
+            break;
+        }
+        if length > 63 || offset + length > query.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid DNS question label",
+            ));
+        }
+        let label = std::str::from_utf8(&query[offset..offset + length]).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "DNS question label is not UTF-8",
+            )
+        })?;
+        labels.push(label);
+        offset += length;
+    }
+    if labels.is_empty() || offset + 4 > query.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "incomplete DNS question",
+        ));
+    }
+    let query_type = u16::from_be_bytes([query[offset], query[offset + 1]]);
+    let query_class = u16::from_be_bytes([query[offset + 2], query[offset + 3]]);
+    if query_class != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "only Internet-class DNS questions are supported",
+        ));
+    }
+    Ok(DnsQuestion {
+        domain: labels.join("."),
+        query_type,
+    })
 }
 
 /// Skip a DNS name (possibly compressed) at `offset`.

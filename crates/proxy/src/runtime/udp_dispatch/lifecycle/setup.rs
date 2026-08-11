@@ -1,12 +1,11 @@
 use std::net::SocketAddr;
 
 use zero_engine::EngineError;
-use zero_platform_tokio::TokioDatagramSocket;
 
 use crate::runtime::udp_dispatch::UdpDispatch;
 use crate::runtime::udp_flow::sessions::UdpSessionFlows;
 use crate::runtime::udp_flow::state::UdpFlowState;
-use crate::runtime::udp_socket::send_direct_udp_packet;
+use crate::runtime::udp_socket::DirectUdpSockets;
 
 impl UdpDispatch {
     /// Create a new dispatcher with an ephemeral direct socket.
@@ -15,7 +14,7 @@ impl UdpDispatch {
         inbound_tag: &str,
         protocols: &crate::inventory::ProtocolInventory,
     ) -> Result<Self, EngineError> {
-        let direct_socket = TokioDatagramSocket::bind("0.0.0.0:0").await?;
+        let direct_socket = DirectUdpSockets::bind(&runtime.services().network()).await?;
         let (cancel_tx, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(Self {
             runtime,
@@ -38,6 +37,6 @@ impl UdpDispatch {
         target_addr: SocketAddr,
         payload: &[u8],
     ) -> Result<usize, EngineError> {
-        send_direct_udp_packet(&self.direct_socket, target_addr, payload).await
+        self.direct_socket.send_to_addr(payload, target_addr).await
     }
 }
