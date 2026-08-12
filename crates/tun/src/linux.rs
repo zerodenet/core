@@ -1,9 +1,10 @@
 //! Linux TUN device via `/dev/net/tun`.
 
 use std::ffi::CString;
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::net::IpAddr;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::AsRawFd;
 use std::pin::Pin;
 use std::process::Command;
 use std::task::{Context, Poll};
@@ -19,14 +20,14 @@ const IFF_NO_PI: libc::c_int = 0x1000;
 /// A Linux TUN device backed by an `AsyncFd`.
 pub struct LinuxTun {
     name: String,
-    fd: AsyncFd<RawFd>,
+    fd: AsyncFd<File>,
 }
 
 impl LinuxTun {
     /// Create a new TUN device.  `name` is the desired interface name
     /// (e.g. `"tun%d"`); the kernel may assign a different index.
     pub fn create(name: Option<&str>) -> io::Result<Self> {
-        let file = std::fs::OpenOptions::new()
+        let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open("/dev/net/tun")
@@ -58,9 +59,6 @@ impl LinuxTun {
             return Err(io::Error::last_os_error());
         }
 
-        // Don't close the fd when `file` drops.
-        std::mem::forget(file);
-
         // Set non-blocking so AsyncFd's epoll works correctly.
         unsafe {
             let flags = libc::fcntl(fd, libc::F_GETFL, 0);
@@ -76,12 +74,9 @@ impl LinuxTun {
             .map(|&b| b as u8 as char)
             .collect::<String>();
 
-        let async_fd = AsyncFd::new(fd).map_err(|error| {
-            // SAFETY: ownership was detached from `file` above and has not
-            // yet been transferred into the returned device.
-            unsafe { libc::close(fd) };
-            error
-        })?;
+        // Keep the `File` as the owning value so every construction failure
+        // closes the descriptor automatically and the device owns it on success.
+        let async_fd = AsyncFd::new(file)?;
 
         Ok(Self {
             name: actual_name,
@@ -91,15 +86,8 @@ impl LinuxTun {
 }
 
 impl AsRawFd for LinuxTun {
-    fn as_raw_fd(&self) -> RawFd {
-        *self.fd.get_ref()
-    }
-}
-
-impl Drop for LinuxTun {
-    fn drop(&mut self) {
-        // SAFETY: fd is valid.
-        unsafe { libc::close(*self.fd.get_ref()) };
+    fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
+        self.fd.get_ref().as_raw_fd()
     }
 }
 
@@ -174,11 +162,11 @@ impl AsyncRead for LinuxTun {
             };
 
             match guard.try_io(|inner| {
-                let fd = inner.get_ref();
+                let fd = inner.get_ref().as_raw_fd();
                 // SAFETY: read from a valid fd into a caller-provided buffer.
                 let ret = unsafe {
                     libc::read(
-                        *fd,
+                        fd,
                         buf.initialize_unfilled().as_mut_ptr() as *mut libc::c_void,
                         buf.remaining(),
                     )
@@ -215,10 +203,10 @@ impl AsyncWrite for LinuxTun {
             };
 
             match guard.try_io(|inner| {
-                let fd = inner.get_ref();
+                let fd = inner.get_ref().as_raw_fd();
                 // SAFETY: write to a valid fd.
                 let ret =
-                    unsafe { libc::write(*fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
+                    unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
                 if ret < 0 {
                     return Err(io::Error::last_os_error());
                 }
