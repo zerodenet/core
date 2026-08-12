@@ -12,21 +12,13 @@ pub(crate) enum ParsedHttpRequestLine {
         port: u16,
     },
     Forward {
+        method: String,
         target: Address,
         port: u16,
-        origin_form_line: String,
+        authority: String,
+        origin_form: String,
+        version: String,
     },
-}
-
-pub(crate) fn first_line(request: &[u8]) -> Result<&str, Error> {
-    let request = core::str::from_utf8(request)
-        .map_err(|_| Error::Protocol("HTTP request is not valid UTF-8"))?;
-
-    request
-        .split("\r\n")
-        .next()
-        .filter(|line| !line.is_empty())
-        .ok_or(Error::Protocol("HTTP request line is missing"))
 }
 
 pub(crate) fn parse_request_line(line: &str) -> Result<ParsedHttpRequestLine, Error> {
@@ -47,8 +39,8 @@ pub(crate) fn parse_request_line(line: &str) -> Result<ParsedHttpRequestLine, Er
         ));
     }
 
-    if !version.starts_with("HTTP/") {
-        return Err(Error::Protocol("HTTP version is invalid"));
+    if !matches!(version, "HTTP/1.0" | "HTTP/1.1") {
+        return Err(Error::Unsupported("HTTP version is not supported"));
     }
 
     if method == "CONNECT" {
@@ -56,15 +48,18 @@ pub(crate) fn parse_request_line(line: &str) -> Result<ParsedHttpRequestLine, Er
         return Ok(ParsedHttpRequestLine::Connect { target, port });
     }
 
-    let (target, port, origin_form) = parse_absolute_http_uri(request_target)?;
+    let (target, port, authority, origin_form) = parse_absolute_http_uri(request_target)?;
     Ok(ParsedHttpRequestLine::Forward {
+        method: method.to_string(),
         target,
         port,
-        origin_form_line: format!("{method} {origin_form} {version}\r\n"),
+        authority,
+        origin_form,
+        version: version.to_string(),
     })
 }
 
-fn parse_absolute_http_uri(uri: &str) -> Result<(Address, u16, String), Error> {
+fn parse_absolute_http_uri(uri: &str) -> Result<(Address, u16, String, String), Error> {
     let Some(scheme) = uri.get(..7) else {
         return Err(Error::Protocol(
             "HTTP forward-proxy request target must use absolute-form",
@@ -107,7 +102,7 @@ fn parse_absolute_http_uri(uri: &str) -> Result<(Address, u16, String), Error> {
         suffix.to_string()
     };
 
-    Ok((target, port, origin_form))
+    Ok((target, port, authority.to_string(), origin_form))
 }
 
 fn parse_authority(authority: &str, default_port: Option<u16>) -> Result<(Address, u16), Error> {

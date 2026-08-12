@@ -2,7 +2,7 @@ use ::socks5::transport::{Socks5InboundAcceptor, Socks5InboundUserRef};
 use zero_engine::EngineError;
 use zero_traits::AsyncSocket;
 
-use crate::adapters::http::inbound::{replay_http_request, HttpConnectInboundHandler};
+use crate::adapters::http::inbound::{handle_http_connection, HttpConnectInboundHandler};
 use crate::adapters::socks5::inbound::handle_socks5_connection;
 use crate::runtime::inbound_operation::{InboundConnectionContext, TcpInboundListenerOperation};
 use crate::transport::{MeteredStream, PrefixedSocket, TcpRelayStream};
@@ -34,34 +34,7 @@ async fn handle_mixed_connection(
         )
         .await
     } else {
-        let mut metered = MeteredStream::new(relay_stream);
-        match request
-            .http_handler
-            .http_inbound()
-            .accept_request(&mut metered)
-            .await
-        {
-            Ok(http_request) => {
-                let (session, mode, replay) = http_request.into_parts();
-                let client = replay_http_request(metered.into_inner(), replay);
-                context
-                    .serve(session, client, request.http_handler.for_mode(mode))
-                    .await
-            }
-            Err(err) => {
-                if request
-                    .http_handler
-                    .http_inbound()
-                    .send_accept_error_response(&mut metered, &err)
-                    .await
-                    .unwrap_or(false)
-                {
-                    Ok(())
-                } else {
-                    Err(EngineError::from(err))
-                }
-            }
-        }
+        handle_http_connection(relay_stream, request.http_handler, context).await
     }
 }
 

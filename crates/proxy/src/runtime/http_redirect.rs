@@ -9,7 +9,9 @@ pub(crate) fn select_redirect_target(
     };
 
     for rule in rules {
-        let status = rule.status_code?;
+        let Some(status) = rule.status_code else {
+            continue;
+        };
         let matched = if let Some(from) = &rule.from {
             from == domain
         } else if let Some(pattern) = &rule.from_regex {

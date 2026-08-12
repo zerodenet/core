@@ -4,7 +4,7 @@
 //! rate-limit projection do not regrow into one implementation bucket.
 
 mod rate_limit;
-mod result;
+pub(crate) mod result;
 mod serve;
 
 pub(crate) use rate_limit::apply_kernel_rate_limits_from_config;

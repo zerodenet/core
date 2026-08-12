@@ -224,6 +224,101 @@ async fn mixed_inbound_routes_absolute_form_get_by_ip_cidr() {
     let _ = origin_task.await;
 }
 
+#[tokio::test]
+async fn mixed_http_branch_reparses_persistent_requests() {
+    let mixed_port = free_port();
+    let origin_port = free_port();
+    let origin_task = tokio::spawn(async move {
+        let listener = TcpListener::bind(("127.0.0.1", origin_port))
+            .await
+            .expect("bind origin");
+        for path in ["/first", "/second"] {
+            let (mut stream, _) = listener.accept().await.expect("accept origin");
+            let request = String::from_utf8(read_http_head(&mut stream).await).expect("request");
+            assert!(request.starts_with(&format!("GET {path} HTTP/1.1\r\n")));
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await
+                .expect("response");
+        }
+    });
+    let config = RuntimeConfig::parse(&format!(
+        r#"{{
+            "inbounds":[{{"tag":"mixed-in","listen":{{"address":"127.0.0.1","port":{mixed_port}}},"protocol":{{"type":"mixed"}}}}],
+            "outbounds":[],
+            "route":{{"rules":[],"final":{{"type":"direct"}}}}
+        }}"#
+    ))
+    .expect("parse config");
+    let engine_handle = spawn_engine(Engine::new(config).expect("build engine"));
+    wait_for_listener(mixed_port).await;
+
+    let mut client = TcpStream::connect(("127.0.0.1", mixed_port))
+        .await
+        .expect("connect mixed proxy");
+    for path in ["/first", "/second"] {
+        client
+            .write_all(
+                format!("GET http://127.0.0.1:{origin_port}{path} HTTP/1.1\r\nHost: ignored\r\nProxy-Connection: keep-alive\r\n\r\n").as_bytes(),
+            )
+            .await
+            .expect("request");
+        let head = read_http_head(&mut client).await;
+        let length = String::from_utf8_lossy(&head)
+            .lines()
+            .find_map(|line| {
+                line.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(str::trim)
+                    .map(str::to_owned)
+            })
+            .expect("content length")
+            .parse::<usize>()
+            .expect("content length");
+        let mut body = vec![0_u8; length];
+        client.read_exact(&mut body).await.expect("body");
+        assert_eq!(body, b"ok");
+    }
+
+    engine_handle.shutdown().await.expect("shutdown engine");
+    origin_task.await.expect("origin task");
+}
+
+#[tokio::test]
+async fn mixed_http_redirect_skips_non_redirect_rewrite_rules() {
+    let mixed_port = free_port();
+    let config = RuntimeConfig::parse(&format!(
+        r#"{{
+            "inbounds":[{{"tag":"mixed-in","listen":{{"address":"127.0.0.1","port":{mixed_port}}},"protocol":{{"type":"mixed"}}}}],
+            "outbounds":[],
+            "route":{{
+                "rules":[],
+                "url_rewrite":[
+                    {{"from":"a.example","to":"b.example"}},
+                    {{"from":"c.example","to":"d.example","status_code":302}}
+                ],
+                "final":{{"type":"reject"}}
+            }}
+        }}"#
+    ))
+    .expect("parse config");
+    let engine_handle = spawn_engine(Engine::new(config).expect("build engine"));
+    wait_for_listener(mixed_port).await;
+
+    let mut client = TcpStream::connect(("127.0.0.1", mixed_port))
+        .await
+        .expect("connect mixed proxy");
+    client
+        .write_all(b"GET http://c.example/path HTTP/1.1\r\nHost: c.example\r\n\r\n")
+        .await
+        .expect("request");
+    let head = read_http_head(&mut client).await;
+    assert!(head.starts_with(b"HTTP/1.1 302 Found\r\n"));
+    assert!(String::from_utf8_lossy(&head).contains("Location: https://d.example:80\r\n"));
+
+    engine_handle.shutdown().await.expect("shutdown engine");
+}
+
 async fn read_http_head(stream: &mut TcpStream) -> Vec<u8> {
     let mut request = Vec::new();
     let mut byte = [0_u8; 1];

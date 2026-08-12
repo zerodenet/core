@@ -1,3 +1,4 @@
+mod message;
 mod model;
 mod route;
 mod serve;

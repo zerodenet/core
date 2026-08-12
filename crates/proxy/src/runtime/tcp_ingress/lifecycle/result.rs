@@ -5,7 +5,7 @@ use zero_engine::{CompletedSessionRecord, EngineError, SessionHandle, SessionOut
 
 use crate::logging::{log_session_failed, log_session_finished, session_failure_observation};
 
-pub(super) fn finish_relay_success(
+pub(crate) fn finish_relay_success(
     handle: &mut SessionHandle,
     outcome: SessionOutcome,
     upstream_endpoint: Option<&(String, u16)>,
@@ -21,7 +21,7 @@ pub(super) fn finish_relay_success(
     }
 }
 
-pub(super) fn finish_relay_failure(
+pub(crate) fn finish_relay_failure(
     handle: &mut SessionHandle,
     session: &Session,
     started_at: Instant,
@@ -44,7 +44,7 @@ pub(super) fn finish_relay_failure(
     record
 }
 
-pub(super) fn finish_relay_idle_timeout(
+pub(crate) fn finish_relay_idle_timeout(
     handle: &mut SessionHandle,
     outcome: SessionOutcome,
     upstream_endpoint: Option<&(String, u16)>,
@@ -60,14 +60,14 @@ pub(super) fn finish_relay_idle_timeout(
     }
 }
 
-pub(super) fn finish_blocked(handle: &mut SessionHandle) {
+pub(crate) fn finish_blocked(handle: &mut SessionHandle) {
     let record = handle.finish(SessionOutcome::Blocked);
     if let Some(ref record) = record {
         log_session_finished(record, None);
     }
 }
 
-pub(super) fn finish_route_or_establish_failure(
+pub(crate) fn finish_route_or_establish_failure(
     handle: &mut SessionHandle,
     session: &Session,
     started_at: Instant,

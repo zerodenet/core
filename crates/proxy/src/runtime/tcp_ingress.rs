@@ -22,6 +22,7 @@ pub(crate) use contract::InboundProtocol;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) use contract::NoClientResponseInboundProtocol;
 pub(crate) use contract::NoClientResponseStreamProtocol;
+pub(crate) use contract::{MessageInboundProtocol, MessageRelayContext, MessageRelayOutcome};
 #[cfg(feature = "udp-runtime")]
 pub(crate) use lifecycle::apply_kernel_rate_limits_from_config;
 pub(crate) use runtime::TcpIngressRuntime;

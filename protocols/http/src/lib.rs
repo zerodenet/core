@@ -3,9 +3,17 @@
 
 extern crate alloc;
 
+mod body;
 mod inbound;
 mod metadata;
 mod parse;
+mod wire;
 
-pub use inbound::{HttpConnectInbound, HttpConnectResponse, HttpInboundMode, HttpInboundRequest};
+pub use body::{
+    relay_close_delimited_as_chunked, relay_http_body, HttpBodyKind, HttpTransferCount,
+};
+pub use inbound::{
+    HttpConnectInbound, HttpConnectResponse, HttpForwardRequest, HttpForwardResponse,
+    HttpInboundMode, HttpInboundRequest,
+};
 pub use metadata::HttpConnectProtocol;
