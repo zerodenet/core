@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -47,6 +48,35 @@ pub trait EventStream: Send + 'static {
 
     /// Read the next matching event without blocking.
     fn try_recv(&self) -> Option<RawApiEvent>;
+
+    /// Wait up to `timeout` for an event.
+    ///
+    /// The default keeps the contract runtime-neutral. Channel-backed streams
+    /// should override this method so adapters can wait without polling.
+    fn recv_timeout(&self, timeout: Duration) -> EventStreamReceive {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(event) = self.try_recv() {
+                return EventStreamReceive::Event(Box::new(event));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return EventStreamReceive::Timeout;
+            }
+            std::thread::sleep(
+                deadline
+                    .saturating_duration_since(now)
+                    .min(Duration::from_millis(25)),
+            );
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum EventStreamReceive {
+    Event(Box<RawApiEvent>),
+    Timeout,
+    Closed,
 }
 
 pub trait EventSource {

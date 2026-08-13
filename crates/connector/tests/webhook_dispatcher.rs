@@ -22,6 +22,62 @@ struct StaticEventStream {
     events: Mutex<VecDeque<RawApiEvent>>,
 }
 
+#[derive(Clone)]
+struct CountingEventSource {
+    events: Arc<Mutex<Vec<RawApiEvent>>>,
+    replay_calls: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl EventSource for CountingEventSource {
+    type Stream = StaticEventStream;
+
+    fn subscribe(&self, _filter: EventFilter) -> zero_api::ApiResult<Self::Stream> {
+        Ok(StaticEventStream {
+            events: Mutex::new(self.events.lock().expect("events lock").clone().into()),
+        })
+    }
+
+    fn latest(&self, limit: usize, _filter: EventFilter) -> zero_api::ApiResult<Vec<RawApiEvent>> {
+        Ok(self
+            .events
+            .lock()
+            .expect("events lock")
+            .iter()
+            .take(limit)
+            .cloned()
+            .collect())
+    }
+
+    fn since(
+        &self,
+        sequence: u64,
+        limit: usize,
+        _filter: EventFilter,
+    ) -> zero_api::ApiResult<zero_api::EventReplay> {
+        self.replay_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let events = self
+            .events
+            .lock()
+            .expect("events lock")
+            .iter()
+            .filter(|event| event.sequence.is_some_and(|value| value > sequence))
+            .take(limit)
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(zero_api::EventReplay {
+            core_instance_id: "test-core".to_owned(),
+            requested_after: sequence,
+            actual_from: events
+                .first()
+                .and_then(|event| event.sequence)
+                .unwrap_or_else(|| sequence.saturating_add(1)),
+            has_gap: false,
+            events,
+        })
+    }
+}
+
 impl EventStream for StaticEventStream {
     fn recv(&self) -> Option<RawApiEvent> {
         self.try_recv()
@@ -272,6 +328,100 @@ async fn stalled_webhook_does_not_block_an_independent_registration() {
     release_stalled.send(()).expect("release stalled server");
     stalled_server.join().expect("stalled server");
     dispatcher.shutdown().await;
+}
+
+#[tokio::test]
+async fn stalled_webhook_does_not_spin_the_dispatcher() {
+    let (url, received, release, server) = spawn_stalled_http_server();
+    let replay_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let source = CountingEventSource {
+        events: Arc::new(Mutex::new(vec![sequenced_event(
+            "event-no-spin",
+            event_type::ENGINE_WARNING,
+            1,
+        )])),
+        replay_calls: replay_calls.clone(),
+    };
+    let dispatcher = spawn_event_dispatcher(
+        source,
+        webhook_api(url, None, 8),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(50),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn no-spin dispatcher")
+    .expect("no-spin dispatcher");
+
+    received
+        .recv_timeout(Duration::from_secs(2))
+        .expect("stalled request received");
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    let calls = replay_calls.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(calls <= 12, "dispatcher replayed {calls} times while idle");
+
+    release.send(()).expect("release stalled webhook");
+    server.join().expect("stalled server");
+    dispatcher.shutdown().await;
+}
+
+#[tokio::test]
+async fn durable_stalled_webhook_is_cancelled_on_shutdown_and_recovered() {
+    let outbox_path = temp_path("zero-connector-cancelled-webhook-outbox.jsonl");
+    let _ = std::fs::remove_file(&outbox_path);
+    let (stalled_url, stalled_received, release_stalled, stalled_server) =
+        spawn_stalled_http_server();
+    let event = sequenced_event("event-cancelled-durable", event_type::FLOW_COMPLETED, 1);
+    let api = webhook_api(stalled_url, Some(outbox_path.clone()), 8);
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![event])),
+        },
+        api.clone(),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn cancellable dispatcher")
+    .expect("cancellable dispatcher");
+
+    stalled_received
+        .recv_timeout(Duration::from_secs(2))
+        .expect("stalled webhook received durable delivery");
+    tokio::time::timeout(Duration::from_secs(1), dispatcher.shutdown())
+        .await
+        .expect("durable webhook shutdown must cancel the request");
+    release_stalled.send(()).expect("release cancelled server");
+    stalled_server
+        .join()
+        .expect("stalled server exits on cancel");
+
+    let (recovery_url, recovery_server) = spawn_http_server();
+    let mut recovery_api = api;
+    match &mut recovery_api.event_sinks[0] {
+        EventSinkConfig::Webhook { url, .. } => *url = recovery_url,
+        _ => unreachable!("webhook config"),
+    }
+    let recovered = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(Vec::new())),
+        },
+        recovery_api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn recovery dispatcher")
+    .expect("recovery dispatcher");
+    let request = recovery_server.join().expect("recovery request");
+    assert!(request_body(&request).contains("event-cancelled-durable"));
+    recovered.shutdown().await;
+    let _ = std::fs::remove_file(outbox_path);
 }
 
 #[tokio::test]
@@ -579,14 +729,17 @@ async fn dispatcher_spills_backlog_to_disk_and_pages_a_bounded_working_set() {
     second.shutdown().await;
 
     assert_eq!(requests.len(), 7);
+    let mut duplicate_attempts = 0;
     for sequence in 1..=5 {
         let event_id = format!("event-spill-{sequence}");
         let deliveries = requests
             .iter()
             .filter(|request| request_body(request).contains(&event_id))
             .count();
-        assert_eq!(deliveries, if sequence <= 2 { 2 } else { 1 });
+        assert!(deliveries >= 1, "{event_id} was never delivered");
+        duplicate_attempts += deliveries - 1;
     }
+    assert_eq!(duplicate_attempts, 2);
     let recovered = second_status
         .sink_status()
         .into_iter()
@@ -809,7 +962,9 @@ fn spawn_http_server() -> (String, JoinHandle<String>) {
                     stream
                         .set_read_timeout(Some(Duration::from_secs(5)))
                         .expect("read timeout");
-                    let request = read_http_request(&mut stream);
+                    let Some(request) = read_http_request(&mut stream) else {
+                        continue;
+                    };
                     stream
                         .write_all(
                             b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -841,9 +996,9 @@ fn spawn_stalled_http_server() -> (String, mpsc::Receiver<()>, mpsc::Sender<()>,
         release_rx
             .recv_timeout(Duration::from_secs(5))
             .expect("release stalled response");
-        stream
-            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .expect("write stalled response");
+        let _ = stream.write_all(
+            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
     });
     (
         format!("http://{address}/events"),
@@ -913,8 +1068,9 @@ fn accept_http_request(listener: &TcpListener) -> (String, TcpStream) {
                 stream
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .expect("read timeout");
-                let request = read_http_request(&mut stream);
-                return (request, stream);
+                if let Some(request) = read_http_request(&mut stream) {
+                    return (request, stream);
+                }
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(20));
@@ -925,12 +1081,14 @@ fn accept_http_request(listener: &TcpListener) -> (String, TcpStream) {
     panic!("webhook request was not received");
 }
 
-fn read_http_request(stream: &mut TcpStream) -> String {
+fn read_http_request(stream: &mut TcpStream) -> Option<String> {
     let mut received = Vec::new();
     let mut buffer = [0_u8; 1024];
     let header_end = loop {
-        let read = stream.read(&mut buffer).expect("read request");
-        assert!(read > 0, "connection closed before headers completed");
+        let read = stream.read(&mut buffer).ok()?;
+        if read == 0 {
+            return None;
+        }
         received.extend_from_slice(&buffer[..read]);
         if let Some(position) = received.windows(4).position(|window| window == b"\r\n\r\n") {
             break position + 4;
@@ -942,16 +1100,17 @@ fn read_http_request(stream: &mut TcpStream) -> String {
         .lines()
         .filter_map(|line| line.split_once(':'))
         .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-        .and_then(|(_, value)| value.trim().parse::<usize>().ok())
-        .expect("content-length header");
+        .and_then(|(_, value)| value.trim().parse::<usize>().ok())?;
 
     while received.len() < header_end + content_length {
-        let read = stream.read(&mut buffer).expect("read request body");
-        assert!(read > 0, "connection closed before body completed");
+        let read = stream.read(&mut buffer).ok()?;
+        if read == 0 {
+            return None;
+        }
         received.extend_from_slice(&buffer[..read]);
     }
 
-    String::from_utf8(received).expect("utf-8 request")
+    String::from_utf8(received).ok()
 }
 
 fn request_body(request: &str) -> &str {

@@ -1,5 +1,5 @@
-use std::sync::mpsc::{self, TrySendError};
-use std::thread;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use zero_api::RawApiEvent;
 
@@ -18,46 +18,46 @@ pub(super) struct SinkWorker {
     pub(super) tag: String,
     event_types: Vec<String>,
     source_id: Option<String>,
-    sender: Option<mpsc::SyncSender<RawApiEvent>>,
-    task: Option<thread::JoinHandle<()>>,
+    sender: Option<mpsc::Sender<RawApiEvent>>,
+    task: Option<JoinHandle<()>>,
+    supports_cancellation: bool,
     pub(super) in_flight: Option<PendingDelivery>,
 }
 
 impl SinkWorker {
     pub(super) fn spawn(
         sink: ConfiguredEventSink,
-        result_tx: mpsc::Sender<SinkWorkerResult>,
+        result_tx: mpsc::UnboundedSender<SinkWorkerResult>,
     ) -> Self {
         let tag = sink.tag.clone();
         let event_types = sink.event_types.clone();
         let source_id = sink.source_id.clone();
+        let supports_cancellation = sink.supports_cancellation();
         let worker_tag = tag.clone();
-        let (sender, receiver) = mpsc::sync_channel::<RawApiEvent>(1);
-        let task = thread::Builder::new()
-            .name(format!("zero-event-sink-{tag}"))
-            .spawn(move || {
-                while let Ok(event) = receiver.recv() {
-                    let event_id = event.event_id.clone();
-                    let result = sink.publish_prepared(&event);
-                    if result_tx
-                        .send(SinkWorkerResult {
-                            sink_tag: worker_tag.clone(),
-                            event_id,
-                            result,
-                        })
-                        .is_err()
-                    {
-                        break;
-                    }
+        let (sender, mut receiver) = mpsc::channel::<RawApiEvent>(1);
+        let task = tokio::spawn(async move {
+            while let Some(event) = receiver.recv().await {
+                let event_id = event.event_id.clone();
+                let result = sink.publish_prepared(&event).await;
+                if result_tx
+                    .send(SinkWorkerResult {
+                        sink_tag: worker_tag.clone(),
+                        event_id,
+                        result,
+                    })
+                    .is_err()
+                {
+                    break;
                 }
-            })
-            .expect("event sink worker thread");
+            }
+        });
         Self {
             tag,
             event_types,
             source_id,
             sender: Some(sender),
             task: Some(task),
+            supports_cancellation,
             in_flight: None,
         }
     }
@@ -90,7 +90,9 @@ impl SinkWorker {
                 self.in_flight = Some(delivery);
                 None
             }
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => Some(delivery),
+            Err(mpsc::error::TrySendError::Full(_)) | Err(mpsc::error::TrySendError::Closed(_)) => {
+                Some(delivery)
+            }
         }
     }
 
@@ -102,9 +104,28 @@ impl SinkWorker {
         self.sender.take();
     }
 
-    pub(super) fn join(&mut self) {
+    pub(super) async fn join(&mut self) {
         if let Some(task) = self.task.take() {
-            let _ = task.join();
+            let _ = task.await;
         }
+    }
+
+    /// Cancel an in-flight delivery only when the outbox already owns a
+    /// durable copy. Non-durable deliveries must be allowed to finish during
+    /// graceful shutdown.
+    pub(super) fn cancel_durable_in_flight(&mut self) {
+        if !self.supports_cancellation
+            || !self
+                .in_flight
+                .as_ref()
+                .is_some_and(|delivery| delivery.uses_outbox)
+        {
+            return;
+        }
+        self.sender.take();
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+        self.in_flight.take();
     }
 }

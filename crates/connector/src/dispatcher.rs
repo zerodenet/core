@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 use zero_api::{
     event_type, DeadLetterSink, EventFilter, EventSink, EventSource, EventStream,
-    OutboxStorageStatus, RawApiEvent, SinkStatus,
+    EventStreamReceive, OutboxStorageStatus, RawApiEvent, SinkStatus,
 };
 use zero_config::{ApiConfig, EventDispatcherConfig};
 
@@ -101,7 +101,7 @@ impl PerSinkStats {
 }
 
 pub struct EventDispatcherHandle {
-    shutdown: Option<mpsc::Sender<()>>,
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
     task: JoinHandle<()>,
     /// Per-sink delivery stats shared with the dispatcher thread.
     sink_stats: Arc<Vec<(String, Arc<PerSinkStats>)>>,
@@ -185,7 +185,7 @@ where
     S: EventSource + Send + Sync + 'static,
 {
     let (init_tx, init_rx) = mpsc::sync_channel(1);
-    let (shutdown_tx, shutdown_rx) = mpsc::channel();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     let dead_letter_path = api.dead_letter_path.clone();
     let outbox_path = api.outbox_path.clone();
@@ -298,8 +298,20 @@ where
         } else {
             Vec::new()
         };
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                let _ = init_tx.send(Err(ConnectorError::Config(format!(
+                    "failed to build connector dispatcher runtime: {error}"
+                ))));
+                return;
+            }
+        };
         let _ = init_tx.send(Ok(true));
-        run_event_dispatcher(
+        runtime.block_on(run_event_dispatcher(
             source,
             subscriber,
             bootstrap_events,
@@ -311,7 +323,7 @@ where
             &mut outbox,
             recovered,
             dispatcher_config,
-        );
+        ));
     });
 
     let init_result = init_rx
@@ -333,14 +345,14 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_event_dispatcher<S>(
+async fn run_event_dispatcher<S>(
     source: S,
     subscriber: S::Stream,
     bootstrap_events: Vec<RawApiEvent>,
     sinks: Vec<ConfiguredEventSink>,
     stats: &SharedSinkStats,
     options: EventDispatcherOptions,
-    shutdown: mpsc::Receiver<()>,
+    mut shutdown: tokio::sync::oneshot::Receiver<()>,
     dead_letter: Option<DeadLetterSink>,
     outbox: &mut Option<DeliveryOutbox>,
     recovered: Vec<OutboxDelivery>,
@@ -348,12 +360,37 @@ fn run_event_dispatcher<S>(
 ) where
     S: EventSource + Send + Sync + 'static,
 {
-    let (result_tx, result_rx) = mpsc::channel();
+    let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel();
     let mut workers = sinks
         .into_iter()
         .map(|sink| SinkWorker::spawn(sink, result_tx.clone()))
         .collect::<Vec<_>>();
     drop(result_tx);
+    let source_cancelled = Arc::new(AtomicBool::new(false));
+    let (source_tx, mut source_rx) =
+        tokio::sync::mpsc::channel(dispatcher_config.replay_batch_size.max(1));
+    let source_cancelled_for_thread = source_cancelled.clone();
+    let source_task = std::thread::Builder::new()
+        .name("zero-event-source".to_owned())
+        .spawn(move || {
+            while !source_cancelled_for_thread.load(Ordering::Acquire) {
+                match subscriber.recv_timeout(Duration::from_millis(250)) {
+                    EventStreamReceive::Event(event) => {
+                        if source_tx.blocking_send(*event).is_err() {
+                            break;
+                        }
+                    }
+                    EventStreamReceive::Timeout => {}
+                    EventStreamReceive::Closed => break,
+                }
+            }
+            while let Some(event) = subscriber.try_recv() {
+                if source_tx.blocking_send(event).is_err() {
+                    break;
+                }
+            }
+        })
+        .expect("event source bridge thread");
     let mut pending = recovered
         .into_iter()
         .map(PendingDelivery::recovered)
@@ -364,12 +401,16 @@ fn run_event_dispatcher<S>(
         .into_iter()
         .map(BlockedEvent::new)
         .collect::<VecDeque<_>>();
+    let mut source_events = VecDeque::new();
+    let mut completed_results = VecDeque::new();
+    let mut source_closed = false;
     let max_retry_attempts = if options.max_retry_attempts == 0 {
         dispatcher_config.max_retry_attempts
     } else {
         options.max_retry_attempts
     };
 
+    let mut shutting_down = false;
     loop {
         drain_worker_results(
             &mut workers,
@@ -379,18 +420,22 @@ fn run_event_dispatcher<S>(
             dead_letter.as_ref(),
             outbox,
             dispatcher_config,
-            &result_rx,
+            &mut result_rx,
+            &mut completed_results,
         );
-        fill_pending_from_outbox(
-            stats,
-            &mut pending,
-            &workers,
-            outbox.as_ref(),
-            dispatcher_config.max_in_memory_deliveries,
-        );
+        if !shutting_down {
+            fill_pending_from_outbox(
+                stats,
+                &mut pending,
+                &workers,
+                outbox.as_ref(),
+                dispatcher_config.max_in_memory_deliveries,
+            );
+        }
         drain_event_source(
             &source,
-            &subscriber,
+            &mut source_rx,
+            &mut source_events,
             &workers,
             stats,
             &mut pending,
@@ -406,23 +451,34 @@ fn run_event_dispatcher<S>(
             dead_letter.as_ref(),
             outbox,
             dispatcher_config,
+            !shutting_down,
         );
         refresh_pending_stats(stats, &pending, &workers, outbox.as_ref());
 
-        let has_active_work = workers.iter().any(|worker| worker.in_flight.is_some())
-            || pending
+        if shutting_down {
+            let has_in_flight = workers.iter().any(|worker| worker.in_flight.is_some());
+            let has_ready = pending
                 .iter()
-                .any(|delivery| delivery.next_due <= Instant::now());
-        let wait_interval = if has_active_work {
-            options.poll_interval.min(Duration::from_micros(100))
-        } else {
-            options.poll_interval
-        };
-        match shutdown.recv_timeout(wait_interval) {
-            Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                .any(|delivery| !delivery.uses_outbox && delivery.next_due <= Instant::now());
+            if source_closed && !has_in_flight && !has_ready {
+                break;
+            }
+        }
+
+        let wait_interval =
+            next_wait_interval(&pending, &workers, options.poll_interval, !shutting_down);
+        tokio::select! {
+            biased;
+            _ = &mut shutdown, if !shutting_down => {
+                shutting_down = true;
+                source_cancelled.store(true, Ordering::Release);
+                for worker in &mut workers {
+                    worker.cancel_durable_in_flight();
+                }
                 while drain_event_source(
                     &source,
-                    &subscriber,
+                    &mut source_rx,
+                    &mut source_events,
                     &workers,
                     stats,
                     &mut pending,
@@ -438,66 +494,36 @@ fn run_event_dispatcher<S>(
                         "event dispatcher stopped with events that could not be persisted; the event cursor was not advanced"
                     );
                 }
-                loop {
-                    drain_worker_results(
-                        &mut workers,
-                        stats,
-                        &mut pending,
-                        max_retry_attempts,
-                        dead_letter.as_ref(),
-                        outbox,
-                        dispatcher_config,
-                        &result_rx,
-                    );
-                    fill_pending_from_outbox(
-                        stats,
-                        &mut pending,
-                        &workers,
-                        outbox.as_ref(),
-                        dispatcher_config.max_in_memory_deliveries,
-                    );
-                    submit_pending(
-                        &mut workers,
-                        stats,
-                        &mut pending,
-                        dead_letter.as_ref(),
-                        outbox,
-                        dispatcher_config,
-                    );
-                    if workers.iter().any(|worker| worker.in_flight.is_some()) {
-                        std::thread::sleep(Duration::from_micros(100));
-                        continue;
-                    }
-                    if pending
-                        .iter()
-                        .any(|delivery| delivery.next_due <= Instant::now())
-                    {
-                        continue;
-                    }
-                    break;
-                }
-                for worker in &mut workers {
-                    worker.stop();
-                }
-                for worker in &mut workers {
-                    worker.join();
-                }
-                drain_worker_results(
-                    &mut workers,
-                    stats,
-                    &mut pending,
-                    max_retry_attempts,
-                    dead_letter.as_ref(),
-                    outbox,
-                    dispatcher_config,
-                    &result_rx,
-                );
-                refresh_pending_stats(stats, &pending, &workers, outbox.as_ref());
-                break;
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Some(result) = result_rx.recv() => completed_results.push_back(result),
+            event = source_rx.recv(), if !source_closed => match event {
+                Some(event) => source_events.push_back(event),
+                None => source_closed = true,
+            },
+            _ = tokio::time::sleep(wait_interval) => {}
         }
     }
+
+    source_cancelled.store(true, Ordering::Release);
+    for worker in &mut workers {
+        worker.stop();
+    }
+    for worker in &mut workers {
+        worker.join().await;
+    }
+    let _ = source_task.join();
+    drain_worker_results(
+        &mut workers,
+        stats,
+        &mut pending,
+        max_retry_attempts,
+        dead_letter.as_ref(),
+        outbox,
+        dispatcher_config,
+        &mut result_rx,
+        &mut completed_results,
+    );
+    refresh_pending_stats(stats, &pending, &workers, outbox.as_ref());
 
     debug!("event dispatcher stopped");
 }
@@ -505,7 +531,8 @@ fn run_event_dispatcher<S>(
 #[allow(clippy::too_many_arguments)]
 fn drain_event_source<S>(
     source: &S,
-    subscriber: &S::Stream,
+    source_rx: &mut tokio::sync::mpsc::Receiver<RawApiEvent>,
+    source_events: &mut VecDeque<RawApiEvent>,
     workers: &[SinkWorker],
     stats: &SharedSinkStats,
     pending: &mut VecDeque<PendingDelivery>,
@@ -546,10 +573,16 @@ where
 
     let mut events = Vec::new();
     while events.len() < dispatcher_config.replay_batch_size {
-        let Some(event) = subscriber.try_recv() else {
+        let Some(event) = source_events.pop_front() else {
             break;
         };
         events.push(event);
+    }
+    while events.len() < dispatcher_config.replay_batch_size {
+        match source_rx.try_recv() {
+            Ok(event) => events.push(event),
+            Err(_) => break,
+        }
     }
 
     let replay_room = dispatcher_config
@@ -799,6 +832,7 @@ fn submit_pending(
     dead_letter: Option<&DeadLetterSink>,
     outbox: &mut Option<DeliveryOutbox>,
     dispatcher_config: EventDispatcherConfig,
+    allow_durable: bool,
 ) {
     let now = Instant::now();
     let len = pending.len();
@@ -807,6 +841,11 @@ fn submit_pending(
         let Some(delivery) = pending.pop_front() else {
             break;
         };
+
+        if delivery.uses_outbox && !allow_durable {
+            pending.push_back(delivery);
+            continue;
+        }
 
         if delivery.next_due > now {
             pending.push_back(delivery);
@@ -849,9 +888,13 @@ fn drain_worker_results(
     dead_letter: Option<&DeadLetterSink>,
     outbox: &mut Option<DeliveryOutbox>,
     dispatcher_config: EventDispatcherConfig,
-    result_rx: &mpsc::Receiver<SinkWorkerResult>,
+    result_rx: &mut tokio::sync::mpsc::UnboundedReceiver<SinkWorkerResult>,
+    completed_results: &mut VecDeque<SinkWorkerResult>,
 ) {
     while let Ok(completed) = result_rx.try_recv() {
+        completed_results.push_back(completed);
+    }
+    while let Some(completed) = completed_results.pop_front() {
         let Some(worker) = workers
             .iter_mut()
             .find(|worker| worker.tag == completed.sink_tag)
@@ -895,6 +938,28 @@ fn drain_worker_results(
             completed.result,
         );
     }
+}
+
+fn next_wait_interval(
+    pending: &VecDeque<PendingDelivery>,
+    workers: &[SinkWorker],
+    source_poll_interval: Duration,
+    allow_durable: bool,
+) -> Duration {
+    let now = Instant::now();
+    pending
+        .iter()
+        .filter(|delivery| {
+            (!delivery.uses_outbox || allow_durable)
+                && (delivery.awaiting_ack
+                    || workers.iter().any(|worker| {
+                        worker.tag == delivery.sink_tag && worker.in_flight.is_none()
+                    }))
+        })
+        .map(|delivery| delivery.next_due.saturating_duration_since(now))
+        .min()
+        .unwrap_or(source_poll_interval)
+        .min(source_poll_interval)
 }
 
 #[allow(clippy::too_many_arguments)]

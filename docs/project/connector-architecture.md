@@ -42,7 +42,9 @@ Connector 是 Zero 的可选出站事件通信能力。它解决的是 HTTP/IPC/
 
 Connector 所维护的“保活”仅指投递任务持续运行、失败重试、outbox 恢复和 sink 可观测状态。它不定义中心连接会话或固定 heartbeat/presence 端点。
 
-Dispatcher 线程独占事件游标、outbox 和重试状态；每个 sink 使用独立阻塞 worker，仅执行该 sink 的一次投递。一个 URL 超时不会阻塞其他注册地址，worker 也不能直接修改 outbox。请求超时、退避、重试阈值和耗尽策略全部来自 `api.dispatcher`，不存在隐藏的固定三次删除策略。
+Dispatcher actor 在 Connector 自己的专用执行线程上独占事件游标、outbox 和重试状态，并通过事件到达、投递完成、重试截止时间或关闭信号唤醒，不以在途请求作为轮询条件。每个 sink 使用独立、单并发的异步投递任务；Webhook 使用可取消的异步 HTTP，JSONL 等同步 sink 通过 blocking adapter 执行。一个 URL 超时不会阻塞其他注册地址，sink 任务也不能直接修改 outbox。请求超时、退避、重试阈值和耗尽策略全部来自 `api.dispatcher`，不存在隐藏的固定三次删除策略。
+
+`zero-api::EventSink` 保持同步、运行时中立，用于内核内的持久化钩子和通用文件 sink；Connector 在自身边界内把它适配到异步投递能力，不把 Tokio 或 HTTP 类型引入 Engine。配置重载或关闭时，已经写入 outbox 的在途 Webhook 可以取消并由下一次 Dispatcher 启动恢复；没有 outbox 的事实投递仍执行 graceful flush，不能以取消为由静默丢弃。
 
 应用进程第一次启动已配置的 delivery sink 时，先建立实时订阅，再从内核保留事件中补取该 engine 实例的 `engine.started`。实时流与补取结果按事件 `sequence` 去重，因此启动时序不会造成漏投或重复投递。配置热更新重建 dispatcher 时不会再次补发同一进程的启动事件；`flow.snapshot` 的订阅同步和常规游标回放语义保持不变。
 

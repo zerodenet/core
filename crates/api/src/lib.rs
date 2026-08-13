@@ -51,7 +51,8 @@ pub use snapshot::{
     UdpUpstreamStats, UrlTestSelectionSnapshot,
 };
 pub use traits::{
-    ApiAuth, ApiCodec, CommandService, EventSink, EventSource, EventStream, QueryService,
+    ApiAuth, ApiCodec, CommandService, EventSink, EventSource, EventStream, EventStreamReceive,
+    QueryService,
 };
 
 pub const API_ID: &str = "zero.api.v1";

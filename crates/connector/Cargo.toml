@@ -24,4 +24,4 @@ tokio.workspace = true
 tracing.workspace = true
 zero-api = { path = "../api" }
 zero-config = { path = "../config" }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }

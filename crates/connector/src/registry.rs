@@ -2,6 +2,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use zero_api::EventSink;
 use zero_config::{ApiConfig, EventSinkConfig};
 
@@ -12,16 +13,60 @@ pub(crate) struct ConfiguredEventSink {
     pub(crate) tag: String,
     pub(crate) event_types: Vec<String>,
     pub(crate) source_id: Option<String>,
-    sink: Arc<dyn EventSink + Send + Sync>,
+    sink: Arc<dyn AsyncDeliverySink>,
     _persistent_lease: Option<PersistentStateLease>,
 }
 
 impl ConfiguredEventSink {
-    pub(crate) fn publish_prepared(
+    pub(crate) async fn publish_prepared(
         &self,
         event: &zero_api::RawApiEvent,
     ) -> zero_api::ApiResult<zero_api::PublishResult> {
-        self.sink.publish(event)
+        self.sink.publish(event.clone()).await
+    }
+
+    pub(crate) fn supports_cancellation(&self) -> bool {
+        self.sink.supports_cancellation()
+    }
+}
+
+/// Connector-local asynchronous delivery boundary.
+///
+/// `zero_api::EventSink` intentionally remains synchronous because the engine
+/// also uses it for in-process durability hooks. Connector transports use this
+/// narrower contract so network delivery can be cancelled without importing a
+/// runtime into the API or engine crates.
+#[async_trait]
+pub(crate) trait AsyncDeliverySink: Send + Sync {
+    async fn publish(
+        &self,
+        event: zero_api::RawApiEvent,
+    ) -> zero_api::ApiResult<zero_api::PublishResult>;
+
+    fn supports_cancellation(&self) -> bool {
+        false
+    }
+}
+
+struct BlockingEventSink {
+    sink: Arc<dyn EventSink + Send + Sync>,
+}
+
+#[async_trait]
+impl AsyncDeliverySink for BlockingEventSink {
+    async fn publish(
+        &self,
+        event: zero_api::RawApiEvent,
+    ) -> zero_api::ApiResult<zero_api::PublishResult> {
+        let sink = self.sink.clone();
+        tokio::task::spawn_blocking(move || sink.publish(&event))
+            .await
+            .map_err(|error| {
+                zero_api::ApiError::new(
+                    zero_api::ApiErrorCode::Internal,
+                    format!("blocking event sink task failed: {error}"),
+                )
+            })?
     }
 }
 
@@ -98,7 +143,9 @@ fn build_json_line_sink(
         tag: tag.to_owned(),
         event_types: events.to_vec(),
         source_id: source_id.clone(),
-        sink: Arc::new(zero_api::JsonLineEventSink::new(file)),
+        sink: Arc::new(BlockingEventSink {
+            sink: Arc::new(zero_api::JsonLineEventSink::new(file)),
+        }),
         _persistent_lease: Some(persistent_lease),
     })
 }

@@ -153,6 +153,36 @@ impl EventStream for EventSubscriber {
     fn try_recv(&self) -> Option<RawApiEvent> {
         EventSubscriber::try_recv(self)
     }
+
+    fn recv_timeout(&self, timeout: std::time::Duration) -> zero_api::EventStreamReceive {
+        if let Some(event) = self
+            .initial
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .pop_front()
+        {
+            return zero_api::EventStreamReceive::Event(Box::new(event));
+        }
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return zero_api::EventStreamReceive::Timeout;
+            }
+            match self.rx.recv_timeout(remaining) {
+                Ok(event) if matches_event(&event, &self.filter) => {
+                    return zero_api::EventStreamReceive::Event(Box::new(event))
+                }
+                Ok(_) => {}
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    return zero_api::EventStreamReceive::Timeout
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return zero_api::EventStreamReceive::Closed
+                }
+            }
+        }
+    }
 }
 
 fn wants_flow_snapshot(filter: &EventFilter) -> bool {

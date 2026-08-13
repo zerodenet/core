@@ -1,10 +1,13 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use reqwest::blocking::Client;
+use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::Client;
 use reqwest::{StatusCode, Url};
-use zero_api::{ApiError, ApiErrorCode, ApiResult, EventSink, PublishResult, RawApiEvent};
+use zero_api::{ApiError, ApiErrorCode, ApiResult, PublishResult, RawApiEvent};
+
+use crate::registry::AsyncDeliverySink;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -69,18 +72,15 @@ impl WebhookEventSink {
     }
 }
 
-impl EventSink for WebhookEventSink {
-    fn name(&self) -> &str {
-        "webhook"
-    }
-
-    fn publish(&self, event: &RawApiEvent) -> ApiResult<PublishResult> {
-        let mut request = self.client.post(self.url.clone()).json(event);
+#[async_trait]
+impl AsyncDeliverySink for WebhookEventSink {
+    async fn publish(&self, event: RawApiEvent) -> ApiResult<PublishResult> {
+        let mut request = self.client.post(self.url.clone()).json(&event);
         if !self.headers.is_empty() {
             request = request.headers(self.headers.clone());
         }
 
-        match request.send() {
+        match request.send().await {
             Ok(response) => {
                 let status = response.status();
                 if status.is_success() {
@@ -99,6 +99,10 @@ impl EventSink for WebhookEventSink {
                 message: Some(format!("webhook request failed: {error}")),
             }),
         }
+    }
+
+    fn supports_cancellation(&self) -> bool {
+        true
     }
 }
 

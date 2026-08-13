@@ -50,6 +50,8 @@ pub(crate) struct DeliveryOutbox {
     // payloads are paged from disk so a long receiver outage cannot duplicate the
     // entire backlog in memory.
     pending: PendingDeliveries,
+    pending_by_offset: BTreeMap<u64, DeliveryKey>,
+    pending_counts: BTreeMap<String, usize>,
     journal_records: usize,
     min_free_bytes: u64,
     min_free_percent: u8,
@@ -83,11 +85,14 @@ impl DeliveryOutbox {
             })?;
         let (pending, journal_records) = read_pending(&path, &mut file)?;
 
+        let (pending_by_offset, pending_counts) = build_pending_indexes(&pending);
         let mut outbox = Self {
             path,
             _lease: lease,
             file: Some(file),
             pending,
+            pending_by_offset,
+            pending_counts,
             journal_records,
             min_free_bytes,
             min_free_percent,
@@ -104,27 +109,20 @@ impl DeliveryOutbox {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        let mut selected = self
-            .pending
+        let selected = self
+            .pending_by_offset
             .iter()
-            .filter(|(key, _)| !excluded.contains(*key))
-            .map(|(key, offset)| (key, *offset))
-            .collect::<Vec<_>>();
-        selected.sort_by_key(|(_, offset)| *offset);
+            .filter(|(_, key)| !excluded.contains(*key))
+            .map(|(offset, _)| *offset);
         let mut reader = open_reader(&self.path)?;
         selected
-            .into_iter()
             .take(limit)
-            .map(|(_, offset)| read_delivery_at(&self.path, &mut reader, offset))
+            .map(|offset| read_delivery_at(&self.path, &mut reader, offset))
             .collect()
     }
 
     pub(crate) fn pending_counts(&self) -> BTreeMap<String, usize> {
-        let mut counts = BTreeMap::new();
-        for (sink_tag, _) in self.pending.keys() {
-            *counts.entry(sink_tag.clone()).or_insert(0) += 1;
-        }
-        counts
+        self.pending_counts.clone()
     }
 
     pub(crate) fn put(&mut self, delivery: &OutboxDelivery) -> ConnectorResult<()> {
@@ -135,7 +133,16 @@ impl DeliveryOutbox {
         self.ensure_put_space(frame.len() as u64)?;
         let offset = self.append_frame(&frame)?;
         self.journal_records += 1;
-        self.pending.insert(delivery.key(), offset);
+        let key = delivery.key();
+        if let Some(old_offset) = self.pending.insert(key.clone(), offset) {
+            self.pending_by_offset.remove(&old_offset);
+        } else {
+            *self
+                .pending_counts
+                .entry(delivery.sink_tag.clone())
+                .or_insert(0) += 1;
+        }
+        self.pending_by_offset.insert(offset, key);
         Ok(())
     }
 
@@ -151,8 +158,16 @@ impl DeliveryOutbox {
         self.ensure_maintenance_space(frame.len() as u64)?;
         self.append_frame(&frame)?;
         self.journal_records += 1;
-        self.pending
-            .remove(&(sink_tag.to_owned(), event_id.to_owned()));
+        let key = (sink_tag.to_owned(), event_id.to_owned());
+        if let Some(offset) = self.pending.remove(&key) {
+            self.pending_by_offset.remove(&offset);
+            if let Some(count) = self.pending_counts.get_mut(sink_tag) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    self.pending_counts.remove(sink_tag);
+                }
+            }
+        }
         self.compact_if_needed()?;
         Ok(())
     }
@@ -346,9 +361,22 @@ impl DeliveryOutbox {
                 })?,
         );
         self.pending = compacted;
+        (self.pending_by_offset, self.pending_counts) = build_pending_indexes(&self.pending);
         self.journal_records = self.pending.len();
         Ok(())
     }
+}
+
+fn build_pending_indexes(
+    pending: &PendingDeliveries,
+) -> (BTreeMap<u64, DeliveryKey>, BTreeMap<String, usize>) {
+    let mut by_offset = BTreeMap::new();
+    let mut counts = BTreeMap::new();
+    for (key, offset) in pending {
+        by_offset.insert(*offset, key.clone());
+        *counts.entry(key.0.clone()).or_insert(0) += 1;
+    }
+    (by_offset, counts)
 }
 
 fn maintenance_reserve_bytes(reserve_bytes: u64) -> u64 {
