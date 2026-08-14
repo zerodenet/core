@@ -225,11 +225,11 @@ FFI 不应直接暴露内部 Rust 类型，应暴露稳定句柄、字节缓冲�
 
 | Event | 当前状态 | 触发时机 | Payload |
 | --- | --- | --- | --- |
-| `flow.started` | 已实现 | flow 被内核接受并进入活动表 | `FlowEventPayload`，`traffic` 为 0，`timing.ended_at_unix_ms` 和 `timing.duration_ms` 为空 |
+| `flow.started` | 已实现 | flow 被内核接受并进入活动表 | `FlowEventPayload`，`traffic` 为 0；存在 `principal_key` 时携带迁移后的 `principal_active_flows`、`session_registry_revision` 和 `observed_at_unix_ms` |
 | `flow.routed` | 已实现 | 路由决策和实际出站建立完成 | `FlowEventPayload`，`record.route`、`record.path` 已可用于展示选择链、实际出站和远端 |
 | `flow.updated` | 已实现 | 活动 flow 的流量或路由信息发生增量变化 | `FlowEventPayload`，用于低频增量快照，不用于高频逐包上报 |
-| `flow.completed` | 已实现 | flow 结束、阻断或失败后生成最终计量结果 | `FlowEventPayload`，包含最终 `traffic`、`timing` 和 `outcome` |
-| `flow.snapshot` | 已实现 | flow 订阅成功后发送当前活动连接基线 | `{watermark, records}`；只用于订阅同步，不进入历史事件环和外部 sink |
+| `flow.completed` | 已实现 | flow 结束、阻断或失败后生成最终计量结果 | `FlowEventPayload`，包含最终 `traffic`、`timing` 和 `outcome`；存在 `principal_key` 时携带迁移后的 Principal 活跃数和注册表修订号 |
+| `flow.snapshot` | 已实现 | flow 订阅成功后发送当前活动连接基线 | `{watermark, session_registry_revision, principal_flows, records}`；只用于订阅同步，不进入历史事件环和外部 sink |
 | `policy.selected` | 已实现 | selector / fallback / url_test 等策略组的当前选择发生变化 | `PolicySelectedPayload` |
 | `policy.probe.completed` | 已实现 | url_test 或显式探测完成一轮探测 | `PolicyProbeCompletedPayload` |
 | `stats.sampled` | 已实现 | 周期性统计采样或按需统计采样 | 统计快照 payload，字段来源于 runtime/stats 快照 |
@@ -243,6 +243,10 @@ FFI 不应直接暴露内部 Rust 类型，应暴露稳定句柄、字节缓冲�
 内核只保存运行中 flow 的权威状态，并保留既有的有限诊断窗口；它不承担 GUI 历史数据库职责。GUI、面板和其他消费者收到 `flow.completed` 后自行维护、索引或持久化连接记录。需要长期可靠留存时配置 JSONL 或 webhook sink，而不是扩展内核历史查询。
 
 活动连接订阅以 `flow.snapshot` 建立基线，随后按 `revision` 合并 `flow.started`、`flow.routed`、`flow.updated` 和 `flow.completed`。`flow.updated` 是可丢弃的速率/流量样本；`flow.completed` 是最终事实。事件 envelope 的 `sequence` 用于发现传输缺口，断线后重新订阅会获得新的活动快照。
+
+Principal 活跃连接观测由 `SessionRegistry` 维护，其计数索引与活动会话表在同一临界区内变更，不存在第二套统计真相源。`flow.started` 和 `flow.completed` 中的 `principal_active_flows` 是状态迁移后的绝对值，不是加减量；`session_registry_revision` 是同一内核实例内的 Principal 状态顺序，`observed_at_unix_ms` 是该迁移发生的时间。并发投递时事件 envelope 的 `sequence` 仍只表示投递/回放顺序，消费者必须按 `session_registry_revision` 合并 Principal 当前状态。
+
+`principal_flows` 查询返回 `{core_instance_id, session_registry_revision, principals}` 的完整替换快照。`principals` 只列出当前活跃数大于零的 Principal；快照中缺失的 Principal 在该修订号下视为零。消费者发现事件缺口时用该快照修复“当前值”，历史窗口是否完整仍由消费者自行判断，内核不提供可重置峰值或面板业务窗口。
 
 `zero-api` 负责把它们包进稳定 envelope：
 
@@ -340,6 +344,8 @@ sink 的共同要求：
   - 返回运行时统计、活动 flow、最近完成 flow 和 policy 状态
 - `stats.get`
   - 返回轻量统计，不包含完整 flow 列表
+- `principal_flows.get`
+  - 返回当前内核实例的权威 Principal 活跃 flow 完整快照；HTTP 路径为 `GET /api/v1/principal_flows`
 - `flows.list_active`
   - 返回活动 flow 快照
 - `flows.list_recent`

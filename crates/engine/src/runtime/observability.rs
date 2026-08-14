@@ -11,8 +11,10 @@ impl Engine {
     }
 
     pub(crate) fn flow_snapshot_event(&self) -> RawApiEvent {
+        let (sessions, session_registry_revision, principals) =
+            self.session_registry.flow_snapshot();
         self.event_log
-            .flow_snapshot_event(&self.session_registry.snapshot())
+            .flow_snapshot_event(&sessions, session_registry_revision, &principals)
     }
 
     pub(crate) fn emit_event(&self, event: RawApiEvent) {
@@ -25,6 +27,15 @@ impl Engine {
 
     pub fn active_sessions(&self) -> Vec<ActiveSession> {
         self.session_registry.snapshot()
+    }
+
+    pub fn principal_flows_snapshot(&self) -> zero_api::PrincipalFlowsSnapshot {
+        let (session_registry_revision, principals) = self.session_registry.principal_snapshot();
+        zero_api::PrincipalFlowsSnapshot {
+            core_instance_id: self.core_instance_id().to_owned(),
+            session_registry_revision,
+            principals,
+        }
     }
 
     pub fn completed_sessions(&self) -> Vec<CompletedSessionRecord> {

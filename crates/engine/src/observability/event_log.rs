@@ -16,7 +16,7 @@ use zero_api::{
 };
 use zero_core::{Address, Network, ProtocolType, SessionAuth};
 
-use crate::session::{ActiveSession, CompletedSessionRecord};
+use crate::session::{ActiveSession, CompletedSessionRecord, PrincipalFlowObservation};
 
 use super::SessionOutcome;
 
@@ -269,7 +269,11 @@ impl EngineEventLog {
         self.push_generated(event);
     }
 
-    pub fn push_flow_started(&self, session: &ActiveSession) {
+    pub(crate) fn push_flow_started(
+        &self,
+        session: &ActiveSession,
+        principal_observation: Option<&PrincipalFlowObservation>,
+    ) {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -305,6 +309,10 @@ impl EngineEventLog {
                 duration_ms: None,
             },
             outcome: FlowOutcome::DirectRelayed, // placeholder; overwritten at completion
+            principal_active_flows: principal_observation.map(|item| item.active_flows),
+            session_registry_revision: principal_observation
+                .map(|item| item.session_registry_revision),
+            observed_at_unix_ms: principal_observation.map(|item| item.observed_at_unix_ms),
             close_reason: None,
             record: Some(active_flow_record(session, FlowState::Opening, now_ms)),
         };
@@ -362,6 +370,9 @@ impl EngineEventLog {
                 duration_ms: None,
             },
             outcome: FlowOutcome::DirectRelayed,
+            principal_active_flows: None,
+            session_registry_revision: None,
+            observed_at_unix_ms: None,
             close_reason: None,
             record: Some(active_flow_record(session, FlowState::Active, now_ms)),
         };
@@ -382,7 +393,12 @@ impl EngineEventLog {
         self.push_generated(event);
     }
 
-    pub(crate) fn flow_snapshot_event(&self, sessions: &[ActiveSession]) -> RawApiEvent {
+    pub(crate) fn flow_snapshot_event(
+        &self,
+        sessions: &[ActiveSession],
+        session_registry_revision: u64,
+        principals: &[zero_api::PrincipalFlowSnapshot],
+    ) -> RawApiEvent {
         let now_ms = unix_timestamp_ms();
         let watermark = self.latest_sequence();
         let records = sessions
@@ -395,6 +411,8 @@ impl EngineEventLog {
             now_ms,
             json!({
                 "watermark": watermark,
+                "session_registry_revision": session_registry_revision,
+                "principal_flows": principals,
                 "records": records,
             }),
         );
@@ -405,9 +423,14 @@ impl EngineEventLog {
     pub(crate) fn prepare_flow_completed(
         &self,
         record: &CompletedSessionRecord,
+        principal_observation: Option<&PrincipalFlowObservation>,
         outbound_protocol: impl FnOnce(&str) -> Option<&'static str>,
     ) -> RawApiEvent {
-        self.qualify_generated(flow_completed_event(record, outbound_protocol))
+        self.qualify_generated(flow_completed_event(
+            record,
+            principal_observation,
+            outbound_protocol,
+        ))
     }
 
     pub(crate) fn push_prepared_generated(&self, event: RawApiEvent) {
@@ -538,6 +561,7 @@ fn passive_health_target(target: &Address) -> String {
 
 fn flow_completed_event(
     record: &CompletedSessionRecord,
+    principal_observation: Option<&PrincipalFlowObservation>,
     outbound_protocol: impl FnOnce(&str) -> Option<&'static str>,
 ) -> RawApiEvent {
     let auth = record.auth.as_ref().map(|auth| AuthInfo {
@@ -575,6 +599,9 @@ fn flow_completed_event(
             duration_ms: Some(record.duration_ms),
         },
         outcome: api_outcome(record.outcome),
+        principal_active_flows: principal_observation.map(|item| item.active_flows),
+        session_registry_revision: principal_observation.map(|item| item.session_registry_revision),
+        observed_at_unix_ms: principal_observation.map(|item| item.observed_at_unix_ms),
         close_reason: record.close_reason.clone(),
         record: Some(completed_flow_record(record)),
     };

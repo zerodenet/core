@@ -274,6 +274,32 @@ pub struct CompletedFlowSnapshot {
     pub close_reason: Option<String>,
 }
 
+/// Complete replacement snapshot of active principal flow counts for one
+/// running core instance.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrincipalFlowsSnapshot {
+    #[serde(default)]
+    pub core_instance_id: String,
+    /// Registry revision covered by this complete snapshot. Principals omitted
+    /// from `principals` have zero active flows at this revision.
+    #[serde(default)]
+    pub session_registry_revision: u64,
+    #[serde(default)]
+    pub principals: Vec<PrincipalFlowSnapshot>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrincipalFlowSnapshot {
+    #[serde(default)]
+    pub principal_key: String,
+    #[serde(default)]
+    pub active_flows: u64,
+    #[serde(default)]
+    pub last_transition_revision: u64,
+    #[serde(default)]
+    pub observed_at_unix_ms: u64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddressSnapshot {
     #[serde(default)]

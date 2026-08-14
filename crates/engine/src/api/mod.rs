@@ -84,6 +84,9 @@ fn query_engine(engine: &Engine, request: QueryRequest) -> zero_api::ApiResult<Q
         QueryRequest::Config(_) => Ok(QueryResponse::Config(engine.export_config())),
         QueryRequest::Runtime(_) => Ok(QueryResponse::Runtime(engine.export_runtime())),
         QueryRequest::Stats(_) => Ok(QueryResponse::Stats(engine.stats_snapshot())),
+        QueryRequest::PrincipalFlows(_) => Ok(QueryResponse::PrincipalFlows(
+            engine.principal_flows_snapshot(),
+        )),
         QueryRequest::ActiveFlows(query) => {
             let flows = engine
                 .active_sessions()
@@ -397,6 +400,7 @@ fn capabilities() -> ApiCapabilities {
         "runtime_generation".to_owned(),
         "operation_correlation".to_owned(),
         "event_recovery".to_owned(),
+        "principal_flow_observations_v1".to_owned(),
         "urltest_tolerance".to_owned(),
     ];
     capabilities.build_features = build_features;

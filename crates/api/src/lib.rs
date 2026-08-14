@@ -36,8 +36,9 @@ pub use flow::{
 };
 pub use query::{
     CapabilitiesQuery, ConfigQuery, DiagnosticsQuery, FlowFilter, FlowGetQuery, FlowListQuery,
-    HealthQuery, HealthSnapshot, PoliciesQuery, PolicyGetQuery, QueryRequest, QueryResponse,
-    RuntimeQuery, SinkStatusSnapshot, SinksQuery, StatsQuery, TunStatusQuery, TunStatusSnapshot,
+    HealthQuery, HealthSnapshot, PoliciesQuery, PolicyGetQuery, PrincipalFlowsQuery, QueryRequest,
+    QueryResponse, RuntimeQuery, SinkStatusSnapshot, SinksQuery, StatsQuery, TunStatusQuery,
+    TunStatusSnapshot,
 };
 pub use response::{ApiResponse, EnvelopeError, RawResponse};
 pub use sink::{
@@ -47,8 +48,8 @@ pub use sink::{
 pub use snapshot::{
     AddressSnapshot, AuthSnapshot, CompletedFlowSnapshot, ConfigSnapshot, FlowSnapshot,
     ListenerSnapshot, ModeSnapshot, OutboundTargetSnapshot, OutboundTrafficStats,
-    PolicyMemberSnapshot, PolicySnapshot, RuntimeSnapshot, StatsSnapshot, StatusSnapshot,
-    UdpUpstreamStats, UrlTestSelectionSnapshot,
+    PolicyMemberSnapshot, PolicySnapshot, PrincipalFlowSnapshot, PrincipalFlowsSnapshot,
+    RuntimeSnapshot, StatsSnapshot, StatusSnapshot, UdpUpstreamStats, UrlTestSelectionSnapshot,
 };
 pub use traits::{
     ApiAuth, ApiCodec, CommandService, EventSink, EventSource, EventStream, EventStreamReceive,

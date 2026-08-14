@@ -6,7 +6,8 @@
 
 use zero_api::{
     CapabilitiesQuery, ConfigQuery, DiagnosticsQuery, FlowFilter, FlowListQuery, HealthQuery,
-    PoliciesQuery, QueryRequest, RuntimeQuery, SinksQuery, StatsQuery, TunStatusQuery,
+    PoliciesQuery, PrincipalFlowsQuery, QueryRequest, RuntimeQuery, SinksQuery, StatsQuery,
+    TunStatusQuery,
 };
 
 // ── Unit-struct query types: deserialize from {"key":{}} ──────────
@@ -45,6 +46,12 @@ fn deser_runtime() {
 fn deser_stats() {
     let qr: QueryRequest = serde_json::from_str(r#"{"stats":{}}"#).unwrap();
     assert_eq!(qr, QueryRequest::Stats(StatsQuery));
+}
+
+#[test]
+fn deser_principal_flows() {
+    let qr: QueryRequest = serde_json::from_str(r#"{"principal_flows":{}}"#).unwrap();
+    assert_eq!(qr, QueryRequest::PrincipalFlows(PrincipalFlowsQuery));
 }
 
 #[test]
@@ -150,6 +157,7 @@ fn round_trip_unit_structs() {
         QueryRequest::Config(ConfigQuery),
         QueryRequest::Runtime(RuntimeQuery),
         QueryRequest::Stats(StatsQuery),
+        QueryRequest::PrincipalFlows(PrincipalFlowsQuery),
         QueryRequest::Policies(PoliciesQuery),
         QueryRequest::Diagnostics(DiagnosticsQuery),
         QueryRequest::Sinks(SinksQuery),

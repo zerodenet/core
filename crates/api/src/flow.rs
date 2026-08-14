@@ -15,6 +15,18 @@ pub struct FlowEventPayload {
     pub traffic: TrafficStats,
     pub timing: FlowTiming,
     pub outcome: FlowOutcome,
+    /// Authoritative active-flow count for this event's principal after the
+    /// lifecycle transition. Present only when `principal_key` is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub principal_active_flows: Option<u64>,
+    /// Monotonic ordering of principal flow state transitions inside the
+    /// session registry. Consumers must use this for state ordering; event
+    /// `sequence` remains the delivery/replay order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_registry_revision: Option<u64>,
+    /// Time at which the principal count changed in the session registry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_at_unix_ms: Option<u64>,
     /// Why the flow ended (standard close reason). `None` = normal / unspecified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub close_reason: Option<String>,

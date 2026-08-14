@@ -148,6 +148,9 @@ fn flow_completed_event_serializes_as_normalized_envelope() {
             duration_ms: Some(5120),
         },
         outcome: FlowOutcome::ChainedRelayed,
+        principal_active_flows: Some(4),
+        session_registry_revision: Some(22),
+        observed_at_unix_ms: Some(1_760_000_025_120),
         close_reason: None,
         record: None,
     };
@@ -171,6 +174,8 @@ fn flow_completed_event_serializes_as_normalized_envelope() {
     assert_eq!(value["payload"]["network"], "udp");
     assert_eq!(value["payload"]["traffic"]["bytes_down"], 8800);
     assert_eq!(value["payload"]["outcome"], "chained_relayed");
+    assert_eq!(value["payload"]["principal_active_flows"], 4);
+    assert_eq!(value["payload"]["session_registry_revision"], 22);
 }
 
 #[test]

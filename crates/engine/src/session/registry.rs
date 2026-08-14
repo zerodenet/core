@@ -1,5 +1,7 @@
 //! Active session registry, accounting, cancellation, and snapshots.
 
+mod principal;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,10 +17,18 @@ use super::observation::{
 };
 use super::traffic::TrafficSampler;
 use super::CompletedSessionRecord;
+use principal::PrincipalFlowIndex;
+pub(crate) use principal::PrincipalFlowObservation;
 
 #[derive(Debug, Default)]
 pub struct SessionRegistry {
-    inner: Mutex<HashMap<u64, Arc<ActiveSessionEntry>>>,
+    inner: Mutex<SessionRegistryState>,
+}
+
+#[derive(Debug, Default)]
+struct SessionRegistryState {
+    sessions: HashMap<u64, Arc<ActiveSessionEntry>>,
+    principal_flows: PrincipalFlowIndex,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -37,6 +47,13 @@ pub(crate) struct SessionTrafficUpdate {
 pub(crate) struct FinishedSession {
     pub(crate) record: CompletedSessionRecord,
     pub(crate) traffic_delta: SessionTrafficDelta,
+    pub(crate) principal_observation: Option<PrincipalFlowObservation>,
+}
+
+#[derive(Debug)]
+pub(crate) struct InsertedSession {
+    pub(crate) active: ActiveSession,
+    pub(crate) principal_observation: Option<PrincipalFlowObservation>,
 }
 
 impl SessionRegistry {
@@ -50,17 +67,31 @@ impl SessionRegistry {
         mode: &str,
         device_registration: Option<PrincipalDeviceRegistration>,
         quota_registration: Option<PrincipalQuotaRegistration>,
-    ) {
+    ) -> InsertedSession {
         let active = Arc::new(ActiveSessionEntry::new(
             session,
             mode,
             device_registration,
             quota_registration,
         ));
-        self.inner
-            .lock()
-            .expect("session registry lock poisoned")
-            .insert(active.id, active);
+        let mut state = self.inner.lock().expect("session registry lock poisoned");
+        assert!(
+            !state.sessions.contains_key(&active.id),
+            "session id must be unique"
+        );
+        let principal_observation = state.principal_flows.started(
+            active
+                .auth
+                .as_ref()
+                .and_then(|auth| auth.principal_key.as_deref()),
+            unix_timestamp_ms(),
+        );
+        state.sessions.insert(active.id, Arc::clone(&active));
+        drop(state);
+        InsertedSession {
+            active: active.snapshot(),
+            principal_observation,
+        }
     }
 
     pub fn update_outbound(
@@ -125,19 +156,23 @@ impl SessionRegistry {
         close_reason: Option<String>,
         failure: Option<FlowFailureObservation>,
     ) -> Option<FinishedSession> {
-        self.inner
-            .lock()
-            .expect("session registry lock poisoned")
-            .remove(&session_id)
-            .map(|session| {
-                let record = session.finish(outcome, close_reason, failure);
-                let traffic_delta =
-                    session.claim_traffic_delta_for(record.bytes_up, record.bytes_down);
-                FinishedSession {
-                    record,
-                    traffic_delta,
-                }
-            })
+        let mut state = self.inner.lock().expect("session registry lock poisoned");
+        let session = state.sessions.remove(&session_id)?;
+        let principal_observation = state.principal_flows.completed(
+            session
+                .auth
+                .as_ref()
+                .and_then(|auth| auth.principal_key.as_deref()),
+            unix_timestamp_ms(),
+        );
+        drop(state);
+        let record = session.finish(outcome, close_reason, failure);
+        let traffic_delta = session.claim_traffic_delta_for(record.bytes_up, record.bytes_down);
+        Some(FinishedSession {
+            record,
+            traffic_delta,
+            principal_observation,
+        })
     }
 
     pub fn snapshot(&self) -> Vec<ActiveSession> {
@@ -145,6 +180,7 @@ impl SessionRegistry {
             .inner
             .lock()
             .expect("session registry lock poisoned")
+            .sessions
             .values()
             .map(|session| session.snapshot())
             .collect::<Vec<_>>();
@@ -152,14 +188,37 @@ impl SessionRegistry {
         sessions
     }
 
-    pub fn snapshot_one(&self, session_id: u64) -> Option<ActiveSession> {
-        self.get(session_id).map(|session| session.snapshot())
+    pub(crate) fn principal_snapshot(&self) -> (u64, Vec<zero_api::PrincipalFlowSnapshot>) {
+        self.inner
+            .lock()
+            .expect("session registry lock poisoned")
+            .principal_flows
+            .snapshot()
+    }
+
+    pub(crate) fn flow_snapshot(
+        &self,
+    ) -> (
+        Vec<ActiveSession>,
+        u64,
+        Vec<zero_api::PrincipalFlowSnapshot>,
+    ) {
+        let state = self.inner.lock().expect("session registry lock poisoned");
+        let mut sessions = state
+            .sessions
+            .values()
+            .map(|session| session.snapshot())
+            .collect::<Vec<_>>();
+        sessions.sort_by_key(|session| session.id);
+        let (revision, principals) = state.principal_flows.snapshot();
+        (sessions, revision, principals)
     }
 
     pub fn dirty_snapshot(&self) -> Vec<ActiveSession> {
         self.inner
             .lock()
             .expect("session registry lock poisoned")
+            .sessions
             .values()
             .filter_map(|session| session.snapshot_if_dirty())
             .collect()
@@ -189,6 +248,7 @@ impl SessionRegistry {
             .inner
             .lock()
             .expect("session registry lock poisoned")
+            .sessions
             .values()
             .filter(|session| {
                 session
@@ -224,6 +284,7 @@ impl SessionRegistry {
         self.inner
             .lock()
             .expect("session registry lock poisoned")
+            .sessions
             .get(&session_id)
             .cloned()
     }

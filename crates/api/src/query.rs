@@ -17,6 +17,7 @@ pub enum QueryRequest {
     Config(ConfigQuery),
     Runtime(RuntimeQuery),
     Stats(StatsQuery),
+    PrincipalFlows(PrincipalFlowsQuery),
     ActiveFlows(FlowListQuery),
     RecentFlows(FlowListQuery),
     Flow(FlowGetQuery),
@@ -37,6 +38,7 @@ impl Serialize for QueryRequest {
             Self::Config(_) => serde_json::json!({ "config": {} }),
             Self::Runtime(_) => serde_json::json!({ "runtime": {} }),
             Self::Stats(_) => serde_json::json!({ "stats": {} }),
+            Self::PrincipalFlows(_) => serde_json::json!({ "principal_flows": {} }),
             Self::ActiveFlows(v) => serde_json::json!({ "active_flows": v }),
             Self::RecentFlows(v) => serde_json::json!({ "recent_flows": v }),
             Self::Flow(v) => serde_json::json!({ "flow": v }),
@@ -83,6 +85,7 @@ impl<'de> Deserialize<'de> for QueryRequest {
             "config" => Ok(Self::Config(ConfigQuery)),
             "runtime" => Ok(Self::Runtime(RuntimeQuery)),
             "stats" => Ok(Self::Stats(StatsQuery)),
+            "principal_flows" => Ok(Self::PrincipalFlows(PrincipalFlowsQuery)),
             "active_flows" => serde_json::from_value(inner.clone())
                 .map(Self::ActiveFlows)
                 .map_err(D::Error::custom),
@@ -118,6 +121,7 @@ pub enum QueryResponse {
     Config(crate::ConfigSnapshot),
     Runtime(crate::RuntimeSnapshot),
     Stats(crate::StatsSnapshot),
+    PrincipalFlows(crate::PrincipalFlowsSnapshot),
     ActiveFlows(Vec<crate::FlowSnapshot>),
     RecentFlows(Vec<crate::CompletedFlowSnapshot>),
     Flow(crate::FlowSnapshot),
@@ -139,6 +143,7 @@ impl Serialize for QueryResponse {
             Self::Config(v) => serde_json::json!({ "config": v }),
             Self::Runtime(v) => serde_json::json!({ "runtime": v }),
             Self::Stats(v) => serde_json::json!({ "stats": v }),
+            Self::PrincipalFlows(v) => serde_json::json!({ "principal_flows": v }),
             Self::ActiveFlows(v) => serde_json::json!({ "active_flows": v }),
             Self::RecentFlows(v) => serde_json::json!({ "recent_flows": v }),
             Self::Flow(v) => serde_json::json!({ "flow": v }),
@@ -179,6 +184,9 @@ impl<'de> Deserialize<'de> for QueryResponse {
                 .map_err(D::Error::custom),
             "stats" => serde_json::from_value(inner.clone())
                 .map(Self::Stats)
+                .map_err(D::Error::custom),
+            "principal_flows" => serde_json::from_value(inner.clone())
+                .map(Self::PrincipalFlows)
                 .map_err(D::Error::custom),
             "active_flows" => serde_json::from_value(inner.clone())
                 .map(Self::ActiveFlows)
@@ -223,6 +231,9 @@ pub struct RuntimeQuery;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatsQuery;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrincipalFlowsQuery;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PoliciesQuery;

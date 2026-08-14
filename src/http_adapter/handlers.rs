@@ -42,6 +42,12 @@ pub fn stats(handle: &ProxyHandle) -> io::Result<Vec<u8>> {
     serialize_query(resp)
 }
 
+/// Handle GET /api/v1/principal_flows.
+pub fn principal_flows(handle: &ProxyHandle) -> io::Result<Vec<u8>> {
+    let resp = handle.query(QueryRequest::PrincipalFlows(Default::default()));
+    serialize_query(resp)
+}
+
 /// Handle GET /api/v1/flows (active flows list).
 pub fn flows_list(handle: &ProxyHandle, query: &str) -> io::Result<Vec<u8>> {
     let params = parse_flow_list_params(query);
@@ -229,6 +235,7 @@ fn unwrap_query_response(resp: QueryResponse) -> serde_json::Value {
         QueryResponse::Config(v) => serde_json::to_value(v),
         QueryResponse::Runtime(v) => serde_json::to_value(v),
         QueryResponse::Stats(v) => serde_json::to_value(v),
+        QueryResponse::PrincipalFlows(v) => serde_json::to_value(v),
         QueryResponse::ActiveFlows(v) => serde_json::to_value(v),
         QueryResponse::RecentFlows(v) => serde_json::to_value(v),
         QueryResponse::Flow(v) => serde_json::to_value(v),

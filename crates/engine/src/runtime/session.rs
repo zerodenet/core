@@ -59,16 +59,15 @@ impl Engine {
         let device_registration =
             self.acquire_principal_device(session.auth.as_ref(), session.source_ip.as_ref())?;
         let quota_registration = self.principal_quotas.acquire(session.auth.as_ref())?;
-        self.session_registry.insert(
+        let inserted = self.session_registry.insert(
             session,
             mode.kind(),
             device_registration,
             quota_registration,
         );
         self.stats.record_start();
-        if let Some(active) = self.session_registry.snapshot_one(session.id) {
-            self.event_log.push_flow_started(&active);
-        }
+        self.event_log
+            .push_flow_started(&inserted.active, inserted.principal_observation.as_ref());
         Ok(())
     }
 
@@ -231,6 +230,7 @@ impl Engine {
         failure: Option<FlowFailureObservation>,
     ) -> Option<CompletedSessionRecord> {
         let finished = self.session_registry.finish(id, outcome, reason, failure)?;
+        let principal_observation = finished.principal_observation;
         let record = finished.record;
         self.stats.record_live_traffic(
             finished.traffic_delta.bytes_up,
@@ -243,9 +243,11 @@ impl Engine {
             record.bytes_down,
         );
         self.completed_sessions.push(record.clone());
-        let completed_event = self
-            .event_log
-            .prepare_flow_completed(&record, |tag| self.outbound_protocol_for_tag(tag));
+        let completed_event =
+            self.event_log
+                .prepare_flow_completed(&record, principal_observation.as_ref(), |tag| {
+                    self.outbound_protocol_for_tag(tag)
+                });
         let completion_sink = self
             .flow_completion_sink
             .read()
