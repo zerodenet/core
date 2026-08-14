@@ -3,7 +3,7 @@
 # Manage the Zero version contract and release lifecycle.
 #
 # Version policy:
-#   X.Y.Z-dev.N -> X.Y.Z-alpha.N -> X.Y.Z-beta.N -> X.Y.Z-rc.N -> X.Y.Z
+#   X.Y.Z-dev.YYYYMMDDHHMM -> X.Y.Z-alpha.N -> X.Y.Z-beta.N -> X.Y.Z-rc.N -> X.Y.Z
 #
 # Common commands:
 #   ./scripts/release.sh --check
@@ -11,8 +11,8 @@
 #   ./scripts/release.sh --check-transition origin/main HEAD
 #   ./scripts/release.sh --verify-tag v0.0.16-rc.1
 #   ./scripts/release.sh 0.0.16-rc.1 --seal-only
-#   ./scripts/release.sh 0.0.17-dev.1 --start-development
-#   ./scripts/release.sh 0.0.17  # on develop: resolves to the next 0.0.17-dev.N
+#   ./scripts/release.sh 0.0.17-dev.202608131430 --start-development
+#   ./scripts/release.sh 0.0.17  # on develop: resolves to 0.0.17-dev.YYYYMMDDHHMM
 set -euo pipefail
 
 MODE=release
@@ -42,14 +42,15 @@ Usage:
   release.sh <version> [--dry-run] [--no-push] [--remote <name|all>]
 
 Accepted versions:
-  X.Y.Z-dev.N
+  X.Y.Z-dev.YYYYMMDDHHMM
   X.Y.Z-alpha.N
   X.Y.Z-beta.N
   X.Y.Z-rc.N
   X.Y.Z
 
 On develop, a positional X.Y.Z is treated as the development base and the
-script calculates the next X.Y.Z-dev.N automatically.
+script calculates X.Y.Z-dev.YYYYMMDDHHMM from the current UTC minute.
+Legacy X.Y.Z-dev.N versions remain readable for history and migration only.
 By default, a completed local release pushes its branch and tag to every
 configured Git remote. Use --remote <name> to restrict the push to one remote.
 USAGE
@@ -165,7 +166,7 @@ validate_version() {
     case "$expected" in
         any) ;;
         development)
-            [[ "$V_STAGE" == dev ]] || fail "development version must use '-dev.N'"
+            [[ "$V_STAGE" == dev ]] || fail "development version must use '-dev.<number>'"
             ;;
         release)
             [[ "$V_STAGE" != dev ]] || fail "release version must not use the dev stage"
@@ -175,6 +176,23 @@ validate_version() {
             ;;
         *) fail "unknown version expectation '$expected'" ;;
     esac
+}
+
+development_timestamp() {
+    local timestamp=${ZERO_RELEASE_DEV_TIMESTAMP:-}
+    if [[ -z "$timestamp" ]]; then
+        timestamp=$(date -u +%Y%m%d%H%M)
+    fi
+    [[ "$timestamp" =~ ^[1-9][0-9]{3}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])([01][0-9]|2[0-3])([0-5][0-9])$ ]] || \
+        fail "development timestamp must use the 12-digit UTC format YYYYMMDDHHMM"
+    printf '%s\n' "$timestamp"
+}
+
+assert_timestamped_development_version() {
+    local version=$1
+    validate_version "$version" development
+    [[ "$V_SEQ" =~ ^[1-9][0-9]{3}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])([01][0-9]|2[0-3])([0-5][0-9])$ ]] || \
+        fail "new development versions must use '-dev.YYYYMMDDHHMM' in UTC"
 }
 
 stage_rank() {
@@ -231,7 +249,7 @@ assert_transition() {
 
         if [[ "$to_stage" == "$from_stage" ]]; then
             [[ "$to_stage" != stable ]] || fail "stable version '$to' already exists"
-            if [[ "$ALLOW_GAP" == true ]]; then
+            if [[ "$to_stage" == dev || "$ALLOW_GAP" == true ]]; then
                 [[ "$to_seq" -gt "$from_seq" ]] || fail "stage number must increase: $from -> $to"
             else
                 [[ "$to_seq" -eq $((from_seq + 1)) ]] || \
@@ -246,8 +264,10 @@ assert_transition() {
     else
         [[ "$to_stage" != stable ]] || \
             fail "a new base version must enter through a prerelease stage before stable"
-        [[ "$to_seq" -eq 1 ]] || \
-            fail "a new base version must start its stage at .1: $from -> $to"
+        if [[ "$to_stage" != dev ]]; then
+            [[ "$to_seq" -eq 1 ]] || \
+                fail "a new base version must start its stage at .1: $from -> $to"
+        fi
     fi
 }
 
@@ -548,13 +568,19 @@ next_version() {
     if [[ "$current_stage" == stable ]]; then
         [[ "$stage" != stable ]] || fail "cannot calculate a new stable version without a prerelease cycle"
         target_base=$(bump_base "$current" "$bump")
+        if [[ "$stage" == dev ]]; then
+            next_development_for_base "$target_base"
+            return
+        fi
         printf '%s-%s.1\n' "$target_base" "$stage"
         return
     fi
 
     [[ "$target_rank" -ge "$current_rank" ]] || \
         fail "release stage must not move backward: $current_stage -> $stage"
-    if [[ "$stage" == "$current_stage" ]]; then
+    if [[ "$stage" == dev ]]; then
+        next_development_for_base "$current_base"
+    elif [[ "$stage" == "$current_stage" ]]; then
         printf '%s-%s.%d\n' "$current_base" "$stage" $((current_seq + 1))
     elif [[ "$stage" == stable ]]; then
         [[ "$current_stage" == rc ]] || fail "stable release requires a prior rc version"
@@ -565,27 +591,19 @@ next_version() {
 }
 
 next_development_for_base() {
-    local base=$1 current current_base max_seq=0 candidate tag version
+    local base=$1 current candidate timestamp
     validate_version "$base" stable
     if git rev-parse --verify "refs/tags/v${base}^{commit}" >/dev/null 2>&1; then
         fail "stable version '$base' already exists; its dev stage is closed"
     fi
 
     current=$(workspace_version "$CARGO_TOML")
-    validate_version "$current" any
-    current_base="$V_MAJOR.$V_MINOR.$V_PATCH"
-    if [[ "$current_base" == "$base" && "$V_STAGE" == dev ]]; then
-        max_seq=$V_SEQ
+    timestamp=$(development_timestamp)
+    candidate="${base}-dev.${timestamp}"
+    if [[ "$current" == "$candidate" ]] || \
+        git rev-parse --verify "refs/tags/v${candidate}^{commit}" >/dev/null 2>&1; then
+        fail "development version '$candidate' already exists; wait for the next UTC minute"
     fi
-
-    while IFS= read -r tag; do
-        [[ -n "$tag" ]] || continue
-        version=${tag#v}
-        validate_version "$version" development
-        if [[ "$V_SEQ" -gt "$max_seq" ]]; then max_seq=$V_SEQ; fi
-    done < <(git tag --list "v${base}-dev.*")
-
-    candidate="${base}-dev.$((max_seq + 1))"
     assert_transition "$current" "$candidate"
     assert_history_transition "$candidate"
     printf '%s\n' "$candidate"
@@ -670,7 +688,8 @@ case "$MODE" in
         exit 0
         ;;
     start-development)
-        [[ -n "$VERSION" ]] || fail "--start-development requires X.Y.Z-dev.N"
+        [[ -n "$VERSION" ]] || fail "--start-development requires X.Y.Z-dev.YYYYMMDDHHMM"
+        assert_timestamped_development_version "$VERSION"
         if [[ "$DRY_RUN" != true ]]; then assert_clean_tree; fi
         start_development "$VERSION" "$DRY_RUN"
         exit 0
@@ -707,6 +726,8 @@ if [[ "$CURRENT_BRANCH" == develop ]]; then
         validate_version "$VERSION" development
     elif [[ "$V_STAGE" != dev ]]; then
         fail "develop may only publish dev versions"
+    else
+        assert_timestamped_development_version "$VERSION"
     fi
 elif [[ "$V_STAGE" == dev ]]; then
     fail "dev versions may only be published from develop"

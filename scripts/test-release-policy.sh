@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_UNDER_TEST=${1:-scripts/release.sh}
 SCRIPT_UNDER_TEST="$(cd "$(dirname "$SCRIPT_UNDER_TEST")" && pwd)/$(basename "$SCRIPT_UNDER_TEST")"
+DEV_TIMESTAMP=202608131430
 ROOT=$(mktemp -d)
 REMOTE_ROOT=$(mktemp -d)
 MIRROR_ROOT=$(mktemp -d)
@@ -35,7 +36,7 @@ cat > "$ROOT/release/breaking-changes.md" <<'DOC'
 DOC
 
 run_release() {
-    ZERO_REPO_ROOT="$ROOT" bash "$SCRIPT_UNDER_TEST" "$@"
+    ZERO_REPO_ROOT="$ROOT" ZERO_RELEASE_DEV_TIMESTAMP="$DEV_TIMESTAMP" bash "$SCRIPT_UNDER_TEST" "$@"
 }
 
 expect_fail() {
@@ -62,29 +63,38 @@ git push -q origin v0.0.15
 git push -q mirror v0.0.15
 
 DEVELOP_PREVIEW=$(printf 'n\n' | run_release 0.0.16 2>&1)
-[[ "$DEVELOP_PREVIEW" == *"Cargo version: 0.0.15 -> 0.0.16-dev.1"* ]]
-[[ "$DEVELOP_PREVIEW" == *"Tag: v0.0.16-dev.1"* ]]
+[[ "$DEVELOP_PREVIEW" == *"Cargo version: 0.0.15 -> 0.0.16-dev.202608131430"* ]]
+[[ "$DEVELOP_PREVIEW" == *"Tag: v0.0.16-dev.202608131430"* ]]
 [[ "$DEVELOP_PREVIEW" == *"Remotes: mirror origin"* ]]
 
-[[ "$(run_release --next dev)" == "0.0.16-dev.1" ]]
+[[ "$(run_release --next dev)" == "0.0.16-dev.202608131430" ]]
 [[ "$(run_release --next rc)" == "0.0.16-rc.1" ]]
 expect_fail 0.0.16-dev --start-development
+expect_fail 0.0.16-dev.10 --start-development
 expect_fail 0.0.15 --seal-only
 expect_fail 0.0.16-rc.2 --seal-only
 
 printf 'y\n' | run_release 0.0.16 >/dev/null
 git --git-dir="$REMOTE_ROOT/origin.git" rev-parse --verify refs/heads/develop >/dev/null
-git --git-dir="$REMOTE_ROOT/origin.git" rev-parse --verify refs/tags/v0.0.16-dev.1 >/dev/null
+git --git-dir="$REMOTE_ROOT/origin.git" rev-parse --verify refs/tags/v0.0.16-dev.202608131430 >/dev/null
 git --git-dir="$MIRROR_ROOT/mirror.git" rev-parse --verify refs/heads/develop >/dev/null
-git --git-dir="$MIRROR_ROOT/mirror.git" rev-parse --verify refs/tags/v0.0.16-dev.1 >/dev/null
+git --git-dir="$MIRROR_ROOT/mirror.git" rev-parse --verify refs/tags/v0.0.16-dev.202608131430 >/dev/null
 
-[[ "$(run_release --next dev)" == "0.0.16-dev.2" ]]
+expect_fail --next dev
+grep -Fq "development version '0.0.16-dev.202608131430' already exists" /tmp/zero-release-policy.out
+git tag -d v0.0.16-dev.202608131430 >/dev/null
+expect_fail --next dev
+grep -Fq "development version '0.0.16-dev.202608131430' already exists" /tmp/zero-release-policy.out
+git tag -a v0.0.16-dev.202608131430 -m v0.0.16-dev.202608131430
+DEV_TIMESTAMP=202608131431
+[[ "$(run_release --next dev)" == "0.0.16-dev.202608131431" ]]
 printf 'y\n' | run_release 0.0.16 --no-push >/dev/null
-[[ "$(run_release --next dev)" == "0.0.16-dev.3" ]]
+DEV_TIMESTAMP=202608131432
+[[ "$(run_release --next dev)" == "0.0.16-dev.202608131432" ]]
 expect_fail 0.0.16
-grep -Fq "previous release tag 'v0.0.16-dev.2' is missing from remote 'mirror'" /tmp/zero-release-policy.out
-git checkout -q --detach v0.0.16-dev.1
-run_release --verify-tag v0.0.16-dev.1 >/dev/null
+grep -Fq "previous release tag 'v0.0.16-dev.202608131431' is missing from remote 'mirror'" /tmp/zero-release-policy.out
+git checkout -q --detach v0.0.16-dev.202608131430
+run_release --verify-tag v0.0.16-dev.202608131430 >/dev/null
 git checkout -q develop
 [[ "$(run_release --next rc)" == "0.0.16-rc.1" ]]
 run_release 0.0.16-rc.1 --seal-only

@@ -44,11 +44,11 @@ cargo test <test_name>
 
 完整的版本格式、状态转换、分支来源、Release PR、标签创建和失败处理规则见[版本演化与发布流程](./release-process.md)。该流程属于 Core 仓库内部工程规范，不需要同步到外部文档仓库。
 
-`develop` 是 `-dev.N` 的构建与发布来源，`main` 是 RC 和正式版来源。dev/RC 的阶段编号由脚本自动递增，正式版自动识别 `main` 当前 RC。RC 也可从明确的 dev/前序 RC 标签晋级，但不能直接使用浮动的 `develop` HEAD。
+`develop` 是 `-dev.YYYYMMDDHHMM` 的构建与发布来源，`main` 是 RC 和正式版来源。dev 使用 UTC 分钟时间戳，RC 的阶段编号由脚本自动递增，正式版自动识别 `main` 当前 RC。RC 也可从明确的 dev/前序 RC 标签晋级，但不能直接使用浮动的 `develop` HEAD。
 
 发布规则统一实现在 `scripts/release.sh`。`scripts/release.ps1` 只负责将 Windows 参数转发到 Git for Windows Bash，避免维护两套不同的状态机。
 
-在 `develop` 上，本地兼容入口接受基础版本并自动补全阶段编号。例如 `./scripts/release.sh 0.0.16` 会解析为下一个可用的 `0.0.16-dev.N`；如果 `v0.0.16` 正式标签已经存在，则拒绝重新开启该基础版本的 dev 阶段。
+在 `develop` 上，本地兼容入口接受基础版本并自动补全 UTC 分钟时间戳。例如 `./scripts/release.sh 0.0.16` 会解析为 `0.0.16-dev.YYYYMMDDHHMM`；如果同一分钟的 dev 标签或 `v0.0.16` 正式标签已经存在，则拒绝创建。
 
 本地发布默认把分支和标签原子推送到所有 Git 远端。使用 `--remote <name>` 可只同步一个远端，使用 `--no-push` 可完全跳过推送。PowerShell 入口采用相同默认值和覆盖规则。
 
@@ -99,21 +99,21 @@ cargo test <test_name>
 | `--next <stage>` | 否 | 根据当前版本计算唯一的下一版本 |
 | `--check-transition <base> <head>` | 否 | 检查两个 Git ref 的版本是否向前演进 |
 | `--verify-tag <tag>` | 否 | 检查标签格式、版本、台账、历史和阶段对应的分支归属 |
-| `--start-development` | 是 | 开启严格的 `X.Y.Z-dev.N` 开发版本 |
+| `--start-development` | 是 | 开启严格的 `X.Y.Z-dev.YYYYMMDDHHMM` 开发版本 |
 | `--seal-only` | 是 | 更新 Cargo 并将 `Unreleased` 封板到候选或正式版本 |
 | 普通 release 命令 | 是 | 兼容的本地发布入口；标准流程不使用它直接推送标签 |
 
 版本格式只允许：
 
 ```text
-X.Y.Z-dev.N
+X.Y.Z-dev.YYYYMMDDHHMM
 X.Y.Z-alpha.N
 X.Y.Z-beta.N
 X.Y.Z-rc.N
 X.Y.Z
 ```
 
-标准发布阶段为可选的 `dev`、随后 `rc < stable`；底层状态机继续兼容历史 alpha/beta。阶段编号默认连续，新阶段必须从 `.1` 开始，正式版本必须由同一基础版本的 RC 演进。
+标准发布阶段为可选的 `dev`、随后 `rc < stable`；底层状态机继续兼容历史 `dev.N` 和 alpha/beta。新 dev 使用严格递增的 UTC 分钟时间戳，RC 等编号阶段默认连续且从 `.1` 开始，正式版本必须由同一基础版本的 RC 演进。
 
 ## 根 package 的 feature
 
