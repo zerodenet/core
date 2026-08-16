@@ -1,6 +1,7 @@
 //! TUN inbound lifecycle and proxy-kernel integration.
 
 mod config;
+mod routes;
 mod runtime;
 #[cfg(feature = "udp-runtime")]
 mod udp;
@@ -178,38 +179,52 @@ impl Proxy {
         let (tcp, udp) = stack.into_parts();
 
         let excluded_endpoints = prepared_network.route_exclusions;
-        let mut routes = Vec::new();
-        if auto_route {
-            for route_address in interface_addresses.iter().map(|address| address.address) {
-                match zero_tun::SystemRouteGuard::install(
-                    &device_name,
-                    tag,
-                    route_address,
-                    &excluded_endpoints,
-                ) {
-                    Ok(route) => {
-                        debug!(
-                            family = if route_address.is_ipv6() {
-                                "IPv6"
-                            } else {
-                                "IPv4"
-                            },
-                            "automatic TUN routes installed"
-                        );
-                        routes.push(route);
-                    }
-                    Err(error) if strict_route => return Err(EngineError::Io(error)),
-                    Err(error) => {
-                        warn!(family = if route_address.is_ipv6() { "IPv6" } else { "IPv4" }, error = %error, "automatic TUN route installation skipped");
-                    }
+        let route_addresses = interface_addresses
+            .iter()
+            .map(|address| address.address)
+            .collect::<Vec<_>>();
+        let installed = if auto_route {
+            routes::install(
+                device_name.clone(),
+                tag.to_owned(),
+                route_addresses.clone(),
+                excluded_endpoints.clone(),
+                strict_route,
+            )
+            .await?
+        } else {
+            routes::InstalledRoutes {
+                guards: Vec::new(),
+                last_error: None,
+            }
+        };
+        let mut route_error = installed.last_error;
+        let route_monitor = if auto_route {
+            match zero_tun::RouteChangeMonitor::new() {
+                Ok(monitor) => Some(monitor),
+                Err(error) if strict_route => {
+                    routes::cleanup_guards(installed.guards)
+                        .await
+                        .map_err(EngineError::Io)?;
+                    return Err(EngineError::Io(error));
+                }
+                Err(error) => {
+                    warn!(error = %error, "TUN route monitor unavailable; retrying in background");
+                    route_error = Some(error.to_string());
+                    None
                 }
             }
-        }
-        let egress_v4 = routes
+        } else {
+            None
+        };
+        let (egress_interface_v4, egress_interface_v6) = routes::route_names(&installed.guards);
+        let egress_v4 = installed
+            .guards
             .iter()
             .find(|route| !route.is_ipv6())
             .map(|route| route.egress().clone());
-        let egress_v6 = routes
+        let egress_v6 = installed
+            .guards
             .iter()
             .find(|route| route.is_ipv6())
             .map(|route| route.egress().clone());
@@ -223,8 +238,6 @@ impl Proxy {
             self.egress_interface.replace_for(ipv6, Some(interface));
         }
         debug!("TUN physical egress bindings selected");
-        let egress_interface_v4 = egress_v4.map(|egress| egress.name().to_owned());
-        let egress_interface_v6 = egress_v6.map(|egress| egress.name().to_owned());
         let egress_interface = if address.is_ipv6() {
             egress_interface_v6.clone()
         } else {
@@ -235,6 +248,23 @@ impl Proxy {
         let id = NEXT_TUN_ID.fetch_add(1, Ordering::Relaxed);
         let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
         let (done_tx, done) = tokio::sync::oneshot::channel();
+        let route_done = auto_route.then(|| {
+            routes::spawn(
+                self.clone(),
+                routes::RouteRuntimeSpec {
+                    id,
+                    tun_name: device_name.clone(),
+                    recovery_key: tag.to_owned(),
+                    primary_ipv6: address.is_ipv6(),
+                    addresses: route_addresses,
+                    dual_stack,
+                    dns_hijack,
+                },
+                installed.guards,
+                route_monitor,
+                shutdown.subscribe(),
+            )
+        });
         *self.tun_info.lock().unwrap() = Some(TunInfo {
             id,
             name: device_name.clone(),
@@ -245,10 +275,12 @@ impl Proxy {
                 .collect(),
             mtu,
             tag: tag.to_owned(),
-            auto_route: !routes.is_empty(),
+            auto_route,
             dual_stack,
             strict_route,
             dns_hijack,
+            healthy: route_error.is_none(),
+            last_error: route_error,
             egress_interface,
             egress_interface_v4,
             egress_interface_v6,
@@ -260,7 +292,7 @@ impl Proxy {
             id,
             shutdown,
             done,
-            routes,
+            route_done,
         });
         debug!("TUN runtime state published");
 
@@ -498,18 +530,25 @@ impl Proxy {
             id,
             shutdown,
             done,
-            routes,
+            route_done,
         } = control;
         let _ = shutdown.send(true);
         let stopped = tokio::time::timeout(Duration::from_secs(5), done).await;
-        let mut route_cleanup = Ok(());
-        for routes in routes.into_iter().rev() {
-            if let Err(error) = routes.close() {
-                if route_cleanup.is_ok() {
-                    route_cleanup = Err(EngineError::Io(error));
-                }
-            }
-        }
+        let route_cleanup = match route_done {
+            Some(done) => match tokio::time::timeout(Duration::from_secs(5), done).await {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(error))) => Err(EngineError::Io(io::Error::other(error))),
+                Ok(Err(_)) => Err(EngineError::Io(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "TUN route runtime exited without shutdown acknowledgement",
+                ))),
+                Err(_) => Err(EngineError::Io(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "timed out waiting for TUN route runtime shutdown",
+                ))),
+            },
+            None => Ok(()),
+        };
         self.egress_interface.clear();
         clear_matching_tun_info(self, id);
         let result = match stopped {

@@ -1,0 +1,311 @@
+use std::io;
+use std::net::IpAddr;
+use std::time::Duration;
+
+use tokio::sync::{oneshot, watch};
+use zero_engine::EngineError;
+use zero_tun::{RouteChangeMonitor, SystemRouteGuard};
+
+use crate::runtime::Proxy;
+
+mod state;
+use state::{publish_error, publish_state};
+
+const ROUTE_EVENT_DEBOUNCE: Duration = Duration::from_millis(400);
+const ROUTE_RETRY_DELAYS: [Duration; 4] = [
+    Duration::from_millis(250),
+    Duration::from_secs(1),
+    Duration::from_secs(3),
+    Duration::from_secs(10),
+];
+
+pub(super) struct InstalledRoutes {
+    pub guards: Vec<SystemRouteGuard>,
+    pub last_error: Option<String>,
+}
+
+pub(super) async fn install(
+    tun_name: String,
+    recovery_key: String,
+    addresses: Vec<IpAddr>,
+    excluded: Vec<IpAddr>,
+    strict: bool,
+) -> Result<InstalledRoutes, EngineError> {
+    tokio::task::spawn_blocking(move || {
+        let mut guards = Vec::new();
+        let mut last_error = None;
+        for address in addresses {
+            match SystemRouteGuard::install(&tun_name, &recovery_key, address, &excluded) {
+                Ok(guard) => guards.push(guard),
+                Err(error) if strict => return Err(EngineError::Io(error)),
+                Err(error) => {
+                    tracing::warn!(
+                        family = if address.is_ipv6() { "IPv6" } else { "IPv4" },
+                        error = %error,
+                        "automatic TUN route installation skipped"
+                    );
+                    last_error = Some(error.to_string());
+                }
+            }
+        }
+        Ok(InstalledRoutes { guards, last_error })
+    })
+    .await
+    .map_err(|error| {
+        EngineError::Io(io::Error::other(format!(
+            "TUN route task panicked: {error}"
+        )))
+    })?
+}
+
+pub(super) struct RouteRuntimeSpec {
+    pub id: u64,
+    pub tun_name: String,
+    pub recovery_key: String,
+    pub primary_ipv6: bool,
+    pub addresses: Vec<IpAddr>,
+    pub dual_stack: bool,
+    pub dns_hijack: bool,
+}
+
+pub(super) fn spawn(
+    proxy: Proxy,
+    spec: RouteRuntimeSpec,
+    guards: Vec<SystemRouteGuard>,
+    monitor: Option<RouteChangeMonitor>,
+    shutdown: watch::Receiver<bool>,
+) -> oneshot::Receiver<Result<(), String>> {
+    let (done_tx, done) = oneshot::channel();
+    tokio::spawn(async move {
+        let result = run(proxy, spec, guards, monitor, shutdown).await;
+        let _ = done_tx.send(result.map_err(|error| error.to_string()));
+    });
+    done
+}
+
+async fn run(
+    proxy: Proxy,
+    spec: RouteRuntimeSpec,
+    mut guards: Vec<SystemRouteGuard>,
+    mut monitor: Option<RouteChangeMonitor>,
+    mut shutdown: watch::Receiver<bool>,
+) -> io::Result<()> {
+    // Re-read once after notification registration to close the small race
+    // between initial route installation and monitor creation.
+    let mut retry_index = Some(0_usize);
+    loop {
+        let triggered_by_event = if let Some(index) = retry_index {
+            let delay = ROUTE_RETRY_DELAYS[index.min(ROUTE_RETRY_DELAYS.len() - 1)];
+            tokio::select! {
+                changed = shutdown.changed() => {
+                    let _ = changed;
+                    break;
+                }
+                changed = monitor_changed(&mut monitor) => {
+                    if let Err(error) = changed {
+                        monitor = None;
+                        publish_error(&proxy, spec.id, error.to_string());
+                    }
+                    true
+                }
+                _ = tokio::time::sleep(delay) => false,
+            }
+        } else {
+            tokio::select! {
+                changed = shutdown.changed() => {
+                    let _ = changed;
+                    break;
+                }
+                changed = monitor_changed(&mut monitor) => {
+                    if let Err(error) = changed {
+                        monitor = None;
+                        publish_error(&proxy, spec.id, error.to_string());
+                        retry_index = Some(0);
+                    }
+                    true
+                }
+            }
+        };
+        if *shutdown.borrow() {
+            break;
+        }
+
+        if triggered_by_event {
+            tokio::select! {
+                changed = shutdown.changed() => {
+                    let _ = changed;
+                    break;
+                }
+                _ = tokio::time::sleep(ROUTE_EVENT_DEBOUNCE) => {}
+            }
+            if let Some(active_monitor) = monitor.as_mut() {
+                if let Err(error) = active_monitor.coalesce() {
+                    publish_error(&proxy, spec.id, error.to_string());
+                    monitor = None;
+                }
+            }
+        }
+        if monitor.is_none() {
+            match RouteChangeMonitor::new() {
+                Ok(new_monitor) => monitor = Some(new_monitor),
+                Err(error) => {
+                    publish_error(&proxy, spec.id, error.to_string());
+                    retry_index = Some(next_retry(retry_index));
+                    continue;
+                }
+            }
+        }
+
+        let prepared = tokio::select! {
+            changed = shutdown.changed() => {
+                let _ = changed;
+                break;
+            }
+            prepared = proxy.prepare_tun_network(
+                spec.addresses[0],
+                true,
+                spec.dual_stack,
+                spec.dns_hijack,
+                // A runtime reconciliation must be based on a complete
+                // exclusion snapshot. A transient DNS failure retains the
+                // last usable routes even when startup used non-strict mode.
+                true,
+            ) => prepared,
+        };
+        let exclusions = match prepared {
+            Ok(prepared) => prepared.route_exclusions,
+            Err(error) => {
+                publish_error(&proxy, spec.id, error.to_string());
+                retry_index = Some(next_retry(retry_index));
+                continue;
+            }
+        };
+
+        let tun_name = spec.tun_name.clone();
+        let recovery_key = spec.recovery_key.clone();
+        let addresses = spec.addresses.clone();
+        let reconcile_exclusions = exclusions.clone();
+        let reconciled = tokio::task::spawn_blocking(move || {
+            let result = reconcile_guards(
+                &mut guards,
+                &tun_name,
+                &recovery_key,
+                &addresses,
+                &reconcile_exclusions,
+            );
+            (guards, result)
+        })
+        .await;
+        let (returned_guards, result) = match reconciled {
+            Ok(result) => result,
+            Err(error) => {
+                publish_error(&proxy, spec.id, format!("TUN route task panicked: {error}"));
+                return Err(io::Error::other(format!(
+                    "TUN route task panicked: {error}"
+                )));
+            }
+        };
+        guards = returned_guards;
+        match result {
+            Ok(changed) => {
+                publish_state(&proxy, &spec, &guards, Some(exclusions), None)?;
+                if changed {
+                    tracing::info!(tun = %spec.tun_name, "TUN physical egress routes reconciled");
+                }
+                retry_index = None;
+            }
+            Err(error) => {
+                tracing::warn!(tun = %spec.tun_name, error = %error, "TUN route reconciliation failed; retaining the last usable state");
+                let message = error.to_string();
+                if let Err(status_error) =
+                    publish_state(&proxy, &spec, &guards, None, Some(message.clone()))
+                {
+                    publish_error(
+                        &proxy,
+                        spec.id,
+                        format!("{message}; publish route state: {status_error}"),
+                    );
+                }
+                retry_index = Some(next_retry(retry_index));
+            }
+        }
+    }
+
+    cleanup_guards(guards).await
+}
+
+async fn monitor_changed(monitor: &mut Option<RouteChangeMonitor>) -> io::Result<()> {
+    match monitor.as_mut() {
+        Some(monitor) => monitor.changed().await,
+        None => std::future::pending().await,
+    }
+}
+
+fn next_retry(current: Option<usize>) -> usize {
+    current
+        .map(|index| index.saturating_add(1))
+        .unwrap_or(0)
+        .min(ROUTE_RETRY_DELAYS.len() - 1)
+}
+
+fn reconcile_guards(
+    guards: &mut Vec<SystemRouteGuard>,
+    tun_name: &str,
+    recovery_key: &str,
+    addresses: &[IpAddr],
+    excluded: &[IpAddr],
+) -> io::Result<bool> {
+    let mut changed = false;
+    for address in addresses.iter().copied() {
+        if let Some(guard) = guards
+            .iter_mut()
+            .find(|guard| guard.is_ipv6() == address.is_ipv6())
+        {
+            changed |= guard.reconcile(excluded)?;
+        } else {
+            guards.push(SystemRouteGuard::install(
+                tun_name,
+                recovery_key,
+                address,
+                excluded,
+            )?);
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+pub(super) async fn cleanup_guards(guards: Vec<SystemRouteGuard>) -> io::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        let mut result = Ok(());
+        for guard in guards.into_iter().rev() {
+            if let Err(error) = guard.close() {
+                if result.is_ok() {
+                    result = Err(error);
+                }
+            }
+        }
+        result
+    })
+    .await
+    .map_err(|error| io::Error::other(format!("TUN route cleanup task panicked: {error}")))?
+}
+
+pub(super) fn route_names(guards: &[SystemRouteGuard]) -> (Option<String>, Option<String>) {
+    state::route_names(guards)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{next_retry, ROUTE_RETRY_DELAYS};
+
+    #[test]
+    fn route_retry_backoff_starts_small_and_is_bounded() {
+        assert_eq!(next_retry(None), 0);
+        assert_eq!(next_retry(Some(0)), 1);
+        assert_eq!(
+            next_retry(Some(ROUTE_RETRY_DELAYS.len() - 1)),
+            ROUTE_RETRY_DELAYS.len() - 1
+        );
+    }
+}

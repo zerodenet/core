@@ -99,10 +99,9 @@ impl Utun {
             }
         }
 
-        let fd = AsyncFd::new(sock).map_err(|error| {
+        let fd = AsyncFd::new(sock).inspect_err(|_| {
             // SAFETY: the raw socket has not yet been transferred into Utun.
             unsafe { libc::close(sock) };
-            error
         })?;
         Ok(Self {
             name,

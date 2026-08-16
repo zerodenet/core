@@ -8,10 +8,13 @@ mod journal;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+mod monitor;
+mod reconcile;
 #[cfg(target_os = "windows")]
 mod windows;
 
 use journal::{RouteJournal, RouteLease};
+pub use monitor::RouteChangeMonitor;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RouteInterface {
@@ -72,6 +75,13 @@ impl SystemRouteGuard {
         unreachable!("unsupported route guard cannot be constructed")
     }
 
+    pub fn reconcile(&mut self, _excluded: &[IpAddr]) -> io::Result<bool> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "automatic TUN routes are unsupported on this platform",
+        ))
+    }
+
     pub fn close(self) -> io::Result<()> {
         Ok(())
     }
@@ -97,6 +107,17 @@ fn command_error(program: &str, arguments: &[String], stderr: &[u8]) -> io::Erro
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn host_prefix(address: IpAddr) -> String {
     format!("{address}/{}", if address.is_ipv4() { 32 } else { 128 })
+}
+
+fn family_exclusions(excluded: &[IpAddr], ipv6: bool) -> Vec<IpAddr> {
+    let mut excluded = excluded
+        .iter()
+        .copied()
+        .filter(|address| address.is_ipv6() == ipv6)
+        .collect::<Vec<_>>();
+    excluded.sort_unstable();
+    excluded.dedup();
+    excluded
 }
 
 #[cfg(test)]

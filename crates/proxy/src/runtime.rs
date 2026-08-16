@@ -105,6 +105,8 @@ pub(crate) struct TunInfo {
     pub dual_stack: bool,
     pub strict_route: bool,
     pub dns_hijack: bool,
+    pub healthy: bool,
+    pub last_error: Option<String>,
     pub egress_interface: Option<String>,
     pub egress_interface_v4: Option<String>,
     pub egress_interface_v6: Option<String>,
@@ -117,7 +119,7 @@ pub(crate) struct TunControl {
     pub id: u64,
     pub shutdown: tokio::sync::watch::Sender<bool>,
     pub done: oneshot::Receiver<()>,
-    pub routes: Vec<zero_tun::SystemRouteGuard>,
+    pub route_done: Option<oneshot::Receiver<Result<(), String>>>,
 }
 
 impl Proxy {

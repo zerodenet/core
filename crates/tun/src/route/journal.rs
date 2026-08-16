@@ -12,6 +12,8 @@ pub(super) struct RouteJournal {
     pub(super) ipv6: bool,
     pub(super) tun_index: u32,
     pub(super) egress: RouteInterface,
+    #[serde(default)]
+    pub(super) gateway: Option<String>,
     pub(super) excluded: Vec<IpAddr>,
     pub(super) installed: Vec<String>,
     #[serde(skip)]
@@ -93,12 +95,14 @@ impl RouteJournal {
         ipv6: bool,
         tun_index: u32,
         egress: RouteInterface,
+        gateway: Option<String>,
     ) -> io::Result<Self> {
         Ok(Self {
             tun_name: tun_name.to_owned(),
             ipv6,
             tun_index,
             egress,
+            gateway,
             excluded: Vec::new(),
             installed: Vec::new(),
             path: lease.journal_path.clone(),
@@ -107,7 +111,24 @@ impl RouteJournal {
     }
 
     pub(super) fn record_exclusion(&mut self, address: IpAddr) -> io::Result<()> {
-        self.excluded.push(address);
+        if !self.excluded.contains(&address) {
+            self.excluded.push(address);
+        }
+        self.persist()
+    }
+
+    pub(super) fn forget_exclusion(&mut self, address: IpAddr) -> io::Result<()> {
+        self.excluded.retain(|item| *item != address);
+        self.persist_or_clear()
+    }
+
+    pub(super) fn replace_egress(
+        &mut self,
+        egress: RouteInterface,
+        gateway: Option<String>,
+    ) -> io::Result<()> {
+        self.egress = egress;
+        self.gateway = gateway;
         self.persist()
     }
 

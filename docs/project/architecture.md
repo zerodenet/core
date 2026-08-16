@@ -323,6 +323,8 @@ UDP 数据包路径通过 `UdpPacketPath`、`DatagramCodec` 等中性接口组�
 
 `zero-tun` 定义平台无关的 TUN 设备抽象、Linux/macOS/Windows 设备实现和事务化系统路由。平台驱动的部署仍由最终应用或安装器负责。自动路由默认同时用两组 `/1` 接管 IPv4/IPv6，并按地址族记录和绑定各自的物理出口（例如 Windows 的 IPv4 以太网与 IPv6 Teredo 可以不同）。路由事务持有跨进程 lease，并持久记录 Zero 安装的半默认路由及端点排除项；异常退出后的同名设备启动先恢复残留项。
 
+`auto_route=true` 还会通过平台原生通知持续观察主机路由拓扑：Windows 使用 IP Helper 路由/接口回调，Linux 使用 `NETLINK_ROUTE`，macOS 使用 `PF_ROUTE`。通知只是有界的失效信号；`zero-proxy` 中单一的 TUN route reconciler 对突发事件防抖，重新解析非 TUN 默认出口和完整端点排除集合，再调用 `zero-tun` 的事务化 guard 原地协调。同步平台命令在阻塞线程池执行，失败保留上一份可用状态并退避重试。提交成功后只替换新建 socket 读取的物理出口，既有连接和 TUN/用户态网络栈不重启；`auto_route=false` 不创建监听任务。
+
 TUN 入站的基本路径为：
 
 ```text

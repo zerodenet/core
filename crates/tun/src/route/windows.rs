@@ -5,7 +5,8 @@ use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceAliasToLuid, ConvertInterfaceLuidToAlias, ConvertInterfaceLuidToIndex,
     CreateIpForwardEntry2, DeleteIpForwardEntry2, FreeMibTable, GetIpForwardTable2,
-    InitializeIpForwardEntry, IP_ADDRESS_PREFIX, MIB_IPFORWARD_ROW2,
+    GetIpInterfaceEntry, InitializeIpForwardEntry, InitializeIpInterfaceEntry, IP_ADDRESS_PREFIX,
+    MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
 };
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 use windows_sys::Win32::Networking::WinSock::{
@@ -13,7 +14,11 @@ use windows_sys::Win32::Networking::WinSock::{
     SOCKADDR_IN6, SOCKADDR_INET,
 };
 
-use super::{host_prefix, split_default_route_prefixes, RouteInterface, RouteJournal, RouteLease};
+use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
+use super::{
+    family_exclusions, host_prefix, split_default_route_prefixes, RouteInterface, RouteJournal,
+    RouteLease,
+};
 
 #[derive(Debug)]
 pub struct SystemRouteGuard {
@@ -22,6 +27,7 @@ pub struct SystemRouteGuard {
     gateway: IpAddr,
     tun_gateway: IpAddr,
     tun_index: u32,
+    excluded: Vec<IpAddr>,
     journal: RouteJournal,
 }
 
@@ -58,29 +64,27 @@ impl SystemRouteGuard {
             }
         })?;
         let egress = RouteInterface::new(physical.interface_alias, physical.interface_index)?;
+        let gateway = physical.next_hop;
+        let desired_exclusions = family_exclusions(excluded, ipv6);
         let journal = RouteJournal::new(
             lease,
             tun_name,
             address.is_ipv6(),
             tun_index,
             egress.clone(),
+            Some(gateway.to_string()),
         )?;
         let mut guard = Self {
             egress,
             ipv6,
-            gateway: physical.next_hop,
+            gateway,
             tun_gateway: synthetic_tun_gateway(address)?,
             tun_index,
+            excluded: desired_exclusions.clone(),
             journal,
         };
-        for peer in excluded
-            .iter()
-            .copied()
-            .filter(|peer| peer.is_ipv6() == address.is_ipv6())
-        {
-            if guard.add_exclusion(peer)? {
-                guard.journal.record_exclusion(peer)?;
-            }
+        for peer in desired_exclusions {
+            guard.install_exclusion(peer)?;
         }
         for prefix in split_default_route_prefixes(address) {
             guard.remove(prefix)?;
@@ -96,6 +100,31 @@ impl SystemRouteGuard {
 
     pub fn is_ipv6(&self) -> bool {
         self.ipv6
+    }
+
+    /// Re-resolve the preferred physical interface and reconcile endpoint
+    /// exclusions without replacing the TUN device or its split default routes.
+    pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
+        let desired_exclusions = family_exclusions(excluded, self.ipv6);
+        let has_family_exclusions = !desired_exclusions.is_empty();
+        let physical = default_interface(self.ipv6, self.tun_index).or_else(|error| {
+            if has_family_exclusions {
+                Err(error)
+            } else {
+                default_interface(!self.ipv6, self.tun_index).map_err(|fallback| {
+                    io::Error::new(
+                        fallback.kind(),
+                        format!(
+                            "default route unavailable for the TUN address family ({error}); fallback family also unavailable ({fallback})"
+                        ),
+                    )
+                })
+            }
+        })?;
+        let desired_egress =
+            RouteInterface::new(physical.interface_alias, physical.interface_index)?;
+        let desired_gateway = physical.next_hop;
+        reconcile_route_state(self, desired_egress, desired_gateway, desired_exclusions)
     }
 
     pub fn close(mut self) -> io::Result<()> {
@@ -115,14 +144,54 @@ impl SystemRouteGuard {
         remove_route(self.tun_index, prefix)
     }
 
-    fn add_exclusion(&self, peer: IpAddr) -> io::Result<bool> {
+    fn install_exclusion(&mut self, peer: IpAddr) -> io::Result<()> {
         let prefix = host_prefix(peer);
-        if matching_routes(self.egress.index(), &prefix, Some(self.gateway))?.is_empty() {
-            create_route(self.egress.index(), &prefix, self.gateway)?;
-            Ok(true)
-        } else {
-            Ok(false)
+        if !matching_routes(self.egress.index(), &prefix, Some(self.gateway))?.is_empty() {
+            return Ok(());
         }
+        self.journal.record_exclusion(peer)?;
+        if let Err(error) = create_route(self.egress.index(), &prefix, self.gateway) {
+            let rollback = self.journal.forget_exclusion(peer);
+            return Err(with_rollback_error(error, rollback));
+        }
+        Ok(())
+    }
+
+    fn reconcile_exclusions(&mut self, desired: &[IpAddr]) -> io::Result<()> {
+        let added = desired
+            .iter()
+            .copied()
+            .filter(|peer| !self.excluded.contains(peer))
+            .collect::<Vec<_>>();
+        for peer in added {
+            self.install_exclusion(peer)?;
+        }
+        let stale = self
+            .excluded
+            .clone()
+            .into_iter()
+            .filter(|peer| !desired.contains(peer) && self.journal.excluded.contains(peer))
+            .collect::<Vec<_>>();
+        for peer in stale {
+            remove_exclusion(self.egress.index(), Some(self.gateway), peer)?;
+            self.journal.forget_exclusion(peer)?;
+        }
+        Ok(())
+    }
+
+    fn install_exclusions(&mut self, excluded: &[IpAddr]) -> io::Result<()> {
+        for peer in excluded.iter().copied() {
+            self.install_exclusion(peer)?;
+        }
+        Ok(())
+    }
+
+    fn remove_owned_exclusions(&mut self) -> io::Result<()> {
+        for peer in self.journal.excluded.clone().into_iter().rev() {
+            remove_exclusion(self.egress.index(), Some(self.gateway), peer)?;
+            self.journal.forget_exclusion(peer)?;
+        }
+        Ok(())
     }
 
     fn cleanup(&mut self) -> io::Result<()> {
@@ -130,8 +199,52 @@ impl SystemRouteGuard {
         let egress_index = self.egress.index();
         self.journal.cleanup(
             |prefix| remove_route(tun_index, prefix),
-            |peer| remove_exclusion(egress_index, peer),
+            |peer| remove_exclusion(egress_index, Some(self.gateway), peer),
         )
+    }
+}
+
+impl RouteReconcileState for SystemRouteGuard {
+    type Gateway = IpAddr;
+
+    fn current_egress(&self) -> &RouteInterface {
+        &self.egress
+    }
+
+    fn current_gateway(&self) -> &Self::Gateway {
+        &self.gateway
+    }
+
+    fn current_exclusions(&self) -> &[IpAddr] {
+        &self.excluded
+    }
+
+    fn owned_exclusions(&self) -> Vec<IpAddr> {
+        self.journal.excluded.clone()
+    }
+
+    fn reconcile_exclusions(&mut self, desired: &[IpAddr]) -> io::Result<()> {
+        SystemRouteGuard::reconcile_exclusions(self, desired)
+    }
+
+    fn remove_owned_exclusions(&mut self) -> io::Result<()> {
+        SystemRouteGuard::remove_owned_exclusions(self)
+    }
+
+    fn replace_egress(&mut self, egress: RouteInterface, gateway: Self::Gateway) -> io::Result<()> {
+        self.journal
+            .replace_egress(egress.clone(), Some(gateway.to_string()))?;
+        self.egress = egress;
+        self.gateway = gateway;
+        Ok(())
+    }
+
+    fn install_exclusions(&mut self, excluded: &[IpAddr]) -> io::Result<()> {
+        SystemRouteGuard::install_exclusions(self, excluded)
+    }
+
+    fn set_current_exclusions(&mut self, excluded: Vec<IpAddr>) {
+        self.excluded = excluded;
     }
 }
 
@@ -141,9 +254,20 @@ fn recover_stale_routes(lease: &RouteLease, ipv6: bool) -> io::Result<()> {
     };
     let tun_index = journal.tun_index;
     let egress_index = journal.egress.index();
+    let gateway = journal
+        .gateway
+        .as_deref()
+        .map(str::parse::<IpAddr>)
+        .transpose()
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("parse TUN route recovery gateway: {error}"),
+            )
+        })?;
     journal.cleanup(
         |prefix| remove_route(tun_index, prefix),
-        |peer| remove_exclusion(egress_index, peer),
+        |peer| remove_exclusion(egress_index, gateway, peer),
     )
 }
 
@@ -151,8 +275,8 @@ fn remove_route(tun_index: u32, prefix: &str) -> io::Result<()> {
     delete_routes(matching_routes(tun_index, prefix, None)?)
 }
 
-fn remove_exclusion(egress_index: u32, peer: IpAddr) -> io::Result<()> {
-    delete_routes(matching_routes(egress_index, &host_prefix(peer), None)?)
+fn remove_exclusion(egress_index: u32, gateway: Option<IpAddr>, peer: IpAddr) -> io::Result<()> {
+    delete_routes(matching_routes(egress_index, &host_prefix(peer), gateway)?)
 }
 
 impl Drop for SystemRouteGuard {
@@ -202,7 +326,7 @@ fn default_interface(ipv6: bool, tun_index: u32) -> io::Result<WindowsInterface>
         .into_iter()
         .filter(|route| route.InterfaceIndex != tun_index)
         .filter(|route| route.DestinationPrefix.PrefixLength == 0)
-        .min_by_key(|route| route.Metric)
+        .min_by_key(|route| effective_metric(route, family))
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -217,6 +341,22 @@ fn default_interface(ipv6: bool, tun_index: u32) -> io::Result<WindowsInterface>
         interface_index: route.InterfaceIndex,
         next_hop: socket_ip(&route.NextHop)?,
     })
+}
+
+fn effective_metric(route: &MIB_IPFORWARD_ROW2, family: u16) -> u64 {
+    let mut interface = MIB_IPINTERFACE_ROW::default();
+    unsafe {
+        InitializeIpInterfaceEntry(&mut interface);
+    }
+    interface.Family = family;
+    interface.InterfaceLuid = route.InterfaceLuid;
+    interface.InterfaceIndex = route.InterfaceIndex;
+    let interface_metric = if unsafe { GetIpInterfaceEntry(&mut interface) } == 0 {
+        interface.Metric
+    } else {
+        0
+    };
+    u64::from(route.Metric) + u64::from(interface_metric)
 }
 
 fn interface_alias(luid: &NET_LUID_LH) -> io::Result<String> {

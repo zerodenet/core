@@ -13,6 +13,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 默认行为：
 
 - `auto_route=true`：通过两条 `/1` 路由接管默认流量，不覆盖原默认路由；
+- `auto_route=true` 会继续监听系统默认路由和接口变化；Wi-Fi/有线切换、VPN 上下线或 metric 变化后，内核在不重启 TUN 的情况下更新物理出口和节点/DNS 排除路由。事件会合并处理，失败时保留上一份可用状态并在 `tun status` 中报告错误；
 - `dual_stack=true`：在同一设备上配置 IPv4/IPv6 两个地址，并同时安装两组拆分默认路由；`secondary_addr` 可显式指定另一族 CIDR，省略时按主地址族使用 `10.66.0.1/24` 或 `fd66::1/64`；只有明确的单栈主机才应关闭，否则另一地址族仍可能绕过 TUN；
 - `strict_route=true`：接口、端点排除路由或任一半默认路由失败时，启动整体失败并回滚已安装项；
 - `dns_hijack=true`：TUN 内的 UDP/TCP 53 由 Zero DNS 回答，并使用已有缓存、DNS 路由和 Fake-IP；
@@ -160,7 +161,9 @@ sudo tcpdump -i physical0 -nn 'udp port 3478 or udp port 5349'
 2. 执行 `tun stop`，确认半默认路由消失、原默认路由仍在。
 3. 使用无效接口权限或预置冲突 `/1` 路由再次启动；严格模式应返回错误，且第一条已安装路由必须回滚。
 4. 强制中止 TUN 数据通道；`tun status` 应变为 `running=false` 并显示 `last_error`。
-5. Windows 连续执行两轮 start/stop，确认阻塞 reader 被唤醒且同名 Wintun adapter 可复用。
+5. 保持 TUN 运行并切换系统默认出口；`tun status` 的 `egress_v4`/`egress_v6` 应更新，既有连接不中断，新连接使用新出口，旧出口上的 Zero 所有排除路由被清理。
+6. 制造短暂的无默认路由窗口或排除路由安装失败；TUN 应保持运行、`healthy=false` 且显示 `last_error`，恢复后自动协调并回到 `healthy=true`，期间不得出现忙重试。
+7. Windows 连续执行两轮 start/stop，确认阻塞 reader 被唤醒且同名 Wintun adapter 可复用。
 
 路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，下一次以相同 TUN 入站 `tag` 启动会先消费日志，并按日志记录的旧设备名清理残留的半默认路由与端点排除路由。
 
@@ -180,6 +183,33 @@ ZERO_TUN_E2E_STUN_ADDR=203.0.113.10:3478 \
 ZERO_TUN_E2E_STUN_ADDR_V6='[2001:db8::10]:3478' \
   cargo test --test tun_privileged_e2e privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
 cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
+```
+
+运行中的默认出口协调另有独立特权用例。Windows 用例创建临时默认路由并验证状态与 DNS 排除路由迁移；Linux 用例在隔离 network namespace 中切换两个虚拟物理出口：
+
+```powershell
+cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
+```
+
+```bash
+sudo cargo test --test tun_route_reconcile_linux_e2e linux_reconciles_runtime_egress_and_dns_exclusion_inside_network_namespace -- --ignored --exact --nocapture
+```
+
+Linux namespace 用例在完成受管出口切换后，还会以 `auto_route=false` 重启 TUN，重复触发默认路由变化，并确认没有 `/1` 或 DNS host route 被 Zero 安装、状态也不发布内核受管出口。
+
+macOS 的 PF_ROUTE 生命周期用例只增删一条 `lo0` TEST-NET 主机路由，不变更默认出口；仍应只在隔离 runner 上以 root 执行：
+
+```bash
+sudo cargo test -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
+```
+
+macOS 动态出口用例会暂时修改全局 IPv4 默认路由，并由 RAII 恢复，因此只能在隔离 runner 上运行。备用网关必须已经通过备用接口直连可达：
+
+```bash
+sudo env \
+  ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY=192.0.2.1 \
+  ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE=en1 \
+  cargo test --test tun_route_reconcile_macos_e2e macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
 ```
 
 `.github/workflows/tun-e2e.yml` 将冒烟、两个单栈 STUN 和离线双栈用例分发到带 `tun` 标签的 Linux、macOS 和 Windows 隔离自托管 runner。STUN 用例需要对应地址族的原生连通性和可达服务，离线双栈用例不作此要求；Windows runner 还需预装匹配架构的 Wintun。

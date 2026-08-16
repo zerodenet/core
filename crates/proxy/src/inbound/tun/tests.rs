@@ -31,6 +31,8 @@ fn configured_tun_fixture() -> (zero_config::TunConfig, TunInfo) {
         dual_stack: false,
         strict_route: true,
         dns_hijack: true,
+        healthy: true,
+        last_error: None,
         egress_interface: None,
         egress_interface_v4: None,
         egress_interface_v6: None,

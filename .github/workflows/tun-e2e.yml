@@ -1,7 +1,19 @@
 name: Privileged TUN E2E
 
 on:
+  push:
+    branches:
+      - develop
   workflow_dispatch:
+    inputs:
+      target:
+        description: TUN runner target
+        required: true
+        default: self-hosted-all
+        type: choice
+        options:
+          - self-hosted-all
+          - hosted-macos
 
 concurrency:
   group: tun-e2e-${{ github.ref }}
@@ -15,6 +27,7 @@ concurrency:
 # binary or on PATH.
 jobs:
   linux:
+    if: inputs.target == 'self-hosted-all'
     runs-on: [self-hosted, linux, x64, tun]
     timeout-minutes: 30
     env:
@@ -36,6 +49,7 @@ jobs:
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
   macos:
+    if: inputs.target == 'self-hosted-all'
     runs-on: [self-hosted, macOS, x64, tun]
     timeout-minutes: 30
     env:
@@ -55,6 +69,7 @@ jobs:
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
   windows:
+    if: inputs.target == 'self-hosted-all'
     runs-on: [self-hosted, windows, x64, tun]
     timeout-minutes: 30
     env:
@@ -72,3 +87,26 @@ jobs:
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
+
+  hosted-macos:
+    if: github.event_name == 'push' || inputs.target == 'hosted-macos'
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Record native network topology
+        run: |
+          sw_vers
+          uname -m
+          ifconfig
+          route -n get -inet default
+      - name: Run zero-tun tests
+        run: cargo test -p zero-tun
+      - name: Run native PF_ROUTE lifecycle E2E
+        run: sudo env "PATH=$PATH" cargo test -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
+      - name: Run privileged TUN smoke test
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run offline dual-stack privileged TUN E2E
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture

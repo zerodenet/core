@@ -24,7 +24,7 @@ impl zero_api::QueryService for ProxyHandle {
                     addresses: tun.addresses.clone(),
                     mtu: Some(tun.mtu),
                     tag: Some(tun.tag.clone()),
-                    healthy: true,
+                    healthy: tun.healthy,
                     auto_route: tun.auto_route,
                     dual_stack: tun.dual_stack,
                     strict_route: tun.strict_route,
@@ -32,7 +32,7 @@ impl zero_api::QueryService for ProxyHandle {
                     egress_interface: tun.egress_interface.clone(),
                     egress_interface_v4: tun.egress_interface_v4.clone(),
                     egress_interface_v6: tun.egress_interface_v6.clone(),
-                    last_error: None,
+                    last_error: tun.last_error.clone(),
                     managed_by_config: tun.managed_config.is_some(),
                 },
                 None => zero_api::TunStatusSnapshot {
@@ -45,3 +45,6 @@ impl zero_api::QueryService for ProxyHandle {
         self.inner.query(request)
     }
 }
+
+#[cfg(test)]
+mod tests;
