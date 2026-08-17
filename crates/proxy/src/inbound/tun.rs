@@ -181,7 +181,7 @@ impl Proxy {
         let excluded_endpoints = prepared_network.route_exclusions;
         let route_addresses = interface_addresses
             .iter()
-            .map(|address| address.address)
+            .map(|address| (address.address, address.netmask))
             .collect::<Vec<_>>();
         let installed = if auto_route {
             routes::install(

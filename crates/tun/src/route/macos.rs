@@ -14,6 +14,7 @@ pub struct SystemRouteGuard {
     tun_name: String,
     ipv6: bool,
     gateway: Option<String>,
+    tun_gateway: Option<String>,
     excluded: Vec<IpAddr>,
     journal: RouteJournal,
 }
@@ -23,6 +24,7 @@ impl SystemRouteGuard {
         tun_name: &str,
         recovery_key: &str,
         address: IpAddr,
+        netmask: IpAddr,
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
         let ipv6 = address.is_ipv6();
@@ -43,6 +45,10 @@ impl SystemRouteGuard {
                 })
             }
         })?;
+        let tun_gateway = match address {
+            IpAddr::V4(address) => Some(crate::macos::ipv4_peer(address, netmask)?.to_string()),
+            IpAddr::V6(_) => None,
+        };
         let journal = RouteJournal::new(lease, tun_name, ipv6, 0, egress.clone(), gateway.clone())?;
         let desired_exclusions = family_exclusions(excluded, ipv6);
         let mut guard = Self {
@@ -50,6 +56,7 @@ impl SystemRouteGuard {
             tun_name: tun_name.to_owned(),
             ipv6,
             gateway,
+            tun_gateway,
             excluded: desired_exclusions.clone(),
             journal,
         };
@@ -100,19 +107,17 @@ impl SystemRouteGuard {
     }
 
     fn add(&self, prefix: &str) -> io::Result<()> {
-        run_route(&[
-            "-n".to_owned(),
-            "add".to_owned(),
-            family(self.ipv6).to_owned(),
-            prefix.to_owned(),
-            "-interface".to_owned(),
-            self.tun_name.clone(),
-        ])
-        .map(|_| ())
+        let arguments = route_add_arguments(
+            self.ipv6,
+            &self.tun_name,
+            self.tun_gateway.as_deref(),
+            prefix,
+        );
+        run_route(&arguments).map(|_| ())
     }
 
     fn remove(&self, prefix: &str) -> io::Result<()> {
-        remove_route(self.ipv6, &self.tun_name, prefix)
+        remove_route(self.ipv6, prefix)
     }
 
     fn install_exclusion(&mut self, peer: IpAddr) -> io::Result<()> {
@@ -140,7 +145,7 @@ impl SystemRouteGuard {
             .filter(|peer| !desired.contains(peer) && self.journal.excluded.contains(peer))
             .collect::<Vec<_>>();
         for peer in stale {
-            remove_exclusion(self.ipv6, self.egress.name(), self.gateway.as_deref(), peer)?;
+            remove_exclusion(self.ipv6, self.gateway.as_deref(), peer)?;
             self.journal.forget_exclusion(peer)?;
         }
         Ok(())
@@ -155,7 +160,7 @@ impl SystemRouteGuard {
 
     fn remove_owned_exclusions(&mut self) -> io::Result<()> {
         for peer in self.journal.excluded.clone().into_iter().rev() {
-            remove_exclusion(self.ipv6, self.egress.name(), self.gateway.as_deref(), peer)?;
+            remove_exclusion(self.ipv6, self.gateway.as_deref(), peer)?;
             self.journal.forget_exclusion(peer)?;
         }
         Ok(())
@@ -163,12 +168,10 @@ impl SystemRouteGuard {
 
     fn cleanup(&mut self) -> io::Result<()> {
         let ipv6 = self.ipv6;
-        let tun_name = self.tun_name.clone();
-        let egress_name = self.egress.name().to_owned();
         let gateway = self.gateway.clone();
         self.journal.cleanup(
-            |prefix| remove_route(ipv6, &tun_name, prefix),
-            |peer| remove_exclusion(ipv6, &egress_name, gateway.as_deref(), peer),
+            |prefix| remove_route(ipv6, prefix),
+            |peer| remove_exclusion(ipv6, gateway.as_deref(), peer),
         )
     }
 }
@@ -242,32 +245,47 @@ fn recover_stale_routes(lease: &RouteLease, ipv6: bool) -> io::Result<()> {
     let Some(mut journal) = RouteJournal::load(lease, ipv6)? else {
         return Ok(());
     };
-    let stale_tun = journal.tun_name.clone();
-    let stale_egress = journal.egress.name().to_owned();
     let stale_gateway = journal.gateway.clone();
     journal.cleanup(
-        |prefix| remove_route(ipv6, &stale_tun, prefix),
-        |peer| remove_exclusion(ipv6, &stale_egress, stale_gateway.as_deref(), peer),
+        |prefix| remove_route(ipv6, prefix),
+        |peer| remove_exclusion(ipv6, stale_gateway.as_deref(), peer),
     )
 }
 
-fn remove_route(ipv6: bool, tun_name: &str, prefix: &str) -> io::Result<()> {
-    run_route_remove(&[
+fn route_add_arguments(
+    ipv6: bool,
+    tun_name: &str,
+    tun_gateway: Option<&str>,
+    prefix: &str,
+) -> Vec<String> {
+    let mut arguments = vec![
+        "-n".to_owned(),
+        "add".to_owned(),
+        family(ipv6).to_owned(),
+        prefix.to_owned(),
+    ];
+    if let Some(gateway) = tun_gateway {
+        arguments.push(gateway.to_owned());
+    } else {
+        arguments.extend(["-interface".to_owned(), tun_name.to_owned()]);
+    }
+    arguments
+}
+
+fn remove_route(ipv6: bool, prefix: &str) -> io::Result<()> {
+    run_route_remove(&route_remove_arguments(ipv6, prefix))
+}
+
+fn route_remove_arguments(ipv6: bool, prefix: &str) -> Vec<String> {
+    vec![
         "-n".to_owned(),
         "delete".to_owned(),
         family(ipv6).to_owned(),
         prefix.to_owned(),
-        "-interface".to_owned(),
-        tun_name.to_owned(),
-    ])
+    ]
 }
 
-fn remove_exclusion(
-    ipv6: bool,
-    egress_name: &str,
-    gateway: Option<&str>,
-    peer: IpAddr,
-) -> io::Result<()> {
+fn remove_exclusion(ipv6: bool, gateway: Option<&str>, peer: IpAddr) -> io::Result<()> {
     let mut arguments = vec![
         "-n".to_owned(),
         "delete".to_owned(),
@@ -277,8 +295,6 @@ fn remove_exclusion(
     ];
     if let Some(gateway) = gateway {
         arguments.push(gateway.to_owned());
-    } else {
-        arguments.extend(["-interface".to_owned(), egress_name.to_owned()]);
     }
     run_route_remove(&arguments)
 }

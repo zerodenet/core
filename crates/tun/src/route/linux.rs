@@ -30,6 +30,7 @@ impl SystemRouteGuard {
         tun_name: &str,
         recovery_key: &str,
         address: IpAddr,
+        _netmask: IpAddr,
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
         let ipv6 = address.is_ipv6();

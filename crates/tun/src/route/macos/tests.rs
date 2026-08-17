@@ -1,6 +1,6 @@
 use std::io;
 
-use super::parse_default_route;
+use super::{parse_default_route, route_add_arguments, route_remove_arguments};
 
 #[test]
 fn parses_gateway_backed_default_route() {
@@ -38,4 +38,28 @@ fn rejects_non_utf8_route_output() {
     let error = parse_default_route(&[0xff], "utun7").unwrap_err();
 
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn ipv4_split_route_uses_the_utun_point_to_point_gateway() {
+    assert_eq!(
+        route_add_arguments(false, "utun7", Some("10.66.0.2"), "0.0.0.0/1"),
+        ["-n", "add", "-inet", "0.0.0.0/1", "10.66.0.2"]
+    );
+}
+
+#[test]
+fn ipv6_split_route_remains_interface_backed() {
+    assert_eq!(
+        route_add_arguments(true, "utun7", None, "::/1"),
+        ["-n", "add", "-inet6", "::/1", "-interface", "utun7"]
+    );
+}
+
+#[test]
+fn split_route_delete_uses_only_the_route_key() {
+    assert_eq!(
+        route_remove_arguments(false, "128.0.0.0/1"),
+        ["-n", "delete", "-inet", "128.0.0.0/1"]
+    );
 }

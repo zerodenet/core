@@ -27,15 +27,15 @@ pub(super) struct InstalledRoutes {
 pub(super) async fn install(
     tun_name: String,
     recovery_key: String,
-    addresses: Vec<IpAddr>,
+    addresses: Vec<(IpAddr, IpAddr)>,
     excluded: Vec<IpAddr>,
     strict: bool,
 ) -> Result<InstalledRoutes, EngineError> {
     tokio::task::spawn_blocking(move || {
         let mut guards = Vec::new();
         let mut last_error = None;
-        for address in addresses {
-            match SystemRouteGuard::install(&tun_name, &recovery_key, address, &excluded) {
+        for (address, netmask) in addresses {
+            match SystemRouteGuard::install(&tun_name, &recovery_key, address, netmask, &excluded) {
                 Ok(guard) => guards.push(guard),
                 Err(error) if strict => return Err(EngineError::Io(error)),
                 Err(error) => {
@@ -63,7 +63,7 @@ pub(super) struct RouteRuntimeSpec {
     pub tun_name: String,
     pub recovery_key: String,
     pub primary_ipv6: bool,
-    pub addresses: Vec<IpAddr>,
+    pub addresses: Vec<(IpAddr, IpAddr)>,
     pub dual_stack: bool,
     pub dns_hijack: bool,
 }
@@ -162,7 +162,7 @@ async fn run(
                 break;
             }
             prepared = proxy.prepare_tun_network(
-                spec.addresses[0],
+                spec.addresses[0].0,
                 true,
                 spec.dual_stack,
                 spec.dns_hijack,
@@ -252,11 +252,11 @@ fn reconcile_guards(
     guards: &mut Vec<SystemRouteGuard>,
     tun_name: &str,
     recovery_key: &str,
-    addresses: &[IpAddr],
+    addresses: &[(IpAddr, IpAddr)],
     excluded: &[IpAddr],
 ) -> io::Result<bool> {
     let mut changed = false;
-    for address in addresses.iter().copied() {
+    for (address, netmask) in addresses.iter().copied() {
         if let Some(guard) = guards
             .iter_mut()
             .find(|guard| guard.is_ipv6() == address.is_ipv6())
@@ -267,6 +267,7 @@ fn reconcile_guards(
                 tun_name,
                 recovery_key,
                 address,
+                netmask,
                 excluded,
             )?);
             changed = true;

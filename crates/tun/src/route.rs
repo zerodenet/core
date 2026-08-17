@@ -59,6 +59,7 @@ impl SystemRouteGuard {
         _tun_name: &str,
         _recovery_key: &str,
         _address: IpAddr,
+        _netmask: IpAddr,
         _excluded: &[IpAddr],
     ) -> io::Result<Self> {
         Err(io::Error::new(

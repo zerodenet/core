@@ -42,6 +42,7 @@ impl SystemRouteGuard {
         tun_name: &str,
         recovery_key: &str,
         address: IpAddr,
+        _netmask: IpAddr,
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
         let lease = RouteLease::acquire(recovery_key, address.is_ipv6())?;
