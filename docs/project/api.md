@@ -434,6 +434,7 @@ IPC 本地 socket 依赖文件权限（`0o600`），连接即视为已鉴权。
 - `not_found`
 - `invalid_argument`
 - `permission_denied`
+- `insufficient_os_privilege`
 - `feature_disabled`
 - `conflict`
 - `unsupported`

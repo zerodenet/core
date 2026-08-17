@@ -77,6 +77,8 @@ pub enum ApiErrorCode {
     InvalidArgument,
     #[error("permission_denied")]
     PermissionDenied,
+    #[error("insufficient_os_privilege")]
+    InsufficientOsPrivilege,
     #[error("feature_disabled")]
     FeatureDisabled,
     #[error("conflict")]
@@ -95,6 +97,7 @@ impl ApiErrorCode {
             Self::NotFound => "not_found",
             Self::InvalidArgument => "invalid_argument",
             Self::PermissionDenied => "permission_denied",
+            Self::InsufficientOsPrivilege => "insufficient_os_privilege",
             Self::FeatureDisabled => "feature_disabled",
             Self::Conflict => "conflict",
             Self::Unsupported => "unsupported",

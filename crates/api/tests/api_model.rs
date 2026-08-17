@@ -87,8 +87,14 @@ fn command_request_serializes_with_stable_method_name() {
 #[test]
 fn api_error_codes_serialize_as_snake_case() {
     let value = serde_json::to_value(ApiErrorCode::PermissionDenied).expect("serialize");
+    let privilege = serde_json::to_value(ApiErrorCode::InsufficientOsPrivilege).expect("serialize");
 
     assert_eq!(value, "permission_denied");
+    assert_eq!(privilege, "insufficient_os_privilege");
+    assert_eq!(
+        ApiErrorCode::InsufficientOsPrivilege.as_code_str(),
+        "insufficient_os_privilege"
+    );
     assert_eq!(
         ApiErrorCode::FeatureDisabled.as_code_str(),
         "feature_disabled"

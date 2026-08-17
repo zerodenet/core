@@ -26,6 +26,7 @@ HTTP 和 IPC 响应共享 `zero_api::ApiResponse` 信封：
 | `not_found` | 404 | 资源不存在 |
 | `invalid_argument` | 400 | 请求参数无效 |
 | `permission_denied` | 403 | 调用者权限不足 |
+| `insufficient_os_privilege` | 403 | 宿主机操作系统权限不足 |
 | `feature_disabled` | 501 | 功能未启用 |
 | `conflict` | 409 | 状态冲突 |
 | `unsupported` | 501 | 操作未暴露 |

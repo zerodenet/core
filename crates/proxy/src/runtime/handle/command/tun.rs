@@ -1,6 +1,13 @@
+use std::io;
+
+use zero_engine::EngineError;
+
 use super::super::ProxyHandle;
 use super::runtime::with_current_runtime;
 use crate::{TunInterfaceOptions, TunRuntimeOptions};
+
+pub(super) const TUN_PRIVILEGE_MESSAGE: &str =
+    "TUN startup requires elevated host operating-system network privileges";
 
 pub(super) fn execute_tun_start(
     handle: &ProxyHandle,
@@ -41,11 +48,23 @@ pub(super) fn execute_tun_start(
                 )
                 .await
                 .map(|_| zero_api::CommandResponse::accepted())
-                .map_err(|error| {
-                    zero_api::ApiError::new(zero_api::ApiErrorCode::Internal, error.to_string())
-                })
+                .map_err(map_tun_start_error)
         })
     })
+}
+
+pub(super) fn map_tun_start_error(error: EngineError) -> zero_api::ApiError {
+    if matches!(&error, EngineError::Io(source) if source.kind() == io::ErrorKind::PermissionDenied)
+    {
+        return zero_api::ApiError {
+            code: zero_api::ApiErrorCode::InsufficientOsPrivilege,
+            message: TUN_PRIVILEGE_MESSAGE.to_owned(),
+            field_path: None,
+            cause: Some(error.to_string()),
+            details: Vec::new(),
+        };
+    }
+    zero_api::ApiError::new(zero_api::ApiErrorCode::Internal, error.to_string())
 }
 
 pub(super) fn execute_tun_stop(

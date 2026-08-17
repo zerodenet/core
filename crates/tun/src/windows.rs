@@ -20,7 +20,7 @@ use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
-use windows_sys::Win32::Foundation::{ERROR_NOT_FOUND, ERROR_OBJECT_ALREADY_EXISTS};
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_NOT_FOUND, ERROR_OBJECT_ALREADY_EXISTS};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceAliasToLuid, CreateUnicastIpAddressEntry, DeleteUnicastIpAddressEntry,
     FreeMibTable, GetIpInterfaceEntry, GetUnicastIpAddressTable, InitializeIpInterfaceEntry,
@@ -32,6 +32,10 @@ use windows_sys::Win32::Networking::WinSock::{
     IpPrefixOriginManual, AF_INET, AF_INET6, AF_UNSPEC, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0,
     SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_INET,
 };
+use windows_sys::Win32::Security::{
+    GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 use crate::TunDevice;
 
@@ -52,6 +56,7 @@ impl WindowsTun {
     /// (e.g. `"ZeroTun"`).  The Wintun DLL must be available on the
     /// system (bundled with the binary or in `PATH`).
     pub fn create(name: Option<&str>) -> io::Result<Self> {
+        require_elevated_process()?;
         let wintun = load_wintun()?;
 
         let adapter_name = name.unwrap_or("ZeroTun");
@@ -111,6 +116,58 @@ impl WindowsTun {
             _adapter: adapter,
         })
     }
+}
+
+const WINDOWS_TUN_ELEVATION_MESSAGE: &str =
+    "Windows TUN requires an elevated Administrator process";
+
+fn require_elevated_process() -> io::Result<()> {
+    validate_elevation(process_is_elevated()?)
+}
+
+fn validate_elevation(is_elevated: bool) -> io::Result<()> {
+    if is_elevated {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            WINDOWS_TUN_ELEVATION_MESSAGE,
+        ))
+    }
+}
+
+fn process_is_elevated() -> io::Result<bool> {
+    let mut token = std::ptr::null_mut();
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        let error = io::Error::last_os_error();
+        return Err(io::Error::new(
+            error.kind(),
+            format!("inspect Windows process elevation: {error}"),
+        ));
+    }
+
+    let mut elevation = TOKEN_ELEVATION::default();
+    let mut returned = 0;
+    let result = unsafe {
+        GetTokenInformation(
+            token,
+            TokenElevation,
+            std::ptr::addr_of_mut!(elevation).cast(),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut returned,
+        )
+    };
+    let error = (result == 0).then(io::Error::last_os_error);
+    unsafe {
+        CloseHandle(token);
+    }
+    if let Some(error) = error {
+        return Err(io::Error::new(
+            error.kind(),
+            format!("inspect Windows process elevation: {error}"),
+        ));
+    }
+    Ok(elevation.TokenIsElevated != 0)
 }
 
 /// Load wintun.dll, trying binary-adjacent first, then system path.
@@ -351,3 +408,6 @@ fn win32_result(operation: &str, status: u32) -> io::Result<()> {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests;

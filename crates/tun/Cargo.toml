@@ -16,7 +16,7 @@ tokio = { workspace = true, features = ["net", "io-util"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 wintun = "0.4"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security", "Win32_System_Threading"] }
 
 [dependencies]
 fs2.workspace = true
