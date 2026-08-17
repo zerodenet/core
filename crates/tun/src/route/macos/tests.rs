@@ -1,6 +1,12 @@
 use std::io;
 
-use super::{parse_default_route, route_add_arguments, route_remove_arguments};
+use super::scoped::{
+    route_output_has_scoped_flag, scoped_bypass_add_arguments, scoped_bypass_get_arguments,
+    scoped_bypass_remove_arguments,
+};
+use super::{
+    gateway_matches_family, parse_default_route, route_add_arguments, route_remove_arguments,
+};
 
 #[test]
 fn parses_gateway_backed_default_route() {
@@ -62,4 +68,59 @@ fn split_route_delete_uses_only_the_route_key() {
         route_remove_arguments(false, "128.0.0.0/1"),
         ["-n", "delete", "-inet", "128.0.0.0/1"]
     );
+}
+
+#[test]
+fn scoped_bypass_routes_use_the_physical_interface_and_gateway() {
+    assert_eq!(
+        scoped_bypass_get_arguments(false, "en0"),
+        ["-n", "get", "-inet", "-ifscope", "en0", "default"]
+    );
+    assert_eq!(
+        scoped_bypass_add_arguments(false, "en0", Some("192.168.64.1")),
+        [
+            "-n",
+            "add",
+            "-inet",
+            "-ifscope",
+            "en0",
+            "default",
+            "192.168.64.1"
+        ]
+    );
+    assert_eq!(
+        scoped_bypass_remove_arguments(false, "en0"),
+        ["-n", "delete", "-inet", "-ifscope", "en0", "default"]
+    );
+    assert_eq!(
+        scoped_bypass_add_arguments(true, "en0", None),
+        [
+            "-n",
+            "add",
+            "-inet6",
+            "-ifscope",
+            "en0",
+            "default",
+            "-interface",
+            "en0"
+        ]
+    );
+}
+
+#[test]
+fn detects_only_interface_scoped_route_output() {
+    assert!(route_output_has_scoped_flag(
+        b"interface: en0\nflags: <UP,GATEWAY,DONE,STATIC,IFSCOPE>\n"
+    ));
+    assert!(!route_output_has_scoped_flag(
+        b"interface: en0\nflags: <UP,GATEWAY,DONE,STATIC,GLOBAL>\n"
+    ));
+}
+
+#[test]
+fn scoped_bypass_skips_cross_family_fallback_gateways() {
+    assert!(gateway_matches_family(false, Some("192.168.64.1")));
+    assert!(gateway_matches_family(true, Some("fe80::1%en0")));
+    assert!(!gateway_matches_family(false, Some("fe80::1%en0")));
+    assert!(!gateway_matches_family(true, Some("192.168.64.1")));
 }

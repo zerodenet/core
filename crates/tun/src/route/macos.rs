@@ -8,6 +8,12 @@ use super::{
     RouteLease,
 };
 
+mod scoped;
+
+use scoped::{
+    combine_cleanup_errors, ensure_scoped_bypass, gateway_matches_family, remove_scoped_bypass,
+};
+
 #[derive(Debug)]
 pub struct SystemRouteGuard {
     egress: RouteInterface,
@@ -60,6 +66,7 @@ impl SystemRouteGuard {
             excluded: desired_exclusions.clone(),
             journal,
         };
+        guard.install_scoped_bypass()?;
         for peer in desired_exclusions {
             guard.install_exclusion(peer)?;
         }
@@ -129,6 +136,29 @@ impl SystemRouteGuard {
         Ok(())
     }
 
+    fn install_scoped_bypass(&mut self) -> io::Result<()> {
+        if self.journal.scoped_bypass || !gateway_matches_family(self.ipv6, self.gateway.as_deref())
+        {
+            return Ok(());
+        }
+        if !ensure_scoped_bypass(self.ipv6, &self.egress, self.gateway.as_deref())? {
+            return Ok(());
+        }
+        if let Err(error) = self.journal.record_scoped_bypass() {
+            let rollback = remove_scoped_bypass(self.ipv6, self.egress.name());
+            return Err(with_rollback_error(error, rollback));
+        }
+        Ok(())
+    }
+
+    fn remove_owned_scoped_bypass(&mut self) -> io::Result<()> {
+        if !self.journal.scoped_bypass {
+            return Ok(());
+        }
+        remove_scoped_bypass(self.ipv6, self.egress.name())?;
+        self.journal.forget_scoped_bypass()
+    }
+
     fn reconcile_exclusions(&mut self, desired: &[IpAddr]) -> io::Result<()> {
         let added = desired
             .iter()
@@ -169,10 +199,12 @@ impl SystemRouteGuard {
     fn cleanup(&mut self) -> io::Result<()> {
         let ipv6 = self.ipv6;
         let gateway = self.gateway.clone();
-        self.journal.cleanup(
+        let bypass = self.remove_owned_scoped_bypass();
+        let routes = self.journal.cleanup(
             |prefix| remove_route(ipv6, prefix),
             |peer| remove_exclusion(ipv6, gateway.as_deref(), peer),
-        )
+        );
+        combine_cleanup_errors(bypass, routes)
     }
 }
 
@@ -204,10 +236,25 @@ impl RouteReconcileState for SystemRouteGuard {
     }
 
     fn replace_egress(&mut self, egress: RouteInterface, gateway: Self::Gateway) -> io::Result<()> {
-        self.journal
-            .replace_egress(egress.clone(), gateway.clone())?;
+        let old_egress = self.egress.clone();
+        let old_gateway = self.gateway.clone();
+        self.remove_owned_scoped_bypass()?;
+        if let Err(error) = self.journal.replace_egress(egress.clone(), gateway.clone()) {
+            let rollback = self.install_scoped_bypass();
+            return Err(with_rollback_error(error, rollback));
+        }
         self.egress = egress;
         self.gateway = gateway;
+        if let Err(error) = self.install_scoped_bypass() {
+            let rollback = (|| {
+                self.journal
+                    .replace_egress(old_egress.clone(), old_gateway.clone())?;
+                self.egress = old_egress;
+                self.gateway = old_gateway;
+                self.install_scoped_bypass()
+            })();
+            return Err(with_rollback_error(error, rollback));
+        }
         Ok(())
     }
 
@@ -245,11 +292,18 @@ fn recover_stale_routes(lease: &RouteLease, ipv6: bool) -> io::Result<()> {
     let Some(mut journal) = RouteJournal::load(lease, ipv6)? else {
         return Ok(());
     };
+    let bypass = if journal.scoped_bypass {
+        remove_scoped_bypass(ipv6, journal.egress.name())
+            .and_then(|()| journal.forget_scoped_bypass())
+    } else {
+        Ok(())
+    };
     let stale_gateway = journal.gateway.clone();
-    journal.cleanup(
+    let routes = journal.cleanup(
         |prefix| remove_route(ipv6, prefix),
         |peer| remove_exclusion(ipv6, stale_gateway.as_deref(), peer),
-    )
+    );
+    combine_cleanup_errors(bypass, routes)
 }
 
 fn route_add_arguments(
@@ -359,11 +413,7 @@ fn family(ipv6: bool) -> &'static str {
 }
 
 fn run_route(arguments: &[String]) -> io::Result<Vec<u8>> {
-    let program = if std::path::Path::new("/sbin/route").exists() {
-        "/sbin/route"
-    } else {
-        "route"
-    };
+    let program = route_program();
     let output = Command::new(program)
         .args(arguments)
         .output()
@@ -376,11 +426,7 @@ fn run_route(arguments: &[String]) -> io::Result<Vec<u8>> {
 }
 
 fn run_route_remove(arguments: &[String]) -> io::Result<()> {
-    let program = if std::path::Path::new("/sbin/route").exists() {
-        "/sbin/route"
-    } else {
-        "route"
-    };
+    let program = route_program();
     let output = Command::new(program)
         .args(arguments)
         .output()
@@ -394,5 +440,13 @@ fn run_route_remove(arguments: &[String]) -> io::Result<()> {
         Ok(())
     } else {
         Err(command_error(program, arguments, &output.stderr))
+    }
+}
+
+fn route_program() -> &'static str {
+    if std::path::Path::new("/sbin/route").exists() {
+        "/sbin/route"
+    } else {
+        "route"
     }
 }

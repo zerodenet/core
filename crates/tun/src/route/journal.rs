@@ -16,6 +16,8 @@ pub(super) struct RouteJournal {
     pub(super) gateway: Option<String>,
     pub(super) excluded: Vec<IpAddr>,
     pub(super) installed: Vec<String>,
+    #[serde(default)]
+    pub(super) scoped_bypass: bool,
     #[serde(skip)]
     pub(super) path: PathBuf,
     #[serde(skip)]
@@ -105,6 +107,7 @@ impl RouteJournal {
             gateway,
             excluded: Vec::new(),
             installed: Vec::new(),
+            scoped_bypass: false,
             path: lease.journal_path.clone(),
             _lease: Some(lease),
         })
@@ -135,6 +138,18 @@ impl RouteJournal {
     pub(super) fn record_route(&mut self, prefix: &str) -> io::Result<()> {
         self.installed.push(prefix.to_owned());
         self.persist()
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn record_scoped_bypass(&mut self) -> io::Result<()> {
+        self.scoped_bypass = true;
+        self.persist()
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn forget_scoped_bypass(&mut self) -> io::Result<()> {
+        self.scoped_bypass = false;
+        self.persist_or_clear()
     }
 
     pub(super) fn cleanup(
@@ -169,7 +184,7 @@ impl RouteJournal {
                 }
             }
         }
-        if self.installed.is_empty() && self.excluded.is_empty() {
+        if self.installed.is_empty() && self.excluded.is_empty() && !self.scoped_bypass {
             if let Err(error) = self.clear() {
                 first_error.get_or_insert(error);
             }
@@ -180,7 +195,7 @@ impl RouteJournal {
     }
 
     fn persist_or_clear(&self) -> io::Result<()> {
-        if self.installed.is_empty() && self.excluded.is_empty() {
+        if self.installed.is_empty() && self.excluded.is_empty() && !self.scoped_bypass {
             self.clear()
         } else {
             self.persist()

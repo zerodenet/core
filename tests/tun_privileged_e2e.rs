@@ -498,7 +498,15 @@ fn assert_tun_os_configured(
             "TUN status is missing its IPv6 address: {status}"
         );
     }
-    assert_platform_tun_configured(&name, ipv6, dual_stack);
+    let egress_v4 = status_field(&status, "egress_v4");
+    let egress_v6 = status_field(&status, "egress_v6");
+    assert_platform_tun_configured(
+        &name,
+        ipv6,
+        dual_stack,
+        egress_v4.as_deref(),
+        egress_v6.as_deref(),
+    );
     name
 }
 
@@ -524,7 +532,13 @@ fn status_field(status: &str, field: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "linux")]
-fn assert_platform_tun_configured(name: &str, ipv6: bool, dual_stack: bool) {
+fn assert_platform_tun_configured(
+    name: &str,
+    ipv6: bool,
+    dual_stack: bool,
+    _egress_v4: Option<&str>,
+    _egress_v6: Option<&str>,
+) {
     let link = checked_command("ip", &["-o", "link", "show", "dev", name]);
     assert!(link.contains("mtu 1400"), "unexpected TUN link: {link}");
 
@@ -552,7 +566,13 @@ fn assert_platform_tun_configured(name: &str, ipv6: bool, dual_stack: bool) {
 }
 
 #[cfg(target_os = "macos")]
-fn assert_platform_tun_configured(name: &str, ipv6: bool, dual_stack: bool) {
+fn assert_platform_tun_configured(
+    name: &str,
+    ipv6: bool,
+    dual_stack: bool,
+    egress_v4: Option<&str>,
+    _egress_v6: Option<&str>,
+) {
     let interface = checked_command("/sbin/ifconfig", &[name]);
     assert!(
         interface.contains("mtu 1400"),
@@ -570,6 +590,17 @@ fn assert_platform_tun_configured(name: &str, ipv6: bool, dual_stack: bool) {
                 "IPv4 split route does not use {name}: {route}"
             );
         }
+        let egress = egress_v4
+            .filter(|egress| *egress != "-")
+            .expect("macOS IPv4 TUN status must expose its physical egress");
+        let bypass = checked_command(
+            "/sbin/route",
+            &["-n", "get", "-inet", "-ifscope", egress, "default"],
+        );
+        assert!(
+            bypass.contains(&format!("interface: {egress}")) && bypass.contains("IFSCOPE"),
+            "macOS scoped physical bypass route is missing for {egress}: {bypass}"
+        );
     }
     if ipv6 || dual_stack {
         assert!(
@@ -587,7 +618,13 @@ fn assert_platform_tun_configured(name: &str, ipv6: bool, dual_stack: bool) {
 }
 
 #[cfg(windows)]
-fn assert_platform_tun_configured(name: &str, ipv6: bool, dual_stack: bool) {
+fn assert_platform_tun_configured(
+    name: &str,
+    ipv6: bool,
+    dual_stack: bool,
+    _egress_v4: Option<&str>,
+    _egress_v6: Option<&str>,
+) {
     let script = r#"
 $ErrorActionPreference = 'Stop'
 $name = $env:ZERO_TUN_E2E_NAME

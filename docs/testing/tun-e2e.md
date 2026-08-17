@@ -18,6 +18,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 - `strict_route=true`：接口、端点排除路由或任一半默认路由失败时，启动整体失败并回滚已安装项；
 - `dns_hijack=true`：TUN 内的 UDP/TCP 53 由 Zero DNS 回答，并使用已有缓存、DNS 路由和 Fake-IP；
 - 代理节点和 DNS 上游获得原物理网关主机路由，Zero 创建的 TCP/UDP socket 同时按 IPv4/IPv6 分别绑定各自原物理接口，避免代理自环。
+- macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。
 
 调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。生产防泄露验证不应关闭这些选项。
@@ -165,7 +166,7 @@ sudo tcpdump -i physical0 -nn 'udp port 3478 or udp port 5349'
 6. 制造短暂的无默认路由窗口或排除路由安装失败；TUN 应保持运行、`healthy=false` 且显示 `last_error`，恢复后自动协调并回到 `healthy=true`，期间不得出现忙重试。
 7. Windows 连续执行两轮 start/stop，确认阻塞 reader 被唤醒且同名 Wintun adapter 可复用。
 
-路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，下一次以相同 TUN 入站 `tag` 启动会先消费日志，并按日志记录的旧设备名清理残留的半默认路由与端点排除路由。
+路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，下一次以相同 TUN 入站 `tag` 启动会先消费日志，并按日志记录的旧设备名清理残留的半默认路由、端点排除路由及 macOS scoped 绕行路由。
 
 ## 自动化覆盖
 

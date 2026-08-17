@@ -11,6 +11,7 @@ fn journal(path: std::path::PathBuf) -> RouteJournal {
         gateway: Some("192.0.2.1".to_owned()),
         excluded: Vec::new(),
         installed: Vec::new(),
+        scoped_bypass: false,
         path,
         _lease: None,
     }
@@ -31,6 +32,7 @@ fn recovery_journal_persists_installed_routes_and_exclusions() {
     assert_eq!(recovered.installed, vec!["0.0.0.0/1"]);
     assert_eq!(recovered.egress.name(), "physical0");
     assert_eq!(recovered.gateway.as_deref(), Some("192.0.2.1"));
+    assert!(!recovered.scoped_bypass);
 }
 
 #[test]
@@ -68,6 +70,23 @@ fn recovery_journal_accepts_legacy_entries_without_gateway() {
     }))
     .expect("deserialize legacy route journal");
     assert!(recovered.gateway.is_none());
+    assert!(!recovered.scoped_bypass);
+}
+
+#[test]
+fn journal_retains_a_recorded_scoped_bypass_until_it_is_forgotten() {
+    let directory = tempfile::tempdir().expect("temporary journal directory");
+    let path = directory.path().join("routes.json");
+    let mut journal = journal(path.clone());
+
+    journal.record_scoped_bypass().unwrap();
+    journal.cleanup(|_| Ok(()), |_| Ok(())).unwrap();
+
+    let retained: RouteJournal = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(retained.scoped_bypass);
+
+    journal.forget_scoped_bypass().unwrap();
+    assert!(!path.exists());
 }
 
 #[test]
