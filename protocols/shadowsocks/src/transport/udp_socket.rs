@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tokio::sync::broadcast;
@@ -10,7 +10,7 @@ use zero_transport::RuntimeError;
 use super::{ShadowsocksManagedDatagramFlowResume, ShadowsocksUdpResponse};
 
 pub struct ShadowsocksUdpSocketFlow {
-    socket: Arc<tokio::net::UdpSocket>,
+    socket: Arc<zero_platform_tokio::TokioDatagramSocket>,
     endpoint: SocketAddr,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     recv_tx: broadcast::Sender<ShadowsocksUdpResponse>,
@@ -25,8 +25,9 @@ pub fn managed_socket_flow_from_resume(
 pub async fn establish_shadowsocks_udp_socket_flow(
     endpoint: SocketAddr,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
+    sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<ShadowsocksUdpSocketFlow, RuntimeError> {
-    let socket = Arc::new(bind_for_endpoint(endpoint).await?);
+    let socket = Arc::new(sockets.bind_tokio(endpoint).await?);
     let (recv_tx, _) = broadcast::channel::<ShadowsocksUdpResponse>(32);
     spawn_recv_loop(socket.clone(), codec.clone(), recv_tx.clone());
     Ok(ShadowsocksUdpSocketFlow {
@@ -40,9 +41,14 @@ pub async fn establish_shadowsocks_udp_socket_flow(
 pub async fn establish_shadowsocks_udp_socket_flow_with_resume(
     endpoint: SocketAddr,
     resume: ShadowsocksManagedDatagramFlowResume,
+    sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<ShadowsocksUdpSocketFlow, RuntimeError> {
-    establish_shadowsocks_udp_socket_flow(endpoint, resume.into_shared_managed_socket_flow_codec())
-        .await
+    establish_shadowsocks_udp_socket_flow(
+        endpoint,
+        resume.into_shared_managed_socket_flow_codec(),
+        sockets,
+    )
+    .await
 }
 
 impl ShadowsocksUdpSocketFlow {
@@ -62,21 +68,13 @@ impl ShadowsocksUdpSocketFlow {
         payload: &[u8],
     ) -> Result<(), RuntimeError> {
         let datagram = self.codec.encode(target, port, payload)?;
-        self.socket.send_to(&datagram, self.endpoint).await?;
+        self.socket.send_to_addr(&datagram, self.endpoint).await?;
         Ok(())
     }
 }
 
-async fn bind_for_endpoint(endpoint: SocketAddr) -> Result<tokio::net::UdpSocket, std::io::Error> {
-    let bind_addr = match endpoint {
-        SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
-        SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
-    };
-    tokio::net::UdpSocket::bind(bind_addr).await
-}
-
 fn spawn_recv_loop(
-    socket: Arc<tokio::net::UdpSocket>,
+    socket: Arc<zero_platform_tokio::TokioDatagramSocket>,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     recv_tx: broadcast::Sender<ShadowsocksUdpResponse>,
 ) {
@@ -84,13 +82,13 @@ fn spawn_recv_loop(
 }
 
 async fn recv_loop(
-    socket: Arc<tokio::net::UdpSocket>,
+    socket: Arc<zero_platform_tokio::TokioDatagramSocket>,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     recv_tx: broadcast::Sender<ShadowsocksUdpResponse>,
 ) {
     let mut buf = vec![0u8; 4096];
     loop {
-        let (n, sender) = match socket.recv_from(&mut buf).await {
+        let (n, sender) = match socket.recv_from_addr(&mut buf).await {
             Ok(result) => result,
             Err(error) => {
                 warn!(error = %error, "shadowsocks udp recv loop stopped");

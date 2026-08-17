@@ -42,8 +42,21 @@ impl SystemRouteGuard {
         tun_name: &str,
         recovery_key: &str,
         address: IpAddr,
+        netmask: IpAddr,
+        excluded: &[IpAddr],
+    ) -> io::Result<Self> {
+        Self::install_with_egress(tun_name, recovery_key, address, netmask, excluded, |_| {
+            Ok(())
+        })
+    }
+
+    pub fn install_with_egress(
+        tun_name: &str,
+        recovery_key: &str,
+        address: IpAddr,
         _netmask: IpAddr,
         excluded: &[IpAddr],
+        publish_egress: impl FnOnce(&RouteInterface) -> io::Result<()>,
     ) -> io::Result<Self> {
         let lease = RouteLease::acquire(recovery_key, address.is_ipv6())?;
         recover_stale_routes(&lease, address.is_ipv6())?;
@@ -84,6 +97,7 @@ impl SystemRouteGuard {
             excluded: desired_exclusions.clone(),
             journal,
         };
+        publish_egress(&guard.egress)?;
         for peer in desired_exclusions {
             guard.install_exclusion(peer)?;
         }
@@ -103,8 +117,8 @@ impl SystemRouteGuard {
         self.ipv6
     }
 
-    /// Re-resolve the preferred physical interface and reconcile endpoint
-    /// exclusions without replacing the TUN device or its split default routes.
+    /// Re-resolve the preferred physical interface and reconcile explicit
+    /// bypass routes without replacing the TUN device or split default routes.
     pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
         let desired_exclusions = family_exclusions(excluded, self.ipv6);
         let has_family_exclusions = !desired_exclusions.is_empty();

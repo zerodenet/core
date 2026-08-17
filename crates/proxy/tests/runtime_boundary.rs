@@ -251,6 +251,55 @@ fn engine_diagnostics_do_not_execute_network_io() {
 }
 
 #[test]
+fn tun_anti_loop_does_not_project_or_resolve_proxy_endpoints() {
+    let tun = read_module(&proxy_src().join("inbound/tun.rs"));
+    for forbidden in [
+        "resolve_tun_route_exclusions",
+        ".protocol.endpoint()",
+        ".config().outbounds",
+        "config.outbounds",
+    ] {
+        assert!(
+            !tun.contains(forbidden),
+            "TUN anti-loop must not depend on proxy endpoint enumeration via `{forbidden}`"
+        );
+    }
+    assert!(tun.contains("configured_dns_endpoint_addresses"));
+    assert!(tun.contains("install_with_egress"));
+}
+
+#[test]
+fn outbound_companion_sockets_use_the_shared_egress_factory() {
+    let workspace = workspace_root();
+    let sources = [
+        workspace.join("crates/transport/src/udp_packet_path.rs"),
+        workspace.join("protocols/hysteria2/src/transport/connection.rs"),
+        workspace.join("protocols/shadowsocks/src/transport/udp_socket.rs"),
+    ];
+    for path in sources {
+        let source = read(&path);
+        assert!(
+            source.contains("OutboundDatagramSocketFactory")
+                || source.contains("socket_factory.bind_std"),
+            "{} must receive the runtime-owned datagram socket factory",
+            path.display()
+        );
+        for forbidden in ["std::net::UdpSocket::bind", "tokio::net::UdpSocket::bind"] {
+            assert!(
+                !source.contains(forbidden),
+                "{} must not create an unbound outbound socket via `{forbidden}`",
+                path.display()
+            );
+        }
+    }
+
+    let vless = read(&workspace.join("protocols/vless/src/transport/outbound/direct.rs"));
+    assert!(vless.contains("OutboundDatagramSocketFactory"));
+    assert!(vless.contains("TokioSocket::connect_addr_on"));
+    assert!(!vless.contains("TokioSocket::connect_addr(peer)"));
+}
+
+#[test]
 fn inbound_route_contracts_implementations_and_execution_have_distinct_owners() {
     let core = read(&workspace_root().join("crates/core/src/inbound.rs"));
     for contract in [

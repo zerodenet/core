@@ -52,15 +52,20 @@ impl UpstreamConnectServices {
         self.connect_upstream_owned(server.to_owned(), port).await
     }
 
+    pub(crate) fn outbound_datagram_socket_factory(
+        &self,
+    ) -> zero_transport::OutboundDatagramSocketFactory {
+        zero_transport::OutboundDatagramSocketFactory::new(self.egress_interface.clone())
+    }
+
     #[cfg(feature = "udp-runtime")]
     pub(crate) async fn bind_datagram_socket(
         &self,
         peer: std::net::SocketAddr,
     ) -> Result<zero_platform_tokio::TokioDatagramSocket, zero_engine::EngineError> {
-        crate::runtime::udp_socket::bind_datagram_socket_for_peer(
-            peer,
-            self.egress_interface.current_for(peer.is_ipv6()).as_ref(),
-        )
-        .await
+        self.outbound_datagram_socket_factory()
+            .bind_tokio(peer)
+            .await
+            .map_err(Into::into)
     }
 }

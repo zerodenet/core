@@ -57,7 +57,7 @@ pub async fn open_quic_connection(
 
     for server_addr in server_addrs {
         let bind_addr = wildcard_bind_addr(server_addr);
-        let socket = match std::net::UdpSocket::bind(bind_addr) {
+        let socket = match options.socket_factory.bind_std(server_addr) {
             Ok(socket) => socket,
             Err(error) => {
                 last_error = Some(format!("bind {bind_addr} for {server_addr}: {error}"));

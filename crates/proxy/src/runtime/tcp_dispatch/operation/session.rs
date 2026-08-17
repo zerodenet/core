@@ -18,7 +18,11 @@ pub(crate) trait SessionTcpHandshake: Send + Sync {
 
     fn connect_stage(&self) -> &'static str;
 
-    async fn open_tcp_stream(&self, session: &Session) -> Result<TcpRelayStream, RuntimeError>;
+    async fn open_tcp_stream(
+        &self,
+        services: crate::protocol_registry::UpstreamConnectServices,
+        session: &Session,
+    ) -> Result<TcpRelayStream, RuntimeError>;
 }
 
 pub(crate) struct SessionTcpConnectOperation<T> {
@@ -31,7 +35,7 @@ where
 {
     fn execute<'a>(
         self: Box<Self>,
-        _services: TcpRuntimeServices,
+        services: TcpRuntimeServices,
         session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<EstablishedTcpOutbound, TcpOutboundFailure>> + Send + 'a>>
     where
@@ -39,6 +43,7 @@ where
     {
         Box::pin(async move {
             execute_session_tcp_connect_operation(
+                services,
                 session,
                 PreparedSessionTcpOperation {
                     handshake: &self.handshake,
@@ -54,6 +59,7 @@ struct PreparedSessionTcpOperation<'leaf, T> {
 }
 
 async fn execute_session_tcp_connect_operation<T>(
+    services: TcpRuntimeServices,
     session: &Session,
     operation: PreparedSessionTcpOperation<'_, T>,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure>
@@ -63,7 +69,7 @@ where
     let handshake = operation.handshake;
     let endpoint = (handshake.server().to_owned(), handshake.port());
     let stream = handshake
-        .open_tcp_stream(session)
+        .open_tcp_stream(services.upstream(), session)
         .await
         .map_err(|error| TcpOutboundFailure {
             stage: handshake.connect_stage(),

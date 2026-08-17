@@ -321,9 +321,11 @@ UDP 数据包路径通过 `UdpPacketPath`、`DatagramCodec` 等中性接口组�
 
 ### `zero-tun`
 
-`zero-tun` 定义平台无关的 TUN 设备抽象、Linux/macOS/Windows 设备实现和事务化系统路由。平台驱动的部署仍由最终应用或安装器负责。自动路由默认同时用两组 `/1` 接管 IPv4/IPv6，并按地址族记录和绑定各自的物理出口（例如 Windows 的 IPv4 以太网与 IPv6 Teredo 可以不同）；macOS 还为绑定物理接口的 socket 维护 interface-scoped 默认路由，避免 `/1` 接管后物理出口查询直接返回不可达。路由事务持有跨进程 lease，并持久记录 Zero 安装的半默认路由、端点排除项和 scoped 绕行项；异常退出后的同名设备启动先恢复残留项。
+`zero-tun` 定义平台无关的 TUN 设备抽象、Linux/macOS/Windows 设备实现和事务化系统路由。平台驱动的部署仍由最终应用或安装器负责。自动路由默认同时用两组 `/1` 接管 IPv4/IPv6，并按地址族记录和绑定各自的物理出口（例如 Windows 的 IPv4 以太网与 IPv6 Teredo 可以不同）；macOS 还为绑定物理接口的 socket 维护 interface-scoped 默认路由，避免 `/1` 接管后物理出口查询直接返回不可达。路由事务持有跨进程 lease，并持久记录 Zero 安装的半默认路由、显式目的网络排除项和 scoped 绕行项；异常退出后的同名设备启动先恢复残留项。
 
-`auto_route=true` 还会通过平台原生通知持续观察主机路由拓扑：Windows 使用 IP Helper 路由/接口回调，Linux 使用 `NETLINK_ROUTE`，macOS 使用 `PF_ROUTE`。通知只是有界的失效信号；`zero-proxy` 中单一的 TUN route reconciler 对突发事件防抖，重新解析非 TUN 默认出口和完整端点排除集合，再调用 `zero-tun` 的事务化 guard 原地协调。同步平台命令在阻塞线程池执行，失败保留上一份可用状态并退避重试。提交成功后只替换新建 socket 读取的物理出口，既有连接和 TUN/用户态网络栈不重启；`auto_route=false` 不创建监听任务。
+TUN 反环路由两类互不替代的机制组成：捕获路由只负责让应用流量进入 Zero；运行时拥有的 TCP/UDP/QUIC socket 工厂负责让 Zero 自身流量绑定到 underlay 出口。启动时必须先解析并发布 IPv4/IPv6 underlay，再安装对应 `/1` 捕获路由。代理节点地址不属于目的网络排除，不能在 TUN 启动或协调期间被枚举、解析或安装为 `/32`/`/128` host route；当前仅为尚未完全出口感知的 DNS bootstrap 保留显式排除。额外 carrier socket（例如 QUIC、split-HTTP 第二连接和 UDP packet path）必须复用同一出口工厂。
+
+`auto_route=true` 还会通过平台原生通知持续观察主机路由拓扑：Windows 使用 IP Helper 路由/接口回调，Linux 使用 `NETLINK_ROUTE`，macOS 使用 `PF_ROUTE`。通知只是有界的失效信号；`zero-proxy` 中单一的 TUN route reconciler 对突发事件防抖，重新解析非 TUN 默认出口和仍需保留的显式 DNS/bootstrap 排除集合，再调用 `zero-tun` 的事务化 guard 原地协调。同步平台命令在阻塞线程池执行，失败保留上一份可用状态并退避重试。提交成功后只替换新建 socket 读取的物理出口，既有连接和 TUN/用户态网络栈不重启；`auto_route=false` 不创建监听任务。这一运行期协调属于 #21；代理端点 host route 不得重新进入该流程。
 
 TUN 入站的基本路径为：
 

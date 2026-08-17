@@ -23,6 +23,7 @@ async fn open_udp_profile_connection(
     server: &str,
     port: u16,
     profile: crate::udp::Hysteria2UdpConnectorProfile,
+    sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
     let quic_profile = Hysteria2QuicProfile::from_parts(profile.client_fingerprint());
     let connection = open_quic_connection(QuicConnectionOptions {
@@ -31,6 +32,7 @@ async fn open_udp_profile_connection(
         alpn: outbound_quic_alpn_protocols(),
         quic_profile,
         datagram_receive_buffer_size: Some(65536),
+        socket_factory: sockets,
     })
     .await?;
     if negotiated_alpn(&connection).as_deref() == Some(b"h3") {
@@ -54,6 +56,7 @@ async fn open_udp_profile_connection(
 
 pub async fn open_hysteria2_udp_packet_path_build(
     build: Hysteria2ManagedUdpPacketPathCarrierBuild,
+    sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<
     (
         Arc<Hysteria2AuthenticatedConnection>,
@@ -63,7 +66,7 @@ pub async fn open_hysteria2_udp_packet_path_build(
 > {
     let parts = build.into_protocol_build().into_connection_parts();
     let (server, port, profile, codec) = parts.into_shared_codec_parts();
-    let connection = open_udp_profile_connection(&server, port, profile).await?;
+    let connection = open_udp_profile_connection(&server, port, profile, sockets).await?;
     Ok((connection, codec))
 }
 
@@ -74,10 +77,11 @@ pub async fn establish_hysteria2_udp_flow_connection(
     target_port: u16,
     payload: &[u8],
     resume: Hysteria2ManagedDatagramFlowResume,
+    sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<crate::udp::Hysteria2UdpFlowConnection, RuntimeError> {
     let flow = managed_datagram_connector_flow_from_resume(&resume, server, port);
     let profile = flow.into_connection_parts().into_profile();
-    let connection = open_udp_profile_connection(server, port, profile).await?;
+    let connection = open_udp_profile_connection(server, port, profile, sockets).await?;
     Ok(crate::udp::start_udp_flow_with_initial_packet(
         connection,
         target,

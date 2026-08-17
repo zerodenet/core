@@ -22,7 +22,8 @@ pub(crate) async fn build(
             "failed to resolve UDP socket packet-path carrier",
         )
         .await?;
-    let path = UdpSocketPacketPath::establish(endpoint, codec).await?;
+    let sockets = services.outbound_datagram_socket_factory();
+    let path = UdpSocketPacketPath::establish(endpoint, codec, &sockets).await?;
     Ok(Arc::new(PacketPathCarrierAdapter(path)))
 }
 

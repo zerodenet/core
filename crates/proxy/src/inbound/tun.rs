@@ -6,7 +6,6 @@ mod runtime;
 #[cfg(feature = "udp-runtime")]
 mod udp;
 
-use std::collections::BTreeSet;
 use std::io;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -158,7 +157,7 @@ impl Proxy {
         let prepared_network = match prepared_network {
             Some(prepared) => prepared,
             None => {
-                self.prepare_tun_network(address, auto_route, dual_stack, dns_hijack, strict_route)
+                self.prepare_tun_network(auto_route, dns_hijack, strict_route)
                     .await?
             }
         };
@@ -178,7 +177,7 @@ impl Proxy {
         let stack = UserNetworkStack::new(device_writer, zero_stack::tcp_mss_for_mtu(mtu));
         let (tcp, udp) = stack.into_parts();
 
-        let excluded_endpoints = prepared_network.route_exclusions;
+        let route_exclusions = prepared_network.route_exclusions;
         let route_addresses = interface_addresses
             .iter()
             .map(|address| (address.address, address.netmask))
@@ -188,8 +187,9 @@ impl Proxy {
                 device_name.clone(),
                 tag.to_owned(),
                 route_addresses.clone(),
-                excluded_endpoints.clone(),
+                route_exclusions.clone(),
                 strict_route,
+                self.egress_interface.clone(),
             )
             .await?
         } else {
@@ -203,9 +203,9 @@ impl Proxy {
             match zero_tun::RouteChangeMonitor::new() {
                 Ok(monitor) => Some(monitor),
                 Err(error) if strict_route => {
-                    routes::cleanup_guards(installed.guards)
-                        .await
-                        .map_err(EngineError::Io)?;
+                    let cleanup = routes::cleanup_guards(installed.guards).await;
+                    self.egress_interface.clear();
+                    cleanup.map_err(EngineError::Io)?;
                     return Err(EngineError::Io(error));
                 }
                 Err(error) => {
@@ -218,25 +218,6 @@ impl Proxy {
             None
         };
         let (egress_interface_v4, egress_interface_v6) = routes::route_names(&installed.guards);
-        let egress_v4 = installed
-            .guards
-            .iter()
-            .find(|route| !route.is_ipv6())
-            .map(|route| route.egress().clone());
-        let egress_v6 = installed
-            .guards
-            .iter()
-            .find(|route| route.is_ipv6())
-            .map(|route| route.egress().clone());
-        for (ipv6, egress) in [(false, egress_v4.as_ref()), (true, egress_v6.as_ref())] {
-            let Some(egress) = egress else {
-                continue;
-            };
-            let interface =
-                zero_platform_tokio::EgressInterface::new(egress.name().to_owned(), egress.index())
-                    .map_err(EngineError::Io)?;
-            self.egress_interface.replace_for(ipv6, Some(interface));
-        }
         debug!("TUN physical egress bindings selected");
         let egress_interface = if address.is_ipv6() {
             egress_interface_v6.clone()
@@ -257,7 +238,6 @@ impl Proxy {
                     recovery_key: tag.to_owned(),
                     primary_ipv6: address.is_ipv6(),
                     addresses: route_addresses,
-                    dual_stack,
                     dns_hijack,
                 },
                 installed.guards,
@@ -284,7 +264,7 @@ impl Proxy {
             egress_interface,
             egress_interface_v4,
             egress_interface_v6,
-            route_exclusions: excluded_endpoints,
+            route_exclusions,
             managed_config,
         });
         self.tun_last_error.lock().unwrap().take();
@@ -334,7 +314,7 @@ impl Proxy {
     ) -> Result<(), EngineError> {
         let current = self.tun_info.lock().unwrap().clone();
         let prepared_network = if let Some(desired) = desired {
-            let interface_addresses = parse_interface_addresses(
+            parse_interface_addresses(
                 &desired.addr,
                 &desired.mask,
                 desired.secondary_addr.as_deref(),
@@ -342,9 +322,7 @@ impl Proxy {
             )?;
             Some(
                 self.prepare_tun_network(
-                    interface_addresses[0].address,
                     desired.auto_route,
-                    desired.dual_stack,
                     desired.dns_hijack,
                     desired.strict_route,
                 )
@@ -408,70 +386,20 @@ impl Proxy {
         self.stop_tun_internal(true).await
     }
 
-    async fn resolve_tun_route_exclusions(
-        &self,
-        ipv6: bool,
-        strict: bool,
-    ) -> Result<Vec<IpAddr>, EngineError> {
-        let mut addresses = BTreeSet::new();
-        for (host, _) in self
-            .engine()
-            .config()
-            .outbounds
-            .iter()
-            .filter_map(|outbound| outbound.protocol.endpoint())
-        {
-            if let Ok(address) = host.parse::<IpAddr>() {
-                if address.is_ipv6() == ipv6 {
-                    addresses.insert(address);
-                }
-                continue;
-            }
-            match self.resolver.resolve_real(host).await {
-                Ok(resolved) => {
-                    addresses.extend(resolved.into_iter().filter_map(|address| {
-                        let address = match address {
-                            zero_traits::IpAddress::V4(bytes) => IpAddr::from(bytes),
-                            zero_traits::IpAddress::V6(bytes) => IpAddr::from(bytes),
-                        };
-                        (address.is_ipv6() == ipv6).then_some(address)
-                    }));
-                }
-                Err(error) if strict => {
-                    return Err(EngineError::Io(io::Error::other(format!(
-                        "resolve TUN route exclusion `{host}`: {error}"
-                    ))));
-                }
-                Err(error) => {
-                    warn!(server = host, error = %error, "TUN route exclusion was not resolved");
-                }
-            }
-        }
-        Ok(addresses.into_iter().collect())
-    }
-
     async fn prepare_tun_network(
         &self,
-        address: IpAddr,
         auto_route: bool,
-        dual_stack: bool,
         dns_hijack: bool,
         strict_route: bool,
     ) -> Result<PreparedTunNetwork, EngineError> {
         let (dns_hijack, dns_route_exclusions) =
             self.prepare_tun_dns_hijack(dns_hijack, strict_route)?;
-        let mut route_exclusions = Vec::new();
+        let mut route_exclusions = if auto_route {
+            dns_route_exclusions
+        } else {
+            Vec::new()
+        };
         if auto_route {
-            route_exclusions = self
-                .resolve_tun_route_exclusions(false, strict_route)
-                .await?;
-            if dual_stack || address.is_ipv6() {
-                route_exclusions.extend(
-                    self.resolve_tun_route_exclusions(true, strict_route)
-                        .await?,
-                );
-            }
-            route_exclusions.extend(dns_route_exclusions);
             route_exclusions.retain(|address| tun_route_exclusion_required(*address));
             route_exclusions.sort_unstable();
             route_exclusions.dedup();

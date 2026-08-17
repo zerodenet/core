@@ -148,6 +148,12 @@ impl UdpRuntimeServices {
 }
 
 impl UdpNetworkServices {
+    pub(crate) fn outbound_datagram_socket_factory(
+        &self,
+    ) -> zero_transport::OutboundDatagramSocketFactory {
+        self.upstream.outbound_datagram_socket_factory()
+    }
+
     pub(crate) async fn connect_upstream(
         &self,
         server: &str,

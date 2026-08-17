@@ -2,7 +2,6 @@
 
 #[cfg(feature = "udp-runtime")]
 use std::net::SocketAddr;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[cfg(feature = "udp-runtime")]
 use zero_engine::EngineError;
@@ -15,7 +14,6 @@ pub(crate) struct DirectUdpSockets {
     ipv6: Option<TokioDatagramSocket>,
     ipv6_buffer: tokio::sync::Mutex<Vec<u8>>,
 }
-
 #[cfg(feature = "udp-runtime")]
 impl DirectUdpSockets {
     pub(crate) async fn bind(
@@ -88,22 +86,6 @@ pub(crate) async fn send_direct_udp_packet(
 ) -> Result<usize, EngineError> {
     socket
         .send_to_addr(payload, target_addr)
-        .await
-        .map_err(Into::into)
-}
-
-pub(crate) fn datagram_bind_addr_for_peer(peer: SocketAddr) -> SocketAddr {
-    match peer {
-        SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
-        SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
-    }
-}
-
-pub(crate) async fn bind_datagram_socket_for_peer(
-    peer: SocketAddr,
-    interface: Option<&zero_platform_tokio::EgressInterface>,
-) -> Result<TokioDatagramSocket, EngineError> {
-    TokioDatagramSocket::bind_addr_on(datagram_bind_addr_for_peer(peer), interface)
         .await
         .map_err(Into::into)
 }

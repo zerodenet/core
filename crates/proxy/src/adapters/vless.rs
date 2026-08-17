@@ -152,11 +152,17 @@ impl ProxyTransportTcpLeaf for VlessOutboundLeaf {
         ),
         zero_transport::RuntimeError,
     > {
-        let opened = VlessOutboundLeaf::open_tcp_stream(self, session, move |server, port| {
-            let services = services.clone();
-            let server = server.to_owned();
-            async move { services.connect_upstream_owned(server, port).await }
-        })
+        let socket_factory = services.outbound_datagram_socket_factory();
+        let opened = VlessOutboundLeaf::open_tcp_stream(
+            self,
+            session,
+            move |server, port| {
+                let services = services.clone();
+                let server = server.to_owned();
+                async move { services.connect_upstream_owned(server, port).await }
+            },
+            socket_factory,
+        )
         .await?;
         let (stream, handshake_written_bytes, handshake_read_bytes) = opened.into_parts();
         Ok((
@@ -242,11 +248,16 @@ impl ManagedTupleUdpResumeConnector for ::vless::transport::VlessManagedUdpFlowR
         services: crate::protocol_registry::UpstreamConnectServices,
         session: &zero_core::Session,
     ) -> Result<Self::Connection, EngineError> {
-        self.open_direct_connection(session, move |server, port| {
-            let services = services.clone();
-            let server = server.to_owned();
-            async move { services.connect_upstream(&server, port).await }
-        })
+        let socket_factory = services.outbound_datagram_socket_factory();
+        self.open_direct_connection(
+            session,
+            move |server, port| {
+                let services = services.clone();
+                let server = server.to_owned();
+                async move { services.connect_upstream(&server, port).await }
+            },
+            socket_factory,
+        )
         .await
         .map_err(EngineError::from)
     }

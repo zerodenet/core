@@ -4,6 +4,7 @@ pub struct QuicConnectionOptions<'a> {
     pub alpn: Vec<Vec<u8>>,
     pub quic_profile: Hysteria2QuicProfile,
     pub datagram_receive_buffer_size: Option<usize>,
+    pub socket_factory: &'a zero_transport::OutboundDatagramSocketFactory,
 }
 
 #[derive(Debug, Clone)]

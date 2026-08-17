@@ -30,15 +30,57 @@ pub(super) async fn install(
     addresses: Vec<(IpAddr, IpAddr)>,
     excluded: Vec<IpAddr>,
     strict: bool,
+    egress_control: zero_platform_tokio::EgressInterfaceControl,
 ) -> Result<InstalledRoutes, EngineError> {
     tokio::task::spawn_blocking(move || {
         let mut guards = Vec::new();
         let mut last_error = None;
+        let previous_v4 = egress_control.current_for(false);
+        let previous_v6 = egress_control.current_for(true);
         for (address, netmask) in addresses {
-            match SystemRouteGuard::install(&tun_name, &recovery_key, address, netmask, &excluded) {
+            let ipv6 = address.is_ipv6();
+            let previous = if ipv6 {
+                previous_v6.clone()
+            } else {
+                previous_v4.clone()
+            };
+            let published_egress = egress_control.clone();
+            match SystemRouteGuard::install_with_egress(
+                &tun_name,
+                &recovery_key,
+                address,
+                netmask,
+                &excluded,
+                move |route| {
+                    let interface = zero_platform_tokio::EgressInterface::new(
+                        route.name().to_owned(),
+                        route.index(),
+                    )?;
+                    published_egress.replace_for(ipv6, Some(interface));
+                    Ok(())
+                },
+            ) {
                 Ok(guard) => guards.push(guard),
-                Err(error) if strict => return Err(EngineError::Io(error)),
+                Err(error) if strict => {
+                    let mut rollback_error = None;
+                    for guard in guards.drain(..).rev() {
+                        if let Err(cleanup) = guard.close() {
+                            rollback_error.get_or_insert(cleanup);
+                        }
+                    }
+                    egress_control.replace_for(false, previous_v4);
+                    egress_control.replace_for(true, previous_v6);
+                    let error = match rollback_error {
+                        Some(rollback) => io::Error::new(
+                            error.kind(),
+                            format!("{error}; rollback automatic TUN routes: {rollback}"),
+                        ),
+                        None => error,
+                    };
+                    return Err(EngineError::Io(error));
+                }
                 Err(error) => {
+                    egress_control.replace_for(ipv6, previous);
                     tracing::warn!(
                         family = if address.is_ipv6() { "IPv6" } else { "IPv4" },
                         error = %error,
@@ -64,7 +106,6 @@ pub(super) struct RouteRuntimeSpec {
     pub recovery_key: String,
     pub primary_ipv6: bool,
     pub addresses: Vec<(IpAddr, IpAddr)>,
-    pub dual_stack: bool,
     pub dns_hijack: bool,
 }
 
@@ -162,12 +203,10 @@ async fn run(
                 break;
             }
             prepared = proxy.prepare_tun_network(
-                spec.addresses[0].0,
                 true,
-                spec.dual_stack,
                 spec.dns_hijack,
-                // A runtime reconciliation must be based on a complete
-                // exclusion snapshot. A transient DNS failure retains the
+                // Reconciliation requires a complete explicit bypass
+                // snapshot. A transient DNS bootstrap failure retains the
                 // last usable routes even when startup used non-strict mode.
                 true,
             ) => prepared,

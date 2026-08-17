@@ -1,6 +1,6 @@
 //! Generic UDP packet-path transport helpers.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::RuntimeError;
@@ -8,7 +8,7 @@ use zero_core::Address;
 use zero_traits::DatagramCodec;
 
 pub struct UdpSocketPacketPath {
-    socket: tokio::net::UdpSocket,
+    socket: zero_platform_tokio::TokioDatagramSocket,
     endpoint: SocketAddr,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
 }
@@ -17,12 +17,9 @@ impl UdpSocketPacketPath {
     pub async fn establish(
         endpoint: SocketAddr,
         codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
+        sockets: &crate::OutboundDatagramSocketFactory,
     ) -> Result<Self, RuntimeError> {
-        let bind_addr = match endpoint {
-            SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
-            SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
-        };
-        let socket = tokio::net::UdpSocket::bind(bind_addr).await?;
+        let socket = sockets.bind_tokio(endpoint).await?;
         Ok(Self {
             socket,
             endpoint,
@@ -37,12 +34,12 @@ impl UdpSocketPacketPath {
         payload: &[u8],
     ) -> Result<(), RuntimeError> {
         let packet = self.codec.encode(target, port, payload)?;
-        self.socket.send_to(&packet, self.endpoint).await?;
+        self.socket.send_to_addr(&packet, self.endpoint).await?;
         Ok(())
     }
 
     pub async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, RuntimeError> {
-        let (read, _) = self.socket.recv_from(buf).await?;
+        let (read, _) = self.socket.recv_from_addr(buf).await?;
         let (_, _, payload) = self.codec.decode(&buf[..read]).ok_or_else(|| {
             RuntimeError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,

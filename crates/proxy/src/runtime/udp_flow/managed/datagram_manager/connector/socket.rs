@@ -49,7 +49,11 @@ pub(crate) trait ManagedDatagramSocketResumeConnector:
 
     fn connector_flow(&self, endpoint: OutboundEndpoint) -> ManagedDatagramSocketConnectorFlow;
 
-    async fn open_connection(self, endpoint: SocketAddr) -> Result<Self::Connection, EngineError>;
+    async fn open_connection(
+        self,
+        endpoint: SocketAddr,
+        sockets: zero_transport::OutboundDatagramSocketFactory,
+    ) -> Result<Self::Connection, EngineError>;
 }
 
 impl ManagedDatagramSocketConnectorFlow {
@@ -107,7 +111,8 @@ where
                 T::RESOLVE_UPSTREAM_MESSAGE,
             )
             .await?;
-        let connection = resume.open_connection(target_addr).await?;
+        let sockets = services.network().outbound_datagram_socket_factory();
+        let connection = resume.open_connection(target_addr, sockets).await?;
         Ok(managed_datagram_connection_from_flow(connection))
     }
 }

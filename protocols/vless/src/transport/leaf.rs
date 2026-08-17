@@ -206,6 +206,7 @@ impl VlessOutboundLeaf {
         &self,
         session: &Session,
         open_socket: OpenSocket,
+        socket_factory: zero_transport::OutboundDatagramSocketFactory,
     ) -> Result<crate::outbound::VlessTcpStreamOpen, RuntimeError>
     where
         OpenSocket: Clone + Fn(&str, u16) -> OpenSocketFut + Send + Sync,
@@ -213,8 +214,12 @@ impl VlessOutboundLeaf {
     {
         let protocol = self.protocol.clone();
         let transport = self.owned_transport_plan();
-        let direct_transport =
-            || transport.open_direct(move |server, port| open_socket.clone()(server, port));
+        let direct_transport = || {
+            transport.open_direct(
+                move |server, port| open_socket.clone()(server, port),
+                socket_factory.clone(),
+            )
+        };
         protocol
             .open_tcp_stream_with_transport_or_mux(
                 session,

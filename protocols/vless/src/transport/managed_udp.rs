@@ -41,14 +41,19 @@ impl VlessManagedUdpFlowResume {
         &self,
         session: &Session,
         open_socket: OpenSocket,
+        socket_factory: zero_transport::OutboundDatagramSocketFactory,
     ) -> Result<crate::udp::VlessUdpFlowConnection, RuntimeError>
     where
         OpenSocket: Clone + Fn(&str, u16) -> OpenSocketFut + Send + Sync,
         OpenSocketFut: Future<Output = Result<TokioSocket, RuntimeError>> + Send,
     {
         let transport = self.transport.clone();
-        let direct_transport =
-            || transport.open_direct(move |server, port| open_socket.clone()(server, port));
+        let direct_transport = || {
+            transport.open_direct(
+                move |server, port| open_socket.clone()(server, port),
+                socket_factory.clone(),
+            )
+        };
         self.protocol
             .open_udp_flow_with_transport_or_mux(
                 session,

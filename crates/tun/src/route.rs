@@ -68,6 +68,20 @@ impl SystemRouteGuard {
         ))
     }
 
+    pub fn install_with_egress(
+        _tun_name: &str,
+        _recovery_key: &str,
+        _address: IpAddr,
+        _netmask: IpAddr,
+        _excluded: &[IpAddr],
+        _publish_egress: impl FnOnce(&RouteInterface) -> io::Result<()>,
+    ) -> io::Result<Self> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "automatic TUN routes are unsupported on this platform",
+        ))
+    }
+
     pub fn egress(&self) -> &RouteInterface {
         unreachable!("unsupported route guard cannot be constructed")
     }

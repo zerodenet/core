@@ -45,6 +45,20 @@ async fn loopback_connection_does_not_bind_to_physical_egress() {
         TokioSocket::connect_addr_on(address, Some(&invalid_physical)),
         listener.accept()
     );
-    client.expect("loopback connection must ignore physical egress binding");
+    let client = client.expect("loopback connection must ignore physical egress binding");
+    assert!(client.egress_interface().is_none());
     accepted.expect("accept loopback connection");
+}
+
+#[tokio::test]
+async fn loopback_datagram_does_not_bind_to_physical_egress() {
+    let peer = "127.0.0.1:53".parse().unwrap();
+    let invalid_physical = EgressInterface::new("not-a-real-interface", u32::MAX).unwrap();
+
+    let socket =
+        zero_platform_tokio::TokioDatagramSocket::bind_for_peer_on(peer, Some(&invalid_physical))
+            .await
+            .expect("loopback datagram must ignore physical egress binding");
+
+    assert!(socket.local_addr().unwrap().is_ipv4());
 }

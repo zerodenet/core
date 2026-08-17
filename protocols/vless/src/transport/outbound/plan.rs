@@ -49,6 +49,7 @@ pub(in crate::transport) struct VlessDirectTransportRequest<'a> {
     pub(super) socket: Option<TokioSocket>,
     pub(super) options: VlessTransportOptions<'a>,
     pub(super) quic: Option<&'a VlessQuicClientProfile>,
+    pub(super) socket_factory: zero_transport::OutboundDatagramSocketFactory,
     pub(super) server: &'a str,
     pub(super) port: u16,
 }
@@ -253,6 +254,7 @@ impl OwnedVlessOutboundTransportPlan {
     pub(in crate::transport) async fn open_direct<OpenSocket, OpenSocketFut, E>(
         &self,
         open_socket: OpenSocket,
+        socket_factory: zero_transport::OutboundDatagramSocketFactory,
     ) -> Result<TcpRelayStream, RuntimeError>
     where
         OpenSocket: FnOnce(&str, u16) -> OpenSocketFut,
@@ -266,6 +268,7 @@ impl OwnedVlessOutboundTransportPlan {
                 socket: None,
                 options: transport.stream_options(),
                 quic,
+                socket_factory,
                 server: self.server(),
                 port: self.port(),
             })
@@ -278,6 +281,7 @@ impl OwnedVlessOutboundTransportPlan {
         build_vless_udp_outbound_transport(VlessUdpOutboundTransportRequest {
             socket,
             options: transport,
+            socket_factory,
             server: self.server(),
             port: self.port(),
         })
@@ -312,6 +316,7 @@ impl OwnedVlessOutboundTransportPlan {
 pub(in crate::transport) struct VlessUdpOutboundTransportRequest<'a> {
     pub(super) socket: TokioSocket,
     pub(super) options: VlessUdpTransportOptions<'a>,
+    pub(super) socket_factory: zero_transport::OutboundDatagramSocketFactory,
     pub(super) server: &'a str,
     pub(super) port: u16,
 }

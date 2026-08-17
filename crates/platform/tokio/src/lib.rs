@@ -17,11 +17,15 @@ pub use egress::{EgressInterface, EgressInterfaceControl};
 #[derive(Debug)]
 pub struct TokioSocket {
     inner: TcpStream,
+    egress_interface: Option<EgressInterface>,
 }
 
 impl TokioSocket {
     pub fn new(inner: TcpStream) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            egress_interface: None,
+        }
     }
 
     pub async fn connect(addr: &str) -> io::Result<Self> {
@@ -48,12 +52,16 @@ impl TokioSocket {
         } else {
             TcpSocket::new_v6()?
         };
-        if let Some(interface) = interface.filter(|_| !addr.ip().is_loopback()) {
+        let interface = interface.filter(|_| !addr.ip().is_loopback());
+        if let Some(interface) = interface {
             bind_tcp_to_interface(&socket, addr, interface)?;
         }
         let stream = socket.connect(addr).await?;
         stream.set_nodelay(true)?;
-        Ok(Self::new(stream))
+        Ok(Self {
+            inner: stream,
+            egress_interface: interface.cloned(),
+        })
     }
 
     pub fn into_inner(self) -> TcpStream {
@@ -66,6 +74,12 @@ impl TokioSocket {
 
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         self.inner.peer_addr()
+    }
+
+    /// Physical interface selected when this outbound socket was created.
+    /// Transport layers that open companion sockets must preserve it.
+    pub fn egress_interface(&self) -> Option<&EgressInterface> {
+        self.egress_interface.as_ref()
     }
 }
 
@@ -319,6 +333,16 @@ impl TokioDatagramSocket {
         UdpSocket::from_std(socket).map(|inner| Self { inner })
     }
 
+    /// Bind a datagram socket for a specific peer, applying the physical
+    /// egress only for non-loopback traffic.
+    pub async fn bind_for_peer_on(
+        peer: SocketAddr,
+        interface: Option<&EgressInterface>,
+    ) -> io::Result<Self> {
+        let socket = bind_std_datagram_socket_for_peer(peer, interface)?;
+        UdpSocket::from_std(socket).map(|inner| Self { inner })
+    }
+
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()
     }
@@ -330,6 +354,25 @@ impl TokioDatagramSocket {
     pub async fn send_to_addr(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
         self.inner.send_to(buf, addr).await
     }
+}
+
+/// Create a non-blocking standard UDP socket suitable for Tokio or QUIC and
+/// bind it to the selected physical egress for `peer`.
+pub fn bind_std_datagram_socket_for_peer(
+    peer: SocketAddr,
+    interface: Option<&EgressInterface>,
+) -> io::Result<std::net::UdpSocket> {
+    let local = if peer.is_ipv4() {
+        SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0)
+    } else {
+        SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), 0)
+    };
+    let socket = std::net::UdpSocket::bind(local)?;
+    if let Some(interface) = interface.filter(|_| !peer.ip().is_loopback()) {
+        bind_udp_to_interface(&socket, local, interface)?;
+    }
+    socket.set_nonblocking(true)?;
+    Ok(socket)
 }
 
 impl DatagramSocketTrait for TokioDatagramSocket {

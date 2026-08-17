@@ -16,6 +16,7 @@ pub(super) async fn open_vless_quic_transport(
     server: &str,
     port: u16,
     quic_config: &VlessQuicClientProfile,
+    sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<TcpRelayStream, RuntimeError> {
     let server_name = quic_config.server_name.as_deref().unwrap_or(server);
     let alpn_protocols = quic_config.alpn_protocols();
@@ -26,6 +27,7 @@ pub(super) async fn open_vless_quic_transport(
             server_name,
             quic_config.insecure,
             &alpn_protocols,
+            sockets,
         )
         .await?,
     ))
@@ -38,12 +40,13 @@ pub(super) async fn build_vless_direct_outbound_transport(
         socket,
         options,
         quic,
+        socket_factory,
         server,
         port,
     } = request;
 
     if let Some(quic_config) = quic {
-        return open_vless_quic_transport(server, port, quic_config).await;
+        return open_vless_quic_transport(server, port, quic_config, &socket_factory).await;
     }
 
     let socket = socket.ok_or_else(|| {
@@ -85,6 +88,7 @@ pub(super) async fn build_vless_outbound_transport(
         split_http: split_http_config,
         source_dir,
     } = options;
+    let companion_egress = socket.egress_interface().cloned();
 
     // XHTTP is handled first because it is mutually exclusive with other transports.
     if let Some(cfg) = split_http_config {
@@ -107,7 +111,7 @@ pub(super) async fn build_vless_outbound_transport(
             Some(tls) => {
                 let post_stream =
                     tls::connect_tls_upstream(socket, tls, source_dir, server).await?;
-                match TokioSocket::connect_addr(peer).await {
+                match TokioSocket::connect_addr_on(peer, companion_egress.as_ref()).await {
                     Ok(get_socket) => {
                         let get_stream =
                             match tls::connect_tls_upstream(get_socket, tls, source_dir, server)
@@ -135,12 +139,14 @@ pub(super) async fn build_vless_outbound_transport(
                 }
             }
             None => {
-                let get_socket = TokioSocket::connect_addr(peer).await.map_err(|e| {
-                    RuntimeError::Io(io::Error::new(
-                        io::ErrorKind::ConnectionRefused,
-                        format!("split-http: failed to open GET connection: {e}"),
-                    ))
-                })?;
+                let get_socket = TokioSocket::connect_addr_on(peer, companion_egress.as_ref())
+                    .await
+                    .map_err(|e| {
+                        RuntimeError::Io(io::Error::new(
+                            io::ErrorKind::ConnectionRefused,
+                            format!("split-http: failed to open GET connection: {e}"),
+                        ))
+                    })?;
                 TcpRelayStream::new(split_http::connect_split_http(socket, get_socket, cfg).await?)
             }
         };
@@ -204,12 +210,13 @@ pub(super) async fn build_vless_udp_outbound_transport(
     let VlessUdpOutboundTransportRequest {
         socket,
         options,
+        socket_factory,
         server,
         port,
     } = request;
 
     if let Some(quic_config) = options.quic {
-        return open_vless_quic_transport(server, port, quic_config).await;
+        return open_vless_quic_transport(server, port, quic_config, &socket_factory).await;
     }
 
     build_vless_outbound_transport(VlessOutboundTransportRequest {

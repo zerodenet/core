@@ -8,7 +8,7 @@ use super::super::super::connection::{
     SharedManagedUdpConnection,
 };
 use super::super::manager::ManagedDatagramFlowManager;
-use crate::protocol_registry::UdpRuntimeServices;
+use crate::protocol_registry::{UdpNetworkServices, UdpRuntimeServices};
 use crate::runtime::path::OutboundEndpoint;
 use crate::runtime::udp_flow::packet_path::UdpPacketRef;
 
@@ -49,6 +49,7 @@ pub(crate) trait ManagedDatagramResumeConnector:
 
     async fn open_connection(
         self,
+        services: UdpNetworkServices,
         endpoint: OutboundEndpoint,
         initial_packet: UdpPacketRef<'_>,
     ) -> Result<Self::Connection, EngineError>;
@@ -96,12 +97,19 @@ where
 
     async fn establish(
         &self,
-        _services: Option<UdpRuntimeServices>,
+        services: Option<UdpRuntimeServices>,
         endpoint: OutboundEndpoint,
         resume: T,
         initial_packet: UdpPacketRef<'_>,
     ) -> Result<SharedManagedUdpConnection, EngineError> {
-        let connection = resume.open_connection(endpoint, initial_packet).await?;
+        let services = services.ok_or_else(|| {
+            EngineError::Io(std::io::Error::other(
+                "expected proxy context for managed datagram flow",
+            ))
+        })?;
+        let connection = resume
+            .open_connection(services.network(), endpoint, initial_packet)
+            .await?;
         Ok(managed_tuple_udp_connection_from_flow(connection))
     }
 }

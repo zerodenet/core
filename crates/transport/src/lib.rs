@@ -9,6 +9,7 @@ pub mod http_upgrade;
 #[cfg(feature = "tls")]
 pub mod inbound_stack;
 pub mod metered;
+pub mod outbound_datagram;
 #[cfg(any(
     feature = "tls",
     feature = "ws",
@@ -30,6 +31,7 @@ pub mod udp_packet_path;
 pub mod ws;
 
 pub use metered::MeteredStream;
+pub use outbound_datagram::OutboundDatagramSocketFactory;
 pub use stream::{ClientStream, PrefixedSocket, RecordingStream, RelayCarrier, TcpRelayStream};
 pub use zero_error::RuntimeError;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

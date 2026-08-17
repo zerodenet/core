@@ -44,10 +44,13 @@ impl ManagedDatagramSocketResumeConnector
     async fn open_connection(
         self,
         endpoint: std::net::SocketAddr,
+        sockets: zero_transport::OutboundDatagramSocketFactory,
     ) -> Result<Self::Connection, EngineError> {
-        ::shadowsocks::transport::establish_shadowsocks_udp_socket_flow_with_resume(endpoint, self)
-            .await
-            .map_err(EngineError::from)
+        ::shadowsocks::transport::establish_shadowsocks_udp_socket_flow_with_resume(
+            endpoint, self, &sockets,
+        )
+        .await
+        .map_err(EngineError::from)
     }
 }
 

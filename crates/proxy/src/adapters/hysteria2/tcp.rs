@@ -22,9 +22,12 @@ impl SessionTcpHandshake for ::hysteria2::transport::Hysteria2TransportLeaf {
 
     async fn open_tcp_stream(
         &self,
+        services: crate::protocol_registry::UpstreamConnectServices,
         session: &zero_core::Session,
     ) -> Result<crate::transport::TcpRelayStream, zero_transport::RuntimeError> {
-        ::hysteria2::transport::Hysteria2TransportLeaf::open_tcp_stream(self, session).await
+        let sockets = services.outbound_datagram_socket_factory();
+        ::hysteria2::transport::Hysteria2TransportLeaf::open_tcp_stream(self, session, &sockets)
+            .await
     }
 }
 

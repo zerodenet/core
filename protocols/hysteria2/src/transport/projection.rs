@@ -142,6 +142,7 @@ impl Hysteria2TransportLeaf {
     pub async fn open_tcp_stream(
         &self,
         session: &Session,
+        sockets: &zero_transport::OutboundDatagramSocketFactory,
     ) -> Result<zero_transport::TcpRelayStream, RuntimeError> {
         connect_hysteria2_tcp_outbound(
             session,
@@ -149,6 +150,7 @@ impl Hysteria2TransportLeaf {
             self.port,
             &self.password,
             self.client_fingerprint.as_deref(),
+            sockets,
         )
         .await
     }

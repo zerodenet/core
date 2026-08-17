@@ -39,6 +39,7 @@ pub async fn connect_quic(
     server_name: &str,
     _insecure: bool,
     alpn_protocols: &[Vec<u8>],
+    sockets: &crate::OutboundDatagramSocketFactory,
 ) -> Result<QuicStream, RuntimeError> {
     use quinn::crypto::rustls::QuicClientConfig;
 
@@ -61,7 +62,7 @@ pub async fn connect_quic(
     transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
     client_cfg.transport_config(Arc::new(transport));
 
-    let conn = connect_quic_endpoint(server, port, server_name, client_cfg).await?;
+    let conn = connect_quic_endpoint(server, port, server_name, client_cfg, sockets).await?;
 
     let (send, recv) = conn
         .open_bi()
@@ -76,13 +77,14 @@ async fn connect_quic_endpoint(
     port: u16,
     server_name: &str,
     client_config: quinn::ClientConfig,
+    sockets: &crate::OutboundDatagramSocketFactory,
 ) -> Result<quinn::Connection, RuntimeError> {
     let server_addrs = resolve_server_addresses(server, port).await?;
     let mut last_error = None;
 
     for server_addr in server_addrs {
         let bind_addr = wildcard_bind_addr(server_addr);
-        let socket = match std::net::UdpSocket::bind(bind_addr) {
+        let socket = match sockets.bind_std(server_addr) {
             Ok(socket) => socket,
             Err(error) => {
                 last_error = Some(format!("bind {bind_addr} for {server_addr}: {error}"));

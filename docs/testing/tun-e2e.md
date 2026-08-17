@@ -13,11 +13,11 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 默认行为：
 
 - `auto_route=true`：通过两条 `/1` 路由接管默认流量，不覆盖原默认路由；
-- `auto_route=true` 会继续监听系统默认路由和接口变化；Wi-Fi/有线切换、VPN 上下线或 metric 变化后，内核在不重启 TUN 的情况下更新物理出口和节点/DNS 排除路由。事件会合并处理，失败时保留上一份可用状态并在 `tun status` 中报告错误；
+- `auto_route=true` 会继续监听系统默认路由和接口变化；Wi-Fi/有线切换、VPN 上下线或 metric 变化后，内核在不重启 TUN 的情况下更新新建 socket 使用的物理出口和仍需保留的 DNS bootstrap 排除路由。事件会合并处理，失败时保留上一份可用状态并在 `tun status` 中报告错误；
 - `dual_stack=true`：在同一设备上配置 IPv4/IPv6 两个地址，并同时安装两组拆分默认路由；`secondary_addr` 可显式指定另一族 CIDR，省略时按主地址族使用 `10.66.0.1/24` 或 `fd66::1/64`；只有明确的单栈主机才应关闭，否则另一地址族仍可能绕过 TUN；
-- `strict_route=true`：接口、端点排除路由或任一半默认路由失败时，启动整体失败并回滚已安装项；
+- `strict_route=true`：underlay 出口、仍需保留的 DNS bootstrap 排除或任一半默认路由失败时，启动整体失败并回滚已安装项；未选中的坏代理节点不影响 TUN 启动；
 - `dns_hijack=true`：TUN 内的 UDP/TCP 53 由 Zero DNS 回答，并使用已有缓存、DNS 路由和 Fake-IP；
-- 代理节点和 DNS 上游获得原物理网关主机路由，Zero 创建的 TCP/UDP socket 同时按 IPv4/IPv6 分别绑定各自原物理接口，避免代理自环。
+- 代理节点不再获得自动 host route；Zero 创建的 TCP/UDP/QUIC socket 按 IPv4/IPv6 分别绑定各自 underlay 接口，避免代理自环。DNS bootstrap 排除暂时保留，直到相应 DNS socket 全部出口感知。
 - macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。
 
@@ -158,15 +158,15 @@ sudo tcpdump -i physical0 -nn 'udp port 3478 or udp port 5349'
 
 ## 回滚与故障验证
 
-1. 启动 TUN 后记录两条半默认路由和节点/DNS 主机排除路由。
+1. 启动 TUN 后记录两条半默认路由，并确认只存在明确需要的 DNS bootstrap 主机排除路由，不存在仅用于代理反环路的节点 host route。
 2. 执行 `tun stop`，确认半默认路由消失、原默认路由仍在。
 3. 使用无效接口权限或预置冲突 `/1` 路由再次启动；严格模式应返回错误，且第一条已安装路由必须回滚。
 4. 强制中止 TUN 数据通道；`tun status` 应变为 `running=false` 并显示 `last_error`。
-5. 保持 TUN 运行并切换系统默认出口；`tun status` 的 `egress_v4`/`egress_v6` 应更新，既有连接不中断，新连接使用新出口，旧出口上的 Zero 所有排除路由被清理。
+5. 保持 TUN 运行并切换系统默认出口；`tun status` 的 `egress_v4`/`egress_v6` 应更新，既有连接不中断，新连接使用新出口，旧出口上的 Zero DNS/bootstrap 排除路由被清理。
 6. 制造短暂的无默认路由窗口或排除路由安装失败；TUN 应保持运行、`healthy=false` 且显示 `last_error`，恢复后自动协调并回到 `healthy=true`，期间不得出现忙重试。
 7. Windows 连续执行两轮 start/stop，确认阻塞 reader 被唤醒且同名 Wintun adapter 可复用。
 
-路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，下一次以相同 TUN 入站 `tag` 启动会先消费日志，并按日志记录的旧设备名清理残留的半默认路由、端点排除路由及 macOS scoped 绕行路由。
+路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，下一次以相同 TUN 入站 `tag` 启动会先消费日志，并按日志记录的旧设备名清理残留的半默认路由、显式 DNS/bootstrap 排除路由及 macOS scoped 绕行路由。
 
 ## 自动化覆盖
 

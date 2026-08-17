@@ -140,7 +140,7 @@ fn doh_endpoint_parser_accepts_literal_v4_and_v6_hosts() {
 }
 
 #[test]
-fn configured_tun_restarts_when_resolved_route_exclusions_change() {
+fn configured_tun_restarts_when_explicit_route_exclusions_change() {
     let (config, info) = configured_tun_fixture();
     let unchanged = PreparedTunNetwork {
         dns_hijack: true,
@@ -156,7 +156,7 @@ fn configured_tun_restarts_when_resolved_route_exclusions_change() {
 }
 
 #[test]
-fn loopback_and_link_local_endpoints_do_not_get_physical_host_routes() {
+fn loopback_and_link_local_bootstrap_addresses_do_not_get_physical_host_routes() {
     for address in [
         "0.0.0.0",
         "127.0.0.1",
