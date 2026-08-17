@@ -20,6 +20,12 @@ pub struct RouteChangeMonitor(platform::RouteChangeMonitor);
 
 impl RouteChangeMonitor {
     pub fn new() -> io::Result<Self> {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        tokio::runtime::Handle::try_current().map_err(|error| {
+            io::Error::other(format!(
+                "route change monitor requires a Tokio runtime: {error}"
+            ))
+        })?;
         platform::RouteChangeMonitor::new().map(Self)
     }
 
@@ -67,8 +73,16 @@ mod platform {
 mod tests {
     use super::RouteChangeMonitor;
 
-    #[test]
-    fn platform_route_monitor_registration_is_releasable() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn platform_route_monitor_registration_is_releasable() {
         drop(RouteChangeMonitor::new().expect("register route change monitor"));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn unix_route_monitor_without_a_runtime_returns_an_error() {
+        let error = RouteChangeMonitor::new().expect_err("reject registration without a runtime");
+        assert_eq!(error.kind(), std::io::ErrorKind::Other);
+        assert!(error.to_string().contains("requires a Tokio runtime"));
     }
 }
