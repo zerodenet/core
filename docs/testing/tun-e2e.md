@@ -8,7 +8,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 |------|------|
 | Linux | root，或具备创建 TUN、配置接口和路由所需的 capabilities；系统需提供 `ip` |
 | macOS | root；系统需提供 `/sbin/ifconfig` 和 `/sbin/route` |
-| Windows | Administrator；将匹配架构的 `wintun.dll` 放在 `zero.exe` 同目录或 `PATH` |
+| Windows | Administrator；官方 Windows x86_64 发布包已内置匹配架构的 `wintun.dll`；源码构建时需自行将 DLL 放在 `zero.exe` 同目录或 `PATH` |
 
 默认行为：
 

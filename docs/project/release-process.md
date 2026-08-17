@@ -236,7 +236,7 @@ dev Release PR 合并到 `develop`；RC 与正式版 Release PR 合并到 `main`
 - dev 标签提交属于 `develop`，RC/正式标签提交属于 `main`；
 - 发布质量检查通过。
 
-随后生成 Linux GNU、Linux musl、macOS Intel、macOS Apple Silicon 和 Windows 制品以及 SHA-256 校验文件。
+随后生成 Linux GNU、Linux musl、macOS Intel、macOS Apple Silicon 和 Windows 制品以及 SHA-256 校验文件。Windows x86_64 制品必须同时包含 `zero.exe`、匹配架构的 `wintun.dll` 和 Wintun 许可文件；工作流从官方固定版本下载分发包并验证固定 SHA-256，缺少 DLL 时发布构建直接失败。
 
 预发布版本创建 GitHub prerelease。正式版本创建 Draft Release，人工检查制品和发布说明后再公开并标记为 latest。
 

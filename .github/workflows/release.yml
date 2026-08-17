@@ -144,6 +144,11 @@ jobs:
             exit 1
           fi
 
+      - name: Stage pinned Wintun runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/prepare-wintun.ps1 -OutputDirectory "target/${{ matrix.target }}/release"
+
       - name: Package Unix artifact
         if: runner.os != 'Windows'
         shell: bash
@@ -159,7 +164,10 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           ARCHIVE="zero-${{ matrix.name }}.${{ matrix.ext }}"
-          7z a "$ARCHIVE" zero.exe
+          test -f zero.exe
+          test -f wintun.dll
+          test -f wintun-LICENSE.txt
+          7z a "$ARCHIVE" zero.exe wintun.dll wintun-LICENSE.txt
           sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
 
       - name: Upload artifact
