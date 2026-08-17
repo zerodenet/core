@@ -25,7 +25,9 @@ impl TokioSocket {
     }
 
     pub async fn connect(addr: &str) -> io::Result<Self> {
-        TcpStream::connect(addr).await.map(Self::new)
+        let stream = TcpStream::connect(addr).await?;
+        stream.set_nodelay(true)?;
+        Ok(Self::new(stream))
     }
 
     pub async fn connect_addr(addr: SocketAddr) -> io::Result<Self> {
@@ -49,7 +51,9 @@ impl TokioSocket {
         if let Some(interface) = interface.filter(|_| !addr.ip().is_loopback()) {
             bind_tcp_to_interface(&socket, addr, interface)?;
         }
-        socket.connect(addr).await.map(Self::new)
+        let stream = socket.connect(addr).await?;
+        stream.set_nodelay(true)?;
+        Ok(Self::new(stream))
     }
 
     pub fn into_inner(self) -> TcpStream {

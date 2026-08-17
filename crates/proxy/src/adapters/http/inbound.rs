@@ -13,6 +13,11 @@ use crate::runtime::tcp_ingress::{
 };
 use crate::transport::{ClientStream, TcpRelayStream};
 
+// Keep small fixed request bodies behind the normalized head until the complete
+// prefix can be written upstream. Some servers answer without consuming the
+// body and may otherwise close while the proxy is still fetching a tiny tail.
+const REQUEST_COALESCE_LIMIT: u64 = 4 * 1024;
+
 #[derive(Clone, Copy)]
 pub(crate) struct HttpConnectInboundHandler {
     http_inbound: HttpConnectInbound,
@@ -141,13 +146,41 @@ impl MessageInboundProtocol for HttpConnectInboundHandler {
         context: MessageRelayContext,
     ) -> Result<MessageRelayOutcome, EngineError> {
         tokio::time::timeout(context.idle_timeout(), async {
-            throttle_and_write(&mut upstream, request.head(), context.upload_limiter()).await?;
-            context.record_upload(request.head().len() as u64);
-
             if request.expect_continue() {
+                throttle_and_write(&mut upstream, request.head(), context.upload_limiter()).await?;
+                context.record_upload(request.head().len() as u64);
                 self.http_inbound.send_continue_response(client).await?;
             }
-            let request_body = {
+
+            let coalesced_body_length = match request.body() {
+                http::HttpBodyKind::ContentLength(length)
+                    if !request.expect_continue() && length <= REQUEST_COALESCE_LIMIT =>
+                {
+                    Some(length)
+                }
+                _ => None,
+            };
+            let request_body = if let Some(length) = coalesced_body_length {
+                let mut throttled = RateLimitedSocket::new(client, context.upload_limiter());
+                let body = read_fixed_body(&mut throttled, length).await?;
+                if let Some(limiter) = context.upload_limiter() {
+                    limiter.throttle(request.head().len()).await;
+                }
+                let mut message = Vec::with_capacity(request.head().len() + body.len());
+                message.extend_from_slice(request.head());
+                message.extend_from_slice(&body);
+                zero_traits::AsyncSocket::write_all(&mut upstream, &message).await?;
+                context.record_upload(request.head().len() as u64);
+                http::HttpTransferCount {
+                    read: body.len() as u64,
+                    written: body.len() as u64,
+                }
+            } else {
+                if !request.expect_continue() {
+                    throttle_and_write(&mut upstream, request.head(), context.upload_limiter())
+                        .await?;
+                    context.record_upload(request.head().len() as u64);
+                }
                 let mut throttled = RateLimitedSocket::new(client, context.upload_limiter());
                 http::relay_http_body(&mut throttled, &mut upstream, request.body()).await?
             };
@@ -199,6 +232,26 @@ impl MessageInboundProtocol for HttpConnectInboundHandler {
             ))
         })?
     }
+}
+
+async fn read_fixed_body<S>(stream: &mut S, length: u64) -> Result<Vec<u8>, EngineError>
+where
+    S: zero_traits::AsyncSocket<Error = io::Error>,
+{
+    let length = usize::try_from(length)
+        .map_err(|_| EngineError::from(zero_core::Error::Protocol("HTTP body is too large")))?;
+    let mut body = vec![0_u8; length];
+    let mut offset = 0;
+    while offset < body.len() {
+        let read = zero_traits::AsyncSocket::read(stream, &mut body[offset..]).await?;
+        if read == 0 {
+            return Err(EngineError::from(zero_core::Error::Protocol(
+                "HTTP body ended before Content-Length",
+            )));
+        }
+        offset += read;
+    }
+    Ok(body)
 }
 
 async fn throttle_and_write<S>(

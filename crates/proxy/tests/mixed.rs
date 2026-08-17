@@ -1,5 +1,7 @@
 mod support;
 
+use std::time::Duration;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use zero_config::RuntimeConfig;
@@ -279,6 +281,63 @@ async fn mixed_http_branch_reparses_persistent_requests() {
         client.read_exact(&mut body).await.expect("body");
         assert_eq!(body, b"ok");
     }
+
+    engine_handle.shutdown().await.expect("shutdown engine");
+    origin_task.await.expect("origin task");
+}
+
+#[tokio::test]
+async fn mixed_http_branch_relays_tiny_fixed_length_post_body() {
+    let mixed_port = free_port();
+    let origin_port = free_port();
+    let origin_task = tokio::spawn(async move {
+        let listener = TcpListener::bind(("127.0.0.1", origin_port))
+            .await
+            .expect("bind origin");
+        let (mut stream, _) = listener.accept().await.expect("accept origin");
+        let request = String::from_utf8(read_http_head(&mut stream).await).expect("request");
+        assert!(request.starts_with("POST /api/v1/nodes/4/diagnostics HTTP/1.1\r\n"));
+        assert!(request.contains("Content-Length: 2\r\n"));
+        assert!(!request.to_ascii_lowercase().contains("proxy-connection:"));
+        let mut body = [0_u8; 2];
+        tokio::time::timeout(Duration::from_millis(100), stream.read_exact(&mut body))
+            .await
+            .expect("request body must arrive with the forwarded head")
+            .expect("request body");
+        assert_eq!(&body, b"{}");
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK")
+            .await
+            .expect("response");
+    });
+    let config = RuntimeConfig::parse(&format!(
+        r#"{{
+            "inbounds":[{{"tag":"mixed-in","listen":{{"address":"127.0.0.1","port":{mixed_port}}},"protocol":{{"type":"mixed"}}}}],
+            "outbounds":[],
+            "route":{{"rules":[],"final":{{"type":"direct"}}}}
+        }}"#
+    ))
+    .expect("parse config");
+    let engine_handle = spawn_engine(Engine::new(config).expect("build engine"));
+    wait_for_listener(mixed_port).await;
+
+    let mut client = TcpStream::connect(("127.0.0.1", mixed_port))
+        .await
+        .expect("connect mixed proxy");
+    let request_head = format!(
+        "POST http://127.0.0.1:{origin_port}/api/v1/nodes/4/diagnostics HTTP/1.1\r\nHost: ignored\r\nProxy-Connection: keep-alive\r\nContent-Length: 2\r\n\r\n"
+    );
+    client
+        .write_all(request_head.as_bytes())
+        .await
+        .expect("request head");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    client.write_all(b"{}").await.expect("request body");
+    let response = read_http_head(&mut client).await;
+    assert_eq!(response, b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n");
+    let mut body = [0_u8; 2];
+    client.read_exact(&mut body).await.expect("response body");
+    assert_eq!(&body, b"OK");
 
     engine_handle.shutdown().await.expect("shutdown engine");
     origin_task.await.expect("origin task");

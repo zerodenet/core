@@ -322,9 +322,9 @@ async fn relays_fixed_and_chunked_messages_then_keeps_parsing_requests() {
         let (mut first, _) = listener.accept().await.expect("accept first");
         let head = String::from_utf8(read_http_head(&mut first).await).expect("head");
         assert!(head.starts_with("POST /upload HTTP/1.1\r\n"));
-        let mut body = [0_u8; 4];
+        let mut body = [0_u8; 2];
         first.read_exact(&mut body).await.expect("request body");
-        assert_eq!(&body, b"data");
+        assert_eq!(&body, b"{}");
         first
             .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\npong\r\n0\r\n\r\n")
             .await
@@ -348,7 +348,7 @@ async fn relays_fixed_and_chunked_messages_then_keeps_parsing_requests() {
         .expect("connect proxy");
     client
         .write_all(
-            format!("POST http://127.0.0.1:{origin_port}/upload HTTP/1.1\r\nHost: ignored\r\nContent-Length: 4\r\n\r\ndata").as_bytes(),
+            format!("POST http://127.0.0.1:{origin_port}/upload HTTP/1.1\r\nHost: ignored\r\nProxy-Connection: keep-alive\r\nContent-Length: 2\r\n\r\n{{}}").as_bytes(),
         )
         .await
         .expect("post");
