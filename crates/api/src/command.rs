@@ -256,5 +256,25 @@ fn default_tun_mask() -> String {
     "255.255.255.0".to_owned()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TunStopCommand;
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TunStopCommand {}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommandRequest, TunStopCommand};
+    use serde_json::json;
+
+    #[test]
+    fn tun_stop_accepts_and_serializes_empty_object_params() {
+        let request: CommandRequest = serde_json::from_value(json!({
+            "method": "tun.stop",
+            "params": {}
+        }))
+        .expect("deserialize tun.stop with standard command object params");
+
+        assert_eq!(request, CommandRequest::TunStop(TunStopCommand {}));
+        let value = serde_json::to_value(request).expect("serialize tun.stop command");
+        assert_eq!(value["method"], "tun.stop");
+        assert_eq!(value["params"], json!({}));
+    }
+}
