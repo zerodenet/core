@@ -37,20 +37,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo timeout 5m apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=30 \
-            -o Acquire::https::Timeout=30 \
-            update
-          sudo timeout 5m apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=30 \
-            -o Acquire::https::Timeout=30 \
-            install -y --no-install-recommends protobuf-compiler
-          protoc --version
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "35.0"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify protoc
+        run: protoc --version
 
       - name: Format
         run: cargo fmt --all --check
@@ -71,20 +64,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo timeout 5m apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=30 \
-            -o Acquire::https::Timeout=30 \
-            update
-          sudo timeout 5m apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=30 \
-            -o Acquire::https::Timeout=30 \
-            install -y --no-install-recommends protobuf-compiler
-          protoc --version
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "35.0"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify protoc
+        run: protoc --version
 
       - name: Check (all features)
         run: cargo check --workspace --all-features
@@ -178,20 +164,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo timeout 5m apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=30 \
-            -o Acquire::https::Timeout=30 \
-            update
-          sudo timeout 5m apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=30 \
-            -o Acquire::https::Timeout=30 \
-            install -y --no-install-recommends protobuf-compiler
-          protoc --version
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "35.0"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify protoc
+        run: protoc --version
 
       - name: Check proxy feature (core-only)
         run: cargo check -p zero-proxy --no-default-features
@@ -230,20 +209,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo timeout 5m apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=30 \
-            -o Acquire::https::Timeout=30 \
-            update
-          sudo timeout 5m apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=30 \
-            -o Acquire::https::Timeout=30 \
-            install -y --no-install-recommends protobuf-compiler
-          protoc --version
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "35.0"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify protoc
+        run: protoc --version
 
       - name: Check optional surface (status-api)
         run: cargo check --no-default-features --features status-api
