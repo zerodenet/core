@@ -26,6 +26,7 @@ jobs:
   static:
     name: Static checks (fmt + clippy)
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -36,7 +37,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            update
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            install -y --no-install-recommends protobuf-compiler
+          protoc --version
 
       - name: Format
         run: cargo fmt --all --check
@@ -47,6 +61,7 @@ jobs:
   check-and-test:
     name: Check & Test (Linux)
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     needs: static
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +71,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            update
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            install -y --no-install-recommends protobuf-compiler
+          protoc --version
 
       - name: Check (all features)
         run: cargo check --workspace --all-features
@@ -70,6 +98,7 @@ jobs:
   tun-platform-check:
     name: TUN platform check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     needs: static
     strategy:
       fail-fast: false
@@ -91,6 +120,7 @@ jobs:
   linux-musl-compat:
     name: Build Linux musl compatibility artifact
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     needs: static
     steps:
       - uses: actions/checkout@v4
@@ -102,7 +132,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install musl toolchain
-        run: sudo apt-get update && sudo apt-get install --yes musl-tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            update
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            install -y --no-install-recommends musl-tools
 
       - name: Build compatibility binary
         run: cargo build --features full,status-api,connector --release --target x86_64-unknown-linux-musl
@@ -123,30 +165,11 @@ jobs:
             exit 1
           fi
 
-  proxy-feature-matrix:
-    name: Proxy feature (${{ matrix.name }})
+  proxy-feature-compat:
+    name: Proxy feature compatibility
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     needs: static
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: core-only
-            args: ""
-          - name: simple-tcp
-            args: "--features http"
-          - name: registered-association
-            args: "--features socks5"
-          - name: socket-datagram-packet-path
-            args: "--features shadowsocks"
-          - name: quic-flow-datagram
-            args: "--features hysteria2"
-          - name: packet-stream
-            args: "--features trojan"
-          - name: tuple-two-stream
-            args: "--features vless"
-          - name: generic-tuple-stream
-            args: "--features mieru"
     steps:
       - uses: actions/checkout@v4
 
@@ -155,23 +178,50 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            update
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            install -y --no-install-recommends protobuf-compiler
+          protoc --version
 
-      - name: Check representative proxy feature family
-        run: cargo check -p zero-proxy --no-default-features ${{ matrix.args }}
+      - name: Check proxy feature (core-only)
+        run: cargo check -p zero-proxy --no-default-features
 
-  optional-surface-matrix:
-    name: Optional surface (${{ matrix.feature }})
+      - name: Check proxy feature (simple-tcp)
+        run: cargo check -p zero-proxy --no-default-features --features http
+
+      - name: Check proxy feature (registered-association)
+        run: cargo check -p zero-proxy --no-default-features --features socks5
+
+      - name: Check proxy feature (socket-datagram-packet-path)
+        run: cargo check -p zero-proxy --no-default-features --features shadowsocks
+
+      - name: Check proxy feature (quic-flow-datagram)
+        run: cargo check -p zero-proxy --no-default-features --features hysteria2
+
+      - name: Check proxy feature (packet-stream)
+        run: cargo check -p zero-proxy --no-default-features --features trojan
+
+      - name: Check proxy feature (tuple-two-stream)
+        run: cargo check -p zero-proxy --no-default-features --features vless
+
+      - name: Check proxy feature (generic-tuple-stream)
+        run: cargo check -p zero-proxy --no-default-features --features mieru
+
+  optional-surface-compat:
+    name: Optional surface compatibility
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     needs: static
-    strategy:
-      fail-fast: false
-      matrix:
-        feature:
-          - status-api
-          - event-dispatcher
-          - connector
-          - grpc-api
     steps:
       - uses: actions/checkout@v4
 
@@ -180,7 +230,29 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            update
+          sudo timeout 5m apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            install -y --no-install-recommends protobuf-compiler
+          protoc --version
 
-      - name: Check optional surface independently
-        run: cargo check --no-default-features --features ${{ matrix.feature }}
+      - name: Check optional surface (status-api)
+        run: cargo check --no-default-features --features status-api
+
+      - name: Check optional surface (event-dispatcher)
+        run: cargo check --no-default-features --features event-dispatcher
+
+      - name: Check optional surface (connector)
+        run: cargo check --no-default-features --features connector
+
+      - name: Check optional surface (grpc-api)
+        run: cargo check --no-default-features --features grpc-api
