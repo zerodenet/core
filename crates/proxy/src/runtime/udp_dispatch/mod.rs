@@ -51,6 +51,8 @@
 
 // Sub-module declarations.
 
+#[cfg(feature = "udp-runtime")]
+mod backoff;
 mod dispatch;
 #[cfg(feature = "udp-runtime")]
 mod failure;

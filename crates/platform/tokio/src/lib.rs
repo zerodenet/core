@@ -11,8 +11,10 @@ use zero_traits::{
 };
 
 mod egress;
+mod process;
 use egress::{bind_tcp_to_interface, bind_udp_to_interface};
 pub use egress::{EgressInterface, EgressInterfaceControl};
+pub use process::{lookup_local_tcp_process, lookup_local_udp_process, LocalProcessInfo};
 
 #[derive(Debug)]
 pub struct TokioSocket {
@@ -234,7 +236,7 @@ impl TokioListener {
             .map(|inner| Self { inner })
     }
 
-    pub async fn accept(&self) -> io::Result<(TokioSocket, Option<IpAddress>)> {
+    pub async fn accept(&self) -> io::Result<(TokioSocket, Option<SocketAddress>)> {
         <Self as TcpListenerTrait>::accept(self).await
     }
 
@@ -247,12 +249,12 @@ impl TcpListenerTrait for TokioListener {
     type Stream = TokioSocket;
     type Error = io::Error;
 
-    async fn accept(&self) -> Result<(Self::Stream, Option<IpAddress>), Self::Error> {
+    async fn accept(&self) -> Result<(Self::Stream, Option<SocketAddress>), Self::Error> {
         let (stream, remote_addr) = self.inner.accept().await?;
 
         Ok((
             TokioSocket::new(stream),
-            Some(socket_addr_to_ip(remote_addr)),
+            Some(socket_addr_to_socket_address(remote_addr)),
         ))
     }
 }
@@ -286,10 +288,6 @@ pub fn socket_address_to_socket_addr(addr: SocketAddress) -> SocketAddr {
     socket_addr_from_ip(addr.ip, addr.port)
 }
 
-pub fn remote_ip_to_socket_addr(addr: Option<IpAddress>) -> Option<SocketAddr> {
-    addr.map(|ip| socket_addr_from_ip(ip, 0))
-}
-
 fn ip_addr_to_ip(addr: IpAddr) -> IpAddress {
     match addr {
         IpAddr::V4(addr) => IpAddress::V4(addr.octets()),
@@ -307,15 +305,22 @@ pub async fn relay_bidirectional(left: TokioSocket, right: TokioSocket) -> io::R
 #[derive(Debug)]
 pub struct TokioDatagramSocket {
     inner: UdpSocket,
+    egress_interface: Option<EgressInterface>,
 }
 
 impl TokioDatagramSocket {
     pub async fn bind(addr: &str) -> io::Result<Self> {
-        UdpSocket::bind(addr).await.map(|inner| Self { inner })
+        UdpSocket::bind(addr).await.map(|inner| Self {
+            inner,
+            egress_interface: None,
+        })
     }
 
     pub async fn bind_addr(addr: SocketAddr) -> io::Result<Self> {
-        UdpSocket::bind(addr).await.map(|inner| Self { inner })
+        UdpSocket::bind(addr).await.map(|inner| Self {
+            inner,
+            egress_interface: None,
+        })
     }
 
     /// Bind a datagram socket and force its packets onto a physical egress
@@ -327,10 +332,14 @@ impl TokioDatagramSocket {
         if interface.is_none() {
             return Self::bind_addr(addr).await;
         }
+        let interface = interface.expect("checked above");
         let socket = std::net::UdpSocket::bind(addr)?;
-        bind_udp_to_interface(&socket, addr, interface.expect("checked above"))?;
+        bind_udp_to_interface(&socket, addr, interface)?;
         socket.set_nonblocking(true)?;
-        UdpSocket::from_std(socket).map(|inner| Self { inner })
+        UdpSocket::from_std(socket).map(|inner| Self {
+            inner,
+            egress_interface: Some(interface.clone()),
+        })
     }
 
     /// Bind a datagram socket for a specific peer, applying the physical
@@ -339,12 +348,20 @@ impl TokioDatagramSocket {
         peer: SocketAddr,
         interface: Option<&EgressInterface>,
     ) -> io::Result<Self> {
+        let egress_interface = interface.filter(|_| !peer.ip().is_loopback()).cloned();
         let socket = bind_std_datagram_socket_for_peer(peer, interface)?;
-        UdpSocket::from_std(socket).map(|inner| Self { inner })
+        UdpSocket::from_std(socket).map(|inner| Self {
+            inner,
+            egress_interface,
+        })
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()
+    }
+
+    pub fn egress_interface(&self) -> Option<&EgressInterface> {
+        self.egress_interface.as_ref()
     }
 
     pub async fn recv_from_addr(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {

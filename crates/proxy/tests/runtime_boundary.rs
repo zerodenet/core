@@ -300,6 +300,30 @@ fn outbound_companion_sockets_use_the_shared_egress_factory() {
 }
 
 #[test]
+fn tun_udp_admission_is_bounded_and_preserves_the_real_source() {
+    let tun_udp = read_module(&proxy_src().join("inbound/tun/udp.rs"));
+    for required in [
+        "MAX_ACTIVE_ASSOCIATIONS",
+        "MAX_NEW_ASSOCIATIONS_PER_SECOND",
+        "try_send",
+        "record_failure",
+        "with_source_addr",
+        "MAX_CONCURRENT_DNS_QUERIES",
+    ] {
+        assert!(
+            tun_udp.contains(required),
+            "TUN UDP runtime must retain `{required}` storm protection"
+        );
+    }
+    assert!(!tun_udp.contains("association.sender.send(datagram).await"));
+
+    let dispatch_model = read(&proxy_src().join("runtime/udp_dispatch/model.rs"));
+    let dispatch_backoff = read(&proxy_src().join("runtime/udp_dispatch/backoff.rs"));
+    assert!(dispatch_model.contains("UdpFlowStartBackoff"));
+    assert!(dispatch_backoff.contains("MAX_TRACKED_FAILURES"));
+}
+
+#[test]
 fn inbound_route_contracts_implementations_and_execution_have_distinct_owners() {
     let core = read(&workspace_root().join("crates/core/src/inbound.rs"));
     for contract in [
@@ -2795,7 +2819,7 @@ fn udp_ingress_root_stays_facade_only() {
         "struct UdpIngressRuntime",
         "pub(crate) async fn new_dispatch",
         "pub(crate) async fn route_decision",
-        "pub(crate) fn prepare_udp_session",
+        "pub(crate) async fn prepare_udp_session",
         "pub(crate) async fn dispatch_inbound_packet",
     ] {
         assert!(
@@ -2807,7 +2831,7 @@ fn udp_ingress_root_stays_facade_only() {
         "pub(crate) struct UdpIngressRuntime",
         "pub(crate) async fn new_dispatch",
         "pub(crate) async fn route_decision",
-        "pub(crate) fn prepare_udp_session",
+        "pub(crate) async fn prepare_udp_session",
         "pub(crate) async fn dispatch_inbound_packet",
     ] {
         assert!(
@@ -2828,7 +2852,7 @@ fn tcp_ingress_runtime_root_stays_facade_only() {
         "pub(crate) struct TcpIngressRuntime",
         "pub(crate) async fn serve<P>(",
         "pub(crate) async fn route_decision",
-        "pub(crate) fn prepare_session",
+        "pub(crate) async fn prepare_session",
         "pub(crate) async fn open_tcp_upstream",
     ] {
         assert!(
@@ -2840,7 +2864,7 @@ fn tcp_ingress_runtime_root_stays_facade_only() {
         "pub(crate) struct TcpIngressRuntime",
         "pub(crate) async fn serve<P>(",
         "pub(crate) async fn route_decision",
-        "pub(crate) fn prepare_session",
+        "pub(crate) async fn prepare_session",
         "pub(crate) async fn open_tcp_upstream",
     ] {
         assert!(

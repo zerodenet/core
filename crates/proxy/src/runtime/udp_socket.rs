@@ -30,6 +30,10 @@ impl DirectUdpSockets {
                 error
             })
             .ok();
+        log_direct_socket("IPv4", &ipv4);
+        if let Some(ipv6) = ipv6.as_ref() {
+            log_direct_socket("IPv6", ipv6);
+        }
         Ok(Self {
             ipv4,
             ipv6,
@@ -77,6 +81,19 @@ impl DirectUdpSockets {
     }
 }
 
+#[cfg(feature = "udp-runtime")]
+fn log_direct_socket(family: &str, socket: &TokioDatagramSocket) {
+    let local = socket.local_addr().ok();
+    let egress = socket.egress_interface();
+    tracing::debug!(
+        family,
+        ?local,
+        egress_name = egress.map(zero_platform_tokio::EgressInterface::name),
+        egress_index = egress.map(zero_platform_tokio::EgressInterface::index),
+        "direct UDP socket bound"
+    );
+}
+
 /// Send UDP packet directly to target.
 #[cfg(feature = "udp-runtime")]
 pub(crate) async fn send_direct_udp_packet(
@@ -84,6 +101,15 @@ pub(crate) async fn send_direct_udp_packet(
     target_addr: SocketAddr,
     payload: &[u8],
 ) -> Result<usize, EngineError> {
+    let egress = socket.egress_interface();
+    tracing::trace!(
+        local = ?socket.local_addr().ok(),
+        target = %target_addr,
+        egress_name = egress.map(zero_platform_tokio::EgressInterface::name),
+        egress_index = egress.map(zero_platform_tokio::EgressInterface::index),
+        payload_len = payload.len(),
+        "direct UDP packet send"
+    );
     socket
         .send_to_addr(payload, target_addr)
         .await

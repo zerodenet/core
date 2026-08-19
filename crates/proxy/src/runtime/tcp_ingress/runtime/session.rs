@@ -49,7 +49,7 @@ impl TcpIngressRuntime {
         apply_kernel_rate_limits_from_config(self.services.config(), session, &self.inbound_tag);
     }
 
-    pub(crate) fn prepare_session(&self, session: &mut Session) -> Result<(), EngineError> {
+    pub(crate) async fn prepare_session(&self, session: &mut Session) -> Result<(), EngineError> {
         if let Some(addr) = self.source_addr {
             session.source_ip = Some(match addr.ip() {
                 std::net::IpAddr::V4(v4) => Address::Ipv4(v4.octets()),
@@ -58,9 +58,9 @@ impl TcpIngressRuntime {
             session.source_port = Some(addr.port());
         }
         if let Some(addr) = self.source_addr {
-            if let Some(info) = crate::process_lookup::lookup_process(addr) {
+            if let Some(info) = zero_platform_tokio::lookup_local_tcp_process(addr).await {
                 session.process_id = Some(info.pid);
-                session.process_name = Some(info.name);
+                session.process_name = info.name;
                 session.process_path = info.path;
             }
         }

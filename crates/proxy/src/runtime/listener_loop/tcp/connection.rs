@@ -68,7 +68,7 @@ where
                 match accept_result {
                     Ok((stream, remote_addr)) => {
                         let runtime = runtime_factory.for_connection(
-                            zero_platform_tokio::remote_ip_to_socket_addr(remote_addr),
+                            remote_addr.map(zero_platform_tokio::socket_address_to_socket_addr),
                         );
                         let handler = handler.clone();
                         connections.spawn(handler(runtime, stream));

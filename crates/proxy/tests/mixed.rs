@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use zero_config::RuntimeConfig;
+use zero_core::Address;
 use zero_proxy::Proxy as Engine;
 
 use support::{free_port, spawn_engine, wait_for_listener};
@@ -113,6 +114,7 @@ async fn mixed_inbound_accepts_socks5_and_http_on_same_port() {
     let mut http_client = TcpStream::connect(("127.0.0.1", mixed_port))
         .await
         .expect("connect mixed proxy for http");
+    let http_source = http_client.local_addr().expect("HTTP client source");
     let request = format!(
         "CONNECT 127.0.0.1:{http_echo_port} HTTP/1.1\r\nHost: 127.0.0.1:{http_echo_port}\r\n\r\n"
     );
@@ -130,6 +132,16 @@ async fn mixed_inbound_accepts_socks5_and_http_on_same_port() {
         &http_response,
         b"HTTP/1.1 200 Connection Established\r\n\r\n"
     );
+    let active = engine_handle.active_sessions();
+    assert_eq!(
+        active.len(),
+        1,
+        "one accepted HTTP CONNECT socket must create one active flow"
+    );
+    assert_eq!(active[0].source_ip, Some(Address::Ipv4([127, 0, 0, 1])));
+    assert_eq!(active[0].source_port, Some(http_source.port()));
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    assert_eq!(active[0].process_id, Some(std::process::id()));
 
     http_client
         .write_all(b"pong")

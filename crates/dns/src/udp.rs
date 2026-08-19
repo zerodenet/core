@@ -10,27 +10,35 @@ use std::net::SocketAddr;
 #[cfg(feature = "udp")]
 use std::time::Duration;
 #[cfg(feature = "udp")]
-use tokio::net::UdpSocket;
+use zero_platform_tokio::{EgressInterfaceControl, TokioDatagramSocket};
 
 /// Minimal UDP DNS resolver.
 #[cfg(feature = "udp")]
 pub(crate) struct UdpDnsResolver {
     addr: SocketAddr,
+    egress_interface: EgressInterfaceControl,
 }
 
 #[cfg(feature = "udp")]
 impl UdpDnsResolver {
-    pub(crate) fn new(addr: SocketAddr) -> Self {
-        Self { addr }
+    pub(crate) fn new(addr: SocketAddr, egress_interface: EgressInterfaceControl) -> Self {
+        Self {
+            addr,
+            egress_interface,
+        }
     }
 
     pub(crate) async fn resolve(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
-        let socket = UdpSocket::bind(if self.addr.is_ipv6() {
-            "[::]:0"
-        } else {
-            "0.0.0.0:0"
-        })
-        .await?;
+        let interface = self.egress_interface.current_for_peer(self.addr);
+        let socket = TokioDatagramSocket::bind_for_peer_on(self.addr, interface.as_ref()).await?;
+        let selected = socket.egress_interface();
+        tracing::debug!(
+            server = %self.addr,
+            local = ?socket.local_addr().ok(),
+            egress_name = selected.map(zero_platform_tokio::EgressInterface::name),
+            egress_index = selected.map(zero_platform_tokio::EgressInterface::index),
+            "DNS UDP socket bound"
+        );
         tokio::time::timeout(Duration::from_secs(10), async {
             let mut ips = self.query(&socket, domain, 0x0001).await?;
             if ips.is_empty() {
@@ -44,7 +52,7 @@ impl UdpDnsResolver {
 
     async fn query(
         &self,
-        socket: &UdpSocket,
+        socket: &TokioDatagramSocket,
         domain: &str,
         qtype: u16,
     ) -> io::Result<Vec<IpAddress>> {
@@ -52,7 +60,7 @@ impl UdpDnsResolver {
 
         // Try up to 2 attempts: first attempt, then one retransmission after 2s.
         for attempt in 0..2 {
-            socket.send_to(&msg, self.addr).await?;
+            socket.send_to_addr(&msg, self.addr).await?;
 
             let recv = tokio::time::timeout(
                 if attempt == 0 {
@@ -62,7 +70,7 @@ impl UdpDnsResolver {
                 },
                 async {
                     let mut buf = [0u8; 512];
-                    let (n, _) = socket.recv_from(&mut buf).await?;
+                    let (n, _) = socket.recv_from_addr(&mut buf).await?;
                     Ok::<_, io::Error>((n, buf))
                 },
             )

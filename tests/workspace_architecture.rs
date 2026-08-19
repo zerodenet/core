@@ -89,6 +89,71 @@ fn transport_does_not_project_engine_outbound_leaves() {
     }
 }
 
+#[test]
+fn dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority() {
+    let dns = workspace_root().join("crates/dns/src");
+    let dns_root = read(&dns.join("lib.rs"));
+    let udp = read(&dns.join("udp.rs"));
+    let backends = read(&dns.join("backends.rs"));
+    let proxy_runtime = read(&workspace_root().join("crates/proxy/src/runtime.rs"));
+
+    assert!(dns_root.contains("build_with_egress"));
+    assert!(proxy_runtime.contains("DnsSystem::build_with_egress"));
+    assert!(udp.contains("TokioDatagramSocket::bind_for_peer_on"));
+    assert!(udp.contains("current_for_peer"));
+    assert!(!udp.contains("tokio::net::UdpSocket"));
+    assert!(backends.contains("TokioSocket::connect_addr_on"));
+    assert!(backends.contains("current_for_peer"));
+    assert!(!backends.contains("TcpStream::connect"));
+
+    let direct = read(&workspace_root().join("crates/proxy/src/transport/direct.rs"));
+    let datagram = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));
+    assert!(direct.contains("current_for_peer"));
+    assert!(datagram.contains("current_for_peer"));
+}
+
+#[test]
+fn peer_identity_and_process_attribution_stay_in_their_owning_layers() {
+    let traits = read(&workspace_root().join("crates/traits/src/lib.rs"));
+    assert!(traits.contains("Option<SocketAddress>"));
+    assert!(!traits.contains("Option<IpAddress>) -> Result<(Self::Stream"));
+
+    let platform = workspace_root().join("crates/platform/tokio/src");
+    let platform_root = read(&platform.join("lib.rs"));
+    let process = read(&platform.join("process.rs"));
+    assert!(platform_root.contains("mod process;"));
+    assert!(platform_root.contains("lookup_local_tcp_process"));
+    assert!(platform_root.contains("lookup_local_udp_process"));
+    assert!(process.contains("spawn_blocking"));
+    for platform_contract in [
+        "GetExtendedTcpTable",
+        "GetExtendedUdpTable",
+        "get_sockets_info",
+        "/proc/net/{table}",
+    ] {
+        assert!(
+            process.contains(platform_contract),
+            "platform process lookup must retain `{platform_contract}` in zero-platform-tokio"
+        );
+    }
+
+    let proxy = workspace_root().join("crates/proxy/src");
+    assert!(!proxy.join("process_lookup.rs").exists());
+    for relative in [
+        "runtime/tcp_ingress/runtime/session.rs",
+        "runtime/udp_ingress/session.rs",
+    ] {
+        let source = read(&proxy.join(relative));
+        assert!(source.contains("zero_platform_tokio::lookup_local_"));
+        for forbidden in ["GetExtendedTcpTable", "get_sockets_info", "/proc/net/"] {
+            assert!(
+                !source.contains(forbidden),
+                "{relative} must not own platform process lookup detail `{forbidden}`"
+            );
+        }
+    }
+}
+
 fn dependency_line_is_optional(manifest: &str, dependency: &str) -> bool {
     manifest.lines().any(|line| {
         line.contains(dependency)

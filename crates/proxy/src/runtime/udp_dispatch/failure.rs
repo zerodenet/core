@@ -5,6 +5,7 @@ use zero_engine::EngineError;
 use super::UdpDispatch;
 use crate::logging::{log_session_failed, session_failure_observation};
 use crate::runtime::passive_relay_health::classify_relay_outcome;
+use crate::runtime::udp_flow::sessions::UdpFlowKey;
 use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
 
 impl UdpDispatch {
@@ -15,6 +16,14 @@ impl UdpDispatch {
         stage: &'static str,
         error: &EngineError,
     ) {
+        self.flow_start_backoff.record_failure(
+            UdpFlowKey::new(
+                &flow.session.target,
+                flow.session.port,
+                flow.client_session_id,
+            ),
+            Instant::now(),
+        );
         if let Some(completed) = self.flows.finish_with_failure(
             &flow.session.target,
             flow.session.port,

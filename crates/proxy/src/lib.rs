@@ -3,7 +3,6 @@ mod groups;
 mod inbound;
 mod inventory;
 mod logging;
-mod process_lookup;
 mod protocol_registry;
 mod register;
 mod runtime;

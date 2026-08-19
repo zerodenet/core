@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -15,10 +15,14 @@ use zero_traits::{IpAddress, SocketAddress, UdpStack};
 use crate::runtime::udp_ingress::UdpIngressRuntime;
 use crate::runtime::Proxy;
 
+mod association;
+use association::{AdmissionRejection, AssociationRegistry, Delivery};
+
 const ASSOCIATION_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const ASSOCIATION_QUEUE_CAPACITY: usize = 128;
+const MAX_CONCURRENT_DNS_QUERIES: usize = 256;
 
-struct TunDatagram {
+pub(super) struct TunDatagram {
     destination: SocketAddress,
     payload: Vec<u8>,
 }
@@ -33,11 +37,6 @@ struct TunUdpResponder {
     receiver: mpsc::Receiver<TunDatagram>,
     current_destination: Option<SocketAddress>,
     session_destinations: HashMap<u64, SocketAddress>,
-}
-
-struct Association {
-    id: u64,
-    sender: mpsc::Sender<TunDatagram>,
 }
 
 struct AssociationStart {
@@ -116,9 +115,10 @@ pub(super) async fn run(
 ) -> Result<(), EngineError> {
     let mut buffer = vec![0_u8; 65_535];
     let mut next_id = 1_u64;
-    let mut associations = HashMap::<SocketAddress, Association>::new();
+    let mut associations = AssociationRegistry::new();
     let mut tasks = JoinSet::new();
     let mut dns_tasks = JoinSet::new();
+    let mut last_dns_pressure_log = None;
 
     loop {
         tokio::select! {
@@ -127,6 +127,18 @@ pub(super) async fn run(
                     return Ok(());
                 };
                 if dns_hijack && destination.port == 53 {
+                    let now = Instant::now();
+                    if dns_tasks.len() >= MAX_CONCURRENT_DNS_QUERIES {
+                        if pressure_log_due(&mut last_dns_pressure_log, now) {
+                            tracing::warn!(
+                                ?source,
+                                ?destination,
+                                active_dns_queries = dns_tasks.len(),
+                                "dropping TUN DNS query at the concurrency limit"
+                            );
+                        }
+                        continue;
+                    }
                     let resolver = Arc::clone(&proxy.resolver);
                     let stack = Arc::clone(&stack);
                     let query = buffer[..size].to_vec();
@@ -141,50 +153,84 @@ pub(super) async fn run(
                     destination,
                     payload: buffer[..size].to_vec(),
                 };
-                let send_failed = match associations.get(&source) {
-                    Some(association) => association.sender.send(datagram).await.is_err(),
-                    None => {
-                        spawn_association(
-                            &mut tasks,
+                let now = Instant::now();
+                tracing::trace!(
+                    ?source,
+                    ?destination,
+                    association_id = associations.association_id(source),
+                    active_associations = associations.active_count(),
+                    "TUN UDP ingress"
+                );
+                match associations.deliver(source, datagram) {
+                    Delivery::Delivered => {}
+                    Delivery::Missing(datagram) => match associations.admit(source, now) {
+                        Ok(()) => {
+                            let id = next_id;
+                            spawn_association(
+                                &mut tasks,
+                                &mut associations,
+                                AssociationStart {
+                                    proxy: proxy.clone(),
+                                    stack: Arc::clone(&stack),
+                                    inbound_tag: inbound_tag.clone(),
+                                    source,
+                                    id,
+                                    first: datagram,
+                                },
+                            );
+                            tracing::trace!(
+                                ?source,
+                                ?destination,
+                                association_id = id,
+                                active_associations = associations.active_count(),
+                                "TUN UDP association started"
+                            );
+                            next_id = next_id.wrapping_add(1).max(1);
+                        }
+                        Err(reason) => log_pressure_drop(
                             &mut associations,
-                            AssociationStart {
-                                proxy: proxy.clone(),
-                                stack: Arc::clone(&stack),
-                                inbound_tag: inbound_tag.clone(),
-                                source,
-                                id: next_id,
-                                first: datagram,
-                            },
-                        ).await;
-                        next_id = next_id.wrapping_add(1).max(1);
-                        false
-                    }
-                };
-                if send_failed {
-                    associations.remove(&source);
-                    spawn_association(
-                        &mut tasks,
-                        &mut associations,
-                        AssociationStart {
-                            proxy: proxy.clone(),
-                            stack: Arc::clone(&stack),
-                            inbound_tag: inbound_tag.clone(),
+                            now,
                             source,
-                            id: next_id,
-                            first: TunDatagram {
-                                destination,
-                                payload: buffer[..size].to_vec(),
-                            },
-                        },
-                    ).await;
-                    next_id = next_id.wrapping_add(1).max(1);
+                            destination,
+                            reason,
+                        ),
+                    },
+                    Delivery::Full => {
+                        if associations.should_log_pressure(now) {
+                            tracing::warn!(
+                                ?source,
+                                ?destination,
+                                active_associations = associations.active_count(),
+                                "dropping TUN UDP datagram because its association queue is full"
+                            );
+                        }
+                    }
+                    Delivery::Closed(_datagram) => {
+                        if associations.remove(source) {
+                            associations.record_failure(source, now);
+                        }
+                        if associations.should_log_pressure(now) {
+                            tracing::warn!(
+                                ?source,
+                                ?destination,
+                                active_associations = associations.active_count(),
+                                "TUN UDP association closed; applying recreate backoff"
+                            );
+                        }
+                    }
                 }
             }
             Some(completed) = tasks.join_next(), if !tasks.is_empty() => {
                 match completed {
-                    Ok((source, id, Ok(()))) => remove_matching(&mut associations, source, id),
+                    Ok((source, id, Ok(()))) => {
+                        if associations.remove_matching(source, id) {
+                            associations.clear_failure(source);
+                        }
+                    }
                     Ok((source, id, Err(error))) => {
-                        remove_matching(&mut associations, source, id);
+                        if associations.remove_matching(source, id) {
+                            associations.record_failure(source, Instant::now());
+                        }
                         tracing::warn!(error = %error, ?source, "TUN UDP association failed");
                     }
                     Err(error) => tracing::warn!(error = %error, "TUN UDP association task panicked"),
@@ -201,9 +247,17 @@ pub(super) async fn run(
     }
 }
 
-async fn spawn_association(
+fn pressure_log_due(last: &mut Option<Instant>, now: Instant) -> bool {
+    if last.is_some_and(|last| now.saturating_duration_since(last) < Duration::from_secs(1)) {
+        return false;
+    }
+    *last = Some(now);
+    true
+}
+
+fn spawn_association(
     tasks: &mut JoinSet<(SocketAddress, u64, Result<(), EngineError>)>,
-    associations: &mut HashMap<SocketAddress, Association>,
+    associations: &mut AssociationRegistry,
     start: AssociationStart,
 ) {
     let AssociationStart {
@@ -216,17 +270,12 @@ async fn spawn_association(
     } = start;
     let (sender, receiver) = mpsc::channel(ASSOCIATION_QUEUE_CAPACITY);
     sender
-        .send(first)
-        .await
+        .try_send(first)
         .expect("new TUN UDP association receiver must be open");
-    associations.insert(
-        source,
-        Association {
-            id,
-            sender: sender.clone(),
-        },
-    );
-    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
+    associations.insert(source, id, sender);
+    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services()).with_source_addr(Some(
+        zero_platform_tokio::socket_address_to_socket_addr(source),
+    ));
     tasks.spawn(async move {
         let result = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
             runtime,
@@ -240,16 +289,21 @@ async fn spawn_association(
     });
 }
 
-fn remove_matching(
-    associations: &mut HashMap<SocketAddress, Association>,
+fn log_pressure_drop(
+    associations: &mut AssociationRegistry,
+    now: Instant,
     source: SocketAddress,
-    id: u64,
+    destination: SocketAddress,
+    reason: AdmissionRejection,
 ) {
-    if associations
-        .get(&source)
-        .is_some_and(|association| association.id == id)
-    {
-        associations.remove(&source);
+    if associations.should_log_pressure(now) {
+        tracing::warn!(
+            ?source,
+            ?destination,
+            ?reason,
+            active_associations = associations.active_count(),
+            "dropping new TUN UDP association under admission pressure"
+        );
     }
 }
 

@@ -30,6 +30,55 @@ fn controller_selects_independent_ipv4_and_ipv6_interfaces() {
 }
 
 #[test]
+fn peer_selection_preserves_a_more_specific_non_tun_route() {
+    let (peer, route_source) = [
+        ("0.0.0.0:0", "192.0.2.1:8000"),
+        ("[::]:0", "[2001:db8::1]:8000"),
+    ]
+    .into_iter()
+    .find_map(|(wildcard, peer)| {
+        let peer = peer.parse::<std::net::SocketAddr>().ok()?;
+        let probe = std::net::UdpSocket::bind(wildcard).ok()?;
+        probe.connect(peer).ok()?;
+        let source = probe.local_addr().ok()?.ip();
+        (!source.is_unspecified() && !source.is_loopback()).then_some((peer, source))
+    })
+    .expect("host must expose an IPv4 or IPv6 route for route-selection tests");
+
+    let controller = EgressInterfaceControl::default();
+    let physical = EgressInterface::new("physical0", 7).expect("valid physical interface");
+    controller.replace_for(peer.is_ipv6(), Some(physical.clone()));
+    let candidates = if route_source.is_ipv6() {
+        ["fd66::1", "fd66::2"]
+    } else {
+        ["10.66.0.1", "10.66.0.2"]
+    };
+    let non_route_source = candidates
+        .into_iter()
+        .map(|address| address.parse::<std::net::IpAddr>().unwrap())
+        .find(|address| *address != route_source)
+        .expect("one synthetic TUN address must differ from the route source");
+    controller.replace_tunnel_addresses([non_route_source]);
+
+    assert!(controller.current_for_peer(peer).is_none());
+
+    controller.replace_tunnel_addresses([route_source]);
+    assert_eq!(controller.current_for_peer(peer), Some(physical));
+}
+
+#[test]
+fn peer_selection_is_fail_safe_before_tun_addresses_are_published() {
+    let controller = EgressInterfaceControl::default();
+    let physical = EgressInterface::new("physical0", 7).expect("valid physical interface");
+    controller.replace_for(false, Some(physical.clone()));
+
+    assert_eq!(
+        controller.current_for_peer("192.0.2.1:443".parse().unwrap()),
+        Some(physical)
+    );
+}
+
+#[test]
 fn interface_identity_rejects_incomplete_values() {
     assert!(EgressInterface::new("", 1).is_err());
     assert!(EgressInterface::new("physical0", 0).is_err());
@@ -61,4 +110,5 @@ async fn loopback_datagram_does_not_bind_to_physical_egress() {
             .expect("loopback datagram must ignore physical egress binding");
 
     assert!(socket.local_addr().unwrap().is_ipv4());
+    assert!(socket.egress_interface().is_none());
 }

@@ -59,6 +59,7 @@ async fn tcp_listener_accepts_connection_and_stops_on_shutdown() {
     let client = tokio::net::TcpStream::connect(listen_addr)
         .await
         .expect("connect listener");
+    let client_addr = client.local_addr().expect("client address");
     tokio::time::timeout(Duration::from_secs(2), accepted.notified())
         .await
         .expect("handler was not invoked");
@@ -74,7 +75,7 @@ async fn tcp_listener_accepts_connection_and_stops_on_shutdown() {
     let observations = observations.lock().expect("observations lock");
     assert_eq!(observations.len(), 1);
     assert_eq!(observations[0].0, "listener-test");
-    assert!(observations[0].1.is_some());
+    assert_eq!(observations[0].1, Some(client_addr));
 }
 
 #[cfg(feature = "transport_quic")]

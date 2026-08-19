@@ -33,6 +33,7 @@ use system::TokioSystemResolver;
 /// hot-reloaded without restarting the proxy.
 pub struct DnsSystem {
     inner: std::sync::RwLock<DnsSystemInner>,
+    egress_interface: zero_platform_tokio::EgressInterfaceControl,
 }
 
 impl fmt::Debug for DnsSystem {
@@ -71,12 +72,28 @@ struct ResolveSnapshot {
 impl DnsSystem {
     /// Build a `DnsSystem` from optional config.
     pub fn build(config: Option<&DnsConfig>) -> io::Result<Self> {
+        Self::build_with_egress(
+            config,
+            zero_platform_tokio::EgressInterfaceControl::default(),
+        )
+    }
+
+    /// Build a DNS system whose owned sockets follow the shared physical
+    /// egress selected by the TUN route transaction.
+    pub fn build_with_egress(
+        config: Option<&DnsConfig>,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    ) -> io::Result<Self> {
         Ok(Self {
-            inner: std::sync::RwLock::new(Self::build_inner(config)?),
+            inner: std::sync::RwLock::new(Self::build_inner(config, &egress_interface)?),
+            egress_interface,
         })
     }
 
-    fn build_inner(config: Option<&DnsConfig>) -> io::Result<DnsSystemInner> {
+    fn build_inner(
+        config: Option<&DnsConfig>,
+        egress_interface: &zero_platform_tokio::EgressInterfaceControl,
+    ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
             return Ok(DnsSystemInner::System(TokioSystemResolver));
         };
@@ -87,7 +104,10 @@ impl DnsSystem {
 
         let mut servers: Vec<Arc<ResolverBackend>> = Vec::with_capacity(cfg.servers.len());
         for s in &cfg.servers {
-            servers.push(Arc::new(ResolverBackend::build(s)?));
+            servers.push(Arc::new(ResolverBackend::build(
+                s,
+                egress_interface.clone(),
+            )?));
         }
 
         let router = DnsRouter::new(&cfg.routes, servers.len());
@@ -113,7 +133,7 @@ impl DnsSystem {
     /// In-flight resolutions continue using the old inner state until they
     /// complete; new resolutions see the updated config immediately.
     pub fn reload(&self, config: Option<&DnsConfig>) -> io::Result<()> {
-        let new_inner = Self::build_inner(config)?;
+        let new_inner = Self::build_inner(config, &self.egress_interface)?;
         let mut guard = self.inner.write().expect("dns system lock poisoned");
         *guard = new_inner;
         Ok(())

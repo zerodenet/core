@@ -199,6 +199,8 @@ impl Proxy {
             }
         };
         let mut route_error = installed.last_error;
+        self.egress_interface
+            .replace_tunnel_addresses(interface_addresses.iter().map(|address| address.address));
         let route_monitor = if auto_route {
             match zero_tun::RouteChangeMonitor::new() {
                 Ok(monitor) => Some(monitor),

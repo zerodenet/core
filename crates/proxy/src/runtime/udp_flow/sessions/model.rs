@@ -11,7 +11,7 @@ use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
 use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct UdpFlowKey {
+pub(crate) struct UdpFlowKey {
     pub(super) target: Address,
     pub(super) port: u16,
     /// Per-client-session isolation key.
@@ -24,7 +24,7 @@ pub(super) struct UdpFlowKey {
 }
 
 impl UdpFlowKey {
-    pub(super) fn new(target: &Address, port: u16, client_session_id: Option<u64>) -> Self {
+    pub(crate) fn new(target: &Address, port: u16, client_session_id: Option<u64>) -> Self {
         Self {
             target: target.clone(),
             port,

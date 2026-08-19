@@ -32,7 +32,11 @@ pub(crate) enum ResolverBackend {
 
 impl ResolverBackend {
     /// Build a backend from its config.
-    pub(crate) fn build(server: &DnsServerConfig) -> io::Result<Self> {
+    pub(crate) fn build(
+        server: &DnsServerConfig,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    ) -> io::Result<Self> {
+        let _ = &egress_interface;
         match server {
             DnsServerConfig::System => Ok(Self::System(TokioSystemResolver)),
             #[cfg(feature = "udp")]
@@ -43,9 +47,10 @@ impl ResolverBackend {
                         format!("invalid UDP DNS address `{address}`: {error}"),
                     )
                 })?;
-                Ok(Self::Udp(UdpDnsResolver::new(std::net::SocketAddr::new(
-                    address, *port,
-                ))))
+                Ok(Self::Udp(UdpDnsResolver::new(
+                    std::net::SocketAddr::new(address, *port),
+                    egress_interface,
+                )))
             }
             #[cfg(not(feature = "udp"))]
             DnsServerConfig::Udp { .. } => Err(io::Error::new(
@@ -56,6 +61,7 @@ impl ResolverBackend {
             DnsServerConfig::Doh { url, server_name } => Ok(Self::Doh(DohDnsResolver::new(
                 url.clone(),
                 server_name.clone(),
+                egress_interface,
             )?)),
             #[cfg(not(feature = "doh"))]
             DnsServerConfig::Doh { .. } => Err(io::Error::new(
@@ -71,6 +77,7 @@ impl ResolverBackend {
                 address.clone(),
                 *port,
                 server_name.clone(),
+                egress_interface,
             )?)),
             #[cfg(not(feature = "dot"))]
             DnsServerConfig::Dot { .. } => Err(io::Error::new(
@@ -97,19 +104,34 @@ impl ResolverBackend {
 
 #[cfg(feature = "doh")]
 pub(crate) struct DohDnsResolver {
-    client: reqwest::Client,
     url: String,
+    egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    client: std::sync::Mutex<DohClientState>,
+}
+
+#[cfg(feature = "doh")]
+struct DohClientState {
+    egress_interface: Option<zero_platform_tokio::EgressInterface>,
+    client: reqwest::Client,
 }
 
 #[cfg(feature = "doh")]
 impl DohDnsResolver {
-    fn new(url: String, _server_name: Option<String>) -> io::Result<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(DNS_TIMEOUT)
-            .build()
-            .map_err(|e| io::Error::other(format!("failed to build doh client: {e}")))?;
-
-        Ok(Self { client, url })
+    fn new(
+        url: String,
+        _server_name: Option<String>,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    ) -> io::Result<Self> {
+        let selected = doh_egress_interface(&egress_interface);
+        let client = build_doh_client(selected.as_ref())?;
+        Ok(Self {
+            url,
+            egress_interface,
+            client: std::sync::Mutex::new(DohClientState {
+                egress_interface: selected,
+                client,
+            }),
+        })
     }
 
     async fn resolve(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
@@ -123,9 +145,9 @@ impl DohDnsResolver {
 
     async fn query(&self, domain: &str, qtype: u16) -> io::Result<Vec<IpAddress>> {
         let msg = crate::udp::build_query(domain, qtype);
+        let client = self.client()?;
 
-        let response = self
-            .client
+        let response = client
             .post(&self.url)
             .header("Content-Type", "application/dns-message")
             .header("Accept", "application/dns-message")
@@ -148,6 +170,97 @@ impl DohDnsResolver {
 
         crate::udp::parse_response(&body, qtype)
     }
+
+    fn client(&self) -> io::Result<reqwest::Client> {
+        let selected = doh_egress_interface(&self.egress_interface);
+        let mut state = self.client.lock().expect("DoH client lock poisoned");
+        if state.egress_interface != selected {
+            state.client = build_doh_client(selected.as_ref())?;
+            state.egress_interface = selected;
+        }
+        Ok(state.client.clone())
+    }
+}
+
+#[cfg(feature = "doh")]
+fn build_doh_client(
+    interface: Option<&zero_platform_tokio::EgressInterface>,
+) -> io::Result<reqwest::Client> {
+    let client = reqwest::Client::builder().timeout(DNS_TIMEOUT);
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "solaris",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos",
+    ))]
+    let client = match interface {
+        Some(interface) => client.interface(interface.name()),
+        None => client,
+    };
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "solaris",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos",
+    )))]
+    let _ = interface;
+    client
+        .build()
+        .map_err(|error| io::Error::other(format!("failed to build doh client: {error}")))
+}
+
+#[cfg(all(
+    feature = "doh",
+    any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "solaris",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos",
+    )
+))]
+fn doh_egress_interface(
+    control: &zero_platform_tokio::EgressInterfaceControl,
+) -> Option<zero_platform_tokio::EgressInterface> {
+    control.current()
+}
+
+#[cfg(all(
+    feature = "doh",
+    not(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "solaris",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos",
+    ))
+))]
+fn doh_egress_interface(
+    _control: &zero_platform_tokio::EgressInterfaceControl,
+) -> Option<zero_platform_tokio::EgressInterface> {
+    None
 }
 
 // ── DoT resolver ──────────────────────────────────────────────────────
@@ -157,11 +270,17 @@ pub(crate) struct DotDnsResolver {
     addr: SocketAddr,
     server_name: String,
     tls_config: Arc<rustls::ClientConfig>,
+    egress_interface: zero_platform_tokio::EgressInterfaceControl,
 }
 
 #[cfg(feature = "dot")]
 impl DotDnsResolver {
-    fn new(address: String, port: u16, server_name: Option<String>) -> io::Result<Self> {
+    fn new(
+        address: String,
+        port: u16,
+        server_name: Option<String>,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    ) -> io::Result<Self> {
         let ip = address.parse::<std::net::IpAddr>().map_err(|e| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -183,6 +302,7 @@ impl DotDnsResolver {
             addr,
             server_name,
             tls_config,
+            egress_interface,
         })
     }
 
@@ -196,12 +316,21 @@ impl DotDnsResolver {
 
     async fn query(&self, domain: &str, qtype: u16) -> io::Result<Vec<IpAddress>> {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::net::TcpStream;
-
-        let tcp_stream: TcpStream =
-            tokio::time::timeout(DNS_TIMEOUT, TcpStream::connect(self.addr))
-                .await
-                .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "dot connect timeout"))??;
+        let interface = self.egress_interface.current_for_peer(self.addr);
+        let tcp_stream = tokio::time::timeout(
+            DNS_TIMEOUT,
+            zero_platform_tokio::TokioSocket::connect_addr_on(self.addr, interface.as_ref()),
+        )
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "dot connect timeout"))??;
+        let selected = tcp_stream.egress_interface();
+        tracing::debug!(
+            server = %self.addr,
+            local = ?tcp_stream.local_addr().ok(),
+            egress_name = selected.map(zero_platform_tokio::EgressInterface::name),
+            egress_index = selected.map(zero_platform_tokio::EgressInterface::index),
+            "DNS-over-TLS socket connected"
+        );
 
         let server_name = rustls::pki_types::ServerName::try_from(self.server_name.clone())
             .map_err(|e| {
@@ -212,7 +341,7 @@ impl DotDnsResolver {
             })?;
 
         let connector = tokio_rustls::TlsConnector::from(Arc::clone(&self.tls_config));
-        let mut tls_stream: tokio_rustls::client::TlsStream<TcpStream> =
+        let mut tls_stream =
             tokio::time::timeout(DNS_TIMEOUT, connector.connect(server_name, tcp_stream))
                 .await
                 .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "dot tls handshake timeout"))?

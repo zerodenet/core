@@ -28,6 +28,9 @@ where
         .await
     {
         Ok(session_id) => responder.on_dispatch_success(session_id, &inbound_dispatch),
+        Err(zero_engine::EngineError::AdmissionDenied { reason }) => {
+            tracing::debug!(%reason, "datagram UDP flow start suppressed by backoff")
+        }
         Err(error) => tracing::warn!(error = %error, "datagram udp dispatch failed"),
     }
     true

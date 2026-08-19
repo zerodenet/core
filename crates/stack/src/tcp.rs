@@ -21,7 +21,7 @@ use std::io;
 use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::task::{Context, Poll};
@@ -38,6 +38,7 @@ use crate::packet::{self, tcp_flags, Endpoint, ParsedTcp};
 // ── ISS generator ─────────────────────────────────────────────────────
 
 static NEXT_ISS: AtomicU32 = AtomicU32::new(1_000_000);
+static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
 
 fn next_iss() -> u32 {
     NEXT_ISS.fetch_add(128_000, Ordering::Relaxed)
@@ -78,6 +79,7 @@ enum TcpState {
 
 /// Per-connection state tracked by the stack.
 struct Conn {
+    id: u64,
     state: TcpState,
     /// Next sequence number to send (our side).
     snd_nxt: Arc<AtomicU32>,
@@ -248,6 +250,8 @@ impl AsyncWrite for UserTcpStream {
 // ── Established connection ────────────────────────────────────────────
 
 struct ReadyConn {
+    key: ConnKey,
+    id: u64,
     stream: UserTcpStream,
     src: SocketAddress,
     dst: SocketAddress,
@@ -344,7 +348,13 @@ impl TcpStack for UserTcpStack {
 
                     let src = endpoint_to_sockaddr(&tcp.src);
                     let dst = endpoint_to_sockaddr(&tcp.dst);
-                    match self.accept_tx.try_send(ReadyConn { stream, src, dst }) {
+                    match self.accept_tx.try_send(ReadyConn {
+                        key,
+                        id: conn.id,
+                        stream,
+                        src,
+                        dst,
+                    }) {
                         Ok(()) => tracing::trace!(?key, "user TCP connection queued for accept"),
                         Err(error) => {
                             warn!("tcp accept channel rejected connection: {error}");
@@ -452,6 +462,7 @@ impl TcpStack for UserTcpStack {
         conns.insert(
             key,
             Conn {
+                id: NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed),
                 state: TcpState::SynReceived,
                 snd_nxt,
                 rcv_nxt,
@@ -467,9 +478,30 @@ impl TcpStack for UserTcpStack {
 
     async fn accept(&self) -> Option<(Self::Connection, SocketAddress, SocketAddress)> {
         let mut rx = self.accept_rx.lock().await;
-        let conn = rx.recv().await?;
-        tracing::trace!(source = ?conn.src, destination = ?conn.dst, "user TCP connection accepted");
-        Some((conn.stream, conn.src, conn.dst))
+        loop {
+            let ready = rx.recv().await?;
+            let is_current = self
+                .connections
+                .lock()
+                .await
+                .get(&ready.key)
+                .is_some_and(|conn| conn.id == ready.id && conn.state == TcpState::Established);
+            if !is_current {
+                tracing::debug!(
+                    key = ?ready.key,
+                    connection_id = ready.id,
+                    "discarding stale user TCP accept entry"
+                );
+                continue;
+            }
+            tracing::trace!(
+                source = ?ready.src,
+                destination = ?ready.dst,
+                connection_id = ready.id,
+                "user TCP connection accepted"
+            );
+            return Some((ready.stream, ready.src, ready.dst));
+        }
     }
 }
 

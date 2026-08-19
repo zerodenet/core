@@ -10,7 +10,7 @@ impl UdpIngressRuntime {
         let _ = self.tcp_services.resolver().resolve(domain).await;
     }
 
-    pub(crate) fn prepare_udp_session(
+    pub(crate) async fn prepare_udp_session(
         &self,
         session: &mut Session,
         inbound_tag: &str,
@@ -22,6 +22,16 @@ impl UdpIngressRuntime {
                     std::net::IpAddr::V6(ip) => zero_core::Address::Ipv6(ip.octets()),
                 });
                 session.source_port = Some(source_addr.port());
+            }
+        }
+        if session.process_id.is_none() {
+            if let Some(source_addr) = self.source_addr {
+                if let Some(info) = zero_platform_tokio::lookup_local_udp_process(source_addr).await
+                {
+                    session.process_id = Some(info.pid);
+                    session.process_name = info.name;
+                    session.process_path = info.path;
+                }
             }
         }
         apply_kernel_rate_limits_from_config(self.tcp_services.config(), session, inbound_tag);

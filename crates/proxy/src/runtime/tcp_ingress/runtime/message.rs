@@ -30,7 +30,7 @@ impl TcpIngressRuntime {
             protocol.set_effective_target(&mut request, &session.target, session.port);
         }
         self.apply_kernel_rate_limits(&mut session);
-        self.prepare_session(&mut session)?;
+        self.prepare_session(&mut session).await?;
         let rate_limiters = self.traffic_rate_limiters(&session);
         let mut handle = self.track_session(session.id);
         let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel();

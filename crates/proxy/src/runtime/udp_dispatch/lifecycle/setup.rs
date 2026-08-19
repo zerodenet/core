@@ -20,6 +20,7 @@ impl UdpDispatch {
             runtime,
             inbound_tag: inbound_tag.to_owned(),
             flows: UdpSessionFlows::default(),
+            flow_start_backoff: Default::default(),
             direct_socket,
             flow_state: UdpFlowState::new(protocols.registered_udp_handlers()),
             cancel_tx,

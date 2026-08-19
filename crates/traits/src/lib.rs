@@ -114,7 +114,11 @@ pub trait TcpListener: Send + Sync {
     type Stream: AsyncSocket;
     type Error;
 
-    async fn accept(&self) -> Result<(Self::Stream, Option<IpAddress>), Self::Error>;
+    /// Accept a stream together with its complete remote socket identity.
+    ///
+    /// The source port is part of a TCP flow's identity and must not be
+    /// discarded by runtime-neutral listener implementations.
+    async fn accept(&self) -> Result<(Self::Stream, Option<SocketAddress>), Self::Error>;
 }
 
 pub trait DatagramSocket: Send + Sync + Unpin {

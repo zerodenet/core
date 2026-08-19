@@ -136,7 +136,10 @@ impl Proxy {
         let protocols = ProtocolInventory::default();
         let config = engine.config();
         protocols.validate_config(&config)?;
-        let dns = DnsSystem::build(config.runtime.dns.as_ref()).map_err(EngineError::Io)?;
+        let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
+        let dns =
+            DnsSystem::build_with_egress(config.runtime.dns.as_ref(), egress_interface.clone())
+                .map_err(EngineError::Io)?;
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
         Ok(Self {
@@ -144,7 +147,7 @@ impl Proxy {
             engine,
             resolver: Arc::new(dns),
             protocols,
-            egress_interface: zero_platform_tokio::EgressInterfaceControl::default(),
+            egress_interface,
             tun_control: Arc::new(std::sync::Mutex::new(None)),
             tun_info: Arc::new(std::sync::Mutex::new(None)),
             tun_last_error: Arc::new(std::sync::Mutex::new(None)),

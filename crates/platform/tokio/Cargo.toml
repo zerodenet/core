@@ -15,4 +15,13 @@ zero-traits = { path = "../../traits" }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libproc = "0.14.11"
+netstat2 = "0.11.2"

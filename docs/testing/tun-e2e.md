@@ -17,7 +17,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 - `dual_stack=true`：在同一设备上配置 IPv4/IPv6 两个地址，并同时安装两组拆分默认路由；`secondary_addr` 可显式指定另一族 CIDR，省略时按主地址族使用 `10.66.0.1/24` 或 `fd66::1/64`；只有明确的单栈主机才应关闭，否则另一地址族仍可能绕过 TUN；
 - `strict_route=true`：underlay 出口、仍需保留的 DNS bootstrap 排除或任一半默认路由失败时，启动整体失败并回滚已安装项；未选中的坏代理节点不影响 TUN 启动；
 - `dns_hijack=true`：TUN 内的 UDP/TCP 53 由 Zero DNS 回答，并使用已有缓存、DNS 路由和 Fake-IP；
-- 代理节点不再获得自动 host route；Zero 创建的 TCP/UDP/QUIC socket 按 IPv4/IPv6 分别绑定各自 underlay 接口，避免代理自环。DNS bootstrap 排除暂时保留，直到相应 DNS socket 全部出口感知。
+- 代理节点不再获得自动 host route；Zero 创建的 TCP/UDP/QUIC socket 按 IPv4/IPv6 分别绑定各自 underlay 接口，避免代理自环。DNS UDP 与 DoT socket 使用同一出口权威；DoH/系统 bootstrap 仍由显式 DNS 排除或操作系统解析路径保护。
 - macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。
 
@@ -120,6 +120,8 @@ dig @8.8.8.8 example.com A
 ```
 
 `dig` 的目标地址可以是任意 DNS 地址；启用 DNS 劫持时 UDP/TCP 53 查询不会发往该目标，而是由 Zero DNS 返回。启用 Fake-IP 后，A 响应应位于配置的 Fake-IP 网段，后续到该地址的 TCP/UDP 会在路由决策前恢复为原域名。
+
+持续向同一 UDP 目标发送请求时，会话 API 应只保留同一源 tuple 对应的一条活动 flow，并显示应用的真实 TUN 源 IP/端口，而不是 `127.0.0.1:0`。制造大量不同源端口或让目标持续发送失败时，活动 association 数必须保持有界；日志可以出现限速丢包或退避，但不能出现单个目标每包创建一个新 session 的单调增长，也不能演化为 `WSAENOBUFS` 紧密循环。
 
 ### macOS
 

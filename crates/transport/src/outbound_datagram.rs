@@ -18,7 +18,7 @@ impl OutboundDatagramSocketFactory {
     }
 
     pub fn egress_for(&self, peer: SocketAddr) -> Option<zero_platform_tokio::EgressInterface> {
-        self.egress.current_for(peer.is_ipv6())
+        self.egress.current_for_peer(peer)
     }
 
     pub fn bind_std(&self, peer: SocketAddr) -> io::Result<std::net::UdpSocket> {

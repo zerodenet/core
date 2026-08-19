@@ -1,5 +1,5 @@
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, RwLock};
 
 use tokio::net::TcpSocket;
@@ -43,6 +43,7 @@ pub struct EgressInterfaceControl(Arc<RwLock<EgressInterfaces>>);
 struct EgressInterfaces {
     ipv4: Option<EgressInterface>,
     ipv6: Option<EgressInterface>,
+    tunnel_addresses: Vec<IpAddr>,
 }
 
 impl EgressInterfaceControl {
@@ -58,6 +59,41 @@ impl EgressInterfaceControl {
         } else {
             interfaces.ipv4.clone()
         }
+    }
+
+    /// Select a forced physical egress only when the system route for `peer`
+    /// would otherwise send the socket back through the active TUN device.
+    ///
+    /// More-specific routes through a LAN, VPN, or another local interface
+    /// keep normal kernel routing. Failure to probe is fail-safe: the physical
+    /// egress remains selected so an unknown route cannot create a TUN loop.
+    pub fn current_for_peer(&self, peer: SocketAddr) -> Option<EgressInterface> {
+        if peer.ip().is_loopback() {
+            return None;
+        }
+        let (physical, tunnel_addresses) = {
+            let interfaces = self.0.read().expect("egress interface lock poisoned");
+            let physical = if peer.is_ipv6() {
+                interfaces.ipv6.clone()
+            } else {
+                interfaces.ipv4.clone()
+            }?;
+            (physical, interfaces.tunnel_addresses.clone())
+        };
+        if tunnel_addresses.is_empty() {
+            return Some(physical);
+        }
+        match route_source_for(peer) {
+            Ok(source) if !tunnel_addresses.contains(&source) => None,
+            Ok(_) | Err(_) => Some(physical),
+        }
+    }
+
+    pub fn replace_tunnel_addresses(&self, addresses: impl IntoIterator<Item = IpAddr>) {
+        self.0
+            .write()
+            .expect("egress interface lock poisoned")
+            .tunnel_addresses = addresses.into_iter().collect();
     }
 
     pub fn replace(&self, interface: Option<EgressInterface>) -> Option<EgressInterface> {
@@ -80,6 +116,17 @@ impl EgressInterfaceControl {
     pub fn clear(&self) {
         *self.0.write().expect("egress interface lock poisoned") = EgressInterfaces::default();
     }
+}
+
+fn route_source_for(peer: SocketAddr) -> io::Result<IpAddr> {
+    let wildcard = if peer.is_ipv6() {
+        "[::]:0"
+    } else {
+        "0.0.0.0:0"
+    };
+    let socket = std::net::UdpSocket::bind(wildcard)?;
+    socket.connect(peer)?;
+    socket.local_addr().map(|address| address.ip())
 }
 
 #[cfg(target_os = "linux")]

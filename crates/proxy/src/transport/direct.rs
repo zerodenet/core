@@ -25,11 +25,20 @@ impl DirectConnector {
     ) -> Result<(TokioSocket, SocketAddr), Error> {
         let addr = self.resolve_target_addr(session, resolver).await?;
 
-        let interface = egress.current_for(addr.is_ipv6());
+        let interface = egress.current_for_peer(addr);
         TokioSocket::connect_addr_on(addr, interface.as_ref())
             .await
             .map(|socket| (socket, addr))
-            .map_err(|_| Error::Io("failed to connect direct target"))
+            .map_err(|error| {
+                tracing::debug!(
+                    target = %addr,
+                    egress_name = interface.as_ref().map(|value| value.name()),
+                    egress_index = interface.as_ref().map(|value| value.index()),
+                    error = %error,
+                    "direct TCP connect failed"
+                );
+                Error::Io("failed to connect direct target")
+            })
     }
 
     pub(crate) async fn resolve_target_addr(
@@ -61,10 +70,19 @@ impl DirectConnector {
 
         let addr = resolve_host(host, port, resolver, "failed to resolve upstream target").await?;
 
-        let interface = egress.current_for(addr.is_ipv6());
+        let interface = egress.current_for_peer(addr);
         TokioSocket::connect_addr_on(addr, interface.as_ref())
             .await
-            .map_err(|_| Error::Io("failed to connect upstream target"))
+            .map_err(|error| {
+                tracing::debug!(
+                    target = %addr,
+                    egress_name = interface.as_ref().map(|value| value.name()),
+                    egress_index = interface.as_ref().map(|value| value.index()),
+                    error = %error,
+                    "upstream TCP connect failed"
+                );
+                Error::Io("failed to connect upstream target")
+            })
     }
 
     pub(crate) async fn resolve_address(

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use zero_config::RuntimeConfig;
+use zero_core::Address;
 use zero_stack::{packet, UserNetworkStack};
 use zero_traits::UdpStack;
 
@@ -94,6 +95,67 @@ async fn tun_udp_direct_dispatch_supports_ipv6_targets_and_responses() {
     assert_eq!(response.src.ip, echo_addr.ip());
     assert_eq!(response.dst.ip, IpAddr::V6(source_ip));
     assert_eq!(response.payload, b"through-kernel-v6");
+
+    task.abort();
+}
+
+#[tokio::test]
+async fn repeated_tun_udp_destination_reuses_flow_and_records_real_source() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "route": {"rules": [], "final": {"type": "direct"}}
+        }"#,
+    )
+    .expect("parse direct config");
+    let proxy = crate::runtime::Proxy::new(config).expect("create proxy");
+    let engine = proxy.engine().clone();
+    let echo = UdpSocket::bind("127.0.0.1:0").await.expect("bind echo");
+    let echo_addr = echo.local_addr().expect("echo address");
+    tokio::spawn(async move {
+        let mut buffer = [0_u8; 64];
+        for _ in 0..2 {
+            let (size, peer) = echo.recv_from(&mut buffer).await.expect("receive echo");
+            echo.send_to(&buffer[..size], peer)
+                .await
+                .expect("send echo");
+        }
+    });
+
+    let (outbound, mut packets) = mpsc::channel(8);
+    let stack = UserNetworkStack::new(outbound, 1440);
+    let (_tcp, udp) = stack.into_parts();
+    let task = tokio::spawn(run(proxy, Arc::clone(&udp), "tun-test".to_owned(), false));
+    let source_ip = Ipv4Addr::new(10, 0, 0, 2);
+    let source_port = 53_002;
+
+    for payload in [b"first".as_slice(), b"second".as_slice()] {
+        udp.feed(&packet::build_udp(
+            IpAddr::V4(source_ip),
+            echo_addr.ip(),
+            source_port,
+            echo_addr.port(),
+            payload,
+        ))
+        .await;
+        let response = tokio::time::timeout(std::time::Duration::from_secs(2), packets.recv())
+            .await
+            .expect("TUN UDP response timed out")
+            .expect("raw response channel closed");
+        assert_eq!(
+            packet::parse_udp(&response)
+                .expect("parse raw UDP response")
+                .payload,
+            payload
+        );
+    }
+
+    let sessions = engine.active_sessions();
+    assert_eq!(sessions.len(), 1, "same UDP tuple created duplicate flows");
+    assert_eq!(
+        sessions[0].source_ip,
+        Some(Address::Ipv4(source_ip.octets()))
+    );
+    assert_eq!(sessions[0].source_port, Some(source_port));
 
     task.abort();
 }

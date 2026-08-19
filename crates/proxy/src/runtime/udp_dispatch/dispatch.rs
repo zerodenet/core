@@ -9,6 +9,7 @@ use crate::logging::{log_session_failed, log_session_finished, session_failure_o
 use crate::runtime::passive_relay_health::classify_relay_outcome;
 use crate::runtime::pipe::UdpPipeInput;
 use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
+use crate::runtime::udp_flow::sessions::UdpFlowKey;
 
 impl UdpDispatch {
     /// Dispatch a UDP packet: route, select outbound, send.
@@ -25,7 +26,26 @@ impl UdpDispatch {
             return Ok(flow.session.id);
         }
 
-        self.start_new_routed_flow(input).await
+        let key = UdpFlowKey::new(&input.target, input.port, input.client_session_id);
+        if let Some(retry_after) = self.flow_start_backoff.retry_after(&key, Instant::now()) {
+            return Err(EngineError::AdmissionDenied {
+                reason: format!(
+                    "UDP flow is cooling down after an outbound failure; retry in {} ms",
+                    retry_after.as_millis()
+                ),
+            });
+        }
+        let result = self.start_new_routed_flow(input).await;
+        match result {
+            Ok(session_id) => {
+                self.flow_start_backoff.clear(&key);
+                Ok(session_id)
+            }
+            Err(error) => {
+                self.flow_start_backoff.record_failure(key, Instant::now());
+                Err(error)
+            }
+        }
     }
 
     async fn start_new_routed_flow(&mut self, input: UdpPipeInput<'_>) -> Result<u64, EngineError> {
@@ -42,7 +62,9 @@ impl UdpDispatch {
             session.source_port = Some(source_addr.port());
         }
         runtime.resolve_fake_ip_target(&mut session).await;
-        runtime.prepare_udp_session(&mut session, &self.inbound_tag)?;
+        runtime
+            .prepare_udp_session(&mut session, &self.inbound_tag)
+            .await?;
         let mut session_handle = runtime.track_session(session.id);
         let rate_limiters = UdpFlowRateLimiters::new(runtime.traffic_rate_limiters(&session));
         let cancellation_rate_limiters = rate_limiters.clone();
