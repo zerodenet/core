@@ -64,6 +64,47 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
 }
 
 #[test]
+#[ignore = "requires administrator/root, a TUN backend, and a reachable external DNS server"]
+fn privileged_tun_ipv4_direct_udp_dns_does_not_self_capture() {
+    let _guard = TUN_E2E_LOCK.lock().expect("TUN E2E lock poisoned");
+    let binary = env!("CARGO_BIN_EXE_zero");
+    let directory = tempfile::tempdir().expect("temporary UDP E2E directory");
+    let socket = control_socket(directory.path(), false);
+    let listen_port = free_tcp_port();
+    let dns_target = std::env::var("ZERO_TUN_E2E_DNS_ADDR")
+        .unwrap_or_else(|_| "223.5.5.5:53".to_owned())
+        .parse::<SocketAddr>()
+        .expect("ZERO_TUN_E2E_DNS_ADDR must be an IPv4 DNS socket");
+    assert!(dns_target.is_ipv4(), "DNS target must be IPv4");
+    let direct_config = direct_udp_config_json(listen_port, true);
+    let stopped_config = direct_udp_config_json(listen_port, false);
+    let direct_path = directory.path().join("direct-udp.json");
+    let stopped_path = directory.path().join("stopped.json");
+    std::fs::write(&direct_path, &direct_config).unwrap();
+    std::fs::write(&stopped_path, stopped_config).unwrap();
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut process = spawn_zero(binary, &direct_path, &socket);
+        wait_for_tun(binary, &socket, true, false);
+        let tun_name = assert_tun_os_configured(binary, &socket, false, false);
+        assert_direct_udp_dns_through_tun(dns_target);
+
+        run_cli(
+            binary,
+            ["reload", path(&stopped_path), "--socket", path(&socket)],
+        );
+        wait_for_tun(binary, &socket, false, false);
+        assert_tun_os_cleanup(&tun_name);
+        assert_route_journals_clean(&direct_path);
+        process.kill_and_wait();
+    }));
+    if let Err(payload) = outcome {
+        best_effort_route_recovery(binary, &socket, &direct_path, &stopped_path);
+        std::panic::resume_unwind(payload);
+    }
+}
+
+#[test]
 #[ignore = "requires administrator/root, a TUN backend, internet access, and ZERO_TUN_E2E_STUN_ADDR"]
 fn privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery() {
     run_family(false);
@@ -310,6 +351,15 @@ fn config_json(
         "route": { "rules": rules, "final": { "type": "direct" } }
     }))
     .unwrap()
+}
+
+fn direct_udp_config_json(listen_port: u16, tun: bool) -> String {
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config_json(false, listen_port, None, tun, false)).unwrap();
+    if tun {
+        config["runtime"]["tun"]["dns_hijack"] = serde_json::Value::Bool(false);
+    }
+    serde_json::to_string_pretty(&config).unwrap()
 }
 
 fn dual_stack_config_json(
@@ -860,6 +910,37 @@ fn assert_stun_round_trip(target: SocketAddr) {
     assert!(size >= 20);
     assert_eq!(&response[4..8], &[0x21, 0x12, 0xa4, 0x42]);
     assert_eq!(&response[8..20], &stun_request()[8..20]);
+}
+
+fn assert_direct_udp_dns_through_tun(target: SocketAddr) {
+    const REUSED_SOURCE_ROUNDS: u16 = 16;
+    const SOURCE_CHURN_ROUNDS: u16 = 32;
+
+    let socket = udp_for(target);
+    for sequence in 0..REUSED_SOURCE_ROUNDS {
+        assert_direct_dns_round_trip(&socket, target, 0x7000 + sequence);
+    }
+    drop(socket);
+
+    for sequence in 0..SOURCE_CHURN_ROUNDS {
+        let socket = udp_for(target);
+        assert_direct_dns_round_trip(&socket, target, 0x7100 + sequence);
+    }
+}
+
+fn assert_direct_dns_round_trip(socket: &UdpSocket, target: SocketAddr, id: u16) {
+    let query = dns_query(id, "example.com");
+    socket
+        .send_to(&query, target)
+        .expect("send direct DNS query through TUN");
+    let mut response = [0_u8; 2048];
+    let (size, source) = socket
+        .recv_from(&mut response)
+        .expect("receive direct DNS response through TUN");
+    assert_eq!(source, target);
+    assert!(size >= 12, "direct DNS response is too short");
+    assert_eq!(&response[..2], &id.to_be_bytes());
+    assert_ne!(response[2] & 0x80, 0, "DNS response bit must be set");
 }
 
 fn assert_stun_blocked(target: SocketAddr) {
