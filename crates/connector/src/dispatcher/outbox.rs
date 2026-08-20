@@ -4,11 +4,18 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use zero_api::{OutboxStorageStatus, RawApiEvent};
+use zero_api::{
+    OutboxCorruptionClass, OutboxRecoveryState, OutboxRecoveryStatus, OutboxStorageStatus,
+    RawApiEvent,
+};
 
 use crate::registry::resolve_path;
 use crate::state::PersistentStateLease;
 use crate::{ConnectorError, ConnectorResult};
+
+mod recovery;
+
+use recovery::{corruption_class, preserve_bytes, quarantine_journal};
 
 pub(crate) type DeliveryKey = (String, String);
 type PendingDeliveries = BTreeMap<DeliveryKey, u64>;
@@ -55,6 +62,7 @@ pub(crate) struct DeliveryOutbox {
     journal_records: usize,
     min_free_bytes: u64,
     min_free_percent: u8,
+    recovery: Option<OutboxRecoveryStatus>,
 }
 
 impl DeliveryOutbox {
@@ -73,17 +81,33 @@ impl DeliveryOutbox {
             })?;
         }
 
-        let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&path)
-            .map_err(|source| ConnectorError::OpenOutbox {
-                path: path.display().to_string(),
-                source,
-            })?;
-        let (pending, journal_records) = read_pending(&path, &mut file)?;
+        let mut file = open_journal(&path, false)?;
+        let (pending, journal_records, recovery) = match read_pending(&path, &mut file) {
+            Ok(state) => state,
+            Err(ConnectorError::InvalidOutbox { message, .. }) => {
+                drop(file);
+                let preserved_path = quarantine_journal(&path)?;
+                tracing::warn!(
+                    path = %path.display(),
+                    preserved_path = %preserved_path.display(),
+                    corruption_class = ?corruption_class(&message),
+                    error = %message,
+                    "corrupt delivery outbox quarantined; connector started with a new journal and requires reconciliation"
+                );
+                file = open_journal(&path, true)?;
+                (
+                    BTreeMap::new(),
+                    0,
+                    Some(OutboxRecoveryStatus {
+                        state: OutboxRecoveryState::RecoveryRequired,
+                        corruption_class: corruption_class(&message),
+                        preserved_path: preserved_path.display().to_string(),
+                        message,
+                    }),
+                )
+            }
+            Err(error) => return Err(error),
+        };
 
         let (pending_by_offset, pending_counts) = build_pending_indexes(&pending);
         let mut outbox = Self {
@@ -96,6 +120,7 @@ impl DeliveryOutbox {
             journal_records,
             min_free_bytes,
             min_free_percent,
+            recovery,
         };
         outbox.compact_if_needed()?;
         Ok(outbox)
@@ -123,6 +148,10 @@ impl DeliveryOutbox {
 
     pub(crate) fn pending_counts(&self) -> BTreeMap<String, usize> {
         self.pending_counts.clone()
+    }
+
+    pub(crate) fn recovery_status(&self) -> Option<OutboxRecoveryStatus> {
+        self.recovery.clone()
     }
 
     pub(crate) fn put(&mut self, delivery: &OutboxDelivery) -> ConnectorResult<()> {
@@ -413,6 +442,19 @@ fn open_reader(path: &Path) -> ConnectorResult<File> {
         })
 }
 
+fn open_journal(path: &Path, truncate: bool) -> ConnectorResult<File> {
+    OpenOptions::new()
+        .create(true)
+        .truncate(truncate)
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|source| ConnectorError::OpenOutbox {
+            path: path.display().to_string(),
+            source,
+        })
+}
+
 fn read_delivery_at(
     path: &Path,
     reader: &mut File,
@@ -448,7 +490,10 @@ fn read_delivery_at(
     }
 }
 
-fn read_pending(path: &Path, file: &mut File) -> ConnectorResult<(PendingDeliveries, usize)> {
+fn read_pending(
+    path: &Path,
+    file: &mut File,
+) -> ConnectorResult<(PendingDeliveries, usize, Option<OutboxRecoveryStatus>)> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
         .map_err(|source| ConnectorError::OpenOutbox {
@@ -466,16 +511,35 @@ fn read_pending(path: &Path, file: &mut File) -> ConnectorResult<(PendingDeliver
     } else {
         bytes.len()
     };
-    if has_partial_tail {
+    let (pending, journal_records) = parse_pending(path, &bytes[..valid_len])?;
+    let recovery = if has_partial_tail {
+        let preserved_path = preserve_bytes(path, "partial-tail", &bytes)?;
         file.set_len(valid_len as u64)
+            .and_then(|_| file.sync_data())
             .map_err(|source| ConnectorError::OpenOutbox {
                 path: path.display().to_string(),
                 source,
             })?;
-    }
+        tracing::warn!(
+            path = %path.display(),
+            preserved_path = %preserved_path.display(),
+            rejected_bytes = bytes.len().saturating_sub(valid_len),
+            "recovered partial delivery outbox tail and preserved the rejected bytes"
+        );
+        Some(OutboxRecoveryStatus {
+            state: OutboxRecoveryState::Recovered,
+            corruption_class: OutboxCorruptionClass::PartialTail,
+            preserved_path: preserved_path.display().to_string(),
+            message: format!(
+                "truncated {} partial tail bytes at byte {valid_len}",
+                bytes.len().saturating_sub(valid_len)
+            ),
+        })
+    } else {
+        None
+    };
 
-    let (pending, journal_records) = parse_pending(path, &bytes[..valid_len])?;
-    Ok((pending, journal_records))
+    Ok((pending, journal_records, recovery))
 }
 
 pub(crate) fn inspect_path(path: &Path) -> ConnectorResult<OutboxInspection> {
@@ -513,11 +577,19 @@ fn parse_pending(path: &Path, bytes: &[u8]) -> ConnectorResult<(PendingDeliverie
             .expect("valid outbox frames end with a newline");
         let end = start + relative_end;
         if end > start {
+            let corruption_class = if end + 1 == bytes.len() {
+                "malformed_tail"
+            } else {
+                "malformed_middle"
+            };
             let record =
                 serde_json::from_slice::<JournalRecord>(&bytes[start..end]).map_err(|error| {
                     ConnectorError::InvalidOutbox {
                         path: path.display().to_string(),
-                        message: format!("record {}: {error}", journal_records + 1),
+                        message: format!(
+                            "{corruption_class} at record {} byte {start}: {error}",
+                            journal_records + 1
+                        ),
                     }
                 })?;
             journal_records += 1;

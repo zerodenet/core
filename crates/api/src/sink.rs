@@ -194,6 +194,39 @@ pub struct SinkStatus {
     /// Filesystem safety state for the durable outbox, when enabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbox_storage: Option<OutboxStorageStatus>,
+    /// Persistent journal recovery state. This remains visible after later
+    /// successful deliveries so operators can reconcile preserved facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outbox_recovery: Option<OutboxRecoveryStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutboxRecoveryStatus {
+    /// `recovered` for an automatically repaired partial tail, or
+    /// `recovery_required` when a structurally corrupt generation was
+    /// quarantined and delivery continued with a new journal.
+    pub state: OutboxRecoveryState,
+    pub corruption_class: OutboxCorruptionClass,
+    /// Path containing the bytes rejected from the active journal.
+    pub preserved_path: String,
+    /// Bounded parse/recovery diagnostic; event payloads are not included.
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutboxRecoveryState {
+    Recovered,
+    RecoveryRequired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutboxCorruptionClass {
+    PartialTail,
+    MalformedTail,
+    MalformedMiddle,
+    MalformedJournal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -296,6 +329,7 @@ impl SinkManager {
                 last_failure_at_unix_ms: *stat.last_failure.lock().unwrap(),
                 last_error: stat.last_error.lock().unwrap().clone(),
                 outbox_storage: None,
+                outbox_recovery: None,
             })
             .collect()
     }

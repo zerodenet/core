@@ -539,6 +539,8 @@ async fn dispatcher_recovers_unacknowledged_webhook_delivery_from_outbox() {
         .expect("open outbox tail")
         .write_all(b"{\"op\":\"pu")
         .expect("write incomplete crash tail");
+    let corrupt_generation =
+        std::fs::read(&outbox_path).expect("read outbox generation before recovery");
 
     let mut recovery_api = api;
     // Recovery must still be able to write an ACK while new PUT records are
@@ -578,6 +580,19 @@ async fn dispatcher_recovers_unacknowledged_webhook_delivery_from_outbox() {
         .expect("receiver sink status after recovery");
     assert_eq!(recovered.pending, 0);
     assert_eq!(recovered.total_delivered, 1);
+    let recovery = recovered
+        .outbox_recovery
+        .as_ref()
+        .expect("partial tail recovery status");
+    assert_eq!(recovery.state, zero_api::OutboxRecoveryState::Recovered);
+    assert_eq!(
+        recovery.corruption_class,
+        zero_api::OutboxCorruptionClass::PartialTail
+    );
+    assert_eq!(
+        std::fs::read(&recovery.preserved_path).expect("read preserved partial tail"),
+        corrupt_generation
+    );
     assert!(
         recovered
             .outbox_storage
@@ -599,10 +614,11 @@ async fn dispatcher_recovers_unacknowledged_webhook_delivery_from_outbox() {
 }
 
 #[tokio::test]
-async fn dispatcher_fails_closed_on_corrupt_outbox_record() {
-    let outbox_path = temp_path("zero-connector-corrupt-outbox.jsonl");
-    std::fs::write(&outbox_path, b"{\"op\":\"put\",\"delivery\":\n")
-        .expect("write corrupt outbox record");
+async fn dispatcher_quarantines_corrupt_outbox_and_starts_degraded() {
+    let directory = tempfile::tempdir().expect("corrupt outbox directory");
+    let outbox_path = directory.path().join("outbox.jsonl");
+    let corrupt = b"{\"op\":\"put\",\"delivery\":\n";
+    std::fs::write(&outbox_path, corrupt).expect("write corrupt outbox record");
     let api = ApiConfig {
         event_sinks: vec![EventSinkConfig::Webhook {
             tag: "receiver".to_owned(),
@@ -619,7 +635,7 @@ async fn dispatcher_fails_closed_on_corrupt_outbox_record() {
         ..Default::default()
     };
 
-    let result = spawn_event_dispatcher(
+    let dispatcher = spawn_event_dispatcher(
         StaticEventSource {
             events: Arc::new(Mutex::new(Vec::new())),
         },
@@ -629,20 +645,116 @@ async fn dispatcher_fails_closed_on_corrupt_outbox_record() {
             poll_interval: Duration::from_millis(10),
             max_retry_attempts: 1,
         },
+    )
+    .expect("corrupt outbox must not prevent dispatcher startup")
+    .expect("degraded dispatcher handle");
+    let status = wait_for_outbox_recovery(&dispatcher.status_handle()).await;
+    let recovery = status.outbox_recovery.expect("outbox recovery status");
+    assert_eq!(
+        recovery.state,
+        zero_api::OutboxRecoveryState::RecoveryRequired
     );
-    let error = result
-        .err()
-        .expect("corrupt outbox must prevent dispatcher startup");
-    assert!(
-        error
-            .to_string()
-            .contains("invalid delivery outbox journal"),
-        "unexpected corrupt outbox error: {error}"
+    assert_eq!(
+        recovery.corruption_class,
+        zero_api::OutboxCorruptionClass::MalformedTail
     );
-    let retained = std::fs::read_to_string(&outbox_path).expect("read retained corrupt outbox");
-    assert_eq!(retained, "{\"op\":\"put\",\"delivery\":\n");
+    assert!(recovery.message.contains("record 1 byte 0"));
+    assert_eq!(
+        std::fs::read(&recovery.preserved_path).expect("read preserved corrupt journal"),
+        corrupt
+    );
+    assert_eq!(
+        std::fs::read(&outbox_path).expect("read replacement journal"),
+        b""
+    );
 
-    let _ = std::fs::remove_file(outbox_path);
+    dispatcher.shutdown().await;
+}
+
+#[tokio::test]
+async fn dispatcher_quarantines_malformed_middle_without_skipping_later_records() {
+    let directory = tempfile::tempdir().expect("middle corruption directory");
+    let outbox_path = directory.path().join("outbox.jsonl");
+    let corrupt = b"{oops}\n{\"op\":\"ack\",\"sink_tag\":\"receiver\",\"event_id\":\"later\"}\n";
+    std::fs::write(&outbox_path, corrupt).expect("write middle-corrupt outbox");
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(Vec::new())),
+        },
+        ApiConfig {
+            event_sinks: vec![EventSinkConfig::Webhook {
+                tag: "receiver".to_owned(),
+                url: "http://127.0.0.1:9/events".to_owned(),
+                events: vec![event_type::FLOW_COMPLETED.to_owned()],
+                source_id: None,
+                headers: BTreeMap::new(),
+                allow_insecure: true,
+            }],
+            outbox_path: Some(outbox_path.display().to_string()),
+            ..Default::default()
+        },
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("middle corruption must not prevent dispatcher startup")
+    .expect("degraded dispatcher handle");
+    let status = wait_for_outbox_recovery(&dispatcher.status_handle()).await;
+    let recovery = status.outbox_recovery.expect("outbox recovery status");
+    assert_eq!(
+        recovery.state,
+        zero_api::OutboxRecoveryState::RecoveryRequired
+    );
+    assert_eq!(
+        recovery.corruption_class,
+        zero_api::OutboxCorruptionClass::MalformedMiddle
+    );
+    assert_eq!(
+        std::fs::read(&recovery.preserved_path).expect("read quarantined generation"),
+        corrupt
+    );
+    assert_eq!(
+        std::fs::read(&outbox_path).expect("read new active generation"),
+        b""
+    );
+
+    dispatcher.shutdown().await;
+}
+
+#[tokio::test]
+async fn dispatcher_reopens_prior_v1_outbox_fixture_after_upgrade() {
+    const SUCCESS: &[u8] =
+        b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let directory = tempfile::tempdir().expect("legacy outbox directory");
+    let outbox_path = directory.path().join("outbox.jsonl");
+    std::fs::write(
+        &outbox_path,
+        include_bytes!("fixtures/outbox-v1-20260814.jsonl"),
+    )
+    .expect("copy legacy outbox fixture");
+    let (url, server) = spawn_scripted_http_server(vec![SUCCESS]);
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(Vec::new())),
+        },
+        webhook_api(url, Some(outbox_path), 8),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 3,
+        },
+    )
+    .expect("legacy v1 outbox must reopen")
+    .expect("legacy fixture dispatcher");
+
+    let requests = server.join().expect("legacy fixture server");
+    wait_for_sink_pending(&dispatcher.status_handle(), "receiver", 0).await;
+    dispatcher.shutdown().await;
+
+    assert_eq!(requests.len(), 1);
+    assert!(request_body(&requests[0]).contains("legacy-outbox-event"));
 }
 
 #[tokio::test]
@@ -943,6 +1055,22 @@ async fn wait_for_sink_failures(
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("sink `{sink}` failure count did not become {expected}");
+}
+
+async fn wait_for_outbox_recovery(
+    status: &zero_connector::EventDispatcherStatusHandle,
+) -> zero_api::SinkStatus {
+    for _ in 0..100 {
+        if let Some(sink) = status
+            .sink_status()
+            .into_iter()
+            .find(|sink| sink.outbox_recovery.is_some())
+        {
+            return sink;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("outbox recovery status did not become visible");
 }
 
 fn spawn_http_server() -> (String, JoinHandle<String>) {

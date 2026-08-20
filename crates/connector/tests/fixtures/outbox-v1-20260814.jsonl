@@ -1,0 +1,1 @@
+{"op":"put","delivery":{"sink_tag":"receiver","event":{"schema_id":"zero.event.v1","event_id":"legacy-outbox-event","event_type":"flow.completed","occurred_at_unix_ms":1755140400000,"source_id":null,"sequence":42,"principal_key":null,"labels":{},"payload":{"legacy_fixture":true}},"attempts":1,"message":"retry from prior build"}}

@@ -42,8 +42,9 @@ pub use query::{
 };
 pub use response::{ApiResponse, EnvelopeError, RawResponse};
 pub use sink::{
-    CallbackEventSink, DeadLetterSink, JsonLineEventSink, MemorySink, OutboxStorageStatus,
-    RotatingFileSink, SinkManager, SinkStatus,
+    CallbackEventSink, DeadLetterSink, JsonLineEventSink, MemorySink, OutboxCorruptionClass,
+    OutboxRecoveryState, OutboxRecoveryStatus, OutboxStorageStatus, RotatingFileSink, SinkManager,
+    SinkStatus,
 };
 pub use snapshot::{
     AddressSnapshot, AuthSnapshot, CompletedFlowSnapshot, ConfigSnapshot, FlowSnapshot,

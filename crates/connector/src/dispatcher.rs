@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 use zero_api::{
     event_type, DeadLetterSink, EventFilter, EventSink, EventSource, EventStream,
-    EventStreamReceive, OutboxStorageStatus, RawApiEvent, SinkStatus,
+    EventStreamReceive, OutboxRecoveryStatus, OutboxStorageStatus, RawApiEvent, SinkStatus,
 };
 use zero_config::{ApiConfig, EventDispatcherConfig};
 
@@ -53,6 +53,7 @@ struct PerSinkStats {
     last_failure_ms: Mutex<Option<u64>>,
     last_error: Mutex<Option<String>>,
     outbox_storage: Mutex<Option<OutboxStorageStatus>>,
+    outbox_recovery: Mutex<Option<OutboxRecoveryStatus>>,
 }
 
 impl PerSinkStats {
@@ -66,6 +67,7 @@ impl PerSinkStats {
             last_failure_ms: Mutex::new(None),
             last_error: Mutex::new(None),
             outbox_storage: Mutex::new(None),
+            outbox_recovery: Mutex::new(None),
         }
     }
 
@@ -96,6 +98,7 @@ impl PerSinkStats {
             last_failure_at_unix_ms: *self.last_failure_ms.lock().expect("sink stats"),
             last_error: self.last_error.lock().expect("sink stats").clone(),
             outbox_storage: *self.outbox_storage.lock().expect("sink stats"),
+            outbox_recovery: self.outbox_recovery.lock().expect("sink stats").clone(),
         }
     }
 }
@@ -666,9 +669,11 @@ fn refresh_pending_stats(
     outbox: Option<&DeliveryOutbox>,
 ) {
     let storage_status = outbox.map(DeliveryOutbox::storage_status);
+    let recovery_status = outbox.and_then(DeliveryOutbox::recovery_status);
     let shared = stats.lock().expect("sink stats");
     for (_, stat) in shared.iter() {
         stat.set_pending(0);
+        *stat.outbox_recovery.lock().expect("sink stats") = recovery_status.clone();
         *stat.outbox_storage.lock().expect("sink stats") = match &storage_status {
             Some(Ok(status)) => Some(*status),
             _ => None,
