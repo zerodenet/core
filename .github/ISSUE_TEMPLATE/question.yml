@@ -1,0 +1,19 @@
+name: Question
+description: Ask about configuration or usage
+labels:
+  - question
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Zero version
+  - type: textarea
+    id: context
+    attributes:
+      label: Configuration and context
