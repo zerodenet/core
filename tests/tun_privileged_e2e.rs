@@ -30,7 +30,9 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
         let mut process = spawn_zero(binary, &direct_path, &socket);
         wait_for_tun(binary, &socket, true, false);
         let _initial_name = assert_tun_os_configured(binary, &socket, false, false);
-        assert_tcp_through_tun(tcp_target);
+        for _ in 0..8 {
+            assert_tcp_through_tun(tcp_target);
+        }
         assert_dns_hijack_through_tun(false);
 
         // A hard kill leaves the route journal behind. The next process must
@@ -42,7 +44,9 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
         let mut recovered = spawn_zero(binary, &direct_path, &socket);
         wait_for_tun(binary, &socket, true, false);
         let recovered_name = assert_tun_os_configured(binary, &socket, false, false);
-        assert_tcp_through_tun(tcp_target);
+        for _ in 0..8 {
+            assert_tcp_through_tun(tcp_target);
+        }
 
         run_cli(
             binary,
