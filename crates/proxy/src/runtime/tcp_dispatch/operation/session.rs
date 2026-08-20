@@ -74,7 +74,8 @@ where
         .map_err(|error| TcpOutboundFailure {
             stage: handshake.connect_stage(),
             error: error.into(),
-            upstream_endpoint: Some(endpoint.clone()),
+            upstream_endpoint: Some(Box::new(endpoint.clone())),
+            network: None,
         })?;
     Ok(EstablishedTcpOutbound::proxied(
         handshake.tag().to_owned(),

@@ -82,7 +82,7 @@ impl TcpRuntimeServices {
     pub(crate) async fn connect_direct(
         &self,
         session: &zero_core::Session,
-    ) -> Result<(zero_platform_tokio::TokioSocket, std::net::SocketAddr), zero_engine::EngineError>
+    ) -> Result<crate::transport::DirectTcpConnection, crate::transport::DirectTcpConnectFailure>
     {
         self.upstream
             .protocols
@@ -93,7 +93,6 @@ impl TcpRuntimeServices {
                 &self.upstream.egress_interface,
             )
             .await
-            .map_err(Into::into)
     }
 
     pub(crate) fn check_outbound_health(&self, tag: &str) -> Result<(), zero_engine::EngineError> {

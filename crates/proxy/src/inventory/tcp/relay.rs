@@ -23,6 +23,7 @@ impl ProtocolInventory {
                     stage: "relay_prepare",
                     error,
                     upstream_endpoint: None,
+                    network: None,
                 })?;
             prepared_hops.push(prepared);
         }

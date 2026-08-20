@@ -13,7 +13,8 @@ use crate::observability::SessionOutcome;
 use crate::principal::{PrincipalDeviceRegistration, PrincipalQuotaRegistration};
 
 use super::observation::{
-    FlowFailureObservation, FlowPathObservation, FlowRemoteEndpoint, FlowRouteObservation,
+    FlowFailureObservation, FlowNetworkObservation, FlowPathObservation, FlowRemoteEndpoint,
+    FlowRouteObservation,
 };
 use super::traffic::TrafficSampler;
 use super::CompletedSessionRecord;
@@ -110,6 +111,12 @@ impl SessionRegistry {
     pub fn update_route(&self, session_id: u64, route: FlowRouteObservation) {
         if let Some(session) = self.get(session_id) {
             session.update_route(route);
+        }
+    }
+
+    pub fn update_network(&self, session_id: u64, network: FlowNetworkObservation) {
+        if let Some(session) = self.get(session_id) {
+            session.update_network(network);
         }
     }
 
@@ -464,6 +471,14 @@ impl ActiveSessionEntry {
 
     fn update_route(&self, route: FlowRouteObservation) {
         *self.route.lock().expect("session route lock poisoned") = Some(route);
+        self.bump_revision();
+    }
+
+    fn update_network(&self, network: FlowNetworkObservation) {
+        self.path
+            .lock()
+            .expect("session path lock poisoned")
+            .network = Some(network);
         self.bump_revision();
     }
 

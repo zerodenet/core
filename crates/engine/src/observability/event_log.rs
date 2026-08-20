@@ -8,11 +8,12 @@ use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zero_api::{
     event_type, ApiEvent, AuthInfo, EndpointRef, EventFilter, EventReplay, FlowEventPayload,
-    FlowFailureInfo, FlowOutcome, FlowPath, FlowRecord, FlowRecordTiming, FlowResult, FlowRoute,
-    FlowSource, FlowState, FlowTarget, FlowThroughput, FlowTiming, MatchedRuleInfo,
-    Network as ApiNetwork, PassiveRelayHealthChangedPayload, PassiveRelayHealthState,
-    PolicyDecision, PolicyProbeCompletedPayload, PolicySelectedPayload, RawApiEvent, RouteDecision,
-    TargetAddress, TrafficStats,
+    FlowFailureInfo, FlowNetworkContext, FlowNetworkInterface, FlowOutcome, FlowPath, FlowRecord,
+    FlowRecordTiming, FlowResult, FlowRoute, FlowRouteLookup, FlowSocketBinding, FlowSource,
+    FlowState, FlowTarget, FlowThroughput, FlowTiming, MatchedRuleInfo, Network as ApiNetwork,
+    PassiveRelayHealthChangedPayload, PassiveRelayHealthState, PolicyDecision,
+    PolicyProbeCompletedPayload, PolicySelectedPayload, RawApiEvent, RouteDecision, TargetAddress,
+    TrafficStats,
 };
 use zero_core::{Address, Network, ProtocolType, SessionAuth};
 
@@ -819,6 +820,32 @@ fn flow_path(outbound_tag: Option<&String>, path: &crate::FlowPathObservation) -
                 protocol: protocol.clone(),
             })
             .collect(),
+        network: path.network.as_ref().map(|network| FlowNetworkContext {
+            local_address: network.local_address.as_ref().map(|local| TargetAddress {
+                host: local.host.clone(),
+                port: local.port,
+            }),
+            selected_interface: network.selected_interface.as_ref().map(|interface| {
+                FlowNetworkInterface {
+                    name: interface.name.clone(),
+                    index: interface.index,
+                }
+            }),
+            route_lookup: network.route_lookup.as_ref().map(|route| FlowRouteLookup {
+                status: route.status.clone(),
+                source_address: route.source_address.clone(),
+                error: route.error.clone(),
+            }),
+            socket_binding: network
+                .socket_binding
+                .as_ref()
+                .map(|binding| FlowSocketBinding {
+                    mode: binding.mode.clone(),
+                    reason: binding.reason.clone(),
+                    interface_bound: binding.interface_bound,
+                }),
+            connect_stage: network.connect_stage.clone(),
+        }),
     }
 }
 

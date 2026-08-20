@@ -28,11 +28,12 @@ pub use event::{
     PassiveRelayHealthState, PublishResult,
 };
 pub use flow::{
-    AuthInfo, EndpointRef, FlowEventPayload, FlowFailureInfo, FlowOutcome, FlowPath, FlowRecord,
-    FlowRecordTiming, FlowResult, FlowRoute, FlowSource, FlowState, FlowTarget, FlowThroughput,
-    FlowTiming, MatchedRuleInfo, Network, PolicyDecision, PolicyProbeCompletedPayload,
-    PolicyProbeMember, PolicySelectedPayload, RouteDecision, TargetAddress, TrafficStats,
-    WarningPayload,
+    AuthInfo, EndpointRef, FlowEventPayload, FlowFailureInfo, FlowNetworkContext,
+    FlowNetworkInterface, FlowOutcome, FlowPath, FlowRecord, FlowRecordTiming, FlowResult,
+    FlowRoute, FlowRouteLookup, FlowSocketBinding, FlowSource, FlowState, FlowTarget,
+    FlowThroughput, FlowTiming, MatchedRuleInfo, Network, PolicyDecision,
+    PolicyProbeCompletedPayload, PolicyProbeMember, PolicySelectedPayload, RouteDecision,
+    TargetAddress, TrafficStats, WarningPayload,
 };
 pub use query::{
     CapabilitiesQuery, ConfigQuery, DiagnosticsQuery, FlowFilter, FlowGetQuery, FlowListQuery,

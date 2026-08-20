@@ -79,6 +79,12 @@ async fn reports_upstream_connection_failure_to_client_and_session_history() {
         completed.payload["record"]["result"]["failure"]["stage"],
         "route_or_establish"
     );
+    let network = &completed.payload["record"]["path"]["network"];
+    assert_eq!(network["connect_stage"], "connect_socket");
+    assert_eq!(network["route_lookup"]["status"], "skipped");
+    assert_eq!(network["socket_binding"]["mode"], "system");
+    assert_eq!(network["socket_binding"]["reason"], "loopback");
+    assert_eq!(network["socket_binding"]["interface_bound"], false);
     assert!(completed.payload["record"]["result"]["failure"]["code"]
         .as_str()
         .is_some());

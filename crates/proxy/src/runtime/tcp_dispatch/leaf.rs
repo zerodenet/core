@@ -18,6 +18,9 @@ pub(crate) async fn dispatch_tcp(
         match super::dispatch_tcp_outbound(runtime.runtime_services(), session, resolved).await {
             Ok(outbound) => outbound,
             Err(failure) => {
+                if let Some(network) = failure.network {
+                    runtime.record_session_network(session.id, *network);
+                }
                 runtime.record_passive_relay_outcome(
                     &passive_relay_selections,
                     session,

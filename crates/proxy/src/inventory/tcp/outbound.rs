@@ -25,11 +25,13 @@ impl ProtocolInventory {
                         stage: "outbound_leaf_runtime",
                         error,
                         upstream_endpoint: None,
+                        network: None,
                     },
                     |error| TcpOutboundFailure {
                         stage: "relay_prepare",
                         error,
                         upstream_endpoint: None,
+                        network: None,
                     },
                 )?;
                 Ok(PreparedTcpOutbound::Relay(
@@ -43,6 +45,7 @@ impl ProtocolInventory {
                         stage: "outbound_leaf_runtime",
                         error,
                         upstream_endpoint: None,
+                        network: None,
                     })?;
                 Ok(PreparedTcpOutbound::Single(
                     self.prepare_claimed_tcp_candidate(ctx, &claimed)?,
@@ -59,6 +62,7 @@ impl ProtocolInventory {
                             stage: "outbound_leaf_runtime",
                             error,
                             upstream_endpoint: None,
+                            network: None,
                         })
                         .and_then(|claimed| self.prepare_claimed_tcp_candidate(ctx, &claimed));
                     match prepared_candidate {

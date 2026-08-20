@@ -14,6 +14,7 @@ pub(crate) fn extract_tcp_stream(
             tag,
             remote,
             upstream,
+            network,
         } => Ok(TcpRouteResult {
             upstream,
             outbound_tag: tag,
@@ -22,6 +23,7 @@ pub(crate) fn extract_tcp_stream(
             relay_chain: Vec::new(),
             route_action: RouteDecision::Direct,
             passive_relay_selections: Vec::new(),
+            network: Some(network),
         }),
         EstablishedTcpOutboundKind::Block => Err(EngineError::Io(io::Error::new(
             io::ErrorKind::ConnectionRefused,
@@ -40,6 +42,7 @@ pub(crate) fn extract_tcp_stream(
             relay_chain: Vec::new(),
             route_action: RouteDecision::Direct,
             passive_relay_selections: Vec::new(),
+            network: None,
         }),
         EstablishedTcpOutboundKind::Relay {
             tag,
@@ -54,6 +57,7 @@ pub(crate) fn extract_tcp_stream(
             relay_chain,
             route_action: RouteDecision::Direct,
             passive_relay_selections: Vec::new(),
+            network: None,
         }),
     }
 }

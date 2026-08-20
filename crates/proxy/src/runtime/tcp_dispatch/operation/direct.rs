@@ -42,15 +42,17 @@ async fn execute_direct_tcp_operation(
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let PreparedTcpOperation::Direct { tag } = operation;
     match services.connect_direct(session).await {
-        Ok((upstream, remote)) => Ok(EstablishedTcpOutbound::direct(
+        Ok(connection) => Ok(EstablishedTcpOutbound::direct(
             tag,
-            (remote.ip().to_string(), remote.port()),
-            upstream.into(),
+            (connection.remote.ip().to_string(), connection.remote.port()),
+            connection.socket.into(),
+            connection.network,
         )),
-        Err(error) => Err(TcpOutboundFailure {
-            stage: "connect_direct",
-            error,
+        Err(failure) => Err(TcpOutboundFailure {
+            stage: failure.stage,
+            error: failure.error.into(),
             upstream_endpoint: None,
+            network: Some(failure.network),
         }),
     }
 }

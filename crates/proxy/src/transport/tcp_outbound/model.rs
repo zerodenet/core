@@ -13,6 +13,7 @@ pub(crate) struct TcpRouteResult {
     pub relay_chain: Vec<(String, String)>,
     pub route_action: RouteDecision,
     pub passive_relay_selections: Vec<PassiveRelaySelection>,
+    pub network: Option<zero_engine::FlowNetworkObservation>,
 }
 
 pub(crate) struct EstablishedTcpOutbound {
@@ -24,6 +25,7 @@ pub(super) enum EstablishedTcpOutboundKind {
         tag: String,
         remote: (String, u16),
         upstream: TcpRelayStream,
+        network: zero_engine::FlowNetworkObservation,
     },
     Block,
     Proxied {
@@ -45,12 +47,14 @@ impl EstablishedTcpOutbound {
         tag: impl Into<String>,
         remote: (String, u16),
         upstream: TcpRelayStream,
+        network: zero_engine::FlowNetworkObservation,
     ) -> Self {
         Self {
             kind: EstablishedTcpOutboundKind::Direct {
                 tag: tag.into(),
                 remote,
                 upstream,
+                network,
             },
         }
     }
@@ -110,5 +114,6 @@ impl EstablishedTcpOutbound {
 pub(crate) struct TcpOutboundFailure {
     pub stage: &'static str,
     pub error: EngineError,
-    pub upstream_endpoint: Option<(String, u16)>,
+    pub upstream_endpoint: Option<Box<(String, u16)>>,
+    pub network: Option<Box<zero_engine::FlowNetworkObservation>>,
 }

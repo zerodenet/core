@@ -89,7 +89,8 @@ where
     TcpOutboundFailure {
         stage: TLeaf::TCP_CONNECT_STAGE,
         error: invalid_input(TLeaf::TCP_INVALID_CONNECT_CONFIG, error),
-        upstream_endpoint: upstream.map(|(server, port)| (server.to_owned(), port)),
+        upstream_endpoint: upstream.map(|(server, port)| Box::new((server.to_owned(), port))),
+        network: None,
     }
 }
 

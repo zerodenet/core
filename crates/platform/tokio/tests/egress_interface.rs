@@ -1,5 +1,8 @@
 use tokio::net::TcpListener;
-use zero_platform_tokio::{EgressInterface, EgressInterfaceControl, TokioSocket};
+use zero_platform_tokio::{
+    EgressBindingReason, EgressInterface, EgressInterfaceControl, EgressRouteLookupStatus,
+    TokioSocket,
+};
 
 #[test]
 fn controller_replaces_and_clears_interface_atomically() {
@@ -60,10 +63,26 @@ fn peer_selection_preserves_a_more_specific_non_tun_route() {
         .expect("one synthetic TUN address must differ from the route source");
     controller.replace_tunnel_addresses([non_route_source]);
 
-    assert!(controller.current_for_peer(peer).is_none());
+    let system_selection = controller.select_for_peer(peer);
+    assert!(system_selection.interface().is_none());
+    assert_eq!(system_selection.route_source(), Some(route_source));
+    assert_eq!(
+        system_selection.route_lookup_status(),
+        EgressRouteLookupStatus::Resolved
+    );
+    assert_eq!(
+        system_selection.binding_reason(),
+        EgressBindingReason::SystemRoute
+    );
 
     controller.replace_tunnel_addresses([route_source]);
-    assert_eq!(controller.current_for_peer(peer), Some(physical));
+    let tun_selection = controller.select_for_peer(peer);
+    assert_eq!(tun_selection.interface(), Some(&physical));
+    assert_eq!(tun_selection.route_source(), Some(route_source));
+    assert_eq!(
+        tun_selection.binding_reason(),
+        EgressBindingReason::TunRoute
+    );
 }
 
 #[test]

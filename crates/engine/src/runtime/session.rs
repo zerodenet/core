@@ -9,8 +9,8 @@ use crate::session::{
     CompletedSessionRecord, FlowContext, FlowHook, FlowTraffic, SessionHandle, SessionTrafficUpdate,
 };
 use crate::{
-    EngineError, FlowFailureObservation, FlowRemoteEndpoint, FlowRouteObservation, RouteDecision,
-    RouteTrace,
+    EngineError, FlowFailureObservation, FlowNetworkObservation, FlowRemoteEndpoint,
+    FlowRouteObservation, RouteDecision, RouteTrace,
 };
 
 impl Engine {
@@ -154,6 +154,10 @@ impl Engine {
                 selection_chain,
             },
         );
+    }
+
+    pub fn record_session_network(&self, id: u64, network: FlowNetworkObservation) {
+        self.session_registry.update_network(id, network);
     }
 
     pub fn record_session_upload(&self, id: u64, bytes: u64) {

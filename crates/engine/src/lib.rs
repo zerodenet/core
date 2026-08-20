@@ -32,8 +32,9 @@ pub use runtime::{Engine, EngineRuntimeSnapshot};
 pub use runtime::{RouteDecision, RouteTrace};
 pub use session::{
     ActiveSession, BlockReason, CompletedSessionRecord, FlowContext, FlowFailureObservation,
-    FlowHook, FlowHookChain, FlowPathObservation, FlowRemoteEndpoint, FlowRouteObservation,
-    FlowTraffic, MatchedRouteRule, SessionHandle,
+    FlowHook, FlowHookChain, FlowNetworkInterfaceObservation, FlowNetworkObservation,
+    FlowPathObservation, FlowRemoteEndpoint, FlowRouteLookupObservation, FlowRouteObservation,
+    FlowSocketBindingObservation, FlowTraffic, MatchedRouteRule, SessionHandle,
 };
 pub use zero_api::{
     AddressSnapshot, AuthSnapshot, CompletedFlowSnapshot, ConfigSnapshot, FlowSnapshot,

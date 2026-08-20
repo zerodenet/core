@@ -13,6 +13,80 @@ pub struct EgressInterface {
     index: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EgressRouteLookupStatus {
+    Skipped,
+    Resolved,
+    Failed,
+}
+
+impl EgressRouteLookupStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Skipped => "skipped",
+            Self::Resolved => "resolved",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EgressBindingReason {
+    Loopback,
+    NoConfiguredInterface,
+    SystemRoute,
+    TunRoute,
+    TunAddressesUnavailable,
+    RouteLookupFailed,
+}
+
+impl EgressBindingReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Loopback => "loopback",
+            Self::NoConfiguredInterface => "no_configured_interface",
+            Self::SystemRoute => "system_route",
+            Self::TunRoute => "tun_route",
+            Self::TunAddressesUnavailable => "tun_addresses_unavailable",
+            Self::RouteLookupFailed => "route_lookup_failed",
+        }
+    }
+}
+
+/// Route probe and binding decision captured before an outbound socket is
+/// opened. Keeping the decision intact lets upper layers attach the same facts
+/// to successful and failed flow records.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EgressSelection {
+    interface: Option<EgressInterface>,
+    route_source: Option<IpAddr>,
+    route_lookup_status: EgressRouteLookupStatus,
+    route_lookup_error: Option<String>,
+    binding_reason: EgressBindingReason,
+}
+
+impl EgressSelection {
+    pub fn interface(&self) -> Option<&EgressInterface> {
+        self.interface.as_ref()
+    }
+
+    pub fn route_source(&self) -> Option<IpAddr> {
+        self.route_source
+    }
+
+    pub fn route_lookup_status(&self) -> EgressRouteLookupStatus {
+        self.route_lookup_status
+    }
+
+    pub fn route_lookup_error(&self) -> Option<&str> {
+        self.route_lookup_error.as_deref()
+    }
+
+    pub fn binding_reason(&self) -> EgressBindingReason {
+        self.binding_reason
+    }
+}
+
 impl EgressInterface {
     pub fn new(name: impl Into<Arc<str>>, index: u32) -> io::Result<Self> {
         let name = name.into();
@@ -68,8 +142,18 @@ impl EgressInterfaceControl {
     /// keep normal kernel routing. Failure to probe is fail-safe: the physical
     /// egress remains selected so an unknown route cannot create a TUN loop.
     pub fn current_for_peer(&self, peer: SocketAddr) -> Option<EgressInterface> {
+        self.select_for_peer(peer).interface
+    }
+
+    pub fn select_for_peer(&self, peer: SocketAddr) -> EgressSelection {
         if peer.ip().is_loopback() {
-            return None;
+            return EgressSelection {
+                interface: None,
+                route_source: None,
+                route_lookup_status: EgressRouteLookupStatus::Skipped,
+                route_lookup_error: None,
+                binding_reason: EgressBindingReason::Loopback,
+            };
         }
         let (physical, tunnel_addresses) = {
             let interfaces = self.0.read().expect("egress interface lock poisoned");
@@ -77,15 +161,48 @@ impl EgressInterfaceControl {
                 interfaces.ipv6.clone()
             } else {
                 interfaces.ipv4.clone()
-            }?;
+            };
             (physical, interfaces.tunnel_addresses.clone())
         };
+        let Some(physical) = physical else {
+            return EgressSelection {
+                interface: None,
+                route_source: None,
+                route_lookup_status: EgressRouteLookupStatus::Skipped,
+                route_lookup_error: None,
+                binding_reason: EgressBindingReason::NoConfiguredInterface,
+            };
+        };
         if tunnel_addresses.is_empty() {
-            return Some(physical);
+            return EgressSelection {
+                interface: Some(physical),
+                route_source: None,
+                route_lookup_status: EgressRouteLookupStatus::Skipped,
+                route_lookup_error: None,
+                binding_reason: EgressBindingReason::TunAddressesUnavailable,
+            };
         }
-        match route_source_for(peer) {
-            Ok(source) if !tunnel_addresses.contains(&source) => None,
-            Ok(_) | Err(_) => Some(physical),
+        let (route_source, route_lookup_status, route_lookup_error) = match route_source_for(peer) {
+            Ok(source) => (Some(source), EgressRouteLookupStatus::Resolved, None),
+            Err(error) => (
+                None,
+                EgressRouteLookupStatus::Failed,
+                Some(error.to_string()),
+            ),
+        };
+        let (interface, binding_reason) = match route_source {
+            Some(source) if !tunnel_addresses.contains(&source) => {
+                (None, EgressBindingReason::SystemRoute)
+            }
+            Some(_) => (Some(physical), EgressBindingReason::TunRoute),
+            None => (Some(physical), EgressBindingReason::RouteLookupFailed),
+        };
+        EgressSelection {
+            interface,
+            route_source,
+            route_lookup_status,
+            route_lookup_error,
+            binding_reason,
         }
     }
 

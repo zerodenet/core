@@ -106,6 +106,6 @@ fn flow_failure_from_tcp_outbound(failure: crate::transport::TcpOutboundFailure)
     FlowFailure {
         stage: failure.stage,
         error: failure.error,
-        upstream: failure.upstream_endpoint,
+        upstream: failure.upstream_endpoint.map(|endpoint| *endpoint),
     }
 }

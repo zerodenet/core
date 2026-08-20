@@ -34,6 +34,7 @@ async fn relays_tcp_through_socks5_direct_outbound() {
     .expect("parse engine config");
 
     let engine = Engine::new(config).expect("build engine");
+    let probe = engine.clone();
     let engine_handle = spawn_engine(engine);
 
     wait_for_listener(proxy_port).await;
@@ -75,6 +76,30 @@ async fn relays_tcp_through_socks5_direct_outbound() {
     let mut echoed = [0_u8; 4];
     client.read_exact(&mut echoed).await.expect("read payload");
     assert_eq!(&echoed, b"ping");
+
+    drop(client);
+    support::wait_for("completed direct flow", || {
+        probe.completed_sessions().first().is_some_and(|session| {
+            session.inbound_tag.as_deref() == Some("socks-in")
+                && session.outcome.kind() == "direct_relayed"
+        })
+    })
+    .await;
+    let events = probe
+        .latest(
+            usize::MAX,
+            EventFilter {
+                event_types: vec![event_type::FLOW_COMPLETED.to_owned()],
+                ..EventFilter::default()
+            },
+        )
+        .expect("read completed flow events");
+    let network = &events[0].payload["record"]["path"]["network"];
+    assert_eq!(network["local_address"]["host"], "127.0.0.1");
+    assert!(network["local_address"]["port"].as_u64().unwrap() > 0);
+    assert_eq!(network["connect_stage"], "connected");
+    assert_eq!(network["route_lookup"]["status"], "skipped");
+    assert_eq!(network["socket_binding"]["reason"], "loopback");
 
     engine_handle.shutdown().await.expect("shutdown engine");
     let _ = echo_task.await;

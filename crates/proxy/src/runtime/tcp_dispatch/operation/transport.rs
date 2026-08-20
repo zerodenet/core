@@ -39,7 +39,8 @@ where
                 .map_err(|error| TcpOutboundFailure {
                     stage: TLeaf::TCP_CONNECT_STAGE,
                     error: error.into(),
-                    upstream_endpoint: Some((server.clone(), port)),
+                    upstream_endpoint: Some(Box::new((server.clone(), port))),
+                    network: None,
                 })?;
             if !traffic.is_empty() {
                 services.record_control_traffic(session.id, traffic);

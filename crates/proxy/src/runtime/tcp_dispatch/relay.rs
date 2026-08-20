@@ -37,6 +37,7 @@ pub(crate) async fn dispatch_prepared_tcp_relay_chain(
             stage: "relay_last",
             error,
             upstream_endpoint: None,
+            network: None,
         })?;
 
     Ok(EstablishedTcpOutbound::relay(
@@ -98,6 +99,7 @@ async fn execute_relay_prefix<'a>(
             stage: "relay_first_hop",
             error,
             upstream_endpoint: None,
+            network: None,
         })?;
 
     for next_prepared in relay_hops {
@@ -113,6 +115,7 @@ async fn execute_relay_prefix<'a>(
             stage: "relay_hop",
             error,
             upstream_endpoint: None,
+            network: None,
         })?;
         current_prepared = next_prepared;
     }

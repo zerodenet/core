@@ -13,13 +13,41 @@ use zero_traits::{
 mod egress;
 mod process;
 use egress::{bind_tcp_to_interface, bind_udp_to_interface};
-pub use egress::{EgressInterface, EgressInterfaceControl};
+pub use egress::{
+    EgressBindingReason, EgressInterface, EgressInterfaceControl, EgressRouteLookupStatus,
+    EgressSelection,
+};
 pub use process::{lookup_local_tcp_process, lookup_local_udp_process, LocalProcessInfo};
 
 #[derive(Debug)]
 pub struct TokioSocket {
     inner: TcpStream,
     egress_interface: Option<EgressInterface>,
+}
+
+#[derive(Debug)]
+pub struct TcpConnectError {
+    stage: &'static str,
+    interface_bound: bool,
+    error: io::Error,
+}
+
+impl TcpConnectError {
+    pub fn stage(&self) -> &'static str {
+        self.stage
+    }
+
+    pub fn interface_bound(&self) -> bool {
+        self.interface_bound
+    }
+
+    pub fn error(&self) -> &io::Error {
+        &self.error
+    }
+
+    pub fn into_inner(self) -> io::Error {
+        self.error
+    }
 }
 
 impl TokioSocket {
@@ -49,17 +77,47 @@ impl TokioSocket {
         addr: SocketAddr,
         interface: Option<&EgressInterface>,
     ) -> io::Result<Self> {
+        Self::connect_addr_on_observed(addr, interface)
+            .await
+            .map_err(TcpConnectError::into_inner)
+    }
+
+    pub async fn connect_addr_on_observed(
+        addr: SocketAddr,
+        interface: Option<&EgressInterface>,
+    ) -> Result<Self, TcpConnectError> {
         let socket = if addr.is_ipv4() {
-            TcpSocket::new_v4()?
+            TcpSocket::new_v4()
         } else {
-            TcpSocket::new_v6()?
-        };
+            TcpSocket::new_v6()
+        }
+        .map_err(|error| TcpConnectError {
+            stage: "create_socket",
+            interface_bound: false,
+            error,
+        })?;
         let interface = interface.filter(|_| !addr.ip().is_loopback());
         if let Some(interface) = interface {
-            bind_tcp_to_interface(&socket, addr, interface)?;
+            bind_tcp_to_interface(&socket, addr, interface).map_err(|error| TcpConnectError {
+                stage: "bind_interface",
+                interface_bound: false,
+                error,
+            })?;
         }
-        let stream = socket.connect(addr).await?;
-        stream.set_nodelay(true)?;
+        let interface_bound = interface.is_some();
+        let stream = socket
+            .connect(addr)
+            .await
+            .map_err(|error| TcpConnectError {
+                stage: "connect_socket",
+                interface_bound,
+                error,
+            })?;
+        stream.set_nodelay(true).map_err(|error| TcpConnectError {
+            stage: "configure_socket",
+            interface_bound,
+            error,
+        })?;
         Ok(Self {
             inner: stream,
             egress_interface: interface.cloned(),

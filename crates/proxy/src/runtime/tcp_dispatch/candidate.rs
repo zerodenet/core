@@ -16,6 +16,7 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
                 stage: "health_check",
                 error,
                 upstream_endpoint: None,
+                network: None,
             });
         }
     }

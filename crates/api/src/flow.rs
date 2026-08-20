@@ -115,6 +115,44 @@ pub struct FlowPath {
     pub remote: Option<TargetAddress>,
     #[serde(default)]
     pub relay_chain: Vec<EndpointRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<FlowNetworkContext>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowNetworkContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_address: Option<TargetAddress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_interface: Option<FlowNetworkInterface>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_lookup: Option<FlowRouteLookup>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socket_binding: Option<FlowSocketBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connect_stage: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowNetworkInterface {
+    pub name: String,
+    pub index: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowRouteLookup {
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowSocketBinding {
+    pub mode: String,
+    pub reason: String,
+    pub interface_bound: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -46,6 +46,40 @@ fn tun_status_defaults_to_command_managed_for_forward_compatibility() {
 }
 
 #[test]
+fn flow_path_network_context_is_additive_and_optional() {
+    let legacy: zero_api::FlowPath = serde_json::from_value(json!({
+        "relay_chain": []
+    }))
+    .expect("deserialize legacy flow path");
+    assert!(legacy.network.is_none());
+
+    let path: zero_api::FlowPath = serde_json::from_value(json!({
+        "relay_chain": [],
+        "network": {
+            "local_address": { "host": "192.0.2.10", "port": 49152 },
+            "selected_interface": { "name": "Ethernet", "index": 7 },
+            "route_lookup": {
+                "status": "resolved",
+                "source_address": "10.0.0.2"
+            },
+            "socket_binding": {
+                "mode": "interface",
+                "reason": "tun_route",
+                "interface_bound": true
+            },
+            "connect_stage": "connected"
+        }
+    }))
+    .expect("deserialize enhanced flow path");
+    let network = path.network.expect("network context");
+    assert_eq!(network.local_address.unwrap().port, 49152);
+    assert_eq!(network.selected_interface.unwrap().index, 7);
+    assert_eq!(network.route_lookup.unwrap().status, "resolved");
+    assert!(network.socket_binding.unwrap().interface_bound);
+    assert_eq!(network.connect_stage.as_deref(), Some("connected"));
+}
+
+#[test]
 fn command_permissions_follow_cqrs_boundaries() {
     let config = CommandRequest::ConfigValidate(ConfigValidateCommand {
         config: json!({ "inbounds": [] }),

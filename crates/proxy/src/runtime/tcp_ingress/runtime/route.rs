@@ -47,12 +47,26 @@ impl TcpIngressRuntime {
         session: &Session,
         remote: Option<&(String, u16)>,
         relay_chain: Vec<(String, String)>,
+        network: Option<zero_engine::FlowNetworkObservation>,
     ) {
+        if let Some(network) = network {
+            self.record_session_network(session.id, network);
+        }
         self.services.engine().set_session_outbound_with_path(
             session,
             remote.map(|(host, port)| (host.as_str(), *port)),
             relay_chain,
         );
+    }
+
+    pub(crate) fn record_session_network(
+        &self,
+        session_id: u64,
+        network: zero_engine::FlowNetworkObservation,
+    ) {
+        self.services
+            .engine()
+            .record_session_network(session_id, network);
     }
 
     pub(crate) fn record_passive_relay_outcome(

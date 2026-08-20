@@ -68,6 +68,7 @@ impl TcpIngressRuntime {
             &session,
             result.upstream_endpoint.as_ref(),
             result.relay_chain.clone(),
+            result.network,
         );
         let outcome = if result.is_direct {
             SessionOutcome::DirectRelayed
