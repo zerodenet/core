@@ -12,6 +12,9 @@ use zero_traits::{TcpStack, UdpStack};
 
 use crate::runtime::tcp_ingress::{InboundProtocol, TcpIngressRuntime};
 use crate::runtime::Proxy;
+use crate::transport::ReplayStream;
+
+use super::sniff::sniff_tls_target;
 
 struct TunProtocol;
 
@@ -23,7 +26,7 @@ pub(super) struct TunIngressConfig {
 
 #[async_trait]
 impl InboundProtocol for TunProtocol {
-    type ClientStream = UserTcpStream;
+    type ClientStream = ReplayStream<UserTcpStream>;
 
     async fn send_ok(&self, _: &mut Self::ClientStream) -> Result<(), EngineError> {
         Ok(())
@@ -188,6 +191,7 @@ async fn accept_tcp(
                     Some(source_addr),
                 );
                 connections.spawn(async move {
+                    let (session, stream) = sniff_tls_target(session, stream).await;
                     runtime.serve(session, stream, &TunProtocol).await
                 });
             }

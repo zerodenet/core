@@ -32,7 +32,9 @@ pub mod ws;
 
 pub use metered::MeteredStream;
 pub use outbound_datagram::OutboundDatagramSocketFactory;
-pub use stream::{ClientStream, PrefixedSocket, RecordingStream, RelayCarrier, TcpRelayStream};
+pub use stream::{
+    ClientStream, PrefixedSocket, RecordingStream, RelayCarrier, ReplayStream, TcpRelayStream,
+};
 pub use zero_error::RuntimeError;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct StreamTraffic {

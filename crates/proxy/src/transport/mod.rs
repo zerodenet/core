@@ -24,6 +24,7 @@ pub(crate) use zero_transport::PrefixedSocket;
 pub(crate) use zero_transport::RecordingStream;
 #[cfg(feature = "udp-runtime")]
 pub(crate) use zero_transport::RelayCarrier;
+pub(crate) use zero_transport::ReplayStream;
 #[cfg(feature = "udp-runtime")]
 pub(crate) use zero_transport::StreamTraffic;
 pub(crate) use zero_transport::TcpRelayStream;

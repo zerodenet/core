@@ -9,11 +9,136 @@ use zero_config::RuntimeConfig;
 use zero_stack::{packet, UserNetworkStack, UserTcpStack};
 use zero_traits::TcpStack;
 
-use super::{accept_tcp, should_drop_non_unicast_udp};
+use super::{accept_tcp, should_drop_non_unicast_udp, sniff_tls_target};
 
 const CLIENT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 99, 0, 2));
 const CLIENT_PORT: u16 = 49152;
 const CLIENT_ISN: u32 = 10_000;
+
+fn serialized_client_hello(domain: &str) -> Vec<u8> {
+    use rustls::pki_types::ServerName;
+    use rustls::{ClientConfig, ClientConnection, RootCertStore};
+
+    let config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+            .expect("supported TLS versions")
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
+    let server_name = ServerName::try_from(domain.to_owned()).expect("valid server name");
+    let mut connection =
+        ClientConnection::new(Arc::new(config), server_name).expect("create TLS client connection");
+    let mut bytes = Vec::new();
+    connection
+        .write_tls(&mut bytes)
+        .expect("serialize ClientHello");
+    bytes
+}
+
+fn split_first_tls_record(bytes: &[u8], first_payload_length: usize) -> Vec<u8> {
+    let record_length = u16::from_be_bytes([bytes[3], bytes[4]]) as usize;
+    assert!(first_payload_length < record_length);
+    let payload = &bytes[5..5 + record_length];
+    let mut split = Vec::with_capacity(bytes.len() + 5);
+    split.extend_from_slice(&bytes[..3]);
+    split.extend_from_slice(&(first_payload_length as u16).to_be_bytes());
+    split.extend_from_slice(&payload[..first_payload_length]);
+    split.extend_from_slice(&bytes[..3]);
+    split.extend_from_slice(&((record_length - first_payload_length) as u16).to_be_bytes());
+    split.extend_from_slice(&payload[first_payload_length..]);
+    split.extend_from_slice(&bytes[5 + record_length..]);
+    split
+}
+
+#[tokio::test]
+async fn tun_tls_sniff_overrides_ip_target_and_preserves_client_hello() {
+    let original = serialized_client_hello("open.bigmodel.cn");
+    let (mut writer, reader) = tokio::io::duplex(original.len() * 2);
+    writer
+        .write_all(&original)
+        .await
+        .expect("write ClientHello");
+    writer.shutdown().await.expect("close writer");
+    let session = zero_core::Session::new(
+        0,
+        zero_core::Address::Ipv4([47, 102, 128, 206]),
+        443,
+        zero_core::Network::Tcp,
+        zero_core::ProtocolType::UNKNOWN,
+    );
+
+    let (session, mut stream) = sniff_tls_target(session, reader).await;
+
+    assert_eq!(
+        session.target,
+        zero_core::Address::Domain("open.bigmodel.cn".to_owned())
+    );
+    assert_eq!(session.sni.as_deref(), Some("open.bigmodel.cn"));
+    let mut replayed = Vec::new();
+    stream
+        .read_to_end(&mut replayed)
+        .await
+        .expect("read replayed ClientHello");
+    assert_eq!(replayed, original);
+}
+
+#[tokio::test]
+async fn tun_tls_sniff_handles_client_hello_split_across_records() {
+    let original = split_first_tls_record(&serialized_client_hello("open.bigmodel.cn"), 32);
+    let (mut writer, reader) = tokio::io::duplex(original.len() * 2);
+    writer
+        .write_all(&original)
+        .await
+        .expect("write ClientHello");
+    writer.shutdown().await.expect("close writer");
+    let session = zero_core::Session::new(
+        0,
+        zero_core::Address::Ipv4([47, 102, 128, 206]),
+        443,
+        zero_core::Network::Tcp,
+        zero_core::ProtocolType::UNKNOWN,
+    );
+
+    let (session, mut stream) = sniff_tls_target(session, reader).await;
+
+    assert_eq!(
+        session.target,
+        zero_core::Address::Domain("open.bigmodel.cn".to_owned())
+    );
+    let mut replayed = Vec::new();
+    stream
+        .read_to_end(&mut replayed)
+        .await
+        .expect("read replayed ClientHello");
+    assert_eq!(replayed, original);
+}
+
+#[tokio::test]
+async fn tun_non_tls_probe_keeps_ip_target_and_preserves_payload() {
+    let original = b"not-a-tls-client-hello";
+    let (mut writer, reader) = tokio::io::duplex(128);
+    writer.write_all(original).await.expect("write payload");
+    writer.shutdown().await.expect("close writer");
+    let original_target = zero_core::Address::Ipv4([47, 102, 128, 206]);
+    let session = zero_core::Session::new(
+        0,
+        original_target.clone(),
+        443,
+        zero_core::Network::Tcp,
+        zero_core::ProtocolType::UNKNOWN,
+    );
+
+    let (session, mut stream) = sniff_tls_target(session, reader).await;
+
+    assert_eq!(session.target, original_target);
+    assert!(session.sni.is_none());
+    let mut replayed = Vec::new();
+    stream
+        .read_to_end(&mut replayed)
+        .await
+        .expect("read replayed payload");
+    assert_eq!(replayed, original);
+}
 
 #[test]
 fn tun_drops_udp_multicast_and_configured_subnet_broadcast() {
