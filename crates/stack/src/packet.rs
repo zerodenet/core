@@ -44,24 +44,41 @@ pub struct ParsedUdp<'a> {
 
 /// Determine the transport protocol of a raw IP packet.
 pub fn ip_protocol(packet: &[u8]) -> Option<u8> {
-    if packet.is_empty() {
+    transport_header(packet).map(|header| header.protocol)
+}
+
+/// Return the advertised TCP receive window from a complete IP packet.
+pub fn tcp_window(packet: &[u8]) -> Option<u16> {
+    let transport = transport_header(packet)?;
+    if transport.protocol != IPPROTO_TCP || transport.end < transport.offset + 20 {
         return None;
     }
-    match packet[0] >> 4 {
-        4 if packet.len() >= 20 => Some(packet[9]),
-        6 if packet.len() >= 40 => Some(packet[6]),
-        _ => None,
+    Some(u16::from_be_bytes([
+        packet[transport.offset + 14],
+        packet[transport.offset + 15],
+    ]))
+}
+
+/// Return the MSS advertised in a TCP packet, when present.
+pub fn tcp_mss(packet: &[u8]) -> Option<u16> {
+    let transport = transport_header(packet)?;
+    if transport.protocol != IPPROTO_TCP || transport.end < transport.offset + 20 {
+        return None;
     }
+    let data_offset = usize::from((packet[transport.offset + 12] >> 4) & 0x0f) * 4;
+    if data_offset < 20 || transport.offset + data_offset > transport.end {
+        return None;
+    }
+    parse_tcp_mss(&packet[transport.offset + 20..transport.offset + data_offset])
 }
 
 /// Parse an IPv4/IPv6 + TCP packet.
 pub fn parse_tcp(packet: &[u8]) -> Option<ParsedTcp<'_>> {
-    let (src_ip, dst_ip, ip_hdr_len, total_len) = parse_ip(packet)?;
-    let transport_end = total_len.unwrap_or(packet.len()).min(packet.len());
-    if (src_ip.is_ipv4() && packet[9] != IPPROTO_TCP) || transport_end < ip_hdr_len + 20 {
+    let transport = transport_header(packet)?;
+    if transport.protocol != IPPROTO_TCP || transport.end < transport.offset + 20 {
         return None;
     }
-    let h = &packet[ip_hdr_len..];
+    let h = &packet[transport.offset..];
     let src_port = u16::from_be_bytes([h[0], h[1]]);
     let dst_port = u16::from_be_bytes([h[2], h[3]]);
     let seq = u16::from_be_bytes([h[4], h[5]]);
@@ -69,20 +86,20 @@ pub fn parse_tcp(packet: &[u8]) -> Option<ParsedTcp<'_>> {
     let ack = u16::from_be_bytes([h[8], h[9]]);
     let ack = (ack as u32) << 16 | u16::from_be_bytes([h[10], h[11]]) as u32;
     let data_off = ((h[12] >> 4) & 0x0f) as u16 * 4;
-    if data_off < 20 || ip_hdr_len + data_off as usize > transport_end {
+    if data_off < 20 || transport.offset + data_off as usize > transport.end {
         return None;
     }
     let flags = h[13];
-    let payload_start = ip_hdr_len + data_off as usize;
-    let payload = &packet[payload_start..transport_end];
+    let payload_start = transport.offset + data_off as usize;
+    let payload = &packet[payload_start..transport.end];
 
     Some(ParsedTcp {
         src: Endpoint {
-            ip: src_ip,
+            ip: transport.src,
             port: src_port,
         },
         dst: Endpoint {
-            ip: dst_ip,
+            ip: transport.dst,
             port: dst_port,
         },
         seq,
@@ -97,46 +114,58 @@ pub fn parse_tcp(packet: &[u8]) -> Option<ParsedTcp<'_>> {
     })
 }
 
+fn parse_tcp_mss(options: &[u8]) -> Option<u16> {
+    let mut offset = 0;
+    while offset < options.len() {
+        match options[offset] {
+            0 => break,
+            1 => offset += 1,
+            2 if offset + 4 <= options.len() && options[offset + 1] == 4 => {
+                return Some(u16::from_be_bytes([
+                    options[offset + 2],
+                    options[offset + 3],
+                ]));
+            }
+            _ if offset + 2 <= options.len() => {
+                let length = options[offset + 1] as usize;
+                if length < 2 || offset + length > options.len() {
+                    break;
+                }
+                offset += length;
+            }
+            _ => break,
+        }
+    }
+    None
+}
+
 /// Parse an IPv4/IPv6 + UDP packet.
 pub fn parse_udp(packet: &[u8]) -> Option<ParsedUdp<'_>> {
-    let (src_ip, dst_ip, ip_hdr_len, total_len) = parse_ip(packet)?;
-    // IPv6 extension headers
-    let (udp_off, transport_proto) = if src_ip.is_ipv6() {
-        let mut nh = packet[6];
-        let mut off = 40usize;
-        while nh != IPPROTO_UDP && nh != IPPROTO_TCP && off + 8 <= packet.len() {
-            nh = packet[off];
-            off += (packet[off + 1] as usize) * 8 + 8;
-        }
-        (off, nh)
-    } else {
-        (ip_hdr_len, packet[9])
-    };
-    if transport_proto != IPPROTO_UDP {
+    let transport = transport_header(packet)?;
+    if transport.protocol != IPPROTO_UDP {
         return None;
     }
-    if packet.len() < udp_off + 8 {
+    if transport.end < transport.offset + 8 {
         return None;
     }
-    let h = &packet[udp_off..];
+    let h = &packet[transport.offset..];
     let src_port = u16::from_be_bytes([h[0], h[1]]);
     let dst_port = u16::from_be_bytes([h[2], h[3]]);
     let udp_len = u16::from_be_bytes([h[4], h[5]]) as usize;
-    if udp_len < 8 || udp_off + udp_len > packet.len() {
+    if udp_len < 8 || transport.offset + udp_len > transport.end {
         return None;
     }
-    let payload_start = udp_off + 8;
-    let payload_end = total_len.unwrap_or(packet.len());
-    let payload_end = payload_end.min(udp_off + udp_len).min(packet.len());
+    let payload_start = transport.offset + 8;
+    let payload_end = (transport.offset + udp_len).min(transport.end);
     let payload = &packet[payload_start..payload_end];
 
     Some(ParsedUdp {
         src: Endpoint {
-            ip: src_ip,
+            ip: transport.src,
             port: src_port,
         },
         dst: Endpoint {
-            ip: dst_ip,
+            ip: transport.dst,
             port: dst_port,
         },
         payload,
@@ -184,6 +213,81 @@ fn parse_ip(packet: &[u8]) -> Option<(IpAddr, IpAddr, usize, Option<usize>)> {
         }
         _ => None,
     }
+}
+
+struct TransportHeader {
+    src: IpAddr,
+    dst: IpAddr,
+    offset: usize,
+    end: usize,
+    protocol: u8,
+}
+
+fn transport_header(packet: &[u8]) -> Option<TransportHeader> {
+    let (src, dst, ip_header_length, total_length) = parse_ip(packet)?;
+    let end = total_length.unwrap_or(packet.len()).min(packet.len());
+    if src.is_ipv4() {
+        let fragment = u16::from_be_bytes([packet[6], packet[7]]);
+        if fragment & 0x3fff != 0 {
+            return None;
+        }
+        return Some(TransportHeader {
+            src,
+            dst,
+            offset: ip_header_length,
+            end,
+            protocol: packet[9],
+        });
+    }
+
+    let mut protocol = packet[6];
+    let mut offset = ip_header_length;
+    for _ in 0..8 {
+        let extension_length = match protocol {
+            // Hop-by-hop, routing, and destination options.
+            0 | 43 | 60 => {
+                if offset + 2 > end {
+                    return None;
+                }
+                (usize::from(packet[offset + 1]) + 1) * 8
+            }
+            // Fragment header. Atomic fragments can be inspected without reassembly.
+            44 => {
+                if offset + 8 > end {
+                    return None;
+                }
+                let fragment = u16::from_be_bytes([packet[offset + 2], packet[offset + 3]]);
+                if fragment & 0xfff9 != 0 {
+                    return None;
+                }
+                8
+            }
+            // Authentication header.
+            51 => {
+                if offset + 2 > end {
+                    return None;
+                }
+                (usize::from(packet[offset + 1]) + 2) * 4
+            }
+            // ESP payload cannot be inspected by this stack.
+            50 => return None,
+            _ => {
+                return Some(TransportHeader {
+                    src,
+                    dst,
+                    offset,
+                    end,
+                    protocol,
+                });
+            }
+        };
+        if extension_length == 0 || offset + extension_length > end {
+            return None;
+        }
+        protocol = packet[offset];
+        offset += extension_length;
+    }
+    None
 }
 
 // ── Building ──────────────────────────────────────────────────────────

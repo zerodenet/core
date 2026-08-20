@@ -6,8 +6,8 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use zero_stack::packet::{
-    build_tcp, build_udp, checksum, ip_protocol, parse_tcp, parse_udp, tcp_flags, IPPROTO_TCP,
-    IPPROTO_UDP,
+    build_tcp, build_tcp_with_mss, build_udp, checksum, ip_protocol, parse_tcp, parse_udp,
+    tcp_flags, IPPROTO_TCP, IPPROTO_UDP,
 };
 
 #[test]
@@ -46,6 +46,21 @@ fn parse_tcp_roundtrip_v6() {
     let t = parse_tcp(&p).expect("parse tcp v6");
     assert!(t.syn);
     assert_eq!(t.seq, 500);
+}
+
+#[test]
+fn parses_peer_mss_from_syn_options() {
+    let packet = build_tcp_with_mss(
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+        IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
+        12_345,
+        443,
+        100,
+        0,
+        tcp_flags::SYN,
+        1_280,
+    );
+    assert_eq!(zero_stack::packet::tcp_mss(&packet), Some(1_280));
 }
 
 #[test]
@@ -153,4 +168,70 @@ fn rejects_invalid_transport_header_lengths() {
     );
     udp[24..26].copy_from_slice(&7u16.to_be_bytes());
     assert!(parse_udp(&udp).is_none());
+}
+
+#[test]
+fn parses_ipv6_tcp_after_hop_by_hop_options() {
+    let source = Ipv6Addr::LOCALHOST;
+    let destination = Ipv6Addr::new(0x2606, 0x4700, 0, 0, 0, 0, 0x6810, 1);
+    let tcp = build_tcp(
+        IpAddr::V6(source),
+        IpAddr::V6(destination),
+        12_345,
+        443,
+        500,
+        0,
+        tcp_flags::ACK,
+        b"hello",
+    );
+    let mut packet = Vec::with_capacity(tcp.len() + 8);
+    packet.extend_from_slice(&tcp[..40]);
+    packet.extend_from_slice(&[IPPROTO_TCP, 0, 0, 0, 0, 0, 0, 0]);
+    packet.extend_from_slice(&tcp[40..]);
+    packet[6] = 0;
+    let payload_length = u16::from_be_bytes([packet[4], packet[5]]) + 8;
+    packet[4..6].copy_from_slice(&payload_length.to_be_bytes());
+
+    assert_eq!(ip_protocol(&packet), Some(IPPROTO_TCP));
+    assert_eq!(
+        parse_tcp(&packet).map(|tcp| tcp.payload),
+        Some(&b"hello"[..])
+    );
+}
+
+#[test]
+fn rejects_ip_fragments_without_reassembly() {
+    let mut ipv4 = build_tcp(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+        12_345,
+        443,
+        500,
+        0,
+        tcp_flags::ACK,
+        b"fragment",
+    );
+    ipv4[6..8].copy_from_slice(&0x2000_u16.to_be_bytes());
+    assert_eq!(ip_protocol(&ipv4), None);
+    assert!(parse_tcp(&ipv4).is_none());
+
+    let tcp = build_tcp(
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
+        IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+        12_345,
+        443,
+        500,
+        0,
+        tcp_flags::ACK,
+        b"fragment",
+    );
+    let mut ipv6 = Vec::with_capacity(tcp.len() + 8);
+    ipv6.extend_from_slice(&tcp[..40]);
+    ipv6.extend_from_slice(&[IPPROTO_TCP, 0, 0, 1, 0, 0, 0, 1]);
+    ipv6.extend_from_slice(&tcp[40..]);
+    ipv6[6] = 44;
+    let payload_length = u16::from_be_bytes([ipv6[4], ipv6[5]]) + 8;
+    ipv6[4..6].copy_from_slice(&payload_length.to_be_bytes());
+    assert_eq!(ip_protocol(&ipv6), None);
+    assert!(parse_tcp(&ipv6).is_none());
 }

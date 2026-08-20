@@ -16,6 +16,9 @@ use crate::transport::ReplayStream;
 
 use super::sniff::sniff_tls_target;
 
+const TCP_STATE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+const TCP_STATE_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 struct TunProtocol;
 
 pub(super) struct TunIngressConfig {
@@ -65,7 +68,13 @@ pub(super) async fn run(
         Arc::clone(&udp),
         addresses,
     ));
-    let mut tcp_task = tokio::spawn(accept_tcp(proxy.clone(), tcp, tag.clone(), dns_hijack));
+    let mut tcp_task = tokio::spawn(accept_tcp(
+        proxy.clone(),
+        Arc::clone(&tcp),
+        tag.clone(),
+        dns_hijack,
+    ));
+    let mut tcp_maintenance_task = tokio::spawn(maintain_tcp_state(tcp));
 
     #[cfg(feature = "udp-runtime")]
     let mut udp_task = tokio::spawn(super::udp::run(proxy, udp, tag, dns_hijack));
@@ -85,6 +94,10 @@ pub(super) async fn run(
             tracing::debug!(?result, "TUN TCP loop exited");
             flatten_task_result(result, "TCP")
         },
+        result = &mut tcp_maintenance_task => {
+            tracing::debug!(?result, "TUN TCP maintenance loop exited");
+            flatten_task_result(result, "TCP maintenance")
+        },
         result = &mut udp_task => {
             tracing::debug!(?result, "TUN UDP loop exited");
             flatten_task_result(result, "UDP")
@@ -92,8 +105,18 @@ pub(super) async fn run(
     };
     packet_task.abort();
     tcp_task.abort();
+    tcp_maintenance_task.abort();
     udp_task.abort();
     result
+}
+
+async fn maintain_tcp_state(tcp: Arc<UserTcpStack>) -> Result<(), EngineError> {
+    let mut interval = tokio::time::interval(TCP_STATE_CLEANUP_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        tcp.cleanup_idle(TCP_STATE_IDLE_TIMEOUT).await;
+    }
 }
 
 fn flatten_task_result(
