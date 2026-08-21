@@ -26,6 +26,8 @@ pub(super) struct TunIngressConfig {
     pub addresses: Vec<(IpAddr, IpAddr)>,
     pub tag: String,
     pub dns_hijack: bool,
+    pub mtu: usize,
+    pub network_responses: mpsc::Sender<Vec<u8>>,
 }
 
 #[async_trait]
@@ -62,12 +64,16 @@ pub(super) async fn run(
         addresses,
         tag,
         dns_hijack,
+        mtu,
+        network_responses,
     } = config;
     let mut packet_task = tokio::spawn(feed_packets(
         packets,
         Arc::clone(&tcp),
         Arc::clone(&udp),
         addresses,
+        mtu,
+        network_responses,
     ));
     let mut tcp_task = tokio::spawn(accept_tcp(
         proxy.clone(),
@@ -136,15 +142,35 @@ async fn feed_packets(
     tcp: Arc<UserTcpStack>,
     udp: Arc<UserUdpStack>,
     addresses: Vec<(IpAddr, IpAddr)>,
+    mtu: usize,
+    network_responses: mpsc::Sender<Vec<u8>>,
 ) -> Result<(), EngineError> {
     const PACKET_BATCH_BEFORE_YIELD: usize = 32;
     let mut batch_size = 0;
+    let mut fragments = zero_stack::FragmentReassembler::new();
     while let Some(packet) = packets.recv().await {
-        if should_drop_non_unicast_udp(&packet, &addresses) {
-            continue;
+        match fragments.process(&packet, std::time::Instant::now()) {
+            zero_stack::FragmentOutcome::NotFragmented(packet) => {
+                if let Some(response) = zero_stack::packet::build_icmp_response(packet, mtu) {
+                    if network_responses.send(response).await.is_err() {
+                        return Err(EngineError::Io(io::Error::new(
+                            io::ErrorKind::BrokenPipe,
+                            "TUN response packet channel closed",
+                        )));
+                    }
+                } else {
+                    feed_transport_packet(packet, &tcp, &udp, &addresses).await;
+                }
+            }
+            zero_stack::FragmentOutcome::Reassembled(packet) => {
+                feed_transport_packet(&packet, &tcp, &udp, &addresses).await;
+            }
+            zero_stack::FragmentOutcome::Pending => continue,
+            zero_stack::FragmentOutcome::Rejected(reason) => {
+                tracing::warn!(?reason, "rejected fragmented TUN packet");
+                continue;
+            }
         }
-        tcp.feed(&packet).await;
-        udp.feed(&packet).await;
         batch_size += 1;
         if batch_size == PACKET_BATCH_BEFORE_YIELD {
             batch_size = 0;
@@ -155,6 +181,19 @@ async fn feed_packets(
         io::ErrorKind::UnexpectedEof,
         "TUN packet channel closed",
     )))
+}
+
+async fn feed_transport_packet(
+    packet: &[u8],
+    tcp: &UserTcpStack,
+    udp: &UserUdpStack,
+    addresses: &[(IpAddr, IpAddr)],
+) {
+    if should_drop_non_unicast_udp(packet, addresses) {
+        return;
+    }
+    tcp.feed(packet).await;
+    udp.feed(packet).await;
 }
 
 fn should_drop_non_unicast_udp(packet: &[u8], addresses: &[(IpAddr, IpAddr)]) -> bool {

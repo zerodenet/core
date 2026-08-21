@@ -7,9 +7,9 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use zero_config::RuntimeConfig;
 use zero_stack::{packet, UserNetworkStack, UserTcpStack};
-use zero_traits::TcpStack;
+use zero_traits::{TcpStack, UdpStack};
 
-use super::{accept_tcp, should_drop_non_unicast_udp, sniff_tls_target};
+use super::{accept_tcp, feed_packets, should_drop_non_unicast_udp, sniff_tls_target};
 
 const CLIENT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 99, 0, 2));
 const CLIENT_PORT: u16 = 49152;
@@ -226,6 +226,43 @@ fn tun_keeps_unicast_udp_even_when_address_ends_in_255() {
     let destination = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 255));
     let packet = packet::build_udp(CLIENT_IP, destination, CLIENT_PORT, 3478, b"stun");
     assert!(!should_drop_non_unicast_udp(&packet, &[(address, mask)]));
+}
+
+#[tokio::test]
+async fn tun_packet_loop_reassembles_fragmented_udp_before_dispatch() {
+    let (network_responses, _responses) = mpsc::channel(32);
+    let stack = UserNetworkStack::new(network_responses.clone(), 516);
+    let (tcp, udp) = stack.into_parts();
+    let (packets, packet_rx) = mpsc::channel(16);
+    let runtime = tokio::spawn(feed_packets(
+        packet_rx,
+        tcp,
+        Arc::clone(&udp),
+        vec![],
+        576,
+        network_responses,
+    ));
+    let payload = vec![0x33; 2_048];
+    let datagram = packet::build_udp(
+        CLIENT_IP,
+        IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+        CLIENT_PORT,
+        443,
+        &payload,
+    );
+    let mut fragments = packet::fragment_ip_packet(&datagram, 576, 19);
+    fragments.reverse();
+    for fragment in fragments {
+        packets.send(fragment).await.expect("send TUN fragment");
+    }
+
+    let mut received = vec![0_u8; payload.len()];
+    let (count, _, _) = tokio::time::timeout(Duration::from_secs(1), udp.recv_from(&mut received))
+        .await
+        .expect("fragmented UDP dispatch timed out")
+        .expect("UDP stack closed");
+    assert_eq!(&received[..count], payload);
+    runtime.abort();
 }
 
 #[tokio::test]

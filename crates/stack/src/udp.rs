@@ -6,6 +6,7 @@
 //! the outbound packet channel.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use tokio::sync::{mpsc, Mutex, Notify};
 use tracing::warn;
@@ -54,14 +55,18 @@ pub struct UserUdpStack {
     datagrams: Mutex<VecDeque<Datagram>>,
     available: Notify,
     outbound: mpsc::Sender<Vec<u8>>,
+    mtu: usize,
+    next_fragment_id: AtomicU32,
 }
 
 impl UserUdpStack {
-    pub(crate) fn new(outbound: mpsc::Sender<Vec<u8>>) -> Self {
+    pub(crate) fn new(outbound: mpsc::Sender<Vec<u8>>, mtu: usize) -> Self {
         Self {
             datagrams: Mutex::new(VecDeque::new()),
             available: Notify::new(),
             outbound,
+            mtu,
+            next_fragment_id: AtomicU32::new(1),
         }
     }
 }
@@ -109,9 +114,30 @@ impl UdpStack for UserUdpStack {
     async fn send_to(&self, data: &[u8], src: SocketAddress, dst: SocketAddress) {
         let src_ip = sockaddr_to_ipaddr(&src);
         let dst_ip = sockaddr_to_ipaddr(&dst);
+        let maximum_payload = if src_ip.is_ipv4() { 65_507 } else { 65_527 };
+        if data.len() > maximum_payload {
+            warn!(
+                payload_bytes = data.len(),
+                maximum_payload, "UDP payload exceeds the IP datagram limit"
+            );
+            return;
+        }
         let pkt = packet::build_udp(src_ip, dst_ip, src.port, dst.port, data);
-        if let Err(e) = self.outbound.try_send(pkt) {
-            warn!("udp outbound full: {e}");
+        let identification = self.next_fragment_id.fetch_add(1, Ordering::Relaxed);
+        let fragments = packet::fragment_ip_packet(&pkt, self.mtu, identification);
+        if fragments.is_empty() {
+            warn!(
+                packet_bytes = pkt.len(),
+                mtu = self.mtu,
+                "unable to fragment UDP packet"
+            );
+            return;
+        }
+        for fragment in fragments {
+            if self.outbound.send(fragment).await.is_err() {
+                warn!("UDP outbound packet transport closed");
+                return;
+            }
         }
     }
 }

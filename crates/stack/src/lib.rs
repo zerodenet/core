@@ -30,11 +30,13 @@
 //!   serve_inbound()  (proxy kernel pipeline)
 //! ```
 
+pub mod fragment;
 pub mod packet;
 pub mod system;
 pub mod tcp;
 pub mod udp;
 
+pub use fragment::{FragmentOutcome, FragmentReassembler, FragmentRejectReason};
 pub use system::{SystemTcpStack, SystemUdpStack};
 pub use tcp::{UserTcpStack, UserTcpStream};
 pub use udp::UserUdpStack;
@@ -71,9 +73,10 @@ impl UserNetworkStack {
     ///
     /// `mss` is the TCP Maximum Segment Size advertised in SYN-ACK.
     pub fn new(outbound: mpsc::Sender<Vec<u8>>, mss: u16) -> Self {
+        let mtu = usize::from(mss).saturating_add(60);
         Self {
             tcp: Arc::new(UserTcpStack::new(outbound.clone(), mss)),
-            udp: Arc::new(UserUdpStack::new(outbound)),
+            udp: Arc::new(UserUdpStack::new(outbound, mtu)),
         }
     }
 

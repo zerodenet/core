@@ -5,10 +5,19 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+mod fragment;
+mod icmp;
+pub use fragment::{
+    fragment_ip_packet, parse_ip_fragment, rebuild_fragmented_packet, FragmentKey, ParsedIpFragment,
+};
+pub use icmp::build_icmp_response;
+
 // ── Protocol numbers ──────────────────────────────────────────────────
 
 pub const IPPROTO_TCP: u8 = 6;
 pub const IPPROTO_UDP: u8 = 17;
+pub const IPPROTO_ICMP: u8 = 1;
+pub const IPPROTO_ICMPV6: u8 = 58;
 
 // ── Endpoint types ────────────────────────────────────────────────────
 
@@ -313,12 +322,28 @@ pub fn build_tcp(
     flags: u8,
     payload: &[u8],
 ) -> Vec<u8> {
+    build_tcp_with_window(src, dst, sport, dport, seq, ack, flags, u16::MAX, payload)
+}
+
+/// Build an IPv4/IPv6 + TCP packet with an explicit advertised receive window.
+#[allow(clippy::too_many_arguments)]
+pub fn build_tcp_with_window(
+    src: IpAddr,
+    dst: IpAddr,
+    sport: u16,
+    dport: u16,
+    seq: u32,
+    ack: u32,
+    flags: u8,
+    window: u16,
+    payload: &[u8],
+) -> Vec<u8> {
     match (src, dst) {
         (IpAddr::V4(s), IpAddr::V4(d)) => {
-            build_tcp_v4(s, d, sport, dport, seq, ack, flags, payload)
+            build_tcp_v4(s, d, sport, dport, seq, ack, flags, window, payload)
         }
         (IpAddr::V6(s), IpAddr::V6(d)) => {
-            build_tcp_v6(s, d, sport, dport, seq, ack, flags, payload)
+            build_tcp_v6(s, d, sport, dport, seq, ack, flags, window, payload)
         }
         _ => Vec::new(),
     }
@@ -339,12 +364,28 @@ pub fn build_tcp_with_mss(
     flags: u8,
     mss: u16,
 ) -> Vec<u8> {
+    build_tcp_with_mss_and_window(src, dst, sport, dport, seq, ack, flags, mss, u16::MAX)
+}
+
+/// Build a SYN packet with MSS and an explicit advertised receive window.
+#[allow(clippy::too_many_arguments)]
+pub fn build_tcp_with_mss_and_window(
+    src: IpAddr,
+    dst: IpAddr,
+    sport: u16,
+    dport: u16,
+    seq: u32,
+    ack: u32,
+    flags: u8,
+    mss: u16,
+    window: u16,
+) -> Vec<u8> {
     match (src, dst) {
         (IpAddr::V4(s), IpAddr::V4(d)) => {
-            build_tcp_v4_with_mss(s, d, sport, dport, seq, ack, flags, mss)
+            build_tcp_v4_with_mss(s, d, sport, dport, seq, ack, flags, mss, window)
         }
         (IpAddr::V6(s), IpAddr::V6(d)) => {
-            build_tcp_v6_with_mss(s, d, sport, dport, seq, ack, flags, mss)
+            build_tcp_v6_with_mss(s, d, sport, dport, seq, ack, flags, mss, window)
         }
         _ => Vec::new(),
     }
@@ -360,6 +401,7 @@ fn build_tcp_v4_with_mss(
     ack: u32,
     flags: u8,
     mss: u16,
+    window: u16,
 ) -> Vec<u8> {
     // TCP header = 20 base + 4 MSS option = 24 bytes. No payload in SYN-ACK.
     let tcp_hdr_len: usize = 24;
@@ -386,7 +428,7 @@ fn build_tcp_v4_with_mss(
     p[o + 8..o + 12].copy_from_slice(&ack.to_be_bytes());
     p[o + 12] = ((tcp_hdr_len as u8) / 4) << 4; // data offset = 6 (24/4)
     p[o + 13] = flags;
-    p[o + 14..o + 16].copy_from_slice(&65535u16.to_be_bytes()); // window
+    p[o + 14..o + 16].copy_from_slice(&window.to_be_bytes()); // window
 
     // MSS option: kind=2, len=4, value=mss (big-endian).
     p[o + 20] = 2; // kind
@@ -410,6 +452,7 @@ fn build_tcp_v6_with_mss(
     ack: u32,
     flags: u8,
     mss: u16,
+    window: u16,
 ) -> Vec<u8> {
     let tcp_hdr_len: usize = 24;
     let total = 40 + tcp_hdr_len;
@@ -431,7 +474,7 @@ fn build_tcp_v6_with_mss(
     p[o + 8..o + 12].copy_from_slice(&ack.to_be_bytes());
     p[o + 12] = ((tcp_hdr_len as u8) / 4) << 4;
     p[o + 13] = flags;
-    p[o + 14..o + 16].copy_from_slice(&65535u16.to_be_bytes());
+    p[o + 14..o + 16].copy_from_slice(&window.to_be_bytes());
 
     // MSS option.
     p[o + 20] = 2;
@@ -454,6 +497,7 @@ fn build_tcp_v4(
     seq: u32,
     ack: u32,
     flags: u8,
+    window: u16,
     payload: &[u8],
 ) -> Vec<u8> {
     let tcp_len = 20 + payload.len();
@@ -479,8 +523,8 @@ fn build_tcp_v4(
     p[28..32].copy_from_slice(&ack.to_be_bytes());
     p[32] = 0x50; // data offset = 5 (20 bytes)
     p[33] = flags;
-    p[34..36].copy_from_slice(&65535u16.to_be_bytes()); // window
-                                                        // checksum at [36..38] — filled below
+    p[34..36].copy_from_slice(&window.to_be_bytes()); // window
+                                                      // checksum at [36..38] — filled below
 
     if !payload.is_empty() {
         p[40..].copy_from_slice(payload);
@@ -502,6 +546,7 @@ fn build_tcp_v6(
     seq: u32,
     ack: u32,
     flags: u8,
+    window: u16,
     payload: &[u8],
 ) -> Vec<u8> {
     let tcp_len = 20 + payload.len();
@@ -524,8 +569,8 @@ fn build_tcp_v6(
     p[o + 8..o + 12].copy_from_slice(&ack.to_be_bytes());
     p[o + 12] = 0x50; // data offset = 5
     p[o + 13] = flags;
-    p[o + 14..o + 16].copy_from_slice(&65535u16.to_be_bytes()); // window
-                                                                // checksum at [o+16..o+18] — filled below
+    p[o + 14..o + 16].copy_from_slice(&window.to_be_bytes()); // window
+                                                              // checksum at [o+16..o+18] — filled below
 
     if !payload.is_empty() {
         p[o + 20..].copy_from_slice(payload);

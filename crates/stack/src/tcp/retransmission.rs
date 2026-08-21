@@ -15,6 +15,7 @@ const INITIAL_RETRANSMISSION_TIMEOUT: Duration = Duration::from_millis(250);
 const MIN_RETRANSMISSION_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_RETRANSMISSION_TIMEOUT: Duration = Duration::from_secs(2);
 const OUTBOUND_QUEUE_RETRY_DELAY: Duration = Duration::from_millis(10);
+const ZERO_WINDOW_PROBE_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_RETRANSMISSIONS: u8 = 5;
 
 const SEND_FAILURE_NONE: u8 = 0;
@@ -24,6 +25,9 @@ const SEND_FAILURE_TRANSPORT_CLOSED: u8 = 2;
 pub(super) struct TcpSendControl {
     snd_una: AtomicU32,
     peer_window: AtomicU32,
+    congestion_window: AtomicU32,
+    slow_start_threshold: AtomicU32,
+    segment_size: u32,
     peer_reset: AtomicBool,
     send_failure: AtomicU8,
     writer_waker: Mutex<Option<Waker>>,
@@ -35,6 +39,9 @@ pub(super) struct TcpSendControl {
 struct RetransmissionState {
     segments: VecDeque<RetransmissionSegment>,
     estimator: RtoEstimator,
+    duplicate_acks: u8,
+    persist_packet: Option<Vec<u8>>,
+    persist_retry_at: Instant,
     stopped: bool,
 }
 
@@ -107,10 +114,17 @@ pub(super) enum RetransmissionResult {
 }
 
 impl TcpSendControl {
-    pub(super) fn new(snd_una: u32, peer_window: u16) -> Self {
+    pub(super) fn new(snd_una: u32, peer_window: u16, segment_size: u16) -> Self {
+        let segment_size = u32::from(segment_size.max(1));
+        let initial_congestion_window = segment_size
+            .saturating_mul(10)
+            .min(segment_size.saturating_mul(2).max(14_600));
         Self {
             snd_una: AtomicU32::new(snd_una),
             peer_window: AtomicU32::new(u32::from(peer_window)),
+            congestion_window: AtomicU32::new(initial_congestion_window),
+            slow_start_threshold: AtomicU32::new(u32::MAX),
+            segment_size,
             peer_reset: AtomicBool::new(false),
             send_failure: AtomicU8::new(SEND_FAILURE_NONE),
             writer_waker: Mutex::new(None),
@@ -118,6 +132,9 @@ impl TcpSendControl {
             retransmission: Mutex::new(RetransmissionState {
                 segments: VecDeque::new(),
                 estimator: RtoEstimator::new(),
+                duplicate_acks: 0,
+                persist_packet: None,
+                persist_retry_at: Instant::now() + ZERO_WINDOW_PROBE_INTERVAL,
                 stopped: false,
             }),
             retransmission_notify: Notify::new(),
@@ -134,6 +151,7 @@ impl TcpSendControl {
         }
 
         if sequence_after(acknowledgement, snd_una) {
+            self.grow_congestion_window(acknowledgement.wrapping_sub(snd_una));
             let now = Instant::now();
             let mut retransmission = self
                 .retransmission
@@ -156,6 +174,28 @@ impl TcpSendControl {
             if let Some(sample) = rtt_sample {
                 retransmission.estimator.observe(sample);
             }
+            retransmission.duplicate_acks = 0;
+        } else if acknowledgement == snd_una {
+            let mut retransmission = self
+                .retransmission
+                .lock()
+                .expect("TCP retransmission lock poisoned");
+            if !retransmission.segments.is_empty() {
+                retransmission.duplicate_acks = retransmission.duplicate_acks.saturating_add(1);
+                if retransmission.duplicate_acks == 3 {
+                    let outstanding = snd_nxt.wrapping_sub(snd_una);
+                    let threshold = (outstanding / 2).max(self.segment_size.saturating_mul(2));
+                    self.slow_start_threshold
+                        .store(threshold, Ordering::Release);
+                    self.congestion_window.store(
+                        threshold.saturating_add(self.segment_size.saturating_mul(3)),
+                        Ordering::Release,
+                    );
+                    if let Some(segment) = retransmission.segments.front_mut() {
+                        segment.retry_at = Instant::now();
+                    }
+                }
+            }
         }
         self.retransmission_notify.notify_one();
         self.wake_writer();
@@ -165,7 +205,26 @@ impl TcpSendControl {
         let outstanding = snd_nxt.wrapping_sub(self.snd_una.load(Ordering::Acquire));
         self.peer_window
             .load(Ordering::Acquire)
+            .min(self.congestion_window.load(Ordering::Acquire))
             .saturating_sub(outstanding)
+    }
+
+    fn grow_congestion_window(&self, acknowledged: u32) {
+        let congestion_window = self.congestion_window.load(Ordering::Acquire);
+        let threshold = self.slow_start_threshold.load(Ordering::Acquire);
+        let increase = if congestion_window < threshold {
+            acknowledged.min(self.segment_size)
+        } else {
+            self.segment_size
+                .saturating_mul(self.segment_size)
+                .checked_div(congestion_window.max(1))
+                .unwrap_or(1)
+                .max(1)
+        };
+        self.congestion_window.store(
+            congestion_window.saturating_add(increase),
+            Ordering::Release,
+        );
     }
 
     pub(super) fn register_writer(&self, waker: &Waker) {
@@ -248,6 +307,17 @@ impl TcpSendControl {
         self.retransmission_notify.notify_one();
     }
 
+    pub(super) fn set_persist_packet(&self, packet: Vec<u8>) {
+        let mut retransmission = self
+            .retransmission
+            .lock()
+            .expect("TCP retransmission lock poisoned");
+        retransmission.persist_packet = Some(packet);
+        retransmission.persist_retry_at = Instant::now() + ZERO_WINDOW_PROBE_INTERVAL;
+        drop(retransmission);
+        self.retransmission_notify.notify_one();
+    }
+
     pub(super) fn retry_now(&self) {
         let mut retransmission = self
             .retransmission
@@ -272,6 +342,15 @@ impl TcpSendControl {
             Some(segment) => {
                 RetransmissionWait::Delay(segment.retry_at.saturating_duration_since(now))
             }
+            None if self.peer_window.load(Ordering::Acquire) == 0
+                && retransmission.persist_packet.is_some() =>
+            {
+                RetransmissionWait::Delay(
+                    retransmission
+                        .persist_retry_at
+                        .saturating_duration_since(now),
+                )
+            }
             None => RetransmissionWait::Idle,
         }
     }
@@ -286,7 +365,30 @@ impl TcpSendControl {
             .lock()
             .expect("TCP retransmission lock poisoned");
         let Some(segment) = retransmission.segments.front_mut() else {
-            return RetransmissionResult::Continue;
+            if self.peer_window.load(Ordering::Acquire) != 0
+                || retransmission.persist_retry_at > now
+            {
+                return RetransmissionResult::Continue;
+            }
+            let Some(packet) = retransmission.persist_packet.clone() else {
+                return RetransmissionResult::Continue;
+            };
+            return match outbound.try_send(packet) {
+                Ok(()) => {
+                    retransmission.persist_retry_at = now + ZERO_WINDOW_PROBE_INTERVAL;
+                    RetransmissionResult::Continue
+                }
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    retransmission.persist_retry_at = now + OUTBOUND_QUEUE_RETRY_DELAY;
+                    RetransmissionResult::Continue
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    retransmission.stopped = true;
+                    self.send_failure
+                        .store(SEND_FAILURE_TRANSPORT_CLOSED, Ordering::Release);
+                    RetransmissionResult::Failed
+                }
+            };
         };
         if segment.retry_at > now {
             return RetransmissionResult::Continue;
@@ -297,6 +399,17 @@ impl TcpSendControl {
             self.send_failure
                 .store(SEND_FAILURE_TIMED_OUT, Ordering::Release);
             return RetransmissionResult::Failed;
+        }
+        if segment.retransmissions == 0 {
+            let outstanding = segment
+                .sequence_end
+                .wrapping_sub(self.snd_una.load(Ordering::Acquire));
+            self.slow_start_threshold.store(
+                (outstanding / 2).max(self.segment_size.saturating_mul(2)),
+                Ordering::Release,
+            );
+            self.congestion_window
+                .store(self.segment_size, Ordering::Release);
         }
         match outbound.try_send(segment.packet.clone()) {
             Ok(()) => {

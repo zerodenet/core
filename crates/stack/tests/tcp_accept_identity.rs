@@ -170,6 +170,47 @@ async fn out_of_order_segment_waits_for_missing_bytes() {
 }
 
 #[tokio::test]
+async fn receive_sequence_wraparound_preserves_exactly_once_delivery() {
+    let (outbound_tx, mut outbound_rx) = mpsc::channel(16);
+    let stack = UserNetworkStack::new(outbound_tx, 1_440);
+    let (tcp, _udp) = stack.into_parts();
+    let client_sequence = u32::MAX - 2;
+    establish(&tcp, &mut outbound_rx, client_sequence).await;
+    let (mut stream, _, _) = tcp.accept().await.expect("accepted connection");
+
+    let segment = client_packet_with_payload(
+        packet::tcp_flags::PSH | packet::tcp_flags::ACK,
+        client_sequence.wrapping_add(1),
+        0,
+        b"wrap",
+    );
+    tcp.feed(&segment).await;
+    let acknowledgement = outbound_rx.recv().await.expect("wrapped ACK");
+    assert_eq!(
+        packet::parse_tcp(&acknowledgement)
+            .expect("parse wrapped ACK")
+            .ack,
+        2
+    );
+    tcp.feed(&segment).await;
+    let _duplicate_ack = outbound_rx.recv().await.expect("duplicate ACK");
+
+    let mut payload = [0_u8; 4];
+    stream
+        .read_exact(&mut payload)
+        .await
+        .expect("wrapped payload");
+    assert_eq!(&payload, b"wrap");
+    let mut extra = [0_u8; 1];
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), stream.read(&mut extra))
+            .await
+            .is_err(),
+        "wrapped retransmission duplicated stream bytes"
+    );
+}
+
+#[tokio::test]
 async fn duplicate_syn_retransmits_syn_ack() {
     let (outbound_tx, mut outbound_rx) = mpsc::channel(16);
     let stack = UserNetworkStack::new(outbound_tx, 1_440);
@@ -186,6 +227,43 @@ async fn duplicate_syn_retransmits_syn_ack() {
     assert!(first.syn && first.ack_flag);
     assert_eq!(second.seq, first.seq);
     assert_eq!(second.ack, first.ack);
+}
+
+#[tokio::test]
+async fn half_open_connection_state_is_bounded() {
+    let (outbound_tx, mut outbound_rx) = mpsc::channel(16);
+    let stack = UserNetworkStack::new(outbound_tx, 1_440);
+    let (tcp, _udp) = stack.into_parts();
+
+    for index in 0..1_024_u16 {
+        let syn = packet::build_tcp_with_mss(
+            CLIENT_IP,
+            SERVER_IP,
+            20_000 + index,
+            SERVER_PORT,
+            u32::from(index),
+            0,
+            packet::tcp_flags::SYN,
+            1_460,
+        );
+        tcp.feed(&syn).await;
+        let response = outbound_rx.recv().await.expect("SYN-ACK response");
+        assert!(packet::parse_tcp(&response).is_some_and(|tcp| tcp.syn && tcp.ack_flag));
+    }
+
+    let rejected = packet::build_tcp_with_mss(
+        CLIENT_IP,
+        SERVER_IP,
+        30_000,
+        SERVER_PORT,
+        30_000,
+        0,
+        packet::tcp_flags::SYN,
+        1_460,
+    );
+    tcp.feed(&rejected).await;
+    let response = outbound_rx.recv().await.expect("connection-limit response");
+    assert!(packet::parse_tcp(&response).is_some_and(|tcp| tcp.rst && tcp.ack_flag));
 }
 
 #[tokio::test]
@@ -299,10 +377,12 @@ async fn outbound_stream_respects_mss_and_peer_window() {
     let stack = UserNetworkStack::new(outbound_tx, 1_440);
     let (tcp, _udp) = stack.into_parts();
     let client_sequence = 10_000;
-    let server_sequence = establish(&tcp, &mut outbound_rx, client_sequence).await;
+    let peer_window = 4_096;
+    let server_sequence =
+        establish_with_window(&tcp, &mut outbound_rx, client_sequence, peer_window).await;
     let (mut stream, _, _) = tcp.accept().await.expect("accepted connection");
 
-    let payload = vec![7_u8; u16::MAX as usize];
+    let payload = vec![7_u8; peer_window as usize];
     stream.write_all(&payload).await.expect("fill peer window");
     let first = outbound_rx.recv().await.expect("first data segment");
     let first = packet::parse_tcp(&first).expect("parse data segment");
@@ -320,7 +400,7 @@ async fn outbound_stream_respects_mss_and_peer_window() {
         client_sequence + 1,
         server_sequence
             .wrapping_add(1)
-            .wrapping_add(u32::from(u16::MAX)),
+            .wrapping_add(u32::from(peer_window)),
     ))
     .await;
     assert_eq!(
@@ -404,6 +484,89 @@ async fn outbound_writer_waits_for_tun_queue_capacity() {
 }
 
 #[tokio::test]
+async fn receive_window_closes_at_byte_limit_and_reopens_after_read() {
+    let (outbound_tx, mut outbound_rx) = mpsc::channel(128);
+    let stack = UserNetworkStack::new(outbound_tx, 1_440);
+    let (tcp, _udp) = stack.into_parts();
+    let client_sequence = 10_700;
+    establish(&tcp, &mut outbound_rx, client_sequence).await;
+    let (mut stream, _, _) = tcp.accept().await.expect("accepted connection");
+
+    let mut sequence = client_sequence + 1;
+    let mut remaining = u16::MAX as usize;
+    let mut last_window = u16::MAX;
+    while remaining > 0 {
+        let count = remaining.min(1_024);
+        tcp.feed(&client_packet_with_payload(
+            packet::tcp_flags::PSH | packet::tcp_flags::ACK,
+            sequence,
+            0,
+            &vec![7; count],
+        ))
+        .await;
+        sequence = sequence.wrapping_add(count as u32);
+        remaining -= count;
+        let acknowledgement = outbound_rx.recv().await.expect("payload ACK");
+        last_window = packet::tcp_window(&acknowledgement).expect("TCP receive window");
+    }
+    assert_eq!(last_window, 0);
+
+    let mut byte = [0_u8; 1];
+    stream
+        .read_exact(&mut byte)
+        .await
+        .expect("drain receive byte");
+    let update = tokio::time::timeout(Duration::from_millis(100), outbound_rx.recv())
+        .await
+        .expect("receive window did not reopen")
+        .expect("outbound channel closed");
+    assert_eq!(packet::tcp_window(&update), Some(1));
+}
+
+#[tokio::test]
+async fn zero_peer_window_is_probed_and_window_update_wakes_writer() {
+    let (outbound_tx, mut outbound_rx) = mpsc::channel(16);
+    let stack = UserNetworkStack::new(outbound_tx, 1_440);
+    let (tcp, _udp) = stack.into_parts();
+    let client_sequence = 10_725;
+    let server_sequence = establish_with_window(&tcp, &mut outbound_rx, client_sequence, 0).await;
+    let (mut stream, _, _) = tcp.accept().await.expect("accepted connection");
+
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), stream.write(&[9]))
+            .await
+            .is_err(),
+        "writer ignored the zero peer window"
+    );
+    let probe = tokio::time::timeout(Duration::from_millis(1_200), outbound_rx.recv())
+        .await
+        .expect("zero-window probe timed out")
+        .expect("outbound channel closed");
+    let probe = packet::parse_tcp(&probe).expect("parse zero-window probe");
+    assert!(probe.ack_flag && probe.payload.is_empty());
+
+    tcp.feed(&packet::build_tcp_with_window(
+        CLIENT_IP,
+        SERVER_IP,
+        CLIENT_PORT,
+        SERVER_PORT,
+        client_sequence + 1,
+        server_sequence + 1,
+        packet::tcp_flags::ACK,
+        1_024,
+        &[],
+    ))
+    .await;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_millis(100), stream.write(&[9]))
+            .await
+            .expect("peer window update did not wake writer")
+            .expect("write after peer window update failed"),
+        1
+    );
+}
+
+#[tokio::test]
 async fn unacknowledged_fin_is_retransmitted() {
     let (outbound_tx, mut outbound_rx) = mpsc::channel(16);
     let stack = UserNetworkStack::new(outbound_tx, 1_440);
@@ -446,9 +609,9 @@ async fn retransmission_exhaustion_wakes_blocked_reader_and_writer() {
     let (mut stream, _, _) = tcp.accept().await.expect("accepted connection");
 
     stream
-        .write_all(&vec![7_u8; u16::MAX as usize])
+        .write_all(&vec![7_u8; 14_401])
         .await
-        .expect("fill peer window");
+        .expect("fill initial congestion window");
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut byte = [0_u8; 1];
     let (read_result, write_result) = tokio::time::timeout(Duration::from_secs(8), async {
@@ -550,6 +713,33 @@ async fn establish(
             packet::tcp_flags::ACK,
             client_sequence + 1,
             syn_ack.seq + 1,
+        ))
+        .await;
+    syn_ack.seq
+}
+
+async fn establish_with_window(
+    stack: &zero_stack::UserTcpStack,
+    outbound: &mut mpsc::Receiver<Vec<u8>>,
+    client_sequence: u32,
+    window: u16,
+) -> u32 {
+    stack
+        .feed(&client_packet(packet::tcp_flags::SYN, client_sequence, 0))
+        .await;
+    let syn_ack = outbound.recv().await.expect("SYN-ACK packet");
+    let syn_ack = packet::parse_tcp(&syn_ack).expect("parse SYN-ACK");
+    stack
+        .feed(&packet::build_tcp_with_window(
+            CLIENT_IP,
+            SERVER_IP,
+            CLIENT_PORT,
+            SERVER_PORT,
+            client_sequence + 1,
+            syn_ack.seq + 1,
+            packet::tcp_flags::ACK,
+            window,
+            &[],
         ))
         .await;
     syn_ack.seq

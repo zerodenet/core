@@ -35,8 +35,14 @@ use zero_traits::{SocketAddress, TcpStack};
 
 use crate::packet::{self, tcp_flags, Endpoint, ParsedTcp};
 
+mod receive;
 mod retransmission;
+use receive::TcpReceiveBuffer;
 use retransmission::{RetransmissionResult, RetransmissionWait, TcpSendControl};
+
+const MAX_TCP_CONNECTIONS: usize = 8_192;
+const MAX_TCP_HALF_OPEN_CONNECTIONS: usize = 1_024;
+const TCP_RECEIVE_BUFFER_BYTES: usize = u16::MAX as usize;
 
 // ── ISS generator ─────────────────────────────────────────────────────
 
@@ -106,11 +112,8 @@ struct Conn {
     send_control: Arc<TcpSendControl>,
     /// Next expected receive sequence number (client side).
     rcv_nxt: Arc<AtomicU32>,
-    /// Sends inbound payload toward the proxy (UserTcpStream read side).
-    data_tx: Option<mpsc::Sender<Vec<u8>>>,
-    /// Read-side receiver — extracted when transitioning to Established
-    /// and passed into the `UserTcpStream`.
-    data_rx: Option<mpsc::Receiver<Vec<u8>>>,
+    /// Byte-bounded inbound payload storage shared with the proxy stream.
+    receive_buffer: Arc<TcpReceiveBuffer>,
     /// Last time we saw activity on this connection.
     last_active: Instant,
     /// Shared with the stream writer so the stack can retire a fully closed flow.
@@ -130,9 +133,6 @@ fn accept_client_segment(conn: &mut Conn, tcp: &ParsedTcp<'_>) -> (bool, bool) {
     let mut accepted_through = conn.rcv_nxt.load(Ordering::Acquire);
 
     if !tcp.payload.is_empty() {
-        let Some(data_tx) = conn.data_tx.as_ref() else {
-            return (false, false);
-        };
         let payload_offset = if tcp.seq == accepted_through {
             Some(0)
         } else if sequence_before(tcp.seq, accepted_through) {
@@ -144,12 +144,12 @@ fn accept_client_segment(conn: &mut Conn, tcp: &ParsedTcp<'_>) -> (bool, bool) {
 
         if let Some(offset) = payload_offset {
             let payload = &tcp.payload[offset..];
-            if data_tx.try_send(payload.to_vec()).is_ok() {
+            if conn.receive_buffer.push(payload) {
                 accepted_through = accepted_through.wrapping_add(payload.len() as u32);
                 conn.rcv_nxt.store(accepted_through, Ordering::Release);
             } else {
                 // Keep rcv_nxt unchanged so the peer retransmits the segment.
-                warn!("tcp conn data channel full, rejecting segment");
+                warn!("tcp receive buffer full, rejecting segment");
             }
         }
         needs_ack = true;
@@ -160,9 +160,9 @@ fn accept_client_segment(conn: &mut Conn, tcp: &ParsedTcp<'_>) -> (bool, bool) {
         if fin_sequence == accepted_through {
             accepted_through = accepted_through.wrapping_add(1);
             conn.rcv_nxt.store(accepted_through, Ordering::Release);
-            // Dropping the last sender makes AsyncRead return EOF so the
-            // kernel relay can finish its half-close normally.
-            conn.data_tx.take();
+            // Closing the shared buffer makes AsyncRead return EOF after all
+            // accepted bytes are drained, preserving normal half-close.
+            conn.receive_buffer.close();
             conn.state = TcpState::CloseWait;
             accepted_fin = true;
         }
@@ -187,10 +187,15 @@ pub struct UserTcpStream {
 }
 
 struct TcpRead {
-    receiver: mpsc::Receiver<Vec<u8>>,
-    pending: Vec<u8>,
-    pending_offset: usize,
+    receive_buffer: Arc<TcpReceiveBuffer>,
     send_control: Arc<TcpSendControl>,
+    outbound: mpsc::Sender<Vec<u8>>,
+    src_ip: IpAddr,
+    dst_ip: IpAddr,
+    sport: u16,
+    dport: u16,
+    snd_nxt: Arc<AtomicU32>,
+    rcv_nxt: Arc<AtomicU32>,
 }
 
 struct TcpWrite {
@@ -207,6 +212,7 @@ struct TcpWrite {
     send_control: Arc<TcpSendControl>,
     /// Receive sequence (for ACK number).
     rcv_nxt: Arc<AtomicU32>,
+    receive_buffer: Arc<TcpReceiveBuffer>,
     /// Have we sent FIN?
     fin_sent: Arc<AtomicBool>,
     mss: u16,
@@ -218,29 +224,39 @@ type OutboundReservation = Pin<
 >;
 
 impl TcpWrite {
-    fn new(
-        outbound: mpsc::Sender<Vec<u8>>,
-        conn_key: &ConnKey,
-        snd_nxt: Arc<AtomicU32>,
-        send_control: Arc<TcpSendControl>,
-        rcv_nxt: Arc<AtomicU32>,
-        fin_sent: Arc<AtomicBool>,
-        mss: u16,
-    ) -> Self {
+    fn new(outbound: mpsc::Sender<Vec<u8>>, conn_key: &ConnKey, conn: &Conn, mss: u16) -> Self {
         let rev = key_reversed(conn_key);
-        Self {
+        let value = Self {
             outbound,
             src_ip: rev.0,
             dst_ip: rev.2,
             sport: rev.1,
             dport: rev.3,
-            snd_nxt,
-            send_control,
-            rcv_nxt,
-            fin_sent,
+            snd_nxt: Arc::clone(&conn.snd_nxt),
+            send_control: Arc::clone(&conn.send_control),
+            rcv_nxt: Arc::clone(&conn.rcv_nxt),
+            receive_buffer: Arc::clone(&conn.receive_buffer),
+            fin_sent: Arc::clone(&conn.fin_sent),
             mss,
             outbound_reservation: None,
-        }
+        };
+        value.refresh_persist_packet();
+        value
+    }
+
+    fn refresh_persist_packet(&self) {
+        self.send_control
+            .set_persist_packet(packet::build_tcp_with_window(
+                self.src_ip,
+                self.dst_ip,
+                self.sport,
+                self.dport,
+                self.snd_nxt.load(Ordering::Acquire),
+                self.rcv_nxt.load(Ordering::Acquire),
+                tcp_flags::ACK,
+                self.receive_buffer.window(),
+                &[],
+            ));
     }
 
     fn poll_outbound_permit(
@@ -272,14 +288,19 @@ impl TcpWrite {
 }
 
 impl UserTcpStream {
-    fn new(data_rx: mpsc::Receiver<Vec<u8>>, write: TcpWrite) -> Self {
+    fn new(receive_buffer: Arc<TcpReceiveBuffer>, write: TcpWrite) -> Self {
         let send_control = Arc::clone(&write.send_control);
         Self {
             read: StdMutex::new(TcpRead {
-                receiver: data_rx,
-                pending: Vec::new(),
-                pending_offset: 0,
+                receive_buffer,
                 send_control,
+                outbound: write.outbound.clone(),
+                src_ip: write.src_ip,
+                dst_ip: write.dst_ip,
+                sport: write.sport,
+                dport: write.dport,
+                snd_nxt: Arc::clone(&write.snd_nxt),
+                rcv_nxt: Arc::clone(&write.rcv_nxt),
             }),
             write: StdMutex::new(write),
         }
@@ -294,7 +315,7 @@ impl Drop for UserTcpStream {
         if w.fin_sent.load(Ordering::Acquire) || w.send_control.io_error().is_some() {
             return;
         }
-        let reset = packet::build_tcp(
+        let reset = packet::build_tcp_with_window(
             w.src_ip,
             w.dst_ip,
             w.sport,
@@ -302,6 +323,7 @@ impl Drop for UserTcpStream {
             w.snd_nxt.load(Ordering::Acquire),
             w.rcv_nxt.load(Ordering::Acquire),
             tcp_flags::RST | tcp_flags::ACK,
+            w.receive_buffer.window(),
             &[],
         );
         if w.outbound.try_send(reset).is_ok() {
@@ -321,37 +343,29 @@ impl AsyncRead for UserTcpStream {
             return Poll::Ready(Ok(()));
         }
 
-        let mut read = self.read.lock().expect("TCP read lock poisoned");
+        let read = self.read.lock().expect("TCP read lock poisoned");
         if let Some(error) = read.send_control.io_error() {
             return Poll::Ready(Err(error));
         }
-        if read.pending_offset < read.pending.len() {
-            let count = (read.pending.len() - read.pending_offset).min(buf.remaining());
-            let end = read.pending_offset + count;
-            buf.put_slice(&read.pending[read.pending_offset..end]);
-            read.pending_offset = end;
-            if read.pending_offset == read.pending.len() {
-                read.pending.clear();
-                read.pending_offset = 0;
+        let (result, reopened) = read.receive_buffer.poll_read(cx, buf);
+        if reopened {
+            let update = packet::build_tcp_with_window(
+                read.src_ip,
+                read.dst_ip,
+                read.sport,
+                read.dport,
+                read.snd_nxt.load(Ordering::Acquire),
+                read.rcv_nxt.load(Ordering::Acquire),
+                tcp_flags::ACK,
+                read.receive_buffer.window(),
+                &[],
+            );
+            if let Err(error) = read.outbound.try_send(update) {
+                warn!(%error, "TCP receive-window update could not be queued");
             }
-            return Poll::Ready(Ok(()));
         }
-
-        match read.receiver.poll_recv(cx) {
-            Poll::Ready(Some(data)) => {
-                let n = data.len().min(buf.remaining());
-                buf.put_slice(&data[..n]);
-                if n < data.len() {
-                    read.pending = data;
-                    read.pending_offset = n;
-                }
-                Poll::Ready(Ok(()))
-            }
-            Poll::Ready(None) if read.send_control.io_error().is_some() => Poll::Ready(Err(read
-                .send_control
-                .io_error()
-                .expect("TCP error present"))),
-            Poll::Ready(None) => Poll::Ready(Ok(())),
+        match result {
+            Poll::Ready(()) => Poll::Ready(Ok(())),
             Poll::Pending => {
                 read.send_control.register_reader(cx.waker());
                 if let Some(error) = read.send_control.io_error() {
@@ -396,7 +410,7 @@ impl AsyncWrite for UserTcpStream {
             .len()
             .min(usize::from(w.mss.max(1)))
             .min(available as usize);
-        let packet = packet::build_tcp(
+        let packet = packet::build_tcp_with_window(
             w.src_ip,
             w.dst_ip,
             w.sport,
@@ -404,6 +418,7 @@ impl AsyncWrite for UserTcpStream {
             snd_nxt,
             w.rcv_nxt.load(Ordering::Acquire),
             tcp_flags::PSH | tcp_flags::ACK,
+            w.receive_buffer.window(),
             &data[..count],
         );
         let permit = match w.poll_outbound_permit(cx) {
@@ -414,6 +429,7 @@ impl AsyncWrite for UserTcpStream {
         let sequence_end = snd_nxt.wrapping_add(count as u32);
         w.snd_nxt.store(sequence_end, Ordering::Release);
         w.send_control.track_segment(sequence_end, packet.clone());
+        w.refresh_persist_packet();
         permit.send(packet);
         Poll::Ready(Ok(count))
     }
@@ -438,7 +454,7 @@ impl AsyncWrite for UserTcpStream {
                 return Poll::Pending;
             }
         }
-        let packet = packet::build_tcp(
+        let packet = packet::build_tcp_with_window(
             w.src_ip,
             w.dst_ip,
             w.sport,
@@ -446,6 +462,7 @@ impl AsyncWrite for UserTcpStream {
             snd_nxt,
             w.rcv_nxt.load(Ordering::Acquire),
             tcp_flags::FIN | tcp_flags::ACK,
+            w.receive_buffer.window(),
             &[],
         );
         let permit = match w.poll_outbound_permit(cx) {
@@ -456,6 +473,7 @@ impl AsyncWrite for UserTcpStream {
         let sequence_end = snd_nxt.wrapping_add(1);
         w.snd_nxt.store(sequence_end, Ordering::Release);
         w.send_control.track_segment(sequence_end, packet.clone());
+        w.refresh_persist_packet();
         permit.send(packet);
         w.fin_sent.store(true, Ordering::Release);
         Poll::Ready(Ok(()))
@@ -625,19 +643,13 @@ impl TcpStack for UserTcpStack {
                     conn.state = TcpState::Established;
                     tracing::trace!(?key, "user TCP handshake established");
 
-                    // Extract the receiver that's been waiting since SYN.
-                    let data_rx = conn.data_rx.take().expect("data_rx present in SynReceived");
-
                     let write = TcpWrite::new(
                         self.outbound.clone(),
                         &key,
-                        Arc::clone(&conn.snd_nxt),
-                        Arc::clone(&conn.send_control),
-                        Arc::clone(&conn.rcv_nxt),
-                        Arc::clone(&conn.fin_sent),
+                        conn,
                         conn.peer_mss.min(self.mss),
                     );
-                    let stream = UserTcpStream::new(data_rx, write);
+                    let stream = UserTcpStream::new(Arc::clone(&conn.receive_buffer), write);
 
                     let src = endpoint_to_sockaddr(&tcp.src);
                     let dst = endpoint_to_sockaddr(&tcp.dst);
@@ -657,7 +669,7 @@ impl TcpStack for UserTcpStack {
 
                     let (needs_ack, _) = accept_client_segment(conn, &tcp);
                     if needs_ack {
-                        let ack = packet::build_tcp(
+                        let ack = packet::build_tcp_with_window(
                             rev.0,
                             rev.2,
                             rev.1,
@@ -665,6 +677,7 @@ impl TcpStack for UserTcpStack {
                             conn.snd_nxt.load(Ordering::Acquire),
                             conn.rcv_nxt.load(Ordering::Acquire),
                             tcp_flags::ACK,
+                            conn.receive_buffer.window(),
                             &[],
                         );
                         self.send_response(ack);
@@ -681,7 +694,7 @@ impl TcpStack for UserTcpStack {
                     let (needs_ack, accepted_fin) = accept_client_segment(conn, &tcp);
 
                     if needs_ack {
-                        let ack = packet::build_tcp(
+                        let ack = packet::build_tcp_with_window(
                             rev.0,
                             rev.2,
                             rev.1,
@@ -689,6 +702,7 @@ impl TcpStack for UserTcpStack {
                             conn.snd_nxt.load(Ordering::Acquire),
                             conn.rcv_nxt.load(Ordering::Acquire),
                             tcp_flags::ACK,
+                            conn.receive_buffer.window(),
                             &[],
                         );
                         self.send_response(ack);
@@ -720,7 +734,7 @@ impl TcpStack for UserTcpStack {
                     }
                     // Waiting for proxy to finish.  ACK any retransmitted FINs.
                     if tcp.fin {
-                        let fin_ack = packet::build_tcp(
+                        let fin_ack = packet::build_tcp_with_window(
                             rev.0,
                             rev.2,
                             rev.1,
@@ -728,6 +742,7 @@ impl TcpStack for UserTcpStack {
                             conn.snd_nxt.load(Ordering::Acquire),
                             conn.rcv_nxt.load(Ordering::Acquire),
                             tcp_flags::ACK,
+                            conn.receive_buffer.window(),
                             &[],
                         );
                         self.send_response(fin_ack);
@@ -743,20 +758,46 @@ impl TcpStack for UserTcpStack {
             return;
         }
 
+        let half_open = conns
+            .values()
+            .filter(|connection| connection.state == TcpState::SynReceived)
+            .count();
+        if conns.len() >= MAX_TCP_CONNECTIONS || half_open >= MAX_TCP_HALF_OPEN_CONNECTIONS {
+            warn!(
+                active_connections = conns.len(),
+                half_open_connections = half_open,
+                "user TCP connection limit reached"
+            );
+            self.send_response(packet::build_tcp_with_window(
+                rev.0,
+                rev.2,
+                rev.1,
+                rev.3,
+                0,
+                tcp.seq.wrapping_add(1),
+                tcp_flags::RST | tcp_flags::ACK,
+                0,
+                &[],
+            ));
+            return;
+        }
+
         tracing::trace!(?key, "user TCP SYN created a connection");
 
         let iss = next_iss();
         let initial_rcv_nxt = tcp.seq.wrapping_add(1);
         let snd_nxt = Arc::new(AtomicU32::new(iss.wrapping_add(1)));
-        let send_control = Arc::new(TcpSendControl::new(iss, tcp_window));
-        let rcv_nxt = Arc::new(AtomicU32::new(initial_rcv_nxt));
-        let fin_sent = Arc::new(AtomicBool::new(false));
         let peer_mss = advertised_mss
             .filter(|mss| *mss > 0)
             .unwrap_or_else(|| default_peer_mss(tcp.src.ip));
+        let effective_mss = peer_mss.min(self.mss);
+        let send_control = Arc::new(TcpSendControl::new(iss, tcp_window, effective_mss));
+        let rcv_nxt = Arc::new(AtomicU32::new(initial_rcv_nxt));
+        let fin_sent = Arc::new(AtomicBool::new(false));
+        let receive_buffer = Arc::new(TcpReceiveBuffer::new(TCP_RECEIVE_BUFFER_BYTES));
 
         // SYN-ACK with MSS option.
-        let syn_ack = packet::build_tcp_with_mss(
+        let syn_ack = packet::build_tcp_with_mss_and_window(
             rev.0,
             rev.2,
             rev.1,
@@ -765,8 +806,8 @@ impl TcpStack for UserTcpStack {
             initial_rcv_nxt,
             tcp_flags::SYN | tcp_flags::ACK,
             self.mss,
+            receive_buffer.window(),
         );
-        let (data_tx, data_rx) = mpsc::channel::<Vec<u8>>(256);
 
         let connection_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
         conns.insert(
@@ -777,8 +818,7 @@ impl TcpStack for UserTcpStack {
                 snd_nxt,
                 send_control: Arc::clone(&send_control),
                 rcv_nxt,
-                data_tx: Some(data_tx),
-                data_rx: Some(data_rx),
+                receive_buffer,
                 last_active: Instant::now(),
                 fin_sent,
                 peer_mss,

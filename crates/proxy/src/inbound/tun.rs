@@ -192,6 +192,7 @@ impl Proxy {
         let device_name = device.name().to_owned();
         debug!(name = %device_name, "TUN device configured");
         let (device_writer, device_reader) = device.into_channels().map_err(EngineError::Io)?;
+        let network_responses = device_writer.clone();
         let stack = UserNetworkStack::new(device_writer, zero_stack::tcp_mss_for_mtu(mtu));
         let (tcp, udp) = stack.into_parts();
 
@@ -309,6 +310,8 @@ impl Proxy {
                     addresses: address_pairs,
                     tag: inbound_tag,
                     dns_hijack,
+                    mtu: usize::from(mtu),
+                    network_responses,
                 },
                 shutdown_rx,
             )
