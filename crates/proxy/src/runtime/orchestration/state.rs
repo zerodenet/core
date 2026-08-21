@@ -110,8 +110,19 @@ impl OrchestrationState {
         let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services);
         let rollback_runtime_factory = self.inbound_runtime_factory.clone();
         let source_dir = self.source_dir.clone();
-        if let Err(error) = proxy.resolver.reload(new_config.runtime.dns.as_ref()) {
+        let dns_reload = new_config
+            .compile_dns_dispatch()
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))
+            .and_then(|dispatch| {
+                proxy
+                    .resolver
+                    .reload_with_dispatch(new_config.runtime.dns.as_ref(), dispatch)
+            });
+        if let Err(error) = dns_reload {
             warn!(%error, reason = "dns_reload_error", "failed to reload dns config");
+            self.reject_reload(proxy, &new_config, error.to_string())
+                .await;
+            return;
         }
         if let Err(error) = proxy
             .reconcile_configured_tun(
@@ -193,10 +204,16 @@ impl OrchestrationState {
                 "; last-known-good config restore failed: {rollback_error}"
             ));
         } else {
-            if let Err(error) = proxy
-                .resolver
-                .reload(self.applied_config.runtime.dns.as_ref())
-            {
+            let dns_rollback = self
+                .applied_config
+                .compile_dns_dispatch()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))
+                .and_then(|dispatch| {
+                    proxy
+                        .resolver
+                        .reload_with_dispatch(self.applied_config.runtime.dns.as_ref(), dispatch)
+                });
+            if let Err(error) = dns_rollback {
                 acknowledgement.push_str(&format!("; DNS rollback failed: {error}"));
             }
             if let Err(error) = proxy

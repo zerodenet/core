@@ -218,8 +218,13 @@ async fn tun_dns_hijack_answers_with_fake_ip_without_reaching_destination() {
         r#"{
             "runtime": {
                 "dns": {
-                    "servers": [{"type": "system"}],
-                    "fake_ip": {"cidr": "198.18.0.0/15", "ttl_seconds": 60}
+                    "servers": {"local": {"type": "system"}},
+                    "default_server": "local",
+                    "answer": {
+                        "type": "fake_ip",
+                        "cidr": "198.18.0.0/15",
+                        "ttl_seconds": 60
+                    }
                 }
             },
             "route": {"rules": [], "final": {"type": "direct"}}

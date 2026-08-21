@@ -340,7 +340,10 @@ fn config_json(
             "network": { "mtu": 1400 },
             "tun": tun,
             "dns": {
-                "servers": [{ "type": "udp", "address": dns_address, "port": 53 }]
+                "servers": {
+                    "test": { "type": "udp", "host": dns_address, "port": 53 }
+                },
+                "default_server": "test"
             }
         },
         "inbounds": [{
@@ -370,11 +373,13 @@ fn dual_stack_config_json(
 ) -> String {
     let mut config: serde_json::Value =
         serde_json::from_str(&config_json(false, listen_port, None, tun, true)).unwrap();
-    config["runtime"]["dns"]["servers"] = serde_json::json!([{
-        "type": "udp",
-        "address": dns.ip().to_string(),
-        "port": dns.port()
-    }]);
+    config["runtime"]["dns"]["servers"] = serde_json::json!({
+        "test": {
+            "type": "udp",
+            "host": dns.ip().to_string(),
+            "port": dns.port()
+        }
+    });
     config["outbounds"] = serde_json::json!([{
         "tag": "mock-socks",
         "protocol": {

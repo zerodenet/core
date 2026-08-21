@@ -153,6 +153,23 @@ impl Proxy {
         }
         let interface_addresses =
             parse_interface_addresses(addr, mask, secondary_addr, dual_stack)?;
+        let mut tun_owned_addresses = interface_addresses
+            .iter()
+            .map(|address| address.address)
+            .collect::<Vec<_>>();
+        tun_owned_addresses.extend(
+            interface_addresses
+                .iter()
+                .filter_map(|address| next_ip(address.address)),
+        );
+        if let Some(conflict) = self.resolver.fake_ip_conflict(&tun_owned_addresses) {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "Fake-IP pool overlaps TUN-owned address `{conflict}`; choose a non-overlapping DNS fake-IP CIDR"
+                ),
+            )));
+        }
         let primary = &interface_addresses[0];
         let address = primary.address;
         let prepared_network = match prepared_network {
@@ -502,6 +519,21 @@ impl Proxy {
             }
         }
         result
+    }
+}
+
+fn next_ip(address: IpAddr) -> Option<IpAddr> {
+    match address {
+        IpAddr::V4(address) => address
+            .to_bits()
+            .checked_add(1)
+            .map(std::net::Ipv4Addr::from_bits)
+            .map(IpAddr::V4),
+        IpAddr::V6(address) => address
+            .to_bits()
+            .checked_add(1)
+            .map(std::net::Ipv6Addr::from_bits)
+            .map(IpAddr::V6),
     }
 }
 

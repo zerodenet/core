@@ -62,7 +62,10 @@ fn declarative_tun_counts_as_a_runtime_inbound() {
     let config = zero_config::RuntimeConfig::parse(
         r#"{
             "runtime": {
-                "dns": { "servers": [{ "type": "udp", "address": "1.1.1.1" }] },
+                "dns": {
+                    "servers": { "global": { "type": "udp", "host": "1.1.1.1" } },
+                    "default_server": "global"
+                },
                 "tun": { "addr": "10.0.0.1/24" }
             },
             "route": { "rules": [], "final": { "type": "direct" } }

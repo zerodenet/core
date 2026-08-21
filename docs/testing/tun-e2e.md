@@ -25,7 +25,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 
 ## DNS 前置约束
 
-严格 DNS 劫持要求至少配置一个非 system DNS 后端，且上游地址必须是 IP 字面量。这样 DNS 上游能在安装全局路由前建立明确的物理出口排除，避免系统解析器递归进入 TUN。
+严格 DNS 劫持要求至少配置一个非 system DNS 后端。域名形式的上游必须提供 `bootstrap` IP；Zero 会为实际端点建立明确的物理出口排除，避免解析 DNS 上游本身时递归进入 TUN。
 
 示例：
 
@@ -43,11 +43,13 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
       "dns_hijack": true
     },
     "dns": {
-      "servers": [
-        { "type": "udp", "address": "1.1.1.1", "port": 53 }
-      ],
+      "servers": {
+        "global": { "type": "udp", "host": "1.1.1.1", "port": 53 }
+      },
+      "default_server": "global",
       "cache": { "max_entries": 1024 },
-      "fake_ip": {
+      "answer": {
+        "type": "fake_ip",
         "cidr": "198.18.0.0/15",
         "ttl_seconds": 86400,
         "exclude_domains": []
@@ -63,6 +65,10 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
   }
 }
 ```
+
+`dns.servers` 使用稳定名称，`default_server` 处理未命中查询。需要 split DNS 时使用有序的 `dns.dispatch`；每条规则复用流量路由的 `condition` 结构并且只查询选中的后端，不会隐式竞速或回退到其他 DNS。可用于 DNS 的条件包括 `domain`、`domain_keyword`、`domain_regex`、域名规则集以及 `and`/`or`。共享规则集声明在顶层 `rule_sets`，可同时由 `route.rules` 和 `dns.dispatch` 引用。
+
+Fake-IP 使用 `answer.type = "fake_ip"` 开启，默认地址池为 `198.18.0.0/15`，也可通过 `answer.cidr` 覆盖。地址池与 TUN 主地址、双栈辅助地址或平台使用的相邻 TUN gateway 冲突时，配置应用或 `tun.start` 会明确失败，不会把冲突地址投入运行。
 
 DNS 后端和所选代理协议还必须由当前构建启用。TUN 启动需要 `zero-proxy` 的 `udp-runtime`；默认 `full` 构建已满足。
 

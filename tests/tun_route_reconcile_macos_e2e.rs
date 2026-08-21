@@ -207,7 +207,10 @@ fn config_json(running: bool, port: u16) -> String {
     serde_json::to_string_pretty(&serde_json::json!({
         "runtime": {
             "tun": tun,
-            "dns": { "servers": [{ "type": "udp", "address": "1.1.1.1", "port": 53 }] }
+            "dns": {
+                "servers": { "global": { "type": "udp", "host": "1.1.1.1", "port": 53 } },
+                "default_server": "global"
+            }
         },
         "inbounds": [{
             "tag": "control-inbound",

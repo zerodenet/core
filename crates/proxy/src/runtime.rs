@@ -137,9 +137,13 @@ impl Proxy {
         let config = engine.config();
         protocols.validate_config(&config)?;
         let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
-        let dns =
-            DnsSystem::build_with_egress(config.runtime.dns.as_ref(), egress_interface.clone())
-                .map_err(EngineError::Io)?;
+        let dns_dispatch = config.compile_dns_dispatch()?;
+        let dns = DnsSystem::build_with_egress_and_dispatch(
+            config.runtime.dns.as_ref(),
+            dns_dispatch,
+            egress_interface.clone(),
+        )
+        .map_err(EngineError::Io)?;
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
         Ok(Self {

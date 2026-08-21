@@ -6,6 +6,46 @@ use super::config::{
 };
 use super::{configured_tun_is_current, tun_route_exclusion_required, PreparedTunNetwork, TunInfo};
 
+#[cfg(all(feature = "udp-runtime", feature = "dns"))]
+#[tokio::test]
+async fn command_tun_start_rejects_fake_ip_pool_collision_before_device_creation() {
+    let config = zero_config::RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": { "global": { "type": "udp", "host": "1.1.1.1" } },
+                    "default_server": "global",
+                    "answer": { "type": "fake_ip" }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse fake-IP config");
+    let proxy = crate::Proxy::new(config).expect("build proxy");
+    let error = proxy
+        .start_tun(
+            super::TunInterfaceOptions {
+                name: Some("zero-collision-test"),
+                addr: "198.18.0.1/24",
+                mask: "255.255.255.0",
+                secondary_addr: None,
+            },
+            1500,
+            "tun-test",
+            super::TunRuntimeOptions {
+                auto_route: false,
+                dual_stack: false,
+                strict_route: true,
+                dns_hijack: true,
+            },
+        )
+        .await
+        .expect_err("collision must fail before opening a TUN device");
+
+    assert!(error.to_string().contains("overlaps TUN-owned address"));
+}
+
 fn configured_tun_fixture() -> (zero_config::TunConfig, TunInfo) {
     let config = zero_config::TunConfig {
         name: Some("zero-test".to_owned()),
@@ -96,7 +136,10 @@ fn explicit_secondary_address_must_be_cidr_and_opposite_family() {
 fn strict_dns_hijack_requires_literal_non_system_endpoints() {
     let system = zero_config::RuntimeConfig::parse(
         r#"{
-            "runtime":{"dns":{"servers":[{"type":"system"}]}},
+            "runtime":{"dns":{
+                "servers":{"local":{"type":"system"}},
+                "default_server":"local"
+            }},
             "route":{"rules":[],"final":{"type":"direct"}}
         }"#,
     )
@@ -105,7 +148,10 @@ fn strict_dns_hijack_requires_literal_non_system_endpoints() {
 
     let udp = zero_config::RuntimeConfig::parse(
         r#"{
-            "runtime":{"dns":{"servers":[{"type":"udp","address":"1.1.1.1"}]}},
+            "runtime":{"dns":{
+                "servers":{"global":{"type":"udp","host":"1.1.1.1"}},
+                "default_server":"global"
+            }},
             "route":{"rules":[],"final":{"type":"direct"}}
         }"#,
     )
@@ -118,25 +164,27 @@ fn strict_dns_hijack_requires_literal_non_system_endpoints() {
 
 #[test]
 fn doh_endpoint_parser_accepts_literal_v4_and_v6_hosts() {
-    let config = |url: &str| {
+    let config = |host: &str| {
         zero_config::RuntimeConfig::parse(&format!(
             r#"{{
-                "runtime":{{"dns":{{"servers":[{{"type":"doh","url":"{url}"}}]}}}},
+                "runtime":{{"dns":{{
+                    "servers":{{"global":{{"type":"doh","host":"{host}"}}}},
+                    "default_server":"global"
+                }}}},
                 "route":{{"rules":[],"final":{{"type":"direct"}}}}
             }}"#
         ))
         .expect("parse DoH config")
     };
     assert_eq!(
-        configured_dns_endpoint_addresses(&config("https://1.1.1.1/dns-query")).unwrap(),
+        configured_dns_endpoint_addresses(&config("1.1.1.1")).unwrap(),
         vec![IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))]
     );
     assert_eq!(
-        configured_dns_endpoint_addresses(&config("https://[2606:4700:4700::1111]/dns-query"))
-            .unwrap(),
+        configured_dns_endpoint_addresses(&config("2606:4700:4700::1111")).unwrap(),
         vec!["2606:4700:4700::1111".parse::<IpAddr>().unwrap()]
     );
-    assert!(configured_dns_endpoint_addresses(&config("https://dns.example/dns-query")).is_err());
+    assert!(configured_dns_endpoint_addresses(&config("dns.example")).is_err());
 }
 
 #[test]
