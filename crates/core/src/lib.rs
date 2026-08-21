@@ -16,7 +16,9 @@ pub use inbound::{
     InboundClientResponse, InboundFallbackCapture, InboundFallbackReplay, InboundRouteAccept,
 };
 
-pub use session::{Network, ProtocolType, Session, SessionAuth};
+pub use session::{
+    FakeIpReverseStatus, Network, ProtocolType, Session, SessionAuth, TargetHostSource,
+};
 pub use udp::{
     DatagramUdpResponder, InboundDatagramUdpRelay, InboundMuxServer, InboundMuxStreamRoute,
     InboundMuxTcpRelay, InboundMuxUdpReadFailure, InboundMuxUdpReadFailureAction,

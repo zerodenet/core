@@ -649,6 +649,9 @@ pub(crate) fn active_flow_record(
         ),
         target: flow_target(
             &session.target,
+            session.original_target.as_ref(),
+            session.target_host_source,
+            session.fake_ip_reverse_status,
             session.port,
             session.sni.as_ref(),
             &session.path,
@@ -691,6 +694,9 @@ pub(crate) fn completed_flow_record(record: &CompletedSessionRecord) -> FlowReco
         ),
         target: flow_target(
             &record.target,
+            record.original_target.as_ref(),
+            record.target_host_source,
+            record.fake_ip_reverse_status,
             record.port,
             record.sni.as_ref(),
             &record.path,
@@ -758,6 +764,9 @@ fn flow_source(
 
 fn flow_target(
     target: &Address,
+    original_target: Option<&Address>,
+    host_source: Option<zero_core::TargetHostSource>,
+    fake_ip_reverse_status: Option<zero_core::FakeIpReverseStatus>,
     port: u16,
     sni: Option<&String>,
     path: &crate::FlowPathObservation,
@@ -774,6 +783,9 @@ fn flow_target(
     FlowTarget {
         host: address_host(target),
         port,
+        original_ip: original_target.map(address_host),
+        host_source: host_source.map(|source| source.as_str().to_owned()),
+        fake_ip_reverse_status: fake_ip_reverse_status.map(|status| status.as_str().to_owned()),
         resolved_ip,
         sniffed_host: sni.cloned(),
     }

@@ -35,6 +35,27 @@ fn serialized_client_hello(domain: &str) -> Vec<u8> {
     bytes
 }
 
+fn serialized_client_hello_without_sni() -> Vec<u8> {
+    use rustls::pki_types::ServerName;
+    use rustls::{ClientConfig, ClientConnection, RootCertStore};
+
+    let config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .expect("supported TLS version")
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
+    let address: std::net::IpAddr = "203.0.113.9".parse().expect("IP address");
+    let server_name = ServerName::IpAddress(address.into());
+    let mut connection =
+        ClientConnection::new(Arc::new(config), server_name).expect("create TLS client connection");
+    let mut bytes = Vec::new();
+    connection
+        .write_tls(&mut bytes)
+        .expect("serialize ClientHello");
+    bytes
+}
+
 fn split_first_tls_record(bytes: &[u8], first_payload_length: usize) -> Vec<u8> {
     let record_length = u16::from_be_bytes([bytes[3], bytes[4]]) as usize;
     assert!(first_payload_length < record_length);
@@ -74,6 +95,14 @@ async fn tun_tls_sniff_overrides_ip_target_and_preserves_client_hello() {
         zero_core::Address::Domain("open.bigmodel.cn".to_owned())
     );
     assert_eq!(session.sni.as_deref(), Some("open.bigmodel.cn"));
+    assert_eq!(
+        session.original_target,
+        Some(zero_core::Address::Ipv4([47, 102, 128, 206]))
+    );
+    assert_eq!(
+        session.target_host_source,
+        Some(zero_core::TargetHostSource::TlsSni)
+    );
     let mut replayed = Vec::new();
     stream
         .read_to_end(&mut replayed)
@@ -131,12 +160,42 @@ async fn tun_non_tls_probe_keeps_ip_target_and_preserves_payload() {
     let (session, mut stream) = sniff_tls_target(session, reader).await;
 
     assert_eq!(session.target, original_target);
+    assert!(session.original_target.is_none());
+    assert!(session.target_host_source.is_none());
     assert!(session.sni.is_none());
     let mut replayed = Vec::new();
     stream
         .read_to_end(&mut replayed)
         .await
         .expect("read replayed payload");
+    assert_eq!(replayed, original);
+}
+
+#[tokio::test]
+async fn tun_tls_without_sni_keeps_deterministic_ip_fallback() {
+    let original = serialized_client_hello_without_sni();
+    let (mut writer, reader) = tokio::io::duplex(original.len() * 2);
+    writer
+        .write_all(&original)
+        .await
+        .expect("write ClientHello");
+    writer.shutdown().await.expect("close writer");
+    let original_target = zero_core::Address::Ipv4([203, 0, 113, 9]);
+    let session = zero_core::Session::new(
+        0,
+        original_target.clone(),
+        443,
+        zero_core::Network::Tcp,
+        zero_core::ProtocolType::UNKNOWN,
+    );
+
+    let (session, mut stream) = sniff_tls_target(session, reader).await;
+
+    assert_eq!(session.target, original_target);
+    assert!(session.sni.is_none());
+    assert!(session.target_host_source.is_none());
+    let mut replayed = Vec::new();
+    stream.read_to_end(&mut replayed).await.unwrap();
     assert_eq!(replayed, original);
 }
 

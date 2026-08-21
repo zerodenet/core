@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use zero_core::{Address, Network, ProtocolType, Session, SessionAuth};
+use zero_core::{
+    Address, FakeIpReverseStatus, Network, ProtocolType, Session, SessionAuth, TargetHostSource,
+};
 
 use crate::observability::SessionOutcome;
 use crate::principal::{PrincipalDeviceRegistration, PrincipalQuotaRegistration};
@@ -305,6 +307,9 @@ struct ActiveSessionEntry {
     route: Mutex<Option<FlowRouteObservation>>,
     path: Mutex<FlowPathObservation>,
     target: Address,
+    original_target: Option<Address>,
+    target_host_source: Option<TargetHostSource>,
+    fake_ip_reverse_status: Option<FakeIpReverseStatus>,
     port: u16,
     protocol: ProtocolType,
     auth: Option<SessionAuth>,
@@ -359,6 +364,9 @@ impl ActiveSessionEntry {
             route: Mutex::new(None),
             path: Mutex::new(FlowPathObservation::default()),
             target: session.target.clone(),
+            original_target: session.original_target.clone(),
+            target_host_source: session.target_host_source,
+            fake_ip_reverse_status: session.fake_ip_reverse_status,
             port: session.port,
             protocol: session.protocol,
             auth: session.auth.clone(),
@@ -601,6 +609,9 @@ impl ActiveSessionEntry {
                 .expect("session path lock poisoned")
                 .clone(),
             target: self.target.clone(),
+            original_target: self.original_target.clone(),
+            target_host_source: self.target_host_source,
+            fake_ip_reverse_status: self.fake_ip_reverse_status,
             port: self.port,
             protocol: self.protocol,
             auth: self.auth.clone(),
@@ -684,6 +695,9 @@ impl ActiveSessionEntry {
                 .expect("session path lock poisoned")
                 .clone(),
             target: self.target.clone(),
+            original_target: self.original_target.clone(),
+            target_host_source: self.target_host_source,
+            fake_ip_reverse_status: self.fake_ip_reverse_status,
             port: self.port,
             protocol: self.protocol,
             auth: self.auth.clone(),
@@ -733,6 +747,9 @@ pub struct ActiveSession {
     pub route: Option<FlowRouteObservation>,
     pub path: FlowPathObservation,
     pub target: Address,
+    pub original_target: Option<Address>,
+    pub target_host_source: Option<TargetHostSource>,
+    pub fake_ip_reverse_status: Option<FakeIpReverseStatus>,
     pub port: u16,
     pub protocol: ProtocolType,
     pub auth: Option<SessionAuth>,

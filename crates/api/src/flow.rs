@@ -83,6 +83,14 @@ pub struct FlowSource {
 pub struct FlowTarget {
     pub host: String,
     pub port: u16,
+    /// Original IP intercepted before domain restoration/sniffing. For a
+    /// Fake-IP flow this is the synthetic address returned to the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_ip: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fake_ip_reverse_status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_ip: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

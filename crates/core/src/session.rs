@@ -8,6 +8,36 @@ pub enum Network {
     Udp,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetHostSource {
+    FakeIp,
+    TlsSni,
+}
+
+impl TargetHostSource {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FakeIp => "fake_ip",
+            Self::TlsSni => "tls_sni",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FakeIpReverseStatus {
+    Resolved,
+    Missing,
+}
+
+impl FakeIpReverseStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Resolved => "resolved",
+            Self::Missing => "missing",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProtocolType(&'static str);
 
@@ -58,6 +88,13 @@ pub struct Session {
     pub inbound_tag: Option<String>,
     pub outbound_tag: Option<String>,
     pub target: Address,
+    /// Original IP target before Fake-IP restoration or content sniffing.
+    pub original_target: Option<Address>,
+    /// Source used to recover the current domain target.
+    pub target_host_source: Option<TargetHostSource>,
+    /// Fake-IP reverse lookup result when the original target was in the
+    /// configured synthetic pool.
+    pub fake_ip_reverse_status: Option<FakeIpReverseStatus>,
     pub port: u16,
     pub network: Network,
     pub protocol: ProtocolType,
@@ -95,6 +132,9 @@ impl Session {
             inbound_tag: None,
             outbound_tag: None,
             target,
+            original_target: None,
+            target_host_source: None,
+            fake_ip_reverse_status: None,
             port,
             network,
             protocol,

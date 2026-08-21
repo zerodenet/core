@@ -4,7 +4,7 @@ use zero_api::{
     QueryResponse, QueryService,
 };
 use zero_config::RuntimeConfig;
-use zero_core::{Address, Network, ProtocolType, Session};
+use zero_core::{Address, FakeIpReverseStatus, Network, ProtocolType, Session, TargetHostSource};
 use zero_engine::{Engine, EngineHandle, ProbeTrigger, ProbeTriggerAck, SessionOutcome};
 
 #[test]
@@ -311,6 +311,9 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
     session.process_id = Some(4242);
     session.process_name = Some("browser".to_owned());
     session.process_path = Some("/opt/browser".to_owned());
+    session.original_target = Some(Address::Ipv4([198, 18, 0, 1]));
+    session.target_host_source = Some(TargetHostSource::FakeIp);
+    session.fake_ip_reverse_status = Some(FakeIpReverseStatus::Resolved);
     engine
         .prepare_session(&mut session, "socks-in")
         .expect("session should be admitted");
@@ -336,6 +339,18 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
     assert_eq!(
         snapshot.payload["records"][0]["target"]["host"],
         "example.com"
+    );
+    assert_eq!(
+        snapshot.payload["records"][0]["target"]["original_ip"],
+        "198.18.0.1"
+    );
+    assert_eq!(
+        snapshot.payload["records"][0]["target"]["host_source"],
+        "fake_ip"
+    );
+    assert_eq!(
+        snapshot.payload["records"][0]["target"]["fake_ip_reverse_status"],
+        "resolved"
     );
     assert_eq!(snapshot.payload["records"][0]["traffic"]["bytes_up"], 64);
     assert_eq!(snapshot.payload["records"][0]["traffic"]["bytes_down"], 32);

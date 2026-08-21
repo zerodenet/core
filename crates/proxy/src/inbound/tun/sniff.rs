@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
-use zero_core::{Address, Session};
+use zero_core::{Address, Session, TargetHostSource};
 
 use crate::transport::{RecordingStream, ReplayStream};
 
@@ -36,8 +36,12 @@ where
                     sniffed_domain = %domain,
                     "TUN recovered domain from TLS ClientHello"
                 );
+                if session.original_target.is_none() {
+                    session.original_target = Some(session.target.clone());
+                }
                 session.sni = Some(domain.clone());
                 session.target = Address::Domain(domain);
+                session.target_host_source = Some(TargetHostSource::TlsSni);
             }
         }
         Ok(Err(error)) => {

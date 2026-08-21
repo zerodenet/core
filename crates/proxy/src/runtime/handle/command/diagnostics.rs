@@ -451,12 +451,25 @@ pub(super) fn execute_diagnostics_fakeip_lookup(
             rt.block_on(async move {
                 let resolver = &proxy.resolver;
                 let enabled = resolver.fake_ip_enabled();
+                let stats = resolver.fake_ip_stats().await.map(|stats| {
+                    serde_json::json!({
+                        "allocations": stats.allocations,
+                        "expirations": stats.expirations,
+                        "evictions": stats.evictions,
+                        "exhaustions": stats.exhaustions,
+                        "collisions": stats.collisions,
+                        "reverse_misses": stats.reverse_misses,
+                        "live_mappings": stats.live_mappings,
+                        "capacity": stats.capacity,
+                    })
+                });
                 let result = if let Some(domain) = domain {
                     let fake_ip = resolver.lookup_fake_ip_domain(&domain).await;
                     serde_json::json!({
                         "enabled": enabled,
                         "domain": domain,
                         "fake_ip": fake_ip,
+                        "stats": stats,
                     })
                 } else if let Some(ip) = ip {
                     let domain = match parse_ip_address(&ip) {
@@ -472,6 +485,7 @@ pub(super) fn execute_diagnostics_fakeip_lookup(
                         "enabled": enabled,
                         "ip": ip,
                         "domain": domain,
+                        "stats": stats,
                     })
                 } else {
                     return Err(zero_api::ApiError::new(

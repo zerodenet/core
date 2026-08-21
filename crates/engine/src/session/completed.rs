@@ -3,7 +3,9 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use zero_core::{Address, Network, ProtocolType, SessionAuth};
+use zero_core::{
+    Address, FakeIpReverseStatus, Network, ProtocolType, SessionAuth, TargetHostSource,
+};
 
 use crate::observability::SessionOutcome;
 
@@ -60,6 +62,9 @@ pub struct CompletedSessionRecord {
     pub route: Option<FlowRouteObservation>,
     pub path: FlowPathObservation,
     pub target: Address,
+    pub original_target: Option<Address>,
+    pub target_host_source: Option<TargetHostSource>,
+    pub fake_ip_reverse_status: Option<FakeIpReverseStatus>,
     pub port: u16,
     pub protocol: ProtocolType,
     pub auth: Option<SessionAuth>,
