@@ -58,7 +58,8 @@ mod platform {
             }
             std::net::IpAddr::V6(ip) => {
                 let mut encoded = String::with_capacity(32);
-                for chunk in ip.octets().chunks_exact(4) {
+                let octets = ip.octets();
+                for chunk in octets.as_chunks::<4>().0 {
                     for byte in chunk.iter().rev() {
                         use std::fmt::Write;
                         write!(&mut encoded, "{byte:02X}").ok()?;
