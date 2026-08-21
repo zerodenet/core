@@ -995,6 +995,37 @@ fn dns_query(id: u16, name: &str) -> Vec<u8> {
     query
 }
 
+#[test]
+fn mock_dns_response_ignores_edns_pseudo_record() {
+    for (query_type, expected_data) in [
+        (1_u16, &[127, 0, 0, 1][..]),
+        (
+            28,
+            &[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1][..],
+        ),
+    ] {
+        let mut query = dns_query(0x6611, "example.com");
+        let query_type_offset = query.len() - 4;
+        query[query_type_offset..query_type_offset + 2].copy_from_slice(&query_type.to_be_bytes());
+        query[10..12].copy_from_slice(&1_u16.to_be_bytes());
+        query.extend_from_slice(&[0, 0, 41, 0x10, 0, 0, 0, 0, 0, 0, 0]);
+
+        let response = mock_dns_response(&query).expect("build mock DNS response");
+        let (question_end, parsed_type) = dns_question(query.as_slice()).unwrap();
+        assert_eq!(parsed_type, query_type);
+        assert_eq!(&response[4..12], &[0, 1, 0, 1, 0, 0, 0, 0]);
+        assert_eq!(&response[question_end..question_end + 2], &[0xc0, 0x0c]);
+        assert_eq!(
+            u16::from_be_bytes([response[question_end + 2], response[question_end + 3]]),
+            query_type
+        );
+        assert_eq!(
+            &response[response.len() - expected_data.len()..],
+            expected_data
+        );
+    }
+}
+
 fn run_cli<const N: usize>(binary: &str, arguments: [&str; N]) {
     let output = Command::new(binary).args(arguments).output().unwrap();
     assert!(
@@ -1188,10 +1219,7 @@ impl Drop for MockDns {
 }
 
 fn mock_dns_response(query: &[u8]) -> Option<Vec<u8>> {
-    if query.len() < 17 {
-        return None;
-    }
-    let qtype = u16::from_be_bytes([query[query.len() - 4], query[query.len() - 3]]);
+    let (question_end, qtype) = dns_question(query)?;
     let (record, data): (u16, &[u8]) = match qtype {
         28 => (
             28,
@@ -1199,14 +1227,39 @@ fn mock_dns_response(query: &[u8]) -> Option<Vec<u8>> {
         ),
         _ => (1, &[127, 0, 0, 1]),
     };
-    let mut response = Vec::with_capacity(query.len() + 32);
+    let mut response = Vec::with_capacity(question_end + 32);
     response.extend_from_slice(&query[..2]);
     response.extend_from_slice(&[0x81, 0x80, 0, 1, 0, 1, 0, 0, 0, 0]);
-    response.extend_from_slice(&query[12..]);
+    response.extend_from_slice(&query[12..question_end]);
     response.extend_from_slice(&[0xc0, 0x0c]);
     response.extend_from_slice(&record.to_be_bytes());
     response.extend_from_slice(&[0, 1, 0, 0, 0, 60]);
     response.extend_from_slice(&(data.len() as u16).to_be_bytes());
     response.extend_from_slice(data);
     Some(response)
+}
+
+fn dns_question(query: &[u8]) -> Option<(usize, u16)> {
+    if query.len() < 17 || query.get(4..6)? != [0, 1] {
+        return None;
+    }
+
+    let mut offset = 12;
+    loop {
+        let label_length = usize::from(*query.get(offset)?);
+        offset += 1;
+        if label_length == 0 {
+            break;
+        }
+        if label_length > 63 {
+            return None;
+        }
+        offset = offset.checked_add(label_length)?;
+        query.get(..offset)?;
+    }
+
+    let query_type = u16::from_be_bytes([*query.get(offset)?, *query.get(offset + 1)?]);
+    let question_end = offset.checked_add(4)?;
+    query.get(..question_end)?;
+    Some((question_end, query_type))
 }
