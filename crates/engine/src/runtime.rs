@@ -114,7 +114,7 @@ fn started_at_unix_ms() -> u64 {
 
 impl Engine {
     pub fn new(config: RuntimeConfig) -> Result<Self, EngineError> {
-        let router = Arc::new(config.route.compile(config.source_dir())?);
+        let router = Arc::new(config.compile_route()?);
         let plan = Arc::new(EnginePlan::build(&config)?);
         let plan_inner = plan.clone();
         let udp_upstream_idle_timeout =

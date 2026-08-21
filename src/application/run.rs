@@ -41,7 +41,7 @@ async fn run(
     ipc_hook_socket: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     let mut config = zero_config::RuntimeConfig::load_from_path(config_path)?;
-    rule_set_fetch::pre_fetch_rule_sets(&mut config.route.rule_sets, config.source_dir.as_deref());
+    rule_set_fetch::pre_fetch_rule_sets(&mut config.rule_sets, config.source_dir.as_deref());
     let engine = zero_engine::Engine::new_with_config_path(config, config_path)?;
     let proxy = Proxy::from_engine(engine)?;
     let engine = proxy.engine().clone();

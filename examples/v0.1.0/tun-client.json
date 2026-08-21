@@ -12,11 +12,14 @@
       "dns_hijack": true
     },
     "dns": {
-      "servers": [
-        { "type": "udp", "address": "1.1.1.1", "port": 53 }
-      ],
+      "servers": {
+        "global": { "type": "udp", "host": "1.1.1.1", "port": 53 }
+      },
+      "default_server": "global",
+      "dispatch": [],
       "cache": { "max_entries": 1024 },
-      "fake_ip": {
+      "answer": {
+        "type": "fake_ip",
         "cidr": "198.18.0.0/15",
         "ttl_seconds": 86400,
         "exclude_domains": []
@@ -37,6 +40,7 @@
       "protocol": { "type": "block" }
     }
   ],
+  "rule_sets": {},
   "route": {
     "rules": [],
     "final": { "type": "route", "outbound": "proxy" }

@@ -190,6 +190,55 @@ pub struct RouteContext<'a> {
     pub inbound_tag: Option<&'a str>,
 }
 
+/// Ordered, first-match-wins dispatch over the shared domain condition model.
+///
+/// DNS uses this to select one named resolver without inheriting traffic-route
+/// action semantics or maintaining a second wildcard matcher.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainDispatcher<T> {
+    rules: Vec<(RuleCondition, T)>,
+    default: T,
+}
+
+impl<T> DomainDispatcher<T> {
+    pub fn new(rules: Vec<(RuleCondition, T)>, default: T) -> Self {
+        Self { rules, default }
+    }
+
+    pub fn select(&self, domain: &str) -> &T {
+        let address = Address::Domain(domain.to_owned());
+        let context = RouteContext {
+            address: &address,
+            sni: None,
+            inbound_tag: None,
+        };
+        let queries = condition::prepare_route_queries(&address, &[]);
+        self.rules
+            .iter()
+            .find(|(rule, _)| {
+                queries.iter().any(|query| {
+                    condition::condition_matches(
+                        rule,
+                        context,
+                        None,
+                        query.rule_query(),
+                        query.resolved_ip(),
+                    )
+                })
+            })
+            .map(|(_, value)| value)
+            .unwrap_or(&self.default)
+    }
+
+    pub fn rules(&self) -> &[(RuleCondition, T)] {
+        &self.rules
+    }
+
+    pub fn default(&self) -> &T {
+        &self.default
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,5 +368,26 @@ mod tests {
             inbound_tag: Some("jp-in"),
         });
         assert_eq!(wrong_inbound, RouteAction::Direct);
+    }
+
+    #[test]
+    fn domain_dispatcher_reuses_ordered_route_conditions() {
+        let dispatcher = DomainDispatcher::new(
+            vec![
+                (
+                    RuleCondition::Domain(vec!["internal.example".to_owned()]),
+                    "private",
+                ),
+                (
+                    RuleCondition::DomainKeyword(vec!["telemetry".to_owned()]),
+                    "filtered",
+                ),
+            ],
+            "public",
+        );
+
+        assert_eq!(dispatcher.select("api.internal.example"), &"private");
+        assert_eq!(dispatcher.select("telemetry.vendor.example"), &"filtered");
+        assert_eq!(dispatcher.select("example.com"), &"public");
     }
 }

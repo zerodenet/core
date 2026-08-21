@@ -1,89 +1,101 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::net::IpAddr;
+
 use serde::{Deserialize, Serialize};
 
-use std::collections::BTreeSet;
-use std::net::IpAddr;
+use super::RuleConditionConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DnsConfig {
-    /// Ordered DNS servers. Resolution races all servers concurrently and
-    /// returns the first success. Empty or omitted defaults to the system resolver.
+    /// DNS backends keyed by stable, client-selected names.
+    pub servers: BTreeMap<String, DnsServerConfig>,
+
+    /// Backend used when no dispatch condition matches.
+    pub default_server: String,
+
+    /// Ordered DNS dispatch rules. First match wins.
     #[serde(default)]
-    pub servers: Vec<DnsServerConfig>,
+    pub dispatch: Vec<DnsDispatchRuleConfig>,
 
     /// Optional TTL-based DNS cache.
     #[serde(default)]
     pub cache: Option<DnsCacheConfig>,
 
-    /// Per-domain routing rules. First match wins; unmatched domains use
-    /// the first server in the servers list.
+    /// Address-answer behavior for intercepted DNS requests.
     #[serde(default)]
-    pub routes: Vec<DnsRouteConfig>,
-
-    /// Fake IP mode: return synthetic IPs to clients and maintain
-    /// a domain↔IP mapping for transparent proxying.
-    #[serde(default)]
-    pub fake_ip: Option<FakeIpConfig>,
+    pub answer: DnsAnswerConfig,
 }
 
 impl DnsConfig {
     /// Return DNS endpoint addresses that can be safely excluded from a TUN
     /// default route without recursively consulting the system resolver.
     pub fn tun_route_exclusion_addresses(&self) -> Result<Vec<IpAddr>, String> {
-        if self.servers.is_empty() {
-            return Err("TUN DNS hijack requires configured non-system DNS servers".to_owned());
-        }
         let mut addresses = BTreeSet::new();
-        for server in &self.servers {
-            let endpoint = match server {
-                DnsServerConfig::System => {
-                    return Err("TUN DNS hijack cannot use the system DNS backend".to_owned());
-                }
-                DnsServerConfig::Udp { address, .. } | DnsServerConfig::Dot { address, .. } => {
-                    address.parse().map_err(|error| {
-                        format!("TUN DNS endpoint `{address}` must be an IP address: {error}")
-                    })?
-                }
-                DnsServerConfig::Doh { url, .. } => parse_doh_ip(url)?,
-            };
-            addresses.insert(endpoint);
+        for (tag, server) in &self.servers {
+            if matches!(server, DnsServerConfig::System) {
+                return Err(format!(
+                    "TUN DNS hijack cannot use system DNS backend `{tag}`"
+                ));
+            }
+
+            let endpoint_addresses = server.endpoint_addresses().map_err(|error| {
+                format!("TUN DNS backend `{tag}` cannot be excluded safely: {error}")
+            })?;
+            addresses.extend(endpoint_addresses);
         }
         Ok(addresses.into_iter().collect())
     }
+
+    pub fn fake_ip(&self) -> Option<FakeIpConfigRef<'_>> {
+        match &self.answer {
+            DnsAnswerConfig::Real => None,
+            DnsAnswerConfig::FakeIp {
+                cidr,
+                ttl_seconds,
+                exclude_domains,
+            } => Some(FakeIpConfigRef {
+                cidr,
+                ttl_seconds: *ttl_seconds,
+                exclude_domains,
+            }),
+        }
+    }
 }
 
-fn parse_doh_ip(url: &str) -> Result<IpAddr, String> {
-    let authority = url
-        .split_once("://")
-        .map(|(_, remainder)| remainder)
-        .unwrap_or(url)
-        .split('/')
-        .next()
-        .unwrap_or_default();
-    let host = if let Some(authority) = authority.strip_prefix('[') {
-        authority.split(']').next().unwrap_or_default()
-    } else {
-        authority.split(':').next().unwrap_or_default()
-    };
-    host.parse()
-        .map_err(|error| format!("TUN DoH URL host `{host}` must be an IP address: {error}"))
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FakeIpConfig {
-    /// CIDR block for the fake IP pool, e.g. `"198.18.0.0/15"`.
-    pub cidr: String,
-    /// How long a fake IP assignment lasts before expiry (seconds).
-    #[serde(default = "default_fake_ip_ttl")]
+#[derive(Debug, Clone, Copy)]
+pub struct FakeIpConfigRef<'a> {
+    pub cidr: &'a str,
     pub ttl_seconds: u64,
-    /// Domains excluded from fake IP (always use real DNS).
-    #[serde(default)]
-    pub exclude_domains: Vec<String>,
+    pub exclude_domains: &'a [String],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "type", deny_unknown_fields)]
+pub enum DnsAnswerConfig {
+    #[default]
+    #[serde(rename = "real")]
+    Real,
+    #[serde(rename = "fake_ip")]
+    FakeIp {
+        /// CIDR block for the fake-IP pool, for example `198.18.0.0/15`.
+        #[serde(default = "default_fake_ip_cidr")]
+        cidr: String,
+        /// Mapping lifetime in seconds.
+        #[serde(default = "default_fake_ip_ttl")]
+        ttl_seconds: u64,
+        /// Domains that always receive real DNS answers.
+        #[serde(default)]
+        exclude_domains: Vec<String>,
+    },
 }
 
 const fn default_fake_ip_ttl() -> u64 {
     86400
+}
+
+fn default_fake_ip_cidr() -> String {
+    "198.18.0.0/15".to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,33 +107,90 @@ pub enum DnsServerConfig {
     /// Plain UDP DNS.
     #[serde(rename = "udp")]
     Udp {
-        address: String,
+        host: String,
         #[serde(default = "default_dns_port")]
         port: u16,
+        #[serde(default)]
+        bootstrap: Vec<IpAddr>,
     },
-    /// DNS-over-HTTPS (v2).
+    /// DNS-over-HTTPS.
     #[serde(rename = "doh")]
     Doh {
-        url: String,
+        host: String,
+        #[serde(default = "default_dns_https_port")]
+        port: u16,
+        #[serde(default = "default_doh_path")]
+        path: String,
+        #[serde(default)]
+        bootstrap: Vec<IpAddr>,
         #[serde(default)]
         server_name: Option<String>,
     },
-    /// DNS-over-TLS (v2).
+    /// DNS-over-TLS.
     #[serde(rename = "dot")]
     Dot {
-        address: String,
+        host: String,
         #[serde(default = "default_dns_dot_port")]
         port: u16,
+        #[serde(default)]
+        bootstrap: Vec<IpAddr>,
         #[serde(default)]
         server_name: Option<String>,
     },
 }
 
+impl DnsServerConfig {
+    pub fn host(&self) -> Option<&str> {
+        match self {
+            Self::System => None,
+            Self::Udp { host, .. } | Self::Doh { host, .. } | Self::Dot { host, .. } => Some(host),
+        }
+    }
+
+    pub fn port(&self) -> Option<u16> {
+        match self {
+            Self::System => None,
+            Self::Udp { port, .. } | Self::Doh { port, .. } | Self::Dot { port, .. } => Some(*port),
+        }
+    }
+
+    pub fn bootstrap(&self) -> &[IpAddr] {
+        match self {
+            Self::System => &[],
+            Self::Udp { bootstrap, .. }
+            | Self::Doh { bootstrap, .. }
+            | Self::Dot { bootstrap, .. } => bootstrap,
+        }
+    }
+
+    pub fn endpoint_addresses(&self) -> Result<Vec<IpAddr>, String> {
+        if matches!(self, Self::System) {
+            return Err("system resolver has no deterministic endpoint".to_owned());
+        }
+        if !self.bootstrap().is_empty() {
+            return Ok(self.bootstrap().to_vec());
+        }
+        let host = self.host().expect("network DNS server has a host");
+        host.parse::<IpAddr>()
+            .map(|address| vec![address])
+            .map_err(|_| format!("domain host `{host}` requires at least one bootstrap address"))
+    }
+}
+
 const fn default_dns_port() -> u16 {
     53
 }
+
+const fn default_dns_https_port() -> u16 {
+    443
+}
+
 const fn default_dns_dot_port() -> u16 {
     853
+}
+
+fn default_doh_path() -> String {
+    "/dns-query".to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,10 +210,7 @@ const fn default_dns_cache_max_entries() -> usize {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DnsRouteConfig {
-    /// Domain pattern. Exact ("example.com") or wildcard ("*.example.com").
-    pub domain: String,
-    /// Server identifier. Either `"system"` or a 0-based index into the
-    /// `servers` array as a string (e.g. `"0"`, `"1"`).
+pub struct DnsDispatchRuleConfig {
+    pub condition: RuleConditionConfig,
     pub server: String,
 }

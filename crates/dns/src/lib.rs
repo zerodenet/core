@@ -11,6 +11,7 @@ mod router;
 mod system;
 pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
 use std::sync::Arc;
@@ -21,7 +22,7 @@ use zero_traits::{DnsResolver, IpAddress};
 use backends::ResolverBackend;
 use cache::DnsCache;
 use fake_ip::FakeIpAllocator;
-use router::DnsRouter;
+use router::DnsDispatcher;
 use system::TokioSystemResolver;
 
 /// The configured DNS subsystem.
@@ -53,8 +54,8 @@ enum DnsSystemInner {
     System(TokioSystemResolver),
     /// Fully configured with servers, routing, cache, and optional fake IP.
     Configured {
-        servers: Vec<Arc<ResolverBackend>>,
-        router: DnsRouter,
+        servers: BTreeMap<String, Arc<ResolverBackend>>,
+        dispatcher: DnsDispatcher,
         cache: Option<DnsCache>,
         fake_ip: Option<Arc<FakeIpAllocator>>,
     },
@@ -63,8 +64,8 @@ enum DnsSystemInner {
 /// Snapshot of the fields needed for an async `resolve()` call.
 /// Extracted from the lock so we don't hold it across await points.
 struct ResolveSnapshot {
-    servers: Vec<Arc<ResolverBackend>>,
-    router: DnsRouter,
+    servers: BTreeMap<String, Arc<ResolverBackend>>,
+    dispatcher: DnsDispatcher,
     cache: Option<DnsCache>,
     fake_ip: Option<Arc<FakeIpAllocator>>,
 }
@@ -84,37 +85,44 @@ impl DnsSystem {
         config: Option<&DnsConfig>,
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
     ) -> io::Result<Self> {
+        let dispatch = compile_standalone_dispatch(config)?;
+        Self::build_with_egress_and_dispatch(config, dispatch, egress_interface)
+    }
+
+    pub fn build_with_egress_and_dispatch(
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    ) -> io::Result<Self> {
         Ok(Self {
-            inner: std::sync::RwLock::new(Self::build_inner(config, &egress_interface)?),
+            inner: std::sync::RwLock::new(Self::build_inner(config, dispatch, &egress_interface)?),
             egress_interface,
         })
     }
 
     fn build_inner(
         config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
         egress_interface: &zero_platform_tokio::EgressInterfaceControl,
     ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
             return Ok(DnsSystemInner::System(TokioSystemResolver));
         };
 
-        if cfg.servers.is_empty() {
-            return Ok(DnsSystemInner::System(TokioSystemResolver));
+        let mut servers = BTreeMap::new();
+        for (tag, server) in &cfg.servers {
+            servers.insert(
+                tag.clone(),
+                Arc::new(ResolverBackend::build(server, egress_interface.clone())?),
+            );
         }
 
-        let mut servers: Vec<Arc<ResolverBackend>> = Vec::with_capacity(cfg.servers.len());
-        for s in &cfg.servers {
-            servers.push(Arc::new(ResolverBackend::build(
-                s,
-                egress_interface.clone(),
-            )?));
-        }
-
-        let router = DnsRouter::new(&cfg.routes, servers.len());
+        let dispatcher = DnsDispatcher::new(dispatch.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "missing compiled DNS dispatch")
+        })?);
         let cache = cfg.cache.as_ref().map(DnsCache::new);
         let fake_ip = cfg
-            .fake_ip
-            .as_ref()
+            .fake_ip()
             .map(FakeIpAllocator::new)
             .transpose()
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
@@ -122,7 +130,7 @@ impl DnsSystem {
 
         Ok(DnsSystemInner::Configured {
             servers,
-            router,
+            dispatcher,
             cache,
             fake_ip,
         })
@@ -133,7 +141,16 @@ impl DnsSystem {
     /// In-flight resolutions continue using the old inner state until they
     /// complete; new resolutions see the updated config immediately.
     pub fn reload(&self, config: Option<&DnsConfig>) -> io::Result<()> {
-        let new_inner = Self::build_inner(config, &self.egress_interface)?;
+        let dispatch = compile_standalone_dispatch(config)?;
+        self.reload_with_dispatch(config, dispatch)
+    }
+
+    pub fn reload_with_dispatch(
+        &self,
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+    ) -> io::Result<()> {
+        let new_inner = Self::build_inner(config, dispatch, &self.egress_interface)?;
         let mut guard = self.inner.write().expect("dns system lock poisoned");
         *guard = new_inner;
         Ok(())
@@ -174,6 +191,16 @@ impl DnsSystem {
                 ..
             }
         )
+    }
+
+    /// Return the first TUN-owned address that falls inside the active
+    /// synthetic pool. Used by both managed and command-driven TUN startup.
+    pub fn fake_ip_conflict(&self, addresses: &[std::net::IpAddr]) -> Option<std::net::IpAddr> {
+        let allocator = self.snapshot_fake_ip()?;
+        addresses
+            .iter()
+            .copied()
+            .find(|address| allocator.contains(*address))
     }
 
     /// Inspect a cached domain (diagnostic). Returns (addresses, seconds to
@@ -231,12 +258,12 @@ impl DnsSystem {
             DnsSystemInner::System(_) => None,
             DnsSystemInner::Configured {
                 servers,
-                router,
+                dispatcher,
                 cache,
                 fake_ip,
             } => Some(ResolveSnapshot {
                 servers: servers.clone(),
-                router: router.clone(),
+                dispatcher: dispatcher.clone(),
                 cache: cache.clone(),
                 fake_ip: fake_ip.clone(),
             }),
@@ -315,26 +342,17 @@ async fn resolve_snapshot(domain: &str, snapshot: ResolveSnapshot) -> io::Result
         }
     }
 
-    // 2. Route → primary index, reorder so primary is first.
-    let primary = snapshot.router.route(domain);
-    let ordered = {
-        let server_count = snapshot.servers.len();
-        let mut ordered = Vec::with_capacity(server_count);
-        if primary < server_count {
-            ordered.push(Arc::clone(&snapshot.servers[primary]));
-        }
-        for index in 0..server_count {
-            if index != primary {
-                ordered.push(Arc::clone(&snapshot.servers[index]));
-            }
-        }
-        ordered
-    };
+    // 2. Dispatch to exactly one backend; there is no implicit fallback.
+    let selected = snapshot.dispatcher.select(domain);
+    let backend = snapshot.servers.get(selected).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("DNS dispatch selected undefined backend `{selected}`"),
+        )
+    })?;
+    let result = backend.resolve(domain).await;
 
-    // 3. Race all backends concurrently, take first success.
-    let result = race_resolve(domain, &ordered).await;
-
-    // 4. Cache on success (default TTL 300s).
+    // 3. Cache on success (default TTL 300s).
     if let (Some(cache), Ok(ips)) = (&snapshot.cache, &result) {
         cache.put(domain.to_owned(), ips.clone(), 300).await;
     }
@@ -342,35 +360,16 @@ async fn resolve_snapshot(domain: &str, snapshot: ResolveSnapshot) -> io::Result
     result
 }
 
-/// Fire all backends concurrently via `JoinSet`, return first success.
-async fn race_resolve(
-    domain: &str,
-    backends: &[Arc<ResolverBackend>],
-) -> io::Result<Vec<IpAddress>> {
-    use tokio::task::JoinSet;
-
-    let mut tasks = JoinSet::new();
-    for backend in backends {
-        let b = Arc::clone(backend);
-        let d = domain.to_owned();
-        tasks.spawn(async move { b.resolve(&d).await });
-    }
-
-    let mut last_err = io::Error::other("no dns backends configured");
-    while let Some(result) = tasks.join_next().await {
-        match result {
-            Ok(Ok(ips)) => {
-                tasks.abort_all();
-                return Ok(ips);
-            }
-            Ok(Err(e)) => last_err = e,
-            Err(join_err) => {
-                last_err = io::Error::other(join_err.to_string());
-            }
-        }
-    }
-
-    Err(last_err)
+fn compile_standalone_dispatch(
+    config: Option<&DnsConfig>,
+) -> io::Result<Option<zero_router::DomainDispatcher<String>>> {
+    config
+        .map(|config| {
+            config
+                .compile_dispatch(&BTreeMap::new(), None)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+        })
+        .transpose()
 }
 
 /// Format a `zero_traits::IpAddress` as a string (diagnostic display).

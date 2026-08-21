@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::{ConfigError, EventSinkConfig, ModeConfig, RuntimeConfig, RuntimeOptionsConfig};
 
 mod api;
+mod dns;
 mod group;
 mod protocol;
 mod route;
@@ -11,7 +12,7 @@ mod route;
 use api::validate_api;
 use group::validate_group_reference_graph;
 use protocol::{validate_inbound_protocol, validate_outbound_protocol};
-use route::validate_route_target_tag;
+use route::{validate_route_target_tag, validate_rule_sets};
 
 impl RuntimeConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
@@ -61,12 +62,15 @@ impl RuntimeConfig {
         }
         validate_group_reference_graph(&self.outbound_groups)?;
 
+        let rule_set_tags = validate_rule_sets(&self.rule_sets)?;
         self.route
-            .validate(&route_target_tags, &inbound_tags, self.source_dir())?;
-        validate_runtime(&self.runtime)?;
+            .validate(&route_target_tags, &inbound_tags, &rule_set_tags)?;
+        validate_runtime(&self.runtime, &self.rule_sets, &rule_set_tags)?;
         validate_mode(&self.mode, &route_target_tags)?;
         validate_api(&self.api)?;
         validate_connector_state_paths(self)?;
+        let _ = self.compile_route()?;
+        let _ = self.compile_dns_dispatch()?;
 
         Ok(())
     }
@@ -208,7 +212,11 @@ fn validate_mode(
     }
 }
 
-fn validate_runtime(runtime: &RuntimeOptionsConfig) -> Result<(), ConfigError> {
+fn validate_runtime(
+    runtime: &RuntimeOptionsConfig,
+    rule_sets: &std::collections::BTreeMap<String, crate::RuleSetConfig>,
+    rule_set_tags: &HashSet<String>,
+) -> Result<(), ConfigError> {
     if runtime
         .principal_quota_state_path
         .as_deref()
@@ -244,7 +252,7 @@ fn validate_runtime(runtime: &RuntimeOptionsConfig) -> Result<(), ConfigError> {
     }
 
     if let Some(dns) = &runtime.dns {
-        validate_dns_config(dns)?;
+        dns::validate_dns_config(runtime, dns, rule_sets, rule_set_tags)?;
     }
 
     Ok(())
@@ -391,92 +399,6 @@ pub(crate) fn validate_latency_test_url(scope: &str, url: &str) -> Result<(), Co
             "{scope} currently only supports `http://` URLs"
         )));
     }
-    Ok(())
-}
-
-fn validate_dns_config(dns: &crate::DnsConfig) -> Result<(), ConfigError> {
-    let num_servers = dns.servers.len();
-    for (i, server) in dns.servers.iter().enumerate() {
-        match server {
-            crate::DnsServerConfig::Udp { address, .. } if address.trim().is_empty() => {
-                return Err(ConfigError::InvalidDns(format!(
-                    "dns server {i}: udp address must not be empty"
-                )));
-            }
-            crate::DnsServerConfig::Dot { address, .. } if address.trim().is_empty() => {
-                return Err(ConfigError::InvalidDns(format!(
-                    "dns server {i}: dot address must not be empty"
-                )));
-            }
-            crate::DnsServerConfig::Doh { url, .. } if url.trim().is_empty() => {
-                return Err(ConfigError::InvalidDns(format!(
-                    "dns server {i}: doh url must not be empty"
-                )));
-            }
-            _ => {}
-        }
-    }
-
-    if let Some(cache) = &dns.cache {
-        if cache.max_entries == 0 {
-            return Err(ConfigError::InvalidDns(
-                "`dns.cache.max_entries` must be greater than 0".to_owned(),
-            ));
-        }
-    }
-
-    if let Some(fake_ip) = &dns.fake_ip {
-        let cidr: Result<ipnet::IpNet, _> = fake_ip.cidr.parse();
-        match cidr {
-            Ok(net) => {
-                let (min_prefix, label) = match net {
-                    ipnet::IpNet::V4(_) => (30, "/30 (4 addresses)"),
-                    ipnet::IpNet::V6(_) => (120, "/120 (256 addresses)"),
-                };
-                if net.prefix_len() > min_prefix {
-                    return Err(ConfigError::InvalidDns(format!(
-                        "`dns.fake_ip.cidr` prefix length is too large for a fake IP pool; \
-                         minimum is {label}",
-                    )));
-                }
-            }
-            Err(_) => {
-                return Err(ConfigError::InvalidDns(format!(
-                    "`dns.fake_ip.cidr` is not a valid CIDR: {}",
-                    fake_ip.cidr
-                )));
-            }
-        }
-        if fake_ip.ttl_seconds == 0 {
-            return Err(ConfigError::InvalidDns(
-                "`dns.fake_ip.ttl_seconds` must be greater than 0".to_owned(),
-            ));
-        }
-    }
-
-    for (i, route) in dns.routes.iter().enumerate() {
-        if route.domain.trim().is_empty() {
-            return Err(ConfigError::InvalidDns(format!(
-                "dns route {i}: domain must not be empty"
-            )));
-        }
-        if route.server != "system" {
-            if let Ok(idx) = route.server.parse::<usize>() {
-                if idx >= num_servers {
-                    return Err(ConfigError::InvalidDns(format!(
-                        "dns route {i}: server index {idx} out of range (0-{})",
-                        num_servers.saturating_sub(1)
-                    )));
-                }
-            } else {
-                return Err(ConfigError::InvalidDns(format!(
-                    "dns route {i}: server must be \"system\" or a number (0-{})",
-                    num_servers.saturating_sub(1)
-                )));
-            }
-        }
-    }
-
     Ok(())
 }
 

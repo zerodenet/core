@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct RouteConfig {
     #[serde(default)]
-    pub rule_sets: Vec<RouteRuleSetConfig>,
-    #[serde(default)]
     pub rules: Vec<RouteRuleConfig>,
     #[serde(rename = "final")]
     pub final_action: RouteActionConfig,
@@ -40,8 +38,7 @@ pub struct UrlRewriteRule {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RouteRuleSetConfig {
-    pub tag: String,
+pub struct RuleSetConfig {
     #[serde(rename = "type")]
     pub source_type: RuleSetSourceType,
     /// Path to a local file, or fallback cache path for URL sources.
@@ -55,7 +52,7 @@ pub struct RouteRuleSetConfig {
     pub format: RuleSetFormatConfig,
 }
 
-impl RouteRuleSetConfig {
+impl RuleSetConfig {
     pub fn source_path(&self) -> &str {
         &self.path
     }

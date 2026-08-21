@@ -1,6 +1,8 @@
 #![cfg(feature = "udp")]
 
-use zero_config::{DnsConfig, DnsServerConfig};
+use std::collections::BTreeMap;
+
+use zero_config::{DnsAnswerConfig, DnsConfig, DnsServerConfig};
 use zero_traits::IpAddress;
 
 #[tokio::test]
@@ -20,13 +22,18 @@ async fn udp_dns_uses_an_ipv6_socket_for_an_ipv6_server() {
             .expect("send DNS response");
     });
     let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
-        servers: vec![DnsServerConfig::Udp {
-            address: "::1".to_owned(),
-            port,
-        }],
+        servers: BTreeMap::from([(
+            "test".to_owned(),
+            DnsServerConfig::Udp {
+                host: "::1".to_owned(),
+                port,
+                bootstrap: Vec::new(),
+            },
+        )]),
+        default_server: "test".to_owned(),
+        dispatch: Vec::new(),
         cache: None,
-        routes: Vec::new(),
-        fake_ip: None,
+        answer: DnsAnswerConfig::Real,
     }))
     .expect("build IPv6 UDP resolver");
 

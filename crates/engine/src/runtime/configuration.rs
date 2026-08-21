@@ -55,7 +55,7 @@ impl Engine {
                     .to_owned(),
             });
         }
-        let new_router = Arc::new(new_config.route.compile(new_config.source_dir())?);
+        let new_router = Arc::new(new_config.compile_route()?);
         let new_plan = Arc::new(EnginePlan::build(&new_config)?);
         if persist {
             if let Some(path) = &self.config_path {

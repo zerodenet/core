@@ -122,21 +122,19 @@ fn rule_set_routes_domain_and_cidr_targets() {
                     "protocol": {{ "type": "block" }}
                 }}
             ],
-            "route": {{
-                "rule_sets": [
-                    {{
-                        "tag": "ads",
+            "rule_sets": {{
+                    "ads": {{
                         "type": "file",
                         "path": "{}",
                         "format": "domain_list"
                     }},
-                    {{
-                        "tag": "lan",
+                    "lan": {{
                         "type": "file",
                         "path": "{}",
                         "format": "cidr_list"
                     }}
-                ],
+            }},
+            "route": {{
                 "rules": [
                     {{
                         "condition": {{ "type": "rule_set", "tag": "ads" }},
@@ -254,13 +252,14 @@ fn zero_rule_ir_routes_mixed_domain_and_ip_matchers() {
 
     let config = RuntimeConfig::parse(&format!(
         r#"{{
-            "route": {{
-                "rule_sets": [{{
-                    "tag": "private",
+            "rule_sets": {{
+                "private": {{
                     "type": "file",
                     "path": "{}",
                     "format": "zero_rule_ir"
-                }}],
+                }}
+            }},
+            "route": {{
                 "rules": [{{
                     "condition": {{ "type": "rule_set", "tag": "private" }},
                     "action": {{ "type": "reject" }}
@@ -381,13 +380,14 @@ fn write_zrs(path: &Path, domain: &str) {
 fn zrs_config(path: &Path) -> RuntimeConfig {
     RuntimeConfig::parse(&format!(
         r#"{{
-            "route": {{
-                "rule_sets": [{{
-                    "tag": "selected",
+            "rule_sets": {{
+                "selected": {{
                     "type": "file",
                     "path": "{}",
                     "format": "zrs"
-                }}],
+                }}
+            }},
+            "route": {{
                 "rules": [{{
                     "condition": {{ "type": "rule_set", "tag": "selected" }},
                     "action": {{ "type": "reject" }}

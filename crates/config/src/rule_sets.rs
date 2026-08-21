@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,48 +9,48 @@ use zero_rule::protocol::decode_json;
 use zero_rule::zrs::{MappedRuleSet, PrewarmPolicy, VerifyMode};
 use zero_rule::{Rule, RuleMatcher, RuleSet, RuleSetCompiler};
 
-use crate::{ConfigError, RouteRuleSetConfig, RuleSetFormatConfig};
+use crate::{ConfigError, RuleSetConfig, RuleSetFormatConfig};
 
 pub type CompiledRuleSets = HashMap<String, RuleSetMatcher>;
 
 pub fn compile_rule_sets(
-    rule_sets: &[RouteRuleSetConfig],
+    rule_sets: &BTreeMap<String, RuleSetConfig>,
     base_dir: Option<&Path>,
 ) -> Result<CompiledRuleSets, ConfigError> {
     let mut compiled = HashMap::with_capacity(rule_sets.len());
 
-    for rule_set in rule_sets {
-        compiled.insert(rule_set.tag.clone(), compile_rule_set(rule_set, base_dir)?);
+    for (tag, rule_set) in rule_sets {
+        compiled.insert(tag.clone(), compile_rule_set(tag, rule_set, base_dir)?);
     }
 
     Ok(compiled)
 }
 
 fn compile_rule_set(
-    rule_set: &RouteRuleSetConfig,
+    tag: &str,
+    rule_set: &RuleSetConfig,
     base_dir: Option<&Path>,
 ) -> Result<RuleSetMatcher, ConfigError> {
     let path = resolve_rule_set_path(rule_set.source_path(), base_dir);
     let matcher: Arc<dyn RuleMatcher> = match rule_set.format {
         RuleSetFormatConfig::DomainList => {
             let raw = read_text_rule_set(&path)?;
-            compile_semantic_rule_set(rule_set, parse_domain_list(rule_set, &raw)?)?
+            compile_semantic_rule_set(tag, parse_domain_list(tag, &raw)?)?
         }
         RuleSetFormatConfig::CidrList => {
             let raw = read_text_rule_set(&path)?;
-            compile_semantic_rule_set(rule_set, parse_cidr_list(rule_set, &raw)?)?
+            compile_semantic_rule_set(tag, parse_cidr_list(tag, &raw)?)?
         }
         RuleSetFormatConfig::ZeroRuleIr => {
             let raw = read_rule_set(&path)?;
-            let semantic = decode_json(&raw).map_err(|error| {
-                invalid_rule_set(rule_set, format!("invalid Zero Rule IR: {error}"))
-            })?;
-            compile_semantic_rule_set(rule_set, semantic)?
+            let semantic = decode_json(&raw)
+                .map_err(|error| invalid_rule_set(tag, format!("invalid Zero Rule IR: {error}")))?;
+            compile_semantic_rule_set(tag, semantic)?
         }
         RuleSetFormatConfig::Zrs => {
             let mapped = MappedRuleSet::open(&path, VerifyMode::FullChecksum).map_err(|error| {
                 invalid_rule_set(
-                    rule_set,
+                    tag,
                     format!("failed to open ZRS `{}`: {error}", path.display()),
                 )
             })?;
@@ -59,39 +59,39 @@ fn compile_rule_set(
         }
     };
 
-    Ok(RuleSetMatcher::new(rule_set.tag.clone(), matcher))
+    Ok(RuleSetMatcher::new(tag.to_owned(), matcher))
 }
 
 fn compile_semantic_rule_set(
-    config: &RouteRuleSetConfig,
+    tag: &str,
     semantic: RuleSet,
 ) -> Result<Arc<dyn RuleMatcher>, ConfigError> {
     let (compiled, _) = RuleSetCompiler.compile(semantic).map_err(|error| {
-        invalid_rule_set(config, format!("failed to compile matcher set: {error}"))
+        invalid_rule_set(tag, format!("failed to compile matcher set: {error}"))
     })?;
     Ok(Arc::new(compiled))
 }
 
-fn parse_domain_list(config: &RouteRuleSetConfig, raw: &str) -> Result<RuleSet, ConfigError> {
+fn parse_domain_list(tag: &str, raw: &str) -> Result<RuleSet, ConfigError> {
     let rules = source_lines(raw)
         .map(|value| Rule::DomainSuffix(value.trim_start_matches('.').to_owned()))
         .collect::<Vec<_>>();
-    ensure_not_empty(config, &rules)?;
+    ensure_not_empty(tag, &rules)?;
     Ok(RuleSet::new(rules))
 }
 
-fn parse_cidr_list(config: &RouteRuleSetConfig, raw: &str) -> Result<RuleSet, ConfigError> {
+fn parse_cidr_list(tag: &str, raw: &str) -> Result<RuleSet, ConfigError> {
     let mut rules = Vec::new();
     for value in source_lines(raw) {
         let network = value.parse::<IpNet>().map_err(|error| {
-            invalid_rule_set(config, format!("contains invalid CIDR `{value}`: {error}"))
+            invalid_rule_set(tag, format!("contains invalid CIDR `{value}`: {error}"))
         })?;
         rules.push(match network {
             IpNet::V4(network) => Rule::Ipv4Cidr(network),
             IpNet::V6(network) => Rule::Ipv6Cidr(network),
         });
     }
-    ensure_not_empty(config, &rules)?;
+    ensure_not_empty(tag, &rules)?;
     Ok(RuleSet::new(rules))
 }
 
@@ -101,9 +101,9 @@ fn source_lines(raw: &str) -> impl Iterator<Item = &str> {
         .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("//"))
 }
 
-fn ensure_not_empty(config: &RouteRuleSetConfig, rules: &[Rule]) -> Result<(), ConfigError> {
+fn ensure_not_empty(tag: &str, rules: &[Rule]) -> Result<(), ConfigError> {
     if rules.is_empty() {
-        return Err(invalid_rule_set(config, "does not contain any entries"));
+        return Err(invalid_rule_set(tag, "does not contain any entries"));
     }
     Ok(())
 }
@@ -125,8 +125,8 @@ fn read_rule_set(path: &Path) -> Result<Vec<u8>, ConfigError> {
     })
 }
 
-fn invalid_rule_set(config: &RouteRuleSetConfig, detail: impl std::fmt::Display) -> ConfigError {
-    ConfigError::InvalidRuleSet(format!("rule set `{}` {detail}", config.tag))
+fn invalid_rule_set(tag: &str, detail: impl std::fmt::Display) -> ConfigError {
+    ConfigError::InvalidRuleSet(format!("rule set `{tag}` {detail}"))
 }
 
 fn resolve_rule_set_path(path: &str, base_dir: Option<&Path>) -> PathBuf {

@@ -3,16 +3,39 @@ use std::path::Path;
 
 use zero_router::{RouteAction, Rule, RuleCondition, RuleSet, RuleSetMatcher};
 
-use crate::rule_sets::compile_rule_sets;
-use crate::{ConfigError, RouteActionConfig, RouteConfig, RouteRuleConfig, RuleConditionConfig};
+use crate::rule_sets::{compile_rule_sets, CompiledRuleSets};
+use crate::{
+    ConfigError, DnsConfig, RouteActionConfig, RouteConfig, RouteRuleConfig, RuleConditionConfig,
+    RuntimeConfig,
+};
+
+impl RuntimeConfig {
+    pub fn compile_route(&self) -> Result<RuleSet, ConfigError> {
+        let compiled_rule_sets = compile_rule_sets(&self.rule_sets, self.source_dir())?;
+        self.route.compile(&compiled_rule_sets, self.source_dir())
+    }
+
+    pub fn compile_dns_dispatch(
+        &self,
+    ) -> Result<Option<zero_router::DomainDispatcher<String>>, ConfigError> {
+        let Some(dns) = self.runtime.dns.as_ref() else {
+            return Ok(None);
+        };
+        dns.compile_dispatch(&self.rule_sets, self.source_dir())
+            .map(Some)
+    }
+}
 
 impl RouteConfig {
-    pub fn compile(&self, base_dir: Option<&Path>) -> Result<RuleSet, ConfigError> {
-        let compiled_rule_sets = compile_rule_sets(&self.rule_sets, base_dir)?;
+    pub(crate) fn compile(
+        &self,
+        compiled_rule_sets: &CompiledRuleSets,
+        base_dir: Option<&Path>,
+    ) -> Result<RuleSet, ConfigError> {
         let mut rules = Vec::with_capacity(self.rules.len());
 
         for rule in &self.rules {
-            rules.push(rule.compile(&compiled_rule_sets)?);
+            rules.push(rule.compile(compiled_rule_sets)?);
         }
 
         if let Some(ref path) = self.geoip_database {
@@ -33,6 +56,37 @@ impl RouteConfig {
         } else {
             Ok(RuleSet::new(rules, self.final_action.compile()))
         }
+    }
+}
+
+impl DnsConfig {
+    pub fn compile_dispatch(
+        &self,
+        rule_sets: &std::collections::BTreeMap<String, crate::RuleSetConfig>,
+        base_dir: Option<&Path>,
+    ) -> Result<zero_router::DomainDispatcher<String>, ConfigError> {
+        let compiled_rule_sets = compile_rule_sets(rule_sets, base_dir)?;
+        self.compile_dispatch_with(&compiled_rule_sets)
+    }
+
+    fn compile_dispatch_with(
+        &self,
+        compiled_rule_sets: &CompiledRuleSets,
+    ) -> Result<zero_router::DomainDispatcher<String>, ConfigError> {
+        let rules = self
+            .dispatch
+            .iter()
+            .map(|rule| {
+                Ok((
+                    rule.condition.compile(compiled_rule_sets)?,
+                    rule.server.clone(),
+                ))
+            })
+            .collect::<Result<Vec<_>, ConfigError>>()?;
+        Ok(zero_router::DomainDispatcher::new(
+            rules,
+            self.default_server.clone(),
+        ))
     }
 }
 

@@ -1760,7 +1760,10 @@ fn parses_declarative_tun_runtime_with_safe_defaults() {
         r#"{
             "runtime": {
                 "network": { "mtu": 1400 },
-                "dns": { "servers": [{ "type": "udp", "address": "1.1.1.1" }] },
+                "dns": {
+                    "servers": { "global": { "type": "udp", "host": "1.1.1.1" } },
+                    "default_server": "global"
+                },
                 "tun": { "addr": "10.23.0.1/24" }
             },
             "route": {
@@ -1803,7 +1806,10 @@ fn validates_declarative_tun_address_mask_mtu_and_tag() {
         let raw = format!(
             r#"{{
                 "runtime": {{
-                    "dns": {{ "servers": [{{ "type": "udp", "address": "1.1.1.1" }}] }},
+                    "dns": {{
+                        "servers": {{ "global": {{ "type": "udp", "host": "1.1.1.1" }} }},
+                        "default_server": "global"
+                    }},
                     "tun": {tun}
                 }},
                 "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
@@ -1835,10 +1841,10 @@ fn rejects_tun_tag_that_duplicates_a_listener_tag() {
 #[test]
 fn strict_declarative_tun_rejects_recursive_or_hostname_dns_endpoints() {
     for dns in [
-        r#"{ "servers": [] }"#,
-        r#"{ "servers": [{ "type": "system" }] }"#,
-        r#"{ "servers": [{ "type": "udp", "address": "dns.example" }] }"#,
-        r#"{ "servers": [{ "type": "doh", "url": "https://dns.example/dns-query" }] }"#,
+        r#"{ "servers": {}, "default_server": "missing" }"#,
+        r#"{ "servers": { "local": { "type": "system" } }, "default_server": "local" }"#,
+        r#"{ "servers": { "named": { "type": "udp", "host": "dns.example" } }, "default_server": "named" }"#,
+        r#"{ "servers": { "named": { "type": "doh", "host": "dns.example" } }, "default_server": "named" }"#,
     ] {
         let raw = format!(
             r#"{{
@@ -1850,8 +1856,94 @@ fn strict_declarative_tun_rejects_recursive_or_hostname_dns_endpoints() {
             }}"#
         );
         let error = RuntimeConfig::parse(&raw).expect_err("unsafe TUN DNS must fail early");
-        assert!(matches!(error, zero_config::ConfigError::InvalidRuntime(_)));
+        assert!(matches!(
+            error,
+            zero_config::ConfigError::InvalidRuntime(_) | zero_config::ConfigError::InvalidDns(_)
+        ));
     }
+}
+
+#[test]
+fn rejects_fake_ip_pool_overlapping_tun_owned_addresses() {
+    for addr in ["198.18.0.1/24", "198.18.0.2/24"] {
+        let raw = format!(
+            r#"{{
+                "runtime": {{
+                    "dns": {{
+                        "servers": {{ "global": {{ "type": "udp", "host": "1.1.1.1" }} }},
+                        "default_server": "global",
+                        "answer": {{ "type": "fake_ip" }}
+                    }},
+                    "tun": {{ "addr": "{addr}", "dual_stack": false }}
+                }},
+                "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+            }}"#
+        );
+        let error = RuntimeConfig::parse(&raw).expect_err("overlap must fail early");
+        assert!(matches!(error, zero_config::ConfigError::InvalidRuntime(_)));
+        assert!(error.to_string().contains("overlaps TUN-owned address"));
+    }
+}
+
+#[test]
+fn parses_named_dns_dispatch_with_shared_conditions() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": {
+                        "cn": { "type": "udp", "host": "223.5.5.5" },
+                        "global": { "type": "udp", "host": "1.1.1.1" }
+                    },
+                    "default_server": "global",
+                    "dispatch": [{
+                        "condition": {
+                            "type": "or",
+                            "items": [
+                                { "type": "domain", "values": ["cn"] },
+                                { "type": "domain_keyword", "values": ["intranet"] }
+                            ]
+                        },
+                        "server": "cn"
+                    }]
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("named DNS dispatch should parse");
+
+    let dispatch = config
+        .compile_dns_dispatch()
+        .expect("compile DNS dispatch")
+        .expect("configured DNS");
+    assert_eq!(dispatch.select("open.bigmodel.cn"), "cn");
+    assert_eq!(dispatch.select("api.intranet.example"), "cn");
+    assert_eq!(dispatch.select("example.com"), "global");
+}
+
+#[test]
+fn rejects_dns_dispatch_conditions_without_pre_resolution_facts() {
+    let error = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": { "global": { "type": "udp", "host": "1.1.1.1" } },
+                    "default_server": "global",
+                    "dispatch": [{
+                        "condition": { "type": "ip", "values": ["1.1.1.0/24"] },
+                        "server": "global"
+                    }]
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect_err("DNS IP dispatch must fail before runtime");
+    assert!(matches!(error, zero_config::ConfigError::InvalidDns(_)));
+    assert!(error
+        .to_string()
+        .contains("unavailable before DNS resolution"));
 }
 
 #[test]
@@ -2867,15 +2959,14 @@ fn loads_rule_set_from_relative_file_path() {
             "outbounds": [
                 { "tag": "block", "protocol": { "type": "block" } }
             ],
-            "route": {
-                "rule_sets": [
-                    {
-                        "tag": "ads",
+            "rule_sets": {
+                    "ads": {
                         "type": "file",
                         "path": "rules/ads.txt",
                         "format": "domain_list"
                     }
-                ],
+            },
+            "route": {
                 "rules": [
                     {
                         "condition": { "type": "rule_set", "tag": "ads" },
@@ -2895,6 +2986,66 @@ fn loads_rule_set_from_relative_file_path() {
         config.route.rules[0].condition,
         RuleConditionConfig::RuleSet { .. }
     ));
+
+    cleanup_temp_dir(&project_dir);
+}
+
+#[test]
+fn shares_one_domain_rule_set_between_dns_dispatch_and_traffic_route() {
+    let project_dir = temp_test_dir("config-shared-dns-rule-set");
+    let rules_dir = project_dir.join("rules");
+    fs::create_dir_all(&rules_dir).expect("create rules dir");
+    fs::write(rules_dir.join("cn.txt"), "cn\nbigmodel.cn\n").expect("write rules");
+
+    let config_path = project_dir.join("config.json");
+    fs::write(
+        &config_path,
+        r#"{
+            "rule_sets": {
+                "cn-domains": {
+                    "type": "file",
+                    "path": "rules/cn.txt",
+                    "format": "domain_list"
+                }
+            },
+            "runtime": {
+                "dns": {
+                    "servers": {
+                        "cn": { "type": "udp", "host": "223.5.5.5" },
+                        "global": { "type": "udp", "host": "1.1.1.1" }
+                    },
+                    "default_server": "global",
+                    "dispatch": [{
+                        "condition": { "type": "rule_set", "tag": "cn-domains" },
+                        "server": "cn"
+                    }]
+                }
+            },
+            "route": {
+                "rules": [{
+                    "condition": { "type": "rule_set", "tag": "cn-domains" },
+                    "action": { "type": "direct" }
+                }],
+                "final": { "type": "reject" }
+            }
+        }"#,
+    )
+    .expect("write config");
+
+    let config = RuntimeConfig::load_from_path(&config_path).expect("load shared rule set");
+    let dispatch = config
+        .compile_dns_dispatch()
+        .expect("compile DNS dispatch")
+        .expect("configured DNS");
+    assert_eq!(dispatch.select("open.bigmodel.cn"), "cn");
+    assert_eq!(
+        config
+            .compile_route()
+            .expect("compile traffic route")
+            .rules
+            .len(),
+        1
+    );
 
     cleanup_temp_dir(&project_dir);
 }
@@ -2997,15 +3148,14 @@ fn rejects_invalid_cidr_rule_set_entry() {
     fs::write(
         &config_path,
         r#"{
-            "route": {
-                "rule_sets": [
-                    {
-                        "tag": "lan",
+            "rule_sets": {
+                    "lan": {
                         "type": "file",
                         "path": "rules/lan.txt",
                         "format": "cidr_list"
                     }
-                ],
+            },
+            "route": {
                 "rules": [
                     {
                         "condition": { "type": "rule_set", "tag": "lan" },
@@ -3040,13 +3190,14 @@ fn rejects_zrs_with_invalid_full_checksum() {
 
     let error = RuntimeConfig::parse(&format!(
         r#"{{
-            "route": {{
-                "rule_sets": [{{
-                    "tag": "corrupt",
+            "rule_sets": {{
+                "corrupt": {{
                     "type": "file",
                     "path": "{}",
                     "format": "zrs"
-                }}],
+                }}
+            }},
+            "route": {{
                 "rules": [{{
                     "condition": {{ "type": "rule_set", "tag": "corrupt" }},
                     "action": {{ "type": "direct" }}

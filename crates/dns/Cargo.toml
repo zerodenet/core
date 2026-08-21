@@ -19,6 +19,7 @@ tokio.workspace = true
 tracing.workspace = true
 zero-config = { path = "../config" }
 zero-platform-tokio = { path = "../platform/tokio" }
+zero-router = { path = "../router" }
 zero-traits = { path = "../traits" }
 
 # DoH

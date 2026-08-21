@@ -1,4 +1,6 @@
-use zero_config::{DnsConfig, DnsServerConfig, FakeIpConfig};
+use std::collections::BTreeMap;
+
+use zero_config::{DnsAnswerConfig, DnsConfig, DnsServerConfig};
 
 fn query(domain: &str, query_type: u16) -> Vec<u8> {
     let mut query = vec![
@@ -20,14 +22,15 @@ fn query(domain: &str, query_type: u16) -> Vec<u8> {
 #[tokio::test]
 async fn tun_query_uses_fake_ip_and_returns_a_well_formed_header() {
     let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
-        servers: vec![DnsServerConfig::System],
+        servers: BTreeMap::from([("system".to_owned(), DnsServerConfig::System)]),
+        default_server: "system".to_owned(),
+        dispatch: Vec::new(),
         cache: None,
-        routes: Vec::new(),
-        fake_ip: Some(FakeIpConfig {
+        answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
             ttl_seconds: 60,
             exclude_domains: Vec::new(),
-        }),
+        },
     }))
     .expect("build DNS");
     let response = dns

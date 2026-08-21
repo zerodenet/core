@@ -1,8 +1,8 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::{
-    ConfigError, RouteActionConfig, RouteConfig, RouteRuleConfig, RouteRuleSetConfig,
-    RuleConditionConfig, RuleSetSourceType,
+    ConfigError, RouteActionConfig, RouteConfig, RouteRuleConfig, RuleConditionConfig,
+    RuleSetConfig, RuleSetSourceType,
 };
 
 use super::validate_tag;
@@ -12,26 +12,19 @@ impl RouteConfig {
         &self,
         route_target_tags: &HashSet<String>,
         inbound_tags: &HashSet<String>,
-        base_dir: Option<&std::path::Path>,
+        rule_set_tags: &HashSet<String>,
     ) -> Result<(), ConfigError> {
-        let mut rule_set_tags = HashSet::new();
-        for rule_set in &self.rule_sets {
-            validate_tag("rule set", &rule_set.tag, &mut rule_set_tags)?;
-            rule_set.validate()?;
-        }
-
         for rule in &self.rules {
-            rule.validate(route_target_tags, inbound_tags, &rule_set_tags)?;
+            rule.validate(route_target_tags, inbound_tags, rule_set_tags)?;
         }
 
         validate_route_action(&self.final_action, route_target_tags)?;
-        let _ = self.compile(base_dir)?;
 
         Ok(())
     }
 }
 
-impl RouteRuleSetConfig {
+impl RuleSetConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         match self.source_type {
             RuleSetSourceType::File => {
@@ -72,7 +65,7 @@ impl RouteRuleConfig {
 }
 
 impl RuleConditionConfig {
-    fn validate(
+    pub(crate) fn validate(
         &self,
         inbound_tags: &HashSet<String>,
         rule_set_tags: &HashSet<String>,
@@ -150,6 +143,17 @@ impl RuleConditionConfig {
             }
         }
     }
+}
+
+pub(crate) fn validate_rule_sets(
+    rule_sets: &BTreeMap<String, RuleSetConfig>,
+) -> Result<HashSet<String>, ConfigError> {
+    let mut tags = HashSet::new();
+    for (tag, rule_set) in rule_sets {
+        validate_tag("rule set", tag, &mut tags)?;
+        rule_set.validate()?;
+    }
+    Ok(tags)
 }
 
 pub(super) fn validate_route_action(

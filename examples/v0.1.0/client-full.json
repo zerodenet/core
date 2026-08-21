@@ -146,21 +146,20 @@
 
   "mode": { "type": "rule" },
 
-  "route": {
-    "rule_sets": [
-      {
-        "tag": "private",
+  "rule_sets": {
+      "private": {
         "type": "file",
         "path": "rules/private.txt",
         "format": "domain_list"
       },
-      {
-        "tag": "lan",
+      "lan": {
         "type": "file",
         "path": "rules/lan.txt",
         "format": "cidr_list"
       }
-    ],
+  },
+
+  "route": {
     "rules": [
       {
         "condition": { "type": "rule_set", "tag": "private" },

@@ -1,18 +1,21 @@
-use zero_config::{DnsConfig, DnsServerConfig, FakeIpConfig};
+use std::collections::BTreeMap;
+
+use zero_config::{DnsAnswerConfig, DnsConfig, DnsServerConfig};
 use zero_dns::DnsSystem;
 use zero_traits::{DnsResolver, IpAddress};
 
 #[tokio::test]
 async fn real_resolution_bypasses_fake_ip_allocation() {
     let config = DnsConfig {
-        servers: vec![DnsServerConfig::System],
+        servers: BTreeMap::from([("system".to_owned(), DnsServerConfig::System)]),
+        default_server: "system".to_owned(),
+        dispatch: Vec::new(),
         cache: None,
-        routes: Vec::new(),
-        fake_ip: Some(FakeIpConfig {
+        answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
             ttl_seconds: 60,
             exclude_domains: Vec::new(),
-        }),
+        },
     };
     let dns = DnsSystem::build(Some(&config)).expect("build DNS system");
 

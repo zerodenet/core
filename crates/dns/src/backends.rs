@@ -40,13 +40,8 @@ impl ResolverBackend {
         match server {
             DnsServerConfig::System => Ok(Self::System(TokioSystemResolver)),
             #[cfg(feature = "udp")]
-            DnsServerConfig::Udp { address, port } => {
-                let address = address.parse::<std::net::IpAddr>().map_err(|error| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("invalid UDP DNS address `{address}`: {error}"),
-                    )
-                })?;
+            DnsServerConfig::Udp { port, .. } => {
+                let address = server_endpoint(server)?;
                 Ok(Self::Udp(UdpDnsResolver::new(
                     std::net::SocketAddr::new(address, *port),
                     egress_interface,
@@ -58,8 +53,17 @@ impl ResolverBackend {
                 "UDP DNS backend is not compiled (enable feature `udp`)",
             )),
             #[cfg(feature = "doh")]
-            DnsServerConfig::Doh { url, server_name } => Ok(Self::Doh(DohDnsResolver::new(
-                url.clone(),
+            DnsServerConfig::Doh {
+                host,
+                port,
+                path,
+                bootstrap,
+                server_name,
+            } => Ok(Self::Doh(DohDnsResolver::new(
+                host.clone(),
+                *port,
+                path.clone(),
+                bootstrap.clone(),
                 server_name.clone(),
                 egress_interface,
             )?)),
@@ -70,12 +74,14 @@ impl ResolverBackend {
             )),
             #[cfg(feature = "dot")]
             DnsServerConfig::Dot {
-                address,
+                host,
                 port,
+                bootstrap,
                 server_name,
             } => Ok(Self::Dot(DotDnsResolver::new(
-                address.clone(),
+                host.clone(),
                 *port,
+                bootstrap.clone(),
                 server_name.clone(),
                 egress_interface,
             )?)),
@@ -100,11 +106,23 @@ impl ResolverBackend {
     }
 }
 
+fn server_endpoint(server: &DnsServerConfig) -> io::Result<std::net::IpAddr> {
+    server
+        .endpoint_addresses()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "DNS endpoint is empty"))
+}
+
 // ── DoH resolver ──────────────────────────────────────────────────────
 
 #[cfg(feature = "doh")]
 pub(crate) struct DohDnsResolver {
     url: String,
+    authority: String,
+    port: u16,
+    bootstrap: Vec<std::net::IpAddr>,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     client: std::sync::Mutex<DohClientState>,
 }
@@ -118,14 +136,34 @@ struct DohClientState {
 #[cfg(feature = "doh")]
 impl DohDnsResolver {
     fn new(
-        url: String,
-        _server_name: Option<String>,
+        host: String,
+        port: u16,
+        path: String,
+        bootstrap: Vec<std::net::IpAddr>,
+        server_name: Option<String>,
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
     ) -> io::Result<Self> {
+        let bootstrap = if bootstrap.is_empty() {
+            host.parse::<std::net::IpAddr>()
+                .map(|address| vec![address])
+                .unwrap_or_default()
+        } else {
+            bootstrap
+        };
+        let authority = server_name.as_deref().unwrap_or(&host).to_owned();
+        let url_authority = if authority.parse::<std::net::Ipv6Addr>().is_ok() {
+            format!("[{authority}]")
+        } else {
+            authority.clone()
+        };
+        let url = format!("https://{url_authority}:{port}{path}");
         let selected = doh_egress_interface(&egress_interface);
-        let client = build_doh_client(selected.as_ref())?;
+        let client = build_doh_client(selected.as_ref(), &authority, port, &bootstrap)?;
         Ok(Self {
             url,
+            authority,
+            port,
+            bootstrap,
             egress_interface,
             client: std::sync::Mutex::new(DohClientState {
                 egress_interface: selected,
@@ -175,7 +213,12 @@ impl DohDnsResolver {
         let selected = doh_egress_interface(&self.egress_interface);
         let mut state = self.client.lock().expect("DoH client lock poisoned");
         if state.egress_interface != selected {
-            state.client = build_doh_client(selected.as_ref())?;
+            state.client = build_doh_client(
+                selected.as_ref(),
+                &self.authority,
+                self.port,
+                &self.bootstrap,
+            )?;
             state.egress_interface = selected;
         }
         Ok(state.client.clone())
@@ -185,8 +228,21 @@ impl DohDnsResolver {
 #[cfg(feature = "doh")]
 fn build_doh_client(
     interface: Option<&zero_platform_tokio::EgressInterface>,
+    authority: &str,
+    port: u16,
+    bootstrap: &[std::net::IpAddr],
 ) -> io::Result<reqwest::Client> {
     let client = reqwest::Client::builder().timeout(DNS_TIMEOUT);
+    let bootstrap_addresses = bootstrap
+        .iter()
+        .map(|address| std::net::SocketAddr::new(*address, port))
+        .collect::<Vec<_>>();
+    let client = if bootstrap_addresses.is_empty() || authority.parse::<std::net::IpAddr>().is_ok()
+    {
+        client
+    } else {
+        client.resolve_to_addrs(authority, &bootstrap_addresses)
+    };
     #[cfg(any(
         target_os = "android",
         target_os = "fuchsia",
@@ -276,20 +332,25 @@ pub(crate) struct DotDnsResolver {
 #[cfg(feature = "dot")]
 impl DotDnsResolver {
     fn new(
-        address: String,
+        host: String,
         port: u16,
+        bootstrap: Vec<std::net::IpAddr>,
         server_name: Option<String>,
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
     ) -> io::Result<Self> {
-        let ip = address.parse::<std::net::IpAddr>().map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("invalid dot address `{address}`: {e}"),
-            )
-        })?;
+        let ip = bootstrap
+            .first()
+            .copied()
+            .or_else(|| host.parse::<std::net::IpAddr>().ok())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("DoT host `{host}` requires a bootstrap address"),
+                )
+            })?;
         let addr = SocketAddr::new(ip, port);
 
-        let server_name = server_name.unwrap_or(address);
+        let server_name = server_name.unwrap_or(host);
         let roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let tls_config = Arc::new(
