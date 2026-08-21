@@ -18,6 +18,7 @@ use super::sniff::sniff_tls_target;
 
 const TCP_STATE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 const TCP_STATE_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+const MAX_CONCURRENT_DNS_CONNECTIONS: usize = 256;
 
 struct TunProtocol;
 
@@ -184,6 +185,7 @@ async fn accept_tcp(
     dns_hijack: bool,
 ) -> Result<(), EngineError> {
     let mut connections = JoinSet::new();
+    let mut dns_connections = JoinSet::new();
     loop {
         tokio::select! {
             accepted = tcp.accept() => {
@@ -195,8 +197,15 @@ async fn accept_tcp(
                 };
                 let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
                 if dns_hijack && destination.port == 53 {
+                    if dns_connections.len() >= MAX_CONCURRENT_DNS_CONNECTIONS {
+                        tracing::warn!(
+                            active_dns_connections = dns_connections.len(),
+                            "rejecting TUN DNS TCP connection at the concurrency limit"
+                        );
+                        continue;
+                    }
                     let resolver = Arc::clone(&proxy.resolver);
-                    connections.spawn(async move {
+                    dns_connections.spawn(async move {
                         serve_dns_tcp(resolver, stream).await.map_err(EngineError::Io)
                     });
                     continue;
@@ -225,6 +234,13 @@ async fn accept_tcp(
                     Err(error) => tracing::warn!(error = %error, "TUN TCP connection task panicked"),
                 }
             }
+            Some(completed) = dns_connections.join_next(), if !dns_connections.is_empty() => {
+                match completed {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => tracing::warn!(error = %error, "TUN DNS TCP connection failed"),
+                    Err(error) => tracing::warn!(error = %error, "TUN DNS TCP task panicked"),
+                }
+            }
         }
     }
 }
@@ -251,7 +267,7 @@ async fn serve_dns_tcp(
         }
         let mut query = vec![0_u8; length];
         stream.read_exact(&mut query).await?;
-        let response = resolver.answer_udp_query(&query).await?;
+        let response = resolver.answer_tcp_query(&query).await?;
         let response_length: u16 = response.len().try_into().map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidData,

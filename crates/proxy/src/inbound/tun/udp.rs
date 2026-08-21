@@ -137,6 +137,8 @@ pub(super) async fn run(
                                 "dropping TUN DNS query at the concurrency limit"
                             );
                         }
+                        let response = proxy.resolver.busy_response(&buffer[..size]);
+                        stack.send_to(&response, destination, source).await;
                         continue;
                     }
                     let resolver = Arc::clone(&proxy.resolver);
