@@ -1,11 +1,16 @@
 use zero_engine::{CompletedSessionRecord, EngineError, PassiveRelayOutcome};
 
+use crate::runtime::relay_failure::classify_relay_failure;
+
 const EARLY_RELAY_FAILURE_LIMIT_MS: u64 = 3_000;
 
 pub(crate) fn classify_relay_outcome(
     record: &CompletedSessionRecord,
     error: Option<&EngineError>,
 ) -> PassiveRelayOutcome {
+    if error.is_some_and(|error| !classify_relay_failure(error).upstream) {
+        return PassiveRelayOutcome::Neutral;
+    }
     if record.outbound_rx_bytes > 0 {
         return PassiveRelayOutcome::Success;
     }
@@ -111,5 +116,20 @@ mod tests {
             classify_relay_outcome(&record(Network::Udp, 459, 1749, 0), Some(&other)),
             PassiveRelayOutcome::Neutral
         );
+    }
+
+    #[test]
+    fn local_tun_failures_do_not_penalize_outbound_health() {
+        for message in [
+            "connection reset by local client",
+            "local TUN TCP acknowledgement timed out",
+            "local TUN packet transport closed",
+        ] {
+            let error = EngineError::Io(io::Error::other(message));
+            assert_eq!(
+                classify_relay_outcome(&record(Network::Tcp, 100, 1_024, 0), Some(&error)),
+                PassiveRelayOutcome::Neutral
+            );
+        }
     }
 }

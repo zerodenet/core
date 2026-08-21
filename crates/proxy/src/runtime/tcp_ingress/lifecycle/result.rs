@@ -4,6 +4,7 @@ use zero_core::Session;
 use zero_engine::{CompletedSessionRecord, EngineError, SessionHandle, SessionOutcome};
 
 use crate::logging::{log_session_failed, log_session_finished, session_failure_observation};
+use crate::runtime::relay_failure::classify_relay_failure;
 
 pub(crate) fn finish_relay_success(
     handle: &mut SessionHandle,
@@ -28,15 +29,19 @@ pub(crate) fn finish_relay_failure(
     error: &EngineError,
     upstream_endpoint: Option<&(String, u16)>,
 ) -> Option<CompletedSessionRecord> {
-    let upstream = upstream_endpoint.map(|(server, port)| (server.as_str(), *port));
+    let attribution = classify_relay_failure(error);
+    let upstream = attribution
+        .upstream
+        .then(|| upstream_endpoint.map(|(server, port)| (server.as_str(), *port)))
+        .flatten();
     let record = handle.finish_with_failure(
-        "upstream_error",
-        session_failure_observation("relay", error, upstream),
+        attribution.close_reason,
+        session_failure_observation(attribution.stage, error, upstream),
     );
     log_session_failed(
         session,
         record.as_ref(),
-        "relay",
+        attribution.stage,
         started_at.elapsed(),
         error,
         upstream,

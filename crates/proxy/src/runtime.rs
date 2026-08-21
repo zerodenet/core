@@ -39,6 +39,7 @@ mod passive_relay_health;
 pub(crate) mod path;
 pub(crate) mod pipe;
 pub(crate) mod principal_rate_limit;
+mod relay_failure;
 mod reload;
 pub(crate) mod route_runtime;
 mod running;
