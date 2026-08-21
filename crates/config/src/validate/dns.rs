@@ -62,7 +62,7 @@ fn validate_servers(dns: &DnsConfig) -> Result<(), ConfigError> {
         }
         if matches!(
             server,
-            DnsServerConfig::Udp { .. } | DnsServerConfig::Dot { .. }
+            DnsServerConfig::Udp { .. } | DnsServerConfig::Dot { .. } | DnsServerConfig::Doq { .. }
         ) {
             server
                 .endpoint_addresses()
@@ -93,8 +93,10 @@ fn validate_cache_and_answer(dns: &DnsConfig) -> Result<(), ConfigError> {
     let Some(fake_ip) = dns.fake_ip() else {
         return Ok(());
     };
-    match fake_ip.cidr.parse::<ipnet::IpNet>() {
-        Ok(ipnet::IpNet::V4(net)) if net.prefix_len() <= 30 => {}
+    let usable_addresses = match fake_ip.cidr.parse::<ipnet::IpNet>() {
+        Ok(ipnet::IpNet::V4(net)) if net.prefix_len() <= 30 => {
+            ((1_u128 << (32 - net.prefix_len())) - 2).min(usize::MAX as u128) as usize
+        }
         Ok(ipnet::IpNet::V4(_)) => {
             return Err(ConfigError::InvalidDns(
                 "`dns.answer.cidr` prefix length is too large for a fake-IP pool; minimum is /30 (4 addresses)".to_owned(),
@@ -111,11 +113,19 @@ fn validate_cache_and_answer(dns: &DnsConfig) -> Result<(), ConfigError> {
                 fake_ip.cidr
             )));
         }
-    }
+    };
     if fake_ip.ttl_seconds == 0 {
         return Err(ConfigError::InvalidDns(
             "`dns.answer.ttl_seconds` must be greater than 0".to_owned(),
         ));
+    }
+    if fake_ip
+        .max_entries
+        .is_some_and(|max_entries| max_entries == 0 || max_entries > usable_addresses)
+    {
+        return Err(ConfigError::InvalidDns(format!(
+            "`dns.answer.max_entries` must be between 1 and the {usable_addresses} usable addresses in the configured pool"
+        )));
     }
     Ok(())
 }

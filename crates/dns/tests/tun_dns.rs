@@ -29,6 +29,7 @@ async fn tun_query_uses_fake_ip_and_returns_a_well_formed_header() {
         answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
             ttl_seconds: 60,
+            max_entries: None,
             exclude_domains: Vec::new(),
         },
     }))
@@ -45,6 +46,40 @@ async fn tun_query_uses_fake_ip_and_returns_a_well_formed_header() {
         dns.lookup_fake_ip_domain("webrtc.example").await.as_deref(),
         Some("198.18.0.1")
     );
+}
+
+#[tokio::test]
+async fn compatible_reload_preserves_live_fake_ip_mapping() {
+    let config = DnsConfig {
+        servers: BTreeMap::from([("system".to_owned(), DnsServerConfig::System)]),
+        default_server: "system".to_owned(),
+        dispatch: Vec::new(),
+        cache: None,
+        answer: DnsAnswerConfig::FakeIp {
+            cidr: "198.18.0.0/15".to_owned(),
+            ttl_seconds: 60,
+            max_entries: Some(16),
+            exclude_domains: Vec::new(),
+        },
+    };
+    let dns = zero_dns::DnsSystem::build(Some(&config)).expect("build DNS");
+    dns.answer_udp_query(&query("reload.example", 1))
+        .await
+        .expect("allocate mapping");
+    let before = dns
+        .lookup_fake_ip_domain("reload.example")
+        .await
+        .expect("mapping before reload");
+
+    dns.reload(Some(&config)).expect("reload DNS");
+
+    assert_eq!(
+        dns.lookup_fake_ip_domain("RELOAD.EXAMPLE.")
+            .await
+            .as_deref(),
+        Some(before.as_str())
+    );
+    assert_eq!(dns.fake_ip_stats().await.unwrap().live_mappings, 1);
 }
 
 #[test]

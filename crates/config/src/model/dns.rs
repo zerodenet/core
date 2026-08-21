@@ -53,10 +53,12 @@ impl DnsConfig {
             DnsAnswerConfig::FakeIp {
                 cidr,
                 ttl_seconds,
+                max_entries,
                 exclude_domains,
             } => Some(FakeIpConfigRef {
                 cidr,
                 ttl_seconds: *ttl_seconds,
+                max_entries: *max_entries,
                 exclude_domains,
             }),
         }
@@ -67,6 +69,7 @@ impl DnsConfig {
 pub struct FakeIpConfigRef<'a> {
     pub cidr: &'a str,
     pub ttl_seconds: u64,
+    pub max_entries: Option<usize>,
     pub exclude_domains: &'a [String],
 }
 
@@ -84,6 +87,10 @@ pub enum DnsAnswerConfig {
         /// Mapping lifetime in seconds.
         #[serde(default = "default_fake_ip_ttl")]
         ttl_seconds: u64,
+        /// Maximum live mappings. Omit to use the smaller of the pool size
+        /// and the kernel's bounded default.
+        #[serde(default)]
+        max_entries: Option<usize>,
         /// Domains that always receive real DNS answers.
         #[serde(default)]
         exclude_domains: Vec<String>,
@@ -137,20 +144,37 @@ pub enum DnsServerConfig {
         #[serde(default)]
         server_name: Option<String>,
     },
+    /// DNS-over-QUIC (RFC 9250).
+    #[serde(rename = "doq")]
+    Doq {
+        host: String,
+        #[serde(default = "default_dns_doq_port")]
+        port: u16,
+        #[serde(default)]
+        bootstrap: Vec<IpAddr>,
+        #[serde(default)]
+        server_name: Option<String>,
+    },
 }
 
 impl DnsServerConfig {
     pub fn host(&self) -> Option<&str> {
         match self {
             Self::System => None,
-            Self::Udp { host, .. } | Self::Doh { host, .. } | Self::Dot { host, .. } => Some(host),
+            Self::Udp { host, .. }
+            | Self::Doh { host, .. }
+            | Self::Dot { host, .. }
+            | Self::Doq { host, .. } => Some(host),
         }
     }
 
     pub fn port(&self) -> Option<u16> {
         match self {
             Self::System => None,
-            Self::Udp { port, .. } | Self::Doh { port, .. } | Self::Dot { port, .. } => Some(*port),
+            Self::Udp { port, .. }
+            | Self::Doh { port, .. }
+            | Self::Dot { port, .. }
+            | Self::Doq { port, .. } => Some(*port),
         }
     }
 
@@ -159,7 +183,8 @@ impl DnsServerConfig {
             Self::System => &[],
             Self::Udp { bootstrap, .. }
             | Self::Doh { bootstrap, .. }
-            | Self::Dot { bootstrap, .. } => bootstrap,
+            | Self::Dot { bootstrap, .. }
+            | Self::Doq { bootstrap, .. } => bootstrap,
         }
     }
 
@@ -186,6 +211,10 @@ const fn default_dns_https_port() -> u16 {
 }
 
 const fn default_dns_dot_port() -> u16 {
+    853
+}
+
+const fn default_dns_doq_port() -> u16 {
     853
 }
 

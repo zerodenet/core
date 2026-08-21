@@ -1,199 +1,336 @@
-//! Fake-IP allocator: maps domains to synthetic IPs for transparent proxying.
-//!
-//! When a client queries `google.com`, we return `198.18.0.5` instead
-//! of the real IP. When the client later connects to `198.18.0.5:443`,
-//! we look up `google.com` from the reverse map and route based on the
-//! real domain name.
+//! Bounded Fake-IP mapping lifecycle for transparent proxying.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 use zero_config::FakeIpConfigRef;
 use zero_traits::IpAddress;
 
-/// Allocates fake IPs from a configurable CIDR pool.
+use crate::message::normalize_domain;
+
+const DEFAULT_MAX_ENTRIES: usize = 65_536;
+
 pub struct FakeIpAllocator {
-    inner: Mutex<AllocatorInner>,
+    inner: Mutex<AllocatorState>,
     network: ipnet::Ipv4Net,
     ttl: Duration,
-    exclude_domains: Vec<String>,
+    max_entries: usize,
+    exclusions: Vec<DomainExclusion>,
+    stats: FakeIpCounters,
 }
 
-struct AllocatorInner {
-    /// The next IP to try allocating (linear scan from network base).
+struct AllocatorState {
     next_ip: u32,
-    /// Network base as u32.
     base: u32,
-    /// Subnet mask.
     mask: u32,
-    /// Domain to assigned fake IP (`IpAddress::V4`).
-    forward: HashMap<String, IpAddress>,
-    /// Fake-IP bytes to domain.
-    reverse: HashMap<[u8; 4], (String, Instant)>,
+    clock: u64,
+    forward: HashMap<String, [u8; 4]>,
+    reverse: HashMap<[u8; 4], Mapping>,
+}
+
+struct Mapping {
+    domain: String,
+    expires_at: Instant,
+    last_used: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FakeIpStats {
+    pub allocations: u64,
+    pub expirations: u64,
+    pub evictions: u64,
+    pub exhaustions: u64,
+    pub collisions: u64,
+    pub reverse_misses: u64,
+    pub live_mappings: usize,
+    pub capacity: usize,
+}
+
+#[derive(Default)]
+struct FakeIpCounters {
+    allocations: AtomicU64,
+    expirations: AtomicU64,
+    evictions: AtomicU64,
+    exhaustions: AtomicU64,
+    collisions: AtomicU64,
+    reverse_misses: AtomicU64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DomainExclusion {
+    Exact(String),
+    Suffix(String),
 }
 
 impl FakeIpAllocator {
-    /// Parse the CIDR and build the allocator.
     pub fn new(config: FakeIpConfigRef<'_>) -> Result<Self, String> {
-        let net: ipnet::IpNet = config
+        let network = match config
             .cidr
-            .parse()
-            .map_err(|e| format!("invalid cidr: {e}"))?;
-        let network = match net {
+            .parse::<ipnet::IpNet>()
+            .map_err(|error| format!("invalid Fake-IP CIDR: {error}"))?
+        {
             ipnet::IpNet::V4(network) => network,
-            ipnet::IpNet::V6(_) => return Err("fake ip only supports IPv4 CIDR".into()),
+            ipnet::IpNet::V6(_) => return Err("Fake-IP only supports IPv4 CIDR".to_owned()),
         };
         if network.prefix_len() > 30 {
-            return Err("fake ip IPv4 CIDR must contain at least four addresses".into());
+            return Err("Fake-IP IPv4 CIDR must contain at least four addresses".to_owned());
         }
         if config.ttl_seconds == 0 {
-            return Err("fake ip TTL must be greater than zero".into());
+            return Err("Fake-IP TTL must be greater than zero".to_owned());
         }
-        let base = u32::from_be_bytes(network.network().octets());
-        let mask = u32::from_be_bytes(network.netmask().octets());
-        let next_ip = base
-            .checked_add(1)
-            .ok_or_else(|| "fake ip CIDR has no allocatable address".to_owned())?;
-
+        let usable = ((1_u128 << (32 - network.prefix_len())) - 2).min(usize::MAX as u128) as usize;
+        let max_entries = config
+            .max_entries
+            .unwrap_or(DEFAULT_MAX_ENTRIES)
+            .min(usable);
+        if max_entries == 0
+            || config
+                .max_entries
+                .is_some_and(|configured| configured > usable)
+        {
+            return Err(format!(
+                "Fake-IP max_entries must be between 1 and {usable}"
+            ));
+        }
+        let exclusions = config
+            .exclude_domains
+            .iter()
+            .map(|pattern| parse_exclusion(pattern))
+            .collect::<Result<Vec<_>, _>>()?;
+        let base = u32::from(network.network());
         Ok(Self {
-            inner: Mutex::new(AllocatorInner {
-                next_ip, // skip network address
+            inner: Mutex::new(AllocatorState {
+                next_ip: base + 1,
                 base,
-                mask,
+                mask: u32::from(network.netmask()),
+                clock: 0,
                 forward: HashMap::new(),
                 reverse: HashMap::new(),
             }),
             network,
             ttl: Duration::from_secs(config.ttl_seconds),
-            exclude_domains: config.exclude_domains.to_vec(),
+            max_entries,
+            exclusions,
+            stats: FakeIpCounters::default(),
         })
+    }
+
+    pub fn compatible_with(&self, config: FakeIpConfigRef<'_>) -> bool {
+        let Ok(network) = config.cidr.parse::<ipnet::Ipv4Net>() else {
+            return false;
+        };
+        let usable = ((1_u128 << (32 - network.prefix_len())) - 2).min(usize::MAX as u128) as usize;
+        let max_entries = config
+            .max_entries
+            .unwrap_or(DEFAULT_MAX_ENTRIES)
+            .min(usable);
+        let Ok(exclusions) = config
+            .exclude_domains
+            .iter()
+            .map(|pattern| parse_exclusion(pattern))
+            .collect::<Result<Vec<_>, _>>()
+        else {
+            return false;
+        };
+        self.network == network
+            && self.ttl == Duration::from_secs(config.ttl_seconds)
+            && self.max_entries == max_entries
+            && self.exclusions == exclusions
     }
 
     pub fn contains(&self, address: std::net::IpAddr) -> bool {
-        match address {
-            std::net::IpAddr::V4(address) => self.network.contains(&address),
-            std::net::IpAddr::V6(_) => false,
-        }
+        matches!(address, std::net::IpAddr::V4(address) if self.network.contains(&address))
     }
 
-    /// Check if a domain should skip fake IP.
+    pub fn ttl_seconds(&self) -> u32 {
+        self.ttl.as_secs().min(u64::from(u32::MAX)) as u32
+    }
+
+    pub fn record_collision(&self) {
+        self.stats.collisions.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn is_excluded(&self, domain: &str) -> bool {
-        let domain = domain.to_ascii_lowercase();
-        self.exclude_domains.iter().any(|pattern| {
-            if let Some(suffix) = pattern.strip_prefix('*') {
-                domain.ends_with(suffix)
-            } else {
-                pattern.as_str() == domain
+        let Ok(domain) = normalize_domain(domain) else {
+            return true;
+        };
+        self.exclusions.iter().any(|pattern| match pattern {
+            DomainExclusion::Exact(exact) => domain == *exact,
+            DomainExclusion::Suffix(suffix) => {
+                domain == *suffix || domain.ends_with(&format!(".{suffix}"))
             }
         })
     }
 
-    /// Allocate a fake IP for a domain, or return the existing one.
-    /// Returns `None` if the pool is exhausted.
     pub async fn alloc(&self, domain: &str) -> Option<IpAddress> {
-        let mut inner = self.inner.lock().await;
-
-        // Copy the existing IP before mutably borrowing the reverse map.
-        if let Some(ip) = inner.forward.get(domain) {
-            let existing = *ip;
-            // Refresh TTL.
-            if let IpAddress::V4(octets) = existing {
-                if let Some(entry) = inner.reverse.get_mut(&octets) {
-                    entry.1 = Instant::now() + self.ttl;
-                }
-            }
-            return Some(existing);
-        }
-
-        // Allocate new.
-        let broadcast = inner.base | !inner.mask;
-        let start = inner.next_ip;
-        let mut ip = start;
-        loop {
-            let octets = u32::to_be_bytes(ip);
-            // Don't use network address, broadcast, or already-assigned but expired IPs.
-            if ip != inner.base && ip != broadcast {
-                match inner.reverse.get(&octets) {
-                    None => {
-                        // Free address: use it.
-                        inner
-                            .forward
-                            .insert(domain.to_owned(), IpAddress::V4(octets));
-                        inner
-                            .reverse
-                            .insert(octets, (domain.to_owned(), Instant::now() + self.ttl));
-                        inner.next_ip = if ip + 1 > broadcast - 1 {
-                            inner.base + 1
-                        } else {
-                            ip + 1
-                        };
-                        return Some(IpAddress::V4(octets));
-                    }
-                    Some((_, expires)) if *expires <= Instant::now() => {
-                        // Expired address: reclaim it.
-                        let old_domain = inner.reverse.remove(&octets).unwrap().0;
-                        inner.forward.remove(&old_domain);
-                        inner
-                            .forward
-                            .insert(domain.to_owned(), IpAddress::V4(octets));
-                        inner
-                            .reverse
-                            .insert(octets, (domain.to_owned(), Instant::now() + self.ttl));
-                        inner.next_ip = if ip + 1 > broadcast - 1 {
-                            inner.base + 1
-                        } else {
-                            ip + 1
-                        };
-                        return Some(IpAddress::V4(octets));
-                    }
-                    Some(_) => { /* in use, skip */ }
-                }
-            }
-            if ip >= broadcast - 1 {
-                ip = inner.base + 1;
-            } else {
-                ip += 1;
-            }
-            if ip == start {
-                return None; // pool exhausted
-            }
-        }
-    }
-
-    /// Reverse lookup: fake IP to domain.
-    pub async fn lookup(&self, ip: &IpAddress) -> Option<String> {
-        let octets = match ip {
-            IpAddress::V4(o) => *o,
-            _ => return None,
-        };
-        let inner = self.inner.lock().await;
-        inner.reverse.get(&octets).map(|(d, _)| d.clone())
-    }
-
-    /// Forward lookup (diagnostic): domain to assigned fake IP, without
-    /// allocating a new one. Returns `None` if the domain has no mapping.
-    pub async fn lookup_domain(&self, domain: &str) -> Option<IpAddress> {
-        let inner = self.inner.lock().await;
-        inner.forward.get(domain).copied()
-    }
-
-    /// Evict expired entries. Call periodically or on allocation.
-    #[allow(dead_code)]
-    pub async fn evict_expired(&self) {
-        let mut inner = self.inner.lock().await;
+        let domain = normalize_domain(domain).ok()?;
+        let mut state = self.inner.lock().await;
         let now = Instant::now();
-        let expired: Vec<[u8; 4]> = inner
-            .reverse
-            .iter()
-            .filter(|(_, (_, expires))| *expires <= now)
-            .map(|(octets, _)| *octets)
-            .collect();
-        for octets in expired {
-            if let Some((domain, _)) = inner.reverse.remove(&octets) {
-                inner.forward.remove(&domain);
+        expire_mappings(&mut state, now, &self.stats);
+        state.clock = state.clock.wrapping_add(1);
+        let clock = state.clock;
+
+        if let Some(octets) = state.forward.get(&domain).copied() {
+            if let Some(mapping) = state.reverse.get_mut(&octets) {
+                mapping.expires_at = now + self.ttl;
+                mapping.last_used = clock;
+                return Some(IpAddress::V4(octets));
             }
+            state.forward.remove(&domain);
         }
+
+        let reusable = if state.reverse.len() >= self.max_entries {
+            let lru = state
+                .reverse
+                .iter()
+                .min_by_key(|(_, mapping)| mapping.last_used)
+                .map(|(ip, _)| *ip);
+            if let Some(ip) = lru {
+                remove_mapping(&mut state, ip);
+                self.stats.evictions.fetch_add(1, Ordering::Relaxed);
+            }
+            lru
+        } else {
+            None
+        };
+        let octets = reusable.or_else(|| allocate_free(&mut state));
+        let Some(octets) = octets else {
+            self.stats.exhaustions.fetch_add(1, Ordering::Relaxed);
+            return None;
+        };
+        state.forward.insert(domain.clone(), octets);
+        state.reverse.insert(
+            octets,
+            Mapping {
+                domain,
+                expires_at: now + self.ttl,
+                last_used: clock,
+            },
+        );
+        self.stats.allocations.fetch_add(1, Ordering::Relaxed);
+        Some(IpAddress::V4(octets))
+    }
+
+    pub async fn lookup(&self, ip: &IpAddress) -> Option<String> {
+        let IpAddress::V4(octets) = ip else {
+            return None;
+        };
+        if !self.network.contains(&std::net::Ipv4Addr::from(*octets)) {
+            return None;
+        }
+        let mut state = self.inner.lock().await;
+        let now = Instant::now();
+        if state
+            .reverse
+            .get(octets)
+            .is_some_and(|mapping| mapping.expires_at <= now)
+        {
+            remove_mapping(&mut state, *octets);
+            self.stats.expirations.fetch_add(1, Ordering::Relaxed);
+        }
+        state.clock = state.clock.wrapping_add(1);
+        let clock = state.clock;
+        let Some(mapping) = state.reverse.get_mut(octets) else {
+            self.stats.reverse_misses.fetch_add(1, Ordering::Relaxed);
+            return None;
+        };
+        mapping.last_used = clock;
+        Some(mapping.domain.clone())
+    }
+
+    pub async fn lookup_domain(&self, domain: &str) -> Option<IpAddress> {
+        let domain = normalize_domain(domain).ok()?;
+        let mut state = self.inner.lock().await;
+        let octets = state.forward.get(&domain).copied()?;
+        let now = Instant::now();
+        if state
+            .reverse
+            .get(&octets)
+            .is_none_or(|mapping| mapping.expires_at <= now)
+        {
+            remove_mapping(&mut state, octets);
+            self.stats.expirations.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+        state.clock = state.clock.wrapping_add(1);
+        let clock = state.clock;
+        if let Some(mapping) = state.reverse.get_mut(&octets) {
+            mapping.last_used = clock;
+        }
+        Some(IpAddress::V4(octets))
+    }
+
+    pub async fn stats(&self) -> FakeIpStats {
+        let mut state = self.inner.lock().await;
+        expire_mappings(&mut state, Instant::now(), &self.stats);
+        FakeIpStats {
+            allocations: self.stats.allocations.load(Ordering::Relaxed),
+            expirations: self.stats.expirations.load(Ordering::Relaxed),
+            evictions: self.stats.evictions.load(Ordering::Relaxed),
+            exhaustions: self.stats.exhaustions.load(Ordering::Relaxed),
+            collisions: self.stats.collisions.load(Ordering::Relaxed),
+            reverse_misses: self.stats.reverse_misses.load(Ordering::Relaxed),
+            live_mappings: state.reverse.len(),
+            capacity: self.max_entries,
+        }
+    }
+}
+
+fn parse_exclusion(pattern: &str) -> Result<DomainExclusion, String> {
+    let pattern = pattern.trim();
+    if let Some(suffix) = pattern.strip_prefix("*.") {
+        return normalize_domain(suffix)
+            .map(DomainExclusion::Suffix)
+            .map_err(|error| error.to_string());
+    }
+    normalize_domain(pattern)
+        .map(DomainExclusion::Exact)
+        .map_err(|error| error.to_string())
+}
+
+fn allocate_free(state: &mut AllocatorState) -> Option<[u8; 4]> {
+    let broadcast = state.base | !state.mask;
+    let start = state.next_ip;
+    let mut candidate = start;
+    loop {
+        let octets = candidate.to_be_bytes();
+        if !state.reverse.contains_key(&octets) {
+            state.next_ip = if candidate >= broadcast - 1 {
+                state.base + 1
+            } else {
+                candidate + 1
+            };
+            return Some(octets);
+        }
+        candidate = if candidate >= broadcast - 1 {
+            state.base + 1
+        } else {
+            candidate + 1
+        };
+        if candidate == start {
+            return None;
+        }
+    }
+}
+
+fn expire_mappings(state: &mut AllocatorState, now: Instant, stats: &FakeIpCounters) {
+    let expired = state
+        .reverse
+        .iter()
+        .filter(|(_, mapping)| mapping.expires_at <= now)
+        .map(|(ip, _)| *ip)
+        .collect::<Vec<_>>();
+    for ip in expired {
+        remove_mapping(state, ip);
+        stats.expirations.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+fn remove_mapping(state: &mut AllocatorState, ip: [u8; 4]) {
+    if let Some(mapping) = state.reverse.remove(&ip) {
+        state.forward.remove(&mapping.domain);
     }
 }
 
@@ -201,69 +338,60 @@ impl FakeIpAllocator {
 mod tests {
     use super::*;
 
-    fn test_config() -> FakeIpConfigRef<'static> {
+    fn config<'a>(cidr: &'a str, exclusions: &'a [String]) -> FakeIpConfigRef<'a> {
         FakeIpConfigRef {
-            cidr: "198.18.0.0/24",
+            cidr,
             ttl_seconds: 3600,
-            exclude_domains: &[],
+            max_entries: None,
+            exclude_domains: exclusions,
         }
     }
 
     #[tokio::test]
-    async fn alloc_and_lookup() {
-        let alloc = FakeIpAllocator::new(test_config()).unwrap();
-        let ip = alloc.alloc("google.com").await.unwrap();
-        assert_eq!(alloc.lookup(&ip).await.unwrap(), "google.com");
+    async fn normalizes_names_for_forward_and_reverse_lookup() {
+        let allocator = FakeIpAllocator::new(config("198.18.0.0/24", &[])).unwrap();
+        let first = allocator.alloc("Example.COM.").await.unwrap();
+        let second = allocator.alloc("example.com").await.unwrap();
+        assert_eq!(first, second);
+        assert_eq!(
+            allocator.lookup(&first).await.as_deref(),
+            Some("example.com")
+        );
     }
 
     #[tokio::test]
-    async fn same_domain_same_ip() {
-        let alloc = FakeIpAllocator::new(test_config()).unwrap();
-        let ip1 = alloc.alloc("google.com").await.unwrap();
-        let ip2 = alloc.alloc("google.com").await.unwrap();
-        assert_eq!(ip1, ip2);
+    async fn expires_forward_and_reverse_mappings_consistently() {
+        let mut config = config("198.18.0.0/24", &[]);
+        config.ttl_seconds = 1;
+        let allocator = FakeIpAllocator::new(config).unwrap();
+        let ip = allocator.alloc("expired.test").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert!(allocator.lookup(&ip).await.is_none());
+        assert!(allocator.lookup_domain("expired.test").await.is_none());
+        assert_eq!(allocator.stats().await.expirations, 1);
     }
 
     #[tokio::test]
-    async fn different_domains_different_ips() {
-        let alloc = FakeIpAllocator::new(test_config()).unwrap();
-        let ip1 = alloc.alloc("google.com").await.unwrap();
-        let ip2 = alloc.alloc("github.com").await.unwrap();
-        assert_ne!(ip1, ip2);
+    async fn evicts_lru_mapping_at_configured_capacity() {
+        let mut config = config("198.18.0.0/24", &[]);
+        config.max_entries = Some(2);
+        let allocator = FakeIpAllocator::new(config).unwrap();
+        let first = allocator.alloc("one.test").await.unwrap();
+        let _second = allocator.alloc("two.test").await.unwrap();
+        let _ = allocator.lookup(&first).await;
+        let _third = allocator.alloc("three.test").await.unwrap();
+        assert!(allocator.lookup_domain("one.test").await.is_some());
+        assert!(allocator.lookup_domain("two.test").await.is_none());
+        assert_eq!(allocator.stats().await.evictions, 1);
     }
 
-    #[tokio::test]
-    async fn smallest_valid_pool_exhausts_without_wrapping() {
-        let alloc = FakeIpAllocator::new(FakeIpConfigRef {
-            cidr: "255.255.255.252/30",
-            ..test_config()
-        })
-        .unwrap();
-        assert!(alloc.alloc("one.example").await.is_some());
-        assert!(alloc.alloc("two.example").await.is_some());
-        assert!(alloc.alloc("three.example").await.is_none());
-    }
-
-    #[tokio::test]
-    async fn excluded_domain() {
-        let excluded = ["*.local".into(), "example.com".into()];
-        let alloc = FakeIpAllocator::new(FakeIpConfigRef {
-            exclude_domains: &excluded,
-            ..test_config()
-        })
-        .unwrap();
-        assert!(alloc.is_excluded("app.local"));
-        assert!(alloc.is_excluded("example.com"));
-        assert!(!alloc.is_excluded("google.com"));
-    }
-
-    #[tokio::test]
-    async fn lookup_domain_returns_existing_without_allocating() {
-        let alloc = FakeIpAllocator::new(test_config()).unwrap();
-        let allocated = alloc.alloc("google.com").await.unwrap();
-        // Forward lookup of an allocated domain returns the same IP.
-        assert_eq!(alloc.lookup_domain("google.com").await, Some(allocated));
-        // Unknown domain yields None and must not allocate.
-        assert_eq!(alloc.lookup_domain("never-seen.example").await, None);
+    #[test]
+    fn exclusion_matching_is_normalized_and_suffix_aware() {
+        let exclusions = vec!["*.Internal.Example.".to_owned(), "Exact.Test".to_owned()];
+        let allocator = FakeIpAllocator::new(config("198.18.0.0/24", &exclusions)).unwrap();
+        assert!(allocator.is_excluded("api.internal.example"));
+        assert!(allocator.is_excluded("INTERNAL.EXAMPLE."));
+        assert!(allocator.is_excluded("exact.test."));
+        assert!(!allocator.is_excluded("notinternal.example"));
     }
 }

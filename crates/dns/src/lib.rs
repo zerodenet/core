@@ -7,6 +7,7 @@
 mod backends;
 mod cache;
 mod fake_ip;
+mod message;
 mod router;
 mod system;
 pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
@@ -22,6 +23,7 @@ use zero_traits::{DnsResolver, IpAddress};
 use backends::ResolverBackend;
 use cache::DnsCache;
 use fake_ip::FakeIpAllocator;
+pub use fake_ip::FakeIpStats;
 use router::DnsDispatcher;
 use system::TokioSystemResolver;
 
@@ -63,6 +65,7 @@ enum DnsSystemInner {
 
 /// Snapshot of the fields needed for an async `resolve()` call.
 /// Extracted from the lock so we don't hold it across await points.
+#[derive(Clone)]
 struct ResolveSnapshot {
     servers: BTreeMap<String, Arc<ResolverBackend>>,
     dispatcher: DnsDispatcher,
@@ -95,7 +98,12 @@ impl DnsSystem {
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
     ) -> io::Result<Self> {
         Ok(Self {
-            inner: std::sync::RwLock::new(Self::build_inner(config, dispatch, &egress_interface)?),
+            inner: std::sync::RwLock::new(Self::build_inner(
+                config,
+                dispatch,
+                &egress_interface,
+                None,
+            )?),
             egress_interface,
         })
     }
@@ -104,6 +112,7 @@ impl DnsSystem {
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         egress_interface: &zero_platform_tokio::EgressInterfaceControl,
+        previous_fake_ip: Option<Arc<FakeIpAllocator>>,
     ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
             return Ok(DnsSystemInner::System(TokioSystemResolver));
@@ -121,12 +130,21 @@ impl DnsSystem {
             io::Error::new(io::ErrorKind::InvalidInput, "missing compiled DNS dispatch")
         })?);
         let cache = cfg.cache.as_ref().map(DnsCache::new);
-        let fake_ip = cfg
-            .fake_ip()
-            .map(FakeIpAllocator::new)
-            .transpose()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
-            .map(Arc::new);
+        let fake_ip = match cfg.fake_ip() {
+            Some(config)
+                if previous_fake_ip
+                    .as_ref()
+                    .is_some_and(|allocator| allocator.compatible_with(config)) =>
+            {
+                previous_fake_ip
+            }
+            Some(config) => {
+                Some(Arc::new(FakeIpAllocator::new(config).map_err(|error| {
+                    io::Error::new(io::ErrorKind::InvalidInput, error)
+                })?))
+            }
+            None => None,
+        };
 
         Ok(DnsSystemInner::Configured {
             servers,
@@ -150,7 +168,9 @@ impl DnsSystem {
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
     ) -> io::Result<()> {
-        let new_inner = Self::build_inner(config, dispatch, &self.egress_interface)?;
+        let previous_fake_ip = self.snapshot_fake_ip();
+        let new_inner =
+            Self::build_inner(config, dispatch, &self.egress_interface, previous_fake_ip)?;
         let mut guard = self.inner.write().expect("dns system lock poisoned");
         *guard = new_inner;
         Ok(())
@@ -197,10 +217,23 @@ impl DnsSystem {
     /// synthetic pool. Used by both managed and command-driven TUN startup.
     pub fn fake_ip_conflict(&self, addresses: &[std::net::IpAddr]) -> Option<std::net::IpAddr> {
         let allocator = self.snapshot_fake_ip()?;
-        addresses
+        let conflict = addresses
             .iter()
             .copied()
-            .find(|address| allocator.contains(*address))
+            .find(|address| allocator.contains(*address));
+        if conflict.is_some() {
+            allocator.record_collision();
+        }
+        conflict
+    }
+
+    pub fn fake_ip_contains(&self, address: std::net::IpAddr) -> bool {
+        self.snapshot_fake_ip()
+            .is_some_and(|allocator| allocator.contains(address))
+    }
+
+    pub async fn fake_ip_stats(&self) -> Option<FakeIpStats> {
+        Some(self.snapshot_fake_ip()?.stats().await)
     }
 
     /// Inspect a cached domain (diagnostic). Returns (addresses, seconds to
@@ -276,28 +309,60 @@ impl DnsSystem {
     /// synthetic fake IP. Internal routing and upstream dialing use this path
     /// after a fake-IP target has been restored to its original domain.
     pub async fn resolve_real(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
+        let mut addresses = Vec::new();
+        let mut first_error = None;
+        for query_type in [message::TYPE_A, message::TYPE_AAAA] {
+            match self.resolve_real_type(domain, query_type).await {
+                Ok(mut resolved) => addresses.append(&mut resolved),
+                Err(error) if first_error.is_none() => first_error = Some(error),
+                Err(_) => {}
+            }
+        }
+        if addresses.is_empty() {
+            if let Some(error) = first_error {
+                return Err(error);
+            }
+        }
+        Ok(addresses)
+    }
+
+    /// Resolve one address family through real DNS without allocating Fake-IP.
+    pub async fn resolve_real_type(
+        &self,
+        domain: &str,
+        query_type: u16,
+    ) -> io::Result<Vec<IpAddress>> {
+        if !matches!(query_type, message::TYPE_A | message::TYPE_AAAA) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "address resolution only supports A or AAAA",
+            ));
+        }
+        let domain = message::normalize_domain(domain)?;
         match self.snapshot() {
-            Some(snapshot) => resolve_snapshot(domain, snapshot).await,
-            None => self.resolve_system(domain).await,
+            Some(snapshot) => resolve_snapshot_type(&domain, query_type, snapshot).await,
+            None => self.resolve_system_type(&domain, query_type).await,
         }
     }
 
-    /// Answer one raw UDP DNS query through the configured resolver. The
-    /// regular resolver path is intentional: when Fake-IP is enabled, A
-    /// queries receive the synthetic address consumed by TUN TCP/UDP routing.
+    /// Answer one DNS datagram. Invalid requests and upstream failures are
+    /// converted into FORMERR/SERVFAIL responses so clients do not time out.
     pub async fn answer_udp_query(&self, query: &[u8]) -> io::Result<Vec<u8>> {
-        let question = udp::parse_dns_question(query)?;
-        let mut addresses = match question.query_type {
-            1 | 28 => DnsResolver::resolve(self, &question.domain).await?,
-            _ => Vec::new(),
-        };
-        addresses.retain(|address| {
-            matches!(
-                (question.query_type, address),
-                (1, IpAddress::V4(_)) | (28, IpAddress::V6(_))
-            )
-        });
-        Ok(udp::build_dns_response(query, &addresses))
+        let response = self.answer_query(query).await;
+        Ok(message::fit_response_to_udp(query, response))
+    }
+
+    /// Answer one DNS-over-TCP message without UDP payload truncation.
+    pub async fn answer_tcp_query(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+        Ok(self.answer_query(query).await)
+    }
+
+    /// Build a bounded explicit failure for a query that cannot be admitted.
+    pub fn busy_response(&self, query: &[u8]) -> Vec<u8> {
+        message::fit_response_to_udp(
+            query,
+            message::build_error_response(query, message::RCODE_SERVFAIL, false),
+        )
     }
 
     async fn resolve_system(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
@@ -309,6 +374,109 @@ impl DnsSystem {
             }
         };
         sys_resolver.resolve(domain).await
+    }
+
+    async fn resolve_system_type(
+        &self,
+        domain: &str,
+        query_type: u16,
+    ) -> io::Result<Vec<IpAddress>> {
+        let resolver = {
+            let guard = self.inner.read().expect("dns system lock poisoned");
+            match &*guard {
+                DnsSystemInner::System(resolver) => *resolver,
+                _ => TokioSystemResolver,
+            }
+        };
+        resolver.resolve_type(domain, query_type).await
+    }
+
+    async fn answer_query(&self, query: &[u8]) -> Vec<u8> {
+        let question = match message::parse_question(query) {
+            Ok(question) => question,
+            Err(_) => return message::build_error_response(query, message::RCODE_FORMERR, false),
+        };
+        let snapshot = self.snapshot();
+        if let Some(allocator) = snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.fake_ip.as_ref())
+        {
+            if !allocator.is_excluded(&question.domain) {
+                if question.query_type == message::TYPE_A {
+                    return match allocator.alloc(&question.domain).await {
+                        Some(address) => message::build_address_response(
+                            query,
+                            &[address],
+                            allocator.ttl_seconds(),
+                        ),
+                        None => {
+                            message::build_error_response(query, message::RCODE_SERVFAIL, false)
+                        }
+                    };
+                }
+                if question.query_type == message::TYPE_AAAA {
+                    return message::build_address_response(query, &[], allocator.ttl_seconds());
+                }
+            }
+        }
+
+        if let Some(cache) = snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.cache.as_ref())
+            .cloned()
+        {
+            if let Some(cached) = cache
+                .get_response(&question.domain, question.query_type, query)
+                .await
+            {
+                return cached;
+            }
+        }
+
+        let result = match snapshot.as_ref() {
+            Some(snapshot) => {
+                let selected = snapshot.dispatcher.select(&question.domain);
+                match snapshot.servers.get(selected) {
+                    Some(backend) => backend.exchange(query).await,
+                    None => Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("DNS dispatch selected undefined backend `{selected}`"),
+                    )),
+                }
+            }
+            None => {
+                backends::ResolverBackend::System(TokioSystemResolver)
+                    .exchange(query)
+                    .await
+            }
+        };
+        match result.and_then(|response| {
+            let parsed = message::parse_response(query, &response)?;
+            Ok((response, parsed))
+        }) {
+            Ok((response, parsed)) => {
+                if let (Some(cache), Some(ttl_seconds)) = (
+                    snapshot.and_then(|snapshot| snapshot.cache),
+                    parsed.min_ttl_seconds,
+                ) {
+                    cache
+                        .put_response(
+                            &question.domain,
+                            question.query_type,
+                            parsed.addresses,
+                            query.to_vec(),
+                            response.clone(),
+                            ttl_seconds,
+                        )
+                        .await;
+                }
+                response
+            }
+            Err(error) => {
+                tracing::warn!(%error, domain = %question.domain, "DNS query failed; returning SERVFAIL");
+                message::build_error_response(query, message::RCODE_SERVFAIL, false)
+            }
+        }
     }
 }
 
@@ -330,14 +498,33 @@ impl DnsResolver for DnsSystem {
             }
         }
 
-        resolve_snapshot(domain, snapshot).await
+        let domain = message::normalize_domain(domain)?;
+        let mut addresses = Vec::new();
+        let mut first_error = None;
+        for query_type in [message::TYPE_A, message::TYPE_AAAA] {
+            match resolve_snapshot_type(&domain, query_type, snapshot.clone()).await {
+                Ok(mut resolved) => addresses.append(&mut resolved),
+                Err(error) if first_error.is_none() => first_error = Some(error),
+                Err(_) => {}
+            }
+        }
+        if addresses.is_empty() {
+            if let Some(error) = first_error {
+                return Err(error);
+            }
+        }
+        Ok(addresses)
     }
 }
 
-async fn resolve_snapshot(domain: &str, snapshot: ResolveSnapshot) -> io::Result<Vec<IpAddress>> {
+async fn resolve_snapshot_type(
+    domain: &str,
+    query_type: u16,
+    snapshot: ResolveSnapshot,
+) -> io::Result<Vec<IpAddress>> {
     // 1. Check cache.
     if let Some(ref cache) = snapshot.cache {
-        if let Some(ips) = cache.get(domain).await {
+        if let Some(ips) = cache.get(domain, query_type).await {
             return Ok(ips);
         }
     }
@@ -350,14 +537,21 @@ async fn resolve_snapshot(domain: &str, snapshot: ResolveSnapshot) -> io::Result
             format!("DNS dispatch selected undefined backend `{selected}`"),
         )
     })?;
-    let result = backend.resolve(domain).await;
+    let result = backend.resolve_type(domain, query_type).await;
 
-    // 3. Cache on success (default TTL 300s).
-    if let (Some(cache), Ok(ips)) = (&snapshot.cache, &result) {
-        cache.put(domain.to_owned(), ips.clone(), 300).await;
+    // 3. Cache on success using the upstream record TTL.
+    if let (Some(cache), Ok(resolved)) = (&snapshot.cache, &result) {
+        cache
+            .put(
+                domain,
+                query_type,
+                resolved.addresses.clone(),
+                resolved.ttl_seconds,
+            )
+            .await;
     }
 
-    result
+    result.map(|resolved| resolved.addresses)
 }
 
 fn compile_standalone_dispatch(

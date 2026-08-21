@@ -1,6 +1,6 @@
-//! TTL-based DNS cache with simple eviction.
+//! Query-type-aware TTL cache with deterministic LRU eviction.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -8,159 +8,287 @@ use tokio::sync::Mutex;
 use zero_config::DnsCacheConfig;
 use zero_traits::IpAddress;
 
-struct CacheEntry {
-    ips: Vec<IpAddress>,
-    expires_at: Instant,
+use crate::message::normalize_domain;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CacheKey {
+    domain: String,
+    query_type: u16,
 }
 
+struct CacheEntry {
+    addresses: Vec<IpAddress>,
+    raw_query: Option<Vec<u8>>,
+    raw_response: Option<Vec<u8>>,
+    expires_at: Instant,
+    last_used: u64,
+}
+
+#[derive(Default)]
+struct CacheState {
+    entries: HashMap<CacheKey, CacheEntry>,
+    clock: u64,
+}
+
+#[derive(Clone)]
 pub(crate) struct DnsCache {
     inner: Arc<DnsCacheInner>,
 }
 
 struct DnsCacheInner {
-    map: Mutex<HashMap<String, CacheEntry>>,
+    state: Mutex<CacheState>,
     max_entries: usize,
     max_ttl: Option<Duration>,
-}
-
-impl Clone for DnsCache {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
-    }
 }
 
 impl DnsCache {
     pub(crate) fn new(config: &DnsCacheConfig) -> Self {
         Self {
             inner: Arc::new(DnsCacheInner {
-                map: Mutex::new(HashMap::new()),
+                state: Mutex::new(CacheState::default()),
                 max_entries: config.max_entries,
                 max_ttl: config.max_ttl_seconds.map(Duration::from_secs),
             }),
         }
     }
 
-    /// Look up domain in cache. Returns `None` on miss or expiry.
-    pub(crate) async fn get(&self, domain: &str) -> Option<Vec<IpAddress>> {
-        let map = self.inner.map.lock().await;
-        let entry = map.get(domain)?;
-        if entry.expires_at <= Instant::now() {
+    pub(crate) async fn get(&self, domain: &str, query_type: u16) -> Option<Vec<IpAddress>> {
+        let domain = normalize_domain(domain).ok()?;
+        let key = CacheKey { domain, query_type };
+        let mut state = self.inner.state.lock().await;
+        let now = Instant::now();
+        if state
+            .entries
+            .get(&key)
+            .is_some_and(|entry| entry.expires_at <= now)
+        {
+            state.entries.remove(&key);
             return None;
         }
-        Some(entry.ips.clone())
+        state.clock = state.clock.wrapping_add(1);
+        let clock = state.clock;
+        let entry = state.entries.get_mut(&key)?;
+        entry.last_used = clock;
+        Some(entry.addresses.clone())
     }
 
-    /// Inspect a single cached entry (diagnostic). Returns the addresses and
-    /// seconds until expiry. `None` on miss or expiry.
+    pub(crate) async fn get_response(
+        &self,
+        domain: &str,
+        query_type: u16,
+        query: &[u8],
+    ) -> Option<Vec<u8>> {
+        let domain = normalize_domain(domain).ok()?;
+        let key = CacheKey { domain, query_type };
+        let mut state = self.inner.state.lock().await;
+        let now = Instant::now();
+        if state
+            .entries
+            .get(&key)
+            .is_some_and(|entry| entry.expires_at <= now)
+        {
+            state.entries.remove(&key);
+            return None;
+        }
+        state.clock = state.clock.wrapping_add(1);
+        let clock = state.clock;
+        let entry = state.entries.get_mut(&key)?;
+        let cached_query = entry.raw_query.as_deref()?;
+        if cached_query.get(2..)? != query.get(2..)? {
+            return None;
+        }
+        let mut response = entry.raw_response.clone()?;
+        response.get_mut(..2)?.copy_from_slice(query.get(..2)?);
+        entry.last_used = clock;
+        Some(response)
+    }
+
     pub(crate) async fn inspect(&self, domain: &str) -> Option<(Vec<IpAddress>, u64)> {
-        let map = self.inner.map.lock().await;
-        let entry = map.get(domain)?;
+        let domain = normalize_domain(domain).ok()?;
+        let mut state = self.inner.state.lock().await;
+        remove_expired(&mut state);
         let now = Instant::now();
-        if entry.expires_at <= now {
-            return None;
-        }
-        Some((
-            entry.ips.clone(),
-            entry.expires_at.duration_since(now).as_secs(),
-        ))
+        let matching = state
+            .entries
+            .iter()
+            .filter(|(key, _)| key.domain == domain)
+            .collect::<Vec<_>>();
+        let ttl = matching
+            .iter()
+            .map(|(_, entry)| entry.expires_at.duration_since(now).as_secs())
+            .min()?;
+        let addresses = matching
+            .into_iter()
+            .flat_map(|(_, entry)| entry.addresses.iter().copied())
+            .collect();
+        Some((addresses, ttl))
     }
 
-    /// Snapshot all live cache entries (diagnostic), capped to `limit`.
-    /// Returns `(domain, addresses, seconds until expiry)` per entry.
     pub(crate) async fn entries(&self, limit: usize) -> Vec<(String, Vec<IpAddress>, u64)> {
-        let map = self.inner.map.lock().await;
+        let mut state = self.inner.state.lock().await;
+        remove_expired(&mut state);
         let now = Instant::now();
-        map.iter()
-            .filter(|(_, entry)| entry.expires_at > now)
+        let mut grouped: BTreeMap<String, (Vec<IpAddress>, u64)> = BTreeMap::new();
+        for (key, entry) in &state.entries {
+            let ttl = entry.expires_at.duration_since(now).as_secs();
+            let group = grouped
+                .entry(key.domain.clone())
+                .or_insert_with(|| (Vec::new(), ttl));
+            group.0.extend(entry.addresses.iter().copied());
+            group.1 = group.1.min(ttl);
+        }
+        grouped
+            .into_iter()
             .take(limit)
-            .map(|(domain, entry)| {
-                (
-                    domain.clone(),
-                    entry.ips.clone(),
-                    entry.expires_at.duration_since(now).as_secs(),
-                )
-            })
+            .map(|(domain, (addresses, ttl))| (domain, addresses, ttl))
             .collect()
     }
 
-    /// Store a resolution in the cache.
-    pub(crate) async fn put(&self, domain: String, ips: Vec<IpAddress>, ttl_seconds: u64) {
+    pub(crate) async fn put(
+        &self,
+        domain: &str,
+        query_type: u16,
+        addresses: Vec<IpAddress>,
+        ttl_seconds: u32,
+    ) {
+        let Ok(domain) = normalize_domain(domain) else {
+            return;
+        };
         let effective_ttl = self
             .inner
             .max_ttl
-            .map(|max| max.min(Duration::from_secs(ttl_seconds)))
-            .unwrap_or(Duration::from_secs(ttl_seconds));
-
-        let mut map = self.inner.map.lock().await;
-        if map.len() >= self.inner.max_entries {
-            self.evict(&mut map);
+            .map(|max| max.min(Duration::from_secs(u64::from(ttl_seconds))))
+            .unwrap_or(Duration::from_secs(u64::from(ttl_seconds)));
+        if effective_ttl.is_zero() {
+            return;
         }
-        map.insert(
-            domain,
+        self.put_entry(&domain, query_type, addresses, None, None, effective_ttl)
+            .await;
+    }
+
+    pub(crate) async fn put_response(
+        &self,
+        domain: &str,
+        query_type: u16,
+        addresses: Vec<IpAddress>,
+        query: Vec<u8>,
+        response: Vec<u8>,
+        ttl_seconds: u32,
+    ) {
+        let Ok(domain) = normalize_domain(domain) else {
+            return;
+        };
+        let effective_ttl = self
+            .inner
+            .max_ttl
+            .map(|max| max.min(Duration::from_secs(u64::from(ttl_seconds))))
+            .unwrap_or(Duration::from_secs(u64::from(ttl_seconds)));
+        if effective_ttl.is_zero() {
+            return;
+        }
+        self.put_entry(
+            &domain,
+            query_type,
+            addresses,
+            Some(query),
+            Some(response),
+            effective_ttl,
+        )
+        .await;
+    }
+
+    async fn put_entry(
+        &self,
+        domain: &str,
+        query_type: u16,
+        addresses: Vec<IpAddress>,
+        raw_query: Option<Vec<u8>>,
+        raw_response: Option<Vec<u8>>,
+        effective_ttl: Duration,
+    ) {
+        let mut state = self.inner.state.lock().await;
+        remove_expired(&mut state);
+        let key = CacheKey {
+            domain: domain.to_owned(),
+            query_type,
+        };
+        if !state.entries.contains_key(&key) && state.entries.len() >= self.inner.max_entries {
+            if let Some(lru) = state
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(key, _)| key.clone())
+            {
+                state.entries.remove(&lru);
+            }
+        }
+        state.clock = state.clock.wrapping_add(1);
+        let clock = state.clock;
+        let existing_response = state
+            .entries
+            .get(&key)
+            .and_then(|entry| entry.raw_response.clone());
+        let existing_query = state
+            .entries
+            .get(&key)
+            .and_then(|entry| entry.raw_query.clone());
+        state.entries.insert(
+            key,
             CacheEntry {
-                ips,
+                addresses,
+                raw_query: raw_query.or(existing_query),
+                raw_response: raw_response.or(existing_response),
                 expires_at: Instant::now() + effective_ttl,
+                last_used: clock,
             },
         );
     }
+}
 
-    /// Evict expired entries. If still over capacity, clear the oldest half.
-    fn evict(&self, map: &mut HashMap<String, CacheEntry>) {
-        let now = Instant::now();
-        map.retain(|_, v| v.expires_at > now);
-        if map.len() >= self.inner.max_entries {
-            // Simple: remove the oldest half by insertion order approximation.
-            let to_remove = map.len() / 2;
-            let keys: Vec<String> = map.keys().take(to_remove).cloned().collect();
-            for k in keys {
-                map.remove(&k);
-            }
-        }
-    }
+fn remove_expired(state: &mut CacheState) {
+    let now = Instant::now();
+    state.entries.retain(|_, entry| entry.expires_at > now);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zero_config::DnsCacheConfig;
 
-    fn cfg() -> DnsCacheConfig {
-        DnsCacheConfig {
-            max_entries: 16,
+    fn cache(max_entries: usize) -> DnsCache {
+        DnsCache::new(&DnsCacheConfig {
+            max_entries,
             max_ttl_seconds: None,
-        }
+        })
     }
 
     #[tokio::test]
-    async fn inspect_returns_addresses_and_ttl() {
-        let cache = DnsCache::new(&cfg());
+    async fn separates_a_and_aaaa_entries() {
+        let cache = cache(4);
         cache
-            .put(
-                "example.com".into(),
-                vec![IpAddress::V4([93, 184, 216, 34])],
-                300,
-            )
+            .put("Example.COM.", 1, vec![IpAddress::V4([192, 0, 2, 1])], 60)
             .await;
-        let (ips, ttl) = cache.inspect("example.com").await.expect("cached entry");
-        assert_eq!(ips.len(), 1);
-        assert!(ttl <= 300, "ttl should be capped at the stored value");
-        assert!(cache.inspect("missing.com").await.is_none());
+        cache
+            .put("example.com", 28, vec![IpAddress::V6([1; 16])], 60)
+            .await;
+        assert!(matches!(
+            cache.get("example.com", 1).await.as_deref(),
+            Some([IpAddress::V4(_)])
+        ));
+        assert!(matches!(
+            cache.get("EXAMPLE.COM.", 28).await.as_deref(),
+            Some([IpAddress::V6(_)])
+        ));
     }
 
     #[tokio::test]
-    async fn entries_lists_live_entries_capped() {
-        let cache = DnsCache::new(&cfg());
-        cache
-            .put("a.com".into(), vec![IpAddress::V4([1, 1, 1, 1])], 300)
-            .await;
-        cache
-            .put("b.com".into(), vec![IpAddress::V4([2, 2, 2, 2])], 300)
-            .await;
-        let entries = cache.entries(16).await;
-        assert_eq!(entries.len(), 2);
-        let capped = cache.entries(1).await;
-        assert_eq!(capped.len(), 1);
+    async fn evicts_least_recently_used_entry() {
+        let cache = cache(2);
+        cache.put("one.test", 1, vec![], 60).await;
+        cache.put("two.test", 1, vec![], 60).await;
+        let _ = cache.get("one.test", 1).await;
+        cache.put("three.test", 1, vec![], 60).await;
+        assert!(cache.get("one.test", 1).await.is_some());
+        assert!(cache.get("two.test", 1).await.is_none());
+        assert!(cache.get("three.test", 1).await.is_some());
     }
 }

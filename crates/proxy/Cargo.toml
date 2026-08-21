@@ -74,7 +74,7 @@ mieru = [
     "dep:mieru",
     "mieru/runtime",
 ]
-dns = ["zero-dns/udp"]
+dns = ["zero-dns/udp", "zero-dns/doh", "zero-dns/dot", "zero-dns/doq"]
 
 [dependencies]
 async-trait = "0.1"

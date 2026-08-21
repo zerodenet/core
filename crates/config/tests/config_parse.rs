@@ -1845,6 +1845,8 @@ fn strict_declarative_tun_rejects_recursive_or_hostname_dns_endpoints() {
         r#"{ "servers": { "local": { "type": "system" } }, "default_server": "local" }"#,
         r#"{ "servers": { "named": { "type": "udp", "host": "dns.example" } }, "default_server": "named" }"#,
         r#"{ "servers": { "named": { "type": "doh", "host": "dns.example" } }, "default_server": "named" }"#,
+        r#"{ "servers": { "named": { "type": "dot", "host": "dns.example" } }, "default_server": "named" }"#,
+        r#"{ "servers": { "named": { "type": "doq", "host": "dns.example" } }, "default_server": "named" }"#,
     ] {
         let raw = format!(
             r#"{{
@@ -1861,6 +1863,44 @@ fn strict_declarative_tun_rejects_recursive_or_hostname_dns_endpoints() {
             zero_config::ConfigError::InvalidRuntime(_) | zero_config::ConfigError::InvalidDns(_)
         ));
     }
+}
+
+#[test]
+fn parses_uniform_encrypted_dns_endpoints() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": {
+                        "https": {
+                            "type": "doh",
+                            "host": "cloudflare-dns.com",
+                            "path": "/dns-query",
+                            "bootstrap": ["1.1.1.1", "1.0.0.1"]
+                        },
+                        "tls": {
+                            "type": "dot",
+                            "host": "dns.google",
+                            "bootstrap": ["8.8.8.8", "8.8.4.4"]
+                        },
+                        "quic": {
+                            "type": "doq",
+                            "host": "dns.adguard-dns.com",
+                            "bootstrap": ["94.140.14.14", "94.140.15.15"]
+                        }
+                    },
+                    "default_server": "https"
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("encrypted DNS endpoints should parse");
+
+    let dns = config.runtime.dns.expect("DNS config");
+    assert_eq!(dns.servers["https"].host(), Some("cloudflare-dns.com"));
+    assert_eq!(dns.servers["tls"].port(), Some(853));
+    assert_eq!(dns.servers["quic"].port(), Some(853));
 }
 
 #[test]

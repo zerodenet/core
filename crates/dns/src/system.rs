@@ -22,6 +22,26 @@ impl DnsResolver for TokioSystemResolver {
     }
 }
 
+impl TokioSystemResolver {
+    pub(crate) async fn resolve_type(
+        self,
+        domain: &str,
+        query_type: u16,
+    ) -> io::Result<Vec<IpAddress>> {
+        let addresses = self.resolve(domain).await?;
+        Ok(addresses
+            .into_iter()
+            .filter(|address| {
+                matches!(
+                    (query_type, address),
+                    (crate::message::TYPE_A, IpAddress::V4(_))
+                        | (crate::message::TYPE_AAAA, IpAddress::V6(_))
+                )
+            })
+            .collect())
+    }
+}
+
 fn ip_addr_to_ip(addr: IpAddr) -> IpAddress {
     match addr {
         IpAddr::V4(v4) => IpAddress::V4(v4.octets()),
