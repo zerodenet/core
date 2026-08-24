@@ -17,20 +17,22 @@ use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_NOT_FOUND, ERROR_OBJECT_ALREADY_EXISTS};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceAliasToLuid, CreateUnicastIpAddressEntry, DeleteUnicastIpAddressEntry,
-    FreeMibTable, GetIpInterfaceEntry, GetUnicastIpAddressTable, InitializeIpInterfaceEntry,
-    InitializeUnicastIpAddressEntry, SetIpInterfaceEntry, MIB_IPINTERFACE_ROW,
-    MIB_UNICASTIPADDRESS_ROW,
+    FreeMibTable, GetIpInterfaceEntry, GetUnicastIpAddressEntry, GetUnicastIpAddressTable,
+    InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, SetIpInterfaceEntry,
+    MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
 };
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 use windows_sys::Win32::Networking::WinSock::{
-    IpPrefixOriginManual, AF_INET, AF_INET6, AF_UNSPEC, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0,
-    SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_INET,
+    IpDadStateDeprecated, IpDadStateDuplicate, IpDadStateInvalid, IpDadStatePreferred,
+    IpDadStateTentative, IpPrefixOriginManual, AF_INET, AF_INET6, AF_UNSPEC, IN6_ADDR, IN6_ADDR_0,
+    IN_ADDR, IN_ADDR_0, NL_DAD_STATE, SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_INET,
 };
 use windows_sys::Win32::Security::{
     GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
@@ -38,6 +40,9 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 use crate::TunDevice;
+
+const ADDRESS_READY_TIMEOUT: Duration = Duration::from_secs(10);
+const ADDRESS_READY_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// A Windows TUN device backed by Wintun.
 ///
@@ -289,6 +294,9 @@ fn configure_adapter(name: &str, addresses: &[(IpAddr, IpAddr)], mtu: u16) -> io
         add_address(luid, address, crate::mask_to_prefix(mask)?)?;
         set_family_mtu(luid, address.is_ipv6(), mtu)?;
     }
+    for &(address, _) in addresses {
+        wait_for_address_ready(luid, address)?;
+    }
     Ok(())
 }
 
@@ -345,6 +353,60 @@ fn add_address(luid: NET_LUID_LH, address: IpAddr, prefix: u8) -> io::Result<()>
         Err(io::Error::other(format!(
             "configure Wintun address {address}/{prefix}: {}",
             io::Error::from_raw_os_error(status as i32)
+        )))
+    }
+}
+
+fn wait_for_address_ready(luid: NET_LUID_LH, address: IpAddr) -> io::Result<()> {
+    let deadline = Instant::now() + ADDRESS_READY_TIMEOUT;
+    loop {
+        let mut row = MIB_UNICASTIPADDRESS_ROW::default();
+        unsafe { InitializeUnicastIpAddressEntry(&mut row) };
+        row.InterfaceLuid = luid;
+        row.Address = socket_address(address);
+        let status = unsafe { GetUnicastIpAddressEntry(&mut row) };
+        if status == 0 {
+            if dad_state_is_ready(address, row.DadState)? {
+                return Ok(());
+            }
+        } else if status != ERROR_NOT_FOUND {
+            return Err(io::Error::other(format!(
+                "query Wintun address {address}: {}",
+                io::Error::from_raw_os_error(status as i32)
+            )));
+        }
+
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!(
+                    "Wintun address {address} did not become preferred within {} seconds",
+                    ADDRESS_READY_TIMEOUT.as_secs()
+                ),
+            ));
+        }
+        std::thread::sleep(ADDRESS_READY_POLL_INTERVAL);
+    }
+}
+
+fn dad_state_is_ready(address: IpAddr, state: NL_DAD_STATE) -> io::Result<bool> {
+    if state == IpDadStatePreferred {
+        Ok(true)
+    } else if state == IpDadStateTentative {
+        Ok(false)
+    } else if state == IpDadStateDuplicate {
+        Err(io::Error::new(
+            io::ErrorKind::AddrInUse,
+            format!("Wintun address {address} is duplicated on the network"),
+        ))
+    } else if state == IpDadStateInvalid || state == IpDadStateDeprecated {
+        Err(io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            format!("Wintun address {address} entered unusable DAD state {state}"),
+        ))
+    } else {
+        Err(io::Error::other(format!(
+            "Wintun address {address} entered unknown DAD state {state}"
         )))
     }
 }

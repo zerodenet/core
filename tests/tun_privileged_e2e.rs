@@ -695,7 +695,7 @@ $adapter = Get-NetAdapter -Name $name
 if ($adapter.Status -eq 'Disabled') { throw "TUN adapter is disabled" }
 if ($check4) {
   $ipv4 = @(Get-NetIPAddress -InterfaceAlias $name -AddressFamily IPv4)
-  if (@($ipv4 | Where-Object { $_.IPAddress -eq '10.66.0.1' -and $_.PrefixLength -eq 24 }).Count -ne 1) { throw "IPv4 TUN address is missing" }
+  if (@($ipv4 | Where-Object { $_.IPAddress -eq '10.66.0.1' -and $_.PrefixLength -eq 24 -and $_.AddressState -eq 'Preferred' }).Count -ne 1) { throw "IPv4 TUN address is not preferred" }
   $mtu4 = Get-NetIPInterface -InterfaceAlias $name -AddressFamily IPv4
   if ($mtu4.NlMtu -ne 1400) { throw "IPv4 TUN MTU is not 1400" }
   $routes4 = @(Get-NetRoute -InterfaceAlias $name -AddressFamily IPv4)
@@ -705,7 +705,7 @@ if ($check4) {
 }
 if ($check6) {
   $ipv6 = @(Get-NetIPAddress -InterfaceAlias $name -AddressFamily IPv6)
-  if (@($ipv6 | Where-Object { $_.IPAddress -eq 'fd66::1' -and $_.PrefixLength -eq 64 }).Count -ne 1) { throw "IPv6 TUN address is missing" }
+  if (@($ipv6 | Where-Object { $_.IPAddress -eq 'fd66::1' -and $_.PrefixLength -eq 64 -and $_.AddressState -eq 'Preferred' }).Count -ne 1) { throw "IPv6 TUN address is not preferred" }
   $mtu6 = Get-NetIPInterface -InterfaceAlias $name -AddressFamily IPv6
   if ($mtu6.NlMtu -ne 1400) { throw "IPv6 TUN MTU is not 1400" }
   $routes6 = @(Get-NetRoute -InterfaceAlias $name -AddressFamily IPv6)
