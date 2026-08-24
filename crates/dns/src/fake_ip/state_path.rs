@@ -14,9 +14,9 @@ pub fn default_fake_ip_state_path(source_dir: &Path) -> PathBuf {
     let canonical = source_dir
         .canonicalize()
         .unwrap_or_else(|_| source_dir.to_path_buf());
-    let mut identity = canonical.to_string_lossy().into_owned();
+    let identity = canonical.to_string_lossy().into_owned();
     #[cfg(windows)]
-    identity.make_ascii_lowercase();
+    let identity = identity.to_ascii_lowercase();
     root.join(format!("fake-ip-{:016x}.jsonl", fnv1a(identity.as_bytes())))
 }
 
