@@ -139,10 +139,14 @@ impl Proxy {
         protocols.validate_config(&config)?;
         let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
         let dns_dispatch = config.compile_dns_dispatch()?;
-        let dns = DnsSystem::build_with_egress_and_dispatch(
+        let fake_ip_state_path = config
+            .source_dir()
+            .map(zero_dns::default_fake_ip_state_path);
+        let dns = DnsSystem::build_with_egress_dispatch_and_state(
             config.runtime.dns.as_ref(),
             dns_dispatch,
             egress_interface.clone(),
+            fake_ip_state_path,
         )
         .map_err(EngineError::Io)?;
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);

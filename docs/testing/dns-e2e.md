@@ -74,6 +74,22 @@ deterministic LRU eviction. A compatible hot reload preserves live mappings;
 changing the pool, TTL, capacity, or exclusions creates a new allocator.
 `diagnostics.fakeip_lookup` reports mapping counters and capacity.
 
+When Zero is started from a configuration file, live Fake-IP mappings are also
+written to a versioned journal and restored after a process restart. No JSON
+field is required. The default state directory is `%LOCALAPPDATA%\Zero\state`
+on Windows, `$XDG_STATE_HOME/zero` on Unix when set, or
+`$HOME/.local/state/zero`; `ZERO_DNS_STATE_DIR` overrides the directory. The
+journal filename contains a stable hash of the configuration directory so
+independent client installations do not normally share state.
+
+The journal is single-owner and atomically compacted. A second Zero process
+using the same state fails before it can return Fake-IP answers. Expired
+mappings are omitted on restore; a pool, TTL, capacity, or exclusion change
+starts a clean journal. Invalid state is quarantined beside the active file
+with a `.corrupt-<timestamp>` suffix and DNS starts with an empty allocator.
+If a mapping cannot be appended, Zero returns SERVFAIL instead of exposing a
+synthetic address that cannot be recovered after restart.
+
 TUN without Fake-IP remains supported. For TLS on ports 443 and 8443 Zero can
 recover a plaintext SNI and route by domain; otherwise routing and dialing stay
 on the original IP. ECH and application-owned encrypted DNS are intentionally
@@ -93,5 +109,10 @@ Run the unprivileged coverage with:
 cargo test -p zero-dns --features udp,doh,dot,doq
 cargo test -p zero-proxy --features dns
 ```
+
+For restart recovery, resolve a new A record through the intercepted DNS,
+record the returned Fake-IP, stop Zero, start it again with the same config,
+and connect to the recorded address before issuing another DNS query. The flow
+must restore the original domain and report `fake_ip_reverse_status=resolved`.
 
 Then follow `tun-e2e.md` for privileged route/device tests on each platform.

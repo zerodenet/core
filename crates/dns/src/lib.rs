@@ -15,6 +15,7 @@ pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use zero_config::DnsConfig;
@@ -23,7 +24,7 @@ use zero_traits::{DnsResolver, IpAddress};
 use backends::ResolverBackend;
 use cache::DnsCache;
 use fake_ip::FakeIpAllocator;
-pub use fake_ip::FakeIpStats;
+pub use fake_ip::{default_fake_ip_state_path, FakeIpStats};
 use router::DnsDispatcher;
 use system::TokioSystemResolver;
 
@@ -37,6 +38,8 @@ use system::TokioSystemResolver;
 pub struct DnsSystem {
     inner: std::sync::RwLock<DnsSystemInner>,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    fake_ip_state_path: Option<PathBuf>,
+    fake_ip_state_lease: std::sync::Mutex<Option<Arc<fake_ip::StateLease>>>,
 }
 
 impl fmt::Debug for DnsSystem {
@@ -97,14 +100,40 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
     ) -> io::Result<Self> {
+        Self::build_with_egress_dispatch_and_state(config, dispatch, egress_interface, None)
+    }
+
+    /// Build DNS with the runtime-owned Fake-IP persistence path.
+    ///
+    /// Library-only callers remain in-memory by default. The proxy runtime
+    /// supplies a path derived from the source configuration so mappings can
+    /// survive process restarts without changing the public JSON contract.
+    pub fn build_with_egress_dispatch_and_state(
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+        fake_ip_state_path: Option<PathBuf>,
+    ) -> io::Result<Self> {
+        let fake_ip_state_lease = if config.and_then(DnsConfig::fake_ip).is_some() {
+            fake_ip_state_path
+                .as_ref()
+                .map(|path| fake_ip::StateLease::acquire(path.clone()))
+                .transpose()?
+        } else {
+            None
+        };
+        let inner = Self::build_inner(
+            config,
+            dispatch,
+            &egress_interface,
+            None,
+            fake_ip_state_lease.clone(),
+        )?;
         Ok(Self {
-            inner: std::sync::RwLock::new(Self::build_inner(
-                config,
-                dispatch,
-                &egress_interface,
-                None,
-            )?),
+            inner: std::sync::RwLock::new(inner),
             egress_interface,
+            fake_ip_state_path,
+            fake_ip_state_lease: std::sync::Mutex::new(fake_ip_state_lease),
         })
     }
 
@@ -113,6 +142,7 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         egress_interface: &zero_platform_tokio::EgressInterfaceControl,
         previous_fake_ip: Option<Arc<FakeIpAllocator>>,
+        fake_ip_state_lease: Option<Arc<fake_ip::StateLease>>,
     ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
             return Ok(DnsSystemInner::System(TokioSystemResolver));
@@ -138,11 +168,10 @@ impl DnsSystem {
             {
                 previous_fake_ip
             }
-            Some(config) => {
-                Some(Arc::new(FakeIpAllocator::new(config).map_err(|error| {
-                    io::Error::new(io::ErrorKind::InvalidInput, error)
-                })?))
-            }
+            Some(config) => Some(Arc::new(FakeIpAllocator::new_with_state(
+                config,
+                fake_ip_state_lease,
+            )?)),
             None => None,
         };
 
@@ -169,8 +198,29 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
     ) -> io::Result<()> {
         let previous_fake_ip = self.snapshot_fake_ip();
-        let new_inner =
-            Self::build_inner(config, dispatch, &self.egress_interface, previous_fake_ip)?;
+        let fake_ip_state_lease = if config.and_then(DnsConfig::fake_ip).is_some() {
+            let mut guard = self
+                .fake_ip_state_lease
+                .lock()
+                .expect("Fake-IP state lease lock poisoned");
+            if guard.is_none() {
+                *guard = self
+                    .fake_ip_state_path
+                    .as_ref()
+                    .map(|path| fake_ip::StateLease::acquire(path.clone()))
+                    .transpose()?;
+            }
+            guard.clone()
+        } else {
+            None
+        };
+        let new_inner = Self::build_inner(
+            config,
+            dispatch,
+            &self.egress_interface,
+            previous_fake_ip,
+            fake_ip_state_lease,
+        )?;
         let mut guard = self.inner.write().expect("dns system lock poisoned");
         *guard = new_inner;
         Ok(())
@@ -404,12 +454,20 @@ impl DnsSystem {
             if !allocator.is_excluded(&question.domain) {
                 if question.query_type == message::TYPE_A {
                     return match allocator.alloc(&question.domain).await {
-                        Some(address) => message::build_address_response(
+                        Ok(Some(address)) => message::build_address_response(
                             query,
                             &[address],
                             allocator.ttl_seconds(),
                         ),
-                        None => {
+                        Ok(None) => {
+                            message::build_error_response(query, message::RCODE_SERVFAIL, false)
+                        }
+                        Err(error) => {
+                            tracing::error!(
+                                %error,
+                                domain = %question.domain,
+                                "failed to persist Fake-IP mapping; returning SERVFAIL"
+                            );
                             message::build_error_response(query, message::RCODE_SERVFAIL, false)
                         }
                     };
@@ -492,7 +550,7 @@ impl DnsResolver for DnsSystem {
         // Fake IP path: return synthetic IP instead of real resolution.
         if let Some(alloc) = &snapshot.fake_ip {
             if !alloc.is_excluded(domain) {
-                if let Some(ip) = alloc.alloc(domain).await {
+                if let Some(ip) = alloc.alloc(domain).await? {
                     return Ok(vec![ip]);
                 }
             }

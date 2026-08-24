@@ -1,7 +1,9 @@
 //! Bounded Fake-IP mapping lifecycle for transparent proxying.
 
 use std::collections::HashMap;
+use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
@@ -9,6 +11,16 @@ use zero_config::FakeIpConfigRef;
 use zero_traits::IpAddress;
 
 use crate::message::normalize_domain;
+
+mod persistence;
+mod state_path;
+
+use persistence::{
+    unix_time_ms, FakeIpPersistence, FakeIpStateLease, PersistedMapping, PersistenceMetadata,
+};
+
+pub(crate) use persistence::FakeIpStateLease as StateLease;
+pub use state_path::default_fake_ip_state_path;
 
 const DEFAULT_MAX_ENTRIES: usize = 65_536;
 
@@ -28,11 +40,13 @@ struct AllocatorState {
     clock: u64,
     forward: HashMap<String, [u8; 4]>,
     reverse: HashMap<[u8; 4], Mapping>,
+    persistence: Option<FakeIpPersistence>,
 }
 
 struct Mapping {
     domain: String,
     expires_at: Instant,
+    expires_at_unix_ms: u64,
     last_used: u64,
 }
 
@@ -65,20 +79,40 @@ enum DomainExclusion {
 }
 
 impl FakeIpAllocator {
+    #[cfg(test)]
     pub fn new(config: FakeIpConfigRef<'_>) -> Result<Self, String> {
-        let network = match config
-            .cidr
-            .parse::<ipnet::IpNet>()
-            .map_err(|error| format!("invalid Fake-IP CIDR: {error}"))?
-        {
+        Self::new_with_state(config, None).map_err(|error| error.to_string())
+    }
+
+    pub fn new_with_state(
+        config: FakeIpConfigRef<'_>,
+        state_lease: Option<Arc<FakeIpStateLease>>,
+    ) -> io::Result<Self> {
+        let network = match config.cidr.parse::<ipnet::IpNet>().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid Fake-IP CIDR: {error}"),
+            )
+        })? {
             ipnet::IpNet::V4(network) => network,
-            ipnet::IpNet::V6(_) => return Err("Fake-IP only supports IPv4 CIDR".to_owned()),
+            ipnet::IpNet::V6(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Fake-IP only supports IPv4 CIDR",
+                ));
+            }
         };
         if network.prefix_len() > 30 {
-            return Err("Fake-IP IPv4 CIDR must contain at least four addresses".to_owned());
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Fake-IP IPv4 CIDR must contain at least four addresses",
+            ));
         }
         if config.ttl_seconds == 0 {
-            return Err("Fake-IP TTL must be greater than zero".to_owned());
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Fake-IP TTL must be greater than zero",
+            ));
         }
         let usable = ((1_u128 << (32 - network.prefix_len())) - 2).min(usize::MAX as u128) as usize;
         let max_entries = config
@@ -90,25 +124,55 @@ impl FakeIpAllocator {
                 .max_entries
                 .is_some_and(|configured| configured > usable)
         {
-            return Err(format!(
-                "Fake-IP max_entries must be between 1 and {usable}"
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Fake-IP max_entries must be between 1 and {usable}"),
             ));
         }
         let exclusions = config
             .exclude_domains
             .iter()
             .map(|pattern| parse_exclusion(pattern))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         let base = u32::from(network.network());
+        let metadata = PersistenceMetadata {
+            cidr: network.to_string(),
+            ttl_seconds: config.ttl_seconds,
+            max_entries,
+            exclusions: exclusions.iter().map(DomainExclusion::as_pattern).collect(),
+        };
+        let (persistence, recovered) = match state_lease {
+            Some(lease) => {
+                let (persistence, mappings) = FakeIpPersistence::open(lease, metadata)?;
+                (Some(persistence), mappings)
+            }
+            None => (None, Vec::new()),
+        };
+        let mut state = AllocatorState {
+            next_ip: base + 1,
+            base,
+            mask: u32::from(network.netmask()),
+            clock: 0,
+            forward: HashMap::new(),
+            reverse: HashMap::new(),
+            persistence,
+        };
+        if let Err(error) = restore_mappings(
+            &mut state,
+            &network,
+            Duration::from_secs(config.ttl_seconds),
+            recovered,
+        ) {
+            tracing::warn!(%error, "discarding invalid Fake-IP persistence mappings");
+            state.forward.clear();
+            state.reverse.clear();
+            if let Some(persistence) = state.persistence.as_mut() {
+                persistence.compact(&[])?;
+            }
+        }
         Ok(Self {
-            inner: Mutex::new(AllocatorState {
-                next_ip: base + 1,
-                base,
-                mask: u32::from(network.netmask()),
-                clock: 0,
-                forward: HashMap::new(),
-                reverse: HashMap::new(),
-            }),
+            inner: Mutex::new(state),
             network,
             ttl: Duration::from_secs(config.ttl_seconds),
             max_entries,
@@ -164,19 +228,34 @@ impl FakeIpAllocator {
         })
     }
 
-    pub async fn alloc(&self, domain: &str) -> Option<IpAddress> {
-        let domain = normalize_domain(domain).ok()?;
+    pub async fn alloc(&self, domain: &str) -> io::Result<Option<IpAddress>> {
+        let domain = normalize_domain(domain)?;
         let mut state = self.inner.lock().await;
         let now = Instant::now();
         expire_mappings(&mut state, now, &self.stats);
         state.clock = state.clock.wrapping_add(1);
         let clock = state.clock;
+        let expires_at_unix_ms = if state.persistence.is_some() {
+            unix_time_ms()?.saturating_add(duration_millis(self.ttl))
+        } else {
+            0
+        };
 
         if let Some(octets) = state.forward.get(&domain).copied() {
+            persist_upsert(
+                &mut state,
+                &PersistedMapping {
+                    domain: domain.clone(),
+                    ip: octets,
+                    expires_at_unix_ms,
+                },
+            )?;
             if let Some(mapping) = state.reverse.get_mut(&octets) {
                 mapping.expires_at = now + self.ttl;
+                mapping.expires_at_unix_ms = expires_at_unix_ms;
                 mapping.last_used = clock;
-                return Some(IpAddress::V4(octets));
+                compact_if_needed(&mut state);
+                return Ok(Some(IpAddress::V4(octets)));
             }
             state.forward.remove(&domain);
         }
@@ -187,10 +266,6 @@ impl FakeIpAllocator {
                 .iter()
                 .min_by_key(|(_, mapping)| mapping.last_used)
                 .map(|(ip, _)| *ip);
-            if let Some(ip) = lru {
-                remove_mapping(&mut state, ip);
-                self.stats.evictions.fetch_add(1, Ordering::Relaxed);
-            }
             lru
         } else {
             None
@@ -198,19 +273,33 @@ impl FakeIpAllocator {
         let octets = reusable.or_else(|| allocate_free(&mut state));
         let Some(octets) = octets else {
             self.stats.exhaustions.fetch_add(1, Ordering::Relaxed);
-            return None;
+            return Ok(None);
         };
+        persist_upsert(
+            &mut state,
+            &PersistedMapping {
+                domain: domain.clone(),
+                ip: octets,
+                expires_at_unix_ms,
+            },
+        )?;
+        if reusable.is_some() {
+            remove_mapping(&mut state, octets);
+            self.stats.evictions.fetch_add(1, Ordering::Relaxed);
+        }
         state.forward.insert(domain.clone(), octets);
         state.reverse.insert(
             octets,
             Mapping {
                 domain,
                 expires_at: now + self.ttl,
+                expires_at_unix_ms,
                 last_used: clock,
             },
         );
         self.stats.allocations.fetch_add(1, Ordering::Relaxed);
-        Some(IpAddress::V4(octets))
+        compact_if_needed(&mut state);
+        Ok(Some(IpAddress::V4(octets)))
     }
 
     pub async fn lookup(&self, ip: &IpAddress) -> Option<String> {
@@ -278,6 +367,15 @@ impl FakeIpAllocator {
     }
 }
 
+impl DomainExclusion {
+    fn as_pattern(&self) -> String {
+        match self {
+            Self::Exact(domain) => domain.clone(),
+            Self::Suffix(domain) => format!("*.{domain}"),
+        }
+    }
+}
+
 fn parse_exclusion(pattern: &str) -> Result<DomainExclusion, String> {
     let pattern = pattern.trim();
     if let Some(suffix) = pattern.strip_prefix("*.") {
@@ -334,6 +432,98 @@ fn remove_mapping(state: &mut AllocatorState, ip: [u8; 4]) {
     }
 }
 
+fn persist_upsert(state: &mut AllocatorState, mapping: &PersistedMapping) -> io::Result<()> {
+    if let Some(persistence) = state.persistence.as_mut() {
+        persistence.append_upsert(mapping)?;
+    }
+    Ok(())
+}
+
+fn compact_if_needed(state: &mut AllocatorState) {
+    let should_compact = state
+        .persistence
+        .as_ref()
+        .is_some_and(|persistence| persistence.should_compact(state.reverse.len()));
+    if !should_compact {
+        return;
+    }
+    let mut mappings = state
+        .reverse
+        .iter()
+        .map(|(ip, mapping)| {
+            (
+                mapping.last_used,
+                PersistedMapping {
+                    domain: mapping.domain.clone(),
+                    ip: *ip,
+                    expires_at_unix_ms: mapping.expires_at_unix_ms,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    mappings.sort_by_key(|(last_used, _)| *last_used);
+    let mappings = mappings
+        .into_iter()
+        .map(|(_, mapping)| mapping)
+        .collect::<Vec<_>>();
+    if let Some(persistence) = state.persistence.as_mut() {
+        if let Err(error) = persistence.compact(&mappings) {
+            tracing::warn!(%error, "failed to compact Fake-IP persistence state");
+        }
+    }
+}
+
+fn restore_mappings(
+    state: &mut AllocatorState,
+    network: &ipnet::Ipv4Net,
+    ttl: Duration,
+    mappings: Vec<PersistedMapping>,
+) -> io::Result<()> {
+    let now_unix_ms = unix_time_ms()?;
+    let now = Instant::now();
+    let base = u32::from(network.network());
+    let broadcast = u32::from(network.broadcast());
+    for persisted in mappings {
+        let domain = normalize_domain(&persisted.domain)?;
+        let address = u32::from_be_bytes(persisted.ip);
+        if domain != persisted.domain
+            || address <= base
+            || address >= broadcast
+            || !network.contains(&std::net::Ipv4Addr::from(persisted.ip))
+            || state.forward.contains_key(&domain)
+            || state.reverse.contains_key(&persisted.ip)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Fake-IP state contains an invalid or duplicate mapping",
+            ));
+        }
+        let remaining_ms = persisted
+            .expires_at_unix_ms
+            .saturating_sub(now_unix_ms)
+            .min(duration_millis(ttl));
+        if remaining_ms == 0 {
+            continue;
+        }
+        state.clock = state.clock.wrapping_add(1);
+        state.forward.insert(domain.clone(), persisted.ip);
+        state.reverse.insert(
+            persisted.ip,
+            Mapping {
+                domain,
+                expires_at: now + Duration::from_millis(remaining_ms),
+                expires_at_unix_ms: now_unix_ms.saturating_add(remaining_ms),
+                last_used: state.clock,
+            },
+        );
+    }
+    Ok(())
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,8 +540,8 @@ mod tests {
     #[tokio::test]
     async fn normalizes_names_for_forward_and_reverse_lookup() {
         let allocator = FakeIpAllocator::new(config("198.18.0.0/24", &[])).unwrap();
-        let first = allocator.alloc("Example.COM.").await.unwrap();
-        let second = allocator.alloc("example.com").await.unwrap();
+        let first = allocator.alloc("Example.COM.").await.unwrap().unwrap();
+        let second = allocator.alloc("example.com").await.unwrap().unwrap();
         assert_eq!(first, second);
         assert_eq!(
             allocator.lookup(&first).await.as_deref(),
@@ -364,7 +554,7 @@ mod tests {
         let mut config = config("198.18.0.0/24", &[]);
         config.ttl_seconds = 1;
         let allocator = FakeIpAllocator::new(config).unwrap();
-        let ip = allocator.alloc("expired.test").await.unwrap();
+        let ip = allocator.alloc("expired.test").await.unwrap().unwrap();
         tokio::time::sleep(Duration::from_millis(1100)).await;
         assert!(allocator.lookup(&ip).await.is_none());
         assert!(allocator.lookup_domain("expired.test").await.is_none());
@@ -376,10 +566,10 @@ mod tests {
         let mut config = config("198.18.0.0/24", &[]);
         config.max_entries = Some(2);
         let allocator = FakeIpAllocator::new(config).unwrap();
-        let first = allocator.alloc("one.test").await.unwrap();
-        let _second = allocator.alloc("two.test").await.unwrap();
+        let first = allocator.alloc("one.test").await.unwrap().unwrap();
+        let _second = allocator.alloc("two.test").await.unwrap().unwrap();
         let _ = allocator.lookup(&first).await;
-        let _third = allocator.alloc("three.test").await.unwrap();
+        let _third = allocator.alloc("three.test").await.unwrap().unwrap();
         assert!(allocator.lookup_domain("one.test").await.is_some());
         assert!(allocator.lookup_domain("two.test").await.is_none());
         assert_eq!(allocator.stats().await.evictions, 1);
