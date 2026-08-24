@@ -42,6 +42,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler iproute2
       - name: Run privileged TUN smoke test
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run native Linux route reconciliation E2E
+        run: sudo env "PATH=$PATH" cargo test --test tun_route_reconcile_linux_e2e linux_reconciles_runtime_egress_and_dns_exclusion_inside_network_namespace -- --ignored --exact --nocapture
       - name: Run IPv4 privileged TUN E2E
         run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR=$ZERO_TUN_E2E_STUN_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run IPv6 privileged TUN E2E
@@ -56,12 +58,16 @@ jobs:
     env:
       ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
       ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
+      ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY: ${{ secrets.ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY }}
+      ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE: ${{ secrets.ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run privileged TUN smoke test
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run native macOS route reconciliation E2E
+        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY=$ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY" "ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE=$ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE" cargo test --test tun_route_reconcile_macos_e2e macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
       - name: Run IPv4 privileged TUN E2E
         run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR=$ZERO_TUN_E2E_STUN_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run IPv6 privileged TUN E2E
@@ -82,6 +88,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run privileged TUN smoke test
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run native Windows route reconciliation E2E
+        run: cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
       - name: Run IPv4 privileged TUN E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run IPv6 privileged TUN E2E
