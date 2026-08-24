@@ -40,8 +40,8 @@
       "protocol": { "type": "block" }
     }
   ],
-  "rule_sets": {},
   "route": {
+    "rule_sets": [],
     "rules": [],
     "final": { "type": "route", "outbound": "proxy" }
   }

@@ -223,19 +223,21 @@ fn zero_binary_applies_file_backed_rule_sets() {
                     "protocol": {{ "type": "block" }}
                 }}
             ],
-            "rule_sets": {{
-                    "ads": {{
+            "route": {{
+                "rule_sets": [
+                    {{
+                        "tag": "ads",
                         "type": "file",
                         "path": "rules/ads.zero.json",
                         "format": "zero_rule_ir"
                     }},
-                    "lan": {{
+                    {{
+                        "tag": "lan",
                         "type": "file",
                         "path": "rules/lan.zero.json",
                         "format": "zero_rule_ir"
                     }}
-            }},
-            "route": {{
+                ],
                 "rules": [
                     {{
                         "condition": {{ "type": "rule_set", "tag": "ads" }},

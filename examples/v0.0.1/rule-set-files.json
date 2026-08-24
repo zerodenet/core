@@ -44,19 +44,21 @@
   "mode": {
     "type": "rule"
   },
-  "rule_sets": {
-      "ads": {
+  "route": {
+    "rule_sets": [
+      {
+        "tag": "ads",
         "type": "file",
         "path": "rules/ads.txt",
         "format": "domain_list"
       },
-      "lan": {
+      {
+        "tag": "lan",
         "type": "file",
         "path": "rules/lan.txt",
         "format": "cidr_list"
       }
-  },
-  "route": {
+    ],
     "rules": [
       {
         "condition": {

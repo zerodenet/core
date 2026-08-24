@@ -1,7 +1,7 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use crate::{
-    ConfigError, DnsConfig, DnsServerConfig, RuleConditionConfig, RuleSetConfig,
+    ConfigError, DnsConfig, DnsServerConfig, RouteRuleSetConfig, RuleConditionConfig,
     RuleSetFormatConfig, RuntimeOptionsConfig,
 };
 
@@ -10,7 +10,7 @@ use super::validate_tag;
 pub(super) fn validate_dns_config(
     runtime: &RuntimeOptionsConfig,
     dns: &DnsConfig,
-    rule_sets: &BTreeMap<String, RuleSetConfig>,
+    rule_sets: &[RouteRuleSetConfig],
     rule_set_tags: &HashSet<String>,
 ) -> Result<(), ConfigError> {
     validate_servers(dns)?;
@@ -132,7 +132,7 @@ fn validate_cache_and_answer(dns: &DnsConfig) -> Result<(), ConfigError> {
 
 fn validate_dns_condition(
     condition: &RuleConditionConfig,
-    rule_sets: &BTreeMap<String, RuleSetConfig>,
+    rule_sets: &[RouteRuleSetConfig],
     rule_set_tags: &HashSet<String>,
 ) -> Result<(), ConfigError> {
     match condition {
@@ -146,7 +146,10 @@ fn validate_dns_condition(
         }
         RuleConditionConfig::RuleSet { tag }
             if matches!(
-                rule_sets.get(tag).map(|rule_set| rule_set.format),
+                rule_sets
+                    .iter()
+                    .find(|rule_set| rule_set.tag == *tag)
+                    .map(|rule_set| rule_set.format),
                 Some(RuleSetFormatConfig::CidrList)
             ) =>
         {

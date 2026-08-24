@@ -11,7 +11,7 @@ use crate::{
 
 impl RuntimeConfig {
     pub fn compile_route(&self) -> Result<RuleSet, ConfigError> {
-        let compiled_rule_sets = compile_rule_sets(&self.rule_sets, self.source_dir())?;
+        let compiled_rule_sets = compile_rule_sets(&self.route.rule_sets, self.source_dir())?;
         self.route.compile(&compiled_rule_sets, self.source_dir())
     }
 
@@ -21,7 +21,7 @@ impl RuntimeConfig {
         let Some(dns) = self.runtime.dns.as_ref() else {
             return Ok(None);
         };
-        dns.compile_dispatch(&self.rule_sets, self.source_dir())
+        dns.compile_dispatch(&self.route.rule_sets, self.source_dir())
             .map(Some)
     }
 }
@@ -62,7 +62,7 @@ impl RouteConfig {
 impl DnsConfig {
     pub fn compile_dispatch(
         &self,
-        rule_sets: &std::collections::BTreeMap<String, crate::RuleSetConfig>,
+        rule_sets: &[crate::RouteRuleSetConfig],
         base_dir: Option<&Path>,
     ) -> Result<zero_router::DomainDispatcher<String>, ConfigError> {
         let compiled_rule_sets = compile_rule_sets(rule_sets, base_dir)?;

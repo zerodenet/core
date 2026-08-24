@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,18 +9,21 @@ use zero_rule::protocol::decode_json;
 use zero_rule::zrs::{MappedRuleSet, PrewarmPolicy, VerifyMode};
 use zero_rule::{Rule, RuleMatcher, RuleSet, RuleSetCompiler};
 
-use crate::{ConfigError, RuleSetConfig, RuleSetFormatConfig};
+use crate::{ConfigError, RouteRuleSetConfig, RuleSetFormatConfig};
 
 pub type CompiledRuleSets = HashMap<String, RuleSetMatcher>;
 
 pub fn compile_rule_sets(
-    rule_sets: &BTreeMap<String, RuleSetConfig>,
+    rule_sets: &[RouteRuleSetConfig],
     base_dir: Option<&Path>,
 ) -> Result<CompiledRuleSets, ConfigError> {
     let mut compiled = HashMap::with_capacity(rule_sets.len());
 
-    for (tag, rule_set) in rule_sets {
-        compiled.insert(tag.clone(), compile_rule_set(tag, rule_set, base_dir)?);
+    for rule_set in rule_sets {
+        compiled.insert(
+            rule_set.tag.clone(),
+            compile_rule_set(&rule_set.tag, rule_set, base_dir)?,
+        );
     }
 
     Ok(compiled)
@@ -28,7 +31,7 @@ pub fn compile_rule_sets(
 
 fn compile_rule_set(
     tag: &str,
-    rule_set: &RuleSetConfig,
+    rule_set: &RouteRuleSetConfig,
     base_dir: Option<&Path>,
 ) -> Result<RuleSetMatcher, ConfigError> {
     let path = resolve_rule_set_path(rule_set.source_path(), base_dir);

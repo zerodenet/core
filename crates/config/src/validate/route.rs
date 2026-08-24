@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use crate::{
-    ConfigError, RouteActionConfig, RouteConfig, RouteRuleConfig, RuleConditionConfig,
-    RuleSetConfig, RuleSetSourceType,
+    ConfigError, RouteActionConfig, RouteConfig, RouteRuleConfig, RouteRuleSetConfig,
+    RuleConditionConfig, RuleSetSourceType,
 };
 
 use super::validate_tag;
@@ -24,7 +24,7 @@ impl RouteConfig {
     }
 }
 
-impl RuleSetConfig {
+impl RouteRuleSetConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         match self.source_type {
             RuleSetSourceType::File => {
@@ -146,11 +146,11 @@ impl RuleConditionConfig {
 }
 
 pub(crate) fn validate_rule_sets(
-    rule_sets: &BTreeMap<String, RuleSetConfig>,
+    rule_sets: &[RouteRuleSetConfig],
 ) -> Result<HashSet<String>, ConfigError> {
     let mut tags = HashSet::new();
-    for (tag, rule_set) in rule_sets {
-        validate_tag("rule set", tag, &mut tags)?;
+    for rule_set in rule_sets {
+        validate_tag("rule set", &rule_set.tag, &mut tags)?;
         rule_set.validate()?;
     }
     Ok(tags)

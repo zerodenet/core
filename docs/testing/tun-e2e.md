@@ -66,7 +66,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 }
 ```
 
-`dns.servers` 使用稳定名称，`default_server` 处理未命中查询。需要 split DNS 时使用有序的 `dns.dispatch`；每条规则复用流量路由的 `condition` 结构并且只查询选中的后端，不会隐式竞速或回退到其他 DNS。可用于 DNS 的条件包括 `domain`、`domain_keyword`、`domain_regex`、域名规则集以及 `and`/`or`。共享规则集声明在顶层 `rule_sets`，可同时由 `route.rules` 和 `dns.dispatch` 引用。
+`dns.servers` 使用稳定名称，`default_server` 处理未命中查询。需要 split DNS 时使用有序的 `dns.dispatch`；每条规则复用流量路由的 `condition` 结构并且只查询选中的后端，不会隐式竞速或回退到其他 DNS。可用于 DNS 的条件包括 `domain`、`domain_keyword`、`domain_regex`、域名规则集以及 `and`/`or`。共享规则集继续声明在历史位置 `route.rule_sets`，可同时由 `route.rules` 和 `dns.dispatch` 引用。
 
 Fake-IP 使用 `answer.type = "fake_ip"` 开启，默认地址池为 `198.18.0.0/15`，也可通过 `answer.cidr` 覆盖。地址池与 TUN 主地址、双栈辅助地址或平台使用的相邻 TUN gateway 冲突时，配置应用或 `tun.start` 会明确失败，不会把冲突地址投入运行。
 

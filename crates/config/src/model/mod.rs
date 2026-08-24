@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -19,9 +18,6 @@ pub struct RuntimeConfig {
     pub runtime: RuntimeOptionsConfig,
     #[serde(default)]
     pub mode: ModeConfig,
-    /// Shared rule-set resources consumed by traffic routing and DNS dispatch.
-    #[serde(default)]
-    pub rule_sets: BTreeMap<String, RuleSetConfig>,
     pub route: RouteConfig,
     #[serde(default)]
     pub api: ApiConfig,

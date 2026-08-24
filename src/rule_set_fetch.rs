@@ -6,8 +6,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use std::collections::BTreeMap;
-use zero_config::{RuleSetConfig, RuleSetSourceType};
+use zero_config::{RouteRuleSetConfig, RuleSetSourceType};
 
 const MAX_DOWNLOADED_RULE_SET_BYTES: u64 = 1024 * 1024 * 1024;
 
@@ -17,16 +16,13 @@ const MAX_DOWNLOADED_RULE_SET_BYTES: u64 = 1024 * 1024 * 1024;
 /// cache.
 ///
 /// Relative paths are resolved against `base_dir`.
-pub fn pre_fetch_rule_sets(
-    rule_sets: &mut BTreeMap<String, RuleSetConfig>,
-    base_dir: Option<&Path>,
-) {
-    for (tag, rule_set) in rule_sets.iter_mut() {
+pub fn pre_fetch_rule_sets(rule_sets: &mut [RouteRuleSetConfig], base_dir: Option<&Path>) {
+    for rule_set in rule_sets.iter_mut() {
         if rule_set.source_type != RuleSetSourceType::Url {
             continue;
         }
         let Some(ref url) = rule_set.url else {
-            tracing::warn!(tag = %tag, "url rule set missing `url` field");
+            tracing::warn!(tag = %rule_set.tag, "url rule set missing `url` field");
             continue;
         };
 
@@ -34,7 +30,7 @@ pub fn pre_fetch_rule_sets(
 
         // Check if cache is still fresh.
         if is_cache_fresh(&cache_path, rule_set.update_interval_seconds) {
-            tracing::debug!(tag = %tag, url = %url, "rule set cache is fresh");
+            tracing::debug!(tag = %rule_set.tag, url = %url, "rule set cache is fresh");
             rule_set.path = cache_path.to_string_lossy().to_string();
             continue;
         }
@@ -46,7 +42,7 @@ pub fn pre_fetch_rule_sets(
                     Ok(bytes) => bytes,
                     Err(e) => {
                         tracing::warn!(
-                            tag = %tag, url = %url,
+                            tag = %rule_set.tag, url = %url,
                             path = %cache_path.display(), error = %e,
                             "failed to install rule set cache"
                         );
@@ -55,14 +51,14 @@ pub fn pre_fetch_rule_sets(
                 };
                 if !cache_path.exists() {
                     tracing::warn!(
-                        tag = %tag, url = %url,
+                        tag = %rule_set.tag, url = %url,
                         path = %cache_path.display(),
                         "rule set cache installation did not produce a file"
                     );
                     continue;
                 }
                 tracing::info!(
-                    tag = %tag, url = %url,
+                    tag = %rule_set.tag, url = %url,
                     path = %cache_path.display(), bytes,
                     "rule set fetched and cached"
                 );
@@ -71,13 +67,13 @@ pub fn pre_fetch_rule_sets(
             Err(e) => {
                 if cache_path.exists() {
                     tracing::warn!(
-                        tag = %tag, url = %url, error = %e,
+                        tag = %rule_set.tag, url = %url, error = %e,
                         "rule set fetch failed; using stale cache"
                     );
                     rule_set.path = cache_path.to_string_lossy().to_string();
                 } else {
                     tracing::error!(
-                        tag = %tag, url = %url, error = %e,
+                        tag = %rule_set.tag, url = %url, error = %e,
                         "rule set fetch failed; no cache available"
                     );
                 }

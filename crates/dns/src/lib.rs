@@ -560,7 +560,7 @@ fn compile_standalone_dispatch(
     config
         .map(|config| {
             config
-                .compile_dispatch(&BTreeMap::new(), None)
+                .compile_dispatch(&[], None)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
         })
         .transpose()

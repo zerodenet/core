@@ -2999,14 +2999,15 @@ fn loads_rule_set_from_relative_file_path() {
             "outbounds": [
                 { "tag": "block", "protocol": { "type": "block" } }
             ],
-            "rule_sets": {
-                    "ads": {
+            "route": {
+                "rule_sets": [
+                    {
+                        "tag": "ads",
                         "type": "file",
                         "path": "rules/ads.txt",
                         "format": "domain_list"
                     }
-            },
-            "route": {
+                ],
                 "rules": [
                     {
                         "condition": { "type": "rule_set", "tag": "ads" },
@@ -3031,6 +3032,22 @@ fn loads_rule_set_from_relative_file_path() {
 }
 
 #[test]
+fn accepts_historical_empty_route_rule_sets_from_old_clients() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "route": {
+                "rule_sets": [],
+                "rules": [],
+                "final": { "type": "direct" }
+            }
+        }"#,
+    )
+    .expect("historical route.rule_sets should remain accepted");
+
+    assert!(config.route.rule_sets.is_empty());
+}
+
+#[test]
 fn shares_one_domain_rule_set_between_dns_dispatch_and_traffic_route() {
     let project_dir = temp_test_dir("config-shared-dns-rule-set");
     let rules_dir = project_dir.join("rules");
@@ -3041,13 +3058,6 @@ fn shares_one_domain_rule_set_between_dns_dispatch_and_traffic_route() {
     fs::write(
         &config_path,
         r#"{
-            "rule_sets": {
-                "cn-domains": {
-                    "type": "file",
-                    "path": "rules/cn.txt",
-                    "format": "domain_list"
-                }
-            },
             "runtime": {
                 "dns": {
                     "servers": {
@@ -3062,6 +3072,12 @@ fn shares_one_domain_rule_set_between_dns_dispatch_and_traffic_route() {
                 }
             },
             "route": {
+                "rule_sets": [{
+                    "tag": "cn-domains",
+                    "type": "file",
+                    "path": "rules/cn.txt",
+                    "format": "domain_list"
+                }],
                 "rules": [{
                     "condition": { "type": "rule_set", "tag": "cn-domains" },
                     "action": { "type": "direct" }
@@ -3188,14 +3204,15 @@ fn rejects_invalid_cidr_rule_set_entry() {
     fs::write(
         &config_path,
         r#"{
-            "rule_sets": {
-                    "lan": {
+            "route": {
+                "rule_sets": [
+                    {
+                        "tag": "lan",
                         "type": "file",
                         "path": "rules/lan.txt",
                         "format": "cidr_list"
                     }
-            },
-            "route": {
+                ],
                 "rules": [
                     {
                         "condition": { "type": "rule_set", "tag": "lan" },
@@ -3230,14 +3247,13 @@ fn rejects_zrs_with_invalid_full_checksum() {
 
     let error = RuntimeConfig::parse(&format!(
         r#"{{
-            "rule_sets": {{
-                "corrupt": {{
+            "route": {{
+                "rule_sets": [{{
+                    "tag": "corrupt",
                     "type": "file",
                     "path": "{}",
                     "format": "zrs"
-                }}
-            }},
-            "route": {{
+                }}],
                 "rules": [{{
                     "condition": {{ "type": "rule_set", "tag": "corrupt" }},
                     "action": {{ "type": "direct" }}

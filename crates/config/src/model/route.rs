@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouteConfig {
+    /// Shared rule-set resources consumed by traffic routing and DNS dispatch.
+    #[serde(default)]
+    pub rule_sets: Vec<RouteRuleSetConfig>,
     #[serde(default)]
     pub rules: Vec<RouteRuleConfig>,
     #[serde(rename = "final")]
@@ -38,7 +41,8 @@ pub struct UrlRewriteRule {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RuleSetConfig {
+pub struct RouteRuleSetConfig {
+    pub tag: String,
     #[serde(rename = "type")]
     pub source_type: RuleSetSourceType,
     /// Path to a local file, or fallback cache path for URL sources.
@@ -52,11 +56,15 @@ pub struct RuleSetConfig {
     pub format: RuleSetFormatConfig,
 }
 
-impl RuleSetConfig {
+impl RouteRuleSetConfig {
     pub fn source_path(&self) -> &str {
         &self.path
     }
 }
+
+/// Compatibility alias for code written against the short-lived top-level
+/// rule-set model. Serialized configuration uses `route.rule_sets`.
+pub type RuleSetConfig = RouteRuleSetConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RuleSetSourceType {

@@ -16,8 +16,9 @@ pub use model::{
     LogConfig, LogFileConfig, LogRateLimit, MieruUserConfig, ModeConfig, NetworkOptionsConfig,
     OutboundConfig, OutboundGroupConfig, OutboundGroupKind, OutboundProtocolConfig,
     OutboundRuntimeKind, QuicConfig, RealityConfig, RouteActionConfig, RouteConfig,
-    RouteRuleConfig, RuleConditionConfig, RuleSetConfig, RuleSetFormatConfig, RuleSetSourceType,
-    RuntimeConfig, RuntimeOptionsConfig, ShadowsocksUserConfig, Socks5UserConfig, SplitHttpConfig,
-    TlsConfig, TrojanUserConfig, TunConfig, UrlRewriteRule, VlessUserConfig, VmessUserConfig,
-    WebSocketConfig, DEFAULT_EVENT_LOG_CAPACITY, DEFAULT_LATENCY_TEST_URL,
+    RouteRuleConfig, RouteRuleSetConfig, RuleConditionConfig, RuleSetConfig, RuleSetFormatConfig,
+    RuleSetSourceType, RuntimeConfig, RuntimeOptionsConfig, ShadowsocksUserConfig,
+    Socks5UserConfig, SplitHttpConfig, TlsConfig, TrojanUserConfig, TunConfig, UrlRewriteRule,
+    VlessUserConfig, VmessUserConfig, WebSocketConfig, DEFAULT_EVENT_LOG_CAPACITY,
+    DEFAULT_LATENCY_TEST_URL,
 };
