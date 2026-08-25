@@ -114,6 +114,37 @@ fn peer_selection_rejects_active_tun_without_a_physical_egress() {
 }
 
 #[test]
+fn wildcard_peer_is_not_mistaken_for_a_tun_route_probe() {
+    let controller = EgressInterfaceControl::default();
+    let wildcard = "0.0.0.0:0".parse().unwrap();
+
+    let idle = controller.select_for_peer(wildcard);
+    assert!(idle.interface().is_none());
+    assert_eq!(idle.route_source(), None);
+    assert_eq!(idle.route_lookup_status(), EgressRouteLookupStatus::Skipped);
+    assert_eq!(
+        idle.binding_reason(),
+        EgressBindingReason::NoConfiguredInterface
+    );
+    assert!(idle.ensure_connectable().is_ok());
+
+    controller.replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+    let unavailable = controller.select_for_peer(wildcard);
+    assert_eq!(
+        unavailable.binding_reason(),
+        EgressBindingReason::TunEgressUnavailable
+    );
+    assert!(unavailable.ensure_connectable().is_err());
+
+    let physical = EgressInterface::new("physical0", 7).unwrap();
+    controller.replace_for(false, Some(physical.clone()));
+    let active = controller.select_for_peer(wildcard);
+    assert_eq!(active.interface(), Some(&physical));
+    assert_eq!(active.binding_reason(), EgressBindingReason::TunRoute);
+    assert!(active.ensure_connectable().is_ok());
+}
+
+#[test]
 fn interface_identity_rejects_incomplete_values() {
     assert!(EgressInterface::new("", 1).is_err());
     assert!(EgressInterface::new("physical0", 0).is_err());
