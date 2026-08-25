@@ -7,8 +7,7 @@ use zero_core::{Address, Session, TargetHostSource};
 
 use crate::transport::{RecordingStream, ReplayStream};
 
-mod udp;
-pub(super) use udp::{SniffedTunDatagram, TunQuicSniffer};
+pub(super) mod udp;
 
 const TARGET_SNIFF_TIMEOUT: Duration = Duration::from_millis(200);
 const MAX_TLS_RECORD_LENGTH: usize = 18_432;

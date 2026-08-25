@@ -17,11 +17,11 @@ const MAX_DECIDED_DESTINATIONS: usize = 64;
 const MAX_BUFFERED_DATAGRAMS: usize = 8;
 const MAX_BUFFERED_BYTES: usize = 64 * 1024;
 
-pub(super) struct SniffedTunDatagram {
-    pub(super) original_destination: SocketAddress,
-    pub(super) target: Address,
-    pub(super) payload: Vec<u8>,
-    pub(super) host_source: Option<TargetHostSource>,
+pub(in crate::inbound::tun) struct SniffedTunDatagram {
+    pub(in crate::inbound::tun) original_destination: SocketAddress,
+    pub(in crate::inbound::tun) target: Address,
+    pub(in crate::inbound::tun) payload: Vec<u8>,
+    pub(in crate::inbound::tun) host_source: Option<TargetHostSource>,
 }
 
 struct PendingQuic {
@@ -38,14 +38,14 @@ enum Decision {
 }
 
 #[derive(Default)]
-pub(super) struct TunQuicSniffer {
+pub(in crate::inbound::tun) struct TunQuicSniffer {
     pending: HashMap<SocketAddress, PendingQuic>,
     decisions: HashMap<SocketAddress, Decision>,
     ready: VecDeque<SniffedTunDatagram>,
 }
 
 impl TunQuicSniffer {
-    pub(super) async fn next(
+    pub(in crate::inbound::tun) async fn next(
         &mut self,
         receiver: &mut mpsc::Receiver<TunDatagram>,
     ) -> Option<SniffedTunDatagram> {

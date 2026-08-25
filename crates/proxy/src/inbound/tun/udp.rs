@@ -12,7 +12,7 @@ use zero_engine::EngineError;
 use zero_stack::UserUdpStack;
 use zero_traits::{IpAddress, SocketAddress, UdpStack};
 
-use super::sniff::TunQuicSniffer;
+use super::sniff::udp::TunQuicSniffer;
 use crate::runtime::udp_ingress::UdpIngressRuntime;
 use crate::runtime::Proxy;
 
