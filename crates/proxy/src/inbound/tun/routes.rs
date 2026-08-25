@@ -42,16 +42,29 @@ pub(super) struct InstalledRoutes {
     pub last_error: Option<String>,
 }
 
+pub(super) struct RouteInstallSpec {
+    pub tun_name: String,
+    pub recovery_key: String,
+    pub addresses: Vec<(IpAddr, IpAddr)>,
+    pub include_cidrs: Vec<IpNet>,
+    pub exclude_cidrs: Vec<IpNet>,
+    pub excluded: Vec<IpAddr>,
+    pub strict: bool,
+}
+
 pub(super) async fn install(
-    tun_name: String,
-    recovery_key: String,
-    addresses: Vec<(IpAddr, IpAddr)>,
-    include_cidrs: Vec<IpNet>,
-    exclude_cidrs: Vec<IpNet>,
-    excluded: Vec<IpAddr>,
-    strict: bool,
+    spec: RouteInstallSpec,
     egress_control: zero_platform_tokio::EgressInterfaceControl,
 ) -> Result<InstalledRoutes, EngineError> {
+    let RouteInstallSpec {
+        tun_name,
+        recovery_key,
+        addresses,
+        include_cidrs,
+        exclude_cidrs,
+        excluded,
+        strict,
+    } = spec;
     tokio::task::spawn_blocking(move || {
         let mut guards = Vec::new();
         let mut last_error = None;

@@ -287,13 +287,15 @@ impl Proxy {
         let route_exclusions = prepared_network.route_exclusions;
         let installed = if auto_route {
             routes::install(
-                device_name.clone(),
-                tag.to_owned(),
-                route_addresses.clone(),
-                include_cidrs.clone(),
-                exclude_cidrs.clone(),
-                route_exclusions.clone(),
-                strict_route,
+                routes::RouteInstallSpec {
+                    tun_name: device_name.clone(),
+                    recovery_key: tag.to_owned(),
+                    addresses: route_addresses.clone(),
+                    include_cidrs: include_cidrs.clone(),
+                    exclude_cidrs: exclude_cidrs.clone(),
+                    excluded: route_exclusions.clone(),
+                    strict: strict_route,
+                },
                 self.egress_interface.clone(),
             )
             .await?
