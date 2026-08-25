@@ -17,10 +17,10 @@ impl UdpDispatch {
     ) {
         self.flow_start_backoff
             .record_failure(flow.key.clone(), Instant::now());
-        if let Some(completed) = self.flows.finish_with_failure(
-            &flow.key,
-            session_failure_observation(stage, error, None),
-        ) {
+        if let Some(completed) = self
+            .flows
+            .finish_with_failure(&flow.key, session_failure_observation(stage, error, None))
+        {
             self.runtime.record_passive_relay_outcome(
                 &flow.passive_relay_selections,
                 &flow.session,
