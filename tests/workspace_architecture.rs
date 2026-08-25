@@ -106,9 +106,14 @@ fn dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority() {
     assert!(backends.contains("current_for_peer"));
     assert!(!backends.contains("TcpStream::connect"));
 
-    let direct = read(&workspace_root().join("crates/proxy/src/transport/direct.rs"));
+    let direct = [
+        read(&workspace_root().join("crates/proxy/src/transport/direct.rs")),
+        read(&workspace_root().join("crates/proxy/src/transport/direct_dial.rs")),
+    ]
+    .join("\n");
     let datagram = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));
-    assert!(direct.contains("current_for_peer"));
+    assert!(direct.contains("select_for_peer"));
+    assert!(direct.contains("ensure_connectable"));
     assert!(datagram.contains("current_for_peer"));
 }
 
