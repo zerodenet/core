@@ -7,6 +7,7 @@ use zero_core::{Address, Session, TargetHostSource};
 
 use crate::transport::{RecordingStream, ReplayStream};
 
+#[cfg(feature = "udp-runtime")]
 pub(super) mod udp;
 
 const TARGET_SNIFF_TIMEOUT: Duration = Duration::from_millis(200);
