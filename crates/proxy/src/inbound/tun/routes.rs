@@ -9,7 +9,7 @@ use zero_tun::{RouteChangeMonitor, SystemRouteGuard};
 use crate::runtime::Proxy;
 
 mod state;
-use state::{publish_error, publish_state};
+use state::{publish_error, publish_state, publish_unavailable};
 
 const ROUTE_EVENT_DEBOUNCE: Duration = Duration::from_millis(400);
 const ROUTE_RETRY_DELAYS: [Duration; 4] = [
@@ -114,6 +114,15 @@ pub(super) struct RouteRuntimeSpec {
     pub primary_ipv6: bool,
     pub addresses: Vec<(IpAddr, IpAddr)>,
     pub dns_hijack: bool,
+    pub strict_route: bool,
+}
+
+impl RouteRuntimeSpec {
+    fn managed_families(&self) -> (bool, bool) {
+        let managed_v4 = self.addresses.iter().any(|(address, _)| address.is_ipv4());
+        let managed_v6 = self.addresses.iter().any(|(address, _)| address.is_ipv6());
+        (managed_v4, managed_v6)
+    }
 }
 
 pub(super) fn spawn(
@@ -152,7 +161,7 @@ async fn run(
                 changed = monitor_changed(&mut monitor) => {
                     if let Err(error) = changed {
                         monitor = None;
-                        publish_error(&proxy, spec.id, error.to_string());
+                        publish_runtime_error(&proxy, &spec, error.to_string());
                     }
                     true
                 }
@@ -167,7 +176,7 @@ async fn run(
                 changed = monitor_changed(&mut monitor) => {
                     if let Err(error) = changed {
                         monitor = None;
-                        publish_error(&proxy, spec.id, error.to_string());
+                        publish_runtime_error(&proxy, &spec, error.to_string());
                         retry_index = Some(0);
                     }
                     true
@@ -188,7 +197,7 @@ async fn run(
             }
             if let Some(active_monitor) = monitor.as_mut() {
                 if let Err(error) = active_monitor.coalesce() {
-                    publish_error(&proxy, spec.id, error.to_string());
+                    publish_runtime_error(&proxy, &spec, error.to_string());
                     monitor = None;
                 }
             }
@@ -197,7 +206,7 @@ async fn run(
             match RouteChangeMonitor::new() {
                 Ok(new_monitor) => monitor = Some(new_monitor),
                 Err(error) => {
-                    publish_error(&proxy, spec.id, error.to_string());
+                    publish_runtime_error(&proxy, &spec, error.to_string());
                     retry_index = Some(next_retry(retry_index));
                     continue;
                 }
@@ -221,7 +230,7 @@ async fn run(
         let exclusions = match prepared {
             Ok(prepared) => prepared.route_exclusions,
             Err(error) => {
-                publish_error(&proxy, spec.id, error.to_string());
+                publish_runtime_error(&proxy, &spec, error.to_string());
                 retry_index = Some(next_retry(retry_index));
                 continue;
             }
@@ -245,7 +254,11 @@ async fn run(
         let (returned_guards, result) = match reconciled {
             Ok(result) => result,
             Err(error) => {
-                publish_error(&proxy, spec.id, format!("TUN route task panicked: {error}"));
+                publish_runtime_error(
+                    &proxy,
+                    &spec,
+                    format!("TUN route task panicked: {error}"),
+                );
                 return Err(io::Error::other(format!(
                     "TUN route task panicked: {error}"
                 )));
@@ -254,16 +267,26 @@ async fn run(
         guards = returned_guards;
         match result {
             Ok(changed) => {
-                publish_state(&proxy, &spec, &guards, Some(exclusions), None)?;
+                if let Err(error) = publish_state(&proxy, &spec, &guards, Some(exclusions), None) {
+                    publish_runtime_error(&proxy, &spec, error.to_string());
+                    return Err(error);
+                }
                 if changed {
                     tracing::info!(tun = %spec.tun_name, "TUN physical egress routes reconciled");
                 }
                 retry_index = None;
             }
             Err(error) => {
-                tracing::warn!(tun = %spec.tun_name, error = %error, "TUN route reconciliation failed; retaining the last usable state");
+                tracing::warn!(
+                    tun = %spec.tun_name,
+                    error = %error,
+                    fail_closed = spec.strict_route,
+                    "TUN route reconciliation failed"
+                );
                 let message = error.to_string();
-                if let Err(status_error) =
+                if spec.strict_route {
+                    publish_unavailable(&proxy, &spec, message);
+                } else if let Err(status_error) =
                     publish_state(&proxy, &spec, &guards, None, Some(message.clone()))
                 {
                     publish_error(
@@ -278,6 +301,14 @@ async fn run(
     }
 
     cleanup_guards(guards).await
+}
+
+fn publish_runtime_error(proxy: &Proxy, spec: &RouteRuntimeSpec, error: String) {
+    if spec.strict_route {
+        publish_unavailable(proxy, spec, error);
+    } else {
+        publish_error(proxy, spec.id, error);
+    }
 }
 
 async fn monitor_changed(monitor: &mut Option<RouteChangeMonitor>) -> io::Result<()> {
@@ -344,7 +375,7 @@ pub(super) fn route_names(guards: &[SystemRouteGuard]) -> (Option<String>, Optio
 
 #[cfg(test)]
 mod tests {
-    use super::{next_retry, ROUTE_RETRY_DELAYS};
+    use super::{next_retry, RouteRuntimeSpec, ROUTE_RETRY_DELAYS};
 
     #[test]
     fn route_retry_backoff_starts_small_and_is_bounded() {
@@ -354,5 +385,34 @@ mod tests {
             next_retry(Some(ROUTE_RETRY_DELAYS.len() - 1)),
             ROUTE_RETRY_DELAYS.len() - 1
         );
+    }
+
+    #[test]
+    fn runtime_spec_tracks_only_managed_address_families() {
+        let ipv4 = RouteRuntimeSpec {
+            id: 1,
+            tun_name: "tun0".to_owned(),
+            recovery_key: "tun-in".to_owned(),
+            primary_ipv6: false,
+            addresses: vec![(
+                "10.66.0.1".parse().unwrap(),
+                "255.255.255.0".parse().unwrap(),
+            )],
+            dns_hijack: true,
+            strict_route: true,
+        };
+        assert_eq!(ipv4.managed_families(), (true, false));
+
+        let dual_stack = RouteRuntimeSpec {
+            addresses: vec![
+                ipv4.addresses[0],
+                (
+                    "fd66::1".parse().unwrap(),
+                    "ffff:ffff:ffff:ffff::".parse().unwrap(),
+                ),
+            ],
+            ..ipv4
+        };
+        assert_eq!(dual_stack.managed_families(), (true, true));
     }
 }

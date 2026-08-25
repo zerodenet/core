@@ -283,6 +283,7 @@ impl Proxy {
                     primary_ipv6: address.is_ipv6(),
                     addresses: route_addresses,
                     dns_hijack,
+                    strict_route,
                 },
                 installed.guards,
                 route_monitor,

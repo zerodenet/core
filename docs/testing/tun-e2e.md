@@ -13,9 +13,9 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 默认行为：
 
 - `auto_route=true`：通过两条 `/1` 路由接管默认流量，不覆盖原默认路由；
-- `auto_route=true` 会继续监听系统默认路由和接口变化；Wi-Fi/有线切换、VPN 上下线或 metric 变化后，内核在不重启 TUN 的情况下更新新建 socket 使用的物理出口和仍需保留的 DNS bootstrap 排除路由。事件会合并处理，失败时保留上一份可用状态并在 `tun status` 中报告错误；
+- `auto_route=true` 会继续监听系统默认路由和接口变化；Wi-Fi/有线切换、VPN 上下线或 metric 变化后，内核在不重启 TUN 的情况下更新新建 socket 使用的物理出口和仍需保留的 DNS bootstrap 排除路由。事件会合并处理；协调失败时非严格模式保留上一份可用状态，严格模式进入 fail-closed，两者都会在 `tun status` 中报告错误；
 - `dual_stack=true`：在同一设备上配置 IPv4/IPv6 两个地址，并同时安装两组拆分默认路由；`secondary_addr` 可显式指定另一族 CIDR，省略时按主地址族使用 `10.66.0.1/24` 或 `fd66::1/64`；只有明确的单栈主机才应关闭，否则另一地址族仍可能绕过 TUN；
-- `strict_route=true`：underlay 出口、仍需保留的 DNS bootstrap 排除或任一半默认路由失败时，启动整体失败并回滚已安装项；未选中的坏代理节点不影响 TUN 启动；
+- `strict_route=true`：underlay 出口、仍需保留的 DNS bootstrap 排除或任一半默认路由失败时，启动整体失败并回滚已安装项；运行期 route monitor、bootstrap 重算或路由协调失败时撤销受影响地址族的出口发布，使新建 TCP、UDP 与 DNS socket fail closed，协调恢复后再发布新出口；未选中的坏代理节点不影响 TUN 启动；
 - `dns_hijack=true`：TUN 内的 UDP/TCP 53 由 Zero DNS 回答，并使用已有缓存、DNS 路由和 Fake-IP；
 - 代理节点不再获得自动 host route；Zero 创建的 TCP/UDP/QUIC socket 按 IPv4/IPv6 分别绑定各自 underlay 接口，避免代理自环。DNS UDP 与 DoT socket 使用同一出口权威；DoH/系统 bootstrap 仍由显式 DNS 排除或操作系统解析路径保护。
 - 物理出口或受管 TUN 地址集合每次实际变化都会发布单调递增的出口 generation。direct UDP 在下一次发送前发现旧 generation 时重建双栈 socket；重建期间若拓扑持续抖动则 fail closed，不使用旧出口继续发送。新建域名 UDP flow 在解析器首选的可用地址族内采用稳定候选，DNS 答案重排不会把所有流量重新固定到第一条记录。

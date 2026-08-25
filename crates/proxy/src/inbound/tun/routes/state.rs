@@ -56,6 +56,42 @@ pub(super) fn publish_error(proxy: &Proxy, id: u64, error: String) {
     }
 }
 
+pub(super) fn publish_unavailable(proxy: &Proxy, spec: &RouteRuntimeSpec, error: String) {
+    let mut info = proxy.tun_info.lock().unwrap();
+    let Some(info) = info.as_mut().filter(|info| info.id == spec.id) else {
+        return;
+    };
+    let (managed_v4, managed_v6) = spec.managed_families();
+    withdraw_managed_egress(&proxy.egress_interface, managed_v4, managed_v6);
+
+    if managed_v4 {
+        info.egress_interface_v4 = None;
+    }
+    if managed_v6 {
+        info.egress_interface_v6 = None;
+    }
+    info.egress_interface = if spec.primary_ipv6 {
+        info.egress_interface_v6.clone()
+    } else {
+        info.egress_interface_v4.clone()
+    };
+    info.healthy = false;
+    info.last_error = Some(error);
+}
+
+fn withdraw_managed_egress(
+    control: &zero_platform_tokio::EgressInterfaceControl,
+    managed_v4: bool,
+    managed_v6: bool,
+) {
+    if managed_v4 {
+        control.replace_for(false, None);
+    }
+    if managed_v6 {
+        control.replace_for(true, None);
+    }
+}
+
 pub(super) fn route_names(guards: &[SystemRouteGuard]) -> (Option<String>, Option<String>) {
     let v4 = guards
         .iter()
@@ -67,3 +103,6 @@ pub(super) fn route_names(guards: &[SystemRouteGuard]) -> (Option<String>, Optio
         .map(|guard| guard.egress().name().to_owned());
     (v4, v6)
 }
+
+#[cfg(test)]
+mod tests;
