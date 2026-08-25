@@ -37,6 +37,7 @@ impl RouteLease {
         Self::acquire_paths(journal_path, lock_path, recovery_key)
     }
 
+    #[cfg(test)]
     pub(super) fn acquire_at(journal_path: PathBuf, tun_name: &str) -> io::Result<Self> {
         let lock_path = journal_path.with_extension("lock");
         Self::acquire_paths(journal_path, lock_path, tun_name)
