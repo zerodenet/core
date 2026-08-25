@@ -145,7 +145,8 @@ encrypted-DNS endpoints when deployment policy requires it.
 Flow records expose `target.original_ip`, `target.host_source`, and
 `target.fake_ip_reverse_status`. Together with `target.host`, `resolved_ip`, and
 `sniffed_host`, these distinguish Fake-IP restoration, DNS reverse recovery
-(`host_source=dns_reverse`), TLS sniffing, a missing
+(`host_source=dns_reverse`), TLS/HTTP/QUIC sniffing (`tls_sni`, `http_host`,
+`quic_sni`), a missing
 reverse mapping, and the final direct endpoint without changing existing API
 fields.
 

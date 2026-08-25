@@ -195,7 +195,9 @@ sudo tcpdump -i physical0 -nn 'udp port 3478 or udp port 5349'
 
 透明 TCP 嗅探覆盖 TLS SNI 与 HTTP/1.x Host。所有已读取前缀必须原样回放；
 ECH 连接不得把 outer public name 猜作真实目标，先尝试无歧义 DNS 反向映射，
-否则继续使用原始 IP。QUIC Initial/SNI 属于独立 UDP 状态机能力，不能用
+否则继续使用原始 IP。QUIC Initial/SNI 使用 `zero-transport` 中的 RFC 9001/9369
+Initial 解密与 CRYPTO 帧有界重组，TUN UDP 仅负责 200ms/容量受限的暂存和
+Session 元数据桥接；不能用
 TCP ClientHello 解析器或单包字符串扫描替代。
 
 真实路由和设备操作需要管理员权限，不能由普通单元测试模拟。仓库中的 `tun_privileged_e2e` 会直接读取系统网络状态，校验接口 MTU、地址、拆分默认路由、TCP、DNS 劫持、STUN 基线与 block、强杀后的恢复日志，以及配置移除后的设备和日志清理。IPv4/IPv6 STUN 用例分别以单栈配置运行，需要对应地址族的原生网络和可达 STUN 服务。独立的离线双栈用例通过本地模拟 DNS 和 SOCKS5 出站，验证同一设备的 IPv4/IPv6 地址、四条 `/1` 路由、双族 TCP/DNS 流量和两份恢复日志；它也覆盖物理出口仅有 IPv4 时 IPv6 经代理载荷出站的情形。为公网 STUN 用例提供可达服务并运行：

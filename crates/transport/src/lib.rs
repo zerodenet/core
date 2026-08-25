@@ -19,6 +19,7 @@ pub mod outbound_datagram;
 ))]
 pub mod outbound_stack;
 pub mod profile;
+pub mod quic_initial;
 #[cfg(feature = "quic")]
 pub mod quic;
 #[cfg(feature = "split_http")]

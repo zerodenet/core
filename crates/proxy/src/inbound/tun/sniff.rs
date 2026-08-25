@@ -7,6 +7,9 @@ use zero_core::{Address, Session, TargetHostSource};
 
 use crate::transport::{RecordingStream, ReplayStream};
 
+mod udp;
+pub(super) use udp::{SniffedTunDatagram, TunQuicSniffer};
+
 const TARGET_SNIFF_TIMEOUT: Duration = Duration::from_millis(200);
 const MAX_TLS_RECORD_LENGTH: usize = 18_432;
 const MAX_CLIENT_HELLO_LENGTH: usize = 65_535;
@@ -84,7 +87,7 @@ enum SniffProtocol {
     Http,
 }
 
-enum SniffOutcome {
+pub(super) enum SniffOutcome {
     Domain {
         domain: String,
         source: TargetHostSource,
@@ -134,7 +137,26 @@ where
         }
     };
 
-    let parsed = parse_client_hello(&handshake[4..4 + handshake_length])?;
+    sniff_tls_handshake(&handshake[..4 + handshake_length])
+}
+
+pub(super) fn sniff_tls_handshake(handshake: &[u8]) -> io::Result<SniffOutcome> {
+    if handshake.len() < 4 || handshake[0] != 0x01 {
+        return Ok(SniffOutcome::None);
+    }
+    let handshake_length = ((handshake[1] as usize) << 16)
+        | ((handshake[2] as usize) << 8)
+        | handshake[3] as usize;
+    if handshake_length > MAX_CLIENT_HELLO_LENGTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "TLS ClientHello exceeds sniffing limit",
+        ));
+    }
+    let client_hello = handshake.get(4..4 + handshake_length).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::UnexpectedEof, "truncated TLS ClientHello")
+    })?;
+    let parsed = parse_client_hello(client_hello)?;
     if parsed.encrypted_client_hello {
         return Ok(SniffOutcome::EncryptedClientHello);
     }
