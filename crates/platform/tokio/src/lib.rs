@@ -12,7 +12,7 @@ use zero_traits::{
 
 mod egress;
 mod process;
-use egress::{bind_tcp_to_interface, bind_udp_to_interface};
+use egress::{bind_tcp_to_interface, bind_udp_to_interface, datagram_bind_address};
 pub use egress::{
     EgressBindingReason, EgressInterface, EgressInterfaceControl, EgressRouteLookupStatus,
     EgressSelection,
@@ -437,11 +437,7 @@ pub fn bind_std_datagram_socket_for_peer(
     peer: SocketAddr,
     interface: Option<&EgressInterface>,
 ) -> io::Result<std::net::UdpSocket> {
-    let local = if peer.is_ipv4() {
-        SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0)
-    } else {
-        SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), 0)
-    };
+    let local = datagram_bind_address(peer, interface)?;
     let socket = std::net::UdpSocket::bind(local)?;
     if let Some(interface) = interface.filter(|_| !peer.ip().is_loopback()) {
         bind_udp_to_interface(&socket, local, interface)?;
