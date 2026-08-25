@@ -93,7 +93,10 @@ mod tests {
                 "192.0.2.1".parse().unwrap(),
                 "192.0.2.1".parse().unwrap(),
             ]),
-            vec!["192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap(),]
+            vec![
+                "192.0.2.1".parse::<IpAddr>().unwrap(),
+                "2001:db8::1".parse::<IpAddr>().unwrap(),
+            ]
         );
     }
 
