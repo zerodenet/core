@@ -14,7 +14,7 @@ use crate::runtime::tcp_ingress::{InboundProtocol, TcpIngressRuntime};
 use crate::runtime::Proxy;
 use crate::transport::ReplayStream;
 
-use super::sniff::sniff_tls_target;
+use super::sniff::sniff_tcp_target;
 
 const TCP_STATE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 const TCP_STATE_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
@@ -263,7 +263,7 @@ async fn accept_tcp(
                     Some(source_addr),
                 );
                 connections.spawn(async move {
-                    let (session, stream) = sniff_tls_target(session, stream).await;
+                    let (session, stream) = sniff_tcp_target(session, stream).await;
                     runtime.serve(session, stream, &TunProtocol).await
                 });
             }

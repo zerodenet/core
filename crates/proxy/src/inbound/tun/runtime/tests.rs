@@ -9,7 +9,7 @@ use zero_config::RuntimeConfig;
 use zero_stack::{packet, UserNetworkStack, UserTcpStack};
 use zero_traits::{TcpStack, UdpStack};
 
-use super::{accept_tcp, feed_packets, should_drop_non_unicast_udp, sniff_tls_target};
+use super::{accept_tcp, feed_packets, should_drop_non_unicast_udp, sniff_tcp_target};
 
 const CLIENT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 99, 0, 2));
 const CLIENT_PORT: u16 = 49152;
@@ -88,7 +88,7 @@ async fn tun_tls_sniff_overrides_ip_target_and_preserves_client_hello() {
         zero_core::ProtocolType::UNKNOWN,
     );
 
-    let (session, mut stream) = sniff_tls_target(session, reader).await;
+    let (session, mut stream) = sniff_tcp_target(session, reader).await;
 
     assert_eq!(
         session.target,
@@ -132,7 +132,7 @@ async fn tun_tls_sniff_handles_client_hello_split_across_records() {
         zero_core::ProtocolType::UNKNOWN,
     );
 
-    let (session, mut stream) = sniff_tls_target(session, reader).await;
+    let (session, mut stream) = sniff_tcp_target(session, reader).await;
 
     assert_eq!(
         session.target,
@@ -161,7 +161,7 @@ async fn tun_non_tls_probe_keeps_ip_target_and_preserves_payload() {
         zero_core::ProtocolType::UNKNOWN,
     );
 
-    let (session, mut stream) = sniff_tls_target(session, reader).await;
+    let (session, mut stream) = sniff_tcp_target(session, reader).await;
 
     assert_eq!(session.target, original_target);
     assert!(session.direct_target.is_none());
@@ -194,7 +194,7 @@ async fn tun_tls_without_sni_keeps_deterministic_ip_fallback() {
         zero_core::ProtocolType::UNKNOWN,
     );
 
-    let (session, mut stream) = sniff_tls_target(session, reader).await;
+    let (session, mut stream) = sniff_tcp_target(session, reader).await;
 
     assert_eq!(session.target, original_target);
     assert!(session.direct_target.is_none());
@@ -202,6 +202,42 @@ async fn tun_tls_without_sni_keeps_deterministic_ip_fallback() {
     assert!(session.target_host_source.is_none());
     let mut replayed = Vec::new();
     stream.read_to_end(&mut replayed).await.unwrap();
+    assert_eq!(replayed, original);
+}
+
+#[tokio::test]
+async fn tun_http_host_recovers_domain_and_preserves_request() {
+    let original = b"GET /mail HTTP/1.1\r\nHost: ExMail.QQ.Com:80\r\nConnection: close\r\n\r\n";
+    let (mut writer, reader) = tokio::io::duplex(256);
+    writer.write_all(original).await.expect("write HTTP request");
+    writer.shutdown().await.expect("close writer");
+    let original_target = zero_core::Address::Ipv4([183, 2, 144, 108]);
+    let session = zero_core::Session::new(
+        0,
+        original_target.clone(),
+        80,
+        zero_core::Network::Tcp,
+        zero_core::ProtocolType::UNKNOWN,
+    );
+
+    let (session, mut stream) = sniff_tcp_target(session, reader).await;
+
+    assert_eq!(
+        session.target,
+        zero_core::Address::Domain("exmail.qq.com".to_owned())
+    );
+    assert_eq!(session.direct_target, Some(original_target.clone()));
+    assert_eq!(session.original_target, Some(original_target));
+    assert_eq!(
+        session.target_host_source,
+        Some(zero_core::TargetHostSource::HttpHost)
+    );
+    assert!(session.sni.is_none());
+    let mut replayed = Vec::new();
+    stream
+        .read_to_end(&mut replayed)
+        .await
+        .expect("read replayed HTTP request");
     assert_eq!(replayed, original);
 }
 
