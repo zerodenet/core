@@ -22,11 +22,11 @@ fn detects_ech_and_does_not_treat_outer_sni_as_the_hidden_name() {
 fn parses_host_header_and_absolute_form_without_accepting_userinfo() {
     assert_eq!(
         parse_http_host(b"GET / HTTP/1.1\r\nhOsT: Example.COM:8080\r\n\r\n"),
-        Some("Example.COM")
+        Some("Example.COM".to_owned())
     );
     assert_eq!(
         parse_http_host(b"GET http://absolute.example/path HTTP/1.1\r\n\r\n"),
-        Some("absolute.example")
+        Some("absolute.example".to_owned())
     );
     assert_eq!(
         parse_http_host(b"GET http://user@unsafe.example/ HTTP/1.1\r\n\r\n"),
