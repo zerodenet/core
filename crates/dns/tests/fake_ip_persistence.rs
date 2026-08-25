@@ -11,10 +11,12 @@ fn config(cidr: &str, ttl_seconds: u64) -> DnsConfig {
         cache: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: cidr.to_owned(),
+            ipv6_cidr: None,
             ttl_seconds,
             max_entries: Some(16),
             exclude_domains: Vec::new(),
         },
+        policy: Default::default(),
     }
 }
 
@@ -185,4 +187,60 @@ async fn expired_mapping_is_not_restored() {
         .lookup_fake_ip_domain("expired.example")
         .await
         .is_none());
+}
+
+#[tokio::test]
+async fn migrates_v1_ipv4_state_into_dual_stack_v2_journal() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let path = directory.path().join("fake-ip.jsonl");
+    let expires_at_unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + 3_600_000;
+    std::fs::write(
+        &path,
+        format!(
+            "{{\"record\":\"header\",\"schema\":\"zero.dns.fake-ip.v1\",\"cidr\":\"198.18.0.0/24\",\"ttl_seconds\":3600,\"max_entries\":16,\"exclusions\":[]}}\n{{\"record\":\"upsert\",\"domain\":\"migrate.example\",\"ip\":[198,18,0,7],\"expires_at_unix_ms\":{expires_at_unix_ms}}}\n"
+        ),
+    )
+    .expect("write legacy state");
+    let mut config = config("198.18.0.0/24", 3_600);
+    let DnsAnswerConfig::FakeIp { ipv6_cidr, .. } = &mut config.answer else {
+        unreachable!()
+    };
+    *ipv6_cidr = Some("fd00::/120".to_owned());
+
+    let dns = build(&config, &path);
+    assert_eq!(
+        dns.lookup_fake_ip(&zero_traits::IpAddress::V4([198, 18, 0, 7]))
+            .await
+            .as_deref(),
+        Some("migrate.example")
+    );
+    let response = dns
+        .answer_udp_query(&dns_query("migrate.example", 28))
+        .await
+        .expect("allocate migrated IPv6 mapping");
+    assert_eq!(u16::from_be_bytes([response[6], response[7]]), 1);
+    drop(dns);
+
+    let journal = std::fs::read_to_string(path).expect("read migrated journal");
+    assert!(journal.lines().next().unwrap().contains("zero.dns.fake-ip.v2"));
+    assert!(journal.contains("198.18.0.7"));
+    assert!(journal.contains("fd00::"));
+}
+
+fn dns_query(domain: &str, query_type: u16) -> Vec<u8> {
+    let mut query = vec![
+        0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+    for label in domain.split('.') {
+        query.push(label.len() as u8);
+        query.extend_from_slice(label.as_bytes());
+    }
+    query.push(0);
+    query.extend_from_slice(&query_type.to_be_bytes());
+    query.extend_from_slice(&1_u16.to_be_bytes());
+    query
 }

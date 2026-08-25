@@ -68,6 +68,7 @@ async fn dispatch_queries_only_the_selected_backend() {
         }],
         cache: None,
         answer: DnsAnswerConfig::Real,
+        policy: Default::default(),
     };
     let dns = zero_dns::DnsSystem::build(Some(&config)).expect("build DNS system");
 

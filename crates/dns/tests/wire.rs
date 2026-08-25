@@ -4,7 +4,10 @@ use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use zero_config::{DnsAnswerConfig, DnsCacheConfig, DnsConfig, DnsServerConfig};
+use zero_config::{
+    DnsAddressFamilyPolicy, DnsAnswerConfig, DnsCacheConfig, DnsConfig, DnsPolicyConfig,
+    DnsServerConfig,
+};
 use zero_traits::IpAddress;
 
 fn query(domain: &str, query_type: u16, edns_size: Option<u16>) -> Vec<u8> {
@@ -85,6 +88,7 @@ fn config(port: u16, answer: DnsAnswerConfig) -> DnsConfig {
         dispatch: Vec::new(),
         cache: None,
         answer,
+        policy: Default::default(),
     }
 }
 
@@ -129,6 +133,98 @@ async fn address_resolution_queries_a_and_aaaa_independently() {
 }
 
 #[tokio::test]
+async fn dns_policy_times_out_primary_and_uses_explicit_fallback() {
+    let primary = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("bind primary DNS");
+    let primary_port = primary.local_addr().unwrap().port();
+    let primary_task = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let _ = primary.recv_from(&mut request).await.unwrap();
+    });
+
+    let fallback = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("bind fallback DNS");
+    let fallback_port = fallback.local_addr().unwrap().port();
+    let fallback_task = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = fallback.recv_from(&mut request).await.unwrap();
+        let response = zero_dns::udp::build_dns_response(
+            &request[..size],
+            &[IpAddress::V4([192, 0, 2, 44])],
+        );
+        fallback.send_to(&response, peer).await.unwrap();
+    });
+
+    let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
+        servers: BTreeMap::from([
+            (
+                "primary".to_owned(),
+                DnsServerConfig::Udp {
+                    host: "127.0.0.1".to_owned(),
+                    port: primary_port,
+                    bootstrap: Vec::new(),
+                },
+            ),
+            (
+                "fallback".to_owned(),
+                DnsServerConfig::Udp {
+                    host: "127.0.0.1".to_owned(),
+                    port: fallback_port,
+                    bootstrap: Vec::new(),
+                },
+            ),
+        ]),
+        default_server: "primary".to_owned(),
+        dispatch: Vec::new(),
+        cache: None,
+        answer: DnsAnswerConfig::Real,
+        policy: DnsPolicyConfig {
+            timeout_ms: 50,
+            fallback_servers: vec!["fallback".to_owned()],
+            address_family: DnsAddressFamilyPolicy::Ipv4Only,
+        },
+    }))
+    .unwrap();
+
+    let addresses = dns.resolve_real("fallback.example").await.unwrap();
+    assert_eq!(addresses, vec![IpAddress::V4([192, 0, 2, 44])]);
+    primary_task.await.unwrap();
+    fallback_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn dns_address_family_policy_controls_queries_and_result_order() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("bind DNS");
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        for _ in 0..2 {
+            let mut request = [0_u8; 4096];
+            let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+            let question = zero_dns::udp::parse_dns_question(&request[..size]).unwrap();
+            let address = match question.query_type {
+                1 => IpAddress::V4([192, 0, 2, 55]),
+                28 => IpAddress::V6([0x20, 1, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 55]),
+                other => panic!("unexpected query type {other}"),
+            };
+            let response = zero_dns::udp::build_dns_response(&request[..size], &[address]);
+            socket.send_to(&response, peer).await.unwrap();
+        }
+    });
+    let mut config = config(port, DnsAnswerConfig::Real);
+    config.policy.address_family = DnsAddressFamilyPolicy::PreferIpv6;
+    let dns = zero_dns::DnsSystem::build(Some(&config)).unwrap();
+
+    let addresses = dns.resolve_real("prefer-v6.example").await.unwrap();
+    assert!(matches!(addresses[0], IpAddress::V6(_)));
+    assert!(matches!(addresses[1], IpAddress::V4(_)));
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn fake_ip_returns_a_and_explicit_aaaa_nodata() {
     let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
         servers: BTreeMap::from([("system".to_owned(), DnsServerConfig::System)]),
@@ -137,10 +233,12 @@ async fn fake_ip_returns_a_and_explicit_aaaa_nodata() {
         cache: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
+            ipv6_cidr: None,
             ttl_seconds: 90,
             max_entries: Some(32),
             exclude_domains: Vec::new(),
         },
+        policy: Default::default(),
     }))
     .unwrap();
 
@@ -156,6 +254,39 @@ async fn fake_ip_returns_a_and_explicit_aaaa_nodata() {
     assert_eq!(u16::from_be_bytes([a[6], a[7]]), 1);
     assert_eq!(u16::from_be_bytes([aaaa[6], aaaa[7]]), 0);
     assert_eq!(aaaa[3] & 0x0f, 0);
+}
+
+#[tokio::test]
+async fn dual_stack_fake_ip_answers_aaaa_and_supports_reverse_lookup() {
+    let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
+        servers: BTreeMap::from([("system".to_owned(), DnsServerConfig::System)]),
+        default_server: "system".to_owned(),
+        dispatch: Vec::new(),
+        cache: None,
+        answer: DnsAnswerConfig::FakeIp {
+            cidr: "198.18.0.0/15".to_owned(),
+            ipv6_cidr: Some("fd00::/120".to_owned()),
+            ttl_seconds: 90,
+            max_entries: Some(32),
+            exclude_domains: Vec::new(),
+        },
+        policy: Default::default(),
+    }))
+    .unwrap();
+
+    let response = dns
+        .answer_udp_query(&query("dual-fake.example", 28, None))
+        .await
+        .unwrap();
+    assert_eq!(u16::from_be_bytes([response[6], response[7]]), 1);
+    let address_offset = response.len() - 16;
+    let mut octets = [0_u8; 16];
+    octets.copy_from_slice(&response[address_offset..]);
+    assert_eq!(
+        dns.lookup_fake_ip(&IpAddress::V6(octets)).await.as_deref(),
+        Some("dual-fake.example")
+    );
+    assert_eq!(dns.fake_ip_stats().await.unwrap().live_mappings, 1);
 }
 
 #[tokio::test]
@@ -331,6 +462,7 @@ async fn fake_ip_exclusion_forwards_real_a_and_aaaa() {
         port,
         DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
+            ipv6_cidr: None,
             ttl_seconds: 60,
             max_entries: Some(16),
             exclude_domains: vec!["*.real.example".to_owned()],

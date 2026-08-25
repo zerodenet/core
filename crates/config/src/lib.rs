@@ -9,7 +9,8 @@ pub use auth::AuthRequirement;
 pub use error::ConfigError;
 pub use model::{
     ApiConfig, ClientTlsConfig, ControlApiConfig, ControlGrpcConfig, ControlGrpcTlsConfig,
-    DnsAnswerConfig, DnsCacheConfig, DnsConfig, DnsDispatchRuleConfig, DnsServerConfig,
+    DnsAddressFamilyPolicy, DnsAnswerConfig, DnsCacheConfig, DnsConfig, DnsDispatchRuleConfig,
+    DnsPolicyConfig, DnsServerConfig,
     EventDispatcherConfig, EventSinkConfig, ExhaustedDeliveryPolicy, FakeIpConfigRef,
     FallbackConfig, GrpcConfig, H2Config, HookConfig, HttpUpgradeConfig, Hysteria2UserConfig,
     InboundConfig, InboundProtocolConfig, InboundRealityConfig, ListenConfig, LoadBalanceStrategy,

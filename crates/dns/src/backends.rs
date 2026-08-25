@@ -7,8 +7,8 @@ use zero_config::DnsServerConfig;
 use zero_traits::IpAddress;
 
 use crate::message::{
-    build_address_response, build_error_response, build_query, parse_question, parse_response,
-    DEFAULT_NEGATIVE_TTL_SECONDS, RCODE_NOERROR, RCODE_NOTIMP, RCODE_NXDOMAIN, TYPE_A, TYPE_AAAA,
+    build_address_response, build_error_response, parse_question, parse_response,
+    DEFAULT_NEGATIVE_TTL_SECONDS, RCODE_NOTIMP, RCODE_NXDOMAIN, TYPE_A, TYPE_AAAA,
 };
 use crate::system::TokioSystemResolver;
 #[cfg(feature = "udp")]
@@ -123,37 +123,6 @@ impl ResolverBackend {
         }
     }
 
-    pub(crate) async fn resolve_type(
-        &self,
-        domain: &str,
-        query_type: u16,
-    ) -> io::Result<ResolvedAddresses> {
-        if let Self::System(resolver) = self {
-            let addresses = resolver.resolve_type(domain, query_type).await?;
-            return Ok(ResolvedAddresses {
-                addresses,
-                ttl_seconds: DEFAULT_NEGATIVE_TTL_SECONDS,
-            });
-        }
-        let query = build_query(domain, query_type)?;
-        let response = self.exchange(&query).await?;
-        let parsed = parse_response(&query, &response)?;
-        match parsed.response_code {
-            RCODE_NOERROR => Ok(ResolvedAddresses {
-                addresses: parsed.addresses,
-                ttl_seconds: parsed
-                    .min_ttl_seconds
-                    .unwrap_or(DEFAULT_NEGATIVE_TTL_SECONDS),
-            }),
-            RCODE_NXDOMAIN => Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("DNS name `{domain}` does not exist"),
-            )),
-            code => Err(io::Error::other(format!(
-                "DNS server returned response code {code} for `{domain}`"
-            ))),
-        }
-    }
 }
 
 pub(crate) struct ResolvedAddresses {

@@ -25,6 +25,48 @@ pub struct DnsConfig {
     /// Address-answer behavior for intercepted DNS requests.
     #[serde(default)]
     pub answer: DnsAnswerConfig,
+
+    /// Runtime policy shared by every configured DNS transport.
+    #[serde(default)]
+    pub policy: DnsPolicyConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DnsPolicyConfig {
+    /// Per-backend query deadline in milliseconds.
+    #[serde(default = "default_dns_timeout_ms")]
+    pub timeout_ms: u64,
+    /// Ordered backend tags tried after the dispatch-selected backend fails.
+    #[serde(default)]
+    pub fallback_servers: Vec<String>,
+    /// Which address families are queried and their result preference.
+    #[serde(default)]
+    pub address_family: DnsAddressFamilyPolicy,
+}
+
+impl Default for DnsPolicyConfig {
+    fn default() -> Self {
+        Self {
+            timeout_ms: default_dns_timeout_ms(),
+            fallback_servers: Vec::new(),
+            address_family: DnsAddressFamilyPolicy::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsAddressFamilyPolicy {
+    Ipv4Only,
+    Ipv6Only,
+    #[default]
+    PreferIpv4,
+    PreferIpv6,
+}
+
+const fn default_dns_timeout_ms() -> u64 {
+    5_000
 }
 
 impl DnsConfig {
@@ -52,11 +94,13 @@ impl DnsConfig {
             DnsAnswerConfig::Real => None,
             DnsAnswerConfig::FakeIp {
                 cidr,
+                ipv6_cidr,
                 ttl_seconds,
                 max_entries,
                 exclude_domains,
             } => Some(FakeIpConfigRef {
                 cidr,
+                ipv6_cidr: ipv6_cidr.as_deref(),
                 ttl_seconds: *ttl_seconds,
                 max_entries: *max_entries,
                 exclude_domains,
@@ -68,6 +112,7 @@ impl DnsConfig {
 #[derive(Debug, Clone, Copy)]
 pub struct FakeIpConfigRef<'a> {
     pub cidr: &'a str,
+    pub ipv6_cidr: Option<&'a str>,
     pub ttl_seconds: u64,
     pub max_entries: Option<usize>,
     pub exclude_domains: &'a [String],
@@ -84,6 +129,9 @@ pub enum DnsAnswerConfig {
         /// CIDR block for the fake-IP pool, for example `198.18.0.0/15`.
         #[serde(default = "default_fake_ip_cidr")]
         cidr: String,
+        /// Optional IPv6 CIDR block for synthetic AAAA answers.
+        #[serde(default)]
+        ipv6_cidr: Option<String>,
         /// Mapping lifetime in seconds.
         #[serde(default = "default_fake_ip_ttl")]
         ttl_seconds: u64,

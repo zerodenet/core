@@ -28,10 +28,12 @@ async fn tun_query_uses_fake_ip_and_returns_a_well_formed_header() {
         cache: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
+            ipv6_cidr: None,
             ttl_seconds: 60,
             max_entries: None,
             exclude_domains: Vec::new(),
         },
+        policy: Default::default(),
     }))
     .expect("build DNS");
     let response = dns
@@ -57,10 +59,12 @@ async fn compatible_reload_preserves_live_fake_ip_mapping() {
         cache: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
+            ipv6_cidr: None,
             ttl_seconds: 60,
             max_entries: Some(16),
             exclude_domains: Vec::new(),
         },
+        policy: Default::default(),
     };
     let dns = zero_dns::DnsSystem::build(Some(&config)).expect("build DNS");
     dns.answer_udp_query(&query("reload.example", 1))

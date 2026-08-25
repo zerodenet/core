@@ -14,6 +14,7 @@ pub(super) fn validate_dns_config(
     rule_set_tags: &HashSet<String>,
 ) -> Result<(), ConfigError> {
     validate_servers(dns)?;
+    validate_policy(dns)?;
     validate_cache_and_answer(dns)?;
 
     for (index, dispatch) in dns.dispatch.iter().enumerate() {
@@ -28,6 +29,29 @@ pub(super) fn validate_dns_config(
     }
 
     validate_fake_ip_tun_overlap(runtime, dns)
+}
+
+fn validate_policy(dns: &DnsConfig) -> Result<(), ConfigError> {
+    if dns.policy.timeout_ms == 0 || dns.policy.timeout_ms > 120_000 {
+        return Err(ConfigError::InvalidDns(
+            "`dns.policy.timeout_ms` must be between 1 and 120000".to_owned(),
+        ));
+    }
+
+    let mut fallbacks = HashSet::new();
+    for tag in &dns.policy.fallback_servers {
+        if !dns.servers.contains_key(tag) {
+            return Err(ConfigError::InvalidDns(format!(
+                "`dns.policy.fallback_servers` references undefined server `{tag}`"
+            )));
+        }
+        if !fallbacks.insert(tag) {
+            return Err(ConfigError::InvalidDns(format!(
+                "`dns.policy.fallback_servers` contains duplicate server `{tag}`"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn validate_servers(dns: &DnsConfig) -> Result<(), ConfigError> {
@@ -93,7 +117,7 @@ fn validate_cache_and_answer(dns: &DnsConfig) -> Result<(), ConfigError> {
     let Some(fake_ip) = dns.fake_ip() else {
         return Ok(());
     };
-    let usable_addresses = match fake_ip.cidr.parse::<ipnet::IpNet>() {
+    let usable_ipv4 = match fake_ip.cidr.parse::<ipnet::IpNet>() {
         Ok(ipnet::IpNet::V4(net)) if net.prefix_len() <= 30 => {
             ((1_u128 << (32 - net.prefix_len())) - 2).min(usize::MAX as u128) as usize
         }
@@ -114,6 +138,29 @@ fn validate_cache_and_answer(dns: &DnsConfig) -> Result<(), ConfigError> {
             )));
         }
     };
+    let usable_ipv6 = fake_ip
+        .ipv6_cidr
+        .map(|cidr| match cidr.parse::<ipnet::IpNet>() {
+            Ok(ipnet::IpNet::V6(net)) if net.prefix_len() <= 126 => {
+                let host_bits = 128 - net.prefix_len();
+                Ok(if u32::from(host_bits) >= usize::BITS {
+                    usize::MAX
+                } else {
+                    1_usize << host_bits
+                })
+            }
+            Ok(ipnet::IpNet::V6(_)) => Err(ConfigError::InvalidDns(
+                "`dns.answer.ipv6_cidr` prefix length is too large for a fake-IP pool; minimum is /126 (4 addresses)".to_owned(),
+            )),
+            Ok(ipnet::IpNet::V4(_)) => Err(ConfigError::InvalidDns(
+                "`dns.answer.ipv6_cidr` must be an IPv6 CIDR".to_owned(),
+            )),
+            Err(_) => Err(ConfigError::InvalidDns(format!(
+                "`dns.answer.ipv6_cidr` is not a valid CIDR: {cidr}"
+            ))),
+        })
+        .transpose()?;
+    let usable_addresses = usable_ipv6.map_or(usable_ipv4, |usable| usable.min(usable_ipv4));
     if fake_ip.ttl_seconds == 0 {
         return Err(ConfigError::InvalidDns(
             "`dns.answer.ttl_seconds` must be greater than 0".to_owned(),
@@ -177,10 +224,15 @@ fn validate_fake_ip_tun_overlap(
     let (Some(tun), Some(fake_ip)) = (runtime.tun.as_ref(), dns.fake_ip()) else {
         return Ok(());
     };
-    let pool = fake_ip
+    let mut pools = vec![fake_ip
         .cidr
         .parse::<ipnet::IpNet>()
-        .map_err(|error| ConfigError::InvalidDns(format!("invalid fake-IP CIDR: {error}")))?;
+        .map_err(|error| ConfigError::InvalidDns(format!("invalid fake-IP CIDR: {error}")))?];
+    if let Some(cidr) = fake_ip.ipv6_cidr {
+        pools.push(cidr.parse::<ipnet::IpNet>().map_err(|error| {
+            ConfigError::InvalidDns(format!("invalid IPv6 fake-IP CIDR: {error}"))
+        })?);
+    }
     let primary = parse_address(&tun.addr, "TUN")?;
     let secondary = if let Some(secondary) = tun.secondary_addr.as_deref() {
         Some(parse_address(secondary, "secondary TUN")?)
@@ -200,10 +252,12 @@ fn validate_fake_ip_tun_overlap(
     }
     owned.extend(owned.clone().into_iter().filter_map(next_ip));
 
-    if let Some(address) = owned.into_iter().find(|address| pool.contains(address)) {
+    if let Some(address) = owned
+        .into_iter()
+        .find(|address| pools.iter().any(|pool| pool.contains(address)))
+    {
         return Err(ConfigError::InvalidRuntime(format!(
-            "Fake-IP pool `{}` overlaps TUN-owned address `{address}`; choose a non-overlapping `dns.answer.cidr`",
-            fake_ip.cidr
+            "Fake-IP pool overlaps TUN-owned address `{address}`; choose non-overlapping `dns.answer.cidr` and `dns.answer.ipv6_cidr` values"
         )));
     }
     Ok(())

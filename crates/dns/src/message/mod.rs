@@ -9,7 +9,7 @@ pub(crate) use build::{
 };
 pub(crate) use name::normalize_domain;
 pub use parse::DnsQuestion;
-pub(crate) use parse::{parse_question, parse_response};
+pub(crate) use parse::{parse_question, parse_response, ParsedDnsResponse};
 
 pub(crate) const TYPE_A: u16 = 1;
 pub(crate) const TYPE_AAAA: u16 = 28;

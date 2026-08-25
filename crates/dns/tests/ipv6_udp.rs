@@ -38,6 +38,7 @@ async fn udp_dns_uses_an_ipv6_socket_for_an_ipv6_server() {
         dispatch: Vec::new(),
         cache: None,
         answer: DnsAnswerConfig::Real,
+        policy: Default::default(),
     }))
     .expect("build IPv6 UDP resolver");
 
