@@ -69,6 +69,27 @@ impl UserUdpStack {
             next_fragment_id: AtomicU32::new(1),
         }
     }
+
+    /// Best-effort, non-blocking feedback for a UDP datagram rejected before
+    /// an association can accept it.
+    pub fn send_unreachable(
+        &self,
+        payload: &[u8],
+        source: SocketAddress,
+        destination: SocketAddress,
+    ) -> bool {
+        let original = packet::build_udp(
+            sockaddr_to_ipaddr(&source),
+            sockaddr_to_ipaddr(&destination),
+            source.port,
+            destination.port,
+            payload,
+        );
+        let Some(response) = packet::build_udp_unreachable_response(&original, self.mtu) else {
+            return false;
+        };
+        self.outbound.try_send(response).is_ok()
+    }
 }
 
 impl UdpStack for UserUdpStack {
