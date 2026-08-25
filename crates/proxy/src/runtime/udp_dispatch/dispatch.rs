@@ -50,6 +50,7 @@ impl UdpDispatch {
 
     async fn start_new_routed_flow(&mut self, input: UdpPipeInput<'_>) -> Result<u64, EngineError> {
         let runtime = self.runtime.clone();
+        let ingress_key = UdpFlowKey::new(&input.target, input.port, input.client_session_id);
         let mut session = Session::new(0, input.target, input.port, Network::Udp, input.protocol);
         if let Some(auth) = input.auth {
             session.apply_auth(auth.clone());
@@ -128,10 +129,10 @@ impl UdpDispatch {
                 let remote = outbound.observed_remote();
                 runtime.set_session_outbound(&session, Some(&remote));
                 self.flows.insert(
+                    ingress_key,
                     session.clone(),
                     session_handle,
                     *outbound,
-                    input.client_session_id,
                     passive_relay_selections.clone(),
                     rate_limiters,
                 );
