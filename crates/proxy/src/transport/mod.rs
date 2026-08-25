@@ -6,6 +6,7 @@
 //! Concrete carrier implementations remain in the `zero-transport` crate.
 
 mod direct;
+mod direct_dial;
 mod rate_limit;
 mod tcp_outbound;
 mod tcp_relay;

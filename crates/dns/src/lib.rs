@@ -359,21 +359,11 @@ impl DnsSystem {
     /// synthetic fake IP. Internal routing and upstream dialing use this path
     /// after a fake-IP target has been restored to its original domain.
     pub async fn resolve_real(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
-        let mut addresses = Vec::new();
-        let mut first_error = None;
-        for query_type in [message::TYPE_A, message::TYPE_AAAA] {
-            match self.resolve_real_type(domain, query_type).await {
-                Ok(mut resolved) => addresses.append(&mut resolved),
-                Err(error) if first_error.is_none() => first_error = Some(error),
-                Err(_) => {}
-            }
-        }
-        if addresses.is_empty() {
-            if let Some(error) = first_error {
-                return Err(error);
-            }
-        }
-        Ok(addresses)
+        let (ipv4, ipv6) = tokio::join!(
+            self.resolve_real_type(domain, message::TYPE_A),
+            self.resolve_real_type(domain, message::TYPE_AAAA),
+        );
+        combine_address_families(ipv4, ipv6)
     }
 
     /// Resolve one address family through real DNS without allocating Fake-IP.
@@ -557,22 +547,33 @@ impl DnsResolver for DnsSystem {
         }
 
         let domain = message::normalize_domain(domain)?;
-        let mut addresses = Vec::new();
-        let mut first_error = None;
-        for query_type in [message::TYPE_A, message::TYPE_AAAA] {
-            match resolve_snapshot_type(&domain, query_type, snapshot.clone()).await {
-                Ok(mut resolved) => addresses.append(&mut resolved),
-                Err(error) if first_error.is_none() => first_error = Some(error),
-                Err(_) => {}
-            }
-        }
-        if addresses.is_empty() {
-            if let Some(error) = first_error {
-                return Err(error);
-            }
-        }
-        Ok(addresses)
+        let (ipv4, ipv6) = tokio::join!(
+            resolve_snapshot_type(&domain, message::TYPE_A, snapshot.clone()),
+            resolve_snapshot_type(&domain, message::TYPE_AAAA, snapshot),
+        );
+        combine_address_families(ipv4, ipv6)
     }
+}
+
+fn combine_address_families(
+    ipv4: io::Result<Vec<IpAddress>>,
+    ipv6: io::Result<Vec<IpAddress>>,
+) -> io::Result<Vec<IpAddress>> {
+    let mut addresses = Vec::new();
+    let mut first_error = None;
+    for result in [ipv4, ipv6] {
+        match result {
+            Ok(mut resolved) => addresses.append(&mut resolved),
+            Err(error) if first_error.is_none() => first_error = Some(error),
+            Err(_) => {}
+        }
+    }
+    if addresses.is_empty() {
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+    }
+    Ok(addresses)
 }
 
 async fn resolve_snapshot_type(

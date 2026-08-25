@@ -15,14 +15,18 @@ async fn dispatch_queries_only_the_selected_backend() {
         .expect("bind selected DNS backend");
     let selected_port = selected.local_addr().unwrap().port();
     let selected_task = tokio::spawn(async move {
-        let mut query = [0_u8; 512];
-        let (size, peer) = selected.recv_from(&mut query).await.expect("receive query");
-        let response =
-            zero_dns::udp::build_dns_response(&query[..size], &[IpAddress::V4([203, 0, 113, 33])]);
-        selected
-            .send_to(&response, peer)
-            .await
-            .expect("send selected response");
+        for _ in 0..2 {
+            let mut query = [0_u8; 512];
+            let (size, peer) = selected.recv_from(&mut query).await.expect("receive query");
+            let response = zero_dns::udp::build_dns_response(
+                &query[..size],
+                &[IpAddress::V4([203, 0, 113, 33])],
+            );
+            selected
+                .send_to(&response, peer)
+                .await
+                .expect("send selected response");
+        }
     });
 
     let unrelated = tokio::net::UdpSocket::bind("127.0.0.1:0")

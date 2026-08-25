@@ -9,6 +9,8 @@ use zero_engine::{
 use zero_platform_tokio::{EgressSelection, TokioSocket};
 use zero_traits::IpAddress;
 
+use super::direct_dial::{dial_tcp_candidates, TcpDialFailure};
+
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DirectConnector;
 
@@ -39,66 +41,36 @@ impl DirectConnector {
         resolver: &DnsSystem,
         egress: &zero_platform_tokio::EgressInterfaceControl,
     ) -> Result<DirectTcpConnection, DirectTcpConnectFailure> {
-        let addr = self.resolve_target_addr(session, resolver).await?;
+        let candidates = self.resolve_target_addrs(session, resolver).await?;
 
-        let selection = egress.select_for_peer(addr);
-        if let Err(error) = selection.ensure_connectable() {
-            tracing::warn!(
-                target = %addr,
-                route_source = ?selection.route_source(),
-                binding_reason = selection.binding_reason().as_str(),
-                error = %error,
-                "direct TCP connect rejected to prevent TUN self-capture"
-            );
-            return Err(DirectTcpConnectFailure {
-                stage: "connect_direct",
-                network: Box::new(direct_network_observation(
-                    &selection,
-                    None,
-                    "select_egress",
-                    false,
-                )),
-                error: Error::Io("TUN physical egress is unavailable"),
-            });
-        }
-        match TokioSocket::connect_addr_on_observed(addr, selection.interface()).await {
-            Ok(socket) => {
+        match dial_tcp_candidates(candidates, egress).await {
+            Ok(success) => {
+                let socket = success.socket;
                 let local = socket.local_addr().ok();
                 let network = direct_network_observation(
-                    &selection,
+                    &success.selection,
                     local,
                     "connected",
-                    selection.interface().is_some(),
+                    success.selection.interface().is_some(),
                 );
                 Ok(DirectTcpConnection {
                     socket,
-                    remote: addr,
+                    remote: success.remote,
                     network,
                 })
             }
-            Err(error) => {
-                tracing::debug!(
-                    target = %addr,
-                    route_source = ?selection.route_source(),
-                    route_lookup = selection.route_lookup_status().as_str(),
-                    binding_reason = selection.binding_reason().as_str(),
-                    egress_name = selection.interface().map(|value| value.name()),
-                    egress_index = selection.interface().map(|value| value.index()),
-                    connect_stage = error.stage(),
-                    error = %error.error(),
-                    "direct TCP connect failed"
-                );
-                let stage = error.stage();
-                let interface_bound = error.interface_bound();
+            Err(failure) => {
+                log_dial_failure("direct", &failure);
+                let error = dial_failure_error(&failure, "failed to connect direct target");
                 Err(DirectTcpConnectFailure {
                     stage: "connect_direct",
                     network: Box::new(direct_network_observation(
-                        &selection,
-                        error.local_addr(),
-                        stage,
-                        interface_bound,
+                        &failure.selection,
+                        failure.local_addr,
+                        failure.stage,
+                        failure.interface_bound,
                     )),
-                    error: Error::Io("failed to connect direct target"),
+                    error,
                 })
             }
         }
@@ -120,6 +92,22 @@ impl DirectConnector {
         .await
     }
 
+    pub(crate) async fn resolve_target_addrs(
+        &self,
+        session: &Session,
+        resolver: &DnsSystem,
+    ) -> Result<Vec<SocketAddr>, Error> {
+        self.validate(session)?;
+
+        self.resolve_addresses(
+            session.effective_direct_target(),
+            session.port,
+            resolver,
+            "failed to resolve direct target",
+        )
+        .await
+    }
+
     pub(crate) async fn connect_host(
         &self,
         host: &str,
@@ -131,23 +119,15 @@ impl DirectConnector {
             return Err(Error::Config("target port is required"));
         }
 
-        let addr = resolve_host(host, port, resolver, "failed to resolve upstream target").await?;
-
-        let interface = egress.try_current_for_peer(addr).map_err(|error| {
-            tracing::warn!(target = %addr, error = %error, "upstream TCP connect rejected to prevent TUN self-capture");
-            Error::Io("TUN physical egress is unavailable")
-        })?;
-        TokioSocket::connect_addr_on(addr, interface.as_ref())
+        let candidates =
+            resolve_host_addresses(host, port, resolver, "failed to resolve upstream target")
+                .await?;
+        dial_tcp_candidates(candidates, egress)
             .await
-            .map_err(|error| {
-                tracing::debug!(
-                    target = %addr,
-                    egress_name = interface.as_ref().map(|value| value.name()),
-                    egress_index = interface.as_ref().map(|value| value.index()),
-                    error = %error,
-                    "upstream TCP connect failed"
-                );
-                Error::Io("failed to connect upstream target")
+            .map(|success| success.socket)
+            .map_err(|failure| {
+                log_dial_failure("upstream", &failure);
+                dial_failure_error(&failure, "failed to connect upstream target")
             })
     }
 
@@ -158,11 +138,56 @@ impl DirectConnector {
         resolver: &DnsSystem,
         error_message: &'static str,
     ) -> Result<SocketAddr, Error> {
+        self.resolve_addresses(address, port, resolver, error_message)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or(Error::Io("target resolved to no addresses"))
+    }
+
+    pub(crate) async fn resolve_addresses(
+        &self,
+        address: &Address,
+        port: u16,
+        resolver: &DnsSystem,
+        error_message: &'static str,
+    ) -> Result<Vec<SocketAddr>, Error> {
         match address {
-            Address::Domain(domain) => resolve_host(domain, port, resolver, error_message).await,
-            Address::Ipv4(bytes) => Ok(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(*bytes)), port)),
-            Address::Ipv6(bytes) => Ok(SocketAddr::new(IpAddr::V6(Ipv6Addr::from(*bytes)), port)),
+            Address::Domain(domain) => {
+                resolve_host_addresses(domain, port, resolver, error_message).await
+            }
+            Address::Ipv4(bytes) => Ok(vec![SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::from(*bytes)),
+                port,
+            )]),
+            Address::Ipv6(bytes) => Ok(vec![SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::from(*bytes)),
+                port,
+            )]),
         }
+    }
+}
+
+fn log_dial_failure(kind: &str, failure: &TcpDialFailure) {
+    tracing::debug!(
+        connect_kind = kind,
+        target = %failure.remote,
+        route_source = ?failure.selection.route_source(),
+        route_lookup = failure.selection.route_lookup_status().as_str(),
+        binding_reason = failure.selection.binding_reason().as_str(),
+        egress_name = failure.selection.interface().map(|value| value.name()),
+        egress_index = failure.selection.interface().map(|value| value.index()),
+        connect_stage = failure.stage,
+        error = %failure.error,
+        "TCP candidate dial failed"
+    );
+}
+
+fn dial_failure_error(failure: &TcpDialFailure, connect_error: &'static str) -> Error {
+    if failure.stage == "select_egress" {
+        Error::Io("TUN physical egress is unavailable")
+    } else {
+        Error::Io(connect_error)
     }
 }
 
@@ -222,20 +247,21 @@ fn socket_addr_from_ip(ip: IpAddress, port: u16) -> SocketAddr {
     }
 }
 
-async fn resolve_host(
+async fn resolve_host_addresses(
     host: &str,
     port: u16,
     resolver: &DnsSystem,
     error_message: &'static str,
-) -> Result<SocketAddr, Error> {
+) -> Result<Vec<SocketAddr>, Error> {
     let resolved = resolver.resolve_real(host).await.map_err(|error| {
         tracing::warn!(domain = host, error = %error, "real DNS resolution failed");
         Error::Io(error_message)
     })?;
-    let ip = resolved
+    if resolved.is_empty() {
+        return Err(Error::Io("target resolved to no addresses"));
+    }
+    Ok(resolved
         .into_iter()
-        .next()
-        .ok_or(Error::Io("target resolved to no addresses"))?;
-
-    Ok(socket_addr_from_ip(ip, port))
+        .map(|ip| socket_addr_from_ip(ip, port))
+        .collect())
 }

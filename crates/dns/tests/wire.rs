@@ -95,23 +95,32 @@ async fn address_resolution_queries_a_and_aaaa_independently() {
         .expect("bind DNS");
     let port = socket.local_addr().unwrap().port();
     let server = tokio::spawn(async move {
+        let mut queries = Vec::new();
         for _ in 0..2 {
             let mut request = [0_u8; 4096];
             let (size, peer) = socket.recv_from(&mut request).await.unwrap();
-            let request = &request[..size];
-            let question = zero_dns::udp::parse_dns_question(request).unwrap();
+            queries.push((request[..size].to_vec(), peer));
+        }
+        for (request, peer) in queries {
+            let question = zero_dns::udp::parse_dns_question(&request).unwrap();
             let address = match question.query_type {
                 1 => IpAddress::V4([192, 0, 2, 9]),
                 28 => IpAddress::V6(Ipv4Addr::new(192, 0, 2, 9).to_ipv6_mapped().octets()),
                 other => panic!("unexpected query type {other}"),
             };
-            let response = zero_dns::udp::build_dns_response(request, &[address]);
+            let response = zero_dns::udp::build_dns_response(&request, &[address]);
             socket.send_to(&response, peer).await.unwrap();
         }
     });
     let dns = zero_dns::DnsSystem::build(Some(&config(port, DnsAnswerConfig::Real))).unwrap();
 
-    let addresses = dns.resolve_real("dual.example").await.unwrap();
+    let addresses = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        dns.resolve_real("dual.example"),
+    )
+    .await
+    .expect("A and AAAA lookups should run concurrently")
+    .unwrap();
 
     assert_eq!(addresses.len(), 2);
     assert!(matches!(addresses[0], IpAddress::V4(_)));

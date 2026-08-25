@@ -68,6 +68,12 @@ forwarding of CNAME, HTTPS/SVCB, SRV, TXT, PTR, RCODE, authority records, and
 unknown record types. Fake-IP synthesizes A records and returns NOERROR/NODATA
 for AAAA; excluded domains use the selected real backend.
 
+Real address resolution starts A and AAAA lookups concurrently. TCP direct and
+upstream dialing preserves the answer order within each family, interleaves the
+two families, and starts later candidates after a bounded delay. Each candidate
+performs its own TUN egress selection and interface binding; a failed first DNS
+answer therefore does not prevent a reachable answer from being used.
+
 Fake-IP names are IDNA-normalized, lower-cased, and trailing-dot insensitive.
 Mappings expire in both directions, are bounded by `max_entries`, and use
 deterministic LRU eviction. A compatible hot reload preserves live mappings;
