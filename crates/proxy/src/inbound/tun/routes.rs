@@ -60,11 +60,7 @@ pub(super) async fn install(
         let protected = addresses
             .iter()
             .flat_map(|(address, _)| {
-                capture_route_prefixes_with_exclusions(
-                    *address,
-                    &include_cidrs,
-                    &exclude_cidrs,
-                )
+                capture_route_prefixes_with_exclusions(*address, &include_cidrs, &exclude_cidrs)
             })
             .collect::<Vec<_>>();
         for (address, netmask) in addresses {
@@ -80,11 +76,7 @@ pub(super) async fn install(
                 &recovery_key,
                 address,
                 netmask,
-                &capture_route_prefixes_with_exclusions(
-                    address,
-                    &include_cidrs,
-                    &exclude_cidrs,
-                ),
+                &capture_route_prefixes_with_exclusions(address, &include_cidrs, &exclude_cidrs),
                 &excluded,
                 move |route| {
                     let interface = zero_platform_tokio::EgressInterface::new(
@@ -319,11 +311,7 @@ async fn run(
         let protected = addresses
             .iter()
             .flat_map(|(address, _)| {
-                capture_route_prefixes_with_exclusions(
-                    *address,
-                    &include_cidrs,
-                    &exclude_cidrs,
-                )
+                capture_route_prefixes_with_exclusions(*address, &include_cidrs, &exclude_cidrs)
             })
             .collect::<Vec<_>>();
         let reconcile_exclusions = exclusions.clone();
