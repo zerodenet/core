@@ -209,7 +209,10 @@ async fn tun_tls_without_sni_keeps_deterministic_ip_fallback() {
 async fn tun_http_host_recovers_domain_and_preserves_request() {
     let original = b"GET /mail HTTP/1.1\r\nHost: ExMail.QQ.Com:80\r\nConnection: close\r\n\r\n";
     let (mut writer, reader) = tokio::io::duplex(256);
-    writer.write_all(original).await.expect("write HTTP request");
+    writer
+        .write_all(original)
+        .await
+        .expect("write HTTP request");
     writer.shutdown().await.expect("close writer");
     let original_target = zero_core::Address::Ipv4([183, 2, 144, 108]);
     let session = zero_core::Session::new(

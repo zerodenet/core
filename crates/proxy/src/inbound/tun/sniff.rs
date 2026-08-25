@@ -31,16 +31,12 @@ where
 
     let mut recording = RecordingStream::new(stream);
     let sniffed = match protocol {
-        SniffProtocol::Tls => tokio::time::timeout(
-            TARGET_SNIFF_TIMEOUT,
-            peek_tls_target(&mut recording),
-        )
-        .await,
-        SniffProtocol::Http => tokio::time::timeout(
-            TARGET_SNIFF_TIMEOUT,
-            peek_http_target(&mut recording),
-        )
-        .await,
+        SniffProtocol::Tls => {
+            tokio::time::timeout(TARGET_SNIFF_TIMEOUT, peek_tls_target(&mut recording)).await
+        }
+        SniffProtocol::Http => {
+            tokio::time::timeout(TARGET_SNIFF_TIMEOUT, peek_http_target(&mut recording)).await
+        }
     };
     let (stream, prefix) = recording.into_parts();
 
@@ -142,12 +138,12 @@ where
     if parsed.encrypted_client_hello {
         return Ok(SniffOutcome::EncryptedClientHello);
     }
-    Ok(parsed.sni.map_or(SniffOutcome::None, |domain| {
-        SniffOutcome::Domain {
+    Ok(parsed
+        .sni
+        .map_or(SniffOutcome::None, |domain| SniffOutcome::Domain {
             domain,
             source: TargetHostSource::TlsSni,
-        }
-    }))
+        }))
 }
 
 struct ParsedTlsHello {
@@ -224,13 +220,14 @@ where
             ));
         }
         if let Some(end) = find_http_header_end(&headers) {
-            return Ok(parse_http_host(&headers[..end]).map_or(
-                SniffOutcome::None,
-                |domain| SniffOutcome::Domain {
-                    domain,
-                    source: TargetHostSource::HttpHost,
-                },
-            ));
+            return Ok(
+                parse_http_host(&headers[..end]).map_or(SniffOutcome::None, |domain| {
+                    SniffOutcome::Domain {
+                        domain,
+                        source: TargetHostSource::HttpHost,
+                    }
+                }),
+            );
         }
         if headers.len() >= 16 && !looks_like_http_request(&headers) {
             return Ok(SniffOutcome::None);
