@@ -43,7 +43,11 @@ impl RouteLease {
         Self::acquire_paths(journal_path, lock_path, tun_name)
     }
 
-    fn acquire_paths(journal_path: PathBuf, lock_path: PathBuf, owner: &str) -> io::Result<Self> {
+    pub(super) fn acquire_paths(
+        journal_path: PathBuf,
+        lock_path: PathBuf,
+        owner: &str,
+    ) -> io::Result<Self> {
         let lock = std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
