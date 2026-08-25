@@ -36,10 +36,7 @@ fn generation_changes_only_when_published_topology_changes() {
         "fd66::1".parse().unwrap(),
     ]);
     assert_eq!(controller.generation(), 3);
-    controller.replace_tunnel_addresses([
-        "10.66.0.1".parse().unwrap(),
-        "fd66::1".parse().unwrap(),
-    ]);
+    controller.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
     assert_eq!(controller.generation(), 3);
 
     controller.clear();

@@ -49,8 +49,13 @@ impl UdpDispatch {
         payload: &[u8],
     ) -> Result<(usize, SocketAddr), EngineError> {
         self.refresh_direct_sockets().await?;
-        let target_addr = self.direct_socket.select_target(logical_target, candidates)?;
-        let sent = self.direct_socket.send_to_addr(payload, target_addr).await?;
+        let target_addr = self
+            .direct_socket
+            .select_target(logical_target, candidates)?;
+        let sent = self
+            .direct_socket
+            .send_to_addr(payload, target_addr)
+            .await?;
         tracing::debug!(
             target = %target_addr,
             egress_generation = self.direct_socket.generation(),
