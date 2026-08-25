@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use zero_core::{Address, Error, Session, TargetHostSource};
+use zero_core::{Address, Error, Session};
 use zero_dns::DnsSystem;
 use zero_engine::{
     FlowNetworkInterfaceObservation, FlowNetworkObservation, FlowRemoteEndpoint,
@@ -112,7 +112,7 @@ impl DirectConnector {
         self.validate(session)?;
 
         self.resolve_address(
-            direct_socket_target(session),
+            session.effective_direct_target(),
             session.port,
             resolver,
             "failed to resolve direct target",
@@ -164,25 +164,6 @@ impl DirectConnector {
             Address::Ipv6(bytes) => Ok(SocketAddr::new(IpAddr::V6(Ipv6Addr::from(*bytes)), port)),
         }
     }
-}
-
-/// TLS SNI is routing metadata for a transparently intercepted connection.
-/// Keep the client-selected destination (including its address family) for a
-/// direct socket unless a URL rewrite changed the recovered hostname. Fake-IP
-/// destinations are synthetic and must still be resolved through real DNS.
-pub(super) fn direct_socket_target(session: &Session) -> &Address {
-    let unchanged_sniffed_host = matches!(
-        (&session.target, session.sni.as_deref()),
-        (Address::Domain(target), Some(sni)) if target == sni
-    );
-    if session.target_host_source == Some(TargetHostSource::TlsSni) && unchanged_sniffed_host {
-        if let Some(original @ (Address::Ipv4(_) | Address::Ipv6(_))) =
-            session.original_target.as_ref()
-        {
-            return original;
-        }
-    }
-    &session.target
 }
 
 fn direct_network_observation(
