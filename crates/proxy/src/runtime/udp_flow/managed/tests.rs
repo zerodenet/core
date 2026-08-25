@@ -10,6 +10,7 @@ use crate::runtime::udp_flow::registered::{
 };
 use crate::runtime::udp_flow::result::FlowFailure;
 use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
+use crate::runtime::udp_flow::sessions::UdpFlowKey;
 use zero_config::RuntimeConfig;
 use zero_core::{Address, Network, ProtocolType, Session};
 
@@ -110,6 +111,7 @@ async fn registered_udp_state_forwards_with_restored_opaque_resume() {
         endpoint: "udp-upstream.test",
     }));
     let flow = UdpFlowSnapshot {
+        key: UdpFlowKey::new(&Address::Domain("target.test".to_owned()), 53, None),
         session: Session::new(
             23,
             Address::Domain("target.test".to_owned()),
@@ -123,7 +125,6 @@ async fn registered_udp_state_forwards_with_restored_opaque_resume() {
             port: 5353,
             managed: flow_ref,
         },
-        client_session_id: None,
         passive_relay_selections: Vec::new(),
         rate_limiters: crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters::default(),
     };
