@@ -196,13 +196,6 @@ impl UdpNetworkServices {
         ))
     }
 
-    pub(crate) async fn bind_datagram_socket(
-        &self,
-        peer: std::net::SocketAddr,
-    ) -> Result<zero_platform_tokio::TokioDatagramSocket, zero_engine::EngineError> {
-        self.upstream.bind_datagram_socket(peer).await
-    }
-
     pub(crate) async fn bind_direct_datagram_socket(
         &self,
         peer: std::net::SocketAddr,
