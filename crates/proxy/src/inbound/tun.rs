@@ -214,6 +214,7 @@ impl Proxy {
         } else {
             routes::InstalledRoutes {
                 guards: Vec::new(),
+                leak_guard: None,
                 last_error: None,
             }
         };
@@ -224,7 +225,8 @@ impl Proxy {
                     .is_none()
             });
             if let Some(missing) = missing_family {
-                let cleanup = routes::cleanup_guards(installed.guards).await;
+                let cleanup =
+                    routes::cleanup_guards(installed.guards, installed.leak_guard).await;
                 self.egress_interface.clear();
                 cleanup.map_err(EngineError::Io)?;
                 return Err(EngineError::Io(io::Error::new(
@@ -247,7 +249,8 @@ impl Proxy {
             match zero_tun::RouteChangeMonitor::new() {
                 Ok(monitor) => Some(monitor),
                 Err(error) if strict_route => {
-                    let cleanup = routes::cleanup_guards(installed.guards).await;
+                    let cleanup =
+                        routes::cleanup_guards(installed.guards, installed.leak_guard).await;
                     self.egress_interface.clear();
                     cleanup.map_err(EngineError::Io)?;
                     return Err(EngineError::Io(error));
@@ -286,6 +289,7 @@ impl Proxy {
                     strict_route,
                 },
                 installed.guards,
+                installed.leak_guard,
                 route_monitor,
                 shutdown.subscribe(),
             )

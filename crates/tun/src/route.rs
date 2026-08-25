@@ -4,6 +4,7 @@ use std::net::IpAddr;
 use serde::{Deserialize, Serialize};
 
 mod journal;
+mod leak;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -15,6 +16,7 @@ mod windows;
 
 use journal::{RouteJournal, RouteLease};
 pub use monitor::RouteChangeMonitor;
+pub use leak::SystemLeakGuard;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RouteInterface {

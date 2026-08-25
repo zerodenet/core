@@ -14,7 +14,8 @@ type TunPacketReceiver = tokio::sync::mpsc::Receiver<Vec<u8>>;
 
 mod route;
 pub use route::{
-    split_default_route_prefixes, RouteChangeMonitor, RouteInterface, SystemRouteGuard,
+    split_default_route_prefixes, RouteChangeMonitor, RouteInterface, SystemLeakGuard,
+    SystemRouteGuard,
 };
 
 // ── Address helpers ───────────────────────────────────────────────────

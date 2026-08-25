@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use tokio::sync::{oneshot, watch};
 use zero_engine::EngineError;
-use zero_tun::{RouteChangeMonitor, SystemRouteGuard};
+use zero_tun::{RouteChangeMonitor, SystemLeakGuard, SystemRouteGuard};
 
 use crate::runtime::Proxy;
 
@@ -21,6 +21,7 @@ const ROUTE_RETRY_DELAYS: [Duration; 4] = [
 
 pub(super) struct InstalledRoutes {
     pub guards: Vec<SystemRouteGuard>,
+    pub leak_guard: Option<SystemLeakGuard>,
     pub last_error: Option<String>,
 }
 
@@ -97,7 +98,36 @@ pub(super) async fn install(
                 }
             }
         }
-        Ok(InstalledRoutes { guards, last_error })
+        let leak_guard = if strict {
+            match SystemLeakGuard::install(&tun_name, &recovery_key, &excluded) {
+                Ok(guard) => Some(guard),
+                Err(error) => {
+                    let mut rollback_error = None;
+                    for guard in guards.drain(..).rev() {
+                        if let Err(cleanup) = guard.close() {
+                            rollback_error.get_or_insert(cleanup);
+                        }
+                    }
+                    egress_control.replace_for(false, previous_v4);
+                    egress_control.replace_for(true, previous_v6);
+                    let error = match rollback_error {
+                        Some(rollback) => io::Error::new(
+                            error.kind(),
+                            format!("{error}; rollback automatic TUN routes: {rollback}"),
+                        ),
+                        None => error,
+                    };
+                    return Err(EngineError::Io(error));
+                }
+            }
+        } else {
+            None
+        };
+        Ok(InstalledRoutes {
+            guards,
+            leak_guard,
+            last_error,
+        })
     })
     .await
     .map_err(|error| {
@@ -129,12 +159,13 @@ pub(super) fn spawn(
     proxy: Proxy,
     spec: RouteRuntimeSpec,
     guards: Vec<SystemRouteGuard>,
+    leak_guard: Option<SystemLeakGuard>,
     monitor: Option<RouteChangeMonitor>,
     shutdown: watch::Receiver<bool>,
 ) -> oneshot::Receiver<Result<(), String>> {
     let (done_tx, done) = oneshot::channel();
     tokio::spawn(async move {
-        let result = run(proxy, spec, guards, monitor, shutdown).await;
+        let result = run(proxy, spec, guards, leak_guard, monitor, shutdown).await;
         let _ = done_tx.send(result.map_err(|error| error.to_string()));
     });
     done
@@ -144,6 +175,7 @@ async fn run(
     proxy: Proxy,
     spec: RouteRuntimeSpec,
     mut guards: Vec<SystemRouteGuard>,
+    mut leak_guard: Option<SystemLeakGuard>,
     mut monitor: Option<RouteChangeMonitor>,
     mut shutdown: watch::Receiver<bool>,
 ) -> io::Result<()> {
@@ -247,11 +279,19 @@ async fn run(
                 &recovery_key,
                 &addresses,
                 &reconcile_exclusions,
-            );
-            (guards, result)
+            )
+            .and_then(|changed| {
+                let leak_changed = leak_guard
+                    .as_mut()
+                    .map(|guard| guard.reconcile(&reconcile_exclusions))
+                    .transpose()?
+                    .unwrap_or(false);
+                Ok(changed || leak_changed)
+            });
+            (guards, leak_guard, result)
         })
         .await;
-        let (returned_guards, result) = match reconciled {
+        let (returned_guards, returned_leak_guard, result) = match reconciled {
             Ok(result) => result,
             Err(error) => {
                 publish_runtime_error(&proxy, &spec, format!("TUN route task panicked: {error}"));
@@ -261,6 +301,7 @@ async fn run(
             }
         };
         guards = returned_guards;
+        leak_guard = returned_leak_guard;
         match result {
             Ok(changed) => {
                 if let Err(error) = publish_state(&proxy, &spec, &guards, Some(exclusions), None) {
@@ -296,7 +337,7 @@ async fn run(
         }
     }
 
-    cleanup_guards(guards).await
+    cleanup_guards(guards, leak_guard).await
 }
 
 fn publish_runtime_error(proxy: &Proxy, spec: &RouteRuntimeSpec, error: String) {
@@ -349,9 +390,17 @@ fn reconcile_guards(
     Ok(changed)
 }
 
-pub(super) async fn cleanup_guards(guards: Vec<SystemRouteGuard>) -> io::Result<()> {
+pub(super) async fn cleanup_guards(
+    guards: Vec<SystemRouteGuard>,
+    leak_guard: Option<SystemLeakGuard>,
+) -> io::Result<()> {
     tokio::task::spawn_blocking(move || {
         let mut result = Ok(());
+        if let Some(guard) = leak_guard {
+            if let Err(error) = guard.close() {
+                result = Err(error);
+            }
+        }
         for guard in guards.into_iter().rev() {
             if let Err(error) = guard.close() {
                 if result.is_ok() {
