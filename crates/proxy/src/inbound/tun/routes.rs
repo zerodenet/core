@@ -458,8 +458,7 @@ pub(super) fn route_names(guards: &[SystemRouteGuard]) -> (Option<String>, Optio
 #[cfg(test)]
 mod tests {
     use super::{
-        next_retry, ReconcileTrigger, RouteRuntimeSpec, ROUTE_RETRY_DELAYS,
-        ROUTE_WATCHDOG_INTERVAL,
+        next_retry, ReconcileTrigger, RouteRuntimeSpec, ROUTE_RETRY_DELAYS, ROUTE_WATCHDOG_INTERVAL,
     };
 
     #[test]
