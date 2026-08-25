@@ -119,9 +119,11 @@ async fn tun_udp_port_conflict_falls_back_without_accepting_an_unregistered_send
         .send_to(b"unsolicited", mapped_peer)
         .await
         .expect("send unsolicited response");
-    assert!(tokio::time::timeout(std::time::Duration::from_millis(100), packets.recv())
-        .await
-        .is_err());
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), packets.recv())
+            .await
+            .is_err()
+    );
 
     task.abort();
 }

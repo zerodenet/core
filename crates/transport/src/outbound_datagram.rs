@@ -41,11 +41,7 @@ impl OutboundDatagramSocketFactory {
         preferred_port: Option<u16>,
     ) -> io::Result<TokioDatagramSocket> {
         let interface = self.egress.try_current_for_peer(peer)?;
-        TokioDatagramSocket::bind_for_peer_on_with_port(
-            peer,
-            interface.as_ref(),
-            preferred_port,
-        )
-        .await
+        TokioDatagramSocket::bind_for_peer_on_with_port(peer, interface.as_ref(), preferred_port)
+            .await
     }
 }
