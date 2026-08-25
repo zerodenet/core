@@ -116,7 +116,7 @@ pub fn split_default_route_prefixes(address: IpAddr) -> [&'static str; 2] {
 }
 
 pub fn capture_route_prefixes(address: IpAddr, included: &[IpNet]) -> Vec<IpNet> {
-    let mut prefixes = if included.is_empty() {
+    let mut prefixes: Vec<IpNet> = if included.is_empty() {
         split_default_route_prefixes(address)
             .into_iter()
             .map(|prefix| prefix.parse().expect("split-default CIDR is valid"))
