@@ -12,7 +12,6 @@ impl UdpSessionFlows {
             .get(&sender)
             .and_then(|key| self.flows.get(key))
             .map(|flow| flow.session.id)
-            .or_else(|| self.single_direct_flow_session_id())
     }
 
     #[cfg(feature = "upstream-association-runtime")]
@@ -67,15 +66,6 @@ impl UdpSessionFlows {
                 self.upstream_by_response.remove(&response_key);
             }
         }
-    }
-
-    fn single_direct_flow_session_id(&self) -> Option<u64> {
-        let mut direct_flows = self
-            .flows
-            .values()
-            .filter(|flow| flow.outbound.index_keys().direct_sender.is_some());
-        let flow = direct_flows.next()?;
-        direct_flows.next().is_none().then_some(flow.session.id)
     }
 
     #[cfg(feature = "upstream-association-runtime")]

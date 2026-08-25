@@ -21,9 +21,16 @@ async fn tun_udp_uses_kernel_direct_dispatch_and_writes_raw_response() {
     let proxy = crate::runtime::Proxy::new(config).expect("create proxy");
     let echo = UdpSocket::bind("127.0.0.1:0").await.expect("bind echo");
     let echo_addr = echo.local_addr().expect("echo address");
+    let reserved = UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("reserve source port");
+    let source_port = reserved.local_addr().unwrap().port();
+    drop(reserved);
+    let (peer_tx, peer_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
         let mut buffer = [0_u8; 64];
         let (size, peer) = echo.recv_from(&mut buffer).await.expect("receive echo");
+        let _ = peer_tx.send(peer);
         echo.send_to(&buffer[..size], peer)
             .await
             .expect("send echo");
@@ -38,7 +45,7 @@ async fn tun_udp_uses_kernel_direct_dispatch_and_writes_raw_response() {
     let request = packet::build_udp(
         IpAddr::V4(source_ip),
         echo_addr.ip(),
-        53000,
+        source_port,
         echo_addr.port(),
         b"through-kernel",
     );
@@ -52,8 +59,69 @@ async fn tun_udp_uses_kernel_direct_dispatch_and_writes_raw_response() {
     assert_eq!(response.src.ip, echo_addr.ip());
     assert_eq!(response.src.port, echo_addr.port());
     assert_eq!(response.dst.ip, IpAddr::V4(source_ip));
-    assert_eq!(response.dst.port, 53000);
+    assert_eq!(response.dst.port, source_port);
     assert_eq!(response.payload, b"through-kernel");
+    assert_eq!(
+        peer_rx.await.expect("observe direct peer").port(),
+        source_port,
+        "endpoint-independent direct mapping should preserve the source port when available"
+    );
+
+    task.abort();
+}
+
+#[tokio::test]
+async fn tun_udp_port_conflict_falls_back_without_accepting_an_unregistered_sender() {
+    let config = RuntimeConfig::parse(r#"{"route": {"rules": [], "final": {"type": "direct"}}}"#)
+        .expect("parse direct config");
+    let proxy = crate::runtime::Proxy::new(config).expect("create proxy");
+    let echo = UdpSocket::bind("127.0.0.1:0").await.expect("bind echo");
+    let echo_addr = echo.local_addr().expect("echo address");
+    let reservation = UdpSocket::bind("0.0.0.0:0")
+        .await
+        .expect("reserve conflicting port");
+    let source_port = reservation.local_addr().unwrap().port();
+    let (peer_tx, peer_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let mut buffer = [0_u8; 64];
+        let (size, peer) = echo.recv_from(&mut buffer).await.expect("receive echo");
+        let _ = peer_tx.send(peer);
+        echo.send_to(&buffer[..size], peer)
+            .await
+            .expect("send echo");
+    });
+
+    let (outbound, mut packets) = mpsc::channel(8);
+    let stack = UserNetworkStack::new(outbound, 1440);
+    let (_tcp, udp) = stack.into_parts();
+    let task = tokio::spawn(run(proxy, Arc::clone(&udp), "tun-test".to_owned(), false));
+    let source_ip = Ipv4Addr::new(10, 0, 0, 2);
+    udp.feed(&packet::build_udp(
+        IpAddr::V4(source_ip),
+        echo_addr.ip(),
+        source_port,
+        echo_addr.port(),
+        b"establish",
+    ))
+    .await;
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), packets.recv())
+        .await
+        .expect("TUN UDP response timed out")
+        .expect("raw response channel closed");
+    let mapped_peer = peer_rx.await.expect("observe mapped peer");
+    assert_ne!(mapped_peer.port(), source_port);
+
+    let attacker = UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("bind unexpected sender");
+    attacker
+        .send_to(b"unsolicited", mapped_peer)
+        .await
+        .expect("send unsolicited response");
+    assert!(tokio::time::timeout(std::time::Duration::from_millis(100), packets.recv())
+        .await
+        .is_err());
 
     task.abort();
 }

@@ -203,6 +203,17 @@ impl UdpNetworkServices {
         self.upstream.bind_datagram_socket(peer).await
     }
 
+    pub(crate) async fn bind_direct_datagram_socket(
+        &self,
+        peer: std::net::SocketAddr,
+        preferred_port: Option<u16>,
+    ) -> Result<zero_platform_tokio::TokioDatagramSocket, zero_engine::EngineError> {
+        self.outbound_datagram_socket_factory()
+            .bind_tokio_preserving_port(peer, preferred_port)
+            .await
+            .map_err(Into::into)
+    }
+
     pub(crate) async fn resolve_direct_address(
         &self,
         address: &zero_core::Address,
