@@ -8,6 +8,7 @@ mod backends;
 mod cache;
 mod fake_ip;
 mod message;
+mod reverse;
 mod router;
 mod system;
 pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
@@ -25,6 +26,8 @@ use backends::ResolverBackend;
 use cache::DnsCache;
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpStats};
+pub use reverse::RealIpReverseLookup;
+use reverse::RealIpReverseIndex;
 use router::DnsDispatcher;
 use system::TokioSystemResolver;
 
@@ -63,6 +66,7 @@ enum DnsSystemInner {
         dispatcher: DnsDispatcher,
         cache: Option<DnsCache>,
         fake_ip: Option<Arc<FakeIpAllocator>>,
+        reverse_mapping: Option<RealIpReverseIndex>,
         policy: DnsPolicyConfig,
     },
 }
@@ -75,6 +79,7 @@ struct ResolveSnapshot {
     dispatcher: DnsDispatcher,
     cache: Option<DnsCache>,
     fake_ip: Option<Arc<FakeIpAllocator>>,
+    reverse_mapping: Option<RealIpReverseIndex>,
     policy: DnsPolicyConfig,
 }
 
@@ -129,6 +134,7 @@ impl DnsSystem {
             dispatch,
             &egress_interface,
             None,
+            None,
             fake_ip_state_lease.clone(),
         )?;
         Ok(Self {
@@ -144,6 +150,7 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         egress_interface: &zero_platform_tokio::EgressInterfaceControl,
         previous_fake_ip: Option<Arc<FakeIpAllocator>>,
+        previous_reverse_mapping: Option<RealIpReverseIndex>,
         fake_ip_state_lease: Option<Arc<fake_ip::StateLease>>,
     ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
@@ -162,6 +169,17 @@ impl DnsSystem {
             io::Error::new(io::ErrorKind::InvalidInput, "missing compiled DNS dispatch")
         })?);
         let cache = cfg.cache.as_ref().map(DnsCache::new);
+        let reverse_mapping = match &cfg.reverse_mapping {
+            Some(config)
+                if previous_reverse_mapping
+                    .as_ref()
+                    .is_some_and(|index| index.compatible_with(config)) =>
+            {
+                previous_reverse_mapping
+            }
+            Some(config) => Some(RealIpReverseIndex::new(config)),
+            None => None,
+        };
         let fake_ip = match cfg.fake_ip() {
             Some(config)
                 if previous_fake_ip
@@ -182,6 +200,7 @@ impl DnsSystem {
             dispatcher,
             cache,
             fake_ip,
+            reverse_mapping,
             policy: cfg.policy.clone(),
         })
     }
@@ -201,6 +220,7 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
     ) -> io::Result<()> {
         let previous_fake_ip = self.snapshot_fake_ip();
+        let previous_reverse_mapping = self.snapshot_reverse_mapping();
         let fake_ip_state_lease = if config.and_then(DnsConfig::fake_ip).is_some() {
             let mut guard = self
                 .fake_ip_state_lease
@@ -222,6 +242,7 @@ impl DnsSystem {
             dispatch,
             &self.egress_interface,
             previous_fake_ip,
+            previous_reverse_mapping,
             fake_ip_state_lease,
         )?;
         let mut guard = self.inner.write().expect("dns system lock poisoned");
@@ -246,6 +267,15 @@ impl DnsSystem {
             Some(alloc) => alloc.lookup(ip).await,
             None => None,
         }
+    }
+
+    /// Reverse lookup a real DNS answer for transparent traffic recovery.
+    /// Shared addresses with multiple live domain candidates are never guessed.
+    pub async fn lookup_real_ip(&self, ip: &IpAddress) -> RealIpReverseLookup {
+        let Some(index) = self.snapshot_reverse_mapping() else {
+            return RealIpReverseLookup::Missing;
+        };
+        index.lookup(*ip).await
     }
 
     /// Whether a DNS cache is configured.
@@ -337,6 +367,17 @@ impl DnsSystem {
         }
     }
 
+    fn snapshot_reverse_mapping(&self) -> Option<RealIpReverseIndex> {
+        let guard = self.inner.read().expect("dns system lock poisoned");
+        match &*guard {
+            DnsSystemInner::Configured {
+                reverse_mapping: Some(index),
+                ..
+            } => Some(index.clone()),
+            _ => None,
+        }
+    }
+
     /// Take a snapshot of the current inner state for an async resolve.
     fn snapshot(&self) -> Option<ResolveSnapshot> {
         let guard = self.inner.read().expect("dns system lock poisoned");
@@ -347,12 +388,14 @@ impl DnsSystem {
                 dispatcher,
                 cache,
                 fake_ip,
+                reverse_mapping,
                 policy,
             } => Some(ResolveSnapshot {
                 servers: servers.clone(),
                 dispatcher: dispatcher.clone(),
                 cache: cache.clone(),
                 fake_ip: fake_ip.clone(),
+                reverse_mapping: reverse_mapping.clone(),
                 policy: policy.clone(),
             }),
         }
@@ -524,20 +567,30 @@ impl DnsSystem {
             Ok((response, parsed))
         }) {
             Ok((response, parsed)) => {
-                if let (Some(cache), Some(ttl_seconds)) = (
-                    snapshot.and_then(|snapshot| snapshot.cache),
-                    parsed.min_ttl_seconds,
-                ) {
-                    cache
+                if let Some(ttl_seconds) = parsed.min_ttl_seconds {
+                    if let Some(reverse_mapping) = snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.reverse_mapping.as_ref())
+                    {
+                        reverse_mapping
+                            .record(&question.domain, &parsed.addresses, ttl_seconds)
+                            .await;
+                    }
+                    if let Some(cache) = snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.cache.as_ref())
+                    {
+                        cache
                         .put_response(
                             &question.domain,
                             question.query_type,
-                            parsed.addresses,
+                            parsed.addresses.clone(),
                             query.to_vec(),
                             response.clone(),
                             ttl_seconds,
                         )
                         .await;
+                    }
                 }
                 response
             }
@@ -683,15 +736,22 @@ async fn resolve_snapshot_type(
         });
 
     // 3. Cache on success using the upstream record TTL.
-    if let (Some(cache), Ok(resolved)) = (&snapshot.cache, &result) {
-        cache
-            .put(
-                domain,
-                query_type,
-                resolved.addresses.clone(),
-                resolved.ttl_seconds,
-            )
-            .await;
+    if let Ok(resolved) = &result {
+        if let Some(reverse_mapping) = &snapshot.reverse_mapping {
+            reverse_mapping
+                .record(domain, &resolved.addresses, resolved.ttl_seconds)
+                .await;
+        }
+        if let Some(cache) = &snapshot.cache {
+            cache
+                .put(
+                    domain,
+                    query_type,
+                    resolved.addresses.clone(),
+                    resolved.ttl_seconds,
+                )
+                .await;
+        }
     }
 
     result.map(|resolved| resolved.addresses)

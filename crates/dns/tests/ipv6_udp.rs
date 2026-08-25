@@ -37,6 +37,7 @@ async fn udp_dns_uses_an_ipv6_socket_for_an_ipv6_server() {
         default_server: "test".to_owned(),
         dispatch: Vec::new(),
         cache: None,
+        reverse_mapping: None,
         answer: DnsAnswerConfig::Real,
         policy: Default::default(),
     }))

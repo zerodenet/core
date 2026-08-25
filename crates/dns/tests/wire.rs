@@ -87,6 +87,7 @@ fn config(port: u16, answer: DnsAnswerConfig) -> DnsConfig {
         default_server: "local".to_owned(),
         dispatch: Vec::new(),
         cache: None,
+        reverse_mapping: None,
         answer,
         policy: Default::default(),
     }
@@ -177,6 +178,7 @@ async fn dns_policy_times_out_primary_and_uses_explicit_fallback() {
         default_server: "primary".to_owned(),
         dispatch: Vec::new(),
         cache: None,
+        reverse_mapping: None,
         answer: DnsAnswerConfig::Real,
         policy: DnsPolicyConfig {
             timeout_ms: 50,
@@ -229,6 +231,7 @@ async fn fake_ip_returns_a_and_explicit_aaaa_nodata() {
         default_server: "system".to_owned(),
         dispatch: Vec::new(),
         cache: None,
+        reverse_mapping: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
             ipv6_cidr: None,
@@ -261,6 +264,7 @@ async fn dual_stack_fake_ip_answers_aaaa_and_supports_reverse_lookup() {
         default_server: "system".to_owned(),
         dispatch: Vec::new(),
         cache: None,
+        reverse_mapping: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
             ipv6_cidr: Some("fd00::/120".to_owned()),

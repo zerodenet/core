@@ -20,6 +20,8 @@ pub(crate) struct UdpPipeInput<'a> {
     /// treated as independent relay sessions. Generic runtime preserves this
     /// opaque identity without interpreting its protocol-specific meaning.
     pub(crate) client_session_id: Option<u64>,
+    /// Whether the IP target came from transparent interception.
+    pub(crate) transparent_target: bool,
 }
 
 /// UDP datagram pipe.
@@ -57,6 +59,7 @@ impl<'a> UdpPipeInput<'a> {
             auth,
             source_addr,
             client_session_id: dispatch.client_session_id(),
+            transparent_target: dispatch.transparent_target(),
         }
     }
 }

@@ -82,7 +82,7 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
             datagram.destination.port,
             datagram.payload,
             None,
-        )))
+        ).with_transparent_target()))
     }
 
     fn on_dispatch_success(&mut self, session_id: u64, _dispatch: &InboundUdpDispatch) {

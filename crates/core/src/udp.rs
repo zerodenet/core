@@ -96,6 +96,7 @@ pub struct InboundUdpDispatch {
     payload: Vec<u8>,
     protocol: ProtocolType,
     client_session_id: Option<u64>,
+    transparent_target: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -367,7 +368,14 @@ impl InboundUdpDispatch {
             payload,
             protocol,
             client_session_id,
+            transparent_target: false,
         }
+    }
+
+    /// Mark this packet as originating from transparent interception.
+    pub fn with_transparent_target(mut self) -> Self {
+        self.transparent_target = true;
+        self
     }
 
     pub fn protocol(&self) -> ProtocolType {
@@ -388,6 +396,10 @@ impl InboundUdpDispatch {
 
     pub fn client_session_id(&self) -> Option<u64> {
         self.client_session_id
+    }
+
+    pub fn transparent_target(&self) -> bool {
+        self.transparent_target
     }
 
     pub fn into_parts(self) -> (ProtocolType, Address, u16, Vec<u8>, Option<u64>) {

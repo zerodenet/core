@@ -21,6 +21,7 @@ fn input<'a>(
         auth: Some(auth),
         source_addr: None,
         client_session_id: None,
+        transparent_target: false,
     }
 }
 

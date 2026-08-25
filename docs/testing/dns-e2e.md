@@ -49,6 +49,11 @@ All network backends use the same endpoint shape:
         "max_entries": 1024,
         "max_ttl_seconds": 3600
       },
+      "reverse_mapping": {
+        "max_entries": 4096,
+        "max_domains_per_address": 8,
+        "max_ttl_seconds": 300
+      },
       "answer": {
         "type": "fake_ip",
         "cidr": "198.18.0.0/15",
@@ -89,6 +94,16 @@ two families, and starts later candidates after a bounded delay. Each candidate
 performs its own TUN egress selection and interface binding; a failed first DNS
 answer therefore does not prevent a reachable answer from being used.
 
+When `reverse_mapping` is present, successful real A/AAAA answers also populate
+a bounded IP-to-domain index owned by `zero-dns`. Transparent TUN sessions may
+recover an unambiguous logical domain from that index while retaining the
+client-selected IP as their direct socket target. Explicit SOCKS/HTTP IP targets
+are never rewritten. Shared CDN addresses with multiple live domain candidates
+remain IP targets instead of guessing; TLS/HTTP/QUIC sniffing may still recover
+a stronger application-layer name. The index is TTL-capped, address-LRU bounded,
+preserved across compatible hot reloads, and intentionally not persisted across
+process restarts.
+
 Fake-IP names are IDNA-normalized, lower-cased, and trailing-dot insensitive.
 Mappings expire in both directions, are bounded by `max_entries`, and use
 deterministic LRU eviction. IPv4 and IPv6 addresses for one normalized domain
@@ -125,7 +140,8 @@ block known encrypted-DNS endpoints when deployment policy requires it.
 
 Flow records expose `target.original_ip`, `target.host_source`, and
 `target.fake_ip_reverse_status`. Together with `target.host`, `resolved_ip`, and
-`sniffed_host`, these distinguish Fake-IP restoration, TLS sniffing, a missing
+`sniffed_host`, these distinguish Fake-IP restoration, DNS reverse recovery
+(`host_source=dns_reverse`), TLS sniffing, a missing
 reverse mapping, and the final direct endpoint without changing existing API
 fields.
 

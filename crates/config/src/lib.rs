@@ -10,6 +10,7 @@ pub use error::ConfigError;
 pub use model::{
     ApiConfig, ClientTlsConfig, ControlApiConfig, ControlGrpcConfig, ControlGrpcTlsConfig,
     DnsAddressFamilyPolicy, DnsAnswerConfig, DnsCacheConfig, DnsConfig, DnsDispatchRuleConfig,
+    DnsReverseMappingConfig,
     DnsPolicyConfig, DnsServerConfig, EventDispatcherConfig, EventSinkConfig,
     ExhaustedDeliveryPolicy, FakeIpConfigRef, FallbackConfig, GrpcConfig, H2Config, HookConfig,
     HttpUpgradeConfig, Hysteria2UserConfig, InboundConfig, InboundProtocolConfig,
