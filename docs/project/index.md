@@ -15,6 +15,7 @@
 - [Connector 通信边界](./connector-architecture.md)
 - [通用受管材料事务设计](./managed-materials.md)
 - [TUN 用户态网络栈决策](./tun-stack-decision.md)
+- [TUN 与 Fake-IP 完成度路线](./tun-fakeip-roadmap.md)
 
 ## 工程约束
 
