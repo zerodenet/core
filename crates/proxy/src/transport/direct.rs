@@ -76,22 +76,6 @@ impl DirectConnector {
         }
     }
 
-    pub(crate) async fn resolve_target_addr(
-        &self,
-        session: &Session,
-        resolver: &DnsSystem,
-    ) -> Result<SocketAddr, Error> {
-        self.validate(session)?;
-
-        self.resolve_address(
-            session.effective_direct_target(),
-            session.port,
-            resolver,
-            "failed to resolve direct target",
-        )
-        .await
-    }
-
     pub(crate) async fn resolve_target_addrs(
         &self,
         session: &Session,
