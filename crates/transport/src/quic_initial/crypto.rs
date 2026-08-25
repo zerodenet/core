@@ -42,7 +42,7 @@ impl InitialKeys {
     }
 
     pub(super) fn header_mask(&self, sample: &[u8]) -> Result<[u8; 5], ()> {
-        let mut block = aes::Block::<Aes128>::clone_from_slice(sample.get(..16).ok_or(())?);
+        let mut block = aes::Block::clone_from_slice(sample.get(..16).ok_or(())?);
         Aes128::new_from_slice(&self.hp)
             .map_err(|_| ())?
             .encrypt_block(&mut block);
