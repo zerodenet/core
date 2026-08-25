@@ -127,6 +127,16 @@ fn build_ipv6_response(packet: &[u8], mtu: usize, reject_udp: bool) -> Option<Ve
     Some(response)
 }
 
+fn icmpv6_checksum(source: Ipv6Addr, destination: Ipv6Addr, icmp: &[u8]) -> u16 {
+    let mut pseudo = Vec::with_capacity(40 + icmp.len());
+    pseudo.extend_from_slice(&source.octets());
+    pseudo.extend_from_slice(&destination.octets());
+    pseudo.extend_from_slice(&(icmp.len() as u32).to_be_bytes());
+    pseudo.extend_from_slice(&[0, 0, 0, IPPROTO_ICMPV6]);
+    pseudo.extend_from_slice(icmp);
+    checksum(&pseudo)
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -161,14 +171,4 @@ mod tests {
         assert_eq!(&response[40..42], &[1, 1]);
         assert!(response.len() <= 1500);
     }
-}
-
-fn icmpv6_checksum(source: Ipv6Addr, destination: Ipv6Addr, icmp: &[u8]) -> u16 {
-    let mut pseudo = Vec::with_capacity(40 + icmp.len());
-    pseudo.extend_from_slice(&source.octets());
-    pseudo.extend_from_slice(&destination.octets());
-    pseudo.extend_from_slice(&(icmp.len() as u32).to_be_bytes());
-    pseudo.extend_from_slice(&[0, 0, 0, IPPROTO_ICMPV6]);
-    pseudo.extend_from_slice(icmp);
-    checksum(&pseudo)
 }
