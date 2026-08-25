@@ -254,11 +254,7 @@ async fn run(
         let (returned_guards, result) = match reconciled {
             Ok(result) => result,
             Err(error) => {
-                publish_runtime_error(
-                    &proxy,
-                    &spec,
-                    format!("TUN route task panicked: {error}"),
-                );
+                publish_runtime_error(&proxy, &spec, format!("TUN route task panicked: {error}"));
                 return Err(io::Error::other(format!(
                     "TUN route task panicked: {error}"
                 )));

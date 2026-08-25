@@ -9,10 +9,7 @@ fn strict_failure_withdraws_only_the_managed_family() {
     let ipv6 = EgressInterface::new("physical-v6", 14).unwrap();
     control.replace_for(false, Some(ipv4));
     control.replace_for(true, Some(ipv6.clone()));
-    control.replace_tunnel_addresses([
-        "10.66.0.1".parse().unwrap(),
-        "fd66::1".parse().unwrap(),
-    ]);
+    control.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
     let generation = control.generation();
 
     withdraw_managed_egress(&control, true, false);
