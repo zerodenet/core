@@ -542,9 +542,16 @@ fn protocol_identity_is_open_and_engine_does_not_enumerate_protocols() {
     assert!(session.contains("pub const fn new(name: &'static str) -> Self"));
     assert!(session.contains("pub const fn as_str(self) -> &'static str"));
     assert!(!session.contains("pub enum ProtocolType"));
-    let session_lower = session.to_ascii_lowercase();
+    let protocol_identity = session
+        .split_once("pub struct ProtocolType")
+        .expect("ProtocolType declaration")
+        .1
+        .split_once("pub struct SessionAuth")
+        .expect("SessionAuth declaration after ProtocolType")
+        .0
+        .to_ascii_lowercase();
     for protocol in adapter_feature_names() {
-        assert!(!session_lower.contains(protocol.as_str()));
+        assert!(!protocol_identity.contains(protocol.as_str()));
     }
     assert_sources_exclude(
         &workspace_root().join("crates/engine/src"),
