@@ -15,8 +15,8 @@ mod reconcile;
 mod windows;
 
 use journal::{RouteJournal, RouteLease};
-pub use monitor::RouteChangeMonitor;
 pub use leak::SystemLeakGuard;
+pub use monitor::RouteChangeMonitor;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RouteInterface {

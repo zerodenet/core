@@ -27,11 +27,7 @@ pub struct SystemLeakGuard;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 impl SystemLeakGuard {
-    pub fn install(
-        _tun_name: &str,
-        _recovery_key: &str,
-        _excluded: &[IpAddr],
-    ) -> io::Result<Self> {
+    pub fn install(_tun_name: &str, _recovery_key: &str, _excluded: &[IpAddr]) -> io::Result<Self> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "strict-route leak protection is unsupported on this platform",
@@ -97,10 +93,7 @@ mod tests {
                 "192.0.2.1".parse().unwrap(),
                 "192.0.2.1".parse().unwrap(),
             ]),
-            vec![
-                "192.0.2.1".parse().unwrap(),
-                "2001:db8::1".parse().unwrap(),
-            ]
+            vec!["192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap(),]
         );
     }
 

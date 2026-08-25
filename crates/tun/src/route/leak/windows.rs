@@ -30,11 +30,7 @@ struct ProfilePolicy {
 }
 
 impl SystemLeakGuard {
-    pub fn install(
-        tun_name: &str,
-        recovery_key: &str,
-        excluded: &[IpAddr],
-    ) -> io::Result<Self> {
+    pub fn install(tun_name: &str, recovery_key: &str, excluded: &[IpAddr]) -> io::Result<Self> {
         validate_interface_name(tun_name)?;
         let safe_name = safe_resource_name(recovery_key);
         let group = format!("ZeroKillSwitch-{safe_name}");
@@ -108,10 +104,7 @@ fn snapshot_profiles() -> io::Result<FirewallJournal> {
     if profiles.is_empty()
         || profiles.iter().any(|profile| {
             profile.name.is_empty()
-                || !matches!(
-                    profile.action.as_str(),
-                    "Allow" | "Block" | "NotConfigured"
-                )
+                || !matches!(profile.action.as_str(), "Allow" | "Block" | "NotConfigured")
         })
     {
         return Err(io::Error::new(
@@ -185,7 +178,10 @@ fn read_journal(path: &Path) -> io::Result<Option<FirewallJournal>> {
 
 fn persist_journal(path: &Path, journal: &FirewallJournal) -> io::Result<()> {
     let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, serde_json::to_vec(journal).map_err(io::Error::other)?)?;
+    std::fs::write(
+        &temporary,
+        serde_json::to_vec(journal).map_err(io::Error::other)?,
+    )?;
     if path.exists() {
         std::fs::remove_file(path)?;
     }

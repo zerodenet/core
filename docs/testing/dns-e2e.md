@@ -3,7 +3,8 @@
 Zero DNS uses named backends and ordered `dispatch` rules. DNS dispatch reuses
 the kernel rule-condition model; the first matching rule selects exactly one
 backend and `default_server` handles unmatched names. There is no implicit
-racing or fallback to another backend.
+racing. An ordered fallback chain is used only when it is declared in
+`policy.fallback_servers`.
 
 All network backends use the same endpoint shape:
 
@@ -39,6 +40,11 @@ All network backends use the same endpoint shape:
       },
       "default_server": "https",
       "dispatch": [],
+      "policy": {
+        "timeout_ms": 5000,
+        "fallback_servers": ["tls", "plain"],
+        "address_family": "prefer_ipv6"
+      },
       "cache": {
         "max_entries": 1024,
         "max_ttl_seconds": 3600
@@ -46,6 +52,7 @@ All network backends use the same endpoint shape:
       "answer": {
         "type": "fake_ip",
         "cidr": "198.18.0.0/15",
+        "ipv6_cidr": "fd00::/96",
         "ttl_seconds": 86400,
         "max_entries": 65536,
         "exclude_domains": []
@@ -62,11 +69,19 @@ the current underlay selection. DoH uses the bootstrap endpoint exclusions and
 interface binding where the HTTP client supports it. Configuration fails before
 TUN startup when a strict endpoint cannot be excluded safely.
 
+Each backend attempt has the `policy.timeout_ms` deadline. Transport errors,
+timeouts, malformed responses, and retryable response codes advance to the
+next explicit fallback; NOERROR and NXDOMAIN are terminal. `address_family`
+accepts `ipv4_only`, `ipv6_only`, `prefer_ipv4`, or `prefer_ipv6`. The two
+`prefer_*` modes query A and AAAA concurrently and only change result ordering.
+
 The DNS interceptor supports UDP and TCP port 53, A and AAAA independently,
 EDNS client payload sizes, upstream truncation with TCP fallback, and raw
 forwarding of CNAME, HTTPS/SVCB, SRV, TXT, PTR, RCODE, authority records, and
-unknown record types. Fake-IP synthesizes A records and returns NOERROR/NODATA
-for AAAA; excluded domains use the selected real backend.
+unknown record types. Fake-IP synthesizes A records and, when `ipv6_cidr` is
+configured, AAAA records. Without an IPv6 pool, AAAA keeps the backward-
+compatible NOERROR/NODATA behavior. Excluded domains use the selected real
+backend and its declared fallback chain.
 
 Real address resolution starts A and AAAA lookups concurrently. TCP direct and
 upstream dialing preserves the answer order within each family, interleaves the
@@ -76,8 +91,10 @@ answer therefore does not prevent a reachable answer from being used.
 
 Fake-IP names are IDNA-normalized, lower-cased, and trailing-dot insensitive.
 Mappings expire in both directions, are bounded by `max_entries`, and use
-deterministic LRU eviction. A compatible hot reload preserves live mappings;
-changing the pool, TTL, capacity, or exclusions creates a new allocator.
+deterministic LRU eviction. IPv4 and IPv6 addresses for one normalized domain
+share one TTL, LRU identity, and capacity slot. A compatible hot reload
+preserves live mappings; changing either pool, TTL, capacity, or exclusions
+creates a new allocator.
 `diagnostics.fakeip_lookup` reports mapping counters and capacity.
 
 When Zero is started from a configuration file, live Fake-IP mappings are also
@@ -95,6 +112,9 @@ starts a clean journal. Invalid state is quarantined beside the active file
 with a `.corrupt-<timestamp>` suffix and DNS starts with an empty allocator.
 If a mapping cannot be appended, Zero returns SERVFAIL instead of exposing a
 synthetic address that cannot be recovered after restart.
+The current journal schema is `zero.dns.fake-ip.v2`; compatible IPv4-only v1
+journals are migrated in place and retain their live IPv4 mappings while IPv6
+addresses are allocated from the configured v2 pool.
 
 TUN without Fake-IP remains supported. For TLS on ports 443 and 8443 Zero can
 recover a plaintext SNI and route by domain; otherwise routing and dialing stay

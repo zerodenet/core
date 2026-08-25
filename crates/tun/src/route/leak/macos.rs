@@ -15,11 +15,7 @@ pub struct SystemLeakGuard {
 }
 
 impl SystemLeakGuard {
-    pub fn install(
-        tun_name: &str,
-        recovery_key: &str,
-        excluded: &[IpAddr],
-    ) -> io::Result<Self> {
+    pub fn install(tun_name: &str, recovery_key: &str, excluded: &[IpAddr]) -> io::Result<Self> {
         validate_interface_name(tun_name)?;
         verify_anchor_namespace()?;
         let anchor = format!("com.apple/zero_{}", safe_resource_name(recovery_key));

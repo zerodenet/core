@@ -225,8 +225,7 @@ impl Proxy {
                     .is_none()
             });
             if let Some(missing) = missing_family {
-                let cleanup =
-                    routes::cleanup_guards(installed.guards, installed.leak_guard).await;
+                let cleanup = routes::cleanup_guards(installed.guards, installed.leak_guard).await;
                 self.egress_interface.clear();
                 cleanup.map_err(EngineError::Io)?;
                 return Err(EngineError::Io(io::Error::new(

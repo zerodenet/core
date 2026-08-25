@@ -333,6 +333,8 @@ TCP 入站身份包含完整源 IP/端口；平台 listener 不得把 peer 降�
 
 `auto_route=true` 还会通过平台原生通知持续观察主机路由拓扑：Windows 使用 IP Helper 路由/接口回调，Linux 使用 `NETLINK_ROUTE`，macOS 使用 `PF_ROUTE`。通知只是有界的失效信号；`zero-proxy` 中单一的 TUN route reconciler 对突发事件防抖，重新解析非 TUN 默认出口和仍需保留的显式 DNS/bootstrap 排除集合，再调用 `zero-tun` 的事务化 guard 原地协调。同步平台命令在阻塞线程池执行，失败保留上一份可用状态并退避重试。提交成功后只替换新建 socket 读取的物理出口，既有连接和 TUN/用户态网络栈不重启；`auto_route=false` 不创建监听任务。这一运行期协调属于 #21；代理端点 host route 不得重新进入该流程。
 
+`strict_route=true` 还要求 `zero-tun` 在捕获路由提交后安装平台泄露保护：Linux 使用独立 nftables table，macOS 使用 `com.apple/*` 下的独立 pf anchor，Windows 使用 Windows Firewall（WFP 执行层）的稳定 rule group 与 profile outbound policy。保护只允许 loopback、受管 TUN 接口、Zero 自身的 underlay 出站以及显式 bootstrap/端点地址；最后规则必须 fail closed。资源名由 TUN 入站 tag 稳定派生，热协调以原子替换或先放行后收紧的事务更新；更新失败继续保留旧保护。正常停止先恢复防火墙状态再删除路由，异常退出则保留保护并由同 tag 的下一实例接管。平台权限、工具或恢复日志不可用时严格模式启动失败，不能降级为仅安装路由。
+
 TUN 入站的基本路径为：
 
 ```text

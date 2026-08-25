@@ -14,11 +14,7 @@ pub struct SystemLeakGuard {
 }
 
 impl SystemLeakGuard {
-    pub fn install(
-        tun_name: &str,
-        recovery_key: &str,
-        excluded: &[IpAddr],
-    ) -> io::Result<Self> {
+    pub fn install(tun_name: &str, recovery_key: &str, excluded: &[IpAddr]) -> io::Result<Self> {
         validate_interface_name(tun_name)?;
         let table = format!("zero_killswitch_{}", safe_resource_name(recovery_key));
         let excluded = normalized_exclusions(excluded);
@@ -54,7 +50,10 @@ impl SystemLeakGuard {
             .args(["delete", "table", "inet", &self.table])
             .output()?;
         if !output.status.success() && table_exists(&self.table)? {
-            return Err(command_error("delete nftables kill-switch table", &output.stderr));
+            return Err(command_error(
+                "delete nftables kill-switch table",
+                &output.stderr,
+            ));
         }
         self.active = false;
         Ok(())
@@ -74,12 +73,7 @@ fn table_exists(table: &str) -> io::Result<bool> {
     Ok(output.status.success())
 }
 
-fn apply_policy(
-    table: &str,
-    tun_name: &str,
-    excluded: &[IpAddr],
-    exists: bool,
-) -> io::Result<()> {
+fn apply_policy(table: &str, tun_name: &str, excluded: &[IpAddr], exists: bool) -> io::Result<()> {
     let script = policy_script(table, tun_name, excluded, exists);
     let mut child = Command::new("nft")
         .args(["-f", "-"])
@@ -96,22 +90,21 @@ fn apply_policy(
     if output.status.success() {
         Ok(())
     } else {
-        Err(command_error("install nftables kill switch", &output.stderr))
+        Err(command_error(
+            "install nftables kill switch",
+            &output.stderr,
+        ))
     }
 }
 
 fn policy_script(table: &str, tun_name: &str, excluded: &[IpAddr], exists: bool) -> String {
     let mut script = String::new();
     if exists {
-        script.push_str(&format!("flush table inet {table}\n"));
-    } else {
-        script.push_str(&format!("add table inet {table}\n"));
+        script.push_str(&format!("delete table inet {table}\n"));
     }
+    script.push_str(&format!("add table inet {table}\n"));
     script.push_str(&format!(
         "add chain inet {table} output {{ type filter hook output priority -200; policy accept; }}\n"
-    ));
-    script.push_str(&format!(
-        "add rule inet {table} output ct state established,related accept\n"
     ));
     script.push_str(&format!(
         "add rule inet {table} output oifname \"lo\" accept\n"
@@ -152,7 +145,8 @@ mod tests {
             &["192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap()],
             true,
         );
-        assert!(script.starts_with("flush table inet zero_killswitch_test\n"));
+        assert!(script.starts_with("delete table inet zero_killswitch_test\n"));
+        assert!(script.contains("add table inet zero_killswitch_test\n"));
         assert!(script.contains("oifname \"tun0\" accept"));
         assert!(script.contains("ip daddr 192.0.2.1 accept"));
         assert!(script.contains("ip6 daddr 2001:db8::1 accept"));
