@@ -55,7 +55,6 @@ mod tests {
             original_target: None,
             target_host_source: None,
             fake_ip_reverse_status: None,
-            transparent_target: false,
             port: 14788,
             protocol: ProtocolType::UNKNOWN,
             auth: None,
