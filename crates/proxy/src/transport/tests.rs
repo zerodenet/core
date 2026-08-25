@@ -1,7 +1,5 @@
 use zero_core::{Address, Network, ProtocolType, Session, TargetHostSource};
 
-use super::direct::direct_socket_target;
-
 fn tls_sni_session(original: Address) -> Session {
     let mut session = Session::new(
         1,
@@ -10,7 +8,8 @@ fn tls_sni_session(original: Address) -> Session {
         Network::Tcp,
         ProtocolType::UNKNOWN,
     );
-    session.original_target = Some(original);
+    session.original_target = Some(original.clone());
+    session.direct_target = Some(original);
     session.target_host_source = Some(TargetHostSource::TlsSni);
     session.sni = Some("exmail.qq.com".to_owned());
     session
@@ -23,21 +22,23 @@ fn direct_tls_sni_keeps_the_original_ipv6_destination() {
     ]);
     let session = tls_sni_session(original.clone());
 
-    assert_eq!(direct_socket_target(&session), &original);
+    assert_eq!(session.effective_direct_target(), &original);
 }
 
 #[test]
 fn direct_fake_ip_resolves_the_recovered_domain() {
     let mut session = tls_sni_session(Address::Ipv4([198, 18, 0, 1]));
     session.target_host_source = Some(TargetHostSource::FakeIp);
+    session.direct_target = None;
 
-    assert_eq!(direct_socket_target(&session), &session.target);
+    assert_eq!(session.effective_direct_target(), &session.target);
 }
 
 #[test]
 fn direct_url_rewrite_resolves_the_rewritten_domain() {
     let mut session = tls_sni_session(Address::Ipv4([183, 2, 144, 108]));
     session.target = Address::Domain("rewritten.example".to_owned());
+    session.direct_target = None;
 
-    assert_eq!(direct_socket_target(&session), &session.target);
+    assert_eq!(session.effective_direct_target(), &session.target);
 }
