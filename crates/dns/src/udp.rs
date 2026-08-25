@@ -54,7 +54,7 @@ impl UdpDnsResolver {
     }
 
     async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
-        let interface = self.egress_interface.current_for_peer(addr);
+        let interface = self.egress_interface.try_current_for_peer(addr)?;
         let socket = TokioDatagramSocket::bind_for_peer_on(addr, interface.as_ref()).await?;
         let selected = socket.egress_interface();
         tracing::debug!(

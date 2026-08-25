@@ -42,6 +42,25 @@ impl DirectConnector {
         let addr = self.resolve_target_addr(session, resolver).await?;
 
         let selection = egress.select_for_peer(addr);
+        if let Err(error) = selection.ensure_connectable() {
+            tracing::warn!(
+                target = %addr,
+                route_source = ?selection.route_source(),
+                binding_reason = selection.binding_reason().as_str(),
+                error = %error,
+                "direct TCP connect rejected to prevent TUN self-capture"
+            );
+            return Err(DirectTcpConnectFailure {
+                stage: "connect_direct",
+                network: Box::new(direct_network_observation(
+                    &selection,
+                    None,
+                    "select_egress",
+                    false,
+                )),
+                error: Error::Io("TUN physical egress is unavailable"),
+            });
+        }
         match TokioSocket::connect_addr_on_observed(addr, selection.interface()).await {
             Ok(socket) => {
                 let local = socket.local_addr().ok();
@@ -114,7 +133,10 @@ impl DirectConnector {
 
         let addr = resolve_host(host, port, resolver, "failed to resolve upstream target").await?;
 
-        let interface = egress.current_for_peer(addr);
+        let interface = egress.try_current_for_peer(addr).map_err(|error| {
+            tracing::warn!(target = %addr, error = %error, "upstream TCP connect rejected to prevent TUN self-capture");
+            Error::Io("TUN physical egress is unavailable")
+        })?;
         TokioSocket::connect_addr_on(addr, interface.as_ref())
             .await
             .map_err(|error| {
@@ -206,10 +228,10 @@ async fn resolve_host(
     resolver: &DnsSystem,
     error_message: &'static str,
 ) -> Result<SocketAddr, Error> {
-    let resolved = resolver
-        .resolve_real(host)
-        .await
-        .map_err(|_| Error::Io(error_message))?;
+    let resolved = resolver.resolve_real(host).await.map_err(|error| {
+        tracing::warn!(domain = host, error = %error, "real DNS resolution failed");
+        Error::Io(error_message)
+    })?;
     let ip = resolved
         .into_iter()
         .next()

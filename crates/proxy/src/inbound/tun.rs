@@ -217,6 +217,29 @@ impl Proxy {
                 last_error: None,
             }
         };
+        if auto_route {
+            let missing_family = interface_addresses.iter().find(|address| {
+                self.egress_interface
+                    .current_for(address.address.is_ipv6())
+                    .is_none()
+            });
+            if let Some(missing) = missing_family {
+                let cleanup = routes::cleanup_guards(installed.guards).await;
+                self.egress_interface.clear();
+                cleanup.map_err(EngineError::Io)?;
+                return Err(EngineError::Io(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    format!(
+                        "TUN physical egress was not published for {} before route activation",
+                        if missing.address.is_ipv6() {
+                            "IPv6"
+                        } else {
+                            "IPv4"
+                        }
+                    ),
+                )));
+            }
+        }
         let mut route_error = installed.last_error;
         self.egress_interface
             .replace_tunnel_addresses(interface_addresses.iter().map(|address| address.address));

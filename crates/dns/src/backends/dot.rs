@@ -34,9 +34,13 @@ impl DotDnsResolver {
         let roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let tls = Arc::new(
-            rustls::ClientConfig::builder()
-                .with_root_certificates(roots)
-                .with_no_client_auth(),
+            rustls::ClientConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .map_err(|error| io::Error::other(format!("DoT TLS protocol: {error}")))?
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
         );
         Ok(Self {
             addrs: ips
@@ -63,7 +67,7 @@ impl DotDnsResolver {
     }
 
     async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
-        let interface = self.egress.current_for_peer(addr);
+        let interface = self.egress.try_current_for_peer(addr)?;
         let stream = tokio::time::timeout(
             DNS_TIMEOUT,
             zero_platform_tokio::TokioSocket::connect_addr_on(addr, interface.as_ref()),

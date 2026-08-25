@@ -19,3 +19,14 @@ fn factory_reads_the_current_egress_for_each_new_socket() {
         .expect("new socket must observe the reconciled automatic egress");
     assert!(socket.local_addr().unwrap().is_ipv4());
 }
+
+#[test]
+fn factory_rejects_an_active_tun_without_a_physical_egress() {
+    let control = EgressInterfaceControl::default();
+    let factory = OutboundDatagramSocketFactory::new(control.clone());
+    let peer = "192.0.2.1:443".parse().unwrap();
+    control.replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+
+    let error = factory.bind_std(peer).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+}

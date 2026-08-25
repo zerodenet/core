@@ -233,7 +233,7 @@ async fn exchange_tcp(
     query: &[u8],
     egress: &zero_platform_tokio::EgressInterfaceControl,
 ) -> io::Result<Vec<u8>> {
-    let interface = egress.current_for_peer(addr);
+    let interface = egress.try_current_for_peer(addr)?;
     let mut stream =
         zero_platform_tokio::TokioSocket::connect_addr_on(addr, interface.as_ref()).await?;
     write_framed(&mut stream, query).await?;

@@ -22,12 +22,12 @@ impl OutboundDatagramSocketFactory {
     }
 
     pub fn bind_std(&self, peer: SocketAddr) -> io::Result<std::net::UdpSocket> {
-        let interface = self.egress_for(peer);
+        let interface = self.egress.try_current_for_peer(peer)?;
         zero_platform_tokio::bind_std_datagram_socket_for_peer(peer, interface.as_ref())
     }
 
     pub async fn bind_tokio(&self, peer: SocketAddr) -> io::Result<TokioDatagramSocket> {
-        let interface = self.egress_for(peer);
+        let interface = self.egress.try_current_for_peer(peer)?;
         TokioDatagramSocket::bind_for_peer_on(peer, interface.as_ref()).await
     }
 }

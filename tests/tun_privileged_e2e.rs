@@ -105,6 +105,107 @@ fn privileged_tun_ipv4_direct_udp_dns_does_not_self_capture() {
 }
 
 #[test]
+#[ignore = "requires administrator/root, a TUN backend, internet access, and reachable Cloudflare DoH"]
+fn privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture() {
+    let _guard = TUN_E2E_LOCK.lock().expect("TUN E2E lock poisoned");
+    let binary = env!("CARGO_BIN_EXE_zero");
+    let directory = tempfile::tempdir().expect("temporary DoH E2E directory");
+    let socket = control_socket(directory.path(), false);
+    let listen_port = free_tcp_port();
+    let direct_config = fake_ip_doh_config_json(listen_port, true);
+    let stopped_config = fake_ip_doh_config_json(listen_port, false);
+    let direct_path = directory.path().join("fake-ip-doh.json");
+    let stopped_path = directory.path().join("stopped.json");
+    std::fs::write(&direct_path, &direct_config).unwrap();
+    std::fs::write(&stopped_path, stopped_config).unwrap();
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut process = spawn_zero(binary, &direct_path, &socket);
+        wait_for_tun(binary, &socket, true, false);
+        let tun_name = assert_tun_os_configured(binary, &socket, false, false);
+        assert_http_connect_domain_through_mixed_inbound(listen_port, "example.com");
+        assert_http_domain_through_fake_ip("example.com");
+        assert_dns_underlay_not_captured(binary, &socket);
+
+        run_cli(
+            binary,
+            ["reload", path(&stopped_path), "--socket", path(&socket)],
+        );
+        wait_for_tun(binary, &socket, false, false);
+        assert_tun_os_cleanup(&tun_name);
+        assert_route_journals_clean(&direct_path);
+        process.kill_and_wait();
+    }));
+    if let Err(payload) = outcome {
+        best_effort_route_recovery(binary, &socket, &direct_path, &stopped_path);
+        std::panic::resume_unwind(payload);
+    }
+}
+
+#[test]
+#[ignore = "requires administrator/root, a TUN backend, internet access, and reachable Cloudflare DoH"]
+fn privileged_command_managed_tun_publishes_egress_before_capture() {
+    let _guard = TUN_E2E_LOCK.lock().expect("TUN E2E lock poisoned");
+    let binary = env!("CARGO_BIN_EXE_zero");
+    let directory = tempfile::tempdir().expect("temporary command TUN E2E directory");
+    let socket = control_socket(directory.path(), false);
+    let listen_port = free_tcp_port();
+    let config_path = directory.path().join("command-tun.json");
+    std::fs::write(&config_path, fake_ip_doh_config_json(listen_port, false)).unwrap();
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut process = spawn_zero(binary, &config_path, &socket);
+        wait_for_tun(binary, &socket, false, false);
+        run_cli(
+            binary,
+            [
+                "tun",
+                "start",
+                "--name",
+                "ZeroTunCmd",
+                "--addr",
+                "10.66.0.1/24",
+                "--mask",
+                "255.255.255.0",
+                "--tag",
+                "tun-command-e2e",
+                "--single-stack",
+                "--socket",
+                path(&socket),
+            ],
+        );
+        assert!(
+            try_wait_for_tun(
+                binary,
+                &socket,
+                true,
+                Some(false),
+                Some(false),
+                tun_state_timeout(),
+            ),
+            "timed out waiting for command-managed TUN state"
+        );
+        let tun_name = assert_tun_os_configured(binary, &socket, false, false);
+        assert_http_connect_domain_through_mixed_inbound(listen_port, "example.com");
+        assert_http_domain_through_fake_ip("example.com");
+        assert_dns_underlay_not_captured(binary, &socket);
+        assert_active_flows_have_safe_egress(binary, &socket);
+
+        run_cli(binary, ["tun", "stop", "--socket", path(&socket)]);
+        wait_for_tun(binary, &socket, false, false);
+        assert_tun_os_cleanup(&tun_name);
+        assert_route_journals_clean(&config_path);
+        process.kill_and_wait();
+    }));
+    if let Err(payload) = outcome {
+        let _ = Command::new(binary)
+            .args(["tun", "stop", "--socket", path(&socket)])
+            .output();
+        std::panic::resume_unwind(payload);
+    }
+}
+
+#[test]
 #[ignore = "requires administrator/root, a TUN backend, internet access, and ZERO_TUN_E2E_STUN_ADDR"]
 fn privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery() {
     run_family(false);
@@ -289,11 +390,11 @@ fn best_effort_route_recovery(
     else {
         return;
     };
-    if try_wait_for_tun(binary, socket, true, None, tun_state_timeout()) {
+    if try_wait_for_tun(binary, socket, true, Some(true), None, tun_state_timeout()) {
         let _ = Command::new(binary)
             .args(["reload", path(stopped_path), "--socket", path(socket)])
             .output();
-        let _ = try_wait_for_tun(binary, socket, false, None, tun_state_timeout());
+        let _ = try_wait_for_tun(binary, socket, false, None, None, tun_state_timeout());
     }
     let _ = child.kill();
     let _ = child.wait();
@@ -362,6 +463,30 @@ fn direct_udp_config_json(listen_port: u16, tun: bool) -> String {
     if tun {
         config["runtime"]["tun"]["dns_hijack"] = serde_json::Value::Bool(false);
     }
+    serde_json::to_string_pretty(&config).unwrap()
+}
+
+fn fake_ip_doh_config_json(listen_port: u16, tun: bool) -> String {
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config_json(false, listen_port, None, tun, false)).unwrap();
+    config["runtime"]["dns"] = serde_json::json!({
+        "servers": {
+            "global": {
+                "type": "doh",
+                "host": "cloudflare-dns.com",
+                "port": 443,
+                "path": "/dns-query",
+                "bootstrap": ["1.1.1.1", "1.0.0.1"]
+            }
+        },
+        "default_server": "global",
+        "answer": {
+            "type": "fake_ip",
+            "cidr": "198.18.0.0/15",
+            "ttl_seconds": 60
+        }
+    });
+    config["inbounds"][0]["protocol"] = serde_json::json!({ "type": "mixed" });
     serde_json::to_string_pretty(&config).unwrap()
 }
 
@@ -479,6 +604,7 @@ fn wait_for_tun(binary: &str, socket: &std::path::Path, running: bool, dual_stac
             binary,
             socket,
             running,
+            running.then_some(true),
             running.then_some(dual_stack),
             tun_state_timeout(),
         ),
@@ -498,6 +624,7 @@ fn try_wait_for_tun(
     binary: &str,
     socket: &std::path::Path,
     running: bool,
+    managed_by_config: Option<bool>,
     dual_stack: Option<bool>,
     timeout: Duration,
 ) -> bool {
@@ -517,7 +644,9 @@ fn try_wait_for_tun(
             {
                 if running
                     && (!stdout.contains("healthy=true")
-                        || !stdout.contains("managed_by_config=true")
+                        || managed_by_config.is_some_and(|managed| {
+                            !stdout.contains(&format!("managed_by_config={managed}"))
+                        })
                         || dual_stack.is_some_and(|dual_stack| {
                             !stdout.contains(&format!("dual_stack={dual_stack}"))
                                 || (dual_stack
@@ -905,6 +1034,120 @@ fn assert_dns_hijack_through_tun(ipv6: bool) {
     assert_ne!(response[2] & 0x80, 0, "DNS response bit must be set");
 }
 
+fn assert_http_domain_through_fake_ip(domain: &str) {
+    let target: SocketAddr = "8.8.8.8:53".parse().unwrap();
+    let socket = UdpSocket::bind(SocketAddr::new(tun_source(false), 0)).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let query = dns_query(0x6622, domain);
+    socket
+        .send_to(&query, target)
+        .expect("send hijacked Fake-IP DNS query");
+    let mut response = [0_u8; 2048];
+    let (size, _) = socket
+        .recv_from(&mut response)
+        .expect("receive hijacked Fake-IP DNS reply");
+    let fake_ip = first_a_answer(&response[..size]).expect("Fake-IP A answer");
+    assert!(
+        u32::from(fake_ip) >= u32::from(std::net::Ipv4Addr::new(198, 18, 0, 0))
+            && u32::from(fake_ip) <= u32::from(std::net::Ipv4Addr::new(198, 19, 255, 255)),
+        "DNS answer {fake_ip} is outside the Fake-IP pool"
+    );
+
+    let target = SocketAddr::new(IpAddr::V4(fake_ip), 80);
+    let mut stream = TcpStream::connect_timeout(&target, Duration::from_secs(15))
+        .unwrap_or_else(|error| panic!("connect to {domain} through Fake-IP {fake_ip}: {error}"));
+    stream
+        .set_read_timeout(Some(Duration::from_secs(15)))
+        .unwrap();
+    stream
+        .write_all(
+            format!("GET / HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n").as_bytes(),
+        )
+        .expect("write HTTP request through Fake-IP");
+    let mut reply = Vec::new();
+    let size = (&mut stream)
+        .take(64 * 1024)
+        .read_to_end(&mut reply)
+        .unwrap_or_else(|error| panic!("read {domain} response through Fake-IP: {error}"));
+    assert!(size > 0, "Fake-IP direct domain returned no bytes");
+}
+
+fn assert_http_connect_domain_through_mixed_inbound(port: u16, domain: &str) {
+    let proxy = SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
+    let mut stream = TcpStream::connect_timeout(&proxy, Duration::from_secs(5))
+        .unwrap_or_else(|error| panic!("connect to mixed inbound {proxy}: {error}"));
+    stream
+        .set_read_timeout(Some(Duration::from_secs(15)))
+        .unwrap();
+    stream
+        .write_all(
+            format!(
+                "CONNECT {domain}:80 HTTP/1.1\r\nHost: {domain}:80\r\nProxy-Connection: keep-alive\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .expect("write HTTP CONNECT request");
+    let mut response = Vec::new();
+    let mut byte = [0_u8; 1];
+    while response.len() < 4096 && !response.ends_with(b"\r\n\r\n") {
+        stream
+            .read_exact(&mut byte)
+            .expect("read HTTP CONNECT response");
+        response.push(byte[0]);
+    }
+    assert!(
+        response.starts_with(b"HTTP/1.1 200") || response.starts_with(b"HTTP/1.0 200"),
+        "mixed inbound rejected HTTP CONNECT: {}",
+        String::from_utf8_lossy(&response)
+    );
+
+    stream
+        .write_all(
+            format!("GET / HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n").as_bytes(),
+        )
+        .expect("write HTTP request through CONNECT tunnel");
+    let mut reply = Vec::new();
+    let size = (&mut stream)
+        .take(64 * 1024)
+        .read_to_end(&mut reply)
+        .unwrap_or_else(|error| panic!("read {domain} response through mixed inbound: {error}"));
+    assert!(size > 0, "mixed inbound direct domain returned no bytes");
+}
+
+fn first_a_answer(response: &[u8]) -> Option<std::net::Ipv4Addr> {
+    if response.len() < 12 || u16::from_be_bytes([response[6], response[7]]) == 0 {
+        return None;
+    }
+    let mut offset = 12;
+    while *response.get(offset)? != 0 {
+        let length = *response.get(offset)? as usize;
+        offset = offset.checked_add(length + 1)?;
+    }
+    offset = offset.checked_add(5)?;
+    if response.get(offset)? & 0xc0 == 0xc0 {
+        offset = offset.checked_add(2)?;
+    } else {
+        while *response.get(offset)? != 0 {
+            let length = *response.get(offset)? as usize;
+            offset = offset.checked_add(length + 1)?;
+        }
+        offset = offset.checked_add(1)?;
+    }
+    let record_type = u16::from_be_bytes([*response.get(offset)?, *response.get(offset + 1)?]);
+    let data_length = u16::from_be_bytes([*response.get(offset + 8)?, *response.get(offset + 9)?]);
+    if record_type != 1 || data_length != 4 {
+        return None;
+    }
+    Some(std::net::Ipv4Addr::new(
+        *response.get(offset + 10)?,
+        *response.get(offset + 11)?,
+        *response.get(offset + 12)?,
+        *response.get(offset + 13)?,
+    ))
+}
+
 fn assert_stun_round_trip(target: SocketAddr) {
     let socket = udp_for(target);
     socket.send_to(&stun_request(), target).unwrap();
@@ -1027,12 +1270,37 @@ fn mock_dns_response_ignores_edns_pseudo_record() {
 }
 
 fn run_cli<const N: usize>(binary: &str, arguments: [&str; N]) {
+    let _ = run_cli_output(binary, arguments);
+}
+
+fn run_cli_output<const N: usize>(binary: &str, arguments: [&str; N]) -> String {
     let output = Command::new(binary).args(arguments).output().unwrap();
     assert!(
         output.status.success(),
         "Zero CLI failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    String::from_utf8(output.stdout).expect("Zero CLI output must be UTF-8")
+}
+
+fn assert_dns_underlay_not_captured(binary: &str, socket: &std::path::Path) {
+    let flows = run_cli_output(binary, ["flows", "--socket", path(socket)]);
+    for endpoint in ["cloudflare-dns.com", "1.1.1.1", "1.0.0.1"] {
+        assert!(
+            !flows.contains(endpoint),
+            "DNS underlay endpoint {endpoint} was captured as an active proxy flow: {flows}"
+        );
+    }
+}
+
+fn assert_active_flows_have_safe_egress(binary: &str, socket: &std::path::Path) {
+    let flows = run_cli_output(binary, ["flows", "--socket", path(socket)]);
+    for unsafe_reason in ["no_configured_interface", "tun_egress_unavailable"] {
+        assert!(
+            !flows.contains(unsafe_reason),
+            "active flow used unsafe TUN egress state `{unsafe_reason}`: {flows}"
+        );
+    }
 }
 
 fn free_tcp_port() -> u16 {

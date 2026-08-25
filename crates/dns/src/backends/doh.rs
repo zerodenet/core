@@ -1,20 +1,29 @@
 use std::io;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
+
+use bytes::Bytes;
+use http::{Method, Request};
 
 const DNS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) struct DohDnsResolver {
-    url: String,
-    authority: String,
+    host: String,
     port: u16,
-    bootstrap: Vec<std::net::IpAddr>,
+    path: String,
+    addrs: Vec<SocketAddr>,
+    server_name: String,
+    tls: Arc<rustls::ClientConfig>,
     egress: zero_platform_tokio::EgressInterfaceControl,
-    client: std::sync::Mutex<ClientState>,
+    clients: tokio::sync::Mutex<Vec<DohClient>>,
+    connect_lock: tokio::sync::Mutex<()>,
 }
 
-struct ClientState {
-    interface: Option<zero_platform_tokio::EgressInterface>,
-    client: reqwest::Client,
+struct DohClient {
+    addr: SocketAddr,
+    underlay: Option<zero_platform_tokio::EgressInterface>,
+    sender: h2::client::SendRequest<Bytes>,
 }
 
 impl DohDnsResolver {
@@ -26,133 +35,217 @@ impl DohDnsResolver {
         server_name: Option<String>,
         egress: zero_platform_tokio::EgressInterfaceControl,
     ) -> io::Result<Self> {
-        let bootstrap = if bootstrap.is_empty() {
+        let ips = if bootstrap.is_empty() {
             host.parse().map(|ip| vec![ip]).unwrap_or_default()
         } else {
             bootstrap
         };
-        let authority = server_name.unwrap_or(host);
-        let formatted = if authority.parse::<std::net::Ipv6Addr>().is_ok() {
-            format!("[{authority}]")
-        } else {
-            authority.clone()
-        };
-        let url = format!("https://{formatted}:{port}{path}");
-        let interface = selected_interface(&egress);
-        let client = build_client(interface.as_ref(), &authority, port, &bootstrap)?;
+        let roots =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let mut tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|error| io::Error::other(format!("DoH TLS protocol: {error}")))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        tls.alpn_protocols = vec![b"h2".to_vec()];
         Ok(Self {
-            url,
-            authority,
+            addrs: ips
+                .into_iter()
+                .map(|ip| SocketAddr::new(ip, port))
+                .collect(),
+            server_name: server_name.unwrap_or_else(|| host.clone()),
+            host,
             port,
-            bootstrap,
+            path,
+            tls: Arc::new(tls),
             egress,
-            client: std::sync::Mutex::new(ClientState { interface, client }),
+            clients: tokio::sync::Mutex::new(Vec::new()),
+            connect_lock: tokio::sync::Mutex::new(()),
         })
     }
 
     pub(crate) async fn exchange(&self, query: &[u8]) -> io::Result<Vec<u8>> {
-        let response = self
-            .client()?
-            .post(&self.url)
-            .header("Content-Type", "application/dns-message")
-            .header("Accept", "application/dns-message")
-            .body(query.to_vec())
-            .send()
+        let addrs = self.endpoint_addresses().await?;
+        let mut last_error = None;
+        for addr in addrs {
+            match self.exchange_with(addr, query).await {
+                Ok(response) => return Ok(response),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "DoH backend has no endpoint")
+        }))
+    }
+
+    async fn endpoint_addresses(&self) -> io::Result<Vec<SocketAddr>> {
+        if !self.addrs.is_empty() {
+            return Ok(self.addrs.clone());
+        }
+        tokio::net::lookup_host((self.host.as_str(), self.port))
             .await
-            .map_err(|error| io::Error::other(format!("DoH request failed: {error}")))?;
+            .map(|addrs| addrs.collect())
+    }
+
+    async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
+        tokio::time::timeout(DNS_TIMEOUT, self.exchange_with_timeout(addr, query))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoH request timeout"))?
+    }
+
+    async fn exchange_with_timeout(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
+        let mut client = self.ready_client(addr).await?;
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(self.uri())
+            .header("content-type", "application/dns-message")
+            .header("accept", "application/dns-message")
+            .header("content-length", query.len())
+            .body(())
+            .map_err(|error| io::Error::other(format!("DoH request build failed: {error}")))?;
+        let (response, mut body) = client
+            .send_request(request, false)
+            .map_err(|error| io::Error::other(format!("DoH send request failed: {error}")))?;
+        body.send_data(Bytes::copy_from_slice(query), true)
+            .map_err(|error| io::Error::other(format!("DoH send body failed: {error}")))?;
+
+        let response = response
+            .await
+            .map_err(|error| io::Error::other(format!("DoH response failed: {error}")))?;
         if !response.status().is_success() {
             return Err(io::Error::other(format!(
                 "DoH server returned HTTP {}",
                 response.status()
             )));
         }
-        let body = response
-            .bytes()
+        read_body(response.into_body()).await
+    }
+
+    async fn ready_client(&self, addr: SocketAddr) -> io::Result<h2::client::SendRequest<Bytes>> {
+        let underlay = self.egress.current_for(addr.is_ipv6());
+        if let Some(sender) = self.cached_client(addr, underlay.as_ref()).await {
+            match sender.ready().await {
+                Ok(sender) => return Ok(sender),
+                Err(error) => {
+                    tracing::debug!(server = %addr, error = %error, "discarding stale DoH HTTP/2 connection");
+                }
+            }
+        }
+        let _connect = self.connect_lock.lock().await;
+        if let Some(sender) = self.cached_client(addr, underlay.as_ref()).await {
+            match sender.ready().await {
+                Ok(sender) => return Ok(sender),
+                Err(error) => {
+                    tracing::debug!(server = %addr, error = %error, "replacing stale DoH HTTP/2 connection");
+                    self.evict_client(addr, underlay.as_ref()).await;
+                }
+            }
+        }
+        self.connect_client(addr, underlay)
+            .await?
+            .ready()
             .await
-            .map_err(|error| io::Error::other(format!("DoH read failed: {error}")))?;
-        if body.len() > crate::message::MAX_DNS_MESSAGE_SIZE {
+            .map_err(|error| io::Error::other(format!("DoH HTTP/2 connection not ready: {error}")))
+    }
+
+    async fn cached_client(
+        &self,
+        addr: SocketAddr,
+        underlay: Option<&zero_platform_tokio::EgressInterface>,
+    ) -> Option<h2::client::SendRequest<Bytes>> {
+        self.clients
+            .lock()
+            .await
+            .iter()
+            .find(|client| client.addr == addr && client.underlay.as_ref() == underlay)
+            .map(|client| client.sender.clone())
+    }
+
+    async fn evict_client(
+        &self,
+        addr: SocketAddr,
+        underlay: Option<&zero_platform_tokio::EgressInterface>,
+    ) {
+        self.clients
+            .lock()
+            .await
+            .retain(|client| !(client.addr == addr && client.underlay.as_ref() == underlay));
+    }
+
+    async fn connect_client(
+        &self,
+        addr: SocketAddr,
+        underlay: Option<zero_platform_tokio::EgressInterface>,
+    ) -> io::Result<h2::client::SendRequest<Bytes>> {
+        let selection = self.egress.select_for_peer(addr);
+        selection.ensure_connectable()?;
+        let stream = zero_platform_tokio::TokioSocket::connect_addr_on(addr, selection.interface())
+            .await
+            .map_err(|error| {
+                io::Error::new(error.kind(), format!("DoH connect failed: {error}"))
+            })?;
+        tracing::debug!(
+            server = %addr,
+            egress_name = selection.interface().map(zero_platform_tokio::EgressInterface::name),
+            egress_index = selection.interface().map(zero_platform_tokio::EgressInterface::index),
+            binding_reason = selection.binding_reason().as_str(),
+            "DoH TCP socket connected"
+        );
+
+        let server_name = rustls::pki_types::ServerName::try_from(self.server_name.clone())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let connector = tokio_rustls::TlsConnector::from(Arc::clone(&self.tls));
+        let tls = connector
+            .connect(server_name, stream)
+            .await
+            .map_err(|error| io::Error::other(format!("DoH TLS failed: {error}")))?;
+        let (client, connection): (h2::client::SendRequest<Bytes>, _) = h2::client::handshake(tls)
+            .await
+            .map_err(|error| io::Error::other(format!("DoH HTTP/2 handshake failed: {error}")))?;
+        tokio::spawn(async move {
+            if let Err(error) = connection.await {
+                tracing::debug!(%error, "DoH HTTP/2 connection closed");
+            }
+        });
+        let mut clients = self.clients.lock().await;
+        clients.retain(|entry| entry.addr != addr);
+        clients.push(DohClient {
+            addr,
+            underlay,
+            sender: client.clone(),
+        });
+        Ok(client)
+    }
+
+    fn uri(&self) -> String {
+        let authority = if self.server_name.parse::<std::net::Ipv6Addr>().is_ok() {
+            format!("[{}]", self.server_name)
+        } else {
+            self.server_name.clone()
+        };
+        format!("https://{authority}:{}{}", self.port, self.path)
+    }
+}
+
+async fn read_body(mut body: h2::RecvStream) -> io::Result<Vec<u8>> {
+    let mut response = Vec::new();
+    while let Some(chunk) = body.data().await {
+        let chunk = chunk.map_err(|error| io::Error::other(format!("DoH read failed: {error}")))?;
+        if response.len().saturating_add(chunk.len()) > crate::message::MAX_DNS_MESSAGE_SIZE {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "DoH response exceeds DNS message limit",
             ));
         }
-        Ok(body.to_vec())
+        response.extend_from_slice(&chunk);
+        body.flow_control()
+            .release_capacity(chunk.len())
+            .map_err(|error| io::Error::other(format!("DoH flow control failed: {error}")))?;
     }
-
-    fn client(&self) -> io::Result<reqwest::Client> {
-        let interface = selected_interface(&self.egress);
-        let mut state = self.client.lock().expect("DoH client lock poisoned");
-        if state.interface != interface {
-            state.client = build_client(
-                interface.as_ref(),
-                &self.authority,
-                self.port,
-                &self.bootstrap,
-            )?;
-            state.interface = interface;
-        }
-        Ok(state.client.clone())
-    }
+    Ok(response)
 }
 
-fn build_client(
-    interface: Option<&zero_platform_tokio::EgressInterface>,
-    authority: &str,
-    port: u16,
-    bootstrap: &[std::net::IpAddr],
-) -> io::Result<reqwest::Client> {
-    let builder = reqwest::Client::builder().timeout(DNS_TIMEOUT);
-    let addrs = bootstrap
-        .iter()
-        .map(|ip| std::net::SocketAddr::new(*ip, port))
-        .collect::<Vec<_>>();
-    let builder = if addrs.is_empty() || authority.parse::<std::net::IpAddr>().is_ok() {
-        builder
-    } else {
-        builder.resolve_to_addrs(authority, &addrs)
-    };
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "android",
-        target_os = "ios"
-    ))]
-    let builder = match interface {
-        Some(interface) => builder.interface(interface.name()),
-        None => builder,
-    };
-    #[cfg(not(any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "android",
-        target_os = "ios"
-    )))]
-    let _ = interface;
-    builder
-        .build()
-        .map_err(|error| io::Error::other(format!("failed to build DoH client: {error}")))
-}
-
-#[cfg(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "android",
-    target_os = "ios"
-))]
-fn selected_interface(
-    control: &zero_platform_tokio::EgressInterfaceControl,
-) -> Option<zero_platform_tokio::EgressInterface> {
-    control.current()
-}
-
-#[cfg(not(any(
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "android",
-    target_os = "ios"
-)))]
-fn selected_interface(
-    _control: &zero_platform_tokio::EgressInterfaceControl,
-) -> Option<zero_platform_tokio::EgressInterface> {
-    None
-}
+#[cfg(test)]
+mod tests;

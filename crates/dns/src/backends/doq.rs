@@ -72,7 +72,7 @@ impl DoqDnsResolver {
     }
 
     async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
-        let interface = self.egress.current_for_peer(addr);
+        let interface = self.egress.try_current_for_peer(addr)?;
         let socket =
             zero_platform_tokio::bind_std_datagram_socket_for_peer(addr, interface.as_ref())?;
         let mut endpoint = quinn::Endpoint::new(

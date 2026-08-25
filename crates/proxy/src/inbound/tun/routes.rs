@@ -60,7 +60,14 @@ pub(super) async fn install(
                     Ok(())
                 },
             ) {
-                Ok(guard) => guards.push(guard),
+                Ok(guard) => {
+                    let interface = zero_platform_tokio::EgressInterface::new(
+                        guard.egress().name().to_owned(),
+                        guard.egress().index(),
+                    )?;
+                    egress_control.replace_for(ipv6, Some(interface));
+                    guards.push(guard);
+                }
                 Err(error) if strict => {
                     let mut rollback_error = None;
                     for guard in guards.drain(..).rev() {

@@ -44,6 +44,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler iproute2
       - name: Run privileged TUN smoke test
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run Fake-IP DoH underlay E2E
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run native Linux route reconciliation E2E
         run: sudo env "PATH=$PATH" cargo test --test tun_route_reconcile_linux_e2e linux_reconciles_runtime_egress_and_dns_exclusion_inside_network_namespace -- --ignored --exact --nocapture
       - name: Run IPv4 privileged TUN E2E
@@ -68,6 +70,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run privileged TUN smoke test
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run Fake-IP DoH underlay E2E
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run native macOS route reconciliation E2E
         run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY=$ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY" "ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE=$ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE" cargo test --test tun_route_reconcile_macos_e2e macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
       - name: Run IPv4 privileged TUN E2E
@@ -90,6 +94,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run privileged TUN smoke test
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run Fake-IP DoH underlay E2E
+        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run native Windows route reconciliation E2E
         run: cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
       - name: Run IPv4 privileged TUN E2E
@@ -119,6 +125,10 @@ jobs:
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run Fake-IP DoH underlay E2E
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+        run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
@@ -144,6 +154,8 @@ jobs:
         run: sudo env "PATH=$PATH" cargo test -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run Fake-IP DoH underlay E2E
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
@@ -167,5 +179,7 @@ jobs:
         run: cargo test -p zero-tun --test privileged_configuration windows_configures_ipv4_and_ipv6_addresses_on_one_adapter -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run Fake-IP DoH underlay E2E
+        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture

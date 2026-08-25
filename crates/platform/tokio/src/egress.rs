@@ -34,6 +34,7 @@ impl EgressRouteLookupStatus {
 pub enum EgressBindingReason {
     Loopback,
     NoConfiguredInterface,
+    TunEgressUnavailable,
     SystemRoute,
     TunRoute,
     TunAddressesUnavailable,
@@ -45,6 +46,7 @@ impl EgressBindingReason {
         match self {
             Self::Loopback => "loopback",
             Self::NoConfiguredInterface => "no_configured_interface",
+            Self::TunEgressUnavailable => "tun_egress_unavailable",
             Self::SystemRoute => "system_route",
             Self::TunRoute => "tun_route",
             Self::TunAddressesUnavailable => "tun_addresses_unavailable",
@@ -84,6 +86,16 @@ impl EgressSelection {
 
     pub fn binding_reason(&self) -> EgressBindingReason {
         self.binding_reason
+    }
+
+    pub fn ensure_connectable(&self) -> io::Result<()> {
+        if self.binding_reason == EgressBindingReason::TunEgressUnavailable {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "TUN capture route is active but no physical egress interface is available",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -145,6 +157,12 @@ impl EgressInterfaceControl {
         self.select_for_peer(peer).interface
     }
 
+    pub fn try_current_for_peer(&self, peer: SocketAddr) -> io::Result<Option<EgressInterface>> {
+        let selection = self.select_for_peer(peer);
+        selection.ensure_connectable()?;
+        Ok(selection.interface)
+    }
+
     pub fn select_for_peer(&self, peer: SocketAddr) -> EgressSelection {
         if peer.ip().is_loopback() {
             return EgressSelection {
@@ -164,18 +182,33 @@ impl EgressInterfaceControl {
             };
             (physical, interfaces.tunnel_addresses.clone())
         };
-        let Some(physical) = physical else {
+        let no_physical_interface = physical.is_none();
+        if no_physical_interface && tunnel_addresses.is_empty() {
+            let (route_source, route_lookup_status, route_lookup_error) =
+                match route_source_for(peer) {
+                    Ok(source) => (Some(source), EgressRouteLookupStatus::Resolved, None),
+                    Err(error) => (
+                        None,
+                        EgressRouteLookupStatus::Failed,
+                        Some(error.to_string()),
+                    ),
+                };
+            let captured = route_source.is_some_and(|source| source.is_loopback());
             return EgressSelection {
                 interface: None,
-                route_source: None,
-                route_lookup_status: EgressRouteLookupStatus::Skipped,
-                route_lookup_error: None,
-                binding_reason: EgressBindingReason::NoConfiguredInterface,
+                route_source,
+                route_lookup_status,
+                route_lookup_error,
+                binding_reason: if captured {
+                    EgressBindingReason::TunEgressUnavailable
+                } else {
+                    EgressBindingReason::NoConfiguredInterface
+                },
             };
-        };
+        }
         if tunnel_addresses.is_empty() {
             return EgressSelection {
-                interface: Some(physical),
+                interface: Some(physical.expect("physical egress checked above")),
                 route_source: None,
                 route_lookup_status: EgressRouteLookupStatus::Skipped,
                 route_lookup_error: None,
@@ -190,12 +223,15 @@ impl EgressInterfaceControl {
                 Some(error.to_string()),
             ),
         };
-        let (interface, binding_reason) = match route_source {
-            Some(source) if !tunnel_addresses.contains(&source) => {
-                (None, EgressBindingReason::SystemRoute)
+        let route_is_captured = route_source
+            .is_some_and(|source| source.is_loopback() || tunnel_addresses.contains(&source));
+        let (interface, binding_reason) = match (physical, route_is_captured, route_source) {
+            (Some(physical), true, _) => (Some(physical), EgressBindingReason::TunRoute),
+            (Some(_), false, Some(_)) => (None, EgressBindingReason::SystemRoute),
+            (Some(physical), false, None) => {
+                (Some(physical), EgressBindingReason::RouteLookupFailed)
             }
-            Some(_) => (Some(physical), EgressBindingReason::TunRoute),
-            None => (Some(physical), EgressBindingReason::RouteLookupFailed),
+            (None, _, _) => (None, EgressBindingReason::TunEgressUnavailable),
         };
         EgressSelection {
             interface,

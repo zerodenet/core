@@ -98,6 +98,22 @@ fn peer_selection_is_fail_safe_before_tun_addresses_are_published() {
 }
 
 #[test]
+fn peer_selection_rejects_active_tun_without_a_physical_egress() {
+    let controller = EgressInterfaceControl::default();
+    let peer = "192.0.2.1:443".parse().unwrap();
+    controller.replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+
+    let selection = controller.select_for_peer(peer);
+    assert!(selection.interface().is_none());
+    assert_eq!(
+        selection.binding_reason(),
+        EgressBindingReason::TunEgressUnavailable
+    );
+    assert!(selection.ensure_connectable().is_err());
+    assert!(controller.try_current_for_peer(peer).is_err());
+}
+
+#[test]
 fn interface_identity_rejects_incomplete_values() {
     assert!(EgressInterface::new("", 1).is_err());
     assert!(EgressInterface::new("physical0", 0).is_err());
