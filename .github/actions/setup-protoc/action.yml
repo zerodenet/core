@@ -1,0 +1,58 @@
+name: Set up protoc
+description: Install a pinned protoc release without a Node.js action runtime
+
+inputs:
+  version:
+    description: protoc release version
+    required: false
+    default: "35.0"
+
+runs:
+  using: composite
+  steps:
+    - name: Install protoc on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="${{ inputs.version }}"
+        archive="$RUNNER_TEMP/protoc-$version-linux-x86_64.zip"
+        install_root="$RUNNER_TEMP/protoc-$version"
+        curl --fail --location --retry 3 \
+          "https://github.com/protocolbuffers/protobuf/releases/download/v$version/protoc-$version-linux-x86_64.zip" \
+          --output "$archive"
+        mkdir -p "$install_root"
+        unzip -q -o "$archive" -d "$install_root"
+        "$install_root/bin/protoc" --version
+        echo "$install_root/bin" >> "$GITHUB_PATH"
+
+    - name: Install protoc on macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="${{ inputs.version }}"
+        archive="$RUNNER_TEMP/protoc-$version-osx-universal_binary.zip"
+        install_root="$RUNNER_TEMP/protoc-$version"
+        curl --fail --location --retry 3 \
+          "https://github.com/protocolbuffers/protobuf/releases/download/v$version/protoc-$version-osx-universal_binary.zip" \
+          --output "$archive"
+        mkdir -p "$install_root"
+        unzip -q -o "$archive" -d "$install_root"
+        "$install_root/bin/protoc" --version
+        echo "$install_root/bin" >> "$GITHUB_PATH"
+
+    - name: Install protoc on Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        $version = "${{ inputs.version }}"
+        $archive = Join-Path $env:RUNNER_TEMP "protoc-$version-win64.zip"
+        $installRoot = Join-Path $env:RUNNER_TEMP "protoc-$version"
+        $url = "https://github.com/protocolbuffers/protobuf/releases/download/v$version/protoc-$version-win64.zip"
+        Invoke-WebRequest -Uri $url -OutFile $archive
+        Expand-Archive -Path $archive -DestinationPath $installRoot -Force
+        $bin = Join-Path $installRoot "bin"
+        & (Join-Path $bin "protoc.exe") --version
+        $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
