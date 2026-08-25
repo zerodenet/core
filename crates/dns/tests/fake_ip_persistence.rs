@@ -226,7 +226,11 @@ async fn migrates_v1_ipv4_state_into_dual_stack_v2_journal() {
     drop(dns);
 
     let journal = std::fs::read_to_string(path).expect("read migrated journal");
-    assert!(journal.lines().next().unwrap().contains("zero.dns.fake-ip.v2"));
+    assert!(journal
+        .lines()
+        .next()
+        .unwrap()
+        .contains("zero.dns.fake-ip.v2"));
     assert!(journal.contains("198.18.0.7"));
     assert!(journal.contains("fd00::"));
 }

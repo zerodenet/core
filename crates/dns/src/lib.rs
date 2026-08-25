@@ -510,11 +510,9 @@ impl DnsSystem {
         }
 
         let result = match snapshot.as_ref() {
-            Some(snapshot) => {
-                exchange_snapshot(query, &question.domain, snapshot)
-                    .await
-                    .map(|(response, _)| response)
-            }
+            Some(snapshot) => exchange_snapshot(query, &question.domain, snapshot)
+                .await
+                .map(|(response, _)| response),
             None => {
                 backends::ResolverBackend::System(TokioSystemResolver)
                     .exchange(query)
@@ -563,12 +561,8 @@ impl DnsResolver for DnsSystem {
         // Fake IP path: return synthetic IP instead of real resolution.
         if let Some(alloc) = &snapshot.fake_ip {
             if !alloc.is_excluded(domain) {
-                let addresses = allocate_fake_addresses(
-                    alloc,
-                    domain,
-                    snapshot.policy.address_family,
-                )
-                .await?;
+                let addresses =
+                    allocate_fake_addresses(alloc, domain, snapshot.policy.address_family).await?;
                 if !addresses.is_empty() {
                     return Ok(addresses);
                 }
@@ -586,21 +580,15 @@ async fn allocate_fake_addresses(
     policy: DnsAddressFamilyPolicy,
 ) -> io::Result<Vec<IpAddress>> {
     match policy {
-        DnsAddressFamilyPolicy::Ipv4Only => Ok(allocator
-            .alloc_ipv4(domain)
-            .await?
-            .into_iter()
-            .collect()),
-        DnsAddressFamilyPolicy::Ipv6Only => Ok(allocator
-            .alloc_ipv6(domain)
-            .await?
-            .into_iter()
-            .collect()),
+        DnsAddressFamilyPolicy::Ipv4Only => {
+            Ok(allocator.alloc_ipv4(domain).await?.into_iter().collect())
+        }
+        DnsAddressFamilyPolicy::Ipv6Only => {
+            Ok(allocator.alloc_ipv6(domain).await?.into_iter().collect())
+        }
         DnsAddressFamilyPolicy::PreferIpv4 | DnsAddressFamilyPolicy::PreferIpv6 => {
-            let (ipv4, ipv6) = tokio::join!(
-                allocator.alloc_ipv4(domain),
-                allocator.alloc_ipv6(domain),
-            );
+            let (ipv4, ipv6) =
+                tokio::join!(allocator.alloc_ipv4(domain), allocator.alloc_ipv6(domain),);
             let ipv4 = ipv4?;
             let ipv6 = ipv6?;
             let mut addresses = Vec::with_capacity(2);
@@ -736,7 +724,10 @@ async fn exchange_snapshot(
             Ok(result) => result,
             Err(_) => Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                format!("DNS backend `{tag}` timed out after {}ms", snapshot.policy.timeout_ms),
+                format!(
+                    "DNS backend `{tag}` timed out after {}ms",
+                    snapshot.policy.timeout_ms
+                ),
             )),
         };
         match attempt.and_then(|response| {

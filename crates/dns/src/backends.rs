@@ -122,7 +122,6 @@ impl ResolverBackend {
             Self::Doq(resolver) => resolver.exchange(query).await,
         }
     }
-
 }
 
 pub(crate) struct ResolvedAddresses {

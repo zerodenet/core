@@ -161,8 +161,15 @@ impl FakeIpAllocator {
             || usable_ipv4(&ipv4_network),
             |network| usable_ipv4(&ipv4_network).min(usable_ipv6(&network)),
         );
-        let max_entries = config.max_entries.unwrap_or(DEFAULT_MAX_ENTRIES).min(usable);
-        if max_entries == 0 || config.max_entries.is_some_and(|configured| configured > usable) {
+        let max_entries = config
+            .max_entries
+            .unwrap_or(DEFAULT_MAX_ENTRIES)
+            .min(usable);
+        if max_entries == 0
+            || config
+                .max_entries
+                .is_some_and(|configured| configured > usable)
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("Fake-IP max_entries must be between 1 and {usable}"),
@@ -237,7 +244,10 @@ impl FakeIpAllocator {
             || usable_ipv4(&ipv4_network),
             |network| usable_ipv4(&ipv4_network).min(usable_ipv6(&network)),
         );
-        let max_entries = config.max_entries.unwrap_or(DEFAULT_MAX_ENTRIES).min(usable);
+        let max_entries = config
+            .max_entries
+            .unwrap_or(DEFAULT_MAX_ENTRIES)
+            .min(usable);
         let Ok(exclusions) = config
             .exclude_domains
             .iter()
@@ -294,11 +304,7 @@ impl FakeIpAllocator {
         self.alloc(domain, AddressFamily::Ipv6).await
     }
 
-    async fn alloc(
-        &self,
-        domain: &str,
-        family: AddressFamily,
-    ) -> io::Result<Option<IpAddress>> {
+    async fn alloc(&self, domain: &str, family: AddressFamily) -> io::Result<Option<IpAddress>> {
         let domain = normalize_domain(domain)?;
         let mut state = self.inner.lock().await;
         let now = Instant::now();
@@ -331,17 +337,16 @@ impl FakeIpAllocator {
             return Ok(Some(to_trait_address(address)));
         }
 
-        let victim = if !state.forward.contains_key(&domain)
-            && state.forward.len() >= self.max_entries
-        {
-            state
-                .forward
-                .iter()
-                .min_by_key(|(_, mapping)| mapping.last_used)
-                .map(|(domain, _)| domain.clone())
-        } else {
-            None
-        };
+        let victim =
+            if !state.forward.contains_key(&domain) && state.forward.len() >= self.max_entries {
+                state
+                    .forward
+                    .iter()
+                    .min_by_key(|(_, mapping)| mapping.last_used)
+                    .map(|(domain, _)| domain.clone())
+            } else {
+                None
+            };
         let reusable = victim
             .as_ref()
             .and_then(|victim| state.forward.get(victim))
@@ -516,10 +521,7 @@ fn allocate_free(
     }
 }
 
-fn allocate_free_ipv4(
-    state: &mut AllocatorState,
-    network: &ipnet::Ipv4Net,
-) -> Option<Ipv4Addr> {
+fn allocate_free_ipv4(state: &mut AllocatorState, network: &ipnet::Ipv4Net) -> Option<Ipv4Addr> {
     let base = u32::from(network.network());
     let last = u32::from(network.broadcast()) - 1;
     let start = state.next_ipv4;
@@ -545,10 +547,7 @@ fn allocate_free_ipv4(
     }
 }
 
-fn allocate_free_ipv6(
-    state: &mut AllocatorState,
-    network: &ipnet::Ipv6Net,
-) -> Option<Ipv6Addr> {
+fn allocate_free_ipv6(state: &mut AllocatorState, network: &ipnet::Ipv6Net) -> Option<Ipv6Addr> {
     let base = u128::from(network.network());
     let last = u128::from(network.broadcast());
     let start = state.next_ipv6?;
@@ -662,15 +661,14 @@ fn restore_mappings(
     for persisted in mappings {
         let domain = normalize_domain(&persisted.domain)?;
         let in_pool = match persisted.ip {
-            IpAddr::V4(address) => ipv4_network.contains(&address)
-                && address != ipv4_network.network()
-                && address != ipv4_network.broadcast(),
+            IpAddr::V4(address) => {
+                ipv4_network.contains(&address)
+                    && address != ipv4_network.network()
+                    && address != ipv4_network.broadcast()
+            }
             IpAddr::V6(address) => ipv6_network.is_some_and(|network| network.contains(&address)),
         };
-        if domain != persisted.domain
-            || !in_pool
-            || state.reverse.contains_key(&persisted.ip)
-        {
+        if domain != persisted.domain || !in_pool || state.reverse.contains_key(&persisted.ip) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Fake-IP state contains an invalid or duplicate mapping",

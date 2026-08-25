@@ -150,10 +150,8 @@ async fn dns_policy_times_out_primary_and_uses_explicit_fallback() {
     let fallback_task = tokio::spawn(async move {
         let mut request = [0_u8; 4096];
         let (size, peer) = fallback.recv_from(&mut request).await.unwrap();
-        let response = zero_dns::udp::build_dns_response(
-            &request[..size],
-            &[IpAddress::V4([192, 0, 2, 44])],
-        );
+        let response =
+            zero_dns::udp::build_dns_response(&request[..size], &[IpAddress::V4([192, 0, 2, 44])]);
         fallback.send_to(&response, peer).await.unwrap();
     });
 
