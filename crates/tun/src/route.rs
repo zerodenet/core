@@ -116,6 +116,18 @@ pub fn split_default_route_prefixes(address: IpAddr) -> [&'static str; 2] {
 }
 
 pub fn capture_route_prefixes(address: IpAddr, included: &[IpNet]) -> Vec<IpNet> {
+    capture_route_prefixes_with_exclusions(address, included, &[])
+}
+
+/// Compile one address family's automatic capture routes from positive and
+/// negative destination CIDRs. Exclusions are represented by splitting the
+/// captured prefixes, so excluded traffic keeps the system route without a
+/// second platform-specific bypass state.
+pub fn capture_route_prefixes_with_exclusions(
+    address: IpAddr,
+    included: &[IpNet],
+    excluded: &[IpNet],
+) -> Vec<IpNet> {
     let mut prefixes: Vec<IpNet> = if included.is_empty() {
         split_default_route_prefixes(address)
             .into_iter()
@@ -128,9 +140,60 @@ pub fn capture_route_prefixes(address: IpAddr, included: &[IpNet]) -> Vec<IpNet>
             .filter(|prefix| prefix.addr().is_ipv6() == address.is_ipv6())
             .collect()
     };
+    for excluded in excluded
+        .iter()
+        .copied()
+        .filter(|prefix| prefix.addr().is_ipv6() == address.is_ipv6())
+    {
+        prefixes = prefixes
+            .into_iter()
+            .flat_map(|prefix| subtract_prefix(prefix, excluded))
+            .collect();
+    }
     prefixes.sort_unstable();
     prefixes.dedup();
     prefixes
+}
+
+fn subtract_prefix(captured: IpNet, excluded: IpNet) -> Vec<IpNet> {
+    if captured.addr().is_ipv6() != excluded.addr().is_ipv6()
+        || !captured.contains(&excluded.network())
+    {
+        return if excluded.contains(&captured.network()) {
+            Vec::new()
+        } else {
+            vec![captured]
+        };
+    }
+    if excluded.contains(&captured.network()) {
+        return Vec::new();
+    }
+    split_prefix(captured)
+        .into_iter()
+        .flat_map(|child| subtract_prefix(child, excluded))
+        .collect()
+}
+
+fn split_prefix(prefix: IpNet) -> [IpNet; 2] {
+    let next = prefix.prefix_len() + 1;
+    match prefix {
+        IpNet::V4(prefix) => {
+            let first = u32::from(prefix.network());
+            let second = first | (1_u32 << (32 - next));
+            [
+                IpNet::new(IpAddr::V4(first.into()), next).expect("IPv4 child prefix is valid"),
+                IpNet::new(IpAddr::V4(second.into()), next).expect("IPv4 child prefix is valid"),
+            ]
+        }
+        IpNet::V6(prefix) => {
+            let first = u128::from(prefix.network());
+            let second = first | (1_u128 << (128 - next));
+            [
+                IpNet::new(IpAddr::V6(first.into()), next).expect("IPv6 child prefix is valid"),
+                IpNet::new(IpAddr::V6(second.into()), next).expect("IPv6 child prefix is valid"),
+            ]
+        }
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
