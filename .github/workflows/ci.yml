@@ -10,7 +10,7 @@ on:
       - "examples/**"
       - "proto/**"
   pull_request:
-    branches: [develop, main]
+    branches: [develop, main, "fix/**", "feat/**"]
     paths-ignore:
       - "**.md"
       - "LICENSE"
