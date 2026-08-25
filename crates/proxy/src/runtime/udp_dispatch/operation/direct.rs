@@ -48,16 +48,16 @@ async fn execute_direct_udp_operation(
     payload: &[u8],
     operation: PreparedDirectUdpOperation<'_>,
 ) -> Result<FlowStartResult, FlowFailure> {
-    let target_addr = services
-        .resolve_direct_target(session)
+    let candidates = services
+        .resolve_direct_targets(session)
         .await
         .map_err(|error| FlowFailure {
             stage: "resolve_udp_target",
             error,
             upstream: None,
         })?;
-    let sent = dispatch
-        .send_direct_packet(target_addr, payload)
+    let (sent, target_addr) = dispatch
+        .send_new_direct_packet(&session.target, &candidates, payload)
         .await
         .map_err(|error| FlowFailure {
             stage: "udp_direct_send",

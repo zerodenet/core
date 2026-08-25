@@ -21,6 +21,10 @@ impl OutboundDatagramSocketFactory {
         self.egress.current_for_peer(peer)
     }
 
+    pub fn egress_generation(&self) -> u64 {
+        self.egress.generation()
+    }
+
     pub fn bind_std(&self, peer: SocketAddr) -> io::Result<std::net::UdpSocket> {
         let interface = self.egress.try_current_for_peer(peer)?;
         zero_platform_tokio::bind_std_datagram_socket_for_peer(peer, interface.as_ref())

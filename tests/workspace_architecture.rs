@@ -118,6 +118,19 @@ fn dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority() {
 }
 
 #[test]
+fn udp_egress_generation_stays_in_platform_and_proxy_orchestration() {
+    let platform = read(&workspace_root().join("crates/platform/tokio/src/egress.rs"));
+    let transport = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));
+    let proxy = read(&workspace_root().join("crates/proxy/src/runtime/udp_socket.rs"));
+    let stack = read(&workspace_root().join("crates/stack/src/udp.rs"));
+
+    assert!(platform.contains("pub fn generation"));
+    assert!(transport.contains("egress_generation"));
+    assert!(proxy.contains("refresh_if_stale"));
+    assert!(!stack.contains("egress_generation"));
+}
+
+#[test]
 fn peer_identity_and_process_attribution_stay_in_their_owning_layers() {
     let traits = read(&workspace_root().join("crates/traits/src/lib.rs"));
     assert!(traits.contains("Option<SocketAddress>"));

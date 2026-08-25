@@ -17,6 +17,38 @@ fn controller_replaces_and_clears_interface_atomically() {
 }
 
 #[test]
+fn generation_changes_only_when_published_topology_changes() {
+    let controller = EgressInterfaceControl::default();
+    let ipv4 = EgressInterface::new("ethernet", 7).expect("valid IPv4 interface");
+    let ipv6 = EgressInterface::new("teredo", 14).expect("valid IPv6 interface");
+
+    assert_eq!(controller.generation(), 0);
+    controller.replace_for(false, Some(ipv4.clone()));
+    assert_eq!(controller.generation(), 1);
+    controller.replace_for(false, Some(ipv4));
+    assert_eq!(controller.generation(), 1);
+
+    controller.replace_for(true, Some(ipv6));
+    assert_eq!(controller.generation(), 2);
+    controller.replace_tunnel_addresses([
+        "fd66::1".parse().unwrap(),
+        "10.66.0.1".parse().unwrap(),
+        "fd66::1".parse().unwrap(),
+    ]);
+    assert_eq!(controller.generation(), 3);
+    controller.replace_tunnel_addresses([
+        "10.66.0.1".parse().unwrap(),
+        "fd66::1".parse().unwrap(),
+    ]);
+    assert_eq!(controller.generation(), 3);
+
+    controller.clear();
+    assert_eq!(controller.generation(), 4);
+    controller.clear();
+    assert_eq!(controller.generation(), 4);
+}
+
+#[test]
 fn controller_selects_independent_ipv4_and_ipv6_interfaces() {
     let controller = EgressInterfaceControl::default();
     let ipv4 = EgressInterface::new("ethernet", 7).expect("valid IPv4 interface");

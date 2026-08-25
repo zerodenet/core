@@ -130,9 +130,20 @@ struct EgressInterfaces {
     ipv4: Option<EgressInterface>,
     ipv6: Option<EgressInterface>,
     tunnel_addresses: Vec<IpAddr>,
+    generation: u64,
 }
 
 impl EgressInterfaceControl {
+    /// Monotonic version of the published physical-egress and TUN topology.
+    /// Long-lived socket owners use this value to rebuild sockets created
+    /// against an older topology without coupling to platform route watchers.
+    pub fn generation(&self) -> u64 {
+        self.0
+            .read()
+            .expect("egress interface lock poisoned")
+            .generation
+    }
+
     pub fn current(&self) -> Option<EgressInterface> {
         let interfaces = self.0.read().expect("egress interface lock poisoned");
         interfaces.ipv4.clone().or_else(|| interfaces.ipv6.clone())
@@ -266,32 +277,59 @@ impl EgressInterfaceControl {
     }
 
     pub fn replace_tunnel_addresses(&self, addresses: impl IntoIterator<Item = IpAddr>) {
-        self.0
-            .write()
-            .expect("egress interface lock poisoned")
-            .tunnel_addresses = addresses.into_iter().collect();
+        let mut addresses: Vec<_> = addresses.into_iter().collect();
+        addresses.sort_unstable();
+        addresses.dedup();
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        if interfaces.tunnel_addresses != addresses {
+            interfaces.tunnel_addresses = addresses;
+            bump_generation(&mut interfaces);
+        }
     }
 
     pub fn replace(&self, interface: Option<EgressInterface>) -> Option<EgressInterface> {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
         let previous = interfaces.ipv4.clone().or_else(|| interfaces.ipv6.clone());
-        interfaces.ipv4 = interface.clone();
-        interfaces.ipv6 = interface;
+        if interfaces.ipv4 != interface || interfaces.ipv6 != interface {
+            interfaces.ipv4 = interface.clone();
+            interfaces.ipv6 = interface;
+            bump_generation(&mut interfaces);
+        }
         previous
     }
 
     pub fn replace_for(&self, ipv6: bool, interface: Option<EgressInterface>) {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
-        if ipv6 {
-            interfaces.ipv6 = interface;
+        let current = if ipv6 {
+            &mut interfaces.ipv6
         } else {
-            interfaces.ipv4 = interface;
+            &mut interfaces.ipv4
+        };
+        if *current != interface {
+            *current = interface;
+            bump_generation(&mut interfaces);
         }
     }
 
     pub fn clear(&self) {
-        *self.0.write().expect("egress interface lock poisoned") = EgressInterfaces::default();
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        if interfaces.ipv4.is_some()
+            || interfaces.ipv6.is_some()
+            || !interfaces.tunnel_addresses.is_empty()
+        {
+            interfaces.ipv4 = None;
+            interfaces.ipv6 = None;
+            interfaces.tunnel_addresses.clear();
+            bump_generation(&mut interfaces);
+        }
     }
+}
+
+fn bump_generation(interfaces: &mut EgressInterfaces) {
+    interfaces.generation = interfaces
+        .generation
+        .checked_add(1)
+        .expect("egress topology generation exhausted");
 }
 
 fn route_source_for(peer: SocketAddr) -> io::Result<IpAddr> {
