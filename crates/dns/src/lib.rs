@@ -26,8 +26,8 @@ use backends::ResolverBackend;
 use cache::DnsCache;
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpStats};
-pub use reverse::RealIpReverseLookup;
 use reverse::RealIpReverseIndex;
+pub use reverse::RealIpReverseLookup;
 use router::DnsDispatcher;
 use system::TokioSystemResolver;
 
@@ -581,15 +581,15 @@ impl DnsSystem {
                         .and_then(|snapshot| snapshot.cache.as_ref())
                     {
                         cache
-                        .put_response(
-                            &question.domain,
-                            question.query_type,
-                            parsed.addresses.clone(),
-                            query.to_vec(),
-                            response.clone(),
-                            ttl_seconds,
-                        )
-                        .await;
+                            .put_response(
+                                &question.domain,
+                                question.query_type,
+                                parsed.addresses.clone(),
+                                query.to_vec(),
+                                response.clone(),
+                                ttl_seconds,
+                            )
+                            .await;
                     }
                 }
                 response

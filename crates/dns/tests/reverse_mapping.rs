@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use zero_config::{
-    DnsAddressFamilyPolicy, DnsAnswerConfig, DnsConfig, DnsPolicyConfig,
-    DnsReverseMappingConfig, DnsServerConfig,
+    DnsAddressFamilyPolicy, DnsAnswerConfig, DnsConfig, DnsPolicyConfig, DnsReverseMappingConfig,
+    DnsServerConfig,
 };
 use zero_dns::RealIpReverseLookup;
 use zero_traits::{DnsResolver, IpAddress};
@@ -45,11 +45,12 @@ async fn records_real_answers_and_preserves_compatible_reload() {
     let server = tokio::spawn(async move {
         let mut request = [0_u8; 4096];
         let (size, peer) = socket.recv_from(&mut request).await.expect("receive query");
-        let response = zero_dns::udp::build_dns_response(
-            &request[..size],
-            &[IpAddress::V4([192, 0, 2, 44])],
-        );
-        socket.send_to(&response, peer).await.expect("send response");
+        let response =
+            zero_dns::udp::build_dns_response(&request[..size], &[IpAddress::V4([192, 0, 2, 44])]);
+        socket
+            .send_to(&response, peer)
+            .await
+            .expect("send response");
     });
 
     let config = config(port);
@@ -59,15 +60,13 @@ async fn records_real_answers_and_preserves_compatible_reload() {
         vec![IpAddress::V4([192, 0, 2, 44])]
     );
     assert_eq!(
-        dns.lookup_real_ip(&IpAddress::V4([192, 0, 2, 44]))
-            .await,
+        dns.lookup_real_ip(&IpAddress::V4([192, 0, 2, 44])).await,
         RealIpReverseLookup::Resolved("real.example".to_owned())
     );
 
     dns.reload(Some(&config)).expect("compatible reload");
     assert_eq!(
-        dns.lookup_real_ip(&IpAddress::V4([192, 0, 2, 44]))
-            .await,
+        dns.lookup_real_ip(&IpAddress::V4([192, 0, 2, 44])).await,
         RealIpReverseLookup::Resolved("real.example".to_owned())
     );
     server.await.expect("DNS server task");
@@ -87,7 +86,10 @@ async fn refuses_to_guess_shared_real_ip_domain() {
                 &request[..size],
                 &[IpAddress::V4([192, 0, 2, 55])],
             );
-            socket.send_to(&response, peer).await.expect("send response");
+            socket
+                .send_to(&response, peer)
+                .await
+                .expect("send response");
         }
     });
 
@@ -95,8 +97,7 @@ async fn refuses_to_guess_shared_real_ip_domain() {
     dns.resolve("one.example").await.expect("first lookup");
     dns.resolve("two.example").await.expect("second lookup");
     assert_eq!(
-        dns.lookup_real_ip(&IpAddress::V4([192, 0, 2, 55]))
-            .await,
+        dns.lookup_real_ip(&IpAddress::V4([192, 0, 2, 55])).await,
         RealIpReverseLookup::Ambiguous
     );
     server.await.expect("DNS server task");

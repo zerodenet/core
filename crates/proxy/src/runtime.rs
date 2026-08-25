@@ -45,9 +45,9 @@ pub(crate) mod route_runtime;
 mod running;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod stream_udp;
+mod target;
 pub(crate) mod tcp_dispatch;
 pub(crate) mod tcp_ingress;
-mod target;
 #[cfg(any(
     feature = "tcp-tunnel-runtime",
     feature = "tcp-session-runtime",

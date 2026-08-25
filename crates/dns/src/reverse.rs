@@ -64,12 +64,7 @@ impl RealIpReverseIndex {
             && self.inner.max_ttl == Duration::from_secs(config.max_ttl_seconds)
     }
 
-    pub(crate) async fn record(
-        &self,
-        domain: &str,
-        addresses: &[IpAddress],
-        ttl_seconds: u32,
-    ) {
+    pub(crate) async fn record(&self, domain: &str, addresses: &[IpAddress], ttl_seconds: u32) {
         let Ok(domain) = normalize_domain(domain) else {
             return;
         };
@@ -91,10 +86,13 @@ impl RealIpReverseIndex {
             }
             state.clock = state.clock.wrapping_add(1);
             let clock = state.clock;
-            let entry = state.entries.entry(address).or_insert_with(|| ReverseEntry {
-                candidates: Vec::new(),
-                last_used: clock,
-            });
+            let entry = state
+                .entries
+                .entry(address)
+                .or_insert_with(|| ReverseEntry {
+                    candidates: Vec::new(),
+                    last_used: clock,
+                });
             entry.last_used = clock;
             if let Some(candidate) = entry
                 .candidates

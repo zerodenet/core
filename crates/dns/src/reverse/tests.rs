@@ -17,19 +17,14 @@ fn index(max_entries: usize, max_ttl_seconds: u64) -> RealIpReverseIndex {
 async fn resolves_only_unambiguous_live_domain() {
     let index = index(8, 60);
     let address = IpAddress::V4([192, 0, 2, 1]);
-    index
-        .record("Example.COM.", &[address], 60)
-        .await;
+    index.record("Example.COM.", &[address], 60).await;
     assert_eq!(
         index.lookup(address).await,
         RealIpReverseLookup::Resolved("example.com".to_owned())
     );
 
     index.record("shared.example", &[address], 60).await;
-    assert_eq!(
-        index.lookup(address).await,
-        RealIpReverseLookup::Ambiguous
-    );
+    assert_eq!(index.lookup(address).await, RealIpReverseLookup::Ambiguous);
 }
 
 #[tokio::test]
