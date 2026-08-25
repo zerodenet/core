@@ -157,6 +157,12 @@ curl.exe https://example.com/
 Resolve-DnsName example.com
 ```
 
+## 网络生命周期验证
+
+在保持 TUN 运行的情况下依次执行休眠/唤醒、DHCP 续租、IPv6 前缀变化，以及连接和断开企业 VPN。每次变化后立即检查 `tun status` 和默认路由；平台事件正常时应在防抖窗口后收敛，即使平台未投递通知，也必须在 30 秒周期审计窗口内更新物理出口、DNS bootstrap 排除路由和严格模式防泄露规则。旧出口与新出口相同时不得递增出口 generation 或重建 UDP socket。
+
+临时移除所有可用物理默认路由时，`strict_route` 必须撤回对应受管出口并报告 unhealthy；恢复网络后应按有界退避自动回到 healthy，不需要重启 TUN。模拟协调失败时必须保留上一份可用路由/防泄露事务，不能留下部分更新。
+
 ## WebRTC/STUN 防泄露验证
 
 TUN 能接管浏览器发出的 STUN UDP，但最终是否暴露真实公网出口仍由 Zero 路由策略决定：
