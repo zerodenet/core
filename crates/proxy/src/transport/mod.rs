@@ -9,6 +9,8 @@ mod direct;
 mod rate_limit;
 mod tcp_outbound;
 mod tcp_relay;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use direct::{DirectConnector, DirectTcpConnectFailure, DirectTcpConnection};
 pub(crate) use rate_limit::SharedRateLimiter;
