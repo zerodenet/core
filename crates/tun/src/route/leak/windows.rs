@@ -208,9 +208,9 @@ fn complement_prefixes(protected: &[IpNet]) -> Vec<IpNet> {
         }
         if start < maximum
             || (start == maximum
-                && !protected
-                    .iter()
-                    .any(|prefix| prefix.addr().is_ipv6() == ipv6 && prefix.contains(&ip(maximum, width))))
+                && !protected.iter().any(|prefix| {
+                    prefix.addr().is_ipv6() == ipv6 && prefix.contains(&ip(maximum, width))
+                }))
         {
             append_range_prefixes(&mut complement, start, maximum, width);
         }
@@ -375,7 +375,9 @@ mod tests {
             "10.0.0.0/8".parse().unwrap(),
             "2001:db8::/32".parse().unwrap(),
         ]);
-        assert!(!allowed.iter().any(|prefix| prefix.contains(&"10.1.2.3".parse().unwrap())));
+        assert!(!allowed
+            .iter()
+            .any(|prefix| prefix.contains(&"10.1.2.3".parse().unwrap())));
         assert!(!allowed
             .iter()
             .any(|prefix| prefix.contains(&"2001:db8::1".parse().unwrap())));

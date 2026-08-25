@@ -36,7 +36,13 @@ impl SystemRouteGuard {
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
         Self::install_with_egress(
-            tun_name, recovery_key, address, netmask, captured, excluded, |_| Ok(()),
+            tun_name,
+            recovery_key,
+            address,
+            netmask,
+            captured,
+            excluded,
+            |_| Ok(()),
         )
     }
 

@@ -16,9 +16,7 @@ use windows_sys::Win32::Networking::WinSock::{
 };
 
 use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
-use super::{
-    family_exclusions, host_prefix, RouteInterface, RouteJournal, RouteLease,
-};
+use super::{family_exclusions, host_prefix, RouteInterface, RouteJournal, RouteLease};
 
 #[derive(Debug)]
 pub struct SystemRouteGuard {
@@ -47,7 +45,13 @@ impl SystemRouteGuard {
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
         Self::install_with_egress(
-            tun_name, recovery_key, address, netmask, captured, excluded, |_| Ok(()),
+            tun_name,
+            recovery_key,
+            address,
+            netmask,
+            captured,
+            excluded,
+            |_| Ok(()),
         )
     }
 

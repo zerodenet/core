@@ -46,7 +46,9 @@ pub(super) fn execute_tun_start(
             "TUN include CIDRs support at most 128 entries",
         ));
     }
-    let unique = include_cidrs.iter().collect::<std::collections::HashSet<_>>();
+    let unique = include_cidrs
+        .iter()
+        .collect::<std::collections::HashSet<_>>();
     if unique.len() != include_cidrs.len() {
         return Err(zero_api::ApiError::new(
             zero_api::ApiErrorCode::InvalidArgument,

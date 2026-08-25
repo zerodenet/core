@@ -173,10 +173,7 @@ mod tests {
         let script = policy_script(
             "zero_killswitch_test",
             "tun0",
-            &[
-                "0.0.0.0/1".parse().unwrap(),
-                "8000::/1".parse().unwrap(),
-            ],
+            &["0.0.0.0/1".parse().unwrap(), "8000::/1".parse().unwrap()],
             &["192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap()],
             true,
         );

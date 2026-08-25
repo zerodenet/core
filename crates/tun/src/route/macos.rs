@@ -5,9 +5,7 @@ use std::process::Command;
 use ipnet::IpNet;
 
 use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
-use super::{
-    command_error, family_exclusions, RouteInterface, RouteJournal, RouteLease,
-};
+use super::{command_error, family_exclusions, RouteInterface, RouteJournal, RouteLease};
 
 mod scoped;
 
@@ -36,7 +34,13 @@ impl SystemRouteGuard {
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
         Self::install_with_egress(
-            tun_name, recovery_key, address, netmask, captured, excluded, |_| Ok(()),
+            tun_name,
+            recovery_key,
+            address,
+            netmask,
+            captured,
+            excluded,
+            |_| Ok(()),
         )
     }
 

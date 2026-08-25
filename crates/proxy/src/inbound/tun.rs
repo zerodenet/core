@@ -146,7 +146,9 @@ impl Proxy {
                 "TUN include CIDRs support at most 128 entries",
             )));
         }
-        let unique_include_cidrs = include_cidrs.iter().collect::<std::collections::HashSet<_>>();
+        let unique_include_cidrs = include_cidrs
+            .iter()
+            .collect::<std::collections::HashSet<_>>();
         if unique_include_cidrs.len() != include_cidrs.len() {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -263,11 +265,7 @@ impl Proxy {
                     io::ErrorKind::NotConnected,
                     format!(
                         "TUN physical egress was not published for {} before route activation",
-                        if missing.0.is_ipv6() {
-                            "IPv6"
-                        } else {
-                            "IPv4"
-                        }
+                        if missing.0.is_ipv6() { "IPv6" } else { "IPv4" }
                     ),
                 )));
             }
