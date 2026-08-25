@@ -9,8 +9,8 @@ use crate::runtime::udp_flow::registered::{
     RegisteredUdpHandlers, RegisteredUdpState, UpstreamUdpHandlers,
 };
 use crate::runtime::udp_flow::result::FlowFailure;
-use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
 use crate::runtime::udp_flow::sessions::UdpFlowKey;
+use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
 use zero_config::RuntimeConfig;
 use zero_core::{Address, Network, ProtocolType, Session};
 
