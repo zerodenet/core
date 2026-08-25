@@ -3,37 +3,51 @@ use std::io::Write;
 use std::net::IpAddr;
 use std::process::{Command, Stdio};
 
-use super::{normalized_exclusions, safe_resource_name, validate_interface_name};
+use ipnet::IpNet;
+
+use super::{
+    normalized_exclusions, normalized_prefixes, safe_resource_name, validate_interface_name,
+};
 
 #[derive(Debug)]
 pub struct SystemLeakGuard {
     table: String,
     tun_name: String,
+    protected: Vec<IpNet>,
     excluded: Vec<IpAddr>,
     active: bool,
 }
 
 impl SystemLeakGuard {
-    pub fn install(tun_name: &str, recovery_key: &str, excluded: &[IpAddr]) -> io::Result<Self> {
+    pub fn install(
+        tun_name: &str,
+        recovery_key: &str,
+        protected: &[IpNet],
+        excluded: &[IpAddr],
+    ) -> io::Result<Self> {
         validate_interface_name(tun_name)?;
         let table = format!("zero_killswitch_{}", safe_resource_name(recovery_key));
+        let protected = normalized_prefixes(protected);
         let excluded = normalized_exclusions(excluded);
         let exists = table_exists(&table)?;
-        apply_policy(&table, tun_name, &excluded, exists)?;
+        apply_policy(&table, tun_name, &protected, &excluded, exists)?;
         Ok(Self {
             table,
             tun_name: tun_name.to_owned(),
+            protected,
             excluded,
             active: true,
         })
     }
 
-    pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
+    pub fn reconcile(&mut self, protected: &[IpNet], excluded: &[IpAddr]) -> io::Result<bool> {
+        let protected = normalized_prefixes(protected);
         let excluded = normalized_exclusions(excluded);
-        if excluded == self.excluded {
+        if protected == self.protected && excluded == self.excluded {
             return Ok(false);
         }
-        apply_policy(&self.table, &self.tun_name, &excluded, true)?;
+        apply_policy(&self.table, &self.tun_name, &protected, &excluded, true)?;
+        self.protected = protected;
         self.excluded = excluded;
         Ok(true)
     }
@@ -73,8 +87,14 @@ fn table_exists(table: &str) -> io::Result<bool> {
     Ok(output.status.success())
 }
 
-fn apply_policy(table: &str, tun_name: &str, excluded: &[IpAddr], exists: bool) -> io::Result<()> {
-    let script = policy_script(table, tun_name, excluded, exists);
+fn apply_policy(
+    table: &str,
+    tun_name: &str,
+    protected: &[IpNet],
+    excluded: &[IpAddr],
+    exists: bool,
+) -> io::Result<()> {
+    let script = policy_script(table, tun_name, protected, excluded, exists);
     let mut child = Command::new("nft")
         .args(["-f", "-"])
         .stdin(Stdio::piped())
@@ -97,7 +117,13 @@ fn apply_policy(table: &str, tun_name: &str, excluded: &[IpAddr], exists: bool) 
     }
 }
 
-fn policy_script(table: &str, tun_name: &str, excluded: &[IpAddr], exists: bool) -> String {
+fn policy_script(
+    table: &str,
+    tun_name: &str,
+    protected: &[IpNet],
+    excluded: &[IpAddr],
+    exists: bool,
+) -> String {
     let mut script = String::new();
     if exists {
         script.push_str(&format!("delete table inet {table}\n"));
@@ -122,7 +148,12 @@ fn policy_script(table: &str, tun_name: &str, excluded: &[IpAddr], exists: bool)
             "add rule inet {table} output {family} daddr {address} accept\n"
         ));
     }
-    script.push_str(&format!("add rule inet {table} output reject\n"));
+    for prefix in protected {
+        let family = if prefix.addr().is_ipv4() { "ip" } else { "ip6" };
+        script.push_str(&format!(
+            "add rule inet {table} output {family} daddr {prefix} reject\n"
+        ));
+    }
     script
 }
 
@@ -142,6 +173,10 @@ mod tests {
         let script = policy_script(
             "zero_killswitch_test",
             "tun0",
+            &[
+                "0.0.0.0/1".parse().unwrap(),
+                "8000::/1".parse().unwrap(),
+            ],
             &["192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap()],
             true,
         );
@@ -150,6 +185,7 @@ mod tests {
         assert!(script.contains("oifname \"tun0\" accept"));
         assert!(script.contains("ip daddr 192.0.2.1 accept"));
         assert!(script.contains("ip6 daddr 2001:db8::1 accept"));
-        assert!(script.ends_with("output reject\n"));
+        assert!(script.contains("ip daddr 0.0.0.0/1 reject"));
+        assert!(script.ends_with("ip6 daddr 8000::/1 reject\n"));
     }
 }

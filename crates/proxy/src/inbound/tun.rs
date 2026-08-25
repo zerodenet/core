@@ -22,9 +22,10 @@ use config::{configured_dns_endpoint_addresses, parse_interface_addresses};
 
 static NEXT_TUN_ID: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct TunRuntimeOptions {
     pub auto_route: bool,
+    pub include_cidrs: Vec<ipnet::IpNet>,
     pub dual_stack: bool,
     pub strict_route: bool,
     pub dns_hijack: bool,
@@ -128,10 +129,30 @@ impl Proxy {
         } = spec;
         let TunRuntimeOptions {
             auto_route,
+            include_cidrs,
             dual_stack,
             strict_route,
             dns_hijack,
         } = options;
+        if !include_cidrs.is_empty() && !auto_route {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TUN include CIDRs require automatic routes",
+            )));
+        }
+        if include_cidrs.len() > 128 {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TUN include CIDRs support at most 128 entries",
+            )));
+        }
+        let unique_include_cidrs = include_cidrs.iter().collect::<std::collections::HashSet<_>>();
+        if unique_include_cidrs.len() != include_cidrs.len() {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TUN include CIDRs must not contain duplicates",
+            )));
+        }
         let _operation = self.tun_operation_lock.lock().await;
         if !cfg!(feature = "udp-runtime") {
             return Err(EngineError::Io(io::Error::new(
@@ -153,6 +174,19 @@ impl Proxy {
         }
         let interface_addresses =
             parse_interface_addresses(addr, mask, secondary_addr, dual_stack)?;
+        let route_addresses = interface_addresses
+            .iter()
+            .filter(|address| {
+                !zero_tun::capture_route_prefixes(address.address, &include_cidrs).is_empty()
+            })
+            .map(|address| (address.address, address.netmask))
+            .collect::<Vec<_>>();
+        if auto_route && route_addresses.is_empty() {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TUN include CIDRs do not match any configured interface address family",
+            )));
+        }
         let mut tun_owned_addresses = interface_addresses
             .iter()
             .map(|address| address.address)
@@ -197,15 +231,12 @@ impl Proxy {
         let (tcp, udp) = stack.into_parts();
 
         let route_exclusions = prepared_network.route_exclusions;
-        let route_addresses = interface_addresses
-            .iter()
-            .map(|address| (address.address, address.netmask))
-            .collect::<Vec<_>>();
         let installed = if auto_route {
             routes::install(
                 device_name.clone(),
                 tag.to_owned(),
                 route_addresses.clone(),
+                include_cidrs.clone(),
                 route_exclusions.clone(),
                 strict_route,
                 self.egress_interface.clone(),
@@ -219,9 +250,9 @@ impl Proxy {
             }
         };
         if auto_route {
-            let missing_family = interface_addresses.iter().find(|address| {
+            let missing_family = route_addresses.iter().find(|(address, _)| {
                 self.egress_interface
-                    .current_for(address.address.is_ipv6())
+                    .current_for(address.is_ipv6())
                     .is_none()
             });
             if let Some(missing) = missing_family {
@@ -232,7 +263,7 @@ impl Proxy {
                     io::ErrorKind::NotConnected,
                     format!(
                         "TUN physical egress was not published for {} before route activation",
-                        if missing.address.is_ipv6() {
+                        if missing.0.is_ipv6() {
                             "IPv6"
                         } else {
                             "IPv4"
@@ -266,9 +297,13 @@ impl Proxy {
         let (egress_interface_v4, egress_interface_v6) = routes::route_names(&installed.guards);
         debug!("TUN physical egress bindings selected");
         let egress_interface = if address.is_ipv6() {
-            egress_interface_v6.clone()
+            egress_interface_v6
+                .clone()
+                .or_else(|| egress_interface_v4.clone())
         } else {
-            egress_interface_v4.clone()
+            egress_interface_v4
+                .clone()
+                .or_else(|| egress_interface_v6.clone())
         };
         let managed_by_config = managed_config.is_some();
 
@@ -284,6 +319,7 @@ impl Proxy {
                     recovery_key: tag.to_owned(),
                     primary_ipv6: address.is_ipv6(),
                     addresses: route_addresses,
+                    include_cidrs: include_cidrs.clone(),
                     dns_hijack,
                     strict_route,
                 },
@@ -304,6 +340,7 @@ impl Proxy {
             mtu,
             tag: tag.to_owned(),
             auto_route,
+            include_cidrs,
             dual_stack,
             strict_route,
             dns_hijack,
@@ -419,6 +456,7 @@ impl Proxy {
             tag: &desired.tag,
             options: TunRuntimeOptions {
                 auto_route: desired.auto_route,
+                include_cidrs: desired.include_cidrs.clone(),
                 dual_stack: desired.dual_stack,
                 strict_route: desired.strict_route,
                 dns_hijack: desired.dns_hijack,

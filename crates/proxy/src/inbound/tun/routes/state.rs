@@ -36,9 +36,13 @@ pub(super) fn publish_state(
     info.egress_interface_v4 = egress_v4.map(|egress| egress.name().to_owned());
     info.egress_interface_v6 = egress_v6.map(|egress| egress.name().to_owned());
     info.egress_interface = if spec.primary_ipv6 {
-        info.egress_interface_v6.clone()
+        info.egress_interface_v6
+            .clone()
+            .or_else(|| info.egress_interface_v4.clone())
     } else {
-        info.egress_interface_v4.clone()
+        info.egress_interface_v4
+            .clone()
+            .or_else(|| info.egress_interface_v6.clone())
     };
     if let Some(exclusions) = exclusions {
         info.route_exclusions = exclusions;
@@ -71,9 +75,13 @@ pub(super) fn publish_unavailable(proxy: &Proxy, spec: &RouteRuntimeSpec, error:
         info.egress_interface_v6 = None;
     }
     info.egress_interface = if spec.primary_ipv6 {
-        info.egress_interface_v6.clone()
+        info.egress_interface_v6
+            .clone()
+            .or_else(|| info.egress_interface_v4.clone())
     } else {
-        info.egress_interface_v4.clone()
+        info.egress_interface_v4
+            .clone()
+            .or_else(|| info.egress_interface_v6.clone())
     };
     info.healthy = false;
     info.last_error = Some(error);

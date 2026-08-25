@@ -1,6 +1,7 @@
 use std::io;
 use std::net::IpAddr;
 
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 mod journal;
@@ -62,6 +63,7 @@ impl SystemRouteGuard {
         _recovery_key: &str,
         _address: IpAddr,
         _netmask: IpAddr,
+        _captured: &[IpNet],
         _excluded: &[IpAddr],
     ) -> io::Result<Self> {
         Err(io::Error::new(
@@ -75,6 +77,7 @@ impl SystemRouteGuard {
         _recovery_key: &str,
         _address: IpAddr,
         _netmask: IpAddr,
+        _captured: &[IpNet],
         _excluded: &[IpAddr],
         _publish_egress: impl FnOnce(&RouteInterface) -> io::Result<()>,
     ) -> io::Result<Self> {
@@ -110,6 +113,24 @@ pub fn split_default_route_prefixes(address: IpAddr) -> [&'static str; 2] {
     } else {
         ["::/1", "8000::/1"]
     }
+}
+
+pub fn capture_route_prefixes(address: IpAddr, included: &[IpNet]) -> Vec<IpNet> {
+    let mut prefixes = if included.is_empty() {
+        split_default_route_prefixes(address)
+            .into_iter()
+            .map(|prefix| prefix.parse().expect("split-default CIDR is valid"))
+            .collect()
+    } else {
+        included
+            .iter()
+            .copied()
+            .filter(|prefix| prefix.addr().is_ipv6() == address.is_ipv6())
+            .collect()
+    };
+    prefixes.sort_unstable();
+    prefixes.dedup();
+    prefixes
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]

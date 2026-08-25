@@ -101,6 +101,7 @@ pub enum Command {
         mtu: Option<u16>,
         tag: String,
         auto_route: bool,
+        include_cidrs: Vec<String>,
         dual_stack: bool,
         strict_route: bool,
         dns_hijack: bool,
@@ -205,7 +206,7 @@ pub fn usage() -> &'static str {
   zero validate CONFIG
   zero connector state [--json] CONFIG
   zero mode <rule|direct|global> [outbound] [--socket PATH]
-  zero tun start --addr IP --tag TAG [--name NAME] [--mask MASK] [--secondary-addr CIDR] [--mtu MTU] [--no-auto-route] [--single-stack] [--no-strict-route] [--no-dns-hijack] [--socket PATH]
+  zero tun start --addr IP --tag TAG [--name NAME] [--mask MASK] [--secondary-addr CIDR] [--mtu MTU] [--include-cidr CIDR]... [--no-auto-route] [--single-stack] [--no-strict-route] [--no-dns-hijack] [--socket PATH]
   zero tun stop [--socket PATH]
   zero tun status [--socket PATH]
   zero build-info
@@ -427,6 +428,7 @@ fn parse_tun_start(args: Vec<String>) -> Result<Command, CliError> {
     let mut mtu: Option<u16> = None;
     let mut tag: Option<String> = None;
     let mut auto_route = true;
+    let mut include_cidrs = Vec::new();
     let mut dual_stack = true;
     let mut strict_route = true;
     let mut dns_hijack = true;
@@ -453,6 +455,10 @@ fn parse_tun_start(args: Vec<String>) -> Result<Command, CliError> {
                 )
             }
             "--tag" => tag = Some(iter.next().ok_or(CliError::new("--tag requires value"))?),
+            "--include-cidr" => include_cidrs.push(
+                iter.next()
+                    .ok_or(CliError::new("--include-cidr requires value"))?,
+            ),
             "--no-auto-route" => auto_route = false,
             "--single-stack" => dual_stack = false,
             "--no-strict-route" => strict_route = false,
@@ -477,6 +483,7 @@ fn parse_tun_start(args: Vec<String>) -> Result<Command, CliError> {
         mtu,
         tag,
         auto_route,
+        include_cidrs,
         dual_stack,
         strict_route,
         dns_hijack,

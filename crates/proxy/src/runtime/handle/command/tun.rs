@@ -23,6 +23,36 @@ pub(super) fn execute_tun_start(
         .unwrap_or_else(|| proxy.engine().config().runtime.network.mtu);
     let tag = cmd.tag.clone();
     let auto_route = cmd.auto_route;
+    let include_cidrs = cmd
+        .include_cidrs
+        .iter()
+        .map(|cidr| cidr.parse::<ipnet::IpNet>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            zero_api::ApiError::new(
+                zero_api::ApiErrorCode::InvalidArgument,
+                format!("invalid TUN include CIDR: {error}"),
+            )
+        })?;
+    if !include_cidrs.is_empty() && !auto_route {
+        return Err(zero_api::ApiError::new(
+            zero_api::ApiErrorCode::InvalidArgument,
+            "TUN include CIDRs require `auto_route=true`",
+        ));
+    }
+    if include_cidrs.len() > 128 {
+        return Err(zero_api::ApiError::new(
+            zero_api::ApiErrorCode::InvalidArgument,
+            "TUN include CIDRs support at most 128 entries",
+        ));
+    }
+    let unique = include_cidrs.iter().collect::<std::collections::HashSet<_>>();
+    if unique.len() != include_cidrs.len() {
+        return Err(zero_api::ApiError::new(
+            zero_api::ApiErrorCode::InvalidArgument,
+            "TUN include CIDRs must not contain duplicates",
+        ));
+    }
     let dual_stack = cmd.dual_stack;
     let strict_route = cmd.strict_route;
     let dns_hijack = cmd.dns_hijack;
@@ -41,6 +71,7 @@ pub(super) fn execute_tun_start(
                     &tag,
                     TunRuntimeOptions {
                         auto_route,
+                        include_cidrs,
                         dual_stack,
                         strict_route,
                         dns_hijack,
@@ -63,6 +94,9 @@ pub(super) fn map_tun_start_error(error: EngineError) -> zero_api::ApiError {
             cause: Some(error.to_string()),
             details: Vec::new(),
         };
+    }
+    if matches!(&error, EngineError::Io(source) if source.kind() == io::ErrorKind::InvalidInput) {
+        return zero_api::ApiError::new(zero_api::ApiErrorCode::InvalidArgument, error.to_string());
     }
     zero_api::ApiError::new(zero_api::ApiErrorCode::Internal, error.to_string())
 }

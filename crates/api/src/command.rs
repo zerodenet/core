@@ -220,6 +220,9 @@ pub struct TunStartCommand {
     /// Install split default routes through the TUN device.
     #[serde(default = "default_true")]
     pub auto_route: bool,
+    /// Destination CIDRs captured by automatic TUN routes. Empty means full tunnel.
+    #[serde(default)]
+    pub include_cidrs: Vec<String>,
     /// Install split-default routes for both IPv4 and IPv6.
     #[serde(default = "default_true")]
     pub dual_stack: bool,
@@ -241,6 +244,7 @@ impl Default for TunStartCommand {
             secondary_addr: None,
             tag: String::new(),
             auto_route: true,
+            include_cidrs: Vec::new(),
             dual_stack: true,
             strict_route: true,
             dns_hijack: true,

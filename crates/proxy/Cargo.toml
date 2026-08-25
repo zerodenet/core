@@ -79,6 +79,7 @@ dns = ["zero-dns/udp", "zero-dns/doh", "zero-dns/dot", "zero-dns/doq"]
 [dependencies]
 async-trait = "0.1"
 futures-util = "0.3"
+ipnet.workspace = true
 regex = "1"
 quinn = { version = "0.11", default-features = false, features = ["rustls-ring"], optional = true }
 ring = { version = "0.17", optional = true }

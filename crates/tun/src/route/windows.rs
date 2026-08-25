@@ -1,6 +1,7 @@
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use ipnet::IpNet;
 use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceAliasToLuid, ConvertInterfaceLuidToAlias, ConvertInterfaceLuidToIndex,
@@ -16,8 +17,7 @@ use windows_sys::Win32::Networking::WinSock::{
 
 use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
 use super::{
-    family_exclusions, host_prefix, split_default_route_prefixes, RouteInterface, RouteJournal,
-    RouteLease,
+    family_exclusions, host_prefix, RouteInterface, RouteJournal, RouteLease,
 };
 
 #[derive(Debug)]
@@ -43,11 +43,12 @@ impl SystemRouteGuard {
         recovery_key: &str,
         address: IpAddr,
         netmask: IpAddr,
+        captured: &[IpNet],
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
-        Self::install_with_egress(tun_name, recovery_key, address, netmask, excluded, |_| {
-            Ok(())
-        })
+        Self::install_with_egress(
+            tun_name, recovery_key, address, netmask, captured, excluded, |_| Ok(()),
+        )
     }
 
     pub fn install_with_egress(
@@ -55,6 +56,7 @@ impl SystemRouteGuard {
         recovery_key: &str,
         address: IpAddr,
         _netmask: IpAddr,
+        captured: &[IpNet],
         excluded: &[IpAddr],
         publish_egress: impl FnOnce(&RouteInterface) -> io::Result<()>,
     ) -> io::Result<Self> {
@@ -101,10 +103,11 @@ impl SystemRouteGuard {
         for peer in desired_exclusions {
             guard.install_exclusion(peer)?;
         }
-        for prefix in split_default_route_prefixes(address) {
-            guard.remove(prefix)?;
-            guard.add(prefix)?;
-            guard.journal.record_route(prefix)?;
+        for prefix in captured {
+            let prefix = prefix.to_string();
+            guard.remove(&prefix)?;
+            guard.add(&prefix)?;
+            guard.journal.record_route(&prefix)?;
         }
         Ok(guard)
     }

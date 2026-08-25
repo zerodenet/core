@@ -1,3 +1,4 @@
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 /// Declarative TUN runtime configuration.
@@ -24,6 +25,10 @@ pub struct TunConfig {
     pub tag: String,
     #[serde(default = "default_true")]
     pub auto_route: bool,
+    /// Destination networks captured by automatic routes. An empty list keeps
+    /// the full-tunnel split-default behavior.
+    #[serde(default)]
+    pub include_cidrs: Vec<IpNet>,
     /// Install both IPv4 and IPv6 split-default routes. Disable only on a
     /// deliberately single-stack host.
     #[serde(default = "default_true")]
