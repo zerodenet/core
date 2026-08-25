@@ -77,8 +77,7 @@ impl TunQuicSniffer {
             return;
         }
         if !self.pending.contains_key(&destination)
-            && (!quic_sniff_port(destination.port)
-                || !looks_like_client_initial(&datagram.payload))
+            && (!quic_sniff_port(destination.port) || !looks_like_client_initial(&datagram.payload))
         {
             self.ready
                 .push_back(apply_decision(datagram, Decision::Fallback));
@@ -92,13 +91,18 @@ impl TunQuicSniffer {
             return;
         }
 
-        let pending = self.pending.entry(destination).or_insert_with(|| PendingQuic {
-            sniffer: QuicInitialSniffer::new(),
-            datagrams: VecDeque::new(),
-            buffered_bytes: 0,
-            deadline: Instant::now() + QUIC_SNIFF_TIMEOUT,
-        });
-        pending.buffered_bytes = pending.buffered_bytes.saturating_add(datagram.payload.len());
+        let pending = self
+            .pending
+            .entry(destination)
+            .or_insert_with(|| PendingQuic {
+                sniffer: QuicInitialSniffer::new(),
+                datagrams: VecDeque::new(),
+                buffered_bytes: 0,
+                deadline: Instant::now() + QUIC_SNIFF_TIMEOUT,
+            });
+        pending.buffered_bytes = pending
+            .buffered_bytes
+            .saturating_add(datagram.payload.len());
         let outcome = pending.sniffer.ingest(&datagram.payload);
         pending.datagrams.push_back(datagram);
         if pending.datagrams.len() > MAX_BUFFERED_DATAGRAMS
@@ -133,7 +137,8 @@ impl TunQuicSniffer {
             self.decisions.insert(destination, decision.clone());
         }
         while let Some(datagram) = pending.datagrams.pop_front() {
-            self.ready.push_back(apply_decision(datagram, decision.clone()));
+            self.ready
+                .push_back(apply_decision(datagram, decision.clone()));
         }
     }
 

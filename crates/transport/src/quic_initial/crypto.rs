@@ -3,12 +3,12 @@ use aes::Aes128;
 use ring::{aead, hkdf};
 
 const INITIAL_SALT_V1: [u8; 20] = [
-    0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8,
-    0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a,
+    0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
+    0xcc, 0xbb, 0x7f, 0x0a,
 ];
 const INITIAL_SALT_V2: [u8; 20] = [
-    0x0d, 0xed, 0xe3, 0xde, 0xf7, 0x00, 0xa6, 0xdb, 0x81, 0x93, 0x81, 0xbe, 0x6e, 0x26,
-    0x9d, 0xcb, 0xf9, 0xbd, 0x2e, 0xd9,
+    0x0d, 0xed, 0xe3, 0xde, 0xf7, 0x00, 0xa6, 0xdb, 0x81, 0x93, 0x81, 0xbe, 0x6e, 0x26, 0x9d, 0xcb,
+    0xf9, 0xbd, 0x2e, 0xd9,
 ];
 
 pub(super) struct InitialKeys {
@@ -20,12 +20,9 @@ pub(super) struct InitialKeys {
 impl InitialKeys {
     pub(super) fn derive(version: u32, destination_connection_id: &[u8]) -> Result<Self, ()> {
         let (salt, key_label, iv_label, hp_label) = match version {
-            super::packet::QUIC_V1 => (
-                INITIAL_SALT_V1.as_slice(),
-                "quic key",
-                "quic iv",
-                "quic hp",
-            ),
+            super::packet::QUIC_V1 => {
+                (INITIAL_SALT_V1.as_slice(), "quic key", "quic iv", "quic hp")
+            }
             super::packet::QUIC_V2 => (
                 INITIAL_SALT_V2.as_slice(),
                 "quicv2 key",
@@ -94,7 +91,9 @@ fn expand<const N: usize>(secret: &hkdf::Prk, label: &str) -> Result<[u8; N], ()
     info.push(0);
     let mut output = [0_u8; N];
     let info_parts = [info.as_slice()];
-    let output_key = secret.expand(&info_parts, OutputLength(N)).map_err(|_| ())?;
+    let output_key = secret
+        .expand(&info_parts, OutputLength(N))
+        .map_err(|_| ())?;
     output_key.fill(&mut output).map_err(|_| ())?;
     Ok(output)
 }

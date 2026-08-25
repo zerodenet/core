@@ -20,10 +20,7 @@ pub(super) fn decrypt_client_initial(
     let mut offset = 0;
     let mut plaintexts = Vec::new();
     while offset < datagram.len() && super::looks_like_client_initial(&datagram[offset..]) {
-        let (plaintext, consumed) = decrypt_one(
-            &datagram[offset..],
-            largest_packet_numbers,
-        )?;
+        let (plaintext, consumed) = decrypt_one(&datagram[offset..], largest_packet_numbers)?;
         plaintexts.push(plaintext);
         offset = offset.checked_add(consumed).ok_or(())?;
     }

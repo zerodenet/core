@@ -144,18 +144,17 @@ pub(super) fn sniff_tls_handshake(handshake: &[u8]) -> io::Result<SniffOutcome> 
     if handshake.len() < 4 || handshake[0] != 0x01 {
         return Ok(SniffOutcome::None);
     }
-    let handshake_length = ((handshake[1] as usize) << 16)
-        | ((handshake[2] as usize) << 8)
-        | handshake[3] as usize;
+    let handshake_length =
+        ((handshake[1] as usize) << 16) | ((handshake[2] as usize) << 8) | handshake[3] as usize;
     if handshake_length > MAX_CLIENT_HELLO_LENGTH {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "TLS ClientHello exceeds sniffing limit",
         ));
     }
-    let client_hello = handshake.get(4..4 + handshake_length).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::UnexpectedEof, "truncated TLS ClientHello")
-    })?;
+    let client_hello = handshake
+        .get(4..4 + handshake_length)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "truncated TLS ClientHello"))?;
     let parsed = parse_client_hello(client_hello)?;
     if parsed.encrypted_client_hello {
         return Ok(SniffOutcome::EncryptedClientHello);
