@@ -88,6 +88,12 @@ pub struct Session {
     pub inbound_tag: Option<String>,
     pub outbound_tag: Option<String>,
     pub target: Address,
+    /// Destination used only when the selected outbound is direct.
+    ///
+    /// Transparent inbounds may recover a logical hostname for routing while
+    /// retaining the client-selected IP for the actual direct socket. Proxy
+    /// outbounds intentionally continue to receive [`Self::target`].
+    pub direct_target: Option<Address>,
     /// Original IP target before Fake-IP restoration or content sniffing.
     pub original_target: Option<Address>,
     /// Source used to recover the current domain target.
@@ -132,6 +138,7 @@ impl Session {
             inbound_tag: None,
             outbound_tag: None,
             target,
+            direct_target: None,
             original_target: None,
             target_host_source: None,
             fake_ip_reverse_status: None,
@@ -148,6 +155,10 @@ impl Session {
             process_name: None,
             process_path: None,
         }
+    }
+
+    pub fn effective_direct_target(&self) -> &Address {
+        self.direct_target.as_ref().unwrap_or(&self.target)
     }
 
     /// Apply authenticated user identity and rate limits to this session.
