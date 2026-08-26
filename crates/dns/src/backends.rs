@@ -11,6 +11,7 @@ use crate::message::{
     DEFAULT_NEGATIVE_TTL_SECONDS, RCODE_NOTIMP, RCODE_NXDOMAIN, TYPE_A, TYPE_AAAA,
 };
 use crate::system::TokioSystemResolver;
+use crate::DnsOutboundConnector;
 #[cfg(feature = "udp")]
 use crate::udp::UdpDnsResolver;
 
@@ -56,6 +57,7 @@ impl ResolverBackend {
                 path,
                 bootstrap,
                 server_name,
+                ..
             } => Ok(Self::Doh(DohDnsResolver::new(
                 host.clone(),
                 *port,
@@ -72,6 +74,7 @@ impl ResolverBackend {
                 port,
                 bootstrap,
                 server_name,
+                ..
             } => Ok(Self::Dot(DotDnsResolver::new(
                 host.clone(),
                 *port,
@@ -87,6 +90,7 @@ impl ResolverBackend {
                 port,
                 bootstrap,
                 server_name,
+                ..
             } => Ok(Self::Doq(DoqDnsResolver::new(
                 host.clone(),
                 *port,
@@ -99,7 +103,12 @@ impl ResolverBackend {
         }
     }
 
-    pub(crate) async fn exchange(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+    pub(crate) async fn exchange(
+        &self,
+        query: &[u8],
+        detour: Option<&str>,
+        connector: Option<&dyn DnsOutboundConnector>,
+    ) -> io::Result<Vec<u8>> {
         match self {
             Self::System(resolver) => system_exchange(*resolver, query).await,
             #[cfg(feature = "udp")]
@@ -108,18 +117,26 @@ impl ResolverBackend {
                 tcp_addrs,
                 egress,
             } => {
+                if detour.is_some() {
+                    return exchange_tcp_many(tcp_addrs, query, egress, detour, connector).await;
+                }
                 let response = resolver.exchange(query).await?;
                 if !parse_response(query, &response)?.truncated {
                     return Ok(response);
                 }
-                exchange_tcp_many(tcp_addrs, query, egress).await
+                exchange_tcp_many(tcp_addrs, query, egress, None, None).await
             }
             #[cfg(feature = "doh")]
-            Self::Doh(resolver) => resolver.exchange(query).await,
+            Self::Doh(resolver) => resolver.exchange(query, detour, connector).await,
             #[cfg(feature = "dot")]
-            Self::Dot(resolver) => resolver.exchange(query).await,
+            Self::Dot(resolver) => resolver.exchange(query, detour, connector).await,
             #[cfg(feature = "doq")]
-            Self::Doq(resolver) => resolver.exchange(query).await,
+            Self::Doq(resolver) if detour.is_none() => resolver.exchange(query).await,
+            #[cfg(feature = "doq")]
+            Self::Doq(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "DoQ detour requires a proxy-aware UDP/QUIC carrier",
+            )),
         }
     }
 
@@ -207,10 +224,12 @@ async fn exchange_tcp_many(
     addrs: &[SocketAddr],
     query: &[u8],
     egress: &zero_platform_tokio::EgressInterfaceControl,
+    detour: Option<&str>,
+    connector: Option<&dyn DnsOutboundConnector>,
 ) -> io::Result<Vec<u8>> {
     let mut last_error = None;
     for addr in addrs {
-        match exchange_tcp(*addr, query, egress).await {
+        match exchange_tcp(*addr, query, egress, detour, connector).await {
             Ok(response) => return Ok(response),
             Err(error) => last_error = Some(error),
         }
@@ -228,12 +247,34 @@ async fn exchange_tcp(
     addr: SocketAddr,
     query: &[u8],
     egress: &zero_platform_tokio::EgressInterfaceControl,
+    detour: Option<&str>,
+    connector: Option<&dyn DnsOutboundConnector>,
 ) -> io::Result<Vec<u8>> {
-    let interface = egress.try_current_for_peer(addr)?;
-    let mut stream =
-        zero_platform_tokio::TokioSocket::connect_addr_on(addr, interface.as_ref()).await?;
+    let mut stream = connect_tcp(addr, egress, detour, connector).await?;
     write_framed(&mut stream, query).await?;
     read_framed(&mut stream).await
+}
+
+async fn connect_tcp(
+    addr: SocketAddr,
+    egress: &zero_platform_tokio::EgressInterfaceControl,
+    detour: Option<&str>,
+    connector: Option<&dyn DnsOutboundConnector>,
+) -> io::Result<zero_platform_tokio::TcpRelayStream> {
+    if let Some(outbound) = detour {
+        let connector = connector.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("DNS detour `{outbound}` is unavailable outside the proxy runtime"),
+            )
+        })?;
+        return connector.connect(outbound.to_owned(), addr).await;
+    }
+
+    let interface = egress.try_current_for_peer(addr)?;
+    zero_platform_tokio::TokioSocket::connect_addr_on(addr, interface.as_ref())
+        .await
+        .map(zero_platform_tokio::TcpRelayStream::from)
 }
 
 async fn write_framed<S: tokio::io::AsyncWrite + Unpin>(

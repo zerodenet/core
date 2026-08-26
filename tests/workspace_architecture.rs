@@ -139,6 +139,23 @@ fn outbound_quic_node_resolution_stays_behind_the_runtime_dns_bridge() {
 }
 
 #[test]
+fn dns_detours_cross_the_explicit_proxy_runtime_bridge() {
+    let config = read(&workspace_root().join("crates/config/src/model/dns.rs"));
+    let validation = read(&workspace_root().join("crates/config/src/validate/dns.rs"));
+    let dns = read(&workspace_root().join("crates/dns/src/lib.rs"));
+    let runtime = read(&workspace_root().join("crates/proxy/src/runtime.rs"));
+    let bridge = read(&workspace_root().join("crates/proxy/src/runtime/dns_outbound.rs"));
+
+    assert!(config.contains("detour: Option<String>"));
+    assert!(validation.contains("validate_node_detour_isolation"));
+    assert!(dns.contains("trait DnsOutboundConnector"));
+    assert!(runtime.contains("set_outbound_connector"));
+    assert!(bridge.contains("dispatch_tcp_outbound"));
+    assert!(bridge.contains("Address::Ipv4"));
+    assert!(bridge.contains("Address::Ipv6"));
+}
+
+#[test]
 fn udp_egress_generation_stays_in_platform_and_proxy_orchestration() {
     let platform = read(&workspace_root().join("crates/platform/tokio/src/egress.rs"));
     let transport = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));

@@ -32,6 +32,7 @@ async fn recovers_only_transparent_real_ip_targets_and_preserves_direct_ip() {
                 host: "127.0.0.1".to_owned(),
                 port,
                 bootstrap: Vec::new(),
+                detour: None,
             },
         )]),
         default_server: "local".to_owned(),

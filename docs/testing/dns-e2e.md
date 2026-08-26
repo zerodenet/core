@@ -23,7 +23,8 @@ All network backends use the same endpoint shape:
           "host": "cloudflare-dns.com",
           "port": 443,
           "path": "/dns-query",
-          "bootstrap": ["1.1.1.1", "1.0.0.1"]
+          "bootstrap": ["1.1.1.1", "1.0.0.1"],
+          "detour": "dns-proxy"
         },
         "tls": {
           "type": "dot",
@@ -69,7 +70,17 @@ All network backends use the same endpoint shape:
         "exclude_domains": []
       }
     }
-  }
+  },
+  "outbounds": [
+    {
+      "tag": "dns-proxy",
+      "protocol": {
+        "type": "socks5",
+        "server": "192.0.2.10",
+        "port": 1080
+      }
+    }
+  ]
 }
 ```
 
@@ -79,6 +90,17 @@ the explicit addresses also let TUN install deterministic endpoint exclusions.
 UDP, TCP fallback, DoH, DoT, and DoQ sockets use the current underlay selection.
 Configuration fails before startup when an endpoint cannot be materialized
 without recursive resolution.
+
+Network DNS servers may set `detour` to an existing outbound or outbound-group
+tag. Plain UDP DNS uses framed DNS-over-TCP when detoured, while DoH and DoT
+carry their native TCP/TLS sessions through the selected target. Detoured DNS
+endpoints are not installed as physical TUN route exclusions because the host
+never opens a socket to those addresses. A configuration containing any
+detoured DNS server must declare `policy.node_server`; that server and every
+`node_fallback_servers` entry must be non-detoured, so resolving the proxy node
+cannot recurse through the outbound it is trying to create. DoQ detours are
+rejected until the runtime provides a proxy-aware UDP/QUIC carrier; Zero never
+silently sends such traffic through the system route.
 
 Each backend attempt has the `policy.timeout_ms` deadline;
 `server_timeout_ms` overrides it by server tag. Transport errors, timeouts,

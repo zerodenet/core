@@ -190,7 +190,16 @@ fn doh_endpoint_parser_accepts_literal_v4_and_v6_hosts() {
         configured_dns_endpoint_addresses(&config("2606:4700:4700::1111")).unwrap(),
         vec!["2606:4700:4700::1111".parse::<IpAddr>().unwrap()]
     );
-    assert!(configured_dns_endpoint_addresses(&config("dns.example")).is_err());
+    let domain = zero_config::RuntimeConfig::parse(
+        r#"{
+            "runtime":{"dns":{
+                "servers":{"global":{"type":"doh","host":"dns.example"}},
+                "default_server":"global"
+            }},
+            "route":{"rules":[],"final":{"type":"direct"}}
+        }"#,
+    );
+    assert!(matches!(domain, Err(zero_config::ConfigError::InvalidDns(_))));
 }
 
 #[test]

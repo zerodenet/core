@@ -17,6 +17,7 @@ fn config(port: u16) -> DnsConfig {
                 host: "127.0.0.1".to_owned(),
                 port,
                 bootstrap: Vec::new(),
+                detour: None,
             },
         )]),
         default_server: "local".to_owned(),

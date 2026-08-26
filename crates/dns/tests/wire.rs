@@ -1,7 +1,8 @@
 #![cfg(feature = "udp")]
 
 use std::collections::BTreeMap;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_config::{
@@ -9,6 +10,27 @@ use zero_config::{
     DnsServerConfig,
 };
 use zero_traits::IpAddress;
+
+#[derive(Debug, Clone)]
+struct RecordingDnsConnector {
+    calls: Arc<Mutex<Vec<(String, SocketAddr)>>>,
+}
+
+impl zero_dns::DnsOutboundConnector for RecordingDnsConnector {
+    fn connect(
+        &self,
+        outbound: String,
+        endpoint: SocketAddr,
+    ) -> zero_dns::DnsOutboundConnectFuture {
+        let calls = self.calls.clone();
+        Box::pin(async move {
+            calls.lock().unwrap().push((outbound, endpoint));
+            zero_platform_tokio::TokioSocket::connect_addr(endpoint)
+                .await
+                .map(zero_platform_tokio::TcpRelayStream::from)
+        })
+    }
+}
 
 fn query(domain: &str, query_type: u16, edns_size: Option<u16>) -> Vec<u8> {
     let mut query = vec![
@@ -82,6 +104,7 @@ fn config(port: u16, answer: DnsAnswerConfig) -> DnsConfig {
                 host: "127.0.0.1".to_owned(),
                 port,
                 bootstrap: Vec::new(),
+                detour: None,
             },
         )]),
         default_server: "local".to_owned(),
@@ -91,6 +114,63 @@ fn config(port: u16, answer: DnsAnswerConfig) -> DnsConfig {
         answer,
         policy: Default::default(),
     }
+}
+
+#[tokio::test]
+async fn udp_server_detour_uses_dns_over_tcp_and_reports_outbound() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind DNS TCP server");
+    let endpoint = listener.local_addr().expect("DNS TCP endpoint");
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept DNS TCP");
+        let size = stream.read_u16().await.expect("read DNS query size") as usize;
+        let mut request = vec![0_u8; size];
+        stream
+            .read_exact(&mut request)
+            .await
+            .expect("read DNS query");
+        let response =
+            zero_dns::udp::build_dns_response(&request, &[IpAddress::V4([192, 0, 2, 53])]);
+        stream
+            .write_u16(response.len() as u16)
+            .await
+            .expect("write DNS response size");
+        stream
+            .write_all(&response)
+            .await
+            .expect("write DNS response");
+    });
+
+    let mut config = config(endpoint.port(), DnsAnswerConfig::Real);
+    config.servers.insert(
+        "local".to_owned(),
+        DnsServerConfig::Udp {
+            host: endpoint.ip().to_string(),
+            port: endpoint.port(),
+            bootstrap: Vec::new(),
+            detour: Some("proxy".to_owned()),
+        },
+    );
+    config.policy.node_server = Some("local".to_owned());
+    let dns = zero_dns::DnsSystem::build(Some(&config)).expect("build detoured DNS");
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    dns.set_outbound_connector(Arc::new(RecordingDnsConnector {
+        calls: calls.clone(),
+    }));
+
+    assert_eq!(
+        dns.resolve_real_type("detour.example", 1).await.unwrap(),
+        vec![IpAddress::V4([192, 0, 2, 53])]
+    );
+    assert_eq!(calls.lock().unwrap().as_slice(), &[("proxy".to_owned(), endpoint)]);
+    let attempts = dns.recent_query_attempts(
+        "detour.example",
+        zero_dns::DnsQueryRole::Default,
+        1,
+    );
+    assert_eq!(attempts[0].outbound, "proxy");
+    server.await.unwrap();
 }
 
 #[tokio::test]
@@ -164,6 +244,7 @@ async fn dns_policy_times_out_primary_and_uses_explicit_fallback() {
                     host: "127.0.0.1".to_owned(),
                     port: primary_port,
                     bootstrap: Vec::new(),
+                    detour: None,
                 },
             ),
             (
@@ -172,6 +253,7 @@ async fn dns_policy_times_out_primary_and_uses_explicit_fallback() {
                     host: "127.0.0.1".to_owned(),
                     port: fallback_port,
                     bootstrap: Vec::new(),
+                    detour: None,
                 },
             ),
         ]),
@@ -218,6 +300,7 @@ async fn dns_roles_use_isolated_primary_servers() {
         host: "127.0.0.1".to_owned(),
         port,
         bootstrap: Vec::new(),
+        detour: None,
     };
     let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
         servers: BTreeMap::from([
@@ -284,6 +367,7 @@ async fn rejected_address_response_advances_to_fallback() {
         host: "127.0.0.1".to_owned(),
         port,
         bootstrap: Vec::new(),
+        detour: None,
     };
     let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
         servers: BTreeMap::from([

@@ -12,8 +12,9 @@ pub(super) fn validate_dns_config(
     dns: &DnsConfig,
     rule_sets: &[RouteRuleSetConfig],
     rule_set_tags: &HashSet<String>,
+    route_target_tags: &HashSet<String>,
 ) -> Result<(), ConfigError> {
-    validate_servers(dns)?;
+    validate_servers(dns, route_target_tags)?;
     validate_policy(dns)?;
     validate_cache_and_answer(dns)?;
 
@@ -58,6 +59,36 @@ fn validate_policy(dns: &DnsConfig) -> Result<(), ConfigError> {
         dns.policy.direct_server.as_deref(),
         &dns.policy.direct_fallback_servers,
     )?;
+    validate_node_detour_isolation(dns)?;
+    Ok(())
+}
+
+fn validate_node_detour_isolation(dns: &DnsConfig) -> Result<(), ConfigError> {
+    let has_detour = dns.servers.values().any(|server| server.detour().is_some());
+    if has_detour && dns.policy.node_server.is_none() {
+        return Err(ConfigError::InvalidDns(
+            "DNS detours require `dns.policy.node_server` so proxy-node resolution cannot recurse through its own outbound"
+                .to_owned(),
+        ));
+    }
+
+    let node_servers = dns
+        .policy
+        .node_server
+        .iter()
+        .chain(dns.policy.node_fallback_servers.iter());
+    for tag in node_servers {
+        if dns
+            .servers
+            .get(tag)
+            .and_then(DnsServerConfig::detour)
+            .is_some()
+        {
+            return Err(ConfigError::InvalidDns(format!(
+                "node DNS server `{tag}` must not use a detour"
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -122,7 +153,10 @@ fn validate_role(
     Ok(())
 }
 
-fn validate_servers(dns: &DnsConfig) -> Result<(), ConfigError> {
+fn validate_servers(
+    dns: &DnsConfig,
+    route_target_tags: &HashSet<String>,
+) -> Result<(), ConfigError> {
     if dns.servers.is_empty() {
         return Err(ConfigError::InvalidDns(
             "`dns.servers` must contain at least one named backend".to_owned(),
@@ -149,6 +183,18 @@ fn validate_servers(dns: &DnsConfig) -> Result<(), ConfigError> {
             if !path.starts_with('/') {
                 return Err(ConfigError::InvalidDns(format!(
                     "dns server `{tag}`: DoH path must start with `/`"
+                )));
+            }
+        }
+        if let Some(detour) = server.detour() {
+            if !route_target_tags.contains(detour) {
+                return Err(ConfigError::InvalidDns(format!(
+                    "dns server `{tag}` references undefined detour `{detour}`"
+                )));
+            }
+            if matches!(server, DnsServerConfig::Doq { .. }) {
+                return Err(ConfigError::InvalidDns(format!(
+                    "dns server `{tag}`: DoQ detour is unsupported because a proxy-aware UDP/QUIC carrier is not available"
                 )));
             }
         }

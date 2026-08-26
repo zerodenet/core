@@ -117,6 +117,9 @@ impl DnsConfig {
     pub fn tun_route_exclusion_addresses(&self) -> Result<Vec<IpAddr>, String> {
         let mut addresses = BTreeSet::new();
         for (tag, server) in &self.servers {
+            if server.detour().is_some() {
+                continue;
+            }
             if matches!(server, DnsServerConfig::System) {
                 return Err(format!(
                     "TUN DNS hijack cannot use system DNS backend `{tag}`"
@@ -209,6 +212,9 @@ pub enum DnsServerConfig {
         port: u16,
         #[serde(default)]
         bootstrap: Vec<IpAddr>,
+        /// Optional route target used to carry DNS-over-TCP to this server.
+        #[serde(default)]
+        detour: Option<String>,
     },
     /// DNS-over-HTTPS.
     #[serde(rename = "doh")]
@@ -222,6 +228,9 @@ pub enum DnsServerConfig {
         bootstrap: Vec<IpAddr>,
         #[serde(default)]
         server_name: Option<String>,
+        /// Optional route target used to carry the DoH TCP connection.
+        #[serde(default)]
+        detour: Option<String>,
     },
     /// DNS-over-TLS.
     #[serde(rename = "dot")]
@@ -233,6 +242,9 @@ pub enum DnsServerConfig {
         bootstrap: Vec<IpAddr>,
         #[serde(default)]
         server_name: Option<String>,
+        /// Optional route target used to carry the DoT TCP connection.
+        #[serde(default)]
+        detour: Option<String>,
     },
     /// DNS-over-QUIC (RFC 9250).
     #[serde(rename = "doq")]
@@ -244,6 +256,10 @@ pub enum DnsServerConfig {
         bootstrap: Vec<IpAddr>,
         #[serde(default)]
         server_name: Option<String>,
+        /// Reserved for a future proxy-aware UDP/QUIC carrier. Validation
+        /// currently rejects this field instead of leaking DoQ directly.
+        #[serde(default)]
+        detour: Option<String>,
     },
 }
 
@@ -275,6 +291,16 @@ impl DnsServerConfig {
             | Self::Doh { bootstrap, .. }
             | Self::Dot { bootstrap, .. }
             | Self::Doq { bootstrap, .. } => bootstrap,
+        }
+    }
+
+    pub fn detour(&self) -> Option<&str> {
+        match self {
+            Self::System => None,
+            Self::Udp { detour, .. }
+            | Self::Doh { detour, .. }
+            | Self::Dot { detour, .. }
+            | Self::Doq { detour, .. } => detour.as_deref(),
         }
     }
 

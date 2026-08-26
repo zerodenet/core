@@ -48,6 +48,7 @@ async fn dispatch_queries_only_the_selected_backend() {
                     host: "127.0.0.1".to_owned(),
                     port: selected_port,
                     bootstrap: Vec::new(),
+                    detour: None,
                 },
             ),
             (
@@ -56,6 +57,7 @@ async fn dispatch_queries_only_the_selected_backend() {
                     host: "127.0.0.1".to_owned(),
                     port: unrelated_port,
                     bootstrap: Vec::new(),
+                    detour: None,
                 },
             ),
         ]),

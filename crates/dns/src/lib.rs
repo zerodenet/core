@@ -15,8 +15,11 @@ pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
+use std::future::Future;
 use std::io;
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use zero_config::{DnsAddressFamilyPolicy, DnsConfig, DnsPolicyConfig};
@@ -55,6 +58,20 @@ pub struct DnsQueryAttempt {
     pub failure_reason: Option<String>,
 }
 
+/// Future returned by a runtime-provided DNS TCP detour connector.
+pub type DnsOutboundConnectFuture = Pin<
+    Box<
+        dyn Future<Output = io::Result<zero_platform_tokio::TcpRelayStream>> + Send + 'static,
+    >,
+>;
+
+/// Opens a TCP stream to a deterministic DNS endpoint through a named route
+/// target. The proxy runtime supplies this bridge; standalone DNS users get a
+/// clear error if they configure a detour without installing one.
+pub trait DnsOutboundConnector: fmt::Debug + Send + Sync {
+    fn connect(&self, outbound: String, endpoint: SocketAddr) -> DnsOutboundConnectFuture;
+}
+
 impl DnsQueryRole {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -78,6 +95,7 @@ pub struct DnsSystem {
     fake_ip_state_path: Option<PathBuf>,
     fake_ip_state_lease: std::sync::Mutex<Option<Arc<fake_ip::StateLease>>>,
     query_attempts: Arc<std::sync::Mutex<VecDeque<DnsQueryAttempt>>>,
+    outbound_connector: std::sync::RwLock<Option<Arc<dyn DnsOutboundConnector>>>,
 }
 
 impl fmt::Debug for DnsSystem {
@@ -97,7 +115,7 @@ enum DnsSystemInner {
     System(TokioSystemResolver),
     /// Fully configured with servers, routing, cache, and optional fake IP.
     Configured {
-        servers: BTreeMap<String, Arc<ResolverBackend>>,
+        servers: BTreeMap<String, ResolverServer>,
         dispatcher: DnsDispatcher,
         cache: Option<DnsCache>,
         fake_ip: Option<Arc<FakeIpAllocator>>,
@@ -106,17 +124,24 @@ enum DnsSystemInner {
     },
 }
 
+#[derive(Clone)]
+struct ResolverServer {
+    backend: Arc<ResolverBackend>,
+    detour: Option<String>,
+}
+
 /// Snapshot of the fields needed for an async `resolve()` call.
 /// Extracted from the lock so we don't hold it across await points.
 #[derive(Clone)]
 struct ResolveSnapshot {
-    servers: BTreeMap<String, Arc<ResolverBackend>>,
+    servers: BTreeMap<String, ResolverServer>,
     dispatcher: DnsDispatcher,
     cache: Option<DnsCache>,
     fake_ip: Option<Arc<FakeIpAllocator>>,
     reverse_mapping: Option<RealIpReverseIndex>,
     policy: DnsPolicyConfig,
     query_attempts: Arc<std::sync::Mutex<VecDeque<DnsQueryAttempt>>>,
+    outbound_connector: Option<Arc<dyn DnsOutboundConnector>>,
 }
 
 impl DnsSystem {
@@ -179,6 +204,7 @@ impl DnsSystem {
             fake_ip_state_path,
             fake_ip_state_lease: std::sync::Mutex::new(fake_ip_state_lease),
             query_attempts: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            outbound_connector: std::sync::RwLock::new(None),
         })
     }
 
@@ -198,7 +224,10 @@ impl DnsSystem {
         for (tag, server) in &cfg.servers {
             servers.insert(
                 tag.clone(),
-                Arc::new(ResolverBackend::build(server, egress_interface.clone())?),
+                ResolverServer {
+                    backend: Arc::new(ResolverBackend::build(server, egress_interface.clone())?),
+                    detour: server.detour().map(ToOwned::to_owned),
+                },
             );
         }
 
@@ -285,6 +314,14 @@ impl DnsSystem {
         let mut guard = self.inner.write().expect("dns system lock poisoned");
         *guard = new_inner;
         Ok(())
+    }
+
+    /// Install the runtime bridge used by DNS servers that specify a detour.
+    pub fn set_outbound_connector(&self, connector: Arc<dyn DnsOutboundConnector>) {
+        *self
+            .outbound_connector
+            .write()
+            .expect("DNS outbound connector lock poisoned") = Some(connector);
     }
 
     /// Reverse lookup: fake IP → real domain.
@@ -435,6 +472,11 @@ impl DnsSystem {
                 reverse_mapping: reverse_mapping.clone(),
                 policy: policy.as_ref().clone(),
                 query_attempts: self.query_attempts.clone(),
+                outbound_connector: self
+                    .outbound_connector
+                    .read()
+                    .expect("DNS outbound connector lock poisoned")
+                    .clone(),
             }),
         }
     }
@@ -648,7 +690,7 @@ impl DnsSystem {
             }
             None => {
                 backends::ResolverBackend::System(TokioSystemResolver)
-                    .exchange(query)
+                    .exchange(query, None, None)
                     .await
             }
         };
@@ -894,7 +936,7 @@ async fn exchange_snapshot(
 
     let mut last_error = None;
     for tag in tags {
-        let backend = snapshot.servers.get(tag).ok_or_else(|| {
+        let server = snapshot.servers.get(tag).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("DNS policy selected undefined backend `{tag}`"),
@@ -902,7 +944,16 @@ async fn exchange_snapshot(
         })?;
         let timeout_ms = snapshot.policy.timeout_ms_for(tag);
         let deadline = std::time::Duration::from_millis(timeout_ms);
-        let attempt = match tokio::time::timeout(deadline, backend.exchange(query)).await {
+        let attempt = match tokio::time::timeout(
+            deadline,
+            server.backend.exchange(
+                query,
+                server.detour.as_deref(),
+                snapshot.outbound_connector.as_deref(),
+            ),
+        )
+        .await
+        {
             Ok(result) => result,
             Err(_) => Err(io::Error::new(
                 io::ErrorKind::TimedOut,
@@ -940,7 +991,7 @@ async fn exchange_snapshot(
             }
         }) {
             Ok(response) => {
-                record_query_attempt(snapshot, domain, role, tag, backend, None);
+                record_query_attempt(snapshot, domain, role, tag, server, None);
                 return Ok(response);
             }
             Err(error) => {
@@ -956,7 +1007,7 @@ async fn exchange_snapshot(
                     domain,
                     role,
                     tag,
-                    backend,
+                    server,
                     Some(error.to_string()),
                 );
                 last_error = Some(error);
@@ -973,7 +1024,7 @@ fn record_query_attempt(
     domain: &str,
     role: DnsQueryRole,
     server_tag: &str,
-    backend: &ResolverBackend,
+    server: &ResolverServer,
     failure_reason: Option<String>,
 ) {
     const QUERY_ATTEMPT_CAPACITY: usize = 256;
@@ -988,9 +1039,9 @@ fn record_query_attempt(
         domain: domain.to_owned(),
         role,
         server_tag: server_tag.to_owned(),
-        transport: backend.transport_name(),
-        server_endpoints: backend.endpoint_labels(),
-        outbound: "direct".to_owned(),
+        transport: server.backend.transport_name(),
+        server_endpoints: server.backend.endpoint_labels(),
+        outbound: server.detour.as_deref().unwrap_or("direct").to_owned(),
         success: failure_reason.is_none(),
         failure_reason,
     });

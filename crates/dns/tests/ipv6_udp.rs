@@ -32,6 +32,7 @@ async fn udp_dns_uses_an_ipv6_socket_for_an_ipv6_server() {
                 host: "::1".to_owned(),
                 port,
                 bootstrap: Vec::new(),
+                detour: None,
             },
         )]),
         default_server: "test".to_owned(),
