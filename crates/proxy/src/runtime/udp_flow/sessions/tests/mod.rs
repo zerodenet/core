@@ -53,6 +53,15 @@ fn cancelled_udp_flow_finishes_with_reason_and_is_removed_from_lookup() {
         UdpFlowRateLimiters::default(),
     );
     assert!(flows.snapshot(&target, 443, None).is_some());
+    assert_eq!(
+        flows.direct_response_session_id(SocketAddr::from((Ipv4Addr::LOCALHOST, 443))),
+        Some(session_id)
+    );
+    assert_eq!(
+        flows.direct_response_session_id(SocketAddr::from((Ipv4Addr::LOCALHOST, 444))),
+        None,
+        "direct UDP filtering must reject an unregistered remote endpoint"
+    );
 
     assert_eq!(
         engine.close_principal_flows("account:1", "principal_disabled"),

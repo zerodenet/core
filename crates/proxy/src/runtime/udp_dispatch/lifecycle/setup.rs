@@ -14,7 +14,9 @@ impl UdpDispatch {
         inbound_tag: &str,
         protocols: &crate::inventory::ProtocolInventory,
     ) -> Result<Self, EngineError> {
-        let direct_socket = DirectUdpSockets::bind(&runtime.services().network()).await?;
+        let preferred_port = runtime.source_addr().map(|source| source.port());
+        let direct_socket =
+            DirectUdpSockets::bind(&runtime.services().network(), preferred_port).await?;
         let (cancel_tx, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(Self {
             runtime,
