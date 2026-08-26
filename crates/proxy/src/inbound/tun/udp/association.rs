@@ -34,7 +34,7 @@ pub(super) struct AssociationRegistry {
 pub(super) enum Delivery {
     Delivered,
     Missing(TunDatagram),
-    Full,
+    Full(TunDatagram),
     Closed(TunDatagram),
 }
 
@@ -61,7 +61,7 @@ impl AssociationRegistry {
         };
         match association.sender.try_send(datagram) {
             Ok(()) => Delivery::Delivered,
-            Err(mpsc::error::TrySendError::Full(_)) => Delivery::Full,
+            Err(mpsc::error::TrySendError::Full(datagram)) => Delivery::Full(datagram),
             Err(mpsc::error::TrySendError::Closed(datagram)) => Delivery::Closed(datagram),
         }
     }
@@ -208,7 +208,7 @@ mod tests {
 
         assert!(matches!(
             registry.deliver(source(50_000), datagram()),
-            Delivery::Full
+            Delivery::Full(_)
         ));
         assert!(matches!(
             registry.deliver(source(50_001), datagram()),
