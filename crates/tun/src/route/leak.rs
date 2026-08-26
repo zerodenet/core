@@ -7,6 +7,8 @@
 use std::io;
 use std::net::IpAddr;
 
+use ipnet::IpNet;
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -27,14 +29,19 @@ pub struct SystemLeakGuard;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 impl SystemLeakGuard {
-    pub fn install(_tun_name: &str, _recovery_key: &str, _excluded: &[IpAddr]) -> io::Result<Self> {
+    pub fn install(
+        _tun_name: &str,
+        _recovery_key: &str,
+        _protected: &[IpNet],
+        _excluded: &[IpAddr],
+    ) -> io::Result<Self> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "strict-route leak protection is unsupported on this platform",
         ))
     }
 
-    pub fn reconcile(&mut self, _excluded: &[IpAddr]) -> io::Result<bool> {
+    pub fn reconcile(&mut self, _protected: &[IpNet], _excluded: &[IpAddr]) -> io::Result<bool> {
         Ok(false)
     }
 
@@ -61,6 +68,13 @@ fn normalized_exclusions(excluded: &[IpAddr]) -> Vec<IpAddr> {
     excluded.sort_unstable();
     excluded.dedup();
     excluded
+}
+
+fn normalized_prefixes(prefixes: &[IpNet]) -> Vec<IpNet> {
+    let mut prefixes = prefixes.to_vec();
+    prefixes.sort_unstable();
+    prefixes.dedup();
+    prefixes
 }
 
 fn validate_interface_name(name: &str) -> io::Result<()> {

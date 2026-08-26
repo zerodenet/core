@@ -13,6 +13,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 默认行为：
 
 - `auto_route=true`：通过两条 `/1` 路由接管默认流量，不覆盖原默认路由；
+- `include_cidrs=[]` 保持上述全隧道行为；非空时只安装列出的目的 CIDR，并按地址族忽略没有对应接管前缀的 TUN 地址。`include_cidrs` 最多 128 项、不得重复，并要求 `auto_route=true`；
 - `auto_route=true` 会继续监听系统默认路由和接口变化；Wi-Fi/有线切换、VPN 上下线或 metric 变化后，内核在不重启 TUN 的情况下更新新建 socket 使用的物理出口和仍需保留的 DNS bootstrap 排除路由。事件会合并处理；协调失败时非严格模式保留上一份可用状态，严格模式进入 fail-closed，两者都会在 `tun status` 中报告错误；
 - `dual_stack=true`：在同一设备上配置 IPv4/IPv6 两个地址，并同时安装两组拆分默认路由；`secondary_addr` 可显式指定另一族 CIDR，省略时按主地址族使用 `10.66.0.1/24` 或 `fd66::1/64`；只有明确的单栈主机才应关闭，否则另一地址族仍可能绕过 TUN；
 - `strict_route=true`：underlay 出口、仍需保留的 DNS bootstrap 排除、任一半默认路由或平台 kill switch 失败时，启动整体失败并回滚已安装项；运行期 route monitor、bootstrap 重算或路由/防火墙协调失败时撤销受影响地址族的出口发布，使新建 TCP、UDP 与 DNS socket fail closed，协调恢复后再发布新出口；未选中的坏代理节点不影响 TUN 启动；
@@ -22,7 +23,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 - macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。系统路由 lease 则按地址族全局持有，第二个进程即使使用不同 tag，也必须明确失败且报告当前 owner，不能同时改写同一组捕获路由。
 
-调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。生产防泄露验证不应关闭这些选项。
+调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。`--include-cidr CIDR` 可重复传入以验证选择性接管。生产防泄露验证不应关闭 strict route。
 
 ## DNS 前置约束
 
@@ -39,6 +40,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
       "secondary_addr": "fd66::1/64",
       "tag": "tun-in",
       "auto_route": true,
+      "include_cidrs": [],
       "dual_stack": true,
       "strict_route": true,
       "dns_hijack": true
@@ -109,7 +111,7 @@ cargo run -- tun status
 状态应包含：
 
 ```text
-tun: running, healthy=true, managed_by_config=true, name=..., addr=10.66.0.1/24, addresses=10.66.0.1/24,fd66::1/64, mtu=1500, tag=tun-in, auto_route=true, dual_stack=true, strict_route=true, dns_hijack=true, egress=..., egress_v4=..., egress_v6=...
+tun: running, healthy=true, managed_by_config=true, name=..., addr=10.66.0.1/24, addresses=10.66.0.1/24,fd66::1/64, mtu=1500, tag=tun-in, auto_route=true, include_cidrs=full-tunnel, dual_stack=true, strict_route=true, dns_hijack=true, egress=..., egress_v4=..., egress_v6=...
 ```
 
 停止并确认清理：

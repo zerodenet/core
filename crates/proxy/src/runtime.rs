@@ -104,6 +104,7 @@ pub(crate) struct TunInfo {
     pub mtu: u16,
     pub tag: String,
     pub auto_route: bool,
+    pub include_cidrs: Vec<ipnet::IpNet>,
     pub dual_stack: bool,
     pub strict_route: bool,
     pub dns_hijack: bool,

@@ -1,6 +1,24 @@
 use std::net::{IpAddr, Ipv4Addr};
 
-use super::{RouteInterface, RouteJournal, RouteLease};
+use super::{capture_route_prefixes, RouteInterface, RouteJournal, RouteLease};
+
+#[test]
+fn capture_plan_defaults_to_split_routes_and_filters_explicit_families() {
+    assert_eq!(
+        capture_route_prefixes("10.66.0.1".parse().unwrap(), &[]),
+        vec!["0.0.0.0/1".parse().unwrap(), "128.0.0.0/1".parse().unwrap()]
+    );
+    assert_eq!(
+        capture_route_prefixes(
+            "fd66::1".parse().unwrap(),
+            &[
+                "203.0.113.0/24".parse().unwrap(),
+                "2001:db8::/32".parse().unwrap(),
+            ],
+        ),
+        vec!["2001:db8::/32".parse().unwrap()]
+    );
+}
 
 fn journal(path: std::path::PathBuf) -> RouteJournal {
     RouteJournal {

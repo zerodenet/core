@@ -2,11 +2,10 @@ use std::io;
 use std::net::IpAddr;
 use std::process::Command;
 
+use ipnet::IpNet;
+
 use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
-use super::{
-    command_error, family_exclusions, split_default_route_prefixes, RouteInterface, RouteJournal,
-    RouteLease,
-};
+use super::{command_error, family_exclusions, RouteInterface, RouteJournal, RouteLease};
 
 mod scoped;
 
@@ -31,11 +30,18 @@ impl SystemRouteGuard {
         recovery_key: &str,
         address: IpAddr,
         netmask: IpAddr,
+        captured: &[IpNet],
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
-        Self::install_with_egress(tun_name, recovery_key, address, netmask, excluded, |_| {
-            Ok(())
-        })
+        Self::install_with_egress(
+            tun_name,
+            recovery_key,
+            address,
+            netmask,
+            captured,
+            excluded,
+            |_| Ok(()),
+        )
     }
 
     pub fn install_with_egress(
@@ -43,6 +49,7 @@ impl SystemRouteGuard {
         recovery_key: &str,
         address: IpAddr,
         netmask: IpAddr,
+        captured: &[IpNet],
         excluded: &[IpAddr],
         publish_egress: impl FnOnce(&RouteInterface) -> io::Result<()>,
     ) -> io::Result<Self> {
@@ -84,10 +91,11 @@ impl SystemRouteGuard {
         for peer in desired_exclusions {
             guard.install_exclusion(peer)?;
         }
-        for prefix in split_default_route_prefixes(address) {
-            let _ = guard.remove(prefix);
-            guard.add(prefix)?;
-            guard.journal.record_route(prefix)?;
+        for prefix in captured {
+            let prefix = prefix.to_string();
+            let _ = guard.remove(&prefix);
+            guard.add(&prefix)?;
+            guard.journal.record_route(&prefix)?;
         }
         Ok(guard)
     }
