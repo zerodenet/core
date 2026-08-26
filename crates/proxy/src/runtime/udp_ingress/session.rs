@@ -1,4 +1,4 @@
-use zero_core::{FakeIpReverseStatus, Session, TargetHostSource};
+use zero_core::Session;
 use zero_engine::{EngineError, SessionHandle};
 use zero_traits::DnsResolver;
 
@@ -52,31 +52,7 @@ impl UdpIngressRuntime {
     }
 
     pub(crate) async fn resolve_fake_ip_target(&self, session: &mut Session) {
-        use zero_core::Address;
-        use zero_traits::IpAddress;
-
-        let (ip, standard_ip) = match &session.target {
-            Address::Ipv4(octets) => (
-                IpAddress::V4(*octets),
-                std::net::IpAddr::V4((*octets).into()),
-            ),
-            Address::Ipv6(octets) => (
-                IpAddress::V6(*octets),
-                std::net::IpAddr::V6((*octets).into()),
-            ),
-            _ => return,
-        };
-        if !self.tcp_services.resolver().fake_ip_contains(standard_ip) {
-            return;
-        }
-        session.original_target = Some(session.target.clone());
-        if let Some(domain) = self.tcp_services.resolver().lookup_fake_ip(&ip).await {
-            session.target = Address::Domain(domain);
-            session.target_host_source = Some(TargetHostSource::FakeIp);
-            session.fake_ip_reverse_status = Some(FakeIpReverseStatus::Resolved);
-        } else {
-            session.fake_ip_reverse_status = Some(FakeIpReverseStatus::Missing);
-        }
+        crate::runtime::target::resolve_dns_target(self.tcp_services.resolver(), session).await;
     }
 
     #[cfg(any(

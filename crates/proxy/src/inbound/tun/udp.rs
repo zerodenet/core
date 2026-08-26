@@ -76,13 +76,16 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
                 Ok(None) | Err(_) => return Ok(None),
             };
         self.current_destination = Some(datagram.destination);
-        Ok(Some(InboundUdpDispatch::new(
-            ProtocolType::UNKNOWN,
-            socket_address_to_address(datagram.destination),
-            datagram.destination.port,
-            datagram.payload,
-            None,
-        )))
+        Ok(Some(
+            InboundUdpDispatch::new(
+                ProtocolType::UNKNOWN,
+                socket_address_to_address(datagram.destination),
+                datagram.destination.port,
+                datagram.payload,
+                None,
+            )
+            .with_transparent_target(),
+        ))
     }
 
     fn on_dispatch_success(&mut self, session_id: u64, _dispatch: &InboundUdpDispatch) {
