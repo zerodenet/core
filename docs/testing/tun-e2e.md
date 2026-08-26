@@ -155,6 +155,8 @@ curl.exe https://example.com/
 Resolve-DnsName example.com
 ```
 
+strict route 启动必须显式读取 Domain、Private、Public 三个 Windows Firewall profile，并把带 schema 的 UTF-8 JSON 快照持久化后才能修改默认出站策略。PowerShell 成功退出但未输出快照、缺少任一 profile 或包含未知动作时都必须在安装规则前 fail closed；错误不得退化为无上下文的 JSON EOF。
+
 ## WebRTC/STUN 防泄露验证
 
 TUN 能接管浏览器发出的 STUN UDP，但最终是否暴露真实公网出口仍由 Zero 路由策略决定：
