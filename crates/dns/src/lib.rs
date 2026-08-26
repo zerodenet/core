@@ -23,7 +23,7 @@ use zero_config::{DnsAddressFamilyPolicy, DnsConfig, DnsPolicyConfig};
 use zero_traits::{DnsResolver, IpAddress};
 
 use backends::ResolverBackend;
-use cache::DnsCache;
+use cache::{DnsCache, DnsWireCacheValue};
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpStats};
 use reverse::RealIpReverseIndex;
@@ -102,7 +102,7 @@ enum DnsSystemInner {
         cache: Option<DnsCache>,
         fake_ip: Option<Arc<FakeIpAllocator>>,
         reverse_mapping: Option<RealIpReverseIndex>,
-        policy: DnsPolicyConfig,
+        policy: Box<DnsPolicyConfig>,
     },
 }
 
@@ -238,7 +238,7 @@ impl DnsSystem {
             cache,
             fake_ip,
             reverse_mapping,
-            policy: cfg.policy.clone(),
+            policy: Box::new(cfg.policy.clone()),
         })
     }
 
@@ -433,7 +433,7 @@ impl DnsSystem {
                 cache: cache.clone(),
                 fake_ip: fake_ip.clone(),
                 reverse_mapping: reverse_mapping.clone(),
-                policy: policy.clone(),
+                policy: policy.as_ref().clone(),
                 query_attempts: self.query_attempts.clone(),
             }),
         }
@@ -675,10 +675,12 @@ impl DnsSystem {
                                 DnsQueryRole::Default,
                                 &question.domain,
                                 question.query_type,
-                                parsed.addresses.clone(),
-                                query.to_vec(),
-                                response.clone(),
-                                ttl_seconds,
+                                DnsWireCacheValue {
+                                    addresses: parsed.addresses.clone(),
+                                    query: query.to_vec(),
+                                    response: response.clone(),
+                                    ttl_seconds,
+                                },
                             )
                             .await;
                     }

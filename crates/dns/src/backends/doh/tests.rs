@@ -77,7 +77,6 @@ async fn exchanges_a_dns_message_over_bound_http2_transport() {
     .with_no_client_auth();
     client_tls.alpn_protocols = vec![b"h2".to_vec()];
     let resolver = DohDnsResolver {
-        host: "localhost".to_owned(),
         port: address.port(),
         path: "/dns-query".to_owned(),
         addrs: vec![address],

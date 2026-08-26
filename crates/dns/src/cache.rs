@@ -26,6 +26,13 @@ struct CacheEntry {
     last_used: u64,
 }
 
+pub(crate) struct DnsWireCacheValue {
+    pub(crate) addresses: Vec<IpAddress>,
+    pub(crate) query: Vec<u8>,
+    pub(crate) response: Vec<u8>,
+    pub(crate) ttl_seconds: u32,
+}
+
 #[derive(Default)]
 struct CacheState {
     entries: HashMap<CacheKey, CacheEntry>,
@@ -180,9 +187,11 @@ impl DnsCache {
             return;
         }
         self.put_entry(
-            role,
-            &domain,
-            query_type,
+            CacheKey {
+                role,
+                domain,
+                query_type,
+            },
             addresses,
             None,
             None,
@@ -196,10 +205,7 @@ impl DnsCache {
         role: DnsQueryRole,
         domain: &str,
         query_type: u16,
-        addresses: Vec<IpAddress>,
-        query: Vec<u8>,
-        response: Vec<u8>,
-        ttl_seconds: u32,
+        value: DnsWireCacheValue,
     ) {
         let Ok(domain) = normalize_domain(domain) else {
             return;
@@ -207,18 +213,20 @@ impl DnsCache {
         let effective_ttl = self
             .inner
             .max_ttl
-            .map(|max| max.min(Duration::from_secs(u64::from(ttl_seconds))))
-            .unwrap_or(Duration::from_secs(u64::from(ttl_seconds)));
+            .map(|max| max.min(Duration::from_secs(u64::from(value.ttl_seconds))))
+            .unwrap_or(Duration::from_secs(u64::from(value.ttl_seconds)));
         if effective_ttl.is_zero() {
             return;
         }
         self.put_entry(
-            role,
-            &domain,
-            query_type,
-            addresses,
-            Some(query),
-            Some(response),
+            CacheKey {
+                role,
+                domain,
+                query_type,
+            },
+            value.addresses,
+            Some(value.query),
+            Some(value.response),
             effective_ttl,
         )
         .await;
@@ -226,9 +234,7 @@ impl DnsCache {
 
     async fn put_entry(
         &self,
-        role: DnsQueryRole,
-        domain: &str,
-        query_type: u16,
+        key: CacheKey,
         addresses: Vec<IpAddress>,
         raw_query: Option<Vec<u8>>,
         raw_response: Option<Vec<u8>>,
@@ -236,11 +242,6 @@ impl DnsCache {
     ) {
         let mut state = self.inner.state.lock().await;
         remove_expired(&mut state);
-        let key = CacheKey {
-            role,
-            domain: domain.to_owned(),
-            query_type,
-        };
         if !state.entries.contains_key(&key) && state.entries.len() >= self.inner.max_entries {
             if let Some(lru) = state
                 .entries
