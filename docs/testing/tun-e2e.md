@@ -158,6 +158,8 @@ curl.exe https://example.com/
 Resolve-DnsName example.com
 ```
 
+strict route 启动必须显式读取 Domain、Private、Public 三个 Windows Firewall profile，并把带 schema 的 UTF-8 JSON 快照持久化后才能修改默认出站策略。PowerShell 成功退出但未输出快照、缺少任一 profile 或包含未知动作时都必须在安装规则前 fail closed；错误不得退化为无上下文的 JSON EOF。
+
 ## 网络生命周期验证
 
 在保持 TUN 运行的情况下依次执行休眠/唤醒、DHCP 续租、IPv6 前缀变化，以及连接和断开企业 VPN。每次变化后立即检查 `tun status` 和默认路由；平台事件正常时应在防抖窗口后收敛，即使平台未投递通知，也必须在 30 秒周期审计窗口内更新物理出口、DNS bootstrap 排除路由和严格模式防泄露规则。旧出口与新出口相同时不得递增出口 generation 或重建 UDP socket。

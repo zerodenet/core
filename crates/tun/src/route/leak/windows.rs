@@ -112,33 +112,59 @@ impl Drop for SystemLeakGuard {
 }
 
 fn snapshot_profiles() -> io::Result<FirewallJournal> {
-    let script = "$ErrorActionPreference='Stop'; @(
-        Get-NetFirewallProfile | ForEach-Object {
-            [pscustomobject]@{name=$_.Name;action=$_.DefaultOutboundAction.ToString()}
-        }
-    ) | ConvertTo-Json -Compress";
+    let script = "$ErrorActionPreference='Stop'; \
+        [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); \
+        $profiles=@(foreach($name in @('Domain','Private','Public')) { \
+            $profile=Get-NetFirewallProfile -Name $name -ErrorAction Stop; \
+            if($null -eq $profile) { throw \"Windows Firewall profile '$name' is unavailable\" }; \
+            [pscustomobject]@{name=$profile.Name;action=$profile.DefaultOutboundAction.ToString()} \
+        }); \
+        $snapshot=[pscustomobject]@{schema='zero.tun.leak-guard.v1';profiles=$profiles}; \
+        $json=ConvertTo-Json -InputObject $snapshot -Depth 3 -Compress; \
+        [Console]::Out.Write($json)";
     let output = run_powershell(script)?;
-    let profiles = serde_json::from_slice::<Vec<ProfilePolicy>>(&output).map_err(|error| {
+    parse_profile_snapshot(&output)
+}
+
+fn parse_profile_snapshot(output: &[u8]) -> io::Result<FirewallJournal> {
+    if output.iter().all(u8::is_ascii_whitespace) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Windows Firewall profile snapshot produced empty output",
+        ));
+    }
+    let journal = serde_json::from_slice::<FirewallJournal>(output).map_err(|error| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("parse Windows Firewall profile snapshot: {error}"),
         )
     })?;
-    if profiles.is_empty()
-        || profiles.iter().any(|profile| {
-            profile.name.is_empty()
-                || !matches!(profile.action.as_str(), "Allow" | "Block" | "NotConfigured")
+    validate_journal(&journal)?;
+    Ok(journal)
+}
+
+fn validate_journal(journal: &FirewallJournal) -> io::Result<()> {
+    const PROFILE_NAMES: [&str; 3] = ["Domain", "Private", "Public"];
+    let complete = journal.schema == "zero.tun.leak-guard.v1"
+        && journal.profiles.len() == PROFILE_NAMES.len()
+        && PROFILE_NAMES.iter().all(|name| {
+            journal
+                .profiles
+                .iter()
+                .filter(|profile| profile.name.as_str() == *name)
+                .count()
+                == 1
         })
-    {
+        && journal.profiles.iter().all(|profile| {
+            matches!(profile.action.as_str(), "Allow" | "Block" | "NotConfigured")
+        });
+    if !complete {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Windows Firewall profile snapshot is incomplete",
         ));
     }
-    Ok(FirewallJournal {
-        schema: "zero.tun.leak-guard.v1".to_owned(),
-        profiles,
-    })
+    Ok(())
 }
 
 fn install_rules(group: &str, tun_name: &str, allowed: &[IpNet]) -> io::Result<()> {
@@ -299,12 +325,12 @@ fn read_journal(path: &Path) -> io::Result<Option<FirewallJournal>> {
             format!("parse Windows kill-switch recovery journal: {error}"),
         )
     })?;
-    if journal.schema != "zero.tun.leak-guard.v1" || journal.profiles.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Windows kill-switch recovery journal is incompatible",
-        ));
-    }
+    validate_journal(&journal).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("Windows kill-switch recovery journal is incompatible: {error}"),
+        )
+    })?;
     Ok(Some(journal))
 }
 
@@ -367,6 +393,24 @@ mod tests {
     #[test]
     fn powershell_values_are_single_quote_escaped() {
         assert_eq!(quote_powershell("a'b"), "a''b");
+    }
+
+    #[test]
+    fn profile_snapshot_requires_explicit_complete_json() {
+        let error = parse_profile_snapshot(b"").expect_err("empty output must fail closed");
+        assert!(error.to_string().contains("empty output"));
+
+        let journal = parse_profile_snapshot(
+            br#"{"schema":"zero.tun.leak-guard.v1","profiles":[{"name":"Domain","action":"Allow"},{"name":"Private","action":"Block"},{"name":"Public","action":"NotConfigured"}]}"#,
+        )
+        .expect("complete profile snapshot");
+        assert_eq!(journal.profiles.len(), 3);
+
+        let error = parse_profile_snapshot(
+            br#"{"schema":"zero.tun.leak-guard.v1","profiles":[{"name":"Domain","action":"Allow"}]}"#,
+        )
+        .expect_err("partial snapshot must fail closed");
+        assert!(error.to_string().contains("incomplete"));
     }
 
     #[test]
