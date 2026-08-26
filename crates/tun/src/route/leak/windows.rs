@@ -155,9 +155,10 @@ fn validate_journal(journal: &FirewallJournal) -> io::Result<()> {
                 .count()
                 == 1
         })
-        && journal.profiles.iter().all(|profile| {
-            matches!(profile.action.as_str(), "Allow" | "Block" | "NotConfigured")
-        });
+        && journal
+            .profiles
+            .iter()
+            .all(|profile| matches!(profile.action.as_str(), "Allow" | "Block" | "NotConfigured"));
     if !complete {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
