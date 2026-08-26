@@ -66,6 +66,10 @@ impl DotDnsResolver {
         }))
     }
 
+    pub(crate) fn endpoint_labels(&self) -> Vec<String> {
+        self.addrs.iter().map(ToString::to_string).collect()
+    }
+
     async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
         let interface = self.egress.try_current_for_peer(addr)?;
         let stream = tokio::time::timeout(

@@ -1947,7 +1947,11 @@ fn parses_dns_timeout_fallback_and_address_family_policy() {
                     "default_server": "primary",
                     "policy": {
                         "timeout_ms": 750,
+                        "server_timeout_ms": { "primary": 250 },
                         "fallback_servers": ["secondary"],
+                        "node_server": "secondary",
+                        "direct_server": "primary",
+                        "reject_address_cidrs": ["203.0.113.0/24"],
                         "address_family": "prefer_ipv6"
                     }
                 }
@@ -1959,7 +1963,11 @@ fn parses_dns_timeout_fallback_and_address_family_policy() {
 
     let policy = &config.runtime.dns.expect("DNS config").policy;
     assert_eq!(policy.timeout_ms, 750);
+    assert_eq!(policy.server_timeout_ms["primary"], 250);
     assert_eq!(policy.fallback_servers, ["secondary"]);
+    assert_eq!(policy.node_server.as_deref(), Some("secondary"));
+    assert_eq!(policy.direct_server.as_deref(), Some("primary"));
+    assert_eq!(policy.reject_address_cidrs[0].to_string(), "203.0.113.0/24");
     assert_eq!(
         policy.address_family,
         zero_config::DnsAddressFamilyPolicy::PreferIpv6
@@ -1973,6 +1981,10 @@ fn rejects_invalid_dns_fallback_policy() {
         r#"{ "timeout_ms": 120001 }"#,
         r#"{ "fallback_servers": ["missing"] }"#,
         r#"{ "fallback_servers": ["secondary", "secondary"] }"#,
+        r#"{ "server_timeout_ms": { "missing": 100 } }"#,
+        r#"{ "server_timeout_ms": { "primary": 0 } }"#,
+        r#"{ "node_fallback_servers": ["secondary"] }"#,
+        r#"{ "direct_server": "missing" }"#,
     ] {
         let raw = format!(
             r#"{{

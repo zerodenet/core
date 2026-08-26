@@ -122,6 +122,34 @@ impl ResolverBackend {
             Self::Doq(resolver) => resolver.exchange(query).await,
         }
     }
+
+    pub(crate) fn transport_name(&self) -> &'static str {
+        match self {
+            Self::System(_) => "system",
+            #[cfg(feature = "udp")]
+            Self::Udp { .. } => "udp",
+            #[cfg(feature = "doh")]
+            Self::Doh(_) => "doh",
+            #[cfg(feature = "dot")]
+            Self::Dot(_) => "dot",
+            #[cfg(feature = "doq")]
+            Self::Doq(_) => "doq",
+        }
+    }
+
+    pub(crate) fn endpoint_labels(&self) -> Vec<String> {
+        match self {
+            Self::System(_) => vec!["system".to_owned()],
+            #[cfg(feature = "udp")]
+            Self::Udp { tcp_addrs, .. } => tcp_addrs.iter().map(ToString::to_string).collect(),
+            #[cfg(feature = "doh")]
+            Self::Doh(resolver) => resolver.endpoint_labels(),
+            #[cfg(feature = "dot")]
+            Self::Dot(resolver) => resolver.endpoint_labels(),
+            #[cfg(feature = "doq")]
+            Self::Doq(resolver) => resolver.endpoint_labels(),
+        }
+    }
 }
 
 pub(crate) struct ResolvedAddresses {

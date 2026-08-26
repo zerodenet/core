@@ -79,7 +79,15 @@ async fn connect_quic_endpoint(
     client_config: quinn::ClientConfig,
     sockets: &crate::OutboundDatagramSocketFactory,
 ) -> Result<quinn::Connection, RuntimeError> {
-    let server_addrs = resolve_server_addresses(server, port).await?;
+    let server_addrs = sockets
+        .resolve_server_addresses(server, port)
+        .await
+        .map_err(|error| {
+            RuntimeError::Io(io::Error::new(
+                error.kind(),
+                format!("quic resolve {server}:{port}: {error}"),
+            ))
+        })?;
     let mut last_error = None;
 
     for server_addr in server_addrs {
@@ -124,34 +132,6 @@ async fn connect_quic_endpoint(
         "quic connection to {server}:{port} failed: {}",
         last_error.unwrap_or_else(|| "no resolved address was connectable".to_owned())
     ))))
-}
-
-async fn resolve_server_addresses(
-    server: &str,
-    port: u16,
-) -> Result<Vec<SocketAddr>, RuntimeError> {
-    let mut addresses = Vec::new();
-    let resolved = tokio::net::lookup_host((server, port))
-        .await
-        .map_err(|error| {
-            RuntimeError::Io(io::Error::other(format!(
-                "quic resolve {server}:{port}: {error}"
-            )))
-        })?;
-
-    for address in resolved {
-        if !addresses.contains(&address) {
-            addresses.push(address);
-        }
-    }
-
-    if addresses.is_empty() {
-        return Err(RuntimeError::Io(io::Error::other(format!(
-            "quic resolve {server}:{port}: no addresses returned"
-        ))));
-    }
-
-    Ok(addresses)
 }
 
 fn wildcard_bind_addr(server_addr: SocketAddr) -> SocketAddr {

@@ -52,7 +52,19 @@ pub async fn open_quic_connection(
     transport.datagram_receive_buffer_size(options.datagram_receive_buffer_size);
     client_config.transport_config(Arc::new(transport));
 
-    let server_addrs = resolve_server_addresses(options.server, options.port).await?;
+    let server_addrs = options
+        .socket_factory
+        .resolve_server_addresses(options.server, options.port)
+        .await
+        .map_err(|error| {
+            RuntimeError::Io(io::Error::new(
+                error.kind(),
+                format!(
+                    "quic resolve {}:{}: {error}",
+                    options.server, options.port
+                ),
+            ))
+        })?;
     let mut last_error = None;
 
     for server_addr in server_addrs {
@@ -99,34 +111,6 @@ pub async fn open_quic_connection(
         options.port,
         last_error.unwrap_or_else(|| "no resolved address was connectable".to_owned())
     ))))
-}
-
-async fn resolve_server_addresses(
-    server: &str,
-    port: u16,
-) -> Result<Vec<SocketAddr>, RuntimeError> {
-    let mut addresses = Vec::new();
-    let resolved = tokio::net::lookup_host((server, port))
-        .await
-        .map_err(|error| {
-            RuntimeError::Io(io::Error::other(format!(
-                "quic resolve {server}:{port}: {error}"
-            )))
-        })?;
-
-    for address in resolved {
-        if !addresses.contains(&address) {
-            addresses.push(address);
-        }
-    }
-
-    if addresses.is_empty() {
-        return Err(RuntimeError::Io(io::Error::other(format!(
-            "quic resolve {server}:{port}: no addresses returned"
-        ))));
-    }
-
-    Ok(addresses)
 }
 
 fn wildcard_bind_addr(server_addr: SocketAddr) -> SocketAddr {

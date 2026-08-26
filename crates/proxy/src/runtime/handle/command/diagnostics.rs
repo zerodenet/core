@@ -4,6 +4,7 @@ use crate::runtime::outbound_probe::{
 use crate::runtime::route_runtime::route_trace_for_session;
 use tracing::info;
 use zero_core::{Network, ProtocolType, Session};
+use zero_dns::DnsQueryRole;
 use zero_traits::{DnsResolver, IpAddress};
 
 use super::super::util::parse_ip_address;
@@ -105,12 +106,30 @@ pub(super) fn execute_diagnostics_dns_lookup(
                 .map(ip_address_string)
                 .collect::<Vec<_>>();
             let count = addresses.len();
+            let attempts = proxy
+                .resolver
+                .recent_query_attempts(&hostname, DnsQueryRole::Default, 8)
+                .into_iter()
+                .map(|attempt| {
+                    serde_json::json!({
+                        "role": attempt.role.as_str(),
+                        "server_tag": attempt.server_tag,
+                        "transport": attempt.transport,
+                        "server_endpoints": attempt.server_endpoints,
+                        "outbound": attempt.outbound,
+                        "success": attempt.success,
+                        "failure_reason": attempt.failure_reason,
+                    })
+                })
+                .collect::<Vec<_>>();
             Ok(zero_api::CommandResponse {
                 accepted: true,
                 result: Some(serde_json::json!({
                     "hostname": hostname,
+                    "query_role": DnsQueryRole::Default.as_str(),
                     "resolved_addresses": addresses,
                     "count": count,
+                    "attempts": attempts,
                 })),
             })
         })

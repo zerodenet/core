@@ -184,12 +184,148 @@ async fn dns_policy_times_out_primary_and_uses_explicit_fallback() {
             timeout_ms: 50,
             fallback_servers: vec!["fallback".to_owned()],
             address_family: DnsAddressFamilyPolicy::Ipv4Only,
+            ..Default::default()
         },
     }))
     .unwrap();
 
     let addresses = dns.resolve_real("fallback.example").await.unwrap();
     assert_eq!(addresses, vec![IpAddress::V4([192, 0, 2, 44])]);
+    primary_task.await.unwrap();
+    fallback_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn dns_roles_use_isolated_primary_servers() {
+    async fn server(address: IpAddress) -> (u16, tokio::task::JoinHandle<()>) {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("bind role DNS");
+        let port = socket.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            let mut request = [0_u8; 4096];
+            let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+            let response = zero_dns::udp::build_dns_response(&request[..size], &[address]);
+            socket.send_to(&response, peer).await.unwrap();
+        });
+        (port, task)
+    }
+
+    let (default_port, default_task) = server(IpAddress::V4([192, 0, 2, 10])).await;
+    let (direct_port, direct_task) = server(IpAddress::V4([192, 0, 2, 20])).await;
+    let (node_port, node_task) = server(IpAddress::V4([192, 0, 2, 30])).await;
+    let udp = |port| DnsServerConfig::Udp {
+        host: "127.0.0.1".to_owned(),
+        port,
+        bootstrap: Vec::new(),
+    };
+    let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
+        servers: BTreeMap::from([
+            ("default".to_owned(), udp(default_port)),
+            ("direct".to_owned(), udp(direct_port)),
+            ("node".to_owned(), udp(node_port)),
+        ]),
+        default_server: "default".to_owned(),
+        dispatch: Vec::new(),
+        cache: None,
+        reverse_mapping: None,
+        answer: DnsAnswerConfig::Real,
+        policy: DnsPolicyConfig {
+            node_server: Some("node".to_owned()),
+            direct_server: Some("direct".to_owned()),
+            address_family: DnsAddressFamilyPolicy::Ipv4Only,
+            ..Default::default()
+        },
+    }))
+    .unwrap();
+
+    assert_eq!(
+        dns.resolve_real("role.example").await.unwrap(),
+        vec![IpAddress::V4([192, 0, 2, 10])]
+    );
+    assert_eq!(
+        dns.resolve_direct("role.example").await.unwrap(),
+        vec![IpAddress::V4([192, 0, 2, 20])]
+    );
+    assert_eq!(
+        dns.resolve_node("role.example").await.unwrap(),
+        vec![IpAddress::V4([192, 0, 2, 30])]
+    );
+    default_task.await.unwrap();
+    direct_task.await.unwrap();
+    node_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn rejected_address_response_advances_to_fallback() {
+    let primary = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("bind primary DNS");
+    let primary_port = primary.local_addr().unwrap().port();
+    let primary_task = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = primary.recv_from(&mut request).await.unwrap();
+        let response = zero_dns::udp::build_dns_response(
+            &request[..size],
+            &[IpAddress::V4([203, 0, 113, 9])],
+        );
+        primary.send_to(&response, peer).await.unwrap();
+    });
+    let fallback = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("bind fallback DNS");
+    let fallback_port = fallback.local_addr().unwrap().port();
+    let fallback_task = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = fallback.recv_from(&mut request).await.unwrap();
+        let response = zero_dns::udp::build_dns_response(
+            &request[..size],
+            &[IpAddress::V4([192, 0, 2, 44])],
+        );
+        fallback.send_to(&response, peer).await.unwrap();
+    });
+    let udp = |port| DnsServerConfig::Udp {
+        host: "127.0.0.1".to_owned(),
+        port,
+        bootstrap: Vec::new(),
+    };
+    let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
+        servers: BTreeMap::from([
+            ("primary".to_owned(), udp(primary_port)),
+            ("fallback".to_owned(), udp(fallback_port)),
+        ]),
+        default_server: "primary".to_owned(),
+        dispatch: Vec::new(),
+        cache: None,
+        reverse_mapping: None,
+        answer: DnsAnswerConfig::Real,
+        policy: DnsPolicyConfig {
+            fallback_servers: vec!["fallback".to_owned()],
+            reject_address_cidrs: vec!["203.0.113.0/24".parse().unwrap()],
+            address_family: DnsAddressFamilyPolicy::Ipv4Only,
+            ..Default::default()
+        },
+    }))
+    .unwrap();
+
+    assert_eq!(
+        dns.resolve_real("filtered.example").await.unwrap(),
+        vec![IpAddress::V4([192, 0, 2, 44])]
+    );
+    let attempts = dns.recent_query_attempts(
+        "filtered.example",
+        zero_dns::DnsQueryRole::Default,
+        8,
+    );
+    assert_eq!(attempts.len(), 2);
+    assert!(attempts[0].success);
+    assert_eq!(attempts[0].server_tag, "fallback");
+    assert!(!attempts[1].success);
+    assert_eq!(attempts[1].server_tag, "primary");
+    assert!(attempts[1]
+        .failure_reason
+        .as_deref()
+        .is_some_and(|error| error.contains("rejected address")));
     primary_task.await.unwrap();
     fallback_task.await.unwrap();
 }

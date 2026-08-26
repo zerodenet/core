@@ -32,6 +32,7 @@ fn config(port: u16) -> DnsConfig {
             timeout_ms: 1_000,
             fallback_servers: Vec::new(),
             address_family: DnsAddressFamilyPolicy::Ipv4Only,
+            ..Default::default()
         },
     }
 }

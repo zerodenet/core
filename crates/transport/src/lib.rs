@@ -32,7 +32,9 @@ pub mod udp_packet_path;
 pub mod ws;
 
 pub use metered::MeteredStream;
-pub use outbound_datagram::OutboundDatagramSocketFactory;
+pub use outbound_datagram::{
+    OutboundDatagramSocketFactory, OutboundHostResolveFuture, OutboundHostResolver,
+};
 pub use stream::{
     ClientStream, PrefixedSocket, RecordingStream, RelayCarrier, ReplayStream, TcpRelayStream,
 };

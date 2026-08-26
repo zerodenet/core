@@ -104,7 +104,7 @@ impl DirectConnector {
         }
 
         let candidates =
-            resolve_host_addresses(host, port, resolver, "failed to resolve upstream target")
+            resolve_node_host_addresses(host, port, resolver, "failed to resolve upstream target")
                 .await?;
         dial_tcp_candidates(candidates, egress)
             .await
@@ -129,6 +129,31 @@ impl DirectConnector {
             .ok_or(Error::Io("target resolved to no addresses"))
     }
 
+    pub(crate) async fn resolve_node_address(
+        &self,
+        address: &Address,
+        port: u16,
+        resolver: &DnsSystem,
+        error_message: &'static str,
+    ) -> Result<SocketAddr, Error> {
+        match address {
+            Address::Domain(domain) => {
+                resolve_node_host_addresses(domain, port, resolver, error_message).await
+            }
+            Address::Ipv4(bytes) => Ok(vec![SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::from(*bytes)),
+                port,
+            )]),
+            Address::Ipv6(bytes) => Ok(vec![SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::from(*bytes)),
+                port,
+            )]),
+        }?
+        .into_iter()
+        .next()
+        .ok_or(Error::Io("node resolved to no addresses"))
+    }
+
     pub(crate) async fn resolve_addresses(
         &self,
         address: &Address,
@@ -138,7 +163,7 @@ impl DirectConnector {
     ) -> Result<Vec<SocketAddr>, Error> {
         match address {
             Address::Domain(domain) => {
-                resolve_host_addresses(domain, port, resolver, error_message).await
+                resolve_direct_host_addresses(domain, port, resolver, error_message).await
             }
             Address::Ipv4(bytes) => Ok(vec![SocketAddr::new(
                 IpAddr::V4(Ipv4Addr::from(*bytes)),
@@ -231,16 +256,49 @@ fn socket_addr_from_ip(ip: IpAddress, port: u16) -> SocketAddr {
     }
 }
 
-async fn resolve_host_addresses(
+async fn resolve_direct_host_addresses(
     host: &str,
     port: u16,
     resolver: &DnsSystem,
     error_message: &'static str,
 ) -> Result<Vec<SocketAddr>, Error> {
-    let resolved = resolver.resolve_real(host).await.map_err(|error| {
-        tracing::warn!(domain = host, error = %error, "real DNS resolution failed");
+    let resolved = resolver.resolve_direct(host).await.map_err(|error| {
+        tracing::warn!(
+            domain = host,
+            role = "direct",
+            error = %error,
+            "real DNS resolution failed"
+        );
         Error::Io(error_message)
     })?;
+    resolved_socket_addresses(resolved, port)
+}
+
+async fn resolve_node_host_addresses(
+    host: &str,
+    port: u16,
+    resolver: &DnsSystem,
+    error_message: &'static str,
+) -> Result<Vec<SocketAddr>, Error> {
+    if let Ok(address) = host.parse::<IpAddr>() {
+        return Ok(vec![SocketAddr::new(address, port)]);
+    }
+    let resolved = resolver.resolve_node(host).await.map_err(|error| {
+        tracing::warn!(
+            domain = host,
+            role = "node",
+            error = %error,
+            "real DNS resolution failed"
+        );
+        Error::Io(error_message)
+    })?;
+    resolved_socket_addresses(resolved, port)
+}
+
+fn resolved_socket_addresses(
+    resolved: Vec<IpAddress>,
+    port: u16,
+) -> Result<Vec<SocketAddr>, Error> {
     if resolved.is_empty() {
         return Err(Error::Io("target resolved to no addresses"));
     }

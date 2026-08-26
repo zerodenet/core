@@ -32,24 +32,91 @@ pub(super) fn validate_dns_config(
 }
 
 fn validate_policy(dns: &DnsConfig) -> Result<(), ConfigError> {
-    if dns.policy.timeout_ms == 0 || dns.policy.timeout_ms > 120_000 {
-        return Err(ConfigError::InvalidDns(
-            "`dns.policy.timeout_ms` must be between 1 and 120000".to_owned(),
-        ));
+    validate_timeout("`dns.policy.timeout_ms`", dns.policy.timeout_ms)?;
+    for (tag, timeout_ms) in &dns.policy.server_timeout_ms {
+        validate_server_reference(dns, "`dns.policy.server_timeout_ms`", tag)?;
+        validate_timeout(
+            &format!("`dns.policy.server_timeout_ms.{tag}`"),
+            *timeout_ms,
+        )?;
     }
 
-    let mut fallbacks = HashSet::new();
-    for tag in &dns.policy.fallback_servers {
-        if !dns.servers.contains_key(tag) {
+    validate_fallbacks(
+        dns,
+        "`dns.policy.fallback_servers`",
+        &dns.policy.fallback_servers,
+    )?;
+    validate_role(
+        dns,
+        "node",
+        dns.policy.node_server.as_deref(),
+        &dns.policy.node_fallback_servers,
+    )?;
+    validate_role(
+        dns,
+        "direct",
+        dns.policy.direct_server.as_deref(),
+        &dns.policy.direct_fallback_servers,
+    )?;
+    Ok(())
+}
+
+fn validate_timeout(field: &str, timeout_ms: u64) -> Result<(), ConfigError> {
+    if timeout_ms == 0 || timeout_ms > 120_000 {
+        return Err(ConfigError::InvalidDns(format!(
+            "{field} must be between 1 and 120000"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_server_reference(dns: &DnsConfig, field: &str, tag: &str) -> Result<(), ConfigError> {
+    if !dns.servers.contains_key(tag) {
+        return Err(ConfigError::InvalidDns(format!(
+            "{field} references undefined server `{tag}`"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_fallbacks(
+    dns: &DnsConfig,
+    field: &str,
+    fallbacks: &[String],
+) -> Result<(), ConfigError> {
+    let mut seen = HashSet::new();
+    for tag in fallbacks {
+        validate_server_reference(dns, field, tag)?;
+        if !seen.insert(tag) {
             return Err(ConfigError::InvalidDns(format!(
-                "`dns.policy.fallback_servers` references undefined server `{tag}`"
+                "{field} contains duplicate server `{tag}`"
             )));
         }
-        if !fallbacks.insert(tag) {
-            return Err(ConfigError::InvalidDns(format!(
-                "`dns.policy.fallback_servers` contains duplicate server `{tag}`"
-            )));
-        }
+    }
+    Ok(())
+}
+
+fn validate_role(
+    dns: &DnsConfig,
+    role: &str,
+    server: Option<&str>,
+    fallbacks: &[String],
+) -> Result<(), ConfigError> {
+    let server_field = format!("`dns.policy.{role}_server`");
+    let fallback_field = format!("`dns.policy.{role}_fallback_servers`");
+    if let Some(server) = server {
+        validate_server_reference(dns, &server_field, server)?;
+    } else if !fallbacks.is_empty() {
+        return Err(ConfigError::InvalidDns(format!(
+            "{fallback_field} requires {server_field}"
+        )));
+    }
+    validate_fallbacks(dns, &fallback_field, fallbacks)?;
+    if let Some(server) = server.filter(|server| fallbacks.iter().any(|fallback| fallback == server))
+    {
+        return Err(ConfigError::InvalidDns(format!(
+            "{fallback_field} must not repeat primary server `{server}`"
+        )));
     }
     Ok(())
 }
@@ -84,10 +151,7 @@ fn validate_servers(dns: &DnsConfig) -> Result<(), ConfigError> {
                 )));
             }
         }
-        if matches!(
-            server,
-            DnsServerConfig::Udp { .. } | DnsServerConfig::Dot { .. } | DnsServerConfig::Doq { .. }
-        ) {
+        if !matches!(server, DnsServerConfig::System) {
             server
                 .endpoint_addresses()
                 .map_err(|error| ConfigError::InvalidDns(format!("dns server `{tag}`: {error}")))?;

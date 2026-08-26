@@ -13,7 +13,7 @@ mod router;
 mod system;
 pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
@@ -31,6 +31,40 @@ pub use reverse::RealIpReverseLookup;
 use router::DnsDispatcher;
 use system::TokioSystemResolver;
 
+/// Isolation domain for DNS queries emitted by the runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DnsQueryRole {
+    /// Client/intercepted queries and proxy-routed target resolution.
+    Default,
+    /// Targets selected for the direct outbound.
+    Direct,
+    /// Proxy nodes and their carrier endpoints.
+    Node,
+}
+
+/// One backend attempt retained for DNS diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DnsQueryAttempt {
+    pub domain: String,
+    pub role: DnsQueryRole,
+    pub server_tag: String,
+    pub transport: &'static str,
+    pub server_endpoints: Vec<String>,
+    pub outbound: String,
+    pub success: bool,
+    pub failure_reason: Option<String>,
+}
+
+impl DnsQueryRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Direct => "direct",
+            Self::Node => "node",
+        }
+    }
+}
+
 /// The configured DNS subsystem.
 ///
 /// Implements [`DnsResolver`] so it can be passed directly to
@@ -43,6 +77,7 @@ pub struct DnsSystem {
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     fake_ip_state_path: Option<PathBuf>,
     fake_ip_state_lease: std::sync::Mutex<Option<Arc<fake_ip::StateLease>>>,
+    query_attempts: Arc<std::sync::Mutex<VecDeque<DnsQueryAttempt>>>,
 }
 
 impl fmt::Debug for DnsSystem {
@@ -81,6 +116,7 @@ struct ResolveSnapshot {
     fake_ip: Option<Arc<FakeIpAllocator>>,
     reverse_mapping: Option<RealIpReverseIndex>,
     policy: DnsPolicyConfig,
+    query_attempts: Arc<std::sync::Mutex<VecDeque<DnsQueryAttempt>>>,
 }
 
 impl DnsSystem {
@@ -142,6 +178,7 @@ impl DnsSystem {
             egress_interface,
             fake_ip_state_path,
             fake_ip_state_lease: std::sync::Mutex::new(fake_ip_state_lease),
+            query_attempts: Arc::new(std::sync::Mutex::new(VecDeque::new())),
         })
     }
 
@@ -397,8 +434,30 @@ impl DnsSystem {
                 fake_ip: fake_ip.clone(),
                 reverse_mapping: reverse_mapping.clone(),
                 policy: policy.clone(),
+                query_attempts: self.query_attempts.clone(),
             }),
         }
+    }
+
+    /// Return the newest backend attempts for one normalized query role.
+    pub fn recent_query_attempts(
+        &self,
+        domain: &str,
+        role: DnsQueryRole,
+        limit: usize,
+    ) -> Vec<DnsQueryAttempt> {
+        let Ok(domain) = message::normalize_domain(domain) else {
+            return Vec::new();
+        };
+        self.query_attempts
+            .lock()
+            .expect("DNS query attempt lock poisoned")
+            .iter()
+            .rev()
+            .filter(|attempt| attempt.domain == domain && attempt.role == role)
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     /// Resolve a domain through the configured real DNS backends.
@@ -407,9 +466,32 @@ impl DnsSystem {
     /// synthetic fake IP. Internal routing and upstream dialing use this path
     /// after a fake-IP target has been restored to its original domain.
     pub async fn resolve_real(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
+        self.resolve_real_for_role(domain, DnsQueryRole::Default)
+            .await
+    }
+
+    /// Resolve a target selected for the direct outbound through its isolated
+    /// DNS role. This never allocates a synthetic Fake-IP.
+    pub async fn resolve_direct(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
+        self.resolve_real_for_role(domain, DnsQueryRole::Direct)
+            .await
+    }
+
+    /// Resolve a proxy node or carrier endpoint through the bootstrap/node
+    /// DNS role. This never allocates a synthetic Fake-IP.
+    pub async fn resolve_node(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
+        self.resolve_real_for_role(domain, DnsQueryRole::Node)
+            .await
+    }
+
+    async fn resolve_real_for_role(
+        &self,
+        domain: &str,
+        role: DnsQueryRole,
+    ) -> io::Result<Vec<IpAddress>> {
         let domain = message::normalize_domain(domain)?;
         match self.snapshot() {
-            Some(snapshot) => resolve_snapshot(&domain, snapshot).await,
+            Some(snapshot) => resolve_snapshot(&domain, role, snapshot).await,
             None => {
                 let (ipv4, ipv6) = tokio::join!(
                     self.resolve_system_type(&domain, message::TYPE_A),
@@ -434,7 +516,9 @@ impl DnsSystem {
         }
         let domain = message::normalize_domain(domain)?;
         match self.snapshot() {
-            Some(snapshot) => resolve_snapshot_type(&domain, query_type, snapshot).await,
+            Some(snapshot) => {
+                resolve_snapshot_type(&domain, query_type, DnsQueryRole::Default, snapshot).await
+            }
             None => self.resolve_system_type(&domain, query_type).await,
         }
     }
@@ -545,7 +629,12 @@ impl DnsSystem {
             .cloned()
         {
             if let Some(cached) = cache
-                .get_response(&question.domain, question.query_type, query)
+                .get_response(
+                    DnsQueryRole::Default,
+                    &question.domain,
+                    question.query_type,
+                    query,
+                )
                 .await
             {
                 return cached;
@@ -553,7 +642,12 @@ impl DnsSystem {
         }
 
         let result = match snapshot.as_ref() {
-            Some(snapshot) => exchange_snapshot(query, &question.domain, snapshot)
+            Some(snapshot) => exchange_snapshot(
+                query,
+                &question.domain,
+                DnsQueryRole::Default,
+                snapshot,
+            )
                 .await
                 .map(|(response, _)| response),
             None => {
@@ -582,6 +676,7 @@ impl DnsSystem {
                     {
                         cache
                             .put_response(
+                                DnsQueryRole::Default,
                                 &question.domain,
                                 question.query_type,
                                 parsed.addresses.clone(),
@@ -623,7 +718,7 @@ impl DnsResolver for DnsSystem {
         }
 
         let domain = message::normalize_domain(domain)?;
-        resolve_snapshot(&domain, snapshot).await
+        resolve_snapshot(&domain, DnsQueryRole::Default, snapshot).await
     }
 }
 
@@ -656,25 +751,29 @@ async fn allocate_fake_addresses(
     }
 }
 
-async fn resolve_snapshot(domain: &str, snapshot: ResolveSnapshot) -> io::Result<Vec<IpAddress>> {
+async fn resolve_snapshot(
+    domain: &str,
+    role: DnsQueryRole,
+    snapshot: ResolveSnapshot,
+) -> io::Result<Vec<IpAddress>> {
     match snapshot.policy.address_family {
         DnsAddressFamilyPolicy::Ipv4Only => {
-            resolve_snapshot_type(domain, message::TYPE_A, snapshot).await
+            resolve_snapshot_type(domain, message::TYPE_A, role, snapshot).await
         }
         DnsAddressFamilyPolicy::Ipv6Only => {
-            resolve_snapshot_type(domain, message::TYPE_AAAA, snapshot).await
+            resolve_snapshot_type(domain, message::TYPE_AAAA, role, snapshot).await
         }
         DnsAddressFamilyPolicy::PreferIpv4 => {
             let (ipv4, ipv6) = tokio::join!(
-                resolve_snapshot_type(domain, message::TYPE_A, snapshot.clone()),
-                resolve_snapshot_type(domain, message::TYPE_AAAA, snapshot),
+                resolve_snapshot_type(domain, message::TYPE_A, role, snapshot.clone()),
+                resolve_snapshot_type(domain, message::TYPE_AAAA, role, snapshot),
             );
             combine_address_families(ipv4, ipv6)
         }
         DnsAddressFamilyPolicy::PreferIpv6 => {
             let (ipv4, ipv6) = tokio::join!(
-                resolve_snapshot_type(domain, message::TYPE_A, snapshot.clone()),
-                resolve_snapshot_type(domain, message::TYPE_AAAA, snapshot),
+                resolve_snapshot_type(domain, message::TYPE_A, role, snapshot.clone()),
+                resolve_snapshot_type(domain, message::TYPE_AAAA, role, snapshot),
             );
             combine_address_families(ipv6, ipv4)
         }
@@ -705,11 +804,12 @@ fn combine_address_families(
 async fn resolve_snapshot_type(
     domain: &str,
     query_type: u16,
+    role: DnsQueryRole,
     snapshot: ResolveSnapshot,
 ) -> io::Result<Vec<IpAddress>> {
     // 1. Check cache.
     if let Some(ref cache) = snapshot.cache {
-        if let Some(ips) = cache.get(domain, query_type).await {
+        if let Some(ips) = cache.get(role, domain, query_type).await {
             return Ok(ips);
         }
     }
@@ -717,7 +817,7 @@ async fn resolve_snapshot_type(
     // 2. Dispatch to the selected backend, then walk the explicit fallback
     // chain on transport failure, timeout, malformed data, or retryable RCODE.
     let query = message::build_query(domain, query_type)?;
-    let result = exchange_snapshot(&query, domain, &snapshot)
+    let result = exchange_snapshot(&query, domain, role, &snapshot)
         .await
         .and_then(|(_, parsed)| match parsed.response_code {
             message::RCODE_NOERROR => Ok(backends::ResolvedAddresses {
@@ -737,14 +837,17 @@ async fn resolve_snapshot_type(
 
     // 3. Cache on success using the upstream record TTL.
     if let Ok(resolved) = &result {
-        if let Some(reverse_mapping) = &snapshot.reverse_mapping {
-            reverse_mapping
-                .record(domain, &resolved.addresses, resolved.ttl_seconds)
-                .await;
+        if role == DnsQueryRole::Default {
+            if let Some(reverse_mapping) = &snapshot.reverse_mapping {
+                reverse_mapping
+                    .record(domain, &resolved.addresses, resolved.ttl_seconds)
+                    .await;
+            }
         }
         if let Some(cache) = &snapshot.cache {
             cache
                 .put(
+                    role,
                     domain,
                     query_type,
                     resolved.addresses.clone(),
@@ -760,18 +863,37 @@ async fn resolve_snapshot_type(
 async fn exchange_snapshot(
     query: &[u8],
     domain: &str,
+    role: DnsQueryRole,
     snapshot: &ResolveSnapshot,
 ) -> io::Result<(Vec<u8>, message::ParsedDnsResponse)> {
-    let selected = snapshot.dispatcher.select(domain);
-    let mut tags = Vec::with_capacity(1 + snapshot.policy.fallback_servers.len());
+    let (selected, fallbacks) = match role {
+        DnsQueryRole::Default => (
+            snapshot.dispatcher.select(domain),
+            snapshot.policy.fallback_servers.as_slice(),
+        ),
+        DnsQueryRole::Direct => match snapshot.policy.direct_server.as_deref() {
+            Some(server) => (server, snapshot.policy.direct_fallback_servers.as_slice()),
+            None => (
+                snapshot.dispatcher.select(domain),
+                snapshot.policy.fallback_servers.as_slice(),
+            ),
+        },
+        DnsQueryRole::Node => match snapshot.policy.node_server.as_deref() {
+            Some(server) => (server, snapshot.policy.node_fallback_servers.as_slice()),
+            None => (
+                snapshot.dispatcher.select(domain),
+                snapshot.policy.fallback_servers.as_slice(),
+            ),
+        },
+    };
+    let mut tags = Vec::with_capacity(1 + fallbacks.len());
     tags.push(selected);
-    for fallback in &snapshot.policy.fallback_servers {
+    for fallback in fallbacks {
         if !tags.contains(&fallback.as_str()) {
             tags.push(fallback);
         }
     }
 
-    let deadline = std::time::Duration::from_millis(snapshot.policy.timeout_ms);
     let mut last_error = None;
     for tag in tags {
         let backend = snapshot.servers.get(tag).ok_or_else(|| {
@@ -780,18 +902,36 @@ async fn exchange_snapshot(
                 format!("DNS policy selected undefined backend `{tag}`"),
             )
         })?;
+        let timeout_ms = snapshot.policy.timeout_ms_for(tag);
+        let deadline = std::time::Duration::from_millis(timeout_ms);
         let attempt = match tokio::time::timeout(deadline, backend.exchange(query)).await {
             Ok(result) => result,
             Err(_) => Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 format!(
                     "DNS backend `{tag}` timed out after {}ms",
-                    snapshot.policy.timeout_ms
+                    timeout_ms
                 ),
             )),
         };
         match attempt.and_then(|response| {
             let parsed = message::parse_response(query, &response)?;
+            if let Some(address) = parsed.addresses.iter().find(|address| {
+                let address = ip_address_to_std(**address);
+                snapshot
+                    .policy
+                    .reject_address_cidrs
+                    .iter()
+                    .any(|cidr| cidr.contains(&address))
+            }) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "DNS backend `{tag}` returned rejected address {}",
+                        format_ip_address(address)
+                    ),
+                ));
+            }
             if matches!(
                 parsed.response_code,
                 message::RCODE_NOERROR | message::RCODE_NXDOMAIN
@@ -804,9 +944,26 @@ async fn exchange_snapshot(
                 )))
             }
         }) {
-            Ok(response) => return Ok(response),
+            Ok(response) => {
+                record_query_attempt(snapshot, domain, role, tag, backend, None);
+                return Ok(response);
+            }
             Err(error) => {
-                tracing::warn!(%error, %domain, backend = %tag, "DNS backend attempt failed");
+                tracing::warn!(
+                    %error,
+                    %domain,
+                    role = role.as_str(),
+                    backend = %tag,
+                    "DNS backend attempt failed"
+                );
+                record_query_attempt(
+                    snapshot,
+                    domain,
+                    role,
+                    tag,
+                    backend,
+                    Some(error.to_string()),
+                );
                 last_error = Some(error);
             }
         }
@@ -814,6 +971,34 @@ async fn exchange_snapshot(
     Err(last_error.unwrap_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "DNS policy has no backend")
     }))
+}
+
+fn record_query_attempt(
+    snapshot: &ResolveSnapshot,
+    domain: &str,
+    role: DnsQueryRole,
+    server_tag: &str,
+    backend: &ResolverBackend,
+    failure_reason: Option<String>,
+) {
+    const QUERY_ATTEMPT_CAPACITY: usize = 256;
+    let mut attempts = snapshot
+        .query_attempts
+        .lock()
+        .expect("DNS query attempt lock poisoned");
+    if attempts.len() >= QUERY_ATTEMPT_CAPACITY {
+        attempts.pop_front();
+    }
+    attempts.push_back(DnsQueryAttempt {
+        domain: domain.to_owned(),
+        role,
+        server_tag: server_tag.to_owned(),
+        transport: backend.transport_name(),
+        server_endpoints: backend.endpoint_labels(),
+        outbound: "direct".to_owned(),
+        success: failure_reason.is_none(),
+        failure_reason,
+    });
 }
 
 fn compile_standalone_dispatch(
@@ -833,5 +1018,12 @@ fn format_ip_address(ip: &IpAddress) -> String {
     match ip {
         IpAddress::V4(octets) => std::net::Ipv4Addr::from(*octets).to_string(),
         IpAddress::V6(octets) => std::net::Ipv6Addr::from(*octets).to_string(),
+    }
+}
+
+fn ip_address_to_std(ip: IpAddress) -> std::net::IpAddr {
+    match ip {
+        IpAddress::V4(octets) => std::net::IpAddr::V4(std::net::Ipv4Addr::from(octets)),
+        IpAddress::V6(octets) => std::net::IpAddr::V6(std::net::Ipv6Addr::from(octets)),
     }
 }

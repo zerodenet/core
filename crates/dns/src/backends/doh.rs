@@ -9,7 +9,6 @@ use http::{Method, Request};
 const DNS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) struct DohDnsResolver {
-    host: String,
     port: u16,
     path: String,
     addrs: Vec<SocketAddr>,
@@ -40,6 +39,12 @@ impl DohDnsResolver {
         } else {
             bootstrap
         };
+        if ips.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("DoH host `{host}` requires a bootstrap address"),
+            ));
+        }
         let roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let mut tls = rustls::ClientConfig::builder_with_provider(Arc::new(
@@ -56,7 +61,6 @@ impl DohDnsResolver {
                 .map(|ip| SocketAddr::new(ip, port))
                 .collect(),
             server_name: server_name.unwrap_or_else(|| host.clone()),
-            host,
             port,
             path,
             tls: Arc::new(tls),
@@ -67,7 +71,7 @@ impl DohDnsResolver {
     }
 
     pub(crate) async fn exchange(&self, query: &[u8]) -> io::Result<Vec<u8>> {
-        let addrs = self.endpoint_addresses().await?;
+        let addrs = self.endpoint_addresses();
         let mut last_error = None;
         for addr in addrs {
             match self.exchange_with(addr, query).await {
@@ -80,13 +84,12 @@ impl DohDnsResolver {
         }))
     }
 
-    async fn endpoint_addresses(&self) -> io::Result<Vec<SocketAddr>> {
-        if !self.addrs.is_empty() {
-            return Ok(self.addrs.clone());
-        }
-        tokio::net::lookup_host((self.host.as_str(), self.port))
-            .await
-            .map(|addrs| addrs.collect())
+    fn endpoint_addresses(&self) -> Vec<SocketAddr> {
+        self.addrs.clone()
+    }
+
+    pub(crate) fn endpoint_labels(&self) -> Vec<String> {
+        self.addrs.iter().map(ToString::to_string).collect()
     }
 
     async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
