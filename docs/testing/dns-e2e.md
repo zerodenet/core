@@ -132,11 +132,15 @@ journals are migrated in place and retain their live IPv4 mappings while IPv6
 addresses are allocated from the configured v2 pool.
 
 TUN without Fake-IP remains supported. For TLS on ports 443 and 8443 Zero can
-recover a plaintext SNI and route by domain; otherwise routing and dialing stay
-on the original IP. ECH and application-owned encrypted DNS are intentionally
-not decrypted. Port-53 hijacking therefore does not intercept an application's
-own DoH, DoT, or DoQ connection. Use existing traffic route rules to route or
-block known encrypted-DNS endpoints when deployment policy requires it.
+recover a plaintext SNI; for HTTP/1.x on ports 80, 8000, 8080, and 8888 it can
+recover a Host header or absolute-form authority. The consumed prefix is always
+replayed byte-for-byte. When a TLS ClientHello carries ECH, Zero does not treat
+the outer public name as the hidden application name: it falls back to an
+unambiguous DNS reverse mapping and then to the original IP. ECH and
+application-owned encrypted DNS are intentionally not decrypted. Port-53
+hijacking therefore does not intercept an application's own DoH, DoT, or DoQ
+connection. Use existing traffic route rules to route or block known
+encrypted-DNS endpoints when deployment policy requires it.
 
 Flow records expose `target.original_ip`, `target.host_source`, and
 `target.fake_ip_reverse_status`. Together with `target.host`, `resolved_ip`, and
