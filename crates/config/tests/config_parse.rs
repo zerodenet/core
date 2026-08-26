@@ -1784,6 +1784,7 @@ fn parses_declarative_tun_runtime_with_safe_defaults() {
     assert_eq!(tun.effective_mtu(config.runtime.network.mtu), 1400);
     assert!(tun.auto_route);
     assert!(tun.include_cidrs.is_empty());
+    assert!(tun.exclude_cidrs.is_empty());
     assert!(tun.dual_stack);
     assert!(tun.strict_route);
     assert!(tun.dns_hijack);
@@ -1795,6 +1796,9 @@ fn validates_declarative_tun_capture_cidrs() {
         r#"{ "addr": "10.0.0.1/24", "auto_route": false, "include_cidrs": ["10.0.0.0/8"] }"#,
         r#"{ "addr": "10.0.0.1/24", "dual_stack": false, "include_cidrs": ["2001:db8::/32"] }"#,
         r#"{ "addr": "10.0.0.1/24", "include_cidrs": ["10.0.0.0/8", "10.0.0.0/8"] }"#,
+        r#"{ "addr": "10.0.0.1/24", "auto_route": false, "exclude_cidrs": ["192.168.0.0/16"] }"#,
+        r#"{ "addr": "10.0.0.1/24", "dual_stack": false, "exclude_cidrs": ["2001:db8::/32"] }"#,
+        r#"{ "addr": "10.0.0.1/24", "exclude_cidrs": ["192.168.0.0/16", "192.168.0.0/16"] }"#,
     ] {
         let raw = format!(
             r#"{{

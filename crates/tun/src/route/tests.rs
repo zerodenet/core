@@ -1,6 +1,9 @@
 use std::net::{IpAddr, Ipv4Addr};
 
-use super::{capture_route_prefixes, RouteInterface, RouteJournal, RouteLease};
+use super::{
+    capture_route_prefixes, capture_route_prefixes_with_exclusions, RouteInterface, RouteJournal,
+    RouteLease,
+};
 
 #[test]
 fn capture_plan_defaults_to_split_routes_and_filters_explicit_families() {
@@ -17,6 +20,47 @@ fn capture_plan_defaults_to_split_routes_and_filters_explicit_families() {
             ],
         ),
         vec!["2001:db8::/32".parse().unwrap()]
+    );
+}
+
+#[test]
+fn capture_plan_subtracts_exclusions_for_both_address_families() {
+    let ipv4 = capture_route_prefixes_with_exclusions(
+        "10.66.0.1".parse().unwrap(),
+        &["10.0.0.0/8".parse().unwrap()],
+        &["10.64.0.0/10".parse().unwrap()],
+    );
+    assert_eq!(
+        ipv4,
+        vec![
+            "10.0.0.0/10".parse().unwrap(),
+            "10.128.0.0/9".parse().unwrap()
+        ]
+    );
+
+    let ipv6 = capture_route_prefixes_with_exclusions(
+        "fd66::1".parse().unwrap(),
+        &["2001:db8::/32".parse().unwrap()],
+        &["2001:db8:8000::/33".parse().unwrap()],
+    );
+    assert_eq!(ipv6, vec!["2001:db8::/33".parse().unwrap()]);
+}
+
+#[test]
+fn broader_and_unrelated_exclusions_are_deterministic() {
+    assert!(capture_route_prefixes_with_exclusions(
+        "10.66.0.1".parse().unwrap(),
+        &["10.0.0.0/8".parse().unwrap()],
+        &["0.0.0.0/0".parse().unwrap()],
+    )
+    .is_empty());
+    assert_eq!(
+        capture_route_prefixes_with_exclusions(
+            "10.66.0.1".parse().unwrap(),
+            &["10.0.0.0/8".parse().unwrap()],
+            &["192.0.2.0/24".parse().unwrap()],
+        ),
+        vec!["10.0.0.0/8".parse().unwrap()]
     );
 }
 

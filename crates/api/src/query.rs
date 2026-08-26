@@ -314,6 +314,8 @@ pub struct TunStatusSnapshot {
     pub auto_route: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub include_cidrs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude_cidrs: Vec<String>,
     #[serde(default)]
     pub dual_stack: bool,
     #[serde(default)]

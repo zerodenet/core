@@ -34,10 +34,21 @@ pub(super) fn execute_tun_start(
                 format!("invalid TUN include CIDR: {error}"),
             )
         })?;
-    if !include_cidrs.is_empty() && !auto_route {
+    let exclude_cidrs = cmd
+        .exclude_cidrs
+        .iter()
+        .map(|cidr| cidr.parse::<ipnet::IpNet>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            zero_api::ApiError::new(
+                zero_api::ApiErrorCode::InvalidArgument,
+                format!("invalid TUN exclude CIDR: {error}"),
+            )
+        })?;
+    if (!include_cidrs.is_empty() || !exclude_cidrs.is_empty()) && !auto_route {
         return Err(zero_api::ApiError::new(
             zero_api::ApiErrorCode::InvalidArgument,
-            "TUN include CIDRs require `auto_route=true`",
+            "TUN include/exclude CIDRs require `auto_route=true`",
         ));
     }
     if include_cidrs.len() > 128 {
@@ -53,6 +64,21 @@ pub(super) fn execute_tun_start(
         return Err(zero_api::ApiError::new(
             zero_api::ApiErrorCode::InvalidArgument,
             "TUN include CIDRs must not contain duplicates",
+        ));
+    }
+    if exclude_cidrs.len() > 128 {
+        return Err(zero_api::ApiError::new(
+            zero_api::ApiErrorCode::InvalidArgument,
+            "TUN exclude CIDRs support at most 128 entries",
+        ));
+    }
+    let unique = exclude_cidrs
+        .iter()
+        .collect::<std::collections::HashSet<_>>();
+    if unique.len() != exclude_cidrs.len() {
+        return Err(zero_api::ApiError::new(
+            zero_api::ApiErrorCode::InvalidArgument,
+            "TUN exclude CIDRs must not contain duplicates",
         ));
     }
     let dual_stack = cmd.dual_stack;
@@ -74,6 +100,7 @@ pub(super) fn execute_tun_start(
                     TunRuntimeOptions {
                         auto_route,
                         include_cidrs,
+                        exclude_cidrs,
                         dual_stack,
                         strict_route,
                         dns_hijack,

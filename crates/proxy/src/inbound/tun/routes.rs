@@ -5,7 +5,9 @@ use std::time::Duration;
 use ipnet::IpNet;
 use tokio::sync::{oneshot, watch};
 use zero_engine::EngineError;
-use zero_tun::{capture_route_prefixes, RouteChangeMonitor, SystemLeakGuard, SystemRouteGuard};
+use zero_tun::{
+    capture_route_prefixes_with_exclusions, RouteChangeMonitor, SystemLeakGuard, SystemRouteGuard,
+};
 
 use crate::runtime::Proxy;
 
@@ -40,15 +42,29 @@ pub(super) struct InstalledRoutes {
     pub last_error: Option<String>,
 }
 
+pub(super) struct RouteInstallSpec {
+    pub tun_name: String,
+    pub recovery_key: String,
+    pub addresses: Vec<(IpAddr, IpAddr)>,
+    pub include_cidrs: Vec<IpNet>,
+    pub exclude_cidrs: Vec<IpNet>,
+    pub excluded: Vec<IpAddr>,
+    pub strict: bool,
+}
+
 pub(super) async fn install(
-    tun_name: String,
-    recovery_key: String,
-    addresses: Vec<(IpAddr, IpAddr)>,
-    include_cidrs: Vec<IpNet>,
-    excluded: Vec<IpAddr>,
-    strict: bool,
+    spec: RouteInstallSpec,
     egress_control: zero_platform_tokio::EgressInterfaceControl,
 ) -> Result<InstalledRoutes, EngineError> {
+    let RouteInstallSpec {
+        tun_name,
+        recovery_key,
+        addresses,
+        include_cidrs,
+        exclude_cidrs,
+        excluded,
+        strict,
+    } = spec;
     tokio::task::spawn_blocking(move || {
         let mut guards = Vec::new();
         let mut last_error = None;
@@ -56,7 +72,9 @@ pub(super) async fn install(
         let previous_v6 = egress_control.current_for(true);
         let protected = addresses
             .iter()
-            .flat_map(|(address, _)| capture_route_prefixes(*address, &include_cidrs))
+            .flat_map(|(address, _)| {
+                capture_route_prefixes_with_exclusions(*address, &include_cidrs, &exclude_cidrs)
+            })
             .collect::<Vec<_>>();
         for (address, netmask) in addresses {
             let ipv6 = address.is_ipv6();
@@ -71,7 +89,7 @@ pub(super) async fn install(
                 &recovery_key,
                 address,
                 netmask,
-                &capture_route_prefixes(address, &include_cidrs),
+                &capture_route_prefixes_with_exclusions(address, &include_cidrs, &exclude_cidrs),
                 &excluded,
                 move |route| {
                     let interface = zero_platform_tokio::EgressInterface::new(
@@ -165,6 +183,7 @@ pub(super) struct RouteRuntimeSpec {
     pub primary_ipv6: bool,
     pub addresses: Vec<(IpAddr, IpAddr)>,
     pub include_cidrs: Vec<IpNet>,
+    pub exclude_cidrs: Vec<IpNet>,
     pub dns_hijack: bool,
     pub strict_route: bool,
 }
@@ -301,9 +320,12 @@ async fn run(
         let recovery_key = spec.recovery_key.clone();
         let addresses = spec.addresses.clone();
         let include_cidrs = spec.include_cidrs.clone();
+        let exclude_cidrs = spec.exclude_cidrs.clone();
         let protected = addresses
             .iter()
-            .flat_map(|(address, _)| capture_route_prefixes(*address, &include_cidrs))
+            .flat_map(|(address, _)| {
+                capture_route_prefixes_with_exclusions(*address, &include_cidrs, &exclude_cidrs)
+            })
             .collect::<Vec<_>>();
         let reconcile_exclusions = exclusions.clone();
         let reconciled = tokio::task::spawn_blocking(move || {
@@ -313,6 +335,7 @@ async fn run(
                 &recovery_key,
                 &addresses,
                 &include_cidrs,
+                &exclude_cidrs,
                 &reconcile_exclusions,
             )
             .and_then(|changed| {
@@ -403,6 +426,7 @@ fn reconcile_guards(
     recovery_key: &str,
     addresses: &[(IpAddr, IpAddr)],
     include_cidrs: &[IpNet],
+    exclude_cidrs: &[IpNet],
     excluded: &[IpAddr],
 ) -> io::Result<bool> {
     let mut changed = false;
@@ -418,7 +442,7 @@ fn reconcile_guards(
                 recovery_key,
                 address,
                 netmask,
-                &capture_route_prefixes(address, include_cidrs),
+                &capture_route_prefixes_with_exclusions(address, include_cidrs, exclude_cidrs),
                 excluded,
             )?);
             changed = true;
@@ -491,6 +515,7 @@ mod tests {
                 "255.255.255.0".parse().unwrap(),
             )],
             include_cidrs: Vec::new(),
+            exclude_cidrs: Vec::new(),
             dns_hijack: true,
             strict_route: true,
         };
