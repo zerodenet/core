@@ -480,8 +480,7 @@ impl DnsSystem {
     /// Resolve a proxy node or carrier endpoint through the bootstrap/node
     /// DNS role. This never allocates a synthetic Fake-IP.
     pub async fn resolve_node(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
-        self.resolve_real_for_role(domain, DnsQueryRole::Node)
-            .await
+        self.resolve_real_for_role(domain, DnsQueryRole::Node).await
     }
 
     async fn resolve_real_for_role(
@@ -642,14 +641,11 @@ impl DnsSystem {
         }
 
         let result = match snapshot.as_ref() {
-            Some(snapshot) => exchange_snapshot(
-                query,
-                &question.domain,
-                DnsQueryRole::Default,
-                snapshot,
-            )
-                .await
-                .map(|(response, _)| response),
+            Some(snapshot) => {
+                exchange_snapshot(query, &question.domain, DnsQueryRole::Default, snapshot)
+                    .await
+                    .map(|(response, _)| response)
+            }
             None => {
                 backends::ResolverBackend::System(TokioSystemResolver)
                     .exchange(query)
@@ -908,10 +904,7 @@ async fn exchange_snapshot(
             Ok(result) => result,
             Err(_) => Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                format!(
-                    "DNS backend `{tag}` timed out after {}ms",
-                    timeout_ms
-                ),
+                format!("DNS backend `{tag}` timed out after {}ms", timeout_ms),
             )),
         };
         match attempt.and_then(|response| {

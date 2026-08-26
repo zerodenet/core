@@ -81,22 +81,15 @@ struct NodeHostResolver {
 }
 
 impl zero_transport::OutboundHostResolver for NodeHostResolver {
-    fn resolve(
-        &self,
-        host: String,
-        port: u16,
-    ) -> zero_transport::OutboundHostResolveFuture {
+    fn resolve(&self, host: String, port: u16) -> zero_transport::OutboundHostResolveFuture {
         let resolver = self.resolver.clone();
         Box::pin(async move {
-            resolver
-                .resolve_node(&host)
-                .await
-                .map(|addresses| {
-                    addresses
-                        .into_iter()
-                        .map(|address| SocketAddr::new(ip_address_to_std(address), port))
-                        .collect()
-                })
+            resolver.resolve_node(&host).await.map(|addresses| {
+                addresses
+                    .into_iter()
+                    .map(|address| SocketAddr::new(ip_address_to_std(address), port))
+                    .collect()
+            })
         })
     }
 }

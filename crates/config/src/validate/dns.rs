@@ -112,7 +112,8 @@ fn validate_role(
         )));
     }
     validate_fallbacks(dns, &fallback_field, fallbacks)?;
-    if let Some(server) = server.filter(|server| fallbacks.iter().any(|fallback| fallback == server))
+    if let Some(server) =
+        server.filter(|server| fallbacks.iter().any(|fallback| fallback == server))
     {
         return Err(ConfigError::InvalidDns(format!(
             "{fallback_field} must not repeat primary server `{server}`"

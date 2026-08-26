@@ -120,9 +120,7 @@ fn dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority() {
 #[test]
 fn outbound_quic_node_resolution_stays_behind_the_runtime_dns_bridge() {
     let transport = read(&workspace_root().join("crates/transport/src/quic.rs"));
-    let hysteria2 = read(
-        &workspace_root().join("protocols/hysteria2/src/transport/connection.rs"),
-    );
+    let hysteria2 = read(&workspace_root().join("protocols/hysteria2/src/transport/connection.rs"));
     let doh = read(&workspace_root().join("crates/dns/src/backends/doh.rs"));
     let factory = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));
 

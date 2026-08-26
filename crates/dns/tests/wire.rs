@@ -265,10 +265,8 @@ async fn rejected_address_response_advances_to_fallback() {
     let primary_task = tokio::spawn(async move {
         let mut request = [0_u8; 4096];
         let (size, peer) = primary.recv_from(&mut request).await.unwrap();
-        let response = zero_dns::udp::build_dns_response(
-            &request[..size],
-            &[IpAddress::V4([203, 0, 113, 9])],
-        );
+        let response =
+            zero_dns::udp::build_dns_response(&request[..size], &[IpAddress::V4([203, 0, 113, 9])]);
         primary.send_to(&response, peer).await.unwrap();
     });
     let fallback = tokio::net::UdpSocket::bind("127.0.0.1:0")
@@ -278,10 +276,8 @@ async fn rejected_address_response_advances_to_fallback() {
     let fallback_task = tokio::spawn(async move {
         let mut request = [0_u8; 4096];
         let (size, peer) = fallback.recv_from(&mut request).await.unwrap();
-        let response = zero_dns::udp::build_dns_response(
-            &request[..size],
-            &[IpAddress::V4([192, 0, 2, 44])],
-        );
+        let response =
+            zero_dns::udp::build_dns_response(&request[..size], &[IpAddress::V4([192, 0, 2, 44])]);
         fallback.send_to(&response, peer).await.unwrap();
     });
     let udp = |port| DnsServerConfig::Udp {
@@ -312,11 +308,8 @@ async fn rejected_address_response_advances_to_fallback() {
         dns.resolve_real("filtered.example").await.unwrap(),
         vec![IpAddress::V4([192, 0, 2, 44])]
     );
-    let attempts = dns.recent_query_attempts(
-        "filtered.example",
-        zero_dns::DnsQueryRole::Default,
-        8,
-    );
+    let attempts =
+        dns.recent_query_attempts("filtered.example", zero_dns::DnsQueryRole::Default, 8);
     assert_eq!(attempts.len(), 2);
     assert!(attempts[0].success);
     assert_eq!(attempts[0].server_tag, "fallback");

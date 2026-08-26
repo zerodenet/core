@@ -59,10 +59,7 @@ pub async fn open_quic_connection(
         .map_err(|error| {
             RuntimeError::Io(io::Error::new(
                 error.kind(),
-                format!(
-                    "quic resolve {}:{}: {error}",
-                    options.server, options.port
-                ),
+                format!("quic resolve {}:{}: {error}", options.server, options.port),
             ))
         })?;
     let mut last_error = None;
