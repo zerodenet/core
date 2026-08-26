@@ -1783,9 +1783,36 @@ fn parses_declarative_tun_runtime_with_safe_defaults() {
     assert_eq!(tun.tag, "tun");
     assert_eq!(tun.effective_mtu(config.runtime.network.mtu), 1400);
     assert!(tun.auto_route);
+    assert!(tun.include_cidrs.is_empty());
     assert!(tun.dual_stack);
     assert!(tun.strict_route);
     assert!(tun.dns_hijack);
+}
+
+#[test]
+fn validates_declarative_tun_capture_cidrs() {
+    for tun in [
+        r#"{ "addr": "10.0.0.1/24", "auto_route": false, "include_cidrs": ["10.0.0.0/8"] }"#,
+        r#"{ "addr": "10.0.0.1/24", "dual_stack": false, "include_cidrs": ["2001:db8::/32"] }"#,
+        r#"{ "addr": "10.0.0.1/24", "include_cidrs": ["10.0.0.0/8", "10.0.0.0/8"] }"#,
+    ] {
+        let raw = format!(
+            r#"{{
+                "runtime": {{
+                    "dns": {{
+                        "servers": {{ "global": {{ "type": "udp", "host": "1.1.1.1" }} }},
+                        "default_server": "global"
+                    }},
+                    "tun": {tun}
+                }},
+                "route": {{ "final": {{ "type": "direct" }} }}
+            }}"#
+        );
+        assert!(matches!(
+            RuntimeConfig::parse(&raw),
+            Err(zero_config::ConfigError::InvalidRuntime(_))
+        ));
+    }
 }
 
 #[test]

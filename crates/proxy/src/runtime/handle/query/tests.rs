@@ -23,6 +23,7 @@ fn running_tun_status_exposes_route_health_and_error() {
         mtu: 1500,
         tag: "tun-in".to_owned(),
         auto_route: true,
+        include_cidrs: Vec::new(),
         dual_stack: false,
         strict_route: true,
         dns_hijack: true,
