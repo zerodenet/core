@@ -114,6 +114,24 @@ fn validate_cache_and_answer(dns: &DnsConfig) -> Result<(), ConfigError> {
         ));
     }
 
+    if let Some(reverse) = &dns.reverse_mapping {
+        if reverse.max_entries == 0 {
+            return Err(ConfigError::InvalidDns(
+                "`dns.reverse_mapping.max_entries` must be greater than 0".to_owned(),
+            ));
+        }
+        if reverse.max_domains_per_address < 2 {
+            return Err(ConfigError::InvalidDns(
+                "`dns.reverse_mapping.max_domains_per_address` must be at least 2 so shared addresses remain ambiguous".to_owned(),
+            ));
+        }
+        if reverse.max_ttl_seconds == 0 {
+            return Err(ConfigError::InvalidDns(
+                "`dns.reverse_mapping.max_ttl_seconds` must be greater than 0".to_owned(),
+            ));
+        }
+    }
+
     let Some(fake_ip) = dns.fake_ip() else {
         return Ok(());
     };

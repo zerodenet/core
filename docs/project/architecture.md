@@ -76,7 +76,7 @@ Zero 的架构遵循以下原则：
 | `zero-grpc` | 可选的 gRPC 控制面适配器 |
 | `zero-ffi` | C 兼容嵌入式接口 |
 | `zero-logging` | 非阻塞结构化日志和事件桥接 |
-| `zero-dns` | system、UDP、DoH、DoT、缓存和 Fake IP 等 DNS 能力 |
+| `zero-dns` | system、UDP、DoH、DoT、缓存、Fake IP 和有界 Real-IP 反向索引等 DNS 能力 |
 
 ## 配置、路由和引擎
 

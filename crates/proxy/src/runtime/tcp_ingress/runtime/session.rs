@@ -1,4 +1,4 @@
-use zero_core::{Address, FakeIpReverseStatus, Session, TargetHostSource};
+use zero_core::{Address, Session};
 use zero_engine::{EngineError, SessionHandle};
 
 use super::super::lifecycle::apply_kernel_rate_limits_from_config;
@@ -6,30 +6,7 @@ use super::model::TcpIngressRuntime;
 
 impl TcpIngressRuntime {
     pub(crate) async fn resolve_fake_ip_target(&self, session: &mut Session) {
-        use zero_traits::IpAddress;
-
-        let (ip, standard_ip) = match &session.target {
-            Address::Ipv4(octets) => (
-                IpAddress::V4(*octets),
-                std::net::IpAddr::V4((*octets).into()),
-            ),
-            Address::Ipv6(octets) => (
-                IpAddress::V6(*octets),
-                std::net::IpAddr::V6((*octets).into()),
-            ),
-            _ => return,
-        };
-        if !self.services.resolver().fake_ip_contains(standard_ip) {
-            return;
-        }
-        session.original_target = Some(session.target.clone());
-        if let Some(domain) = self.services.resolver().lookup_fake_ip(&ip).await {
-            session.target = Address::Domain(domain);
-            session.target_host_source = Some(TargetHostSource::FakeIp);
-            session.fake_ip_reverse_status = Some(FakeIpReverseStatus::Resolved);
-        } else {
-            session.fake_ip_reverse_status = Some(FakeIpReverseStatus::Missing);
-        }
+        crate::runtime::target::resolve_dns_target(self.services.resolver(), session).await;
     }
 
     pub(crate) fn apply_url_rewrite(&self, session: &mut Session) {

@@ -22,6 +22,10 @@ pub struct DnsConfig {
     #[serde(default)]
     pub cache: Option<DnsCacheConfig>,
 
+    /// Optional bounded real-IP to domain index for transparent traffic.
+    #[serde(default)]
+    pub reverse_mapping: Option<DnsReverseMappingConfig>,
+
     /// Address-answer behavior for intercepted DNS requests.
     #[serde(default)]
     pub answer: DnsAnswerConfig,
@@ -281,8 +285,35 @@ pub struct DnsCacheConfig {
     pub max_ttl_seconds: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DnsReverseMappingConfig {
+    /// Maximum distinct real IP addresses retained by the reverse index.
+    #[serde(default = "default_dns_reverse_max_entries")]
+    pub max_entries: usize,
+    /// Maximum candidate domains retained for one shared real IP address.
+    /// Lookups with more than one live candidate are intentionally ambiguous.
+    #[serde(default = "default_dns_reverse_max_domains_per_address")]
+    pub max_domains_per_address: usize,
+    /// Upper bound for retained DNS record TTLs.
+    #[serde(default = "default_dns_reverse_max_ttl_seconds")]
+    pub max_ttl_seconds: u64,
+}
+
 const fn default_dns_cache_max_entries() -> usize {
     256
+}
+
+const fn default_dns_reverse_max_entries() -> usize {
+    1024
+}
+
+const fn default_dns_reverse_max_domains_per_address() -> usize {
+    8
+}
+
+const fn default_dns_reverse_max_ttl_seconds() -> u64 {
+    300
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

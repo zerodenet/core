@@ -249,13 +249,14 @@ async fn accept_tcp(
                     });
                     continue;
                 }
-                let session = Session::new(
+                let mut session = Session::new(
                     0,
                     socket_address_to_address(destination),
                     destination.port,
                     Network::Tcp,
                     ProtocolType::UNKNOWN,
                 );
+                session.transparent_target = true;
                 let runtime = TcpIngressRuntime::new(
                     proxy.tcp_runtime_services(),
                     tag.clone(),

@@ -1964,6 +1964,57 @@ fn rejects_invalid_dns_fallback_policy() {
 }
 
 #[test]
+fn parses_and_validates_dns_real_ip_reverse_mapping() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": { "primary": { "type": "udp", "host": "1.1.1.1" } },
+                    "default_server": "primary",
+                    "reverse_mapping": {
+                        "max_entries": 2048,
+                        "max_domains_per_address": 6,
+                        "max_ttl_seconds": 180
+                    }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("real-IP reverse mapping should parse");
+    let reverse = config
+        .runtime
+        .dns
+        .expect("DNS config")
+        .reverse_mapping
+        .expect("reverse mapping config");
+    assert_eq!(reverse.max_entries, 2048);
+    assert_eq!(reverse.max_domains_per_address, 6);
+    assert_eq!(reverse.max_ttl_seconds, 180);
+
+    for reverse_mapping in [
+        r#"{ "max_entries": 0 }"#,
+        r#"{ "max_domains_per_address": 1 }"#,
+        r#"{ "max_ttl_seconds": 0 }"#,
+    ] {
+        let raw = format!(
+            r#"{{
+                "runtime": {{
+                    "dns": {{
+                        "servers": {{ "primary": {{ "type": "udp", "host": "1.1.1.1" }} }},
+                        "default_server": "primary",
+                        "reverse_mapping": {reverse_mapping}
+                    }}
+                }},
+                "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+            }}"#
+        );
+        let error = RuntimeConfig::parse(&raw).expect_err("invalid reverse mapping must fail");
+        assert!(matches!(error, zero_config::ConfigError::InvalidDns(_)));
+    }
+}
+
+#[test]
 fn rejects_fake_ip_pool_overlapping_tun_owned_addresses() {
     for addr in ["198.18.0.1/24", "198.18.0.2/24"] {
         let raw = format!(

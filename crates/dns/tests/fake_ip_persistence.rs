@@ -9,6 +9,7 @@ fn config(cidr: &str, ttl_seconds: u64) -> DnsConfig {
         default_server: "system".to_owned(),
         dispatch: Vec::new(),
         cache: None,
+        reverse_mapping: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: cidr.to_owned(),
             ipv6_cidr: None,

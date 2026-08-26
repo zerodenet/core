@@ -52,6 +52,7 @@ impl UdpDispatch {
         let runtime = self.runtime.clone();
         let ingress_key = UdpFlowKey::new(&input.target, input.port, input.client_session_id);
         let mut session = Session::new(0, input.target, input.port, Network::Udp, input.protocol);
+        session.transparent_target = input.transparent_target;
         if let Some(auth) = input.auth {
             session.apply_auth(auth.clone());
         }

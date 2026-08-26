@@ -67,6 +67,7 @@ async fn dispatch_queries_only_the_selected_backend() {
             server: "private".to_owned(),
         }],
         cache: None,
+        reverse_mapping: None,
         answer: DnsAnswerConfig::Real,
         policy: Default::default(),
     };

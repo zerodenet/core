@@ -11,6 +11,7 @@ pub enum Network {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetHostSource {
     FakeIp,
+    DnsReverse,
     TlsSni,
 }
 
@@ -18,6 +19,7 @@ impl TargetHostSource {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::FakeIp => "fake_ip",
+            Self::DnsReverse => "dns_reverse",
             Self::TlsSni => "tls_sni",
         }
     }
@@ -101,6 +103,9 @@ pub struct Session {
     /// Fake-IP reverse lookup result when the original target was in the
     /// configured synthetic pool.
     pub fake_ip_reverse_status: Option<FakeIpReverseStatus>,
+    /// Whether an IP target came from transparent interception and may be
+    /// safely recovered through the DNS real-IP reverse index.
+    pub transparent_target: bool,
     pub port: u16,
     pub network: Network,
     pub protocol: ProtocolType,
@@ -142,6 +147,7 @@ impl Session {
             original_target: None,
             target_host_source: None,
             fake_ip_reverse_status: None,
+            transparent_target: false,
             port,
             network,
             protocol,

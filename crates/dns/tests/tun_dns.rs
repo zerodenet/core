@@ -26,6 +26,7 @@ async fn tun_query_uses_fake_ip_and_returns_a_well_formed_header() {
         default_server: "system".to_owned(),
         dispatch: Vec::new(),
         cache: None,
+        reverse_mapping: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
             ipv6_cidr: None,
@@ -57,6 +58,7 @@ async fn compatible_reload_preserves_live_fake_ip_mapping() {
         default_server: "system".to_owned(),
         dispatch: Vec::new(),
         cache: None,
+        reverse_mapping: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
             ipv6_cidr: None,
