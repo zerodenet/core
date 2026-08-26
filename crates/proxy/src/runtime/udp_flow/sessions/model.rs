@@ -70,18 +70,17 @@ pub(super) struct UdpFlow {
     pub(super) session: Session,
     pub(super) handle: SessionHandle,
     pub(super) outbound: UdpFlowOutbound,
-    pub(super) client_session_id: Option<u64>,
     pub(super) passive_relay_selections: Vec<PassiveRelaySelection>,
     pub(super) passive_health_confirmed: AtomicBool,
     pub(super) rate_limiters: UdpFlowRateLimiters,
 }
 
 impl UdpFlow {
-    pub(super) fn snapshot(&self) -> UdpFlowSnapshot {
+    pub(super) fn snapshot(&self, key: UdpFlowKey) -> UdpFlowSnapshot {
         UdpFlowSnapshot {
+            key,
             session: self.session.clone(),
             outbound: self.outbound.clone(),
-            client_session_id: self.client_session_id,
             passive_relay_selections: self.passive_relay_selections.clone(),
             rate_limiters: self.rate_limiters.clone(),
         }

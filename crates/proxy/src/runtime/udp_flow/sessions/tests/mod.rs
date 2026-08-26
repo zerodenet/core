@@ -4,7 +4,7 @@ use zero_config::RuntimeConfig;
 use zero_core::{Address, Network, ProtocolType, Session, SessionAuth};
 use zero_engine::{Engine, SessionOutcome};
 
-use super::UdpSessionFlows;
+use super::{UdpFlowKey, UdpSessionFlows};
 use crate::runtime::udp_flow::outbound::UdpFlowOutbound;
 use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
 
@@ -42,13 +42,13 @@ fn cancelled_udp_flow_finishes_with_reason_and_is_removed_from_lookup() {
 
     let mut flows = UdpSessionFlows::default();
     flows.insert(
+        UdpFlowKey::new(&target, 443, None),
         session,
         handle,
         UdpFlowOutbound::Direct {
             tag: "direct".to_owned(),
             target_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 443)),
         },
-        None,
         Vec::new(),
         UdpFlowRateLimiters::default(),
     );
@@ -69,4 +69,39 @@ fn cancelled_udp_flow_finishes_with_reason_and_is_removed_from_lookup() {
     );
     assert!(flows.snapshot(&target, 443, None).is_none());
     assert!(engine.active_sessions().is_empty());
+}
+
+#[test]
+fn fake_ip_udp_flow_keeps_its_inbound_lookup_identity() {
+    let engine = engine();
+    let fake_ip = Address::Ipv4([198, 18, 0, 1]);
+    let restored = Address::Domain("example.com".to_owned());
+    let mut session = Session::new(
+        0,
+        restored.clone(),
+        443,
+        Network::Udp,
+        ProtocolType::UNKNOWN,
+    );
+    session.original_target = Some(fake_ip.clone());
+    engine
+        .prepare_session(&mut session, "tun-in")
+        .expect("session should be admitted");
+    let handle = engine.track_session(session.id);
+
+    let mut flows = UdpSessionFlows::default();
+    flows.insert(
+        UdpFlowKey::new(&fake_ip, 443, None),
+        session,
+        handle,
+        UdpFlowOutbound::Direct {
+            tag: "direct".to_owned(),
+            target_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 443)),
+        },
+        Vec::new(),
+        UdpFlowRateLimiters::default(),
+    );
+
+    assert!(flows.snapshot(&fake_ip, 443, None).is_some());
+    assert!(flows.snapshot(&restored, 443, None).is_none());
 }

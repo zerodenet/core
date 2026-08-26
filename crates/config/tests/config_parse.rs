@@ -1904,6 +1904,66 @@ fn parses_uniform_encrypted_dns_endpoints() {
 }
 
 #[test]
+fn parses_dns_timeout_fallback_and_address_family_policy() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": {
+                        "primary": { "type": "udp", "host": "1.1.1.1" },
+                        "secondary": { "type": "udp", "host": "8.8.8.8" }
+                    },
+                    "default_server": "primary",
+                    "policy": {
+                        "timeout_ms": 750,
+                        "fallback_servers": ["secondary"],
+                        "address_family": "prefer_ipv6"
+                    }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("DNS policy should parse");
+
+    let policy = &config.runtime.dns.expect("DNS config").policy;
+    assert_eq!(policy.timeout_ms, 750);
+    assert_eq!(policy.fallback_servers, ["secondary"]);
+    assert_eq!(
+        policy.address_family,
+        zero_config::DnsAddressFamilyPolicy::PreferIpv6
+    );
+}
+
+#[test]
+fn rejects_invalid_dns_fallback_policy() {
+    for policy in [
+        r#"{ "timeout_ms": 0 }"#,
+        r#"{ "timeout_ms": 120001 }"#,
+        r#"{ "fallback_servers": ["missing"] }"#,
+        r#"{ "fallback_servers": ["secondary", "secondary"] }"#,
+    ] {
+        let raw = format!(
+            r#"{{
+                "runtime": {{
+                    "dns": {{
+                        "servers": {{
+                            "primary": {{ "type": "udp", "host": "1.1.1.1" }},
+                            "secondary": {{ "type": "udp", "host": "8.8.8.8" }}
+                        }},
+                        "default_server": "primary",
+                        "policy": {policy}
+                    }}
+                }},
+                "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+            }}"#
+        );
+        let error = RuntimeConfig::parse(&raw).expect_err("invalid DNS policy must fail");
+        assert!(matches!(error, zero_config::ConfigError::InvalidDns(_)));
+    }
+}
+
+#[test]
 fn rejects_fake_ip_pool_overlapping_tun_owned_addresses() {
     for addr in ["198.18.0.1/24", "198.18.0.2/24"] {
         let raw = format!(
@@ -1922,6 +1982,58 @@ fn rejects_fake_ip_pool_overlapping_tun_owned_addresses() {
         let error = RuntimeConfig::parse(&raw).expect_err("overlap must fail early");
         assert!(matches!(error, zero_config::ConfigError::InvalidRuntime(_)));
         assert!(error.to_string().contains("overlaps TUN-owned address"));
+    }
+}
+
+#[test]
+fn validates_ipv6_fake_ip_pool_and_tun_overlap() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": { "global": { "type": "udp", "host": "1.1.1.1" } },
+                    "default_server": "global",
+                    "answer": {
+                        "type": "fake_ip",
+                        "cidr": "198.18.0.0/15",
+                        "ipv6_cidr": "fd00::/120",
+                        "max_entries": 128
+                    }
+                },
+                "tun": { "addr": "10.66.0.1/24", "secondary_addr": "fd66::1/64" }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("dual-stack Fake-IP pools should parse");
+    assert_eq!(
+        config
+            .runtime
+            .dns
+            .as_ref()
+            .and_then(|dns| dns.fake_ip())
+            .and_then(|fake_ip| fake_ip.ipv6_cidr),
+        Some("fd00::/120")
+    );
+
+    for ipv6_cidr in ["198.19.0.0/24", "fd00::/127", "fd66::/64"] {
+        let raw = format!(
+            r#"{{
+                "runtime": {{
+                    "dns": {{
+                        "servers": {{ "global": {{ "type": "udp", "host": "1.1.1.1" }} }},
+                        "default_server": "global",
+                        "answer": {{
+                            "type": "fake_ip",
+                            "ipv6_cidr": "{ipv6_cidr}"
+                        }}
+                    }},
+                    "tun": {{ "addr": "10.66.0.1/24", "secondary_addr": "fd66::1/64" }}
+                }},
+                "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+            }}"#
+        );
+        RuntimeConfig::parse(&raw).expect_err("invalid or overlapping IPv6 Fake-IP pool must fail");
     }
 }
 

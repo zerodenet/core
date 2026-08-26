@@ -54,15 +54,15 @@ impl UdpRuntimeServices {
             .await
     }
 
-    pub(crate) async fn resolve_direct_target(
+    pub(crate) async fn resolve_direct_targets(
         &self,
         session: &zero_core::Session,
-    ) -> Result<std::net::SocketAddr, zero_engine::EngineError> {
+    ) -> Result<Vec<std::net::SocketAddr>, zero_engine::EngineError> {
         self.tcp
             .upstream
             .protocols
             .direct_connector()
-            .resolve_target_addr(session, self.tcp.upstream.resolver.as_ref())
+            .resolve_target_addrs(session, self.tcp.upstream.resolver.as_ref())
             .await
             .map_err(Into::into)
     }
@@ -152,6 +152,10 @@ impl UdpNetworkServices {
         &self,
     ) -> zero_transport::OutboundDatagramSocketFactory {
         self.upstream.outbound_datagram_socket_factory()
+    }
+
+    pub(crate) fn egress_generation(&self) -> u64 {
+        self.outbound_datagram_socket_factory().egress_generation()
     }
 
     pub(crate) async fn connect_upstream(

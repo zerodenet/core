@@ -1,18 +1,23 @@
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-const SCHEMA: &str = "zero.dns.fake-ip.v1";
+const SCHEMA: &str = "zero.dns.fake-ip.v2";
+const LEGACY_SCHEMA: &str = "zero.dns.fake-ip.v1";
 const COMPACT_MIN_RECORDS: usize = 1_024;
 const COMPACT_MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct PersistenceMetadata {
     pub(super) cidr: String,
+    #[serde(default)]
+    pub(super) ipv6_cidr: Option<String>,
     pub(super) ttl_seconds: u64,
     pub(super) max_entries: usize,
     pub(super) exclusions: Vec<String>,
@@ -21,7 +26,7 @@ pub(super) struct PersistenceMetadata {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PersistedMapping {
     pub(super) domain: String,
-    pub(super) ip: [u8; 4],
+    pub(super) ip: IpAddr,
     pub(super) expires_at_unix_ms: u64,
 }
 
@@ -52,6 +57,29 @@ enum JournalRecord {
         schema: String,
         #[serde(flatten)]
         metadata: PersistenceMetadata,
+    },
+    Upsert {
+        domain: String,
+        ip: IpAddr,
+        expires_at_unix_ms: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct LegacyMetadata {
+    cidr: String,
+    ttl_seconds: u64,
+    max_entries: usize,
+    exclusions: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "record", rename_all = "snake_case")]
+enum LegacyJournalRecord {
+    Header {
+        schema: String,
+        #[serde(flatten)]
+        metadata: LegacyMetadata,
     },
     Upsert {
         domain: String,
@@ -146,7 +174,7 @@ impl FakeIpPersistence {
             .unwrap_or_else(|error| error.into_inner());
         journal.generation == self.generation
             && (journal.records
-                > COMPACT_MIN_RECORDS.max(live_mappings.saturating_mul(4).saturating_add(1))
+                > COMPACT_MIN_RECORDS.max(live_mappings.saturating_mul(8).saturating_add(1))
                 || journal
                     .file
                     .as_ref()
@@ -233,16 +261,15 @@ fn load(path: &Path, expected: &PersistenceMetadata, now_unix_ms: u64) -> io::Re
     }
 
     let ends_with_newline = raw.ends_with(b"\n");
-    let mut records = Vec::new();
-    for (index, line) in raw.split(|byte| *byte == b'\n').enumerate() {
+    let lines = raw.split(|byte| *byte == b'\n').collect::<Vec<_>>();
+    let mut values = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
         if line.is_empty() {
             continue;
         }
-        match serde_json::from_slice::<JournalRecord>(line) {
-            Ok(record) => records.push(record),
-            Err(_error)
-                if !ends_with_newline && index == raw.split(|byte| *byte == b'\n').count() - 1 =>
-            {
+        match serde_json::from_slice::<serde_json::Value>(line) {
+            Ok(value) => values.push(value),
+            Err(_) if !ends_with_newline && index + 1 == lines.len() => {
                 tracing::warn!(
                     path = %path.display(),
                     "ignoring incomplete trailing Fake-IP journal record"
@@ -256,64 +283,141 @@ fn load(path: &Path, expected: &PersistenceMetadata, now_unix_ms: u64) -> io::Re
             }
         }
     }
-
-    let Some(JournalRecord::Header { schema, metadata }) = records.first() else {
+    let Some(schema) = values
+        .first()
+        .and_then(|value| value.get("schema"))
+        .and_then(serde_json::Value::as_str)
+    else {
         return Ok(LoadResult::Corrupt(
             "state file does not start with a header".to_owned(),
         ));
     };
-    if schema != SCHEMA || metadata != expected {
-        return Ok(LoadResult::Incompatible);
-    }
 
-    let mut by_domain = std::collections::HashMap::<String, [u8; 4]>::new();
-    let mut by_ip = std::collections::HashMap::<[u8; 4], (usize, PersistedMapping)>::new();
-    for (sequence, record) in records.into_iter().skip(1).enumerate() {
-        let JournalRecord::Upsert {
-            domain,
-            ip,
-            expires_at_unix_ms,
-        } = record
-        else {
-            return Ok(LoadResult::Corrupt(
-                "state file contains an unexpected header".to_owned(),
-            ));
-        };
-        if let Some(old_ip) = by_domain.remove(&domain) {
+    let mappings = match schema {
+        SCHEMA => load_v2(values, expected)?,
+        LEGACY_SCHEMA => load_v1(values, expected)?,
+        _ => return Ok(LoadResult::Incompatible),
+    };
+    let Some(mappings) = mappings else {
+        return Ok(LoadResult::Incompatible);
+    };
+    normalize_records(mappings, expected.max_entries, now_unix_ms)
+}
+
+fn load_v2(
+    values: Vec<serde_json::Value>,
+    expected: &PersistenceMetadata,
+) -> io::Result<Option<Vec<PersistedMapping>>> {
+    let records = values
+        .into_iter()
+        .map(serde_json::from_value::<JournalRecord>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let Some(JournalRecord::Header { schema, metadata }) = records.first() else {
+        return Ok(None);
+    };
+    if schema != SCHEMA || metadata != expected {
+        return Ok(None);
+    }
+    records
+        .into_iter()
+        .skip(1)
+        .map(|record| match record {
+            JournalRecord::Upsert {
+                domain,
+                ip,
+                expires_at_unix_ms,
+            } => Ok(PersistedMapping {
+                domain,
+                ip,
+                expires_at_unix_ms,
+            }),
+            JournalRecord::Header { .. } => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Fake-IP state contains an unexpected header",
+            )),
+        })
+        .collect::<io::Result<Vec<_>>>()
+        .map(Some)
+}
+
+fn load_v1(
+    values: Vec<serde_json::Value>,
+    expected: &PersistenceMetadata,
+) -> io::Result<Option<Vec<PersistedMapping>>> {
+    let records = values
+        .into_iter()
+        .map(serde_json::from_value::<LegacyJournalRecord>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let Some(LegacyJournalRecord::Header { schema, metadata }) = records.first() else {
+        return Ok(None);
+    };
+    if schema != LEGACY_SCHEMA
+        || metadata.cidr != expected.cidr
+        || metadata.ttl_seconds != expected.ttl_seconds
+        || metadata.max_entries != expected.max_entries
+        || metadata.exclusions != expected.exclusions
+    {
+        return Ok(None);
+    }
+    records
+        .into_iter()
+        .skip(1)
+        .map(|record| match record {
+            LegacyJournalRecord::Upsert {
+                domain,
+                ip,
+                expires_at_unix_ms,
+            } => Ok(PersistedMapping {
+                domain,
+                ip: IpAddr::V4(Ipv4Addr::from(ip)),
+                expires_at_unix_ms,
+            }),
+            LegacyJournalRecord::Header { .. } => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Fake-IP state contains an unexpected legacy header",
+            )),
+        })
+        .collect::<io::Result<Vec<_>>>()
+        .map(Some)
+}
+
+fn normalize_records(
+    records: Vec<PersistedMapping>,
+    max_entries: usize,
+    now_unix_ms: u64,
+) -> io::Result<LoadResult> {
+    let mut by_domain_family = HashMap::<(String, bool), IpAddr>::new();
+    let mut by_ip = HashMap::<IpAddr, (usize, PersistedMapping)>::new();
+    for (sequence, mapping) in records.into_iter().enumerate() {
+        let family_key = (mapping.domain.clone(), mapping.ip.is_ipv6());
+        if let Some(old_ip) = by_domain_family.remove(&family_key) {
             by_ip.remove(&old_ip);
         }
-        if let Some((_, old_mapping)) = by_ip.remove(&ip) {
-            by_domain.remove(&old_mapping.domain);
+        if let Some((_, old_mapping)) = by_ip.remove(&mapping.ip) {
+            by_domain_family.remove(&(old_mapping.domain, old_mapping.ip.is_ipv6()));
         }
-        if expires_at_unix_ms > now_unix_ms {
-            by_domain.insert(domain.clone(), ip);
-            by_ip.insert(
-                ip,
-                (
-                    sequence,
-                    PersistedMapping {
-                        domain,
-                        ip,
-                        expires_at_unix_ms,
-                    },
-                ),
-            );
+        if mapping.expires_at_unix_ms > now_unix_ms {
+            by_domain_family.insert(family_key, mapping.ip);
+            by_ip.insert(mapping.ip, (sequence, mapping));
         }
+    }
+    let domains = by_ip
+        .values()
+        .map(|(_, mapping)| mapping.domain.as_str())
+        .collect::<HashSet<_>>();
+    if domains.len() > max_entries {
+        return Ok(LoadResult::Corrupt(format!(
+            "state contains {} domains but capacity is {max_entries}",
+            domains.len()
+        )));
     }
     let mut mappings = by_ip.into_values().collect::<Vec<_>>();
     mappings.sort_by_key(|(sequence, _)| *sequence);
-    let mappings = mappings
-        .into_iter()
-        .map(|(_, mapping)| mapping)
-        .collect::<Vec<_>>();
-    if mappings.len() > expected.max_entries {
-        return Ok(LoadResult::Corrupt(format!(
-            "state contains {} mappings but capacity is {}",
-            mappings.len(),
-            expected.max_entries
-        )));
-    }
-    Ok(LoadResult::Compatible(mappings))
+    Ok(LoadResult::Compatible(
+        mappings.into_iter().map(|(_, mapping)| mapping).collect(),
+    ))
 }
 
 fn rewrite(
@@ -377,10 +481,6 @@ fn open_append(path: &Path) -> io::Result<File> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-
-        // Preserve read/write sharing and additionally allow an incompatible
-        // hot reload to atomically replace the journal while in-flight DNS
-        // requests still hold the previous allocator open.
         options.share_mode(0x1 | 0x2 | 0x4);
     }
     options.open(path)

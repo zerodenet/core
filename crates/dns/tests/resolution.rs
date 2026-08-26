@@ -13,10 +13,12 @@ async fn real_resolution_bypasses_fake_ip_allocation() {
         cache: None,
         answer: DnsAnswerConfig::FakeIp {
             cidr: "198.18.0.0/15".to_owned(),
+            ipv6_cidr: None,
             ttl_seconds: 60,
             max_entries: None,
             exclude_domains: Vec::new(),
         },
+        policy: Default::default(),
     };
     let dns = DnsSystem::build(Some(&config)).expect("build DNS system");
 

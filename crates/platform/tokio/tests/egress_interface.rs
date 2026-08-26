@@ -17,6 +17,35 @@ fn controller_replaces_and_clears_interface_atomically() {
 }
 
 #[test]
+fn generation_changes_only_when_published_topology_changes() {
+    let controller = EgressInterfaceControl::default();
+    let ipv4 = EgressInterface::new("ethernet", 7).expect("valid IPv4 interface");
+    let ipv6 = EgressInterface::new("teredo", 14).expect("valid IPv6 interface");
+
+    assert_eq!(controller.generation(), 0);
+    controller.replace_for(false, Some(ipv4.clone()));
+    assert_eq!(controller.generation(), 1);
+    controller.replace_for(false, Some(ipv4));
+    assert_eq!(controller.generation(), 1);
+
+    controller.replace_for(true, Some(ipv6));
+    assert_eq!(controller.generation(), 2);
+    controller.replace_tunnel_addresses([
+        "fd66::1".parse().unwrap(),
+        "10.66.0.1".parse().unwrap(),
+        "fd66::1".parse().unwrap(),
+    ]);
+    assert_eq!(controller.generation(), 3);
+    controller.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
+    assert_eq!(controller.generation(), 3);
+
+    controller.clear();
+    assert_eq!(controller.generation(), 4);
+    controller.clear();
+    assert_eq!(controller.generation(), 4);
+}
+
+#[test]
 fn controller_selects_independent_ipv4_and_ipv6_interfaces() {
     let controller = EgressInterfaceControl::default();
     let ipv4 = EgressInterface::new("ethernet", 7).expect("valid IPv4 interface");
@@ -111,6 +140,37 @@ fn peer_selection_rejects_active_tun_without_a_physical_egress() {
     );
     assert!(selection.ensure_connectable().is_err());
     assert!(controller.try_current_for_peer(peer).is_err());
+}
+
+#[test]
+fn wildcard_peer_is_not_mistaken_for_a_tun_route_probe() {
+    let controller = EgressInterfaceControl::default();
+    let wildcard = "0.0.0.0:0".parse().unwrap();
+
+    let idle = controller.select_for_peer(wildcard);
+    assert!(idle.interface().is_none());
+    assert_eq!(idle.route_source(), None);
+    assert_eq!(idle.route_lookup_status(), EgressRouteLookupStatus::Skipped);
+    assert_eq!(
+        idle.binding_reason(),
+        EgressBindingReason::NoConfiguredInterface
+    );
+    assert!(idle.ensure_connectable().is_ok());
+
+    controller.replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+    let unavailable = controller.select_for_peer(wildcard);
+    assert_eq!(
+        unavailable.binding_reason(),
+        EgressBindingReason::TunEgressUnavailable
+    );
+    assert!(unavailable.ensure_connectable().is_err());
+
+    let physical = EgressInterface::new("physical0", 7).unwrap();
+    controller.replace_for(false, Some(physical.clone()));
+    let active = controller.select_for_peer(wildcard);
+    assert_eq!(active.interface(), Some(&physical));
+    assert_eq!(active.binding_reason(), EgressBindingReason::TunRoute);
+    assert!(active.ensure_connectable().is_ok());
 }
 
 #[test]

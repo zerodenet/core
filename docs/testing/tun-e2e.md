@@ -6,18 +6,19 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 
 | 平台 | 要求 |
 |------|------|
-| Linux | root，或具备创建 TUN、配置接口和路由所需的 capabilities；系统需提供 `ip` |
-| macOS | root；系统需提供 `/sbin/ifconfig` 和 `/sbin/route` |
-| Windows | Administrator；官方 Windows x86_64 发布包已内置匹配架构的 `wintun.dll`；源码构建时需自行将 DLL 放在 `zero.exe` 同目录或 `PATH` |
+| Linux | root，或具备创建 TUN、配置接口、路由和 nftables 所需的 capabilities；系统需提供 `ip` 与 `nft` |
+| macOS | root；系统需提供 `/sbin/ifconfig`、`/sbin/route`、`pfctl`，主规则集需执行 `com.apple/*` anchor |
+| Windows | Administrator；需提供 Windows Firewall PowerShell cmdlet；官方 Windows x86_64 发布包已内置匹配架构的 `wintun.dll`，源码构建时需自行将 DLL 放在 `zero.exe` 同目录或 `PATH` |
 
 默认行为：
 
 - `auto_route=true`：通过两条 `/1` 路由接管默认流量，不覆盖原默认路由；
-- `auto_route=true` 会继续监听系统默认路由和接口变化；Wi-Fi/有线切换、VPN 上下线或 metric 变化后，内核在不重启 TUN 的情况下更新新建 socket 使用的物理出口和仍需保留的 DNS bootstrap 排除路由。事件会合并处理，失败时保留上一份可用状态并在 `tun status` 中报告错误；
+- `auto_route=true` 会继续监听系统默认路由和接口变化；Wi-Fi/有线切换、VPN 上下线或 metric 变化后，内核在不重启 TUN 的情况下更新新建 socket 使用的物理出口和仍需保留的 DNS bootstrap 排除路由。事件会合并处理；协调失败时非严格模式保留上一份可用状态，严格模式进入 fail-closed，两者都会在 `tun status` 中报告错误；
 - `dual_stack=true`：在同一设备上配置 IPv4/IPv6 两个地址，并同时安装两组拆分默认路由；`secondary_addr` 可显式指定另一族 CIDR，省略时按主地址族使用 `10.66.0.1/24` 或 `fd66::1/64`；只有明确的单栈主机才应关闭，否则另一地址族仍可能绕过 TUN；
-- `strict_route=true`：underlay 出口、仍需保留的 DNS bootstrap 排除或任一半默认路由失败时，启动整体失败并回滚已安装项；未选中的坏代理节点不影响 TUN 启动；
+- `strict_route=true`：underlay 出口、仍需保留的 DNS bootstrap 排除、任一半默认路由或平台 kill switch 失败时，启动整体失败并回滚已安装项；运行期 route monitor、bootstrap 重算或路由/防火墙协调失败时撤销受影响地址族的出口发布，使新建 TCP、UDP 与 DNS socket fail closed，协调恢复后再发布新出口；未选中的坏代理节点不影响 TUN 启动；
 - `dns_hijack=true`：TUN 内的 UDP/TCP 53 由 Zero DNS 回答，并使用已有缓存、DNS 路由和 Fake-IP；
 - 代理节点不再获得自动 host route；Zero 创建的 TCP/UDP/QUIC socket 按 IPv4/IPv6 分别绑定各自 underlay 接口，避免代理自环。DNS UDP 与 DoT socket 使用同一出口权威；DoH/系统 bootstrap 仍由显式 DNS 排除或操作系统解析路径保护。
+- 物理出口或受管 TUN 地址集合每次实际变化都会发布单调递增的出口 generation。direct UDP 在下一次发送前发现旧 generation 时重建双栈 socket；重建期间若拓扑持续抖动则 fail closed，不使用旧出口继续发送。新建域名 UDP flow 在解析器首选的可用地址族内采用稳定候选，DNS 答案重排不会把所有流量重新固定到第一条记录。
 - macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。
 
@@ -44,13 +45,20 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
     },
     "dns": {
       "servers": {
-        "global": { "type": "udp", "host": "1.1.1.1", "port": 53 }
+        "global": { "type": "udp", "host": "1.1.1.1", "port": 53 },
+        "fallback": { "type": "udp", "host": "8.8.8.8", "port": 53 }
       },
       "default_server": "global",
+      "policy": {
+        "timeout_ms": 3000,
+        "fallback_servers": ["fallback"],
+        "address_family": "prefer_ipv4"
+      },
       "cache": { "max_entries": 1024 },
       "answer": {
         "type": "fake_ip",
         "cidr": "198.18.0.0/15",
+        "ipv6_cidr": "fd00::/96",
         "ttl_seconds": 86400,
         "exclude_domains": []
       }
@@ -66,9 +74,9 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 }
 ```
 
-`dns.servers` 使用稳定名称，`default_server` 处理未命中查询。需要 split DNS 时使用有序的 `dns.dispatch`；每条规则复用流量路由的 `condition` 结构并且只查询选中的后端，不会隐式竞速或回退到其他 DNS。可用于 DNS 的条件包括 `domain`、`domain_keyword`、`domain_regex`、域名规则集以及 `and`/`or`。共享规则集继续声明在历史位置 `route.rule_sets`，可同时由 `route.rules` 和 `dns.dispatch` 引用。
+`dns.servers` 使用稳定名称，`default_server` 处理未命中查询。需要 split DNS 时使用有序的 `dns.dispatch`；每条规则复用流量路由的 `condition` 结构并首先查询选中的后端。只有 `dns.policy.fallback_servers` 声明的后端才会在超时、传输错误、畸形响应或可重试 RCODE 后按顺序使用；NXDOMAIN 不回退。`address_family` 控制只查询单一地址族或双栈结果优先级。可用于 DNS 的条件包括 `domain`、`domain_keyword`、`domain_regex`、域名规则集以及 `and`/`or`。共享规则集继续声明在历史位置 `route.rule_sets`，可同时由 `route.rules` 和 `dns.dispatch` 引用。
 
-Fake-IP 使用 `answer.type = "fake_ip"` 开启，默认地址池为 `198.18.0.0/15`，也可通过 `answer.cidr` 覆盖。地址池与 TUN 主地址、双栈辅助地址或平台使用的相邻 TUN gateway 冲突时，配置应用或 `tun.start` 会明确失败，不会把冲突地址投入运行。
+Fake-IP 使用 `answer.type = "fake_ip"` 开启，默认 IPv4 地址池为 `198.18.0.0/15`，也可通过 `answer.cidr` 覆盖；`answer.ipv6_cidr` 启用 AAAA 合成。双池共享域名规范化、TTL、容量和 LRU 生命周期。任一地址池与 TUN 主地址、双栈辅助地址或平台使用的相邻 TUN gateway 冲突时，配置应用或 `tun.start` 会明确失败，不会把冲突地址投入运行。
 
 DNS 后端和所选代理协议还必须由当前构建启用。TUN 启动需要 `zero-proxy` 的 `udp-runtime`；默认 `full` 构建已满足。
 
@@ -147,6 +155,8 @@ curl.exe https://example.com/
 Resolve-DnsName example.com
 ```
 
+strict route 启动必须显式读取 Domain、Private、Public 三个 Windows Firewall profile，并把带 schema 的 UTF-8 JSON 快照持久化后才能修改默认出站策略。PowerShell 成功退出但未输出快照、缺少任一 profile 或包含未知动作时都必须在安装规则前 fail closed；错误不得退化为无上下文的 JSON EOF。
+
 ## WebRTC/STUN 防泄露验证
 
 TUN 能接管浏览器发出的 STUN UDP，但最终是否暴露真实公网出口仍由 Zero 路由策略决定：
@@ -173,8 +183,9 @@ sudo tcpdump -i physical0 -nn 'udp port 3478 or udp port 5349'
 5. 保持 TUN 运行并切换系统默认出口；`tun status` 的 `egress_v4`/`egress_v6` 应更新，既有连接不中断，新连接使用新出口，旧出口上的 Zero DNS/bootstrap 排除路由被清理。
 6. 制造短暂的无默认路由窗口或排除路由安装失败；TUN 应保持运行、`healthy=false` 且显示 `last_error`，恢复后自动协调并回到 `healthy=true`，期间不得出现忙重试。
 7. Windows 连续执行两轮 start/stop，确认阻塞 reader 被唤醒且同名 Wintun adapter 可复用。
+8. 严格模式下删除一条受管 `/1` 路由或制造协调失败，并确认平台保护仍阻止非 TUN 物理出站：Linux 检查 `zero_killswitch_*` nftables 表，macOS 检查 `com.apple/zero_*` pf anchor，Windows 检查 `ZeroKillSwitch-*` Firewall rule group 与各 profile 的 outbound block 状态。
 
-路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，下一次以相同 TUN 入站 `tag` 启动会先消费日志，并按日志记录的旧设备名清理残留的半默认路由、显式 DNS/bootstrap 排除路由及 macOS scoped 绕行路由。
+路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，kill switch 保持 fail-closed；下一次以相同 TUN 入站 `tag` 启动会接管原保护并消费路由日志。Windows 额外保存启用前各 Firewall profile 的 outbound policy，只有正常停止且规则清理成功后才恢复；Linux nftables table 与 macOS pf anchor 使用稳定资源名原位替换，热更新失败保留旧规则。
 
 ## 自动化覆盖
 

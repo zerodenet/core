@@ -39,6 +39,7 @@ where
                 if session.original_target.is_none() {
                     session.original_target = Some(session.target.clone());
                 }
+                session.direct_target = Some(session.target.clone());
                 session.sni = Some(domain.clone());
                 session.target = Address::Domain(domain);
                 session.target_host_source = Some(TargetHostSource::TlsSni);

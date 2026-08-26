@@ -12,7 +12,7 @@ use zero_traits::{
 
 mod egress;
 mod process;
-use egress::{bind_tcp_to_interface, bind_udp_to_interface};
+use egress::{bind_tcp_to_interface, bind_udp_to_interface, datagram_bind_address};
 pub use egress::{
     EgressBindingReason, EgressInterface, EgressInterfaceControl, EgressRouteLookupStatus,
     EgressSelection,
@@ -29,6 +29,7 @@ pub struct TokioSocket {
 pub struct TcpConnectError {
     stage: &'static str,
     interface_bound: bool,
+    local_addr: Option<SocketAddr>,
     error: io::Error,
 }
 
@@ -39,6 +40,10 @@ impl TcpConnectError {
 
     pub fn interface_bound(&self) -> bool {
         self.interface_bound
+    }
+
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        self.local_addr
     }
 
     pub fn error(&self) -> &io::Error {
@@ -94,6 +99,7 @@ impl TokioSocket {
         .map_err(|error| TcpConnectError {
             stage: "create_socket",
             interface_bound: false,
+            local_addr: None,
             error,
         })?;
         let interface = interface.filter(|_| !addr.ip().is_loopback());
@@ -101,21 +107,26 @@ impl TokioSocket {
             bind_tcp_to_interface(&socket, addr, interface).map_err(|error| TcpConnectError {
                 stage: "bind_interface",
                 interface_bound: false,
+                local_addr: socket.local_addr().ok(),
                 error,
             })?;
         }
         let interface_bound = interface.is_some();
+        let local_addr = socket.local_addr().ok();
         let stream = socket
             .connect(addr)
             .await
             .map_err(|error| TcpConnectError {
                 stage: "connect_socket",
                 interface_bound,
+                local_addr,
                 error,
             })?;
+        let local_addr = stream.local_addr().ok();
         stream.set_nodelay(true).map_err(|error| TcpConnectError {
             stage: "configure_socket",
             interface_bound,
+            local_addr,
             error,
         })?;
         Ok(Self {
@@ -437,11 +448,7 @@ pub fn bind_std_datagram_socket_for_peer(
     peer: SocketAddr,
     interface: Option<&EgressInterface>,
 ) -> io::Result<std::net::UdpSocket> {
-    let local = if peer.is_ipv4() {
-        SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0)
-    } else {
-        SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), 0)
-    };
+    let local = datagram_bind_address(peer, interface)?;
     let socket = std::net::UdpSocket::bind(local)?;
     if let Some(interface) = interface.filter(|_| !peer.ip().is_loopback()) {
         bind_udp_to_interface(&socket, local, interface)?;

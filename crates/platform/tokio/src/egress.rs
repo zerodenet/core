@@ -130,9 +130,20 @@ struct EgressInterfaces {
     ipv4: Option<EgressInterface>,
     ipv6: Option<EgressInterface>,
     tunnel_addresses: Vec<IpAddr>,
+    generation: u64,
 }
 
 impl EgressInterfaceControl {
+    /// Monotonic version of the published physical-egress and TUN topology.
+    /// Long-lived socket owners use this value to rebuild sockets created
+    /// against an older topology without coupling to platform route watchers.
+    pub fn generation(&self) -> u64 {
+        self.0
+            .read()
+            .expect("egress interface lock poisoned")
+            .generation
+    }
+
     pub fn current(&self) -> Option<EgressInterface> {
         let interfaces = self.0.read().expect("egress interface lock poisoned");
         interfaces.ipv4.clone().or_else(|| interfaces.ipv6.clone())
@@ -182,6 +193,29 @@ impl EgressInterfaceControl {
             };
             (physical, interfaces.tunnel_addresses.clone())
         };
+        // A wildcard address is used as a family marker when creating a
+        // reusable UDP socket; it is not a routable peer. Probing it makes
+        // Windows and Linux report loopback as the route source, which can be
+        // mistaken for an active TUN capture route. Preserve fail-closed
+        // behavior once TUN addresses have actually been published, while a
+        // normal runtime with no TUN state remains connectable.
+        if peer.ip().is_unspecified() {
+            let (interface, binding_reason) = match (physical, tunnel_addresses.is_empty()) {
+                (None, true) => (None, EgressBindingReason::NoConfiguredInterface),
+                (None, false) => (None, EgressBindingReason::TunEgressUnavailable),
+                (Some(physical), true) => {
+                    (Some(physical), EgressBindingReason::TunAddressesUnavailable)
+                }
+                (Some(physical), false) => (Some(physical), EgressBindingReason::TunRoute),
+            };
+            return EgressSelection {
+                interface,
+                route_source: None,
+                route_lookup_status: EgressRouteLookupStatus::Skipped,
+                route_lookup_error: None,
+                binding_reason,
+            };
+        }
         let no_physical_interface = physical.is_none();
         if no_physical_interface && tunnel_addresses.is_empty() {
             let (route_source, route_lookup_status, route_lookup_error) =
@@ -243,32 +277,59 @@ impl EgressInterfaceControl {
     }
 
     pub fn replace_tunnel_addresses(&self, addresses: impl IntoIterator<Item = IpAddr>) {
-        self.0
-            .write()
-            .expect("egress interface lock poisoned")
-            .tunnel_addresses = addresses.into_iter().collect();
+        let mut addresses: Vec<_> = addresses.into_iter().collect();
+        addresses.sort_unstable();
+        addresses.dedup();
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        if interfaces.tunnel_addresses != addresses {
+            interfaces.tunnel_addresses = addresses;
+            bump_generation(&mut interfaces);
+        }
     }
 
     pub fn replace(&self, interface: Option<EgressInterface>) -> Option<EgressInterface> {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
         let previous = interfaces.ipv4.clone().or_else(|| interfaces.ipv6.clone());
-        interfaces.ipv4 = interface.clone();
-        interfaces.ipv6 = interface;
+        if interfaces.ipv4 != interface || interfaces.ipv6 != interface {
+            interfaces.ipv4 = interface.clone();
+            interfaces.ipv6 = interface;
+            bump_generation(&mut interfaces);
+        }
         previous
     }
 
     pub fn replace_for(&self, ipv6: bool, interface: Option<EgressInterface>) {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
-        if ipv6 {
-            interfaces.ipv6 = interface;
+        let current = if ipv6 {
+            &mut interfaces.ipv6
         } else {
-            interfaces.ipv4 = interface;
+            &mut interfaces.ipv4
+        };
+        if *current != interface {
+            *current = interface;
+            bump_generation(&mut interfaces);
         }
     }
 
     pub fn clear(&self) {
-        *self.0.write().expect("egress interface lock poisoned") = EgressInterfaces::default();
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        if interfaces.ipv4.is_some()
+            || interfaces.ipv6.is_some()
+            || !interfaces.tunnel_addresses.is_empty()
+        {
+            interfaces.ipv4 = None;
+            interfaces.ipv6 = None;
+            interfaces.tunnel_addresses.clear();
+            bump_generation(&mut interfaces);
+        }
     }
+}
+
+fn bump_generation(interfaces: &mut EgressInterfaces) {
+    interfaces.generation = interfaces
+        .generation
+        .checked_add(1)
+        .expect("egress topology generation exhausted");
 }
 
 fn route_source_for(peer: SocketAddr) -> io::Result<IpAddr> {
@@ -376,6 +437,14 @@ pub(crate) fn bind_tcp_to_interface(
     interface: &EgressInterface,
 ) -> io::Result<()> {
     use std::os::windows::io::AsRawSocket;
+
+    // IP_UNICAST_IF alone leaves source-address selection to the stack. With
+    // split-default Wintun routes active, Windows can then select a loopback
+    // or tunnel source even though the outgoing interface is physical, and
+    // connect(2) fails with WSAEHOSTUNREACH for otherwise reachable peers.
+    // Resolve and bind the source owned by the selected physical interface
+    // before constraining the unicast interface.
+    socket.bind(windows_source_address(peer, interface.index())?)?;
     bind_socket_to_index(socket.as_raw_socket(), peer.is_ipv6(), interface.index())
 }
 
@@ -417,6 +486,116 @@ fn bind_socket_to_index(
         Ok(())
     } else {
         Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }))
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn datagram_bind_address(
+    peer: SocketAddr,
+    interface: Option<&EgressInterface>,
+) -> io::Result<SocketAddr> {
+    match interface.filter(|_| !peer.ip().is_loopback()) {
+        Some(interface) => windows_source_address(peer, interface.index()),
+        None => Ok(wildcard_address(peer)),
+    }
+}
+
+#[cfg(windows)]
+fn windows_source_address(peer: SocketAddr, interface_index: u32) -> io::Result<SocketAddr> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{GetBestRoute2, MIB_IPFORWARD_ROW2};
+    use windows_sys::Win32::Networking::WinSock::{
+        AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0, SOCKADDR_IN, SOCKADDR_IN6,
+        SOCKADDR_IN6_0, SOCKADDR_INET,
+    };
+
+    let destination = match peer {
+        SocketAddr::V4(address) => SOCKADDR_INET {
+            Ipv4: SOCKADDR_IN {
+                sin_family: AF_INET,
+                sin_port: 0,
+                sin_addr: IN_ADDR {
+                    S_un: IN_ADDR_0 {
+                        S_addr: u32::from_ne_bytes(address.ip().octets()),
+                    },
+                },
+                sin_zero: [0; 8],
+            },
+        },
+        SocketAddr::V6(address) => SOCKADDR_INET {
+            Ipv6: SOCKADDR_IN6 {
+                sin6_family: AF_INET6,
+                sin6_port: 0,
+                sin6_flowinfo: address.flowinfo(),
+                sin6_addr: IN6_ADDR {
+                    u: IN6_ADDR_0 {
+                        Byte: address.ip().octets(),
+                    },
+                },
+                Anonymous: SOCKADDR_IN6_0 {
+                    sin6_scope_id: address.scope_id(),
+                },
+            },
+        },
+    };
+    let mut route = MIB_IPFORWARD_ROW2::default();
+    let mut source = unsafe { std::mem::zeroed::<SOCKADDR_INET>() };
+    let status = unsafe {
+        GetBestRoute2(
+            std::ptr::null(),
+            interface_index,
+            std::ptr::null(),
+            &destination,
+            0,
+            &mut route,
+            &mut source,
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            format!(
+                "resolve source address for Windows interface {interface_index}: {}",
+                io::Error::from_raw_os_error(status as i32)
+            ),
+        ));
+    }
+
+    match unsafe { source.si_family } {
+        AF_INET => Ok(SocketAddr::new(
+            IpAddr::V4(std::net::Ipv4Addr::from(unsafe {
+                source.Ipv4.sin_addr.S_un.S_addr.to_ne_bytes()
+            })),
+            0,
+        )),
+        AF_INET6 => {
+            let source = unsafe { source.Ipv6 };
+            Ok(SocketAddr::V6(std::net::SocketAddrV6::new(
+                std::net::Ipv6Addr::from(unsafe { source.sin6_addr.u.Byte }),
+                0,
+                source.sin6_flowinfo,
+                unsafe { source.Anonymous.sin6_scope_id },
+            )))
+        }
+        family => Err(io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            format!("Windows route query returned address family {family}"),
+        )),
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn datagram_bind_address(
+    peer: SocketAddr,
+    _interface: Option<&EgressInterface>,
+) -> io::Result<SocketAddr> {
+    Ok(wildcard_address(peer))
+}
+
+fn wildcard_address(peer: SocketAddr) -> SocketAddr {
+    if peer.is_ipv4() {
+        SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0)
+    } else {
+        SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), 0)
     }
 }
 

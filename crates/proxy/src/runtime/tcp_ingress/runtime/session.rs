@@ -44,6 +44,7 @@ impl TcpIngressRuntime {
             if let Some(ref from) = rule.from {
                 if from == domain {
                     session.target = Address::Domain(rule.to.clone());
+                    session.direct_target = None;
                     return;
                 }
             }
@@ -52,6 +53,7 @@ impl TcpIngressRuntime {
                     if re.is_match(domain) {
                         let result = re.replace(domain, &rule.to);
                         session.target = Address::Domain(result.to_string());
+                        session.direct_target = None;
                         return;
                     }
                 }

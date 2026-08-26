@@ -37,7 +37,7 @@ jobs:
       ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
       ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install build prerequisites
@@ -65,7 +65,7 @@ jobs:
       ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY: ${{ secrets.ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY }}
       ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE: ${{ secrets.ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run privileged TUN smoke test
@@ -89,7 +89,7 @@ jobs:
       ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
       ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run privileged TUN smoke test
@@ -110,7 +110,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install build prerequisites
@@ -139,7 +139,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Record native network topology
@@ -164,10 +164,13 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: arduino/setup-protoc@v3
+      - name: Install protoc
+        uses: ./.github/actions/setup-protoc
+        with:
+          version: "35.0"
       - name: Stage pinned Wintun runtime
         shell: pwsh
         run: |

@@ -12,14 +12,18 @@ async fn udp_dns_uses_an_ipv6_socket_for_an_ipv6_server() {
         .expect("bind IPv6 DNS server");
     let port = server.local_addr().expect("DNS server address").port();
     let task = tokio::spawn(async move {
-        let mut request = [0_u8; 512];
-        let (size, peer) = server.recv_from(&mut request).await.expect("receive query");
-        let response =
-            zero_dns::udp::build_dns_response(&request[..size], &[IpAddress::V4([192, 0, 2, 53])]);
-        server
-            .send_to(&response, peer)
-            .await
-            .expect("send DNS response");
+        for _ in 0..2 {
+            let mut request = [0_u8; 512];
+            let (size, peer) = server.recv_from(&mut request).await.expect("receive query");
+            let response = zero_dns::udp::build_dns_response(
+                &request[..size],
+                &[IpAddress::V4([192, 0, 2, 53])],
+            );
+            server
+                .send_to(&response, peer)
+                .await
+                .expect("send DNS response");
+        }
     });
     let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
         servers: BTreeMap::from([(
@@ -34,6 +38,7 @@ async fn udp_dns_uses_an_ipv6_socket_for_an_ipv6_server() {
         dispatch: Vec::new(),
         cache: None,
         answer: DnsAnswerConfig::Real,
+        policy: Default::default(),
     }))
     .expect("build IPv6 UDP resolver");
 

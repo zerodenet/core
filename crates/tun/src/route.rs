@@ -4,6 +4,7 @@ use std::net::IpAddr;
 use serde::{Deserialize, Serialize};
 
 mod journal;
+mod leak;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -14,6 +15,7 @@ mod reconcile;
 mod windows;
 
 use journal::{RouteJournal, RouteLease};
+pub use leak::SystemLeakGuard;
 pub use monitor::RouteChangeMonitor;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

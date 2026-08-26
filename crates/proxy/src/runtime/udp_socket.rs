@@ -4,6 +4,8 @@
 use std::net::SocketAddr;
 
 #[cfg(feature = "udp-runtime")]
+use zero_core::Address;
+#[cfg(feature = "udp-runtime")]
 use zero_engine::EngineError;
 #[cfg(feature = "udp-runtime")]
 use zero_platform_tokio::TokioDatagramSocket;
@@ -13,12 +15,14 @@ pub(crate) struct DirectUdpSockets {
     ipv4: TokioDatagramSocket,
     ipv6: Option<TokioDatagramSocket>,
     ipv6_buffer: tokio::sync::Mutex<Vec<u8>>,
+    generation: u64,
 }
 #[cfg(feature = "udp-runtime")]
 impl DirectUdpSockets {
     pub(crate) async fn bind(
         services: &crate::protocol_registry::UdpNetworkServices,
     ) -> Result<Self, EngineError> {
+        let generation = services.egress_generation();
         let ipv4 = services
             .bind_datagram_socket("0.0.0.0:0".parse().expect("valid IPv4 wildcard"))
             .await?;
@@ -38,7 +42,58 @@ impl DirectUdpSockets {
             ipv4,
             ipv6,
             ipv6_buffer: tokio::sync::Mutex::new(vec![0_u8; 65_535]),
+            generation,
         })
+    }
+
+    pub(crate) async fn refresh_if_stale(
+        &mut self,
+        services: &crate::protocol_registry::UdpNetworkServices,
+    ) -> Result<(), EngineError> {
+        let current_generation = services.egress_generation();
+        if self.generation == current_generation {
+            return Ok(());
+        }
+
+        let previous_generation = self.generation;
+        let mut replacement = Self::bind(services).await?;
+        for _ in 0..2 {
+            if replacement.generation == services.egress_generation() {
+                break;
+            }
+            replacement = Self::bind(services).await?;
+        }
+        if replacement.generation != services.egress_generation() {
+            return Err(EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "egress topology changed repeatedly while rebuilding direct UDP sockets",
+            )));
+        }
+        let replacement_generation = replacement.generation;
+        *self = replacement;
+        tracing::info!(
+            previous_generation,
+            generation = replacement_generation,
+            "rebuilt direct UDP sockets after egress topology change"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn select_target(
+        &self,
+        logical_target: &Address,
+        candidates: &[SocketAddr],
+    ) -> Result<SocketAddr, EngineError> {
+        select_stable_udp_target(logical_target, candidates, self.ipv6.is_some()).ok_or_else(|| {
+            EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::AddrNotAvailable,
+                "no usable direct UDP target address",
+            ))
+        })
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub(crate) async fn send_to_addr(
@@ -81,6 +136,54 @@ impl DirectUdpSockets {
     }
 }
 
+/// Select one candidate without pinning every logical target to the first DNS
+/// answer. The resolver's first usable address family remains preferred, while
+/// rendezvous hashing makes selection within that family stable across answer
+/// reordering and minimally disruptive when the answer set changes.
+#[cfg(feature = "udp-runtime")]
+fn select_stable_udp_target(
+    logical_target: &Address,
+    candidates: &[SocketAddr],
+    ipv6_available: bool,
+) -> Option<SocketAddr> {
+    let preferred_ipv6 = candidates
+        .iter()
+        .find(|candidate| candidate.is_ipv4() || ipv6_available)
+        .map(SocketAddr::is_ipv6)?;
+
+    candidates
+        .iter()
+        .copied()
+        .filter(|candidate| candidate.is_ipv4() || ipv6_available)
+        .filter(|candidate| candidate.is_ipv6() == preferred_ipv6)
+        .max_by_key(|candidate| udp_candidate_score(logical_target, *candidate))
+}
+
+#[cfg(feature = "udp-runtime")]
+fn udp_candidate_score(logical_target: &Address, candidate: SocketAddr) -> u64 {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    fn extend(mut hash: u64, bytes: &[u8]) -> u64 {
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(PRIME);
+        }
+        hash
+    }
+
+    let mut hash = match logical_target {
+        Address::Domain(domain) => extend(OFFSET, domain.to_ascii_lowercase().as_bytes()),
+        Address::Ipv4(address) => extend(OFFSET, address),
+        Address::Ipv6(address) => extend(OFFSET, address),
+    };
+    hash = match candidate.ip() {
+        std::net::IpAddr::V4(address) => extend(hash, &address.octets()),
+        std::net::IpAddr::V6(address) => extend(hash, &address.octets()),
+    };
+    extend(hash, &candidate.port().to_be_bytes())
+}
+
 #[cfg(feature = "udp-runtime")]
 fn log_direct_socket(family: &str, socket: &TokioDatagramSocket) {
     let local = socket.local_addr().ok();
@@ -115,3 +218,6 @@ pub(crate) async fn send_direct_udp_packet(
         .await
         .map_err(Into::into)
 }
+
+#[cfg(test)]
+mod tests;

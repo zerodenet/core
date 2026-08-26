@@ -15,8 +15,8 @@ impl UdpSessionFlows {
         client_session_id: Option<u64>,
     ) -> Option<UdpFlowSnapshot> {
         self.flows
-            .get(&UdpFlowKey::new(target, port, client_session_id))
-            .map(UdpFlow::snapshot)
+            .get_key_value(&UdpFlowKey::new(target, port, client_session_id))
+            .map(|(key, flow)| flow.snapshot(key.clone()))
     }
 
     /// Look up a session ID by target+port only, regardless of outbound type.
@@ -37,22 +37,20 @@ impl UdpSessionFlows {
 
     pub(crate) fn insert(
         &mut self,
+        key: UdpFlowKey,
         session: Session,
         handle: SessionHandle,
         outbound: UdpFlowOutbound,
-        client_session_id: Option<u64>,
         passive_relay_selections: Vec<PassiveRelaySelection>,
         rate_limiters: UdpFlowRateLimiters,
     ) {
-        let key = UdpFlowKey::new(&session.target, session.port, client_session_id);
-        self.index_flow(&key, &outbound);
+        self.index_flow(&key, &session.target, &outbound);
         self.flows.insert(
             key,
             UdpFlow {
                 session,
                 handle,
                 outbound,
-                client_session_id,
                 passive_relay_selections,
                 passive_health_confirmed: std::sync::atomic::AtomicBool::new(false),
                 rate_limiters,
@@ -93,14 +91,11 @@ impl UdpSessionFlows {
 
     pub(crate) fn finish_with_failure(
         &mut self,
-        target: &Address,
-        port: u16,
-        client_session_id: Option<u64>,
+        key: &UdpFlowKey,
         failure: FlowFailureObservation,
     ) -> Option<CompletedUdpFlow> {
-        let key = UdpFlowKey::new(target, port, client_session_id);
-        let flow = self.flows.remove(&key)?;
-        self.unindex_flow(&key, &flow.outbound);
+        let flow = self.flows.remove(key)?;
+        self.unindex_flow(key, &flow.session.target, &flow.outbound);
         Some(flow.finish_with_failure(failure))
     }
 
@@ -110,7 +105,7 @@ impl UdpSessionFlows {
             .iter()
             .find_map(|(key, flow)| (flow.session.id == session_id).then(|| key.clone()))?;
         let flow = self.flows.remove(&key)?;
-        self.unindex_flow(&key, &flow.outbound);
+        self.unindex_flow(&key, &flow.session.target, &flow.outbound);
         Some(flow.finish_cancelled())
     }
 

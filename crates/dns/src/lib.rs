@@ -18,7 +18,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use zero_config::DnsConfig;
+use zero_config::{DnsAddressFamilyPolicy, DnsConfig, DnsPolicyConfig};
 use zero_traits::{DnsResolver, IpAddress};
 
 use backends::ResolverBackend;
@@ -63,6 +63,7 @@ enum DnsSystemInner {
         dispatcher: DnsDispatcher,
         cache: Option<DnsCache>,
         fake_ip: Option<Arc<FakeIpAllocator>>,
+        policy: DnsPolicyConfig,
     },
 }
 
@@ -74,6 +75,7 @@ struct ResolveSnapshot {
     dispatcher: DnsDispatcher,
     cache: Option<DnsCache>,
     fake_ip: Option<Arc<FakeIpAllocator>>,
+    policy: DnsPolicyConfig,
 }
 
 impl DnsSystem {
@@ -180,6 +182,7 @@ impl DnsSystem {
             dispatcher,
             cache,
             fake_ip,
+            policy: cfg.policy.clone(),
         })
     }
 
@@ -344,11 +347,13 @@ impl DnsSystem {
                 dispatcher,
                 cache,
                 fake_ip,
+                policy,
             } => Some(ResolveSnapshot {
                 servers: servers.clone(),
                 dispatcher: dispatcher.clone(),
                 cache: cache.clone(),
                 fake_ip: fake_ip.clone(),
+                policy: policy.clone(),
             }),
         }
     }
@@ -359,21 +364,17 @@ impl DnsSystem {
     /// synthetic fake IP. Internal routing and upstream dialing use this path
     /// after a fake-IP target has been restored to its original domain.
     pub async fn resolve_real(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
-        let mut addresses = Vec::new();
-        let mut first_error = None;
-        for query_type in [message::TYPE_A, message::TYPE_AAAA] {
-            match self.resolve_real_type(domain, query_type).await {
-                Ok(mut resolved) => addresses.append(&mut resolved),
-                Err(error) if first_error.is_none() => first_error = Some(error),
-                Err(_) => {}
+        let domain = message::normalize_domain(domain)?;
+        match self.snapshot() {
+            Some(snapshot) => resolve_snapshot(&domain, snapshot).await,
+            None => {
+                let (ipv4, ipv6) = tokio::join!(
+                    self.resolve_system_type(&domain, message::TYPE_A),
+                    self.resolve_system_type(&domain, message::TYPE_AAAA),
+                );
+                combine_address_families(ipv4, ipv6)
             }
         }
-        if addresses.is_empty() {
-            if let Some(error) = first_error {
-                return Err(error);
-            }
-        }
-        Ok(addresses)
     }
 
     /// Resolve one address family through real DNS without allocating Fake-IP.
@@ -453,7 +454,7 @@ impl DnsSystem {
         {
             if !allocator.is_excluded(&question.domain) {
                 if question.query_type == message::TYPE_A {
-                    return match allocator.alloc(&question.domain).await {
+                    return match allocator.alloc_ipv4(&question.domain).await {
                         Ok(Some(address)) => message::build_address_response(
                             query,
                             &[address],
@@ -473,7 +474,24 @@ impl DnsSystem {
                     };
                 }
                 if question.query_type == message::TYPE_AAAA {
-                    return message::build_address_response(query, &[], allocator.ttl_seconds());
+                    return match allocator.alloc_ipv6(&question.domain).await {
+                        Ok(Some(address)) => message::build_address_response(
+                            query,
+                            &[address],
+                            allocator.ttl_seconds(),
+                        ),
+                        Ok(None) => {
+                            message::build_address_response(query, &[], allocator.ttl_seconds())
+                        }
+                        Err(error) => {
+                            tracing::error!(
+                                %error,
+                                domain = %question.domain,
+                                "failed to persist IPv6 Fake-IP mapping; returning SERVFAIL"
+                            );
+                            message::build_error_response(query, message::RCODE_SERVFAIL, false)
+                        }
+                    };
                 }
             }
         }
@@ -492,16 +510,9 @@ impl DnsSystem {
         }
 
         let result = match snapshot.as_ref() {
-            Some(snapshot) => {
-                let selected = snapshot.dispatcher.select(&question.domain);
-                match snapshot.servers.get(selected) {
-                    Some(backend) => backend.exchange(query).await,
-                    None => Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("DNS dispatch selected undefined backend `{selected}`"),
-                    )),
-                }
-            }
+            Some(snapshot) => exchange_snapshot(query, &question.domain, snapshot)
+                .await
+                .map(|(response, _)| response),
             None => {
                 backends::ResolverBackend::System(TokioSystemResolver)
                     .exchange(query)
@@ -550,29 +561,92 @@ impl DnsResolver for DnsSystem {
         // Fake IP path: return synthetic IP instead of real resolution.
         if let Some(alloc) = &snapshot.fake_ip {
             if !alloc.is_excluded(domain) {
-                if let Some(ip) = alloc.alloc(domain).await? {
-                    return Ok(vec![ip]);
+                let addresses =
+                    allocate_fake_addresses(alloc, domain, snapshot.policy.address_family).await?;
+                if !addresses.is_empty() {
+                    return Ok(addresses);
                 }
             }
         }
 
         let domain = message::normalize_domain(domain)?;
-        let mut addresses = Vec::new();
-        let mut first_error = None;
-        for query_type in [message::TYPE_A, message::TYPE_AAAA] {
-            match resolve_snapshot_type(&domain, query_type, snapshot.clone()).await {
-                Ok(mut resolved) => addresses.append(&mut resolved),
-                Err(error) if first_error.is_none() => first_error = Some(error),
-                Err(_) => {}
-            }
-        }
-        if addresses.is_empty() {
-            if let Some(error) = first_error {
-                return Err(error);
-            }
-        }
-        Ok(addresses)
+        resolve_snapshot(&domain, snapshot).await
     }
+}
+
+async fn allocate_fake_addresses(
+    allocator: &FakeIpAllocator,
+    domain: &str,
+    policy: DnsAddressFamilyPolicy,
+) -> io::Result<Vec<IpAddress>> {
+    match policy {
+        DnsAddressFamilyPolicy::Ipv4Only => {
+            Ok(allocator.alloc_ipv4(domain).await?.into_iter().collect())
+        }
+        DnsAddressFamilyPolicy::Ipv6Only => {
+            Ok(allocator.alloc_ipv6(domain).await?.into_iter().collect())
+        }
+        DnsAddressFamilyPolicy::PreferIpv4 | DnsAddressFamilyPolicy::PreferIpv6 => {
+            let (ipv4, ipv6) =
+                tokio::join!(allocator.alloc_ipv4(domain), allocator.alloc_ipv6(domain),);
+            let ipv4 = ipv4?;
+            let ipv6 = ipv6?;
+            let mut addresses = Vec::with_capacity(2);
+            let ordered = if policy == DnsAddressFamilyPolicy::PreferIpv4 {
+                [ipv4, ipv6]
+            } else {
+                [ipv6, ipv4]
+            };
+            addresses.extend(ordered.into_iter().flatten());
+            Ok(addresses)
+        }
+    }
+}
+
+async fn resolve_snapshot(domain: &str, snapshot: ResolveSnapshot) -> io::Result<Vec<IpAddress>> {
+    match snapshot.policy.address_family {
+        DnsAddressFamilyPolicy::Ipv4Only => {
+            resolve_snapshot_type(domain, message::TYPE_A, snapshot).await
+        }
+        DnsAddressFamilyPolicy::Ipv6Only => {
+            resolve_snapshot_type(domain, message::TYPE_AAAA, snapshot).await
+        }
+        DnsAddressFamilyPolicy::PreferIpv4 => {
+            let (ipv4, ipv6) = tokio::join!(
+                resolve_snapshot_type(domain, message::TYPE_A, snapshot.clone()),
+                resolve_snapshot_type(domain, message::TYPE_AAAA, snapshot),
+            );
+            combine_address_families(ipv4, ipv6)
+        }
+        DnsAddressFamilyPolicy::PreferIpv6 => {
+            let (ipv4, ipv6) = tokio::join!(
+                resolve_snapshot_type(domain, message::TYPE_A, snapshot.clone()),
+                resolve_snapshot_type(domain, message::TYPE_AAAA, snapshot),
+            );
+            combine_address_families(ipv6, ipv4)
+        }
+    }
+}
+
+fn combine_address_families(
+    ipv4: io::Result<Vec<IpAddress>>,
+    ipv6: io::Result<Vec<IpAddress>>,
+) -> io::Result<Vec<IpAddress>> {
+    let mut addresses = Vec::new();
+    let mut first_error = None;
+    for result in [ipv4, ipv6] {
+        match result {
+            Ok(mut resolved) => addresses.append(&mut resolved),
+            Err(error) if first_error.is_none() => first_error = Some(error),
+            Err(_) => {}
+        }
+    }
+    if addresses.is_empty() {
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+    }
+    Ok(addresses)
 }
 
 async fn resolve_snapshot_type(
@@ -587,15 +661,26 @@ async fn resolve_snapshot_type(
         }
     }
 
-    // 2. Dispatch to exactly one backend; there is no implicit fallback.
-    let selected = snapshot.dispatcher.select(domain);
-    let backend = snapshot.servers.get(selected).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("DNS dispatch selected undefined backend `{selected}`"),
-        )
-    })?;
-    let result = backend.resolve_type(domain, query_type).await;
+    // 2. Dispatch to the selected backend, then walk the explicit fallback
+    // chain on transport failure, timeout, malformed data, or retryable RCODE.
+    let query = message::build_query(domain, query_type)?;
+    let result = exchange_snapshot(&query, domain, &snapshot)
+        .await
+        .and_then(|(_, parsed)| match parsed.response_code {
+            message::RCODE_NOERROR => Ok(backends::ResolvedAddresses {
+                addresses: parsed.addresses,
+                ttl_seconds: parsed
+                    .min_ttl_seconds
+                    .unwrap_or(message::DEFAULT_NEGATIVE_TTL_SECONDS),
+            }),
+            message::RCODE_NXDOMAIN => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("DNS name `{domain}` does not exist"),
+            )),
+            code => Err(io::Error::other(format!(
+                "DNS server returned response code {code} for `{domain}`"
+            ))),
+        });
 
     // 3. Cache on success using the upstream record TTL.
     if let (Some(cache), Ok(resolved)) = (&snapshot.cache, &result) {
@@ -610,6 +695,65 @@ async fn resolve_snapshot_type(
     }
 
     result.map(|resolved| resolved.addresses)
+}
+
+async fn exchange_snapshot(
+    query: &[u8],
+    domain: &str,
+    snapshot: &ResolveSnapshot,
+) -> io::Result<(Vec<u8>, message::ParsedDnsResponse)> {
+    let selected = snapshot.dispatcher.select(domain);
+    let mut tags = Vec::with_capacity(1 + snapshot.policy.fallback_servers.len());
+    tags.push(selected);
+    for fallback in &snapshot.policy.fallback_servers {
+        if !tags.contains(&fallback.as_str()) {
+            tags.push(fallback);
+        }
+    }
+
+    let deadline = std::time::Duration::from_millis(snapshot.policy.timeout_ms);
+    let mut last_error = None;
+    for tag in tags {
+        let backend = snapshot.servers.get(tag).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("DNS policy selected undefined backend `{tag}`"),
+            )
+        })?;
+        let attempt = match tokio::time::timeout(deadline, backend.exchange(query)).await {
+            Ok(result) => result,
+            Err(_) => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!(
+                    "DNS backend `{tag}` timed out after {}ms",
+                    snapshot.policy.timeout_ms
+                ),
+            )),
+        };
+        match attempt.and_then(|response| {
+            let parsed = message::parse_response(query, &response)?;
+            if matches!(
+                parsed.response_code,
+                message::RCODE_NOERROR | message::RCODE_NXDOMAIN
+            ) {
+                Ok((response, parsed))
+            } else {
+                Err(io::Error::other(format!(
+                    "DNS backend `{tag}` returned retryable response code {}",
+                    parsed.response_code
+                )))
+            }
+        }) {
+            Ok(response) => return Ok(response),
+            Err(error) => {
+                tracing::warn!(%error, %domain, backend = %tag, "DNS backend attempt failed");
+                last_error = Some(error);
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "DNS policy has no backend")
+    }))
 }
 
 fn compile_standalone_dispatch(

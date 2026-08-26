@@ -246,7 +246,7 @@ fn route_journal_path(recovery_key: &str, ipv6: bool) -> io::Result<PathBuf> {
     )))
 }
 
-fn route_state_root() -> io::Result<PathBuf> {
+pub(super) fn route_state_root() -> io::Result<PathBuf> {
     if let Some(path) = std::env::var_os("ZERO_TUN_STATE_DIR") {
         return create_private_state_dir(Path::new(&path));
     }

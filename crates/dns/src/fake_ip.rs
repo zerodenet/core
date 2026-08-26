@@ -1,7 +1,8 @@
-//! Bounded Fake-IP mapping lifecycle for transparent proxying.
+//! Bounded dual-stack Fake-IP mapping lifecycle for transparent proxying.
 
 use std::collections::HashMap;
 use std::io;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -26,7 +27,8 @@ const DEFAULT_MAX_ENTRIES: usize = 65_536;
 
 pub struct FakeIpAllocator {
     inner: Mutex<AllocatorState>,
-    network: ipnet::Ipv4Net,
+    ipv4_network: ipnet::Ipv4Net,
+    ipv6_network: Option<ipnet::Ipv6Net>,
     ttl: Duration,
     max_entries: usize,
     exclusions: Vec<DomainExclusion>,
@@ -34,20 +36,49 @@ pub struct FakeIpAllocator {
 }
 
 struct AllocatorState {
-    next_ip: u32,
-    base: u32,
-    mask: u32,
+    next_ipv4: u32,
+    next_ipv6: Option<u128>,
     clock: u64,
-    forward: HashMap<String, [u8; 4]>,
-    reverse: HashMap<[u8; 4], Mapping>,
+    forward: HashMap<String, Mapping>,
+    reverse: HashMap<IpAddr, String>,
     persistence: Option<FakeIpPersistence>,
 }
 
 struct Mapping {
-    domain: String,
+    ipv4: Option<Ipv4Addr>,
+    ipv6: Option<Ipv6Addr>,
     expires_at: Instant,
     expires_at_unix_ms: u64,
     last_used: u64,
+}
+
+impl Mapping {
+    fn address(&self, family: AddressFamily) -> Option<IpAddr> {
+        match family {
+            AddressFamily::Ipv4 => self.ipv4.map(IpAddr::V4),
+            AddressFamily::Ipv6 => self.ipv6.map(IpAddr::V6),
+        }
+    }
+
+    fn set_address(&mut self, address: IpAddr) {
+        match address {
+            IpAddr::V4(address) => self.ipv4 = Some(address),
+            IpAddr::V6(address) => self.ipv6 = Some(address),
+        }
+    }
+
+    fn addresses(&self) -> impl Iterator<Item = IpAddr> {
+        self.ipv4
+            .map(IpAddr::V4)
+            .into_iter()
+            .chain(self.ipv6.map(IpAddr::V6))
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AddressFamily {
+    Ipv4,
+    Ipv6,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -58,6 +89,8 @@ pub struct FakeIpStats {
     pub exhaustions: u64,
     pub collisions: u64,
     pub reverse_misses: u64,
+    /// Number of live domains. One domain may own both an IPv4 and IPv6
+    /// address while consuming one shared capacity slot.
     pub live_mappings: usize,
     pub capacity: usize,
 }
@@ -88,24 +121,33 @@ impl FakeIpAllocator {
         config: FakeIpConfigRef<'_>,
         state_lease: Option<Arc<FakeIpStateLease>>,
     ) -> io::Result<Self> {
-        let network = match config.cidr.parse::<ipnet::IpNet>().map_err(|error| {
+        let ipv4_network = config.cidr.parse::<ipnet::Ipv4Net>().map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("invalid Fake-IP CIDR: {error}"),
+                format!("invalid IPv4 Fake-IP CIDR: {error}"),
             )
-        })? {
-            ipnet::IpNet::V4(network) => network,
-            ipnet::IpNet::V6(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Fake-IP only supports IPv4 CIDR",
-                ));
-            }
-        };
-        if network.prefix_len() > 30 {
+        })?;
+        if ipv4_network.prefix_len() > 30 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Fake-IP IPv4 CIDR must contain at least four addresses",
+            ));
+        }
+        let ipv6_network = config
+            .ipv6_cidr
+            .map(|cidr| {
+                cidr.parse::<ipnet::Ipv6Net>().map_err(|error| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("invalid IPv6 Fake-IP CIDR: {error}"),
+                    )
+                })
+            })
+            .transpose()?;
+        if ipv6_network.is_some_and(|network| network.prefix_len() > 126) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Fake-IP IPv6 CIDR must contain at least four addresses",
             ));
         }
         if config.ttl_seconds == 0 {
@@ -114,7 +156,11 @@ impl FakeIpAllocator {
                 "Fake-IP TTL must be greater than zero",
             ));
         }
-        let usable = ((1_u128 << (32 - network.prefix_len())) - 2).min(usize::MAX as u128) as usize;
+
+        let usable = ipv6_network.map_or_else(
+            || usable_ipv4(&ipv4_network),
+            |network| usable_ipv4(&ipv4_network).min(usable_ipv6(&network)),
+        );
         let max_entries = config
             .max_entries
             .unwrap_or(DEFAULT_MAX_ENTRIES)
@@ -135,9 +181,9 @@ impl FakeIpAllocator {
             .map(|pattern| parse_exclusion(pattern))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        let base = u32::from(network.network());
         let metadata = PersistenceMetadata {
-            cidr: network.to_string(),
+            cidr: ipv4_network.to_string(),
+            ipv6_cidr: ipv6_network.map(|network| network.to_string()),
             ttl_seconds: config.ttl_seconds,
             max_entries,
             exclusions: exclusions.iter().map(DomainExclusion::as_pattern).collect(),
@@ -150,9 +196,8 @@ impl FakeIpAllocator {
             None => (None, Vec::new()),
         };
         let mut state = AllocatorState {
-            next_ip: base + 1,
-            base,
-            mask: u32::from(network.netmask()),
+            next_ipv4: u32::from(ipv4_network.network()) + 1,
+            next_ipv6: ipv6_network.map(|network| u128::from(network.network())),
             clock: 0,
             forward: HashMap::new(),
             reverse: HashMap::new(),
@@ -160,8 +205,10 @@ impl FakeIpAllocator {
         };
         if let Err(error) = restore_mappings(
             &mut state,
-            &network,
+            &ipv4_network,
+            ipv6_network.as_ref(),
             Duration::from_secs(config.ttl_seconds),
+            max_entries,
             recovered,
         ) {
             tracing::warn!(%error, "discarding invalid Fake-IP persistence mappings");
@@ -173,7 +220,8 @@ impl FakeIpAllocator {
         }
         Ok(Self {
             inner: Mutex::new(state),
-            network,
+            ipv4_network,
+            ipv6_network,
             ttl: Duration::from_secs(config.ttl_seconds),
             max_entries,
             exclusions,
@@ -182,10 +230,20 @@ impl FakeIpAllocator {
     }
 
     pub fn compatible_with(&self, config: FakeIpConfigRef<'_>) -> bool {
-        let Ok(network) = config.cidr.parse::<ipnet::Ipv4Net>() else {
+        let Ok(ipv4_network) = config.cidr.parse::<ipnet::Ipv4Net>() else {
             return false;
         };
-        let usable = ((1_u128 << (32 - network.prefix_len())) - 2).min(usize::MAX as u128) as usize;
+        let Ok(ipv6_network) = config
+            .ipv6_cidr
+            .map(str::parse::<ipnet::Ipv6Net>)
+            .transpose()
+        else {
+            return false;
+        };
+        let usable = ipv6_network.map_or_else(
+            || usable_ipv4(&ipv4_network),
+            |network| usable_ipv4(&ipv4_network).min(usable_ipv6(&network)),
+        );
         let max_entries = config
             .max_entries
             .unwrap_or(DEFAULT_MAX_ENTRIES)
@@ -198,14 +256,21 @@ impl FakeIpAllocator {
         else {
             return false;
         };
-        self.network == network
+        self.ipv4_network == ipv4_network
+            && self.ipv6_network == ipv6_network
             && self.ttl == Duration::from_secs(config.ttl_seconds)
             && self.max_entries == max_entries
             && self.exclusions == exclusions
     }
 
-    pub fn contains(&self, address: std::net::IpAddr) -> bool {
-        matches!(address, std::net::IpAddr::V4(address) if self.network.contains(&address))
+    pub fn contains(&self, address: IpAddr) -> bool {
+        match address {
+            IpAddr::V4(address) => self.ipv4_network.contains(&address),
+            IpAddr::V6(address) => self
+                .ipv6_network
+                .as_ref()
+                .is_some_and(|network| network.contains(&address)),
+        }
     }
 
     pub fn ttl_seconds(&self) -> u32 {
@@ -228,7 +293,18 @@ impl FakeIpAllocator {
         })
     }
 
-    pub async fn alloc(&self, domain: &str) -> io::Result<Option<IpAddress>> {
+    pub async fn alloc_ipv4(&self, domain: &str) -> io::Result<Option<IpAddress>> {
+        self.alloc(domain, AddressFamily::Ipv4).await
+    }
+
+    pub async fn alloc_ipv6(&self, domain: &str) -> io::Result<Option<IpAddress>> {
+        if self.ipv6_network.is_none() {
+            return Ok(None);
+        }
+        self.alloc(domain, AddressFamily::Ipv6).await
+    }
+
+    async fn alloc(&self, domain: &str, family: AddressFamily) -> io::Result<Option<IpAddress>> {
         let domain = normalize_domain(domain)?;
         let mut state = self.inner.lock().await;
         let now = Instant::now();
@@ -241,114 +317,146 @@ impl FakeIpAllocator {
             0
         };
 
-        if let Some(octets) = state.forward.get(&domain).copied() {
-            persist_upsert(
-                &mut state,
-                &PersistedMapping {
-                    domain: domain.clone(),
-                    ip: octets,
-                    expires_at_unix_ms,
-                },
-            )?;
-            if let Some(mapping) = state.reverse.get_mut(&octets) {
+        if let Some(address) = state
+            .forward
+            .get(&domain)
+            .and_then(|mapping| mapping.address(family))
+        {
+            let addresses = state
+                .forward
+                .get(&domain)
+                .map(|mapping| mapping.addresses().collect::<Vec<_>>())
+                .unwrap_or_default();
+            persist_addresses(&mut state, &domain, &addresses, expires_at_unix_ms)?;
+            if let Some(mapping) = state.forward.get_mut(&domain) {
                 mapping.expires_at = now + self.ttl;
                 mapping.expires_at_unix_ms = expires_at_unix_ms;
                 mapping.last_used = clock;
-                compact_if_needed(&mut state);
-                return Ok(Some(IpAddress::V4(octets)));
             }
-            state.forward.remove(&domain);
+            compact_if_needed(&mut state);
+            return Ok(Some(to_trait_address(address)));
         }
 
-        let reusable = if state.reverse.len() >= self.max_entries {
-            let lru = state
-                .reverse
-                .iter()
-                .min_by_key(|(_, mapping)| mapping.last_used)
-                .map(|(ip, _)| *ip);
-            lru
-        } else {
-            None
-        };
-        let octets = reusable.or_else(|| allocate_free(&mut state));
-        let Some(octets) = octets else {
+        let victim =
+            if !state.forward.contains_key(&domain) && state.forward.len() >= self.max_entries {
+                state
+                    .forward
+                    .iter()
+                    .min_by_key(|(_, mapping)| mapping.last_used)
+                    .map(|(domain, _)| domain.clone())
+            } else {
+                None
+            };
+        let reusable = victim
+            .as_ref()
+            .and_then(|victim| state.forward.get(victim))
+            .and_then(|mapping| mapping.address(family));
+        let address = reusable.or_else(|| {
+            allocate_free(
+                &mut state,
+                family,
+                &self.ipv4_network,
+                self.ipv6_network.as_ref(),
+            )
+        });
+        let Some(address) = address else {
             self.stats.exhaustions.fetch_add(1, Ordering::Relaxed);
             return Ok(None);
         };
-        persist_upsert(
+        let mut persisted_addresses = state
+            .forward
+            .get(&domain)
+            .map(|mapping| mapping.addresses().collect::<Vec<_>>())
+            .unwrap_or_default();
+        persisted_addresses.push(address);
+        persist_addresses(
             &mut state,
-            &PersistedMapping {
-                domain: domain.clone(),
-                ip: octets,
-                expires_at_unix_ms,
-            },
+            &domain,
+            &persisted_addresses,
+            expires_at_unix_ms,
         )?;
-        if reusable.is_some() {
-            remove_mapping(&mut state, octets);
+
+        if let Some(victim) = victim {
+            remove_domain(&mut state, &victim);
             self.stats.evictions.fetch_add(1, Ordering::Relaxed);
         }
-        state.forward.insert(domain.clone(), octets);
-        state.reverse.insert(
-            octets,
-            Mapping {
-                domain,
-                expires_at: now + self.ttl,
-                expires_at_unix_ms,
-                last_used: clock,
-            },
-        );
+        state.reverse.insert(address, domain.clone());
+        match state.forward.entry(domain) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                let mapping = entry.get_mut();
+                mapping.set_address(address);
+                mapping.expires_at = now + self.ttl;
+                mapping.expires_at_unix_ms = expires_at_unix_ms;
+                mapping.last_used = clock;
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let mut mapping = Mapping {
+                    ipv4: None,
+                    ipv6: None,
+                    expires_at: now + self.ttl,
+                    expires_at_unix_ms,
+                    last_used: clock,
+                };
+                mapping.set_address(address);
+                entry.insert(mapping);
+            }
+        }
         self.stats.allocations.fetch_add(1, Ordering::Relaxed);
         compact_if_needed(&mut state);
-        Ok(Some(IpAddress::V4(octets)))
+        Ok(Some(to_trait_address(address)))
     }
 
     pub async fn lookup(&self, ip: &IpAddress) -> Option<String> {
-        let IpAddress::V4(octets) = ip else {
-            return None;
-        };
-        if !self.network.contains(&std::net::Ipv4Addr::from(*octets)) {
+        let address = to_std_address(*ip);
+        if !self.contains(address) {
             return None;
         }
         let mut state = self.inner.lock().await;
-        let now = Instant::now();
-        if state
-            .reverse
-            .get(octets)
-            .is_some_and(|mapping| mapping.expires_at <= now)
-        {
-            remove_mapping(&mut state, *octets);
-            self.stats.expirations.fetch_add(1, Ordering::Relaxed);
-        }
-        state.clock = state.clock.wrapping_add(1);
-        let clock = state.clock;
-        let Some(mapping) = state.reverse.get_mut(octets) else {
+        let Some(domain) = state.reverse.get(&address).cloned() else {
             self.stats.reverse_misses.fetch_add(1, Ordering::Relaxed);
             return None;
         };
-        mapping.last_used = clock;
-        Some(mapping.domain.clone())
+        let now = Instant::now();
+        if state
+            .forward
+            .get(&domain)
+            .is_none_or(|mapping| mapping.expires_at <= now)
+        {
+            remove_domain(&mut state, &domain);
+            self.stats.expirations.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+        state.clock = state.clock.wrapping_add(1);
+        let clock = state.clock;
+        if let Some(mapping) = state.forward.get_mut(&domain) {
+            mapping.last_used = clock;
+        }
+        Some(domain)
     }
 
     pub async fn lookup_domain(&self, domain: &str) -> Option<IpAddress> {
         let domain = normalize_domain(domain).ok()?;
         let mut state = self.inner.lock().await;
-        let octets = state.forward.get(&domain).copied()?;
         let now = Instant::now();
         if state
-            .reverse
-            .get(&octets)
+            .forward
+            .get(&domain)
             .is_none_or(|mapping| mapping.expires_at <= now)
         {
-            remove_mapping(&mut state, octets);
-            self.stats.expirations.fetch_add(1, Ordering::Relaxed);
+            if state.forward.contains_key(&domain) {
+                remove_domain(&mut state, &domain);
+                self.stats.expirations.fetch_add(1, Ordering::Relaxed);
+            }
             return None;
         }
         state.clock = state.clock.wrapping_add(1);
         let clock = state.clock;
-        if let Some(mapping) = state.reverse.get_mut(&octets) {
-            mapping.last_used = clock;
-        }
-        Some(IpAddress::V4(octets))
+        let mapping = state.forward.get_mut(&domain)?;
+        mapping.last_used = clock;
+        mapping
+            .ipv4
+            .map(|address| IpAddress::V4(address.octets()))
+            .or_else(|| mapping.ipv6.map(|address| IpAddress::V6(address.octets())))
     }
 
     pub async fn stats(&self) -> FakeIpStats {
@@ -361,7 +469,7 @@ impl FakeIpAllocator {
             exhaustions: self.stats.exhaustions.load(Ordering::Relaxed),
             collisions: self.stats.collisions.load(Ordering::Relaxed),
             reverse_misses: self.stats.reverse_misses.load(Ordering::Relaxed),
-            live_mappings: state.reverse.len(),
+            live_mappings: state.forward.len(),
             capacity: self.max_entries,
         }
     }
@@ -388,22 +496,74 @@ fn parse_exclusion(pattern: &str) -> Result<DomainExclusion, String> {
         .map_err(|error| error.to_string())
 }
 
-fn allocate_free(state: &mut AllocatorState) -> Option<[u8; 4]> {
-    let broadcast = state.base | !state.mask;
-    let start = state.next_ip;
+fn usable_ipv4(network: &ipnet::Ipv4Net) -> usize {
+    ((1_u128 << (32 - network.prefix_len())) - 2).min(usize::MAX as u128) as usize
+}
+
+fn usable_ipv6(network: &ipnet::Ipv6Net) -> usize {
+    let host_bits = 128 - network.prefix_len();
+    if u32::from(host_bits) >= usize::BITS {
+        usize::MAX
+    } else {
+        1_usize << host_bits
+    }
+}
+
+fn allocate_free(
+    state: &mut AllocatorState,
+    family: AddressFamily,
+    ipv4_network: &ipnet::Ipv4Net,
+    ipv6_network: Option<&ipnet::Ipv6Net>,
+) -> Option<IpAddr> {
+    match family {
+        AddressFamily::Ipv4 => allocate_free_ipv4(state, ipv4_network).map(IpAddr::V4),
+        AddressFamily::Ipv6 => allocate_free_ipv6(state, ipv6_network?).map(IpAddr::V6),
+    }
+}
+
+fn allocate_free_ipv4(state: &mut AllocatorState, network: &ipnet::Ipv4Net) -> Option<Ipv4Addr> {
+    let base = u32::from(network.network());
+    let last = u32::from(network.broadcast()) - 1;
+    let start = state.next_ipv4;
     let mut candidate = start;
     loop {
-        let octets = candidate.to_be_bytes();
-        if !state.reverse.contains_key(&octets) {
-            state.next_ip = if candidate >= broadcast - 1 {
-                state.base + 1
+        let address = Ipv4Addr::from(candidate);
+        if !state.reverse.contains_key(&IpAddr::V4(address)) {
+            state.next_ipv4 = if candidate >= last {
+                base + 1
             } else {
                 candidate + 1
             };
-            return Some(octets);
+            return Some(address);
         }
-        candidate = if candidate >= broadcast - 1 {
-            state.base + 1
+        candidate = if candidate >= last {
+            base + 1
+        } else {
+            candidate + 1
+        };
+        if candidate == start {
+            return None;
+        }
+    }
+}
+
+fn allocate_free_ipv6(state: &mut AllocatorState, network: &ipnet::Ipv6Net) -> Option<Ipv6Addr> {
+    let base = u128::from(network.network());
+    let last = u128::from(network.broadcast());
+    let start = state.next_ipv6?;
+    let mut candidate = start;
+    loop {
+        let address = Ipv6Addr::from(candidate);
+        if !state.reverse.contains_key(&IpAddr::V6(address)) {
+            state.next_ipv6 = Some(if candidate >= last {
+                base
+            } else {
+                candidate + 1
+            });
+            return Some(address);
+        }
+        candidate = if candidate >= last {
+            base
         } else {
             candidate + 1
         };
@@ -415,26 +575,39 @@ fn allocate_free(state: &mut AllocatorState) -> Option<[u8; 4]> {
 
 fn expire_mappings(state: &mut AllocatorState, now: Instant, stats: &FakeIpCounters) {
     let expired = state
-        .reverse
+        .forward
         .iter()
         .filter(|(_, mapping)| mapping.expires_at <= now)
-        .map(|(ip, _)| *ip)
+        .map(|(domain, _)| domain.clone())
         .collect::<Vec<_>>();
-    for ip in expired {
-        remove_mapping(state, ip);
+    for domain in expired {
+        remove_domain(state, &domain);
         stats.expirations.fetch_add(1, Ordering::Relaxed);
     }
 }
 
-fn remove_mapping(state: &mut AllocatorState, ip: [u8; 4]) {
-    if let Some(mapping) = state.reverse.remove(&ip) {
-        state.forward.remove(&mapping.domain);
+fn remove_domain(state: &mut AllocatorState, domain: &str) {
+    if let Some(mapping) = state.forward.remove(domain) {
+        for address in mapping.addresses() {
+            state.reverse.remove(&address);
+        }
     }
 }
 
-fn persist_upsert(state: &mut AllocatorState, mapping: &PersistedMapping) -> io::Result<()> {
+fn persist_addresses(
+    state: &mut AllocatorState,
+    domain: &str,
+    addresses: &[IpAddr],
+    expires_at_unix_ms: u64,
+) -> io::Result<()> {
     if let Some(persistence) = state.persistence.as_mut() {
-        persistence.append_upsert(mapping)?;
+        for address in addresses {
+            persistence.append_upsert(&PersistedMapping {
+                domain: domain.to_owned(),
+                ip: *address,
+                expires_at_unix_ms,
+            })?;
+        }
     }
     Ok(())
 }
@@ -443,22 +616,24 @@ fn compact_if_needed(state: &mut AllocatorState) {
     let should_compact = state
         .persistence
         .as_ref()
-        .is_some_and(|persistence| persistence.should_compact(state.reverse.len()));
+        .is_some_and(|persistence| persistence.should_compact(state.forward.len()));
     if !should_compact {
         return;
     }
     let mut mappings = state
-        .reverse
+        .forward
         .iter()
-        .map(|(ip, mapping)| {
-            (
-                mapping.last_used,
-                PersistedMapping {
-                    domain: mapping.domain.clone(),
-                    ip: *ip,
-                    expires_at_unix_ms: mapping.expires_at_unix_ms,
-                },
-            )
+        .flat_map(|(domain, mapping)| {
+            mapping.addresses().map(|ip| {
+                (
+                    mapping.last_used,
+                    PersistedMapping {
+                        domain: domain.clone(),
+                        ip,
+                        expires_at_unix_ms: mapping.expires_at_unix_ms,
+                    },
+                )
+            })
         })
         .collect::<Vec<_>>();
     mappings.sort_by_key(|(last_used, _)| *last_used);
@@ -475,24 +650,25 @@ fn compact_if_needed(state: &mut AllocatorState) {
 
 fn restore_mappings(
     state: &mut AllocatorState,
-    network: &ipnet::Ipv4Net,
+    ipv4_network: &ipnet::Ipv4Net,
+    ipv6_network: Option<&ipnet::Ipv6Net>,
     ttl: Duration,
+    max_entries: usize,
     mappings: Vec<PersistedMapping>,
 ) -> io::Result<()> {
     let now_unix_ms = unix_time_ms()?;
     let now = Instant::now();
-    let base = u32::from(network.network());
-    let broadcast = u32::from(network.broadcast());
     for persisted in mappings {
         let domain = normalize_domain(&persisted.domain)?;
-        let address = u32::from_be_bytes(persisted.ip);
-        if domain != persisted.domain
-            || address <= base
-            || address >= broadcast
-            || !network.contains(&std::net::Ipv4Addr::from(persisted.ip))
-            || state.forward.contains_key(&domain)
-            || state.reverse.contains_key(&persisted.ip)
-        {
+        let in_pool = match persisted.ip {
+            IpAddr::V4(address) => {
+                ipv4_network.contains(&address)
+                    && address != ipv4_network.network()
+                    && address != ipv4_network.broadcast()
+            }
+            IpAddr::V6(address) => ipv6_network.is_some_and(|network| network.contains(&address)),
+        };
+        if domain != persisted.domain || !in_pool || state.reverse.contains_key(&persisted.ip) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Fake-IP state contains an invalid or duplicate mapping",
@@ -506,18 +682,62 @@ fn restore_mappings(
             continue;
         }
         state.clock = state.clock.wrapping_add(1);
-        state.forward.insert(domain.clone(), persisted.ip);
-        state.reverse.insert(
-            persisted.ip,
-            Mapping {
-                domain,
+        let expires_at_unix_ms = now_unix_ms.saturating_add(remaining_ms);
+        let clock = state.clock;
+        let mapping = state
+            .forward
+            .entry(domain.clone())
+            .or_insert_with(|| Mapping {
+                ipv4: None,
+                ipv6: None,
                 expires_at: now + Duration::from_millis(remaining_ms),
-                expires_at_unix_ms: now_unix_ms.saturating_add(remaining_ms),
-                last_used: state.clock,
-            },
-        );
+                expires_at_unix_ms,
+                last_used: clock,
+            });
+        if mapping.address(persisted.ip.into()).is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Fake-IP state contains a duplicate domain family",
+            ));
+        }
+        mapping.set_address(persisted.ip);
+        mapping.expires_at = mapping
+            .expires_at
+            .min(now + Duration::from_millis(remaining_ms));
+        mapping.expires_at_unix_ms = mapping.expires_at_unix_ms.min(expires_at_unix_ms);
+        mapping.last_used = clock;
+        state.reverse.insert(persisted.ip, domain);
+    }
+    if state.forward.len() > max_entries {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Fake-IP state exceeds configured domain capacity",
+        ));
     }
     Ok(())
+}
+
+impl From<IpAddr> for AddressFamily {
+    fn from(address: IpAddr) -> Self {
+        match address {
+            IpAddr::V4(_) => Self::Ipv4,
+            IpAddr::V6(_) => Self::Ipv6,
+        }
+    }
+}
+
+fn to_trait_address(address: IpAddr) -> IpAddress {
+    match address {
+        IpAddr::V4(address) => IpAddress::V4(address.octets()),
+        IpAddr::V6(address) => IpAddress::V6(address.octets()),
+    }
+}
+
+fn to_std_address(address: IpAddress) -> IpAddr {
+    match address {
+        IpAddress::V4(octets) => IpAddr::V4(Ipv4Addr::from(octets)),
+        IpAddress::V6(octets) => IpAddr::V6(Ipv6Addr::from(octets)),
+    }
 }
 
 fn duration_millis(duration: Duration) -> u64 {
@@ -531,6 +751,7 @@ mod tests {
     fn config<'a>(cidr: &'a str, exclusions: &'a [String]) -> FakeIpConfigRef<'a> {
         FakeIpConfigRef {
             cidr,
+            ipv6_cidr: None,
             ttl_seconds: 3600,
             max_entries: None,
             exclude_domains: exclusions,
@@ -540,8 +761,8 @@ mod tests {
     #[tokio::test]
     async fn normalizes_names_for_forward_and_reverse_lookup() {
         let allocator = FakeIpAllocator::new(config("198.18.0.0/24", &[])).unwrap();
-        let first = allocator.alloc("Example.COM.").await.unwrap().unwrap();
-        let second = allocator.alloc("example.com").await.unwrap().unwrap();
+        let first = allocator.alloc_ipv4("Example.COM.").await.unwrap().unwrap();
+        let second = allocator.alloc_ipv4("example.com").await.unwrap().unwrap();
         assert_eq!(first, second);
         assert_eq!(
             allocator.lookup(&first).await.as_deref(),
@@ -550,11 +771,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ipv4_and_ipv6_share_one_domain_lifecycle_slot() {
+        let mut config = config("198.18.0.0/24", &[]);
+        config.ipv6_cidr = Some("fd00::/120");
+        config.max_entries = Some(1);
+        let allocator = FakeIpAllocator::new(config).unwrap();
+        let ipv4 = allocator.alloc_ipv4("dual.test").await.unwrap().unwrap();
+        let ipv6 = allocator.alloc_ipv6("dual.test").await.unwrap().unwrap();
+        assert!(ipv4.is_v4());
+        assert!(ipv6.is_v6());
+        assert_eq!(allocator.stats().await.live_mappings, 1);
+        assert_eq!(allocator.lookup(&ipv4).await.as_deref(), Some("dual.test"));
+        assert_eq!(allocator.lookup(&ipv6).await.as_deref(), Some("dual.test"));
+    }
+
+    #[tokio::test]
     async fn expires_forward_and_reverse_mappings_consistently() {
         let mut config = config("198.18.0.0/24", &[]);
         config.ttl_seconds = 1;
         let allocator = FakeIpAllocator::new(config).unwrap();
-        let ip = allocator.alloc("expired.test").await.unwrap().unwrap();
+        let ip = allocator.alloc_ipv4("expired.test").await.unwrap().unwrap();
         tokio::time::sleep(Duration::from_millis(1100)).await;
         assert!(allocator.lookup(&ip).await.is_none());
         assert!(allocator.lookup_domain("expired.test").await.is_none());
@@ -566,10 +802,10 @@ mod tests {
         let mut config = config("198.18.0.0/24", &[]);
         config.max_entries = Some(2);
         let allocator = FakeIpAllocator::new(config).unwrap();
-        let first = allocator.alloc("one.test").await.unwrap().unwrap();
-        let _second = allocator.alloc("two.test").await.unwrap().unwrap();
+        let first = allocator.alloc_ipv4("one.test").await.unwrap().unwrap();
+        let _second = allocator.alloc_ipv4("two.test").await.unwrap().unwrap();
         let _ = allocator.lookup(&first).await;
-        let _third = allocator.alloc("three.test").await.unwrap().unwrap();
+        let _third = allocator.alloc_ipv4("three.test").await.unwrap().unwrap();
         assert!(allocator.lookup_domain("one.test").await.is_some());
         assert!(allocator.lookup_domain("two.test").await.is_none());
         assert_eq!(allocator.stats().await.evictions, 1);

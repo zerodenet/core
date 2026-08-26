@@ -106,10 +106,28 @@ fn dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority() {
     assert!(backends.contains("current_for_peer"));
     assert!(!backends.contains("TcpStream::connect"));
 
-    let direct = read(&workspace_root().join("crates/proxy/src/transport/direct.rs"));
+    let direct = [
+        read(&workspace_root().join("crates/proxy/src/transport/direct.rs")),
+        read(&workspace_root().join("crates/proxy/src/transport/direct_dial.rs")),
+    ]
+    .join("\n");
     let datagram = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));
-    assert!(direct.contains("current_for_peer"));
+    assert!(direct.contains("select_for_peer"));
+    assert!(direct.contains("ensure_connectable"));
     assert!(datagram.contains("current_for_peer"));
+}
+
+#[test]
+fn udp_egress_generation_stays_in_platform_and_proxy_orchestration() {
+    let platform = read(&workspace_root().join("crates/platform/tokio/src/egress.rs"));
+    let transport = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));
+    let proxy = read(&workspace_root().join("crates/proxy/src/runtime/udp_socket.rs"));
+    let stack = read(&workspace_root().join("crates/stack/src/udp.rs"));
+
+    assert!(platform.contains("pub fn generation"));
+    assert!(transport.contains("egress_generation"));
+    assert!(proxy.contains("refresh_if_stale"));
+    assert!(!stack.contains("egress_generation"));
 }
 
 #[test]

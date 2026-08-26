@@ -81,6 +81,7 @@ async fn fake_ip_restoration_records_success_and_missing_mapping() {
     );
     runtime.resolve_fake_ip_target(&mut mapped).await;
     assert_eq!(mapped.target, Address::Domain("mapped.example".to_owned()));
+    assert!(mapped.direct_target.is_none());
     assert_eq!(mapped.original_target, Some(Address::Ipv4([198, 18, 0, 1])));
     assert_eq!(
         mapped.target_host_source,

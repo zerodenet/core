@@ -100,6 +100,10 @@ async fn tun_tls_sniff_overrides_ip_target_and_preserves_client_hello() {
         Some(zero_core::Address::Ipv4([47, 102, 128, 206]))
     );
     assert_eq!(
+        session.direct_target,
+        Some(zero_core::Address::Ipv4([47, 102, 128, 206]))
+    );
+    assert_eq!(
         session.target_host_source,
         Some(zero_core::TargetHostSource::TlsSni)
     );
@@ -160,6 +164,7 @@ async fn tun_non_tls_probe_keeps_ip_target_and_preserves_payload() {
     let (session, mut stream) = sniff_tls_target(session, reader).await;
 
     assert_eq!(session.target, original_target);
+    assert!(session.direct_target.is_none());
     assert!(session.original_target.is_none());
     assert!(session.target_host_source.is_none());
     assert!(session.sni.is_none());
@@ -192,6 +197,7 @@ async fn tun_tls_without_sni_keeps_deterministic_ip_fallback() {
     let (session, mut stream) = sniff_tls_target(session, reader).await;
 
     assert_eq!(session.target, original_target);
+    assert!(session.direct_target.is_none());
     assert!(session.sni.is_none());
     assert!(session.target_host_source.is_none());
     let mut replayed = Vec::new();
