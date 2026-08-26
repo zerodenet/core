@@ -26,6 +26,7 @@ impl zero_api::QueryService for ProxyHandle {
                     tag: Some(tun.tag.clone()),
                     healthy: tun.healthy,
                     auto_route: tun.auto_route,
+                    include_cidrs: tun.include_cidrs.iter().map(ToString::to_string).collect(),
                     dual_stack: tun.dual_stack,
                     strict_route: tun.strict_route,
                     dns_hijack: tun.dns_hijack,

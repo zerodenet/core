@@ -16,6 +16,7 @@ fn tun_start_defaults_to_transactional_automatic_routes() {
     .expect("deserialize TUN command");
 
     assert!(command.auto_route);
+    assert!(command.include_cidrs.is_empty());
     assert!(command.dual_stack);
     assert!(command.strict_route);
     assert!(command.dns_hijack);

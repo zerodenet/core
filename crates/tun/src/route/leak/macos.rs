@@ -3,24 +3,35 @@ use std::io::Write;
 use std::net::IpAddr;
 use std::process::{Command, Stdio};
 
-use super::{normalized_exclusions, safe_resource_name, validate_interface_name};
+use ipnet::IpNet;
+
+use super::{
+    normalized_exclusions, normalized_prefixes, safe_resource_name, validate_interface_name,
+};
 
 #[derive(Debug)]
 pub struct SystemLeakGuard {
     anchor: String,
     tun_name: String,
+    protected: Vec<IpNet>,
     excluded: Vec<IpAddr>,
     enable_token: Option<String>,
     active: bool,
 }
 
 impl SystemLeakGuard {
-    pub fn install(tun_name: &str, recovery_key: &str, excluded: &[IpAddr]) -> io::Result<Self> {
+    pub fn install(
+        tun_name: &str,
+        recovery_key: &str,
+        protected: &[IpNet],
+        excluded: &[IpAddr],
+    ) -> io::Result<Self> {
         validate_interface_name(tun_name)?;
         verify_anchor_namespace()?;
         let anchor = format!("com.apple/zero_{}", safe_resource_name(recovery_key));
+        let protected = normalized_prefixes(protected);
         let excluded = normalized_exclusions(excluded);
-        apply_policy(&anchor, tun_name, &excluded)?;
+        apply_policy(&anchor, tun_name, &protected, &excluded)?;
         let enable_token = if pf_enabled()? {
             None
         } else {
@@ -35,18 +46,21 @@ impl SystemLeakGuard {
         Ok(Self {
             anchor,
             tun_name: tun_name.to_owned(),
+            protected,
             excluded,
             enable_token,
             active: true,
         })
     }
 
-    pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
+    pub fn reconcile(&mut self, protected: &[IpNet], excluded: &[IpAddr]) -> io::Result<bool> {
+        let protected = normalized_prefixes(protected);
         let excluded = normalized_exclusions(excluded);
-        if excluded == self.excluded {
+        if protected == self.protected && excluded == self.excluded {
             return Ok(false);
         }
-        apply_policy(&self.anchor, &self.tun_name, &excluded)?;
+        apply_policy(&self.anchor, &self.tun_name, &protected, &excluded)?;
+        self.protected = protected;
         self.excluded = excluded;
         Ok(true)
     }
@@ -118,8 +132,13 @@ fn enable_pf() -> io::Result<Option<String>> {
         .map(str::to_owned))
 }
 
-fn apply_policy(anchor: &str, tun_name: &str, excluded: &[IpAddr]) -> io::Result<()> {
-    let rules = policy_rules(tun_name, excluded);
+fn apply_policy(
+    anchor: &str,
+    tun_name: &str,
+    protected: &[IpNet],
+    excluded: &[IpAddr],
+) -> io::Result<()> {
+    let rules = policy_rules(tun_name, protected, excluded);
     let mut child = Command::new("pfctl")
         .args(["-a", anchor, "-f", "-"])
         .stdin(Stdio::piped())
@@ -150,7 +169,7 @@ fn flush_anchor(anchor: &str) -> io::Result<()> {
     }
 }
 
-fn policy_rules(tun_name: &str, excluded: &[IpAddr]) -> String {
+fn policy_rules(tun_name: &str, protected: &[IpNet], excluded: &[IpAddr]) -> String {
     let uid = unsafe { libc::geteuid() };
     let mut rules = format!(
         "pass out quick on lo0 all\npass out quick on {tun_name} all\npass out quick user {uid} all\n"
@@ -158,7 +177,9 @@ fn policy_rules(tun_name: &str, excluded: &[IpAddr]) -> String {
     for address in excluded {
         rules.push_str(&format!("pass out quick to {address}\n"));
     }
-    rules.push_str("block drop out quick all\n");
+    for prefix in protected {
+        rules.push_str(&format!("block drop out quick to {prefix}\n"));
+    }
     rules
 }
 
@@ -175,9 +196,13 @@ mod tests {
 
     #[test]
     fn pf_policy_ends_in_a_quick_block() {
-        let rules = policy_rules("utun8", &["192.0.2.1".parse().unwrap()]);
+        let rules = policy_rules(
+            "utun8",
+            &["203.0.113.0/24".parse().unwrap()],
+            &["192.0.2.1".parse().unwrap()],
+        );
         assert!(rules.contains("pass out quick on utun8 all"));
         assert!(rules.contains("pass out quick to 192.0.2.1"));
-        assert!(rules.ends_with("block drop out quick all\n"));
+        assert!(rules.ends_with("block drop out quick to 203.0.113.0/24\n"));
     }
 }

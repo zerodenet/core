@@ -35,6 +35,7 @@ async fn command_tun_start_rejects_fake_ip_pool_collision_before_device_creation
             "tun-test",
             super::TunRuntimeOptions {
                 auto_route: false,
+                include_cidrs: Vec::new(),
                 dual_stack: false,
                 strict_route: true,
                 dns_hijack: true,
@@ -55,6 +56,7 @@ fn configured_tun_fixture() -> (zero_config::TunConfig, TunInfo) {
         mtu: None,
         tag: "tun-in".to_owned(),
         auto_route: true,
+        include_cidrs: Vec::new(),
         dual_stack: false,
         strict_route: true,
         dns_hijack: true,
@@ -68,6 +70,7 @@ fn configured_tun_fixture() -> (zero_config::TunConfig, TunInfo) {
         mtu: 1500,
         tag: config.tag.clone(),
         auto_route: true,
+        include_cidrs: Vec::new(),
         dual_stack: false,
         strict_route: true,
         dns_hijack: true,
