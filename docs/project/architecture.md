@@ -321,7 +321,7 @@ UDP 数据包路径通过 `UdpPacketPath`、`DatagramCodec` 等中性接口组�
 
 ### `zero-tun`
 
-`zero-tun` 定义平台无关的 TUN 设备抽象、Linux/macOS/Windows 设备实现和事务化系统路由。平台驱动的部署仍由最终应用或安装器负责。自动路由默认同时用两组 `/1` 接管 IPv4/IPv6，并按地址族记录和绑定各自的物理出口（例如 Windows 的 IPv4 以太网与 IPv6 Teredo 可以不同）；macOS 还为绑定物理接口的 socket 维护 interface-scoped 默认路由，避免 `/1` 接管后物理出口查询直接返回不可达。路由事务持有跨进程 lease，并持久记录 Zero 安装的半默认路由、显式目的网络排除项和 scoped 绕行项；异常退出后的同名设备启动先恢复残留项。
+`zero-tun` 定义平台无关的 TUN 设备抽象、Linux/macOS/Windows 设备实现和事务化系统路由。平台驱动的部署仍由最终应用或安装器负责。自动路由默认同时用两组 `/1` 接管 IPv4/IPv6，并按地址族记录和绑定各自的物理出口（例如 Windows 的 IPv4 以太网与 IPv6 Teredo 可以不同）；macOS 还为绑定物理接口的 socket 维护 interface-scoped 默认路由，避免 `/1` 接管后物理出口查询直接返回不可达。路由事务按地址族持有主机级跨进程 lease，而不是按可配置 tag 隔离；因此两个实例不能同时改写同一地址族的捕获路由。恢复日志仍按稳定 tag 寻址，并持久记录 Zero 安装的半默认路由、显式目的网络排除项和 scoped 绕行项；异常退出后的同名设备启动先恢复残留项。
 
 TUN 反环路由两类互不替代的机制组成：捕获路由只负责让应用流量进入 Zero；运行时拥有的 TCP/UDP/QUIC socket 工厂负责在系统路由仍指向 Zero TUN 时把自身流量绑定到 underlay 出口。socket 工厂必须先以无发包的本地路由探测取得内核选择的源地址；命中 TUN 地址才强制物理出口，命中 LAN、企业 VPN 或其他更具体路由时必须保留系统选择。启动时必须先解析并发布 IPv4/IPv6 underlay，再安装对应 `/1` 捕获路由。代理节点地址不属于目的网络排除，不能在 TUN 启动或协调期间被枚举、解析或安装为 `/32`/`/128` host route；当前仅为尚未完全出口感知的 DNS bootstrap 保留显式排除。额外 carrier socket（例如 QUIC、split-HTTP 第二连接和 UDP packet path）必须复用同一出口工厂。
 

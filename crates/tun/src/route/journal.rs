@@ -33,11 +33,21 @@ pub(super) struct RouteLease {
 impl RouteLease {
     pub(super) fn acquire(recovery_key: &str, ipv6: bool) -> io::Result<Self> {
         let journal_path = route_journal_path(recovery_key, ipv6)?;
-        Self::acquire_at(journal_path, recovery_key)
+        let lock_path = route_family_lock_path(ipv6)?;
+        Self::acquire_paths(journal_path, lock_path, recovery_key)
     }
 
+    #[cfg(test)]
     pub(super) fn acquire_at(journal_path: PathBuf, tun_name: &str) -> io::Result<Self> {
         let lock_path = journal_path.with_extension("lock");
+        Self::acquire_paths(journal_path, lock_path, tun_name)
+    }
+
+    pub(super) fn acquire_paths(
+        journal_path: PathBuf,
+        lock_path: PathBuf,
+        owner: &str,
+    ) -> io::Result<Self> {
         let lock = std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -45,14 +55,20 @@ impl RouteLease {
             .write(true)
             .open(&lock_path)?;
         fs2::FileExt::try_lock_exclusive(&lock).map_err(|error| {
+            let active_owner = std::fs::read_to_string(&lock_path)
+                .ok()
+                .map(|owner| owner.trim().to_owned())
+                .filter(|owner| !owner.is_empty())
+                .unwrap_or_else(|| "unknown".to_owned());
             io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 format!(
-                    "TUN route transaction for `{tun_name}` is already active (`{}`): {error}",
+                    "TUN route transaction for `{owner}` conflicts with active owner `{active_owner}` (`{}`): {error}",
                     lock_path.display()
                 ),
             )
         })?;
+        persist_lock_owner(&lock, owner)?;
         Ok(Self {
             journal_path,
             _lock: lock,
@@ -224,6 +240,21 @@ impl RouteJournal {
 
 fn route_journal_path(recovery_key: &str, ipv6: bool) -> io::Result<PathBuf> {
     let root = route_state_root()?;
+    let safe_name = safe_recovery_key(recovery_key);
+    Ok(root.join(format!(
+        "routes-{safe_name}-{}.json",
+        if ipv6 { "v6" } else { "v4" }
+    )))
+}
+
+fn route_family_lock_path(ipv6: bool) -> io::Result<PathBuf> {
+    Ok(route_state_root()?.join(format!(
+        "routes-{}.owner.lock",
+        if ipv6 { "v6" } else { "v4" }
+    )))
+}
+
+fn safe_recovery_key(recovery_key: &str) -> String {
     let safe_name: String = recovery_key
         .chars()
         .map(|character| {
@@ -235,15 +266,21 @@ fn route_journal_path(recovery_key: &str, ipv6: bool) -> io::Result<PathBuf> {
         })
         .take(64)
         .collect();
-    Ok(root.join(format!(
-        "routes-{}-{}.json",
-        if safe_name.is_empty() {
-            "tun"
-        } else {
-            &safe_name
-        },
-        if ipv6 { "v6" } else { "v4" }
-    )))
+    if safe_name.is_empty() {
+        "tun".to_owned()
+    } else {
+        safe_name
+    }
+}
+
+fn persist_lock_owner(lock: &std::fs::File, owner: &str) -> io::Result<()> {
+    use std::io::{Seek, Write};
+
+    let mut lock = lock;
+    lock.set_len(0)?;
+    lock.rewind()?;
+    lock.write_all(safe_recovery_key(owner).as_bytes())?;
+    lock.sync_data()
 }
 
 pub(super) fn route_state_root() -> io::Result<PathBuf> {

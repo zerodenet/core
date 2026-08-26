@@ -126,6 +126,35 @@ fn route_lease_serializes_same_device_transactions() {
 }
 
 #[test]
+fn route_lease_serializes_different_instances_per_address_family() {
+    let directory = tempfile::tempdir().expect("temporary lease directory");
+    let lock_path = directory.path().join("routes-v4.owner.lock");
+    let first = RouteLease::acquire_paths(
+        directory.path().join("routes-first-v4.json"),
+        lock_path.clone(),
+        "first-instance",
+    )
+    .expect("first instance lease");
+
+    let error = RouteLease::acquire_paths(
+        directory.path().join("routes-second-v4.json"),
+        lock_path.clone(),
+        "second-instance",
+    )
+    .expect_err("a different tag must not own the same family concurrently");
+    assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+    assert!(error.to_string().contains("active owner `first-instance`"));
+
+    drop(first);
+    RouteLease::acquire_paths(
+        directory.path().join("routes-second-v4.json"),
+        lock_path,
+        "second-instance",
+    )
+    .expect("next instance takes ownership after release");
+}
+
+#[test]
 fn recovery_key_can_load_a_journal_from_a_renumbered_dynamic_device() {
     let directory = tempfile::tempdir().expect("temporary journal directory");
     let path = directory.path().join("routes-stable-tag-v4.json");

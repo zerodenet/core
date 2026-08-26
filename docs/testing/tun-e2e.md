@@ -20,7 +20,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 - 代理节点不再获得自动 host route；Zero 创建的 TCP/UDP/QUIC socket 按 IPv4/IPv6 分别绑定各自 underlay 接口，避免代理自环。DNS UDP 与 DoT socket 使用同一出口权威；DoH/系统 bootstrap 仍由显式 DNS 排除或操作系统解析路径保护。
 - 物理出口或受管 TUN 地址集合每次实际变化都会发布单调递增的出口 generation。direct UDP 在下一次发送前发现旧 generation 时重建双栈 socket；重建期间若拓扑持续抖动则 fail closed，不使用旧出口继续发送。新建域名 UDP flow 在解析器首选的可用地址族内采用稳定候选，DNS 答案重排不会把所有流量重新固定到第一条记录。
 - macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
-- 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。
+- 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。系统路由 lease 则按地址族全局持有，第二个进程即使使用不同 tag，也必须明确失败且报告当前 owner，不能同时改写同一组捕获路由。
 
 调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。生产防泄露验证不应关闭这些选项。
 
@@ -184,6 +184,7 @@ sudo tcpdump -i physical0 -nn 'udp port 3478 or udp port 5349'
 6. 制造短暂的无默认路由窗口或排除路由安装失败；TUN 应保持运行、`healthy=false` 且显示 `last_error`，恢复后自动协调并回到 `healthy=true`，期间不得出现忙重试。
 7. Windows 连续执行两轮 start/stop，确认阻塞 reader 被唤醒且同名 Wintun adapter 可复用。
 8. 严格模式下删除一条受管 `/1` 路由或制造协调失败，并确认平台保护仍阻止非 TUN 物理出站：Linux 检查 `zero_killswitch_*` nftables 表，macOS 检查 `com.apple/zero_*` pf anchor，Windows 检查 `ZeroKillSwitch-*` Firewall rule group 与各 profile 的 outbound block 状态。
+9. 保持一个实例持有 IPv4/IPv6 自动路由，再以不同 TUN tag 启动第二个实例；第二个实例必须在安装任何路由或 kill switch 前以 `AlreadyExists` 失败。停止第一个实例后，第二个实例应能取得 lease 并正常启动。
 
 路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，kill switch 保持 fail-closed；下一次以相同 TUN 入站 `tag` 启动会接管原保护并消费路由日志。Windows 额外保存启用前各 Firewall profile 的 outbound policy，只有正常停止且规则清理成功后才恢复；Linux nftables table 与 macOS pf anchor 使用稳定资源名原位替换，热更新失败保留旧规则。
 
