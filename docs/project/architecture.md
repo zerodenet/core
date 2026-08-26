@@ -325,13 +325,7 @@ UDP 数据包路径通过 `UdpPacketPath`、`DatagramCodec` 等中性接口组�
 
 TUN 反环路由两类互不替代的机制组成：捕获路由只负责让应用流量进入 Zero；运行时拥有的 TCP/UDP/QUIC socket 工厂负责在系统路由仍指向 Zero TUN 时把自身流量绑定到 underlay 出口。socket 工厂必须先以无发包的本地路由探测取得内核选择的源地址；命中 TUN 地址才强制物理出口，命中 LAN、企业 VPN 或其他更具体路由时必须保留系统选择。启动时必须先解析并发布 IPv4/IPv6 underlay，再安装对应 `/1` 捕获路由。代理节点地址不属于目的网络排除，不能在 TUN 启动或协调期间被枚举、解析或安装为 `/32`/`/128` host route；当前仅为尚未完全出口感知的 DNS bootstrap 保留显式排除。额外 carrier socket（例如 QUIC、split-HTTP 第二连接和 UDP packet path）必须复用同一出口工厂。
 
-TUN UDP association 以原始客户端源 IP/端口为身份，同一源关联内再按目标复用 UDP flow；不同源端口不能仅因目标相同而合并，否则响应会写回错误客户端。direct 路径采用 endpoint-independent mapping：同一客户端源端点的不同目标复用同一族 outbound socket；创建 socket 时尽力保留客户端源端口，端口已占用或不可绑定时回退到临时端口。过滤采用 endpoint-dependent filtering，只有已建立 flow 的精确远端 IP/端口可以回包，不允许“当前只有一条 flow”成为接受任意 sender 的隐式例外。出口 generation 变化时以相同端口策略重建 socket。关联建立有并发硬上限和滚动速率限制，单关联队列使用非阻塞投递，关闭的关联和失败的目标 flow 都应用有界指数退避。这样自捕获或 `WSAENOBUFS` 只能造成受控丢包，不能演化为无界 association/session 重建。TUN 会话必须记录原始源 IP/端口，不能用 loopback 占位地址代替。
-
-QUIC 透明嗅探不终止 QUIC 连接。通用 Initial v1/v2 密钥派生、包保护验证和
-CRYPTO 帧重组属于 `zero-transport`；TUN UDP 只维护按关联/目标有界且带期限的
-暂存状态，并把恢复出的逻辑域名、原始 IP 与 `quic_sni` 来源交给统一 Session。
-ECH、未知版本、认证失败、超时和容量压力都回退到 DNS reverse 或原始 IP，
-不得使用密文字符串扫描或外层 SNI 猜测隐藏域名。
+TUN UDP association 以原始客户端源 IP/端口为身份，同一源关联内再按目标复用 UDP flow；不同源端口不能仅因目标相同而合并，否则响应会写回错误客户端。direct 路径采用 endpoint-independent mapping：同一客户端源端点的不同目标复用同一族 outbound socket；创建 socket 时尽力保留客户端源端口，端口已占用或不可绑定时回退到临时端口。过滤采用 endpoint-dependent filtering，只有已建立 flow 的精确远端 IP/端口可以回包，不允许“当前只有一条 flow”成为接受任意 sender 的隐式例外。出口 generation 变化时以相同端口策略重建 socket。关联建立有并发硬上限和滚动速率限制，单关联队列使用非阻塞投递，关闭的关联和失败的目标 flow 都应用有界指数退避。容量、速率、退避或关闭队列造成的本地显式拒绝，会尽力向客户端回送引用原 UDP 首部的 IPv4/IPv6 administratively prohibited；反馈也使用非阻塞有界队列，不能为报告拥塞而反向阻塞收包循环。这样自捕获或 `WSAENOBUFS` 只能造成受控丢包，不能演化为无界 association/session 重建。TUN 会话必须记录原始源 IP/端口，不能用 loopback 占位地址代替。
 
 QUIC 透明嗅探不终止 QUIC 连接。通用 Initial v1/v2 密钥派生、包保护验证和
 CRYPTO 帧重组属于 `zero-transport`；TUN UDP 只维护按关联/目标有界且带期限的

@@ -10,7 +10,7 @@ mod icmp;
 pub use fragment::{
     fragment_ip_packet, parse_ip_fragment, rebuild_fragmented_packet, FragmentKey, ParsedIpFragment,
 };
-pub use icmp::build_icmp_response;
+pub use icmp::{build_icmp_response, build_udp_unreachable_response};
 
 // ── Protocol numbers ──────────────────────────────────────────────────
 

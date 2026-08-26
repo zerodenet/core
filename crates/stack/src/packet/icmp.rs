@@ -6,16 +6,30 @@ use super::{checksum, transport_header, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TC
 /// TCP/UDP within the configured MTU return `None` and continue normally.
 pub fn build_icmp_response(packet: &[u8], mtu: usize) -> Option<Vec<u8>> {
     match packet.first().map(|byte| byte >> 4) {
-        Some(4) => build_ipv4_response(packet, mtu),
-        Some(6) => build_ipv6_response(packet, mtu),
+        Some(4) => build_ipv4_response(packet, mtu, false),
+        Some(6) => build_ipv6_response(packet, mtu, false),
         _ => None,
     }
 }
 
-fn build_ipv4_response(packet: &[u8], mtu: usize) -> Option<Vec<u8>> {
+/// Build an administrative-prohibited response for a UDP datagram rejected
+/// by the local TUN policy. The response remains bounded to the configured
+/// MTU and quotes the original IP/UDP headers for kernel error correlation.
+pub fn build_udp_unreachable_response(packet: &[u8], mtu: usize) -> Option<Vec<u8>> {
+    if super::transport_header(packet)?.protocol != IPPROTO_UDP {
+        return None;
+    }
+    match packet.first().map(|byte| byte >> 4) {
+        Some(4) => build_ipv4_response(packet, mtu, true),
+        Some(6) => build_ipv6_response(packet, mtu, true),
+        _ => None,
+    }
+}
+
+fn build_ipv4_response(packet: &[u8], mtu: usize, reject_udp: bool) -> Option<Vec<u8>> {
     let transport = transport_header(packet)?;
     let oversized = packet.len() > mtu;
-    if !oversized && matches!(transport.protocol, IPPROTO_TCP | IPPROTO_UDP) {
+    if !oversized && matches!(transport.protocol, IPPROTO_TCP | IPPROTO_UDP) && !reject_udp {
         return None;
     }
     if transport.protocol == IPPROTO_ICMP
@@ -66,10 +80,10 @@ fn build_ipv4_response(packet: &[u8], mtu: usize) -> Option<Vec<u8>> {
     Some(response)
 }
 
-fn build_ipv6_response(packet: &[u8], mtu: usize) -> Option<Vec<u8>> {
+fn build_ipv6_response(packet: &[u8], mtu: usize, reject_udp: bool) -> Option<Vec<u8>> {
     let transport = transport_header(packet)?;
     let oversized = packet.len() > mtu;
-    if !oversized && matches!(transport.protocol, IPPROTO_TCP | IPPROTO_UDP) {
+    if !oversized && matches!(transport.protocol, IPPROTO_TCP | IPPROTO_UDP) && !reject_udp {
         return None;
     }
     if transport.protocol == IPPROTO_ICMPV6
@@ -121,4 +135,40 @@ fn icmpv6_checksum(source: Ipv6Addr, destination: Ipv6Addr, icmp: &[u8]) -> u16 
     pseudo.extend_from_slice(&[0, 0, 0, IPPROTO_ICMPV6]);
     pseudo.extend_from_slice(icmp);
     checksum(&pseudo)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    use super::*;
+
+    #[test]
+    fn rejected_udp_builds_bounded_ipv4_and_ipv6_errors() {
+        let ipv4 = crate::packet::build_udp(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)),
+            50_000,
+            443,
+            b"rejected-v4",
+        );
+        let response = build_udp_unreachable_response(&ipv4, 1500).unwrap();
+        assert_eq!(response[9], IPPROTO_ICMP);
+        assert_eq!(&response[12..16], &[203, 0, 113, 7]);
+        assert_eq!(&response[16..20], &[10, 0, 0, 2]);
+        assert_eq!(&response[20..22], &[3, 13]);
+        assert!(response.len() <= 1500);
+
+        let ipv6 = crate::packet::build_udp(
+            IpAddr::V6("fd00::2".parse::<Ipv6Addr>().unwrap()),
+            IpAddr::V6("2001:db8::7".parse::<Ipv6Addr>().unwrap()),
+            50_001,
+            443,
+            b"rejected-v6",
+        );
+        let response = build_udp_unreachable_response(&ipv6, 1500).unwrap();
+        assert_eq!(response[6], IPPROTO_ICMPV6);
+        assert_eq!(&response[40..42], &[1, 1]);
+        assert!(response.len() <= 1500);
+    }
 }

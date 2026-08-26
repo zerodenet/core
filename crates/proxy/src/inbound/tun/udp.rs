@@ -205,21 +205,33 @@ pub(super) async fn run(
                             &mut associations,
                             now,
                             source,
-                            destination,
+                            datagram.destination,
                             reason,
+                            stack.send_unreachable(&datagram.payload, source, datagram.destination),
                         ),
                     },
-                    Delivery::Full => {
+                    Delivery::Full(datagram) => {
+                        let feedback_sent = stack.send_unreachable(
+                            &datagram.payload,
+                            source,
+                            datagram.destination,
+                        );
                         if associations.should_log_pressure(now) {
                             tracing::warn!(
                                 ?source,
                                 ?destination,
+                                feedback_sent,
                                 active_associations = associations.active_count(),
                                 "dropping TUN UDP datagram because its association queue is full"
                             );
                         }
                     }
-                    Delivery::Closed(_datagram) => {
+                    Delivery::Closed(datagram) => {
+                        let feedback_sent = stack.send_unreachable(
+                            &datagram.payload,
+                            source,
+                            datagram.destination,
+                        );
                         if associations.remove(source) {
                             associations.record_failure(source, now);
                         }
@@ -227,6 +239,7 @@ pub(super) async fn run(
                             tracing::warn!(
                                 ?source,
                                 ?destination,
+                                feedback_sent,
                                 active_associations = associations.active_count(),
                                 "TUN UDP association closed; applying recreate backoff"
                             );
@@ -309,12 +322,14 @@ fn log_pressure_drop(
     source: SocketAddress,
     destination: SocketAddress,
     reason: AdmissionRejection,
+    feedback_sent: bool,
 ) {
     if associations.should_log_pressure(now) {
         tracing::warn!(
             ?source,
             ?destination,
             ?reason,
+            feedback_sent,
             active_associations = associations.active_count(),
             "dropping new TUN UDP association under admission pressure"
         );
