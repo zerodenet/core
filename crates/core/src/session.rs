@@ -12,6 +12,7 @@ pub enum Network {
 pub enum TargetHostSource {
     FakeIp,
     DnsReverse,
+    HttpHost,
     TlsSni,
 }
 
@@ -20,6 +21,7 @@ impl TargetHostSource {
         match self {
             Self::FakeIp => "fake_ip",
             Self::DnsReverse => "dns_reverse",
+            Self::HttpHost => "http_host",
             Self::TlsSni => "tls_sni",
         }
     }
