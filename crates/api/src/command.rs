@@ -223,6 +223,9 @@ pub struct TunStartCommand {
     /// Destination CIDRs captured by automatic TUN routes. Empty means full tunnel.
     #[serde(default)]
     pub include_cidrs: Vec<String>,
+    /// Destination CIDRs removed from the automatic capture plan.
+    #[serde(default)]
+    pub exclude_cidrs: Vec<String>,
     /// Install split-default routes for both IPv4 and IPv6.
     #[serde(default = "default_true")]
     pub dual_stack: bool,
@@ -245,6 +248,7 @@ impl Default for TunStartCommand {
             tag: String::new(),
             auto_route: true,
             include_cidrs: Vec::new(),
+            exclude_cidrs: Vec::new(),
             dual_stack: true,
             strict_route: true,
             dns_hijack: true,

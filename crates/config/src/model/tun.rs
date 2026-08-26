@@ -29,6 +29,9 @@ pub struct TunConfig {
     /// the full-tunnel split-default behavior.
     #[serde(default)]
     pub include_cidrs: Vec<IpNet>,
+    /// Destination networks removed from the automatic capture plan.
+    #[serde(default)]
+    pub exclude_cidrs: Vec<IpNet>,
     /// Install both IPv4 and IPv6 split-default routes. Disable only on a
     /// deliberately single-stack host.
     #[serde(default = "default_true")]

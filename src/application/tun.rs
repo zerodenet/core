@@ -17,6 +17,7 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
             tag,
             auto_route,
             include_cidrs,
+            exclude_cidrs,
             dual_stack,
             strict_route,
             dns_hijack,
@@ -34,6 +35,7 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
                     "tag": tag,
                     "auto_route": auto_route,
                     "include_cidrs": include_cidrs,
+                    "exclude_cidrs": exclude_cidrs,
                     "dual_stack": dual_stack,
                     "strict_route": strict_route,
                     "dns_hijack": dns_hijack,
@@ -69,7 +71,7 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
             let status = decode_tun_status(response.result.unwrap_or_default())?;
             if status.running {
                 println!(
-                    "tun: running, healthy={}, managed_by_config={}, name={}, addr={}, addresses={}, mtu={}, tag={}, auto_route={}, include_cidrs={}, dual_stack={}, strict_route={}, dns_hijack={}, egress={}, egress_v4={}, egress_v6={}",
+                    "tun: running, healthy={}, managed_by_config={}, name={}, addr={}, addresses={}, mtu={}, tag={}, auto_route={}, include_cidrs={}, exclude_cidrs={}, dual_stack={}, strict_route={}, dns_hijack={}, egress={}, egress_v4={}, egress_v6={}",
                     status.healthy,
                     status.managed_by_config,
                     status.name.as_deref().unwrap_or("-"),
@@ -90,6 +92,11 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
                         "full-tunnel".to_owned()
                     } else {
                         status.include_cidrs.join(",")
+                    },
+                    if status.exclude_cidrs.is_empty() {
+                        "-".to_owned()
+                    } else {
+                        status.exclude_cidrs.join(",")
                     },
                     status.dual_stack,
                     status.strict_route,

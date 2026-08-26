@@ -21,11 +21,13 @@ use crate::runtime::{Proxy, TunControl, TunInfo};
 use config::{configured_dns_endpoint_addresses, parse_interface_addresses};
 
 static NEXT_TUN_ID: AtomicU64 = AtomicU64::new(1);
+const MAX_CAPTURE_ROUTE_PREFIXES: usize = 512;
 
 #[derive(Clone, Debug)]
 pub struct TunRuntimeOptions {
     pub auto_route: bool,
     pub include_cidrs: Vec<ipnet::IpNet>,
+    pub exclude_cidrs: Vec<ipnet::IpNet>,
     pub dual_stack: bool,
     pub strict_route: bool,
     pub dns_hijack: bool,
@@ -130,20 +132,27 @@ impl Proxy {
         let TunRuntimeOptions {
             auto_route,
             include_cidrs,
+            exclude_cidrs,
             dual_stack,
             strict_route,
             dns_hijack,
         } = options;
-        if !include_cidrs.is_empty() && !auto_route {
+        if (!include_cidrs.is_empty() || !exclude_cidrs.is_empty()) && !auto_route {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "TUN include CIDRs require automatic routes",
+                "TUN include/exclude CIDRs require automatic routes",
             )));
         }
         if include_cidrs.len() > 128 {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "TUN include CIDRs support at most 128 entries",
+            )));
+        }
+        if exclude_cidrs.len() > 128 {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TUN exclude CIDRs support at most 128 entries",
             )));
         }
         let unique_include_cidrs = include_cidrs
@@ -153,6 +162,15 @@ impl Proxy {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "TUN include CIDRs must not contain duplicates",
+            )));
+        }
+        let unique_exclude_cidrs = exclude_cidrs
+            .iter()
+            .collect::<std::collections::HashSet<_>>();
+        if unique_exclude_cidrs.len() != exclude_cidrs.len() {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TUN exclude CIDRs must not contain duplicates",
             )));
         }
         let _operation = self.tun_operation_lock.lock().await;
@@ -176,17 +194,51 @@ impl Proxy {
         }
         let interface_addresses =
             parse_interface_addresses(addr, mask, secondary_addr, dual_stack)?;
+        if let Some(cidr) = include_cidrs.iter().chain(&exclude_cidrs).find(|cidr| {
+            !interface_addresses
+                .iter()
+                .any(|address| address.address.is_ipv6() == cidr.addr().is_ipv6())
+        }) {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("TUN capture CIDR `{cidr}` has no configured interface address family"),
+            )));
+        }
+        let compiled_route_count = interface_addresses
+            .iter()
+            .map(|address| {
+                zero_tun::capture_route_prefixes_with_exclusions(
+                    address.address,
+                    &include_cidrs,
+                    &exclude_cidrs,
+                )
+                .len()
+            })
+            .sum::<usize>();
+        if compiled_route_count > MAX_CAPTURE_ROUTE_PREFIXES {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "TUN capture plan expands to {compiled_route_count} routes; maximum is {MAX_CAPTURE_ROUTE_PREFIXES}"
+                ),
+            )));
+        }
         let route_addresses = interface_addresses
             .iter()
             .filter(|address| {
-                !zero_tun::capture_route_prefixes(address.address, &include_cidrs).is_empty()
+                !zero_tun::capture_route_prefixes_with_exclusions(
+                    address.address,
+                    &include_cidrs,
+                    &exclude_cidrs,
+                )
+                .is_empty()
             })
             .map(|address| (address.address, address.netmask))
             .collect::<Vec<_>>();
         if auto_route && route_addresses.is_empty() {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "TUN include CIDRs do not match any configured interface address family",
+                "TUN include/exclude CIDRs leave no captured route for a configured interface family",
             )));
         }
         let mut tun_owned_addresses = interface_addresses
@@ -235,12 +287,15 @@ impl Proxy {
         let route_exclusions = prepared_network.route_exclusions;
         let installed = if auto_route {
             routes::install(
-                device_name.clone(),
-                tag.to_owned(),
-                route_addresses.clone(),
-                include_cidrs.clone(),
-                route_exclusions.clone(),
-                strict_route,
+                routes::RouteInstallSpec {
+                    tun_name: device_name.clone(),
+                    recovery_key: tag.to_owned(),
+                    addresses: route_addresses.clone(),
+                    include_cidrs: include_cidrs.clone(),
+                    exclude_cidrs: exclude_cidrs.clone(),
+                    excluded: route_exclusions.clone(),
+                    strict: strict_route,
+                },
                 self.egress_interface.clone(),
             )
             .await?
@@ -318,6 +373,7 @@ impl Proxy {
                     primary_ipv6: address.is_ipv6(),
                     addresses: route_addresses,
                     include_cidrs: include_cidrs.clone(),
+                    exclude_cidrs: exclude_cidrs.clone(),
                     dns_hijack,
                     strict_route,
                 },
@@ -339,6 +395,7 @@ impl Proxy {
             tag: tag.to_owned(),
             auto_route,
             include_cidrs,
+            exclude_cidrs,
             dual_stack,
             strict_route,
             dns_hijack,
@@ -455,6 +512,7 @@ impl Proxy {
             options: TunRuntimeOptions {
                 auto_route: desired.auto_route,
                 include_cidrs: desired.include_cidrs.clone(),
+                exclude_cidrs: desired.exclude_cidrs.clone(),
                 dual_stack: desired.dual_stack,
                 strict_route: desired.strict_route,
                 dns_hijack: desired.dns_hijack,

@@ -362,9 +362,9 @@ fn validate_tun_config(
             "`runtime.tun.mtu` must be at least 576".to_owned(),
         ));
     }
-    if !tun.include_cidrs.is_empty() && !tun.auto_route {
+    if (!tun.include_cidrs.is_empty() || !tun.exclude_cidrs.is_empty()) && !tun.auto_route {
         return Err(ConfigError::InvalidRuntime(
-            "`runtime.tun.include_cidrs` requires `runtime.tun.auto_route=true`".to_owned(),
+            "`runtime.tun.include_cidrs` and `runtime.tun.exclude_cidrs` require `runtime.tun.auto_route=true`".to_owned(),
         ));
     }
     if tun.include_cidrs.len() > 128 {
@@ -382,6 +382,24 @@ fn validate_tun_config(
         if !tun.dual_stack && cidr.addr().is_ipv4() != address.is_ipv4() {
             return Err(ConfigError::InvalidRuntime(format!(
                 "`runtime.tun.include_cidrs` entry `{cidr}` has no configured TUN address family"
+            )));
+        }
+    }
+    if tun.exclude_cidrs.len() > 128 {
+        return Err(ConfigError::InvalidRuntime(
+            "`runtime.tun.exclude_cidrs` supports at most 128 entries".to_owned(),
+        ));
+    }
+    let mut seen_cidrs = HashSet::new();
+    for cidr in &tun.exclude_cidrs {
+        if !seen_cidrs.insert(*cidr) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "duplicate `runtime.tun.exclude_cidrs` entry `{cidr}`"
+            )));
+        }
+        if !tun.dual_stack && cidr.addr().is_ipv4() != address.is_ipv4() {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "`runtime.tun.exclude_cidrs` entry `{cidr}` has no configured TUN address family"
             )));
         }
     }
