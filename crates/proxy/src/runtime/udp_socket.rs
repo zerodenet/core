@@ -4,6 +4,8 @@
 use std::net::SocketAddr;
 
 #[cfg(feature = "udp-runtime")]
+use futures_util::{stream::FuturesUnordered, StreamExt};
+#[cfg(feature = "udp-runtime")]
 use zero_core::Address;
 #[cfg(feature = "udp-runtime")]
 use zero_engine::EngineError;
@@ -12,11 +14,38 @@ use zero_platform_tokio::TokioDatagramSocket;
 
 #[cfg(feature = "udp-runtime")]
 pub(crate) struct DirectUdpSockets {
-    ipv4: TokioDatagramSocket,
-    ipv6: Option<TokioDatagramSocket>,
-    ipv6_buffer: tokio::sync::Mutex<Vec<u8>>,
+    sockets: Vec<DirectUdpSocket>,
     preferred_port: Option<u16>,
     generation: u64,
+}
+
+#[cfg(feature = "udp-runtime")]
+struct DirectUdpSocket {
+    socket: TokioDatagramSocket,
+    binding: DirectUdpSocketBinding,
+    receive_buffer: tokio::sync::Mutex<Vec<u8>>,
+}
+
+#[cfg(feature = "udp-runtime")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DirectUdpSocketBinding {
+    ipv6: bool,
+    egress: Option<zero_platform_tokio::EgressInterface>,
+}
+
+#[cfg(feature = "udp-runtime")]
+impl DirectUdpSocket {
+    fn new(socket: TokioDatagramSocket, ipv6: bool) -> Self {
+        let binding = DirectUdpSocketBinding {
+            ipv6,
+            egress: socket.egress_interface().cloned(),
+        };
+        Self {
+            socket,
+            binding,
+            receive_buffer: tokio::sync::Mutex::new(vec![0_u8; 65_535]),
+        }
+    }
 }
 #[cfg(feature = "udp-runtime")]
 impl DirectUdpSockets {
@@ -46,10 +75,12 @@ impl DirectUdpSockets {
         if let Some(ipv6) = ipv6.as_ref() {
             log_direct_socket("IPv6", ipv6);
         }
+        let mut sockets = vec![DirectUdpSocket::new(ipv4, false)];
+        if let Some(ipv6) = ipv6 {
+            sockets.push(DirectUdpSocket::new(ipv6, true));
+        }
         Ok(Self {
-            ipv4,
-            ipv6,
-            ipv6_buffer: tokio::sync::Mutex::new(vec![0_u8; 65_535]),
+            sockets,
             preferred_port,
             generation,
         })
@@ -93,7 +124,8 @@ impl DirectUdpSockets {
         logical_target: &Address,
         candidates: &[SocketAddr],
     ) -> Result<SocketAddr, EngineError> {
-        select_stable_udp_target(logical_target, candidates, self.ipv6.is_some()).ok_or_else(|| {
+        let ipv6_available = self.sockets.iter().any(|socket| socket.binding.ipv6);
+        select_stable_udp_target(logical_target, candidates, ipv6_available).ok_or_else(|| {
             EngineError::Io(std::io::Error::new(
                 std::io::ErrorKind::AddrNotAvailable,
                 "no usable direct UDP target address",
@@ -106,42 +138,54 @@ impl DirectUdpSockets {
     }
 
     pub(crate) async fn send_to_addr(
-        &self,
+        &mut self,
+        services: &crate::protocol_registry::UdpNetworkServices,
         payload: &[u8],
         target: SocketAddr,
     ) -> Result<usize, EngineError> {
-        let socket = if target.is_ipv4() {
-            &self.ipv4
-        } else {
-            self.ipv6.as_ref().ok_or_else(|| {
-                EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::AddrNotAvailable,
-                    "IPv6 direct UDP socket is unavailable",
-                ))
-            })?
+        let binding = DirectUdpSocketBinding {
+            ipv6: target.is_ipv6(),
+            egress: services.direct_datagram_egress(target),
         };
-        send_direct_udp_packet(socket, target, payload).await
+        let socket_index = match self
+            .sockets
+            .iter()
+            .position(|socket| socket.binding == binding)
+        {
+            Some(index) => index,
+            None => {
+                let socket = services
+                    .bind_direct_datagram_socket(target, self.preferred_port)
+                    .await?;
+                log_direct_socket(if target.is_ipv6() { "IPv6" } else { "IPv4" }, &socket);
+                self.sockets
+                    .push(DirectUdpSocket::new(socket, target.is_ipv6()));
+                self.sockets.len() - 1
+            }
+        };
+        send_direct_udp_packet(&self.sockets[socket_index].socket, target, payload).await
     }
 
     pub(crate) async fn recv_from_addr(
         &self,
         output: &mut [u8],
     ) -> Result<(usize, SocketAddr), std::io::Error> {
-        match &self.ipv6 {
-            Some(ipv6) => {
-                let mut ipv6_buffer = self.ipv6_buffer.lock().await;
-                tokio::select! {
-                    result = self.ipv4.recv_from_addr(output) => result,
-                    result = ipv6.recv_from_addr(&mut ipv6_buffer) => {
-                        let (size, sender) = result?;
-                        let size = size.min(output.len());
-                        output[..size].copy_from_slice(&ipv6_buffer[..size]);
-                        Ok((size, sender))
-                    }
-                }
-            }
-            None => self.ipv4.recv_from_addr(output).await,
+        let mut receives = FuturesUnordered::new();
+        for entry in &self.sockets {
+            receives.push(async move {
+                let mut buffer = entry.receive_buffer.lock().await;
+                let result = entry.socket.recv_from_addr(&mut buffer).await;
+                (result, buffer)
+            });
         }
+        let (result, buffer) = receives
+            .next()
+            .await
+            .expect("direct UDP socket set is never empty");
+        let (size, sender) = result?;
+        let size = size.min(output.len());
+        output[..size].copy_from_slice(&buffer[..size]);
+        Ok((size, sender))
     }
 }
 

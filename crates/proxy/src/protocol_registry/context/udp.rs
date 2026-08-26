@@ -158,6 +158,13 @@ impl UdpNetworkServices {
         self.outbound_datagram_socket_factory().egress_generation()
     }
 
+    pub(crate) fn direct_datagram_egress(
+        &self,
+        peer: std::net::SocketAddr,
+    ) -> Option<zero_platform_tokio::EgressInterface> {
+        self.outbound_datagram_socket_factory().egress_for(peer)
+    }
+
     pub(crate) async fn connect_upstream(
         &self,
         server: &str,
