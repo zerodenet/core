@@ -12,6 +12,7 @@ use zero_engine::EngineError;
 use zero_stack::UserUdpStack;
 use zero_traits::{IpAddress, SocketAddress, UdpStack};
 
+use super::sniff::udp::TunQuicSniffer;
 use crate::runtime::udp_ingress::UdpIngressRuntime;
 use crate::runtime::Proxy;
 
@@ -23,8 +24,8 @@ const ASSOCIATION_QUEUE_CAPACITY: usize = 128;
 const MAX_CONCURRENT_DNS_QUERIES: usize = 256;
 
 pub(super) struct TunDatagram {
-    destination: SocketAddress,
-    payload: Vec<u8>,
+    pub(super) destination: SocketAddress,
+    pub(super) payload: Vec<u8>,
 }
 
 struct TunUdpRelay {
@@ -37,6 +38,7 @@ struct TunUdpResponder {
     receiver: mpsc::Receiver<TunDatagram>,
     current_destination: Option<SocketAddress>,
     session_destinations: HashMap<u64, SocketAddress>,
+    quic_sniffer: TunQuicSniffer,
 }
 
 struct AssociationStart {
@@ -58,6 +60,7 @@ impl InboundDatagramUdpRelay<Arc<UserUdpStack>> for TunUdpRelay {
                 receiver: self.receiver,
                 current_destination: None,
                 session_destinations: HashMap::new(),
+                quic_sniffer: TunQuicSniffer::default(),
             },
             None,
         )
@@ -70,22 +73,28 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
         &mut self,
         _stack: &Arc<UserUdpStack>,
     ) -> Result<Option<InboundUdpDispatch>, Error> {
-        let datagram =
-            match tokio::time::timeout(ASSOCIATION_IDLE_TIMEOUT, self.receiver.recv()).await {
-                Ok(Some(datagram)) => datagram,
-                Ok(None) | Err(_) => return Ok(None),
-            };
-        self.current_destination = Some(datagram.destination);
-        Ok(Some(
-            InboundUdpDispatch::new(
-                ProtocolType::UNKNOWN,
-                socket_address_to_address(datagram.destination),
-                datagram.destination.port,
-                datagram.payload,
-                None,
-            )
-            .with_transparent_target(),
-        ))
+        let datagram = match tokio::time::timeout(
+            ASSOCIATION_IDLE_TIMEOUT,
+            self.quic_sniffer.next(&mut self.receiver),
+        )
+        .await
+        {
+            Ok(Some(datagram)) => datagram,
+            Ok(None) | Err(_) => return Ok(None),
+        };
+        self.current_destination = Some(datagram.original_destination);
+        let original_target = socket_address_to_address(datagram.original_destination);
+        let dispatch = InboundUdpDispatch::new(
+            ProtocolType::UNKNOWN,
+            datagram.target,
+            datagram.original_destination.port,
+            datagram.payload,
+            None,
+        );
+        Ok(Some(match datagram.host_source {
+            Some(source) => dispatch.with_transparent_domain(original_target, source),
+            None => dispatch.with_transparent_target(),
+        }))
     }
 
     fn on_dispatch_success(&mut self, session_id: u64, _dispatch: &InboundUdpDispatch) {

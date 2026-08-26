@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use zero_traits::{AsyncSocket, SocketAddress};
 
-use crate::{Address, Error, ProtocolType, Session, SessionAuth};
+use crate::{Address, Error, ProtocolType, Session, SessionAuth, TargetHostSource};
 
 /// Neutral UDP payload routed by proxy/runtime glue.
 ///
@@ -97,6 +97,8 @@ pub struct InboundUdpDispatch {
     protocol: ProtocolType,
     client_session_id: Option<u64>,
     transparent_target: bool,
+    transparent_original_target: Option<Address>,
+    transparent_host_source: Option<TargetHostSource>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -369,12 +371,27 @@ impl InboundUdpDispatch {
             protocol,
             client_session_id,
             transparent_target: false,
+            transparent_original_target: None,
+            transparent_host_source: None,
         }
     }
 
     /// Mark this packet as originating from transparent interception.
     pub fn with_transparent_target(mut self) -> Self {
         self.transparent_target = true;
+        self
+    }
+
+    /// Preserve the intercepted IP while routing a transparent datagram by a
+    /// hostname recovered from its application traffic.
+    pub fn with_transparent_domain(
+        mut self,
+        original_target: Address,
+        source: TargetHostSource,
+    ) -> Self {
+        self.transparent_target = true;
+        self.transparent_original_target = Some(original_target);
+        self.transparent_host_source = Some(source);
         self
     }
 
@@ -400,6 +417,14 @@ impl InboundUdpDispatch {
 
     pub fn transparent_target(&self) -> bool {
         self.transparent_target
+    }
+
+    pub fn transparent_original_target(&self) -> Option<&Address> {
+        self.transparent_original_target.as_ref()
+    }
+
+    pub fn transparent_host_source(&self) -> Option<TargetHostSource> {
+        self.transparent_host_source
     }
 
     pub fn into_parts(self) -> (ProtocolType, Address, u16, Vec<u8>, Option<u64>) {
@@ -448,3 +473,6 @@ impl UdpFlowPacket {
         (self.target, self.port, self.payload)
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -53,6 +53,16 @@ impl UdpDispatch {
         let ingress_key = UdpFlowKey::new(&input.target, input.port, input.client_session_id);
         let mut session = Session::new(0, input.target, input.port, Network::Udp, input.protocol);
         session.transparent_target = input.transparent_target;
+        if let Some(original_target) = input.transparent_original_target {
+            session.original_target = Some(original_target.clone());
+            session.direct_target = Some(original_target);
+            session.target_host_source = input.transparent_host_source;
+            if input.transparent_host_source == Some(zero_core::TargetHostSource::QuicSni) {
+                if let zero_core::Address::Domain(domain) = &session.target {
+                    session.sni = Some(domain.clone());
+                }
+            }
+        }
         if let Some(auth) = input.auth {
             session.apply_auth(auth.clone());
         }

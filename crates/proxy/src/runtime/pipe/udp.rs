@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use zero_core::{Address, InboundUdpDispatch, ProtocolType, SessionAuth};
+use zero_core::{Address, InboundUdpDispatch, ProtocolType, SessionAuth, TargetHostSource};
 use zero_engine::EngineError;
 
 use crate::runtime::udp_dispatch::UdpDispatch;
@@ -22,6 +22,8 @@ pub(crate) struct UdpPipeInput<'a> {
     pub(crate) client_session_id: Option<u64>,
     /// Whether the IP target came from transparent interception.
     pub(crate) transparent_target: bool,
+    pub(crate) transparent_original_target: Option<Address>,
+    pub(crate) transparent_host_source: Option<TargetHostSource>,
 }
 
 /// UDP datagram pipe.
@@ -60,6 +62,8 @@ impl<'a> UdpPipeInput<'a> {
             source_addr,
             client_session_id: dispatch.client_session_id(),
             transparent_target: dispatch.transparent_target(),
+            transparent_original_target: dispatch.transparent_original_target().cloned(),
+            transparent_host_source: dispatch.transparent_host_source(),
         }
     }
 }

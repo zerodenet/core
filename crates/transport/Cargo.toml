@@ -18,6 +18,7 @@ tls = []
 ws = []
 
 [dependencies]
+aes = "0.8"
 bytes = "1"
 futures-util = "0.3"
 h2 = "0.4"

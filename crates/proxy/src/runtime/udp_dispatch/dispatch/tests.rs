@@ -22,6 +22,8 @@ fn input<'a>(
         source_addr: None,
         client_session_id: None,
         transparent_target: false,
+        transparent_original_target: None,
+        transparent_host_source: None,
     }
 }
 

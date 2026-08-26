@@ -327,6 +327,12 @@ TUN 反环路由两类互不替代的机制组成：捕获路由只负责让应�
 
 TUN UDP association 以原始客户端源 IP/端口为身份，同一源关联内再按目标复用 UDP flow；不同源端口不能仅因目标相同而合并，否则响应会写回错误客户端。关联建立有并发硬上限和滚动速率限制，单关联队列使用非阻塞投递，关闭的关联和失败的目标 flow 都应用有界指数退避。这样自捕获或 `WSAENOBUFS` 只能造成受控丢包，不能演化为无界 association/session 重建。TUN 会话必须记录原始源 IP/端口，不能用 loopback 占位地址代替。
 
+QUIC 透明嗅探不终止 QUIC 连接。通用 Initial v1/v2 密钥派生、包保护验证和
+CRYPTO 帧重组属于 `zero-transport`；TUN UDP 只维护按关联/目标有界且带期限的
+暂存状态，并把恢复出的逻辑域名、原始 IP 与 `quic_sni` 来源交给统一 Session。
+ECH、未知版本、认证失败、超时和容量压力都回退到 DNS reverse 或原始 IP，
+不得使用密文字符串扫描或外层 SNI 猜测隐藏域名。
+
 TCP 入站身份包含完整源 IP/端口；平台 listener 不得把 peer 降级成只有 IP 的值。TUN 用户态 TCP 栈对排队待 accept 的连接附加单调代际，并在交付前确认同一四元组仍指向该代连接且处于 established 状态，避免 RST 后同四元组快速重连时交付过期连接。目标地址相同本身不构成重复连接，不能按目标合并独立 TCP stream。
 
 本机进程归属属于 `zero-platform-tokio`：Linux、Windows 和 macOS 分别使用平台连接表与进程接口，proxy 只消费中性的 PID/name/path 结果。TCP 与 UDP 都以完整本地源端点查询；查询是尽力而为的观测补充，套接字竞态、权限或平台错误只产生空元数据，不得改变路由或使会话失败。系统表读取在阻塞任务池执行，不能阻塞异步转发工作线程。
