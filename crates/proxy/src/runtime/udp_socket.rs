@@ -15,19 +15,27 @@ pub(crate) struct DirectUdpSockets {
     ipv4: TokioDatagramSocket,
     ipv6: Option<TokioDatagramSocket>,
     ipv6_buffer: tokio::sync::Mutex<Vec<u8>>,
+    preferred_port: Option<u16>,
     generation: u64,
 }
 #[cfg(feature = "udp-runtime")]
 impl DirectUdpSockets {
     pub(crate) async fn bind(
         services: &crate::protocol_registry::UdpNetworkServices,
+        preferred_port: Option<u16>,
     ) -> Result<Self, EngineError> {
         let generation = services.egress_generation();
         let ipv4 = services
-            .bind_datagram_socket("0.0.0.0:0".parse().expect("valid IPv4 wildcard"))
+            .bind_direct_datagram_socket(
+                "0.0.0.0:0".parse().expect("valid IPv4 wildcard"),
+                preferred_port,
+            )
             .await?;
         let ipv6 = services
-            .bind_datagram_socket("[::]:0".parse().expect("valid IPv6 wildcard"))
+            .bind_direct_datagram_socket(
+                "[::]:0".parse().expect("valid IPv6 wildcard"),
+                preferred_port,
+            )
             .await
             .map_err(|error| {
                 tracing::debug!(error = %error, "IPv6 direct UDP socket is unavailable");
@@ -42,6 +50,7 @@ impl DirectUdpSockets {
             ipv4,
             ipv6,
             ipv6_buffer: tokio::sync::Mutex::new(vec![0_u8; 65_535]),
+            preferred_port,
             generation,
         })
     }
@@ -56,12 +65,12 @@ impl DirectUdpSockets {
         }
 
         let previous_generation = self.generation;
-        let mut replacement = Self::bind(services).await?;
+        let mut replacement = Self::bind(services, self.preferred_port).await?;
         for _ in 0..2 {
             if replacement.generation == services.egress_generation() {
                 break;
             }
-            replacement = Self::bind(services).await?;
+            replacement = Self::bind(services, self.preferred_port).await?;
         }
         if replacement.generation != services.egress_generation() {
             return Err(EngineError::Io(std::io::Error::new(

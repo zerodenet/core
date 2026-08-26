@@ -417,8 +417,19 @@ impl TokioDatagramSocket {
         peer: SocketAddr,
         interface: Option<&EgressInterface>,
     ) -> io::Result<Self> {
+        Self::bind_for_peer_on_with_port(peer, interface, None).await
+    }
+
+    /// Bind for a peer while attempting to retain a caller-owned UDP source
+    /// port. Address conflicts fall back to an ephemeral port; interface
+    /// binding failures remain fatal.
+    pub async fn bind_for_peer_on_with_port(
+        peer: SocketAddr,
+        interface: Option<&EgressInterface>,
+        preferred_port: Option<u16>,
+    ) -> io::Result<Self> {
         let egress_interface = interface.filter(|_| !peer.ip().is_loopback()).cloned();
-        let socket = bind_std_datagram_socket_for_peer(peer, interface)?;
+        let socket = bind_std_datagram_socket_for_peer_with_port(peer, interface, preferred_port)?;
         UdpSocket::from_std(socket).map(|inner| Self {
             inner,
             egress_interface,
@@ -448,8 +459,24 @@ pub fn bind_std_datagram_socket_for_peer(
     peer: SocketAddr,
     interface: Option<&EgressInterface>,
 ) -> io::Result<std::net::UdpSocket> {
-    let local = datagram_bind_address(peer, interface)?;
-    let socket = std::net::UdpSocket::bind(local)?;
+    bind_std_datagram_socket_for_peer_with_port(peer, interface, None)
+}
+
+pub fn bind_std_datagram_socket_for_peer_with_port(
+    peer: SocketAddr,
+    interface: Option<&EgressInterface>,
+    preferred_port: Option<u16>,
+) -> io::Result<std::net::UdpSocket> {
+    let mut local = datagram_bind_address(peer, interface)?;
+    local.set_port(preferred_port.unwrap_or(0));
+    let socket = match std::net::UdpSocket::bind(local) {
+        Ok(socket) => socket,
+        Err(_) if preferred_port.is_some() => {
+            local.set_port(0);
+            std::net::UdpSocket::bind(local)?
+        }
+        Err(error) => return Err(error),
+    };
     if let Some(interface) = interface.filter(|_| !peer.ip().is_loopback()) {
         bind_udp_to_interface(&socket, local, interface)?;
     }

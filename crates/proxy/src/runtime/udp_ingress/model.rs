@@ -32,4 +32,8 @@ impl UdpIngressRuntime {
     pub(crate) fn runtime_services(&self) -> UdpRuntimeServices {
         self.services.clone()
     }
+
+    pub(crate) fn source_addr(&self) -> Option<std::net::SocketAddr> {
+        self.source_addr
+    }
 }
