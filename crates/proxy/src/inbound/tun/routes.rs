@@ -13,12 +13,26 @@ mod state;
 use state::{publish_error, publish_state, publish_unavailable};
 
 const ROUTE_EVENT_DEBOUNCE: Duration = Duration::from_millis(400);
+const ROUTE_WATCHDOG_INTERVAL: Duration = Duration::from_secs(30);
 const ROUTE_RETRY_DELAYS: [Duration; 4] = [
     Duration::from_millis(250),
     Duration::from_secs(1),
     Duration::from_secs(3),
     Duration::from_secs(10),
 ];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReconcileTrigger {
+    PlatformEvent,
+    Retry,
+    Watchdog,
+}
+
+impl ReconcileTrigger {
+    fn should_debounce(self) -> bool {
+        matches!(self, Self::PlatformEvent)
+    }
+}
 
 pub(super) struct InstalledRoutes {
     pub guards: Vec<SystemRouteGuard>,
@@ -191,7 +205,7 @@ async fn run(
     // between initial route installation and monitor creation.
     let mut retry_index = Some(0_usize);
     loop {
-        let triggered_by_event = if let Some(index) = retry_index {
+        let trigger = if let Some(index) = retry_index {
             let delay = ROUTE_RETRY_DELAYS[index.min(ROUTE_RETRY_DELAYS.len() - 1)];
             tokio::select! {
                 changed = shutdown.changed() => {
@@ -203,9 +217,9 @@ async fn run(
                         monitor = None;
                         publish_runtime_error(&proxy, &spec, error.to_string());
                     }
-                    true
+                    ReconcileTrigger::PlatformEvent
                 }
-                _ = tokio::time::sleep(delay) => false,
+                _ = tokio::time::sleep(delay) => ReconcileTrigger::Retry,
             }
         } else {
             tokio::select! {
@@ -219,15 +233,16 @@ async fn run(
                         publish_runtime_error(&proxy, &spec, error.to_string());
                         retry_index = Some(0);
                     }
-                    true
+                    ReconcileTrigger::PlatformEvent
                 }
+                _ = tokio::time::sleep(ROUTE_WATCHDOG_INTERVAL) => ReconcileTrigger::Watchdog,
             }
         };
         if *shutdown.borrow() {
             break;
         }
 
-        if triggered_by_event {
+        if trigger.should_debounce() {
             tokio::select! {
                 changed = shutdown.changed() => {
                     let _ = changed;
@@ -241,6 +256,12 @@ async fn run(
                     monitor = None;
                 }
             }
+        }
+        if trigger == ReconcileTrigger::Watchdog {
+            tracing::debug!(
+                tun = %spec.tun_name,
+                "auditing TUN routes after the network lifecycle watchdog interval"
+            );
         }
         if monitor.is_none() {
             match RouteChangeMonitor::new() {
@@ -436,7 +457,9 @@ pub(super) fn route_names(guards: &[SystemRouteGuard]) -> (Option<String>, Optio
 
 #[cfg(test)]
 mod tests {
-    use super::{next_retry, RouteRuntimeSpec, ROUTE_RETRY_DELAYS};
+    use super::{
+        next_retry, ReconcileTrigger, RouteRuntimeSpec, ROUTE_RETRY_DELAYS, ROUTE_WATCHDOG_INTERVAL,
+    };
 
     #[test]
     fn route_retry_backoff_starts_small_and_is_bounded() {
@@ -446,6 +469,14 @@ mod tests {
             next_retry(Some(ROUTE_RETRY_DELAYS.len() - 1)),
             ROUTE_RETRY_DELAYS.len() - 1
         );
+    }
+
+    #[test]
+    fn only_platform_events_are_debounced() {
+        assert!(ReconcileTrigger::PlatformEvent.should_debounce());
+        assert!(!ReconcileTrigger::Retry.should_debounce());
+        assert!(!ReconcileTrigger::Watchdog.should_debounce());
+        assert!(ROUTE_WATCHDOG_INTERVAL > ROUTE_RETRY_DELAYS[0]);
     }
 
     #[test]
