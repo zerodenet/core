@@ -109,8 +109,8 @@ impl DohDnsResolver {
             DNS_TIMEOUT,
             self.exchange_with_timeout(addr, query, detour, connector),
         )
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoH request timeout"))?
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoH request timeout"))?
     }
 
     async fn exchange_with_timeout(
@@ -207,14 +207,11 @@ impl DohDnsResolver {
         underlay: Option<&zero_platform_tokio::EgressInterface>,
         detour: Option<&str>,
     ) {
-        self.clients
-            .lock()
-            .await
-            .retain(|client| {
-                !(client.addr == addr
-                    && client.underlay.as_ref() == underlay
-                    && client.detour.as_deref() == detour)
-            });
+        self.clients.lock().await.retain(|client| {
+            !(client.addr == addr
+                && client.underlay.as_ref() == underlay
+                && client.detour.as_deref() == detour)
+        });
     }
 
     async fn connect_client(

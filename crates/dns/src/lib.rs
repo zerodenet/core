@@ -59,11 +59,8 @@ pub struct DnsQueryAttempt {
 }
 
 /// Future returned by a runtime-provided DNS TCP detour connector.
-pub type DnsOutboundConnectFuture = Pin<
-    Box<
-        dyn Future<Output = io::Result<zero_platform_tokio::TcpRelayStream>> + Send + 'static,
-    >,
->;
+pub type DnsOutboundConnectFuture =
+    Pin<Box<dyn Future<Output = io::Result<zero_platform_tokio::TcpRelayStream>> + Send + 'static>>;
 
 /// Opens a TCP stream to a deterministic DNS endpoint through a named route
 /// target. The proxy runtime supplies this bridge; standalone DNS users get a
@@ -1002,14 +999,7 @@ async fn exchange_snapshot(
                     backend = %tag,
                     "DNS backend attempt failed"
                 );
-                record_query_attempt(
-                    snapshot,
-                    domain,
-                    role,
-                    tag,
-                    server,
-                    Some(error.to_string()),
-                );
+                record_query_attempt(snapshot, domain, role, tag, server, Some(error.to_string()));
                 last_error = Some(error);
             }
         }

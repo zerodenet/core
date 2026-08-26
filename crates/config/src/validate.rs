@@ -258,13 +258,7 @@ fn validate_runtime(
     }
 
     if let Some(dns) = &runtime.dns {
-        dns::validate_dns_config(
-            runtime,
-            dns,
-            rule_sets,
-            rule_set_tags,
-            route_target_tags,
-        )?;
+        dns::validate_dns_config(runtime, dns, rule_sets, rule_set_tags, route_target_tags)?;
     }
 
     Ok(())

@@ -11,9 +11,9 @@ use crate::message::{
     DEFAULT_NEGATIVE_TTL_SECONDS, RCODE_NOTIMP, RCODE_NXDOMAIN, TYPE_A, TYPE_AAAA,
 };
 use crate::system::TokioSystemResolver;
-use crate::DnsOutboundConnector;
 #[cfg(feature = "udp")]
 use crate::udp::UdpDnsResolver;
+use crate::DnsOutboundConnector;
 
 pub(crate) enum ResolverBackend {
     System(TokioSystemResolver),

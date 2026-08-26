@@ -156,8 +156,7 @@ impl Proxy {
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
         let resolver = Arc::new(dns);
-        let principal_rate_limits =
-            principal_rate_limit::PrincipalRateLimitRegistry::default();
+        let principal_rate_limits = principal_rate_limit::PrincipalRateLimitRegistry::default();
         let proxy = Self {
             config,
             engine,
@@ -174,15 +173,13 @@ impl Proxy {
             reload_apply_lock: Arc::new(tokio::sync::Mutex::new(())),
             principal_rate_limits: principal_rate_limits.clone(),
         };
-        resolver.set_outbound_connector(Arc::new(
-            dns_outbound::ProxyDnsOutboundConnector::new(
-                proxy.engine.clone(),
-                &resolver,
-                proxy.protocols.clone(),
-                proxy.egress_interface.clone(),
-                principal_rate_limits,
-            ),
-        ));
+        resolver.set_outbound_connector(Arc::new(dns_outbound::ProxyDnsOutboundConnector::new(
+            proxy.engine.clone(),
+            &resolver,
+            proxy.protocols.clone(),
+            proxy.egress_interface.clone(),
+            principal_rate_limits,
+        )));
         Ok(proxy)
     }
 

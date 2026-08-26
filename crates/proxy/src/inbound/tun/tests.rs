@@ -199,7 +199,10 @@ fn doh_endpoint_parser_accepts_literal_v4_and_v6_hosts() {
             "route":{"rules":[],"final":{"type":"direct"}}
         }"#,
     );
-    assert!(matches!(domain, Err(zero_config::ConfigError::InvalidDns(_))));
+    assert!(matches!(
+        domain,
+        Err(zero_config::ConfigError::InvalidDns(_))
+    ));
 }
 
 #[test]

@@ -13,10 +13,7 @@ async fn proxy_installs_dns_detour_connector_without_recursive_resolution() {
         let (mut stream, _) = listener.accept().await.expect("accept DNS TCP");
         let size = stream.read_u16().await.expect("read DNS query size") as usize;
         let mut query = vec![0_u8; size];
-        stream
-            .read_exact(&mut query)
-            .await
-            .expect("read DNS query");
+        stream.read_exact(&mut query).await.expect("read DNS query");
         let response =
             zero_dns::udp::build_dns_response(&query, &[IpAddress::V4([198, 51, 100, 53])]);
         stream
@@ -62,11 +59,10 @@ async fn proxy_installs_dns_detour_connector_without_recursive_resolution() {
             .unwrap(),
         vec![IpAddress::V4([198, 51, 100, 53])]
     );
-    let attempts = proxy.resolver.recent_query_attempts(
-        "detour.example",
-        zero_dns::DnsQueryRole::Default,
-        1,
-    );
+    let attempts =
+        proxy
+            .resolver
+            .recent_query_attempts("detour.example", zero_dns::DnsQueryRole::Default, 1);
     assert_eq!(attempts[0].outbound, "dns-out");
     server.await.unwrap();
 }

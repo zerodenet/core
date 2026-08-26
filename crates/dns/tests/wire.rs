@@ -163,12 +163,11 @@ async fn udp_server_detour_uses_dns_over_tcp_and_reports_outbound() {
         dns.resolve_real_type("detour.example", 1).await.unwrap(),
         vec![IpAddress::V4([192, 0, 2, 53])]
     );
-    assert_eq!(calls.lock().unwrap().as_slice(), &[("proxy".to_owned(), endpoint)]);
-    let attempts = dns.recent_query_attempts(
-        "detour.example",
-        zero_dns::DnsQueryRole::Default,
-        1,
+    assert_eq!(
+        calls.lock().unwrap().as_slice(),
+        &[("proxy".to_owned(), endpoint)]
     );
+    let attempts = dns.recent_query_attempts("detour.example", zero_dns::DnsQueryRole::Default, 1);
     assert_eq!(attempts[0].outbound, "proxy");
     server.await.unwrap();
 }
