@@ -27,6 +27,8 @@ pub enum CommandRequest {
     DiagnosticsDnsCache(DiagnosticsDnsCacheCommand),
     #[serde(rename = "diagnostics.fakeip_lookup")]
     DiagnosticsFakeipLookup(DiagnosticsFakeipLookupCommand),
+    #[serde(rename = "fakeip.clear")]
+    FakeIpClear(FakeIpClearCommand),
     #[serde(rename = "diagnostics.trace_route")]
     DiagnosticsTraceRoute(DiagnosticsTraceRouteCommand),
     #[serde(rename = "mode.set")]
@@ -51,6 +53,7 @@ impl CommandRequest {
             | Self::DiagnosticsDnsLookup(_)
             | Self::DiagnosticsDnsCache(_)
             | Self::DiagnosticsFakeipLookup(_)
+            | Self::FakeIpClear(_)
             | Self::DiagnosticsTraceRoute(_)
             | Self::ModeSet(_)
             | Self::TunStart(_)
@@ -182,6 +185,19 @@ pub struct DiagnosticsDnsCacheCommand {
 /// `ip` (reverse: fake IP → domain) should be set.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiagnosticsFakeipLookupCommand {
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub ip: Option<String>,
+}
+
+/// Clear fake-IP mappings (`fakeip.clear`).
+///
+/// Omit both selectors to clear every mapping. Set exactly one of `domain` or
+/// `ip` to remove one mapping in both directions. Persistent runtime state is
+/// compacted as part of the same operation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FakeIpClearCommand {
     #[serde(default)]
     pub domain: Option<String>,
     #[serde(default)]

@@ -65,6 +65,57 @@ async fn restores_live_mapping_after_process_rebuild() {
 }
 
 #[tokio::test]
+async fn targeted_and_full_clear_are_persisted_atomically() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let path = directory.path().join("fake-ip.jsonl");
+    let config = config("198.18.0.0/24", 3_600);
+
+    let first = build(&config, &path);
+    zero_traits::DnsResolver::resolve(&first, "remove.example")
+        .await
+        .expect("allocate removed mapping");
+    zero_traits::DnsResolver::resolve(&first, "keep.example")
+        .await
+        .expect("allocate retained mapping");
+    let cleared = first
+        .clear_fake_ip(zero_dns::FakeIpClearTarget::Domain(
+            "REMOVE.EXAMPLE.".to_owned(),
+        ))
+        .await
+        .expect("clear one mapping")
+        .expect("Fake-IP enabled");
+    assert_eq!(cleared.removed_mappings, 1);
+    assert_eq!(cleared.removed_addresses, 1);
+    assert_eq!(cleared.live_mappings, 1);
+    drop(first);
+
+    let restored = build(&config, &path);
+    assert!(restored
+        .lookup_fake_ip_domain("remove.example")
+        .await
+        .is_none());
+    assert_eq!(
+        restored
+            .lookup_fake_ip_domain("keep.example")
+            .await
+            .as_deref(),
+        Some("198.18.0.2")
+    );
+    let cleared = restored
+        .clear_fake_ip(zero_dns::FakeIpClearTarget::All)
+        .await
+        .expect("clear all mappings")
+        .expect("Fake-IP enabled");
+    assert_eq!(cleared.removed_mappings, 1);
+    assert_eq!(cleared.live_mappings, 0);
+    drop(restored);
+
+    let empty = build(&config, &path);
+    assert_eq!(empty.fake_ip_stats().await.unwrap().live_mappings, 0);
+    assert!(empty.lookup_fake_ip_domain("keep.example").await.is_none());
+}
+
+#[tokio::test]
 async fn incompatible_pool_starts_with_an_empty_mapping_set() {
     let directory = tempfile::tempdir().expect("state directory");
     let path = directory.path().join("fake-ip.jsonl");

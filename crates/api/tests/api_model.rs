@@ -3,8 +3,9 @@ use std::collections::BTreeMap;
 use serde_json::json;
 use zero_api::{
     event_type, ApiErrorCode, ApiEvent, AuthContext, AuthInfo, CommandRequest, ConfigApplyCommand,
-    ConfigValidateCommand, EndpointRef, FlowEventPayload, FlowOutcome, FlowTiming, Network,
-    Permission, PolicySelectCommand, RouteDecision, TargetAddress, TrafficStats, EVENT_SCHEMA_ID,
+    ConfigValidateCommand, EndpointRef, FakeIpClearCommand, FlowEventPayload, FlowOutcome,
+    FlowTiming, Network, Permission, PolicySelectCommand, RouteDecision, TargetAddress,
+    TrafficStats, EVENT_SCHEMA_ID,
 };
 
 #[test]
@@ -140,6 +141,16 @@ fn command_request_serializes_with_stable_method_name() {
     assert_eq!(value["method"], "policies.select");
     assert_eq!(value["params"]["policy_tag"], "proxy");
     assert_eq!(value["params"]["target_tag"], "direct");
+}
+
+#[test]
+fn fake_ip_clear_is_an_admin_command_with_optional_selectors() {
+    let command = CommandRequest::FakeIpClear(FakeIpClearCommand::default());
+
+    assert_eq!(command.required_permission(), Permission::Admin);
+    let value = serde_json::to_value(command).expect("serialize fake-IP clear command");
+    assert_eq!(value["method"], "fakeip.clear");
+    assert_eq!(value["params"], json!({ "domain": null, "ip": null }));
 }
 
 #[test]

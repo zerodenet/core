@@ -315,6 +315,10 @@ fn execute_engine_command(
             ApiErrorCode::Internal,
             "fakeip_lookup is handled by the proxy runtime, not the engine",
         )),
+        CommandRequest::FakeIpClear(_) => Err(ApiError::new(
+            ApiErrorCode::Internal,
+            "fakeip.clear is handled by the proxy runtime, not the engine",
+        )),
     }
 }
 
