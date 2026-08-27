@@ -162,7 +162,7 @@ curl.exe https://example.com/
 Resolve-DnsName example.com
 ```
 
-strict route 启动必须显式读取 Domain、Private、Public 三个 Windows Firewall profile，并把带 schema 的 UTF-8 JSON 快照持久化后才能修改默认出站策略。PowerShell 成功退出但未输出快照、缺少任一 profile 或包含未知动作时都必须在安装规则前 fail closed；错误不得退化为无上下文的 JSON EOF。
+strict route 启动、运行、强杀恢复和正常停止前后，Domain、Private、Public 三个 Windows Firewall profile 的 `DefaultOutboundAction` 必须保持不变。Windows 防泄露策略位于稳定的持久 WFP sublayer：高权重规则只放行 Zero AppID、Wintun LUID、loopback 和显式排除地址，低权重规则阻断受管前缀；删除任一受管 filter 后，30 秒 watchdog 必须原子重建完整策略。若检测到旧版 `zero.tun.leak-guard.v1` 恢复日志，启动时只执行一次旧 profile/rule group 恢复和迁移，此后不再修改全局 profile。
 
 ## 网络生命周期验证
 
@@ -196,10 +196,10 @@ sudo tcpdump -i physical0 -nn 'udp port 3478 or udp port 5349'
 5. 保持 TUN 运行并切换系统默认出口；`tun status` 的 `egress_v4`/`egress_v6` 应更新，既有连接不中断，新连接使用新出口，旧出口上的 Zero DNS/bootstrap 排除路由被清理。
 6. 制造短暂的无默认路由窗口或排除路由安装失败；TUN 应保持运行、`healthy=false` 且显示 `last_error`，恢复后自动协调并回到 `healthy=true`，期间不得出现忙重试。
 7. Windows 连续执行两轮 start/stop，确认阻塞 reader 被唤醒且同名 Wintun adapter 可复用。
-8. 严格模式下删除一条受管 `/1` 路由或制造协调失败，并确认平台保护仍阻止非 TUN 物理出站：Linux 检查 `zero_killswitch_*` nftables 表，macOS 检查 `com.apple/zero_*` pf anchor，Windows 检查 `ZeroKillSwitch-*` Firewall rule group 与各 profile 的 outbound block 状态。
+8. 严格模式下删除一条受管 `/1` 路由或制造协调失败，并确认平台保护仍阻止非 TUN 物理出站：Linux 检查 `zero_killswitch_*` nftables 表，macOS 检查 `com.apple/zero_*` pf anchor，Windows 枚举稳定 WFP sublayer 的 ALE connect filters，并再次确认各 Firewall profile 的默认出站策略未变化。
 9. 保持一个实例持有 IPv4/IPv6 自动路由，再以不同 TUN tag 启动第二个实例；第二个实例必须在安装任何路由或 kill switch 前以 `AlreadyExists` 失败。停止第一个实例后，第二个实例应能取得 lease 并正常启动。
 
-路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，kill switch 保持 fail-closed；下一次以相同 TUN 入站 `tag` 启动会接管原保护并消费路由日志。Windows 额外保存启用前各 Firewall profile 的 outbound policy，只有正常停止且规则清理成功后才恢复；Linux nftables table 与 macOS pf anchor 使用稳定资源名原位替换，热更新失败保留旧规则。
+路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，kill switch 保持 fail-closed；下一次以相同 TUN 入站 `tag` 启动会接管原保护并消费路由日志。Windows WFP sublayer/filter 使用稳定 key 和持久对象原位接管，Linux nftables table 与 macOS pf anchor 使用稳定资源名原位替换；热更新失败均保留旧保护。
 
 ## 自动化覆盖
 

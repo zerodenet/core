@@ -25,10 +25,14 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
     let stopped_path = directory.path().join("stopped.json");
     std::fs::write(&direct_path, &direct_config).unwrap();
     std::fs::write(&stopped_path, stopped_config).unwrap();
+    #[cfg(windows)]
+    let firewall_profiles = windows_firewall_profile_defaults();
 
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut process = spawn_zero(binary, &direct_path, &socket);
         wait_for_tun(binary, &socket, true, false);
+        #[cfg(windows)]
+        assert_eq!(firewall_profiles, windows_firewall_profile_defaults());
         let _initial_name = assert_tun_os_configured(binary, &socket, false, false);
         for _ in 0..8 {
             assert_tcp_through_tun(tcp_target);
@@ -40,11 +44,15 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
         // A hard kill leaves the route journal behind. The next process must
         // recover it before re-installing the same TUN routes.
         process.kill_and_wait();
+        #[cfg(windows)]
+        assert_eq!(firewall_profiles, windows_firewall_profile_defaults());
         assert_route_journal_present(&direct_path, 1);
         std::fs::write(&direct_path, &direct_config).unwrap();
 
         let mut recovered = spawn_zero(binary, &direct_path, &socket);
         wait_for_tun(binary, &socket, true, false);
+        #[cfg(windows)]
+        assert_eq!(firewall_profiles, windows_firewall_profile_defaults());
         let recovered_name = assert_tun_os_configured(binary, &socket, false, false);
         for _ in 0..8 {
             assert_tcp_through_tun(tcp_target);
@@ -57,6 +65,8 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
         wait_for_tun(binary, &socket, false, false);
         assert_tun_os_cleanup(&recovered_name);
         assert_route_journals_clean(&direct_path);
+        #[cfg(windows)]
+        assert_eq!(firewall_profiles, windows_firewall_profile_defaults());
         recovered.kill_and_wait();
     }));
     if let Err(payload) = outcome {
@@ -922,6 +932,31 @@ fn tun_device_exists(name: &str) -> bool {
         .env("ZERO_TUN_E2E_NAME", name)
         .output()
         .is_ok_and(|output| output.status.success())
+}
+
+#[cfg(windows)]
+fn windows_firewall_profile_defaults() -> String {
+    let script = r#"
+$ErrorActionPreference='Stop'
+$profiles=@(foreach($name in @('Domain','Private','Public')) {
+  $profile=Get-NetFirewallProfile -Name $name -ErrorAction Stop
+  [pscustomobject]@{name=$profile.Name;action=$profile.DefaultOutboundAction.ToString()}
+})
+ConvertTo-Json -InputObject $profiles -Compress
+"#;
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+        .expect("snapshot Windows Firewall profile defaults");
+    assert!(
+        output.status.success(),
+        "snapshot Windows Firewall profile defaults:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .expect("Windows Firewall profile snapshot must be UTF-8")
+        .trim()
+        .to_owned()
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
