@@ -25,7 +25,7 @@ pub(super) enum EstablishedTcpOutboundKind {
         tag: String,
         remote: (String, u16),
         upstream: TcpRelayStream,
-        network: zero_engine::FlowNetworkObservation,
+        network: Box<zero_engine::FlowNetworkObservation>,
     },
     Block,
     Proxied {
@@ -54,7 +54,7 @@ impl EstablishedTcpOutbound {
                 tag: tag.into(),
                 remote,
                 upstream,
-                network,
+                network: Box::new(network),
             },
         }
     }

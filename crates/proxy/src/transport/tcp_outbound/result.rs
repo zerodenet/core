@@ -23,7 +23,7 @@ pub(crate) fn extract_tcp_stream(
             relay_chain: Vec::new(),
             route_action: RouteDecision::Direct,
             passive_relay_selections: Vec::new(),
-            network: Some(network),
+            network: Some(*network),
         }),
         EstablishedTcpOutboundKind::Block => Err(EngineError::Io(io::Error::new(
             io::ErrorKind::ConnectionRefused,

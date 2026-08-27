@@ -7,13 +7,13 @@ use std::sync::{mpsc::SyncSender, mpsc::TrySendError, Arc, Mutex};
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zero_api::{
-    event_type, ApiEvent, AuthInfo, EndpointRef, EventFilter, EventReplay, FlowEventPayload,
-    FlowFailureInfo, FlowNetworkContext, FlowNetworkInterface, FlowOutcome, FlowPath, FlowRecord,
-    FlowRecordTiming, FlowResult, FlowRoute, FlowRouteLookup, FlowSocketBinding, FlowSource,
-    FlowState, FlowTarget, FlowThroughput, FlowTiming, MatchedRuleInfo, Network as ApiNetwork,
-    PassiveRelayHealthChangedPayload, PassiveRelayHealthState, PolicyDecision,
-    PolicyProbeCompletedPayload, PolicySelectedPayload, RawApiEvent, RouteDecision, TargetAddress,
-    TrafficStats,
+    event_type, ApiEvent, AuthInfo, EndpointRef, EventFilter, EventReplay, FlowEgressContext,
+    FlowEventPayload, FlowFailureInfo, FlowNetworkContext, FlowNetworkInterface, FlowOutcome,
+    FlowPath, FlowRecord, FlowRecordTiming, FlowResult, FlowRoute, FlowRouteLookup,
+    FlowSocketBinding, FlowSource, FlowState, FlowTarget, FlowThroughput, FlowTiming,
+    MatchedRuleInfo, Network as ApiNetwork, PassiveRelayHealthChangedPayload,
+    PassiveRelayHealthState, PolicyDecision, PolicyProbeCompletedPayload, PolicySelectedPayload,
+    RawApiEvent, RouteDecision, TargetAddress, TrafficStats,
 };
 use zero_core::{Address, Network, ProtocolType, SessionAuth};
 
@@ -837,11 +837,35 @@ fn flow_path(outbound_tag: Option<&String>, path: &crate::FlowPathObservation) -
                 host: local.host.clone(),
                 port: local.port,
             }),
+            remote_address: network.remote_address.as_ref().map(|remote| TargetAddress {
+                host: remote.host.clone(),
+                port: remote.port,
+            }),
+            resolved_candidates: network
+                .resolved_candidates
+                .iter()
+                .map(|candidate| TargetAddress {
+                    host: candidate.host.clone(),
+                    port: candidate.port,
+                })
+                .collect(),
             selected_interface: network.selected_interface.as_ref().map(|interface| {
                 FlowNetworkInterface {
                     name: interface.name.clone(),
                     index: interface.index,
                 }
+            }),
+            egress: network.egress.as_ref().map(|egress| FlowEgressContext {
+                generation: egress.generation,
+                address_family: egress.address_family.clone(),
+                tun_active: egress.tun_active,
+                configured_interface: egress.configured_interface.as_ref().map(|interface| {
+                    FlowNetworkInterface {
+                        name: interface.name.clone(),
+                        index: interface.index,
+                    }
+                }),
+                unavailable_reason: egress.unavailable_reason.clone(),
             }),
             route_lookup: network.route_lookup.as_ref().map(|route| FlowRouteLookup {
                 status: route.status.clone(),

@@ -32,10 +32,22 @@ pub struct FlowPathObservation {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FlowNetworkObservation {
     pub local_address: Option<FlowRemoteEndpoint>,
+    pub remote_address: Option<FlowRemoteEndpoint>,
+    pub resolved_candidates: Vec<FlowRemoteEndpoint>,
     pub selected_interface: Option<FlowNetworkInterfaceObservation>,
+    pub egress: Option<FlowEgressObservation>,
     pub route_lookup: Option<FlowRouteLookupObservation>,
     pub socket_binding: Option<FlowSocketBindingObservation>,
     pub connect_stage: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FlowEgressObservation {
+    pub generation: u64,
+    pub address_family: String,
+    pub tun_active: bool,
+    pub configured_interface: Option<FlowNetworkInterfaceObservation>,
+    pub unavailable_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
