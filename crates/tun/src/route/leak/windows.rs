@@ -9,28 +9,27 @@ use std::ptr::{null, null_mut};
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use serde::{Deserialize, Serialize};
+use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::{
     FWP_E_ALREADY_EXISTS, FWP_E_FILTER_NOT_FOUND, FWP_E_SUBLAYER_NOT_FOUND, HANDLE,
 };
 use windows_sys::Win32::NetworkManagement::IpHelper::ConvertInterfaceAliasToLuid;
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 use windows_sys::Win32::NetworkManagement::WindowsFilteringPlatform::{
-    FWP_ACTION_BLOCK, FWP_ACTION_PERMIT, FWP_BYTE_BLOB, FWP_BYTE_BLOB_TYPE,
-    FWP_CONDITION_VALUE0, FWP_CONDITION_VALUE0_0, FWP_EMPTY, FWP_FILTER_ENUM_FULLY_CONTAINED,
-    FWP_MATCH_EQUAL, FWP_UINT64, FWP_V4_ADDR_AND_MASK, FWP_V4_ADDR_MASK,
-    FWP_V6_ADDR_AND_MASK, FWP_V6_ADDR_MASK, FWP_VALUE0, FWP_VALUE0_0, FWPM_ACTION0,
-    FWPM_ACTION0_0, FWPM_CONDITION_ALE_APP_ID, FWPM_CONDITION_IP_LOCAL_INTERFACE,
-    FWPM_CONDITION_IP_REMOTE_ADDRESS, FWPM_DISPLAY_DATA0, FWPM_FILTER0, FWPM_FILTER0_0,
-    FWPM_FILTER_CONDITION0, FWPM_FILTER_ENUM_TEMPLATE0, FWPM_FILTER_FLAG_PERSISTENT,
-    FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_SUBLAYER0,
-    FWPM_SUBLAYER_FLAG_PERSISTENT, FwpmEngineClose0, FwpmEngineOpen0, FwpmFilterAdd0,
-    FwpmFilterCreateEnumHandle0, FwpmFilterDeleteById0, FwpmFilterDestroyEnumHandle0,
-    FwpmFilterEnum0, FwpmFreeMemory0, FwpmGetAppIdFromFileName0, FwpmSubLayerAdd0,
-    FwpmSubLayerDeleteByKey0, FwpmTransactionAbort0, FwpmTransactionBegin0,
-    FwpmTransactionCommit0,
+    FwpmEngineClose0, FwpmEngineOpen0, FwpmFilterAdd0, FwpmFilterCreateEnumHandle0,
+    FwpmFilterDeleteById0, FwpmFilterDestroyEnumHandle0, FwpmFilterEnum0, FwpmFreeMemory0,
+    FwpmGetAppIdFromFileName0, FwpmSubLayerAdd0, FwpmSubLayerDeleteByKey0, FwpmTransactionAbort0,
+    FwpmTransactionBegin0, FwpmTransactionCommit0, FWPM_ACTION0, FWPM_ACTION0_0,
+    FWPM_CONDITION_ALE_APP_ID, FWPM_CONDITION_IP_LOCAL_INTERFACE, FWPM_CONDITION_IP_REMOTE_ADDRESS,
+    FWPM_DISPLAY_DATA0, FWPM_FILTER0, FWPM_FILTER0_0, FWPM_FILTER_CONDITION0,
+    FWPM_FILTER_ENUM_TEMPLATE0, FWPM_FILTER_FLAG_PERSISTENT, FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+    FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_SUBLAYER0, FWPM_SUBLAYER_FLAG_PERSISTENT,
+    FWP_ACTION_BLOCK, FWP_ACTION_PERMIT, FWP_BYTE_BLOB, FWP_BYTE_BLOB_TYPE, FWP_CONDITION_VALUE0,
+    FWP_CONDITION_VALUE0_0, FWP_EMPTY, FWP_FILTER_ENUM_FULLY_CONTAINED, FWP_MATCH_EQUAL,
+    FWP_UINT64, FWP_V4_ADDR_AND_MASK, FWP_V4_ADDR_MASK, FWP_V6_ADDR_AND_MASK, FWP_V6_ADDR_MASK,
+    FWP_VALUE0, FWP_VALUE0_0,
 };
 use windows_sys::Win32::System::Rpc::RPC_C_AUTHN_WINNT;
-use windows_sys::core::GUID;
 
 use super::{
     normalized_exclusions, normalized_prefixes, safe_resource_name, validate_interface_name,
@@ -250,9 +249,12 @@ fn policy_is_complete(sublayer_key: GUID, expected: &[GUID]) -> io::Result<bool>
     let engine = WfpEngine::open()?;
     let inventory = owned_filter_inventory(engine.handle, sublayer_key)?;
     Ok(inventory.keys.len() == expected.len()
-        && expected
-            .iter()
-            .all(|expected| inventory.keys.iter().any(|actual| guid_eq(actual, expected))))
+        && expected.iter().all(|expected| {
+            inventory
+                .keys
+                .iter()
+                .any(|actual| guid_eq(actual, expected))
+        }))
 }
 
 fn ensure_sublayer(engine: HANDLE, sublayer_key: GUID, display_name: &str) -> io::Result<()> {
@@ -485,7 +487,8 @@ fn owned_filter_inventory(engine: HANDLE, sublayer_key: GUID) -> io::Result<Filt
             calloutKey: null_mut(),
         };
         let mut enum_handle = null_mut();
-        let status = unsafe { FwpmFilterCreateEnumHandle0(engine, &mut template, &mut enum_handle) };
+        let status =
+            unsafe { FwpmFilterCreateEnumHandle0(engine, &mut template, &mut enum_handle) };
         if status != 0 {
             return Err(wfp_error("enumerate strict-route WFP filters", status));
         }
@@ -539,10 +542,17 @@ fn delete_filter_ids(engine: HANDLE, ids: &[u64]) -> io::Result<()> {
 }
 
 fn expected_filter_keys(recovery_key: &str, protected: &[IpNet], excluded: &[IpAddr]) -> Vec<GUID> {
-    let mut keys = ["app-v4", "app-v6", "tun-v4", "tun-v6", "loopback-v4", "loopback-v6"]
-        .into_iter()
-        .map(|scope| stable_guid(recovery_key, scope))
-        .collect::<Vec<_>>();
+    let mut keys = [
+        "app-v4",
+        "app-v6",
+        "tun-v4",
+        "tun-v6",
+        "loopback-v4",
+        "loopback-v6",
+    ]
+    .into_iter()
+    .map(|scope| stable_guid(recovery_key, scope))
+    .collect::<Vec<_>>();
     keys.extend(excluded.iter().map(|address| {
         let prefix = exact_prefix(*address);
         stable_guid(recovery_key, &format!("exclude:{prefix}"))
@@ -640,15 +650,8 @@ struct WfpEngine {
 impl WfpEngine {
     fn open() -> io::Result<Self> {
         let mut handle = null_mut();
-        let status = unsafe {
-            FwpmEngineOpen0(
-                null(),
-                RPC_C_AUTHN_WINNT,
-                null(),
-                null(),
-                &mut handle,
-            )
-        };
+        let status =
+            unsafe { FwpmEngineOpen0(null(), RPC_C_AUTHN_WINNT, null(), null(), &mut handle) };
         if status == 0 {
             Ok(Self { handle })
         } else {
@@ -755,7 +758,11 @@ fn stable_guid(recovery_key: &str, scope: &str) -> GUID {
         })
     }
 
-    let parts = [b"zero.strict-route.wfp".as_slice(), recovery_key.as_bytes(), scope.as_bytes()];
+    let parts = [
+        b"zero.strict-route.wfp".as_slice(),
+        recovery_key.as_bytes(),
+        scope.as_bytes(),
+    ];
     let high = hash(FNV_OFFSET, &parts);
     let low = hash(FNV_OFFSET ^ 0x9e37_79b9_7f4a_7c15, &parts);
     let mut bytes = (u128::from(high) << 64 | u128::from(low)).to_be_bytes();
@@ -908,8 +915,7 @@ mod tests {
 
     #[test]
     fn legacy_profile_snapshot_requires_explicit_complete_json() {
-        let error =
-            parse_legacy_profile_snapshot(b"").expect_err("empty output must fail closed");
+        let error = parse_legacy_profile_snapshot(b"").expect_err("empty output must fail closed");
         assert!(error.to_string().contains("empty output"));
 
         let journal = parse_legacy_profile_snapshot(
