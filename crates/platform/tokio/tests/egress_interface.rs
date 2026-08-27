@@ -177,6 +177,16 @@ fn wildcard_peer_is_not_mistaken_for_a_tun_route_probe() {
 fn interface_identity_rejects_incomplete_values() {
     assert!(EgressInterface::new("", 1).is_err());
     assert!(EgressInterface::new("physical0", 0).is_err());
+    assert!(EgressInterface::new("physical0", 1)
+        .unwrap()
+        .with_socket_mark(0)
+        .is_err());
+
+    let marked = EgressInterface::new("physical0", 1)
+        .unwrap()
+        .with_socket_mark(0x1234_abcd)
+        .unwrap();
+    assert_eq!(marked.socket_mark(), Some(0x1234_abcd));
 }
 
 #[tokio::test]

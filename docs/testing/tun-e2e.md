@@ -23,7 +23,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 - macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。系统路由 lease 则按地址族全局持有，第二个进程即使使用不同 tag，也必须明确失败且报告当前 owner，不能同时改写同一组捕获路由。
 
-调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。`--include-cidr CIDR` 与 `--exclude-cidr CIDR` 均可重复传入以验证选择性接管。生产防泄露验证不应关闭 strict route。
+调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。`--include-cidr CIDR` 与 `--exclude-cidr CIDR` 均可重复传入以验证选择性接管。生产防泄露验证不应关闭 strict route。Linux smoke case 还会用与 Zero 相同的有效 UID 创建一个未打 `SO_MARK`、强制绑定物理网卡的 TCP socket；该 socket 必须被 nftables kill switch 拒绝，而紧邻的受管 TUN TCP 请求必须成功，从而同时验证“同 UID 不继承例外”和 Zero 自身 underlay 身份链。
 
 ## DNS 前置约束
 

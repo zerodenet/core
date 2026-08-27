@@ -16,7 +16,7 @@ mod reconcile;
 mod windows;
 
 use journal::{RouteJournal, RouteLease};
-pub use leak::SystemLeakGuard;
+pub use leak::{strict_route_socket_mark, SystemLeakGuard};
 pub use monitor::RouteChangeMonitor;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

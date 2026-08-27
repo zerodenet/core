@@ -6,7 +6,8 @@ use ipnet::IpNet;
 use tokio::sync::{oneshot, watch};
 use zero_engine::EngineError;
 use zero_tun::{
-    capture_route_prefixes_with_exclusions, RouteChangeMonitor, SystemLeakGuard, SystemRouteGuard,
+    capture_route_prefixes_with_exclusions, strict_route_socket_mark, RouteChangeMonitor,
+    RouteInterface, SystemLeakGuard, SystemRouteGuard,
 };
 
 use crate::runtime::Proxy;
@@ -66,6 +67,7 @@ pub(super) async fn install(
         strict,
     } = spec;
     tokio::task::spawn_blocking(move || {
+        let socket_mark = strict.then(|| strict_route_socket_mark(&recovery_key));
         let mut guards = Vec::new();
         let mut last_error = None;
         let previous_v4 = egress_control.current_for(false);
@@ -92,19 +94,13 @@ pub(super) async fn install(
                 &capture_route_prefixes_with_exclusions(address, &include_cidrs, &exclude_cidrs),
                 &excluded,
                 move |route| {
-                    let interface = zero_platform_tokio::EgressInterface::new(
-                        route.name().to_owned(),
-                        route.index(),
-                    )?;
+                    let interface = platform_egress_interface(route, socket_mark)?;
                     published_egress.replace_for(ipv6, Some(interface));
                     Ok(())
                 },
             ) {
                 Ok(guard) => {
-                    let interface = zero_platform_tokio::EgressInterface::new(
-                        guard.egress().name().to_owned(),
-                        guard.egress().index(),
-                    )?;
+                    let interface = platform_egress_interface(guard.egress(), socket_mark)?;
                     egress_control.replace_for(ipv6, Some(interface));
                     guards.push(guard);
                 }
@@ -174,6 +170,18 @@ pub(super) async fn install(
             "TUN route task panicked: {error}"
         )))
     })?
+}
+
+pub(super) fn platform_egress_interface(
+    route: &RouteInterface,
+    socket_mark: Option<u32>,
+) -> io::Result<zero_platform_tokio::EgressInterface> {
+    let interface =
+        zero_platform_tokio::EgressInterface::new(route.name().to_owned(), route.index())?;
+    match socket_mark {
+        Some(mark) => interface.with_socket_mark(mark),
+        None => Ok(interface),
+    }
 }
 
 pub(super) struct RouteRuntimeSpec {

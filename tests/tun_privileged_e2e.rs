@@ -33,6 +33,8 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
         for _ in 0..8 {
             assert_tcp_through_tun(tcp_target);
         }
+        #[cfg(target_os = "linux")]
+        assert_same_uid_unmarked_physical_socket_blocked(binary, &socket, tcp_target);
         assert_dns_hijack_through_tun(false);
 
         // A hard kill leaves the route journal behind. The next process must
@@ -984,6 +986,28 @@ fn assert_tcp_through_tun(target: SocketAddr) {
         .read(&mut response)
         .unwrap_or_else(|error| panic!("read HTTP response from {target}: {error}"));
     assert!(size > 0, "TCP target returned no bytes through TUN");
+}
+
+#[cfg(target_os = "linux")]
+fn assert_same_uid_unmarked_physical_socket_blocked(
+    binary: &str,
+    control_socket: &std::path::Path,
+    target: SocketAddr,
+) {
+    let status = tun_status(binary, control_socket);
+    let egress = status_field(&status, "egress_v4")
+        .filter(|egress| egress != "-")
+        .expect("Linux strict-route status must expose its physical IPv4 egress");
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
+        .expect("create unmarked strict-route probe socket");
+    socket
+        .bind_device(Some(egress.as_bytes()))
+        .expect("bind unmarked probe to the physical egress");
+    let result = socket.connect_timeout(&target.into(), Duration::from_secs(3));
+    assert!(
+        result.is_err(),
+        "same-UID socket without Zero's strict-route mark bypassed through `{egress}` to {target}"
+    );
 }
 
 #[cfg(windows)]

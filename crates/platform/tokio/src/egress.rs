@@ -11,6 +11,7 @@ use tokio::net::TcpSocket;
 pub struct EgressInterface {
     name: Arc<str>,
     index: u32,
+    socket_mark: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,7 +109,27 @@ impl EgressInterface {
                 "egress interface requires a non-empty name and non-zero index",
             ));
         }
-        Ok(Self { name, index })
+        Ok(Self {
+            name,
+            index,
+            socket_mark: None,
+        })
+    }
+
+    /// Attach the firewall identity required by a strict-route policy.
+    ///
+    /// Linux applies this value with `SO_MARK` before binding or connecting
+    /// the socket. Other platforms retain the identity so topology updates do
+    /// not silently strip it while their platform leak guard is active.
+    pub fn with_socket_mark(mut self, mark: u32) -> io::Result<Self> {
+        if mark == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "egress socket mark must be non-zero",
+            ));
+        }
+        self.socket_mark = Some(mark);
+        Ok(self)
     }
 
     pub fn name(&self) -> &str {
@@ -117,6 +138,10 @@ impl EgressInterface {
 
     pub fn index(&self) -> u32 {
         self.index
+    }
+
+    pub fn socket_mark(&self) -> Option<u32> {
+        self.socket_mark
     }
 }
 
@@ -350,7 +375,7 @@ pub(crate) fn bind_tcp_to_interface(
     interface: &EgressInterface,
 ) -> io::Result<()> {
     use std::os::fd::AsRawFd;
-    bind_fd_to_name(socket.as_raw_fd(), interface.name())
+    bind_fd_to_interface(socket.as_raw_fd(), interface)
 }
 
 #[cfg(target_os = "linux")]
@@ -360,12 +385,18 @@ pub(crate) fn bind_udp_to_interface(
     interface: &EgressInterface,
 ) -> io::Result<()> {
     use std::os::fd::AsRawFd;
-    bind_fd_to_name(socket.as_raw_fd(), interface.name())
+    bind_fd_to_interface(socket.as_raw_fd(), interface)
 }
 
 #[cfg(target_os = "linux")]
-fn bind_fd_to_name(fd: std::os::fd::RawFd, name: &str) -> io::Result<()> {
-    let name = std::ffi::CString::new(name).map_err(|_| {
+fn bind_fd_to_interface(
+    fd: std::os::fd::RawFd,
+    interface: &EgressInterface,
+) -> io::Result<()> {
+    if let Some(mark) = interface.socket_mark() {
+        set_socket_mark(fd, mark)?;
+    }
+    let name = std::ffi::CString::new(interface.name()).map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             "interface name contains a nul byte",
@@ -378,6 +409,24 @@ fn bind_fd_to_name(fd: std::os::fd::RawFd, name: &str) -> io::Result<()> {
             libc::SO_BINDTODEVICE,
             name.as_ptr().cast(),
             name.as_bytes_with_nul().len() as libc::socklen_t,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn set_socket_mark(fd: std::os::fd::RawFd, mark: u32) -> io::Result<()> {
+    let result = unsafe {
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_MARK,
+            (&mark as *const u32).cast(),
+            std::mem::size_of::<u32>() as libc::socklen_t,
         )
     };
     if result == 0 {
