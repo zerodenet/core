@@ -31,9 +31,12 @@ pub fn strict_route_socket_mark(recovery_key: &str) -> u32 {
     const FNV_OFFSET: u32 = 0x811c_9dc5;
     const FNV_PRIME: u32 = 0x0100_0193;
 
-    let mark = recovery_key.as_bytes().iter().fold(FNV_OFFSET, |hash, byte| {
-        (hash ^ u32::from(*byte)).wrapping_mul(FNV_PRIME)
-    });
+    let mark = recovery_key
+        .as_bytes()
+        .iter()
+        .fold(FNV_OFFSET, |hash, byte| {
+            (hash ^ u32::from(*byte)).wrapping_mul(FNV_PRIME)
+        });
     if mark == 0 {
         u32::MAX
     } else {

@@ -389,10 +389,7 @@ pub(crate) fn bind_udp_to_interface(
 }
 
 #[cfg(target_os = "linux")]
-fn bind_fd_to_interface(
-    fd: std::os::fd::RawFd,
-    interface: &EgressInterface,
-) -> io::Result<()> {
+fn bind_fd_to_interface(fd: std::os::fd::RawFd, interface: &EgressInterface) -> io::Result<()> {
     if let Some(mark) = interface.socket_mark() {
         set_socket_mark(fd, mark)?;
     }

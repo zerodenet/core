@@ -33,14 +33,7 @@ impl SystemLeakGuard {
         let excluded = normalized_exclusions(excluded);
         let socket_mark = strict_route_socket_mark(recovery_key);
         let exists = table_exists(&table)?;
-        apply_policy(
-            &table,
-            tun_name,
-            &protected,
-            &excluded,
-            socket_mark,
-            exists,
-        )?;
+        apply_policy(&table, tun_name, &protected, &excluded, socket_mark, exists)?;
         Ok(Self {
             table,
             tun_name: tun_name.to_owned(),
@@ -115,14 +108,7 @@ fn apply_policy(
     socket_mark: u32,
     exists: bool,
 ) -> io::Result<()> {
-    let script = policy_script(
-        table,
-        tun_name,
-        protected,
-        excluded,
-        socket_mark,
-        exists,
-    );
+    let script = policy_script(table, tun_name, protected, excluded, socket_mark, exists);
     let mut child = Command::new("nft")
         .args(["-f", "-"])
         .stdin(Stdio::piped())
