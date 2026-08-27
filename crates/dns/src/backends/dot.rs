@@ -53,10 +53,15 @@ impl DotDnsResolver {
         })
     }
 
-    pub(crate) async fn exchange(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+    pub(crate) async fn exchange(
+        &self,
+        query: &[u8],
+        detour: Option<&str>,
+        connector: Option<&dyn crate::DnsOutboundConnector>,
+    ) -> io::Result<Vec<u8>> {
         let mut last_error = None;
         for addr in &self.addrs {
-            match self.exchange_with(*addr, query).await {
+            match self.exchange_with(*addr, query, detour, connector).await {
                 Ok(response) => return Ok(response),
                 Err(error) => last_error = Some(error),
             }
@@ -66,11 +71,20 @@ impl DotDnsResolver {
         }))
     }
 
-    async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
-        let interface = self.egress.try_current_for_peer(addr)?;
+    pub(crate) fn endpoint_labels(&self) -> Vec<String> {
+        self.addrs.iter().map(ToString::to_string).collect()
+    }
+
+    async fn exchange_with(
+        &self,
+        addr: SocketAddr,
+        query: &[u8],
+        detour: Option<&str>,
+        connector: Option<&dyn crate::DnsOutboundConnector>,
+    ) -> io::Result<Vec<u8>> {
         let stream = tokio::time::timeout(
             DNS_TIMEOUT,
-            zero_platform_tokio::TokioSocket::connect_addr_on(addr, interface.as_ref()),
+            super::connect_tcp(addr, &self.egress, detour, connector),
         )
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoT connect timeout"))??;

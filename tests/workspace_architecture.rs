@@ -118,6 +118,44 @@ fn dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority() {
 }
 
 #[test]
+fn outbound_quic_node_resolution_stays_behind_the_runtime_dns_bridge() {
+    let transport = read(&workspace_root().join("crates/transport/src/quic.rs"));
+    let hysteria2 = read(&workspace_root().join("protocols/hysteria2/src/transport/connection.rs"));
+    let doh = read(&workspace_root().join("crates/dns/src/backends/doh.rs"));
+    let factory = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));
+
+    for (owner, source) in [
+        ("generic QUIC", transport),
+        ("Hysteria2 QUIC", hysteria2),
+        ("DoH bootstrap", doh),
+    ] {
+        assert!(
+            !source.contains("lookup_host"),
+            "{owner} must not bypass the configured DNS subsystem"
+        );
+    }
+    assert!(factory.contains("OutboundHostResolver"));
+    assert!(factory.contains("resolve_server_addresses"));
+}
+
+#[test]
+fn dns_detours_cross_the_explicit_proxy_runtime_bridge() {
+    let config = read(&workspace_root().join("crates/config/src/model/dns.rs"));
+    let validation = read(&workspace_root().join("crates/config/src/validate/dns.rs"));
+    let dns = read(&workspace_root().join("crates/dns/src/lib.rs"));
+    let runtime = read(&workspace_root().join("crates/proxy/src/runtime.rs"));
+    let bridge = read(&workspace_root().join("crates/proxy/src/runtime/dns_outbound.rs"));
+
+    assert!(config.contains("detour: Option<String>"));
+    assert!(validation.contains("validate_node_detour_isolation"));
+    assert!(dns.contains("trait DnsOutboundConnector"));
+    assert!(runtime.contains("set_outbound_connector"));
+    assert!(bridge.contains("dispatch_tcp_outbound"));
+    assert!(bridge.contains("Address::Ipv4"));
+    assert!(bridge.contains("Address::Ipv6"));
+}
+
+#[test]
 fn udp_egress_generation_stays_in_platform_and_proxy_orchestration() {
     let platform = read(&workspace_root().join("crates/platform/tokio/src/egress.rs"));
     let transport = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));

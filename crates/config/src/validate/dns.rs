@@ -12,8 +12,9 @@ pub(super) fn validate_dns_config(
     dns: &DnsConfig,
     rule_sets: &[RouteRuleSetConfig],
     rule_set_tags: &HashSet<String>,
+    route_target_tags: &HashSet<String>,
 ) -> Result<(), ConfigError> {
-    validate_servers(dns)?;
+    validate_servers(dns, route_target_tags)?;
     validate_policy(dns)?;
     validate_cache_and_answer(dns)?;
 
@@ -32,29 +33,130 @@ pub(super) fn validate_dns_config(
 }
 
 fn validate_policy(dns: &DnsConfig) -> Result<(), ConfigError> {
-    if dns.policy.timeout_ms == 0 || dns.policy.timeout_ms > 120_000 {
+    validate_timeout("`dns.policy.timeout_ms`", dns.policy.timeout_ms)?;
+    for (tag, timeout_ms) in &dns.policy.server_timeout_ms {
+        validate_server_reference(dns, "`dns.policy.server_timeout_ms`", tag)?;
+        validate_timeout(
+            &format!("`dns.policy.server_timeout_ms.{tag}`"),
+            *timeout_ms,
+        )?;
+    }
+
+    validate_fallbacks(
+        dns,
+        "`dns.policy.fallback_servers`",
+        &dns.policy.fallback_servers,
+    )?;
+    validate_role(
+        dns,
+        "node",
+        dns.policy.node_server.as_deref(),
+        &dns.policy.node_fallback_servers,
+    )?;
+    validate_role(
+        dns,
+        "direct",
+        dns.policy.direct_server.as_deref(),
+        &dns.policy.direct_fallback_servers,
+    )?;
+    validate_node_detour_isolation(dns)?;
+    Ok(())
+}
+
+fn validate_node_detour_isolation(dns: &DnsConfig) -> Result<(), ConfigError> {
+    let has_detour = dns.servers.values().any(|server| server.detour().is_some());
+    if has_detour && dns.policy.node_server.is_none() {
         return Err(ConfigError::InvalidDns(
-            "`dns.policy.timeout_ms` must be between 1 and 120000".to_owned(),
+            "DNS detours require `dns.policy.node_server` so proxy-node resolution cannot recurse through its own outbound"
+                .to_owned(),
         ));
     }
 
-    let mut fallbacks = HashSet::new();
-    for tag in &dns.policy.fallback_servers {
-        if !dns.servers.contains_key(tag) {
+    let node_servers = dns
+        .policy
+        .node_server
+        .iter()
+        .chain(dns.policy.node_fallback_servers.iter());
+    for tag in node_servers {
+        if dns
+            .servers
+            .get(tag)
+            .and_then(DnsServerConfig::detour)
+            .is_some()
+        {
             return Err(ConfigError::InvalidDns(format!(
-                "`dns.policy.fallback_servers` references undefined server `{tag}`"
-            )));
-        }
-        if !fallbacks.insert(tag) {
-            return Err(ConfigError::InvalidDns(format!(
-                "`dns.policy.fallback_servers` contains duplicate server `{tag}`"
+                "node DNS server `{tag}` must not use a detour"
             )));
         }
     }
     Ok(())
 }
 
-fn validate_servers(dns: &DnsConfig) -> Result<(), ConfigError> {
+fn validate_timeout(field: &str, timeout_ms: u64) -> Result<(), ConfigError> {
+    if timeout_ms == 0 || timeout_ms > 120_000 {
+        return Err(ConfigError::InvalidDns(format!(
+            "{field} must be between 1 and 120000"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_server_reference(dns: &DnsConfig, field: &str, tag: &str) -> Result<(), ConfigError> {
+    if !dns.servers.contains_key(tag) {
+        return Err(ConfigError::InvalidDns(format!(
+            "{field} references undefined server `{tag}`"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_fallbacks(
+    dns: &DnsConfig,
+    field: &str,
+    fallbacks: &[String],
+) -> Result<(), ConfigError> {
+    let mut seen = HashSet::new();
+    for tag in fallbacks {
+        validate_server_reference(dns, field, tag)?;
+        if !seen.insert(tag) {
+            return Err(ConfigError::InvalidDns(format!(
+                "{field} contains duplicate server `{tag}`"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_role(
+    dns: &DnsConfig,
+    role: &str,
+    server: Option<&str>,
+    fallbacks: &[String],
+) -> Result<(), ConfigError> {
+    let server_field = format!("`dns.policy.{role}_server`");
+    let fallback_field = format!("`dns.policy.{role}_fallback_servers`");
+    if let Some(server) = server {
+        validate_server_reference(dns, &server_field, server)?;
+    } else if !fallbacks.is_empty() {
+        return Err(ConfigError::InvalidDns(format!(
+            "{fallback_field} requires {server_field}"
+        )));
+    }
+    validate_fallbacks(dns, &fallback_field, fallbacks)?;
+    if let Some(server) =
+        server.filter(|server| fallbacks.iter().any(|fallback| fallback == server))
+    {
+        return Err(ConfigError::InvalidDns(format!(
+            "{fallback_field} must not repeat primary server `{server}`"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_servers(
+    dns: &DnsConfig,
+    route_target_tags: &HashSet<String>,
+) -> Result<(), ConfigError> {
     if dns.servers.is_empty() {
         return Err(ConfigError::InvalidDns(
             "`dns.servers` must contain at least one named backend".to_owned(),
@@ -84,10 +186,19 @@ fn validate_servers(dns: &DnsConfig) -> Result<(), ConfigError> {
                 )));
             }
         }
-        if matches!(
-            server,
-            DnsServerConfig::Udp { .. } | DnsServerConfig::Dot { .. } | DnsServerConfig::Doq { .. }
-        ) {
+        if let Some(detour) = server.detour() {
+            if !route_target_tags.contains(detour) {
+                return Err(ConfigError::InvalidDns(format!(
+                    "dns server `{tag}` references undefined detour `{detour}`"
+                )));
+            }
+            if matches!(server, DnsServerConfig::Doq { .. }) {
+                return Err(ConfigError::InvalidDns(format!(
+                    "dns server `{tag}`: DoQ detour is unsupported because a proxy-aware UDP/QUIC carrier is not available"
+                )));
+            }
+        }
+        if !matches!(server, DnsServerConfig::System) {
             server
                 .endpoint_addresses()
                 .map_err(|error| ConfigError::InvalidDns(format!("dns server `{tag}`: {error}")))?;

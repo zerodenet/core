@@ -105,7 +105,7 @@ where
         let services = services
             .ok_or_else(|| EngineError::Io(std::io::Error::other(T::PROXY_CONTEXT_MESSAGE)))?;
         let target_addr = services
-            .resolve_direct_address(
+            .resolve_node_address(
                 &endpoint.address(),
                 endpoint.port,
                 T::RESOLVE_UPSTREAM_MESSAGE,

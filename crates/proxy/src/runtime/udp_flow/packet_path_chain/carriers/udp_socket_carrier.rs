@@ -16,7 +16,7 @@ pub(crate) async fn build(
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
 ) -> Result<Arc<dyn PacketPathCarrier>, EngineError> {
     let endpoint = services
-        .resolve_direct_address(
+        .resolve_node_address(
             &Address::Domain(server.to_owned()),
             port,
             "failed to resolve UDP socket packet-path carrier",

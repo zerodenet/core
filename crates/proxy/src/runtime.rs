@@ -14,6 +14,7 @@ use crate::protocol_registry::TcpRuntimeServices;
 
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod datagram_udp;
+mod dns_outbound;
 mod handle;
 pub(crate) mod http_redirect;
 pub(crate) mod inbound_fallback;
@@ -154,10 +155,12 @@ impl Proxy {
         .map_err(EngineError::Io)?;
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
-        Ok(Self {
+        let resolver = Arc::new(dns);
+        let principal_rate_limits = principal_rate_limit::PrincipalRateLimitRegistry::default();
+        let proxy = Self {
             config,
             engine,
-            resolver: Arc::new(dns),
+            resolver: resolver.clone(),
             protocols,
             egress_interface,
             tun_control: Arc::new(std::sync::Mutex::new(None)),
@@ -168,8 +171,16 @@ impl Proxy {
             orchestration_ready,
             reload_ack: Arc::new(std::sync::Mutex::new(None)),
             reload_apply_lock: Arc::new(tokio::sync::Mutex::new(())),
-            principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry::default(),
-        })
+            principal_rate_limits: principal_rate_limits.clone(),
+        };
+        resolver.set_outbound_connector(Arc::new(dns_outbound::ProxyDnsOutboundConnector::new(
+            proxy.engine.clone(),
+            &resolver,
+            proxy.protocols.clone(),
+            proxy.egress_interface.clone(),
+            principal_rate_limits,
+        )));
+        Ok(proxy)
     }
 
     pub fn engine(&self) -> &Engine {

@@ -9,9 +9,11 @@ use zero_config::DnsCacheConfig;
 use zero_traits::IpAddress;
 
 use crate::message::normalize_domain;
+use crate::DnsQueryRole;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct CacheKey {
+    role: DnsQueryRole,
     domain: String,
     query_type: u16,
 }
@@ -22,6 +24,13 @@ struct CacheEntry {
     raw_response: Option<Vec<u8>>,
     expires_at: Instant,
     last_used: u64,
+}
+
+pub(crate) struct DnsWireCacheValue {
+    pub(crate) addresses: Vec<IpAddress>,
+    pub(crate) query: Vec<u8>,
+    pub(crate) response: Vec<u8>,
+    pub(crate) ttl_seconds: u32,
 }
 
 #[derive(Default)]
@@ -52,9 +61,18 @@ impl DnsCache {
         }
     }
 
-    pub(crate) async fn get(&self, domain: &str, query_type: u16) -> Option<Vec<IpAddress>> {
+    pub(crate) async fn get(
+        &self,
+        role: DnsQueryRole,
+        domain: &str,
+        query_type: u16,
+    ) -> Option<Vec<IpAddress>> {
         let domain = normalize_domain(domain).ok()?;
-        let key = CacheKey { domain, query_type };
+        let key = CacheKey {
+            role,
+            domain,
+            query_type,
+        };
         let mut state = self.inner.state.lock().await;
         let now = Instant::now();
         if state
@@ -74,12 +92,17 @@ impl DnsCache {
 
     pub(crate) async fn get_response(
         &self,
+        role: DnsQueryRole,
         domain: &str,
         query_type: u16,
         query: &[u8],
     ) -> Option<Vec<u8>> {
         let domain = normalize_domain(domain).ok()?;
-        let key = CacheKey { domain, query_type };
+        let key = CacheKey {
+            role,
+            domain,
+            query_type,
+        };
         let mut state = self.inner.state.lock().await;
         let now = Instant::now();
         if state
@@ -146,33 +169,10 @@ impl DnsCache {
 
     pub(crate) async fn put(
         &self,
+        role: DnsQueryRole,
         domain: &str,
         query_type: u16,
         addresses: Vec<IpAddress>,
-        ttl_seconds: u32,
-    ) {
-        let Ok(domain) = normalize_domain(domain) else {
-            return;
-        };
-        let effective_ttl = self
-            .inner
-            .max_ttl
-            .map(|max| max.min(Duration::from_secs(u64::from(ttl_seconds))))
-            .unwrap_or(Duration::from_secs(u64::from(ttl_seconds)));
-        if effective_ttl.is_zero() {
-            return;
-        }
-        self.put_entry(&domain, query_type, addresses, None, None, effective_ttl)
-            .await;
-    }
-
-    pub(crate) async fn put_response(
-        &self,
-        domain: &str,
-        query_type: u16,
-        addresses: Vec<IpAddress>,
-        query: Vec<u8>,
-        response: Vec<u8>,
         ttl_seconds: u32,
     ) {
         let Ok(domain) = normalize_domain(domain) else {
@@ -187,11 +187,46 @@ impl DnsCache {
             return;
         }
         self.put_entry(
-            &domain,
-            query_type,
+            CacheKey {
+                role,
+                domain,
+                query_type,
+            },
             addresses,
-            Some(query),
-            Some(response),
+            None,
+            None,
+            effective_ttl,
+        )
+        .await;
+    }
+
+    pub(crate) async fn put_response(
+        &self,
+        role: DnsQueryRole,
+        domain: &str,
+        query_type: u16,
+        value: DnsWireCacheValue,
+    ) {
+        let Ok(domain) = normalize_domain(domain) else {
+            return;
+        };
+        let effective_ttl = self
+            .inner
+            .max_ttl
+            .map(|max| max.min(Duration::from_secs(u64::from(value.ttl_seconds))))
+            .unwrap_or(Duration::from_secs(u64::from(value.ttl_seconds)));
+        if effective_ttl.is_zero() {
+            return;
+        }
+        self.put_entry(
+            CacheKey {
+                role,
+                domain,
+                query_type,
+            },
+            value.addresses,
+            Some(value.query),
+            Some(value.response),
             effective_ttl,
         )
         .await;
@@ -199,8 +234,7 @@ impl DnsCache {
 
     async fn put_entry(
         &self,
-        domain: &str,
-        query_type: u16,
+        key: CacheKey,
         addresses: Vec<IpAddress>,
         raw_query: Option<Vec<u8>>,
         raw_response: Option<Vec<u8>>,
@@ -208,10 +242,6 @@ impl DnsCache {
     ) {
         let mut state = self.inner.state.lock().await;
         remove_expired(&mut state);
-        let key = CacheKey {
-            domain: domain.to_owned(),
-            query_type,
-        };
         if !state.entries.contains_key(&key) && state.entries.len() >= self.inner.max_entries {
             if let Some(lru) = state
                 .entries
@@ -265,17 +295,35 @@ mod tests {
     async fn separates_a_and_aaaa_entries() {
         let cache = cache(4);
         cache
-            .put("Example.COM.", 1, vec![IpAddress::V4([192, 0, 2, 1])], 60)
+            .put(
+                DnsQueryRole::Default,
+                "Example.COM.",
+                1,
+                vec![IpAddress::V4([192, 0, 2, 1])],
+                60,
+            )
             .await;
         cache
-            .put("example.com", 28, vec![IpAddress::V6([1; 16])], 60)
+            .put(
+                DnsQueryRole::Default,
+                "example.com",
+                28,
+                vec![IpAddress::V6([1; 16])],
+                60,
+            )
             .await;
         assert!(matches!(
-            cache.get("example.com", 1).await.as_deref(),
+            cache
+                .get(DnsQueryRole::Default, "example.com", 1)
+                .await
+                .as_deref(),
             Some([IpAddress::V4(_)])
         ));
         assert!(matches!(
-            cache.get("EXAMPLE.COM.", 28).await.as_deref(),
+            cache
+                .get(DnsQueryRole::Default, "EXAMPLE.COM.", 28)
+                .await
+                .as_deref(),
             Some([IpAddress::V6(_)])
         ));
     }
@@ -283,12 +331,46 @@ mod tests {
     #[tokio::test]
     async fn evicts_least_recently_used_entry() {
         let cache = cache(2);
-        cache.put("one.test", 1, vec![], 60).await;
-        cache.put("two.test", 1, vec![], 60).await;
-        let _ = cache.get("one.test", 1).await;
-        cache.put("three.test", 1, vec![], 60).await;
-        assert!(cache.get("one.test", 1).await.is_some());
-        assert!(cache.get("two.test", 1).await.is_none());
-        assert!(cache.get("three.test", 1).await.is_some());
+        cache
+            .put(DnsQueryRole::Default, "one.test", 1, vec![], 60)
+            .await;
+        cache
+            .put(DnsQueryRole::Default, "two.test", 1, vec![], 60)
+            .await;
+        let _ = cache.get(DnsQueryRole::Default, "one.test", 1).await;
+        cache
+            .put(DnsQueryRole::Default, "three.test", 1, vec![], 60)
+            .await;
+        assert!(cache
+            .get(DnsQueryRole::Default, "one.test", 1)
+            .await
+            .is_some());
+        assert!(cache
+            .get(DnsQueryRole::Default, "two.test", 1)
+            .await
+            .is_none());
+        assert!(cache
+            .get(DnsQueryRole::Default, "three.test", 1)
+            .await
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn isolates_entries_by_query_role() {
+        let cache = cache(4);
+        cache
+            .put(
+                DnsQueryRole::Node,
+                "shared.test",
+                1,
+                vec![IpAddress::V4([192, 0, 2, 1])],
+                60,
+            )
+            .await;
+
+        assert!(cache
+            .get(DnsQueryRole::Direct, "shared.test", 1)
+            .await
+            .is_none());
     }
 }

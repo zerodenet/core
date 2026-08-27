@@ -25,24 +25,34 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
     let stopped_path = directory.path().join("stopped.json");
     std::fs::write(&direct_path, &direct_config).unwrap();
     std::fs::write(&stopped_path, stopped_config).unwrap();
+    #[cfg(windows)]
+    let firewall_profiles = windows_firewall_profile_defaults();
 
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut process = spawn_zero(binary, &direct_path, &socket);
         wait_for_tun(binary, &socket, true, false);
+        #[cfg(windows)]
+        assert_eq!(firewall_profiles, windows_firewall_profile_defaults());
         let _initial_name = assert_tun_os_configured(binary, &socket, false, false);
         for _ in 0..8 {
             assert_tcp_through_tun(tcp_target);
         }
+        #[cfg(target_os = "linux")]
+        assert_same_uid_unmarked_physical_socket_blocked(binary, &socket, tcp_target);
         assert_dns_hijack_through_tun(false);
 
         // A hard kill leaves the route journal behind. The next process must
         // recover it before re-installing the same TUN routes.
         process.kill_and_wait();
+        #[cfg(windows)]
+        assert_eq!(firewall_profiles, windows_firewall_profile_defaults());
         assert_route_journal_present(&direct_path, 1);
         std::fs::write(&direct_path, &direct_config).unwrap();
 
         let mut recovered = spawn_zero(binary, &direct_path, &socket);
         wait_for_tun(binary, &socket, true, false);
+        #[cfg(windows)]
+        assert_eq!(firewall_profiles, windows_firewall_profile_defaults());
         let recovered_name = assert_tun_os_configured(binary, &socket, false, false);
         for _ in 0..8 {
             assert_tcp_through_tun(tcp_target);
@@ -55,6 +65,8 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
         wait_for_tun(binary, &socket, false, false);
         assert_tun_os_cleanup(&recovered_name);
         assert_route_journals_clean(&direct_path);
+        #[cfg(windows)]
+        assert_eq!(firewall_profiles, windows_firewall_profile_defaults());
         recovered.kill_and_wait();
     }));
     if let Err(payload) = outcome {
@@ -922,6 +934,31 @@ fn tun_device_exists(name: &str) -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
+#[cfg(windows)]
+fn windows_firewall_profile_defaults() -> String {
+    let script = r#"
+$ErrorActionPreference='Stop'
+$profiles=@(foreach($name in @('Domain','Private','Public')) {
+  $profile=Get-NetFirewallProfile -Name $name -ErrorAction Stop
+  [pscustomobject]@{name=$profile.Name;action=$profile.DefaultOutboundAction.ToString()}
+})
+ConvertTo-Json -InputObject $profiles -Compress
+"#;
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+        .expect("snapshot Windows Firewall profile defaults");
+    assert!(
+        output.status.success(),
+        "snapshot Windows Firewall profile defaults:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .expect("Windows Firewall profile snapshot must be UTF-8")
+        .trim()
+        .to_owned()
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn checked_command(program: &str, arguments: &[&str]) -> String {
     let output = Command::new(program)
@@ -984,6 +1021,28 @@ fn assert_tcp_through_tun(target: SocketAddr) {
         .read(&mut response)
         .unwrap_or_else(|error| panic!("read HTTP response from {target}: {error}"));
     assert!(size > 0, "TCP target returned no bytes through TUN");
+}
+
+#[cfg(target_os = "linux")]
+fn assert_same_uid_unmarked_physical_socket_blocked(
+    binary: &str,
+    control_socket: &std::path::Path,
+    target: SocketAddr,
+) {
+    let status = tun_status(binary, control_socket);
+    let egress = status_field(&status, "egress_v4")
+        .filter(|egress| egress != "-")
+        .expect("Linux strict-route status must expose its physical IPv4 egress");
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
+        .expect("create unmarked strict-route probe socket");
+    socket
+        .bind_device(Some(egress.as_bytes()))
+        .expect("bind unmarked probe to the physical egress");
+    let result = socket.connect_timeout(&target.into(), Duration::from_secs(3));
+    assert!(
+        result.is_err(),
+        "same-UID socket without Zero's strict-route mark bypassed through `{egress}` to {target}"
+    );
 }
 
 #[cfg(windows)]

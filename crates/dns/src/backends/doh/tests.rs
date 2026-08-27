@@ -77,7 +77,6 @@ async fn exchanges_a_dns_message_over_bound_http2_transport() {
     .with_no_client_auth();
     client_tls.alpn_protocols = vec![b"h2".to_vec()];
     let resolver = DohDnsResolver {
-        host: "localhost".to_owned(),
         port: address.port(),
         path: "/dns-query".to_owned(),
         addrs: vec![address],
@@ -90,12 +89,15 @@ async fn exchanges_a_dns_message_over_bound_http2_transport() {
     let query = crate::message::build_query("doh.example", crate::message::TYPE_A)
         .expect("build DNS query");
 
-    let response = resolver.exchange(&query).await.expect("exchange DoH query");
+    let response = resolver
+        .exchange(&query, None, None)
+        .await
+        .expect("exchange DoH query");
 
     let parsed = crate::message::parse_response(&query, &response).expect("parse DNS response");
     assert_eq!(parsed.addresses, vec![IpAddress::V4([203, 0, 113, 53])]);
     let second = resolver
-        .exchange(&query)
+        .exchange(&query, None, None)
         .await
         .expect("reuse DoH HTTP/2 connection");
     let parsed = crate::message::parse_response(&query, &second).expect("parse reused response");

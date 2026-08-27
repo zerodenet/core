@@ -23,6 +23,27 @@ pub use macos::SystemLeakGuard;
 #[cfg(target_os = "windows")]
 pub use windows::SystemLeakGuard;
 
+/// Derive the stable, non-zero socket identity used by strict-route firewall
+/// rules from the recovery key that already identifies the route transaction.
+/// Stability lets a restarted process take over an orphaned kill switch, while
+/// distinct keys do not grant one Zero instance access through another's rule.
+pub fn strict_route_socket_mark(recovery_key: &str) -> u32 {
+    const FNV_OFFSET: u32 = 0x811c_9dc5;
+    const FNV_PRIME: u32 = 0x0100_0193;
+
+    let mark = recovery_key
+        .as_bytes()
+        .iter()
+        .fold(FNV_OFFSET, |hash, byte| {
+            (hash ^ u32::from(*byte)).wrapping_mul(FNV_PRIME)
+        });
+    if mark == 0 {
+        u32::MAX
+    } else {
+        mark
+    }
+}
+
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 #[derive(Debug)]
 pub struct SystemLeakGuard;
@@ -119,5 +140,13 @@ mod tests {
         assert!(validate_interface_name("znet-tun0").is_ok());
         assert!(validate_interface_name("bad\"name").is_err());
         assert!(validate_interface_name("bad\nname").is_err());
+    }
+
+    #[test]
+    fn strict_socket_marks_are_stable_non_zero_and_instance_scoped() {
+        let mark = strict_route_socket_mark("tun-in");
+        assert_ne!(mark, 0);
+        assert_eq!(mark, strict_route_socket_mark("tun-in"));
+        assert_ne!(mark, strict_route_socket_mark("other-tun"));
     }
 }

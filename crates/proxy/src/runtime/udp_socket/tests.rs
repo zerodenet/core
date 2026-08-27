@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use zero_core::Address;
 
-use super::select_stable_udp_target;
+use super::{select_stable_udp_target, DirectUdpSocketBinding};
 
 #[test]
 fn udp_target_selection_is_stable_across_same_family_answer_reordering() {
@@ -36,4 +36,24 @@ fn udp_target_selection_falls_back_to_an_available_family() {
         select_stable_udp_target(&target, &candidates, true),
         Some(candidates[0])
     );
+}
+
+#[test]
+fn direct_udp_binding_is_scoped_by_family_and_egress() {
+    let physical = zero_platform_tokio::EgressInterface::new("physical0", 7).unwrap();
+    let physical_v4 = DirectUdpSocketBinding {
+        ipv6: false,
+        egress: Some(physical.clone()),
+    };
+    let system_route_v4 = DirectUdpSocketBinding {
+        ipv6: false,
+        egress: None,
+    };
+    let physical_v6 = DirectUdpSocketBinding {
+        ipv6: true,
+        egress: Some(physical),
+    };
+
+    assert_ne!(physical_v4, system_route_v4);
+    assert_ne!(physical_v4, physical_v6);
 }

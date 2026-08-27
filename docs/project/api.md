@@ -374,7 +374,7 @@ HTTP adapter 将这些能力暴露在 `/api/v1/*` 命名空间下，IPC 和 CLI 
 - `diagnostics.probe_outbound`
   - 已实现。经指定出站执行中性的 HTTP 延迟探测，返回稳定错误码和实际超时上限，不修改 `url_test` 策略状态
 - `diagnostics.dns_lookup`
-  - 已实现。解析域名
+  - 已实现。解析域名，并返回查询角色、实际后端 tag/transport、端点、出口、逐次成功状态和失败原因
 - `diagnostics.trace_route`
   - 已实现。按真实会话路由流程查看规则匹配结果；域名未命中且规则需要目标 IP 时会解析 DNS 后复算
 
@@ -410,7 +410,7 @@ HTTP adapter 将这些能力暴露在 `/api/v1/*` 命名空间下，IPC 和 CLI 
 - `diagnostics.probe_outbound`
   - 已实现。经指定出站执行中性的 HTTP 延迟探测；不触发 `url_test` 选路或策略事件
 - `diagnostics.dns_lookup`
-  - 已实现。解析域名
+  - 已实现。解析域名，并返回查询角色、实际后端 tag/transport、端点、出口、逐次成功状态和失败原因
 - `diagnostics.trace_route`
   - 已实现。查看路由规则匹配结果
 

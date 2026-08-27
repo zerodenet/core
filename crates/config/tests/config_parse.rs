@@ -1947,7 +1947,11 @@ fn parses_dns_timeout_fallback_and_address_family_policy() {
                     "default_server": "primary",
                     "policy": {
                         "timeout_ms": 750,
+                        "server_timeout_ms": { "primary": 250 },
                         "fallback_servers": ["secondary"],
+                        "node_server": "secondary",
+                        "direct_server": "primary",
+                        "reject_address_cidrs": ["203.0.113.0/24"],
                         "address_family": "prefer_ipv6"
                     }
                 }
@@ -1959,11 +1963,99 @@ fn parses_dns_timeout_fallback_and_address_family_policy() {
 
     let policy = &config.runtime.dns.expect("DNS config").policy;
     assert_eq!(policy.timeout_ms, 750);
+    assert_eq!(policy.server_timeout_ms["primary"], 250);
     assert_eq!(policy.fallback_servers, ["secondary"]);
+    assert_eq!(policy.node_server.as_deref(), Some("secondary"));
+    assert_eq!(policy.direct_server.as_deref(), Some("primary"));
+    assert_eq!(policy.reject_address_cidrs[0].to_string(), "203.0.113.0/24");
     assert_eq!(
         policy.address_family,
         zero_config::DnsAddressFamilyPolicy::PreferIpv6
     );
+}
+
+#[test]
+fn parses_dns_server_detour_with_isolated_node_resolver() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": {
+                        "bootstrap": { "type": "udp", "host": "1.1.1.1" },
+                        "proxy": {
+                            "type": "doh",
+                            "host": "dns.example",
+                            "bootstrap": ["192.0.2.53"],
+                            "detour": "dns-out"
+                        }
+                    },
+                    "default_server": "proxy",
+                    "policy": { "node_server": "bootstrap" }
+                }
+            },
+            "outbounds": [{ "tag": "dns-out", "protocol": { "type": "direct" } }],
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("DNS detour should parse");
+
+    let dns = config.runtime.dns.expect("DNS config");
+    assert_eq!(dns.servers["proxy"].detour(), Some("dns-out"));
+    assert_eq!(dns.policy.node_server.as_deref(), Some("bootstrap"));
+    assert_eq!(
+        dns.tun_route_exclusion_addresses().unwrap(),
+        vec!["1.1.1.1".parse::<std::net::IpAddr>().unwrap()]
+    );
+}
+
+#[test]
+fn rejects_recursive_or_unsupported_dns_detours() {
+    for (servers, policy) in [
+        (
+            r#"{
+                "bootstrap": { "type": "udp", "host": "1.1.1.1" },
+                "proxy": { "type": "udp", "host": "8.8.8.8", "detour": "missing" }
+            }"#,
+            r#"{ "node_server": "bootstrap" }"#,
+        ),
+        (
+            r#"{
+                "bootstrap": { "type": "udp", "host": "1.1.1.1" },
+                "proxy": { "type": "udp", "host": "8.8.8.8", "detour": "dns-out" }
+            }"#,
+            r#"{}"#,
+        ),
+        (
+            r#"{
+                "bootstrap": { "type": "udp", "host": "1.1.1.1", "detour": "dns-out" },
+                "proxy": { "type": "udp", "host": "8.8.8.8", "detour": "dns-out" }
+            }"#,
+            r#"{ "node_server": "bootstrap" }"#,
+        ),
+        (
+            r#"{
+                "bootstrap": { "type": "udp", "host": "1.1.1.1" },
+                "proxy": { "type": "doq", "host": "8.8.8.8", "detour": "dns-out" }
+            }"#,
+            r#"{ "node_server": "bootstrap" }"#,
+        ),
+    ] {
+        let raw = format!(
+            r#"{{
+                "runtime": {{
+                    "dns": {{
+                        "servers": {servers},
+                        "default_server": "proxy",
+                        "policy": {policy}
+                    }}
+                }},
+                "outbounds": [{{ "tag": "dns-out", "protocol": {{ "type": "direct" }} }}],
+                "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+            }}"#
+        );
+        let error = RuntimeConfig::parse(&raw).expect_err("unsafe DNS detour must fail");
+        assert!(matches!(error, zero_config::ConfigError::InvalidDns(_)));
+    }
 }
 
 #[test]
@@ -1973,6 +2065,10 @@ fn rejects_invalid_dns_fallback_policy() {
         r#"{ "timeout_ms": 120001 }"#,
         r#"{ "fallback_servers": ["missing"] }"#,
         r#"{ "fallback_servers": ["secondary", "secondary"] }"#,
+        r#"{ "server_timeout_ms": { "missing": 100 } }"#,
+        r#"{ "server_timeout_ms": { "primary": 0 } }"#,
+        r#"{ "node_fallback_servers": ["secondary"] }"#,
+        r#"{ "direct_server": "missing" }"#,
     ] {
         let raw = format!(
             r#"{{

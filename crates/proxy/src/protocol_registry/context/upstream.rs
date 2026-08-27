@@ -1,6 +1,8 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use zero_dns::DnsSystem;
+use zero_traits::IpAddress;
 
 use crate::inventory::ProtocolInventory;
 
@@ -56,6 +58,9 @@ impl UpstreamConnectServices {
         &self,
     ) -> zero_transport::OutboundDatagramSocketFactory {
         zero_transport::OutboundDatagramSocketFactory::new(self.egress_interface.clone())
+            .with_host_resolver(Arc::new(NodeHostResolver {
+                resolver: self.resolver.clone(),
+            }))
     }
 
     #[cfg(feature = "udp-runtime")]
@@ -67,5 +72,31 @@ impl UpstreamConnectServices {
             .bind_tokio(peer)
             .await
             .map_err(Into::into)
+    }
+}
+
+#[derive(Debug)]
+struct NodeHostResolver {
+    resolver: Arc<DnsSystem>,
+}
+
+impl zero_transport::OutboundHostResolver for NodeHostResolver {
+    fn resolve(&self, host: String, port: u16) -> zero_transport::OutboundHostResolveFuture {
+        let resolver = self.resolver.clone();
+        Box::pin(async move {
+            resolver.resolve_node(&host).await.map(|addresses| {
+                addresses
+                    .into_iter()
+                    .map(|address| SocketAddr::new(ip_address_to_std(address), port))
+                    .collect()
+            })
+        })
+    }
+}
+
+fn ip_address_to_std(address: IpAddress) -> std::net::IpAddr {
+    match address {
+        IpAddress::V4(octets) => std::net::IpAddr::V4(std::net::Ipv4Addr::from(octets)),
+        IpAddress::V6(octets) => std::net::IpAddr::V6(std::net::Ipv6Addr::from(octets)),
     }
 }

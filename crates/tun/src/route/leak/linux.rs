@@ -6,7 +6,8 @@ use std::process::{Command, Stdio};
 use ipnet::IpNet;
 
 use super::{
-    normalized_exclusions, normalized_prefixes, safe_resource_name, validate_interface_name,
+    normalized_exclusions, normalized_prefixes, safe_resource_name, strict_route_socket_mark,
+    validate_interface_name,
 };
 
 #[derive(Debug)]
@@ -15,6 +16,7 @@ pub struct SystemLeakGuard {
     tun_name: String,
     protected: Vec<IpNet>,
     excluded: Vec<IpAddr>,
+    socket_mark: u32,
     active: bool,
 }
 
@@ -29,13 +31,15 @@ impl SystemLeakGuard {
         let table = format!("zero_killswitch_{}", safe_resource_name(recovery_key));
         let protected = normalized_prefixes(protected);
         let excluded = normalized_exclusions(excluded);
+        let socket_mark = strict_route_socket_mark(recovery_key);
         let exists = table_exists(&table)?;
-        apply_policy(&table, tun_name, &protected, &excluded, exists)?;
+        apply_policy(&table, tun_name, &protected, &excluded, socket_mark, exists)?;
         Ok(Self {
             table,
             tun_name: tun_name.to_owned(),
             protected,
             excluded,
+            socket_mark,
             active: true,
         })
     }
@@ -43,10 +47,19 @@ impl SystemLeakGuard {
     pub fn reconcile(&mut self, protected: &[IpNet], excluded: &[IpAddr]) -> io::Result<bool> {
         let protected = normalized_prefixes(protected);
         let excluded = normalized_exclusions(excluded);
-        if protected == self.protected && excluded == self.excluded {
+        let policy_changed = protected != self.protected || excluded != self.excluded;
+        let exists = table_exists(&self.table)?;
+        if !policy_changed && exists {
             return Ok(false);
         }
-        apply_policy(&self.table, &self.tun_name, &protected, &excluded, true)?;
+        apply_policy(
+            &self.table,
+            &self.tun_name,
+            &protected,
+            &excluded,
+            self.socket_mark,
+            exists,
+        )?;
         self.protected = protected;
         self.excluded = excluded;
         Ok(true)
@@ -92,9 +105,10 @@ fn apply_policy(
     tun_name: &str,
     protected: &[IpNet],
     excluded: &[IpAddr],
+    socket_mark: u32,
     exists: bool,
 ) -> io::Result<()> {
-    let script = policy_script(table, tun_name, protected, excluded, exists);
+    let script = policy_script(table, tun_name, protected, excluded, socket_mark, exists);
     let mut child = Command::new("nft")
         .args(["-f", "-"])
         .stdin(Stdio::piped())
@@ -122,6 +136,7 @@ fn policy_script(
     tun_name: &str,
     protected: &[IpNet],
     excluded: &[IpAddr],
+    socket_mark: u32,
     exists: bool,
 ) -> String {
     let mut script = String::new();
@@ -138,9 +153,8 @@ fn policy_script(
     script.push_str(&format!(
         "add rule inet {table} output oifname \"{tun_name}\" accept\n"
     ));
-    let uid = unsafe { libc::geteuid() };
     script.push_str(&format!(
-        "add rule inet {table} output meta skuid {uid} accept\n"
+        "add rule inet {table} output meta mark {socket_mark:#x} accept\n"
     ));
     for address in excluded {
         let family = if address.is_ipv4() { "ip" } else { "ip6" };
@@ -175,11 +189,14 @@ mod tests {
             "tun0",
             &["0.0.0.0/1".parse().unwrap(), "8000::/1".parse().unwrap()],
             &["192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap()],
+            0x1234_abcd,
             true,
         );
         assert!(script.starts_with("delete table inet zero_killswitch_test\n"));
         assert!(script.contains("add table inet zero_killswitch_test\n"));
         assert!(script.contains("oifname \"tun0\" accept"));
+        assert!(script.contains("meta mark 0x1234abcd accept"));
+        assert!(!script.contains("meta skuid"));
         assert!(script.contains("ip daddr 192.0.2.1 accept"));
         assert!(script.contains("ip6 daddr 2001:db8::1 accept"));
         assert!(script.contains("ip daddr 0.0.0.0/1 reject"));

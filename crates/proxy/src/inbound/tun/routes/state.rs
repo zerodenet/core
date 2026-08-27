@@ -1,9 +1,9 @@
 use std::io;
 use std::net::IpAddr;
 
-use zero_tun::SystemRouteGuard;
+use zero_tun::{strict_route_socket_mark, SystemRouteGuard};
 
-use super::RouteRuntimeSpec;
+use super::{platform_egress_interface, RouteRuntimeSpec};
 use crate::runtime::Proxy;
 
 pub(super) fn publish_state(
@@ -25,11 +25,12 @@ pub(super) fn publish_state(
         .iter()
         .find(|guard| guard.is_ipv6())
         .map(|guard| guard.egress().clone());
+    let socket_mark = spec
+        .strict_route
+        .then(|| strict_route_socket_mark(&spec.recovery_key));
     for (ipv6, egress) in [(false, egress_v4.as_ref()), (true, egress_v6.as_ref())] {
         let interface = egress
-            .map(|egress| {
-                zero_platform_tokio::EgressInterface::new(egress.name().to_owned(), egress.index())
-            })
+            .map(|egress| platform_egress_interface(egress, socket_mark))
             .transpose()?;
         proxy.egress_interface.replace_for(ipv6, interface);
     }

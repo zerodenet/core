@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
 
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 use super::RuleConditionConfig;
@@ -41,9 +42,31 @@ pub struct DnsPolicyConfig {
     /// Per-backend query deadline in milliseconds.
     #[serde(default = "default_dns_timeout_ms")]
     pub timeout_ms: u64,
+    /// Optional per-backend query deadline overrides, keyed by server tag.
+    #[serde(default)]
+    pub server_timeout_ms: BTreeMap<String, u64>,
     /// Ordered backend tags tried after the dispatch-selected backend fails.
     #[serde(default)]
     pub fallback_servers: Vec<String>,
+    /// Backend used to resolve proxy-node and carrier endpoint domains.
+    /// Omit to retain the dispatch/default backend behavior.
+    #[serde(default)]
+    pub node_server: Option<String>,
+    /// Ordered fallback chain isolated to proxy-node resolution.
+    #[serde(default)]
+    pub node_fallback_servers: Vec<String>,
+    /// Backend used for targets routed through the direct outbound.
+    /// Omit to retain the dispatch/default backend behavior.
+    #[serde(default)]
+    pub direct_server: Option<String>,
+    /// Ordered fallback chain isolated to direct-target resolution.
+    #[serde(default)]
+    pub direct_fallback_servers: Vec<String>,
+    /// Address ranges that make a backend response unusable. A rejected
+    /// response advances to the next configured fallback instead of entering
+    /// the cache or reverse index.
+    #[serde(default)]
+    pub reject_address_cidrs: Vec<IpNet>,
     /// Which address families are queried and their result preference.
     #[serde(default)]
     pub address_family: DnsAddressFamilyPolicy,
@@ -53,9 +76,24 @@ impl Default for DnsPolicyConfig {
     fn default() -> Self {
         Self {
             timeout_ms: default_dns_timeout_ms(),
+            server_timeout_ms: BTreeMap::new(),
             fallback_servers: Vec::new(),
+            node_server: None,
+            node_fallback_servers: Vec::new(),
+            direct_server: None,
+            direct_fallback_servers: Vec::new(),
+            reject_address_cidrs: Vec::new(),
             address_family: DnsAddressFamilyPolicy::default(),
         }
+    }
+}
+
+impl DnsPolicyConfig {
+    pub fn timeout_ms_for(&self, server: &str) -> u64 {
+        self.server_timeout_ms
+            .get(server)
+            .copied()
+            .unwrap_or(self.timeout_ms)
     }
 }
 
@@ -79,6 +117,9 @@ impl DnsConfig {
     pub fn tun_route_exclusion_addresses(&self) -> Result<Vec<IpAddr>, String> {
         let mut addresses = BTreeSet::new();
         for (tag, server) in &self.servers {
+            if server.detour().is_some() {
+                continue;
+            }
             if matches!(server, DnsServerConfig::System) {
                 return Err(format!(
                     "TUN DNS hijack cannot use system DNS backend `{tag}`"
@@ -171,6 +212,9 @@ pub enum DnsServerConfig {
         port: u16,
         #[serde(default)]
         bootstrap: Vec<IpAddr>,
+        /// Optional route target used to carry DNS-over-TCP to this server.
+        #[serde(default)]
+        detour: Option<String>,
     },
     /// DNS-over-HTTPS.
     #[serde(rename = "doh")]
@@ -184,6 +228,9 @@ pub enum DnsServerConfig {
         bootstrap: Vec<IpAddr>,
         #[serde(default)]
         server_name: Option<String>,
+        /// Optional route target used to carry the DoH TCP connection.
+        #[serde(default)]
+        detour: Option<String>,
     },
     /// DNS-over-TLS.
     #[serde(rename = "dot")]
@@ -195,6 +242,9 @@ pub enum DnsServerConfig {
         bootstrap: Vec<IpAddr>,
         #[serde(default)]
         server_name: Option<String>,
+        /// Optional route target used to carry the DoT TCP connection.
+        #[serde(default)]
+        detour: Option<String>,
     },
     /// DNS-over-QUIC (RFC 9250).
     #[serde(rename = "doq")]
@@ -206,6 +256,10 @@ pub enum DnsServerConfig {
         bootstrap: Vec<IpAddr>,
         #[serde(default)]
         server_name: Option<String>,
+        /// Reserved for a future proxy-aware UDP/QUIC carrier. Validation
+        /// currently rejects this field instead of leaking DoQ directly.
+        #[serde(default)]
+        detour: Option<String>,
     },
 }
 
@@ -237,6 +291,16 @@ impl DnsServerConfig {
             | Self::Doh { bootstrap, .. }
             | Self::Dot { bootstrap, .. }
             | Self::Doq { bootstrap, .. } => bootstrap,
+        }
+    }
+
+    pub fn detour(&self) -> Option<&str> {
+        match self {
+            Self::System => None,
+            Self::Udp { detour, .. }
+            | Self::Doh { detour, .. }
+            | Self::Dot { detour, .. }
+            | Self::Doq { detour, .. } => detour.as_deref(),
         }
     }
 

@@ -43,14 +43,14 @@ impl UdpRuntimeServices {
         self.network.clone()
     }
 
-    pub(crate) async fn resolve_direct_address(
+    pub(crate) async fn resolve_node_address(
         &self,
         address: &zero_core::Address,
         port: u16,
         error_message: &'static str,
     ) -> Result<std::net::SocketAddr, zero_engine::EngineError> {
         self.network
-            .resolve_direct_address(address, port, error_message)
+            .resolve_node_address(address, port, error_message)
             .await
     }
 
@@ -158,6 +158,13 @@ impl UdpNetworkServices {
         self.outbound_datagram_socket_factory().egress_generation()
     }
 
+    pub(crate) fn direct_datagram_egress(
+        &self,
+        peer: std::net::SocketAddr,
+    ) -> Option<zero_platform_tokio::EgressInterface> {
+        self.outbound_datagram_socket_factory().egress_for(peer)
+    }
+
     pub(crate) async fn connect_upstream(
         &self,
         server: &str,
@@ -207,7 +214,7 @@ impl UdpNetworkServices {
             .map_err(Into::into)
     }
 
-    pub(crate) async fn resolve_direct_address(
+    pub(crate) async fn resolve_node_address(
         &self,
         address: &zero_core::Address,
         port: u16,
@@ -216,7 +223,7 @@ impl UdpNetworkServices {
         self.upstream
             .protocols
             .direct_connector()
-            .resolve_address(
+            .resolve_node_address(
                 address,
                 port,
                 self.upstream.resolver.as_ref(),

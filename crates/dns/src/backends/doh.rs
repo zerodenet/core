@@ -9,7 +9,6 @@ use http::{Method, Request};
 const DNS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) struct DohDnsResolver {
-    host: String,
     port: u16,
     path: String,
     addrs: Vec<SocketAddr>,
@@ -23,6 +22,7 @@ pub(crate) struct DohDnsResolver {
 struct DohClient {
     addr: SocketAddr,
     underlay: Option<zero_platform_tokio::EgressInterface>,
+    detour: Option<String>,
     sender: h2::client::SendRequest<Bytes>,
 }
 
@@ -40,6 +40,12 @@ impl DohDnsResolver {
         } else {
             bootstrap
         };
+        if ips.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("DoH host `{host}` requires a bootstrap address"),
+            ));
+        }
         let roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let mut tls = rustls::ClientConfig::builder_with_provider(Arc::new(
@@ -56,7 +62,6 @@ impl DohDnsResolver {
                 .map(|ip| SocketAddr::new(ip, port))
                 .collect(),
             server_name: server_name.unwrap_or_else(|| host.clone()),
-            host,
             port,
             path,
             tls: Arc::new(tls),
@@ -66,11 +71,16 @@ impl DohDnsResolver {
         })
     }
 
-    pub(crate) async fn exchange(&self, query: &[u8]) -> io::Result<Vec<u8>> {
-        let addrs = self.endpoint_addresses().await?;
+    pub(crate) async fn exchange(
+        &self,
+        query: &[u8],
+        detour: Option<&str>,
+        connector: Option<&dyn crate::DnsOutboundConnector>,
+    ) -> io::Result<Vec<u8>> {
+        let addrs = self.endpoint_addresses();
         let mut last_error = None;
         for addr in addrs {
-            match self.exchange_with(addr, query).await {
+            match self.exchange_with(addr, query, detour, connector).await {
                 Ok(response) => return Ok(response),
                 Err(error) => last_error = Some(error),
             }
@@ -80,23 +90,37 @@ impl DohDnsResolver {
         }))
     }
 
-    async fn endpoint_addresses(&self) -> io::Result<Vec<SocketAddr>> {
-        if !self.addrs.is_empty() {
-            return Ok(self.addrs.clone());
-        }
-        tokio::net::lookup_host((self.host.as_str(), self.port))
-            .await
-            .map(|addrs| addrs.collect())
+    fn endpoint_addresses(&self) -> Vec<SocketAddr> {
+        self.addrs.clone()
     }
 
-    async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
-        tokio::time::timeout(DNS_TIMEOUT, self.exchange_with_timeout(addr, query))
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoH request timeout"))?
+    pub(crate) fn endpoint_labels(&self) -> Vec<String> {
+        self.addrs.iter().map(ToString::to_string).collect()
     }
 
-    async fn exchange_with_timeout(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
-        let mut client = self.ready_client(addr).await?;
+    async fn exchange_with(
+        &self,
+        addr: SocketAddr,
+        query: &[u8],
+        detour: Option<&str>,
+        connector: Option<&dyn crate::DnsOutboundConnector>,
+    ) -> io::Result<Vec<u8>> {
+        tokio::time::timeout(
+            DNS_TIMEOUT,
+            self.exchange_with_timeout(addr, query, detour, connector),
+        )
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoH request timeout"))?
+    }
+
+    async fn exchange_with_timeout(
+        &self,
+        addr: SocketAddr,
+        query: &[u8],
+        detour: Option<&str>,
+        connector: Option<&dyn crate::DnsOutboundConnector>,
+    ) -> io::Result<Vec<u8>> {
+        let mut client = self.ready_client(addr, detour, connector).await?;
         let request = Request::builder()
             .method(Method::POST)
             .uri(self.uri())
@@ -123,9 +147,18 @@ impl DohDnsResolver {
         read_body(response.into_body()).await
     }
 
-    async fn ready_client(&self, addr: SocketAddr) -> io::Result<h2::client::SendRequest<Bytes>> {
-        let underlay = self.egress.current_for(addr.is_ipv6());
-        if let Some(sender) = self.cached_client(addr, underlay.as_ref()).await {
+    async fn ready_client(
+        &self,
+        addr: SocketAddr,
+        detour: Option<&str>,
+        connector: Option<&dyn crate::DnsOutboundConnector>,
+    ) -> io::Result<h2::client::SendRequest<Bytes>> {
+        let underlay = if detour.is_some() {
+            None
+        } else {
+            self.egress.current_for(addr.is_ipv6())
+        };
+        if let Some(sender) = self.cached_client(addr, underlay.as_ref(), detour).await {
             match sender.ready().await {
                 Ok(sender) => return Ok(sender),
                 Err(error) => {
@@ -134,16 +167,16 @@ impl DohDnsResolver {
             }
         }
         let _connect = self.connect_lock.lock().await;
-        if let Some(sender) = self.cached_client(addr, underlay.as_ref()).await {
+        if let Some(sender) = self.cached_client(addr, underlay.as_ref(), detour).await {
             match sender.ready().await {
                 Ok(sender) => return Ok(sender),
                 Err(error) => {
                     tracing::debug!(server = %addr, error = %error, "replacing stale DoH HTTP/2 connection");
-                    self.evict_client(addr, underlay.as_ref()).await;
+                    self.evict_client(addr, underlay.as_ref(), detour).await;
                 }
             }
         }
-        self.connect_client(addr, underlay)
+        self.connect_client(addr, underlay, detour, connector)
             .await?
             .ready()
             .await
@@ -154,12 +187,17 @@ impl DohDnsResolver {
         &self,
         addr: SocketAddr,
         underlay: Option<&zero_platform_tokio::EgressInterface>,
+        detour: Option<&str>,
     ) -> Option<h2::client::SendRequest<Bytes>> {
         self.clients
             .lock()
             .await
             .iter()
-            .find(|client| client.addr == addr && client.underlay.as_ref() == underlay)
+            .find(|client| {
+                client.addr == addr
+                    && client.underlay.as_ref() == underlay
+                    && client.detour.as_deref() == detour
+            })
             .map(|client| client.sender.clone())
     }
 
@@ -167,32 +205,39 @@ impl DohDnsResolver {
         &self,
         addr: SocketAddr,
         underlay: Option<&zero_platform_tokio::EgressInterface>,
+        detour: Option<&str>,
     ) {
-        self.clients
-            .lock()
-            .await
-            .retain(|client| !(client.addr == addr && client.underlay.as_ref() == underlay));
+        self.clients.lock().await.retain(|client| {
+            !(client.addr == addr
+                && client.underlay.as_ref() == underlay
+                && client.detour.as_deref() == detour)
+        });
     }
 
     async fn connect_client(
         &self,
         addr: SocketAddr,
         underlay: Option<zero_platform_tokio::EgressInterface>,
+        detour: Option<&str>,
+        connector: Option<&dyn crate::DnsOutboundConnector>,
     ) -> io::Result<h2::client::SendRequest<Bytes>> {
-        let selection = self.egress.select_for_peer(addr);
-        selection.ensure_connectable()?;
-        let stream = zero_platform_tokio::TokioSocket::connect_addr_on(addr, selection.interface())
+        let stream = super::connect_tcp(addr, &self.egress, detour, connector)
             .await
             .map_err(|error| {
                 io::Error::new(error.kind(), format!("DoH connect failed: {error}"))
             })?;
-        tracing::debug!(
-            server = %addr,
-            egress_name = selection.interface().map(zero_platform_tokio::EgressInterface::name),
-            egress_index = selection.interface().map(zero_platform_tokio::EgressInterface::index),
-            binding_reason = selection.binding_reason().as_str(),
-            "DoH TCP socket connected"
-        );
+        if let Some(detour) = detour {
+            tracing::debug!(server = %addr, outbound = %detour, "DoH TCP detour connected");
+        } else {
+            let selection = self.egress.select_for_peer(addr);
+            tracing::debug!(
+                server = %addr,
+                egress_name = selection.interface().map(zero_platform_tokio::EgressInterface::name),
+                egress_index = selection.interface().map(zero_platform_tokio::EgressInterface::index),
+                binding_reason = selection.binding_reason().as_str(),
+                "DoH TCP socket connected"
+            );
+        }
 
         let server_name = rustls::pki_types::ServerName::try_from(self.server_name.clone())
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -214,6 +259,7 @@ impl DohDnsResolver {
         clients.push(DohClient {
             addr,
             underlay,
+            detour: detour.map(ToOwned::to_owned),
             sender: client.clone(),
         });
         Ok(client)

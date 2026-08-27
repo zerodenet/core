@@ -41,7 +41,10 @@ impl UdpDispatch {
         payload: &[u8],
     ) -> Result<usize, EngineError> {
         self.refresh_direct_sockets().await?;
-        self.direct_socket.send_to_addr(payload, target_addr).await
+        let network = self.runtime.services().network();
+        self.direct_socket
+            .send_to_addr(&network, payload, target_addr)
+            .await
     }
 
     pub(crate) async fn send_new_direct_packet(
@@ -56,7 +59,7 @@ impl UdpDispatch {
             .select_target(logical_target, candidates)?;
         let sent = self
             .direct_socket
-            .send_to_addr(payload, target_addr)
+            .send_to_addr(&self.runtime.services().network(), payload, target_addr)
             .await?;
         tracing::debug!(
             target = %target_addr,

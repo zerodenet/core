@@ -23,7 +23,8 @@ All network backends use the same endpoint shape:
           "host": "cloudflare-dns.com",
           "port": 443,
           "path": "/dns-query",
-          "bootstrap": ["1.1.1.1", "1.0.0.1"]
+          "bootstrap": ["1.1.1.1", "1.0.0.1"],
+          "detour": "dns-proxy"
         },
         "tls": {
           "type": "dot",
@@ -42,7 +43,13 @@ All network backends use the same endpoint shape:
       "dispatch": [],
       "policy": {
         "timeout_ms": 5000,
+        "server_timeout_ms": { "https": 3000 },
         "fallback_servers": ["tls", "plain"],
+        "node_server": "plain",
+        "node_fallback_servers": ["tls"],
+        "direct_server": "plain",
+        "direct_fallback_servers": ["tls"],
+        "reject_address_cidrs": ["198.18.0.0/15", "fd00::/96"],
         "address_family": "prefer_ipv6"
       },
       "cache": {
@@ -63,22 +70,48 @@ All network backends use the same endpoint shape:
         "exclude_domains": []
       }
     }
-  }
+  },
+  "outbounds": [
+    {
+      "tag": "dns-proxy",
+      "protocol": {
+        "type": "socks5",
+        "server": "192.0.2.10",
+        "port": 1080
+      }
+    }
+  ]
 }
 ```
 
-`bootstrap` is required when `host` is a domain and TUN strict routing is in
-use. It prevents resolving the DNS server through itself and lets TUN install
-deterministic endpoint exclusions. UDP, TCP fallback, DoT, and DoQ sockets use
-the current underlay selection. DoH uses the bootstrap endpoint exclusions and
-interface binding where the HTTP client supports it. Configuration fails before
-TUN startup when a strict endpoint cannot be excluded safely.
+`bootstrap` is required whenever a network DNS backend `host` is a domain. DNS
+backends never resolve their own transport endpoint through the system resolver;
+the explicit addresses also let TUN install deterministic endpoint exclusions.
+UDP, TCP fallback, DoH, DoT, and DoQ sockets use the current underlay selection.
+Configuration fails before startup when an endpoint cannot be materialized
+without recursive resolution.
 
-Each backend attempt has the `policy.timeout_ms` deadline. Transport errors,
-timeouts, malformed responses, and retryable response codes advance to the
-next explicit fallback; NOERROR and NXDOMAIN are terminal. `address_family`
-accepts `ipv4_only`, `ipv6_only`, `prefer_ipv4`, or `prefer_ipv6`. The two
-`prefer_*` modes query A and AAAA concurrently and only change result ordering.
+Network DNS servers may set `detour` to an existing outbound or outbound-group
+tag. Plain UDP DNS uses framed DNS-over-TCP when detoured, while DoH and DoT
+carry their native TCP/TLS sessions through the selected target. Detoured DNS
+endpoints are not installed as physical TUN route exclusions because the host
+never opens a socket to those addresses. A configuration containing any
+detoured DNS server must declare `policy.node_server`; that server and every
+`node_fallback_servers` entry must be non-detoured, so resolving the proxy node
+cannot recurse through the outbound it is trying to create. DoQ detours are
+rejected until the runtime provides a proxy-aware UDP/QUIC carrier; Zero never
+silently sends such traffic through the system route.
+
+Each backend attempt has the `policy.timeout_ms` deadline;
+`server_timeout_ms` overrides it by server tag. Transport errors, timeouts,
+malformed responses, configured `reject_address_cidrs`, and retryable response
+codes advance to the next explicit fallback; NOERROR and NXDOMAIN are terminal.
+`node_server` isolates proxy-node and QUIC carrier lookup from client/default
+DNS, while `direct_server` isolates direct targets. Each role has its own ordered
+fallback list and cache namespace; omitting a role retains the historical
+dispatch/default behavior. `address_family` accepts `ipv4_only`, `ipv6_only`,
+`prefer_ipv4`, or `prefer_ipv6`. The two `prefer_*` modes query A and AAAA
+concurrently and only change result ordering.
 
 The DNS interceptor supports UDP and TCP port 53, A and AAAA independently,
 EDNS client payload sizes, upstream truncation with TCP fallback, and raw
@@ -111,6 +144,9 @@ share one TTL, LRU identity, and capacity slot. A compatible hot reload
 preserves live mappings; changing either pool, TTL, capacity, or exclusions
 creates a new allocator.
 `diagnostics.fakeip_lookup` reports mapping counters and capacity.
+`diagnostics.dns_lookup` returns the query role plus the newest backend attempts,
+including server tag, transport, concrete endpoint candidates, selected outbound,
+success, and the failure reason that caused an ordered fallback.
 
 When Zero is started from a configuration file, live Fake-IP mappings are also
 written to a versioned journal and restored after a process restart. No JSON

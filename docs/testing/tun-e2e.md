@@ -23,7 +23,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 - macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。系统路由 lease 则按地址族全局持有，第二个进程即使使用不同 tag，也必须明确失败且报告当前 owner，不能同时改写同一组捕获路由。
 
-调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。`--include-cidr CIDR` 与 `--exclude-cidr CIDR` 均可重复传入以验证选择性接管。生产防泄露验证不应关闭 strict route。
+调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。`--include-cidr CIDR` 与 `--exclude-cidr CIDR` 均可重复传入以验证选择性接管。生产防泄露验证不应关闭 strict route。Linux smoke case 还会用与 Zero 相同的有效 UID 创建一个未打 `SO_MARK`、强制绑定物理网卡的 TCP socket；该 socket 必须被 nftables kill switch 拒绝，而紧邻的受管 TUN TCP 请求必须成功，从而同时验证“同 UID 不继承例外”和 Zero 自身 underlay 身份链。
 
 ## DNS 前置约束
 
@@ -55,6 +55,10 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
       "policy": {
         "timeout_ms": 3000,
         "fallback_servers": ["fallback"],
+        "node_server": "global",
+        "node_fallback_servers": ["fallback"],
+        "direct_server": "global",
+        "direct_fallback_servers": ["fallback"],
         "address_family": "prefer_ipv4"
       },
       "cache": { "max_entries": 1024 },
@@ -77,7 +81,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 }
 ```
 
-`dns.servers` 使用稳定名称，`default_server` 处理未命中查询。需要 split DNS 时使用有序的 `dns.dispatch`；每条规则复用流量路由的 `condition` 结构并首先查询选中的后端。只有 `dns.policy.fallback_servers` 声明的后端才会在超时、传输错误、畸形响应或可重试 RCODE 后按顺序使用；NXDOMAIN 不回退。`address_family` 控制只查询单一地址族或双栈结果优先级。可用于 DNS 的条件包括 `domain`、`domain_keyword`、`domain_regex`、域名规则集以及 `and`/`or`。共享规则集继续声明在历史位置 `route.rule_sets`，可同时由 `route.rules` 和 `dns.dispatch` 引用。
+`dns.servers` 使用稳定名称，`default_server` 处理未命中查询。需要 split DNS 时使用有序的 `dns.dispatch`；每条规则复用流量路由的 `condition` 结构并首先查询选中的后端。只有 `dns.policy.fallback_servers` 声明的后端才会在超时、传输错误、畸形响应、命中 `reject_address_cidrs` 或可重试 RCODE 后按顺序使用；NXDOMAIN 不回退。`server_timeout_ms` 可按服务器覆盖全局超时。`node_server`/`node_fallback_servers` 隔离代理节点与 QUIC carrier 解析，`direct_server`/`direct_fallback_servers` 隔离 direct 目标解析，三类查询使用独立 cache key；省略角色字段时保持历史 dispatch/default 行为。网络 DNS server 可用 `detour` 指向现有 outbound/outbound group；UDP 在 detour 下使用 DNS-over-TCP，DoH/DoT 通过同一 TCP 出站桥，detour 端点不再加入物理 TUN host-route 排除。只要存在 detour 就必须显式配置无 detour 的 `node_server`，其 fallback 也不得使用 detour，以阻断代理节点解析递归；DoQ detour 当前会在配置校验时拒绝，不会静默直连泄露。`address_family` 控制只查询单一地址族或双栈结果优先级。可用于 DNS 的条件包括 `domain`、`domain_keyword`、`domain_regex`、域名规则集以及 `and`/`or`。共享规则集继续声明在历史位置 `route.rule_sets`，可同时由 `route.rules` 和 `dns.dispatch` 引用。
 
 Fake-IP 使用 `answer.type = "fake_ip"` 开启，默认 IPv4 地址池为 `198.18.0.0/15`，也可通过 `answer.cidr` 覆盖；`answer.ipv6_cidr` 启用 AAAA 合成。双池共享域名规范化、TTL、容量和 LRU 生命周期。任一地址池与 TUN 主地址、双栈辅助地址或平台使用的相邻 TUN gateway 冲突时，配置应用或 `tun.start` 会明确失败，不会把冲突地址投入运行。
 
@@ -158,7 +162,7 @@ curl.exe https://example.com/
 Resolve-DnsName example.com
 ```
 
-strict route 启动必须显式读取 Domain、Private、Public 三个 Windows Firewall profile，并把带 schema 的 UTF-8 JSON 快照持久化后才能修改默认出站策略。PowerShell 成功退出但未输出快照、缺少任一 profile 或包含未知动作时都必须在安装规则前 fail closed；错误不得退化为无上下文的 JSON EOF。
+strict route 启动、运行、强杀恢复和正常停止前后，Domain、Private、Public 三个 Windows Firewall profile 的 `DefaultOutboundAction` 必须保持不变。Windows 防泄露策略位于稳定的持久 WFP sublayer：高权重规则只放行 Zero AppID、Wintun LUID、loopback 和显式排除地址，低权重规则阻断受管前缀；删除任一受管 filter 后，30 秒 watchdog 必须原子重建完整策略。若检测到旧版 `zero.tun.leak-guard.v1` 恢复日志，启动时只执行一次旧 profile/rule group 恢复和迁移，此后不再修改全局 profile。
 
 ## 网络生命周期验证
 
@@ -192,10 +196,10 @@ sudo tcpdump -i physical0 -nn 'udp port 3478 or udp port 5349'
 5. 保持 TUN 运行并切换系统默认出口；`tun status` 的 `egress_v4`/`egress_v6` 应更新，既有连接不中断，新连接使用新出口，旧出口上的 Zero DNS/bootstrap 排除路由被清理。
 6. 制造短暂的无默认路由窗口或排除路由安装失败；TUN 应保持运行、`healthy=false` 且显示 `last_error`，恢复后自动协调并回到 `healthy=true`，期间不得出现忙重试。
 7. Windows 连续执行两轮 start/stop，确认阻塞 reader 被唤醒且同名 Wintun adapter 可复用。
-8. 严格模式下删除一条受管 `/1` 路由或制造协调失败，并确认平台保护仍阻止非 TUN 物理出站：Linux 检查 `zero_killswitch_*` nftables 表，macOS 检查 `com.apple/zero_*` pf anchor，Windows 检查 `ZeroKillSwitch-*` Firewall rule group 与各 profile 的 outbound block 状态。
+8. 严格模式下删除一条受管 `/1` 路由或制造协调失败，并确认平台保护仍阻止非 TUN 物理出站：Linux 检查 `zero_killswitch_*` nftables 表，macOS 检查 `com.apple/zero_*` pf anchor，Windows 枚举稳定 WFP sublayer 的 ALE connect filters，并再次确认各 Firewall profile 的默认出站策略未变化。
 9. 保持一个实例持有 IPv4/IPv6 自动路由，再以不同 TUN tag 启动第二个实例；第二个实例必须在安装任何路由或 kill switch 前以 `AlreadyExists` 失败。停止第一个实例后，第二个实例应能取得 lease 并正常启动。
 
-路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，kill switch 保持 fail-closed；下一次以相同 TUN 入站 `tag` 启动会接管原保护并消费路由日志。Windows 额外保存启用前各 Firewall profile 的 outbound policy，只有正常停止且规则清理成功后才恢复；Linux nftables table 与 macOS pf anchor 使用稳定资源名原位替换，热更新失败保留旧规则。
+路由事务会写入恢复日志。默认位置为 Windows 的 `%LOCALAPPDATA%\\Zero\\run`、Unix 的 `$XDG_RUNTIME_DIR/zero` 或 `/run/zero`，不可用时回退到系统临时目录的 `zero` 子目录；可用 `ZERO_TUN_STATE_DIR` 指定隔离目录。进程被强杀后，kill switch 保持 fail-closed；下一次以相同 TUN 入站 `tag` 启动会接管原保护并消费路由日志。Windows WFP sublayer/filter 使用稳定 key 和持久对象原位接管，Linux nftables table 与 macOS pf anchor 使用稳定资源名原位替换；热更新失败均保留旧保护。
 
 ## 自动化覆盖
 

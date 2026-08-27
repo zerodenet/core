@@ -65,7 +65,12 @@ impl RuntimeConfig {
         let rule_set_tags = validate_rule_sets(&self.route.rule_sets)?;
         self.route
             .validate(&route_target_tags, &inbound_tags, &rule_set_tags)?;
-        validate_runtime(&self.runtime, &self.route.rule_sets, &rule_set_tags)?;
+        validate_runtime(
+            &self.runtime,
+            &self.route.rule_sets,
+            &rule_set_tags,
+            &route_target_tags,
+        )?;
         validate_mode(&self.mode, &route_target_tags)?;
         validate_api(&self.api)?;
         validate_connector_state_paths(self)?;
@@ -216,6 +221,7 @@ fn validate_runtime(
     runtime: &RuntimeOptionsConfig,
     rule_sets: &[crate::RouteRuleSetConfig],
     rule_set_tags: &HashSet<String>,
+    route_target_tags: &HashSet<String>,
 ) -> Result<(), ConfigError> {
     if runtime
         .principal_quota_state_path
@@ -252,7 +258,7 @@ fn validate_runtime(
     }
 
     if let Some(dns) = &runtime.dns {
-        dns::validate_dns_config(runtime, dns, rule_sets, rule_set_tags)?;
+        dns::validate_dns_config(runtime, dns, rule_sets, rule_set_tags, route_target_tags)?;
     }
 
     Ok(())
