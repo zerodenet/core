@@ -442,7 +442,7 @@ impl Proxy {
                     let _ = proxy.configured_tun_failures.send(error.to_string());
                 }
             }
-            clear_matching_tun_state(&proxy, id);
+            finalize_tun_runtime_exit(&proxy, id).await;
             let _ = done_tx.send(());
         });
 
@@ -621,7 +621,10 @@ impl Proxy {
             },
             None => Ok(()),
         };
-        self.egress_interface.clear();
+        // Keep the last known physical egress while automatic route cleanup
+        // is incomplete. Clearing it first leaves direct sockets unable to
+        // bypass a stale capture route after a partial shutdown failure.
+        clear_egress_after_route_cleanup(&self.egress_interface, route_cleanup.is_ok());
         clear_matching_tun_info(self, id);
         let result = match stopped {
             Ok(Ok(())) => route_cleanup,
@@ -661,7 +664,16 @@ fn next_ip(address: IpAddr) -> Option<IpAddr> {
     }
 }
 
-fn clear_matching_tun_state(proxy: &Proxy, id: u64) {
+fn clear_egress_after_route_cleanup(
+    control: &zero_platform_tokio::EgressInterfaceControl,
+    cleanup_complete: bool,
+) {
+    if cleanup_complete {
+        control.clear();
+    }
+}
+
+async fn finalize_tun_runtime_exit(proxy: &Proxy, id: u64) {
     clear_matching_tun_info(proxy, id);
     let removed = {
         let mut control = proxy.tun_control.lock().unwrap();
@@ -671,9 +683,39 @@ fn clear_matching_tun_state(proxy: &Proxy, id: u64) {
             None
         }
     };
-    if removed.is_some() {
-        drop(removed);
-        proxy.egress_interface.clear();
+    let Some(TunControl {
+        shutdown,
+        done,
+        route_done,
+        ..
+    }) = removed
+    else {
+        // An explicit stop owns the route cleanup and final egress update.
+        return;
+    };
+    // This receiver belongs to the task that is currently finalizing. Drop it
+    // instead of waiting on our own completion acknowledgement.
+    drop(done);
+    let _ = shutdown.send(true);
+    let route_cleanup = match route_done {
+        Some(done) => match done.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(error),
+            Err(_) => Err("TUN route runtime exited without cleanup acknowledgement".to_owned()),
+        },
+        None => Ok(()),
+    };
+    match route_cleanup {
+        Ok(()) => proxy.egress_interface.clear(),
+        Err(error) => {
+            warn!(%error, "retaining TUN physical egress after route cleanup failure");
+            let mut last_error = proxy.tun_last_error.lock().unwrap();
+            let error = format!("TUN route cleanup failed after runtime exit: {error}");
+            *last_error = Some(match last_error.take() {
+                Some(runtime_error) => format!("{runtime_error}; {error}"),
+                None => error,
+            });
+        }
     }
 }
 

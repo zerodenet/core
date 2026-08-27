@@ -322,18 +322,18 @@ impl EgressInterfaceControl {
                         Some(error.to_string()),
                     ),
                 };
-            let captured = route_source.is_some_and(|source| source.is_loopback());
             return EgressSelection::from_snapshot(
                 &snapshot,
                 None,
                 route_source,
                 route_lookup_status,
                 route_lookup_error,
-                if captured {
-                    EgressBindingReason::TunEgressUnavailable
-                } else {
-                    EgressBindingReason::NoConfiguredInterface
-                },
+                // A loopback source is not authoritative evidence that a TUN
+                // capture route is active. Local filters and stale host routes
+                // can produce the same source selection after TUN state has
+                // already been withdrawn. Only explicit published TUN state
+                // may require a physical egress.
+                EgressBindingReason::NoConfiguredInterface,
             );
         }
         if tunnel_addresses.is_empty() {

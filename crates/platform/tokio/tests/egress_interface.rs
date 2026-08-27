@@ -143,6 +143,21 @@ fn peer_selection_rejects_active_tun_without_a_physical_egress() {
 }
 
 #[test]
+fn peer_selection_without_published_tun_state_uses_the_system_route() {
+    let controller = EgressInterfaceControl::default();
+    let peer = "192.0.2.1:443".parse().unwrap();
+
+    let selection = controller.select_for_peer(peer);
+    assert!(!selection.tun_active());
+    assert!(selection.configured_interface().is_none());
+    assert_eq!(
+        selection.binding_reason(),
+        EgressBindingReason::NoConfiguredInterface
+    );
+    assert!(selection.ensure_connectable().is_ok());
+}
+
+#[test]
 fn peer_selection_exposes_the_authoritative_egress_snapshot() {
     let controller = EgressInterfaceControl::default();
     let peer = "192.0.2.1:443".parse().unwrap();
