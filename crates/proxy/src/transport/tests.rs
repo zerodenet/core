@@ -76,5 +76,6 @@ async fn tcp_dial_candidates_fall_back_after_the_first_address_fails() {
     .unwrap();
 
     assert_eq!(connection.remote, reachable);
+    assert_eq!(connection.resolved_candidates, vec![unavailable, reachable]);
     assert_eq!(connection.socket.peer_addr().unwrap(), reachable);
 }

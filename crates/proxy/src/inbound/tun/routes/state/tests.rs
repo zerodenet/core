@@ -12,7 +12,7 @@ fn strict_failure_withdraws_only_the_managed_family() {
     control.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
     let generation = control.generation();
 
-    withdraw_managed_egress(&control, true, false);
+    withdraw_managed_egress(&control, true, false, "default route lookup failed");
 
     assert!(control.current_for(false).is_none());
     assert_eq!(control.current_for(true), Some(ipv6));
@@ -21,4 +21,10 @@ fn strict_failure_withdraws_only_the_managed_family() {
         .select_for_peer("0.0.0.0:0".parse().unwrap())
         .ensure_connectable()
         .is_err());
+    assert_eq!(
+        control
+            .select_for_peer("0.0.0.0:0".parse().unwrap())
+            .unavailable_reason(),
+        Some("default route lookup failed")
+    );
 }

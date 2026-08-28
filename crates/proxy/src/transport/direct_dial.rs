@@ -11,12 +11,14 @@ const CANDIDATE_TIMEOUT: Duration = Duration::from_secs(10);
 pub(super) struct TcpDialSuccess {
     pub(super) socket: TokioSocket,
     pub(super) remote: SocketAddr,
+    pub(super) resolved_candidates: Vec<SocketAddr>,
     pub(super) selection: EgressSelection,
 }
 
 #[derive(Debug)]
 pub(super) struct TcpDialFailure {
     pub(super) remote: SocketAddr,
+    pub(super) resolved_candidates: Vec<SocketAddr>,
     pub(super) selection: EgressSelection,
     pub(super) stage: &'static str,
     pub(super) interface_bound: bool,
@@ -28,8 +30,8 @@ pub(super) async fn dial_tcp_candidates(
     candidates: Vec<SocketAddr>,
     egress: &EgressInterfaceControl,
 ) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
-    let candidates = interleave_address_families(candidates);
-    let mut next_candidate = candidates.into_iter();
+    let resolved_candidates = interleave_address_families(candidates);
+    let mut next_candidate = resolved_candidates.iter().copied();
     let first = next_candidate
         .next()
         .expect("dial candidates are non-empty");
@@ -42,7 +44,10 @@ pub(super) async fn dial_tcp_candidates(
             tokio::select! {
                 result = attempts.next() => {
                     match result.expect("at least one dial attempt is active") {
-                        Ok(success) => return Ok(success),
+                        Ok(mut success) => {
+                            success.resolved_candidates = resolved_candidates.clone();
+                            return Ok(success);
+                        }
                         Err(failure) => {
                             last_failure = Some(failure);
                             attempts.push(dial_tcp_candidate(candidate, egress.clone()));
@@ -57,9 +62,16 @@ pub(super) async fn dial_tcp_candidates(
         }
 
         match attempts.next().await {
-            Some(Ok(success)) => return Ok(success),
+            Some(Ok(mut success)) => {
+                success.resolved_candidates = resolved_candidates.clone();
+                return Ok(success);
+            }
             Some(Err(failure)) => last_failure = Some(failure),
-            None => return Err(last_failure.expect("at least one dial candidate was attempted")),
+            None => {
+                let mut failure = last_failure.expect("at least one dial candidate was attempted");
+                failure.resolved_candidates = resolved_candidates.clone();
+                return Err(failure);
+            }
         }
     }
 }
@@ -72,6 +84,7 @@ async fn dial_tcp_candidate(
     if let Err(error) = selection.ensure_connectable() {
         return Err(Box::new(TcpDialFailure {
             remote,
+            resolved_candidates: Vec::new(),
             selection,
             stage: "select_egress",
             interface_bound: false,
@@ -89,11 +102,13 @@ async fn dial_tcp_candidate(
         Ok(Ok(socket)) => Ok(TcpDialSuccess {
             socket,
             remote,
+            resolved_candidates: Vec::new(),
             selection,
         }),
         Ok(Err(error)) => Err(connect_failure(remote, selection, error)),
         Err(_) => Err(Box::new(TcpDialFailure {
             remote,
+            resolved_candidates: Vec::new(),
             interface_bound: selection.interface().is_some(),
             selection,
             stage: "connect_timeout",
@@ -110,6 +125,7 @@ fn connect_failure(
 ) -> Box<TcpDialFailure> {
     Box::new(TcpDialFailure {
         remote,
+        resolved_candidates: Vec::new(),
         selection,
         stage: error.stage(),
         interface_bound: error.interface_bound(),

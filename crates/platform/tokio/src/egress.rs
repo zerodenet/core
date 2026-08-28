@@ -62,6 +62,10 @@ impl EgressBindingReason {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EgressSelection {
     interface: Option<EgressInterface>,
+    configured_interface: Option<EgressInterface>,
+    generation: u64,
+    tun_active: bool,
+    unavailable_reason: Option<String>,
     route_source: Option<IpAddr>,
     route_lookup_status: EgressRouteLookupStatus,
     route_lookup_error: Option<String>,
@@ -71,6 +75,22 @@ pub struct EgressSelection {
 impl EgressSelection {
     pub fn interface(&self) -> Option<&EgressInterface> {
         self.interface.as_ref()
+    }
+
+    pub fn configured_interface(&self) -> Option<&EgressInterface> {
+        self.configured_interface.as_ref()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn tun_active(&self) -> bool {
+        self.tun_active
+    }
+
+    pub fn unavailable_reason(&self) -> Option<&str> {
+        self.unavailable_reason.as_deref()
     }
 
     pub fn route_source(&self) -> Option<IpAddr> {
@@ -154,8 +174,41 @@ pub struct EgressInterfaceControl(Arc<RwLock<EgressInterfaces>>);
 struct EgressInterfaces {
     ipv4: Option<EgressInterface>,
     ipv6: Option<EgressInterface>,
+    ipv4_unavailable_reason: Option<String>,
+    ipv6_unavailable_reason: Option<String>,
     tunnel_addresses: Vec<IpAddr>,
     generation: u64,
+}
+
+#[derive(Debug, Clone)]
+struct EgressSelectionSnapshot {
+    configured_interface: Option<EgressInterface>,
+    generation: u64,
+    tun_active: bool,
+    unavailable_reason: Option<String>,
+}
+
+impl EgressSelection {
+    fn from_snapshot(
+        snapshot: &EgressSelectionSnapshot,
+        interface: Option<EgressInterface>,
+        route_source: Option<IpAddr>,
+        route_lookup_status: EgressRouteLookupStatus,
+        route_lookup_error: Option<String>,
+        binding_reason: EgressBindingReason,
+    ) -> Self {
+        Self {
+            interface,
+            configured_interface: snapshot.configured_interface.clone(),
+            generation: snapshot.generation,
+            tun_active: snapshot.tun_active,
+            unavailable_reason: snapshot.unavailable_reason.clone(),
+            route_source,
+            route_lookup_status,
+            route_lookup_error,
+            binding_reason,
+        }
+    }
 }
 
 impl EgressInterfaceControl {
@@ -200,24 +253,40 @@ impl EgressInterfaceControl {
     }
 
     pub fn select_for_peer(&self, peer: SocketAddr) -> EgressSelection {
-        if peer.ip().is_loopback() {
-            return EgressSelection {
-                interface: None,
-                route_source: None,
-                route_lookup_status: EgressRouteLookupStatus::Skipped,
-                route_lookup_error: None,
-                binding_reason: EgressBindingReason::Loopback,
-            };
-        }
-        let (physical, tunnel_addresses) = {
+        let (snapshot, tunnel_addresses) = {
             let interfaces = self.0.read().expect("egress interface lock poisoned");
-            let physical = if peer.is_ipv6() {
-                interfaces.ipv6.clone()
+            let (configured_interface, unavailable_reason) = if peer.is_ipv6() {
+                (
+                    interfaces.ipv6.clone(),
+                    interfaces.ipv6_unavailable_reason.clone(),
+                )
             } else {
-                interfaces.ipv4.clone()
+                (
+                    interfaces.ipv4.clone(),
+                    interfaces.ipv4_unavailable_reason.clone(),
+                )
             };
-            (physical, interfaces.tunnel_addresses.clone())
+            (
+                EgressSelectionSnapshot {
+                    configured_interface,
+                    generation: interfaces.generation,
+                    tun_active: !interfaces.tunnel_addresses.is_empty(),
+                    unavailable_reason,
+                },
+                interfaces.tunnel_addresses.clone(),
+            )
         };
+        if peer.ip().is_loopback() {
+            return EgressSelection::from_snapshot(
+                &snapshot,
+                None,
+                None,
+                EgressRouteLookupStatus::Skipped,
+                None,
+                EgressBindingReason::Loopback,
+            );
+        }
+        let physical = snapshot.configured_interface.clone();
         // A wildcard address is used as a family marker when creating a
         // reusable UDP socket; it is not a routable peer. Probing it makes
         // Windows and Linux report loopback as the route source, which can be
@@ -233,13 +302,14 @@ impl EgressInterfaceControl {
                 }
                 (Some(physical), false) => (Some(physical), EgressBindingReason::TunRoute),
             };
-            return EgressSelection {
+            return EgressSelection::from_snapshot(
+                &snapshot,
                 interface,
-                route_source: None,
-                route_lookup_status: EgressRouteLookupStatus::Skipped,
-                route_lookup_error: None,
+                None,
+                EgressRouteLookupStatus::Skipped,
+                None,
                 binding_reason,
-            };
+            );
         }
         let no_physical_interface = physical.is_none();
         if no_physical_interface && tunnel_addresses.is_empty() {
@@ -252,27 +322,29 @@ impl EgressInterfaceControl {
                         Some(error.to_string()),
                     ),
                 };
-            let captured = route_source.is_some_and(|source| source.is_loopback());
-            return EgressSelection {
-                interface: None,
+            return EgressSelection::from_snapshot(
+                &snapshot,
+                None,
                 route_source,
                 route_lookup_status,
                 route_lookup_error,
-                binding_reason: if captured {
-                    EgressBindingReason::TunEgressUnavailable
-                } else {
-                    EgressBindingReason::NoConfiguredInterface
-                },
-            };
+                // A loopback source is not authoritative evidence that a TUN
+                // capture route is active. Local filters and stale host routes
+                // can produce the same source selection after TUN state has
+                // already been withdrawn. Only explicit published TUN state
+                // may require a physical egress.
+                EgressBindingReason::NoConfiguredInterface,
+            );
         }
         if tunnel_addresses.is_empty() {
-            return EgressSelection {
-                interface: Some(physical.expect("physical egress checked above")),
-                route_source: None,
-                route_lookup_status: EgressRouteLookupStatus::Skipped,
-                route_lookup_error: None,
-                binding_reason: EgressBindingReason::TunAddressesUnavailable,
-            };
+            return EgressSelection::from_snapshot(
+                &snapshot,
+                Some(physical.expect("physical egress checked above")),
+                None,
+                EgressRouteLookupStatus::Skipped,
+                None,
+                EgressBindingReason::TunAddressesUnavailable,
+            );
         }
         let (route_source, route_lookup_status, route_lookup_error) = match route_source_for(peer) {
             Ok(source) => (Some(source), EgressRouteLookupStatus::Resolved, None),
@@ -292,13 +364,14 @@ impl EgressInterfaceControl {
             }
             (None, _, _) => (None, EgressBindingReason::TunEgressUnavailable),
         };
-        EgressSelection {
+        EgressSelection::from_snapshot(
+            &snapshot,
             interface,
             route_source,
             route_lookup_status,
             route_lookup_error,
             binding_reason,
-        }
+        )
     }
 
     pub fn replace_tunnel_addresses(&self, addresses: impl IntoIterator<Item = IpAddr>) {
@@ -315,9 +388,12 @@ impl EgressInterfaceControl {
     pub fn replace(&self, interface: Option<EgressInterface>) -> Option<EgressInterface> {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
         let previous = interfaces.ipv4.clone().or_else(|| interfaces.ipv6.clone());
-        if interfaces.ipv4 != interface || interfaces.ipv6 != interface {
-            interfaces.ipv4 = interface.clone();
-            interfaces.ipv6 = interface;
+        let topology_changed = interfaces.ipv4 != interface || interfaces.ipv6 != interface;
+        interfaces.ipv4 = interface.clone();
+        interfaces.ipv6 = interface;
+        interfaces.ipv4_unavailable_reason = None;
+        interfaces.ipv6_unavailable_reason = None;
+        if topology_changed {
             bump_generation(&mut interfaces);
         }
         previous
@@ -325,26 +401,52 @@ impl EgressInterfaceControl {
 
     pub fn replace_for(&self, ipv6: bool, interface: Option<EgressInterface>) {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
-        let current = if ipv6 {
-            &mut interfaces.ipv6
+        let topology_changed = if ipv6 {
+            let changed = interfaces.ipv6 != interface;
+            interfaces.ipv6 = interface;
+            interfaces.ipv6_unavailable_reason = None;
+            changed
         } else {
-            &mut interfaces.ipv4
+            let changed = interfaces.ipv4 != interface;
+            interfaces.ipv4 = interface;
+            interfaces.ipv4_unavailable_reason = None;
+            changed
         };
-        if *current != interface {
-            *current = interface;
+        if topology_changed {
+            bump_generation(&mut interfaces);
+        }
+    }
+
+    pub fn mark_unavailable_for(&self, ipv6: bool, reason: impl Into<String>) {
+        let reason = reason.into();
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        let topology_changed = if ipv6 {
+            let changed = interfaces.ipv6.is_some();
+            interfaces.ipv6 = None;
+            interfaces.ipv6_unavailable_reason = Some(reason);
+            changed
+        } else {
+            let changed = interfaces.ipv4.is_some();
+            interfaces.ipv4 = None;
+            interfaces.ipv4_unavailable_reason = Some(reason);
+            changed
+        };
+        if topology_changed {
             bump_generation(&mut interfaces);
         }
     }
 
     pub fn clear(&self) {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
-        if interfaces.ipv4.is_some()
+        let topology_changed = interfaces.ipv4.is_some()
             || interfaces.ipv6.is_some()
-            || !interfaces.tunnel_addresses.is_empty()
-        {
-            interfaces.ipv4 = None;
-            interfaces.ipv6 = None;
-            interfaces.tunnel_addresses.clear();
+            || !interfaces.tunnel_addresses.is_empty();
+        interfaces.ipv4 = None;
+        interfaces.ipv6 = None;
+        interfaces.ipv4_unavailable_reason = None;
+        interfaces.ipv6_unavailable_reason = None;
+        interfaces.tunnel_addresses.clear();
+        if topology_changed {
             bump_generation(&mut interfaces);
         }
     }

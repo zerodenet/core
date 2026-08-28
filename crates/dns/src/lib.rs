@@ -28,7 +28,7 @@ use zero_traits::{DnsResolver, IpAddress};
 use backends::ResolverBackend;
 use cache::{DnsCache, DnsWireCacheValue};
 use fake_ip::FakeIpAllocator;
-pub use fake_ip::{default_fake_ip_state_path, FakeIpStats};
+pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
 use reverse::RealIpReverseIndex;
 pub use reverse::RealIpReverseLookup;
 use router::DnsDispatcher;
@@ -388,6 +388,18 @@ impl DnsSystem {
 
     pub async fn fake_ip_stats(&self) -> Option<FakeIpStats> {
         Some(self.snapshot_fake_ip()?.stats().await)
+    }
+
+    /// Clear all Fake-IP mappings, or one mapping selected by domain/address.
+    /// The allocator updates its persistent journal before reporting success.
+    pub async fn clear_fake_ip(
+        &self,
+        target: FakeIpClearTarget,
+    ) -> io::Result<Option<FakeIpClearResult>> {
+        let Some(allocator) = self.snapshot_fake_ip() else {
+            return Ok(None);
+        };
+        allocator.clear(target).await.map(Some)
     }
 
     /// Inspect a cached domain (diagnostic). Returns (addresses, seconds to

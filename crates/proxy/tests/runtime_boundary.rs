@@ -3049,6 +3049,7 @@ fn handle_command_root_stays_facade_only() {
     for module_name in [
         "mod diagnostics;",
         "mod dispatch;",
+        "mod fake_ip;",
         "mod runtime;",
         "mod tun;",
     ] {
@@ -3060,6 +3061,7 @@ fn handle_command_root_stays_facade_only() {
         "CommandRequest::DiagnosticsProbeOutbound",
         "CommandRequest::DiagnosticsDnsCache",
         "CommandRequest::DiagnosticsFakeipLookup",
+        "CommandRequest::FakeIpClear",
     ] {
         assert!(
             !command_root.contains(forbidden),
@@ -3072,6 +3074,7 @@ fn handle_command_root_stays_facade_only() {
         "CommandRequest::DiagnosticsProbeOutbound",
         "CommandRequest::DiagnosticsDnsCache",
         "CommandRequest::DiagnosticsFakeipLookup",
+        "CommandRequest::FakeIpClear",
     ] {
         assert!(
             command.contains(expected),

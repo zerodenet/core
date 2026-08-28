@@ -1,6 +1,6 @@
 //! Bounded dual-stack Fake-IP mapping lifecycle for transparent proxying.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,6 +13,7 @@ use zero_traits::IpAddress;
 
 use crate::message::normalize_domain;
 
+mod management;
 mod persistence;
 mod state_path;
 
@@ -20,6 +21,7 @@ use persistence::{
     unix_time_ms, FakeIpPersistence, FakeIpStateLease, PersistedMapping, PersistenceMetadata,
 };
 
+pub use management::{FakeIpClearResult, FakeIpClearTarget};
 pub(crate) use persistence::FakeIpStateLease as StateLease;
 pub use state_path::default_fake_ip_state_path;
 
@@ -620,9 +622,24 @@ fn compact_if_needed(state: &mut AllocatorState) {
     if !should_compact {
         return;
     }
+    let mappings = persisted_mappings(state, None);
+    if let Some(persistence) = state.persistence.as_mut() {
+        if let Err(error) = persistence.compact(&mappings) {
+            tracing::warn!(%error, "failed to compact Fake-IP persistence state");
+        }
+    }
+}
+
+fn persisted_mappings(
+    state: &AllocatorState,
+    excluded_domains: Option<&HashSet<String>>,
+) -> Vec<PersistedMapping> {
     let mut mappings = state
         .forward
         .iter()
+        .filter(|(domain, _)| {
+            excluded_domains.is_none_or(|excluded| !excluded.contains(domain.as_str()))
+        })
         .flat_map(|(domain, mapping)| {
             mapping.addresses().map(|ip| {
                 (
@@ -637,15 +654,10 @@ fn compact_if_needed(state: &mut AllocatorState) {
         })
         .collect::<Vec<_>>();
     mappings.sort_by_key(|(last_used, _)| *last_used);
-    let mappings = mappings
+    mappings
         .into_iter()
         .map(|(_, mapping)| mapping)
-        .collect::<Vec<_>>();
-    if let Some(persistence) = state.persistence.as_mut() {
-        if let Err(error) = persistence.compact(&mappings) {
-            tracing::warn!(%error, "failed to compact Fake-IP persistence state");
-        }
-    }
+        .collect::<Vec<_>>()
 }
 
 fn restore_mappings(

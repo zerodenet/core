@@ -67,7 +67,7 @@ pub(super) fn publish_unavailable(proxy: &Proxy, spec: &RouteRuntimeSpec, error:
         return;
     };
     let (managed_v4, managed_v6) = spec.managed_families();
-    withdraw_managed_egress(&proxy.egress_interface, managed_v4, managed_v6);
+    withdraw_managed_egress(&proxy.egress_interface, managed_v4, managed_v6, &error);
 
     if managed_v4 {
         info.egress_interface_v4 = None;
@@ -92,12 +92,13 @@ fn withdraw_managed_egress(
     control: &zero_platform_tokio::EgressInterfaceControl,
     managed_v4: bool,
     managed_v6: bool,
+    error: &str,
 ) {
     if managed_v4 {
-        control.replace_for(false, None);
+        control.mark_unavailable_for(false, error);
     }
     if managed_v6 {
-        control.replace_for(true, None);
+        control.mark_unavailable_for(true, error);
     }
 }
 

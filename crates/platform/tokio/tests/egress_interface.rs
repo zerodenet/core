@@ -143,6 +143,40 @@ fn peer_selection_rejects_active_tun_without_a_physical_egress() {
 }
 
 #[test]
+fn peer_selection_without_published_tun_state_uses_the_system_route() {
+    let controller = EgressInterfaceControl::default();
+    let peer = "192.0.2.1:443".parse().unwrap();
+
+    let selection = controller.select_for_peer(peer);
+    assert!(!selection.tun_active());
+    assert!(selection.configured_interface().is_none());
+    assert_eq!(
+        selection.binding_reason(),
+        EgressBindingReason::NoConfiguredInterface
+    );
+    assert!(selection.ensure_connectable().is_ok());
+}
+
+#[test]
+fn peer_selection_exposes_the_authoritative_egress_snapshot() {
+    let controller = EgressInterfaceControl::default();
+    let peer = "192.0.2.1:443".parse().unwrap();
+    controller.replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+    let topology_generation = controller.generation();
+    controller.mark_unavailable_for(false, "route reconciliation failed");
+
+    let selection = controller.select_for_peer(peer);
+    assert_eq!(controller.generation(), topology_generation);
+    assert_eq!(selection.generation(), controller.generation());
+    assert!(selection.tun_active());
+    assert!(selection.configured_interface().is_none());
+    assert_eq!(
+        selection.unavailable_reason(),
+        Some("route reconciliation failed")
+    );
+}
+
+#[test]
 fn wildcard_peer_is_not_mistaken_for_a_tun_route_probe() {
     let controller = EgressInterfaceControl::default();
     let wildcard = "0.0.0.0:0".parse().unwrap();

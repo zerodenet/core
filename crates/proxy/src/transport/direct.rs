@@ -3,8 +3,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use zero_core::{Address, Error, Session};
 use zero_dns::DnsSystem;
 use zero_engine::{
-    FlowNetworkInterfaceObservation, FlowNetworkObservation, FlowRemoteEndpoint,
-    FlowRouteLookupObservation, FlowSocketBindingObservation,
+    FlowEgressObservation, FlowNetworkInterfaceObservation, FlowNetworkObservation,
+    FlowRemoteEndpoint, FlowRouteLookupObservation, FlowSocketBindingObservation,
 };
 use zero_platform_tokio::{EgressSelection, TokioSocket};
 use zero_traits::IpAddress;
@@ -50,6 +50,8 @@ impl DirectConnector {
                 let network = direct_network_observation(
                     &success.selection,
                     local,
+                    success.remote,
+                    &success.resolved_candidates,
                     "connected",
                     success.selection.interface().is_some(),
                 );
@@ -67,6 +69,8 @@ impl DirectConnector {
                     network: Box::new(direct_network_observation(
                         &failure.selection,
                         failure.local_addr,
+                        failure.remote,
+                        &failure.resolved_candidates,
                         failure.stage,
                         failure.interface_bound,
                     )),
@@ -181,11 +185,23 @@ fn log_dial_failure(kind: &str, failure: &TcpDialFailure) {
     tracing::debug!(
         connect_kind = kind,
         target = %failure.remote,
+        candidates = ?failure.resolved_candidates,
+        egress_generation = failure.selection.generation(),
+        tun_active = failure.selection.tun_active(),
         route_source = ?failure.selection.route_source(),
         route_lookup = failure.selection.route_lookup_status().as_str(),
         binding_reason = failure.selection.binding_reason().as_str(),
         egress_name = failure.selection.interface().map(|value| value.name()),
         egress_index = failure.selection.interface().map(|value| value.index()),
+        configured_egress_name = failure
+            .selection
+            .configured_interface()
+            .map(|value| value.name()),
+        configured_egress_index = failure
+            .selection
+            .configured_interface()
+            .map(|value| value.index()),
+        egress_unavailable_reason = failure.selection.unavailable_reason(),
         connect_stage = failure.stage,
         error = %failure.error,
         "TCP candidate dial failed"
@@ -203,6 +219,8 @@ fn dial_failure_error(failure: &TcpDialFailure, connect_error: &'static str) -> 
 fn direct_network_observation(
     selection: &EgressSelection,
     local: Option<SocketAddr>,
+    remote: SocketAddr,
+    resolved_candidates: &[SocketAddr],
     connect_stage: &str,
     interface_bound: bool,
 ) -> FlowNetworkObservation {
@@ -211,11 +229,29 @@ fn direct_network_observation(
             host: address.ip().to_string(),
             port: address.port(),
         }),
+        remote_address: Some(socket_endpoint(remote)),
+        resolved_candidates: resolved_candidates
+            .iter()
+            .copied()
+            .map(socket_endpoint)
+            .collect(),
         selected_interface: selection.interface().map(|interface| {
             FlowNetworkInterfaceObservation {
                 name: interface.name().to_owned(),
                 index: interface.index(),
             }
+        }),
+        egress: Some(FlowEgressObservation {
+            generation: selection.generation(),
+            address_family: if remote.is_ipv6() { "ipv6" } else { "ipv4" }.to_owned(),
+            tun_active: selection.tun_active(),
+            configured_interface: selection.configured_interface().map(|interface| {
+                FlowNetworkInterfaceObservation {
+                    name: interface.name().to_owned(),
+                    index: interface.index(),
+                }
+            }),
+            unavailable_reason: selection.unavailable_reason().map(ToOwned::to_owned),
         }),
         route_lookup: Some(FlowRouteLookupObservation {
             status: selection.route_lookup_status().as_str().to_owned(),
@@ -233,6 +269,13 @@ fn direct_network_observation(
             interface_bound,
         }),
         connect_stage: Some(connect_stage.to_owned()),
+    }
+}
+
+fn socket_endpoint(address: SocketAddr) -> FlowRemoteEndpoint {
+    FlowRemoteEndpoint {
+        host: address.ip().to_string(),
+        port: address.port(),
     }
 }
 

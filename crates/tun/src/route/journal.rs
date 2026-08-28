@@ -27,6 +27,7 @@ pub(super) struct RouteJournal {
 #[derive(Debug)]
 pub(super) struct RouteLease {
     journal_path: PathBuf,
+    owner_path: PathBuf,
     _lock: std::fs::File,
 }
 
@@ -48,6 +49,7 @@ impl RouteLease {
         lock_path: PathBuf,
         owner: &str,
     ) -> io::Result<Self> {
+        let owner_path = lock_owner_path(&lock_path);
         let lock = std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -55,7 +57,7 @@ impl RouteLease {
             .write(true)
             .open(&lock_path)?;
         fs2::FileExt::try_lock_exclusive(&lock).map_err(|error| {
-            let active_owner = std::fs::read_to_string(&lock_path)
+            let active_owner = std::fs::read_to_string(&owner_path)
                 .ok()
                 .map(|owner| owner.trim().to_owned())
                 .filter(|owner| !owner.is_empty())
@@ -68,11 +70,26 @@ impl RouteLease {
                 ),
             )
         })?;
-        persist_lock_owner(&lock, owner)?;
+        persist_lock_owner(&owner_path, owner)?;
         Ok(Self {
             journal_path,
+            owner_path,
             _lock: lock,
         })
+    }
+}
+
+impl Drop for RouteLease {
+    fn drop(&mut self) {
+        match std::fs::remove_file(&self.owner_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => tracing::warn!(
+                path = %self.owner_path.display(),
+                error = %error,
+                "failed to remove TUN route lease owner metadata"
+            ),
+        }
     }
 }
 
@@ -273,14 +290,12 @@ fn safe_recovery_key(recovery_key: &str) -> String {
     }
 }
 
-fn persist_lock_owner(lock: &std::fs::File, owner: &str) -> io::Result<()> {
-    use std::io::{Seek, Write};
+fn lock_owner_path(lock_path: &Path) -> PathBuf {
+    lock_path.with_extension("")
+}
 
-    let mut lock = lock;
-    lock.set_len(0)?;
-    lock.rewind()?;
-    lock.write_all(safe_recovery_key(owner).as_bytes())?;
-    lock.sync_data()
+fn persist_lock_owner(owner_path: &Path, owner: &str) -> io::Result<()> {
+    std::fs::write(owner_path, safe_recovery_key(owner))
 }
 
 pub(super) fn route_state_root() -> io::Result<PathBuf> {

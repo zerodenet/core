@@ -19,8 +19,8 @@ pub use command::{
     CommandRequest, CommandResponse, ConfigApplyCommand, ConfigValidateCommand,
     DiagnosticsDnsCacheCommand, DiagnosticsDnsLookupCommand, DiagnosticsFakeipLookupCommand,
     DiagnosticsProbeOutboundCommand, DiagnosticsProbeTargetCommand, DiagnosticsTraceRouteCommand,
-    FlowCloseCommand, ModeSetCommand, PolicyProbeCommand, PolicySelectCommand, TunStartCommand,
-    TunStopCommand,
+    FakeIpClearCommand, FlowCloseCommand, ModeSetCommand, PolicyProbeCommand, PolicySelectCommand,
+    TunStartCommand, TunStopCommand,
 };
 pub use error::{ApiError, ApiErrorCode, ErrorDetail};
 pub use event::{
@@ -28,9 +28,9 @@ pub use event::{
     PassiveRelayHealthState, PublishResult,
 };
 pub use flow::{
-    AuthInfo, EndpointRef, FlowEventPayload, FlowFailureInfo, FlowNetworkContext,
-    FlowNetworkInterface, FlowOutcome, FlowPath, FlowRecord, FlowRecordTiming, FlowResult,
-    FlowRoute, FlowRouteLookup, FlowSocketBinding, FlowSource, FlowState, FlowTarget,
+    AuthInfo, EndpointRef, FlowEgressContext, FlowEventPayload, FlowFailureInfo,
+    FlowNetworkContext, FlowNetworkInterface, FlowOutcome, FlowPath, FlowRecord, FlowRecordTiming,
+    FlowResult, FlowRoute, FlowRouteLookup, FlowSocketBinding, FlowSource, FlowState, FlowTarget,
     FlowThroughput, FlowTiming, MatchedRuleInfo, Network, PolicyDecision,
     PolicyProbeCompletedPayload, PolicyProbeMember, PolicySelectedPayload, RouteDecision,
     TargetAddress, TrafficStats, WarningPayload,

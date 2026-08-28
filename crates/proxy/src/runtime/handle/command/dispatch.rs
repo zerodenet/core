@@ -4,6 +4,7 @@ use super::diagnostics::{
     execute_diagnostics_fakeip_lookup, execute_diagnostics_probe_outbound,
     execute_diagnostics_probe_target, execute_diagnostics_trace_route,
 };
+use super::fake_ip::execute_fake_ip_clear;
 use super::tun::{execute_tun_start, execute_tun_stop};
 
 impl zero_api::CommandService for ProxyHandle {
@@ -34,6 +35,7 @@ impl zero_api::CommandService for ProxyHandle {
             zero_api::CommandRequest::DiagnosticsFakeipLookup(cmd) => {
                 execute_diagnostics_fakeip_lookup(self, cmd)
             }
+            zero_api::CommandRequest::FakeIpClear(cmd) => execute_fake_ip_clear(self, cmd),
             zero_api::CommandRequest::DiagnosticsTraceRoute(cmd) => {
                 execute_diagnostics_trace_route(self, cmd)
             }

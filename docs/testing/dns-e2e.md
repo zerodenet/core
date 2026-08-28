@@ -144,6 +144,21 @@ share one TTL, LRU identity, and capacity slot. A compatible hot reload
 preserves live mappings; changing either pool, TTL, capacity, or exclusions
 creates a new allocator.
 `diagnostics.fakeip_lookup` reports mapping counters and capacity.
+The admin command `fakeip.clear` manages the same allocator and persistent
+journal. Empty params clear every mapping; `domain` or `ip` selects one mapping
+in both directions:
+
+```json
+{ "method": "fakeip.clear", "params": {} }
+{ "method": "fakeip.clear", "params": { "domain": "example.com" } }
+{ "method": "fakeip.clear", "params": { "ip": "198.18.0.1" } }
+```
+
+At most one selector is accepted. Success reports `removed_mappings`,
+`removed_addresses`, and the remaining `live_mappings`. Clearing mappings is a
+disruptive diagnostic action: applications may still hold synthetic DNS answers
+whose reverse mappings no longer exist, so clients should warn before a full
+clear and expect affected connections to resolve again.
 `diagnostics.dns_lookup` returns the query role plus the newest backend attempts,
 including server tag, transport, concrete endpoint candidates, selected outbound,
 success, and the failure reason that caused an ordered fallback.

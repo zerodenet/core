@@ -3,8 +3,9 @@ use std::collections::BTreeMap;
 use serde_json::json;
 use zero_api::{
     event_type, ApiErrorCode, ApiEvent, AuthContext, AuthInfo, CommandRequest, ConfigApplyCommand,
-    ConfigValidateCommand, EndpointRef, FlowEventPayload, FlowOutcome, FlowTiming, Network,
-    Permission, PolicySelectCommand, RouteDecision, TargetAddress, TrafficStats, EVENT_SCHEMA_ID,
+    ConfigValidateCommand, EndpointRef, FakeIpClearCommand, FlowEventPayload, FlowOutcome,
+    FlowTiming, Network, Permission, PolicySelectCommand, RouteDecision, TargetAddress,
+    TrafficStats, EVENT_SCHEMA_ID,
 };
 
 #[test]
@@ -59,7 +60,19 @@ fn flow_path_network_context_is_additive_and_optional() {
         "relay_chain": [],
         "network": {
             "local_address": { "host": "192.0.2.10", "port": 49152 },
+            "remote_address": { "host": "198.51.100.8", "port": 443 },
+            "resolved_candidates": [
+                { "host": "198.51.100.8", "port": 443 },
+                { "host": "2001:db8::8", "port": 443 }
+            ],
             "selected_interface": { "name": "Ethernet", "index": 7 },
+            "egress": {
+                "generation": 12,
+                "address_family": "ipv4",
+                "tun_active": true,
+                "configured_interface": { "name": "Ethernet", "index": 7 },
+                "unavailable_reason": "default route reconciliation failed"
+            },
             "route_lookup": {
                 "status": "resolved",
                 "source_address": "10.0.0.2"
@@ -75,7 +88,17 @@ fn flow_path_network_context_is_additive_and_optional() {
     .expect("deserialize enhanced flow path");
     let network = path.network.expect("network context");
     assert_eq!(network.local_address.unwrap().port, 49152);
+    assert_eq!(network.remote_address.unwrap().host, "198.51.100.8");
+    assert_eq!(network.resolved_candidates.len(), 2);
     assert_eq!(network.selected_interface.unwrap().index, 7);
+    let egress = network.egress.unwrap();
+    assert_eq!(egress.generation, 12);
+    assert!(egress.tun_active);
+    assert_eq!(egress.address_family, "ipv4");
+    assert_eq!(
+        egress.unavailable_reason.as_deref(),
+        Some("default route reconciliation failed")
+    );
     assert_eq!(network.route_lookup.unwrap().status, "resolved");
     assert!(network.socket_binding.unwrap().interface_bound);
     assert_eq!(network.connect_stage.as_deref(), Some("connected"));
@@ -118,6 +141,16 @@ fn command_request_serializes_with_stable_method_name() {
     assert_eq!(value["method"], "policies.select");
     assert_eq!(value["params"]["policy_tag"], "proxy");
     assert_eq!(value["params"]["target_tag"], "direct");
+}
+
+#[test]
+fn fake_ip_clear_is_an_admin_command_with_optional_selectors() {
+    let command = CommandRequest::FakeIpClear(FakeIpClearCommand::default());
+
+    assert_eq!(command.required_permission(), Permission::Admin);
+    let value = serde_json::to_value(command).expect("serialize fake-IP clear command");
+    assert_eq!(value["method"], "fakeip.clear");
+    assert_eq!(value["params"], json!({ "domain": null, "ip": null }));
 }
 
 #[test]

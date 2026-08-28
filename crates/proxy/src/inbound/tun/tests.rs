@@ -6,6 +6,118 @@ use super::config::{
 };
 use super::{configured_tun_is_current, tun_route_exclusion_required, PreparedTunNetwork, TunInfo};
 
+#[test]
+fn route_cleanup_failure_retains_the_last_physical_egress() {
+    let control = zero_platform_tokio::EgressInterfaceControl::default();
+    let physical = zero_platform_tokio::EgressInterface::new("ethernet", 9).unwrap();
+    control.replace_for(false, Some(physical.clone()));
+    control.replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+
+    super::clear_egress_after_route_cleanup(&control, false);
+
+    assert_eq!(control.current_for(false), Some(physical));
+    assert!(control
+        .select_for_peer("192.0.2.1:443".parse().unwrap())
+        .tun_active());
+}
+
+#[test]
+fn completed_route_cleanup_clears_tun_egress_state() {
+    let control = zero_platform_tokio::EgressInterfaceControl::default();
+    control.replace_for(
+        false,
+        Some(zero_platform_tokio::EgressInterface::new("ethernet", 9).unwrap()),
+    );
+    control.replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+
+    super::clear_egress_after_route_cleanup(&control, true);
+
+    assert!(control.current().is_none());
+    assert!(!control
+        .select_for_peer("192.0.2.1:443".parse().unwrap())
+        .tun_active());
+}
+
+#[tokio::test]
+async fn unexpected_runtime_exit_waits_for_route_cleanup_before_clearing_egress() {
+    let config =
+        zero_config::RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#)
+            .unwrap();
+    let proxy = crate::Proxy::new(config).unwrap();
+    proxy.egress_interface.replace_for(
+        false,
+        Some(zero_platform_tokio::EgressInterface::new("ethernet", 9).unwrap()),
+    );
+    proxy
+        .egress_interface
+        .replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+    let (shutdown, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let (_done_tx, done) = tokio::sync::oneshot::channel();
+    let (route_done_tx, route_done) = tokio::sync::oneshot::channel();
+    *proxy.tun_control.lock().unwrap() = Some(crate::runtime::TunControl {
+        id: 41,
+        shutdown,
+        done,
+        route_done: Some(route_done),
+    });
+
+    let finalize = super::finalize_tun_runtime_exit(&proxy, 41);
+    let acknowledge = async move {
+        shutdown_rx.changed().await.unwrap();
+        assert!(*shutdown_rx.borrow());
+        route_done_tx.send(Ok(())).unwrap();
+    };
+    tokio::join!(finalize, acknowledge);
+
+    assert!(proxy.egress_interface.current().is_none());
+    assert!(!proxy
+        .egress_interface
+        .select_for_peer("192.0.2.1:443".parse().unwrap())
+        .tun_active());
+}
+
+#[tokio::test]
+async fn unexpected_runtime_cleanup_failure_retains_egress_and_error() {
+    let config =
+        zero_config::RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#)
+            .unwrap();
+    let proxy = crate::Proxy::new(config).unwrap();
+    let physical = zero_platform_tokio::EgressInterface::new("ethernet", 9).unwrap();
+    proxy
+        .egress_interface
+        .replace_for(false, Some(physical.clone()));
+    proxy
+        .egress_interface
+        .replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+    let (shutdown, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let (_done_tx, done) = tokio::sync::oneshot::channel();
+    let (route_done_tx, route_done) = tokio::sync::oneshot::channel();
+    *proxy.tun_control.lock().unwrap() = Some(crate::runtime::TunControl {
+        id: 42,
+        shutdown,
+        done,
+        route_done: Some(route_done),
+    });
+
+    let finalize = super::finalize_tun_runtime_exit(&proxy, 42);
+    let reject_cleanup = async move {
+        shutdown_rx.changed().await.unwrap();
+        route_done_tx
+            .send(Err("remove stale capture route".to_owned()))
+            .unwrap();
+    };
+    tokio::join!(finalize, reject_cleanup);
+
+    assert_eq!(proxy.egress_interface.current_for(false), Some(physical));
+    assert!(proxy
+        .tun_last_error
+        .lock()
+        .unwrap()
+        .as_deref()
+        .unwrap()
+        .contains("remove stale capture route"));
+}
+
 #[cfg(all(feature = "udp-runtime", feature = "dns"))]
 #[tokio::test]
 async fn command_tun_start_rejects_fake_ip_pool_collision_before_device_creation() {

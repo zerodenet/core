@@ -132,13 +132,30 @@ pub struct FlowNetworkContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_address: Option<TargetAddress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_address: Option<TargetAddress>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolved_candidates: Vec<TargetAddress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_interface: Option<FlowNetworkInterface>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub egress: Option<FlowEgressContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route_lookup: Option<FlowRouteLookup>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub socket_binding: Option<FlowSocketBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connect_stage: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowEgressContext {
+    pub generation: u64,
+    pub address_family: String,
+    pub tun_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configured_interface: Option<FlowNetworkInterface>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
