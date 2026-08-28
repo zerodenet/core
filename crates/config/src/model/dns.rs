@@ -107,6 +107,17 @@ pub enum DnsAddressFamilyPolicy {
     PreferIpv6,
 }
 
+impl DnsAddressFamilyPolicy {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ipv4Only => "ipv4_only",
+            Self::Ipv6Only => "ipv6_only",
+            Self::PreferIpv4 => "prefer_ipv4",
+            Self::PreferIpv6 => "prefer_ipv6",
+        }
+    }
+}
+
 const fn default_dns_timeout_ms() -> u64 {
     5_000
 }

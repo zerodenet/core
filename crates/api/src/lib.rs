@@ -28,10 +28,10 @@ pub use event::{
     PassiveRelayHealthState, PublishResult,
 };
 pub use flow::{
-    AuthInfo, EndpointRef, FlowEgressContext, FlowEventPayload, FlowFailureInfo,
-    FlowNetworkContext, FlowNetworkInterface, FlowOutcome, FlowPath, FlowRecord, FlowRecordTiming,
-    FlowResult, FlowRoute, FlowRouteLookup, FlowSocketBinding, FlowSource, FlowState, FlowTarget,
-    FlowThroughput, FlowTiming, MatchedRuleInfo, Network, PolicyDecision,
+    AuthInfo, EndpointRef, FlowAddressFamilyFallback, FlowEgressContext, FlowEventPayload,
+    FlowFailureInfo, FlowNetworkContext, FlowNetworkInterface, FlowOutcome, FlowPath, FlowRecord,
+    FlowRecordTiming, FlowResult, FlowRoute, FlowRouteLookup, FlowSocketBinding, FlowSource,
+    FlowState, FlowTarget, FlowThroughput, FlowTiming, MatchedRuleInfo, Network, PolicyDecision,
     PolicyProbeCompletedPayload, PolicyProbeMember, PolicySelectedPayload, RouteDecision,
     TargetAddress, TrafficStats, WarningPayload,
 };

@@ -13,7 +13,9 @@ mod tcp_relay;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use direct::{DirectConnector, DirectTcpConnectFailure, DirectTcpConnection};
+pub(crate) use direct::{
+    DirectConnector, DirectTargetResolution, DirectTcpConnectFailure, DirectTcpConnection,
+};
 pub(crate) use rate_limit::SharedRateLimiter;
 pub(crate) use tcp_outbound::{
     extract_tcp_stream, is_block_error, EstablishedTcpOutbound, TcpOutboundFailure, TcpRouteResult,

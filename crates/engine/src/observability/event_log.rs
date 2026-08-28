@@ -849,6 +849,16 @@ fn flow_path(outbound_tag: Option<&String>, path: &crate::FlowPathObservation) -
                     port: candidate.port,
                 })
                 .collect(),
+            address_family_policy: network.address_family_policy.clone(),
+            address_family_fallback: network.address_family_fallback.as_ref().map(|fallback| {
+                zero_api::FlowAddressFamilyFallback {
+                    from: fallback.from.clone(),
+                    to: fallback.to.clone(),
+                    reason: fallback.reason.clone(),
+                    trigger_egress_generation: fallback.trigger_egress_generation,
+                    unavailable_reason: fallback.unavailable_reason.clone(),
+                }
+            }),
             selected_interface: network.selected_interface.as_ref().map(|interface| {
                 FlowNetworkInterface {
                     name: interface.name.clone(),

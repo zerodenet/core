@@ -34,11 +34,22 @@ pub struct FlowNetworkObservation {
     pub local_address: Option<FlowRemoteEndpoint>,
     pub remote_address: Option<FlowRemoteEndpoint>,
     pub resolved_candidates: Vec<FlowRemoteEndpoint>,
+    pub address_family_policy: Option<String>,
+    pub address_family_fallback: Option<FlowAddressFamilyFallbackObservation>,
     pub selected_interface: Option<FlowNetworkInterfaceObservation>,
     pub egress: Option<FlowEgressObservation>,
     pub route_lookup: Option<FlowRouteLookupObservation>,
     pub socket_binding: Option<FlowSocketBindingObservation>,
     pub connect_stage: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlowAddressFamilyFallbackObservation {
+    pub from: String,
+    pub to: String,
+    pub reason: String,
+    pub trigger_egress_generation: u64,
+    pub unavailable_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

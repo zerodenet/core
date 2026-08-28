@@ -528,6 +528,15 @@ impl DnsSystem {
             .await
     }
 
+    /// Return the address-family policy applied to real direct-target
+    /// resolution. The system-resolver fallback preserves Zero's historical
+    /// IPv4-first dual-stack behavior.
+    pub fn address_family_policy(&self) -> DnsAddressFamilyPolicy {
+        self.snapshot()
+            .map(|snapshot| snapshot.policy.address_family)
+            .unwrap_or_default()
+    }
+
     /// Resolve a proxy node or carrier endpoint through the bootstrap/node
     /// DNS role. This never allocates a synthetic Fake-IP.
     pub async fn resolve_node(&self, domain: &str) -> io::Result<Vec<IpAddress>> {

@@ -57,14 +57,55 @@ impl UdpRuntimeServices {
     pub(crate) async fn resolve_direct_targets(
         &self,
         session: &zero_core::Session,
-    ) -> Result<Vec<std::net::SocketAddr>, zero_engine::EngineError> {
+    ) -> Result<crate::transport::DirectTargetResolution, zero_engine::EngineError> {
         self.tcp
             .upstream
             .protocols
             .direct_connector()
-            .resolve_target_addrs(session, self.tcp.upstream.resolver.as_ref())
+            .resolve_target_addrs(
+                session,
+                self.tcp.upstream.resolver.as_ref(),
+                &self.tcp.upstream.egress_interface,
+            )
             .await
             .map_err(Into::into)
+    }
+
+    pub(crate) fn direct_udp_network_observation(
+        &self,
+        resolution: &crate::transport::DirectTargetResolution,
+        remote: std::net::SocketAddr,
+    ) -> zero_engine::FlowNetworkObservation {
+        self.tcp
+            .upstream
+            .protocols
+            .direct_connector()
+            .udp_network_observation(resolution, remote, &self.tcp.upstream.egress_interface)
+    }
+
+    pub(crate) fn direct_resolution_failure_observation(
+        &self,
+        session: &zero_core::Session,
+    ) -> zero_engine::FlowNetworkObservation {
+        self.tcp
+            .upstream
+            .protocols
+            .direct_connector()
+            .resolution_failure_observation(
+                session,
+                self.tcp.upstream.resolver.as_ref(),
+                &self.tcp.upstream.egress_interface,
+            )
+    }
+
+    pub(crate) fn record_session_network(
+        &self,
+        session_id: u64,
+        network: zero_engine::FlowNetworkObservation,
+    ) {
+        self.tcp
+            .engine()
+            .record_session_network(session_id, network);
     }
 
     pub(crate) async fn dispatch_prepared_tcp_relay_carrier(

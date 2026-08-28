@@ -3,10 +3,13 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use zero_core::{Address, Error, Session};
 use zero_dns::DnsSystem;
 use zero_engine::{
-    FlowEgressObservation, FlowNetworkInterfaceObservation, FlowNetworkObservation,
-    FlowRemoteEndpoint, FlowRouteLookupObservation, FlowSocketBindingObservation,
+    FlowAddressFamilyFallbackObservation, FlowEgressObservation, FlowNetworkInterfaceObservation,
+    FlowNetworkObservation, FlowRemoteEndpoint, FlowRouteLookupObservation,
+    FlowSocketBindingObservation,
 };
-use zero_platform_tokio::{EgressSelection, TokioSocket};
+use zero_platform_tokio::{
+    EgressBindingReason, EgressInterfaceControl, EgressSelection, TokioSocket,
+};
 use zero_traits::IpAddress;
 
 use super::direct_dial::{dial_tcp_candidates, TcpDialFailure};
@@ -26,6 +29,19 @@ pub(crate) struct DirectTcpConnectFailure {
     pub(crate) network: Box<FlowNetworkObservation>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct DirectTargetResolution {
+    pub(crate) candidates: Vec<SocketAddr>,
+    address_family_policy: &'static str,
+    fallback: Option<DirectAddressFamilyFallback>,
+}
+
+#[derive(Debug, Clone)]
+struct DirectAddressFamilyFallback {
+    trigger_egress_generation: u64,
+    unavailable_reason: Option<String>,
+}
+
 impl DirectConnector {
     pub(crate) fn validate(&self, session: &Session) -> Result<(), Error> {
         if session.port == 0 {
@@ -39,11 +55,22 @@ impl DirectConnector {
         &self,
         session: &Session,
         resolver: &DnsSystem,
-        egress: &zero_platform_tokio::EgressInterfaceControl,
+        egress: &EgressInterfaceControl,
     ) -> Result<DirectTcpConnection, DirectTcpConnectFailure> {
-        let candidates = self.resolve_target_addrs(session, resolver).await?;
+        let resolution = match self.resolve_target_addrs(session, resolver, egress).await {
+            Ok(resolution) => resolution,
+            Err(error) => {
+                return Err(DirectTcpConnectFailure {
+                    stage: "resolve_direct_target",
+                    error,
+                    network: Box::new(
+                        self.resolution_failure_observation(session, resolver, egress),
+                    ),
+                });
+            }
+        };
 
-        match dial_tcp_candidates(candidates, egress).await {
+        match dial_tcp_candidates(resolution.candidates.clone(), egress).await {
             Ok(success) => {
                 let socket = success.socket;
                 let local = socket.local_addr().ok();
@@ -52,6 +79,7 @@ impl DirectConnector {
                     local,
                     success.remote,
                     &success.resolved_candidates,
+                    &resolution,
                     "connected",
                     success.selection.interface().is_some(),
                 );
@@ -71,6 +99,7 @@ impl DirectConnector {
                         failure.local_addr,
                         failure.remote,
                         &failure.resolved_candidates,
+                        &resolution,
                         failure.stage,
                         failure.interface_bound,
                     )),
@@ -84,16 +113,65 @@ impl DirectConnector {
         &self,
         session: &Session,
         resolver: &DnsSystem,
-    ) -> Result<Vec<SocketAddr>, Error> {
+        egress: &EgressInterfaceControl,
+    ) -> Result<DirectTargetResolution, Error> {
         self.validate(session)?;
 
-        self.resolve_addresses(
-            session.effective_direct_target(),
-            session.port,
-            resolver,
-            "failed to resolve direct target",
+        let (target, fallback) = direct_resolution_target(session, egress);
+        let mut candidates = self
+            .resolve_addresses(
+                target,
+                session.port,
+                resolver,
+                "failed to resolve direct target",
+            )
+            .await?;
+        if fallback.is_some() {
+            candidates.retain(SocketAddr::is_ipv4);
+            if candidates.is_empty() {
+                return Err(Error::Io(
+                    "direct IPv6 fallback resolved to no IPv4 addresses",
+                ));
+            }
+        }
+        Ok(DirectTargetResolution {
+            candidates,
+            address_family_policy: resolver.address_family_policy().as_str(),
+            fallback,
+        })
+    }
+
+    pub(crate) fn udp_network_observation(
+        &self,
+        resolution: &DirectTargetResolution,
+        remote: SocketAddr,
+        egress: &EgressInterfaceControl,
+    ) -> FlowNetworkObservation {
+        let selection = egress.select_for_peer(remote);
+        direct_network_observation(
+            &selection,
+            None,
+            remote,
+            &resolution.candidates,
+            resolution,
+            "sent",
+            selection.interface().is_some(),
         )
-        .await
+    }
+
+    pub(crate) fn resolution_failure_observation(
+        &self,
+        session: &Session,
+        resolver: &DnsSystem,
+        egress: &EgressInterfaceControl,
+    ) -> FlowNetworkObservation {
+        let (_, fallback) = direct_resolution_target(session, egress);
+        FlowNetworkObservation {
+            address_family_policy: Some(resolver.address_family_policy().as_str().to_owned()),
+            address_family_fallback: fallback.as_ref().map(fallback_observation),
+            connect_stage: Some("resolve_target".to_owned()),
+            ..FlowNetworkObservation::default()
+        }
     }
 
     pub(crate) async fn connect_host(
@@ -101,7 +179,7 @@ impl DirectConnector {
         host: &str,
         port: u16,
         resolver: &DnsSystem,
-        egress: &zero_platform_tokio::EgressInterfaceControl,
+        egress: &EgressInterfaceControl,
     ) -> Result<TokioSocket, Error> {
         if port == 0 {
             return Err(Error::Config("target port is required"));
@@ -221,6 +299,7 @@ fn direct_network_observation(
     local: Option<SocketAddr>,
     remote: SocketAddr,
     resolved_candidates: &[SocketAddr],
+    resolution: &DirectTargetResolution,
     connect_stage: &str,
     interface_bound: bool,
 ) -> FlowNetworkObservation {
@@ -235,6 +314,8 @@ fn direct_network_observation(
             .copied()
             .map(socket_endpoint)
             .collect(),
+        address_family_policy: Some(resolution.address_family_policy.to_owned()),
+        address_family_fallback: resolution.fallback.as_ref().map(fallback_observation),
         selected_interface: selection.interface().map(|interface| {
             FlowNetworkInterfaceObservation {
                 name: interface.name().to_owned(),
@@ -272,23 +353,67 @@ fn direct_network_observation(
     }
 }
 
+fn direct_resolution_target<'a>(
+    session: &'a Session,
+    egress: &EgressInterfaceControl,
+) -> (&'a Address, Option<DirectAddressFamilyFallback>) {
+    let direct_target = session.effective_direct_target();
+    let (Address::Domain(domain), Some(host_source)) =
+        (&session.target, session.target_host_source)
+    else {
+        return (direct_target, None);
+    };
+    let original_ipv6 = match direct_target {
+        Address::Ipv6(octets) => Some(*octets),
+        Address::Domain(_) => match session.original_target.as_ref() {
+            Some(Address::Ipv6(octets)) => Some(*octets),
+            _ => None,
+        },
+        Address::Ipv4(_) => None,
+    };
+    let Some(original_ipv6) = original_ipv6 else {
+        return (direct_target, None);
+    };
+    let peer = SocketAddr::new(IpAddr::V6(Ipv6Addr::from(original_ipv6)), session.port);
+    let selection = egress.select_for_peer(peer);
+    if selection.binding_reason() != EgressBindingReason::TunEgressUnavailable {
+        return (direct_target, None);
+    }
+
+    tracing::debug!(
+        original_target = %peer,
+        domain,
+        host_source = host_source.as_str(),
+        fallback_strategy = "domain_reresolution",
+        egress_generation = selection.generation(),
+        egress_unavailable_reason = selection.unavailable_reason(),
+        "falling back from unavailable direct IPv6 egress to domain IPv4 resolution"
+    );
+    (
+        &session.target,
+        Some(DirectAddressFamilyFallback {
+            trigger_egress_generation: selection.generation(),
+            unavailable_reason: selection.unavailable_reason().map(ToOwned::to_owned),
+        }),
+    )
+}
+
+fn fallback_observation(
+    fallback: &DirectAddressFamilyFallback,
+) -> FlowAddressFamilyFallbackObservation {
+    FlowAddressFamilyFallbackObservation {
+        from: "ipv6".to_owned(),
+        to: "ipv4".to_owned(),
+        reason: "tun_ipv6_egress_unavailable".to_owned(),
+        trigger_egress_generation: fallback.trigger_egress_generation,
+        unavailable_reason: fallback.unavailable_reason.clone(),
+    }
+}
+
 fn socket_endpoint(address: SocketAddr) -> FlowRemoteEndpoint {
     FlowRemoteEndpoint {
         host: address.ip().to_string(),
         port: address.port(),
-    }
-}
-
-impl From<Error> for DirectTcpConnectFailure {
-    fn from(error: Error) -> Self {
-        Self {
-            stage: "resolve_direct_target",
-            error,
-            network: Box::new(FlowNetworkObservation {
-                connect_stage: Some("resolve_target".to_owned()),
-                ..FlowNetworkObservation::default()
-            }),
-        }
     }
 }
 
