@@ -237,7 +237,7 @@ fn mandatory_keys(params: &[SvcParam]) -> io::Result<BTreeSet<u16>> {
     }
     let mut keys = BTreeSet::new();
     let mut previous = None;
-    for bytes in mandatory.value.chunks_exact(2) {
+    for bytes in mandatory.value.as_chunks::<2>().0 {
         let key = u16::from_be_bytes([bytes[0], bytes[1]]);
         if key == SVC_PARAM_MANDATORY || previous.is_some_and(|previous| previous >= key) {
             return Err(invalid("SVCB mandatory keys are not strictly ordered"));
