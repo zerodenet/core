@@ -10,6 +10,9 @@ use std::time::{Duration, Instant};
 use socket2::{Domain, Protocol, Socket, Type};
 
 static TUN_E2E_LOCK: Mutex<()> = Mutex::new(());
+const DIRECT_UDP_REUSED_SOURCE_ROUNDS: u16 = 16;
+const DIRECT_UDP_SOURCE_CHURN_ROUNDS: u16 = 32;
+const DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES: usize = DIRECT_UDP_SOURCE_CHURN_ROUNDS as usize + 1;
 const ONLY_AAAA_E2E_DOMAIN: &str = "only-aaaa.zero.invalid";
 
 #[test]
@@ -86,7 +89,9 @@ fn privileged_tun_ipv4_direct_udp_dns_does_not_self_capture() {
     let socket = control_socket(directory.path(), false);
     let listen_port = free_tcp_port();
     let dns_target = std::env::var("ZERO_TUN_E2E_DNS_ADDR")
-        .unwrap_or_else(|_| "223.5.5.5:53".to_owned())
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "223.5.5.5:53".to_owned())
         .parse::<SocketAddr>()
         .expect("ZERO_TUN_E2E_DNS_ADDR must be an IPv4 DNS socket");
     assert!(dns_target.is_ipv4(), "DNS target must be IPv4");
@@ -101,7 +106,9 @@ fn privileged_tun_ipv4_direct_udp_dns_does_not_self_capture() {
         let mut process = spawn_zero(binary, &direct_path, &socket);
         wait_for_tun(binary, &socket, true, false);
         let tun_name = assert_tun_os_configured(binary, &socket, false, false);
+        let started_before = runtime_total_started(binary, &socket);
         assert_direct_udp_dns_through_tun(dns_target);
+        assert_tun_udp_flow_growth_bounded(binary, &socket, started_before);
 
         run_cli(
             binary,
@@ -1562,19 +1569,58 @@ fn assert_stun_round_trip(target: SocketAddr) {
 }
 
 fn assert_direct_udp_dns_through_tun(target: SocketAddr) {
-    const REUSED_SOURCE_ROUNDS: u16 = 16;
-    const SOURCE_CHURN_ROUNDS: u16 = 32;
-
     let socket = udp_for(target);
-    for sequence in 0..REUSED_SOURCE_ROUNDS {
+    for sequence in 0..DIRECT_UDP_REUSED_SOURCE_ROUNDS {
         assert_direct_dns_round_trip(&socket, target, 0x7000 + sequence);
     }
     drop(socket);
 
-    for sequence in 0..SOURCE_CHURN_ROUNDS {
+    for sequence in 0..DIRECT_UDP_SOURCE_CHURN_ROUNDS {
         let socket = udp_for(target);
         assert_direct_dns_round_trip(&socket, target, 0x7100 + sequence);
     }
+}
+
+fn assert_tun_udp_flow_growth_bounded(binary: &str, socket: &std::path::Path, started_before: u64) {
+    let output = run_cli_output(binary, ["flows", "--socket", path(socket)]);
+    let snapshot: serde_json::Value =
+        serde_json::from_str(&output).expect("active flow response must be JSON");
+    let tun_udp_flows = tun_udp_active_flow_count(&snapshot);
+    let started_after = runtime_total_started(binary, socket);
+    let started_delta = started_after
+        .checked_sub(started_before)
+        .expect("total_started must be monotonic");
+
+    assert!(
+        tun_udp_flows > 0,
+        "direct UDP workload did not create an observable TUN flow: {output}"
+    );
+    assert!(
+        tun_udp_flows <= DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES,
+        "direct UDP workload exceeded its source-tuple ceiling ({tun_udp_flows} > {DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES}); recursive self-capture or per-packet association growth is likely: {output}"
+    );
+    assert!(
+        started_delta > 0 && started_delta <= DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES as u64,
+        "direct UDP workload started an unexpected number of flows ({started_delta}; expected 1..={DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES}); rapidly completed self-capture sessions are likely: {output}"
+    );
+}
+
+fn tun_udp_active_flow_count(snapshot: &serde_json::Value) -> usize {
+    snapshot["active_flows"]
+        .as_array()
+        .expect("active flow response must contain an array")
+        .iter()
+        .filter(|flow| flow["inbound_tag"] == "tun-e2e" && flow["network"] == "udp")
+        .count()
+}
+
+fn runtime_total_started(binary: &str, socket: &std::path::Path) -> u64 {
+    let output = run_cli_output(binary, ["status", "--json", "--socket", path(socket)]);
+    let snapshot: serde_json::Value =
+        serde_json::from_str(&output).expect("runtime status response must be JSON");
+    snapshot["stats"]["total_started"]
+        .as_u64()
+        .expect("runtime status must expose stats.total_started")
 }
 
 fn assert_direct_dns_round_trip(socket: &UdpSocket, target: SocketAddr, id: u16) {
@@ -1668,6 +1714,20 @@ fn mock_dns_response_ignores_edns_pseudo_record() {
             expected_data
         );
     }
+}
+
+#[test]
+fn active_flow_ceiling_counts_only_tun_udp_sessions() {
+    let snapshot = serde_json::json!({
+        "active_flows": [
+            { "inbound_tag": "tun-e2e", "network": "udp" },
+            { "inbound_tag": "tun-e2e", "network": "tcp" },
+            { "inbound_tag": "control-inbound", "network": "udp" },
+            { "inbound_tag": "tun-e2e", "network": "udp" }
+        ]
+    });
+
+    assert_eq!(tun_udp_active_flow_count(&snapshot), 2);
 }
 
 fn run_cli<const N: usize>(binary: &str, arguments: [&str; N]) {
