@@ -551,6 +551,9 @@ fn proxy_handle_capabilities_use_protocol_inventory() {
     assert!(capabilities.protocols.iter().any(|p| p.protocol == "block"));
     assert!(capabilities.protocols.iter().any(|p| p.protocol == "mixed"));
     assert!(capabilities
+        .features
+        .contains(&"diagnostic_probe_health_isolation_v1".to_owned()));
+    assert!(capabilities
         .protocols
         .iter()
         .any(|p| p.protocol == "socks5"));

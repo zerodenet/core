@@ -5157,6 +5157,8 @@ fn outbound_probe_owns_generic_tcp_dispatch_outside_urltest_policy() {
     let urltest = read(&proxy_src().join("groups/urltest.rs"));
     let urltest_refresh = read(&proxy_src().join("groups/urltest/refresh.rs"));
     let outbound_probe = read(&proxy_src().join("runtime/outbound_probe.rs"));
+    let dispatch_intent = read(&proxy_src().join("runtime/tcp_dispatch/intent.rs"));
+    let dispatch_candidate = read(&proxy_src().join("runtime/tcp_dispatch/candidate.rs"));
     let runtime_urltest = read(&proxy_src().join("runtime/listeners/urltest.rs"));
     assert!(urltest.contains("struct UrlTestRuntime"));
     assert!(urltest.contains("OutboundProbeRuntime"));
@@ -5164,6 +5166,13 @@ fn outbound_probe_owns_generic_tcp_dispatch_outside_urltest_policy() {
     assert!(!urltest.contains("dispatch_tcp_outbound("));
     assert!(!urltest_refresh.contains("dispatch_tcp_outbound("));
     assert!(outbound_probe.contains("dispatch_tcp_outbound("));
+    assert!(outbound_probe.contains("TcpDispatchIntent::DiagnosticProbe"));
+    assert!(outbound_probe.contains("TcpDispatchIntent::PolicyProbe"));
+    assert!(dispatch_intent.contains("enum TcpDispatchIntent"));
+    assert!(dispatch_intent.contains("DiagnosticProbe"));
+    assert!(dispatch_intent.contains("PolicyProbe"));
+    assert!(dispatch_candidate.contains("checks_outbound_health"));
+    assert!(dispatch_candidate.contains("records_outbound_health"));
     assert!(!outbound_probe.contains("crate::groups"));
     assert!(!outbound_probe.to_ascii_lowercase().contains("urltest"));
     assert!(!urltest.contains("use crate::runtime::Proxy"));

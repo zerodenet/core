@@ -164,8 +164,44 @@ async fn diagnostics_probe_outbound_echoes_operation_and_generation() {
     assert_eq!(result["config_revision"], 1);
     assert_eq!(result["terminal_status"], "succeeded");
     assert_eq!(result["reachable"], true);
+    assert_eq!(result["affects_policy_selection"], false);
+    assert_eq!(result["affects_outbound_health"], false);
+    assert_eq!(result["bypasses_outbound_health_quarantine"], true);
     assert!(result["completed_at_unix_ms"].as_u64().is_some());
     server.await.expect("probe server task");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnostics_probe_outbound_failure_keeps_health_isolation_contract() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "inbounds": [],
+            "outbounds": [{ "tag": "direct", "protocol": { "type": "direct" } }],
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse config");
+    let proxy = Proxy::new(config).expect("build proxy");
+    let engine = proxy.engine().clone();
+    let handle = ProxyHandle::new(EngineHandle::new(engine), proxy);
+
+    let response = tokio::task::block_in_place(|| {
+        handle.execute(CommandRequest::DiagnosticsProbeOutbound(
+            DiagnosticsProbeOutboundCommand {
+                target_tag: "missing-outbound".to_owned(),
+                url: Some("http://127.0.0.1:1/generate_204".to_owned()),
+                operation_id: Some("diagnostic-failure".to_owned()),
+            },
+        ))
+    })
+    .expect("execute outbound diagnostic");
+    let result = response.result.expect("diagnostic result");
+    assert_eq!(result["terminal_status"], "failed");
+    assert_eq!(result["reachable"], false);
+    assert_eq!(result["error_code"], "target_not_found");
+    assert_eq!(result["affects_policy_selection"], false);
+    assert_eq!(result["affects_outbound_health"], false);
+    assert_eq!(result["bypasses_outbound_health_quarantine"], true);
 }
 
 /// A probe through a `direct` outbound must reach the target via the real proxy

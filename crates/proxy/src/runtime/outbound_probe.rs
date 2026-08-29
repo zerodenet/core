@@ -26,6 +26,7 @@ struct ProbeKey {
     config_identity: usize,
     target_tag: String,
     url: String,
+    intent: crate::runtime::tcp_dispatch::TcpDispatchIntent,
 }
 
 #[derive(Clone)]
@@ -67,13 +68,32 @@ impl OutboundProbeRuntime {
                     format!("outbound probe target `{target_tag}` was not found"),
                 )
             })?;
-        self.probe_target_shared(target_id, request).await
+        self.probe_target_with_intent(
+            target_id,
+            request,
+            crate::runtime::tcp_dispatch::TcpDispatchIntent::DiagnosticProbe,
+        )
+        .await
     }
 
     pub(crate) async fn probe_target_shared(
         &self,
         target_id: TargetId,
         request: &OutboundProbeRequest,
+    ) -> Result<u64, OutboundProbeError> {
+        self.probe_target_with_intent(
+            target_id,
+            request,
+            crate::runtime::tcp_dispatch::TcpDispatchIntent::PolicyProbe,
+        )
+        .await
+    }
+
+    async fn probe_target_with_intent(
+        &self,
+        target_id: TargetId,
+        request: &OutboundProbeRequest,
+        intent: crate::runtime::tcp_dispatch::TcpDispatchIntent,
     ) -> Result<u64, OutboundProbeError> {
         let target_tag = self.target_tag(target_id).ok_or_else(|| {
             OutboundProbeError::new(
@@ -85,6 +105,7 @@ impl OutboundProbeRuntime {
             config_identity: Arc::as_ptr(self.services.snapshot().config()) as usize,
             target_tag,
             url: request.url.clone(),
+            intent,
         };
         let shared = {
             let mut probes = self
@@ -109,7 +130,9 @@ impl OutboundProbeRuntime {
                             "failed to resolve outbound probe target",
                         ));
                     };
-                    runtime.probe_resolved_outbound(resolved, &request).await
+                    runtime
+                        .probe_resolved_outbound(resolved, &request, intent)
+                        .await
                 }
                 .boxed()
                 .shared();
@@ -130,6 +153,7 @@ impl OutboundProbeRuntime {
         &self,
         resolved: ResolvedOutbound<'static>,
         request: &OutboundProbeRequest,
+        intent: crate::runtime::tcp_dispatch::TcpDispatchIntent,
     ) -> Result<u64, OutboundProbeError> {
         if matches!(resolved, ResolvedOutbound::Relay { .. }) {
             return Err(OutboundProbeError::new(
@@ -151,6 +175,7 @@ impl OutboundProbeRuntime {
                 self.services.clone(),
                 &session,
                 resolved,
+                intent,
             )
             .await
             .map_err(|failure| failure.error)?;
@@ -214,3 +239,6 @@ fn global_shared_probes() -> Arc<Mutex<HashMap<ProbeKey, SharedProbeFuture>>> {
         .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
         .clone()
 }
+
+#[cfg(test)]
+mod tests;
