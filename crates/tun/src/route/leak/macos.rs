@@ -172,7 +172,7 @@ fn flush_anchor(anchor: &str) -> io::Result<()> {
 fn policy_rules(tun_name: &str, protected: &[IpNet], excluded: &[IpAddr]) -> String {
     let uid = unsafe { libc::geteuid() };
     let mut rules = format!(
-        "pass out quick on lo0 all\npass out quick on {tun_name} all\npass out quick user {uid} all\n"
+        "pass out quick on lo0 all\npass out quick on {tun_name} all\npass out quick all user {uid}\n"
     );
     for address in excluded {
         rules.push_str(&format!("pass out quick to {address}\n"));
@@ -201,7 +201,10 @@ mod tests {
             &["203.0.113.0/24".parse().unwrap()],
             &["192.0.2.1".parse().unwrap()],
         );
+        let uid = unsafe { libc::geteuid() };
         assert!(rules.contains("pass out quick on utun8 all"));
+        assert!(rules.contains(&format!("pass out quick all user {uid}\n")));
+        assert!(!rules.contains("pass out quick user"));
         assert!(rules.contains("pass out quick to 192.0.2.1"));
         assert!(rules.ends_with("block drop out quick to 203.0.113.0/24\n"));
     }
