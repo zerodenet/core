@@ -68,6 +68,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
 
       - name: Test workspace contracts
+        env:
+          RUST_MIN_STACK: "16777216"
         run: cargo test --workspace --all-features
 
   build:

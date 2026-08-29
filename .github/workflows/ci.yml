@@ -74,6 +74,8 @@ jobs:
         run: cargo check --workspace --all-features
 
       - name: Test (workspace, including connector webhook delivery)
+        env:
+          RUST_MIN_STACK: "16777216"
         run: cargo test --workspace --all-features
 
       - name: Architecture boundary tests
