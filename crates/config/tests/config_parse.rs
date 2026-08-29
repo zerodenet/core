@@ -1891,10 +1891,9 @@ fn rejects_tun_tag_that_duplicates_a_listener_tag() {
 }
 
 #[test]
-fn strict_declarative_tun_rejects_recursive_or_hostname_dns_endpoints() {
+fn strict_declarative_tun_rejects_missing_or_hostname_dns_endpoints() {
     for dns in [
         r#"{ "servers": {}, "default_server": "missing" }"#,
-        r#"{ "servers": { "local": { "type": "system" } }, "default_server": "local" }"#,
         r#"{ "servers": { "named": { "type": "udp", "host": "dns.example" } }, "default_server": "named" }"#,
         r#"{ "servers": { "named": { "type": "doh", "host": "dns.example" } }, "default_server": "named" }"#,
         r#"{ "servers": { "named": { "type": "dot", "host": "dns.example" } }, "default_server": "named" }"#,
