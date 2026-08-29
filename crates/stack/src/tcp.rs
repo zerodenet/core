@@ -35,8 +35,10 @@ use zero_traits::{SocketAddress, TcpStack};
 
 use crate::packet::{self, tcp_flags, Endpoint, ParsedTcp};
 
+mod control;
 mod receive;
 mod retransmission;
+use control::TcpControlPackets;
 use receive::TcpReceiveBuffer;
 use retransmission::{RetransmissionResult, RetransmissionWait, TcpSendControl};
 
@@ -189,7 +191,7 @@ pub struct UserTcpStream {
 struct TcpRead {
     receive_buffer: Arc<TcpReceiveBuffer>,
     send_control: Arc<TcpSendControl>,
-    outbound: mpsc::Sender<Vec<u8>>,
+    control_packets: TcpControlPackets,
     src_ip: IpAddr,
     dst_ip: IpAddr,
     sport: u16,
@@ -201,6 +203,7 @@ struct TcpRead {
 struct TcpWrite {
     /// Outbound packet channel (→ TUN writer task).
     outbound: mpsc::Sender<Vec<u8>>,
+    control_packets: TcpControlPackets,
     /// Our IP (server side).
     src_ip: IpAddr,
     /// Application IP (client side).
@@ -224,10 +227,17 @@ type OutboundReservation = Pin<
 >;
 
 impl TcpWrite {
-    fn new(outbound: mpsc::Sender<Vec<u8>>, conn_key: &ConnKey, conn: &Conn, mss: u16) -> Self {
+    fn new(
+        outbound: mpsc::Sender<Vec<u8>>,
+        control_packets: TcpControlPackets,
+        conn_key: &ConnKey,
+        conn: &Conn,
+        mss: u16,
+    ) -> Self {
         let rev = key_reversed(conn_key);
         let value = Self {
             outbound,
+            control_packets,
             src_ip: rev.0,
             dst_ip: rev.2,
             sport: rev.1,
@@ -294,7 +304,7 @@ impl UserTcpStream {
             read: StdMutex::new(TcpRead {
                 receive_buffer,
                 send_control,
-                outbound: write.outbound.clone(),
+                control_packets: write.control_packets.clone(),
                 src_ip: write.src_ip,
                 dst_ip: write.dst_ip,
                 sport: write.sport,
@@ -326,7 +336,7 @@ impl Drop for UserTcpStream {
             w.receive_buffer.window(),
             &[],
         );
-        if w.outbound.try_send(reset).is_ok() {
+        if w.control_packets.try_send(reset) {
             w.fin_sent.store(true, Ordering::Release);
         }
         w.send_control.stop();
@@ -360,9 +370,7 @@ impl AsyncRead for UserTcpStream {
                 read.receive_buffer.window(),
                 &[],
             );
-            if let Err(error) = read.outbound.try_send(update) {
-                warn!(%error, "TCP receive-window update could not be queued");
-            }
+            read.control_packets.try_send(update);
         }
         match result {
             Poll::Ready(()) => Poll::Ready(Ok(())),
@@ -503,26 +511,27 @@ pub struct UserTcpStack {
     accept_tx: mpsc::Sender<ReadyConn>,
     accept_rx: Mutex<mpsc::Receiver<ReadyConn>>,
     outbound: mpsc::Sender<Vec<u8>>,
+    control_packets: TcpControlPackets,
     mss: u16,
 }
 
 impl UserTcpStack {
     pub(crate) fn new(outbound: mpsc::Sender<Vec<u8>>, mss: u16) -> Self {
         let (tx, rx) = mpsc::channel::<ReadyConn>(64);
+        let control_packets = TcpControlPackets::new(outbound.clone());
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
             accept_tx: tx,
             accept_rx: Mutex::new(rx),
             outbound,
+            control_packets,
             mss,
         }
     }
 
-    /// Send a response packet.  Silently drops if the channel is full.
+    /// Queue a control response without awaiting while connection state is locked.
     fn send_response(&self, pkt: Vec<u8>) {
-        if let Err(e) = self.outbound.try_send(pkt) {
-            warn!("tcp stack outbound full: {e}");
-        }
+        self.control_packets.try_send(pkt);
     }
 
     /// Remove connections idle beyond `timeout`.
@@ -592,6 +601,7 @@ impl TcpStack for UserTcpStack {
     type Connection = UserTcpStream;
 
     async fn feed(&self, packet: &[u8]) {
+        self.control_packets.ensure_worker();
         if packet::ip_protocol(packet) != Some(packet::IPPROTO_TCP) {
             return;
         }
@@ -645,6 +655,7 @@ impl TcpStack for UserTcpStack {
 
                     let write = TcpWrite::new(
                         self.outbound.clone(),
+                        self.control_packets.clone(),
                         &key,
                         conn,
                         conn.peer_mss.min(self.mss),
