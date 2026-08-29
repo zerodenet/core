@@ -56,6 +56,7 @@ pub(super) fn execute_fake_ip_clear(
                     removed_mappings = cleared.removed_mappings,
                     removed_addresses = cleared.removed_addresses,
                     live_mappings = cleared.live_mappings,
+                    retired_addresses = cleared.retired_addresses,
                     "cleared Fake-IP mappings"
                 );
                 Ok(zero_api::CommandResponse {
@@ -70,6 +71,7 @@ pub(super) fn execute_fake_ip_clear(
                         "removed_mappings": cleared.removed_mappings,
                         "removed_addresses": cleared.removed_addresses,
                         "live_mappings": cleared.live_mappings,
+                        "retired_addresses": cleared.retired_addresses,
                     })),
                 })
             })

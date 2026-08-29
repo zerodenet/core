@@ -4,7 +4,11 @@ use std::time::Instant;
 
 use zero_traits::IpAddress;
 
-use super::{expire_mappings, persisted_mappings, remove_domain, to_std_address, FakeIpAllocator};
+use super::persistence::{unix_time_ms, PersistedRetiredAddress};
+use super::retirement::{
+    expire_mappings, persisted_retired_addresses, prune_retired, retire_domain_in_memory,
+};
+use super::{duration_millis, persisted_mappings, to_std_address, FakeIpAllocator, RetiredAddress};
 use crate::message::normalize_domain;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,13 +25,21 @@ pub struct FakeIpClearResult {
     /// Number of IPv4 and IPv6 reverse-map entries removed.
     pub removed_addresses: usize,
     pub live_mappings: usize,
+    pub retired_addresses: usize,
 }
 
 impl FakeIpAllocator {
     pub(crate) async fn clear(&self, target: FakeIpClearTarget) -> io::Result<FakeIpClearResult> {
         let clear_all = matches!(&target, FakeIpClearTarget::All);
         let mut state = self.inner.lock().await;
-        expire_mappings(&mut state, Instant::now(), &self.stats);
+        let now = Instant::now();
+        let now_unix_ms = if state.persistence.is_some() {
+            unix_time_ms()?
+        } else {
+            0
+        };
+        expire_mappings(&mut state, now, now_unix_ms, self.ttl, &self.stats)?;
+        prune_retired(&mut state, now);
         let domains = match target {
             FakeIpClearTarget::All => state.forward.keys().cloned().collect::<HashSet<_>>(),
             FakeIpClearTarget::Domain(domain) => {
@@ -58,17 +70,35 @@ impl FakeIpAllocator {
         // to discard historical upserts from the journal.
         if clear_all || !domains.is_empty() {
             let mappings = persisted_mappings(&state, Some(&domains));
+            let retirement = RetiredAddress {
+                reusable_at: now + self.ttl,
+                reusable_after_unix_ms: now_unix_ms.saturating_add(duration_millis(self.ttl)),
+            };
+            let mut retired = persisted_retired_addresses(&state);
+            retired.extend(domains.iter().flat_map(|domain| {
+                state
+                    .forward
+                    .get(domain)
+                    .into_iter()
+                    .flat_map(|mapping| mapping.addresses())
+                    .map(|ip| PersistedRetiredAddress {
+                        ip,
+                        reusable_after_unix_ms: retirement.reusable_after_unix_ms,
+                    })
+            }));
+            retired.sort_by_key(|entry| (entry.reusable_after_unix_ms, entry.ip));
             if let Some(persistence) = state.persistence.as_mut() {
-                persistence.compact(&mappings)?;
+                persistence.compact(&mappings, &retired)?;
             }
-        }
-        for domain in &domains {
-            remove_domain(&mut state, domain);
+            for domain in &domains {
+                retire_domain_in_memory(&mut state, domain, retirement);
+            }
         }
         Ok(FakeIpClearResult {
             removed_mappings: domains.len(),
             removed_addresses,
             live_mappings: state.forward.len(),
+            retired_addresses: state.retired.len(),
         })
     }
 }

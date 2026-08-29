@@ -76,6 +76,7 @@ async fn fake_ip_clear_command_supports_address_and_all_scopes() {
     assert_eq!(result["scope"], "ip");
     assert_eq!(result["removed_mappings"], 1);
     assert_eq!(result["live_mappings"], 1);
+    assert_eq!(result["retired_addresses"], 1);
     assert!(resolver
         .lookup_fake_ip_domain("first.example")
         .await
@@ -89,6 +90,7 @@ async fn fake_ip_clear_command_supports_address_and_all_scopes() {
     assert_eq!(result["scope"], "all");
     assert_eq!(result["removed_mappings"], 1);
     assert_eq!(result["live_mappings"], 0);
+    assert_eq!(result["retired_addresses"], 2);
 }
 
 #[test]

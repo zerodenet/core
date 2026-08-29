@@ -65,6 +65,41 @@ async fn restores_live_mapping_after_process_rebuild() {
 }
 
 #[tokio::test]
+async fn restores_latest_refresh_when_an_older_upsert_has_expired() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let path = directory.path().join("fake-ip.jsonl");
+    let config = config("198.18.0.0/24", 1);
+
+    let first = build(&config, &path);
+    zero_traits::DnsResolver::resolve(&first, "refresh.example")
+        .await
+        .expect("allocate first Fake-IP");
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    zero_traits::DnsResolver::resolve(&first, "refresh.example")
+        .await
+        .expect("refresh Fake-IP");
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    drop(first);
+
+    let restored = build(&config, &path);
+    assert_eq!(
+        restored
+            .lookup_fake_ip_domain("refresh.example")
+            .await
+            .as_deref(),
+        Some("198.18.0.1")
+    );
+    assert_eq!(
+        restored
+            .fake_ip_stats()
+            .await
+            .expect("Fake-IP stats")
+            .retired_addresses,
+        0
+    );
+}
+
+#[tokio::test]
 async fn targeted_and_full_clear_are_persisted_atomically() {
     let directory = tempfile::tempdir().expect("state directory");
     let path = directory.path().join("fake-ip.jsonl");
@@ -87,9 +122,18 @@ async fn targeted_and_full_clear_are_persisted_atomically() {
     assert_eq!(cleared.removed_mappings, 1);
     assert_eq!(cleared.removed_addresses, 1);
     assert_eq!(cleared.live_mappings, 1);
+    assert_eq!(cleared.retired_addresses, 1);
     drop(first);
 
     let restored = build(&config, &path);
+    assert_eq!(
+        restored
+            .fake_ip_stats()
+            .await
+            .expect("Fake-IP stats")
+            .retired_addresses,
+        1
+    );
     assert!(restored
         .lookup_fake_ip_domain("remove.example")
         .await
@@ -108,6 +152,7 @@ async fn targeted_and_full_clear_are_persisted_atomically() {
         .expect("Fake-IP enabled");
     assert_eq!(cleared.removed_mappings, 1);
     assert_eq!(cleared.live_mappings, 0);
+    assert_eq!(cleared.retired_addresses, 2);
     drop(restored);
 
     let empty = build(&config, &path);
@@ -239,10 +284,25 @@ async fn expired_mapping_is_not_restored() {
         .lookup_fake_ip_domain("expired.example")
         .await
         .is_none());
+    assert_eq!(
+        rebuilt
+            .fake_ip_stats()
+            .await
+            .expect("Fake-IP stats")
+            .retired_addresses,
+        1,
+        "an expired persisted mapping must finish its retirement quarantine"
+    );
+    assert_eq!(
+        zero_traits::DnsResolver::resolve(&rebuilt, "replacement.example")
+            .await
+            .expect("allocate around retired address"),
+        vec![zero_traits::IpAddress::V4([198, 18, 0, 2])]
+    );
 }
 
 #[tokio::test]
-async fn migrates_v1_ipv4_state_into_dual_stack_v2_journal() {
+async fn migrates_v1_ipv4_state_into_dual_stack_v3_journal() {
     let directory = tempfile::tempdir().expect("state directory");
     let path = directory.path().join("fake-ip.jsonl");
     let expires_at_unix_ms = std::time::SystemTime::now()
@@ -282,9 +342,118 @@ async fn migrates_v1_ipv4_state_into_dual_stack_v2_journal() {
         .lines()
         .next()
         .unwrap()
-        .contains("zero.dns.fake-ip.v2"));
+        .contains("zero.dns.fake-ip.v3"));
     assert!(journal.contains("198.18.0.7"));
     assert!(journal.contains("fd00::"));
+}
+
+#[tokio::test]
+async fn migrates_v2_state_into_retirement_aware_v3_journal() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let path = directory.path().join("fake-ip.jsonl");
+    let expires_at_unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + 3_600_000;
+    std::fs::write(
+        &path,
+        format!(
+            "{{\"record\":\"header\",\"schema\":\"zero.dns.fake-ip.v2\",\"cidr\":\"198.18.0.0/24\",\"ipv6_cidr\":null,\"ttl_seconds\":3600,\"max_entries\":16,\"exclusions\":[]}}\n{{\"record\":\"upsert\",\"domain\":\"migrate-v2.example\",\"ip\":\"198.18.0.9\",\"expires_at_unix_ms\":{expires_at_unix_ms}}}\n"
+        ),
+    )
+    .expect("write v2 state");
+
+    let dns = build(&config("198.18.0.0/24", 3_600), &path);
+    assert_eq!(
+        dns.lookup_fake_ip(&zero_traits::IpAddress::V4([198, 18, 0, 9]))
+            .await
+            .as_deref(),
+        Some("migrate-v2.example")
+    );
+    drop(dns);
+
+    let journal = std::fs::read_to_string(path).expect("read migrated journal");
+    assert!(journal
+        .lines()
+        .next()
+        .unwrap()
+        .contains("zero.dns.fake-ip.v3"));
+    assert!(journal.contains("198.18.0.9"));
+}
+
+#[tokio::test]
+async fn quarantines_ambiguous_cross_domain_reuse_from_v2_state() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let path = directory.path().join("fake-ip.jsonl");
+    let expires_at_unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + 3_600_000;
+    std::fs::write(
+        &path,
+        format!(
+            "{{\"record\":\"header\",\"schema\":\"zero.dns.fake-ip.v2\",\"cidr\":\"198.18.0.0/24\",\"ipv6_cidr\":null,\"ttl_seconds\":3600,\"max_entries\":16,\"exclusions\":[]}}\n{{\"record\":\"upsert\",\"domain\":\"old.example\",\"ip\":\"198.18.0.1\",\"expires_at_unix_ms\":{expires_at_unix_ms}}}\n{{\"record\":\"upsert\",\"domain\":\"new.example\",\"ip\":\"198.18.0.1\",\"expires_at_unix_ms\":{expires_at_unix_ms}}}\n"
+        ),
+    )
+    .expect("write ambiguous v2 state");
+
+    let dns = build(&config("198.18.0.0/24", 3_600), &path);
+    assert!(dns.lookup_fake_ip_domain("old.example").await.is_none());
+    assert!(dns.lookup_fake_ip_domain("new.example").await.is_none());
+    assert!(dns
+        .lookup_fake_ip(&zero_traits::IpAddress::V4([198, 18, 0, 1]))
+        .await
+        .is_none());
+    assert_eq!(
+        dns.fake_ip_stats()
+            .await
+            .expect("Fake-IP stats")
+            .retired_addresses,
+        1
+    );
+    assert_eq!(
+        zero_traits::DnsResolver::resolve(&dns, "replacement.example")
+            .await
+            .expect("allocate around ambiguous retired address"),
+        vec![zero_traits::IpAddress::V4([198, 18, 0, 2])]
+    );
+}
+
+#[tokio::test]
+async fn restores_retired_address_after_admin_clear() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let path = directory.path().join("fake-ip.jsonl");
+    let config = config("198.18.0.0/24", 3_600);
+
+    let first = build(&config, &path);
+    let assigned = zero_traits::DnsResolver::resolve(&first, "removed.example")
+        .await
+        .expect("allocate Fake-IP");
+    first
+        .clear_fake_ip(zero_dns::FakeIpClearTarget::All)
+        .await
+        .expect("clear Fake-IP")
+        .expect("Fake-IP enabled");
+    drop(first);
+
+    let restored = build(&config, &path);
+    assert!(restored.lookup_fake_ip(&assigned[0]).await.is_none());
+    assert_eq!(
+        restored
+            .fake_ip_stats()
+            .await
+            .expect("Fake-IP stats")
+            .retired_addresses,
+        1
+    );
+    assert_eq!(
+        zero_traits::DnsResolver::resolve(&restored, "replacement.example")
+            .await
+            .expect("allocate replacement Fake-IP"),
+        vec![zero_traits::IpAddress::V4([198, 18, 0, 2])]
+    );
 }
 
 fn dns_query(domain: &str, query_type: u16) -> Vec<u8> {

@@ -711,6 +711,13 @@ impl DnsSystem {
                     };
                 }
                 if question.query_type == message::TYPE_AAAA {
+                    if !allocator.ipv6_enabled() {
+                        return message::build_address_response(
+                            query,
+                            &[],
+                            allocator.ttl_seconds(),
+                        );
+                    }
                     return match allocator.alloc_ipv6(&question.domain).await {
                         Ok(Some(address)) => message::build_address_response(
                             query,
@@ -718,7 +725,7 @@ impl DnsSystem {
                             allocator.ttl_seconds(),
                         ),
                         Ok(None) => {
-                            message::build_address_response(query, &[], allocator.ttl_seconds())
+                            message::build_error_response(query, message::RCODE_SERVFAIL, false)
                         }
                         Err(error) => {
                             tracing::error!(
@@ -887,9 +894,7 @@ impl DnsResolver for DnsSystem {
             if !alloc.is_excluded(domain) {
                 let addresses =
                     allocate_fake_addresses(alloc, domain, snapshot.policy.address_family).await?;
-                if !addresses.is_empty() {
-                    return Ok(addresses);
-                }
+                return Ok(addresses);
             }
         }
 
@@ -904,17 +909,32 @@ async fn allocate_fake_addresses(
     policy: DnsAddressFamilyPolicy,
 ) -> io::Result<Vec<IpAddress>> {
     match policy {
-        DnsAddressFamilyPolicy::Ipv4Only => {
-            Ok(allocator.alloc_ipv4(domain).await?.into_iter().collect())
-        }
+        DnsAddressFamilyPolicy::Ipv4Only => allocator
+            .alloc_ipv4(domain)
+            .await?
+            .map(|address| vec![address])
+            .ok_or_else(|| fake_ip_exhausted("IPv4")),
         DnsAddressFamilyPolicy::Ipv6Only => {
-            Ok(allocator.alloc_ipv6(domain).await?.into_iter().collect())
+            if !allocator.ipv6_enabled() {
+                return Ok(Vec::new());
+            }
+            allocator
+                .alloc_ipv6(domain)
+                .await?
+                .map(|address| vec![address])
+                .ok_or_else(|| fake_ip_exhausted("IPv6"))
         }
         DnsAddressFamilyPolicy::PreferIpv4 | DnsAddressFamilyPolicy::PreferIpv6 => {
             let (ipv4, ipv6) =
                 tokio::join!(allocator.alloc_ipv4(domain), allocator.alloc_ipv6(domain),);
             let ipv4 = ipv4?;
             let ipv6 = ipv6?;
+            if ipv4.is_none() && (allocator.ipv6_enabled() && ipv6.is_none()) {
+                return Err(fake_ip_exhausted("IPv4 and IPv6"));
+            }
+            if ipv4.is_none() && !allocator.ipv6_enabled() {
+                return Err(fake_ip_exhausted("IPv4"));
+            }
             let mut addresses = Vec::with_capacity(2);
             let ordered = if policy == DnsAddressFamilyPolicy::PreferIpv4 {
                 [ipv4, ipv6]
@@ -925,6 +945,13 @@ async fn allocate_fake_addresses(
             Ok(addresses)
         }
     }
+}
+
+fn fake_ip_exhausted(family: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::AddrNotAvailable,
+        format!("Fake-IP {family} pool is exhausted by live or retired addresses"),
+    )
 }
 
 async fn resolve_snapshot(
