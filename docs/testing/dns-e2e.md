@@ -151,12 +151,18 @@ section glue is not promoted to a trusted address candidate.
 When `reverse_mapping` is present, successful real A/AAAA answers also populate
 a bounded IP-to-domain index owned by `zero-dns`. Transparent TUN sessions may
 recover an unambiguous logical domain from that index while retaining the
-client-selected IP as their direct socket target. Explicit SOCKS/HTTP IP targets
-are never rewritten. Shared CDN addresses with multiple live domain candidates
-remain IP targets instead of guessing; TLS/HTTP/QUIC sniffing may still recover
-a stronger application-layer name. The index is TTL-capped, address-LRU bounded,
-preserved across compatible hot reloads, and intentionally not persisted across
-process restarts.
+client-selected IP as their authoritative direct socket target. For TCP, an
+explicitly recovered domain also contributes current real-DNS candidates after
+that original endpoint; the bounded candidate dialer can therefore recover from
+a stale captured IPv4 address without guessing a name for IP-only traffic. DNS
+refresh failure retains the original literal candidate. Connectionless direct
+UDP remains pinned to the usable client-selected endpoint because it has no TCP-
+style connect failure that safely authorizes retargeting. Explicit SOCKS/HTTP IP
+targets are never rewritten. Shared CDN addresses with multiple live domain
+candidates remain IP targets instead of guessing; TLS/HTTP/QUIC sniffing may
+still recover a stronger application-layer name. The index is TTL-capped,
+address-LRU bounded, preserved across compatible hot reloads, and intentionally
+not persisted across process restarts.
 
 Fake-IP names are IDNA-normalized, lower-cased, and trailing-dot insensitive.
 Mappings expire in both directions, are bounded by `max_entries`, and use
