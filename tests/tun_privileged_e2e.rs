@@ -1618,9 +1618,9 @@ fn runtime_total_started(binary: &str, socket: &std::path::Path) -> u64 {
     let output = run_cli_output(binary, ["status", "--json", "--socket", path(socket)]);
     let snapshot: serde_json::Value =
         serde_json::from_str(&output).expect("runtime status response must be JSON");
-    snapshot["stats"]["total_started"]
+    snapshot["runtime"]["stats"]["total_started"]
         .as_u64()
-        .expect("runtime status must expose stats.total_started")
+        .expect("runtime status must expose runtime.stats.total_started")
 }
 
 fn assert_direct_dns_round_trip(socket: &UdpSocket, target: SocketAddr, id: u16) {
