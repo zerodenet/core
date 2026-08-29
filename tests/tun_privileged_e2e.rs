@@ -618,6 +618,7 @@ fn config_json(
     .unwrap()
 }
 
+#[cfg(windows)]
 fn config_json_with_dns(
     ipv6: bool,
     listen_port: u16,
@@ -1919,6 +1920,7 @@ impl Drop for MockTcpResponder {
 struct MockDns {
     address: SocketAddr,
     stop: Arc<AtomicBool>,
+    #[cfg_attr(not(windows), allow(dead_code))]
     query_counts: Arc<Mutex<HashMap<(String, u16), usize>>>,
     worker: Option<JoinHandle<()>>,
 }
@@ -1928,6 +1930,7 @@ impl MockDns {
         Self::start_with_ipv4_answer([127, 0, 0, 1], Duration::ZERO)
     }
 
+    #[cfg(windows)]
     fn start_for_ipv4_only(address: IpAddr) -> Self {
         let IpAddr::V4(address) = address else {
             panic!("IPv4-only mock DNS answer must be IPv4");
@@ -1986,6 +1989,7 @@ impl MockDns {
         }
     }
 
+    #[cfg(windows)]
     fn query_count(&self, domain: &str, query_type: u16) -> usize {
         self.query_counts
             .lock()
