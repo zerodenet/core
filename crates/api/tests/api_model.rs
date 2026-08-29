@@ -46,6 +46,12 @@ fn tun_status_defaults_to_command_managed_for_forward_compatibility() {
     .expect("deserialize legacy TUN status");
 
     assert!(!status.managed_by_config);
+    assert_eq!(
+        status.ipv4_egress.availability,
+        zero_api::TunFamilyEgressAvailability::Unknown
+    );
+    assert_eq!(status.network_generation, 0);
+    assert_eq!(status.ipv6_to_ipv4_fallbacks, 0);
 }
 
 #[test]
@@ -65,6 +71,14 @@ fn flow_path_network_context_is_additive_and_optional() {
                 { "host": "198.51.100.8", "port": 443 },
                 { "host": "2001:db8::8", "port": 443 }
             ],
+            "address_family_policy": "prefer_ipv4",
+            "address_family_fallback": {
+                "from": "ipv6",
+                "to": "ipv4",
+                "reason": "tun_ipv6_egress_unavailable",
+                "trigger_egress_generation": 11,
+                "unavailable_reason": "no physical IPv6 default route"
+            },
             "selected_interface": { "name": "Ethernet", "index": 7 },
             "egress": {
                 "generation": 12,
@@ -90,6 +104,16 @@ fn flow_path_network_context_is_additive_and_optional() {
     assert_eq!(network.local_address.unwrap().port, 49152);
     assert_eq!(network.remote_address.unwrap().host, "198.51.100.8");
     assert_eq!(network.resolved_candidates.len(), 2);
+    assert_eq!(
+        network.address_family_policy.as_deref(),
+        Some("prefer_ipv4")
+    );
+    let fallback = network
+        .address_family_fallback
+        .expect("address-family fallback context");
+    assert_eq!(fallback.from, "ipv6");
+    assert_eq!(fallback.to, "ipv4");
+    assert_eq!(fallback.trigger_egress_generation, 11);
     assert_eq!(network.selected_interface.unwrap().index, 7);
     let egress = network.egress.unwrap();
     assert_eq!(egress.generation, 12);

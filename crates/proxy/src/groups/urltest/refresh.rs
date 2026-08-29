@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Instant;
 
 use futures_util::stream::{self, StreamExt};
@@ -37,15 +38,28 @@ impl UrlTestRuntime {
         let group_tag = group.tag();
         let started_at_unix_ms = unix_timestamp_ms();
         let started_at = Instant::now();
+        let previous_members = self
+            .urltest_state(group_id)
+            .map(|state| {
+                state
+                    .members
+                    .into_iter()
+                    .map(|member| (member.member_id, member))
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
 
         // The shared neutral probe runtime keeps real socket concurrency bounded
         // across URLTest groups and synchronous diagnostics.
         let mut probe_results = stream::iter(urltest.members().iter().copied().enumerate())
-            .map(|(index, member_id)| async move {
+            .map(|(index, member_id)| {
+                let previous = previous_members.get(&member_id).cloned();
+                async move {
                 let member = self
                     .target_tag(member_id)
                     .unwrap_or_else(|| "<unknown>".to_owned());
                 let effective_chains = self.resolve_target_chains(member_id);
+                let previous = previous.as_ref();
 
                 match self
                     .outbound_probe
@@ -70,7 +84,43 @@ impl UrlTestRuntime {
                             error: None,
                         },
                         Some((member_id, latency_ms)),
+                        false,
                     ),
+                    Err(error) if error.is_environmental_failure() => {
+                        let healthy = previous.is_some_and(|member| member.healthy);
+                        let latency_ms = previous.and_then(|member| member.latency_ms);
+                        debug!(
+                            group_tag,
+                            outbound_tag = member,
+                            error = %error,
+                            preserved_healthy = healthy,
+                            "urltest probe was inconclusive because local network prerequisites were unavailable"
+                        );
+                        (
+                            index,
+                            UrlTestMemberState {
+                                member_id,
+                                healthy,
+                                latency_ms,
+                                last_checked_unix_ms: previous
+                                    .and_then(|member| member.last_checked_unix_ms),
+                                last_error: Some(format!("inconclusive: {}", error.message())),
+                                effective_chains,
+                            },
+                            PolicyProbeMember {
+                                target_tag: member,
+                                healthy,
+                                latency_ms,
+                                error_code: Some("environment_unavailable".to_owned()),
+                                error: Some(error.message().to_owned()),
+                            },
+                            healthy
+                                .then_some(latency_ms)
+                                .flatten()
+                                .map(|latency_ms| (member_id, latency_ms)),
+                            true,
+                        )
+                    }
                     Err(error) => {
                         debug!(
                             group_tag,
@@ -96,22 +146,26 @@ impl UrlTestRuntime {
                                 error: Some(error.message().to_owned()),
                             },
                             None,
+                            false,
                         )
                     }
+                }
                 }
             })
             .buffer_unordered(MAX_CONCURRENT_OUTBOUND_PROBES)
             .collect::<Vec<_>>()
             .await;
 
-        probe_results.sort_by_key(|(index, _, _, _)| *index);
+        probe_results.sort_by_key(|(index, _, _, _, _)| *index);
         let mut member_states = Vec::with_capacity(probe_results.len());
         let mut probe_members = Vec::with_capacity(probe_results.len());
         let mut successful_members = Vec::with_capacity(probe_results.len());
-        for (_, member_state, probe_member, success) in probe_results {
+        let mut inconclusive_members = 0_usize;
+        for (_, member_state, probe_member, success, inconclusive) in probe_results {
             if let Some(success) = success {
                 successful_members.push(success);
             }
+            inconclusive_members += usize::from(inconclusive);
             member_states.push(member_state);
             probe_members.push(probe_member);
         }
@@ -140,9 +194,11 @@ impl UrlTestRuntime {
 
         let completed_at_unix_ms = unix_timestamp_ms();
         let duration_ms = started_at.elapsed().as_millis() as u64;
-        let terminal_status = match healthy_members {
-            count if count == total_members => "succeeded",
-            0 => "failed",
+        let terminal_status = match (healthy_members, inconclusive_members) {
+            (_, inconclusive) if inconclusive == total_members => "inconclusive",
+            (_, inconclusive) if inconclusive > 0 => "partial_failure",
+            (healthy, _) if healthy == total_members => "succeeded",
+            (0, _) => "failed",
             _ => "partial_failure",
         };
         let event_payload = PolicyProbeCompletedPayload {
@@ -228,6 +284,10 @@ impl UrlTestRuntime {
 
     fn urltest_selected_target(&self, group_id: TargetId) -> Option<TargetId> {
         self.services.engine().urltest_selected_target(group_id)
+    }
+
+    fn urltest_state(&self, group_id: TargetId) -> Option<zero_engine::UrlTestGroupState> {
+        self.services.engine().urltest_state(group_id)
     }
 
     fn update_urltest_state(

@@ -15,6 +15,14 @@ fn running_tun_status_exposes_route_health_and_error() {
     )
     .expect("parse config");
     let proxy = Proxy::new(config).expect("build proxy");
+    proxy.egress_interface.replace_for(
+        false,
+        Some(zero_platform_tokio::EgressInterface::new("physical0", 7).expect("valid IPv4 egress")),
+    );
+    proxy
+        .egress_interface
+        .mark_unavailable_for(true, "no_default_route");
+    proxy.egress_interface.record_ipv6_to_ipv4_fallback();
     *proxy.tun_info.lock().unwrap() = Some(TunInfo {
         id: 1,
         name: "zero-test".to_owned(),
@@ -51,4 +59,19 @@ fn running_tun_status_exposes_route_health_and_error() {
         Some("route reconciliation failed")
     );
     assert_eq!(status.egress_interface_v4.as_deref(), Some("physical0"));
+    assert_eq!(
+        status.ipv4_egress.availability,
+        zero_api::TunFamilyEgressAvailability::Available
+    );
+    assert_eq!(
+        status.ipv6_egress.availability,
+        zero_api::TunFamilyEgressAvailability::Unavailable
+    );
+    assert_eq!(
+        status.ipv6_egress.reason.as_deref(),
+        Some("no_default_route")
+    );
+    assert_eq!(status.network_generation, 2);
+    assert!(status.address_family_policy.is_some());
+    assert_eq!(status.ipv6_to_ipv4_fallbacks, 1);
 }

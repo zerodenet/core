@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_config::{
@@ -620,6 +621,170 @@ async fn mismatched_transaction_id_is_ignored() {
         dns.resolve_real_type("id.example", 1).await.unwrap(),
         vec![IpAddress::V4([192, 0, 2, 2])]
     );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn direct_ipv4_resolution_queries_only_a_records() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+        let request = &request[..size];
+        let query_type_offset = question_end(request) - 4;
+        assert_eq!(
+            u16::from_be_bytes([request[query_type_offset], request[query_type_offset + 1]]),
+            1
+        );
+        let response =
+            zero_dns::udp::build_dns_response(request, &[IpAddress::V4([198, 51, 100, 7])]);
+        socket.send_to(&response, peer).await.unwrap();
+        let mut unexpected = [0_u8; 4096];
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                socket.recv_from(&mut unexpected)
+            )
+            .await
+            .is_err(),
+            "IPv4 fallback unexpectedly emitted an additional AAAA query"
+        );
+    });
+    let dns = zero_dns::DnsSystem::build(Some(&config(port, DnsAnswerConfig::Real))).unwrap();
+
+    assert_eq!(
+        dns.resolve_direct_ipv4("fallback.example").await.unwrap(),
+        vec![IpAddress::V4([198, 51, 100, 7])]
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_real_resolutions_share_one_backend_query() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let response =
+            zero_dns::udp::build_dns_response(&request[..size], &[IpAddress::V4([203, 0, 113, 9])]);
+        socket.send_to(&response, peer).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), socket.recv_from(&mut request))
+                .await
+                .is_err(),
+            "coalesced resolution emitted more than one backend query"
+        );
+    });
+    let dns =
+        Arc::new(zero_dns::DnsSystem::build(Some(&config(port, DnsAnswerConfig::Real))).unwrap());
+    let mut tasks = Vec::new();
+    for _ in 0..16 {
+        let dns = Arc::clone(&dns);
+        tasks.push(tokio::spawn(async move {
+            dns.resolve_real_type("coalesced.example", 1).await
+        }));
+    }
+    for task in tasks {
+        assert_eq!(
+            task.await.unwrap().unwrap(),
+            vec![IpAddress::V4([203, 0, 113, 9])]
+        );
+    }
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_wire_queries_share_backend_work_and_keep_transaction_ids() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let response = zero_dns::udp::build_dns_response(
+            &request[..size],
+            &[IpAddress::V4([203, 0, 113, 10])],
+        );
+        socket.send_to(&response, peer).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), socket.recv_from(&mut request))
+                .await
+                .is_err(),
+            "coalesced wire queries emitted more than one backend query"
+        );
+    });
+    let dns =
+        Arc::new(zero_dns::DnsSystem::build(Some(&config(port, DnsAnswerConfig::Real))).unwrap());
+    let mut tasks = Vec::new();
+    for id in 1_u16..=16 {
+        let dns = Arc::clone(&dns);
+        let mut request = query("wire-coalesced.example", 1, Some(1232));
+        request[..2].copy_from_slice(&id.to_be_bytes());
+        tasks.push(tokio::spawn(async move {
+            let response = dns.answer_udp_query(&request).await.unwrap();
+            (id, response)
+        }));
+    }
+    for task in tasks {
+        let (id, response) = task.await.unwrap();
+        assert_eq!(&response[..2], &id.to_be_bytes());
+        assert_eq!(&response[response.len() - 4..], &[203, 0, 113, 10]);
+    }
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_resolution_is_briefly_negative_cached() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+        let response = response_header(&request[..size], 0, 2, false);
+        socket.send_to(&response, peer).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), socket.recv_from(&mut request))
+                .await
+                .is_err(),
+            "negative-cached failure emitted another backend query"
+        );
+    });
+    let dns = zero_dns::DnsSystem::build(Some(&config(port, DnsAnswerConfig::Real))).unwrap();
+
+    for _ in 0..2 {
+        assert!(dns.resolve_real_type("negative.example", 1).await.is_err());
+    }
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn empty_a_answer_is_briefly_negative_cached_for_direct_fallback() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+        let response = response_header(&request[..size], 0, 0, false);
+        socket.send_to(&response, peer).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), socket.recv_from(&mut request))
+                .await
+                .is_err(),
+            "negative-cached empty A answer emitted another backend query"
+        );
+    });
+    let dns = zero_dns::DnsSystem::build(Some(&config(port, DnsAnswerConfig::Real))).unwrap();
+
+    for _ in 0..2 {
+        let error = dns
+            .resolve_direct_ipv4("only-aaaa.example")
+            .await
+            .expect_err("empty A answer must not resolve a direct fallback target");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
     server.await.unwrap();
 }
 

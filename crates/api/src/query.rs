@@ -292,6 +292,35 @@ pub struct SinkStatusSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TunStatusQuery;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TunFamilyEgressAvailability {
+    #[default]
+    Unknown,
+    Available,
+    Unavailable,
+}
+
+impl TunFamilyEgressAvailability {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Available => "available",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TunFamilyEgressSnapshot {
+    #[serde(default)]
+    pub availability: TunFamilyEgressAvailability,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TunStatusSnapshot {
     #[serde(default)]
@@ -328,6 +357,16 @@ pub struct TunStatusSnapshot {
     pub egress_interface_v4: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub egress_interface_v6: Option<String>,
+    #[serde(default)]
+    pub ipv4_egress: TunFamilyEgressSnapshot,
+    #[serde(default)]
+    pub ipv6_egress: TunFamilyEgressSnapshot,
+    #[serde(default)]
+    pub network_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_family_policy: Option<String>,
+    #[serde(default)]
+    pub ipv6_to_ipv4_fallbacks: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
     #[serde(default)]

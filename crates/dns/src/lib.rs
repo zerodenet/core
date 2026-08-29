@@ -6,6 +6,7 @@
 
 mod backends;
 mod cache;
+mod coordinator;
 mod fake_ip;
 mod message;
 mod reverse;
@@ -27,6 +28,7 @@ use zero_traits::{DnsResolver, IpAddress};
 
 use backends::ResolverBackend;
 use cache::{DnsCache, DnsWireCacheValue};
+use coordinator::{QueryCoordinator, QueryKey};
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
 use reverse::RealIpReverseIndex;
@@ -92,6 +94,8 @@ pub struct DnsSystem {
     fake_ip_state_path: Option<PathBuf>,
     fake_ip_state_lease: std::sync::Mutex<Option<Arc<fake_ip::StateLease>>>,
     query_attempts: Arc<std::sync::Mutex<VecDeque<DnsQueryAttempt>>>,
+    query_coordinator: QueryCoordinator<Vec<IpAddress>>,
+    wire_query_coordinator: QueryCoordinator<Vec<u8>>,
     outbound_connector: std::sync::RwLock<Option<Arc<dyn DnsOutboundConnector>>>,
 }
 
@@ -139,6 +143,10 @@ struct ResolveSnapshot {
     policy: DnsPolicyConfig,
     query_attempts: Arc<std::sync::Mutex<VecDeque<DnsQueryAttempt>>>,
     outbound_connector: Option<Arc<dyn DnsOutboundConnector>>,
+    query_coordinator: QueryCoordinator<Vec<IpAddress>>,
+    wire_query_coordinator: QueryCoordinator<Vec<u8>>,
+    egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    egress_generation: u64,
 }
 
 impl DnsSystem {
@@ -201,6 +209,8 @@ impl DnsSystem {
             fake_ip_state_path,
             fake_ip_state_lease: std::sync::Mutex::new(fake_ip_state_lease),
             query_attempts: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            query_coordinator: QueryCoordinator::default(),
+            wire_query_coordinator: QueryCoordinator::default(),
             outbound_connector: std::sync::RwLock::new(None),
         })
     }
@@ -481,6 +491,10 @@ impl DnsSystem {
                 reverse_mapping: reverse_mapping.clone(),
                 policy: policy.as_ref().clone(),
                 query_attempts: self.query_attempts.clone(),
+                query_coordinator: self.query_coordinator.clone(),
+                wire_query_coordinator: self.wire_query_coordinator.clone(),
+                egress_interface: self.egress_interface.clone(),
+                egress_generation: self.egress_interface.generation(),
                 outbound_connector: self
                     .outbound_connector
                     .read()
@@ -528,6 +542,32 @@ impl DnsSystem {
             .await
     }
 
+    /// Resolve only A records for a direct target. Address-family fallback
+    /// uses this bounded path so an unavailable IPv6 family cannot trigger a
+    /// second AAAA attempt before the IPv4 retry.
+    pub async fn resolve_direct_ipv4(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
+        let domain = message::normalize_domain(domain)?;
+        match self.snapshot() {
+            Some(snapshot) => {
+                resolve_snapshot_type(&domain, message::TYPE_A, DnsQueryRole::Direct, snapshot)
+                    .await
+            }
+            None => {
+                self.resolve_system_type_coordinated(&domain, message::TYPE_A, DnsQueryRole::Direct)
+                    .await
+            }
+        }
+    }
+
+    /// Return the address-family policy applied to real direct-target
+    /// resolution. The system-resolver fallback preserves Zero's historical
+    /// IPv4-first dual-stack behavior.
+    pub fn address_family_policy(&self) -> DnsAddressFamilyPolicy {
+        self.snapshot()
+            .map(|snapshot| snapshot.policy.address_family)
+            .unwrap_or_default()
+    }
+
     /// Resolve a proxy node or carrier endpoint through the bootstrap/node
     /// DNS role. This never allocates a synthetic Fake-IP.
     pub async fn resolve_node(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
@@ -544,8 +584,8 @@ impl DnsSystem {
             Some(snapshot) => resolve_snapshot(&domain, role, snapshot).await,
             None => {
                 let (ipv4, ipv6) = tokio::join!(
-                    self.resolve_system_type(&domain, message::TYPE_A),
-                    self.resolve_system_type(&domain, message::TYPE_AAAA),
+                    self.resolve_system_type_coordinated(&domain, message::TYPE_A, role),
+                    self.resolve_system_type_coordinated(&domain, message::TYPE_AAAA, role),
                 );
                 combine_address_families(ipv4, ipv6)
             }
@@ -569,7 +609,10 @@ impl DnsSystem {
             Some(snapshot) => {
                 resolve_snapshot_type(&domain, query_type, DnsQueryRole::Default, snapshot).await
             }
-            None => self.resolve_system_type(&domain, query_type).await,
+            None => {
+                self.resolve_system_type_coordinated(&domain, query_type, DnsQueryRole::Default)
+                    .await
+            }
         }
     }
 
@@ -593,7 +636,11 @@ impl DnsSystem {
         )
     }
 
-    async fn resolve_system(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
+    async fn resolve_system_coordinated(
+        &self,
+        domain: &str,
+        role: DnsQueryRole,
+    ) -> io::Result<Vec<IpAddress>> {
         let sys_resolver = {
             let guard = self.inner.read().expect("dns system lock poisoned");
             match &*guard {
@@ -601,13 +648,19 @@ impl DnsSystem {
                 _ => TokioSystemResolver,
             }
         };
-        sys_resolver.resolve(domain).await
+        let generation = self.egress_interface.generation();
+        let key = QueryKey::new(domain, 0, role, generation);
+        let domain = domain.to_owned();
+        self.query_coordinator
+            .resolve(key, async move { sys_resolver.resolve(&domain).await })
+            .await
     }
 
-    async fn resolve_system_type(
+    async fn resolve_system_type_coordinated(
         &self,
         domain: &str,
         query_type: u16,
+        role: DnsQueryRole,
     ) -> io::Result<Vec<IpAddress>> {
         let resolver = {
             let guard = self.inner.read().expect("dns system lock poisoned");
@@ -616,7 +669,14 @@ impl DnsSystem {
                 _ => TokioSystemResolver,
             }
         };
-        resolver.resolve_type(domain, query_type).await
+        let generation = self.egress_interface.generation();
+        let key = QueryKey::new(domain, query_type, role, generation);
+        let domain = domain.to_owned();
+        self.query_coordinator
+            .resolve(key, async move {
+                resolver.resolve_type(&domain, query_type).await
+            })
+            .await
     }
 
     async fn answer_query(&self, query: &[u8]) -> Vec<u8> {
@@ -693,47 +753,110 @@ impl DnsSystem {
 
         let result = match snapshot.as_ref() {
             Some(snapshot) => {
-                exchange_snapshot(query, &question.domain, DnsQueryRole::Default, snapshot)
+                let coordinator = snapshot.wire_query_coordinator.clone();
+                let key = QueryKey::new(
+                    &question.domain,
+                    question.query_type,
+                    DnsQueryRole::Default,
+                    snapshot.egress_generation,
+                )
+                .with_wire_query(query);
+                let query_id = [query[0], query[1]];
+                let query = query.to_vec();
+                let domain = question.domain.clone();
+                let snapshot = snapshot.clone();
+                coordinator
+                    .resolve(key, async move {
+                        exchange_snapshot(&query, &domain, DnsQueryRole::Default, &snapshot)
+                            .await
+                            .map(|(response, _)| response)
+                    })
                     .await
-                    .map(|(response, _)| response)
+                    .map(|mut response| {
+                        if let Some(response_id) = response.get_mut(..2) {
+                            response_id.copy_from_slice(&query_id);
+                        }
+                        response
+                    })
             }
-            None => {
-                backends::ResolverBackend::System(TokioSystemResolver)
-                    .exchange(query, None, None)
-                    .await
-            }
+            None if matches!(question.query_type, message::TYPE_A | message::TYPE_AAAA) => self
+                .resolve_system_type_coordinated(
+                    &question.domain,
+                    question.query_type,
+                    DnsQueryRole::Default,
+                )
+                .await
+                .map(|addresses| {
+                    message::build_address_response(
+                        query,
+                        &addresses,
+                        message::DEFAULT_NEGATIVE_TTL_SECONDS,
+                    )
+                })
+                .or_else(|error| {
+                    if error.kind() == io::ErrorKind::NotFound {
+                        Ok(message::build_error_response(
+                            query,
+                            message::RCODE_NXDOMAIN,
+                            false,
+                        ))
+                    } else {
+                        Err(error)
+                    }
+                }),
+            None => Ok(message::build_error_response(
+                query,
+                message::RCODE_NOTIMP,
+                false,
+            )),
         };
         match result.and_then(|response| {
             let parsed = message::parse_response(query, &response)?;
             Ok((response, parsed))
         }) {
             Ok((response, parsed)) => {
-                if let Some(ttl_seconds) = parsed.min_ttl_seconds {
-                    if let Some(reverse_mapping) = snapshot
-                        .as_ref()
-                        .and_then(|snapshot| snapshot.reverse_mapping.as_ref())
-                    {
-                        reverse_mapping
-                            .record(&question.domain, &parsed.addresses, ttl_seconds)
-                            .await;
-                    }
-                    if let Some(cache) = snapshot
-                        .as_ref()
-                        .and_then(|snapshot| snapshot.cache.as_ref())
-                    {
-                        cache
-                            .put_response(
-                                DnsQueryRole::Default,
-                                &question.domain,
-                                question.query_type,
-                                DnsWireCacheValue {
-                                    addresses: parsed.addresses.clone(),
-                                    query: query.to_vec(),
-                                    response: response.clone(),
-                                    ttl_seconds,
-                                },
-                            )
-                            .await;
+                let topology_is_current = snapshot.as_ref().is_none_or(|snapshot| {
+                    snapshot.egress_interface.generation() == snapshot.egress_generation
+                });
+                if !topology_is_current {
+                    tracing::debug!(
+                        domain = %question.domain,
+                        query_type = question.query_type,
+                        query_egress_generation = snapshot
+                            .as_ref()
+                            .map(|snapshot| snapshot.egress_generation),
+                        current_egress_generation = self.egress_interface.generation(),
+                        "discarding DNS wire-cache side effects from an obsolete egress generation"
+                    );
+                }
+                if topology_is_current {
+                    if let Some(ttl_seconds) = parsed.min_ttl_seconds {
+                        if let Some(reverse_mapping) = snapshot
+                            .as_ref()
+                            .and_then(|snapshot| snapshot.reverse_mapping.as_ref())
+                        {
+                            reverse_mapping
+                                .record(&question.domain, &parsed.addresses, ttl_seconds)
+                                .await;
+                        }
+                        if let Some(cache) = snapshot
+                            .as_ref()
+                            .and_then(|snapshot| snapshot.cache.as_ref())
+                        {
+                            cache
+                                .put_response(
+                                    DnsQueryRole::Default,
+                                    &question.domain,
+                                    question.query_type,
+                                    DnsWireCacheValue {
+                                        addresses: parsed.addresses.clone(),
+                                        query: query.to_vec(),
+                                        response: response.clone(),
+                                        ttl_seconds,
+                                    },
+                                )
+                                .await;
+                        }
                     }
                 }
                 response
@@ -752,7 +875,11 @@ impl DnsResolver for DnsSystem {
     async fn resolve(&self, domain: &str) -> Result<Vec<IpAddress>, Self::Error> {
         let snapshot = match self.snapshot() {
             Some(s) => s,
-            None => return self.resolve_system(domain).await,
+            None => {
+                return self
+                    .resolve_system_coordinated(domain, DnsQueryRole::Default)
+                    .await
+            }
         };
 
         // Fake IP path: return synthetic IP instead of real resolution.
@@ -863,12 +990,39 @@ async fn resolve_snapshot_type(
         }
     }
 
+    let coordinator = snapshot.query_coordinator.clone();
+    let key = QueryKey::new(domain, query_type, role, snapshot.egress_generation);
+    let domain = domain.to_owned();
+    coordinator
+        .resolve(key, async move {
+            resolve_snapshot_type_uncached(&domain, query_type, role, snapshot).await
+        })
+        .await
+}
+
+async fn resolve_snapshot_type_uncached(
+    domain: &str,
+    query_type: u16,
+    role: DnsQueryRole,
+    snapshot: ResolveSnapshot,
+) -> io::Result<Vec<IpAddress>> {
     // 2. Dispatch to the selected backend, then walk the explicit fallback
     // chain on transport failure, timeout, malformed data, or retryable RCODE.
     let query = message::build_query(domain, query_type)?;
     let result = exchange_snapshot(&query, domain, role, &snapshot)
         .await
         .and_then(|(_, parsed)| match parsed.response_code {
+            message::RCODE_NOERROR if parsed.addresses.is_empty() => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "DNS name `{domain}` has no {} records",
+                    if query_type == message::TYPE_A {
+                        "A"
+                    } else {
+                        "AAAA"
+                    }
+                ),
+            )),
             message::RCODE_NOERROR => Ok(backends::ResolvedAddresses {
                 addresses: parsed.addresses,
                 ttl_seconds: parsed
@@ -886,23 +1040,37 @@ async fn resolve_snapshot_type(
 
     // 3. Cache on success using the upstream record TTL.
     if let Ok(resolved) = &result {
-        if role == DnsQueryRole::Default {
+        let topology_is_current =
+            snapshot.egress_interface.generation() == snapshot.egress_generation;
+        if !topology_is_current {
+            tracing::debug!(
+                domain,
+                role = role.as_str(),
+                query_type,
+                query_egress_generation = snapshot.egress_generation,
+                current_egress_generation = snapshot.egress_interface.generation(),
+                "discarding DNS cache side effects from an obsolete egress generation"
+            );
+        }
+        if topology_is_current && role == DnsQueryRole::Default {
             if let Some(reverse_mapping) = &snapshot.reverse_mapping {
                 reverse_mapping
                     .record(domain, &resolved.addresses, resolved.ttl_seconds)
                     .await;
             }
         }
-        if let Some(cache) = &snapshot.cache {
-            cache
-                .put(
-                    role,
-                    domain,
-                    query_type,
-                    resolved.addresses.clone(),
-                    resolved.ttl_seconds,
-                )
-                .await;
+        if topology_is_current {
+            if let Some(cache) = &snapshot.cache {
+                cache
+                    .put(
+                        role,
+                        domain,
+                        query_type,
+                        resolved.addresses.clone(),
+                        resolved.ttl_seconds,
+                    )
+                    .await;
+            }
         }
     }
 

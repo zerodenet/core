@@ -6,12 +6,16 @@ use ipnet::IpNet;
 
 use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
 use super::{
-    command_error, family_exclusions, host_prefix, RouteInterface, RouteJournal, RouteLease,
+    command_error, family_exclusions, host_prefix, EgressUnavailableReason, FamilyEgressState,
+    RouteInterface, RouteJournal, RouteLease,
 };
 
 #[derive(Debug)]
 pub struct SystemRouteGuard {
+    /// Carrier used by route installation and exclusion maintenance.
     egress: RouteInterface,
+    /// Native socket reachability for the TUN address family.
+    family_egress: FamilyEgressState,
     tun_name: String,
     ipv6: bool,
     gateway: Option<String>,
@@ -24,6 +28,12 @@ struct LinuxRoute {
     dev: String,
     gateway: Option<String>,
     metric: u32,
+}
+
+struct LinuxEgressSelection {
+    carrier: RouteInterface,
+    gateway: Option<String>,
+    family: FamilyEgressState,
 }
 
 impl SystemRouteGuard {
@@ -53,37 +63,27 @@ impl SystemRouteGuard {
         _netmask: IpAddr,
         captured: &[IpNet],
         excluded: &[IpAddr],
-        publish_egress: impl FnOnce(&RouteInterface) -> io::Result<()>,
+        publish_egress: impl FnOnce(&FamilyEgressState) -> io::Result<()>,
     ) -> io::Result<Self> {
         let ipv6 = address.is_ipv6();
         let lease = RouteLease::acquire(recovery_key, ipv6)?;
         recover_stale_routes(&lease, ipv6)?;
         let has_family_exclusions = excluded.iter().any(|peer| peer.is_ipv6() == ipv6);
-        let (egress, gateway) = default_interface(ipv6, tun_name).or_else(|error| {
-            if has_family_exclusions {
-                Err(error)
-            } else {
-                default_interface(!ipv6, tun_name).map_err(|fallback| {
-                    io::Error::new(
-                        fallback.kind(),
-                        format!(
-                            "default route unavailable for the TUN address family ({error}); fallback family also unavailable ({fallback})"
-                        ),
-                    )
-                })
-            }
-        })?;
+        let selected = select_physical_egress(ipv6, tun_name, !has_family_exclusions)?;
+        let egress = selected.carrier;
+        let gateway = selected.gateway;
         let journal = RouteJournal::new(lease, tun_name, ipv6, 0, egress.clone(), gateway.clone())?;
         let desired_exclusions = family_exclusions(excluded, ipv6);
         let mut guard = Self {
             egress,
+            family_egress: selected.family,
             tun_name: tun_name.to_owned(),
             ipv6,
             gateway,
             excluded: desired_exclusions.clone(),
             journal,
         };
-        publish_egress(&guard.egress)?;
+        publish_egress(&guard.family_egress)?;
         for peer in desired_exclusions {
             guard.install_exclusion(peer)?;
         }
@@ -100,6 +100,10 @@ impl SystemRouteGuard {
         &self.egress
     }
 
+    pub fn family_egress(&self) -> &FamilyEgressState {
+        &self.family_egress
+    }
+
     pub fn is_ipv6(&self) -> bool {
         self.ipv6
     }
@@ -109,22 +113,12 @@ impl SystemRouteGuard {
     pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
         let desired_exclusions = family_exclusions(excluded, self.ipv6);
         let has_family_exclusions = !desired_exclusions.is_empty();
-        let (desired_egress, desired_gateway) =
-            default_interface(self.ipv6, &self.tun_name).or_else(|error| {
-                if has_family_exclusions {
-                    Err(error)
-                } else {
-                    default_interface(!self.ipv6, &self.tun_name).map_err(|fallback| {
-                        io::Error::new(
-                            fallback.kind(),
-                            format!(
-                                "default route unavailable for the TUN address family ({error}); fallback family also unavailable ({fallback})"
-                            ),
-                        )
-                    })
-                }
-            })?;
-        reconcile_route_state(self, desired_egress, desired_gateway, desired_exclusions)
+        let selected = select_physical_egress(self.ipv6, &self.tun_name, !has_family_exclusions)?;
+        let family_changed = self.family_egress != selected.family;
+        let changed =
+            reconcile_route_state(self, selected.carrier, selected.gateway, desired_exclusions)?;
+        self.family_egress = selected.family;
+        Ok(changed || family_changed)
     }
 
     pub fn close(mut self) -> io::Result<()> {
@@ -204,6 +198,36 @@ impl SystemRouteGuard {
             |prefix| remove_route(ipv6, &tun_name, prefix),
             |peer| remove_exclusion(ipv6, &egress_name, gateway.as_deref(), peer),
         )
+    }
+}
+
+fn select_physical_egress(
+    ipv6: bool,
+    tun_name: &str,
+    allow_cross_family_carrier: bool,
+) -> io::Result<LinuxEgressSelection> {
+    match default_interface(ipv6, tun_name) {
+        Ok((carrier, gateway)) => Ok(LinuxEgressSelection {
+            family: FamilyEgressState::Available(carrier.clone()),
+            carrier,
+            gateway,
+        }),
+        Err(error) if allow_cross_family_carrier => {
+            let (carrier, gateway) = default_interface(!ipv6, tun_name).map_err(|fallback| {
+                io::Error::new(
+                    fallback.kind(),
+                    format!(
+                        "default route unavailable for the TUN address family ({error}); fallback family also unavailable ({fallback})"
+                    ),
+                )
+            })?;
+            Ok(LinuxEgressSelection {
+                carrier,
+                gateway,
+                family: FamilyEgressState::Unavailable(EgressUnavailableReason::NoDefaultRoute),
+            })
+        }
+        Err(error) => Err(error),
     }
 }
 

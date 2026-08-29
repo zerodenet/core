@@ -1,9 +1,9 @@
 use std::io;
 use std::net::IpAddr;
 
-use zero_tun::{strict_route_socket_mark, SystemRouteGuard};
+use zero_tun::{strict_route_socket_mark, FamilyEgressState, SystemRouteGuard};
 
-use super::{platform_egress_interface, RouteRuntimeSpec};
+use super::{publish_family_egress, RouteRuntimeSpec};
 use crate::runtime::Proxy;
 
 pub(super) fn publish_state(
@@ -20,22 +20,28 @@ pub(super) fn publish_state(
     let egress_v4 = guards
         .iter()
         .find(|guard| !guard.is_ipv6())
-        .map(|guard| guard.egress().clone());
+        .map(SystemRouteGuard::family_egress);
     let egress_v6 = guards
         .iter()
         .find(|guard| guard.is_ipv6())
-        .map(|guard| guard.egress().clone());
+        .map(SystemRouteGuard::family_egress);
     let socket_mark = spec
         .strict_route
         .then(|| strict_route_socket_mark(&spec.recovery_key));
-    for (ipv6, egress) in [(false, egress_v4.as_ref()), (true, egress_v6.as_ref())] {
-        let interface = egress
-            .map(|egress| platform_egress_interface(egress, socket_mark))
-            .transpose()?;
-        proxy.egress_interface.replace_for(ipv6, interface);
+    for (ipv6, egress) in [(false, egress_v4), (true, egress_v6)] {
+        match egress {
+            Some(state) => {
+                publish_family_egress(&proxy.egress_interface, ipv6, state, socket_mark)?
+            }
+            None => proxy.egress_interface.replace_for(ipv6, None),
+        }
     }
-    info.egress_interface_v4 = egress_v4.map(|egress| egress.name().to_owned());
-    info.egress_interface_v6 = egress_v6.map(|egress| egress.name().to_owned());
+    info.egress_interface_v4 = egress_v4
+        .and_then(FamilyEgressState::available_interface)
+        .map(|egress| egress.name().to_owned());
+    info.egress_interface_v6 = egress_v6
+        .and_then(FamilyEgressState::available_interface)
+        .map(|egress| egress.name().to_owned());
     info.egress_interface = if spec.primary_ipv6 {
         info.egress_interface_v6
             .clone()
@@ -106,11 +112,13 @@ pub(super) fn route_names(guards: &[SystemRouteGuard]) -> (Option<String>, Optio
     let v4 = guards
         .iter()
         .find(|guard| !guard.is_ipv6())
-        .map(|guard| guard.egress().name().to_owned());
+        .and_then(|guard| guard.family_egress().available_interface())
+        .map(|egress| egress.name().to_owned());
     let v6 = guards
         .iter()
         .find(|guard| guard.is_ipv6())
-        .map(|guard| guard.egress().name().to_owned());
+        .and_then(|guard| guard.family_egress().available_interface())
+        .map(|egress| egress.name().to_owned());
     (v4, v6)
 }
 

@@ -48,22 +48,32 @@ async fn execute_direct_udp_operation(
     payload: &[u8],
     operation: PreparedDirectUdpOperation<'_>,
 ) -> Result<FlowStartResult, FlowFailure> {
-    let candidates = services
-        .resolve_direct_targets(session)
-        .await
-        .map_err(|error| FlowFailure {
-            stage: "resolve_udp_target",
-            error,
-            upstream: None,
-        })?;
+    let candidates = match services.resolve_direct_targets(session).await {
+        Ok(candidates) => candidates,
+        Err(error) => {
+            services.record_session_network(
+                session.id,
+                services.direct_resolution_failure_observation(session),
+            );
+            return Err(FlowFailure {
+                stage: "resolve_udp_target",
+                error,
+                upstream: None,
+            });
+        }
+    };
     let (sent, target_addr) = dispatch
-        .send_new_direct_packet(&session.target, &candidates, payload)
+        .send_new_direct_packet(&session.target, &candidates.candidates, payload)
         .await
         .map_err(|error| FlowFailure {
             stage: "udp_direct_send",
             error,
             upstream: None,
         })?;
+    services.record_session_network(
+        session.id,
+        services.direct_udp_network_observation(&candidates, target_addr),
+    );
     Ok(FlowStartResult::Flow {
         outbound: Box::new(UdpFlowOutbound::Direct {
             tag: operation.tag.to_owned(),

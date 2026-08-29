@@ -136,6 +136,10 @@ pub struct FlowNetworkContext {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resolved_candidates: Vec<TargetAddress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_family_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_family_fallback: Option<FlowAddressFamilyFallback>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_interface: Option<FlowNetworkInterface>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub egress: Option<FlowEgressContext>,
@@ -145,6 +149,16 @@ pub struct FlowNetworkContext {
     pub socket_binding: Option<FlowSocketBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connect_stage: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowAddressFamilyFallback {
+    pub from: String,
+    pub to: String,
+    pub reason: String,
+    pub trigger_egress_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

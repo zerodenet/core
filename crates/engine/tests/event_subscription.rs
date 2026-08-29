@@ -5,7 +5,10 @@ use zero_api::{
 };
 use zero_config::RuntimeConfig;
 use zero_core::{Address, FakeIpReverseStatus, Network, ProtocolType, Session, TargetHostSource};
-use zero_engine::{Engine, EngineHandle, ProbeTrigger, ProbeTriggerAck, SessionOutcome};
+use zero_engine::{
+    Engine, EngineHandle, FlowAddressFamilyFallbackObservation, FlowNetworkObservation,
+    ProbeTrigger, ProbeTriggerAck, SessionOutcome,
+};
 
 #[test]
 fn policy_probe_command_returns_the_effective_operation_identity() {
@@ -385,6 +388,21 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
     assert_eq!(source.process_path.as_deref(), Some("/opt/browser"));
     assert!(active_record.throughput.sampled_at_unix_ms > 0);
 
+    engine.record_session_network(
+        session.id,
+        FlowNetworkObservation {
+            address_family_policy: Some("prefer_ipv4".to_owned()),
+            address_family_fallback: Some(FlowAddressFamilyFallbackObservation {
+                from: "ipv6".to_owned(),
+                to: "ipv4".to_owned(),
+                reason: "tun_ipv6_egress_unavailable".to_owned(),
+                trigger_egress_generation: 7,
+                unavailable_reason: Some("no physical IPv6 default route".to_owned()),
+            }),
+            connect_stage: Some("connected".to_owned()),
+            ..FlowNetworkObservation::default()
+        },
+    );
     let trace = engine.route_trace_with_inbound(&session.target, None, Some("socks-in"));
     engine.record_session_route(session.id, &trace);
     session.outbound_tag = Some("direct".to_owned());
@@ -401,6 +419,14 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
     assert_eq!(
         routed.payload["record"]["path"]["outbound"]["tag"],
         "direct"
+    );
+    assert_eq!(
+        routed.payload["record"]["path"]["network"]["address_family_policy"],
+        "prefer_ipv4"
+    );
+    assert_eq!(
+        routed.payload["record"]["path"]["network"]["address_family_fallback"]["reason"],
+        "tun_ipv6_egress_unavailable"
     );
 
     engine

@@ -270,7 +270,10 @@ async fn accept_tcp(
             Some(completed) = connections.join_next(), if !connections.is_empty() => {
                 match completed {
                     Ok(Ok(())) => {}
-                    Ok(Err(error)) => tracing::warn!(error = %error, "TUN TCP connection failed"),
+                    // The session runtime already emits the structured,
+                    // rate-limited failure record. Keep this join result at
+                    // debug so one client error cannot produce two warnings.
+                    Ok(Err(error)) => tracing::debug!(error = %error, "TUN TCP connection failed"),
                     Err(error) => tracing::warn!(error = %error, "TUN TCP connection task panicked"),
                 }
             }

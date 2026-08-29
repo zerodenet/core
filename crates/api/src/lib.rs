@@ -28,18 +28,18 @@ pub use event::{
     PassiveRelayHealthState, PublishResult,
 };
 pub use flow::{
-    AuthInfo, EndpointRef, FlowEgressContext, FlowEventPayload, FlowFailureInfo,
-    FlowNetworkContext, FlowNetworkInterface, FlowOutcome, FlowPath, FlowRecord, FlowRecordTiming,
-    FlowResult, FlowRoute, FlowRouteLookup, FlowSocketBinding, FlowSource, FlowState, FlowTarget,
-    FlowThroughput, FlowTiming, MatchedRuleInfo, Network, PolicyDecision,
+    AuthInfo, EndpointRef, FlowAddressFamilyFallback, FlowEgressContext, FlowEventPayload,
+    FlowFailureInfo, FlowNetworkContext, FlowNetworkInterface, FlowOutcome, FlowPath, FlowRecord,
+    FlowRecordTiming, FlowResult, FlowRoute, FlowRouteLookup, FlowSocketBinding, FlowSource,
+    FlowState, FlowTarget, FlowThroughput, FlowTiming, MatchedRuleInfo, Network, PolicyDecision,
     PolicyProbeCompletedPayload, PolicyProbeMember, PolicySelectedPayload, RouteDecision,
     TargetAddress, TrafficStats, WarningPayload,
 };
 pub use query::{
     CapabilitiesQuery, ConfigQuery, DiagnosticsQuery, FlowFilter, FlowGetQuery, FlowListQuery,
     HealthQuery, HealthSnapshot, PoliciesQuery, PolicyGetQuery, PrincipalFlowsQuery, QueryRequest,
-    QueryResponse, RuntimeQuery, SinkStatusSnapshot, SinksQuery, StatsQuery, TunStatusQuery,
-    TunStatusSnapshot,
+    QueryResponse, RuntimeQuery, SinkStatusSnapshot, SinksQuery, StatsQuery,
+    TunFamilyEgressAvailability, TunFamilyEgressSnapshot, TunStatusQuery, TunStatusSnapshot,
 };
 pub use response::{ApiResponse, EnvelopeError, RawResponse};
 pub use sink::{
