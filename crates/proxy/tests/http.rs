@@ -545,7 +545,7 @@ async fn close_delimited_response_is_reframed_for_persistent_client() {
 }
 
 #[tokio::test]
-async fn routes_plain_http_through_a_configured_proxy_outbound() {
+async fn routes_plain_http_post_through_a_configured_proxy_outbound() {
     let origin_port = free_port();
     let upstream_port = free_port();
     let proxy_port = free_port();
@@ -555,9 +555,14 @@ async fn routes_plain_http_through_a_configured_proxy_outbound() {
             .expect("bind origin");
         let (mut stream, _) = listener.accept().await.expect("accept origin");
         let head = String::from_utf8(read_http_head(&mut stream).await).expect("head");
-        assert!(head.starts_with("GET /proxied HTTP/1.1\r\n"));
+        assert!(head.starts_with("POST /proxied HTTP/1.1\r\n"));
+        assert!(head.contains("Content-Length: 2\r\n"));
+        assert!(!head.to_ascii_lowercase().contains("proxy-connection:"));
+        let mut body = [0_u8; 2];
+        stream.read_exact(&mut body).await.expect("request body");
+        assert_eq!(&body, b"{}");
         stream
-            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nproxied")
+            .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\npong\r\n0\r\n\r\n")
             .await
             .expect("response");
     });
@@ -589,13 +594,16 @@ async fn routes_plain_http_through_a_configured_proxy_outbound() {
         .expect("connect proxy");
     client
         .write_all(
-            format!("GET http://127.0.0.1:{origin_port}/proxied HTTP/1.1\r\nHost: ignored\r\n\r\n")
+            format!("POST http://127.0.0.1:{origin_port}/proxied HTTP/1.1\r\nHost: ignored\r\nProxy-Connection: keep-alive\r\nContent-Length: 2\r\n\r\n{{}}")
                 .as_bytes(),
         )
         .await
         .expect("request");
-    let (_, body) = read_http_response(&mut client).await;
-    assert_eq!(body, b"proxied");
+    let (head, body) = read_http_response(&mut client).await;
+    assert!(String::from_utf8_lossy(&head)
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked"));
+    assert_eq!(body, b"4\r\npong\r\n0\r\n\r\n");
     wait_for("proxied HTTP session", || {
         outer_handle.completed_sessions().iter().any(|session| {
             session.outbound_tag.as_deref() == Some("socks-out")
