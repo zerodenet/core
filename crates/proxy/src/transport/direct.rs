@@ -40,6 +40,11 @@ pub(crate) struct DirectTargetResolution {
 struct DirectAddressFamilyFallback {
     trigger_egress_generation: u64,
     unavailable_reason: Option<String>,
+    original_target: SocketAddr,
+    domain: String,
+    host_source: &'static str,
+    reason: &'static str,
+    preserve_original_ipv6: bool,
 }
 
 impl DirectConnector {
@@ -83,6 +88,20 @@ impl DirectConnector {
                     "connected",
                     success.selection.interface().is_some(),
                 );
+                if let Some(fallback) = resolution
+                    .fallback
+                    .as_ref()
+                    .filter(|_| success.remote.is_ipv4())
+                {
+                    egress.record_ipv6_to_ipv4_fallback();
+                    log_address_family_fallback_result(
+                        "address_family_fallback_succeeded",
+                        fallback,
+                        "connected",
+                        Some(success.remote),
+                        None,
+                    );
+                }
                 Ok(DirectTcpConnection {
                     socket,
                     remote: success.remote,
@@ -91,6 +110,15 @@ impl DirectConnector {
             }
             Err(failure) => {
                 log_dial_failure("direct", &failure);
+                if let Some(fallback) = resolution.fallback.as_ref() {
+                    log_address_family_fallback_result(
+                        "address_family_fallback_failed",
+                        fallback,
+                        failure.stage,
+                        Some(failure.remote),
+                        Some(&failure.error),
+                    );
+                }
                 let error = dial_failure_error(&failure, "failed to connect direct target");
                 Err(DirectTcpConnectFailure {
                     stage: "connect_direct",
@@ -117,23 +145,111 @@ impl DirectConnector {
     ) -> Result<DirectTargetResolution, Error> {
         self.validate(session)?;
 
+        for attempt in 0..2 {
+            let generation = egress.generation();
+            let result = self
+                .resolve_target_addrs_at_generation(session, resolver, egress)
+                .await;
+            let current_generation = egress.generation();
+            if current_generation == generation {
+                return result;
+            }
+            tracing::debug!(
+                resolution_generation = generation,
+                current_egress_generation = current_generation,
+                retry = attempt == 0,
+                "discarding direct resolution from an obsolete egress generation"
+            );
+        }
+
+        Err(Error::Io(
+            "TUN egress changed repeatedly during direct target resolution",
+        ))
+    }
+
+    async fn resolve_target_addrs_at_generation(
+        &self,
+        session: &Session,
+        resolver: &DnsSystem,
+        egress: &EgressInterfaceControl,
+    ) -> Result<DirectTargetResolution, Error> {
         let (target, fallback) = direct_resolution_target(session, egress);
-        let mut candidates = self
-            .resolve_addresses(
+        if let Some(fallback) = fallback.as_ref() {
+            tracing::info!(
+                event_type = "address_family_fallback_started",
+                original_target = %fallback.original_target,
+                domain = %fallback.domain,
+                host_source = fallback.host_source,
+                from_address_family = "ipv6",
+                to_address_family = "ipv4",
+                reason = fallback.reason,
+                egress_generation = fallback.trigger_egress_generation,
+                egress_unavailable_reason = fallback.unavailable_reason.as_deref(),
+                "address-family fallback started"
+            );
+        }
+        let candidates = if let Some(fallback) = fallback.as_ref() {
+            let Address::Domain(domain) = target else {
+                return Err(Error::Io(
+                    "direct IPv6 fallback requires a trusted domain target",
+                ));
+            };
+            let ipv4_candidates = match resolve_direct_ipv4_host_addresses(
+                domain,
+                session.port,
+                resolver,
+                "failed to resolve direct target",
+            )
+            .await
+            {
+                Ok(candidates) => candidates,
+                Err(error) if !fallback.preserve_original_ipv6 => {
+                    log_address_family_fallback_result(
+                        "address_family_fallback_failed",
+                        fallback,
+                        "resolve_ipv4",
+                        None,
+                        Some(&error),
+                    );
+                    return Err(error);
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        domain,
+                        error = %error,
+                        "IPv4 connectivity fallback resolution failed; retaining original IPv6 candidate"
+                    );
+                    Vec::new()
+                }
+            };
+            if ipv4_candidates.is_empty() && !fallback.preserve_original_ipv6 {
+                log_address_family_fallback_result(
+                    "address_family_fallback_failed",
+                    fallback,
+                    "resolve_ipv4",
+                    None,
+                    None,
+                );
+                return Err(Error::Io(
+                    "direct IPv6 fallback resolved to no IPv4 addresses",
+                ));
+            }
+            if fallback.preserve_original_ipv6 {
+                let mut candidates = vec![fallback.original_target];
+                candidates.extend(ipv4_candidates);
+                candidates
+            } else {
+                ipv4_candidates
+            }
+        } else {
+            self.resolve_addresses(
                 target,
                 session.port,
                 resolver,
                 "failed to resolve direct target",
             )
-            .await?;
-        if fallback.is_some() {
-            candidates.retain(SocketAddr::is_ipv4);
-            if candidates.is_empty() {
-                return Err(Error::Io(
-                    "direct IPv6 fallback resolved to no IPv4 addresses",
-                ));
-            }
-        }
+            .await?
+        };
         Ok(DirectTargetResolution {
             candidates,
             address_family_policy: resolver.address_family_policy().as_str(),
@@ -288,7 +404,11 @@ fn log_dial_failure(kind: &str, failure: &TcpDialFailure) {
 
 fn dial_failure_error(failure: &TcpDialFailure, connect_error: &'static str) -> Error {
     if failure.stage == "select_egress" {
-        Error::Io("TUN physical egress is unavailable")
+        if failure.remote.is_ipv6() {
+            Error::Io("tun_ipv6_egress_unavailable")
+        } else {
+            Error::Io("tun_ipv4_egress_unavailable")
+        }
     } else {
         Error::Io(connect_error)
     }
@@ -315,7 +435,11 @@ fn direct_network_observation(
             .map(socket_endpoint)
             .collect(),
         address_family_policy: Some(resolution.address_family_policy.to_owned()),
-        address_family_fallback: resolution.fallback.as_ref().map(fallback_observation),
+        address_family_fallback: resolution
+            .fallback
+            .as_ref()
+            .filter(|fallback| !fallback.preserve_original_ipv6 || remote.is_ipv4())
+            .map(fallback_observation),
         selected_interface: selection.interface().map(|interface| {
             FlowNetworkInterfaceObservation {
                 name: interface.name().to_owned(),
@@ -376,26 +500,51 @@ fn direct_resolution_target<'a>(
     };
     let peer = SocketAddr::new(IpAddr::V6(Ipv6Addr::from(original_ipv6)), session.port);
     let selection = egress.select_for_peer(peer);
-    if selection.binding_reason() != EgressBindingReason::TunEgressUnavailable {
-        return (direct_target, None);
-    }
+    let (reason, preserve_original_ipv6) =
+        if selection.binding_reason() == EgressBindingReason::TunEgressUnavailable {
+            ("tun_ipv6_egress_unavailable", false)
+        } else if selection.tun_active() {
+            ("ipv6_connect_failed", true)
+        } else {
+            return (direct_target, None);
+        };
 
-    tracing::debug!(
-        original_target = %peer,
-        domain,
-        host_source = host_source.as_str(),
-        fallback_strategy = "domain_reresolution",
-        egress_generation = selection.generation(),
-        egress_unavailable_reason = selection.unavailable_reason(),
-        "falling back from unavailable direct IPv6 egress to domain IPv4 resolution"
-    );
     (
         &session.target,
         Some(DirectAddressFamilyFallback {
             trigger_egress_generation: selection.generation(),
             unavailable_reason: selection.unavailable_reason().map(ToOwned::to_owned),
+            original_target: peer,
+            domain: domain.clone(),
+            host_source: host_source.as_str(),
+            reason,
+            preserve_original_ipv6,
         }),
     )
+}
+
+fn log_address_family_fallback_result(
+    event_type: &'static str,
+    fallback: &DirectAddressFamilyFallback,
+    stage: &'static str,
+    selected_target: Option<SocketAddr>,
+    error: Option<&dyn std::fmt::Display>,
+) {
+    tracing::info!(
+        event_type,
+        original_target = %fallback.original_target,
+        domain = %fallback.domain,
+        host_source = fallback.host_source,
+        from_address_family = "ipv6",
+        to_address_family = "ipv4",
+        reason = fallback.reason,
+        egress_generation = fallback.trigger_egress_generation,
+        egress_unavailable_reason = fallback.unavailable_reason.as_deref(),
+        stage,
+        selected_target = selected_target.map(|target| target.to_string()),
+        error = error.map(ToString::to_string),
+        "address-family fallback completed"
+    );
 }
 
 fn fallback_observation(
@@ -404,7 +553,7 @@ fn fallback_observation(
     FlowAddressFamilyFallbackObservation {
         from: "ipv6".to_owned(),
         to: "ipv4".to_owned(),
-        reason: "tun_ipv6_egress_unavailable".to_owned(),
+        reason: fallback.reason.to_owned(),
         trigger_egress_generation: fallback.trigger_egress_generation,
         unavailable_reason: fallback.unavailable_reason.clone(),
     }
@@ -431,11 +580,30 @@ async fn resolve_direct_host_addresses(
     error_message: &'static str,
 ) -> Result<Vec<SocketAddr>, Error> {
     let resolved = resolver.resolve_direct(host).await.map_err(|error| {
-        tracing::warn!(
+        tracing::debug!(
             domain = host,
             role = "direct",
             error = %error,
             "real DNS resolution failed"
+        );
+        Error::Io(error_message)
+    })?;
+    resolved_socket_addresses(resolved, port)
+}
+
+async fn resolve_direct_ipv4_host_addresses(
+    host: &str,
+    port: u16,
+    resolver: &DnsSystem,
+    error_message: &'static str,
+) -> Result<Vec<SocketAddr>, Error> {
+    let resolved = resolver.resolve_direct_ipv4(host).await.map_err(|error| {
+        tracing::debug!(
+            domain = host,
+            role = "direct",
+            address_family = "ipv4",
+            error = %error,
+            "real DNS IPv4 fallback resolution failed"
         );
         Error::Io(error_message)
     })?;
@@ -452,7 +620,7 @@ async fn resolve_node_host_addresses(
         return Ok(vec![SocketAddr::new(address, port)]);
     }
     let resolved = resolver.resolve_node(host).await.map_err(|error| {
-        tracing::warn!(
+        tracing::debug!(
             domain = host,
             role = "node",
             error = %error,

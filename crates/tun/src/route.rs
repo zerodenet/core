@@ -25,6 +25,56 @@ pub struct RouteInterface {
     index: u32,
 }
 
+/// Native reachability of one address family through the physical network.
+///
+/// This is deliberately separate from the route-installation carrier kept by
+/// `SystemRouteGuard`: a platform may use an interface from the other address
+/// family to install TUN capture routes, but that does not make native sockets
+/// for this family connectable through that interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EgressUnavailableReason {
+    NoDefaultRoute,
+    NoUsableAddress,
+    InterfaceDown,
+    RouteLookupFailed,
+}
+
+impl EgressUnavailableReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NoDefaultRoute => "no_default_route",
+            Self::NoUsableAddress => "no_usable_address",
+            Self::InterfaceDown => "interface_down",
+            Self::RouteLookupFailed => "route_lookup_failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", content = "value", rename_all = "snake_case")]
+pub enum FamilyEgressState {
+    Available(RouteInterface),
+    Unavailable(EgressUnavailableReason),
+    Unknown,
+}
+
+impl FamilyEgressState {
+    pub fn available_interface(&self) -> Option<&RouteInterface> {
+        match self {
+            Self::Available(interface) => Some(interface),
+            Self::Unavailable(_) | Self::Unknown => None,
+        }
+    }
+
+    pub fn unavailable_reason(&self) -> Option<EgressUnavailableReason> {
+        match self {
+            Self::Unavailable(reason) => Some(*reason),
+            Self::Available(_) | Self::Unknown => None,
+        }
+    }
+}
+
 impl RouteInterface {
     pub(crate) fn new(name: String, index: u32) -> io::Result<Self> {
         if name.is_empty() || index == 0 {
@@ -79,7 +129,7 @@ impl SystemRouteGuard {
         _netmask: IpAddr,
         _captured: &[IpNet],
         _excluded: &[IpAddr],
-        _publish_egress: impl FnOnce(&RouteInterface) -> io::Result<()>,
+        _publish_egress: impl FnOnce(&FamilyEgressState) -> io::Result<()>,
     ) -> io::Result<Self> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
@@ -88,6 +138,10 @@ impl SystemRouteGuard {
     }
 
     pub fn egress(&self) -> &RouteInterface {
+        unreachable!("unsupported route guard cannot be constructed")
+    }
+
+    pub fn family_egress(&self) -> &FamilyEgressState {
         unreachable!("unsupported route guard cannot be constructed")
     }
 

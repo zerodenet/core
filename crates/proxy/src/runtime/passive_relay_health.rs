@@ -1,4 +1,6 @@
-use zero_engine::{CompletedSessionRecord, EngineError, PassiveRelayOutcome};
+use zero_engine::{
+    CompletedSessionRecord, EngineError, FlowNetworkObservation, PassiveRelayOutcome,
+};
 
 use crate::runtime::relay_failure::classify_relay_failure;
 
@@ -23,6 +25,40 @@ pub(crate) fn classify_relay_outcome(
     }
 
     PassiveRelayOutcome::Neutral
+}
+
+/// Attribute failures that happen before a relay stream exists. Local TUN
+/// family availability and DNS/bootstrap failures do not prove that the
+/// selected proxy member is unhealthy, so they must remain neutral.
+pub(crate) fn classify_outbound_establishment_failure(
+    error: &EngineError,
+    network: Option<&FlowNetworkObservation>,
+) -> PassiveRelayOutcome {
+    if network.is_some_and(|network| {
+        network
+            .socket_binding
+            .as_ref()
+            .is_some_and(|binding| binding.reason == "tun_egress_unavailable")
+            || network
+                .egress
+                .as_ref()
+                .is_some_and(|egress| egress.tun_active && egress.unavailable_reason.is_some())
+    }) {
+        return PassiveRelayOutcome::Neutral;
+    }
+
+    let message = error.to_string().to_ascii_lowercase();
+    if message.contains("tun physical egress is unavailable")
+        || message.contains("tun_ipv4_egress_unavailable")
+        || message.contains("tun_ipv6_egress_unavailable")
+        || message.contains("failed to resolve upstream target")
+        || message.contains("failed to resolve proxy node")
+        || message.contains("dns backend")
+    {
+        PassiveRelayOutcome::Neutral
+    } else {
+        PassiveRelayOutcome::Failure
+    }
 }
 
 fn is_early_transport_failure(error: &EngineError) -> bool {
@@ -131,5 +167,50 @@ mod tests {
                 PassiveRelayOutcome::Neutral
             );
         }
+    }
+
+    #[test]
+    fn establishment_failures_keep_local_egress_and_dns_errors_neutral() {
+        let error = EngineError::Io(io::Error::new(
+            io::ErrorKind::NotConnected,
+            "TUN physical egress is unavailable",
+        ));
+        let network = FlowNetworkObservation {
+            egress: Some(zero_engine::FlowEgressObservation {
+                generation: 7,
+                address_family: "ipv6".to_owned(),
+                tun_active: true,
+                configured_interface: None,
+                unavailable_reason: Some("no_default_route".to_owned()),
+            }),
+            socket_binding: Some(zero_engine::FlowSocketBindingObservation {
+                mode: "system".to_owned(),
+                reason: "tun_egress_unavailable".to_owned(),
+                interface_bound: false,
+            }),
+            ..FlowNetworkObservation::default()
+        };
+        assert_eq!(
+            classify_outbound_establishment_failure(&error, Some(&network)),
+            PassiveRelayOutcome::Neutral
+        );
+
+        let dns = EngineError::Io(io::Error::other("failed to resolve upstream target"));
+        assert_eq!(
+            classify_outbound_establishment_failure(&dns, None),
+            PassiveRelayOutcome::Neutral
+        );
+    }
+
+    #[test]
+    fn establishment_failure_still_penalizes_a_real_node_failure() {
+        let error = EngineError::Io(io::Error::new(
+            io::ErrorKind::ConnectionRefused,
+            "proxy node refused the connection",
+        ));
+        assert_eq!(
+            classify_outbound_establishment_failure(&error, None),
+            PassiveRelayOutcome::Failure
+        );
     }
 }

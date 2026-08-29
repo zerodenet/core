@@ -170,6 +170,26 @@ impl EgressInterface {
 #[derive(Debug, Clone, Default)]
 pub struct EgressInterfaceControl(Arc<RwLock<EgressInterfaces>>);
 
+/// Complete address-family state captured for transactional route changes.
+/// Keeping the unavailable reason alongside the interface prevents a failed
+/// route install from turning a known degraded family back into an unknown
+/// startup state during rollback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EgressFamilySnapshot {
+    interface: Option<EgressInterface>,
+    unavailable_reason: Option<String>,
+}
+
+impl EgressFamilySnapshot {
+    pub fn interface(&self) -> Option<&EgressInterface> {
+        self.interface.as_ref()
+    }
+
+    pub fn unavailable_reason(&self) -> Option<&str> {
+        self.unavailable_reason.as_deref()
+    }
+}
+
 #[derive(Debug, Default)]
 struct EgressInterfaces {
     ipv4: Option<EgressInterface>,
@@ -178,6 +198,7 @@ struct EgressInterfaces {
     ipv6_unavailable_reason: Option<String>,
     tunnel_addresses: Vec<IpAddr>,
     generation: u64,
+    ipv6_to_ipv4_fallbacks: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -233,6 +254,69 @@ impl EgressInterfaceControl {
             interfaces.ipv6.clone()
         } else {
             interfaces.ipv4.clone()
+        }
+    }
+
+    pub fn record_ipv6_to_ipv4_fallback(&self) {
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        interfaces.ipv6_to_ipv4_fallbacks = interfaces.ipv6_to_ipv4_fallbacks.saturating_add(1);
+    }
+
+    pub fn ipv6_to_ipv4_fallbacks(&self) -> u64 {
+        self.0
+            .read()
+            .expect("egress interface lock poisoned")
+            .ipv6_to_ipv4_fallbacks
+    }
+
+    pub fn snapshot_for(&self, ipv6: bool) -> EgressFamilySnapshot {
+        let interfaces = self.0.read().expect("egress interface lock poisoned");
+        let (interface, unavailable_reason) = if ipv6 {
+            (
+                interfaces.ipv6.clone(),
+                interfaces.ipv6_unavailable_reason.clone(),
+            )
+        } else {
+            (
+                interfaces.ipv4.clone(),
+                interfaces.ipv4_unavailable_reason.clone(),
+            )
+        };
+        EgressFamilySnapshot {
+            interface,
+            unavailable_reason,
+        }
+    }
+
+    pub fn restore_for(&self, ipv6: bool, snapshot: EgressFamilySnapshot) {
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        let topology_changed = if ipv6 {
+            let changed = interfaces.ipv6 != snapshot.interface
+                || interfaces.ipv6_unavailable_reason != snapshot.unavailable_reason;
+            interfaces.ipv6 = snapshot.interface;
+            interfaces.ipv6_unavailable_reason = snapshot.unavailable_reason;
+            changed
+        } else {
+            let changed = interfaces.ipv4 != snapshot.interface
+                || interfaces.ipv4_unavailable_reason != snapshot.unavailable_reason;
+            interfaces.ipv4 = snapshot.interface;
+            interfaces.ipv4_unavailable_reason = snapshot.unavailable_reason;
+            changed
+        };
+        if topology_changed {
+            bump_generation(&mut interfaces);
+        }
+    }
+
+    /// Whether the owning platform has published an authoritative state for
+    /// this address family. `false` means startup has not completed; an
+    /// explicitly unavailable family is known even though it has no interface.
+    pub fn is_known_for(&self, ipv6: bool) -> bool {
+        let interfaces = self.0.read().expect("egress interface lock poisoned");
+        if ipv6 {
+            interfaces.ipv6.is_some() || interfaces.ipv6_unavailable_reason.is_some()
+        } else {
+            interfaces.ipv4.is_some() || interfaces.ipv4_unavailable_reason.is_some()
         }
     }
 
@@ -359,9 +443,11 @@ impl EgressInterfaceControl {
         let (interface, binding_reason) = match (physical, route_is_captured, route_source) {
             (Some(physical), true, _) => (Some(physical), EgressBindingReason::TunRoute),
             (Some(_), false, Some(_)) => (None, EgressBindingReason::SystemRoute),
-            (Some(physical), false, None) => {
-                (Some(physical), EgressBindingReason::RouteLookupFailed)
-            }
+            // An interface index is not proof that the peer's address family
+            // has a usable route. Fail closed when the OS route probe itself
+            // fails so a stale or cross-family publication cannot silently
+            // re-enter the active TUN capture route.
+            (Some(_), false, None) => (None, EgressBindingReason::TunEgressUnavailable),
             (None, _, _) => (None, EgressBindingReason::TunEgressUnavailable),
         };
         EgressSelection::from_snapshot(
@@ -388,7 +474,10 @@ impl EgressInterfaceControl {
     pub fn replace(&self, interface: Option<EgressInterface>) -> Option<EgressInterface> {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
         let previous = interfaces.ipv4.clone().or_else(|| interfaces.ipv6.clone());
-        let topology_changed = interfaces.ipv4 != interface || interfaces.ipv6 != interface;
+        let topology_changed = interfaces.ipv4 != interface
+            || interfaces.ipv6 != interface
+            || interfaces.ipv4_unavailable_reason.is_some()
+            || interfaces.ipv6_unavailable_reason.is_some();
         interfaces.ipv4 = interface.clone();
         interfaces.ipv6 = interface;
         interfaces.ipv4_unavailable_reason = None;
@@ -402,12 +491,14 @@ impl EgressInterfaceControl {
     pub fn replace_for(&self, ipv6: bool, interface: Option<EgressInterface>) {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
         let topology_changed = if ipv6 {
-            let changed = interfaces.ipv6 != interface;
+            let changed =
+                interfaces.ipv6 != interface || interfaces.ipv6_unavailable_reason.is_some();
             interfaces.ipv6 = interface;
             interfaces.ipv6_unavailable_reason = None;
             changed
         } else {
-            let changed = interfaces.ipv4 != interface;
+            let changed =
+                interfaces.ipv4 != interface || interfaces.ipv4_unavailable_reason.is_some();
             interfaces.ipv4 = interface;
             interfaces.ipv4_unavailable_reason = None;
             changed
@@ -421,12 +512,14 @@ impl EgressInterfaceControl {
         let reason = reason.into();
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
         let topology_changed = if ipv6 {
-            let changed = interfaces.ipv6.is_some();
+            let changed = interfaces.ipv6.is_some()
+                || interfaces.ipv6_unavailable_reason.as_deref() != Some(reason.as_str());
             interfaces.ipv6 = None;
             interfaces.ipv6_unavailable_reason = Some(reason);
             changed
         } else {
-            let changed = interfaces.ipv4.is_some();
+            let changed = interfaces.ipv4.is_some()
+                || interfaces.ipv4_unavailable_reason.as_deref() != Some(reason.as_str());
             interfaces.ipv4 = None;
             interfaces.ipv4_unavailable_reason = Some(reason);
             changed
@@ -440,12 +533,15 @@ impl EgressInterfaceControl {
         let mut interfaces = self.0.write().expect("egress interface lock poisoned");
         let topology_changed = interfaces.ipv4.is_some()
             || interfaces.ipv6.is_some()
+            || interfaces.ipv4_unavailable_reason.is_some()
+            || interfaces.ipv6_unavailable_reason.is_some()
             || !interfaces.tunnel_addresses.is_empty();
         interfaces.ipv4 = None;
         interfaces.ipv6 = None;
         interfaces.ipv4_unavailable_reason = None;
         interfaces.ipv6_unavailable_reason = None;
         interfaces.tunnel_addresses.clear();
+        interfaces.ipv6_to_ipv4_fallbacks = 0;
         if topology_changed {
             bump_generation(&mut interfaces);
         }

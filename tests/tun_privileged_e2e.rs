@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::process::{Child, Command, Stdio};
@@ -9,6 +10,7 @@ use std::time::{Duration, Instant};
 use socket2::{Domain, Protocol, Socket, Type};
 
 static TUN_E2E_LOCK: Mutex<()> = Mutex::new(());
+const ONLY_AAAA_E2E_DOMAIN: &str = "only-aaaa.zero.invalid";
 
 #[test]
 #[ignore = "requires administrator/root, a TUN backend, and internet access"]
@@ -286,6 +288,153 @@ fn privileged_tun_dual_stack_configuration_traffic_and_crash_recovery() {
     }
 }
 
+#[cfg(windows)]
+#[test]
+#[ignore = "requires Administrator privileges, wintun.dll, IPv4 internet, and no native IPv6 default route"]
+fn privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains() {
+    if windows_has_native_ipv6_default_route() {
+        eprintln!("skipping IPv4-only TUN E2E because this host has a native IPv6 default route");
+        return;
+    }
+
+    let _guard = TUN_E2E_LOCK.lock().expect("TUN E2E lock poisoned");
+    let binary = env!("CARGO_BIN_EXE_zero");
+    let directory = tempfile::tempdir().expect("temporary IPv4-only TUN E2E directory");
+    let socket = control_socket(directory.path(), false);
+    let listen_port = free_tcp_port();
+    let fallback_server = MockTcpResponder::start();
+    let default_domain = "fallback.zero.test";
+    let domain =
+        std::env::var("ZERO_TUN_E2E_FALLBACK_DOMAIN").unwrap_or_else(|_| default_domain.to_owned());
+    // Windows `getaddrinfo` may suppress AAAA answers under AI_ADDRCONFIG on
+    // the exact IPv4-only hosts covered by this test. Use a deterministic
+    // original IPv6 destination while the trusted SNI supplies the domain
+    // that Zero must re-resolve to A records.
+    let original_ipv6 = std::env::var("ZERO_TUN_E2E_FALLBACK_IPV6")
+        .unwrap_or_else(|_| format!("[2001:db8::f]:{}", fallback_server.address.port()))
+        .parse::<SocketAddr>()
+        .expect("ZERO_TUN_E2E_FALLBACK_IPV6 must be an IPv6 socket address");
+    assert!(original_ipv6.is_ipv6());
+    let fallback_ipv4 = std::env::var("ZERO_TUN_E2E_FALLBACK_IPV4")
+        .ok()
+        .map(|address| {
+            address
+                .parse::<SocketAddr>()
+                .expect("ZERO_TUN_E2E_FALLBACK_IPV4 must be an IPv4 socket address")
+        })
+        .unwrap_or(fallback_server.address);
+    assert!(fallback_ipv4.is_ipv4(), "fallback E2E target must be IPv4");
+    let tcp_v4 = std::env::var("ZERO_TUN_E2E_TCP_ADDR")
+        .unwrap_or_else(|_| "1.1.1.1:80".to_owned())
+        .parse::<SocketAddr>()
+        .expect("ZERO_TUN_E2E_TCP_ADDR must be an IPv4 socket address");
+    assert!(tcp_v4.is_ipv4(), "TCP E2E target must be IPv4");
+    let mock_dns = MockDns::start_for_ipv4_only(fallback_ipv4.ip());
+
+    let direct_config =
+        config_json_with_dns(false, listen_port, None, true, true, mock_dns.address);
+    let stopped_config =
+        config_json_with_dns(false, listen_port, None, false, true, mock_dns.address);
+    let direct_path = directory.path().join("ipv4-only-dual-stack.json");
+    let stopped_path = directory.path().join("stopped.json");
+    std::fs::write(&direct_path, &direct_config).unwrap();
+    std::fs::write(&stopped_path, stopped_config).unwrap();
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut process = spawn_zero(binary, &direct_path, &socket);
+        wait_for_tun(binary, &socket, true, true);
+        let tun_name = assert_tun_os_configured(binary, &socket, false, true);
+        let status = tun_status(binary, &socket);
+        assert_ne!(
+            status_field(&status, "egress_v4").as_deref(),
+            Some("-"),
+            "IPv4-only TUN must publish native IPv4 egress: {status}"
+        );
+        assert_eq!(
+            status_field(&status, "egress_v6").as_deref(),
+            Some("-"),
+            "IPv4-only TUN must not publish its IPv4 carrier as native IPv6 egress: {status}"
+        );
+
+        assert_tun_route_selected(&tun_name, tcp_v4);
+        assert_tcp_through_tun(tcp_v4);
+        assert_dns_hijack_through_tun(false);
+        assert_concurrent_dns_queries_are_coalesced(&mock_dns);
+        assert_tls_sni_ipv6_falls_back_to_ipv4(original_ipv6, &domain);
+        assert_eq!(
+            fallback_server.accept_count(),
+            1,
+            "trusted IPv6 domain did not create exactly one IPv4 fallback connection"
+        );
+        assert_only_aaaa_fallback_is_bounded(original_ipv6, &mock_dns);
+        assert_literal_ipv6_fails_quickly_without_dns_fallback();
+        let runtime_status =
+            run_cli_output(binary, ["status", "--json", "--socket", path(&socket)]);
+        assert!(
+            runtime_status.contains("tun_ipv6_egress_unavailable"),
+            "trusted-domain fallback observation is missing: {runtime_status}"
+        );
+        assert!(
+            runtime_status.contains("2001:db8::1")
+                && runtime_status.contains("tun_egress_unavailable"),
+            "literal IPv6 failure is not explicitly observable: {runtime_status}"
+        );
+        let tun_runtime_status = tun_status(binary, &socket);
+        assert_eq!(
+            status_field(&tun_runtime_status, "ipv4_state").as_deref(),
+            Some("available")
+        );
+        assert_eq!(
+            status_field(&tun_runtime_status, "ipv6_state").as_deref(),
+            Some("unavailable")
+        );
+        assert_eq!(
+            status_field(&tun_runtime_status, "ipv6_reason").as_deref(),
+            Some("no_default_route")
+        );
+        assert_eq!(
+            status_field(&tun_runtime_status, "ipv6_to_ipv4_fallbacks").as_deref(),
+            Some("1")
+        );
+
+        run_cli(
+            binary,
+            ["reload", path(&stopped_path), "--socket", path(&socket)],
+        );
+        wait_for_tun(binary, &socket, false, true);
+        assert_tun_os_cleanup(&tun_name);
+        assert_route_journals_clean(&direct_path);
+
+        std::fs::write(&direct_path, &direct_config).unwrap();
+        run_cli(
+            binary,
+            ["reload", path(&direct_path), "--socket", path(&socket)],
+        );
+        wait_for_tun(binary, &socket, true, true);
+        let restarted_name = assert_tun_os_configured(binary, &socket, false, true);
+        let restarted_status = tun_status(binary, &socket);
+        assert_eq!(
+            status_field(&restarted_status, "ipv6_to_ipv4_fallbacks").as_deref(),
+            Some("0"),
+            "a new TUN lifecycle retained the previous fallback count: {restarted_status}"
+        );
+        assert_only_aaaa_fallback_is_bounded(original_ipv6, &mock_dns);
+
+        run_cli(
+            binary,
+            ["reload", path(&stopped_path), "--socket", path(&socket)],
+        );
+        wait_for_tun(binary, &socket, false, true);
+        assert_tun_os_cleanup(&restarted_name);
+        assert_route_journals_clean(&direct_path);
+        process.kill_and_wait();
+    }));
+    if let Err(payload) = outcome {
+        best_effort_route_recovery(binary, &socket, &direct_path, &stopped_path);
+        std::panic::resume_unwind(payload);
+    }
+}
+
 fn run_family(ipv6: bool) {
     let _guard = TUN_E2E_LOCK.lock().expect("TUN E2E lock poisoned");
     let binary = env!("CARGO_BIN_EXE_zero");
@@ -467,6 +616,22 @@ fn config_json(
         "route": { "rules": rules, "final": { "type": "direct" } }
     }))
     .unwrap()
+}
+
+fn config_json_with_dns(
+    ipv6: bool,
+    listen_port: u16,
+    blocked: Option<IpAddr>,
+    tun: bool,
+    dual_stack: bool,
+    dns: SocketAddr,
+) -> String {
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config_json(ipv6, listen_port, blocked, tun, dual_stack)).unwrap();
+    config["runtime"]["dns"]["servers"]["test"]["host"] =
+        serde_json::Value::String(dns.ip().to_string());
+    config["runtime"]["dns"]["servers"]["test"]["port"] = serde_json::Value::from(dns.port());
+    serde_json::to_string_pretty(&config).unwrap()
 }
 
 fn direct_udp_config_json(listen_port: u16, tun: bool) -> String {
@@ -959,6 +1124,19 @@ ConvertTo-Json -InputObject $profiles -Compress
         .to_owned()
 }
 
+#[cfg(windows)]
+fn windows_has_native_ipv6_default_route() -> bool {
+    let script = r#"
+$routes = @(Get-NetRoute -AddressFamily IPv6 -DestinationPrefix '::/0' -ErrorAction SilentlyContinue |
+  Where-Object { $_.State -eq 'Alive' -and $_.InterfaceAlias -notlike 'ZeroTun*' })
+if ($routes.Count -gt 0) { exit 0 } else { exit 1 }
+"#;
+    Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn checked_command(program: &str, arguments: &[&str]) -> String {
     let output = Command::new(program)
@@ -1007,7 +1185,7 @@ fn assert_tcp_through_tun(target: SocketAddr) {
         .unwrap_or_else(|error| {
             #[cfg(windows)]
             dump_windows_tun_network_state();
-            panic!("TCP request through TUN: {error}");
+            panic!("TCP request through TUN to {target}: {error}");
         });
     let mut stream: TcpStream = socket.into();
     stream
@@ -1021,6 +1199,169 @@ fn assert_tcp_through_tun(target: SocketAddr) {
         .read(&mut response)
         .unwrap_or_else(|error| panic!("read HTTP response from {target}: {error}"));
     assert!(size > 0, "TCP target returned no bytes through TUN");
+}
+
+#[cfg(windows)]
+fn assert_tls_sni_ipv6_falls_back_to_ipv4(target: SocketAddr, domain: &str) {
+    assert!(
+        target.is_ipv6(),
+        "fallback probe requires an original IPv6 target"
+    );
+    let client_hello = tls_client_hello(domain);
+    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))
+        .expect("create IPv6 fallback socket");
+    socket
+        .bind(&SocketAddr::new(tun_source(true), 0).into())
+        .expect("bind fallback socket to the TUN IPv6 address");
+    socket
+        .connect_timeout(&target.into(), Duration::from_secs(5))
+        .expect("connect original IPv6 target through the TUN stack");
+    let mut stream: TcpStream = socket.into();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    stream
+        .write_all(&client_hello)
+        .expect("write TLS ClientHello through TUN");
+    let mut response = [0_u8; 64];
+    let size = stream
+        .read(&mut response)
+        .expect("trusted IPv6 target should receive a TLS response through IPv4 fallback");
+    assert!(size > 0, "IPv4 fallback target returned no TLS bytes");
+    assert!(
+        matches!(response[0], 20..=23),
+        "IPv4 fallback returned an unexpected TLS content type: {}",
+        response[0]
+    );
+}
+
+#[cfg(windows)]
+fn tls_client_hello(domain: &str) -> Vec<u8> {
+    use rustls::pki_types::ServerName;
+    use rustls::{ClientConfig, ClientConnection, RootCertStore};
+
+    let config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+            .expect("supported TLS versions")
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
+    let server_name = ServerName::try_from(domain.to_owned()).expect("valid fallback SNI");
+    let mut connection =
+        ClientConnection::new(Arc::new(config), server_name).expect("create TLS fallback probe");
+    let mut client_hello = Vec::new();
+    connection
+        .write_tls(&mut client_hello)
+        .expect("serialize fallback ClientHello");
+    client_hello
+}
+
+#[cfg(windows)]
+fn assert_concurrent_dns_queries_are_coalesced(mock_dns: &MockDns) {
+    const DOMAIN: &str = "coalesced.zero.test";
+    const CLIENTS: u16 = 16;
+    let before = mock_dns.query_count(DOMAIN, 1);
+    let barrier = Arc::new(std::sync::Barrier::new(usize::from(CLIENTS) + 1));
+    let mut workers = Vec::new();
+    for id in 1..=CLIENTS {
+        let barrier = Arc::clone(&barrier);
+        workers.push(thread::spawn(move || {
+            let socket = UdpSocket::bind(SocketAddr::new(tun_source(false), 0)).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let target = "8.8.8.8:53".parse::<SocketAddr>().unwrap();
+            let query = dns_query(0x7200 + id, DOMAIN);
+            barrier.wait();
+            socket.send_to(&query, target).unwrap();
+            let mut response = [0_u8; 2048];
+            let (size, _) = socket.recv_from(&mut response).unwrap();
+            assert!(size >= 12);
+            assert_eq!(&response[..2], &(0x7200 + id).to_be_bytes());
+        }));
+    }
+    barrier.wait();
+    for worker in workers {
+        worker.join().expect("join concurrent DNS E2E client");
+    }
+    assert_eq!(
+        mock_dns.query_count(DOMAIN, 1) - before,
+        1,
+        "concurrent intercepted DNS queries were amplified upstream"
+    );
+}
+
+#[cfg(windows)]
+fn assert_only_aaaa_fallback_is_bounded(target: SocketAddr, mock_dns: &MockDns) {
+    const CLIENTS: usize = 8;
+    let before = mock_dns.query_count(ONLY_AAAA_E2E_DOMAIN, 1);
+    let client_hello = Arc::new(tls_client_hello(ONLY_AAAA_E2E_DOMAIN));
+    let barrier = Arc::new(std::sync::Barrier::new(CLIENTS + 1));
+    let mut workers = Vec::new();
+    for _ in 0..CLIENTS {
+        let barrier = Arc::clone(&barrier);
+        let client_hello = Arc::clone(&client_hello);
+        workers.push(thread::spawn(move || {
+            let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP)).unwrap();
+            socket
+                .bind(&SocketAddr::new(tun_source(true), 0).into())
+                .unwrap();
+            socket
+                .connect_timeout(&target.into(), Duration::from_secs(3))
+                .unwrap();
+            let mut stream: TcpStream = socket.into();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            barrier.wait();
+            stream.write_all(client_hello.as_slice()).unwrap();
+            let mut response = [0_u8; 1];
+            assert!(
+                !matches!(stream.read(&mut response), Ok(size) if size > 0),
+                "AAAA-only fallback unexpectedly produced an IPv4 response"
+            );
+        }));
+    }
+    barrier.wait();
+    for worker in workers {
+        worker.join().expect("join AAAA-only fallback E2E client");
+    }
+    assert_eq!(
+        mock_dns.query_count(ONLY_AAAA_E2E_DOMAIN, 1) - before,
+        1,
+        "AAAA-only fallback caused repeated A lookups instead of one coalesced negative result"
+    );
+}
+
+#[cfg(windows)]
+fn assert_literal_ipv6_fails_quickly_without_dns_fallback() {
+    let target = "[2001:db8::1]:443".parse::<SocketAddr>().unwrap();
+    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))
+        .expect("create literal IPv6 probe socket");
+    socket
+        .bind(&SocketAddr::new(tun_source(true), 0).into())
+        .expect("bind literal IPv6 probe to the TUN address");
+    socket
+        .connect_timeout(&target.into(), Duration::from_secs(2))
+        .expect("TUN stack should accept the local literal IPv6 connection");
+    let mut stream: TcpStream = socket.into();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let started = Instant::now();
+    stream
+        .write_all(b"GET / HTTP/1.0\r\n\r\n")
+        .expect("write literal IPv6 probe");
+    let mut response = [0_u8; 1];
+    let result = stream.read(&mut response);
+    assert!(
+        !matches!(result, Ok(size) if size > 0),
+        "literal IPv6 unexpectedly received a network response"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "literal IPv6 did not fail quickly when native IPv6 egress was unavailable"
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -1493,14 +1834,108 @@ fn serve_mock_socks5_connection(stream: &mut TcpStream) -> std::io::Result<()> {
     stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK")
 }
 
+#[cfg(windows)]
+struct MockTcpResponder {
+    address: SocketAddr,
+    stop: Arc<AtomicBool>,
+    accept_count: Arc<std::sync::atomic::AtomicUsize>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[cfg(windows)]
+impl MockTcpResponder {
+    fn start() -> Self {
+        let route_probe = UdpSocket::bind("0.0.0.0:0").expect("bind IPv4 route probe");
+        route_probe
+            .connect("1.1.1.1:53")
+            .expect("select physical IPv4 route source");
+        let physical_ip = route_probe
+            .local_addr()
+            .expect("read physical IPv4 route source")
+            .ip();
+        assert!(
+            physical_ip.is_ipv4() && !physical_ip.is_loopback(),
+            "IPv4-only TUN E2E requires a non-loopback physical IPv4 address, got {physical_ip}"
+        );
+        let listener = [8443_u16, 443]
+            .into_iter()
+            .find_map(|port| TcpListener::bind(SocketAddr::new(physical_ip, port)).ok())
+            .expect("bind physical IPv4 fallback responder on a TUN TLS-sniffing port");
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let accept_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let worker_accept_count = Arc::clone(&accept_count);
+        let worker = thread::spawn(move || {
+            while !worker_stop.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        worker_accept_count.fetch_add(1, Ordering::Relaxed);
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(2)))
+                            .unwrap();
+                        let mut request = [0_u8; 4096];
+                        let _ = stream.read(&mut request);
+                        // A syntactically valid TLS fatal alert proves that
+                        // the replayed ClientHello reached this controlled
+                        // IPv4 endpoint without requiring a certificate.
+                        stream
+                            .write_all(&[21, 3, 3, 0, 2, 2, 40])
+                            .expect("write physical IPv4 fallback TLS alert");
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("accept physical IPv4 fallback connection: {error}"),
+                }
+            }
+        });
+        Self {
+            address,
+            stop,
+            accept_count,
+            worker: Some(worker),
+        }
+    }
+
+    fn accept_count(&self) -> usize {
+        self.accept_count.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for MockTcpResponder {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            worker
+                .join()
+                .expect("join physical IPv4 fallback responder");
+        }
+    }
+}
+
 struct MockDns {
     address: SocketAddr,
     stop: Arc<AtomicBool>,
+    query_counts: Arc<Mutex<HashMap<(String, u16), usize>>>,
     worker: Option<JoinHandle<()>>,
 }
 
 impl MockDns {
     fn start() -> Self {
+        Self::start_with_ipv4_answer([127, 0, 0, 1], Duration::ZERO)
+    }
+
+    fn start_for_ipv4_only(address: IpAddr) -> Self {
+        let IpAddr::V4(address) = address else {
+            panic!("IPv4-only mock DNS answer must be IPv4");
+        };
+        Self::start_with_ipv4_answer(address.octets(), Duration::from_millis(250))
+    }
+
+    fn start_with_ipv4_answer(ipv4_answer: [u8; 4], response_delay: Duration) -> Self {
         let socket = UdpSocket::bind("127.0.0.1:0").expect("bind mock DNS");
         let address = socket.local_addr().unwrap();
         socket
@@ -1508,12 +1943,27 @@ impl MockDns {
             .unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
+        let query_counts = Arc::new(Mutex::new(HashMap::new()));
+        let worker_query_counts = Arc::clone(&query_counts);
         let worker = thread::spawn(move || {
             let mut packet = [0_u8; 2048];
             while !worker_stop.load(Ordering::Relaxed) {
                 match socket.recv_from(&mut packet) {
                     Ok((size, peer)) => {
-                        if let Some(response) = mock_dns_response(&packet[..size]) {
+                        if let Some((_, query_type, domain)) = dns_question_details(&packet[..size])
+                        {
+                            *worker_query_counts
+                                .lock()
+                                .expect("mock DNS query-count lock poisoned")
+                                .entry((domain, query_type))
+                                .or_default() += 1;
+                        }
+                        if !response_delay.is_zero() {
+                            thread::sleep(response_delay);
+                        }
+                        if let Some(response) =
+                            mock_dns_response_with_ipv4(&packet[..size], ipv4_answer)
+                        {
                             socket
                                 .send_to(&response, peer)
                                 .expect("send mock DNS response");
@@ -1531,8 +1981,18 @@ impl MockDns {
         Self {
             address,
             stop,
+            query_counts,
             worker: Some(worker),
         }
+    }
+
+    fn query_count(&self, domain: &str, query_type: u16) -> usize {
+        self.query_counts
+            .lock()
+            .expect("mock DNS query-count lock poisoned")
+            .get(&(domain.to_owned(), query_type))
+            .copied()
+            .unwrap_or(0)
     }
 }
 
@@ -1546,13 +2006,24 @@ impl Drop for MockDns {
 }
 
 fn mock_dns_response(query: &[u8]) -> Option<Vec<u8>> {
-    let (question_end, qtype) = dns_question(query)?;
+    mock_dns_response_with_ipv4(query, [127, 0, 0, 1])
+}
+
+fn mock_dns_response_with_ipv4(query: &[u8], ipv4_answer: [u8; 4]) -> Option<Vec<u8>> {
+    let (question_end, qtype, domain) = dns_question_details(query)?;
+    if qtype == 1 && domain == ONLY_AAAA_E2E_DOMAIN {
+        let mut response = Vec::with_capacity(question_end);
+        response.extend_from_slice(&query[..2]);
+        response.extend_from_slice(&[0x81, 0x80, 0, 1, 0, 0, 0, 0, 0, 0]);
+        response.extend_from_slice(&query[12..question_end]);
+        return Some(response);
+    }
     let (record, data): (u16, &[u8]) = match qtype {
         28 => (
             28,
             &[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         ),
-        _ => (1, &[127, 0, 0, 1]),
+        _ => (1, &ipv4_answer),
     };
     let mut response = Vec::with_capacity(question_end + 32);
     response.extend_from_slice(&query[..2]);
@@ -1567,11 +2038,16 @@ fn mock_dns_response(query: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn dns_question(query: &[u8]) -> Option<(usize, u16)> {
+    dns_question_details(query).map(|(end, query_type, _)| (end, query_type))
+}
+
+fn dns_question_details(query: &[u8]) -> Option<(usize, u16, String)> {
     if query.len() < 17 || query.get(4..6)? != [0, 1] {
         return None;
     }
 
     let mut offset = 12;
+    let mut labels = Vec::new();
     loop {
         let label_length = usize::from(*query.get(offset)?);
         offset += 1;
@@ -1581,12 +2057,17 @@ fn dns_question(query: &[u8]) -> Option<(usize, u16)> {
         if label_length > 63 {
             return None;
         }
-        offset = offset.checked_add(label_length)?;
-        query.get(..offset)?;
+        let end = offset.checked_add(label_length)?;
+        labels.push(std::str::from_utf8(query.get(offset..end)?).ok()?);
+        offset = end;
     }
 
     let query_type = u16::from_be_bytes([*query.get(offset)?, *query.get(offset + 1)?]);
     let question_end = offset.checked_add(4)?;
     query.get(..question_end)?;
-    Some((question_end, query_type))
+    Some((
+        question_end,
+        query_type,
+        labels.join(".").to_ascii_lowercase(),
+    ))
 }

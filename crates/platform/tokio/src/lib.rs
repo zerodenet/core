@@ -14,8 +14,8 @@ mod egress;
 mod process;
 use egress::{bind_tcp_to_interface, bind_udp_to_interface, datagram_bind_address};
 pub use egress::{
-    EgressBindingReason, EgressInterface, EgressInterfaceControl, EgressRouteLookupStatus,
-    EgressSelection,
+    EgressBindingReason, EgressFamilySnapshot, EgressInterface, EgressInterfaceControl,
+    EgressRouteLookupStatus, EgressSelection,
 };
 pub use process::{lookup_local_tcp_process, lookup_local_udp_process, LocalProcessInfo};
 

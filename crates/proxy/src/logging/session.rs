@@ -7,6 +7,9 @@ use zero_engine::{
     CompletedSessionRecord, EngineError, FlowFailureObservation, FlowRemoteEndpoint,
 };
 
+mod rate_limit;
+use rate_limit::{environmental_failure_log_decision, FailureLogDecision};
+
 pub(crate) fn session_failure_observation(
     stage: &'static str,
     error: &EngineError,
@@ -96,6 +99,24 @@ pub(crate) fn log_session_failed(
     error: &impl std::fmt::Display,
     upstream: Option<(&str, u16)>,
 ) {
+    let suppressed_failures = match environmental_failure_log_decision(&error.to_string()) {
+        Some(FailureLogDecision::Suppress) => {
+            tracing::debug!(
+                session_id = session.id,
+                inbound_tag = session.inbound_tag.as_deref().unwrap_or("-"),
+                outbound_tag = session.outbound_tag.as_deref().unwrap_or("-"),
+                network = network_name(session.network),
+                target = ?session.target,
+                port = session.port,
+                stage,
+                error = %error,
+                "repeated local TUN egress failure warning suppressed"
+            );
+            return;
+        }
+        Some(FailureLogDecision::Warn { suppressed }) => suppressed,
+        None => 0,
+    };
     let mode = record.map(|item| item.mode.as_str()).unwrap_or("-");
     let duration_ms = record
         .map(|item| item.duration_ms)
@@ -132,6 +153,7 @@ pub(crate) fn log_session_failed(
             inbound_tx_bytes = inbound_tx_bytes,
             outbound_rx_bytes = outbound_rx_bytes,
             outbound_tx_bytes = outbound_tx_bytes,
+            suppressed_failures,
             "session failed"
         ),
         None => warn!(
@@ -152,6 +174,7 @@ pub(crate) fn log_session_failed(
             inbound_tx_bytes = inbound_tx_bytes,
             outbound_rx_bytes = outbound_rx_bytes,
             outbound_tx_bytes = outbound_tx_bytes,
+            suppressed_failures,
             "session failed"
         ),
     }

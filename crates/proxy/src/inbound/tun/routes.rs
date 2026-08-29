@@ -6,8 +6,8 @@ use ipnet::IpNet;
 use tokio::sync::{oneshot, watch};
 use zero_engine::EngineError;
 use zero_tun::{
-    capture_route_prefixes_with_exclusions, strict_route_socket_mark, RouteChangeMonitor,
-    RouteInterface, SystemLeakGuard, SystemRouteGuard,
+    capture_route_prefixes_with_exclusions, strict_route_socket_mark, FamilyEgressState,
+    RouteChangeMonitor, RouteInterface, SystemLeakGuard, SystemRouteGuard,
 };
 
 use crate::runtime::Proxy;
@@ -70,8 +70,8 @@ pub(super) async fn install(
         let socket_mark = strict.then(|| strict_route_socket_mark(&recovery_key));
         let mut guards = Vec::new();
         let mut last_error = None;
-        let previous_v4 = egress_control.current_for(false);
-        let previous_v6 = egress_control.current_for(true);
+        let previous_v4 = egress_control.snapshot_for(false);
+        let previous_v6 = egress_control.snapshot_for(true);
         let protected = addresses
             .iter()
             .flat_map(|(address, _)| {
@@ -93,15 +93,20 @@ pub(super) async fn install(
                 netmask,
                 &capture_route_prefixes_with_exclusions(address, &include_cidrs, &exclude_cidrs),
                 &excluded,
-                move |route| {
-                    let interface = platform_egress_interface(route, socket_mark)?;
-                    published_egress.replace_for(ipv6, Some(interface));
-                    Ok(())
-                },
+                move |state| publish_family_egress(&published_egress, ipv6, state, socket_mark),
             ) {
                 Ok(guard) => {
-                    let interface = platform_egress_interface(guard.egress(), socket_mark)?;
-                    egress_control.replace_for(ipv6, Some(interface));
+                    publish_family_egress(
+                        &egress_control,
+                        ipv6,
+                        guard.family_egress(),
+                        socket_mark,
+                    )?;
+                    log_route_install_carrier_selected(
+                        &guard,
+                        egress_control.generation(),
+                        "initial_install",
+                    );
                     guards.push(guard);
                 }
                 Err(error) if strict => {
@@ -111,8 +116,8 @@ pub(super) async fn install(
                             rollback_error.get_or_insert(cleanup);
                         }
                     }
-                    egress_control.replace_for(false, previous_v4);
-                    egress_control.replace_for(true, previous_v6);
+                    egress_control.restore_for(false, previous_v4);
+                    egress_control.restore_for(true, previous_v6);
                     let error = match rollback_error {
                         Some(rollback) => io::Error::new(
                             error.kind(),
@@ -123,7 +128,7 @@ pub(super) async fn install(
                     return Err(EngineError::Io(error));
                 }
                 Err(error) => {
-                    egress_control.replace_for(ipv6, previous);
+                    egress_control.restore_for(ipv6, previous);
                     tracing::warn!(
                         family = if address.is_ipv6() { "IPv6" } else { "IPv4" },
                         error = %error,
@@ -143,8 +148,8 @@ pub(super) async fn install(
                             rollback_error.get_or_insert(cleanup);
                         }
                     }
-                    egress_control.replace_for(false, previous_v4);
-                    egress_control.replace_for(true, previous_v6);
+                    egress_control.restore_for(false, previous_v4);
+                    egress_control.restore_for(true, previous_v6);
                     let error = match rollback_error {
                         Some(rollback) => io::Error::new(
                             error.kind(),
@@ -182,6 +187,95 @@ pub(super) fn platform_egress_interface(
         Some(mark) => interface.with_socket_mark(mark),
         None => Ok(interface),
     }
+}
+
+pub(super) fn publish_family_egress(
+    control: &zero_platform_tokio::EgressInterfaceControl,
+    ipv6: bool,
+    state: &FamilyEgressState,
+    socket_mark: Option<u32>,
+) -> io::Result<()> {
+    let previous_generation = control.generation();
+    match state {
+        FamilyEgressState::Available(route) => {
+            let interface = platform_egress_interface(route, socket_mark)?;
+            control.replace_for(ipv6, Some(interface));
+        }
+        FamilyEgressState::Unavailable(reason) => {
+            control.mark_unavailable_for(ipv6, reason.as_str());
+        }
+        FamilyEgressState::Unknown => control.replace_for(ipv6, None),
+    }
+    let generation = control.generation();
+    if generation != previous_generation {
+        match state {
+            FamilyEgressState::Available(route) => tracing::info!(
+                event_type = "tun_family_egress_available",
+                address_family = if ipv6 { "ipv6" } else { "ipv4" },
+                interface = route.name(),
+                interface_index = route.index(),
+                route_source = "native_default_route",
+                generation,
+                "TUN family egress became available"
+            ),
+            FamilyEgressState::Unavailable(reason) => tracing::warn!(
+                event_type = "tun_family_egress_unavailable",
+                address_family = if ipv6 { "ipv6" } else { "ipv4" },
+                reason = reason.as_str(),
+                route_source = if *reason == zero_tun::EgressUnavailableReason::NoDefaultRoute {
+                    "cross_family_route_carrier"
+                } else {
+                    "native_default_route"
+                },
+                generation,
+                "TUN family egress became unavailable"
+            ),
+            FamilyEgressState::Unknown => {}
+        }
+        tracing::info!(
+            event_type = "tun_network_generation_changed",
+            previous_generation,
+            generation,
+            cause = "family_egress_changed",
+            address_family = if ipv6 { "ipv6" } else { "ipv4" },
+            "TUN network generation changed"
+        );
+    }
+    Ok(())
+}
+
+fn log_route_install_carrier_selected(
+    guard: &SystemRouteGuard,
+    generation: u64,
+    route_source: &'static str,
+) {
+    let family_state = guard.family_egress();
+    let cross_family = matches!(
+        family_state,
+        FamilyEgressState::Unavailable(zero_tun::EgressUnavailableReason::NoDefaultRoute)
+    );
+    tracing::info!(
+        event_type = "tun_route_install_carrier_selected",
+        address_family = if guard.is_ipv6() { "ipv6" } else { "ipv4" },
+        carrier_family = if guard.is_ipv6() != cross_family {
+            "ipv6"
+        } else {
+            "ipv4"
+        },
+        interface = guard.egress().name(),
+        interface_index = guard.egress().index(),
+        route_source,
+        generation,
+        native_egress_state = match family_state {
+            FamilyEgressState::Available(_) => "available",
+            FamilyEgressState::Unavailable(_) => "unavailable",
+            FamilyEgressState::Unknown => "unknown",
+        },
+        native_egress_reason = family_state
+            .unavailable_reason()
+            .map(zero_tun::EgressUnavailableReason::as_str),
+        "TUN route installation carrier selected"
+    );
 }
 
 pub(super) struct RouteRuntimeSpec {
@@ -375,6 +469,13 @@ async fn run(
                     return Err(error);
                 }
                 if changed {
+                    for guard in &guards {
+                        log_route_install_carrier_selected(
+                            guard,
+                            proxy.egress_interface.generation(),
+                            "network_reconcile",
+                        );
+                    }
                     tracing::info!(tun = %spec.tun_name, "TUN physical egress routes reconciled");
                 }
                 retry_index = None;

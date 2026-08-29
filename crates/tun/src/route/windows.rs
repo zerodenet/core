@@ -6,21 +6,27 @@ use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceAliasToLuid, ConvertInterfaceLuidToAlias, ConvertInterfaceLuidToIndex,
     CreateIpForwardEntry2, DeleteIpForwardEntry2, FreeMibTable, GetIpForwardTable2,
-    GetIpInterfaceEntry, InitializeIpForwardEntry, InitializeIpInterfaceEntry, IP_ADDRESS_PREFIX,
-    MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
+    GetIpInterfaceEntry, GetUnicastIpAddressTable, InitializeIpForwardEntry,
+    InitializeIpInterfaceEntry, IP_ADDRESS_PREFIX, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
 };
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 use windows_sys::Win32::Networking::WinSock::{
-    AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0, MIB_IPPROTO_NETMGMT, SOCKADDR_IN,
-    SOCKADDR_IN6, SOCKADDR_INET,
+    IpDadStatePreferred, AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0,
+    MIB_IPPROTO_NETMGMT, SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_INET,
 };
 
 use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
-use super::{family_exclusions, host_prefix, RouteInterface, RouteJournal, RouteLease};
+use super::{
+    family_exclusions, host_prefix, EgressUnavailableReason, FamilyEgressState, RouteInterface,
+    RouteJournal, RouteLease,
+};
 
 #[derive(Debug)]
 pub struct SystemRouteGuard {
+    /// Carrier used by route installation and exclusion maintenance.
     egress: RouteInterface,
+    /// Native socket reachability for the TUN address family.
+    family_egress: FamilyEgressState,
     ipv6: bool,
     gateway: IpAddr,
     tun_gateway: IpAddr,
@@ -33,6 +39,12 @@ struct WindowsInterface {
     interface_alias: String,
     interface_index: u32,
     next_hop: IpAddr,
+}
+
+struct WindowsEgressSelection {
+    carrier: RouteInterface,
+    gateway: IpAddr,
+    family: FamilyEgressState,
 }
 
 impl SystemRouteGuard {
@@ -62,29 +74,16 @@ impl SystemRouteGuard {
         _netmask: IpAddr,
         captured: &[IpNet],
         excluded: &[IpAddr],
-        publish_egress: impl FnOnce(&RouteInterface) -> io::Result<()>,
+        publish_egress: impl FnOnce(&FamilyEgressState) -> io::Result<()>,
     ) -> io::Result<Self> {
         let lease = RouteLease::acquire(recovery_key, address.is_ipv6())?;
         recover_stale_routes(&lease, address.is_ipv6())?;
         let tun_index = interface_by_name(tun_name)?;
         let ipv6 = address.is_ipv6();
         let has_family_exclusions = excluded.iter().any(|peer| peer.is_ipv6() == ipv6);
-        let physical = default_interface(ipv6, tun_index).or_else(|error| {
-            if has_family_exclusions {
-                Err(error)
-            } else {
-                default_interface(!ipv6, tun_index).map_err(|fallback| {
-                    io::Error::new(
-                        fallback.kind(),
-                        format!(
-                            "default route unavailable for the TUN address family ({error}); fallback family also unavailable ({fallback})"
-                        ),
-                    )
-                })
-            }
-        })?;
-        let egress = RouteInterface::new(physical.interface_alias, physical.interface_index)?;
-        let gateway = physical.next_hop;
+        let selected = select_physical_egress(ipv6, tun_index, !has_family_exclusions)?;
+        let egress = selected.carrier;
+        let gateway = selected.gateway;
         let desired_exclusions = family_exclusions(excluded, ipv6);
         let journal = RouteJournal::new(
             lease,
@@ -96,6 +95,7 @@ impl SystemRouteGuard {
         )?;
         let mut guard = Self {
             egress,
+            family_egress: selected.family,
             ipv6,
             gateway,
             tun_gateway: synthetic_tun_gateway(address)?,
@@ -103,7 +103,7 @@ impl SystemRouteGuard {
             excluded: desired_exclusions.clone(),
             journal,
         };
-        publish_egress(&guard.egress)?;
+        publish_egress(&guard.family_egress)?;
         for peer in desired_exclusions {
             guard.install_exclusion(peer)?;
         }
@@ -120,6 +120,10 @@ impl SystemRouteGuard {
         &self.egress
     }
 
+    pub fn family_egress(&self) -> &FamilyEgressState {
+        &self.family_egress
+    }
+
     pub fn is_ipv6(&self) -> bool {
         self.ipv6
     }
@@ -129,24 +133,12 @@ impl SystemRouteGuard {
     pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
         let desired_exclusions = family_exclusions(excluded, self.ipv6);
         let has_family_exclusions = !desired_exclusions.is_empty();
-        let physical = default_interface(self.ipv6, self.tun_index).or_else(|error| {
-            if has_family_exclusions {
-                Err(error)
-            } else {
-                default_interface(!self.ipv6, self.tun_index).map_err(|fallback| {
-                    io::Error::new(
-                        fallback.kind(),
-                        format!(
-                            "default route unavailable for the TUN address family ({error}); fallback family also unavailable ({fallback})"
-                        ),
-                    )
-                })
-            }
-        })?;
-        let desired_egress =
-            RouteInterface::new(physical.interface_alias, physical.interface_index)?;
-        let desired_gateway = physical.next_hop;
-        reconcile_route_state(self, desired_egress, desired_gateway, desired_exclusions)
+        let selected = select_physical_egress(self.ipv6, self.tun_index, !has_family_exclusions)?;
+        let family_changed = self.family_egress != selected.family;
+        let changed =
+            reconcile_route_state(self, selected.carrier, selected.gateway, desired_exclusions)?;
+        self.family_egress = selected.family;
+        Ok(changed || family_changed)
     }
 
     pub fn close(mut self) -> io::Result<()> {
@@ -321,6 +313,141 @@ fn interface_by_name(name: &str) -> io::Result<u32> {
         ConvertInterfaceLuidToIndex(&luid, &mut index)
     })?;
     Ok(index)
+}
+
+fn select_physical_egress(
+    ipv6: bool,
+    tun_index: u32,
+    allow_cross_family_carrier: bool,
+) -> io::Result<WindowsEgressSelection> {
+    match default_interface(ipv6, tun_index) {
+        Ok(physical) => {
+            let carrier =
+                RouteInterface::new(physical.interface_alias.clone(), physical.interface_index)?;
+            let family = match native_family_unavailable_reason(ipv6, physical.interface_index) {
+                Ok(None) => FamilyEgressState::Available(carrier.clone()),
+                Ok(Some(reason)) => {
+                    tracing::warn!(
+                        family = if ipv6 { "ipv6" } else { "ipv4" },
+                        route_install_carrier = %physical.interface_alias,
+                        route_install_carrier_index = physical.interface_index,
+                        native_egress_state = "unavailable",
+                        native_egress_reason = reason.as_str(),
+                        "TUN route carrier does not provide usable native family egress"
+                    );
+                    FamilyEgressState::Unavailable(reason)
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        family = if ipv6 { "ipv6" } else { "ipv4" },
+                        route_install_carrier = %physical.interface_alias,
+                        route_install_carrier_index = physical.interface_index,
+                        native_egress_state = "unavailable",
+                        native_egress_reason = EgressUnavailableReason::RouteLookupFailed.as_str(),
+                        error = %error,
+                        "failed to verify native family egress for the TUN route carrier"
+                    );
+                    FamilyEgressState::Unavailable(EgressUnavailableReason::RouteLookupFailed)
+                }
+            };
+            Ok(WindowsEgressSelection {
+                carrier,
+                gateway: physical.next_hop,
+                family,
+            })
+        }
+        Err(native_error) if allow_cross_family_carrier => {
+            let physical = default_interface(!ipv6, tun_index).map_err(|fallback| {
+                io::Error::new(
+                    fallback.kind(),
+                    format!(
+                        "default route unavailable for the TUN address family ({native_error}); fallback family also unavailable ({fallback})"
+                    ),
+                )
+            })?;
+            let carrier =
+                RouteInterface::new(physical.interface_alias.clone(), physical.interface_index)?;
+            tracing::info!(
+                family = if ipv6 { "ipv6" } else { "ipv4" },
+                route_install_carrier = %physical.interface_alias,
+                route_install_carrier_index = physical.interface_index,
+                route_install_carrier_family = if ipv6 { "ipv4" } else { "ipv6" },
+                native_egress_state = "unavailable",
+                native_egress_reason = EgressUnavailableReason::NoDefaultRoute.as_str(),
+                native_route_error = %native_error,
+                "selected a cross-family TUN route carrier without publishing native egress"
+            );
+            Ok(WindowsEgressSelection {
+                carrier,
+                gateway: physical.next_hop,
+                family: FamilyEgressState::Unavailable(EgressUnavailableReason::NoDefaultRoute),
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn native_family_unavailable_reason(
+    ipv6: bool,
+    interface_index: u32,
+) -> io::Result<Option<EgressUnavailableReason>> {
+    let family = if ipv6 { AF_INET6 } else { AF_INET };
+    let mut interface = MIB_IPINTERFACE_ROW::default();
+    unsafe {
+        InitializeIpInterfaceEntry(&mut interface);
+    }
+    interface.Family = family;
+    interface.InterfaceIndex = interface_index;
+    win32_result("query physical IP interface", unsafe {
+        GetIpInterfaceEntry(&mut interface)
+    })?;
+    if !interface.Connected {
+        return Ok(Some(EgressUnavailableReason::InterfaceDown));
+    }
+    if !interface_has_usable_address(family, interface_index)? {
+        return Ok(Some(EgressUnavailableReason::NoUsableAddress));
+    }
+    Ok(None)
+}
+
+fn interface_has_usable_address(family: u16, interface_index: u32) -> io::Result<bool> {
+    let mut table = std::ptr::null_mut();
+    win32_result("query physical interface addresses", unsafe {
+        GetUnicastIpAddressTable(family, &mut table)
+    })?;
+    if table.is_null() {
+        return Err(io::Error::other(
+            "Windows unicast address table pointer is null",
+        ));
+    }
+    let rows = unsafe {
+        std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize)
+    };
+    let found = rows.iter().any(|row| {
+        row.InterfaceIndex == interface_index
+            && row.DadState == IpDadStatePreferred
+            && socket_ip(&row.Address).is_ok_and(usable_unicast_address)
+    });
+    unsafe { FreeMibTable(table.cast()) };
+    Ok(found)
+}
+
+fn usable_unicast_address(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            !address.is_unspecified()
+                && !address.is_loopback()
+                && !address.is_link_local()
+                && !address.is_multicast()
+                && !address.is_broadcast()
+        }
+        IpAddr::V6(address) => {
+            !address.is_unspecified()
+                && !address.is_loopback()
+                && !address.is_unicast_link_local()
+                && !address.is_multicast()
+        }
+    }
 }
 
 fn default_interface(ipv6: bool, tun_index: u32) -> io::Result<WindowsInterface> {

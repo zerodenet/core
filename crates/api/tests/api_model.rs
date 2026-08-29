@@ -46,6 +46,12 @@ fn tun_status_defaults_to_command_managed_for_forward_compatibility() {
     .expect("deserialize legacy TUN status");
 
     assert!(!status.managed_by_config);
+    assert_eq!(
+        status.ipv4_egress.availability,
+        zero_api::TunFamilyEgressAvailability::Unknown
+    );
+    assert_eq!(status.network_generation, 0);
+    assert_eq!(status.ipv6_to_ipv4_fallbacks, 0);
 }
 
 #[test]

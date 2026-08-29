@@ -38,6 +38,26 @@ fn oversized_unfragmented_ipv4_packet_receives_mtu_signal() {
     assert_eq!(u16::from_be_bytes([response[26], response[27]]), 576);
 }
 
+#[test]
+fn oversized_unfragmented_ipv6_packet_receives_packet_too_big() {
+    let request = packet::build_udp(
+        IpAddr::V6("2001:db8::2".parse().unwrap()),
+        IpAddr::V6("2001:db8::1".parse().unwrap()),
+        50_000,
+        443,
+        &[7; 1_400],
+    );
+    let response = build_icmp_response(&request, 1_280).expect("packet-too-big response");
+    assert!(response.len() <= 1_280);
+    assert_eq!(response[6], packet::IPPROTO_ICMPV6);
+    assert_eq!(response[40], 2);
+    assert_eq!(response[41], 0);
+    assert_eq!(
+        u32::from_be_bytes([response[44], response[45], response[46], response[47]]),
+        1_280
+    );
+}
+
 fn ipv4_echo_request() -> Vec<u8> {
     let mut packet = vec![0_u8; 28];
     packet[0] = 0x45;

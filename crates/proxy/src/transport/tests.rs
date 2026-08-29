@@ -125,6 +125,48 @@ async fn unavailable_tun_ipv6_egress_reresolves_a_trusted_domain_to_ipv4() {
 }
 
 #[tokio::test]
+async fn unreachable_native_ipv6_candidate_races_one_trusted_ipv4_fallback() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let reachable = listener.local_addr().unwrap();
+    // Loopback has an authoritative IPv6 route on every supported platform,
+    // while this listener is deliberately IPv4-only. That distinguishes an
+    // actual IPv6 connect failure from a missing-family egress without relying
+    // on the host having a native IPv6 default route.
+    let original = Address::Ipv6([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    let mut session = tls_sni_session(original);
+    session.target = Address::Domain("localhost".to_owned());
+    session.sni = Some("localhost".to_owned());
+    session.port = reachable.port();
+
+    let egress = zero_platform_tokio::EgressInterfaceControl::default();
+    egress.replace_for(
+        true,
+        Some(zero_platform_tokio::EgressInterface::new("loopback", 1).unwrap()),
+    );
+    egress.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
+    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+
+    let started = std::time::Instant::now();
+    let connection = match DirectConnector.connect(&session, &resolver, &egress).await {
+        Ok(connection) => connection,
+        Err(failure) => panic!(
+            "trusted IPv4 candidate should win after native IPv6 fails: {}",
+            failure.error
+        ),
+    };
+
+    assert!(connection.remote.is_ipv4());
+    assert_eq!(connection.remote.port(), reachable.port());
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert_eq!(egress.ipv6_to_ipv4_fallbacks(), 1);
+    let fallback = connection
+        .network
+        .address_family_fallback
+        .expect("connectivity fallback should be observable");
+    assert_eq!(fallback.reason, "ipv6_connect_failed");
+}
+
+#[tokio::test]
 async fn unavailable_tun_ipv6_egress_applies_to_recovered_fake_ip_domains() {
     let original = Address::Ipv6([0xfd, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7]);
     let mut session = tls_sni_session(original);
@@ -226,4 +268,19 @@ async fn literal_ipv6_without_a_recovered_domain_is_not_converted() {
         resolution.candidates,
         vec!["[2001:db8::1]:443".parse().unwrap()]
     );
+
+    let failure = DirectConnector
+        .connect(&session, &resolver, &egress)
+        .await
+        .err()
+        .expect("unavailable literal IPv6 target must fail");
+    assert_eq!(
+        failure.error,
+        zero_core::Error::Io("tun_ipv6_egress_unavailable")
+    );
+    assert_eq!(
+        failure.network.connect_stage.as_deref(),
+        Some("select_egress")
+    );
+    assert!(failure.network.address_family_fallback.is_none());
 }

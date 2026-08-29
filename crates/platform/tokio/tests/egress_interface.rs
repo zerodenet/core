@@ -166,7 +166,7 @@ fn peer_selection_exposes_the_authoritative_egress_snapshot() {
     controller.mark_unavailable_for(false, "route reconciliation failed");
 
     let selection = controller.select_for_peer(peer);
-    assert_eq!(controller.generation(), topology_generation);
+    assert_eq!(controller.generation(), topology_generation + 1);
     assert_eq!(selection.generation(), controller.generation());
     assert!(selection.tun_active());
     assert!(selection.configured_interface().is_none());
@@ -174,6 +174,100 @@ fn peer_selection_exposes_the_authoritative_egress_snapshot() {
         selection.unavailable_reason(),
         Some("route reconciliation failed")
     );
+}
+
+#[test]
+fn failed_family_route_probe_does_not_trust_an_interface_index() {
+    let controller = EgressInterfaceControl::default();
+    let published = EgressInterface::new("stale-or-cross-family", 7).unwrap();
+    controller.replace_for(true, Some(published));
+    controller.replace_tunnel_addresses(["fd66::1".parse().unwrap()]);
+
+    // A link-local peer scoped to a non-existent interface cannot produce an
+    // authoritative OS route, regardless of installed global routes.
+    let peer = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+        "fe80::1".parse().unwrap(),
+        443,
+        0,
+        u32::MAX,
+    ));
+    let selection = controller.select_for_peer(peer);
+    assert_eq!(
+        selection.route_lookup_status(),
+        EgressRouteLookupStatus::Failed
+    );
+    assert!(selection.interface().is_none());
+    assert_eq!(
+        selection.binding_reason(),
+        EgressBindingReason::TunEgressUnavailable
+    );
+    assert!(selection.ensure_connectable().is_err());
+}
+
+#[test]
+fn unavailable_family_is_known_and_changes_generation_without_an_interface() {
+    let controller = EgressInterfaceControl::default();
+
+    assert!(!controller.is_known_for(true));
+    controller.mark_unavailable_for(true, "no_default_route");
+    assert!(controller.is_known_for(true));
+    assert_eq!(controller.generation(), 1);
+
+    controller.mark_unavailable_for(true, "no_default_route");
+    assert_eq!(controller.generation(), 1);
+
+    controller.mark_unavailable_for(true, "no_usable_address");
+    assert_eq!(controller.generation(), 2);
+
+    controller.replace_for(true, None);
+    assert!(!controller.is_known_for(true));
+    assert_eq!(controller.generation(), 3);
+}
+
+#[test]
+fn family_snapshot_restores_interface_and_unavailable_reason_transactionally() {
+    let controller = EgressInterfaceControl::default();
+    let ipv4 = EgressInterface::new("ethernet", 7).expect("valid IPv4 interface");
+    controller.replace_for(false, Some(ipv4.clone()));
+    let available = controller.snapshot_for(false);
+
+    controller.mark_unavailable_for(false, "route_reconciliation_failed");
+    let unavailable = controller.snapshot_for(false);
+    assert!(unavailable.interface().is_none());
+    assert_eq!(
+        unavailable.unavailable_reason(),
+        Some("route_reconciliation_failed")
+    );
+
+    controller.restore_for(false, available);
+    assert_eq!(controller.current_for(false), Some(ipv4));
+    assert!(controller.is_known_for(false));
+    assert!(controller
+        .snapshot_for(false)
+        .unavailable_reason()
+        .is_none());
+
+    controller.restore_for(false, unavailable);
+    assert!(controller.current_for(false).is_none());
+    assert_eq!(
+        controller.snapshot_for(false).unavailable_reason(),
+        Some("route_reconciliation_failed")
+    );
+}
+
+#[test]
+fn fallback_count_is_lifecycle_scoped_and_does_not_change_generation() {
+    let controller = EgressInterfaceControl::default();
+    controller.replace_tunnel_addresses(["10.66.0.1".parse().unwrap()]);
+    let generation = controller.generation();
+
+    controller.record_ipv6_to_ipv4_fallback();
+    controller.record_ipv6_to_ipv4_fallback();
+    assert_eq!(controller.ipv6_to_ipv4_fallbacks(), 2);
+    assert_eq!(controller.generation(), generation);
+
+    controller.clear();
+    assert_eq!(controller.ipv6_to_ipv4_fallbacks(), 0);
 }
 
 #[test]

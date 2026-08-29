@@ -71,7 +71,7 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
             let status = decode_tun_status(response.result.unwrap_or_default())?;
             if status.running {
                 println!(
-                    "tun: running, healthy={}, managed_by_config={}, name={}, addr={}, addresses={}, mtu={}, tag={}, auto_route={}, include_cidrs={}, exclude_cidrs={}, dual_stack={}, strict_route={}, dns_hijack={}, egress={}, egress_v4={}, egress_v6={}, last_error={}",
+                    "tun: running, healthy={}, managed_by_config={}, name={}, addr={}, addresses={}, mtu={}, tag={}, auto_route={}, include_cidrs={}, exclude_cidrs={}, dual_stack={}, strict_route={}, dns_hijack={}, egress={}, egress_v4={}, egress_v6={}, ipv4_state={}, ipv4_reason={}, ipv6_state={}, ipv6_reason={}, address_family_policy={}, generation={}, ipv6_to_ipv4_fallbacks={}, last_error={}",
                     status.healthy,
                     status.managed_by_config,
                     status.name.as_deref().unwrap_or("-"),
@@ -104,6 +104,13 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
                     status.egress_interface.as_deref().unwrap_or("-"),
                     status.egress_interface_v4.as_deref().unwrap_or("-"),
                     status.egress_interface_v6.as_deref().unwrap_or("-"),
+                    status.ipv4_egress.availability.as_str(),
+                    status.ipv4_egress.reason.as_deref().unwrap_or("-"),
+                    status.ipv6_egress.availability.as_str(),
+                    status.ipv6_egress.reason.as_deref().unwrap_or("-"),
+                    status.address_family_policy.as_deref().unwrap_or("-"),
+                    status.network_generation,
+                    status.ipv6_to_ipv4_fallbacks,
                     status.last_error.as_deref().unwrap_or("-")
                 );
             } else if let Some(error) = status.last_error {

@@ -25,6 +25,19 @@ impl OutboundProbeError {
         &self.message
     }
 
+    /// Failures before the probe can reach the selected outbound do not
+    /// provide evidence about that outbound's health.
+    pub(crate) fn is_environmental_failure(&self) -> bool {
+        let message = self.message.to_ascii_lowercase();
+        message.contains("tun physical egress is unavailable")
+            || message.contains("tun_ipv4_egress_unavailable")
+            || message.contains("tun_ipv6_egress_unavailable")
+            || message.contains("failed to resolve upstream target")
+            || message.contains("failed to resolve proxy node")
+            || message.contains("dns backend")
+            || message.contains("tun route") && message.contains("unavailable")
+    }
+
     pub(super) fn from_engine(error: EngineError) -> Self {
         let code = match &error {
             EngineError::Io(error) => match error.kind() {
@@ -52,6 +65,9 @@ impl OutboundProbeError {
         Self::new(code, normalize_engine_error(&error))
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 impl fmt::Display for OutboundProbeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

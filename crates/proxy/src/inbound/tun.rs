@@ -307,34 +307,38 @@ impl Proxy {
             }
         };
         if auto_route {
-            let missing_family = route_addresses.iter().find(|(address, _)| {
-                self.egress_interface
-                    .current_for(address.is_ipv6())
-                    .is_none()
-            });
+            let missing_family = route_addresses
+                .iter()
+                .find(|(address, _)| !self.egress_interface.is_known_for(address.is_ipv6()));
             if let Some(missing) = missing_family {
                 let cleanup = routes::cleanup_guards(installed.guards, installed.leak_guard).await;
-                self.egress_interface.clear();
+                clear_egress_control(&self.egress_interface, "route_activation_failed");
                 cleanup.map_err(EngineError::Io)?;
                 return Err(EngineError::Io(io::Error::new(
                     io::ErrorKind::NotConnected,
                     format!(
-                        "TUN physical egress was not published for {} before route activation",
+                        "TUN native egress state was not published for {} before route activation",
                         if missing.0.is_ipv6() { "IPv6" } else { "IPv4" }
                     ),
                 )));
             }
         }
         let mut route_error = installed.last_error;
+        let previous_generation = self.egress_interface.generation();
         self.egress_interface
             .replace_tunnel_addresses(interface_addresses.iter().map(|address| address.address));
+        log_tun_generation_change(
+            &self.egress_interface,
+            previous_generation,
+            "tun_addresses_published",
+        );
         let route_monitor = if auto_route {
             match zero_tun::RouteChangeMonitor::new() {
                 Ok(monitor) => Some(monitor),
                 Err(error) if strict_route => {
                     let cleanup =
                         routes::cleanup_guards(installed.guards, installed.leak_guard).await;
-                    self.egress_interface.clear();
+                    clear_egress_control(&self.egress_interface, "route_monitor_start_failed");
                     cleanup.map_err(EngineError::Io)?;
                     return Err(EngineError::Io(error));
                 }
@@ -669,7 +673,30 @@ fn clear_egress_after_route_cleanup(
     cleanup_complete: bool,
 ) {
     if cleanup_complete {
-        control.clear();
+        clear_egress_control(control, "tun_stopped");
+    }
+}
+
+fn clear_egress_control(
+    control: &zero_platform_tokio::EgressInterfaceControl,
+    cause: &'static str,
+) {
+    let previous_generation = control.generation();
+    control.clear();
+    log_tun_generation_change(control, previous_generation, cause);
+}
+
+fn log_tun_generation_change(
+    control: &zero_platform_tokio::EgressInterfaceControl,
+    previous_generation: u64,
+    cause: &'static str,
+) {
+    let generation = control.generation();
+    if generation != previous_generation {
+        info!(
+            event_type = "tun_network_generation_changed",
+            previous_generation, generation, cause, "TUN network generation changed"
+        );
     }
 }
 
@@ -706,7 +733,7 @@ async fn finalize_tun_runtime_exit(proxy: &Proxy, id: u64) {
         None => Ok(()),
     };
     match route_cleanup {
-        Ok(()) => proxy.egress_interface.clear(),
+        Ok(()) => clear_egress_control(&proxy.egress_interface, "tun_runtime_exited"),
         Err(error) => {
             warn!(%error, "retaining TUN physical egress after route cleanup failure");
             let mut last_error = proxy.tun_last_error.lock().unwrap();
