@@ -170,6 +170,12 @@ another domain; if every pool candidate is live or retired, allocation fails
 closed and an intercepted DNS query receives SERVFAIL. This intentionally
 prefers a visible lookup failure over cross-domain delivery through a stale
 client DNS cache.
+Acknowledged configuration changes prepare the candidate DNS snapshot without
+publishing it or rewriting the Fake-IP journal. The candidate becomes active
+only after TUN, listener, and application-service reconciliation succeeds. A
+rejected transaction therefore keeps both the in-memory mappings and the
+restart-persistent journal from the last committed configuration; a successful
+incompatible change intentionally starts the documented clean allocator.
 `diagnostics.fakeip_lookup` reports mapping counters, live capacity, and the
 current `retired_addresses` count.
 The admin command `fakeip.clear` manages the same allocator and persistent

@@ -250,13 +250,19 @@ impl Proxy {
                 .iter()
                 .filter_map(|address| next_ip(address.address)),
         );
-        if let Some(conflict) = self.resolver.fake_ip_conflict(&tun_owned_addresses) {
-            return Err(EngineError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "Fake-IP pool overlaps TUN-owned address `{conflict}`; choose a non-overlapping DNS fake-IP CIDR"
-                ),
-            )));
+        // Declarative TUN/Fake-IP pairs are cross-validated together before
+        // the runtime config is staged. Command-driven TUN starts have no such
+        // candidate config, so they must still validate against the committed
+        // resolver here.
+        if managed_config.is_none() {
+            if let Some(conflict) = self.resolver.fake_ip_conflict(&tun_owned_addresses) {
+                return Err(EngineError::Io(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "Fake-IP pool overlaps TUN-owned address `{conflict}`; choose a non-overlapping DNS fake-IP CIDR"
+                    ),
+                )));
+            }
         }
         let primary = &interface_addresses[0];
         let address = primary.address;

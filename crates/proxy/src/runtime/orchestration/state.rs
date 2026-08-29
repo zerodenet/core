@@ -116,7 +116,7 @@ impl OrchestrationState {
             .and_then(|dispatch| {
                 proxy
                     .resolver
-                    .reload_with_dispatch(new_config.runtime.dns.as_ref(), dispatch)
+                    .prepare_reload_with_dispatch(new_config.runtime.dns.as_ref(), dispatch)
             });
         if let Err(error) = dns_reload {
             warn!(%error, reason = "dns_reload_error", "failed to reload dns config");
@@ -168,6 +168,14 @@ impl OrchestrationState {
             self.reject_reload(proxy, &new_config, message).await;
             return;
         }
+        if !proxy.pending_reload_matches(&new_config) {
+            if let Err(error) = proxy.resolver.commit_prepared_reload() {
+                warn!(%error, reason = "dns_commit_error", "failed to commit dns config");
+                self.reject_reload(proxy, &new_config, error.to_string())
+                    .await;
+                return;
+            }
+        }
         listeners::reconcile_urltests(
             &candidate_urltest_runtime,
             &self.shutdown_rx,
@@ -183,6 +191,7 @@ impl OrchestrationState {
     }
 
     async fn reject_reload(&mut self, proxy: &Proxy, rejected: &RuntimeConfig, message: String) {
+        proxy.resolver.discard_prepared_reload();
         let persist = proxy.pending_reload_persists(rejected);
         let rollback = if persist {
             proxy.engine.stage_config((*self.applied_config).clone())
@@ -203,35 +212,21 @@ impl OrchestrationState {
             acknowledgement.push_str(&format!(
                 "; last-known-good config restore failed: {rollback_error}"
             ));
-        } else {
-            let dns_rollback = self
-                .applied_config
-                .compile_dns_dispatch()
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))
-                .and_then(|dispatch| {
-                    proxy
-                        .resolver
-                        .reload_with_dispatch(self.applied_config.runtime.dns.as_ref(), dispatch)
-                });
-            if let Err(error) = dns_rollback {
-                acknowledgement.push_str(&format!("; DNS rollback failed: {error}"));
-            }
-            if let Err(error) = proxy
-                .reconcile_configured_tun(
-                    self.applied_config.runtime.tun.as_ref(),
-                    self.applied_config.runtime.network.mtu,
-                )
-                .await
-            {
-                warn!(
-                    core_instance_id = proxy.core_instance_id(),
-                    config_revision = proxy.config_revision(),
-                    reason = "tun_reload_rollback_error",
-                    %error,
-                    "failed to restore last-known-good TUN after reload failure"
-                );
-                acknowledgement.push_str(&format!("; TUN rollback failed: {error}"));
-            }
+        } else if let Err(error) = proxy
+            .reconcile_configured_tun(
+                self.applied_config.runtime.tun.as_ref(),
+                self.applied_config.runtime.network.mtu,
+            )
+            .await
+        {
+            warn!(
+                core_instance_id = proxy.core_instance_id(),
+                config_revision = proxy.config_revision(),
+                reason = "tun_reload_rollback_error",
+                %error,
+                "failed to restore last-known-good TUN after reload failure"
+            );
+            acknowledgement.push_str(&format!("; TUN rollback failed: {error}"));
         }
         proxy.complete_reload(rejected, Err(acknowledgement));
     }

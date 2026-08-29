@@ -90,6 +90,7 @@ impl DnsQueryRole {
 /// hot-reloaded without restarting the proxy.
 pub struct DnsSystem {
     inner: std::sync::RwLock<DnsSystemInner>,
+    prepared_reload: std::sync::Mutex<Option<PreparedDnsReload>>,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     fake_ip_state_path: Option<PathBuf>,
     fake_ip_state_lease: std::sync::Mutex<Option<Arc<fake_ip::StateLease>>>,
@@ -123,6 +124,12 @@ enum DnsSystemInner {
         reverse_mapping: Option<RealIpReverseIndex>,
         policy: Box<DnsPolicyConfig>,
     },
+}
+
+#[derive(Clone)]
+struct PreparedDnsReload {
+    config: Option<DnsConfig>,
+    dispatch: Option<zero_router::DomainDispatcher<String>>,
 }
 
 #[derive(Clone)]
@@ -205,6 +212,7 @@ impl DnsSystem {
         )?;
         Ok(Self {
             inner: std::sync::RwLock::new(inner),
+            prepared_reload: std::sync::Mutex::new(None),
             egress_interface,
             fake_ip_state_path,
             fake_ip_state_lease: std::sync::Mutex::new(fake_ip_state_lease),
@@ -292,9 +300,39 @@ impl DnsSystem {
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
     ) -> io::Result<()> {
+        self.prepare_reload_with_dispatch(config, dispatch)?;
+        let result = self.commit_prepared_reload();
+        if result.is_err() {
+            self.discard_prepared_reload();
+        }
+        result
+    }
+
+    /// Validate and stage a DNS configuration without making it observable or
+    /// replacing the committed Fake-IP journal.
+    ///
+    /// The proxy uses this boundary while the remaining TUN, listener, and
+    /// application components reconcile. It must call
+    /// [`Self::commit_prepared_reload`] only after the complete configuration
+    /// transaction succeeds, or [`Self::discard_prepared_reload`] on failure.
+    pub fn prepare_reload_with_dispatch(
+        &self,
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+    ) -> io::Result<()> {
+        let mut prepared = self
+            .prepared_reload
+            .lock()
+            .expect("DNS prepared reload lock poisoned");
+        if prepared.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "another DNS reload is already prepared",
+            ));
+        }
         let previous_fake_ip = self.snapshot_fake_ip();
         let previous_reverse_mapping = self.snapshot_reverse_mapping();
-        let fake_ip_state_lease = if config.and_then(DnsConfig::fake_ip).is_some() {
+        if config.and_then(DnsConfig::fake_ip).is_some() {
             let mut guard = self
                 .fake_ip_state_lease
                 .lock()
@@ -306,21 +344,73 @@ impl DnsSystem {
                     .map(|path| fake_ip::StateLease::acquire(path.clone()))
                     .transpose()?;
             }
-            guard.clone()
+        }
+
+        // Build once without persistence to validate every candidate backend
+        // and allocator field. Incompatible Fake-IP state is intentionally not
+        // opened here because `open` replaces the durable journal.
+        Self::build_inner(
+            config,
+            dispatch.clone(),
+            &self.egress_interface,
+            previous_fake_ip,
+            previous_reverse_mapping,
+            None,
+        )?;
+        *prepared = Some(PreparedDnsReload {
+            config: config.cloned(),
+            dispatch,
+        });
+        Ok(())
+    }
+
+    /// Commit the staged DNS configuration atomically.
+    ///
+    /// Persistent Fake-IP state is opened only at this point, so a candidate
+    /// that is later rejected cannot erase mappings from the last committed
+    /// configuration.
+    pub fn commit_prepared_reload(&self) -> io::Result<()> {
+        let prepared = self
+            .prepared_reload
+            .lock()
+            .expect("DNS prepared reload lock poisoned")
+            .clone()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no DNS reload is prepared"))?;
+        let previous_fake_ip = self.snapshot_fake_ip();
+        let previous_reverse_mapping = self.snapshot_reverse_mapping();
+        let fake_ip_state_lease = if prepared
+            .config
+            .as_ref()
+            .and_then(DnsConfig::fake_ip)
+            .is_some()
+        {
+            self.fake_ip_state_lease
+                .lock()
+                .expect("Fake-IP state lease lock poisoned")
+                .clone()
         } else {
             None
         };
         let new_inner = Self::build_inner(
-            config,
-            dispatch,
+            prepared.config.as_ref(),
+            prepared.dispatch,
             &self.egress_interface,
             previous_fake_ip,
             previous_reverse_mapping,
             fake_ip_state_lease,
         )?;
-        let mut guard = self.inner.write().expect("dns system lock poisoned");
-        *guard = new_inner;
+        *self.inner.write().expect("dns system lock poisoned") = new_inner;
+        self.discard_prepared_reload();
         Ok(())
+    }
+
+    /// Drop a staged DNS candidate while retaining the committed resolver and
+    /// Fake-IP journal unchanged.
+    pub fn discard_prepared_reload(&self) {
+        self.prepared_reload
+            .lock()
+            .expect("DNS prepared reload lock poisoned")
+            .take();
     }
 
     /// Install the runtime bridge used by DNS servers that specify a detour.
