@@ -184,3 +184,81 @@ async fn failed_tuple_is_not_recreated_for_every_packet() {
         "backoff attempt created another failed session"
     );
 }
+
+#[tokio::test]
+async fn raw_and_quic_sniffed_fake_ip_reverse_misses_share_failure_contract() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": { "system": { "type": "system" } },
+                    "default_server": "system",
+                    "answer": {
+                        "type": "fake_ip",
+                        "cidr": "198.18.0.0/24",
+                        "ipv6_cidr": "fd00::/120",
+                        "ttl_seconds": 60,
+                        "max_entries": 16
+                    }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse Fake-IP config");
+    let proxy = crate::runtime::Proxy::new(config).expect("build proxy");
+    let engine = proxy.engine().clone();
+    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
+    let mut dispatch = runtime
+        .new_dispatch("tun-in")
+        .await
+        .expect("create UDP dispatch");
+    let auth = SessionAuth::new("test");
+
+    let mut raw = input(
+        Address::Ipv6([0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9]),
+        443,
+        b"raw",
+        &auth,
+    );
+    raw.transparent_target = true;
+    let raw_error = dispatch
+        .dispatch(raw)
+        .await
+        .expect_err("raw synthetic UDP target must fail");
+    assert_eq!(raw_error.code(), "fake_ip_reverse_missing");
+
+    let original = Address::Ipv4([198, 18, 0, 10]);
+    let mut quic = input(
+        Address::Domain("sniffed-quic.example".to_owned()),
+        443,
+        b"quic",
+        &auth,
+    );
+    quic.transparent_target = true;
+    quic.transparent_original_target = Some(original);
+    quic.transparent_host_source = Some(zero_core::TargetHostSource::QuicSni);
+    let quic_error = dispatch
+        .dispatch(quic)
+        .await
+        .expect_err("QUIC SNI must not bypass missing Fake-IP ownership");
+    assert_eq!(quic_error.code(), "fake_ip_reverse_missing");
+
+    let completed = engine.completed_sessions();
+    assert_eq!(completed.len(), 2);
+    for record in completed {
+        assert_eq!(record.close_reason.as_deref(), Some("target_error"));
+        assert_eq!(
+            record.fake_ip_reverse_status,
+            Some(zero_core::FakeIpReverseStatus::Missing)
+        );
+        assert!(record.route.is_none());
+        assert!(record.path.network.is_none());
+        assert_eq!(record.outbound_tx_bytes, 0);
+        assert_eq!(record.outbound_rx_bytes, 0);
+        let failure = record.failure.expect("target failure observation");
+        assert_eq!(failure.stage, "target_recovery");
+        assert_eq!(failure.code.as_deref(), Some("fake_ip_reverse_missing"));
+        assert!(failure.remote.is_none());
+    }
+}

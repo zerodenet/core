@@ -64,20 +64,31 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
 ) -> Result<(), EngineError> {
     let mut session = session;
     let mut client = client;
+    let started_at = Instant::now();
 
-    runtime.resolve_fake_ip_target(&mut session).await;
-    runtime.apply_url_rewrite(&mut session);
+    let target_resolution = runtime.resolve_fake_ip_target(&mut session).await;
+    if target_resolution.is_ok() {
+        runtime.apply_url_rewrite(&mut session);
+    }
     runtime.apply_kernel_rate_limits(&mut session);
     runtime.prepare_session(&mut session).await?;
     let traffic_rate_limiters = runtime.traffic_rate_limiters(&session);
 
     let mut handle = runtime.track_session(session.id);
+    if let Err(error) = target_resolution {
+        let _ = protocol.send_upstream_failure(&mut client).await;
+        crate::runtime::target::finish_target_recovery_failure(
+            &mut handle,
+            &session,
+            started_at,
+            &error,
+        );
+        return Err(error);
+    }
     let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel();
     handle.register_cancellation(move || {
         let _ = cancel_tx.send(());
     });
-    let started_at = Instant::now();
-
     let mut pipe = TcpPipe::new(runtime);
     let dispatch_result = tokio::select! {
         result = pipe.dispatch(TcpPipeInput { session: &mut session }) => result,

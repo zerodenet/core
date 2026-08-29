@@ -45,6 +45,8 @@ pub enum EngineError {
     },
     #[error("outbound `{tag}` is temporarily unhealthy")]
     UnhealthyOutbound { tag: String },
+    #[error("Fake-IP reverse mapping is missing for synthetic target `{address}`")]
+    FakeIpReverseMissing { address: String },
     #[error("flow admission denied: {reason}")]
     AdmissionDenied { reason: String },
 }
@@ -66,6 +68,7 @@ impl EngineError {
             Self::SelectorGroupTypeMismatch { .. } => "selector_group_type_mismatch",
             Self::SelectorTargetNotFound { .. } => "selector_target_not_found",
             Self::UnhealthyOutbound { .. } => "unhealthy_outbound",
+            Self::FakeIpReverseMissing { .. } => "fake_ip_reverse_missing",
             Self::AdmissionDenied { .. } => "admission_denied",
         }
     }
