@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::net::{IpAddr, Ipv4Addr};
@@ -517,20 +517,20 @@ fn normalize_records(
                         continue;
                     }
                 }
-                if retired.contains_key(&mapping.ip) {
+                if let Entry::Occupied(mut entry) = retired.entry(mapping.ip) {
                     let same_owner = retired_owner
                         .get(&mapping.ip)
                         .and_then(|owner| owner.as_deref())
                         == Some(mapping.domain.as_str());
                     if same_owner {
-                        retired.remove(&mapping.ip);
+                        entry.remove();
                         retired_owner.remove(&mapping.ip);
                     } else {
                         let retired_address = PersistedRetiredAddress {
                             ip: mapping.ip,
                             reusable_after_unix_ms: now_unix_ms.saturating_add(retirement_ttl_ms),
                         };
-                        retired.insert(mapping.ip, (sequence, retired_address));
+                        entry.insert((sequence, retired_address));
                         retired_owner.insert(mapping.ip, None);
                         continue;
                     }
