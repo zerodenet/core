@@ -1791,6 +1791,27 @@ fn parses_declarative_tun_runtime_with_safe_defaults() {
 }
 
 #[test]
+fn strict_tun_dns_hijack_accepts_system_dns_for_runtime_discovery() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": { "system-auto": { "type": "system" } },
+                    "default_server": "system-auto"
+                },
+                "tun": { "addr": "10.23.0.1/24" }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("system DNS endpoints are resolved during TUN route preparation");
+
+    let dns = config.runtime.dns.expect("DNS config");
+    assert!(dns.uses_system_dns());
+    assert!(dns.tun_route_exclusion_addresses().unwrap().is_empty());
+}
+
+#[test]
 fn validates_declarative_tun_capture_cidrs() {
     for tun in [
         r#"{ "addr": "10.0.0.1/24", "auto_route": false, "include_cidrs": ["10.0.0.0/8"] }"#,

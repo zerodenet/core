@@ -89,14 +89,28 @@ pub(super) fn parse_address_and_mask(
 pub(super) fn configured_dns_endpoint_addresses(
     config: &zero_config::RuntimeConfig,
 ) -> io::Result<Vec<IpAddr>> {
+    configured_dns_endpoint_addresses_with(config, zero_platform_tokio::system_dns_servers)
+}
+
+pub(super) fn configured_dns_endpoint_addresses_with(
+    config: &zero_config::RuntimeConfig,
+    discover_system_dns: impl FnOnce() -> io::Result<Vec<IpAddr>>,
+) -> io::Result<Vec<IpAddr>> {
     let dns = config.runtime.dns.as_ref().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "TUN DNS hijack requires configured non-system DNS servers",
+            "TUN DNS hijack requires a configured DNS server",
         )
     })?;
-    dns.tun_route_exclusion_addresses()
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+    let mut addresses = dns
+        .tun_route_exclusion_addresses()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    if dns.uses_system_dns() {
+        addresses.extend(discover_system_dns()?);
+    }
+    addresses.sort_unstable();
+    addresses.dedup();
+    Ok(addresses)
 }
 
 fn parse_ip(value: &str, field: &str) -> Result<IpAddr, EngineError> {

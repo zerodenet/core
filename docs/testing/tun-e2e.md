@@ -27,7 +27,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 
 ## DNS 前置约束
 
-严格 DNS 劫持要求至少配置一个非 system DNS 后端。域名形式的上游必须提供 `bootstrap` IP；Zero 会为实际端点建立明确的物理出口排除，避免解析 DNS 上游本身时递归进入 TUN。
+严格 DNS 劫持要求至少配置一个 DNS 后端。`system` 后端会在启动前自动发现主机解析器的非本地上游，并为其建立动态物理出口排除；网络拓扑变化后会重新发现和协调。若系统只暴露本地 stub 且无法发现真实上游，严格模式会失败关闭并要求配置显式 UDP、DoH、DoT 或 DoQ 后端。域名形式的显式上游仍必须提供 `bootstrap` IP，避免解析 DNS 上游本身时递归进入 TUN。
 
 示例：
 

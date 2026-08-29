@@ -415,7 +415,7 @@ fn validate_tun_config(
             .as_ref()
             .ok_or_else(|| {
                 ConfigError::InvalidRuntime(
-                    "TUN DNS hijack requires configured non-system DNS servers".to_owned(),
+                    "TUN DNS hijack requires a configured DNS server".to_owned(),
                 )
             })?
             .tun_route_exclusion_addresses()

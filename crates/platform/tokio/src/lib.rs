@@ -12,12 +12,14 @@ use zero_traits::{
 
 mod egress;
 mod process;
+mod system_dns;
 use egress::{bind_tcp_to_interface, bind_udp_to_interface, datagram_bind_address};
 pub use egress::{
     EgressBindingReason, EgressFamilySnapshot, EgressInterface, EgressInterfaceControl,
     EgressRouteLookupStatus, EgressSelection,
 };
 pub use process::{lookup_local_tcp_process, lookup_local_udp_process, LocalProcessInfo};
+pub use system_dns::system_dns_servers;
 
 #[derive(Debug)]
 pub struct TokioSocket {
