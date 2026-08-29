@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("unsupported config schema version {found}; this core supports version {supported}")]
+    UnsupportedSchemaVersion { found: u32, supported: u32 },
     #[error("failed to read config `{path}`: {source}")]
     ReadConfig {
         path: String,

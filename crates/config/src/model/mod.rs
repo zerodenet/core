@@ -8,6 +8,12 @@ use crate::ConfigError;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
+    /// Public runtime configuration schema generation.
+    ///
+    /// Omitted legacy configurations are V1. Unknown explicit versions fail
+    /// validation before any runtime state is constructed.
+    #[serde(default = "default_config_schema_version")]
+    pub schema_version: u32,
     #[serde(default)]
     pub inbounds: Vec<InboundConfig>,
     #[serde(default)]
@@ -23,6 +29,16 @@ pub struct RuntimeConfig {
     pub api: ApiConfig,
     #[serde(skip)]
     pub source_dir: Option<PathBuf>,
+}
+
+const fn default_config_schema_version() -> u32 {
+    zero_api::CONFIG_SCHEMA_VERSION
+}
+
+#[derive(Deserialize)]
+struct RuntimeConfigVersionProbe {
+    #[serde(default = "default_config_schema_version")]
+    schema_version: u32,
 }
 
 impl RuntimeConfig {
@@ -55,6 +71,13 @@ impl RuntimeConfig {
         source_dir: Option<PathBuf>,
     ) -> Result<Self, ConfigError> {
         let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
+        let version = serde_json::from_str::<RuntimeConfigVersionProbe>(raw)?.schema_version;
+        if version != zero_api::CONFIG_SCHEMA_VERSION {
+            return Err(ConfigError::UnsupportedSchemaVersion {
+                found: version,
+                supported: zero_api::CONFIG_SCHEMA_VERSION,
+            });
+        }
         let mut config = serde_json::from_str::<Self>(raw)?;
         config.source_dir = source_dir;
         config.normalize();

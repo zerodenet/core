@@ -90,6 +90,18 @@ pub enum ApiErrorCode {
 }
 
 impl ApiErrorCode {
+    /// Complete stable catalog for the current error-code contract.
+    pub const ALL: [Self; 8] = [
+        Self::NotFound,
+        Self::InvalidArgument,
+        Self::PermissionDenied,
+        Self::InsufficientOsPrivilege,
+        Self::FeatureDisabled,
+        Self::Conflict,
+        Self::Unsupported,
+        Self::Internal,
+    ];
+
     /// Stable string code used in JSON error responses.
     /// Returns snake_case, matching the serde wire format.
     pub fn as_code_str(&self) -> &'static str {

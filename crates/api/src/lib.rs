@@ -12,8 +12,8 @@ pub mod traits;
 
 pub use auth::{AuthContext, Permission};
 pub use capabilities::{
-    AdapterCapability, ApiCapabilities, CapabilityState, ProtocolCapability,
-    ProtocolNetworkCapability, SinkCapability,
+    AdapterCapability, ApiCapabilities, ApiContractVersions, CapabilityState, ContractVersionRange,
+    ProtocolCapability, ProtocolNetworkCapability, SinkCapability,
 };
 pub use command::{
     CommandRequest, CommandResponse, ConfigApplyCommand, ConfigValidateCommand,
@@ -60,6 +60,14 @@ pub use traits::{
 
 pub const API_ID: &str = "zero.api.v1";
 pub const EVENT_SCHEMA_ID: &str = "zero.event.v1";
+/// Schema version of the machine-readable capabilities manifest.
+pub const CAPABILITIES_CONTRACT_VERSION: u32 = 1;
+/// Version of query, command, response-envelope, and event control semantics.
+pub const CONTROL_API_VERSION: u32 = 1;
+/// Version of the accepted and exported runtime configuration JSON schema.
+pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+/// Version of the stable API error-code catalog.
+pub const ERROR_CODE_CONTRACT_VERSION: u32 = 1;
 
 pub type ApiResult<T> = Result<T, ApiError>;
 pub type RawApiEvent = ApiEvent<serde_json::Value>;
