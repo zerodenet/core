@@ -685,6 +685,25 @@ impl DnsSystem {
             Err(_) => return message::build_error_response(query, message::RCODE_FORMERR, false),
         };
         let snapshot = self.snapshot();
+        let address_policy = snapshot.as_ref().map(|snapshot| {
+            response_address_policy(
+                snapshot.policy.address_family,
+                snapshot
+                    .fake_ip
+                    .as_ref()
+                    .is_some_and(|allocator| !allocator.is_excluded(&question.domain)),
+            )
+        });
+        if address_policy.is_some_and(|policy| {
+            (question.query_type == message::TYPE_A && !policy.allow_ipv4)
+                || (question.query_type == message::TYPE_AAAA && !policy.allow_ipv6)
+        }) {
+            return message::build_address_response(
+                query,
+                &[],
+                message::DEFAULT_SYNTHETIC_TTL_SECONDS,
+            );
+        }
         if let Some(allocator) = snapshot
             .as_ref()
             .and_then(|snapshot| snapshot.fake_ip.as_ref())
@@ -765,11 +784,18 @@ impl DnsSystem {
                 let query = query.to_vec();
                 let domain = question.domain.clone();
                 let snapshot = snapshot.clone();
+                let address_policy = address_policy.expect("configured DNS has an address policy");
                 coordinator
                     .resolve(key, async move {
                         exchange_snapshot(&query, &domain, DnsQueryRole::Default, &snapshot)
                             .await
-                            .map(|(response, _)| response)
+                            .and_then(|(response, _)| {
+                                message::apply_response_address_policy(
+                                    &query,
+                                    response,
+                                    address_policy,
+                                )
+                            })
                     })
                     .await
                     .map(|mut response| {
@@ -866,6 +892,17 @@ impl DnsSystem {
                 message::build_error_response(query, message::RCODE_SERVFAIL, false)
             }
         }
+    }
+}
+
+fn response_address_policy(
+    policy: DnsAddressFamilyPolicy,
+    suppress_real_addresses: bool,
+) -> message::ResponseAddressPolicy {
+    message::ResponseAddressPolicy {
+        allow_ipv4: !matches!(policy, DnsAddressFamilyPolicy::Ipv6Only),
+        allow_ipv6: !matches!(policy, DnsAddressFamilyPolicy::Ipv4Only),
+        suppress_real_addresses,
     }
 }
 

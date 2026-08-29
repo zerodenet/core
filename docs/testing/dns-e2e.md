@@ -111,7 +111,12 @@ DNS, while `direct_server` isolates direct targets. Each role has its own ordere
 fallback list and cache namespace; omitting a role retains the historical
 dispatch/default behavior. `address_family` accepts `ipv4_only`, `ipv6_only`,
 `prefer_ipv4`, or `prefer_ipv6`. The two `prefer_*` modes query A and AAAA
-concurrently and only change result ordering.
+concurrently and only change Zero's own candidate ordering. The same field is
+also authoritative for intercepted DNS answers: `ipv4_only` returns
+NOERROR/NODATA for AAAA and removes IPv6 HTTPS/SVCB hints and additional AAAA;
+`ipv6_only` applies the symmetric rule to A and IPv4 hints. The `prefer_*`
+modes continue to advertise both families rather than silently acting as an
+`only` mode.
 
 The DNS interceptor supports UDP and TCP port 53, A and AAAA independently,
 EDNS client payload sizes, upstream truncation with TCP fallback, and raw
@@ -119,7 +124,15 @@ forwarding of CNAME, HTTPS/SVCB, SRV, TXT, PTR, RCODE, authority records, and
 unknown record types. Fake-IP synthesizes A records and, when `ipv6_cidr` is
 configured, AAAA records. Without an IPv6 pool, AAAA keeps the backward-
 compatible NOERROR/NODATA behavior. Excluded domains use the selected real
-backend and its declared fallback chain.
+backend and its declared fallback chain. For non-excluded Fake-IP names,
+forwarded HTTPS/SVCB, SRV, and other non-address responses cannot advertise
+real `ipv4hint`, `ipv6hint`, or additional A/AAAA glue; clients must resolve an
+address record through the synthetic allocator. Excluded names retain real
+service-binding data after the configured address-family filter is applied.
+If a removed service-binding hint is declared mandatory, the record is made
+unusable instead of forwarding a malformed or policy-violating record. Raw
+cache entries contain the already-filtered response, so a cache hit cannot
+restore a suppressed family.
 
 Real address resolution starts A and AAAA lookups concurrently. TCP direct and
 upstream dialing preserves the answer order within each family, interleaves the
