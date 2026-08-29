@@ -13,6 +13,14 @@ pub use parse::DnsQuestion;
 pub(crate) use parse::{parse_question, parse_response, ParsedDnsResponse};
 pub(crate) use policy::{apply_response_address_policy, ResponseAddressPolicy};
 
+pub(crate) fn rewrite_response_ttls(
+    response: &mut [u8],
+    elapsed_seconds: u32,
+    ttl_cap: Option<u32>,
+) -> std::io::Result<()> {
+    parse::rewrite_response_ttls(response, elapsed_seconds, ttl_cap)
+}
+
 pub(crate) const TYPE_A: u16 = 1;
 pub(crate) const TYPE_SVCB: u16 = 64;
 pub(crate) const TYPE_HTTPS: u16 = 65;

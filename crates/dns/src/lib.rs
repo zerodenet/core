@@ -843,7 +843,13 @@ impl DnsSystem {
                 false,
             )),
         };
-        match result.and_then(|response| {
+        match result.and_then(|mut response| {
+            if let Some(cache) = snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.cache.as_ref())
+            {
+                cache.cap_response_ttls(&mut response)?;
+            }
             let parsed = message::parse_response(query, &response)?;
             Ok((response, parsed))
         }) {

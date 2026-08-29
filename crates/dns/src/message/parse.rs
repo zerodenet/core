@@ -124,7 +124,11 @@ pub(crate) fn parse_response(query: &[u8], response: &[u8]) -> io::Result<Parsed
         offset = next;
     }
     for _ in 0..additional_count {
-        offset = skip_record(response, offset)?.0;
+        let (next, record_type, class, ttl, _) = record(response, offset)?;
+        if record_type != TYPE_OPT && class == 1 {
+            min_ttl = Some(min_ttl.map_or(ttl, |current: u32| current.min(ttl)));
+        }
+        offset = next;
     }
     if offset != response.len() {
         return Err(invalid("DNS response has trailing bytes"));
@@ -231,6 +235,62 @@ fn named_record(data: &[u8], offset: usize) -> io::Result<ResourceRecord<'_>> {
         rdata_start: next - rdata.len(),
         rdata,
     })
+}
+
+/// Cap and age cacheable resource-record TTLs in a complete DNS response.
+///
+/// OPT uses the resource-record TTL field for EDNS metadata, so it must remain
+/// byte-for-byte unchanged. The caller supplies total whole seconds elapsed
+/// since the response entered the cache; applying that age to a fresh clone
+/// avoids compounding TTL loss across repeated cache hits.
+pub(crate) fn rewrite_response_ttls(
+    response: &mut [u8],
+    elapsed_seconds: u32,
+    ttl_cap: Option<u32>,
+) -> io::Result<()> {
+    if response.len() < 12 || response.len() > MAX_DNS_MESSAGE_SIZE {
+        return Err(invalid("DNS response length is invalid"));
+    }
+
+    let question_count = usize::from(read_u16(response, 4)?);
+    let record_count = usize::from(read_u16(response, 6)?)
+        + usize::from(read_u16(response, 8)?)
+        + usize::from(read_u16(response, 10)?);
+    let mut offset = 12;
+    for _ in 0..question_count {
+        offset = skip_name(response, offset)?
+            .checked_add(4)
+            .ok_or_else(|| invalid("DNS question length overflow"))?;
+        if offset > response.len() {
+            return Err(invalid("incomplete DNS question"));
+        }
+    }
+
+    for _ in 0..record_count {
+        let name_end = skip_name(response, offset)?;
+        if name_end + 10 > response.len() {
+            return Err(invalid("truncated DNS resource record"));
+        }
+        let record_type = read_u16(response, name_end)?;
+        let length = usize::from(read_u16(response, name_end + 8)?);
+        let next = name_end
+            .checked_add(10)
+            .and_then(|start| start.checked_add(length))
+            .ok_or_else(|| invalid("DNS resource data length overflow"))?;
+        if next > response.len() {
+            return Err(invalid("truncated DNS resource data"));
+        }
+        if record_type != TYPE_OPT {
+            let ttl = read_u32(response, name_end + 4)?.saturating_sub(elapsed_seconds);
+            let capped = ttl_cap.map_or(ttl, |cap| ttl.min(cap));
+            response[name_end + 4..name_end + 8].copy_from_slice(&capped.to_be_bytes());
+        }
+        offset = next;
+    }
+    if offset != response.len() {
+        return Err(invalid("DNS response has trailing bytes"));
+    }
+    Ok(())
 }
 
 fn record(data: &[u8], offset: usize) -> io::Result<(usize, u16, u16, u32, &[u8])> {
