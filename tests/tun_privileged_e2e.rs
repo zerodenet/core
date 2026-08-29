@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::process::{Child, Command, Stdio};
@@ -106,9 +106,9 @@ fn privileged_tun_ipv4_direct_udp_dns_does_not_self_capture() {
         let mut process = spawn_zero(binary, &direct_path, &socket);
         wait_for_tun(binary, &socket, true, false);
         let tun_name = assert_tun_os_configured(binary, &socket, false, false);
-        let started_before = runtime_total_started(binary, &socket);
+        let flow_ids_before = runtime_tun_udp_flow_ids(binary, &socket, dns_target);
         assert_direct_udp_dns_through_tun(dns_target);
-        assert_tun_udp_flow_growth_bounded(binary, &socket, started_before);
+        assert_tun_udp_flow_growth_bounded(binary, &socket, dns_target, &flow_ids_before);
 
         run_cli(
             binary,
@@ -1581,46 +1581,72 @@ fn assert_direct_udp_dns_through_tun(target: SocketAddr) {
     }
 }
 
-fn assert_tun_udp_flow_growth_bounded(binary: &str, socket: &std::path::Path, started_before: u64) {
-    let output = run_cli_output(binary, ["flows", "--socket", path(socket)]);
-    let snapshot: serde_json::Value =
-        serde_json::from_str(&output).expect("active flow response must be JSON");
-    let tun_udp_flows = tun_udp_active_flow_count(&snapshot);
-    let started_after = runtime_total_started(binary, socket);
-    let started_delta = started_after
-        .checked_sub(started_before)
-        .expect("total_started must be monotonic");
-
-    assert!(
-        tun_udp_flows > 0,
-        "direct UDP workload did not create an observable TUN flow: {output}"
-    );
-    assert!(
-        tun_udp_flows <= DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES,
-        "direct UDP workload exceeded its source-tuple ceiling ({tun_udp_flows} > {DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES}); recursive self-capture or per-packet association growth is likely: {output}"
-    );
-    assert!(
-        started_delta > 0 && started_delta <= DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES as u64,
-        "direct UDP workload started an unexpected number of flows ({started_delta}; expected 1..={DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES}); rapidly completed self-capture sessions are likely: {output}"
-    );
-}
-
-fn tun_udp_active_flow_count(snapshot: &serde_json::Value) -> usize {
-    snapshot["active_flows"]
-        .as_array()
-        .expect("active flow response must contain an array")
-        .iter()
-        .filter(|flow| flow["inbound_tag"] == "tun-e2e" && flow["network"] == "udp")
-        .count()
-}
-
-fn runtime_total_started(binary: &str, socket: &std::path::Path) -> u64 {
+fn assert_tun_udp_flow_growth_bounded(
+    binary: &str,
+    socket: &std::path::Path,
+    target: SocketAddr,
+    flow_ids_before: &HashSet<u64>,
+) {
     let output = run_cli_output(binary, ["status", "--json", "--socket", path(socket)]);
     let snapshot: serde_json::Value =
         serde_json::from_str(&output).expect("runtime status response must be JSON");
-    snapshot["runtime"]["stats"]["total_started"]
-        .as_u64()
-        .expect("runtime status must expose runtime.stats.total_started")
+    let active_flow_count = tun_udp_active_flow_count(&snapshot, target);
+    let flow_ids_after = tun_udp_flow_ids(&snapshot, target);
+    let started_flow_count = flow_ids_after.difference(flow_ids_before).count();
+
+    assert!(
+        active_flow_count > 0,
+        "direct UDP workload did not create an observable TUN flow: {output}"
+    );
+    assert!(
+        active_flow_count <= DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES,
+        "direct UDP workload exceeded its active source-tuple ceiling ({active_flow_count} > {DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES}); recursive self-capture or per-packet association growth is likely: {output}"
+    );
+    assert!(
+        started_flow_count > 0
+            && started_flow_count <= DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES,
+        "direct UDP workload started an unexpected number of scoped flows ({started_flow_count}; expected 1..={DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES}); rapidly completed self-capture sessions are likely: {output}"
+    );
+}
+
+fn tun_udp_active_flow_count(snapshot: &serde_json::Value, target: SocketAddr) -> usize {
+    snapshot["runtime"]["active_sessions"]
+        .as_array()
+        .expect("runtime status must contain active sessions")
+        .iter()
+        .filter(|flow| is_target_tun_udp_flow(flow, target))
+        .count()
+}
+
+fn runtime_tun_udp_flow_ids(
+    binary: &str,
+    socket: &std::path::Path,
+    target: SocketAddr,
+) -> HashSet<u64> {
+    let output = run_cli_output(binary, ["status", "--json", "--socket", path(socket)]);
+    let snapshot: serde_json::Value =
+        serde_json::from_str(&output).expect("runtime status response must be JSON");
+    tun_udp_flow_ids(&snapshot, target)
+}
+
+fn tun_udp_flow_ids(snapshot: &serde_json::Value, target: SocketAddr) -> HashSet<u64> {
+    ["active_sessions", "recent_completed_sessions"]
+        .into_iter()
+        .flat_map(|field| {
+            snapshot["runtime"][field]
+                .as_array()
+                .unwrap_or_else(|| panic!("runtime status must contain {field}"))
+        })
+        .filter(|flow| is_target_tun_udp_flow(flow, target))
+        .map(|flow| flow["id"].as_u64().expect("flow must expose a numeric id"))
+        .collect()
+}
+
+fn is_target_tun_udp_flow(flow: &serde_json::Value, target: SocketAddr) -> bool {
+    flow["inbound_tag"] == "tun-e2e"
+        && flow["network"] == "udp"
+        && flow["target"]["value"] == target.ip().to_string()
+        && flow["port"] == u64::from(target.port())
 }
 
 fn assert_direct_dns_round_trip(socket: &UdpSocket, target: SocketAddr, id: u16) {
@@ -1717,17 +1743,25 @@ fn mock_dns_response_ignores_edns_pseudo_record() {
 }
 
 #[test]
-fn active_flow_ceiling_counts_only_tun_udp_sessions() {
+fn flow_ceiling_counts_only_target_tun_udp_sessions_across_lifecycle_states() {
+    let target: SocketAddr = "223.5.5.5:53".parse().unwrap();
     let snapshot = serde_json::json!({
-        "active_flows": [
-            { "inbound_tag": "tun-e2e", "network": "udp" },
-            { "inbound_tag": "tun-e2e", "network": "tcp" },
-            { "inbound_tag": "control-inbound", "network": "udp" },
-            { "inbound_tag": "tun-e2e", "network": "udp" }
-        ]
+        "runtime": {
+            "active_sessions": [
+                { "id": 1, "inbound_tag": "tun-e2e", "network": "udp", "target": { "value": "223.5.5.5" }, "port": 53 },
+                { "id": 2, "inbound_tag": "tun-e2e", "network": "tcp", "target": { "value": "223.5.5.5" }, "port": 53 },
+                { "id": 3, "inbound_tag": "control-inbound", "network": "udp", "target": { "value": "223.5.5.5" }, "port": 53 },
+                { "id": 4, "inbound_tag": "tun-e2e", "network": "udp", "target": { "value": "1.1.1.1" }, "port": 53 }
+            ],
+            "recent_completed_sessions": [
+                { "id": 5, "inbound_tag": "tun-e2e", "network": "udp", "target": { "value": "223.5.5.5" }, "port": 53 },
+                { "id": 1, "inbound_tag": "tun-e2e", "network": "udp", "target": { "value": "223.5.5.5" }, "port": 53 }
+            ]
+        }
     });
 
-    assert_eq!(tun_udp_active_flow_count(&snapshot), 2);
+    assert_eq!(tun_udp_active_flow_count(&snapshot, target), 1);
+    assert_eq!(tun_udp_flow_ids(&snapshot, target), HashSet::from([1, 5]));
 }
 
 fn run_cli<const N: usize>(binary: &str, arguments: [&str; N]) {
