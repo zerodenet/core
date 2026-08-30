@@ -13,6 +13,9 @@ use zero_platform_tokio::{
 use zero_traits::IpAddress;
 
 use super::direct_dial::{dial_tcp_candidates, TcpDialAttempt, TcpDialFailure};
+use candidates::{append_recovered_ipv4_candidates, literal_direct_target};
+
+pub(super) mod candidates;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DirectConnector;
@@ -32,8 +35,22 @@ pub(crate) struct DirectTcpConnectFailure {
 #[derive(Debug, Clone)]
 pub(crate) struct DirectTargetResolution {
     pub(crate) candidates: Vec<SocketAddr>,
+    udp_original_candidate: Option<SocketAddr>,
     address_family_policy: &'static str,
     fallback: Option<DirectAddressFamilyFallback>,
+}
+
+impl DirectTargetResolution {
+    /// Keep connectionless transparent traffic on the client-selected
+    /// endpoint. DNS-enriched alternatives exist so TCP can recover from a
+    /// failed connect, but UDP has no equivalent failure signal that makes an
+    /// automatic destination change safe.
+    pub(crate) fn udp_candidates(&self) -> &[SocketAddr] {
+        self.udp_original_candidate
+            .as_ref()
+            .map(std::slice::from_ref)
+            .unwrap_or(&self.candidates)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -256,8 +273,12 @@ impl DirectConnector {
             )
             .await?
         };
+        let candidates = append_recovered_ipv4_candidates(session, resolver, candidates).await;
+        let udp_original_candidate =
+            literal_direct_target(session).filter(|original| candidates.contains(original));
         Ok(DirectTargetResolution {
             candidates,
+            udp_original_candidate,
             address_family_policy: resolver.address_family_policy().as_str(),
             fallback,
         })

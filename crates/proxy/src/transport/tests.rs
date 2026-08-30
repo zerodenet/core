@@ -1,6 +1,7 @@
 use zero_core::{Address, Network, ProtocolType, Session, TargetHostSource};
 
 use super::{
+    direct::candidates::{append_unique_resolved_candidates, MAX_RECOVERED_DIRECT_CANDIDATES},
     direct_dial::{
         dial_tcp_candidates, interleave_address_families, MAX_RECORDED_CONNECTION_ATTEMPTS,
     },
@@ -65,6 +66,47 @@ fn tcp_dial_candidates_interleave_families_and_remove_duplicates() {
         interleave_address_families(vec![v6_a, v6_b, v4_a, v4_b]),
         vec![v6_a, v4_a, v6_b, v4_b]
     );
+}
+
+#[test]
+fn recovered_candidates_preserve_order_and_remove_dns_duplicates() {
+    let original = "192.0.2.1:443".parse().unwrap();
+    let mut candidates = vec![original];
+
+    append_unique_resolved_candidates(
+        &mut candidates,
+        vec![
+            zero_traits::IpAddress::V4([192, 0, 2, 1]),
+            zero_traits::IpAddress::V4([192, 0, 2, 2]),
+            zero_traits::IpAddress::V4([192, 0, 2, 2]),
+            zero_traits::IpAddress::V6([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+        ],
+        443,
+    );
+
+    assert_eq!(
+        candidates,
+        vec![
+            original,
+            "192.0.2.2:443".parse().unwrap(),
+            "[::1]:443".parse().unwrap()
+        ]
+    );
+}
+
+#[test]
+fn recovered_candidate_enrichment_is_bounded() {
+    let original = "192.0.2.1:443".parse().unwrap();
+    let mut candidates = vec![original];
+    let resolved = (2..=32)
+        .map(|last| zero_traits::IpAddress::V4([192, 0, 2, last]))
+        .collect();
+
+    append_unique_resolved_candidates(&mut candidates, resolved, 443);
+
+    assert_eq!(candidates.len(), MAX_RECOVERED_DIRECT_CANDIDATES);
+    assert_eq!(candidates[0], original);
+    assert_eq!(candidates[7], "192.0.2.8:443".parse().unwrap());
 }
 
 #[tokio::test]
@@ -160,6 +202,118 @@ async fn tcp_dial_failure_attempt_observations_are_ordered_and_bounded() {
             && attempt.error_kind.is_some()
             && attempt.os_error.is_none()
     }));
+}
+
+#[tokio::test]
+async fn recovered_ipv4_target_uses_trusted_dns_candidates_after_original_fails() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let reachable = listener.local_addr().unwrap();
+    let original = Address::Ipv4([127, 0, 0, 2]);
+    let mut session = tls_sni_session(original);
+    session.target = Address::Domain("localhost".to_owned());
+    session.sni = Some("localhost".to_owned());
+    session.port = reachable.port();
+    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let egress = zero_platform_tokio::EgressInterfaceControl::default();
+
+    let connection = DirectConnector
+        .connect(&session, &resolver, &egress)
+        .await
+        .unwrap_or_else(|failure| {
+            panic!("trusted DNS candidate should connect: {}", failure.error)
+        });
+
+    let captured = std::net::SocketAddr::new("127.0.0.2".parse().unwrap(), reachable.port());
+    assert_eq!(connection.network.resolved_candidates[0].host, "127.0.0.2");
+    assert_eq!(connection.remote, reachable);
+    assert!(connection
+        .network
+        .resolved_candidates
+        .iter()
+        .any(|candidate| candidate.host == "127.0.0.1"));
+    assert_eq!(
+        connection
+            .network
+            .resolved_candidates
+            .iter()
+            .filter(|candidate| candidate.host == captured.ip().to_string())
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn recovered_ipv4_dns_failure_retains_the_original_candidate() {
+    let original = Address::Ipv4([192, 0, 2, 10]);
+    let mut session = tls_sni_session(original);
+    session.target = Address::Domain("invalid\0domain".to_owned());
+    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+
+    let resolution = DirectConnector
+        .resolve_target_addrs(
+            &session,
+            &resolver,
+            &zero_platform_tokio::EgressInterfaceControl::default(),
+        )
+        .await
+        .expect("literal target remains valid when DNS refresh fails");
+
+    assert_eq!(
+        resolution.candidates,
+        vec!["192.0.2.10:443".parse().unwrap()]
+    );
+    assert_eq!(resolution.udp_candidates(), resolution.candidates);
+}
+
+#[tokio::test]
+async fn recovered_ipv4_without_host_source_remains_literal_only() {
+    let original = Address::Ipv4([127, 0, 0, 2]);
+    let mut session = tls_sni_session(original);
+    session.target = Address::Domain("localhost".to_owned());
+    session.target_host_source = None;
+    session.sni = None;
+    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+
+    let resolution = DirectConnector
+        .resolve_target_addrs(
+            &session,
+            &resolver,
+            &zero_platform_tokio::EgressInterfaceControl::default(),
+        )
+        .await
+        .expect("untrusted recovered host must not replace literal semantics");
+
+    assert_eq!(
+        resolution.candidates,
+        vec!["127.0.0.2:443".parse().unwrap()]
+    );
+}
+
+#[tokio::test]
+async fn recovered_ipv4_udp_remains_pinned_to_the_original_candidate() {
+    let original = Address::Ipv4([127, 0, 0, 2]);
+    let mut session = tls_sni_session(original);
+    session.target = Address::Domain("localhost".to_owned());
+    session.network = Network::Udp;
+    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+
+    let resolution = DirectConnector
+        .resolve_target_addrs(
+            &session,
+            &resolver,
+            &zero_platform_tokio::EgressInterfaceControl::default(),
+        )
+        .await
+        .expect("UDP should retain the usable literal target");
+
+    assert_eq!(
+        resolution.candidates,
+        vec!["127.0.0.2:443".parse().unwrap()]
+    );
+    assert_eq!(
+        resolution.udp_candidates(),
+        &["127.0.0.2:443".parse().unwrap()]
+    );
 }
 
 #[tokio::test]

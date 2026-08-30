@@ -63,7 +63,7 @@ async fn execute_direct_udp_operation(
         }
     };
     let (sent, target_addr) = dispatch
-        .send_new_direct_packet(&session.target, &candidates.candidates, payload)
+        .send_new_direct_packet(&session.target, candidates.udp_candidates(), payload)
         .await
         .map_err(|error| FlowFailure {
             stage: "udp_direct_send",
