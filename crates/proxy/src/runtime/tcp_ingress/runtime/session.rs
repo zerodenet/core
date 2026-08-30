@@ -5,8 +5,11 @@ use super::super::lifecycle::apply_kernel_rate_limits_from_config;
 use super::model::TcpIngressRuntime;
 
 impl TcpIngressRuntime {
-    pub(crate) async fn resolve_fake_ip_target(&self, session: &mut Session) {
-        crate::runtime::target::resolve_dns_target(self.services.resolver(), session).await;
+    pub(crate) async fn resolve_fake_ip_target(
+        &self,
+        session: &mut Session,
+    ) -> Result<(), EngineError> {
+        crate::runtime::target::resolve_dns_target(self.services.resolver(), session).await
     }
 
     pub(crate) fn apply_url_rewrite(&self, session: &mut Session) {

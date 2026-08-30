@@ -24,8 +24,11 @@ impl TcpIngressRuntime {
         let original_target = protocol.session(&request).target.clone();
         let original_port = protocol.session(&request).port;
         let mut session = protocol.session(&request).clone();
-        self.resolve_fake_ip_target(&mut session).await;
-        self.apply_url_rewrite(&mut session);
+        let started_at = Instant::now();
+        let target_resolution = self.resolve_fake_ip_target(&mut session).await;
+        if target_resolution.is_ok() {
+            self.apply_url_rewrite(&mut session);
+        }
         if session.target != original_target || session.port != original_port {
             protocol.set_effective_target(&mut request, &session.target, session.port);
         }
@@ -33,12 +36,20 @@ impl TcpIngressRuntime {
         self.prepare_session(&mut session).await?;
         let rate_limiters = self.traffic_rate_limiters(&session);
         let mut handle = self.track_session(session.id);
+        if let Err(error) = target_resolution {
+            let _ = protocol.send_upstream_failure(client).await;
+            crate::runtime::target::finish_target_recovery_failure(
+                &mut handle,
+                &session,
+                started_at,
+                &error,
+            );
+            return Err(error);
+        }
         let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel();
         handle.register_cancellation(move || {
             let _ = cancel_tx.send(());
         });
-        let started_at = Instant::now();
-
         let mut pipe = TcpPipe::new(self);
         let dispatch = tokio::select! {
             result = pipe.dispatch(TcpPipeInput { session: &mut session }) => result,

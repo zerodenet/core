@@ -51,8 +51,11 @@ impl UdpIngressRuntime {
         self.tcp_services.traffic_rate_limiters(session)
     }
 
-    pub(crate) async fn resolve_fake_ip_target(&self, session: &mut Session) {
-        crate::runtime::target::resolve_dns_target(self.tcp_services.resolver(), session).await;
+    pub(crate) async fn resolve_fake_ip_target(
+        &self,
+        session: &mut Session,
+    ) -> Result<(), EngineError> {
+        crate::runtime::target::resolve_dns_target(self.tcp_services.resolver(), session).await
     }
 
     #[cfg(any(

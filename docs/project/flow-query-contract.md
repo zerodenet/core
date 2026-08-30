@@ -21,3 +21,20 @@ does not discard fields after startup or reconnect.
 Older servers may omit `record`, and older clients may ignore it. Consumers
 that support the canonical shape should fall back to the flattened fields only
 when `record` is absent.
+
+## Stable Fake-IP target recovery failure
+
+When the current or preserved transparent destination belongs to a configured
+Fake-IP pool but has no live reverse mapping, the flow terminates before route
+selection and outbound establishment. Every TCP, UDP, and QUIC path exposes the
+same additive contract:
+
+- `result.close_reason = "target_error"`
+- `result.failure.stage = "target_recovery"`
+- `result.failure.code = "fake_ip_reverse_missing"`
+- `target.fake_ip_reverse_status = "missing"`
+
+The record retains the synthetic `target.original_ip`, has no route or outbound
+network observation, and reports zero outbound bytes. Application-layer target
+sniffing does not replace Fake-IP ownership; a live reverse mapping remains the
+logical target authority.

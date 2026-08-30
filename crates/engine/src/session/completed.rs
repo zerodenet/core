@@ -91,7 +91,7 @@ pub struct CompletedSessionRecord {
     pub outcome: SessionOutcome,
     /// Why the session ended. `None` = normal peer close / unspecified.
     /// Recognised values: `"manual"` (flows.close), `"idle_timeout"`,
-    /// `"upstream_error"`.
+    /// `"target_error"`, `"upstream_error"`.
     pub close_reason: Option<String>,
     pub failure: Option<FlowFailureObservation>,
 }

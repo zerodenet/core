@@ -73,11 +73,21 @@ impl UdpDispatch {
             });
             session.source_port = Some(source_addr.port());
         }
-        runtime.resolve_fake_ip_target(&mut session).await;
+        let started_at = Instant::now();
+        let target_resolution = runtime.resolve_fake_ip_target(&mut session).await;
         runtime
             .prepare_udp_session(&mut session, &self.inbound_tag)
             .await?;
         let mut session_handle = runtime.track_session(session.id);
+        if let Err(error) = target_resolution {
+            crate::runtime::target::finish_target_recovery_failure(
+                &mut session_handle,
+                &session,
+                started_at,
+                &error,
+            );
+            return Err(error);
+        }
         let rate_limiters = UdpFlowRateLimiters::new(runtime.traffic_rate_limiters(&session));
         let cancellation_rate_limiters = rate_limiters.clone();
         let cancel_tx = self.cancel_tx.clone();
@@ -103,7 +113,6 @@ impl UdpDispatch {
                 "UDP flow cancelled while upload was rate limited: {reason}"
             ))));
         }
-        let started_at = Instant::now();
         runtime
             .services()
             .record_session_inbound_rx(session.id, input.payload.len() as u64);
