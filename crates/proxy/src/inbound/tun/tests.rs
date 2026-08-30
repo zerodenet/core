@@ -1,8 +1,9 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use super::config::{
-    configured_dns_endpoint_addresses, parse_address_and_mask, parse_interface_addresses,
-    DEFAULT_TUN_IPV4_ADDR, DEFAULT_TUN_IPV6_ADDR,
+    configured_dns_endpoint_addresses, configured_dns_endpoint_addresses_with,
+    parse_address_and_mask, parse_interface_addresses, DEFAULT_TUN_IPV4_ADDR,
+    DEFAULT_TUN_IPV6_ADDR,
 };
 use super::{configured_tun_is_current, tun_route_exclusion_required, PreparedTunNetwork, TunInfo};
 
@@ -251,18 +252,33 @@ fn explicit_secondary_address_must_be_cidr_and_opposite_family() {
 }
 
 #[test]
-fn strict_dns_hijack_requires_literal_non_system_endpoints() {
+fn strict_dns_hijack_discovers_and_merges_system_dns_endpoints() {
     let system = zero_config::RuntimeConfig::parse(
         r#"{
             "runtime":{"dns":{
-                "servers":{"local":{"type":"system"}},
+                "servers":{
+                    "local":{"type":"system"},
+                    "fallback":{"type":"udp","host":"198.51.100.53"}
+                },
                 "default_server":"local"
             }},
             "route":{"rules":[],"final":{"type":"direct"}}
         }"#,
     )
     .expect("parse system DNS config");
-    assert!(configured_dns_endpoint_addresses(&system).is_err());
+    assert_eq!(
+        configured_dns_endpoint_addresses_with(&system, || {
+            Ok(vec![
+                "192.0.2.53".parse().unwrap(),
+                "192.0.2.53".parse().unwrap(),
+            ])
+        })
+        .expect("discover system DNS endpoints"),
+        vec![
+            "192.0.2.53".parse::<IpAddr>().unwrap(),
+            "198.51.100.53".parse().unwrap(),
+        ]
+    );
 
     let udp = zero_config::RuntimeConfig::parse(
         r#"{
@@ -278,6 +294,28 @@ fn strict_dns_hijack_requires_literal_non_system_endpoints() {
         configured_dns_endpoint_addresses(&udp).expect("literal DNS endpoint"),
         vec![IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))]
     );
+}
+
+#[test]
+fn strict_dns_hijack_fails_closed_when_system_dns_discovery_fails() {
+    let system = zero_config::RuntimeConfig::parse(
+        r#"{
+            "runtime":{"dns":{
+                "servers":{"local":{"type":"system"}},
+                "default_server":"local"
+            }},
+            "route":{"rules":[],"final":{"type":"direct"}}
+        }"#,
+    )
+    .expect("parse system DNS config");
+    let error = configured_dns_endpoint_addresses_with(&system, || {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "no upstream endpoints",
+        ))
+    })
+    .expect_err("strict system DNS must fail closed");
+    assert!(error.to_string().contains("no upstream endpoints"));
 }
 
 #[test]

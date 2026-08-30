@@ -540,8 +540,9 @@ impl Proxy {
         dns_hijack: bool,
         strict_route: bool,
     ) -> Result<PreparedTunNetwork, EngineError> {
-        let (dns_hijack, dns_route_exclusions) =
-            self.prepare_tun_dns_hijack(dns_hijack, strict_route)?;
+        let (dns_hijack, dns_route_exclusions) = self
+            .prepare_tun_dns_hijack(dns_hijack, strict_route)
+            .await?;
         let mut route_exclusions = if auto_route {
             dns_route_exclusions
         } else {
@@ -558,7 +559,7 @@ impl Proxy {
         })
     }
 
-    fn prepare_tun_dns_hijack(
+    async fn prepare_tun_dns_hijack(
         &self,
         requested: bool,
         strict: bool,
@@ -566,7 +567,14 @@ impl Proxy {
         if !requested {
             return Ok((false, Vec::new()));
         }
-        let result = configured_dns_endpoint_addresses(self.engine().config().as_ref());
+        let config = self.engine().config();
+        let result =
+            tokio::task::spawn_blocking(move || configured_dns_endpoint_addresses(config.as_ref()))
+                .await
+                .map_err(|error| {
+                    io::Error::other(format!("system DNS discovery task failed: {error}"))
+                })
+                .and_then(|result| result);
         match result {
             Ok(addresses) => Ok((true, addresses)),
             Err(error) if strict => Err(EngineError::Io(error)),

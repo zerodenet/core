@@ -1791,6 +1791,27 @@ fn parses_declarative_tun_runtime_with_safe_defaults() {
 }
 
 #[test]
+fn strict_tun_dns_hijack_accepts_system_dns_for_runtime_discovery() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": { "system-auto": { "type": "system" } },
+                    "default_server": "system-auto"
+                },
+                "tun": { "addr": "10.23.0.1/24" }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("system DNS endpoints are resolved during TUN route preparation");
+
+    let dns = config.runtime.dns.expect("DNS config");
+    assert!(dns.uses_system_dns());
+    assert!(dns.tun_route_exclusion_addresses().unwrap().is_empty());
+}
+
+#[test]
 fn validates_declarative_tun_capture_cidrs() {
     for tun in [
         r#"{ "addr": "10.0.0.1/24", "auto_route": false, "include_cidrs": ["10.0.0.0/8"] }"#,
@@ -1870,10 +1891,9 @@ fn rejects_tun_tag_that_duplicates_a_listener_tag() {
 }
 
 #[test]
-fn strict_declarative_tun_rejects_recursive_or_hostname_dns_endpoints() {
+fn strict_declarative_tun_rejects_missing_or_hostname_dns_endpoints() {
     for dns in [
         r#"{ "servers": {}, "default_server": "missing" }"#,
-        r#"{ "servers": { "local": { "type": "system" } }, "default_server": "local" }"#,
         r#"{ "servers": { "named": { "type": "udp", "host": "dns.example" } }, "default_server": "named" }"#,
         r#"{ "servers": { "named": { "type": "doh", "host": "dns.example" } }, "default_server": "named" }"#,
         r#"{ "servers": { "named": { "type": "dot", "host": "dns.example" } }, "default_server": "named" }"#,

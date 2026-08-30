@@ -123,8 +123,11 @@ const fn default_dns_timeout_ms() -> u64 {
 }
 
 impl DnsConfig {
-    /// Return DNS endpoint addresses that can be safely excluded from a TUN
-    /// default route without recursively consulting the system resolver.
+    /// Return statically configured DNS endpoint addresses that can be safely
+    /// excluded from a TUN default route without recursive resolution.
+    ///
+    /// System resolver endpoints are discovered by the platform runtime and
+    /// merged into this list before TUN capture routes are installed.
     pub fn tun_route_exclusion_addresses(&self) -> Result<Vec<IpAddr>, String> {
         let mut addresses = BTreeSet::new();
         for (tag, server) in &self.servers {
@@ -132,9 +135,7 @@ impl DnsConfig {
                 continue;
             }
             if matches!(server, DnsServerConfig::System) {
-                return Err(format!(
-                    "TUN DNS hijack cannot use system DNS backend `{tag}`"
-                ));
+                continue;
             }
 
             let endpoint_addresses = server.endpoint_addresses().map_err(|error| {
@@ -143,6 +144,13 @@ impl DnsConfig {
             addresses.extend(endpoint_addresses);
         }
         Ok(addresses.into_iter().collect())
+    }
+
+    /// Whether TUN route preparation must discover host resolver endpoints.
+    pub fn uses_system_dns(&self) -> bool {
+        self.servers
+            .values()
+            .any(|server| matches!(server, DnsServerConfig::System))
     }
 
     pub fn fake_ip(&self) -> Option<FakeIpConfigRef<'_>> {
