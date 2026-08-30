@@ -87,15 +87,19 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                 Network::Tcp,
                 ProtocolType::UNKNOWN,
             );
-            let established =
-                crate::runtime::tcp_dispatch::dispatch_tcp_outbound(services, &session, resolved)
-                    .await
-                    .map_err(|failure| {
-                        io::Error::other(format!(
-                            "DNS detour `{outbound}` failed at {}: {}",
-                            failure.stage, failure.error
-                        ))
-                    })?;
+            let established = crate::runtime::tcp_dispatch::dispatch_tcp_outbound(
+                services,
+                &session,
+                resolved,
+                crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic,
+            )
+            .await
+            .map_err(|failure| {
+                io::Error::other(format!(
+                    "DNS detour `{outbound}` failed at {}: {}",
+                    failure.stage, failure.error
+                ))
+            })?;
             extract_tcp_stream(established)
                 .map(|result| result.upstream)
                 .map_err(|error| {

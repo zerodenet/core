@@ -6,10 +6,13 @@ use crate::protocol_registry::TcpRuntimeServices;
 use crate::transport::RelayCarrier;
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
+use super::TcpDispatchIntent;
+
 pub(crate) async fn dispatch_prepared_tcp_relay_chain(
     services: TcpRuntimeServices,
     session: &Session,
     prepared: PreparedTcpRelayChain<'_>,
+    intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let upstream_endpoint = prepared.first.endpoint.clone();
     let mut relay_chain = vec![(
@@ -30,7 +33,7 @@ pub(crate) async fn dispatch_prepared_tcp_relay_chain(
         .last()
         .map(|(tag, _)| tag.clone())
         .unwrap_or_else(|| "relay".to_owned());
-    let (stream, final_hop) = execute_relay_prefix(services.clone(), prepared).await?;
+    let (stream, final_hop) = execute_relay_prefix(services.clone(), prepared, intent).await?;
     let stream = dispatch_prepared_tcp_relay_hop(services, stream, session, final_hop)
         .await
         .map_err(|error| TcpOutboundFailure {
@@ -62,7 +65,8 @@ pub(crate) async fn dispatch_prepared_tcp_relay_carrier(
     services: TcpRuntimeServices,
     prepared: PreparedTcpRelayChain<'_>,
 ) -> Result<RelayCarrier, TcpOutboundFailure> {
-    let (stream, final_hop) = execute_relay_prefix(services, prepared).await?;
+    let (stream, final_hop) =
+        execute_relay_prefix(services, prepared, TcpDispatchIntent::Traffic).await?;
     let (server, port) = final_hop.upstream();
     Ok(RelayCarrier {
         stream,
@@ -74,6 +78,7 @@ pub(crate) async fn dispatch_prepared_tcp_relay_carrier(
 async fn execute_relay_prefix<'a>(
     services: TcpRuntimeServices,
     prepared: PreparedTcpRelayChain<'a>,
+    intent: TcpDispatchIntent,
 ) -> Result<
     (
         crate::transport::TcpRelayStream,
@@ -91,6 +96,7 @@ async fn execute_relay_prefix<'a>(
         services.clone(),
         &session_for_next,
         prepared.first,
+        intent,
     )
     .await?;
     let mut stream = outbound

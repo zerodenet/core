@@ -11,6 +11,9 @@ impl zero_api::QueryService for ProxyHandle {
                 return Ok(response);
             };
             capabilities.protocols = self.proxy.protocols.protocol_capabilities();
+            capabilities
+                .features
+                .push("diagnostic_probe_health_isolation_v1".to_owned());
             return Ok(zero_api::QueryResponse::Capabilities(capabilities));
         }
         if let zero_api::QueryRequest::TunStatus(_) = &request {

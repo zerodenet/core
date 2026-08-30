@@ -63,7 +63,22 @@ operation. It resolves and probes the requested target against one captured
 runtime snapshot, returns `operation_kind: diagnostic_outbound`, and reports
 the enforced limit as `timeout_ms`. It shares only the bounded HTTP probe
 executor with URLTest. It does not run URLTest policy logic, change a group's
-selected member or member health, or emit `policy.probe.completed`.
+selected member or member health, or emit `policy.probe.completed`. It also
+bypasses the shared outbound-health quarantine and does not record success or
+failure into the traffic circuit breaker. Both successful and failed results
+make this contract explicit with:
+
+```json
+{
+  "affects_policy_selection": false,
+  "affects_outbound_health": false,
+  "bypasses_outbound_health_quarantine": true
+}
+```
+
+Clients can detect this guarantee before probing through the
+`diagnostic_probe_health_isolation_v1` capability feature. Older cores without
+that feature must treat manual probes as potentially health-affecting.
 
 Failures use stable `error_code` values. Callers should branch on the code and
 treat `error` as diagnostic text. The current codes are `invalid_probe_url`,

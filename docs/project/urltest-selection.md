@@ -48,8 +48,13 @@ committed configuration generation. Manual and scheduled cycles use the same
 selection function.
 
 URLTest and `diagnostics.probe_outbound` share the neutral, process-bounded
-outbound HTTP probe executor, but not policy state. Only a URLTest cycle applies
-selection tolerance, updates member health/selection snapshots, and emits
-`policy.probe.completed`. A single-outbound diagnostic is read-only with
-respect to every URLTest group. Native completion logs distinguish the paths as
-`operation_kind=policy_urltest` and `operation_kind=diagnostic_outbound`.
+outbound HTTP probe executor, but not policy or traffic-health state. A URLTest
+probe continues to respect an existing traffic quarantine, but never records
+generic outbound success or failure; only its explicit policy path applies the
+result, selection tolerance, member health/selection snapshots, and
+`policy.probe.completed`. A single-outbound diagnostic additionally bypasses
+the shared quarantine, so it can actively test a quarantined outbound without
+clearing or extending that state. It is read-only with respect to every URLTest
+group and the shared traffic circuit breaker. Native completion logs
+distinguish the paths as `operation_kind=policy_urltest` and
+`operation_kind=diagnostic_outbound`.
