@@ -3,16 +3,16 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use zero_core::{Address, Error, Session};
 use zero_dns::DnsSystem;
 use zero_engine::{
-    FlowAddressFamilyFallbackObservation, FlowEgressObservation, FlowNetworkInterfaceObservation,
-    FlowNetworkObservation, FlowRemoteEndpoint, FlowRouteLookupObservation,
-    FlowSocketBindingObservation,
+    FlowAddressFamilyFallbackObservation, FlowConnectionAttemptObservation, FlowEgressObservation,
+    FlowNetworkInterfaceObservation, FlowNetworkObservation, FlowRemoteEndpoint,
+    FlowRouteLookupObservation, FlowSocketBindingObservation,
 };
 use zero_platform_tokio::{
     EgressBindingReason, EgressInterfaceControl, EgressSelection, TokioSocket,
 };
 use zero_traits::IpAddress;
 
-use super::direct_dial::{dial_tcp_candidates, TcpDialFailure};
+use super::direct_dial::{dial_tcp_candidates, TcpDialAttempt, TcpDialFailure};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DirectConnector;
@@ -81,12 +81,15 @@ impl DirectConnector {
                 let local = socket.local_addr().ok();
                 let network = direct_network_observation(
                     &success.selection,
-                    local,
-                    success.remote,
-                    &success.resolved_candidates,
+                    DirectNetworkDialObservation {
+                        local,
+                        remote: success.remote,
+                        resolved_candidates: &success.resolved_candidates,
+                        attempts: &success.attempts,
+                        connect_stage: "connected",
+                        interface_bound: success.selection.interface().is_some(),
+                    },
                     &resolution,
-                    "connected",
-                    success.selection.interface().is_some(),
                 );
                 if let Some(fallback) = resolution
                     .fallback
@@ -124,12 +127,15 @@ impl DirectConnector {
                     stage: "connect_direct",
                     network: Box::new(direct_network_observation(
                         &failure.selection,
-                        failure.local_addr,
-                        failure.remote,
-                        &failure.resolved_candidates,
+                        DirectNetworkDialObservation {
+                            local: failure.local_addr,
+                            remote: failure.remote,
+                            resolved_candidates: &failure.resolved_candidates,
+                            attempts: &failure.attempts,
+                            connect_stage: failure.stage,
+                            interface_bound: failure.interface_bound,
+                        },
                         &resolution,
-                        failure.stage,
-                        failure.interface_bound,
                     )),
                     error,
                 })
@@ -266,12 +272,15 @@ impl DirectConnector {
         let selection = egress.select_for_peer(remote);
         direct_network_observation(
             &selection,
-            None,
-            remote,
-            &resolution.candidates,
+            DirectNetworkDialObservation {
+                local: None,
+                remote,
+                resolved_candidates: &resolution.candidates,
+                attempts: &[],
+                connect_stage: "sent",
+                interface_bound: selection.interface().is_some(),
+            },
             resolution,
-            "sent",
-            selection.interface().is_some(),
         )
     }
 
@@ -414,31 +423,51 @@ fn dial_failure_error(failure: &TcpDialFailure, connect_error: &'static str) -> 
     }
 }
 
-fn direct_network_observation(
-    selection: &EgressSelection,
+struct DirectNetworkDialObservation<'a> {
     local: Option<SocketAddr>,
     remote: SocketAddr,
-    resolved_candidates: &[SocketAddr],
-    resolution: &DirectTargetResolution,
-    connect_stage: &str,
+    resolved_candidates: &'a [SocketAddr],
+    attempts: &'a [TcpDialAttempt],
+    connect_stage: &'a str,
     interface_bound: bool,
+}
+
+fn direct_network_observation(
+    selection: &EgressSelection,
+    dial: DirectNetworkDialObservation<'_>,
+    resolution: &DirectTargetResolution,
 ) -> FlowNetworkObservation {
     FlowNetworkObservation {
-        local_address: local.map(|address| FlowRemoteEndpoint {
+        local_address: dial.local.map(|address| FlowRemoteEndpoint {
             host: address.ip().to_string(),
             port: address.port(),
         }),
-        remote_address: Some(socket_endpoint(remote)),
-        resolved_candidates: resolved_candidates
+        remote_address: Some(socket_endpoint(dial.remote)),
+        resolved_candidates: dial
+            .resolved_candidates
             .iter()
             .copied()
             .map(socket_endpoint)
+            .collect(),
+        connection_attempts: dial
+            .attempts
+            .iter()
+            .map(|attempt| FlowConnectionAttemptObservation {
+                remote_address: socket_endpoint(attempt.remote),
+                local_address: attempt.local_addr.map(socket_endpoint),
+                stage: attempt.stage.to_owned(),
+                outcome: attempt.outcome.to_owned(),
+                interface_bound: attempt.interface_bound,
+                error_kind: attempt.error_kind.map(ToOwned::to_owned),
+                os_error: attempt.os_error,
+                error: attempt.error.clone(),
+            })
             .collect(),
         address_family_policy: Some(resolution.address_family_policy.to_owned()),
         address_family_fallback: resolution
             .fallback
             .as_ref()
-            .filter(|fallback| !fallback.preserve_original_ipv6 || remote.is_ipv4())
+            .filter(|fallback| !fallback.preserve_original_ipv6 || dial.remote.is_ipv4())
             .map(fallback_observation),
         selected_interface: selection.interface().map(|interface| {
             FlowNetworkInterfaceObservation {
@@ -448,7 +477,12 @@ fn direct_network_observation(
         }),
         egress: Some(FlowEgressObservation {
             generation: selection.generation(),
-            address_family: if remote.is_ipv6() { "ipv6" } else { "ipv4" }.to_owned(),
+            address_family: if dial.remote.is_ipv6() {
+                "ipv6"
+            } else {
+                "ipv4"
+            }
+            .to_owned(),
             tun_active: selection.tun_active(),
             configured_interface: selection.configured_interface().map(|interface| {
                 FlowNetworkInterfaceObservation {
@@ -471,9 +505,9 @@ fn direct_network_observation(
             }
             .to_owned(),
             reason: selection.binding_reason().as_str().to_owned(),
-            interface_bound,
+            interface_bound: dial.interface_bound,
         }),
-        connect_stage: Some(connect_stage.to_owned()),
+        connect_stage: Some(dial.connect_stage.to_owned()),
     }
 }
 

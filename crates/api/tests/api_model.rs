@@ -61,6 +61,9 @@ fn flow_path_network_context_is_additive_and_optional() {
     }))
     .expect("deserialize legacy flow path");
     assert!(legacy.network.is_none());
+    let empty_network = serde_json::to_value(zero_api::FlowNetworkContext::default())
+        .expect("serialize empty network context");
+    assert!(empty_network.get("connection_attempts").is_none());
 
     let path: zero_api::FlowPath = serde_json::from_value(json!({
         "relay_chain": [],
@@ -70,6 +73,24 @@ fn flow_path_network_context_is_additive_and_optional() {
             "resolved_candidates": [
                 { "host": "198.51.100.8", "port": 443 },
                 { "host": "2001:db8::8", "port": 443 }
+            ],
+            "connection_attempts": [
+                {
+                    "remote_address": { "host": "2001:db8::8", "port": 443 },
+                    "stage": "connect_socket",
+                    "outcome": "failed",
+                    "interface_bound": true,
+                    "error_kind": "network_unreachable",
+                    "os_error": 101,
+                    "error": "network is unreachable"
+                },
+                {
+                    "remote_address": { "host": "198.51.100.8", "port": 443 },
+                    "local_address": { "host": "192.0.2.10", "port": 49152 },
+                    "stage": "connected",
+                    "outcome": "connected",
+                    "interface_bound": true
+                }
             ],
             "address_family_policy": "prefer_ipv4",
             "address_family_fallback": {
@@ -104,6 +125,20 @@ fn flow_path_network_context_is_additive_and_optional() {
     assert_eq!(network.local_address.unwrap().port, 49152);
     assert_eq!(network.remote_address.unwrap().host, "198.51.100.8");
     assert_eq!(network.resolved_candidates.len(), 2);
+    assert_eq!(network.connection_attempts.len(), 2);
+    assert_eq!(
+        network.connection_attempts[0].error_kind.as_deref(),
+        Some("network_unreachable")
+    );
+    assert_eq!(network.connection_attempts[0].os_error, Some(101));
+    assert_eq!(network.connection_attempts[1].outcome, "connected");
+    assert_eq!(
+        network.connection_attempts[1]
+            .local_address
+            .as_ref()
+            .map(|address| address.port),
+        Some(49152)
+    );
     assert_eq!(
         network.address_family_policy.as_deref(),
         Some("prefer_ipv4")

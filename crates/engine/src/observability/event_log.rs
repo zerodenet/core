@@ -7,9 +7,9 @@ use std::sync::{mpsc::SyncSender, mpsc::TrySendError, Arc, Mutex};
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zero_api::{
-    event_type, ApiEvent, AuthInfo, EndpointRef, EventFilter, EventReplay, FlowEgressContext,
-    FlowEventPayload, FlowFailureInfo, FlowNetworkContext, FlowNetworkInterface, FlowOutcome,
-    FlowPath, FlowRecord, FlowRecordTiming, FlowResult, FlowRoute, FlowRouteLookup,
+    event_type, ApiEvent, AuthInfo, EndpointRef, EventFilter, EventReplay, FlowConnectionAttempt,
+    FlowEgressContext, FlowEventPayload, FlowFailureInfo, FlowNetworkContext, FlowNetworkInterface,
+    FlowOutcome, FlowPath, FlowRecord, FlowRecordTiming, FlowResult, FlowRoute, FlowRouteLookup,
     FlowSocketBinding, FlowSource, FlowState, FlowTarget, FlowThroughput, FlowTiming,
     MatchedRuleInfo, Network as ApiNetwork, PassiveRelayHealthChangedPayload,
     PassiveRelayHealthState, PolicyDecision, PolicyProbeCompletedPayload, PolicySelectedPayload,
@@ -847,6 +847,26 @@ fn flow_path(outbound_tag: Option<&String>, path: &crate::FlowPathObservation) -
                 .map(|candidate| TargetAddress {
                     host: candidate.host.clone(),
                     port: candidate.port,
+                })
+                .collect(),
+            connection_attempts: network
+                .connection_attempts
+                .iter()
+                .map(|attempt| FlowConnectionAttempt {
+                    remote_address: TargetAddress {
+                        host: attempt.remote_address.host.clone(),
+                        port: attempt.remote_address.port,
+                    },
+                    local_address: attempt.local_address.as_ref().map(|local| TargetAddress {
+                        host: local.host.clone(),
+                        port: local.port,
+                    }),
+                    stage: attempt.stage.clone(),
+                    outcome: attempt.outcome.clone(),
+                    interface_bound: attempt.interface_bound,
+                    error_kind: attempt.error_kind.clone(),
+                    os_error: attempt.os_error,
+                    error: attempt.error.clone(),
                 })
                 .collect(),
             address_family_policy: network.address_family_policy.clone(),
