@@ -468,8 +468,13 @@ async fn run_event_dispatcher<S>(
             }
         }
 
-        let wait_interval =
-            next_wait_interval(&pending, &workers, options.poll_interval, !shutting_down);
+        let wait_interval = next_wait_interval(
+            &pending,
+            &workers,
+            &blocked_events,
+            options.poll_interval,
+            !shutting_down,
+        );
         tokio::select! {
             biased;
             _ = &mut shutdown, if !shutting_down => {
@@ -549,6 +554,12 @@ where
 {
     let mut progressed = false;
     while let Some(blocked) = blocked_events.front_mut() {
+        if blocked
+            .persistence_retry_due
+            .is_some_and(|due| due > Instant::now())
+        {
+            return false;
+        }
         if let Some(sequence) = blocked.event.sequence {
             if last_sequence.is_some_and(|last| sequence <= last) {
                 blocked_events.pop_front();
@@ -556,14 +567,7 @@ where
             }
         }
         if blocked.event.event_type != event_type::FLOW_SNAPSHOT
-            && !dispatch_event(
-                workers,
-                stats,
-                pending,
-                blocked,
-                outbox,
-                dispatcher_config.max_in_memory_deliveries,
-            )
+            && !dispatch_event(workers, stats, pending, blocked, outbox, dispatcher_config)
         {
             return false;
         }
@@ -645,7 +649,7 @@ where
                 pending,
                 &mut blocked,
                 outbox,
-                dispatcher_config.max_in_memory_deliveries,
+                dispatcher_config,
             ) {
                 blocked_events.push_back(blocked);
                 blocked_events.extend(events.map(BlockedEvent::new));
@@ -747,7 +751,7 @@ fn dispatch_event(
     pending: &mut VecDeque<PendingDelivery>,
     blocked: &mut BlockedEvent,
     outbox: &mut Option<DeliveryOutbox>,
-    max_in_memory_deliveries: usize,
+    dispatcher_config: EventDispatcherConfig,
 ) -> bool {
     for worker in workers {
         if blocked.persisted_sinks.contains(&worker.tag) || !worker.accepts(&blocked.event) {
@@ -762,7 +766,11 @@ fn dispatch_event(
         if is_discardable_sample(&blocked.event) {
             let delivery = PendingDelivery::new(worker.tag.clone(), prepared, false);
             blocked.persisted_sinks.insert(worker.tag.clone());
-            enqueue_sample(pending, delivery, max_in_memory_deliveries);
+            enqueue_sample(
+                pending,
+                delivery,
+                dispatcher_config.max_in_memory_deliveries,
+            );
             continue;
         }
 
@@ -771,7 +779,8 @@ fn dispatch_event(
         // Without an outbox, stop consuming source events once the bounded
         // in-memory workset is full. This keeps backpressure bounded instead
         // of allowing a slow sink to grow the process indefinitely.
-        let pending_limit = effective_pending_limit(max_in_memory_deliveries, workers.len());
+        let pending_limit =
+            effective_pending_limit(dispatcher_config.max_in_memory_deliveries, workers.len());
         if outbox.is_none() && pending.len() >= pending_limit {
             return false;
         }
@@ -780,11 +789,16 @@ fn dispatch_event(
             if blocked.reported_failures.insert(worker.tag.clone()) {
                 record_outbox_failure(stats, &worker.tag, &error);
             }
+            blocked.defer_persistence_retry(dispatcher_config);
             return false;
         }
         blocked.persisted_sinks.insert(worker.tag.clone());
         if outbox.is_some()
-            && pending.len() >= effective_pending_limit(max_in_memory_deliveries, workers.len())
+            && pending.len()
+                >= effective_pending_limit(
+                    dispatcher_config.max_in_memory_deliveries,
+                    workers.len(),
+                )
         {
             continue;
         }
@@ -948,11 +962,12 @@ fn drain_worker_results(
 fn next_wait_interval(
     pending: &VecDeque<PendingDelivery>,
     workers: &[SinkWorker],
+    blocked_events: &VecDeque<BlockedEvent>,
     source_poll_interval: Duration,
     allow_durable: bool,
 ) -> Duration {
     let now = Instant::now();
-    pending
+    let pending_due = pending
         .iter()
         .filter(|delivery| {
             (!delivery.uses_outbox || allow_durable)
@@ -962,9 +977,19 @@ fn next_wait_interval(
                     }))
         })
         .map(|delivery| delivery.next_due.saturating_duration_since(now))
+        .min();
+    let persistence_due = blocked_events
+        .front()
+        .and_then(|blocked| blocked.persistence_retry_due)
+        .map(|due| due.saturating_duration_since(now));
+    let source_poll_due = blocked_events.is_empty().then_some(source_poll_interval);
+
+    pending_due
+        .into_iter()
+        .chain(persistence_due)
+        .chain(source_poll_due)
         .min()
         .unwrap_or(source_poll_interval)
-        .min(source_poll_interval)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1091,6 +1116,8 @@ struct BlockedEvent {
     event: RawApiEvent,
     persisted_sinks: HashSet<String>,
     reported_failures: HashSet<String>,
+    persistence_attempts: u32,
+    persistence_retry_due: Option<Instant>,
 }
 
 impl BlockedEvent {
@@ -1099,7 +1126,15 @@ impl BlockedEvent {
             event,
             persisted_sinks: HashSet::new(),
             reported_failures: HashSet::new(),
+            persistence_attempts: 0,
+            persistence_retry_due: None,
         }
+    }
+
+    fn defer_persistence_retry(&mut self, config: EventDispatcherConfig) {
+        self.persistence_attempts = self.persistence_attempts.saturating_add(1);
+        self.persistence_retry_due =
+            Some(Instant::now() + retry_delay(self.persistence_attempts, config));
     }
 }
 

@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 use std::fs;
+use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -417,6 +418,96 @@ async fn dispatcher_pauses_before_outbox_consumes_the_filesystem_reserve() {
 }
 
 #[tokio::test]
+async fn dispatcher_backs_off_then_recovers_after_outbox_capacity_returns() {
+    const BALLAST_BYTES: usize = 32 * 1024 * 1024;
+    const RETRY_DELAY: Duration = Duration::from_millis(500);
+
+    let directory = tempfile::tempdir().expect("dispatcher retry directory");
+    let events_path = directory.path().join("events.jsonl");
+    let outbox_path = directory.path().join("outbox.jsonl");
+    let ballast_path = directory.path().join("ballast.bin");
+    let available_before =
+        fs2::available_space(directory.path()).expect("available space before ballast");
+    let mut ballast = vec![0_u8; BALLAST_BYTES];
+    let mut state = 0x9e37_79b9_u32;
+    for byte in &mut ballast {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        *byte = state as u8;
+    }
+    let mut ballast_file = fs::File::create(&ballast_path).expect("create ballast");
+    ballast_file.write_all(&ballast).expect("write ballast");
+    ballast_file.sync_all().expect("sync ballast");
+    drop(ballast_file);
+    drop(ballast);
+    let available_with_ballast =
+        fs2::available_space(directory.path()).expect("available space with ballast");
+    let reclaimed_bytes = available_before.saturating_sub(available_with_ballast);
+    assert!(
+        reclaimed_bytes >= BALLAST_BYTES as u64 / 2,
+        "test filesystem did not allocate enough ballast: {reclaimed_bytes} bytes"
+    );
+    let reserve_bytes = available_with_ballast.saturating_add(reclaimed_bytes / 2);
+
+    let mut event = ApiEvent::new(
+        "reserve-recovery-event",
+        event_type::FLOW_COMPLETED,
+        1_760_000_000_001,
+        json!({ "value": 1 }),
+    );
+    event.sequence = Some(1);
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![event])),
+        },
+        ApiConfig {
+            event_sinks: vec![EventSinkConfig::JsonLines {
+                tag: "reserve-protected".to_owned(),
+                path: events_path.display().to_string(),
+                events: Vec::new(),
+                source_id: None,
+            }],
+            outbox_path: Some(outbox_path.display().to_string()),
+            dispatcher: EventDispatcherConfig {
+                retry_initial_delay_ms: RETRY_DELAY.as_millis() as u64,
+                retry_max_delay_ms: RETRY_DELAY.as_millis() as u64,
+                outbox_min_free_bytes: reserve_bytes,
+                // This direct runtime test isolates the absolute reserve. The
+                // validated production configuration still requires 1..=50.
+                outbox_min_free_percent: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+    )
+    .expect("spawn reserve-recovery dispatcher")
+    .expect("reserve-recovery dispatcher handle");
+    let status = dispatcher.status_handle();
+
+    wait_for_outbox_write_block(&status).await;
+    fs::remove_file(&ballast_path).expect("release ballast capacity");
+    wait_for_available_space(directory.path(), reserve_bytes).await;
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        fs::read_to_string(&events_path)
+            .map(|content| !content.contains("reserve-recovery-event"))
+            .unwrap_or(true),
+        "blocked event retried before its persistence deadline"
+    );
+
+    let written = wait_for_file_contains(&events_path, "reserve-recovery-event").await;
+    assert!(written.contains("reserve-recovery-event"));
+    dispatcher.shutdown().await;
+}
+
+#[tokio::test]
 async fn dispatcher_replays_a_live_queue_gap_and_keeps_a_monotonic_gap_counter() {
     let path = temp_path("zero-connector-replayed-events.jsonl");
     let _ = fs::remove_file(&path);
@@ -693,6 +784,17 @@ async fn wait_for_outbox_write_block(
     }
 
     panic!("outbox storage did not enter the protected state");
+}
+
+async fn wait_for_available_space(path: &std::path::Path, required_bytes: u64) {
+    for _ in 0..1_000 {
+        if fs2::available_space(path).is_ok_and(|available| available > required_bytes) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    panic!("filesystem capacity did not recover above {required_bytes} bytes");
 }
 
 fn temp_path(name: &str) -> std::path::PathBuf {
