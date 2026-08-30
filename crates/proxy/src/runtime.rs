@@ -187,6 +187,15 @@ impl Proxy {
         &self.engine
     }
 
+    /// Shared physical-egress authority for application-owned network services.
+    ///
+    /// Connector webhook delivery is created by the root application rather
+    /// than the proxy runtime, but its sockets must observe the same TUN
+    /// underlay selection and generation changes as proxy and DNS sockets.
+    pub fn egress_interface_control(&self) -> zero_platform_tokio::EgressInterfaceControl {
+        self.egress_interface.clone()
+    }
+
     pub(crate) fn mark_orchestration_ready(&self) {
         self.orchestration_ready.send_replace(true);
     }

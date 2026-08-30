@@ -11,17 +11,40 @@ homepage.workspace = true
 default = []
 event-dispatcher = []
 sink-jsonl = ["event-dispatcher"]
-webhook = ["event-dispatcher", "dep:reqwest"]
+webhook = [
+    "event-dispatcher",
+    "dep:bytes",
+    "dep:http",
+    "dep:http-body-util",
+    "dep:hyper",
+    "dep:hyper-rustls",
+    "dep:hyper-util",
+    "dep:rustls",
+    "dep:tower-service",
+    "dep:webpki-roots",
+]
 
 [dependencies]
 async-trait = "0.1"
+bytes = { version = "1", optional = true }
 fs2.workspace = true
+http = { version = "1", optional = true }
+http-body-util = { version = "0.1", optional = true }
+hyper = { version = "1", default-features = false, features = ["client", "http1"], optional = true }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "ring", "tls12"], optional = true }
+hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "http1", "tokio"], optional = true }
+rustls = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tower-service = { version = "0.3", optional = true }
 tracing.workspace = true
+webpki-roots = { version = "1", optional = true }
 zero-api = { path = "../api" }
 zero-config = { path = "../config" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+
+[dev-dependencies]
+rcgen = "0.14"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

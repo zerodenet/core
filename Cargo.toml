@@ -32,7 +32,11 @@ trojan = ["zero-proxy/trojan"]
 vmess = ["zero-proxy/vmess"]
 mieru = ["zero-proxy/mieru"]
 status-api = []
-event-dispatcher = ["dep:zero-connector", "zero-connector/event-dispatcher"]
+event-dispatcher = [
+    "dep:zero-connector",
+    "dep:zero-platform-tokio",
+    "zero-connector/event-dispatcher",
+]
 sink-jsonl = ["event-dispatcher", "zero-connector/sink-jsonl"]
 connector = ["event-dispatcher", "zero-connector/webhook"]
 grpc-api = ["dep:zero-grpc"]
@@ -110,6 +114,7 @@ zero-api = { path = "crates/api" }
 zero-config = { path = "crates/config" }
 zero-engine = { path = "crates/engine", default-features = false }
 zero-logging = { path = "crates/logging" }
+zero-platform-tokio = { path = "crates/platform/tokio", optional = true }
 zero-proxy = { path = "crates/proxy", default-features = false }
 zero-connector = { path = "crates/connector", optional = true, default-features = false }
 zero-grpc = { path = "crates/grpc", optional = true }

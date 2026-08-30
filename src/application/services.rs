@@ -8,9 +8,17 @@ use zero_proxy::{ConfigApplyReconciler, ConfigReconcileResult};
 
 use crate::hooks;
 
+#[cfg(feature = "event-dispatcher")]
+mod network;
+
+#[cfg(feature = "event-dispatcher")]
+use network::ApplicationEventSinkTcpDialer;
+
 pub(super) struct ApplicationServices {
     engine: Engine,
     ipc_hook_socket: Option<String>,
+    #[cfg(feature = "event-dispatcher")]
+    event_network: zero_connector::EventDispatcherNetwork,
     state: Mutex<ApplicationServiceState>,
 }
 
@@ -26,14 +34,51 @@ struct ApplicationServiceState {
 }
 
 impl ApplicationServices {
+    #[cfg(all(test, feature = "sink-jsonl"))]
     pub(super) async fn start(
         engine: Engine,
         ipc_hook_socket: Option<&str>,
+    ) -> Result<Arc<Self>, Box<dyn Error>> {
+        #[cfg(feature = "event-dispatcher")]
+        let event_network = zero_connector::EventDispatcherNetwork::system();
+        Self::start_with_network(
+            engine,
+            ipc_hook_socket,
+            #[cfg(feature = "event-dispatcher")]
+            event_network,
+        )
+        .await
+    }
+
+    pub(super) async fn start_with_proxy(
+        proxy: &zero_proxy::Proxy,
+        ipc_hook_socket: Option<&str>,
+    ) -> Result<Arc<Self>, Box<dyn Error>> {
+        let engine = proxy.engine().clone();
+        #[cfg(feature = "event-dispatcher")]
+        let event_network = zero_connector::EventDispatcherNetwork::new(Arc::new(
+            ApplicationEventSinkTcpDialer::new(proxy.egress_interface_control()),
+        ));
+        Self::start_with_network(
+            engine,
+            ipc_hook_socket,
+            #[cfg(feature = "event-dispatcher")]
+            event_network,
+        )
+        .await
+    }
+
+    async fn start_with_network(
+        engine: Engine,
+        ipc_hook_socket: Option<&str>,
+        #[cfg(feature = "event-dispatcher")] event_network: zero_connector::EventDispatcherNetwork,
     ) -> Result<Arc<Self>, Box<dyn Error>> {
         let config = engine.config();
         let services = Arc::new(Self {
             engine,
             ipc_hook_socket: ipc_hook_socket.map(str::to_owned),
+            #[cfg(feature = "event-dispatcher")]
+            event_network,
             state: Mutex::new(ApplicationServiceState {
                 config: config.clone(),
                 installed: false,
@@ -116,18 +161,20 @@ impl ApplicationServices {
             let has_delivery_sinks = !target.api.event_sinks.is_empty();
             let bootstrap_engine_started = has_delivery_sinks && !state.engine_started_bootstrapped;
             state.dispatcher = if bootstrap_engine_started {
-                zero_connector::spawn_event_dispatcher_with_engine_started(
+                zero_connector::spawn_event_dispatcher_with_engine_started_and_network(
                     self.engine.clone(),
                     target.api.clone(),
                     target.source_dir.clone(),
                     zero_connector::EventDispatcherOptions::default(),
+                    self.event_network.clone(),
                 )
             } else {
-                zero_connector::spawn_event_dispatcher(
+                zero_connector::spawn_event_dispatcher_with_network(
                     self.engine.clone(),
                     target.api.clone(),
                     target.source_dir.clone(),
                     zero_connector::EventDispatcherOptions::default(),
+                    self.event_network.clone(),
                 )
             }
             .map_err(|error| error.to_string())?;

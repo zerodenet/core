@@ -48,7 +48,7 @@ async fn run(
 
     let engine_handle = EngineHandle::new(engine.clone());
     let base_handle = ProxyHandle::new(engine_handle.clone(), proxy.clone());
-    let services = ApplicationServices::start(engine.clone(), ipc_hook_socket).await?;
+    let services = ApplicationServices::start_with_proxy(&proxy, ipc_hook_socket).await?;
     let ipc_handle = base_handle.with_config_apply_reconciler(services.clone());
 
     // Bridge tracing warn/error ->?engine.warning events.

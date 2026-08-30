@@ -118,6 +118,25 @@ fn dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority() {
 }
 
 #[test]
+fn connector_webhooks_cross_the_application_egress_boundary() {
+    let connector = read(&workspace_root().join("crates/connector/src/webhook.rs"));
+    let services = read(&workspace_root().join("src/application/services.rs"));
+    let network = read(&workspace_root().join("src/application/services/network.rs"));
+    let proxy = read(&workspace_root().join("crates/proxy/src/runtime.rs"));
+
+    assert!(connector.contains("dialer.connect(host, port)"));
+    assert!(!connector.contains("reqwest"));
+    assert!(!connector.contains("TcpStream::connect"));
+    assert!(services.contains("start_with_proxy"));
+    assert!(services.contains("spawn_event_dispatcher_with_network"));
+    assert!(services.contains("spawn_event_dispatcher_with_engine_started_and_network"));
+    assert!(network.contains("select_for_peer"));
+    assert!(network.contains("ensure_connectable"));
+    assert!(network.contains("TokioSocket::connect_addr_on"));
+    assert!(proxy.contains("pub fn egress_interface_control"));
+}
+
+#[test]
 fn outbound_quic_node_resolution_stays_behind_the_runtime_dns_bridge() {
     let transport = read(&workspace_root().join("crates/transport/src/quic.rs"));
     let hysteria2 = read(&workspace_root().join("protocols/hysteria2/src/transport/connection.rs"));

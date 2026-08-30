@@ -3,9 +3,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+#[cfg(feature = "sink-jsonl")]
 use zero_api::EventSink;
 use zero_config::{ApiConfig, EventSinkConfig};
 
+use crate::network::EventDispatcherNetwork;
 use crate::state::PersistentStateLease;
 use crate::{ConnectorError, ConnectorResult};
 
@@ -48,10 +50,12 @@ pub(crate) trait AsyncDeliverySink: Send + Sync {
     }
 }
 
+#[cfg(feature = "sink-jsonl")]
 struct BlockingEventSink {
     sink: Arc<dyn EventSink + Send + Sync>,
 }
 
+#[cfg(feature = "sink-jsonl")]
 #[async_trait]
 impl AsyncDeliverySink for BlockingEventSink {
     async fn publish(
@@ -73,6 +77,7 @@ impl AsyncDeliverySink for BlockingEventSink {
 pub(crate) fn build_event_sinks(
     api: &ApiConfig,
     source_dir: Option<&Path>,
+    network: &EventDispatcherNetwork,
 ) -> ConnectorResult<Vec<ConfiguredEventSink>> {
     api.event_sinks
         .iter()
@@ -81,6 +86,7 @@ pub(crate) fn build_event_sinks(
                 config,
                 source_dir,
                 std::time::Duration::from_millis(api.dispatcher.webhook_timeout_ms),
+                network,
             )
         })
         .collect()
@@ -90,6 +96,7 @@ fn build_event_sink(
     config: &EventSinkConfig,
     source_dir: Option<&Path>,
     webhook_timeout: std::time::Duration,
+    network: &EventDispatcherNetwork,
 ) -> ConnectorResult<ConfiguredEventSink> {
     match config {
         EventSinkConfig::JsonLines {
@@ -98,22 +105,7 @@ fn build_event_sink(
             events,
             source_id,
         } => build_json_line_sink(tag, path, events, source_id, source_dir),
-        EventSinkConfig::Webhook {
-            tag,
-            url,
-            events,
-            source_id,
-            headers,
-            allow_insecure,
-        } => build_webhook_sink(
-            tag,
-            url,
-            events,
-            source_id,
-            headers,
-            *allow_insecure,
-            webhook_timeout,
-        ),
+        EventSinkConfig::Webhook { .. } => build_webhook_sink(config, webhook_timeout, network),
     }
 }
 
@@ -167,23 +159,30 @@ fn build_json_line_sink(
 
 #[cfg(feature = "webhook")]
 fn build_webhook_sink(
-    tag: &str,
-    url: &str,
-    events: &[String],
-    source_id: &Option<String>,
-    headers: &std::collections::BTreeMap<String, String>,
-    allow_insecure: bool,
+    registration: &EventSinkConfig,
     timeout: std::time::Duration,
+    network: &EventDispatcherNetwork,
 ) -> ConnectorResult<ConfiguredEventSink> {
+    let EventSinkConfig::Webhook {
+        tag,
+        url,
+        events,
+        source_id,
+        headers,
+        allow_insecure,
+    } = registration
+    else {
+        unreachable!("webhook builder only receives webhook registrations")
+    };
     let mut config =
         crate::webhook::WebhookEventSinkConfig::new(url.to_owned()).with_timeout(timeout);
     for (name, value) in headers {
         config = config.with_header(name.clone(), value.clone());
     }
-    if allow_insecure {
+    if *allow_insecure {
         config = config.with_allow_insecure(true);
     }
-    let sink = crate::webhook::WebhookEventSink::with_config(config)?;
+    let sink = crate::webhook::WebhookEventSink::with_config(config, network)?;
 
     Ok(ConfiguredEventSink {
         tag: tag.to_owned(),
@@ -196,14 +195,13 @@ fn build_webhook_sink(
 
 #[cfg(not(feature = "webhook"))]
 fn build_webhook_sink(
-    tag: &str,
-    _url: &str,
-    _events: &[String],
-    _source_id: &Option<String>,
-    _headers: &std::collections::BTreeMap<String, String>,
-    _allow_insecure: bool,
+    registration: &EventSinkConfig,
     _timeout: std::time::Duration,
+    _network: &EventDispatcherNetwork,
 ) -> ConnectorResult<ConfiguredEventSink> {
+    let EventSinkConfig::Webhook { tag, .. } = registration else {
+        unreachable!("webhook builder only receives webhook registrations")
+    };
     Err(ConnectorError::FeatureDisabled {
         feature: "connector",
         sink_type: "webhook",
