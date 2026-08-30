@@ -4,6 +4,20 @@ on:
   push:
     branches:
       - develop
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - ".github/workflows/tun-e2e.yml"
+      - "tests/tun_privileged_e2e.rs"
+      - "tests/tun_route_reconcile*_e2e.rs"
+      - "crates/tun/**"
+      - "crates/stack/**"
+      - "crates/dns/**"
+      - "crates/proxy/src/inbound/tun/**"
+      - "crates/proxy/src/runtime/udp_socket.rs"
+      - "crates/proxy/src/runtime/udp_socket/**"
+      - "crates/platform/tokio/src/egress.rs"
   workflow_dispatch:
     inputs:
       target:
@@ -34,6 +48,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, tun]
     timeout-minutes: 30
     env:
+      ZERO_TUN_E2E_DNS_ADDR: ${{ secrets.ZERO_TUN_E2E_DNS_ADDR }}
       ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
       ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
     steps:
@@ -44,6 +59,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler iproute2 nftables
       - name: Run privileged TUN smoke test
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run direct UDP self-capture E2E
+        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_DNS_ADDR=$ZERO_TUN_E2E_DNS_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run native Linux route reconciliation E2E
@@ -60,6 +77,7 @@ jobs:
     runs-on: [self-hosted, macOS, x64, tun]
     timeout-minutes: 30
     env:
+      ZERO_TUN_E2E_DNS_ADDR: ${{ secrets.ZERO_TUN_E2E_DNS_ADDR }}
       ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
       ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
       ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY: ${{ secrets.ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY }}
@@ -70,6 +88,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run privileged TUN smoke test
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run direct UDP self-capture E2E
+        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_DNS_ADDR=$ZERO_TUN_E2E_DNS_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run native macOS route reconciliation E2E
@@ -86,6 +106,7 @@ jobs:
     runs-on: [self-hosted, windows, x64, tun]
     timeout-minutes: 30
     env:
+      ZERO_TUN_E2E_DNS_ADDR: ${{ secrets.ZERO_TUN_E2E_DNS_ADDR }}
       ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
       ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
     steps:
@@ -94,6 +115,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run privileged TUN smoke test
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run direct UDP self-capture E2E
+        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run native Windows route reconciliation E2E
@@ -106,7 +129,7 @@ jobs:
         run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
   hosted-linux:
-    if: github.event_name == 'push' || inputs.target == 'hosted-all' || inputs.target == 'hosted-linux'
+    if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.target == 'hosted-all' || inputs.target == 'hosted-linux'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -122,20 +145,27 @@ jobs:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_route_reconcile_linux_e2e linux_reconciles_runtime_egress_and_dns_exclusion_inside_network_namespace -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
+        if: github.event_name != 'pull_request'
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run direct UDP self-capture E2E
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+        run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
+        if: github.event_name != 'pull_request'
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
+        if: github.event_name != 'pull_request'
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
   hosted-macos:
-    if: github.event_name == 'push' || inputs.target == 'hosted-all' || inputs.target == 'hosted-macos'
+    if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.target == 'hosted-all' || inputs.target == 'hosted-macos'
     runs-on: macos-15-intel
     timeout-minutes: 30
     steps:
@@ -153,14 +183,19 @@ jobs:
       - name: Run native PF_ROUTE lifecycle E2E
         run: sudo env "PATH=$PATH" cargo test -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
+        if: github.event_name != 'pull_request'
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run direct UDP self-capture E2E
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
+        if: github.event_name != 'pull_request'
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
+        if: github.event_name != 'pull_request'
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
   hosted-windows:
-    if: github.event_name == 'push' || inputs.target == 'hosted-all' || inputs.target == 'hosted-windows'
+    if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.target == 'hosted-all' || inputs.target == 'hosted-windows'
     runs-on: windows-2025
     timeout-minutes: 30
     steps:
@@ -181,8 +216,13 @@ jobs:
       - name: Run privileged Wintun address configuration E2E
         run: cargo test -p zero-tun --test privileged_configuration windows_configures_ipv4_and_ipv6_addresses_on_one_adapter -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
+        if: github.event_name != 'pull_request'
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Run direct UDP self-capture E2E
+        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
+        if: github.event_name != 'pull_request'
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
+        if: github.event_name != 'pull_request'
         run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture

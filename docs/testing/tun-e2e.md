@@ -223,6 +223,8 @@ TCP ClientHello 解析器或单包字符串扫描替代。
 真实路由和设备操作需要管理员权限，不能由普通单元测试模拟。仓库中的 `tun_privileged_e2e` 会直接读取系统网络状态，校验接口 MTU、地址、拆分默认路由、TCP、DNS 劫持、STUN 基线与 block、强杀后的恢复日志，以及配置移除后的设备和日志清理。IPv4/IPv6 STUN 用例分别以单栈配置运行，需要对应地址族的原生网络和可达 STUN 服务。独立的离线双栈用例通过本地模拟 DNS 和 SOCKS5 出站，验证同一设备的 IPv4/IPv6 地址、四条 `/1` 路由、双族 TCP/DNS 流量和两份恢复日志；它也覆盖物理出口仅有 IPv4 时 IPv6 经代理载荷出站的情形。为公网 STUN 用例提供可达服务并运行：
 
 ```bash
+ZERO_TUN_E2E_DNS_ADDR=223.5.5.5:53 \
+  cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
 ZERO_TUN_E2E_STUN_ADDR=203.0.113.10:3478 \
   cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
 ZERO_TUN_E2E_STUN_ADDR_V6='[2001:db8::10]:3478' \
@@ -257,4 +259,4 @@ sudo env \
   cargo test --test tun_route_reconcile_macos_e2e macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
 ```
 
-`.github/workflows/tun-e2e.yml` 将冒烟、两个单栈 STUN 和离线双栈用例分发到带 `tun` 标签的 Linux、macOS 和 Windows 隔离自托管 runner。STUN 用例需要对应地址族的原生连通性和可达服务，离线双栈用例不作此要求；Windows runner 还需预装匹配架构的 Wintun。
+`.github/workflows/tun-e2e.yml` 将冒烟、direct UDP/DNS 自捕获、两个单栈 STUN 和离线双栈用例分发到 Linux、macOS 和 Windows 的 hosted runner，以及带 `tun` 标签的隔离自托管 runner。修改 TUN、stack、DNS、egress 或这些特权 harness 的 PR 会直接触发三套 hosted runner；PR 事件只运行平台基础检查和本专项的 direct UDP 门禁，避免由 `example.com`、Cloudflare DoH 等无关公网依赖决定专项 PR 结论，完整公网/离线套件仍在 `develop` push 和人工 dispatch 上执行。自托管 runner 仍只接受人工 dispatch。direct UDP 用例在未设置 `ZERO_TUN_E2E_DNS_ADDR` 时使用默认公网 DNS 目标，连续复用一个源 tuple 后再制造 32 个源端口，并断言权威 active-flow 快照不超过 33 条目标 TUN UDP flow、活动与最近完成记录合并后的新增目标 flow ID 也不超过 33；这样仍活跃或快速失败的每包递归自捕获 association/session 都会直接使测试失败，同时不会把 Windows 等平台在测试期间产生的无关后台流量计入门禁。STUN 用例需要对应地址族的原生连通性和可达服务，离线双栈用例不作此要求；Windows runner 还需预装匹配架构的 Wintun。
