@@ -134,6 +134,15 @@ unusable instead of forwarding a malformed or policy-violating record. Raw
 cache entries contain the already-filtered response, so a cache hit cannot
 restore a suppressed family.
 
+When the raw wire cache is enabled, `cache.max_ttl_seconds` caps the TTLs
+advertised in the first forwarded response as well as the internal retention
+time. Cache hits subtract the elapsed whole seconds from every answer,
+authority, and additional record, so a replay cannot renew the client-side
+cache beyond Zero's remaining lifetime. Shorter upstream TTLs are never raised.
+EDNS OPT metadata is preserved because its TTL-shaped field carries extended
+RCODE, version, and flags rather than a cache lifetime. UDP and TCP interception
+share this behavior.
+
 Real address resolution starts A and AAAA lookups concurrently. TCP direct and
 upstream dialing preserves the answer order within each family, interleaves the
 two families, and starts later candidates after a bounded delay. Each candidate

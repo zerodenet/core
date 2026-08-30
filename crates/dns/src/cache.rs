@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 use zero_config::DnsCacheConfig;
 use zero_traits::IpAddress;
 
+use crate::message;
 use crate::message::normalize_domain;
 use crate::DnsQueryRole;
 
@@ -22,6 +23,7 @@ struct CacheEntry {
     addresses: Vec<IpAddress>,
     raw_query: Option<Vec<u8>>,
     raw_response: Option<Vec<u8>>,
+    stored_at: Instant,
     expires_at: Instant,
     last_used: u64,
 }
@@ -115,15 +117,37 @@ impl DnsCache {
         }
         state.clock = state.clock.wrapping_add(1);
         let clock = state.clock;
-        let entry = state.entries.get_mut(&key)?;
-        let cached_query = entry.raw_query.as_deref()?;
-        if cached_query.get(2..)? != query.get(2..)? {
+        let (mut response, elapsed_seconds, remaining_seconds) = {
+            let entry = state.entries.get(&key)?;
+            let cached_query = entry.raw_query.as_deref()?;
+            if cached_query.get(2..)? != query.get(2..)? {
+                return None;
+            }
+            (
+                entry.raw_response.clone()?,
+                now.saturating_duration_since(entry.stored_at)
+                    .as_secs()
+                    .min(u64::from(u32::MAX)) as u32,
+                duration_seconds_ceiling(entry.expires_at.saturating_duration_since(now)),
+            )
+        };
+        if message::rewrite_response_ttls(&mut response, elapsed_seconds, Some(remaining_seconds))
+            .is_err()
+        {
+            state.entries.remove(&key);
             return None;
         }
-        let mut response = entry.raw_response.clone()?;
         response.get_mut(..2)?.copy_from_slice(query.get(..2)?);
-        entry.last_used = clock;
+        state.entries.get_mut(&key)?.last_used = clock;
         Some(response)
+    }
+
+    pub(crate) fn cap_response_ttls(&self, response: &mut [u8]) -> std::io::Result<()> {
+        let Some(max_ttl) = self.inner.max_ttl else {
+            return Ok(());
+        };
+        let ttl_cap = max_ttl.as_secs().min(u64::from(u32::MAX)) as u32;
+        message::rewrite_response_ttls(response, 0, Some(ttl_cap))
     }
 
     pub(crate) async fn inspect(&self, domain: &str) -> Option<(Vec<IpAddress>, u64)> {
@@ -254,21 +278,18 @@ impl DnsCache {
         }
         state.clock = state.clock.wrapping_add(1);
         let clock = state.clock;
-        let existing_response = state
-            .entries
-            .get(&key)
-            .and_then(|entry| entry.raw_response.clone());
-        let existing_query = state
-            .entries
-            .get(&key)
-            .and_then(|entry| entry.raw_query.clone());
+        // Address-only refreshes must not carry forward raw wire bytes: doing
+        // so would restart a response's age without receiving a fresh wire
+        // response from the backend.
+        let now = Instant::now();
         state.entries.insert(
             key,
             CacheEntry {
                 addresses,
-                raw_query: raw_query.or(existing_query),
-                raw_response: raw_response.or(existing_response),
-                expires_at: Instant::now() + effective_ttl,
+                raw_query,
+                raw_response,
+                stored_at: now,
+                expires_at: now + effective_ttl,
                 last_used: clock,
             },
         );
@@ -278,6 +299,13 @@ impl DnsCache {
 fn remove_expired(state: &mut CacheState) {
     let now = Instant::now();
     state.entries.retain(|_, entry| entry.expires_at > now);
+}
+
+fn duration_seconds_ceiling(duration: Duration) -> u32 {
+    let seconds = duration
+        .as_secs()
+        .saturating_add(u64::from(duration.subsec_nanos() != 0));
+    seconds.min(u64::from(u32::MAX)) as u32
 }
 
 #[cfg(test)]
