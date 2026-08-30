@@ -34,6 +34,7 @@ pub struct FlowNetworkObservation {
     pub local_address: Option<FlowRemoteEndpoint>,
     pub remote_address: Option<FlowRemoteEndpoint>,
     pub resolved_candidates: Vec<FlowRemoteEndpoint>,
+    pub connection_attempts: Vec<FlowConnectionAttemptObservation>,
     pub address_family_policy: Option<String>,
     pub address_family_fallback: Option<FlowAddressFamilyFallbackObservation>,
     pub selected_interface: Option<FlowNetworkInterfaceObservation>,
@@ -41,6 +42,18 @@ pub struct FlowNetworkObservation {
     pub route_lookup: Option<FlowRouteLookupObservation>,
     pub socket_binding: Option<FlowSocketBindingObservation>,
     pub connect_stage: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlowConnectionAttemptObservation {
+    pub remote_address: FlowRemoteEndpoint,
+    pub local_address: Option<FlowRemoteEndpoint>,
+    pub stage: String,
+    pub outcome: String,
+    pub interface_bound: bool,
+    pub error_kind: Option<String>,
+    pub os_error: Option<i32>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -102,6 +102,17 @@ async fn relays_tcp_through_socks5_direct_outbound() {
     assert_eq!(network["egress"]["address_family"], "ipv4");
     assert_eq!(network["egress"]["tun_active"], false);
     assert_eq!(network["connect_stage"], "connected");
+    let attempts = network["connection_attempts"]
+        .as_array()
+        .expect("direct TCP connection attempts");
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0]["remote_address"]["host"], "127.0.0.1");
+    assert_eq!(attempts[0]["remote_address"]["port"], u64::from(echo_port));
+    assert_eq!(attempts[0]["stage"], "connected");
+    assert_eq!(attempts[0]["outcome"], "connected");
+    assert!(attempts[0].get("error_kind").is_none());
+    assert!(attempts[0].get("os_error").is_none());
+    assert!(attempts[0].get("error").is_none());
     assert_eq!(network["route_lookup"]["status"], "skipped");
     assert_eq!(network["socket_binding"]["reason"], "loopback");
 

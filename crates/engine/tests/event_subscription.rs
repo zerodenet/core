@@ -6,8 +6,8 @@ use zero_api::{
 use zero_config::RuntimeConfig;
 use zero_core::{Address, FakeIpReverseStatus, Network, ProtocolType, Session, TargetHostSource};
 use zero_engine::{
-    Engine, EngineHandle, FlowAddressFamilyFallbackObservation, FlowNetworkObservation,
-    ProbeTrigger, ProbeTriggerAck, SessionOutcome,
+    Engine, EngineHandle, FlowAddressFamilyFallbackObservation, FlowConnectionAttemptObservation,
+    FlowNetworkObservation, FlowRemoteEndpoint, ProbeTrigger, ProbeTriggerAck, SessionOutcome,
 };
 
 #[test]
@@ -391,6 +391,37 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
     engine.record_session_network(
         session.id,
         FlowNetworkObservation {
+            connection_attempts: vec![
+                FlowConnectionAttemptObservation {
+                    remote_address: FlowRemoteEndpoint {
+                        host: "2001:db8::8".to_owned(),
+                        port: 443,
+                    },
+                    local_address: None,
+                    stage: "connect_socket".to_owned(),
+                    outcome: "failed".to_owned(),
+                    interface_bound: true,
+                    error_kind: Some("network_unreachable".to_owned()),
+                    os_error: Some(101),
+                    error: Some("network is unreachable".to_owned()),
+                },
+                FlowConnectionAttemptObservation {
+                    remote_address: FlowRemoteEndpoint {
+                        host: "198.51.100.8".to_owned(),
+                        port: 443,
+                    },
+                    local_address: Some(FlowRemoteEndpoint {
+                        host: "192.0.2.10".to_owned(),
+                        port: 49_152,
+                    }),
+                    stage: "connected".to_owned(),
+                    outcome: "connected".to_owned(),
+                    interface_bound: true,
+                    error_kind: None,
+                    os_error: None,
+                    error: None,
+                },
+            ],
             address_family_policy: Some("prefer_ipv4".to_owned()),
             address_family_fallback: Some(FlowAddressFamilyFallbackObservation {
                 from: "ipv6".to_owned(),
@@ -428,6 +459,14 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
         routed.payload["record"]["path"]["network"]["address_family_fallback"]["reason"],
         "tun_ipv6_egress_unavailable"
     );
+    let routed_attempts = routed.payload["record"]["path"]["network"]["connection_attempts"]
+        .as_array()
+        .expect("routed connection attempts");
+    assert_eq!(routed_attempts.len(), 2);
+    assert_eq!(routed_attempts[0]["stage"], "connect_socket");
+    assert_eq!(routed_attempts[0]["error_kind"], "network_unreachable");
+    assert_eq!(routed_attempts[0]["os_error"], 101);
+    assert_eq!(routed_attempts[1]["outcome"], "connected");
 
     engine
         .finish_session(session.id, SessionOutcome::DirectRelayed)
@@ -462,6 +501,16 @@ fn flow_subscription_starts_with_self_contained_active_snapshot() {
             .expect("completed timestamp")
     );
     assert!(completed_record.result.is_some());
+    let completed_attempts = &completed_record
+        .path
+        .network
+        .as_ref()
+        .expect("completed network context")
+        .connection_attempts;
+    assert_eq!(completed_attempts.len(), 2);
+    assert_eq!(completed_attempts[0].stage, "connect_socket");
+    assert_eq!(completed_attempts[0].os_error, Some(101));
+    assert_eq!(completed_attempts[1].outcome, "connected");
 }
 
 #[test]

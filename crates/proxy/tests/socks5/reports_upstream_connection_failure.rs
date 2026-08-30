@@ -85,6 +85,25 @@ async fn reports_upstream_connection_failure_to_client_and_session_history() {
     assert_eq!(network["socket_binding"]["mode"], "system");
     assert_eq!(network["socket_binding"]["reason"], "loopback");
     assert_eq!(network["socket_binding"]["interface_bound"], false);
+    let attempts = network["connection_attempts"]
+        .as_array()
+        .expect("direct TCP connection attempts");
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0]["remote_address"]["host"], "127.0.0.1");
+    assert_eq!(
+        attempts[0]["remote_address"]["port"],
+        u64::from(unavailable_port)
+    );
+    assert_eq!(attempts[0]["stage"], "connect_socket");
+    assert_eq!(attempts[0]["outcome"], "failed");
+    assert_eq!(attempts[0]["interface_bound"], false);
+    assert!(attempts[0]["error_kind"]
+        .as_str()
+        .is_some_and(|kind| !kind.is_empty()));
+    assert!(attempts[0]["os_error"].as_i64().is_some());
+    assert!(attempts[0]["error"]
+        .as_str()
+        .is_some_and(|error| !error.is_empty()));
     assert!(completed.payload["record"]["result"]["failure"]["code"]
         .as_str()
         .is_some());

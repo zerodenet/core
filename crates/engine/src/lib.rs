@@ -32,9 +32,9 @@ pub use runtime::{Engine, EngineRuntimeSnapshot};
 pub use runtime::{RouteDecision, RouteTrace};
 pub use session::{
     ActiveSession, BlockReason, CompletedSessionRecord, FlowAddressFamilyFallbackObservation,
-    FlowContext, FlowEgressObservation, FlowFailureObservation, FlowHook, FlowHookChain,
-    FlowNetworkInterfaceObservation, FlowNetworkObservation, FlowPathObservation,
-    FlowRemoteEndpoint, FlowRouteLookupObservation, FlowRouteObservation,
+    FlowConnectionAttemptObservation, FlowContext, FlowEgressObservation, FlowFailureObservation,
+    FlowHook, FlowHookChain, FlowNetworkInterfaceObservation, FlowNetworkObservation,
+    FlowPathObservation, FlowRemoteEndpoint, FlowRouteLookupObservation, FlowRouteObservation,
     FlowSocketBindingObservation, FlowTraffic, MatchedRouteRule, SessionHandle,
 };
 pub use zero_api::{

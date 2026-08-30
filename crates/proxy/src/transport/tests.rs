@@ -1,7 +1,9 @@
 use zero_core::{Address, Network, ProtocolType, Session, TargetHostSource};
 
 use super::{
-    direct_dial::{dial_tcp_candidates, interleave_address_families},
+    direct_dial::{
+        dial_tcp_candidates, interleave_address_families, MAX_RECORDED_CONNECTION_ATTEMPTS,
+    },
     DirectConnector,
 };
 
@@ -69,18 +71,95 @@ fn tcp_dial_candidates_interleave_families_and_remove_duplicates() {
 async fn tcp_dial_candidates_fall_back_after_the_first_address_fails() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let reachable = listener.local_addr().unwrap();
-    let unavailable = std::net::SocketAddr::new("127.0.0.2".parse().unwrap(), reachable.port());
+    let unavailable = std::net::SocketAddr::new("2001:db8::1".parse().unwrap(), reachable.port());
+    let egress = zero_platform_tokio::EgressInterfaceControl::default();
+    egress.mark_unavailable_for(true, "no physical IPv6 default route");
+    egress.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
 
-    let connection = dial_tcp_candidates(
-        vec![unavailable, reachable],
-        &zero_platform_tokio::EgressInterfaceControl::default(),
-    )
-    .await
-    .unwrap();
+    let connection = dial_tcp_candidates(vec![unavailable, reachable], &egress)
+        .await
+        .unwrap();
 
     assert_eq!(connection.remote, reachable);
     assert_eq!(connection.resolved_candidates, vec![unavailable, reachable]);
     assert_eq!(connection.socket.peer_addr().unwrap(), reachable);
+    assert_eq!(connection.attempts.len(), 2);
+    assert_eq!(connection.attempts[0].remote, unavailable);
+    assert_eq!(connection.attempts[0].outcome, "failed");
+    assert_eq!(connection.attempts[0].stage, "select_egress");
+    assert!(connection.attempts[0].error_kind.is_some());
+    assert!(connection.attempts[0].os_error.is_none());
+    assert!(connection.attempts[0].error.is_some());
+    assert_eq!(connection.attempts[1].remote, reachable);
+    assert_eq!(connection.attempts[1].outcome, "connected");
+    assert_eq!(connection.attempts[1].stage, "connected");
+    assert!(connection.attempts[1].error_kind.is_none());
+    assert!(connection.attempts[1].os_error.is_none());
+    assert!(connection.attempts[1].error.is_none());
+}
+
+#[tokio::test]
+async fn tcp_dial_failure_records_the_platform_socket_error() {
+    let reservation = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let unavailable = reservation.local_addr().unwrap();
+    drop(reservation);
+
+    let failure = dial_tcp_candidates(
+        vec![unavailable],
+        &zero_platform_tokio::EgressInterfaceControl::default(),
+    )
+    .await
+    .expect_err("closed loopback port must fail");
+
+    assert_eq!(failure.attempts.len(), 1);
+    let attempt = &failure.attempts[0];
+    assert_eq!(attempt.remote, unavailable);
+    assert_eq!(attempt.stage, "connect_socket");
+    assert_eq!(attempt.outcome, "failed");
+    assert!(!attempt.interface_bound);
+    assert!(attempt.error_kind.is_some());
+    assert!(attempt.os_error.is_some());
+    assert!(attempt
+        .error
+        .as_deref()
+        .is_some_and(|error| !error.is_empty()));
+}
+
+#[tokio::test]
+async fn tcp_dial_failure_attempt_observations_are_ordered_and_bounded() {
+    let egress = zero_platform_tokio::EgressInterfaceControl::default();
+    egress.mark_unavailable_for(true, "no physical IPv6 default route");
+    egress.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
+    let candidates = (0..(MAX_RECORDED_CONNECTION_ATTEMPTS + 4))
+        .map(|index| {
+            std::net::SocketAddr::new(
+                "2001:db8::1".parse().unwrap(),
+                40_000 + u16::try_from(index).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let failure = dial_tcp_candidates(candidates.clone(), &egress)
+        .await
+        .expect_err("unavailable TUN IPv6 egress must fail");
+
+    assert_eq!(failure.attempts.len(), MAX_RECORDED_CONNECTION_ATTEMPTS);
+    assert_eq!(failure.attempts[0].remote, candidates[0]);
+    assert_eq!(
+        failure.attempts[MAX_RECORDED_CONNECTION_ATTEMPTS - 2].remote,
+        candidates[MAX_RECORDED_CONNECTION_ATTEMPTS - 2]
+    );
+    assert_eq!(failure.attempts.last().unwrap().remote, candidates[19]);
+    assert!(failure
+        .attempts
+        .windows(2)
+        .all(|attempts| attempts[0].remote.port() < attempts[1].remote.port()));
+    assert!(failure.attempts.iter().all(|attempt| {
+        attempt.stage == "select_egress"
+            && attempt.outcome == "failed"
+            && attempt.error_kind.is_some()
+            && attempt.os_error.is_none()
+    }));
 }
 
 #[tokio::test]

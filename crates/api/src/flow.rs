@@ -135,6 +135,10 @@ pub struct FlowNetworkContext {
     pub remote_address: Option<TargetAddress>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resolved_candidates: Vec<TargetAddress>,
+    /// Bounded direct TCP candidate attempts in candidate launch order.
+    /// Empty for paths that did not execute a directly observed TCP dial.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connection_attempts: Vec<FlowConnectionAttempt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address_family_policy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -149,6 +153,23 @@ pub struct FlowNetworkContext {
     pub socket_binding: Option<FlowSocketBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connect_stage: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowConnectionAttempt {
+    pub remote_address: TargetAddress,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_address: Option<TargetAddress>,
+    pub stage: String,
+    pub outcome: String,
+    pub interface_bound: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
+    /// Raw platform error code when the operating system supplied one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os_error: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

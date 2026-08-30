@@ -11,9 +11,9 @@ pub use completed::CompletedSessionRecord;
 pub use hook::{BlockReason, FlowContext, FlowHook, FlowHookChain, FlowTraffic};
 pub use lifecycle::SessionHandle;
 pub use observation::{
-    FlowAddressFamilyFallbackObservation, FlowEgressObservation, FlowFailureObservation,
-    FlowNetworkInterfaceObservation, FlowNetworkObservation, FlowPathObservation,
-    FlowRemoteEndpoint, FlowRouteLookupObservation, FlowRouteObservation,
+    FlowAddressFamilyFallbackObservation, FlowConnectionAttemptObservation, FlowEgressObservation,
+    FlowFailureObservation, FlowNetworkInterfaceObservation, FlowNetworkObservation,
+    FlowPathObservation, FlowRemoteEndpoint, FlowRouteLookupObservation, FlowRouteObservation,
     FlowSocketBindingObservation, MatchedRouteRule,
 };
 pub use registry::ActiveSession;
