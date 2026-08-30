@@ -22,3 +22,4 @@ pub use model::{
     TrojanUserConfig, TunConfig, UrlRewriteRule, VlessUserConfig, VmessUserConfig, WebSocketConfig,
     DEFAULT_EVENT_LOG_CAPACITY, DEFAULT_LATENCY_TEST_URL,
 };
+pub use zero_api::CONFIG_SCHEMA_VERSION;

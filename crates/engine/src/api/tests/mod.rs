@@ -24,6 +24,20 @@ fn config_error_details_carry_field_path() {
 }
 
 #[test]
+fn unsupported_schema_version_maps_to_structured_config_error() {
+    let api = config_error_to_api(ConfigError::UnsupportedSchemaVersion {
+        found: 2,
+        supported: zero_config::CONFIG_SCHEMA_VERSION,
+    });
+
+    assert_eq!(api.code, zero_api::ApiErrorCode::InvalidArgument);
+    assert_eq!(api.details.len(), 1);
+    assert_eq!(api.details[0].field_path.as_deref(), Some("schema_version"));
+    assert!(api.details[0].message.contains("`2`"));
+    assert!(api.details[0].message.contains("`1`"));
+}
+
+#[test]
 fn config_error_invalid_variant_extracts_field_token() {
     let api = config_error_to_api(ConfigError::InvalidInbound(
         "inbounds[0] `socks-in`: password must not be empty".to_owned(),

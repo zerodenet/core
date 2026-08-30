@@ -11,6 +11,7 @@
 - [请求生命周期](./lifecycle.md)
 - [EnginePlan](./engine-plan.md)
 - [API 能力模型](./api.md)
+- [稳定 V1 外部契约](./stable-contract-v1.md)
 - [控制面规范](./control-plane.md)
 - [Connector 通信边界](./connector-architecture.md)
 - [通用受管材料事务设计](./managed-materials.md)

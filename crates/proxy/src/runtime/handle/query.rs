@@ -1,5 +1,7 @@
 use super::model::ProxyHandle;
 
+mod capabilities;
+
 impl zero_api::QueryService for ProxyHandle {
     fn query(
         &self,
@@ -14,6 +16,7 @@ impl zero_api::QueryService for ProxyHandle {
             capabilities
                 .features
                 .push("diagnostic_probe_health_isolation_v1".to_owned());
+            capabilities::extend(&mut capabilities);
             return Ok(zero_api::QueryResponse::Capabilities(capabilities));
         }
         if let zero_api::QueryRequest::TunStatus(_) = &request {

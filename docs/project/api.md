@@ -335,7 +335,7 @@ sink 的共同要求：
 ### 查询
 
 - `capabilities.get`
-  - 返回协议标识、支持的 adapter、sink、feature、只读/可写权限
+  - 返回独立契约版本范围、稳定错误码目录、全局限制、协议标识、支持的 adapter、sink、feature、构建 feature 和权限
 - `health.get`
   - 返回进程存活、启动时间、构建标识和基础状态
 - `config.get`
@@ -429,7 +429,7 @@ IPC 本地 socket 依赖文件权限（`0o600`），连接即视为已鉴权。
 
 核心 API 错误应稳定，不能直接泄露内部 Rust 错误类型。
 
-建议基础错误码：
+V1 稳定错误码：
 
 - `not_found`
 - `invalid_argument`
@@ -455,11 +455,17 @@ IPC 本地 socket 依赖文件权限（`0o600`），连接即视为已鉴权。
 
 - `api_id`
 - `schema_id`
-- `engine_build_id`
-- `capabilities`
-- `experimental_features`
+- `contracts`
+- `error_codes`
+- `global_limitations`
+- `adapters`
+- `sinks`
+- `features`
+- `protocols`
+- `build_features`
+- `permissions`
 
-`api_id` 和 `schema_id` 是 wire identifier，不承载发布历史。外部消费者以 `capabilities` 判断当前构建是否启用某项能力。
+`api_id` 和 `schema_id` 是 wire identifier，不承载发布历史。`contracts` 发布能力、控制 API、配置模式和错误码的独立兼容范围；旧内核缺少该字段时必须按未知版本保守处理。外部消费者以 `features` 和协议能力判断当前构建是否启用某项能力，并用 `global_limitations` 解释跨协议边界。完整的 V1 兼容、弃用和迁移规则见[稳定 V1 外部契约](./stable-contract-v1.md)。
 
 ## 初始落地顺序
 

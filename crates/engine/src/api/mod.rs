@@ -516,6 +516,12 @@ fn config_error_to_api(error: zero_config::ConfigError) -> ApiError {
         Some(zero_api::ErrorDetail::new(field_path, message))
     };
     let field_detail = match &error {
+        ConfigError::UnsupportedSchemaVersion { found, supported } => detail(
+            Some("schema_version"),
+            format!(
+                "unsupported config schema version `{found}`; this core supports `{supported}`"
+            ),
+        ),
         ConfigError::EmptyTag { scope } => detail(Some(scope), format!("`{scope}` tag must not be empty")),
         ConfigError::DuplicateTag { scope, tag } => detail(Some(scope), format!("duplicate `{scope}` tag `{tag}`")),
         ConfigError::DuplicateInboundListen { address, port } => detail(Some("inbounds"), format!("duplicate listen endpoint `{address}:{port}`; use an inbound multiplexor for multi-protocol same-port listening")),

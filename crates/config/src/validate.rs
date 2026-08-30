@@ -16,6 +16,12 @@ use route::{validate_route_target_tag, validate_rule_sets};
 
 impl RuntimeConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.schema_version != zero_api::CONFIG_SCHEMA_VERSION {
+            return Err(ConfigError::UnsupportedSchemaVersion {
+                found: self.schema_version,
+                supported: zero_api::CONFIG_SCHEMA_VERSION,
+            });
+        }
         let mut inbound_tags = HashSet::new();
         let mut inbound_listens = HashSet::new();
         for (i, inbound) in self.inbounds.iter().enumerate() {
