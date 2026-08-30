@@ -299,28 +299,36 @@ async fn mixed_http_branch_reparses_persistent_requests() {
 }
 
 #[tokio::test]
-async fn mixed_http_branch_relays_tiny_fixed_length_post_body() {
+async fn mixed_http_branch_relays_split_post_and_next_request() {
     let mixed_port = free_port();
     let origin_port = free_port();
     let origin_task = tokio::spawn(async move {
         let listener = TcpListener::bind(("127.0.0.1", origin_port))
             .await
             .expect("bind origin");
-        let (mut stream, _) = listener.accept().await.expect("accept origin");
-        let request = String::from_utf8(read_http_head(&mut stream).await).expect("request");
+        let (mut first, _) = listener.accept().await.expect("accept first origin");
+        let request = String::from_utf8(read_http_head(&mut first).await).expect("request");
         assert!(request.starts_with("POST /api/v1/nodes/4/diagnostics HTTP/1.1\r\n"));
         assert!(request.contains("Content-Length: 2\r\n"));
         assert!(!request.to_ascii_lowercase().contains("proxy-connection:"));
         let mut body = [0_u8; 2];
-        tokio::time::timeout(Duration::from_millis(100), stream.read_exact(&mut body))
+        tokio::time::timeout(Duration::from_millis(100), first.read_exact(&mut body))
             .await
             .expect("request body must arrive with the forwarded head")
             .expect("request body");
         assert_eq!(&body, b"{}");
-        stream
+        first
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK")
             .await
-            .expect("response");
+            .expect("first response");
+
+        let (mut second, _) = listener.accept().await.expect("accept second origin");
+        let request = String::from_utf8(read_http_head(&mut second).await).expect("request");
+        assert!(request.starts_with("GET /after HTTP/1.1\r\n"));
+        second
+            .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\npong\r\n0\r\n\r\n")
+            .await
+            .expect("second response");
     });
     let config = RuntimeConfig::parse(&format!(
         r#"{{
@@ -350,6 +358,24 @@ async fn mixed_http_branch_relays_tiny_fixed_length_post_body() {
     let mut body = [0_u8; 2];
     client.read_exact(&mut body).await.expect("response body");
     assert_eq!(&body, b"OK");
+
+    client
+        .write_all(
+            format!("GET http://127.0.0.1:{origin_port}/after HTTP/1.1\r\nHost: ignored\r\n\r\n")
+                .as_bytes(),
+        )
+        .await
+        .expect("next request");
+    let response = read_http_head(&mut client).await;
+    assert!(String::from_utf8_lossy(&response)
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked\r\n"));
+    let mut body = [0_u8; 14];
+    client
+        .read_exact(&mut body)
+        .await
+        .expect("chunked response body");
+    assert_eq!(&body, b"4\r\npong\r\n0\r\n\r\n");
 
     engine_handle.shutdown().await.expect("shutdown engine");
     origin_task.await.expect("origin task");
