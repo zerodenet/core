@@ -67,7 +67,8 @@ pub struct DnsPolicyConfig {
     /// the cache or reverse index.
     #[serde(default)]
     pub reject_address_cidrs: Vec<IpNet>,
-    /// Which address families are queried and their result preference.
+    /// Which address families intercepted DNS may advertise and which family
+    /// Zero prefers when it resolves a target itself.
     #[serde(default)]
     pub address_family: DnsAddressFamilyPolicy,
 }

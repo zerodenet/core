@@ -12,6 +12,10 @@ use zero_config::{
 };
 use zero_traits::IpAddress;
 
+#[path = "wire/address_family_support.rs"]
+mod address_family_support;
+use address_family_support::*;
+
 #[derive(Debug, Clone)]
 struct RecordingDnsConnector {
     calls: Arc<Mutex<Vec<(String, SocketAddr)>>>,
@@ -434,6 +438,303 @@ async fn dns_address_family_policy_controls_queries_and_result_order() {
     let addresses = dns.resolve_real("prefer-v6.example").await.unwrap();
     assert!(matches!(addresses[0], IpAddress::V6(_)));
     assert!(matches!(addresses[1], IpAddress::V4(_)));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn intercepted_only_modes_return_nodata_without_querying_upstream() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), socket.recv_from(&mut request))
+                .await
+                .is_err(),
+            "a disabled address-family query reached the upstream resolver"
+        );
+    });
+
+    let mut ipv4 = config(port, DnsAnswerConfig::Real);
+    ipv4.policy.address_family = DnsAddressFamilyPolicy::Ipv4Only;
+    let ipv4 = zero_dns::DnsSystem::build(Some(&ipv4)).unwrap();
+    let aaaa = ipv4
+        .answer_udp_query(&query("only-v4.example", 28, None))
+        .await
+        .unwrap();
+
+    let mut ipv6 = config(port, DnsAnswerConfig::Real);
+    ipv6.policy.address_family = DnsAddressFamilyPolicy::Ipv6Only;
+    let ipv6 = zero_dns::DnsSystem::build(Some(&ipv6)).unwrap();
+    let a = ipv6
+        .answer_udp_query(&query("only-v6.example", 1, None))
+        .await
+        .unwrap();
+
+    for response in [&aaaa, &a] {
+        assert_eq!(response[3] & 0x0f, 0);
+        assert_eq!(u16::from_be_bytes([response[6], response[7]]), 0);
+    }
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn fake_ip_synthesis_obeys_the_intercepted_answer_family_policy() {
+    let fake_config = |policy| DnsConfig {
+        servers: BTreeMap::from([("system".to_owned(), DnsServerConfig::System)]),
+        default_server: "system".to_owned(),
+        dispatch: Vec::new(),
+        cache: None,
+        reverse_mapping: None,
+        answer: DnsAnswerConfig::FakeIp {
+            cidr: "198.18.0.0/15".to_owned(),
+            ipv6_cidr: Some("fd00::/120".to_owned()),
+            ttl_seconds: 90,
+            max_entries: Some(32),
+            exclude_domains: Vec::new(),
+        },
+        policy: DnsPolicyConfig {
+            address_family: policy,
+            ..Default::default()
+        },
+    };
+
+    let ipv4 =
+        zero_dns::DnsSystem::build(Some(&fake_config(DnsAddressFamilyPolicy::Ipv4Only))).unwrap();
+    let ipv4_a = ipv4
+        .answer_udp_query(&query("fake-v4.example", 1, None))
+        .await
+        .unwrap();
+    let ipv4_aaaa = ipv4
+        .answer_udp_query(&query("fake-v4.example", 28, None))
+        .await
+        .unwrap();
+    assert_eq!(u16::from_be_bytes([ipv4_a[6], ipv4_a[7]]), 1);
+    assert_eq!(u16::from_be_bytes([ipv4_aaaa[6], ipv4_aaaa[7]]), 0);
+
+    let ipv6 =
+        zero_dns::DnsSystem::build(Some(&fake_config(DnsAddressFamilyPolicy::Ipv6Only))).unwrap();
+    let ipv6_a = ipv6
+        .answer_udp_query(&query("fake-v6.example", 1, None))
+        .await
+        .unwrap();
+    let ipv6_aaaa = ipv6
+        .answer_udp_query(&query("fake-v6.example", 28, None))
+        .await
+        .unwrap();
+    assert_eq!(u16::from_be_bytes([ipv6_a[6], ipv6_a[7]]), 0);
+    assert_eq!(u16::from_be_bytes([ipv6_aaaa[6], ipv6_aaaa[7]]), 1);
+}
+
+#[tokio::test]
+async fn service_binding_hints_and_glue_obey_only_family_policies() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        for _ in 0..3 {
+            let mut request = [0_u8; 4096];
+            let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+            let response = service_binding_response(&request[..size], &[]);
+            socket.send_to(&response, peer).await.unwrap();
+        }
+    });
+
+    let mut ipv4 = config(port, DnsAnswerConfig::Real);
+    ipv4.policy.address_family = DnsAddressFamilyPolicy::Ipv4Only;
+    let ipv4 = zero_dns::DnsSystem::build(Some(&ipv4)).unwrap();
+    let svcb = ipv4
+        .answer_udp_query(&query("svc-v4.example", 64, None))
+        .await
+        .unwrap();
+    let records = response_records(&svcb);
+    assert_eq!(
+        records.iter().map(|record| record.0).collect::<Vec<_>>(),
+        [64, 1, 65_280]
+    );
+    let params = service_binding_params(&records[0].1);
+    assert!(params.iter().any(|param| param.0 == 4));
+    assert!(!params.iter().any(|param| param.0 == 6));
+    assert!(params.iter().any(|param| param.0 >= 65_280));
+    assert!(records[2].1.iter().all(|byte| *byte == 0));
+
+    let mut ipv6 = config(port, DnsAnswerConfig::Real);
+    ipv6.policy.address_family = DnsAddressFamilyPolicy::Ipv6Only;
+    let ipv6 = zero_dns::DnsSystem::build(Some(&ipv6)).unwrap();
+    let https = ipv6
+        .answer_udp_query(&query("svc-v6.example", 65, None))
+        .await
+        .unwrap();
+    let records = response_records(&https);
+    assert_eq!(
+        records.iter().map(|record| record.0).collect::<Vec<_>>(),
+        [65, 65_280, 28]
+    );
+    let params = service_binding_params(&records[0].1);
+    assert!(!params.iter().any(|param| param.0 == 4));
+    assert!(params.iter().any(|param| param.0 == 6));
+    assert!(params.iter().any(|param| param.0 >= 65_280));
+    assert!(records[1].1.iter().all(|byte| *byte == 0));
+
+    let preferred = zero_dns::DnsSystem::build(Some(&config(port, DnsAnswerConfig::Real))).unwrap();
+    let preferred = preferred
+        .answer_udp_query(&query("svc-preferred.example", 65, None))
+        .await
+        .unwrap();
+    let records = response_records(&preferred);
+    assert_eq!(
+        records.iter().map(|record| record.0).collect::<Vec<_>>(),
+        [65, 1, 28]
+    );
+    let params = service_binding_params(&records[0].1);
+    assert!(params.iter().any(|param| param.0 == 4));
+    assert!(params.iter().any(|param| param.0 == 6));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn fake_ip_service_binding_strips_real_addresses_and_caches_the_filtered_reply() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        for _ in 0..2 {
+            let mut request = [0_u8; 4096];
+            let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+            let response = service_binding_response(&request[..size], &[]);
+            socket.send_to(&response, peer).await.unwrap();
+        }
+        let mut unexpected = [0_u8; 4096];
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(150),
+                socket.recv_from(&mut unexpected)
+            )
+            .await
+            .is_err(),
+            "the filtered Fake-IP response was not replayed from cache"
+        );
+    });
+    let mut fake = config(
+        port,
+        DnsAnswerConfig::FakeIp {
+            cidr: "198.18.0.0/15".to_owned(),
+            ipv6_cidr: Some("fd00::/120".to_owned()),
+            ttl_seconds: 90,
+            max_entries: Some(32),
+            exclude_domains: vec!["excluded.example".to_owned()],
+        },
+    );
+    fake.cache = Some(DnsCacheConfig {
+        max_entries: 8,
+        max_ttl_seconds: Some(60),
+    });
+    let dns = zero_dns::DnsSystem::build(Some(&fake)).unwrap();
+
+    let first_query = query("synthetic.example", 65, Some(1232));
+    let mut cached_query = first_query.clone();
+    cached_query[..2].copy_from_slice(&0x7711_u16.to_be_bytes());
+    let first = dns.answer_udp_query(&first_query).await.unwrap();
+    let cached = dns.answer_udp_query(&cached_query).await.unwrap();
+    let records = response_records(&first);
+    assert_eq!(
+        records.iter().map(|record| record.0).collect::<Vec<_>>(),
+        [65, 65_280, 65_280]
+    );
+    let params = service_binding_params(&records[0].1);
+    assert!(!params.iter().any(|param| matches!(param.0, 4 | 6)));
+    assert_eq!(&first[2..], &cached[2..]);
+    assert_eq!(&cached[..2], &cached_query[..2]);
+
+    let excluded = dns
+        .answer_udp_query(&query("excluded.example", 65, None))
+        .await
+        .unwrap();
+    let records = response_records(&excluded);
+    assert_eq!(
+        records.iter().map(|record| record.0).collect::<Vec<_>>(),
+        [65, 1, 28]
+    );
+    let params = service_binding_params(&records[0].1);
+    assert!(params.iter().any(|param| param.0 == 4));
+    assert!(params.iter().any(|param| param.0 == 6));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn mandatory_disallowed_service_binding_hint_is_failed_closed() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+        let response = service_binding_response(&request[..size], &[6]);
+        socket.send_to(&response, peer).await.unwrap();
+    });
+    let mut config = config(port, DnsAnswerConfig::Real);
+    config.policy.address_family = DnsAddressFamilyPolicy::Ipv4Only;
+    let dns = zero_dns::DnsSystem::build(Some(&config)).unwrap();
+
+    let response = dns
+        .answer_udp_query(&query("mandatory.example", 65, None))
+        .await
+        .unwrap();
+    let records = response_records(&response);
+    assert_eq!(records[0].0, 65_280);
+    assert_eq!(response[3] & 0x0f, 0);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn malformed_service_binding_hint_returns_servfail_under_policy_filtering() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut request = [0_u8; 4096];
+        let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+        let mut response = response_header(&request[..size], 1, 0, false);
+        let mut data = vec![0, 1, 0];
+        data.extend_from_slice(&4_u16.to_be_bytes());
+        data.extend_from_slice(&3_u16.to_be_bytes());
+        data.extend_from_slice(&[192, 0, 2]);
+        append_record(&mut response, 65, 120, &data);
+        socket.send_to(&response, peer).await.unwrap();
+    });
+    let mut config = config(port, DnsAnswerConfig::Real);
+    config.policy.address_family = DnsAddressFamilyPolicy::Ipv6Only;
+    let dns = zero_dns::DnsSystem::build(Some(&config)).unwrap();
+
+    let response = dns
+        .answer_udp_query(&query("malformed.example", 65, None))
+        .await
+        .unwrap();
+    assert_eq!(response[3] & 0x0f, 2);
+    assert_eq!(u16::from_be_bytes([response[6], response[7]]), 0);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn udp_and_tcp_interception_apply_the_same_service_binding_policy() {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        for _ in 0..2 {
+            let mut request = [0_u8; 4096];
+            let (size, peer) = socket.recv_from(&mut request).await.unwrap();
+            let response = service_binding_response(&request[..size], &[]);
+            socket.send_to(&response, peer).await.unwrap();
+        }
+    });
+    let mut config = config(port, DnsAnswerConfig::Real);
+    config.policy.address_family = DnsAddressFamilyPolicy::Ipv4Only;
+    let dns = zero_dns::DnsSystem::build(Some(&config)).unwrap();
+    let request = query("parity.example", 65, Some(1232));
+
+    let udp = dns.answer_udp_query(&request).await.unwrap();
+    let tcp = dns.answer_tcp_query(&request).await.unwrap();
+
+    assert_eq!(udp, tcp);
+    assert!(!service_binding_params(&response_records(&udp)[0].1)
+        .iter()
+        .any(|param| param.0 == 6));
     server.await.unwrap();
 }
 

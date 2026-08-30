@@ -3,6 +3,7 @@
 mod build;
 mod name;
 mod parse;
+mod policy;
 
 pub(crate) use build::{
     build_address_response, build_error_response, build_query, fit_response_to_udp,
@@ -10,8 +11,11 @@ pub(crate) use build::{
 pub(crate) use name::normalize_domain;
 pub use parse::DnsQuestion;
 pub(crate) use parse::{parse_question, parse_response, ParsedDnsResponse};
+pub(crate) use policy::{apply_response_address_policy, ResponseAddressPolicy};
 
 pub(crate) const TYPE_A: u16 = 1;
+pub(crate) const TYPE_SVCB: u16 = 64;
+pub(crate) const TYPE_HTTPS: u16 = 65;
 pub(crate) const TYPE_AAAA: u16 = 28;
 pub(crate) const TYPE_OPT: u16 = 41;
 
