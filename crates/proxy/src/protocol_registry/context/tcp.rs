@@ -89,7 +89,7 @@ impl TcpRuntimeServices {
             .direct_connector()
             .connect(
                 session,
-                self.upstream.resolver.as_ref(),
+                &self.upstream.resolver,
                 &self.upstream.egress_interface,
             )
             .await

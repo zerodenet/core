@@ -51,13 +51,62 @@ pub(super) async fn dial_tcp_candidates(
     egress: &EgressInterfaceControl,
 ) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
     let resolved_candidates = interleave_address_families(candidates);
-    let mut next_candidate = resolved_candidates.iter().copied().enumerate();
+    dial_tcp_candidates_with_history(
+        resolved_candidates.clone(),
+        egress,
+        0,
+        resolved_candidates,
+        Vec::new(),
+    )
+    .await
+}
+
+/// Continue one failed dial with newly discovered candidates without retrying
+/// any endpoint that already completed. The returned observation remains one
+/// deterministic candidate/attempt timeline across both phases.
+pub(super) async fn dial_tcp_fallback_candidates(
+    previous: Box<TcpDialFailure>,
+    candidates: Vec<SocketAddr>,
+    egress: &EgressInterfaceControl,
+) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
+    let mut resolved_candidates = previous.resolved_candidates.clone();
+    let fallback_candidates = interleave_address_families(candidates)
+        .into_iter()
+        .filter(|candidate| !resolved_candidates.contains(candidate))
+        .collect::<Vec<_>>();
+    if fallback_candidates.is_empty() {
+        return Err(previous);
+    }
+
+    let candidate_index_offset = resolved_candidates.len();
+    resolved_candidates.extend(fallback_candidates.iter().copied());
+    dial_tcp_candidates_with_history(
+        fallback_candidates,
+        egress,
+        candidate_index_offset,
+        resolved_candidates,
+        previous.attempts,
+    )
+    .await
+}
+
+async fn dial_tcp_candidates_with_history(
+    candidates: Vec<SocketAddr>,
+    egress: &EgressInterfaceControl,
+    candidate_index_offset: usize,
+    resolved_candidates: Vec<SocketAddr>,
+    mut completed_attempts: Vec<TcpDialAttempt>,
+) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
+    let mut next_candidate = candidates
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, candidate)| (candidate_index_offset + index, candidate));
     let (first_index, first) = next_candidate
         .next()
         .expect("dial candidates are non-empty");
     let mut attempts = FuturesUnordered::new();
     attempts.push(dial_tcp_candidate(first_index, first, egress.clone()));
-    let mut completed_attempts = Vec::new();
     let mut last_failure = None;
 
     loop {

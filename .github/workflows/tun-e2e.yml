@@ -154,7 +154,6 @@ jobs:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
-        if: github.event_name != 'pull_request'
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
@@ -221,7 +220,6 @@ jobs:
       - name: Run direct UDP self-capture E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
-        if: github.event_name != 'pull_request'
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         if: github.event_name != 'pull_request'

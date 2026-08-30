@@ -8,52 +8,51 @@ use super::socket_addr_from_ip;
 
 pub(in crate::transport) const MAX_RECOVERED_DIRECT_CANDIDATES: usize = 8;
 
-/// Enrich a transparent IPv4 direct target with the current real-DNS answers
-/// for its recovered domain. The captured endpoint remains first, and DNS
-/// failure is deliberately non-fatal because that endpoint is still a valid
-/// literal target.
-pub(super) async fn append_recovered_ipv4_candidates(
+#[derive(Debug, Clone)]
+pub(super) struct RecoveredDirectCandidateRefresh {
+    pub(super) domain: String,
+    pub(super) host_source: &'static str,
+}
+
+/// Identify a transparent TCP target that may use trusted real-DNS answers
+/// only after its authoritative captured IPv4 endpoint fails to connect.
+pub(super) fn recovered_ipv4_candidate_refresh(
     session: &Session,
-    resolver: &DnsSystem,
-    mut candidates: Vec<SocketAddr>,
-) -> Vec<SocketAddr> {
+    candidates: &[SocketAddr],
+) -> Option<RecoveredDirectCandidateRefresh> {
     if session.network != Network::Tcp {
-        return candidates;
+        return None;
     }
     let (Address::Domain(domain), Some(host_source), Some(Address::Ipv4(original_address))) = (
         &session.target,
         session.target_host_source,
         session.direct_target.as_ref(),
     ) else {
-        return candidates;
+        return None;
     };
     let original = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(*original_address)), session.port);
     if candidates.first() != Some(&original) {
-        return candidates;
+        return None;
     }
 
-    match resolver.resolve_direct(domain).await {
-        Ok(resolved) => {
-            append_unique_resolved_candidates(&mut candidates, resolved, session.port);
-            tracing::debug!(
-                original_target = %original,
-                domain,
-                host_source = host_source.as_str(),
-                candidate_count = candidates.len(),
-                "enriched transparent direct target with trusted DNS candidates"
-            );
-        }
-        Err(error) => {
-            tracing::debug!(
-                original_target = %original,
-                domain,
-                host_source = host_source.as_str(),
-                error = %error,
-                "trusted-domain candidate refresh failed; retaining original direct target"
-            );
-        }
-    }
-    candidates
+    Some(RecoveredDirectCandidateRefresh {
+        domain: domain.clone(),
+        host_source: host_source.as_str(),
+    })
+}
+
+/// Append current real-DNS answers after the captured candidate has failed.
+/// DNS failure is returned to the caller so it can retain the original socket
+/// failure and its platform error as the authoritative result.
+pub(super) async fn refresh_recovered_ipv4_candidates(
+    refresh: &RecoveredDirectCandidateRefresh,
+    resolver: &DnsSystem,
+    port: u16,
+    mut candidates: Vec<SocketAddr>,
+) -> std::io::Result<Vec<SocketAddr>> {
+    let resolved = resolver.resolve_direct(&refresh.domain).await?;
+    append_unique_resolved_candidates(&mut candidates, resolved, port);
+    Ok(candidates)
 }
 
 pub(in crate::transport) fn append_unique_resolved_candidates(
