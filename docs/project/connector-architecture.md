@@ -46,6 +46,8 @@ Dispatcher actor 在 Connector 自己的专用执行线程上独占事件游标�
 
 `zero-api::EventSink` 保持同步、运行时中立，用于内核内的持久化钩子和通用文件 sink；Connector 在自身边界内把它适配到异步投递能力，不把 Tokio 或 HTTP 类型引入 Engine。配置重载或关闭时，已经写入 outbox 的在途 Webhook 可以取消并由下一次 Dispatcher 启动恢复；没有 outbox 的事实投递仍执行 graceful flush，不能以取消为由静默丢弃。
 
+Webhook 的 TCP 建连通过 Connector 定义的窄网络边界执行，Zero application 注入与 Proxy、DNS 共用的物理出口权威。每次新连接都会按解析候选的地址族读取最新出口 generation；TUN 活跃但对应地址族没有可信物理出口时必须失败关闭，不能退回默认 socket 重新进入 TUN。独立嵌入 Connector 且不运行 Zero TUN 时可以显式选择系统网络。HTTPS 默认验证公开根证书信任集；`allow_insecure` 只作为显式关闭证书验证的部署选项。
+
 应用进程第一次启动已配置的 delivery sink 时，先建立实时订阅，再从内核保留事件中补取该 engine 实例的 `engine.started`。实时流与补取结果按事件 `sequence` 去重，因此启动时序不会造成漏投或重复投递。配置热更新重建 dispatcher 时不会再次补发同一进程的启动事件；`flow.snapshot` 的订阅同步和常规游标回放语义保持不变。
 
 ## 禁止边界

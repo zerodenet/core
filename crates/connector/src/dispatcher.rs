@@ -13,6 +13,7 @@ use zero_api::{
 };
 use zero_config::{ApiConfig, EventDispatcherConfig};
 
+use crate::network::EventDispatcherNetwork;
 use crate::registry::{build_event_sinks, resolve_path, ConfiguredEventSink};
 use crate::{ConnectorError, ConnectorResult};
 
@@ -155,7 +156,32 @@ pub fn spawn_event_dispatcher<S>(
 where
     S: EventSource + Send + Sync + 'static,
 {
-    spawn_event_dispatcher_inner(source, api, source_dir, options, false)
+    spawn_event_dispatcher_inner(
+        source,
+        api,
+        source_dir,
+        options,
+        EventDispatcherNetwork::system(),
+        false,
+    )
+}
+
+/// Start an event dispatcher with an explicitly supplied network boundary.
+///
+/// The Zero application uses this entrypoint to share the same physical-egress
+/// authority as proxy and DNS sockets. Standalone embeddings that cannot run a
+/// TUN data plane may continue to use [`spawn_event_dispatcher`].
+pub fn spawn_event_dispatcher_with_network<S>(
+    source: S,
+    api: ApiConfig,
+    source_dir: Option<PathBuf>,
+    options: EventDispatcherOptions,
+    network: EventDispatcherNetwork,
+) -> ConnectorResult<Option<EventDispatcherHandle>>
+where
+    S: EventSource + Send + Sync + 'static,
+{
+    spawn_event_dispatcher_inner(source, api, source_dir, options, network, false)
 }
 
 /// Start an event dispatcher and bootstrap the retained `engine.started`
@@ -174,7 +200,29 @@ pub fn spawn_event_dispatcher_with_engine_started<S>(
 where
     S: EventSource + Send + Sync + 'static,
 {
-    spawn_event_dispatcher_inner(source, api, source_dir, options, true)
+    spawn_event_dispatcher_inner(
+        source,
+        api,
+        source_dir,
+        options,
+        EventDispatcherNetwork::system(),
+        true,
+    )
+}
+
+/// Start an explicitly network-bound event dispatcher and bootstrap the
+/// retained `engine.started` fact.
+pub fn spawn_event_dispatcher_with_engine_started_and_network<S>(
+    source: S,
+    api: ApiConfig,
+    source_dir: Option<PathBuf>,
+    options: EventDispatcherOptions,
+    network: EventDispatcherNetwork,
+) -> ConnectorResult<Option<EventDispatcherHandle>>
+where
+    S: EventSource + Send + Sync + 'static,
+{
+    spawn_event_dispatcher_inner(source, api, source_dir, options, network, true)
 }
 
 fn spawn_event_dispatcher_inner<S>(
@@ -182,6 +230,7 @@ fn spawn_event_dispatcher_inner<S>(
     api: ApiConfig,
     source_dir: Option<PathBuf>,
     options: EventDispatcherOptions,
+    network: EventDispatcherNetwork,
     bootstrap_engine_started: bool,
 ) -> ConnectorResult<Option<EventDispatcherHandle>>
 where
@@ -201,7 +250,7 @@ where
     let stats_for_thread = sink_stats.clone();
 
     let task = tokio::task::spawn_blocking(move || {
-        let sinks = match build_event_sinks(&api, source_dir.as_deref()) {
+        let sinks = match build_event_sinks(&api, source_dir.as_deref(), &network) {
             Ok(sinks) => sinks,
             Err(error) => {
                 let _ = init_tx.send(Err(error));

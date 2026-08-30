@@ -2,16 +2,20 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use serde_json::json;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use zero_api::{event_type, ApiEvent, EventFilter, EventSource, EventStream, RawApiEvent};
 use zero_config::{ApiConfig, EventDispatcherConfig, EventSinkConfig};
-use zero_connector::{spawn_event_dispatcher, EventDispatcherOptions};
+use zero_connector::{
+    spawn_event_dispatcher, spawn_event_dispatcher_with_network, EventDispatcherNetwork,
+    EventDispatcherOptions, EventSinkTcpConnectFuture, EventSinkTcpDialer, EventSinkTcpStream,
+};
 
 #[derive(Clone)]
 struct StaticEventSource {
@@ -26,6 +30,24 @@ struct StaticEventStream {
 struct CountingEventSource {
     events: Arc<Mutex<Vec<RawApiEvent>>>,
     replay_calls: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[derive(Clone)]
+struct RecordingDialer {
+    target: SocketAddr,
+    attempts: Arc<Mutex<Vec<(String, u16)>>>,
+}
+
+impl EventSinkTcpDialer for RecordingDialer {
+    fn connect(&self, host: String, port: u16) -> EventSinkTcpConnectFuture {
+        let target = self.target;
+        let attempts = self.attempts.clone();
+        Box::pin(async move {
+            attempts.lock().expect("dial attempts").push((host, port));
+            let stream = tokio::net::TcpStream::connect(target).await?;
+            Ok(Box::new(stream) as Box<dyn EventSinkTcpStream>)
+        })
+    }
 }
 
 impl EventSource for CountingEventSource {
@@ -190,6 +212,138 @@ async fn dispatcher_posts_events_to_registered_webhook_with_opaque_headers() {
     let value = serde_json::from_str::<serde_json::Value>(body).expect("event json");
     assert_eq!(value["event_id"], "event-1");
     assert_eq!(value["source_id"], "edge-test");
+}
+
+#[tokio::test]
+async fn dispatcher_uses_the_injected_network_dialer_for_webhook_connections() {
+    let (target, server) = spawn_single_http_server();
+    let attempts = Arc::new(Mutex::new(Vec::new()));
+    let network = EventDispatcherNetwork::new(Arc::new(RecordingDialer {
+        target,
+        attempts: attempts.clone(),
+    }));
+    let event = sequenced_event("event-injected-network", event_type::FLOW_COMPLETED, 1);
+    let port = target.port();
+    let dispatcher = spawn_event_dispatcher_with_network(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![event])),
+        },
+        webhook_api(format!("http://webhook.invalid:{port}/events"), None, 8),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+        network,
+    )
+    .expect("spawn network-bound dispatcher")
+    .expect("network-bound dispatcher");
+
+    let request = server.join().expect("injected network request");
+    dispatcher.shutdown().await;
+
+    assert!(request_body(&request).contains("event-injected-network"));
+    assert_eq!(
+        attempts.lock().expect("dial attempts").as_slice(),
+        &[("webhook.invalid".to_owned(), port)]
+    );
+}
+
+#[tokio::test]
+async fn https_verification_is_secure_by_default_and_allow_insecure_is_explicit() {
+    let (rejected_target, rejected_server) = spawn_tls_http_server().await;
+    let rejected_attempts = Arc::new(Mutex::new(Vec::new()));
+    let mut rejected_api = webhook_api(
+        format!("https://localhost:{}/events", rejected_target.port()),
+        None,
+        8,
+    );
+    match &mut rejected_api.event_sinks[0] {
+        EventSinkConfig::Webhook { allow_insecure, .. } => *allow_insecure = false,
+        _ => unreachable!("webhook config"),
+    }
+    let rejected = spawn_event_dispatcher_with_network(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![sequenced_event(
+                "event-reject-self-signed",
+                event_type::FLOW_COMPLETED,
+                1,
+            )])),
+        },
+        rejected_api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+        EventDispatcherNetwork::new(Arc::new(RecordingDialer {
+            target: rejected_target,
+            attempts: rejected_attempts.clone(),
+        })),
+    )
+    .expect("spawn verified HTTPS dispatcher")
+    .expect("verified HTTPS dispatcher");
+    wait_for_sink_failures(&rejected.status_handle(), "receiver", 1).await;
+    let rejected_status = rejected
+        .sink_status()
+        .into_iter()
+        .find(|status| status.name == "receiver")
+        .expect("rejected HTTPS sink status");
+    assert!(
+        rejected_status
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("certificate") || error.contains("UnknownIssuer")),
+        "self-signed certificate failure must be observable: {:?}",
+        rejected_status.last_error
+    );
+    rejected.shutdown().await;
+    let rejected_server_result = tokio::time::timeout(Duration::from_secs(2), rejected_server)
+        .await
+        .expect("rejected TLS server completion")
+        .expect("rejected TLS server task");
+    assert!(rejected_server_result.is_err());
+    assert_eq!(
+        rejected_attempts.lock().expect("rejected attempts").len(),
+        1
+    );
+
+    let (allowed_target, allowed_server) = spawn_tls_http_server().await;
+    let allowed_attempts = Arc::new(Mutex::new(Vec::new()));
+    let allowed = spawn_event_dispatcher_with_network(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![sequenced_event(
+                "event-allow-self-signed",
+                event_type::FLOW_COMPLETED,
+                1,
+            )])),
+        },
+        webhook_api(
+            format!("https://localhost:{}/events", allowed_target.port()),
+            None,
+            8,
+        ),
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 1,
+        },
+        EventDispatcherNetwork::new(Arc::new(RecordingDialer {
+            target: allowed_target,
+            attempts: allowed_attempts.clone(),
+        })),
+    )
+    .expect("spawn insecure-opt-in HTTPS dispatcher")
+    .expect("insecure-opt-in HTTPS dispatcher");
+    let allowed_request = tokio::time::timeout(Duration::from_secs(2), allowed_server)
+        .await
+        .expect("allowed TLS request timeout")
+        .expect("allowed TLS server task")
+        .expect("allowed TLS request");
+    allowed.shutdown().await;
+
+    assert!(request_body(&allowed_request).contains("event-allow-self-signed"));
+    assert_eq!(allowed_attempts.lock().expect("allowed attempts").len(), 1);
 }
 
 #[tokio::test]
@@ -1074,6 +1228,11 @@ async fn wait_for_outbox_recovery(
 }
 
 fn spawn_http_server() -> (String, JoinHandle<String>) {
+    let (address, handle) = spawn_single_http_server();
+    (format!("http://{address}/events"), handle)
+}
+
+fn spawn_single_http_server() -> (SocketAddr, JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind local server");
     listener
         .set_nonblocking(true)
@@ -1110,7 +1269,83 @@ fn spawn_http_server() -> (String, JoinHandle<String>) {
         panic!("webhook request was not received");
     });
 
-    (format!("http://{address}/events"), handle)
+    (address, handle)
+}
+
+async fn spawn_tls_http_server() -> (SocketAddr, tokio::task::JoinHandle<Result<String, String>>) {
+    let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+        .expect("generate webhook test certificate");
+    let certificate = certified.cert.der().clone();
+    let key = rustls::pki_types::PrivatePkcs8KeyDer::from(certified.signing_key.serialize_der());
+    let server_tls = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("webhook server TLS versions")
+    .with_no_client_auth()
+    .with_single_cert(vec![certificate], key.into())
+    .expect("webhook server TLS certificate");
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server_tls));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind webhook TLS server");
+    let address = listener.local_addr().expect("webhook TLS server address");
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener
+            .accept()
+            .await
+            .map_err(|error| format!("accept webhook TLS TCP: {error}"))?;
+        let mut stream = acceptor
+            .accept(stream)
+            .await
+            .map_err(|error| format!("accept webhook TLS: {error}"))?;
+        let request = read_async_http_request(&mut stream).await?;
+        stream
+            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await
+            .map_err(|error| format!("write webhook TLS response: {error}"))?;
+        Ok(request)
+    });
+    (address, server)
+}
+
+async fn read_async_http_request<S>(stream: &mut S) -> Result<String, String>
+where
+    S: tokio::io::AsyncRead + Unpin,
+{
+    let mut received = Vec::new();
+    let mut buffer = [0_u8; 1024];
+    let header_end = loop {
+        let read = stream
+            .read(&mut buffer)
+            .await
+            .map_err(|error| format!("read webhook TLS request: {error}"))?;
+        if read == 0 {
+            return Err("webhook TLS request closed before headers".to_owned());
+        }
+        received.extend_from_slice(&buffer[..read]);
+        if let Some(position) = received.windows(4).position(|window| window == b"\r\n\r\n") {
+            break position + 4;
+        }
+    };
+    let headers = String::from_utf8_lossy(&received[..header_end]);
+    let content_length = headers
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+        .ok_or_else(|| "webhook TLS request has no content-length".to_owned())?;
+    while received.len() < header_end + content_length {
+        let read = stream
+            .read(&mut buffer)
+            .await
+            .map_err(|error| format!("read webhook TLS body: {error}"))?;
+        if read == 0 {
+            return Err("webhook TLS request closed before body".to_owned());
+        }
+        received.extend_from_slice(&buffer[..read]);
+    }
+    String::from_utf8(received).map_err(|error| format!("webhook TLS request UTF-8: {error}"))
 }
 
 fn spawn_stalled_http_server() -> (String, mpsc::Receiver<()>, mpsc::Sender<()>, JoinHandle<()>) {
