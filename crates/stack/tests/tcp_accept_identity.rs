@@ -288,7 +288,7 @@ async fn lost_syn_ack_is_retransmitted_by_the_rto_timer() {
 }
 
 #[tokio::test]
-async fn dropping_stack_releases_retransmission_workers_and_packet_channel() {
+async fn dropping_stack_releases_retransmission_and_control_workers() {
     let (outbound_tx, mut outbound_rx) = mpsc::channel(16);
     let stack = UserNetworkStack::new(outbound_tx, 1_440);
     let (tcp, udp) = stack.into_parts();
@@ -480,6 +480,191 @@ async fn outbound_writer_waits_for_tun_queue_capacity() {
             .expect("parse outbound data")
             .payload,
         &[7]
+    );
+}
+
+#[tokio::test]
+async fn dropping_stack_cancels_control_worker_blocked_on_full_outbound() {
+    let (outbound_tx, mut outbound_rx) = mpsc::channel(1);
+    let stack = UserNetworkStack::new(outbound_tx, 1_440);
+    let (tcp, udp) = stack.into_parts();
+    let client_sequence = 7_875;
+    let server_sequence = establish(&tcp, &mut outbound_rx, client_sequence).await;
+    let (mut stream, _, _) = tcp.accept().await.expect("accepted connection");
+
+    stream.write_all(&[7]).await.expect("fill TUN queue");
+    tcp.feed(&client_packet_with_payload(
+        packet::tcp_flags::PSH | packet::tcp_flags::ACK,
+        client_sequence + 1,
+        server_sequence + 2,
+        &[1],
+    ))
+    .await;
+    drop(stream);
+    drop(tcp);
+    drop(udp);
+    tokio::task::yield_now().await;
+
+    let data = outbound_rx.recv().await.expect("queued data packet");
+    assert_eq!(packet::parse_tcp(&data).expect("parse data").payload, &[7]);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), outbound_rx.recv())
+            .await
+            .expect("blocked control worker retained packet channel")
+            .is_none(),
+        "control worker emitted queued packets after stack shutdown"
+    );
+}
+
+#[tokio::test]
+async fn control_ack_waits_for_tun_queue_capacity_and_preserves_fifo() {
+    let (outbound_tx, mut outbound_rx) = mpsc::channel(1);
+    let stack = UserNetworkStack::new(outbound_tx, 1_440);
+    let (tcp, _udp) = stack.into_parts();
+    let client_sequence = 10_650;
+    let server_sequence = establish(&tcp, &mut outbound_rx, client_sequence).await;
+    let (mut stream, _, _) = tcp.accept().await.expect("accepted connection");
+
+    stream.write_all(&[7]).await.expect("fill TUN queue");
+    let server_ack = server_sequence + 2;
+    tcp.feed(&client_packet_with_payload(
+        packet::tcp_flags::PSH | packet::tcp_flags::ACK,
+        client_sequence + 1,
+        server_ack,
+        b"a",
+    ))
+    .await;
+    tcp.feed(&client_packet_with_payload(
+        packet::tcp_flags::PSH | packet::tcp_flags::ACK,
+        client_sequence + 2,
+        server_ack,
+        b"b",
+    ))
+    .await;
+
+    let data = outbound_rx.recv().await.expect("queued data packet");
+    assert_eq!(packet::parse_tcp(&data).expect("parse data").payload, &[7]);
+    let first = tokio::time::timeout(Duration::from_millis(100), outbound_rx.recv())
+        .await
+        .expect("first ACK was not retried")
+        .expect("control worker closed");
+    let second = tokio::time::timeout(Duration::from_millis(100), outbound_rx.recv())
+        .await
+        .expect("second ACK was not retried")
+        .expect("control worker closed");
+    assert_eq!(
+        packet::parse_tcp(&first).expect("parse first ACK").ack,
+        client_sequence + 2
+    );
+    assert_eq!(
+        packet::parse_tcp(&second).expect("parse second ACK").ack,
+        client_sequence + 3
+    );
+}
+
+#[tokio::test]
+async fn receive_window_update_waits_for_tun_queue_capacity() {
+    let (outbound_tx, mut outbound_rx) = mpsc::channel(1);
+    let stack = UserNetworkStack::new(outbound_tx, 1_440);
+    let (tcp, _udp) = stack.into_parts();
+    let client_sequence = 10_675;
+    let server_sequence = establish(&tcp, &mut outbound_rx, client_sequence).await;
+    let (mut stream, _, _) = tcp.accept().await.expect("accepted connection");
+
+    let mut sequence = client_sequence + 1;
+    let mut remaining = u16::MAX as usize;
+    while remaining > 0 {
+        let count = remaining.min(1_024);
+        tcp.feed(&client_packet_with_payload(
+            packet::tcp_flags::PSH | packet::tcp_flags::ACK,
+            sequence,
+            server_sequence + 1,
+            &vec![7; count],
+        ))
+        .await;
+        sequence = sequence.wrapping_add(count as u32);
+        remaining -= count;
+        let acknowledgement = outbound_rx.recv().await.expect("payload ACK");
+        if remaining == 0 {
+            assert_eq!(packet::tcp_window(&acknowledgement), Some(0));
+        }
+    }
+
+    stream.write_all(&[9]).await.expect("fill TUN queue");
+    tcp.feed(&client_packet(
+        packet::tcp_flags::ACK,
+        sequence,
+        server_sequence + 2,
+    ))
+    .await;
+    let mut byte = [0_u8; 1];
+    stream
+        .read_exact(&mut byte)
+        .await
+        .expect("reopen receive window");
+
+    let data = outbound_rx.recv().await.expect("queued data packet");
+    assert_eq!(packet::parse_tcp(&data).expect("parse data").payload, &[9]);
+    let update = tokio::time::timeout(Duration::from_millis(100), outbound_rx.recv())
+        .await
+        .expect("receive-window update was not retried")
+        .expect("control worker closed");
+    assert_eq!(packet::tcp_window(&update), Some(1));
+}
+
+#[tokio::test]
+async fn saturated_control_retry_queue_stays_bounded_and_recovers() {
+    let (outbound_tx, mut outbound_rx) = mpsc::channel(1);
+    let stack = UserNetworkStack::new(outbound_tx, 1_440);
+    let (tcp, _udp) = stack.into_parts();
+    let client_sequence = 10_690;
+    let server_sequence = establish(&tcp, &mut outbound_rx, client_sequence).await;
+    let (mut stream, _, _) = tcp.accept().await.expect("accepted connection");
+
+    stream.write_all(&[8]).await.expect("fill TUN queue");
+    let server_ack = server_sequence + 2;
+    let mut sequence = client_sequence + 1;
+    for _ in 0..300 {
+        tcp.feed(&client_packet_with_payload(
+            packet::tcp_flags::PSH | packet::tcp_flags::ACK,
+            sequence,
+            server_ack,
+            &[1],
+        ))
+        .await;
+        sequence += 1;
+    }
+
+    let data = outbound_rx.recv().await.expect("queued data packet");
+    assert_eq!(packet::parse_tcp(&data).expect("parse data").payload, &[8]);
+    let mut delivered = 0;
+    while let Ok(Some(_)) =
+        tokio::time::timeout(Duration::from_millis(20), outbound_rx.recv()).await
+    {
+        delivered += 1;
+    }
+    assert!(delivered > 0, "control retry queue did not recover");
+    assert!(
+        delivered <= 257,
+        "bounded control queue delivered {delivered} retained packets"
+    );
+
+    tcp.feed(&client_packet_with_payload(
+        packet::tcp_flags::PSH | packet::tcp_flags::ACK,
+        sequence - 1,
+        server_ack,
+        &[1],
+    ))
+    .await;
+    let cumulative = tokio::time::timeout(Duration::from_millis(100), outbound_rx.recv())
+        .await
+        .expect("client retransmission did not recover the saturated queue")
+        .expect("control worker closed");
+    assert_eq!(
+        packet::parse_tcp(&cumulative)
+            .expect("parse cumulative ACK")
+            .ack,
+        sequence
     );
 }
 
