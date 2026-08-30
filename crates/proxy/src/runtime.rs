@@ -226,6 +226,14 @@ impl Proxy {
             .is_none_or(|pending| pending.persist)
     }
 
+    pub(crate) fn pending_reload_matches(&self, expected: &RuntimeConfig) -> bool {
+        self.reload_ack
+            .lock()
+            .expect("reload ack lock poisoned")
+            .as_ref()
+            .is_some_and(|pending| pending.expected == *expected)
+    }
+
     pub(crate) fn tcp_runtime_services(&self) -> TcpRuntimeServices {
         self.tcp_runtime_services_for_snapshot(self.engine.runtime_snapshot())
     }

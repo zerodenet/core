@@ -83,6 +83,7 @@ impl ProxyHandle {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => {
                 self.clear_pending_reload();
+                self.proxy.resolver.discard_prepared_reload();
                 self.rollback_unconfirmed_reload(previous, timeout, persist)
                     .await?;
                 Err(
@@ -92,6 +93,7 @@ impl ProxyHandle {
             }
             Err(_) => {
                 self.clear_pending_reload();
+                self.proxy.resolver.discard_prepared_reload();
                 self.rollback_unconfirmed_reload(previous, timeout, persist)
                     .await?;
                 Err("timed out waiting for proxy listener reconciliation; restored last-known-good config"
@@ -220,7 +222,7 @@ impl ProxyHandle {
             .begin_acknowledged_reload((*previous).clone(), persist)
             .map_err(|error| format!("failed to start last-known-good rollback: {error}"))?;
         let rollback_timeout = requested_timeout.max(std::time::Duration::from_secs(5));
-        match tokio::time::timeout(rollback_timeout, receiver).await {
+        let result = match tokio::time::timeout(rollback_timeout, receiver).await {
             Ok(Ok(Ok(()))) => Ok(()),
             Ok(Ok(Err(error))) => Err(format!(
                 "last-known-good rollback listener reconciliation failed: {error}"
@@ -230,6 +232,8 @@ impl ProxyHandle {
                 self.clear_pending_reload();
                 Err("timed out waiting for last-known-good rollback reconciliation".to_owned())
             }
-        }
+        };
+        self.proxy.resolver.discard_prepared_reload();
+        result
     }
 }

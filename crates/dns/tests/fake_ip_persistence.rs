@@ -217,6 +217,77 @@ async fn incompatible_hot_reload_replaces_the_persistent_allocator() {
     );
 }
 
+#[tokio::test]
+async fn prepared_incompatible_reload_is_invisible_and_preserves_committed_journal_until_commit() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let path = directory.path().join("fake-ip.jsonl");
+    let original = config("198.18.0.0/24", 3_600);
+    let changed = config("198.19.0.0/24", 3_600);
+    let dns = build(&original, &path);
+
+    zero_traits::DnsResolver::resolve(&dns, "rollback.example")
+        .await
+        .expect("allocate committed Fake-IP");
+    let committed_journal = std::fs::read(&path).expect("read committed journal");
+    let changed_dispatch = changed
+        .compile_dispatch(&[], None)
+        .expect("compile changed DNS dispatch");
+
+    dns.prepare_reload_with_dispatch(Some(&changed), Some(changed_dispatch.clone()))
+        .expect("prepare incompatible reload");
+    assert_eq!(
+        dns.lookup_fake_ip(&zero_traits::IpAddress::V4([198, 18, 0, 1]))
+            .await
+            .as_deref(),
+        Some("rollback.example"),
+        "a prepared candidate must not replace the committed resolver"
+    );
+    assert_eq!(
+        std::fs::read(&path).expect("read journal after prepare"),
+        committed_journal,
+        "preparing an incompatible pool must not rewrite durable state"
+    );
+
+    dns.discard_prepared_reload();
+    drop(dns);
+    let restored = build(&original, &path);
+    assert_eq!(
+        restored
+            .lookup_fake_ip(&zero_traits::IpAddress::V4([198, 18, 0, 1]))
+            .await
+            .as_deref(),
+        Some("rollback.example"),
+        "discarded candidate must preserve restart recovery"
+    );
+
+    restored
+        .prepare_reload_with_dispatch(Some(&changed), Some(changed_dispatch))
+        .expect("prepare committed replacement");
+    restored
+        .commit_prepared_reload()
+        .expect("commit incompatible replacement");
+    assert!(restored
+        .lookup_fake_ip(&zero_traits::IpAddress::V4([198, 18, 0, 1]))
+        .await
+        .is_none());
+    assert_eq!(
+        zero_traits::DnsResolver::resolve(&restored, "replacement.example")
+            .await
+            .expect("allocate replacement Fake-IP"),
+        vec![zero_traits::IpAddress::V4([198, 19, 0, 1])]
+    );
+    drop(restored);
+
+    let committed = build(&changed, &path);
+    assert_eq!(
+        committed
+            .lookup_fake_ip_domain("replacement.example")
+            .await
+            .as_deref(),
+        Some("198.19.0.1")
+    );
+}
+
 #[test]
 fn rejects_a_second_live_owner_of_the_same_state() {
     let directory = tempfile::tempdir().expect("state directory");

@@ -70,18 +70,50 @@ impl ProxyHandle {
             .await?;
 
         let Some(reconciler) = &self.config_reconciler else {
+            if let Err(error) = self.proxy.resolver.commit_prepared_reload() {
+                let rollback = self
+                    .rollback_proxy_dns_under_guard(previous, timeout, persist)
+                    .await;
+                let mut message = format!("DNS config commit failed: {error}");
+                if let Err(error) = rollback {
+                    message.push_str(&format!("; proxy rollback failed: {error}"));
+                } else {
+                    message.push_str("; restored last-known-good configuration");
+                }
+                return Err(message);
+            }
             self.proxy.engine.commit_config_change();
             return Ok(Some(ConfigReconcileResult::default()));
         };
         let candidate = Arc::new(candidate);
         match reconciler.reconcile(candidate).await {
             Ok(result) => {
+                if let Err(error) = self.proxy.resolver.commit_prepared_reload() {
+                    let proxy_rollback = self
+                        .rollback_proxy_dns_under_guard(previous.clone(), timeout, persist)
+                        .await;
+                    let app_rollback = if proxy_rollback.is_ok() {
+                        reconciler.reconcile(previous).await
+                    } else {
+                        Err("application rollback skipped because proxy rollback failed".to_owned())
+                    };
+                    let mut message = format!("DNS config commit failed: {error}");
+                    if let Err(error) = proxy_rollback {
+                        message.push_str(&format!("; proxy rollback failed: {error}"));
+                    }
+                    if let Err(error) = app_rollback {
+                        message.push_str(&format!("; application rollback failed: {error}"));
+                    } else {
+                        message.push_str("; restored last-known-good configuration");
+                    }
+                    return Err(message);
+                }
                 self.proxy.engine.commit_config_change();
                 Ok(Some(result))
             }
             Err(apply_error) => {
                 let proxy_rollback = self
-                    .apply_proxy_config_under_guard((*previous).clone(), timeout, persist)
+                    .rollback_proxy_dns_under_guard(previous.clone(), timeout, persist)
                     .await;
                 let app_rollback = if proxy_rollback.is_ok() {
                     reconciler.reconcile(previous).await
@@ -102,4 +134,23 @@ impl ProxyHandle {
             }
         }
     }
+
+    async fn rollback_proxy_dns_under_guard(
+        &self,
+        previous: Arc<RuntimeConfig>,
+        timeout: Duration,
+        persist: bool,
+    ) -> Result<(), String> {
+        self.proxy.resolver.discard_prepared_reload();
+        let result = self
+            .apply_proxy_config_under_guard((*previous).clone(), timeout, persist)
+            .await;
+        // The committed resolver was never replaced, so the rollback's
+        // prepared last-known-good candidate is redundant.
+        self.proxy.resolver.discard_prepared_reload();
+        result
+    }
 }
+
+#[cfg(test)]
+mod tests;
