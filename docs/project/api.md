@@ -344,6 +344,8 @@ sink 的共同要求：
   - 返回运行时统计、活动 flow、最近完成 flow 和 policy 状态
 - `stats.get`
   - 返回轻量统计，不包含完整 flow 列表
+- `sinks.get`
+  - 返回各事件 sink 的投递状态；兼容的 `pending` 为总 backlog，新内核通过可选 `delivery` 对象区分在途请求、投递重试、ACK 重试、持久 backlog 和最早重试时间，并由 `outbox_storage`、`outbox_recovery`、`replay_gaps` 补充磁盘阻塞、恢复和事件缺口事实
 - `principal_flows.get`
   - 返回当前内核实例的权威 Principal 活跃 flow 完整快照；HTTP 路径为 `GET /api/v1/principal_flows`
 - `flows.list_active`

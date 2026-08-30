@@ -9,7 +9,8 @@ use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 use zero_api::{
     event_type, DeadLetterSink, EventFilter, EventSink, EventSource, EventStream,
-    EventStreamReceive, OutboxRecoveryStatus, OutboxStorageStatus, RawApiEvent, SinkStatus,
+    EventStreamReceive, OutboxRecoveryStatus, OutboxStorageStatus, RawApiEvent, SinkDeliveryStatus,
+    SinkStatus,
 };
 use zero_config::{ApiConfig, EventDispatcherConfig};
 
@@ -50,6 +51,7 @@ struct PerSinkStats {
     total_delivered: AtomicU64,
     total_failed: AtomicU64,
     replay_gaps: AtomicU64,
+    delivery: Mutex<SinkDeliveryStatus>,
     last_success_ms: Mutex<Option<u64>>,
     last_failure_ms: Mutex<Option<u64>>,
     last_error: Mutex<Option<String>>,
@@ -64,6 +66,7 @@ impl PerSinkStats {
             total_delivered: AtomicU64::new(0),
             total_failed: AtomicU64::new(0),
             replay_gaps: AtomicU64::new(0),
+            delivery: Mutex::new(SinkDeliveryStatus::default()),
             last_success_ms: Mutex::new(None),
             last_failure_ms: Mutex::new(None),
             last_error: Mutex::new(None),
@@ -92,6 +95,7 @@ impl PerSinkStats {
         SinkStatus {
             name,
             pending: self.pending.load(Ordering::Relaxed),
+            delivery: *self.delivery.lock().expect("sink stats"),
             total_delivered: self.total_delivered.load(Ordering::Relaxed),
             total_failed: self.total_failed.load(Ordering::Relaxed),
             replay_gaps: self.replay_gaps.load(Ordering::Relaxed),
@@ -721,11 +725,14 @@ fn refresh_pending_stats(
     workers: &[SinkWorker],
     outbox: Option<&DeliveryOutbox>,
 ) {
+    let now = Instant::now();
+    let now_unix_ms = now_unix_ms();
     let storage_status = outbox.map(DeliveryOutbox::storage_status);
     let recovery_status = outbox.and_then(DeliveryOutbox::recovery_status);
     let shared = stats.lock().expect("sink stats");
     for (_, stat) in shared.iter() {
         stat.set_pending(0);
+        *stat.delivery.lock().expect("sink stats") = SinkDeliveryStatus::default();
         *stat.outbox_recovery.lock().expect("sink stats") = recovery_status.clone();
         *stat.outbox_storage.lock().expect("sink stats") = match &storage_status {
             Some(Ok(status)) => Some(*status),
@@ -740,22 +747,51 @@ fn refresh_pending_stats(
         for (sink_tag, count) in outbox.pending_counts() {
             if let Some((_, stat)) = shared.iter().find(|(tag, _)| tag == &sink_tag) {
                 stat.set_pending(count);
+                stat.delivery.lock().expect("sink stats").durable_pending = count as u64;
             }
         }
-        return;
     }
     for delivery in pending {
         if let Some((_, stat)) = shared.iter().find(|(tag, _)| tag == &delivery.sink_tag) {
-            stat.pending.fetch_add(1, Ordering::Relaxed);
+            if outbox.is_none() {
+                stat.pending.fetch_add(1, Ordering::Relaxed);
+            }
+            let mut status = stat.delivery.lock().expect("sink stats");
+            if delivery.awaiting_ack {
+                status.ack_retry_pending = status.ack_retry_pending.saturating_add(1);
+                record_retry_deadline(&mut status, now, now_unix_ms, delivery.next_due);
+            } else if delivery.attempts > 0 {
+                status.retry_pending = status.retry_pending.saturating_add(1);
+                record_retry_deadline(&mut status, now, now_unix_ms, delivery.next_due);
+            }
         }
     }
     for worker in workers {
         if worker.in_flight.is_some() {
             if let Some((_, stat)) = shared.iter().find(|(tag, _)| tag == &worker.tag) {
-                stat.pending.fetch_add(1, Ordering::Relaxed);
+                if outbox.is_none() {
+                    stat.pending.fetch_add(1, Ordering::Relaxed);
+                }
+                stat.delivery.lock().expect("sink stats").in_flight = true;
             }
         }
     }
+}
+
+fn record_retry_deadline(
+    status: &mut SinkDeliveryStatus,
+    now: Instant,
+    now_unix_ms: u64,
+    due: Instant,
+) {
+    let delay_ms =
+        u64::try_from(due.saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX);
+    let deadline = now_unix_ms.saturating_add(delay_ms);
+    status.next_retry_at_unix_ms = Some(
+        status
+            .next_retry_at_unix_ms
+            .map_or(deadline, |current| current.min(deadline)),
+    );
 }
 
 fn fill_pending_from_outbox(
