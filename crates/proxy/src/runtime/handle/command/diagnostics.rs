@@ -479,6 +479,7 @@ pub(super) fn execute_diagnostics_fakeip_lookup(
                         "collisions": stats.collisions,
                         "reverse_misses": stats.reverse_misses,
                         "live_mappings": stats.live_mappings,
+                        "retired_addresses": stats.retired_addresses,
                         "capacity": stats.capacity,
                     })
                 });

@@ -142,8 +142,15 @@ Mappings expire in both directions, are bounded by `max_entries`, and use
 deterministic LRU eviction. IPv4 and IPv6 addresses for one normalized domain
 share one TTL, LRU identity, and capacity slot. A compatible hot reload
 preserves live mappings; changing either pool, TTL, capacity, or exclusions
-creates a new allocator.
-`diagnostics.fakeip_lookup` reports mapping counters and capacity.
+creates a new allocator. Expiry, LRU eviction, and administrative clearing move
+each released address into a `RETIRED` quarantine for one complete configured
+Fake-IP TTL. Retired addresses have no reverse mapping and cannot be assigned to
+another domain; if every pool candidate is live or retired, allocation fails
+closed and an intercepted DNS query receives SERVFAIL. This intentionally
+prefers a visible lookup failure over cross-domain delivery through a stale
+client DNS cache.
+`diagnostics.fakeip_lookup` reports mapping counters, live capacity, and the
+current `retired_addresses` count.
 The admin command `fakeip.clear` manages the same allocator and persistent
 journal. Empty params clear every mapping; `domain` or `ip` selects one mapping
 in both directions:
@@ -155,10 +162,11 @@ in both directions:
 ```
 
 At most one selector is accepted. Success reports `removed_mappings`,
-`removed_addresses`, and the remaining `live_mappings`. Clearing mappings is a
-disruptive diagnostic action: applications may still hold synthetic DNS answers
-whose reverse mappings no longer exist, so clients should warn before a full
-clear and expect affected connections to resolve again.
+`removed_addresses`, the remaining `live_mappings`, and `retired_addresses`.
+Clearing mappings is a disruptive diagnostic action: applications may still
+hold synthetic DNS answers whose reverse mappings no longer exist, so clients
+should warn before a full clear and expect affected connections to resolve
+again; new answers use a different non-retired address while capacity remains.
 `diagnostics.dns_lookup` returns the query role plus the newest backend attempts,
 including server tag, transport, concrete endpoint candidates, selected outbound,
 success, and the failure reason that caused an ordered fallback.
@@ -178,9 +186,10 @@ starts a clean journal. Invalid state is quarantined beside the active file
 with a `.corrupt-<timestamp>` suffix and DNS starts with an empty allocator.
 If a mapping cannot be appended, Zero returns SERVFAIL instead of exposing a
 synthetic address that cannot be recovered after restart.
-The current journal schema is `zero.dns.fake-ip.v2`; compatible IPv4-only v1
-journals are migrated in place and retain their live IPv4 mappings while IPv6
-addresses are allocated from the configured v2 pool.
+The current journal schema is `zero.dns.fake-ip.v3`; compatible IPv4-only v1 and
+dual-stack v2 journals are migrated in place. Live mappings retain their
+addresses, while v3 additionally persists unexpired retired-address deadlines so
+a restart cannot bypass the reuse quarantine.
 
 TUN without Fake-IP remains supported. For TLS on ports 443 and 8443 Zero can
 recover a plaintext SNI; for HTTP/1.x on ports 80, 8000, 8080, and 8888 it can

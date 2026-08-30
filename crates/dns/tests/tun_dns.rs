@@ -88,6 +88,105 @@ async fn compatible_reload_preserves_live_fake_ip_mapping() {
     assert_eq!(dns.fake_ip_stats().await.unwrap().live_mappings, 1);
 }
 
+#[tokio::test]
+async fn retired_pool_exhaustion_returns_servfail_without_real_dns_fallback() {
+    let dns = zero_dns::DnsSystem::build(Some(&DnsConfig {
+        servers: BTreeMap::from([("system".to_owned(), DnsServerConfig::System)]),
+        default_server: "system".to_owned(),
+        dispatch: Vec::new(),
+        cache: None,
+        reverse_mapping: None,
+        answer: DnsAnswerConfig::FakeIp {
+            cidr: "198.18.0.0/30".to_owned(),
+            ipv6_cidr: None,
+            ttl_seconds: 60,
+            max_entries: Some(1),
+            exclude_domains: Vec::new(),
+        },
+        policy: Default::default(),
+    }))
+    .expect("build DNS");
+
+    dns.answer_udp_query(&query("retired.example", 1))
+        .await
+        .expect("allocate first address");
+    dns.clear_fake_ip(zero_dns::FakeIpClearTarget::Domain(
+        "retired.example".to_owned(),
+    ))
+    .await
+    .expect("retire first address")
+    .expect("Fake-IP enabled");
+    dns.answer_udp_query(&query("live.example", 1))
+        .await
+        .expect("allocate second address");
+
+    let exhausted = dns
+        .answer_udp_query(&query("blocked.example", 1))
+        .await
+        .expect("build SERVFAIL response");
+    assert_eq!(exhausted[3] & 0x0f, 2, "pool exhaustion must be SERVFAIL");
+    assert_eq!(u16::from_be_bytes([exhausted[6], exhausted[7]]), 0);
+    assert_eq!(
+        dns.lookup_fake_ip_domain("live.example").await.as_deref(),
+        Some("198.18.0.2"),
+        "failed allocation must preserve the last live mapping"
+    );
+
+    let error = zero_traits::DnsResolver::resolve(&dns, "internal.example")
+        .await
+        .expect_err("internal resolver must not fall back to a real address");
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("live or retired"));
+}
+
+#[tokio::test]
+async fn compatible_reload_preserves_retired_fake_ip_address() {
+    let config = DnsConfig {
+        servers: BTreeMap::from([("system".to_owned(), DnsServerConfig::System)]),
+        default_server: "system".to_owned(),
+        dispatch: Vec::new(),
+        cache: None,
+        reverse_mapping: None,
+        answer: DnsAnswerConfig::FakeIp {
+            cidr: "198.18.0.0/30".to_owned(),
+            ipv6_cidr: None,
+            ttl_seconds: 60,
+            max_entries: Some(1),
+            exclude_domains: Vec::new(),
+        },
+        policy: Default::default(),
+    };
+    let dns = zero_dns::DnsSystem::build(Some(&config)).expect("build DNS");
+    dns.answer_udp_query(&query("removed.example", 1))
+        .await
+        .expect("allocate removed mapping");
+    dns.clear_fake_ip(zero_dns::FakeIpClearTarget::All)
+        .await
+        .expect("clear Fake-IP")
+        .expect("Fake-IP enabled");
+
+    dns.reload(Some(&config)).expect("compatible reload");
+
+    let response = dns
+        .answer_udp_query(&query("replacement.example", 1))
+        .await
+        .expect("allocate replacement mapping");
+    assert_eq!(u16::from_be_bytes([response[6], response[7]]), 1);
+    assert_eq!(
+        dns.lookup_fake_ip_domain("replacement.example")
+            .await
+            .as_deref(),
+        Some("198.18.0.2")
+    );
+    assert_eq!(
+        dns.fake_ip_stats()
+            .await
+            .expect("Fake-IP stats")
+            .retired_addresses,
+        1
+    );
+}
+
 #[test]
 fn parser_rejects_multiple_questions() {
     let mut request = query("example.com", 1);

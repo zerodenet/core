@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::net::{IpAddr, Ipv4Addr};
@@ -8,7 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-const SCHEMA: &str = "zero.dns.fake-ip.v2";
+const SCHEMA: &str = "zero.dns.fake-ip.v3";
+const DUAL_STACK_SCHEMA: &str = "zero.dns.fake-ip.v2";
 const LEGACY_SCHEMA: &str = "zero.dns.fake-ip.v1";
 const COMPACT_MIN_RECORDS: usize = 1_024;
 const COMPACT_MAX_BYTES: u64 = 4 * 1024 * 1024;
@@ -28,6 +29,18 @@ pub(super) struct PersistedMapping {
     pub(super) domain: String,
     pub(super) ip: IpAddr,
     pub(super) expires_at_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct PersistedRetiredAddress {
+    pub(super) ip: IpAddr,
+    pub(super) reusable_after_unix_ms: u64,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct PersistedState {
+    pub(super) mappings: Vec<PersistedMapping>,
+    pub(super) retired: Vec<PersistedRetiredAddress>,
 }
 
 pub(super) struct FakeIpPersistence {
@@ -63,6 +76,10 @@ enum JournalRecord {
         ip: IpAddr,
         expires_at_unix_ms: u64,
     },
+    Retire {
+        ip: IpAddr,
+        reusable_after_unix_ms: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,7 +107,7 @@ enum LegacyJournalRecord {
 
 enum LoadResult {
     Missing,
-    Compatible(Vec<PersistedMapping>),
+    Compatible(PersistedState),
     Incompatible,
     Corrupt(String),
 }
@@ -99,7 +116,7 @@ impl FakeIpPersistence {
     pub(super) fn open(
         lease: Arc<FakeIpStateLease>,
         metadata: PersistenceMetadata,
-    ) -> io::Result<(Self, Vec<PersistedMapping>)> {
+    ) -> io::Result<(Self, PersistedState)> {
         let path = lease.path.clone();
         create_private_parent(&path)?;
         let mut journal = lease
@@ -110,14 +127,14 @@ impl FakeIpPersistence {
         let loaded = load(&path, &metadata, now)?;
         journal.file.take();
         let recovered = match loaded {
-            LoadResult::Missing => Vec::new(),
-            LoadResult::Compatible(mappings) => mappings,
+            LoadResult::Missing => PersistedState::default(),
+            LoadResult::Compatible(state) => state,
             LoadResult::Incompatible => {
                 tracing::info!(
                     path = %path.display(),
                     "discarding incompatible Fake-IP persistence state"
                 );
-                Vec::new()
+                PersistedState::default()
             }
             LoadResult::Corrupt(error) => {
                 let quarantined = quarantine_corrupt_file(&path);
@@ -127,11 +144,11 @@ impl FakeIpPersistence {
                     %error,
                     "discarding corrupt Fake-IP persistence state"
                 );
-                Vec::new()
+                PersistedState::default()
             }
         };
 
-        if let Err(error) = rewrite(&path, &metadata, &recovered) {
+        if let Err(error) = rewrite(&path, &metadata, &recovered.mappings, &recovered.retired) {
             journal.file = open_append(&path).ok();
             return Err(error);
         }
@@ -140,7 +157,7 @@ impl FakeIpPersistence {
         journal.generation = generation;
         journal.file = Some(file);
         journal.metadata = Some(metadata);
-        journal.records = recovered.len() + 1;
+        journal.records = recovered.mappings.len() + recovered.retired.len() + 1;
         drop(journal);
         Ok((Self { lease, generation }, recovered))
     }
@@ -166,7 +183,27 @@ impl FakeIpPersistence {
         Ok(())
     }
 
-    pub(super) fn should_compact(&self, live_mappings: usize) -> bool {
+    pub(super) fn append_retire(&mut self, retired: &PersistedRetiredAddress) -> io::Result<()> {
+        let mut journal = self
+            .lease
+            .journal
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        ensure_generation(&journal, self.generation)?;
+        let record = JournalRecord::Retire {
+            ip: retired.ip,
+            reusable_after_unix_ms: retired.reusable_after_unix_ms,
+        };
+        let file = journal.file.as_mut().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::BrokenPipe, "Fake-IP journal is not open")
+        })?;
+        write_record(file, &record)?;
+        file.flush()?;
+        journal.records = journal.records.saturating_add(1);
+        Ok(())
+    }
+
+    pub(super) fn should_compact(&self, live_records: usize) -> bool {
         let journal = self
             .lease
             .journal
@@ -174,7 +211,7 @@ impl FakeIpPersistence {
             .unwrap_or_else(|error| error.into_inner());
         journal.generation == self.generation
             && (journal.records
-                > COMPACT_MIN_RECORDS.max(live_mappings.saturating_mul(8).saturating_add(1))
+                > COMPACT_MIN_RECORDS.max(live_records.saturating_mul(8).saturating_add(1))
                 || journal
                     .file
                     .as_ref()
@@ -182,7 +219,11 @@ impl FakeIpPersistence {
                     .is_some_and(|metadata| metadata.len() > COMPACT_MAX_BYTES))
     }
 
-    pub(super) fn compact(&mut self, mappings: &[PersistedMapping]) -> io::Result<()> {
+    pub(super) fn compact(
+        &mut self,
+        mappings: &[PersistedMapping],
+        retired: &[PersistedRetiredAddress],
+    ) -> io::Result<()> {
         let mut journal = self
             .lease
             .journal
@@ -193,12 +234,12 @@ impl FakeIpPersistence {
             io::Error::new(io::ErrorKind::InvalidData, "Fake-IP journal has no header")
         })?;
         journal.file.take();
-        if let Err(error) = rewrite(&self.lease.path, &metadata, mappings) {
+        if let Err(error) = rewrite(&self.lease.path, &metadata, mappings, retired) {
             journal.file = open_append(&self.lease.path).ok();
             return Err(error);
         }
         journal.file = Some(open_append(&self.lease.path)?);
-        journal.records = mappings.len() + 1;
+        journal.records = mappings.len() + retired.len() + 1;
         Ok(())
     }
 }
@@ -293,21 +334,27 @@ fn load(path: &Path, expected: &PersistenceMetadata, now_unix_ms: u64) -> io::Re
         ));
     };
 
-    let mappings = match schema {
-        SCHEMA => load_v2(values, expected)?,
+    let records = match schema {
+        SCHEMA => load_v3(values, expected)?,
+        DUAL_STACK_SCHEMA => load_v2(values, expected)?,
         LEGACY_SCHEMA => load_v1(values, expected)?,
         _ => return Ok(LoadResult::Incompatible),
     };
-    let Some(mappings) = mappings else {
+    let Some(records) = records else {
         return Ok(LoadResult::Incompatible);
     };
-    normalize_records(mappings, expected.max_entries, now_unix_ms)
+    normalize_records(
+        records,
+        expected.max_entries,
+        now_unix_ms,
+        expected.ttl_seconds.saturating_mul(1_000),
+    )
 }
 
-fn load_v2(
+fn load_v3(
     values: Vec<serde_json::Value>,
     expected: &PersistenceMetadata,
-) -> io::Result<Option<Vec<PersistedMapping>>> {
+) -> io::Result<Option<Vec<PersistedRecord>>> {
     let records = values
         .into_iter()
         .map(serde_json::from_value::<JournalRecord>)
@@ -327,11 +374,18 @@ fn load_v2(
                 domain,
                 ip,
                 expires_at_unix_ms,
-            } => Ok(PersistedMapping {
+            } => Ok(PersistedRecord::Mapping(PersistedMapping {
                 domain,
                 ip,
                 expires_at_unix_ms,
-            }),
+            })),
+            JournalRecord::Retire {
+                ip,
+                reusable_after_unix_ms,
+            } => Ok(PersistedRecord::Retired(PersistedRetiredAddress {
+                ip,
+                reusable_after_unix_ms,
+            })),
             JournalRecord::Header { .. } => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Fake-IP state contains an unexpected header",
@@ -341,10 +395,47 @@ fn load_v2(
         .map(Some)
 }
 
+fn load_v2(
+    values: Vec<serde_json::Value>,
+    expected: &PersistenceMetadata,
+) -> io::Result<Option<Vec<PersistedRecord>>> {
+    let records = values
+        .into_iter()
+        .map(serde_json::from_value::<JournalRecord>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let Some(JournalRecord::Header { schema, metadata }) = records.first() else {
+        return Ok(None);
+    };
+    if schema != DUAL_STACK_SCHEMA || metadata != expected {
+        return Ok(None);
+    }
+    records
+        .into_iter()
+        .skip(1)
+        .map(|record| match record {
+            JournalRecord::Upsert {
+                domain,
+                ip,
+                expires_at_unix_ms,
+            } => Ok(PersistedRecord::Mapping(PersistedMapping {
+                domain,
+                ip,
+                expires_at_unix_ms,
+            })),
+            JournalRecord::Retire { .. } | JournalRecord::Header { .. } => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Fake-IP v2 state contains an unexpected record",
+            )),
+        })
+        .collect::<io::Result<Vec<_>>>()
+        .map(Some)
+}
+
 fn load_v1(
     values: Vec<serde_json::Value>,
     expected: &PersistenceMetadata,
-) -> io::Result<Option<Vec<PersistedMapping>>> {
+) -> io::Result<Option<Vec<PersistedRecord>>> {
     let records = values
         .into_iter()
         .map(serde_json::from_value::<LegacyJournalRecord>)
@@ -369,11 +460,11 @@ fn load_v1(
                 domain,
                 ip,
                 expires_at_unix_ms,
-            } => Ok(PersistedMapping {
+            } => Ok(PersistedRecord::Mapping(PersistedMapping {
                 domain,
                 ip: IpAddr::V4(Ipv4Addr::from(ip)),
                 expires_at_unix_ms,
-            }),
+            })),
             LegacyJournalRecord::Header { .. } => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Fake-IP state contains an unexpected legacy header",
@@ -383,24 +474,94 @@ fn load_v1(
         .map(Some)
 }
 
+enum PersistedRecord {
+    Mapping(PersistedMapping),
+    Retired(PersistedRetiredAddress),
+}
+
 fn normalize_records(
-    records: Vec<PersistedMapping>,
+    records: Vec<PersistedRecord>,
     max_entries: usize,
     now_unix_ms: u64,
+    retirement_ttl_ms: u64,
 ) -> io::Result<LoadResult> {
     let mut by_domain_family = HashMap::<(String, bool), IpAddr>::new();
     let mut by_ip = HashMap::<IpAddr, (usize, PersistedMapping)>::new();
-    for (sequence, mapping) in records.into_iter().enumerate() {
-        let family_key = (mapping.domain.clone(), mapping.ip.is_ipv6());
-        if let Some(old_ip) = by_domain_family.remove(&family_key) {
-            by_ip.remove(&old_ip);
-        }
-        if let Some((_, old_mapping)) = by_ip.remove(&mapping.ip) {
-            by_domain_family.remove(&(old_mapping.domain, old_mapping.ip.is_ipv6()));
-        }
-        if mapping.expires_at_unix_ms > now_unix_ms {
-            by_domain_family.insert(family_key, mapping.ip);
-            by_ip.insert(mapping.ip, (sequence, mapping));
+    let mut retired = HashMap::<IpAddr, (usize, PersistedRetiredAddress)>::new();
+    let mut retired_owner = HashMap::<IpAddr, Option<String>>::new();
+    for (sequence, record) in records.into_iter().enumerate() {
+        match record {
+            PersistedRecord::Mapping(mapping) => {
+                let family_key = (mapping.domain.clone(), mapping.ip.is_ipv6());
+                if let Some(old_ip) = by_domain_family.remove(&family_key) {
+                    if old_ip != mapping.ip {
+                        by_ip.remove(&old_ip);
+                        let retired_address = PersistedRetiredAddress {
+                            ip: old_ip,
+                            reusable_after_unix_ms: now_unix_ms.saturating_add(retirement_ttl_ms),
+                        };
+                        retired.insert(old_ip, (sequence, retired_address));
+                        retired_owner.insert(old_ip, Some(mapping.domain.clone()));
+                    }
+                }
+                if let Some((_, old_mapping)) = by_ip.remove(&mapping.ip) {
+                    let changed_owner = old_mapping.domain != mapping.domain;
+                    by_domain_family.remove(&(old_mapping.domain, old_mapping.ip.is_ipv6()));
+                    if changed_owner {
+                        let retired_address = PersistedRetiredAddress {
+                            ip: mapping.ip,
+                            reusable_after_unix_ms: now_unix_ms.saturating_add(retirement_ttl_ms),
+                        };
+                        retired.insert(mapping.ip, (sequence, retired_address));
+                        retired_owner.insert(mapping.ip, None);
+                        continue;
+                    }
+                }
+                if let Entry::Occupied(mut entry) = retired.entry(mapping.ip) {
+                    let same_owner = retired_owner
+                        .get(&mapping.ip)
+                        .and_then(|owner| owner.as_deref())
+                        == Some(mapping.domain.as_str());
+                    if same_owner {
+                        entry.remove();
+                        retired_owner.remove(&mapping.ip);
+                    } else {
+                        let retired_address = PersistedRetiredAddress {
+                            ip: mapping.ip,
+                            reusable_after_unix_ms: now_unix_ms.saturating_add(retirement_ttl_ms),
+                        };
+                        entry.insert((sequence, retired_address));
+                        retired_owner.insert(mapping.ip, None);
+                        continue;
+                    }
+                }
+                if mapping.expires_at_unix_ms > now_unix_ms {
+                    by_domain_family.insert(family_key, mapping.ip);
+                    by_ip.insert(mapping.ip, (sequence, mapping));
+                } else {
+                    let retired_address = PersistedRetiredAddress {
+                        ip: mapping.ip,
+                        reusable_after_unix_ms: mapping
+                            .expires_at_unix_ms
+                            .saturating_add(retirement_ttl_ms),
+                    };
+                    if retired_address.reusable_after_unix_ms > now_unix_ms {
+                        retired.insert(mapping.ip, (sequence, retired_address));
+                        retired_owner.insert(mapping.ip, Some(mapping.domain));
+                    }
+                }
+            }
+            PersistedRecord::Retired(address) => {
+                if let Some((_, old_mapping)) = by_ip.remove(&address.ip) {
+                    by_domain_family.remove(&(old_mapping.domain, old_mapping.ip.is_ipv6()));
+                }
+                retired.remove(&address.ip);
+                retired_owner.remove(&address.ip);
+                if address.reusable_after_unix_ms > now_unix_ms {
+                    retired.insert(address.ip, (sequence, address));
+                    retired_owner.insert(address.ip, None);
+                }
+            }
         }
     }
     let domains = by_ip
@@ -415,15 +576,19 @@ fn normalize_records(
     }
     let mut mappings = by_ip.into_values().collect::<Vec<_>>();
     mappings.sort_by_key(|(sequence, _)| *sequence);
-    Ok(LoadResult::Compatible(
-        mappings.into_iter().map(|(_, mapping)| mapping).collect(),
-    ))
+    let mut retired = retired.into_values().collect::<Vec<_>>();
+    retired.sort_by_key(|(sequence, _)| *sequence);
+    Ok(LoadResult::Compatible(PersistedState {
+        mappings: mappings.into_iter().map(|(_, mapping)| mapping).collect(),
+        retired: retired.into_iter().map(|(_, address)| address).collect(),
+    }))
 }
 
 fn rewrite(
     path: &Path,
     metadata: &PersistenceMetadata,
     mappings: &[PersistedMapping],
+    retired: &[PersistedRetiredAddress],
 ) -> io::Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
@@ -441,6 +606,15 @@ fn rewrite(
                 domain: mapping.domain.clone(),
                 ip: mapping.ip,
                 expires_at_unix_ms: mapping.expires_at_unix_ms,
+            },
+        )?;
+    }
+    for address in retired {
+        write_record(
+            temporary.as_file_mut(),
+            &JournalRecord::Retire {
+                ip: address.ip,
+                reusable_after_unix_ms: address.reusable_after_unix_ms,
             },
         )?;
     }
