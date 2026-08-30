@@ -54,31 +54,59 @@ impl DirectUdpSockets {
         preferred_port: Option<u16>,
     ) -> Result<Self, EngineError> {
         let generation = services.egress_generation();
-        let ipv4 = services
-            .bind_direct_datagram_socket(
-                "0.0.0.0:0".parse().expect("valid IPv4 wildcard"),
-                preferred_port,
-            )
-            .await?;
-        let ipv6 = services
-            .bind_direct_datagram_socket(
-                "[::]:0".parse().expect("valid IPv6 wildcard"),
-                preferred_port,
-            )
-            .await
-            .map_err(|error| {
-                tracing::debug!(error = %error, "IPv6 direct UDP socket is unavailable");
-                error
+        Self::bind_with(generation, preferred_port, |peer, preferred_port| {
+            services.bind_direct_datagram_socket(peer, preferred_port)
+        })
+        .await
+    }
+
+    async fn bind_with<F, Fut>(
+        generation: u64,
+        preferred_port: Option<u16>,
+        mut bind: F,
+    ) -> Result<Self, EngineError>
+    where
+        F: FnMut(SocketAddr, Option<u16>) -> Fut,
+        Fut: std::future::Future<Output = Result<TokioDatagramSocket, EngineError>>,
+    {
+        let ipv4 = bind(
+            "0.0.0.0:0".parse().expect("valid IPv4 wildcard"),
+            preferred_port,
+        )
+        .await;
+        let ipv6 = bind(
+            "[::]:0".parse().expect("valid IPv6 wildcard"),
+            preferred_port,
+        )
+        .await;
+        let outcomes = collect_family_bind_outcomes(ipv4, ipv6);
+        if outcomes.available.is_empty() {
+            let failures = outcomes
+                .failures
+                .iter()
+                .map(|(ipv6, error)| format!("{}: {error}", family_name(*ipv6)))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::AddrNotAvailable,
+                format!("no direct UDP address family is available ({failures})"),
+            )));
+        }
+        for (ipv6, error) in &outcomes.failures {
+            tracing::debug!(
+                address_family = family_name(*ipv6),
+                error = %error,
+                "direct UDP socket family is unavailable"
+            );
+        }
+        let sockets = outcomes
+            .available
+            .into_iter()
+            .map(|(ipv6, socket)| {
+                log_direct_socket(family_name(ipv6), &socket);
+                DirectUdpSocket::new(socket, ipv6)
             })
-            .ok();
-        log_direct_socket("IPv4", &ipv4);
-        if let Some(ipv6) = ipv6.as_ref() {
-            log_direct_socket("IPv6", ipv6);
-        }
-        let mut sockets = vec![DirectUdpSocket::new(ipv4, false)];
-        if let Some(ipv6) = ipv6 {
-            sockets.push(DirectUdpSocket::new(ipv6, true));
-        }
+            .collect();
         Ok(Self {
             sockets,
             preferred_port,
@@ -124,13 +152,15 @@ impl DirectUdpSockets {
         logical_target: &Address,
         candidates: &[SocketAddr],
     ) -> Result<SocketAddr, EngineError> {
+        let ipv4_available = self.sockets.iter().any(|socket| !socket.binding.ipv6);
         let ipv6_available = self.sockets.iter().any(|socket| socket.binding.ipv6);
-        select_stable_udp_target(logical_target, candidates, ipv6_available).ok_or_else(|| {
-            EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::AddrNotAvailable,
-                "no usable direct UDP target address",
-            ))
-        })
+        select_stable_udp_target(logical_target, candidates, ipv4_available, ipv6_available)
+            .ok_or_else(|| {
+                EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::AddrNotAvailable,
+                    "no usable direct UDP target address",
+                ))
+            })
     }
 
     pub(crate) fn generation(&self) -> u64 {
@@ -197,19 +227,57 @@ impl DirectUdpSockets {
 fn select_stable_udp_target(
     logical_target: &Address,
     candidates: &[SocketAddr],
+    ipv4_available: bool,
     ipv6_available: bool,
 ) -> Option<SocketAddr> {
     let preferred_ipv6 = candidates
         .iter()
-        .find(|candidate| candidate.is_ipv4() || ipv6_available)
+        .find(|candidate| {
+            (candidate.is_ipv4() && ipv4_available) || (candidate.is_ipv6() && ipv6_available)
+        })
         .map(SocketAddr::is_ipv6)?;
 
     candidates
         .iter()
         .copied()
-        .filter(|candidate| candidate.is_ipv4() || ipv6_available)
+        .filter(|candidate| {
+            (candidate.is_ipv4() && ipv4_available) || (candidate.is_ipv6() && ipv6_available)
+        })
         .filter(|candidate| candidate.is_ipv6() == preferred_ipv6)
         .max_by_key(|candidate| udp_candidate_score(logical_target, *candidate))
+}
+
+#[cfg(feature = "udp-runtime")]
+struct FamilyBindOutcomes<T, E> {
+    available: Vec<(bool, T)>,
+    failures: Vec<(bool, E)>,
+}
+
+#[cfg(feature = "udp-runtime")]
+fn collect_family_bind_outcomes<T, E>(
+    ipv4: Result<T, E>,
+    ipv6: Result<T, E>,
+) -> FamilyBindOutcomes<T, E> {
+    let mut outcomes = FamilyBindOutcomes {
+        available: Vec::with_capacity(2),
+        failures: Vec::with_capacity(2),
+    };
+    for (ipv6, result) in [(false, ipv4), (true, ipv6)] {
+        match result {
+            Ok(value) => outcomes.available.push((ipv6, value)),
+            Err(error) => outcomes.failures.push((ipv6, error)),
+        }
+    }
+    outcomes
+}
+
+#[cfg(feature = "udp-runtime")]
+fn family_name(ipv6: bool) -> &'static str {
+    if ipv6 {
+        "IPv6"
+    } else {
+        "IPv4"
+    }
 }
 
 #[cfg(feature = "udp-runtime")]
