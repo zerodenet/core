@@ -1,9 +1,12 @@
+use std::collections::{HashMap, HashSet};
 use std::io;
 
 use zero_traits::IpAddress;
 
 use super::name::{decode_name, normalize_domain, skip_name};
 use super::{MAX_DNS_MESSAGE_SIZE, MAX_UDP_DNS_PAYLOAD, TYPE_A, TYPE_AAAA, TYPE_OPT};
+
+const TYPE_CNAME: u16 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DnsQuestion {
@@ -103,25 +106,15 @@ pub(crate) fn parse_response(query: &[u8], response: &[u8]) -> io::Result<Parsed
     let authority_count = read_u16(response, 8)? as usize;
     let additional_count = read_u16(response, 10)? as usize;
     let mut offset = response_question_end;
-    let mut addresses = Vec::new();
     let mut min_ttl = None;
+    let mut answers = Vec::with_capacity(answer_count);
     for _ in 0..answer_count {
-        let (next, record_type, class, ttl, rdata) = record(response, offset)?;
-        if class == 1 {
-            min_ttl = Some(min_ttl.map_or(ttl, |current: u32| current.min(ttl)));
-            match (record_type, expected.query_type, rdata.len()) {
-                (TYPE_A, TYPE_A, 4) => {
-                    addresses.push(IpAddress::V4([rdata[0], rdata[1], rdata[2], rdata[3]]))
-                }
-                (TYPE_AAAA, TYPE_AAAA, 16) => {
-                    let mut octets = [0_u8; 16];
-                    octets.copy_from_slice(rdata);
-                    addresses.push(IpAddress::V6(octets));
-                }
-                _ => {}
-            }
+        let answer = named_record(response, offset)?;
+        if answer.class == 1 {
+            min_ttl = Some(min_ttl.map_or(answer.ttl, |current: u32| current.min(answer.ttl)));
         }
-        offset = next;
+        offset = answer.next;
+        answers.push(answer);
     }
     for _ in 0..authority_count {
         let (next, _, class, ttl, _) = record(response, offset)?;
@@ -136,11 +129,107 @@ pub(crate) fn parse_response(query: &[u8], response: &[u8]) -> io::Result<Parsed
     if offset != response.len() {
         return Err(invalid("DNS response has trailing bytes"));
     }
+    let terminal_name = trusted_cname_terminal(&expected.domain, response, &answers)?;
+    let mut addresses = Vec::new();
+    for answer in answers {
+        if answer.class != 1
+            || !matches!(
+                (answer.record_type, expected.query_type),
+                (TYPE_A, TYPE_A) | (TYPE_AAAA, TYPE_AAAA)
+            )
+            || normalize_response_name(&answer.owner)? != terminal_name
+        {
+            continue;
+        }
+        match (answer.record_type, answer.rdata.len()) {
+            (TYPE_A, 4) => addresses.push(IpAddress::V4([
+                answer.rdata[0],
+                answer.rdata[1],
+                answer.rdata[2],
+                answer.rdata[3],
+            ])),
+            (TYPE_AAAA, 16) => {
+                let mut octets = [0_u8; 16];
+                octets.copy_from_slice(answer.rdata);
+                addresses.push(IpAddress::V6(octets));
+            }
+            _ => {}
+        }
+    }
     Ok(ParsedDnsResponse {
         addresses,
         min_ttl_seconds: min_ttl,
         response_code: response[3] & 0x0f,
         truncated: response[2] & 0x02 != 0,
+    })
+}
+
+fn trusted_cname_terminal(
+    query_name: &str,
+    message: &[u8],
+    answers: &[ResourceRecord<'_>],
+) -> io::Result<String> {
+    let mut aliases = HashMap::new();
+    for answer in answers {
+        if answer.class != 1 || answer.record_type != TYPE_CNAME {
+            continue;
+        }
+        let owner = normalize_response_name(&answer.owner)?;
+        let (target, target_end) = decode_name(message, answer.rdata_start)?;
+        if target_end != answer.next {
+            return Err(invalid("DNS CNAME RDATA length is invalid"));
+        }
+        let target = normalize_response_name(&target)?;
+        if let Some(previous) = aliases.insert(owner, target.clone()) {
+            if previous != target {
+                return Err(invalid("DNS response contains conflicting CNAME targets"));
+            }
+        }
+    }
+
+    let mut current = query_name.to_owned();
+    let mut visited = HashSet::new();
+    loop {
+        if !visited.insert(current.clone()) {
+            return Err(invalid("DNS response contains a CNAME loop"));
+        }
+        let Some(target) = aliases.get(&current) else {
+            return Ok(current);
+        };
+        current = target.clone();
+    }
+}
+
+fn normalize_response_name(name: &str) -> io::Result<String> {
+    normalize_domain(name).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("DNS response contains an invalid name: {error}"),
+        )
+    })
+}
+
+struct ResourceRecord<'a> {
+    next: usize,
+    owner: String,
+    record_type: u16,
+    class: u16,
+    ttl: u32,
+    rdata_start: usize,
+    rdata: &'a [u8],
+}
+
+fn named_record(data: &[u8], offset: usize) -> io::Result<ResourceRecord<'_>> {
+    let (owner, _) = decode_name(data, offset)?;
+    let (next, record_type, class, ttl, rdata) = record(data, offset)?;
+    Ok(ResourceRecord {
+        next,
+        owner,
+        record_type,
+        class,
+        ttl,
+        rdata_start: next - rdata.len(),
+        rdata,
     })
 }
 

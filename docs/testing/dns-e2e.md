@@ -140,6 +140,14 @@ two families, and starts later candidates after a bounded delay. Each candidate
 performs its own TUN egress selection and interface binding; a failed first DNS
 answer therefore does not prevent a reachable answer from being used.
 
+Address candidates are accepted only when the A/AAAA owner is the queried name
+or the terminal canonical name of a valid query-rooted CNAME chain. Compressed
+and unordered CNAME answers are supported. Unrelated answer owners are retained
+only in the raw forwarded DNS message; they never enter the address cache,
+reverse mapping, or outbound candidate set. A malformed, conflicting, or cyclic
+trusted CNAME chain is rejected as a malformed upstream response. Additional-
+section glue is not promoted to a trusted address candidate.
+
 When `reverse_mapping` is present, successful real A/AAAA answers also populate
 a bounded IP-to-domain index owned by `zero-dns`. Transparent TUN sessions may
 recover an unambiguous logical domain from that index while retaining the
