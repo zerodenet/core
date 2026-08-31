@@ -759,6 +759,11 @@ fn config_json_with_dns(
     config["runtime"]["dns"]["servers"]["test"]["host"] =
         serde_json::Value::String(dns.ip().to_string());
     config["runtime"]["dns"]["servers"]["test"]["port"] = serde_json::Value::from(dns.port());
+    // Keep an unreachable IPv6 bootstrap candidate in the exact IPv4-only
+    // environment covered by this E2E. Its required host exclusion must not
+    // prevent the dual-stack TUN from starting through an IPv4 route carrier.
+    config["runtime"]["dns"]["servers"]["test"]["bootstrap"] =
+        serde_json::json!([dns.ip(), "2001:db8::53"]);
     serde_json::to_string_pretty(&config).unwrap()
 }
 

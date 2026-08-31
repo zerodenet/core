@@ -1,8 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr};
 
 use super::{
-    capture_route_prefixes, capture_route_prefixes_with_exclusions, RouteInterface, RouteJournal,
-    RouteLease,
+    capture_route_prefixes, capture_route_prefixes_with_exclusions, family_exclusions_for_egress,
+    EgressUnavailableReason, FamilyEgressState, RouteInterface, RouteJournal, RouteLease,
 };
 
 #[test]
@@ -133,6 +133,24 @@ fn recovery_journal_accepts_legacy_entries_without_gateway() {
     .expect("deserialize legacy route journal");
     assert!(recovered.gateway.is_none());
     assert!(!recovered.scoped_bypass);
+}
+
+#[test]
+fn host_exclusions_require_native_family_egress() {
+    let excluded = [
+        "2001:db8::53".parse().unwrap(),
+        "192.0.2.53".parse().unwrap(),
+    ];
+    let available =
+        FamilyEgressState::Available(RouteInterface::new("physical6".to_owned(), 6).unwrap());
+    assert_eq!(
+        family_exclusions_for_egress(&excluded, true, &available),
+        vec!["2001:db8::53".parse::<IpAddr>().unwrap()]
+    );
+
+    let unavailable = FamilyEgressState::Unavailable(EgressUnavailableReason::NoDefaultRoute);
+    assert!(family_exclusions_for_egress(&excluded, true, &unavailable).is_empty());
+    assert!(family_exclusions_for_egress(&excluded, true, &FamilyEgressState::Unknown).is_empty());
 }
 
 #[test]

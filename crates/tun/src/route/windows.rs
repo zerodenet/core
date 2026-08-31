@@ -17,8 +17,8 @@ use windows_sys::Win32::Networking::WinSock::{
 
 use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
 use super::{
-    family_exclusions, host_prefix, EgressUnavailableReason, FamilyEgressState, RouteInterface,
-    RouteJournal, RouteLease,
+    family_exclusions_for_egress, host_prefix, EgressUnavailableReason, FamilyEgressState,
+    RouteInterface, RouteJournal, RouteLease,
 };
 
 #[derive(Debug)]
@@ -80,11 +80,10 @@ impl SystemRouteGuard {
         recover_stale_routes(&lease, address.is_ipv6())?;
         let tun_index = interface_by_name(tun_name)?;
         let ipv6 = address.is_ipv6();
-        let has_family_exclusions = excluded.iter().any(|peer| peer.is_ipv6() == ipv6);
-        let selected = select_physical_egress(ipv6, tun_index, !has_family_exclusions)?;
+        let selected = select_physical_egress(ipv6, tun_index)?;
         let egress = selected.carrier;
         let gateway = selected.gateway;
-        let desired_exclusions = family_exclusions(excluded, ipv6);
+        let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family);
         let journal = RouteJournal::new(
             lease,
             tun_name,
@@ -131,9 +130,9 @@ impl SystemRouteGuard {
     /// Re-resolve the preferred physical interface and reconcile explicit
     /// bypass routes without replacing the TUN device or split default routes.
     pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
-        let desired_exclusions = family_exclusions(excluded, self.ipv6);
-        let has_family_exclusions = !desired_exclusions.is_empty();
-        let selected = select_physical_egress(self.ipv6, self.tun_index, !has_family_exclusions)?;
+        let selected = select_physical_egress(self.ipv6, self.tun_index)?;
+        let desired_exclusions =
+            family_exclusions_for_egress(excluded, self.ipv6, &selected.family);
         let family_changed = self.family_egress != selected.family;
         let changed =
             reconcile_route_state(self, selected.carrier, selected.gateway, desired_exclusions)?;
@@ -315,11 +314,7 @@ fn interface_by_name(name: &str) -> io::Result<u32> {
     Ok(index)
 }
 
-fn select_physical_egress(
-    ipv6: bool,
-    tun_index: u32,
-    allow_cross_family_carrier: bool,
-) -> io::Result<WindowsEgressSelection> {
+fn select_physical_egress(ipv6: bool, tun_index: u32) -> io::Result<WindowsEgressSelection> {
     match default_interface(ipv6, tun_index) {
         Ok(physical) => {
             let carrier =
@@ -356,7 +351,7 @@ fn select_physical_egress(
                 family,
             })
         }
-        Err(native_error) if allow_cross_family_carrier => {
+        Err(native_error) => {
             let physical = default_interface(!ipv6, tun_index).map_err(|fallback| {
                 io::Error::new(
                     fallback.kind(),
@@ -383,7 +378,6 @@ fn select_physical_egress(
                 family: FamilyEgressState::Unavailable(EgressUnavailableReason::NoDefaultRoute),
             })
         }
-        Err(error) => Err(error),
     }
 }
 
