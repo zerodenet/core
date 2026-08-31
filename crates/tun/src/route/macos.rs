@@ -6,8 +6,8 @@ use ipnet::IpNet;
 
 use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
 use super::{
-    command_error, family_exclusions, EgressUnavailableReason, FamilyEgressState, RouteInterface,
-    RouteJournal, RouteLease,
+    command_error, family_exclusions_for_egress, EgressUnavailableReason, FamilyEgressState,
+    RouteInterface, RouteJournal, RouteLease,
 };
 
 mod scoped;
@@ -68,8 +68,7 @@ impl SystemRouteGuard {
         let ipv6 = address.is_ipv6();
         let lease = RouteLease::acquire(recovery_key, ipv6)?;
         recover_stale_routes(&lease, ipv6)?;
-        let has_family_exclusions = excluded.iter().any(|peer| peer.is_ipv6() == ipv6);
-        let selected = select_physical_egress(ipv6, tun_name, !has_family_exclusions)?;
+        let selected = select_physical_egress(ipv6, tun_name)?;
         let egress = selected.carrier;
         let gateway = selected.gateway;
         let tun_gateway = match address {
@@ -77,7 +76,7 @@ impl SystemRouteGuard {
             IpAddr::V6(_) => None,
         };
         let journal = RouteJournal::new(lease, tun_name, ipv6, 0, egress.clone(), gateway.clone())?;
-        let desired_exclusions = family_exclusions(excluded, ipv6);
+        let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family);
         let mut guard = Self {
             egress,
             family_egress: selected.family,
@@ -117,9 +116,9 @@ impl SystemRouteGuard {
     /// Re-resolve the preferred physical interface and reconcile explicit
     /// bypass routes without replacing the TUN device or split default routes.
     pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
-        let desired_exclusions = family_exclusions(excluded, self.ipv6);
-        let has_family_exclusions = !desired_exclusions.is_empty();
-        let selected = select_physical_egress(self.ipv6, &self.tun_name, !has_family_exclusions)?;
+        let selected = select_physical_egress(self.ipv6, &self.tun_name)?;
+        let desired_exclusions =
+            family_exclusions_for_egress(excluded, self.ipv6, &selected.family);
         let family_changed = self.family_egress != selected.family;
         let changed =
             reconcile_route_state(self, selected.carrier, selected.gateway, desired_exclusions)?;
@@ -226,18 +225,14 @@ impl SystemRouteGuard {
     }
 }
 
-fn select_physical_egress(
-    ipv6: bool,
-    tun_name: &str,
-    allow_cross_family_carrier: bool,
-) -> io::Result<MacosEgressSelection> {
+fn select_physical_egress(ipv6: bool, tun_name: &str) -> io::Result<MacosEgressSelection> {
     match default_interface(ipv6, tun_name) {
         Ok((carrier, gateway)) => Ok(MacosEgressSelection {
             family: FamilyEgressState::Available(carrier.clone()),
             carrier,
             gateway,
         }),
-        Err(error) if allow_cross_family_carrier => {
+        Err(error) => {
             let (carrier, gateway) = default_interface(!ipv6, tun_name).map_err(|fallback| {
                 io::Error::new(
                     fallback.kind(),
@@ -252,7 +247,6 @@ fn select_physical_egress(
                 family: FamilyEgressState::Unavailable(EgressUnavailableReason::NoDefaultRoute),
             })
         }
-        Err(error) => Err(error),
     }
 }
 

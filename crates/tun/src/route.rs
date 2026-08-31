@@ -275,5 +275,21 @@ fn family_exclusions(excluded: &[IpAddr], ipv6: bool) -> Vec<IpAddr> {
     excluded
 }
 
+/// Keep explicit host bypasses only while this address family has a native
+/// physical egress. A cross-family carrier can install the TUN capture routes,
+/// but it cannot carry a same-family host route for an otherwise unreachable
+/// DNS/bootstrap endpoint.
+fn family_exclusions_for_egress(
+    excluded: &[IpAddr],
+    ipv6: bool,
+    family_egress: &FamilyEgressState,
+) -> Vec<IpAddr> {
+    if family_egress.available_interface().is_some() {
+        family_exclusions(excluded, ipv6)
+    } else {
+        Vec::new()
+    }
+}
+
 #[cfg(test)]
 mod tests;
