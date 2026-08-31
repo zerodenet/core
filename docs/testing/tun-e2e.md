@@ -21,6 +21,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 - 代理节点不再获得自动 host route；Zero 创建的 TCP/UDP/QUIC socket 按 IPv4/IPv6 分别绑定各自 underlay 接口，避免代理自环。DNS UDP 与 DoT socket 使用同一出口权威；DoH/系统 bootstrap 仍由显式 DNS 排除或操作系统解析路径保护。
 - 物理出口或受管 TUN 地址集合每次实际变化都会发布单调递增的出口 generation。direct UDP 在下一次发送前发现旧 generation 时重建双栈 socket；重建期间若拓扑持续抖动则 fail closed，不使用旧出口继续发送。新建域名 UDP flow 在解析器首选的可用地址族内采用稳定候选，DNS 答案重排不会把所有流量重新固定到第一条记录。
 - macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
+- macOS strict-route PF 策略会把 IPv4 `127.0.0.0/8` 和 IPv6 `::1/128` 从 fail-closed block 前缀中结构性扣除，并保留显式回环放行规则作为额外防线。系统原生 `lo0` 路由不会被 Zero 认领或改写；本机控制面和代理入站在正常启停、重载及崩溃残留期间始终可达，且回环连接不会进入 TUN 会话。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。系统路由 lease 则按地址族全局持有，第二个进程即使使用不同 tag，也必须明确失败且报告当前 owner，不能同时改写同一组捕获路由。
 
 调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。`--include-cidr CIDR` 与 `--exclude-cidr CIDR` 均可重复传入以验证选择性接管。生产防泄露验证不应关闭 strict route。Linux smoke case 还会用与 Zero 相同的有效 UID 创建一个未打 `SO_MARK`、强制绑定物理网卡的 TCP socket；该 socket 必须被 nftables kill switch 拒绝，而紧邻的受管 TUN TCP 请求必须成功，从而同时验证“同 UID 不继承例外”和 Zero 自身 underlay 身份链。
@@ -250,6 +251,12 @@ macOS 的 PF_ROUTE 生命周期用例只增删一条 `lo0` TEST-NET 主机路由
 sudo cargo test -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
 ```
 
+macOS 回环用例不访问公网，会依次验证无 TUN 基线、`strict_route=false` 对照和生产 strict-route 模式，并断言原生非 scoped `lo0` 路由保持不变、本机监听可达、无对应 TUN 会话、硬杀残留期间可达，以及重启恢复和正常停止后的系统路由还原：
+
+```bash
+sudo cargo test --test tun_privileged_e2e privileged_macos_tun_loopback_remains_reachable_across_crash_recovery -- --ignored --exact --nocapture
+```
+
 macOS 动态出口用例会暂时修改全局 IPv4 默认路由，并由 RAII 恢复，因此只能在隔离 runner 上运行。备用网关必须已经通过备用接口直连可达：
 
 ```bash
@@ -259,4 +266,4 @@ sudo env \
   cargo test --test tun_route_reconcile_macos_e2e macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
 ```
 
-`.github/workflows/tun-e2e.yml` 将冒烟、direct UDP/DNS 自捕获、两个单栈 STUN 和离线双栈用例分发到 Linux、macOS 和 Windows 的 hosted runner，以及带 `tun` 标签的隔离自托管 runner。修改 TUN、stack、DNS、egress 或这些特权 harness 的 PR 会直接触发三套 hosted runner；PR 事件运行平台基础检查、direct UDP 门禁，以及 Linux/Windows 的确定性离线双栈门禁。依赖公网的冒烟测试和 macOS 尚未完成隔离的完整套件仍在 `develop` push 和人工 dispatch 上执行，避免由 `example.com`、Cloudflare DoH 等外部服务决定专项 PR 结论。自托管 runner 仍只接受人工 dispatch。direct UDP 用例在未设置 `ZERO_TUN_E2E_DNS_ADDR` 时使用默认公网 DNS 目标，连续复用一个源 tuple 后再制造 32 个源端口，并断言权威 active-flow 快照不超过 33 条目标 TUN UDP flow、活动与最近完成记录合并后的新增目标 flow ID 也不超过 33；这样仍活跃或快速失败的每包递归自捕获 association/session 都会直接使测试失败，同时不会把 Windows 等平台在测试期间产生的无关后台流量计入门禁。STUN 用例需要对应地址族的原生连通性和可达服务，离线双栈用例不作此要求；Windows runner 还需预装匹配架构的 Wintun。
+`.github/workflows/tun-e2e.yml` 将冒烟、direct UDP/DNS 自捕获、两个单栈 STUN 和离线双栈用例分发到 Linux、macOS 和 Windows 的 hosted runner，以及带 `tun` 标签的隔离自托管 runner。修改 TUN、stack、DNS、egress 或这些特权 harness 的 PR 会直接触发三套 hosted runner；PR 事件运行平台基础检查、direct UDP 门禁、macOS 确定性回环与崩溃恢复门禁、macOS Fake-IP DoH 回归，以及 Linux/Windows 的确定性离线双栈门禁。其余依赖公网的冒烟测试和 macOS 离线双栈完整套件仍在 `develop` push 和人工 dispatch 上执行。自托管 runner 仍只接受人工 dispatch。direct UDP 用例在未设置 `ZERO_TUN_E2E_DNS_ADDR` 时使用默认公网 DNS 目标，连续复用一个源 tuple 后再制造 32 个源端口，并断言权威 active-flow 快照不超过 33 条目标 TUN UDP flow、活动与最近完成记录合并后的新增目标 flow ID 也不超过 33；这样仍活跃或快速失败的每包递归自捕获 association/session 都会直接使测试失败，同时不会把 Windows 等平台在测试期间产生的无关后台流量计入门禁。STUN 用例需要对应地址族的原生连通性和可达服务，离线双栈用例不作此要求；Windows runner 还需预装匹配架构的 Wintun。

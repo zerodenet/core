@@ -8,6 +8,7 @@ use ipnet::IpNet;
 use super::{
     normalized_exclusions, normalized_prefixes, safe_resource_name, validate_interface_name,
 };
+use crate::route::capture_route_prefixes_with_exclusions;
 
 #[derive(Debug)]
 pub struct SystemLeakGuard {
@@ -172,15 +173,39 @@ fn flush_anchor(anchor: &str) -> io::Result<()> {
 fn policy_rules(tun_name: &str, protected: &[IpNet], excluded: &[IpAddr]) -> String {
     let uid = unsafe { libc::geteuid() };
     let mut rules = format!(
-        "pass out quick on lo0 all\npass out quick on {tun_name} all\npass out quick all user {uid}\n"
+        "pass out quick on lo0 all\n\
+         pass out quick to 127.0.0.0/8\n\
+         pass out quick to ::1/128\n\
+         pass out quick on {tun_name} all\n\
+         pass out quick all user {uid}\n"
     );
     for address in excluded {
         rules.push_str(&format!("pass out quick to {address}\n"));
     }
-    for prefix in protected {
+    for prefix in protected_prefixes_without_loopback(protected) {
         rules.push_str(&format!("block drop out quick to {prefix}\n"));
     }
     rules
+}
+
+fn protected_prefixes_without_loopback(protected: &[IpNet]) -> Vec<IpNet> {
+    let loopback_v4 = "127.0.0.0/8".parse().expect("valid IPv4 loopback CIDR");
+    let loopback_v6 = "::1/128".parse().expect("valid IPv6 loopback CIDR");
+    let mut prefixes = protected
+        .iter()
+        .copied()
+        .flat_map(|prefix| {
+            let loopback = if prefix.addr().is_ipv4() {
+                loopback_v4
+            } else {
+                loopback_v6
+            };
+            capture_route_prefixes_with_exclusions(prefix.addr(), &[prefix], &[loopback])
+        })
+        .collect::<Vec<_>>();
+    prefixes.sort_unstable();
+    prefixes.dedup();
+    prefixes
 }
 
 fn command_error(action: &str, stderr: &[u8]) -> io::Error {
@@ -205,7 +230,39 @@ mod tests {
         assert!(rules.contains("pass out quick on utun8 all"));
         assert!(rules.contains(&format!("pass out quick all user {uid}\n")));
         assert!(!rules.contains("pass out quick user"));
+        assert!(rules.contains("pass out quick to 127.0.0.0/8\n"));
+        assert!(rules.contains("pass out quick to ::1/128\n"));
         assert!(rules.contains("pass out quick to 192.0.2.1"));
         assert!(rules.ends_with("block drop out quick to 203.0.113.0/24\n"));
+    }
+
+    #[test]
+    fn pf_policy_exempts_loopback_destinations_before_protected_routes() {
+        let rules = policy_rules(
+            "utun8",
+            &[
+                "0.0.0.0/1".parse().unwrap(),
+                "128.0.0.0/1".parse().unwrap(),
+                "::/1".parse().unwrap(),
+                "8000::/1".parse().unwrap(),
+            ],
+            &[],
+        );
+        let ipv4_pass = rules.find("pass out quick to 127.0.0.0/8").unwrap();
+        let ipv6_pass = rules.find("pass out quick to ::1/128").unwrap();
+        let first_block = rules.find("block drop out quick").unwrap();
+        assert!(ipv4_pass < first_block);
+        assert!(ipv6_pass < first_block);
+        let blocked = rules
+            .lines()
+            .filter_map(|line| line.strip_prefix("block drop out quick to "))
+            .map(|prefix| prefix.parse::<IpNet>().unwrap())
+            .collect::<Vec<_>>();
+        assert!(!blocked
+            .iter()
+            .any(|prefix| prefix.contains(&"127.0.0.1".parse::<IpAddr>().unwrap())));
+        assert!(!blocked
+            .iter()
+            .any(|prefix| prefix.contains(&"::1".parse::<IpAddr>().unwrap())));
     }
 }
