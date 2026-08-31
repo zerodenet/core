@@ -7,9 +7,9 @@ use zero_config::{
     DnsAddressFamilyPolicy, DnsAnswerConfig, DnsConfig, DnsPolicyConfig, DnsServerConfig,
 };
 use zero_core::{Address, FakeIpReverseStatus, Network, ProtocolType, Session, TargetHostSource};
-use zero_traits::IpAddress;
 #[cfg(feature = "socks5")]
 use zero_traits::AsyncSocket;
+use zero_traits::IpAddress;
 
 use crate::runtime::target::resolve_dns_target;
 use crate::transport::DirectConnector;
@@ -150,16 +150,7 @@ async fn mapped_fake_ipv6_is_forwarded_to_a_proxy_as_the_recovered_domain() {
         .expect("establish proxied tunnel");
 
     let domain = b"proxied.example";
-    let mut expected = vec![
-        0x05,
-        0x01,
-        0x00,
-        0x05,
-        0x01,
-        0x00,
-        0x03,
-        domain.len() as u8,
-    ];
+    let mut expected = vec![0x05, 0x01, 0x00, 0x05, 0x01, 0x00, 0x03, domain.len() as u8];
     expected.extend_from_slice(domain);
     expected.extend_from_slice(&443_u16.to_be_bytes());
 
