@@ -235,8 +235,10 @@ fn privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture() {
         let tun_name = assert_tun_os_configured(binary, &socket, false, false);
         #[cfg(target_os = "macos")]
         assert_macos_loopback_listener_reachable(binary, &socket, listen_port, &loopback_before);
-        assert_http_connect_domain_through_mixed_inbound(listen_port, "example.com");
-        assert_http_domain_through_fake_ip("example.com");
+        let domain = std::env::var("ZERO_TUN_E2E_FAKE_IP_DOMAIN")
+            .unwrap_or_else(|_| "example.com".to_owned());
+        assert_http_connect_domain_through_mixed_inbound(listen_port, &domain);
+        assert_http_domain_through_fake_ip(&domain);
         assert_dns_underlay_not_captured(binary, &socket);
 
         run_cli(
