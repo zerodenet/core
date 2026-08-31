@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::Arc;
 
 use zero_core::{Address, Error, Session};
 use zero_dns::DnsSystem;
@@ -12,8 +13,13 @@ use zero_platform_tokio::{
 };
 use zero_traits::IpAddress;
 
-use super::direct_dial::{dial_tcp_candidates, TcpDialAttempt, TcpDialFailure};
-use candidates::{append_recovered_ipv4_candidates, literal_direct_target};
+use super::direct_dial::{
+    dial_tcp_candidates, dial_tcp_fallback_candidates, TcpDialAttempt, TcpDialFailure,
+};
+use candidates::{
+    literal_direct_target, recovered_ipv4_candidate_refresh, refresh_recovered_ipv4_candidates,
+    RecoveredDirectCandidateRefresh,
+};
 
 pub(super) mod candidates;
 
@@ -36,6 +42,7 @@ pub(crate) struct DirectTcpConnectFailure {
 pub(crate) struct DirectTargetResolution {
     pub(crate) candidates: Vec<SocketAddr>,
     udp_original_candidate: Option<SocketAddr>,
+    recovered_candidate_refresh: Option<RecoveredDirectCandidateRefresh>,
     address_family_policy: &'static str,
     fallback: Option<DirectAddressFamilyFallback>,
 }
@@ -76,10 +83,13 @@ impl DirectConnector {
     pub(crate) async fn connect(
         &self,
         session: &Session,
-        resolver: &DnsSystem,
+        resolver: &Arc<DnsSystem>,
         egress: &EgressInterfaceControl,
     ) -> Result<DirectTcpConnection, DirectTcpConnectFailure> {
-        let resolution = match self.resolve_target_addrs(session, resolver, egress).await {
+        let resolution = match self
+            .resolve_target_addrs(session, resolver.as_ref(), egress)
+            .await
+        {
             Ok(resolution) => resolution,
             Err(error) => {
                 return Err(DirectTcpConnectFailure {
@@ -92,7 +102,21 @@ impl DirectConnector {
             }
         };
 
-        match dial_tcp_candidates(resolution.candidates.clone(), egress).await {
+        let dial = match dial_tcp_candidates(resolution.candidates.clone(), egress).await {
+            Ok(success) => Ok(success),
+            Err(failure) => {
+                Box::pin(self.retry_recovered_candidates(
+                    session,
+                    resolver,
+                    egress,
+                    &resolution,
+                    failure,
+                ))
+                .await
+            }
+        };
+
+        match dial {
             Ok(success) => {
                 let socket = success.socket;
                 let local = socket.local_addr().ok();
@@ -273,15 +297,88 @@ impl DirectConnector {
             )
             .await?
         };
-        let candidates = append_recovered_ipv4_candidates(session, resolver, candidates).await;
+        let recovered_candidate_refresh = recovered_ipv4_candidate_refresh(session, &candidates);
         let udp_original_candidate =
             literal_direct_target(session).filter(|original| candidates.contains(original));
         Ok(DirectTargetResolution {
             candidates,
             udp_original_candidate,
+            recovered_candidate_refresh,
             address_family_policy: resolver.address_family_policy().as_str(),
             fallback,
         })
+    }
+
+    async fn retry_recovered_candidates(
+        &self,
+        session: &Session,
+        resolver: &Arc<DnsSystem>,
+        egress: &EgressInterfaceControl,
+        resolution: &DirectTargetResolution,
+        failure: Box<TcpDialFailure>,
+    ) -> Result<super::direct_dial::TcpDialSuccess, Box<TcpDialFailure>> {
+        let Some(refresh) = resolution.recovered_candidate_refresh.as_ref() else {
+            return Err(failure);
+        };
+        // Poll configured DNS from a fresh task stack. Keeping this under the
+        // TUN direct-connect future recursively embeds the DNS underlay path
+        // and can exhaust Tokio's worker stack under transparent flow load.
+        // JoinSet also aborts the refresh if the owning connection is dropped.
+        let mut refresh_tasks = tokio::task::JoinSet::new();
+        {
+            let refresh = refresh.clone();
+            let resolver = Arc::clone(resolver);
+            let port = session.port;
+            let candidates = resolution.candidates.clone();
+            refresh_tasks.spawn(async move {
+                refresh_recovered_ipv4_candidates(&refresh, resolver.as_ref(), port, candidates)
+                    .await
+            });
+        }
+        let candidates = match refresh_tasks
+            .join_next()
+            .await
+            .expect("one trusted-domain refresh task is registered")
+        {
+            Ok(Ok(candidates)) => candidates,
+            Ok(Err(error)) => {
+                tracing::debug!(
+                    domain = refresh.domain,
+                    host_source = refresh.host_source,
+                    error = %error,
+                    "trusted-domain candidate refresh failed; retaining original direct failure"
+                );
+                return Err(failure);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    domain = refresh.domain,
+                    host_source = refresh.host_source,
+                    error = %error,
+                    "trusted-domain candidate refresh task failed; retaining original direct failure"
+                );
+                return Err(failure);
+            }
+        };
+        let additional_candidates = candidates
+            .into_iter()
+            .skip(resolution.candidates.len())
+            .collect::<Vec<_>>();
+        if additional_candidates.is_empty() {
+            tracing::debug!(
+                domain = refresh.domain,
+                host_source = refresh.host_source,
+                "trusted-domain candidate refresh returned no new direct endpoint"
+            );
+            return Err(failure);
+        }
+        tracing::debug!(
+            domain = refresh.domain,
+            host_source = refresh.host_source,
+            candidate_count = resolution.candidates.len() + additional_candidates.len(),
+            "original direct endpoint failed; retrying trusted DNS candidates"
+        );
+        dial_tcp_fallback_candidates(failure, additional_candidates, egress).await
     }
 
     pub(crate) fn udp_network_observation(

@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use zero_core::{Address, Network, ProtocolType, Session, TargetHostSource};
 
 use super::{
     direct::candidates::{append_unique_resolved_candidates, MAX_RECOVERED_DIRECT_CANDIDATES},
     direct_dial::{
-        dial_tcp_candidates, interleave_address_families, MAX_RECORDED_CONNECTION_ATTEMPTS,
+        dial_tcp_candidates, dial_tcp_fallback_candidates, interleave_address_families,
+        MAX_RECORDED_CONNECTION_ATTEMPTS,
     },
     DirectConnector,
 };
@@ -168,6 +171,27 @@ async fn tcp_dial_failure_records_the_platform_socket_error() {
 }
 
 #[tokio::test]
+async fn tcp_fallback_candidates_do_not_redial_completed_endpoints() {
+    let first = "[2001:db8::1]:443".parse().unwrap();
+    let second = "[2001:db8::2]:443".parse().unwrap();
+    let egress = zero_platform_tokio::EgressInterfaceControl::default();
+    egress.mark_unavailable_for(true, "no physical IPv6 default route");
+    egress.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
+
+    let initial = dial_tcp_candidates(vec![first], &egress)
+        .await
+        .expect_err("initial endpoint must fail");
+    let failure = dial_tcp_fallback_candidates(initial, vec![first, second], &egress)
+        .await
+        .expect_err("fallback endpoint must fail");
+
+    assert_eq!(failure.resolved_candidates, vec![first, second]);
+    assert_eq!(failure.attempts.len(), 2);
+    assert_eq!(failure.attempts[0].remote, first);
+    assert_eq!(failure.attempts[1].remote, second);
+}
+
+#[tokio::test]
 async fn tcp_dial_failure_attempt_observations_are_ordered_and_bounded() {
     let egress = zero_platform_tokio::EgressInterfaceControl::default();
     egress.mark_unavailable_for(true, "no physical IPv6 default route");
@@ -213,7 +237,7 @@ async fn recovered_ipv4_target_uses_trusted_dns_candidates_after_original_fails(
     session.target = Address::Domain("localhost".to_owned());
     session.sni = Some("localhost".to_owned());
     session.port = reachable.port();
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
     let egress = zero_platform_tokio::EgressInterfaceControl::default();
 
     let connection = DirectConnector
@@ -240,29 +264,128 @@ async fn recovered_ipv4_target_uses_trusted_dns_candidates_after_original_fails(
             .count(),
         1
     );
+    assert_eq!(
+        connection.network.connection_attempts[0]
+            .remote_address
+            .host,
+        captured.ip().to_string()
+    );
+    assert_eq!(
+        connection
+            .network
+            .connection_attempts
+            .last()
+            .unwrap()
+            .outcome,
+        "connected"
+    );
 }
 
 #[tokio::test]
 async fn recovered_ipv4_dns_failure_retains_the_original_candidate() {
-    let original = Address::Ipv4([192, 0, 2, 10]);
+    let reservation = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let unavailable = reservation.local_addr().unwrap();
+    drop(reservation);
+    let original = Address::Ipv4([127, 0, 0, 1]);
     let mut session = tls_sni_session(original);
     session.target = Address::Domain("invalid\0domain".to_owned());
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    session.port = unavailable.port();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
 
-    let resolution = DirectConnector
-        .resolve_target_addrs(
+    let failure = match DirectConnector
+        .connect(
             &session,
             &resolver,
             &zero_platform_tokio::EgressInterfaceControl::default(),
         )
         .await
-        .expect("literal target remains valid when DNS refresh fails");
+    {
+        Ok(_) => panic!("closed original endpoint and invalid refresh domain must fail"),
+        Err(failure) => failure,
+    };
 
+    assert_eq!(failure.stage, "connect_direct");
+    assert_eq!(failure.network.resolved_candidates.len(), 1);
     assert_eq!(
-        resolution.candidates,
-        vec!["192.0.2.10:443".parse().unwrap()]
+        failure.network.resolved_candidates[0].host,
+        unavailable.ip().to_string()
     );
-    assert_eq!(resolution.udp_candidates(), resolution.candidates);
+    assert_eq!(failure.network.connection_attempts.len(), 1);
+    assert_eq!(
+        failure.network.connection_attempts[0].remote_address.host,
+        unavailable.ip().to_string()
+    );
+    assert!(failure.network.connection_attempts[0].os_error.is_some());
+}
+
+#[tokio::test]
+async fn recovered_ipv4_success_does_not_refresh_trusted_dns() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let dns = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+    let dns_addr = dns.local_addr().unwrap();
+    let query_count = Arc::new(AtomicUsize::new(0));
+    let server = {
+        let dns = Arc::clone(&dns);
+        let query_count = Arc::clone(&query_count);
+        tokio::spawn(async move {
+            let mut query = [0_u8; 2048];
+            while let Ok(Ok((size, peer))) =
+                tokio::time::timeout(std::time::Duration::from_secs(2), dns.recv_from(&mut query))
+                    .await
+            {
+                query_count.fetch_add(1, Ordering::SeqCst);
+                let mut response = query[..size].to_vec();
+                response[2] |= 0x80;
+                response[3] |= 0x80;
+                response[6..12].fill(0);
+                dns.send_to(&response, peer).await.unwrap();
+            }
+        })
+    };
+    let config = zero_config::RuntimeConfig::parse(&format!(
+        r#"{{
+            "runtime": {{
+                "dns": {{
+                    "servers": {{
+                        "test": {{ "type": "udp", "host": "127.0.0.1", "port": {} }}
+                    }},
+                    "default_server": "test",
+                    "policy": {{ "address_family": "ipv4_only" }}
+                }}
+            }},
+            "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+        }}"#,
+        dns_addr.port()
+    ))
+    .unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(config.runtime.dns.as_ref()).unwrap());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let original = listener.local_addr().unwrap();
+    let mut session = tls_sni_session(Address::Ipv4([127, 0, 0, 1]));
+    session.target = Address::Domain("refresh.invalid".to_owned());
+    session.sni = Some("refresh.invalid".to_owned());
+    session.port = original.port();
+
+    let connection = match DirectConnector
+        .connect(
+            &session,
+            &resolver,
+            &zero_platform_tokio::EgressInterfaceControl::default(),
+        )
+        .await
+    {
+        Ok(connection) => connection,
+        Err(failure) => panic!(
+            "usable original endpoint must connect before DNS refresh: {}",
+            failure.error
+        ),
+    };
+
+    assert_eq!(connection.remote, original);
+    assert_eq!(connection.network.resolved_candidates.len(), 1);
+    assert_eq!(connection.network.connection_attempts.len(), 1);
+    assert_eq!(query_count.load(Ordering::SeqCst), 0);
+    server.abort();
 }
 
 #[tokio::test]
@@ -272,7 +395,7 @@ async fn recovered_ipv4_without_host_source_remains_literal_only() {
     session.target = Address::Domain("localhost".to_owned());
     session.target_host_source = None;
     session.sni = None;
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
 
     let resolution = DirectConnector
         .resolve_target_addrs(
@@ -295,7 +418,7 @@ async fn recovered_ipv4_udp_remains_pinned_to_the_original_candidate() {
     let mut session = tls_sni_session(original);
     session.target = Address::Domain("localhost".to_owned());
     session.network = Network::Udp;
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
 
     let resolution = DirectConnector
         .resolve_target_addrs(
@@ -326,7 +449,7 @@ async fn unavailable_tun_ipv6_egress_reresolves_a_trusted_domain_to_ipv4() {
     let egress = zero_platform_tokio::EgressInterfaceControl::default();
     egress.mark_unavailable_for(true, "no physical IPv6 default route");
     egress.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
 
     let resolution = DirectConnector
         .resolve_target_addrs(&session, &resolver, &egress)
@@ -377,7 +500,7 @@ async fn unreachable_native_ipv6_candidate_races_one_trusted_ipv4_fallback() {
         Some(zero_platform_tokio::EgressInterface::new("loopback", 1).unwrap()),
     );
     egress.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
 
     let started = std::time::Instant::now();
     let connection = match DirectConnector.connect(&session, &resolver, &egress).await {
@@ -410,7 +533,7 @@ async fn unavailable_tun_ipv6_egress_applies_to_recovered_fake_ip_domains() {
     let egress = zero_platform_tokio::EgressInterfaceControl::default();
     egress.mark_unavailable_for(true, "no physical IPv6 default route");
     egress.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
 
     let resolution = DirectConnector
         .resolve_target_addrs(&session, &resolver, &egress)
@@ -436,7 +559,7 @@ async fn failed_ipv4_reresolution_keeps_the_fallback_diagnostics() {
     let egress = zero_platform_tokio::EgressInterfaceControl::default();
     egress.mark_unavailable_for(true, "no physical IPv6 default route");
     egress.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
 
     let failure = match DirectConnector.connect(&session, &resolver, &egress).await {
         Ok(_) => panic!("invalid fallback domain must not connect"),
@@ -466,7 +589,7 @@ async fn failed_ipv4_reresolution_keeps_the_fallback_diagnostics() {
 async fn direct_ipv6_is_preserved_without_an_active_tun_capture() {
     let original = Address::Ipv6([0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
     let session = tls_sni_session(original.clone());
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
 
     let resolution = DirectConnector
         .resolve_target_addrs(
@@ -490,7 +613,7 @@ async fn literal_ipv6_without_a_recovered_domain_is_not_converted() {
     let egress = zero_platform_tokio::EgressInterfaceControl::default();
     egress.mark_unavailable_for(true, "no physical IPv6 default route");
     egress.replace_tunnel_addresses(["10.66.0.1".parse().unwrap(), "fd66::1".parse().unwrap()]);
-    let resolver = zero_dns::DnsSystem::build(None).unwrap();
+    let resolver = Arc::new(zero_dns::DnsSystem::build(None).unwrap());
 
     let resolution = DirectConnector
         .resolve_target_addrs(&session, &resolver, &egress)
