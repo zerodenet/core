@@ -8,6 +8,7 @@ use ipnet::IpNet;
 use super::{
     normalized_exclusions, normalized_prefixes, safe_resource_name, validate_interface_name,
 };
+use crate::route::capture_route_prefixes_with_exclusions;
 
 #[derive(Debug)]
 pub struct SystemLeakGuard {
@@ -181,10 +182,30 @@ fn policy_rules(tun_name: &str, protected: &[IpNet], excluded: &[IpAddr]) -> Str
     for address in excluded {
         rules.push_str(&format!("pass out quick to {address}\n"));
     }
-    for prefix in protected {
+    for prefix in protected_prefixes_without_loopback(protected) {
         rules.push_str(&format!("block drop out quick to {prefix}\n"));
     }
     rules
+}
+
+fn protected_prefixes_without_loopback(protected: &[IpNet]) -> Vec<IpNet> {
+    let loopback_v4 = "127.0.0.0/8".parse().expect("valid IPv4 loopback CIDR");
+    let loopback_v6 = "::1/128".parse().expect("valid IPv6 loopback CIDR");
+    let mut prefixes = protected
+        .iter()
+        .copied()
+        .flat_map(|prefix| {
+            let loopback = if prefix.addr().is_ipv4() {
+                loopback_v4
+            } else {
+                loopback_v6
+            };
+            capture_route_prefixes_with_exclusions(prefix.addr(), &[prefix], &[loopback])
+        })
+        .collect::<Vec<_>>();
+    prefixes.sort_unstable();
+    prefixes.dedup();
+    prefixes
 }
 
 fn command_error(action: &str, stderr: &[u8]) -> io::Error {
@@ -232,5 +253,16 @@ mod tests {
         let first_block = rules.find("block drop out quick").unwrap();
         assert!(ipv4_pass < first_block);
         assert!(ipv6_pass < first_block);
+        let blocked = rules
+            .lines()
+            .filter_map(|line| line.strip_prefix("block drop out quick to "))
+            .map(|prefix| prefix.parse::<IpNet>().unwrap())
+            .collect::<Vec<_>>();
+        assert!(!blocked
+            .iter()
+            .any(|prefix| prefix.contains(&"127.0.0.1".parse().unwrap())));
+        assert!(!blocked
+            .iter()
+            .any(|prefix| prefix.contains(&"::1".parse().unwrap())));
     }
 }

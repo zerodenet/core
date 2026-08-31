@@ -116,7 +116,11 @@ fn privileged_macos_tun_loopback_remains_reachable_across_crash_recovery() {
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut baseline = spawn_zero(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, false);
-        assert_macos_loopback_listener_connects(listen_port, "before TUN activation");
+        macos_loopback_listener_connect(listen_port).unwrap_or_else(|error| {
+            panic!(
+                "macOS loopback listener 127.0.0.1:{listen_port} is unreachable before TUN activation: {error}"
+            )
+        });
         baseline.kill_and_wait();
         eprintln!("macOS loopback baseline is reachable before TUN activation");
 
@@ -1667,7 +1671,12 @@ fn assert_macos_loopback_listener_reachable(
         "macOS loopback routes are not preserved while TUN is active:\nBEFORE\n{before}\nAFTER\n{after}"
     );
 
-    assert_macos_loopback_listener_connects(port, "while TUN is active");
+    if let Err(error) = macos_loopback_listener_connect(port) {
+        let failed = macos_loopback_diagnostics();
+        panic!(
+            "macOS loopback listener {target} is unreachable while TUN is active: {error}\nBEFORE TUN\n{before}\nBEFORE CONNECT\n{after}\nAFTER FAILED CONNECT\n{failed}"
+        );
+    }
     thread::sleep(Duration::from_millis(100));
 
     let flow_ids_after = runtime_tun_tcp_flow_ids(binary, control_socket, target);
@@ -1678,13 +1687,11 @@ fn assert_macos_loopback_listener_reachable(
 }
 
 #[cfg(target_os = "macos")]
-fn assert_macos_loopback_listener_connects(port: u16, stage: &str) {
+fn macos_loopback_listener_connect(port: u16) -> std::io::Result<()> {
     let target = SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
-    let stream =
-        TcpStream::connect_timeout(&target, Duration::from_secs(5)).unwrap_or_else(|error| {
-            panic!("macOS loopback listener {target} is unreachable {stage}: {error}")
-        });
+    let stream = TcpStream::connect_timeout(&target, Duration::from_secs(5))?;
     drop(stream);
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
