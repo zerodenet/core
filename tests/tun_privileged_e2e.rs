@@ -8,6 +8,9 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use socket2::{Domain, Protocol, Socket, Type};
+use zero_config::RuntimeConfig;
+use zero_core::Address;
+use zero_engine::{Engine, RouteDecision};
 
 static TUN_E2E_LOCK: Mutex<()> = Mutex::new(());
 const DIRECT_UDP_REUSED_SOURCE_ROUNDS: u16 = 16;
@@ -292,6 +295,33 @@ fn privileged_tun_dual_stack_configuration_traffic_and_crash_recovery() {
     if let Err(payload) = outcome {
         best_effort_route_recovery(binary, &socket, &direct_path, &stopped_path);
         std::panic::resume_unwind(payload);
+    }
+}
+
+#[test]
+fn offline_dual_stack_config_routes_original_ips_and_recovered_domain() {
+    let config = RuntimeConfig::parse(&dual_stack_config_json(
+        1080,
+        true,
+        "127.0.0.1:1081".parse().unwrap(),
+        "127.0.0.1:5353".parse().unwrap(),
+    ))
+    .expect("parse offline dual-stack E2E config");
+    let engine = Engine::new(config).expect("build offline dual-stack E2E router");
+
+    for target in [
+        Address::Ipv4([1, 1, 1, 1]),
+        Address::Ipv6([
+            0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x11, 0x11,
+        ]),
+        Address::Domain("example.com".to_owned()),
+    ] {
+        assert_eq!(
+            engine.route_decision(&target, None),
+            RouteDecision::Route("mock-socks".to_owned()),
+            "offline dual-stack E2E target must reach the deterministic mock outbound: {target:?}"
+        );
     }
 }
 
@@ -698,16 +728,16 @@ fn dual_stack_config_json(
             "port": socks.port()
         }
     }]);
-    config["route"]["rules"] = serde_json::json!([
-        {
-            "condition": { "type": "ip", "values": ["1.1.1.1/32"] },
-            "action": { "type": "route", "outbound": "mock-socks" }
+    config["route"]["rules"] = serde_json::json!([{
+        "condition": {
+            "type": "or",
+            "items": [
+                { "type": "ip", "values": ["1.1.1.1/32", "2606:4700:4700::1111/128"] },
+                { "type": "domain", "values": ["example.com"] }
+            ]
         },
-        {
-            "condition": { "type": "ip", "values": ["2606:4700:4700::1111/128"] },
-            "action": { "type": "route", "outbound": "mock-socks" }
-        }
-    ]);
+        "action": { "type": "route", "outbound": "mock-socks" }
+    }]);
     config["route"]["final"] = serde_json::json!({ "type": "reject" });
     serde_json::to_string_pretty(&config).unwrap()
 }
@@ -1206,7 +1236,10 @@ fn assert_tcp_through_tun(target: SocketAddr) {
     let size = stream
         .read(&mut response)
         .unwrap_or_else(|error| panic!("read HTTP response from {target}: {error}"));
-    assert!(size > 0, "TCP target returned no bytes through TUN");
+    assert!(
+        size > 0,
+        "TCP target {target} returned no bytes through TUN"
+    );
 }
 
 #[cfg(windows)]
