@@ -103,14 +103,36 @@ fn privileged_macos_tun_loopback_remains_reachable_across_crash_recovery() {
     let socket = control_socket(directory.path(), false);
     let listen_port = free_tcp_port();
     let direct_config = direct_udp_config_json(listen_port, true);
+    let non_strict_config = direct_udp_config_json_with_strict_route(listen_port, false);
     let stopped_config = direct_udp_config_json(listen_port, false);
     let direct_path = directory.path().join("macos-loopback.json");
+    let non_strict_path = directory.path().join("macos-loopback-non-strict.json");
     let stopped_path = directory.path().join("stopped.json");
     std::fs::write(&direct_path, &direct_config).unwrap();
+    std::fs::write(&non_strict_path, non_strict_config).unwrap();
     std::fs::write(&stopped_path, stopped_config).unwrap();
     let loopback_before = macos_loopback_diagnostics();
 
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut baseline = spawn_zero(binary, &stopped_path, &socket);
+        wait_for_tun(binary, &socket, false, false);
+        assert_macos_loopback_listener_connects(listen_port, "before TUN activation");
+        baseline.kill_and_wait();
+        eprintln!("macOS loopback baseline is reachable before TUN activation");
+
+        let mut non_strict = spawn_zero(binary, &non_strict_path, &socket);
+        wait_for_tun(binary, &socket, true, false);
+        let non_strict_name = assert_tun_os_configured(binary, &socket, false, false);
+        assert_macos_loopback_listener_reachable(binary, &socket, listen_port, &loopback_before);
+        run_cli(
+            binary,
+            ["reload", path(&stopped_path), "--socket", path(&socket)],
+        );
+        wait_for_tun(binary, &socket, false, false);
+        assert_tun_os_cleanup(&non_strict_name);
+        non_strict.kill_and_wait();
+        eprintln!("macOS loopback is reachable with TUN strict_route=false");
+
         let mut process = spawn_zero(binary, &direct_path, &socket);
         wait_for_tun(binary, &socket, true, false);
         let _initial_name = assert_tun_os_configured(binary, &socket, false, false);
@@ -742,6 +764,14 @@ fn direct_udp_config_json(listen_port: u16, tun: bool) -> String {
     if tun {
         config["runtime"]["tun"]["dns_hijack"] = serde_json::Value::Bool(false);
     }
+    serde_json::to_string_pretty(&config).unwrap()
+}
+
+#[cfg(target_os = "macos")]
+fn direct_udp_config_json_with_strict_route(listen_port: u16, strict_route: bool) -> String {
+    let mut config: serde_json::Value =
+        serde_json::from_str(&direct_udp_config_json(listen_port, true)).unwrap();
+    config["runtime"]["tun"]["strict_route"] = serde_json::Value::Bool(strict_route);
     serde_json::to_string_pretty(&config).unwrap()
 }
 
@@ -1637,12 +1667,7 @@ fn assert_macos_loopback_listener_reachable(
         "macOS loopback routes are not preserved while TUN is active:\nBEFORE\n{before}\nAFTER\n{after}"
     );
 
-    let stream = TcpStream::connect_timeout(&target, Duration::from_secs(5)).unwrap_or_else(|error| {
-        panic!(
-            "macOS loopback listener {target} is unreachable while TUN is active: {error}\nBEFORE\n{before}\nAFTER\n{after}"
-        )
-    });
-    drop(stream);
+    assert_macos_loopback_listener_connects(port, "while TUN is active");
     thread::sleep(Duration::from_millis(100));
 
     let flow_ids_after = runtime_tun_tcp_flow_ids(binary, control_socket, target);
@@ -1650,6 +1675,16 @@ fn assert_macos_loopback_listener_reachable(
         flow_ids_after, flow_ids_before,
         "macOS loopback connection created a TUN session for {target}"
     );
+}
+
+#[cfg(target_os = "macos")]
+fn assert_macos_loopback_listener_connects(port: u16, stage: &str) {
+    let target = SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
+    let stream =
+        TcpStream::connect_timeout(&target, Duration::from_secs(5)).unwrap_or_else(|error| {
+            panic!("macOS loopback listener {target} is unreachable {stage}: {error}")
+        });
+    drop(stream);
 }
 
 #[cfg(target_os = "macos")]
@@ -1729,10 +1764,19 @@ fn macos_loopback_diagnostics() -> String {
         "/usr/sbin/netstat",
         &["-rn", "-f", "inet6"],
     ));
-    diagnostics.push_str("-- Zero PF anchor\n");
+    diagnostics.push_str("-- PF status\n");
+    diagnostics.push_str(&command_diagnostics("/sbin/pfctl", &["-s", "info"]));
+    diagnostics.push_str("-- PF main rules\n");
+    diagnostics.push_str(&command_diagnostics("/sbin/pfctl", &["-s", "rules"]));
+    diagnostics.push_str("-- com.apple PF anchors\n");
     diagnostics.push_str(&command_diagnostics(
         "/sbin/pfctl",
-        &["-a", "com.apple/zero_tun-e2e", "-sr"],
+        &["-a", "com.apple", "-s", "Anchors"],
+    ));
+    diagnostics.push_str("-- Zero PF anchor rules\n");
+    diagnostics.push_str(&command_diagnostics(
+        "/sbin/pfctl",
+        &["-a", "com.apple/zero_tun-e2e", "-s", "rules"],
     ));
     diagnostics
 }

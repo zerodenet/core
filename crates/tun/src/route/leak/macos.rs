@@ -172,7 +172,11 @@ fn flush_anchor(anchor: &str) -> io::Result<()> {
 fn policy_rules(tun_name: &str, protected: &[IpNet], excluded: &[IpAddr]) -> String {
     let uid = unsafe { libc::geteuid() };
     let mut rules = format!(
-        "pass out quick on lo0 all\npass out quick on {tun_name} all\npass out quick all user {uid}\n"
+        "pass out quick on lo0 all\n\
+         pass out quick to 127.0.0.0/8\n\
+         pass out quick to ::1/128\n\
+         pass out quick on {tun_name} all\n\
+         pass out quick all user {uid}\n"
     );
     for address in excluded {
         rules.push_str(&format!("pass out quick to {address}\n"));
@@ -205,7 +209,28 @@ mod tests {
         assert!(rules.contains("pass out quick on utun8 all"));
         assert!(rules.contains(&format!("pass out quick all user {uid}\n")));
         assert!(!rules.contains("pass out quick user"));
+        assert!(rules.contains("pass out quick to 127.0.0.0/8\n"));
+        assert!(rules.contains("pass out quick to ::1/128\n"));
         assert!(rules.contains("pass out quick to 192.0.2.1"));
         assert!(rules.ends_with("block drop out quick to 203.0.113.0/24\n"));
+    }
+
+    #[test]
+    fn pf_policy_exempts_loopback_destinations_before_protected_routes() {
+        let rules = policy_rules(
+            "utun8",
+            &[
+                "0.0.0.0/1".parse().unwrap(),
+                "128.0.0.0/1".parse().unwrap(),
+                "::/1".parse().unwrap(),
+                "8000::/1".parse().unwrap(),
+            ],
+            &[],
+        );
+        let ipv4_pass = rules.find("pass out quick to 127.0.0.0/8").unwrap();
+        let ipv6_pass = rules.find("pass out quick to ::1/128").unwrap();
+        let first_block = rules.find("block drop out quick").unwrap();
+        assert!(ipv4_pass < first_block);
+        assert!(ipv6_pass < first_block);
     }
 }
