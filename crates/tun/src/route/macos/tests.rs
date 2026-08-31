@@ -5,7 +5,10 @@ use super::scoped::{
     scoped_bypass_remove_arguments,
 };
 use super::{
-    gateway_matches_family, parse_default_route, route_add_arguments, route_remove_arguments,
+    gateway_matches_family, loopback_route_add_arguments, loopback_route_get_arguments,
+    loopback_route_remove_arguments, parse_default_route, prefix_is_within_loopback,
+    route_add_arguments, route_already_exists, route_output_uses_unscoped_loopback,
+    route_remove_arguments,
 };
 
 #[test]
@@ -123,4 +126,57 @@ fn scoped_bypass_skips_cross_family_fallback_gateways() {
     assert!(gateway_matches_family(true, Some("fe80::1%en0")));
     assert!(!gateway_matches_family(false, Some("fe80::1%en0")));
     assert!(!gateway_matches_family(true, Some("192.168.64.1")));
+}
+
+#[test]
+fn loopback_bypass_routes_are_explicitly_unscoped_and_interface_owned() {
+    assert_eq!(
+        loopback_route_get_arguments(false),
+        ["-n", "get", "-inet", "127.0.0.1"]
+    );
+    assert_eq!(
+        loopback_route_add_arguments(false),
+        ["-n", "add", "-inet", "127.0.0.0/8", "-interface", "lo0"]
+    );
+    assert_eq!(
+        loopback_route_remove_arguments(false, "127.0.0.0/8", "lo0"),
+        ["-n", "delete", "-inet", "127.0.0.0/8", "-interface", "lo0"]
+    );
+    assert_eq!(
+        loopback_route_add_arguments(true),
+        ["-n", "add", "-inet6", "::1/128", "-interface", "lo0"]
+    );
+}
+
+#[test]
+fn loopback_route_detection_rejects_scoped_and_non_loopback_routes() {
+    assert!(route_output_uses_unscoped_loopback(
+        b"interface: lo0\nflags: <UP,DONE,STATIC,LOCAL>\n"
+    ));
+    assert!(!route_output_uses_unscoped_loopback(
+        b"interface: lo0\nflags: <UP,DONE,STATIC,IFSCOPE>\n"
+    ));
+    assert!(!route_output_uses_unscoped_loopback(
+        b"interface: utun7\nflags: <UP,DONE,STATIC>\n"
+    ));
+}
+
+#[test]
+fn only_an_existing_route_is_treated_as_an_owned_route_collision() {
+    assert!(route_already_exists(&io::Error::other(
+        "route: writing to routing socket: File exists"
+    )));
+    assert!(!route_already_exists(&io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "not permitted"
+    )));
+}
+
+#[test]
+fn capture_entries_wholly_inside_loopback_are_not_installed() {
+    assert!(prefix_is_within_loopback("127.0.0.0/8".parse().unwrap()));
+    assert!(prefix_is_within_loopback("127.0.0.1/32".parse().unwrap()));
+    assert!(prefix_is_within_loopback("::1/128".parse().unwrap()));
+    assert!(!prefix_is_within_loopback("0.0.0.0/1".parse().unwrap()));
+    assert!(!prefix_is_within_loopback("::/1".parse().unwrap()));
 }

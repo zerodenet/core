@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use super::RouteInterface;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct InterfaceRoute {
+    pub(super) prefix: String,
+    pub(super) interface: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct RouteJournal {
     pub(super) tun_name: String,
@@ -18,6 +24,8 @@ pub(super) struct RouteJournal {
     pub(super) installed: Vec<String>,
     #[serde(default)]
     pub(super) scoped_bypass: bool,
+    #[serde(default)]
+    pub(super) interface_routes: Vec<InterfaceRoute>,
     #[serde(skip)]
     pub(super) path: PathBuf,
     #[serde(skip)]
@@ -141,6 +149,7 @@ impl RouteJournal {
             excluded: Vec::new(),
             installed: Vec::new(),
             scoped_bypass: false,
+            interface_routes: Vec::new(),
             path: lease.journal_path.clone(),
             _lease: Some(lease),
         })
@@ -171,6 +180,44 @@ impl RouteJournal {
     pub(super) fn record_route(&mut self, prefix: &str) -> io::Result<()> {
         self.installed.push(prefix.to_owned());
         self.persist()
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn record_interface_route(
+        &mut self,
+        prefix: &str,
+        interface: &str,
+    ) -> io::Result<()> {
+        let route = InterfaceRoute {
+            prefix: prefix.to_owned(),
+            interface: interface.to_owned(),
+        };
+        if !self.interface_routes.contains(&route) {
+            self.interface_routes.push(route);
+        }
+        self.persist()
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn cleanup_interface_routes(
+        &mut self,
+        mut remove: impl FnMut(&str, &str) -> io::Result<()>,
+    ) -> io::Result<()> {
+        let mut first_error = None;
+        for route in self.interface_routes.clone().into_iter().rev() {
+            match remove(&route.prefix, &route.interface) {
+                Ok(()) => {
+                    self.interface_routes.retain(|item| item != &route);
+                    if let Err(error) = self.persist_or_clear() {
+                        first_error.get_or_insert(error);
+                    }
+                }
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        first_error.map_or(Ok(()), Err)
     }
 
     #[cfg(any(target_os = "macos", test))]
@@ -217,7 +264,11 @@ impl RouteJournal {
                 }
             }
         }
-        if self.installed.is_empty() && self.excluded.is_empty() && !self.scoped_bypass {
+        if self.installed.is_empty()
+            && self.excluded.is_empty()
+            && !self.scoped_bypass
+            && self.interface_routes.is_empty()
+        {
             if let Err(error) = self.clear() {
                 first_error.get_or_insert(error);
             }
@@ -228,7 +279,11 @@ impl RouteJournal {
     }
 
     fn persist_or_clear(&self) -> io::Result<()> {
-        if self.installed.is_empty() && self.excluded.is_empty() && !self.scoped_bypass {
+        if self.installed.is_empty()
+            && self.excluded.is_empty()
+            && !self.scoped_bypass
+            && self.interface_routes.is_empty()
+        {
             self.clear()
         } else {
             self.persist()

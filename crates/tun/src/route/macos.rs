@@ -14,7 +14,10 @@ mod scoped;
 
 use scoped::{
     combine_cleanup_errors, ensure_scoped_bypass, gateway_matches_family, remove_scoped_bypass,
+    route_output_has_scoped_flag,
 };
+
+const LOOPBACK_INTERFACE: &str = "lo0";
 
 #[derive(Debug)]
 pub struct SystemRouteGuard {
@@ -89,11 +92,15 @@ impl SystemRouteGuard {
             journal,
         };
         publish_egress(&guard.family_egress)?;
+        guard.install_loopback_bypass(captured)?;
         guard.install_scoped_bypass()?;
         for peer in desired_exclusions {
             guard.install_exclusion(peer)?;
         }
         for prefix in captured {
+            if prefix_is_within_loopback(*prefix) {
+                continue;
+            }
             let prefix = prefix.to_string();
             let _ = guard.remove(&prefix);
             guard.add(&prefix)?;
@@ -169,6 +176,37 @@ impl SystemRouteGuard {
         Ok(())
     }
 
+    fn install_loopback_bypass(&mut self, captured: &[IpNet]) -> io::Result<()> {
+        let address = loopback_address(self.ipv6);
+        if !captured.iter().any(|prefix| prefix.contains(&address)) {
+            return Ok(());
+        }
+        let prefix = loopback_prefix(self.ipv6);
+        if let Err(error) = run_route(&loopback_route_add_arguments(self.ipv6)) {
+            if route_already_exists(&error) && loopback_bypass_exists(self.ipv6)? {
+                return Ok(());
+            }
+            return Err(error);
+        }
+        if !loopback_bypass_exists(self.ipv6)? {
+            let rollback = remove_loopback_route(self.ipv6, prefix, LOOPBACK_INTERFACE);
+            return Err(with_rollback_error(
+                io::Error::other(format!(
+                    "macOS loopback bypass `{prefix}` did not become the unscoped route"
+                )),
+                rollback,
+            ));
+        }
+        if let Err(error) = self
+            .journal
+            .record_interface_route(prefix, LOOPBACK_INTERFACE)
+        {
+            let rollback = remove_loopback_route(self.ipv6, prefix, LOOPBACK_INTERFACE);
+            return Err(with_rollback_error(error, rollback));
+        }
+        Ok(())
+    }
+
     fn remove_owned_scoped_bypass(&mut self) -> io::Result<()> {
         if !self.journal.scoped_bypass {
             return Ok(());
@@ -222,7 +260,14 @@ impl SystemRouteGuard {
             |prefix| remove_route(ipv6, prefix),
             |peer| remove_exclusion(ipv6, gateway.as_deref(), peer),
         );
-        combine_cleanup_errors(bypass, routes)
+        let loopback = if self.journal.installed.is_empty() {
+            self.journal.cleanup_interface_routes(|prefix, interface| {
+                remove_loopback_route(ipv6, prefix, interface)
+            })
+        } else {
+            Ok(())
+        };
+        combine_cleanup_errors(bypass, combine_cleanup_errors(routes, loopback))
     }
 }
 
@@ -351,7 +396,90 @@ fn recover_stale_routes(lease: &RouteLease, ipv6: bool) -> io::Result<()> {
         |prefix| remove_route(ipv6, prefix),
         |peer| remove_exclusion(ipv6, stale_gateway.as_deref(), peer),
     );
-    combine_cleanup_errors(bypass, routes)
+    let loopback = if journal.installed.is_empty() {
+        journal.cleanup_interface_routes(|prefix, interface| {
+            remove_loopback_route(ipv6, prefix, interface)
+        })
+    } else {
+        Ok(())
+    };
+    combine_cleanup_errors(bypass, combine_cleanup_errors(routes, loopback))
+}
+
+fn route_already_exists(error: &io::Error) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("file exists") || message.contains("already exists")
+}
+
+fn loopback_bypass_exists(ipv6: bool) -> io::Result<bool> {
+    let output = run_route(&loopback_route_get_arguments(ipv6))?;
+    Ok(route_output_uses_unscoped_loopback(&output))
+}
+
+fn route_output_uses_unscoped_loopback(output: &[u8]) -> bool {
+    String::from_utf8_lossy(output)
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("interface:"))
+        .any(|interface| interface.trim() == LOOPBACK_INTERFACE)
+        && !route_output_has_scoped_flag(output)
+}
+
+fn loopback_address(ipv6: bool) -> IpAddr {
+    if ipv6 {
+        std::net::Ipv6Addr::LOCALHOST.into()
+    } else {
+        std::net::Ipv4Addr::LOCALHOST.into()
+    }
+}
+
+fn loopback_prefix(ipv6: bool) -> &'static str {
+    if ipv6 {
+        "::1/128"
+    } else {
+        "127.0.0.0/8"
+    }
+}
+
+fn prefix_is_within_loopback(prefix: IpNet) -> bool {
+    let loopback: IpNet = loopback_prefix(prefix.addr().is_ipv6())
+        .parse()
+        .expect("loopback prefix is valid");
+    loopback.prefix_len() <= prefix.prefix_len() && loopback.contains(&prefix.network())
+}
+
+fn loopback_route_get_arguments(ipv6: bool) -> Vec<String> {
+    vec![
+        "-n".to_owned(),
+        "get".to_owned(),
+        family(ipv6).to_owned(),
+        loopback_address(ipv6).to_string(),
+    ]
+}
+
+fn loopback_route_add_arguments(ipv6: bool) -> Vec<String> {
+    let mut arguments = vec![
+        "-n".to_owned(),
+        "add".to_owned(),
+        family(ipv6).to_owned(),
+        loopback_prefix(ipv6).to_owned(),
+    ];
+    arguments.extend(["-interface".to_owned(), LOOPBACK_INTERFACE.to_owned()]);
+    arguments
+}
+
+fn remove_loopback_route(ipv6: bool, prefix: &str, interface: &str) -> io::Result<()> {
+    run_route_remove(&loopback_route_remove_arguments(ipv6, prefix, interface))
+}
+
+fn loopback_route_remove_arguments(ipv6: bool, prefix: &str, interface: &str) -> Vec<String> {
+    vec![
+        "-n".to_owned(),
+        "delete".to_owned(),
+        family(ipv6).to_owned(),
+        prefix.to_owned(),
+        "-interface".to_owned(),
+        interface.to_owned(),
+    ]
 }
 
 fn route_add_arguments(

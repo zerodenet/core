@@ -74,6 +74,7 @@ fn journal(path: std::path::PathBuf) -> RouteJournal {
         excluded: Vec::new(),
         installed: Vec::new(),
         scoped_bypass: false,
+        interface_routes: Vec::new(),
         path,
         _lease: None,
     }
@@ -95,6 +96,7 @@ fn recovery_journal_persists_installed_routes_and_exclusions() {
     assert_eq!(recovered.egress.name(), "physical0");
     assert_eq!(recovered.gateway.as_deref(), Some("192.0.2.1"));
     assert!(!recovered.scoped_bypass);
+    assert!(recovered.interface_routes.is_empty());
 }
 
 #[test]
@@ -133,6 +135,34 @@ fn recovery_journal_accepts_legacy_entries_without_gateway() {
     .expect("deserialize legacy route journal");
     assert!(recovered.gateway.is_none());
     assert!(!recovered.scoped_bypass);
+    assert!(recovered.interface_routes.is_empty());
+}
+
+#[test]
+fn journal_tracks_interface_routes_without_conflating_system_routes() {
+    let directory = tempfile::tempdir().expect("temporary journal directory");
+    let path = directory.path().join("routes.json");
+    let mut journal = journal(path.clone());
+
+    journal
+        .record_interface_route("127.0.0.0/8", "lo0")
+        .unwrap();
+    journal.cleanup(|_| Ok(()), |_| Ok(())).unwrap();
+
+    let retained: RouteJournal = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(retained.interface_routes.len(), 1);
+    assert_eq!(retained.interface_routes[0].prefix, "127.0.0.0/8");
+    assert_eq!(retained.interface_routes[0].interface, "lo0");
+
+    let mut removed = Vec::new();
+    journal
+        .cleanup_interface_routes(|prefix, interface| {
+            removed.push((prefix.to_owned(), interface.to_owned()));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(removed, [("127.0.0.0/8".to_owned(), "lo0".to_owned())]);
+    assert!(!path.exists());
 }
 
 #[test]
