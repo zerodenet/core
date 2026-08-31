@@ -33,7 +33,7 @@ on:
 
 concurrency:
   group: tun-e2e-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 # GitHub-hosted runners are the authoritative privileged validation environment.
 # The matrix uses deterministic local peers for dual-stack and fallback behavior
