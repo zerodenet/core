@@ -507,16 +507,61 @@ async fn stalled_webhook_does_not_spin_the_dispatcher() {
     )
     .expect("spawn no-spin dispatcher")
     .expect("no-spin dispatcher");
+    let status = dispatcher.status_handle();
 
     received
         .recv_timeout(Duration::from_secs(2))
         .expect("stalled request received");
+    let stalled = wait_for_sink_status(&status, "receiver", |sink| sink.delivery.in_flight).await;
+    assert_eq!(stalled.delivery.retry_pending, 0);
+    assert_eq!(stalled.delivery.ack_retry_pending, 0);
     tokio::time::sleep(Duration::from_millis(350)).await;
     let calls = replay_calls.load(std::sync::atomic::Ordering::Relaxed);
     assert!(calls <= 12, "dispatcher replayed {calls} times while idle");
 
     release.send(()).expect("release stalled webhook");
     server.join().expect("stalled server");
+    dispatcher.shutdown().await;
+}
+
+#[tokio::test]
+async fn retryable_webhook_failure_reports_the_scheduled_retry_deadline() {
+    const SERVICE_UNAVAILABLE: &[u8] =
+        b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let (url, server) = spawn_scripted_http_server(vec![SERVICE_UNAVAILABLE]);
+    let mut api = webhook_api(url, None, 8);
+    api.dispatcher.retry_initial_delay_ms = 5_000;
+    api.dispatcher.retry_max_delay_ms = 5_000;
+    let dispatcher = spawn_event_dispatcher(
+        StaticEventSource {
+            events: Arc::new(Mutex::new(vec![sequenced_event(
+                "event-retry-status",
+                event_type::ENGINE_WARNING,
+                1,
+            )])),
+        },
+        api,
+        None,
+        EventDispatcherOptions {
+            poll_interval: Duration::from_millis(10),
+            max_retry_attempts: 2,
+        },
+    )
+    .expect("spawn retry-status dispatcher")
+    .expect("retry-status dispatcher");
+    let status = dispatcher.status_handle();
+
+    assert_eq!(server.join().expect("retry-status request").len(), 1);
+    let retry = wait_for_sink_status(&status, "receiver", |sink| {
+        sink.delivery.retry_pending == 1
+            && sink.delivery.next_retry_at_unix_ms.is_some()
+            && !sink.delivery.in_flight
+    })
+    .await;
+    assert_eq!(retry.total_failed, 1);
+    assert_eq!(retry.delivery.ack_retry_pending, 0);
+    assert_eq!(retry.delivery.durable_pending, 0);
+
     dispatcher.shutdown().await;
 }
 
@@ -541,10 +586,16 @@ async fn durable_stalled_webhook_is_cancelled_on_shutdown_and_recovered() {
     )
     .expect("spawn cancellable dispatcher")
     .expect("cancellable dispatcher");
+    let status = dispatcher.status_handle();
 
     stalled_received
         .recv_timeout(Duration::from_secs(2))
         .expect("stalled webhook received durable delivery");
+    let stalled = wait_for_sink_status(&status, "receiver", |sink| {
+        sink.delivery.in_flight && sink.delivery.durable_pending == 1
+    })
+    .await;
+    assert_eq!(stalled.pending, 1);
     tokio::time::timeout(Duration::from_secs(1), dispatcher.shutdown())
         .await
         .expect("durable webhook shutdown must cancel the request");
@@ -1190,6 +1241,24 @@ async fn wait_for_sink_pending(
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("sink `{sink}` pending count did not become {expected}");
+}
+
+async fn wait_for_sink_status(
+    status: &zero_connector::EventDispatcherStatusHandle,
+    sink: &str,
+    predicate: impl Fn(&zero_api::SinkStatus) -> bool,
+) -> zero_api::SinkStatus {
+    for _ in 0..200 {
+        if let Some(status) = status
+            .sink_status()
+            .into_iter()
+            .find(|item| item.name == sink && predicate(item))
+        {
+            return status;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("sink `{sink}` did not reach the expected delivery state");
 }
 
 async fn wait_for_sink_failures(

@@ -182,6 +182,10 @@ pub struct SinkStatus {
     /// Current durable/in-memory backlog waiting for delivery or ACK.
     #[serde(default)]
     pub pending: u64,
+    /// Current dispatcher-owned delivery lifecycle. This object is additive
+    /// to the V1 status contract and is absent on older cores.
+    #[serde(default, skip_serializing_if = "SinkDeliveryStatus::is_idle")]
+    pub delivery: SinkDeliveryStatus,
     pub total_delivered: u64,
     pub total_failed: u64,
     /// Number of detected event-sequence gaps. Unlike `last_error`, this
@@ -198,6 +202,37 @@ pub struct SinkStatus {
     /// successful deliveries so operators can reconcile preserved facts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbox_recovery: Option<OutboxRecoveryStatus>,
+}
+
+/// Per-sink delivery lifecycle owned by the asynchronous Connector
+/// dispatcher. The fields intentionally remain independent because a durable
+/// backlog may coexist with one in-flight request and another scheduled
+/// retry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SinkDeliveryStatus {
+    /// The per-sink worker currently owns one delivery request.
+    #[serde(default)]
+    pub in_flight: bool,
+    /// Deliveries that have already failed at least once and remain queued for
+    /// another publish attempt.
+    #[serde(default)]
+    pub retry_pending: u64,
+    /// Successfully published deliveries whose durable outbox ACK must be
+    /// retried.
+    #[serde(default)]
+    pub ack_retry_pending: u64,
+    /// Outstanding entries currently owned by the durable outbox.
+    #[serde(default)]
+    pub durable_pending: u64,
+    /// Earliest publish or ACK retry deadline, as Unix milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_retry_at_unix_ms: Option<u64>,
+}
+
+impl SinkDeliveryStatus {
+    fn is_idle(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -322,6 +357,7 @@ impl SinkManager {
             .map(|(managed, stat)| SinkStatus {
                 name: managed.sink.name().to_owned(),
                 pending: 0,
+                delivery: SinkDeliveryStatus::default(),
                 total_delivered: stat.delivered.load(Ordering::Relaxed),
                 total_failed: stat.failed.load(Ordering::Relaxed),
                 replay_gaps: 0,

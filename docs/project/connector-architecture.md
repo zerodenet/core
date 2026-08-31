@@ -44,6 +44,8 @@ Connector 所维护的“保活”仅指投递任务持续运行、失败重试�
 
 Dispatcher actor 在 Connector 自己的专用执行线程上独占事件游标、outbox 和重试状态，并通过事件到达、投递完成、重试截止时间或关闭信号唤醒，不以在途请求作为轮询条件。每个 sink 使用独立、单并发的异步投递任务；Webhook 使用可取消的异步 HTTP，JSONL 等同步 sink 通过 blocking adapter 执行。一个 URL 超时不会阻塞其他注册地址，sink 任务也不能直接修改 outbox。请求超时、退避、重试阈值和耗尽策略全部来自 `api.dispatcher`，不存在隐藏的固定三次删除策略。
 
+`sinks.get` 的每个 `SinkStatus` 保留兼容的总 `pending` 计数，并通过可选 `delivery` 对象公开调度器当前生命周期：`in_flight`、`retry_pending`、`ack_retry_pending`、`durable_pending` 和 `next_retry_at_unix_ms`。这些状态彼此独立；例如一个 sink 可以同时有一条在途请求和多条持久 backlog。磁盘保留空间阻塞继续由 `outbox_storage.write_blocked` 表达，历史恢复和事件缺口分别由 `outbox_recovery` 与 `replay_gaps` 表达。旧内核没有 `delivery` 时，消费者必须按未知状态处理，不能根据 `pending` 猜测是在途还是重试。
+
 `zero-api::EventSink` 保持同步、运行时中立，用于内核内的持久化钩子和通用文件 sink；Connector 在自身边界内把它适配到异步投递能力，不把 Tokio 或 HTTP 类型引入 Engine。配置重载或关闭时，已经写入 outbox 的在途 Webhook 可以取消并由下一次 Dispatcher 启动恢复；没有 outbox 的事实投递仍执行 graceful flush，不能以取消为由静默丢弃。
 
 Webhook 的 TCP 建连通过 Connector 定义的窄网络边界执行，Zero application 注入与 Proxy、DNS 共用的物理出口权威。每次新连接都会按解析候选的地址族读取最新出口 generation；TUN 活跃但对应地址族没有可信物理出口时必须失败关闭，不能退回默认 socket 重新进入 TUN。独立嵌入 Connector 且不运行 Zero TUN 时可以显式选择系统网络。HTTPS 默认验证公开根证书信任集；`allow_insecure` 只作为显式关闭证书验证的部署选项。
@@ -73,3 +75,7 @@ Zero 不得在 Connector 中：
 - `grpc-api`：可选 gRPC 控制入口。
 
 `connector` 不隐式启用 `status-api` 或 `grpc-api`。节点仍是一个进程，Feature 只控制编译裁剪，不引入第二个部署程序。
+
+## 生产资格验证
+
+`.github/workflows/connector-qualification.yml` 在 Connector、API 或相关配置边界变化时运行两项 Linux 门禁：接收端离线后恢复并完整清空 10,000 条持久 backlog；25,000 条事件跨 5 次 Dispatcher 重启并持续至少 60 秒，验证没有丢失或已 ACK 事件重投。普通测试中的 stalled-webhook 用例使用可计数事件源约束调度器唤醒/回放次数，避免用 CI 主机瞬时 CPU 百分比作为唯一判据。事件规模按同步持久化路径的实测吞吐设置，确保每次相关 PR 都能执行而不是依赖偶发的超长人工任务。
