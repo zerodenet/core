@@ -256,6 +256,16 @@ fn privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture() {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn command_managed_tun_name() -> &'static str {
+    "utun77"
+}
+
+#[cfg(not(target_os = "macos"))]
+fn command_managed_tun_name() -> &'static str {
+    "ZeroTunCmd"
+}
+
 #[test]
 #[ignore = "requires administrator/root, a TUN backend, internet access, and reachable Cloudflare DoH"]
 fn privileged_command_managed_tun_publishes_egress_before_capture() {
@@ -276,7 +286,7 @@ fn privileged_command_managed_tun_publishes_egress_before_capture() {
                 "tun",
                 "start",
                 "--name",
-                "ZeroTunCmd",
+                command_managed_tun_name(),
                 "--addr",
                 "10.66.0.1/24",
                 "--mask",
