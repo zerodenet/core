@@ -11,6 +11,8 @@ use zero_traits::{TcpStack, UdpStack};
 
 use super::{accept_tcp, feed_packets, should_drop_non_unicast_udp, sniff_tcp_target};
 
+mod secure_dns_boundary;
+
 const CLIENT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 99, 0, 2));
 const CLIENT_PORT: u16 = 49152;
 const CLIENT_ISN: u32 = 10_000;
@@ -198,6 +200,7 @@ async fn tun_tls_without_sni_keeps_deterministic_ip_fallback() {
 
     assert_eq!(session.target, original_target);
     assert!(session.direct_target.is_none());
+    assert!(session.original_target.is_none());
     assert!(session.sni.is_none());
     assert!(session.target_host_source.is_none());
     let mut replayed = Vec::new();
