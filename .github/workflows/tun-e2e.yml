@@ -31,11 +31,17 @@ on:
           - hosted-macos
           - hosted-windows
           - self-hosted-all
+  issue_comment:
+    types: [created]
 
 concurrency:
   group: tun-e2e-${{ github.ref }}
   cancel-in-progress: false
 
+# The exact `/run-tun-e2e self-hosted-all` comment on issue #33 is an auditable
+# dispatch fallback for repository collaborators when workflow_dispatch is not
+# exposed by their GitHub integration. Public comments cannot start runners.
+#
 # The self-hosted jobs target dedicated runners. Each runner
 # must be disposable, have administrator/root networking privileges, and have
 # reachable configured STUN endpoints for each native address family being
@@ -44,7 +50,14 @@ concurrency:
 # binary or on PATH.
 jobs:
   linux:
-    if: inputs.target == 'self-hosted-all'
+    if: >-
+      inputs.target == 'self-hosted-all' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.number == 33 &&
+       github.event.comment.body == '/run-tun-e2e self-hosted-all' &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'))
     runs-on: [self-hosted, linux, x64, tun]
     timeout-minutes: 30
     env:
@@ -73,7 +86,14 @@ jobs:
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
   macos:
-    if: inputs.target == 'self-hosted-all'
+    if: >-
+      inputs.target == 'self-hosted-all' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.number == 33 &&
+       github.event.comment.body == '/run-tun-e2e self-hosted-all' &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'))
     runs-on: [self-hosted, macOS, x64, tun]
     timeout-minutes: 30
     env:
@@ -104,7 +124,14 @@ jobs:
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
   windows:
-    if: inputs.target == 'self-hosted-all'
+    if: >-
+      inputs.target == 'self-hosted-all' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.number == 33 &&
+       github.event.comment.body == '/run-tun-e2e self-hosted-all' &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'))
     runs-on: [self-hosted, windows, x64, tun]
     timeout-minutes: 30
     env:
