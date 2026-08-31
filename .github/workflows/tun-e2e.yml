@@ -30,133 +30,15 @@ on:
           - hosted-linux
           - hosted-macos
           - hosted-windows
-          - self-hosted-all
-  issue_comment:
-    types: [created]
 
 concurrency:
   group: tun-e2e-${{ github.ref }}
   cancel-in-progress: false
 
-# The exact `/run-tun-e2e self-hosted-all` comment on issue #33 is an auditable
-# dispatch fallback for repository collaborators when workflow_dispatch is not
-# exposed by their GitHub integration. Public comments cannot start runners.
-#
-# The self-hosted jobs target dedicated runners. Each runner
-# must be disposable, have administrator/root networking privileges, and have
-# reachable configured STUN endpoints for each native address family being
-# tested. The offline dual-stack case does not require native IPv6 Internet.
-# The Windows runner must also have the matching Wintun DLL next to the test
-# binary or on PATH.
+# GitHub-hosted runners are the authoritative privileged validation environment.
+# The matrix uses deterministic local peers for dual-stack and fallback behavior
+# so it does not depend on a runner having public native IPv6 connectivity.
 jobs:
-  linux:
-    if: >-
-      inputs.target == 'self-hosted-all' ||
-      (github.event_name == 'issue_comment' &&
-       github.event.issue.number == 33 &&
-       github.event.comment.body == '/run-tun-e2e self-hosted-all' &&
-       (github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR'))
-    runs-on: [self-hosted, linux, x64, tun]
-    timeout-minutes: 30
-    env:
-      ZERO_TUN_E2E_DNS_ADDR: ${{ secrets.ZERO_TUN_E2E_DNS_ADDR }}
-      ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
-      ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler iproute2 nftables
-      - name: Run privileged TUN smoke test
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
-      - name: Run direct UDP self-capture E2E
-        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_DNS_ADDR=$ZERO_TUN_E2E_DNS_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
-      - name: Run Fake-IP DoH underlay E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
-      - name: Run native Linux route reconciliation E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_route_reconcile_linux_e2e linux_reconciles_runtime_egress_and_dns_exclusion_inside_network_namespace -- --ignored --exact --nocapture
-      - name: Run IPv4 privileged TUN E2E
-        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR=$ZERO_TUN_E2E_STUN_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
-      - name: Run IPv6 privileged TUN E2E
-        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR_V6=$ZERO_TUN_E2E_STUN_ADDR_V6" cargo test --test tun_privileged_e2e privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
-      - name: Run offline dual-stack privileged TUN E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
-
-  macos:
-    if: >-
-      inputs.target == 'self-hosted-all' ||
-      (github.event_name == 'issue_comment' &&
-       github.event.issue.number == 33 &&
-       github.event.comment.body == '/run-tun-e2e self-hosted-all' &&
-       (github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR'))
-    runs-on: [self-hosted, macOS, x64, tun]
-    timeout-minutes: 30
-    env:
-      ZERO_TUN_E2E_DNS_ADDR: ${{ secrets.ZERO_TUN_E2E_DNS_ADDR }}
-      ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
-      ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
-      ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY: ${{ secrets.ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY }}
-      ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE: ${{ secrets.ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run privileged TUN smoke test
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
-      - name: Run macOS loopback capture and crash-recovery E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_macos_tun_loopback_remains_reachable_across_crash_recovery -- --ignored --exact --nocapture
-      - name: Run direct UDP self-capture E2E
-        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_DNS_ADDR=$ZERO_TUN_E2E_DNS_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
-      - name: Run Fake-IP DoH underlay E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
-      - name: Run native macOS route reconciliation E2E
-        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY=$ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY" "ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE=$ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE" cargo test --test tun_route_reconcile_macos_e2e macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
-      - name: Run IPv4 privileged TUN E2E
-        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR=$ZERO_TUN_E2E_STUN_ADDR" cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
-      - name: Run IPv6 privileged TUN E2E
-        run: sudo env "PATH=$PATH" "ZERO_TUN_E2E_STUN_ADDR_V6=$ZERO_TUN_E2E_STUN_ADDR_V6" cargo test --test tun_privileged_e2e privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
-      - name: Run offline dual-stack privileged TUN E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
-
-  windows:
-    if: >-
-      inputs.target == 'self-hosted-all' ||
-      (github.event_name == 'issue_comment' &&
-       github.event.issue.number == 33 &&
-       github.event.comment.body == '/run-tun-e2e self-hosted-all' &&
-       (github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR'))
-    runs-on: [self-hosted, windows, x64, tun]
-    timeout-minutes: 30
-    env:
-      ZERO_TUN_E2E_DNS_ADDR: ${{ secrets.ZERO_TUN_E2E_DNS_ADDR }}
-      ZERO_TUN_E2E_STUN_ADDR: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR }}
-      ZERO_TUN_E2E_STUN_ADDR_V6: ${{ secrets.ZERO_TUN_E2E_STUN_ADDR_V6 }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run privileged TUN smoke test
-        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
-      - name: Run direct UDP self-capture E2E
-        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
-      - name: Run Fake-IP DoH underlay E2E
-        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
-      - name: Run native Windows route reconciliation E2E
-        run: cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
-      - name: Run IPv4 privileged TUN E2E
-        run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
-      - name: Run IPv6 privileged TUN E2E
-        run: cargo test --test tun_privileged_e2e privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery -- --ignored --exact --nocapture
-      - name: Run offline dual-stack privileged TUN E2E
-        run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
-
   hosted-linux:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.target == 'hosted-all' || inputs.target == 'hosted-linux'
     runs-on: ubuntu-24.04
@@ -186,6 +68,10 @@ jobs:
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
+      - name: Run command-managed egress publication E2E
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+        run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
@@ -218,6 +104,8 @@ jobs:
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
+      - name: Run command-managed egress publication E2E
+        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         if: github.event_name != 'pull_request'
         run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
@@ -250,5 +138,11 @@ jobs:
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
+      - name: Run command-managed egress publication E2E
+        run: cargo test --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
+      - name: Run native Windows route reconciliation E2E
+        run: cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
+      - name: Run IPv4-only trusted-domain fallback E2E
+        run: cargo test --test tun_privileged_e2e privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
