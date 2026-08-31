@@ -10,6 +10,9 @@ use zero_traits::{DnsResolver, IpAddress};
 
 use super::resolve_dns_target;
 
+#[cfg(feature = "dns")]
+mod fake_ipv6_fallback;
+
 #[tokio::test]
 async fn recovers_only_transparent_real_ip_targets_and_preserves_direct_ip() {
     let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
