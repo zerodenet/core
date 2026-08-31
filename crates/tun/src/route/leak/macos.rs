@@ -260,9 +260,9 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(!blocked
             .iter()
-            .any(|prefix| prefix.contains(&"127.0.0.1".parse().unwrap())));
+            .any(|prefix| prefix.contains(&"127.0.0.1".parse::<IpAddr>().unwrap())));
         assert!(!blocked
             .iter()
-            .any(|prefix| prefix.contains(&"::1".parse().unwrap())));
+            .any(|prefix| prefix.contains(&"::1".parse::<IpAddr>().unwrap())));
     }
 }
