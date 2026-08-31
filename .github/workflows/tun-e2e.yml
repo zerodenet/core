@@ -136,7 +136,9 @@ jobs:
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run direct UDP self-capture E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
-      - name: Run Fake-IP DoH underlay E2E
+      - name: Run Fake-IP DoH and open.bigmodel.cn multi-A fallback E2E
+        env:
+          ZERO_TUN_E2E_FAKE_IP_DOMAIN: open.bigmodel.cn
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run command-managed egress publication E2E
         run: cargo test --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
