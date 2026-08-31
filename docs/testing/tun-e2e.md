@@ -21,7 +21,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 - 代理节点不再获得自动 host route；Zero 创建的 TCP/UDP/QUIC socket 按 IPv4/IPv6 分别绑定各自 underlay 接口，避免代理自环。DNS UDP 与 DoT socket 使用同一出口权威；DoH/系统 bootstrap 仍由显式 DNS 排除或操作系统解析路径保护。
 - 物理出口或受管 TUN 地址集合每次实际变化都会发布单调递增的出口 generation。direct UDP 在下一次发送前发现旧 generation 时重建双栈 socket；重建期间若拓扑持续抖动则 fail closed，不使用旧出口继续发送。新建域名 UDP flow 在解析器首选的可用地址族内采用稳定候选，DNS 答案重排不会把所有流量重新固定到第一条记录。
 - macOS 会为每个受管地址族维护物理出口的 interface-scoped 默认路由，使绑定接口的 direct、代理节点和 DNS socket 在全局 `/1` 路由生效后仍可达；该路由参与出口切换、回滚和崩溃恢复。
-- macOS 在捕获范围覆盖回环地址时，会为对应地址族维护 Zero 自己拥有的非 scoped `lo0` 路由（IPv4 为 `127.0.0.0/8`，IPv6 为 `::1/128`）。系统已存在的等价路由不会被认领；Zero 新增的路由写入恢复 journal，并在撤销 TUN 捕获路由后删除，保证本机控制面和代理入站在正常启停、重载及崩溃残留期间始终可达且不会进入 TUN 会话。
+- macOS strict-route PF 策略会把 IPv4 `127.0.0.0/8` 和 IPv6 `::1/128` 从 fail-closed block 前缀中结构性扣除，并保留显式回环放行规则作为额外防线。系统原生 `lo0` 路由不会被 Zero 认领或改写；本机控制面和代理入站在正常启停、重载及崩溃残留期间始终可达，且回环连接不会进入 TUN 会话。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。系统路由 lease 则按地址族全局持有，第二个进程即使使用不同 tag，也必须明确失败且报告当前 owner，不能同时改写同一组捕获路由。
 
 调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。`--include-cidr CIDR` 与 `--exclude-cidr CIDR` 均可重复传入以验证选择性接管。生产防泄露验证不应关闭 strict route。Linux smoke case 还会用与 Zero 相同的有效 UID 创建一个未打 `SO_MARK`、强制绑定物理网卡的 TCP socket；该 socket 必须被 nftables kill switch 拒绝，而紧邻的受管 TUN TCP 请求必须成功，从而同时验证“同 UID 不继承例外”和 Zero 自身 underlay 身份链。
@@ -251,7 +251,7 @@ macOS 的 PF_ROUTE 生命周期用例只增删一条 `lo0` TEST-NET 主机路由
 sudo cargo test -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
 ```
 
-macOS 回环用例不访问公网，会验证 TUN 生效时的非 scoped `lo0` 路由、本机监听可达、无对应 TUN 会话、硬杀残留期间可达，以及重启恢复和正常停止后的系统路由还原：
+macOS 回环用例不访问公网，会依次验证无 TUN 基线、`strict_route=false` 对照和生产 strict-route 模式，并断言原生非 scoped `lo0` 路由保持不变、本机监听可达、无对应 TUN 会话、硬杀残留期间可达，以及重启恢复和正常停止后的系统路由还原：
 
 ```bash
 sudo cargo test --test tun_privileged_e2e privileged_macos_tun_loopback_remains_reachable_across_crash_recovery -- --ignored --exact --nocapture
