@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
+#[cfg(feature = "socks5")]
+use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use zero_config::{
     DnsAddressFamilyPolicy, DnsAnswerConfig, DnsConfig, DnsPolicyConfig, DnsServerConfig,
 };
 use zero_core::{Address, FakeIpReverseStatus, Network, ProtocolType, Session, TargetHostSource};
+#[cfg(feature = "socks5")]
+use zero_traits::AsyncSocket;
 use zero_traits::IpAddress;
 
 use crate::runtime::target::resolve_dns_target;
@@ -107,6 +111,99 @@ async fn mapped_fake_ipv6_recovers_without_sniffing_and_uses_every_ipv4_candidat
     );
 
     server.await.expect("DNS server task");
+}
+
+#[cfg(feature = "socks5")]
+#[tokio::test]
+async fn mapped_fake_ipv6_is_forwarded_to_a_proxy_as_the_recovered_domain() {
+    let dns = fake_dns(9);
+    let response = dns
+        .answer_udp_query(&dns_query("proxied.example", 28))
+        .await
+        .expect("allocate synthetic AAAA mapping");
+    let synthetic = Address::Ipv6(
+        response[response.len() - 16..]
+            .try_into()
+            .expect("sixteen-byte AAAA response"),
+    );
+    let mut session = Session::new(
+        3,
+        synthetic.clone(),
+        443,
+        Network::Tcp,
+        ProtocolType::UNKNOWN,
+    );
+    session.transparent_target = true;
+
+    resolve_dns_target(&dns, &mut session)
+        .await
+        .expect("restore mapped FakeIPv6 domain");
+
+    let mut socket = RecordingSocket::new(&[
+        0x05, 0x00, // no-auth accepted
+        0x05, 0x00, 0x00, 0x01, // connect succeeded with an IPv4 bound address
+        127, 0, 0, 1, 0x00, 0x50,
+    ]);
+    socks5::Socks5Outbound
+        .establish_tunnel(&mut socket, &session)
+        .await
+        .expect("establish proxied tunnel");
+
+    let domain = b"proxied.example";
+    let mut expected = vec![0x05, 0x01, 0x00, 0x05, 0x01, 0x00, 0x03, domain.len() as u8];
+    expected.extend_from_slice(domain);
+    expected.extend_from_slice(&443_u16.to_be_bytes());
+
+    assert_eq!(
+        session.target,
+        Address::Domain("proxied.example".to_owned())
+    );
+    assert_eq!(session.original_target, Some(synthetic));
+    assert_eq!(session.target_host_source, Some(TargetHostSource::FakeIp));
+    assert_eq!(socket.writes, expected);
+}
+
+#[cfg(feature = "socks5")]
+#[derive(Debug)]
+struct RecordingSocket {
+    reads: VecDeque<u8>,
+    writes: Vec<u8>,
+}
+
+#[cfg(feature = "socks5")]
+impl RecordingSocket {
+    fn new(input: &[u8]) -> Self {
+        Self {
+            reads: input.iter().copied().collect(),
+            writes: Vec::new(),
+        }
+    }
+}
+
+#[cfg(feature = "socks5")]
+impl AsyncSocket for RecordingSocket {
+    type Error = ();
+
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let mut read = 0;
+        while read < buf.len() {
+            let Some(byte) = self.reads.pop_front() else {
+                break;
+            };
+            buf[read] = byte;
+            read += 1;
+        }
+        Ok(read)
+    }
+
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.writes.extend_from_slice(buf);
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 fn fake_dns(port: u16) -> zero_dns::DnsSystem {
