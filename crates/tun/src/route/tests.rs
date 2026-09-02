@@ -47,6 +47,32 @@ fn capture_plan_subtracts_exclusions_for_both_address_families() {
 }
 
 #[test]
+fn default_capture_excludes_only_the_requested_ipv4_cidr() {
+    let routes = capture_route_prefixes_with_exclusions(
+        "10.66.0.1".parse().unwrap(),
+        &[],
+        &["16.0.0.0/8".parse().unwrap()],
+    );
+    assert_eq!(
+        routes,
+        vec![
+            "0.0.0.0/4".parse().unwrap(),
+            "17.0.0.0/8".parse().unwrap(),
+            "18.0.0.0/7".parse().unwrap(),
+            "20.0.0.0/6".parse().unwrap(),
+            "24.0.0.0/5".parse().unwrap(),
+            "32.0.0.0/3".parse().unwrap(),
+            "64.0.0.0/2".parse().unwrap(),
+            "128.0.0.0/1".parse().unwrap(),
+        ]
+    );
+    let excluded: IpAddr = "16.0.0.1".parse().unwrap();
+    let stun_server: IpAddr = "20.93.239.169".parse().unwrap();
+    assert!(!routes.iter().any(|route| route.contains(&excluded)));
+    assert!(routes.iter().any(|route| route.contains(&stun_server)));
+}
+
+#[test]
 fn broader_and_unrelated_exclusions_are_deterministic() {
     assert!(capture_route_prefixes_with_exclusions(
         "10.66.0.1".parse().unwrap(),

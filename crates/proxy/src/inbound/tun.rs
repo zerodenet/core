@@ -274,6 +274,12 @@ impl Proxy {
             }
         };
         let dns_hijack = prepared_network.dns_hijack;
+        tracing::info!(
+            dns_hijack,
+            route_exclusion_count = prepared_network.route_exclusions.len(),
+            route_exclusions = ?prepared_network.route_exclusions,
+            "prepared TUN DNS physical-route exclusions"
+        );
 
         let device = zero_tun::create(name).map_err(EngineError::Io)?;
         let address_pairs = interface_addresses
