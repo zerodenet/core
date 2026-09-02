@@ -103,7 +103,8 @@ fn dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority() {
     assert!(udp.contains("current_for_peer"));
     assert!(!udp.contains("tokio::net::UdpSocket"));
     assert!(backends.contains("TokioSocket::connect_addr_on"));
-    assert!(backends.contains("current_for_peer"));
+    assert!(backends.contains("select_for_peer"));
+    assert!(backends.contains("ensure_connectable"));
     assert!(!backends.contains("TcpStream::connect"));
 
     let direct = [
