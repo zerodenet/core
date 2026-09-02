@@ -15,8 +15,18 @@ use zero_config::LogConfig;
 
 // ── public API ────────────────────────────────────────────────────────
 
+/// Keeps non-blocking file writers alive and flushes them when dropped.
+///
+/// Callers must retain this guard for the complete process lifetime. In
+/// particular, drop it explicitly before terminating through
+/// [`std::process::exit`], which does not run destructors itself.
+#[must_use = "dropping the tracing guard immediately stops file log writers"]
+pub struct TracingGuard {
+    _file_guards: Vec<tracing_appender::non_blocking::WorkerGuard>,
+}
+
 /// Initialise tracing.  Must be called exactly once, before any work.
-pub fn init_tracing(config: &LogConfig) {
+pub fn init_tracing(config: &LogConfig) -> TracingGuard {
     let default_level = config.level.as_str();
 
     let filter = EnvFilter::try_from_default_env()
@@ -71,11 +81,12 @@ pub fn init_tracing(config: &LogConfig) {
         layers.push(Box::new(file_layer));
     }
 
-    let _ = LOG_GUARDS.set(guards);
     let _ = tracing_subscriber::registry().with(layers).try_init();
+    TracingGuard {
+        _file_guards: guards,
+    }
 }
 
-static LOG_GUARDS: OnceLock<Vec<tracing_appender::non_blocking::WorkerGuard>> = OnceLock::new();
 type WarningSink = Box<dyn Fn(&str, &str) + Send + Sync>;
 
 /// Callback that receives every `warn` / `error` log line so it can be

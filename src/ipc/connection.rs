@@ -4,6 +4,7 @@
 //! command parsing, and utility functions used by both the Unix domain
 //! socket and Windows named pipe IPC servers.
 
+use std::future::Future;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::sync::Mutex as TokioMutex;
+use tokio::task::JoinSet;
 use zero_api::{
     ApiResponse, AuthContext, CommandRequest, CommandService, EventFilter, EventSource, Permission,
     QueryService,
@@ -21,6 +23,37 @@ use zero_proxy::ProxyHandle;
 use super::protocol::{ipc_api_error, ipc_error, ipc_ok, serialize_frame, IpcRequest};
 
 type CommandParseError = Box<ApiResponse<()>>;
+const MAX_PENDING_CONCURRENT_IPC_COMMANDS: usize = 32;
+
+struct ConcurrentCommandTasks {
+    tasks: JoinSet<()>,
+}
+
+impl ConcurrentCommandTasks {
+    fn new() -> Self {
+        Self {
+            tasks: JoinSet::new(),
+        }
+    }
+
+    fn reap_finished(&mut self) {
+        while self.tasks.try_join_next().is_some() {}
+    }
+
+    fn try_spawn(&mut self, future: impl Future<Output = ()> + Send + 'static) -> bool {
+        self.reap_finished();
+        if self.tasks.len() >= MAX_PENDING_CONCURRENT_IPC_COMMANDS {
+            return false;
+        }
+        self.tasks.spawn(future);
+        true
+    }
+
+    async fn cancel_all(&mut self) {
+        self.tasks.abort_all();
+        while self.tasks.join_next().await.is_some() {}
+    }
+}
 
 #[cfg(test)]
 mod tests;
@@ -90,6 +123,7 @@ where
     // connection ends so the poller exits within ~100ms instead of looping
     // forever (which would keep the engine pushing events at a dead client).
     let mut bg_cancel: Option<Arc<AtomicBool>> = None;
+    let mut concurrent_commands = ConcurrentCommandTasks::new();
     loop {
         line.clear();
         let n = reader.read_line(&mut line).await?;
@@ -138,7 +172,8 @@ where
                         if command_can_run_concurrently(&cmd) {
                             let command_handle = handle.clone();
                             let response_writer = writer.clone();
-                            tokio::spawn(async move {
+                            let rejected_id = id.clone();
+                            let spawned = concurrent_commands.try_spawn(async move {
                                 let result = execute_ipc_command(command_handle, cmd).await;
                                 if let Err(error) =
                                     write_command_result(response_writer, id, result).await
@@ -151,6 +186,16 @@ where
                                     }
                                 }
                             });
+                            if !spawned {
+                                let error = zero_api::ApiError::new(
+                                    zero_api::ApiErrorCode::Conflict,
+                                    format!(
+                                        "this IPC connection already has {MAX_PENDING_CONCURRENT_IPC_COMMANDS} pending outbound probes"
+                                    ),
+                                );
+                                write_command_result(writer.clone(), rejected_id, Err(error))
+                                    .await?;
+                            }
                         } else {
                             let result = execute_ipc_command(handle.clone(), cmd).await;
                             write_command_result(writer.clone(), id, result).await?;
@@ -277,6 +322,7 @@ where
     if let Some(handle) = bg_blocking.take() {
         handle.abort();
     }
+    concurrent_commands.cancel_all().await;
 
     Ok(())
 }
@@ -289,6 +335,14 @@ async fn execute_ipc_command(
     command_handle: ProxyHandle,
     command: CommandRequest,
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    let command = match command {
+        CommandRequest::DiagnosticsProbeOutbound(command) => {
+            return command_handle
+                .execute_diagnostics_probe_outbound_command(command)
+                .await;
+        }
+        command => command,
+    };
     if matches!(
         command,
         CommandRequest::ConfigApply(_) | CommandRequest::ConfigApplyRuntime(_)

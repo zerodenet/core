@@ -22,6 +22,42 @@ const OUTBOUND_PROBE_MAX_TIMEOUT_MS: u64 = 60_000;
 
 type SharedProbeFuture = Shared<BoxFuture<'static, Result<u64, OutboundProbeError>>>;
 
+struct SharedProbeEntry {
+    future: SharedProbeFuture,
+    waiters: usize,
+}
+
+struct SharedProbeWaiter {
+    probes: Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>>,
+    key: ProbeKey,
+    future: SharedProbeFuture,
+}
+
+impl Drop for SharedProbeWaiter {
+    fn drop(&mut self) {
+        let mut probes = self
+            .probes
+            .lock()
+            .expect("shared outbound probe lock poisoned");
+        let Some(entry) = probes.get_mut(&self.key) else {
+            return;
+        };
+        if entry.waiters <= 1 {
+            probes.remove(&self.key);
+        } else {
+            entry.waiters -= 1;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct OutboundProbeDeadline {
+    pub(crate) dns_budget_ms: u64,
+    pub(crate) transport_budget_ms: u64,
+    pub(crate) timeout_ms: u64,
+    pub(crate) capped: bool,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ProbeKey {
     config_identity: usize,
@@ -34,7 +70,7 @@ struct ProbeKey {
 pub(crate) struct OutboundProbeRuntime {
     services: TcpRuntimeServices,
     limiter: Arc<Semaphore>,
-    shared_probes: Arc<Mutex<HashMap<ProbeKey, SharedProbeFuture>>>,
+    shared_probes: Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>>,
 }
 
 impl OutboundProbeRuntime {
@@ -53,9 +89,9 @@ impl OutboundProbeRuntime {
             .clear();
     }
 
-    /// Total probe deadline, including the complete node-DNS fallback chain.
-    pub(crate) fn probe_timeout_ms(&self) -> u64 {
-        probe_timeout_ms_for_dns(self.services.snapshot().config().runtime.dns.as_ref())
+    /// Probe deadline budget, including node-DNS fallbacks and its hard cap.
+    pub(crate) fn probe_deadline(&self) -> OutboundProbeDeadline {
+        probe_deadline_for_dns(self.services.snapshot().config().runtime.dns.as_ref())
     }
 
     pub(crate) async fn probe_target_tag(
@@ -113,13 +149,14 @@ impl OutboundProbeRuntime {
             url: request.url.clone(),
             intent,
         };
-        let shared = {
+        let waiter = {
             let mut probes = self
                 .shared_probes
                 .lock()
                 .expect("shared outbound probe lock poisoned");
-            if let Some(existing) = probes.get(&key) {
-                existing.clone()
+            let future = if let Some(existing) = probes.get_mut(&key) {
+                existing.waiters += 1;
+                existing.future.clone()
             } else {
                 let runtime = self.clone();
                 let request = request.clone();
@@ -142,16 +179,24 @@ impl OutboundProbeRuntime {
                 }
                 .boxed()
                 .shared();
-                probes.insert(key.clone(), future.clone());
+                probes.insert(
+                    key.clone(),
+                    SharedProbeEntry {
+                        future: future.clone(),
+                        waiters: 1,
+                    },
+                );
                 future
+            };
+            SharedProbeWaiter {
+                probes: self.shared_probes.clone(),
+                key,
+                future,
             }
         };
 
-        let result = shared.await;
-        self.shared_probes
-            .lock()
-            .expect("shared outbound probe lock poisoned")
-            .remove(&key);
+        let result = waiter.future.clone().await;
+        drop(waiter);
         result
     }
 
@@ -168,7 +213,7 @@ impl OutboundProbeRuntime {
             ));
         }
 
-        let timeout_ms = self.probe_timeout_ms();
+        let timeout_ms = self.probe_deadline().timeout_ms;
         match timeout(Duration::from_millis(timeout_ms), async {
             let started_at = Instant::now();
             let session = Session::new(
@@ -233,32 +278,35 @@ impl OutboundProbeRuntime {
     }
 }
 
-fn probe_timeout_ms_for_dns(dns: Option<&zero_config::DnsConfig>) -> u64 {
-    let Some(dns) = dns else {
-        return OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS;
-    };
-    let policy = &dns.policy;
-    let mut tags = Vec::new();
-    if let Some(server) = policy.node_server.as_deref() {
-        tags.push(server);
-        tags.extend(policy.node_fallback_servers.iter().map(String::as_str));
-    } else {
-        tags.push(dns.default_server.as_str());
-        tags.extend(policy.fallback_servers.iter().map(String::as_str));
+fn probe_deadline_for_dns(dns: Option<&zero_config::DnsConfig>) -> OutboundProbeDeadline {
+    let dns_budget_ms = dns.map_or(0, |dns| {
+        let policy = &dns.policy;
+        let mut tags = Vec::new();
+        if let Some(server) = policy.node_server.as_deref() {
+            tags.push(server);
+            tags.extend(policy.node_fallback_servers.iter().map(String::as_str));
+        } else {
+            tags.push(dns.default_server.as_str());
+            tags.extend(policy.fallback_servers.iter().map(String::as_str));
+        }
+        let mut seen = HashSet::new();
+        tags.into_iter()
+            .filter(|tag| seen.insert(*tag))
+            .fold(0_u64, |total, tag| {
+                total.saturating_add(policy.timeout_ms_for(tag))
+            })
+    });
+    let requested_timeout_ms = OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS.saturating_add(dns_budget_ms);
+    let timeout_ms = requested_timeout_ms.clamp(
+        OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS,
+        OUTBOUND_PROBE_MAX_TIMEOUT_MS,
+    );
+    OutboundProbeDeadline {
+        dns_budget_ms,
+        transport_budget_ms: OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS,
+        timeout_ms,
+        capped: timeout_ms < requested_timeout_ms,
     }
-    let mut seen = HashSet::new();
-    let dns_budget = tags
-        .into_iter()
-        .filter(|tag| seen.insert(*tag))
-        .fold(0_u64, |total, tag| {
-            total.saturating_add(policy.timeout_ms_for(tag))
-        });
-    OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS
-        .saturating_add(dns_budget)
-        .clamp(
-            OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS,
-            OUTBOUND_PROBE_MAX_TIMEOUT_MS,
-        )
 }
 
 fn global_probe_limiter() -> Arc<Semaphore> {
@@ -268,8 +316,8 @@ fn global_probe_limiter() -> Arc<Semaphore> {
         .clone()
 }
 
-fn global_shared_probes() -> Arc<Mutex<HashMap<ProbeKey, SharedProbeFuture>>> {
-    static PROBES: OnceLock<Arc<Mutex<HashMap<ProbeKey, SharedProbeFuture>>>> = OnceLock::new();
+fn global_shared_probes() -> Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>> {
+    static PROBES: OnceLock<Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>>> = OnceLock::new();
     PROBES
         .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
         .clone()

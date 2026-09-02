@@ -19,12 +19,13 @@ async fn main() {
     // from `runtime.log` before any other work so all logs are captured.
     let args: Vec<String> = env::args().collect();
     let config_path = cli::config_path_from_args(&args);
-    init_tracing_from_config(config_path.unwrap_or(""));
+    let tracing_guard = init_tracing_from_config(config_path.unwrap_or(""));
     install_panic_hook();
 
     if let Err(error) = try_main().await {
         tracing::error!(error = %error, "zero process terminating with fatal error");
         error_report::print_error(error.as_ref());
+        drop(tracing_guard);
         process::exit(1);
     }
 }
@@ -53,7 +54,7 @@ async fn try_main() -> Result<(), Box<dyn Error>> {
 
 /// Early-parse the configuration file to extract `runtime.log` and
 /// initialise the tracing subscriber before any meaningful work.
-fn init_tracing_from_config(config_path: &str) {
+fn init_tracing_from_config(config_path: &str) -> zero_logging::TracingGuard {
     let log_config = std::fs::read_to_string(config_path)
         .ok()
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
@@ -64,7 +65,7 @@ fn init_tracing_from_config(config_path: &str) {
             zero_config::LogConfig::default()
         });
 
-    zero_logging::init_tracing(&log_config);
+    zero_logging::init_tracing(&log_config)
 }
 
 /// Collect compiled feature flags for the capabilities endpoint.
