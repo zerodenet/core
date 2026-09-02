@@ -210,22 +210,19 @@ pub fn capture_route_prefixes_with_exclusions(
 }
 
 fn subtract_prefix(captured: IpNet, excluded: IpNet) -> Vec<IpNet> {
-    if captured.addr().is_ipv6() != excluded.addr().is_ipv6()
-        || !captured.contains(&excluded.network())
-    {
-        return if excluded.contains(&captured.network()) {
-            Vec::new()
-        } else {
-            vec![captured]
-        };
+    if captured.addr().is_ipv6() != excluded.addr().is_ipv6() {
+        return vec![captured];
     }
-    if excluded.contains(&captured.network()) {
+    if excluded.prefix_len() <= captured.prefix_len() && excluded.contains(&captured.network()) {
         return Vec::new();
     }
-    split_prefix(captured)
-        .into_iter()
-        .flat_map(|child| subtract_prefix(child, excluded))
-        .collect()
+    if captured.prefix_len() < excluded.prefix_len() && captured.contains(&excluded.network()) {
+        return split_prefix(captured)
+            .into_iter()
+            .flat_map(|child| subtract_prefix(child, excluded))
+            .collect();
+    }
+    vec![captured]
 }
 
 fn split_prefix(prefix: IpNet) -> [IpNet; 2] {
