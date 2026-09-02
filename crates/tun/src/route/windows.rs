@@ -465,25 +465,59 @@ fn default_interface(ipv6: bool, tun_index: u32) -> io::Result<WindowsInterface>
         })
         .collect::<Vec<_>>();
     let row_count = routes.len();
-    let route = routes
-        .into_iter()
-        .filter(|route| route.InterfaceIndex != tun_index)
-        .filter(|route| route.DestinationPrefix.PrefixLength == 0)
-        .min_by_key(|route| effective_metric(route, family))
+    let mut rejected = Vec::new();
+    let route = select_usable_default_route(
+        &routes,
+        tun_index,
+        |interface_index| match native_family_unavailable_reason(ipv6, interface_index) {
+            Ok(None) => true,
+            Ok(Some(reason)) => {
+                rejected.push((interface_index, reason.as_str().to_owned()));
+                false
+            }
+            Err(error) => {
+                rejected.push((interface_index, format!("route_lookup_failed: {error}")));
+                false
+            }
+        },
+        |route| effective_metric(route, family),
+    )
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
                 format!(
-                    "default route not found for family {family}; TUN index {tun_index}; zero-prefix candidates {defaults:?}; rows={}; samples={samples:?}",
+                    "default route not found for family {family}; TUN index {tun_index}; zero-prefix candidates {defaults:?}; rejected unusable candidates {rejected:?}; rows={}; samples={samples:?}",
                     row_count
                 ),
             )
         })?;
+    if !rejected.is_empty() {
+        tracing::debug!(
+            family = if ipv6 { "ipv6" } else { "ipv4" },
+            selected_interface_index = route.InterfaceIndex,
+            rejected_candidates = ?rejected,
+            "skipped unusable Windows default route candidates"
+        );
+    }
     Ok(WindowsInterface {
         interface_alias: interface_alias(&route.InterfaceLuid)?,
         interface_index: route.InterfaceIndex,
         next_hop: socket_ip(&route.NextHop)?,
     })
+}
+
+fn select_usable_default_route<'a>(
+    routes: &'a [MIB_IPFORWARD_ROW2],
+    tun_index: u32,
+    mut is_usable: impl FnMut(u32) -> bool,
+    mut metric: impl FnMut(&MIB_IPFORWARD_ROW2) -> u64,
+) -> Option<&'a MIB_IPFORWARD_ROW2> {
+    routes
+        .iter()
+        .filter(|route| route.InterfaceIndex != tun_index)
+        .filter(|route| route.DestinationPrefix.PrefixLength == 0)
+        .filter(|route| is_usable(route.InterfaceIndex))
+        .min_by_key(|route| metric(route))
 }
 
 fn effective_metric(route: &MIB_IPFORWARD_ROW2, family: u16) -> u64 {
@@ -695,3 +729,6 @@ fn win32_result(context: &str, result: u32) -> io::Result<()> {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests;
