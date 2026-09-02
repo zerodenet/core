@@ -271,7 +271,20 @@ async fn connect_tcp(
         return connector.connect(outbound.to_owned(), addr).await;
     }
 
-    let interface = egress.try_current_for_peer(addr)?;
+    let selection = egress.select_for_peer(addr);
+    selection.ensure_connectable()?;
+    let interface = selection.interface().cloned();
+    tracing::debug!(
+        peer = %addr,
+        tun_active = selection.tun_active(),
+        egress_generation = selection.generation(),
+        binding_reason = selection.binding_reason().as_str(),
+        route_lookup = selection.route_lookup_status().as_str(),
+        route_source = ?selection.route_source(),
+        interface_name = interface.as_ref().map(|value| value.name()),
+        interface_index = interface.as_ref().map(|value| value.index()),
+        "selected DNS physical egress"
+    );
     zero_platform_tokio::TokioSocket::connect_addr_on(addr, interface.as_ref())
         .await
         .map(zero_platform_tokio::TcpRelayStream::from)

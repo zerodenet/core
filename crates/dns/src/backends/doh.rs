@@ -110,7 +110,15 @@ impl DohDnsResolver {
             self.exchange_with_timeout(addr, query, detour, connector),
         )
         .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoH request timeout"))?
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!(
+                    "DoH request to {addr} timed out after {}ms",
+                    DNS_TIMEOUT.as_millis()
+                ),
+            )
+        })?
     }
 
     async fn exchange_with_timeout(

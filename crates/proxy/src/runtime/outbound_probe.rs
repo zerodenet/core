@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -17,7 +17,8 @@ mod model;
 pub(crate) use model::{OutboundProbeError, OutboundProbeRequest};
 
 pub(crate) const MAX_CONCURRENT_OUTBOUND_PROBES: usize = 8;
-pub(crate) const OUTBOUND_PROBE_TIMEOUT_MS: u64 = 5_000;
+const OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS: u64 = 5_000;
+const OUTBOUND_PROBE_MAX_TIMEOUT_MS: u64 = 60_000;
 
 type SharedProbeFuture = Shared<BoxFuture<'static, Result<u64, OutboundProbeError>>>;
 
@@ -50,6 +51,11 @@ impl OutboundProbeRuntime {
             .lock()
             .expect("shared outbound probe lock poisoned")
             .clear();
+    }
+
+    /// Total probe deadline, including the complete node-DNS fallback chain.
+    pub(crate) fn probe_timeout_ms(&self) -> u64 {
+        probe_timeout_ms_for_dns(self.services.snapshot().config().runtime.dns.as_ref())
     }
 
     pub(crate) async fn probe_target_tag(
@@ -162,7 +168,8 @@ impl OutboundProbeRuntime {
             ));
         }
 
-        match timeout(Duration::from_millis(OUTBOUND_PROBE_TIMEOUT_MS), async {
+        let timeout_ms = self.probe_timeout_ms();
+        match timeout(Duration::from_millis(timeout_ms), async {
             let started_at = Instant::now();
             let session = Session::new(
                 0,
@@ -205,7 +212,7 @@ impl OutboundProbeRuntime {
             Ok(result) => result.map_err(OutboundProbeError::from_engine),
             Err(_) => Err(OutboundProbeError::new(
                 "probe_timeout",
-                format!("outbound latency probe timed out after {OUTBOUND_PROBE_TIMEOUT_MS} ms"),
+                format!("outbound latency probe timed out after {timeout_ms} ms"),
             )),
         }
     }
@@ -224,6 +231,34 @@ impl OutboundProbeRuntime {
             .engine()
             .target_tag_in_snapshot(self.services.snapshot(), target_id)
     }
+}
+
+fn probe_timeout_ms_for_dns(dns: Option<&zero_config::DnsConfig>) -> u64 {
+    let Some(dns) = dns else {
+        return OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS;
+    };
+    let policy = &dns.policy;
+    let mut tags = Vec::new();
+    if let Some(server) = policy.node_server.as_deref() {
+        tags.push(server);
+        tags.extend(policy.node_fallback_servers.iter().map(String::as_str));
+    } else {
+        tags.push(dns.default_server.as_str());
+        tags.extend(policy.fallback_servers.iter().map(String::as_str));
+    }
+    let mut seen = HashSet::new();
+    let dns_budget = tags
+        .into_iter()
+        .filter(|tag| seen.insert(*tag))
+        .fold(0_u64, |total, tag| {
+            total.saturating_add(policy.timeout_ms_for(tag))
+        });
+    OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS
+        .saturating_add(dns_budget)
+        .clamp(
+            OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS,
+            OUTBOUND_PROBE_MAX_TIMEOUT_MS,
+        )
 }
 
 fn global_probe_limiter() -> Arc<Semaphore> {

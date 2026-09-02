@@ -22,6 +22,9 @@ use super::protocol::{ipc_api_error, ipc_error, ipc_ok, serialize_frame, IpcRequ
 
 type CommandParseError = Box<ApiResponse<()>>;
 
+#[cfg(test)]
+mod tests;
+
 /// Parse a string method name + JSON params into a typed `CommandRequest`.
 ///
 /// Uses the same serde `#[serde(tag = "method", content = "params")]` path as
@@ -132,37 +135,25 @@ where
                         write_ipc_response(&mut *writer.lock().await, &resp).await?;
                     }
                     Ok(cmd) => {
-                        let command_handle = handle.clone();
-                        let acknowledged_apply = matches!(
-                            cmd,
-                            CommandRequest::ConfigApply(_) | CommandRequest::ConfigApplyRuntime(_)
-                        );
-                        let result = if acknowledged_apply {
-                            command_handle.execute_acknowledged(cmd).await
+                        if command_can_run_concurrently(&cmd) {
+                            let command_handle = handle.clone();
+                            let response_writer = writer.clone();
+                            tokio::spawn(async move {
+                                let result = execute_ipc_command(command_handle, cmd).await;
+                                if let Err(error) =
+                                    write_command_result(response_writer, id, result).await
+                                {
+                                    if !is_transient_disconnect(&error) {
+                                        tracing::warn!(
+                                            %error,
+                                            "failed to write concurrent IPC command response"
+                                        );
+                                    }
+                                }
+                            });
                         } else {
-                            // Some synchronous commands bridge to blocking runtime
-                            // services. Keep those off the reactor.
-                            match tokio::task::spawn_blocking(move || command_handle.execute(cmd))
-                                .await
-                            {
-                                Ok(result) => result,
-                                Err(error) => Err(zero_api::ApiError::new(
-                                    zero_api::ApiErrorCode::Internal,
-                                    format!("IPC command task failed: {error}"),
-                                )),
-                            }
-                        };
-                        match result {
-                            Ok(cmd_resp) => {
-                                let value =
-                                    serde_json::to_value(cmd_resp).map_err(io::Error::other)?;
-                                let resp = ipc_ok(id, value);
-                                write_ipc_response(&mut *writer.lock().await, &resp).await?;
-                            }
-                            Err(error) => {
-                                let resp = ipc_api_error(id, &error);
-                                write_ipc_response(&mut *writer.lock().await, &resp).await?;
-                            }
+                            let result = execute_ipc_command(handle.clone(), cmd).await;
+                            write_command_result(writer.clone(), id, result).await?;
                         }
                     }
                     Err(error) => {
@@ -288,6 +279,50 @@ where
     }
 
     Ok(())
+}
+
+fn command_can_run_concurrently(command: &CommandRequest) -> bool {
+    matches!(command, CommandRequest::DiagnosticsProbeOutbound(_))
+}
+
+async fn execute_ipc_command(
+    command_handle: ProxyHandle,
+    command: CommandRequest,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    if matches!(
+        command,
+        CommandRequest::ConfigApply(_) | CommandRequest::ConfigApplyRuntime(_)
+    ) {
+        return command_handle.execute_acknowledged(command).await;
+    }
+    match tokio::task::spawn_blocking(move || command_handle.execute(command)).await {
+        Ok(result) => result,
+        Err(error) => Err(zero_api::ApiError::new(
+            zero_api::ApiErrorCode::Internal,
+            format!("IPC command task failed: {error}"),
+        )),
+    }
+}
+
+async fn write_command_result<W>(
+    writer: Arc<TokioMutex<BufWriter<W>>>,
+    id: Option<serde_json::Value>,
+    result: zero_api::ApiResult<zero_api::CommandResponse>,
+) -> io::Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    match result {
+        Ok(command_response) => {
+            let value = serde_json::to_value(command_response).map_err(io::Error::other)?;
+            let response = ipc_ok(id, value);
+            write_ipc_response(&mut *writer.lock().await, &response).await
+        }
+        Err(error) => {
+            let response = ipc_api_error(id, &error);
+            write_ipc_response(&mut *writer.lock().await, &response).await
+        }
+    }
 }
 
 /// Write a serialized IPC response frame to the transport.

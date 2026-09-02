@@ -20,11 +20,22 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
     let config_path = cli::config_path_from_args(&args);
     init_tracing_from_config(config_path.unwrap_or(""));
+    install_panic_hook();
 
     if let Err(error) = try_main().await {
+        tracing::error!(error = %error, "zero process terminating with fatal error");
         error_report::print_error(error.as_ref());
         process::exit(1);
     }
+}
+
+fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic| {
+        tracing::error!(panic = %panic, "zero process panicked");
+        eprintln!("fatal panic: {panic}");
+        previous(panic);
+    }));
 }
 
 async fn try_main() -> Result<(), Box<dyn Error>> {
