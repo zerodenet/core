@@ -1,6 +1,4 @@
-use crate::runtime::outbound_probe::{
-    OutboundProbeRequest, OutboundProbeRuntime, OUTBOUND_PROBE_TIMEOUT_MS,
-};
+use crate::runtime::outbound_probe::{OutboundProbeRequest, OutboundProbeRuntime};
 use crate::runtime::route_runtime::route_trace_for_session;
 use tracing::info;
 use zero_core::{Network, ProtocolType, Session};
@@ -270,6 +268,8 @@ pub(super) fn execute_diagnostics_probe_outbound(
         .latency_test_url_or(cmd.url.as_deref())
         .to_owned();
     let services = proxy.tcp_runtime_services_for_snapshot(snapshot);
+    let probe_runtime = OutboundProbeRuntime::new(services);
+    let timeout_ms = probe_runtime.probe_timeout_ms();
 
     with_current_runtime(
         "no tokio runtime available for probe_outbound command",
@@ -288,16 +288,12 @@ pub(super) fn execute_diagnostics_probe_outbound(
                     target_tag,
                     url,
                     started_at_unix_ms,
-                    timeout_ms = OUTBOUND_PROBE_TIMEOUT_MS,
+                    timeout_ms,
                     "outbound diagnostic probe started"
                 );
                 let request = OutboundProbeRequest::parse(&url);
                 let result = match request {
-                    Ok(request) => {
-                        OutboundProbeRuntime::new(services)
-                            .probe_target_tag(&target_tag, &request)
-                            .await
-                    }
+                    Ok(request) => probe_runtime.probe_target_tag(&target_tag, &request).await,
                     Err(error) => Err(error),
                 };
                 let completed_at_unix_ms = unix_timestamp_ms();
@@ -317,7 +313,7 @@ pub(super) fn execute_diagnostics_probe_outbound(
                             started_at_unix_ms,
                             completed_at_unix_ms,
                             duration_ms,
-                            timeout_ms = OUTBOUND_PROBE_TIMEOUT_MS,
+                            timeout_ms,
                             terminal_status = "succeeded",
                             reachable = true,
                             affects_policy_selection = false,
@@ -342,7 +338,7 @@ pub(super) fn execute_diagnostics_probe_outbound(
                                 "affects_outbound_health": false,
                                 "bypasses_outbound_health_quarantine": true,
                                 "latency_ms": latency_ms,
-                                "timeout_ms": OUTBOUND_PROBE_TIMEOUT_MS,
+                                "timeout_ms": timeout_ms,
                                 "started_at_unix_ms": started_at_unix_ms,
                                 "completed_at_unix_ms": completed_at_unix_ms,
                                 "duration_ms": duration_ms,
@@ -363,7 +359,7 @@ pub(super) fn execute_diagnostics_probe_outbound(
                             started_at_unix_ms,
                             completed_at_unix_ms,
                             duration_ms,
-                            timeout_ms = OUTBOUND_PROBE_TIMEOUT_MS,
+                            timeout_ms,
                             terminal_status = "failed",
                             reachable = false,
                             affects_policy_selection = false,
@@ -389,7 +385,7 @@ pub(super) fn execute_diagnostics_probe_outbound(
                                 "affects_outbound_health": false,
                                 "bypasses_outbound_health_quarantine": true,
                                 "latency_ms": null,
-                                "timeout_ms": OUTBOUND_PROBE_TIMEOUT_MS,
+                                "timeout_ms": timeout_ms,
                                 "error_code": error.code(),
                                 "error": error.message(),
                                 "started_at_unix_ms": started_at_unix_ms,
