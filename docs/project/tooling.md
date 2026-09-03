@@ -40,6 +40,44 @@ cargo test <test_name>
 
 公开文档站由 `zerodenet/docs` 仓库独立构建和部署。本仓库只维护工程资料；公开文档变更应提交到该仓库并运行其 `pnpm check:build`。
 
+## CI 分层
+
+`CI` 与 `Privileged TUN E2E` 使用 `.github/actions/ci-scope` 读取完整 Git 差异，
+在 job 层决定执行范围，而不是用 workflow 路径过滤留下 Pending 检查。
+PR 比较 merge base 到 head，push 比较 before 到 after；历史缺失、首次推送或未知事件
+保守执行全量检查。范围规则可通过 `node --test .github/actions/ci-scope/scope.test.mjs` 验证。
+
+| 场景 | 验证范围 |
+|---|---|
+| 仅 Markdown、`docs/` 或 LICENSE 变化 | 运行轻量范围自测与汇总，不启动 Rust 构建 |
+| 普通代码或测试变化 | fmt、全目标全 feature Clippy、全 workspace 测试、三平台原生后端 check、独立 feature 组合检查 |
+| 构建依赖、原生平台、协议或 transport 变化 | 额外构建 musl 静态制品、编译较旧平台上的 TUN E2E harness |
+| `src/`、`crates/`、`protocols/`、`proto/`、TUN 测试或构建设施变化 | 运行 Linux、macOS、Windows 特权 TUN 回归；不限于直接修改 `tun/` 的变更 |
+| 目标为 `main` 的 PR、`main` push、手动运行 | 不按文件过滤，执行完整候选验证 |
+
+`examples/` 和 `proto/` 可能被编译或测试消费，不属于纯文档豁免。构建设施包括任意
+`Cargo.toml` / `Cargo.lock` / `build.rs`、工具链配置、`.cargo/`、`.github/` 和 `scripts/`。
+兼容性检查另外覆盖 `src/`、`protocols/`、`crates/{platform,tun,transport,ztls}/`。
+日常三平台原生后端检查使用 Ubuntu 22.04、macOS 14、Windows 2022；完整 TUN 运行使用
+Ubuntu 24.04、macOS 15 Intel、Windows 2025。两组系统版本的兼容性覆盖不视为完全重复。
+
+全 workspace 测试已经包含 `zero-proxy` 的 `runtime_boundary`，不单独重复编译运行；
+Clippy 已执行全目标类型检查，不再叠加同范围的 `cargo check --workspace --all-features`。
+最小 feature 组合检查仍保留，以发现 all-features 下被掩盖的条件编译错误。
+
+macOS 特权测试由普通用户运行 Cargo 编译，通过
+`CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER=sudo` 仅提升测试可执行程序的权限。
+不得恢复 `sudo cargo test`，以免产生 root 所有的构建缓存，导致缓存上传失败。
+三平台 TUN 任务在测试失败时也保存依赖缓存，但任务本身仍返回失败，不将缓存策略当作重试或豁免。
+
+汇总检查名为 `CI result` 和 `TUN E2E result`，选中的任务失败或取消时汇总失败；
+无关改动正常返回跳过结果。配置分支保护时可要求这两个汇总检查，不要要求可能不触发的
+路径过滤工作流。工作流修改本身不会自动修改仓库分支保护设置。
+
+封板时在候选 ref 上手动运行 `CI`，并运行 `Privileged TUN E2E` 的 `hosted-all`。
+单平台手动入口只用于定向验证，不代表完整候选通过。本轮分层不新增夜间定时任务，
+也不削弱 TUN 断言、增加失败重试或修改发布流程。
+
 ## 版本与发布
 
 完整的版本格式、状态转换、分支来源、Release PR、标签创建和失败处理规则见[版本演化与发布流程](./release-process.md)。该流程属于 Core 仓库内部工程规范，不需要同步到外部文档仓库。
