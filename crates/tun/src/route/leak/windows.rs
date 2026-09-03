@@ -36,6 +36,8 @@ use super::{
 };
 use crate::route::journal::route_state_root;
 
+mod dhcp;
+
 const ALLOW_WEIGHT: u64 = u64::MAX;
 const BLOCK_WEIGHT: u64 = 1;
 const SUBLAYER_WEIGHT: u16 = 0x7fff;
@@ -184,6 +186,7 @@ fn install_policy(
         display_name,
         &mut tun_luid,
     )?;
+    dhcp::add_permits(engine.handle, sublayer_key, recovery_key, display_name)?;
     add_remote_filter(
         engine.handle,
         sublayer_key,
@@ -549,6 +552,8 @@ fn expected_filter_keys(recovery_key: &str, protected: &[IpNet], excluded: &[IpA
         "tun-v6",
         "loopback-v4",
         "loopback-v6",
+        "dhcp-v4",
+        "dhcp-v6",
     ]
     .into_iter()
     .map(|scope| stable_guid(recovery_key, scope))
