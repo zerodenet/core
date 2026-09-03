@@ -4,20 +4,11 @@ on:
   push:
     branches:
       - develop
+      - main
   pull_request:
     branches:
       - develop
-    paths:
-      - ".github/workflows/tun-e2e.yml"
-      - "tests/tun_privileged_e2e.rs"
-      - "tests/tun_route_reconcile*_e2e.rs"
-      - "crates/tun/**"
-      - "crates/stack/**"
-      - "crates/dns/**"
-      - "crates/proxy/src/inbound/tun/**"
-      - "crates/proxy/src/runtime/udp_socket.rs"
-      - "crates/proxy/src/runtime/udp_socket/**"
-      - "crates/platform/tokio/src/egress.rs"
+      - main
   workflow_dispatch:
     inputs:
       target:
@@ -31,6 +22,9 @@ on:
           - hosted-macos
           - hosted-windows
 
+permissions:
+  contents: read
+
 concurrency:
   group: tun-e2e-${{ github.ref }}
   cancel-in-progress: true
@@ -39,14 +33,30 @@ concurrency:
 # The matrix uses deterministic local peers for dual-stack and fallback behavior
 # so it does not depend on a runner having public native IPv6 connectivity.
 jobs:
+  scope:
+    name: Select TUN checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      tun: ${{ steps.scope.outputs.tun }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: scope
+        uses: ./.github/actions/ci-scope
+
   hosted-linux:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.target == 'hosted-all' || inputs.target == 'hosted-linux'
+    needs: scope
+    if: needs.scope.outputs.tun == 'true' && (github.event_name != 'workflow_dispatch' || inputs.target == 'hosted-all' || inputs.target == 'hosted-linux')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Install build prerequisites
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler iproute2 nftables
       - name: Run zero-tun tests
@@ -56,7 +66,7 @@ jobs:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_route_reconcile_linux_e2e linux_reconciles_runtime_egress_and_dns_exclusion_inside_network_namespace -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || github.base_ref == 'main'
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
@@ -78,13 +88,16 @@ jobs:
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
   hosted-macos:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.target == 'hosted-all' || inputs.target == 'hosted-macos'
+    needs: scope
+    if: needs.scope.outputs.tun == 'true' && (github.event_name != 'workflow_dispatch' || inputs.target == 'hosted-all' || inputs.target == 'hosted-macos')
     runs-on: macos-15-intel
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Record native network topology
         run: |
           sw_vers
@@ -92,32 +105,49 @@ jobs:
           ifconfig
           route -n get -inet default
       - name: Run zero-tun tests
-        run: cargo test -p zero-tun
+        run: cargo test --target x86_64-apple-darwin -p zero-tun
       - name: Run native PF_ROUTE lifecycle E2E
-        run: sudo env "PATH=$PATH" cargo test -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
+        run: cargo test --target x86_64-apple-darwin -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
-        if: github.event_name != 'pull_request'
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+        if: github.event_name != 'pull_request' || github.base_ref == 'main'
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
+        run: cargo test --target x86_64-apple-darwin --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run macOS loopback capture and crash-recovery E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_macos_tun_loopback_remains_reachable_across_crash_recovery -- --ignored --exact --nocapture
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
+        run: cargo test --target x86_64-apple-darwin --test tun_privileged_e2e privileged_macos_tun_loopback_remains_reachable_across_crash_recovery -- --ignored --exact --nocapture
       - name: Run direct UDP self-capture E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
+        run: cargo test --target x86_64-apple-darwin --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
+        run: cargo test --target x86_64-apple-darwin --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run command-managed egress publication E2E
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
+        run: cargo test --target x86_64-apple-darwin --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
-        if: github.event_name != 'pull_request'
-        run: sudo env "PATH=$PATH" cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
+        if: github.event_name != 'pull_request' || github.base_ref == 'main'
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
+        run: cargo test --target x86_64-apple-darwin --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 
   hosted-windows:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.target == 'hosted-all' || inputs.target == 'hosted-windows'
+    needs: scope
+    if: needs.scope.outputs.tun == 'true' && (github.event_name != 'workflow_dispatch' || inputs.target == 'hosted-all' || inputs.target == 'hosted-windows')
     runs-on: windows-2025
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Install protoc
         uses: ./.github/actions/setup-protoc
         with:
@@ -132,7 +162,7 @@ jobs:
       - name: Run privileged Wintun address configuration E2E
         run: cargo test -p zero-tun --test privileged_configuration windows_configures_ipv4_and_ipv6_addresses_on_one_adapter -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || github.base_ref == 'main'
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run direct UDP self-capture E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
@@ -148,3 +178,16 @@ jobs:
         run: cargo test --test tun_privileged_e2e privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
+
+  result:
+    name: TUN E2E result
+    if: always()
+    needs: [scope, hosted-linux, hosted-macos, hosted-windows]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Require successful selected checks
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e 'const checks = JSON.parse(process.env.CHECK_RESULTS); for (const [name, check] of Object.entries(checks)) { console.log(`${name}: ${check.result}`); if (!["success", "skipped"].includes(check.result)) process.exitCode = 1; }'

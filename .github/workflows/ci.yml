@@ -3,28 +3,37 @@ name: CI
 on:
   push:
     branches: [develop, main]
-    paths-ignore:
-      - "**.md"
-      - "LICENSE"
-      - "docs/**"
-      - "examples/**"
-      - "proto/**"
   pull_request:
     branches: [develop, main, "fix/**", "feat/**"]
-    paths-ignore:
-      - "**.md"
-      - "LICENSE"
-      - "docs/**"
-      - "examples/**"
-      - "proto/**"
+  # Run explicitly on the candidate ref for complete RC qualification.
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  scope:
+    name: Select CI checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+      compatibility: ${{ steps.scope.outputs.compatibility }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: scope
+        uses: ./.github/actions/ci-scope
+
   static:
     name: Static checks (fmt + clippy)
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -54,7 +63,8 @@ jobs:
     name: Check & Test (Linux)
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-    needs: static
+    needs: [scope, static]
+    if: needs.scope.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v5
 
@@ -70,22 +80,19 @@ jobs:
       - name: Verify protoc
         run: protoc --version
 
-      - name: Check (all features)
-        run: cargo check --workspace --all-features
-
+      # Clippy already type-checks every target. The workspace suite also runs
+      # zero-proxy's runtime_boundary integration test; do not compile it twice.
       - name: Test (workspace, including connector webhook delivery)
         env:
           RUST_MIN_STACK: "16777216"
         run: cargo test --workspace --all-features
 
-      - name: Architecture boundary tests
-        run: cargo test -p zero-proxy --test runtime_boundary --all-features
-
   tun-platform-check:
     name: TUN platform check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    needs: static
+    needs: [scope, static]
+    if: needs.scope.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -101,13 +108,17 @@ jobs:
         run: cargo check -p zero-tun -p zero-platform-tokio
 
       - name: Compile privileged TUN E2E harness
+        # Daily platform checks cover the native backends. The privileged jobs
+        # compile/run this harness; keep older-OS compilation for compatibility.
+        if: needs.scope.outputs.compatibility == 'true'
         run: cargo test --test tun_privileged_e2e --no-run
 
   linux-musl-compat:
     name: Build Linux musl compatibility artifact
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-    needs: static
+    needs: [scope, static]
+    if: needs.scope.outputs.compatibility == 'true'
     steps:
       - uses: actions/checkout@v5
 
@@ -150,7 +161,8 @@ jobs:
     name: Proxy feature compatibility
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-    needs: static
+    needs: [scope, static]
+    if: needs.scope.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v5
 
@@ -194,7 +206,8 @@ jobs:
     name: Optional surface compatibility
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-    needs: static
+    needs: [scope, static]
+    if: needs.scope.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v5
 
@@ -221,3 +234,16 @@ jobs:
 
       - name: Check optional surface (grpc-api)
         run: cargo check --no-default-features --features grpc-api
+
+  result:
+    name: CI result
+    if: always()
+    needs: [scope, static, check-and-test, tun-platform-check, linux-musl-compat, proxy-feature-compat, optional-surface-compat]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Require successful selected checks
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e 'const checks = JSON.parse(process.env.CHECK_RESULTS); for (const [name, check] of Object.entries(checks)) { console.log(`${name}: ${check.result}`); if (!["success", "skipped"].includes(check.result)) process.exitCode = 1; }'

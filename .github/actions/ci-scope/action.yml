@@ -1,0 +1,24 @@
+name: Select CI scope
+description: Select expensive checks from the complete Git diff, defaulting to full verification
+
+outputs:
+  code:
+    description: Run the ordinary Rust checks
+    value: ${{ steps.scope.outputs.code }}
+  compatibility:
+    description: Run the musl build and older-platform E2E harness compilation
+    value: ${{ steps.scope.outputs.compatibility }}
+  tun:
+    description: Run privileged TUN verification
+    value: ${{ steps.scope.outputs.tun }}
+
+runs:
+  using: composite
+  steps:
+    - name: Test CI scope policy
+      shell: bash
+      run: node --test .github/actions/ci-scope/scope.test.mjs
+    - name: Select checks
+      id: scope
+      shell: bash
+      run: node .github/actions/ci-scope/scope.mjs
