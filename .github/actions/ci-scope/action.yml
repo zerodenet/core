@@ -11,6 +11,9 @@ outputs:
   tun:
     description: Run privileged TUN verification
     value: ${{ steps.scope.outputs.tun }}
+  exhaustive:
+    description: Run exhaustive feature and compatibility qualification
+    value: ${{ steps.scope.outputs.exhaustive }}
 
 runs:
   using: composite

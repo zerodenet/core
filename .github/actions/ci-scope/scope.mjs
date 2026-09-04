@@ -3,7 +3,13 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const fullScope = () => ({ code: true, compatibility: true, tun: true });
+const fullScope = () => ({ code: true, compatibility: true, tun: true, exhaustive: true });
+const selectedScope = (code, compatibility, tun) => ({
+  code,
+  compatibility,
+  tun,
+  exhaustive: false,
+});
 const startsWithAny = (path, prefixes) => prefixes.some(prefix => path.startsWith(prefix));
 
 export function selectScope(paths) {
@@ -13,31 +19,38 @@ export function selectScope(paths) {
     path.endsWith('.md') || path === 'LICENSE' || path.startsWith('docs/')
   ));
   if (relevant.length === 0) {
-    return { code: false, compatibility: false, tun: false };
+    return selectedScope(false, false, false);
   }
 
   const buildChanged = relevant.some(path =>
     /(^|\/)(Cargo\.(toml|lock)|build\.rs|Cross\.toml|rust-toolchain(\.toml)?)$/.test(path)
-    || startsWithAny(path, ['.cargo/', '.github/', 'scripts/'])
+    || path.startsWith('.cargo/')
   );
+  const qualificationPolicyChanged = relevant.some(path =>
+    path === '.github/workflows/ci.yml'
+    || path === '.github/workflows/tun-e2e.yml'
+    || path.startsWith('.github/actions/ci-scope/'));
   // Keep native/crypto/transport changes on the compatibility gate. Ordinary
-  // domain logic is tested on Linux; main and manual runs always check all OSes.
+  // domain logic is tested on Linux; scheduled/manual runs check every surface.
   const compatibility = buildChanged || relevant.some(path => startsWithAny(path, [
-    'src/', 'protocols/', 'crates/platform/', 'crates/tun/',
+    'protocols/', 'crates/platform/', 'crates/tun/',
     'crates/transport/', 'crates/ztls/',
-  ]));
-  // Deliberately include all production crates: changes to config, routing,
-  // shared traits or protocol dispatch can affect TUN without editing tun/.
-  const tun = buildChanged || relevant.some(path =>
-    startsWithAny(path, ['src/', 'crates/', 'protocols/', 'proto/', 'tests/tun'])
-  );
-  return { code: true, compatibility, tun };
+  ])) || relevant.includes('scripts/prepare-wintun.ps1') || qualificationPolicyChanged;
+  // TUN qualification is intentionally narrower than the ordinary Linux gate.
+  // It still covers every layer that participates in capture, routing, protocol
+  // dispatch, packet handling, or native socket setup.
+  const tun = buildChanged || relevant.some(path => startsWithAny(path, [
+    'crates/config/', 'crates/platform/', 'crates/proxy/', 'crates/router/',
+    'crates/stack/', 'crates/traits/', 'crates/transport/', 'crates/tun/',
+    'crates/ztls/', 'protocols/', 'proto/', 'src/application/tun', 'tests/tun',
+  ])) || relevant.includes('scripts/prepare-wintun.ps1') || qualificationPolicyChanged;
+  return selectedScope(true, compatibility, tun);
 }
 
 export function scopeForEvent(eventName, event, git) {
-  // RC/main candidates and explicit manual qualification must never be filtered.
-  if (eventName === 'workflow_dispatch' || event.ref === 'refs/heads/main'
-      || event.pull_request?.base?.ref === 'main') {
+  // Explicit and scheduled qualification always exercise the complete matrix.
+  // Branch pushes and pull requests are selected from their complete Git diff.
+  if (eventName === 'workflow_dispatch' || eventName === 'schedule') {
     return fullScope();
   }
 

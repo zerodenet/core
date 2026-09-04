@@ -50,20 +50,23 @@ PR 比较 merge base 到 head，push 比较 before 到 after；历史缺失、�
 | 场景 | 验证范围 |
 |---|---|
 | 仅 Markdown、`docs/` 或 LICENSE 变化 | 运行轻量范围自测与汇总，不启动 Rust 构建 |
-| 普通代码或测试变化 | fmt、全目标全 feature Clippy、全 workspace 测试、三平台原生后端 check、独立 feature 组合检查 |
-| 构建依赖、原生平台、协议或 transport 变化 | 额外构建 musl 静态制品、编译较旧平台上的 TUN E2E harness |
-| `src/`、`crates/`、`protocols/`、`proto/`、TUN 测试或构建设施变化 | 运行 Linux、macOS、Windows 特权 TUN 回归；不限于直接修改 `tun/` 的变更 |
-| 目标为 `main` 的 PR、`main` push、手动运行 | 不按文件过滤，执行完整候选验证 |
+| 普通代码或测试变化 | fmt、全目标全 feature Clippy、全 workspace 测试和代表性最小 feature 组合 |
+| 构建依赖、原生平台、协议或 transport 变化 | 额外执行三平台原生后端检查、构建 musl 静态制品并编译 TUN E2E harness |
+| TUN 设备、栈、路由、代理调度、协议、transport 或相关测试变化 | 运行 Linux、macOS、Windows 特权 TUN 回归 |
+| `main` PR 与 push | 与其他分支一样按完整 Git 差异选择，不因分支名称强制全量 |
+| 每日定时或手动运行 | 执行完整 feature、兼容性和三平台 TUN 候选验证 |
 
 `examples/` 和 `proto/` 可能被编译或测试消费，不属于纯文档豁免。构建设施包括任意
-`Cargo.toml` / `Cargo.lock` / `build.rs`、工具链配置、`.cargo/`、`.github/` 和 `scripts/`。
-兼容性检查另外覆盖 `src/`、`protocols/`、`crates/{platform,tun,transport,ztls}/`。
+`Cargo.toml` / `Cargo.lock` / `build.rs`、工具链配置和 `.cargo/`；资格选择器、CI/TUN
+工作流与 Wintun 准备脚本也会触发对应的兼容性门禁。兼容性检查另外覆盖
+`protocols/`、`crates/{platform,tun,transport,ztls}/`。
 日常三平台原生后端检查使用 Ubuntu 22.04、macOS 14、Windows 2022；完整 TUN 运行使用
 Ubuntu 24.04、macOS 15 Intel、Windows 2025。两组系统版本的兼容性覆盖不视为完全重复。
 
 全 workspace 测试已经包含 `zero-proxy` 的 `runtime_boundary`，不单独重复编译运行；
 Clippy 已执行全目标类型检查，不再叠加同范围的 `cargo check --workspace --all-features`。
-最小 feature 组合检查仍保留，以发现 all-features 下被掩盖的条件编译错误。
+日常最小 feature 检查保留 core-only、代表性协议组合与可选控制面组合；完整逐项 feature
+组合由每日定时或手动资格验证执行，以发现 all-features 下被掩盖的条件编译错误。
 
 macOS 特权测试由普通用户运行 Cargo 编译，通过
 `CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER=sudo` 仅提升测试可执行程序的权限。
@@ -74,9 +77,10 @@ macOS 特权测试由普通用户运行 Cargo 编译，通过
 无关改动正常返回跳过结果。配置分支保护时可要求这两个汇总检查，不要要求可能不触发的
 路径过滤工作流。工作流修改本身不会自动修改仓库分支保护设置。
 
-封板时在候选 ref 上手动运行 `CI`，并运行 `Privileged TUN E2E` 的 `hosted-all`。
-单平台手动入口只用于定向验证，不代表完整候选通过。本轮分层不新增夜间定时任务，
-也不削弱 TUN 断言、增加失败重试或修改发布流程。
+`CI`、`Privileged TUN E2E` 和 Connector soak 均有错峰的每日定时资格验证；RC/正式 Tag
+也会触发完整三平台 TUN。封板时仍可在候选 ref 上手动运行 `CI`，并运行
+`Privileged TUN E2E` 的 `hosted-all`。单平台手动入口只用于定向验证，不代表完整候选通过。
+分层不削弱 TUN 断言或增加失败重试。
 
 ## 版本与发布
 
@@ -126,7 +130,7 @@ macOS 特权测试由普通用户运行 Cargo 编译，通过
 
 1. GitHub Actions `Prepare Release` 根据所选阶段自动计算完整版本号；dev 创建目标为 `develop` 的 Draft PR，RC/正式版创建目标为 `main` 的 PR，通常不填写 `source_tag`；
 2. PR 通过版本契约和仓库质量检查后合并；
-3. GitHub Actions `Publish Release Tag` 从阶段对应的权威分支重新验证来源并创建标签；
+3. GitHub Actions `Publish Release Tag` 从阶段对应的权威分支重新验证来源，要求该精确提交已有成功的权威 CI，并创建标签；
 4. 标签触发 `Release` workflow 构建制品和 GitHub Release；RC 成功后清理同版本 dev 和旧 RC，正式版 Draft 实际公开后清理同版本剩余的 dev/RC。
 
 命令语义：

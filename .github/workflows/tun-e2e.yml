@@ -5,6 +5,8 @@ on:
     branches:
       - develop
       - main
+    tags:
+      - "v*"
   pull_request:
     branches:
       - develop
@@ -21,6 +23,8 @@ on:
           - hosted-linux
           - hosted-macos
           - hosted-windows
+  schedule:
+    - cron: "43 3 * * *"
 
 permissions:
   contents: read

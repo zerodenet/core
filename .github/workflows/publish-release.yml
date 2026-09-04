@@ -15,6 +15,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -101,25 +102,18 @@ jobs:
             exit 1
           fi
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
-      - name: Format
-        run: cargo fmt --all --check
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
-
-      - name: Test
+      - name: Require successful main CI for this commit
+        shell: bash
         env:
-          RUST_MIN_STACK: "16777216"
-        run: cargo test --workspace --all-features
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          COUNT=$(gh api \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=completed&per_page=20" \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')
+          if [ "$COUNT" -lt 1 ]; then
+            echo "::error::No successful main CI run exists for $GITHUB_SHA"
+            exit 1
+          fi
 
       - name: Create annotated tag
         shell: bash
@@ -140,4 +134,5 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tag: \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source: \`${{ inputs.stage == 'dev' && 'develop' || 'main' }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Quality gate: format, clippy, and all-feature tests" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Quality gate: successful main CI for this exact commit" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release workflow: revalidates full quality before building artifacts" >> "$GITHUB_STEP_SUMMARY"

@@ -9,7 +9,9 @@ on:
       - "crates/config/**"
       - "crates/connector/**"
       - "crates/engine/**"
-      - "src/application/**"
+      - "src/application/inspect.rs"
+      - "src/application/services.rs"
+      - "src/application/services/**"
   pull_request:
     branches: [develop, main]
     paths:
@@ -18,8 +20,12 @@ on:
       - "crates/config/**"
       - "crates/connector/**"
       - "crates/engine/**"
-      - "src/application/**"
+      - "src/application/inspect.rs"
+      - "src/application/services.rs"
+      - "src/application/services/**"
   workflow_dispatch:
+  schedule:
+    - cron: "11 4 * * *"
 
 permissions:
   contents: read

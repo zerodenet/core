@@ -212,9 +212,9 @@ dev Release PR 合并到 `develop`；RC 与正式版 Release PR 合并到 `main`
 1. 工作流按阶段从 `develop` 或 `main` 读取版本；
 2. 验证版本格式、历史演进、Cargo 与台账一致性；
 3. 验证远端不存在同名标签；
-4. 重新运行格式、Clippy 和全 feature 测试；
+4. 要求当前权威分支的精确提交已有成功的 `CI` push 运行；
 5. 所有检查通过后创建 annotated tag；
-6. 标签推送触发 `Release` 工作流。dev 在 `develop` 构建；RC/正式版在 `main` 构建。
+6. 标签推送触发 `Release` 工作流，并在构建制品前执行一次最终格式、Clippy 和全 feature 测试。dev 在 `develop` 构建；RC/正式版在 `main` 构建。
 
 标签不能从本地开发分支直接推送作为标准发布方式。
 

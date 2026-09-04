@@ -7,6 +7,8 @@ on:
     branches: [develop, main, "fix/**", "feat/**"]
   # Run explicitly on the candidate ref for complete RC qualification.
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
 
 permissions:
   contents: read
@@ -23,6 +25,7 @@ jobs:
     outputs:
       code: ${{ steps.scope.outputs.code }}
       compatibility: ${{ steps.scope.outputs.compatibility }}
+      exhaustive: ${{ steps.scope.outputs.exhaustive }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -87,12 +90,19 @@ jobs:
           RUST_MIN_STACK: "16777216"
         run: cargo test --workspace --all-features
 
+      - name: Check representative minimal feature surfaces
+        shell: bash
+        run: |
+          cargo check -p zero-proxy --no-default-features
+          cargo check -p zero-proxy --no-default-features --features socks5,vless
+          cargo check --no-default-features --features status-api,connector
+
   tun-platform-check:
     name: TUN platform check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     needs: [scope, static]
-    if: needs.scope.outputs.code == 'true'
+    if: needs.scope.outputs.compatibility == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -162,7 +172,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     needs: [scope, static]
-    if: needs.scope.outputs.code == 'true'
+    if: needs.scope.outputs.exhaustive == 'true'
     steps:
       - uses: actions/checkout@v5
 
@@ -207,7 +217,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     needs: [scope, static]
-    if: needs.scope.outputs.code == 'true'
+    if: needs.scope.outputs.exhaustive == 'true'
     steps:
       - uses: actions/checkout@v5
 
