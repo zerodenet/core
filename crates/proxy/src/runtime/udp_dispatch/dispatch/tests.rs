@@ -56,7 +56,9 @@ async fn authenticated_udp_flow_applies_bidirectional_session_rate_limits() {
     auth.principal_key = Some("account:1".to_owned());
     auth.up_bps = Some(1);
     auth.down_bps = Some(1);
-    let payload = vec![0_u8; 16 * 1024];
+    // Keep the datagram below macOS's default 9216-byte UDP maxdgram while
+    // consuming over half the 16 KiB limiter burst. A second packet must wait.
+    let payload = vec![0_u8; 9_000];
 
     let session_id = dispatch
         .dispatch(input(target.clone(), target_addr.port(), &payload, &auth))

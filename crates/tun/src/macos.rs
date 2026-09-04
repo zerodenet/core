@@ -9,7 +9,6 @@ use std::io;
 use std::net::IpAddr;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
-use std::process::Command;
 use std::task::{Context, Poll};
 
 use tokio::io::unix::AsyncFd;
@@ -38,58 +37,18 @@ impl Utun {
     /// Create a new utun device. When a name such as `utun8` is supplied,
     /// request that unit; otherwise let the kernel choose an available unit.
     pub fn create(name: Option<&str>) -> io::Result<Self> {
-        // Find the utun control ID
-        let ctl_id = find_utun_control()?;
-
-        // Create system socket
-        let sock = unsafe { libc::socket(AF_SYSTEM, libc::SOCK_DGRAM, SYSPROTO_CONTROL) };
-        if sock < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        // Connect using sockaddr_ctl. sc_unit is one greater than the utun
-        // suffix; zero asks the kernel to allocate the next available unit.
-        let mut address: libc::sockaddr_ctl = unsafe { std::mem::zeroed() };
-        address.sc_len = std::mem::size_of::<libc::sockaddr_ctl>() as u8;
-        address.sc_family = AF_SYSTEM as u8;
-        address.ss_sysaddr = AF_SYS_CONTROL;
-        address.sc_id = ctl_id;
-        address.sc_unit = requested_unit(name)?;
-
-        let ret = unsafe {
-            libc::connect(
-                sock,
-                &address as *const _ as *const libc::sockaddr,
-                std::mem::size_of::<libc::sockaddr_ctl>() as libc::socklen_t,
-            )
+        // The same authorized helper must remain available for interface,
+        // route, and PF configuration, even on macOS versions that allow the
+        // initial control socket to be opened by an unprivileged process.
+        let sock = if unsafe { libc::geteuid() } == 0 {
+            create_raw_utun(name)?
+        } else {
+            crate::macos_privilege::request_utun(name)?
         };
-        if ret < 0 {
-            unsafe { libc::close(sock) };
-            return Err(io::Error::last_os_error());
-        }
 
-        // Get assigned interface name (utunN)
-        let mut ifname: [libc::c_char; 16] = unsafe { std::mem::zeroed() };
-        let mut ifname_len: libc::socklen_t = ifname.len() as libc::socklen_t;
-        let ret = unsafe {
-            libc::getsockopt(
-                sock,
-                SYSPROTO_CONTROL,
-                UTUN_OPT_IFNAME,
-                ifname.as_mut_ptr() as *mut libc::c_void,
-                &mut ifname_len,
-            )
-        };
-        if ret < 0 {
-            unsafe { libc::close(sock) };
-            return Err(io::Error::last_os_error());
-        }
-
-        let name = ifname
-            .iter()
-            .take_while(|&&b| b != 0)
-            .map(|&b| b as u8 as char)
-            .collect::<String>();
+        let name = interface_name(sock).inspect_err(|_| unsafe {
+            libc::close(sock);
+        })?;
 
         // Set non-blocking
         unsafe {
@@ -111,6 +70,65 @@ impl Utun {
             read_end: 0,
         })
     }
+}
+
+pub(crate) fn create_raw_utun(name: Option<&str>) -> io::Result<RawFd> {
+    let requested_unit = requested_unit(name)?;
+
+    // Find the utun control ID
+    let ctl_id = find_utun_control()?;
+
+    // Create system socket
+    let sock = unsafe { libc::socket(AF_SYSTEM, libc::SOCK_DGRAM, SYSPROTO_CONTROL) };
+    if sock < 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    // Connect using sockaddr_ctl. sc_unit is one greater than the utun
+    // suffix; zero asks the kernel to allocate the next available unit.
+    let mut address: libc::sockaddr_ctl = unsafe { std::mem::zeroed() };
+    address.sc_len = std::mem::size_of::<libc::sockaddr_ctl>() as u8;
+    address.sc_family = AF_SYSTEM as u8;
+    address.ss_sysaddr = AF_SYS_CONTROL;
+    address.sc_id = ctl_id;
+    address.sc_unit = requested_unit;
+
+    let ret = unsafe {
+        libc::connect(
+            sock,
+            &address as *const _ as *const libc::sockaddr,
+            std::mem::size_of::<libc::sockaddr_ctl>() as libc::socklen_t,
+        )
+    };
+    if ret < 0 {
+        unsafe { libc::close(sock) };
+        return Err(io::Error::last_os_error());
+    }
+
+    Ok(sock)
+}
+
+fn interface_name(sock: RawFd) -> io::Result<String> {
+    let mut ifname: [libc::c_char; 16] = unsafe { std::mem::zeroed() };
+    let mut ifname_len: libc::socklen_t = ifname.len() as libc::socklen_t;
+    let ret = unsafe {
+        libc::getsockopt(
+            sock,
+            SYSPROTO_CONTROL,
+            UTUN_OPT_IFNAME,
+            ifname.as_mut_ptr() as *mut libc::c_void,
+            &mut ifname_len,
+        )
+    };
+    if ret < 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    Ok(ifname
+        .iter()
+        .take_while(|&&b| b != 0)
+        .map(|&b| b as u8 as char)
+        .collect::<String>())
 }
 
 fn requested_unit(name: Option<&str>) -> io::Result<u32> {
@@ -352,9 +370,7 @@ fn run_ifconfig(arguments: &[String]) -> io::Result<()> {
     } else {
         "ifconfig"
     };
-    let output = Command::new(program)
-        .args(arguments)
-        .output()
+    let output = crate::macos_privilege::output(program, arguments)
         .map_err(|error| io::Error::new(error.kind(), format!("execute `{program}`: {error}")))?;
     if output.status.success() {
         return Ok(());

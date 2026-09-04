@@ -19,6 +19,7 @@ pub async fn execute(command: Command) -> Result<(), Box<dyn Error>> {
         command @ (Command::TunStart { .. }
         | Command::TunStop { .. }
         | Command::TunStatus { .. }) => tun::execute(command),
+        command @ Command::MacosTunCreateHelper { .. } => tun::execute(command),
         command @ Command::Run { .. } => run::execute(command).await,
         command => inspect::execute(command),
     }

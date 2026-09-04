@@ -456,10 +456,12 @@ fn family(ipv6: bool) -> &'static str {
 
 fn run_route(arguments: &[String]) -> io::Result<Vec<u8>> {
     let program = route_program();
-    let output = Command::new(program)
-        .args(arguments)
-        .output()
-        .map_err(|error| io::Error::new(error.kind(), format!("execute `{program}`: {error}")))?;
+    let output = if arguments.iter().any(|argument| argument == "get") {
+        Command::new(program).args(arguments).output()
+    } else {
+        crate::macos_privilege::output(program, arguments)
+    }
+    .map_err(|error| io::Error::new(error.kind(), format!("execute `{program}`: {error}")))?;
     if output.status.success() {
         Ok(output.stdout)
     } else {
@@ -469,9 +471,7 @@ fn run_route(arguments: &[String]) -> io::Result<Vec<u8>> {
 
 fn run_route_remove(arguments: &[String]) -> io::Result<()> {
     let program = route_program();
-    let output = Command::new(program)
-        .args(arguments)
-        .output()
+    let output = crate::macos_privilege::output(program, arguments)
         .map_err(|error| io::Error::new(error.kind(), format!("execute `{program}`: {error}")))?;
     let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
     if output.status.success()

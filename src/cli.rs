@@ -43,8 +43,20 @@ pub fn config_path_from_args(args: &[String]) -> Option<&str> {
             _ => None,
         },
         // Commands that talk to a running daemon via IPC — no config needed.
-        "select" | "flows" | "policies" | "events" | "build_info" | "build-info" | "version"
-        | "mode" | "help" | "--help" | "-h" | "--version" | "-V" => None,
+        "select"
+        | "flows"
+        | "policies"
+        | "events"
+        | "build_info"
+        | "build-info"
+        | "version"
+        | "mode"
+        | "help"
+        | "--help"
+        | "-h"
+        | "--version"
+        | "-V"
+        | "__macos-tun-create-helper" => None,
         _ if first.starts_with('-') => None,
         _ => Some(first),
     }
@@ -114,6 +126,10 @@ pub enum Command {
     TunStatus {
         socket_path: Option<String>,
     },
+    MacosTunCreateHelper {
+        socket_path: String,
+        name: Option<String>,
+    },
     BuildInfo,
     Help,
 }
@@ -182,6 +198,7 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, Cli
                 )),
             }
         }
+        "__macos-tun-create-helper" => parse_macos_tun_create_helper(args.collect()),
         "build_info" | "build-info" | "version" | "--version" | "-V" => Ok(Command::BuildInfo),
         "help" | "--help" | "-h" => Ok(Command::Help),
         _ if first.starts_with('-') => Err(CliError::new(format!(
@@ -193,6 +210,36 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, Cli
             usage()
         ))),
     }
+}
+
+fn parse_macos_tun_create_helper(args: Vec<String>) -> Result<Command, CliError> {
+    let mut socket_path = None;
+    let mut name = None;
+    let mut iter = args.into_iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--socket" => {
+                socket_path = Some(iter.next().ok_or_else(|| {
+                    CliError::new("`__macos-tun-create-helper --socket` requires a path")
+                })?);
+            }
+            "--name" => {
+                name = Some(iter.next().ok_or_else(|| {
+                    CliError::new("`__macos-tun-create-helper --name` requires a value")
+                })?);
+            }
+            _ => {
+                return Err(CliError::new(format!(
+                    "unknown macOS TUN helper option `{argument}`"
+                )))
+            }
+        }
+    }
+    Ok(Command::MacosTunCreateHelper {
+        socket_path: socket_path
+            .ok_or_else(|| CliError::new("`__macos-tun-create-helper` requires `--socket PATH`"))?,
+        name,
+    })
 }
 
 pub fn usage() -> &'static str {
@@ -622,3 +669,7 @@ fn parse_client_command(
 
     Ok(make(socket_path))
 }
+
+#[cfg(test)]
+#[path = "cli/tests.rs"]
+mod tests;

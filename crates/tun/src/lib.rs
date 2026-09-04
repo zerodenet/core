@@ -158,7 +158,11 @@ pub use linux::LinuxTun;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
+mod macos_privilege;
+#[cfg(target_os = "macos")]
 pub use macos::Utun;
+#[cfg(target_os = "macos")]
+pub use macos_privilege::run_utun_create_helper;
 
 #[cfg(target_os = "windows")]
 mod windows;

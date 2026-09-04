@@ -1,7 +1,5 @@
 use std::io;
-use std::io::Write;
 use std::net::IpAddr;
-use std::process::{Command, Stdio};
 
 use ipnet::IpNet;
 
@@ -76,7 +74,7 @@ impl SystemLeakGuard {
         }
         flush_anchor(&self.anchor)?;
         if let Some(token) = self.enable_token.take() {
-            let output = Command::new("pfctl").args(["-X", &token]).output()?;
+            let output = run_pfctl(&["-X", &token])?;
             if !output.status.success() {
                 return Err(command_error("release pf enable token", &output.stderr));
             }
@@ -93,7 +91,7 @@ impl Drop for SystemLeakGuard {
 }
 
 fn verify_anchor_namespace() -> io::Result<()> {
-    let output = Command::new("pfctl").args(["-sr"]).output()?;
+    let output = run_pfctl(&["-sr"])?;
     if !output.status.success() {
         return Err(command_error("inspect pf rules", &output.stderr));
     }
@@ -109,7 +107,7 @@ fn verify_anchor_namespace() -> io::Result<()> {
 }
 
 fn pf_enabled() -> io::Result<bool> {
-    let output = Command::new("pfctl").args(["-s", "info"]).output()?;
+    let output = run_pfctl(&["-s", "info"])?;
     if !output.status.success() {
         return Err(command_error("inspect pf status", &output.stderr));
     }
@@ -117,7 +115,7 @@ fn pf_enabled() -> io::Result<bool> {
 }
 
 fn enable_pf() -> io::Result<Option<String>> {
-    let output = Command::new("pfctl").arg("-E").output()?;
+    let output = run_pfctl(&["-E"])?;
     if !output.status.success() {
         return Err(command_error("enable pf", &output.stderr));
     }
@@ -140,18 +138,11 @@ fn apply_policy(
     excluded: &[IpAddr],
 ) -> io::Result<()> {
     let rules = policy_rules(tun_name, protected, excluded);
-    let mut child = Command::new("pfctl")
-        .args(["-a", anchor, "-f", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "pfctl stdin unavailable"))?
-        .write_all(rules.as_bytes())?;
-    let output = child.wait_with_output()?;
+    let arguments = ["-a", anchor, "-f", "-"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let output = crate::macos_privilege::output_with_input(pfctl_program(), &arguments, &rules)?;
     if output.status.success() {
         Ok(())
     } else {
@@ -160,13 +151,27 @@ fn apply_policy(
 }
 
 fn flush_anchor(anchor: &str) -> io::Result<()> {
-    let output = Command::new("pfctl")
-        .args(["-a", anchor, "-F", "all"])
-        .output()?;
+    let output = run_pfctl(&["-a", anchor, "-F", "all"])?;
     if output.status.success() {
         Ok(())
     } else {
         Err(command_error("flush pf kill-switch anchor", &output.stderr))
+    }
+}
+
+fn run_pfctl(arguments: &[&str]) -> io::Result<std::process::Output> {
+    let arguments = arguments
+        .iter()
+        .map(|argument| (*argument).to_owned())
+        .collect::<Vec<_>>();
+    crate::macos_privilege::output(pfctl_program(), &arguments)
+}
+
+fn pfctl_program() -> &'static str {
+    if std::path::Path::new("/sbin/pfctl").exists() {
+        "/sbin/pfctl"
+    } else {
+        "pfctl"
     }
 }
 

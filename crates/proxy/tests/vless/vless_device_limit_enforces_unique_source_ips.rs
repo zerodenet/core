@@ -26,6 +26,10 @@ async fn authenticate(client: &mut TcpStream, upstream_port: u16) -> std::io::Re
 }
 
 #[tokio::test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "macOS requires an explicit loopback alias before binding 127.0.0.2"
+)]
 async fn vless_device_limit_enforces_unique_source_ips_and_releases_on_close() {
     let upstream_port = free_port();
     let proxy_port = free_port();
