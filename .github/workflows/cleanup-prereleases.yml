@@ -8,8 +8,8 @@ permissions:
   contents: write
 
 jobs:
-  cleanup-rc:
-    name: Remove RC releases after stable publication
+  cleanup-prereleases:
+    name: Remove prereleases after stable publication
     if: ${{ !github.event.release.prerelease && !contains(github.event.release.tag_name, '-') }}
     runs-on: ubuntu-22.04
     steps:
@@ -17,20 +17,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Remove RC releases and tags for the published version
+      - name: Remove dev and RC releases and tags for the published version
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           CURRENT_TAG: ${{ github.event.release.tag_name }}
         run: |
           git fetch origin --tags --force
-          BASE=${CURRENT_TAG#v}
-          git tag --list "v${BASE}-rc.*" | while IFS= read -r OLD_TAG; do
-            test -n "$OLD_TAG" || continue
-            echo "Removing superseded release candidate $OLD_TAG"
+          mapfile -t TAGS < <(git ls-remote --tags --refs origin | awk '{sub("refs/tags/", "", $2); print $2}')
+          mapfile -t CLEANUP_TAGS < <(./scripts/release.sh --cleanup-tags "$CURRENT_TAG" "${TAGS[@]}")
+          if [ "${#CLEANUP_TAGS[@]}" -eq 0 ]; then
+            echo "No prerelease cleanup required."
+            exit 0
+          fi
+
+          for OLD_TAG in "${CLEANUP_TAGS[@]}"; do
+            echo "Removing superseded prerelease $OLD_TAG"
             if gh release view "$OLD_TAG" >/dev/null 2>&1; then
-              gh release delete "$OLD_TAG" --cleanup-tag --yes
-            else
-              git push origin ":refs/tags/$OLD_TAG"
+              gh release delete "$OLD_TAG" --yes
             fi
+            git push origin ":refs/tags/$OLD_TAG"
           done

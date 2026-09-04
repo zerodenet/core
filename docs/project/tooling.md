@@ -82,7 +82,7 @@ macOS 特权测试由普通用户运行 Cargo 编译，通过
 
 完整的版本格式、状态转换、分支来源、Release PR、标签创建和失败处理规则见[版本演化与发布流程](./release-process.md)。该流程属于 Core 仓库内部工程规范，不需要同步到外部文档仓库。
 
-`develop` 是 `-dev.YYYYMMDDHHMM` 的构建与发布来源，`main` 是 RC 和正式版来源。dev 使用 UTC 分钟时间戳，RC 的阶段编号由脚本自动递增，正式版自动识别 `main` 当前 RC。RC 也可从明确的 dev/前序 RC 标签晋级，但不能直接使用浮动的 `develop` HEAD。
+`develop` 是 `-dev.YYYYMMDDHHMM` 的构建与发布来源，`main` 是 RC 和正式版来源。dev 与 RC 都使用 UTC 分钟时间戳，正式版自动识别 `main` 当前 RC。首个 RC 自动选择同基础版本最新 dev，也可显式选择 dev/前序 RC 标签，但不能直接使用浮动的 `develop` HEAD。
 
 发布规则统一实现在 `scripts/release.sh`。`scripts/release.ps1` 只负责将 Windows 参数转发到 Git for Windows Bash，避免维护两套不同的状态机。
 
@@ -113,13 +113,13 @@ macOS 特权测试由普通用户运行 Cargo 编译，通过
 验证标签：
 
 ```bash
-./scripts/release.sh --verify-tag v0.0.16-rc.1
+./scripts/release.sh --verify-tag v0.0.16-rc.202608131530
 ```
 
 预览候选版本封板：
 
 ```bash
-./scripts/release.sh 0.0.16-rc.1 --seal-only --dry-run
+./scripts/release.sh 0.0.16-rc.202608131530 --seal-only --dry-run
 ```
 
 日常发布不应直接使用本地脚本提交和推送标签。标准入口是：
@@ -127,7 +127,7 @@ macOS 特权测试由普通用户运行 Cargo 编译，通过
 1. GitHub Actions `Prepare Release` 根据所选阶段自动计算完整版本号；dev 创建目标为 `develop` 的 Draft PR，RC/正式版创建目标为 `main` 的 PR，通常不填写 `source_tag`；
 2. PR 通过版本契约和仓库质量检查后合并；
 3. GitHub Actions `Publish Release Tag` 从阶段对应的权威分支重新验证来源并创建标签；
-4. 标签触发 `Release` workflow 构建制品和 GitHub Release；RC 成功后清理同版本 dev，正式版 Draft 实际公开后清理同版本 RC。
+4. 标签触发 `Release` workflow 构建制品和 GitHub Release；RC 成功后清理同版本 dev 和旧 RC，正式版 Draft 实际公开后清理同版本剩余的 dev/RC。
 
 命令语义：
 
@@ -145,13 +145,11 @@ macOS 特权测试由普通用户运行 Cargo 编译，通过
 
 ```text
 X.Y.Z-dev.YYYYMMDDHHMM
-X.Y.Z-alpha.N
-X.Y.Z-beta.N
-X.Y.Z-rc.N
+X.Y.Z-rc.YYYYMMDDHHMM
 X.Y.Z
 ```
 
-标准发布阶段为可选的 `dev`、随后 `rc < stable`；底层状态机继续兼容历史 `dev.N` 和 alpha/beta。新 dev 使用严格递增的 UTC 分钟时间戳，RC 等编号阶段默认连续且从 `.1` 开始，正式版本必须由同一基础版本的 RC 演进。
+标准发布阶段固定为 `dev → rc → stable`；底层状态机只为历史验证继续读取编号式 dev/RC 和 alpha/beta。新 dev 与 RC 都使用严格递增的 UTC 分钟时间戳，首个 RC 必须存在同基础版本 dev，正式版本必须由同一基础版本 RC 演进。
 
 ## 根 package 的 feature
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_UNDER_TEST=${1:-scripts/release.sh}
 SCRIPT_UNDER_TEST="$(cd "$(dirname "$SCRIPT_UNDER_TEST")" && pwd)/$(basename "$SCRIPT_UNDER_TEST")"
-DEV_TIMESTAMP=202608131430
+RELEASE_TIMESTAMP=202608131430
 ROOT=$(mktemp -d)
 REMOTE_ROOT=$(mktemp -d)
 MIRROR_ROOT=$(mktemp -d)
@@ -36,7 +36,7 @@ cat > "$ROOT/release/breaking-changes.md" <<'DOC'
 DOC
 
 run_release() {
-    ZERO_REPO_ROOT="$ROOT" ZERO_RELEASE_DEV_TIMESTAMP="$DEV_TIMESTAMP" bash "$SCRIPT_UNDER_TEST" "$@"
+    ZERO_REPO_ROOT="$ROOT" ZERO_RELEASE_TIMESTAMP="$RELEASE_TIMESTAMP" bash "$SCRIPT_UNDER_TEST" "$@"
 }
 
 expect_fail() {
@@ -68,11 +68,13 @@ DEVELOP_PREVIEW=$(printf 'n\n' | run_release 0.0.16 2>&1)
 [[ "$DEVELOP_PREVIEW" == *"Remotes: mirror origin"* ]]
 
 [[ "$(run_release --next dev)" == "0.0.16-dev.202608131430" ]]
-[[ "$(run_release --next rc)" == "0.0.16-rc.1" ]]
+expect_fail --next rc
+grep -Fq "a new release line must publish dev before rc" /tmp/zero-release-policy.out
 expect_fail 0.0.16-dev --start-development
 expect_fail 0.0.16-dev.10 --start-development
 expect_fail 0.0.15 --seal-only
 expect_fail 0.0.16-rc.2 --seal-only
+grep -Fq "new release candidates must use '-rc.YYYYMMDDHHMM'" /tmp/zero-release-policy.out
 
 printf 'y\n' | run_release 0.0.16 >/dev/null
 git --git-dir="$REMOTE_ROOT/origin.git" rev-parse --verify refs/heads/develop >/dev/null
@@ -86,35 +88,53 @@ git tag -d v0.0.16-dev.202608131430 >/dev/null
 expect_fail --next dev
 grep -Fq "development version '0.0.16-dev.202608131430' already exists" /tmp/zero-release-policy.out
 git tag -a v0.0.16-dev.202608131430 -m v0.0.16-dev.202608131430
-DEV_TIMESTAMP=202608131431
+RELEASE_TIMESTAMP=202608131431
 [[ "$(run_release --next dev)" == "0.0.16-dev.202608131431" ]]
 printf 'y\n' | run_release 0.0.16 --no-push >/dev/null
-DEV_TIMESTAMP=202608131432
+RELEASE_TIMESTAMP=202608131432
 [[ "$(run_release --next dev)" == "0.0.16-dev.202608131432" ]]
 expect_fail 0.0.16
 grep -Fq "previous release tag 'v0.0.16-dev.202608131431' is missing from remote 'mirror'" /tmp/zero-release-policy.out
 git checkout -q --detach v0.0.16-dev.202608131430
 run_release --verify-tag v0.0.16-dev.202608131430 >/dev/null
 git checkout -q develop
-[[ "$(run_release --next rc)" == "0.0.16-rc.1" ]]
-run_release 0.0.16-rc.1 --seal-only
+RELEASE_TIMESTAMP=202608131530
+[[ "$(run_release --next rc)" == "0.0.16-rc.202608131530" ]]
+run_release 0.0.16-rc.202608131530 --seal-only
 git add Cargo.toml release/breaking-changes.md
-git commit -qm "release: v0.0.16-rc.1"
-git tag -a v0.0.16-rc.1 -m v0.0.16-rc.1
+git commit -qm "release: v0.0.16-rc.202608131530"
+git tag -a v0.0.16-rc.202608131530 -m v0.0.16-rc.202608131530
 
-[[ "$(run_release --next rc)" == "0.0.16-rc.2" ]]
+RELEASE_TIMESTAMP=202608131531
+[[ "$(run_release --next rc)" == "0.0.16-rc.202608131531" ]]
 [[ "$(run_release --next stable)" == "0.0.16" ]]
 expect_fail 0.0.16-beta.1 --seal-only
-expect_fail 0.0.16-rc.3 --seal-only
+expect_fail 0.0.16-rc.202608131530 --seal-only
 
-run_release 0.0.16-rc.2 --seal-only
+run_release 0.0.16-rc.202608131531 --seal-only
 git add Cargo.toml release/breaking-changes.md
-git commit -qm "release: v0.0.16-rc.2"
-git tag -a v0.0.16-rc.2 -m v0.0.16-rc.2
+git commit -qm "release: v0.0.16-rc.202608131531"
+git tag -a v0.0.16-rc.202608131531 -m v0.0.16-rc.202608131531
 run_release 0.0.16 --seal-only
 run_release --check
 
-expect_fail 0.0.16-rc.3 --seal-only
+RELEASE_TIMESTAMP=202608131532
+expect_fail 0.0.16-rc.202608131532 --seal-only
 expect_fail 0.0.15 --seal-only
+
+CLEANUP_INPUT=(
+    v0.0.15
+    v0.0.16-dev.202608131430
+    v0.0.16-dev.202608131431
+    v0.0.16-rc.202608131530
+    v0.0.16-rc.202608131531
+    v0.0.16
+    v0.0.17-dev.202608131600
+)
+RC_CLEANUP=$(run_release --cleanup-tags v0.0.16-rc.202608131531 "${CLEANUP_INPUT[@]}")
+[[ "$RC_CLEANUP" == $'v0.0.16-dev.202608131430\nv0.0.16-dev.202608131431\nv0.0.16-rc.202608131530' ]]
+STABLE_CLEANUP=$(run_release --cleanup-tags v0.0.16 "${CLEANUP_INPUT[@]}")
+[[ "$STABLE_CLEANUP" == $'v0.0.16-dev.202608131430\nv0.0.16-dev.202608131431\nv0.0.16-rc.202608131530\nv0.0.16-rc.202608131531' ]]
+[[ -z "$(run_release --cleanup-tags v0.0.16-dev.202608131431 "${CLEANUP_INPUT[@]}")" ]]
 
 echo "Release policy tests passed."

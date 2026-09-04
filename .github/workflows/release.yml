@@ -264,16 +264,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CURRENT_TAG: ${{ env.RELEASE_TAG }}
         run: |
-          VERSION=${CURRENT_TAG#v}
-          BASE=${VERSION%%-*}
-          STAGE=dev
+          mapfile -t TAGS < <(git ls-remote --tags --refs origin | awk '{sub("refs/tags/", "", $2); print $2}')
+          mapfile -t CLEANUP_TAGS < <(./scripts/release.sh --cleanup-tags "$CURRENT_TAG" "${TAGS[@]}")
+          if [ "${#CLEANUP_TAGS[@]}" -eq 0 ]; then
+            echo "No prerelease cleanup required."
+            exit 0
+          fi
 
-          git tag --list "v${BASE}-${STAGE}.*" | while IFS= read -r OLD_TAG; do
-            test -n "$OLD_TAG" || continue
+          for OLD_TAG in "${CLEANUP_TAGS[@]}"; do
             echo "Removing superseded prerelease $OLD_TAG"
             if gh release view "$OLD_TAG" >/dev/null 2>&1; then
-              gh release delete "$OLD_TAG" --cleanup-tag --yes
-            else
-              git push origin ":refs/tags/$OLD_TAG"
+              gh release delete "$OLD_TAG" --yes
             fi
+            git push origin ":refs/tags/$OLD_TAG"
           done

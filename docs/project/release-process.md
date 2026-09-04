@@ -9,18 +9,18 @@
 1. `develop` 是 dev 构建来源，`main` 是 RC 与正式版的权威发布分支。
 2. 标签是所有版本与质量检查通过后的结果，不是发布检查的起点。
 3. 版本号由发布工具根据当前版本和目标阶段计算，日常发布不手工拼写版本号。
-4. 版本只能向前演进，不能回退基础版本、阶段或阶段编号。
+4. 版本只能向前演进，不能回退基础版本、阶段或 UTC 构建时间戳。
 5. `Cargo.toml`、兼容性台账、Git 标签和 GitHub Release 必须表示同一个版本。
-6. 标签不可移动、覆盖或复用；晋级成功后，上一阶段的临时 Release 与标签会被删除。
-7. RC 不依赖 dev：可从 `main` 开始，也可显式晋级 dev 或前序 RC；正式版本必须从同基础版本 RC 晋级。
+6. 标签不可移动、覆盖或复用；晋级成功后，同版本线已经被替代的预发布 Release 与标签会被删除。
+7. 发布线严格遵循 `dev → rc → stable`：首个 RC 必须存在同基础版本 dev，正式版本必须存在同基础版本 RC。
 
 ## 当前分支模型
 
 双分支的职责固定如下：
 
 - `develop` 接受日常开发，并允许发布 `X.Y.Z-dev.YYYYMMDDHHMM`；时间戳使用 UTC 分钟，不允许无时间戳的 `-dev`。同一分钟只允许一个新 dev 版本。
-- 第一个 RC 默认从 `main` 创建 release 分支，也可以显式选择 dev 标签；它不能直接使用 `develop` 的浮动 HEAD。
-- 后续 RC 根据 `main` 当前 RC 自动递增；正式版自动使用 `main` 当前 RC 标签。`source_tag` 只用于显式覆盖来源。
+- 第一个 RC 自动选择同基础版本最新的 dev 标签创建 release 分支，也可以通过 `source_tag` 显式选择；它不能直接使用 `develop` 的浮动 HEAD。
+- 后续 RC 根据 `main` 当前 RC 生成新的 UTC 分钟时间戳；正式版自动使用 `main` 当前 RC 标签。`source_tag` 只用于显式覆盖来源。
 - `release/promotion-source` 记录晋级来源。创建标签前必须验证该来源是发布提交的祖先。
 - dev 标签必须属于 `develop`，RC 与正式标签必须属于 `main`。
 
@@ -30,19 +30,16 @@
 
 ```text
 X.Y.Z-dev.YYYYMMDDHHMM
-X.Y.Z-alpha.N
-X.Y.Z-beta.N
-X.Y.Z-rc.N
+X.Y.Z-rc.YYYYMMDDHHMM
 X.Y.Z
 ```
 
 其中：
 
 - `X`、`Y`、`Z` 为没有前导零的非负整数；
-- `YYYYMMDDHHMM` 为固定 12 位 UTC 年月日时分；其首位非零，因此同时符合 SemVer 数字标识符不得包含前导零的要求；
-- `N` 为从 `1` 开始、没有前导零的正整数，仅用于 alpha、beta 和 RC；
+- `YYYYMMDDHHMM` 为固定 12 位 UTC 年月日时分，dev 与 RC 都使用这一构建标识；其首位非零，因此同时符合 SemVer 数字标识符不得包含前导零的要求；
 - 正式版本没有后缀；
-- 标签始终在版本前增加 `v`，例如 `v0.0.16-rc.1`。
+- 标签始终在版本前增加 `v`，例如 `v0.0.16-rc.202609040522`。
 
 以下形式无效：
 
@@ -55,70 +52,65 @@ X.Y.Z
 00.0.16
 ```
 
-状态机仍可读取历史 `X.Y.Z-dev.N` 以验证旧标签并从当前 `dev.N` 平滑迁移，但发布入口不再允许创建这种编号式 dev。其他非标准历史标签只作为历史事实保留，不得作为新版本格式继续使用。
+状态机仍可读取历史 `X.Y.Z-dev.N`、`X.Y.Z-rc.N` 和 alpha/beta 标签以验证旧发布并平滑迁移，但发布入口不再允许创建这些编号式版本。其他非标准历史标签只作为历史事实保留，不得作为新版本格式继续使用。
 
 ## 版本状态机
 
-版本规则仍能识别历史 alpha/beta 标签，但标准发布路径固定为：
+版本规则仍能读取历史编号式 dev/RC 以及 alpha/beta 标签，但标准发布路径固定为：
 
 ```text
 dev < rc < stable
 ```
 
-`alpha`、`beta` 不再由发布工作流创建。
+编号式 dev/RC、`alpha` 和 `beta` 不再由发布工作流创建。
 
 ### 同一阶段
 
-RC、alpha 和 beta 同一阶段的编号默认必须连续；dev 时间戳只需严格递增：
+dev 与 RC 的 UTC 分钟时间戳都必须严格递增：
 
 ```text
-0.0.16-rc.1 -> 0.0.16-rc.2
+0.0.16-rc.202608131530 -> 0.0.16-rc.202608131531
 0.0.16-dev.202608131430 -> 0.0.16-dev.202608131431
 ```
 
 以下变化会被拒绝：
 
 ```text
-0.0.16-rc.1 -> 0.0.16-rc.3
+0.0.16-rc.202608131531 -> 0.0.16-rc.202608131530
 0.0.16-dev.202608131431 -> 0.0.16-dev.202608131430
 ```
 
-`--allow-gap` 只用于管理员处理明确的历史缺口，不得用于普通发布。
+`--allow-gap` 只保留给管理员验证旧的编号式发布历史，不参与新的时间戳发布流程。
 
 ### 切换阶段
 
-进入新阶段时编号必须从 `.1` 开始：
+进入 RC 阶段时生成当前 UTC 分钟时间戳：
 
 ```text
-0.0.16-dev.202608131430 -> 0.0.16-rc.1
+0.0.16-dev.202608131430 -> 0.0.16-rc.202608131530
 ```
 
-以下变化会被拒绝：
-
-```text
-0.0.16-dev.202608131430 -> 0.0.16-rc.6
-0.0.16-rc.2 -> 0.0.16-dev.6
-```
+RC 不能回退到 dev，也不能跳过 dev 从上一正式版直接进入新的 RC 发布线。
 
 ### 正式版本
 
 正式版本只能从同一基础版本的 RC 演进：
 
 ```text
-0.0.16-rc.2 -> 0.0.16
+0.0.16-rc.202608131531 -> 0.0.16
 ```
 
 不能从 `dev`、`alpha` 或 `beta` 直接发布正式版本，也不能在正式版本发布后继续创建同一基础版本的预发布标签。
 
 ### 新开发周期
 
-正式版本之后，新基础版本必须增大。dev 从当前 UTC 分钟开始，其他预发布阶段从 `.1` 开始：
+正式版本之后，新基础版本必须增大，并从当前 UTC 分钟对应的 dev 开始：
 
 ```text
 0.0.15 -> 0.0.16-dev.202608131430
 ```
 
-新基础版本可以从 `dev.YYYYMMDDHHMM` 或 `rc.1` 开始，但不能直接发布正式版。
+新基础版本必须从 `dev.YYYYMMDDHHMM` 开始，不能直接发布 RC 或正式版。
 
 ## 权威文件
 
@@ -168,13 +160,13 @@ RC、alpha 和 beta 同一阶段的编号默认必须连续；dev 时间戳只�
 验证标签、Cargo 版本、兼容性台账和阶段对应的分支归属：
 
 ```bash
-./scripts/release.sh --verify-tag v0.0.16-rc.1
+./scripts/release.sh --verify-tag v0.0.16-rc.202608131530
 ```
 
 只预览封板差异：
 
 ```bash
-./scripts/release.sh 0.0.16-rc.1 --seal-only --dry-run
+./scripts/release.sh 0.0.16-rc.202608131530 --seal-only --dry-run
 ```
 
 Windows 使用 `scripts/release.ps1`。PowerShell 文件只负责参数转发，实际规则统一由 `scripts/release.sh` 执行，避免两套状态机产生差异。
@@ -187,7 +179,7 @@ Windows 使用 `scripts/release.ps1`。PowerShell 文件只负责参数转发，
 
 1. 选择目标阶段：`dev`、`rc` 或 `stable`；
 2. 只有开启新基础版本时，`bump` 才决定使用 `patch`、`minor` 或 `major`；
-3. dev 从 `develop` 自动生成 `dev.YYYYMMDDHHMM`；RC 从 `main` 自动产生或递增 `rc.N`；正式版自动识别 `main` 当前 RC。`source_tag` 仅为可选的来源覆盖；
+3. dev 从 `develop` 自动生成 `dev.YYYYMMDDHHMM`；首个 RC 自动选择同基础版本最新 dev，后续 RC 从 `main` 当前 RC 生成 `rc.YYYYMMDDHHMM`；正式版自动识别 `main` 当前 RC。`source_tag` 仅为可选的来源覆盖；
 4. 工作流同步修改 `Cargo.toml` 和兼容性台账；
 5. 工作流创建 `release/v<version>` 分支；
 6. dev PR 目标为 `develop`，RC/正式版 PR 目标为 `main`。
@@ -240,13 +232,13 @@ dev Release PR 合并到 `develop`；RC 与正式版 Release PR 合并到 `main`
 
 预发布版本创建 GitHub prerelease。正式版本创建 Draft Release，人工检查制品和发布说明后再公开并标记为 latest。
 
-新阶段成功后，工作流进行同基础版本的定向清理：RC prerelease 及其所有平台制品创建成功后，删除全部 `X.Y.Z-dev.*` Release 与标签；正式版 Draft 经人工确认并实际公开后，删除全部 `X.Y.Z-rc.*` Release 与标签。清理不会跨基础版本，也不会在构建、发布失败或正式版仍为 Draft 时运行。
+新阶段成功后，工作流进行同基础版本的定向清理：RC prerelease 及其所有平台制品创建成功后，删除全部 `X.Y.Z-dev.*` 以及更早的 `X.Y.Z-rc.*` Release 与标签；正式版 Draft 经人工确认并实际公开后，删除同版本线剩余的全部 dev/RC Release 与标签。清理不会跨基础版本，也不会删除 stable，也不会在构建、发布失败或正式版仍为 Draft 时运行。
 
 ## 兼容性台账规则
 
 - `Unreleased` 始终保留一个矩阵行和一个章节；
 - `dev.YYYYMMDDHHMM` 版本不进入已发布兼容性台账；
-- `alpha.N`、`beta.N`、`rc.N` 和正式版本在封板时生成对应矩阵行与章节；
+- `rc.YYYYMMDDHHMM` 和正式版本在封板时生成对应矩阵行与章节；
 - 没有兼容性变化的版本仍要明确记录 `No compatibility changes`；
 - 同一版本不得重复出现；
 - 台账不能被用来证明一个从未创建标签的版本已经公开发布。
@@ -274,7 +266,7 @@ Draft 可以补充说明或重新上传同一标签对应的制品，但不能�
 紧急修复仍遵守状态机：
 
 1. 从当前 `main` 创建下一个 patch 基础版本并同步到 `develop`；
-2. 发布 `rc.1`（需要时可先发布 dev）；
+2. 先发布 dev，再发布时间戳 RC；
 3. 验证后发布正式 patch；
 4. 将修复同步到后续开发线。
 

@@ -49,6 +49,7 @@ jobs:
         env:
           STAGE: ${{ inputs.stage }}
           SOURCE_TAG: ${{ inputs.source_tag }}
+          BUMP: ${{ inputs.bump }}
         run: |
           git fetch origin main develop --tags --force
           case "$STAGE" in
@@ -63,9 +64,34 @@ jobs:
               ;;
             rc)
               if [ -z "$SOURCE_TAG" ]; then
-                git checkout --detach origin/main
-                echo "source=main" >> "$GITHUB_OUTPUT"
-              else
+                MAIN_VERSION=$(git show origin/main:Cargo.toml | awk '
+                  /^\[workspace\.package\][[:space:]]*$/ { in_workspace=1; next }
+                  in_workspace && /^\[/ { exit }
+                  in_workspace && /^version[[:space:]]*=/ {
+                    if (match($0, /"[^"]+"/)) {
+                      print substr($0, RSTART + 1, RLENGTH - 2)
+                      exit
+                    }
+                  }
+                ')
+                if [[ "$MAIN_VERSION" == *-rc.* ]]; then
+                  git checkout --detach origin/main
+                  echo "source=main" >> "$GITHUB_OUTPUT"
+                else
+                  IFS=. read -r MAJOR MINOR PATCH <<< "$MAIN_VERSION"
+                  case "$BUMP" in
+                    patch) DEV_BASE="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+                    minor) DEV_BASE="$MAJOR.$((MINOR + 1)).0" ;;
+                    major) DEV_BASE="$((MAJOR + 1)).0.0" ;;
+                  esac
+                  SOURCE_TAG=$(git tag --list "v${DEV_BASE}-dev.*" --sort=-version:refname | head -n 1)
+                  test -n "$SOURCE_TAG" || {
+                    echo "::error::rc ${DEV_BASE} requires an existing dev release"
+                    exit 1
+                  }
+                fi
+              fi
+              if [ -n "$SOURCE_TAG" ]; then
                 [[ "$SOURCE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(dev|rc)\.[1-9][0-9]*$ ]] || {
                   echo "::error::rc source_tag must be a dev or preceding rc tag"
                   exit 1

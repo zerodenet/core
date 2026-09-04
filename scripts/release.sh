@@ -2,15 +2,15 @@
 #
 # Manage the Zero version contract and release lifecycle.
 #
-# Version policy:
-#   X.Y.Z-dev.YYYYMMDDHHMM -> X.Y.Z-alpha.N -> X.Y.Z-beta.N -> X.Y.Z-rc.N -> X.Y.Z
+# Standard version policy:
+#   X.Y.Z-dev.YYYYMMDDHHMM -> X.Y.Z-rc.YYYYMMDDHHMM -> X.Y.Z
 #
 # Common commands:
 #   ./scripts/release.sh --check
 #   ./scripts/release.sh --next rc
 #   ./scripts/release.sh --check-transition origin/main HEAD
-#   ./scripts/release.sh --verify-tag v0.0.16-rc.1
-#   ./scripts/release.sh 0.0.16-rc.1 --seal-only
+#   ./scripts/release.sh --verify-tag v0.0.16-rc.202608131530
+#   ./scripts/release.sh 0.0.16-rc.202608131530 --seal-only
 #   ./scripts/release.sh 0.0.17-dev.202608131430 --start-development
 #   ./scripts/release.sh 0.0.17  # on develop: resolves to 0.0.17-dev.YYYYMMDDHHMM
 set -euo pipefail
@@ -28,14 +28,17 @@ NEXT_STAGE=""
 BUMP="patch"
 REMOTE="all"
 TAG_NAME=""
+CLEANUP_TAG=""
+CLEANUP_TAGS=()
 
 usage() {
     cat <<'USAGE'
 Usage:
   release.sh --check
-  release.sh --next <dev|alpha|beta|rc|stable> [--bump patch|minor|major]
+  release.sh --next <dev|rc|stable> [--bump patch|minor|major]
   release.sh --check-transition <base-ref> [head-ref]
   release.sh --verify-tag <vX.Y.Z[-stage.N]>
+  release.sh --cleanup-tags <vX.Y.Z[-stage.N]> [tag ...]
   release.sh <version> --check-release
   release.sh <version> --start-development [--dry-run]
   release.sh <version> --seal-only [--dry-run]
@@ -43,14 +46,13 @@ Usage:
 
 Accepted versions:
   X.Y.Z-dev.YYYYMMDDHHMM
-  X.Y.Z-alpha.N
-  X.Y.Z-beta.N
-  X.Y.Z-rc.N
+  X.Y.Z-rc.YYYYMMDDHHMM
   X.Y.Z
 
 On develop, a positional X.Y.Z is treated as the development base and the
 script calculates X.Y.Z-dev.YYYYMMDDHHMM from the current UTC minute.
-Legacy X.Y.Z-dev.N versions remain readable for history and migration only.
+Legacy X.Y.Z-(dev|alpha|beta|rc).N versions remain readable for history and
+migration only; standard release entrypoints never create them.
 By default, a completed local release pushes its branch and tag to every
 configured Git remote. Use --remote <name> to restrict the push to one remote.
 USAGE
@@ -73,6 +75,14 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || usage
             TAG_NAME=$2
             shift 2
+            ;;
+        --cleanup-tags)
+            MODE=cleanup-tags
+            [[ $# -ge 2 ]] || usage
+            CLEANUP_TAG=$2
+            shift 2
+            CLEANUP_TAGS=("$@")
+            break
             ;;
         --next)
             MODE=next
@@ -178,21 +188,33 @@ validate_version() {
     esac
 }
 
-development_timestamp() {
-    local timestamp=${ZERO_RELEASE_DEV_TIMESTAMP:-}
+release_timestamp() {
+    local timestamp=${ZERO_RELEASE_TIMESTAMP:-${ZERO_RELEASE_DEV_TIMESTAMP:-}}
     if [[ -z "$timestamp" ]]; then
         timestamp=$(date -u +%Y%m%d%H%M)
     fi
     [[ "$timestamp" =~ ^[1-9][0-9]{3}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])([01][0-9]|2[0-3])([0-5][0-9])$ ]] || \
-        fail "development timestamp must use the 12-digit UTC format YYYYMMDDHHMM"
+        fail "release timestamp must use the 12-digit UTC format YYYYMMDDHHMM"
     printf '%s\n' "$timestamp"
+}
+
+is_release_timestamp() {
+    [[ "$1" =~ ^[1-9][0-9]{3}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])([01][0-9]|2[0-3])([0-5][0-9])$ ]]
 }
 
 assert_timestamped_development_version() {
     local version=$1
     validate_version "$version" development
-    [[ "$V_SEQ" =~ ^[1-9][0-9]{3}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])([01][0-9]|2[0-3])([0-5][0-9])$ ]] || \
+    is_release_timestamp "$V_SEQ" || \
         fail "new development versions must use '-dev.YYYYMMDDHHMM' in UTC"
+}
+
+assert_timestamped_release_candidate_version() {
+    local version=$1
+    validate_version "$version" release
+    [[ "$V_STAGE" == rc ]] || fail "release candidate version must use '-rc.YYYYMMDDHHMM'"
+    is_release_timestamp "$V_SEQ" || \
+        fail "new release candidates must use '-rc.YYYYMMDDHHMM' in UTC"
 }
 
 stage_rank() {
@@ -249,7 +271,7 @@ assert_transition() {
 
         if [[ "$to_stage" == "$from_stage" ]]; then
             [[ "$to_stage" != stable ]] || fail "stable version '$to' already exists"
-            if [[ "$to_stage" == dev || "$ALLOW_GAP" == true ]]; then
+            if [[ "$to_stage" == dev || "$to_stage" == rc || "$ALLOW_GAP" == true ]]; then
                 [[ "$to_seq" -gt "$from_seq" ]] || fail "stage number must increase: $from -> $to"
             else
                 [[ "$to_seq" -eq $((from_seq + 1)) ]] || \
@@ -257,17 +279,17 @@ assert_transition() {
             fi
         elif [[ "$to_stage" == stable ]]; then
             [[ "$from_stage" == rc ]] || fail "stable release requires a prior rc version"
+        elif [[ "$to_stage" == rc ]]; then
+            # Both historical rc.N and the current timestamp form remain
+            # readable here. New release entrypoints enforce timestamped RCs.
+            [[ "$to_seq" -gt 0 ]] || fail "invalid release candidate: $to"
         else
             [[ "$to_seq" -eq 1 ]] || \
                 fail "a new release stage must start at .1: $from -> $to"
         fi
     else
-        [[ "$to_stage" != stable ]] || \
-            fail "a new base version must enter through a prerelease stage before stable"
-        if [[ "$to_stage" != dev ]]; then
-            [[ "$to_seq" -eq 1 ]] || \
-                fail "a new base version must start its stage at .1: $from -> $to"
-        fi
+        [[ "$to_stage" == dev ]] || \
+            fail "a new release line must enter through dev before rc or stable: $from -> $to"
     fi
 }
 
@@ -496,6 +518,11 @@ prepare_release_contract() {
     local release_version=$1 dry_run=$2 current cargo_tmp docs_tmp has_changes
     current=$(assert_unsealed_contract "$CARGO_TOML" "$BREAKING_CHANGES")
     validate_version "$release_version" release
+    if [[ "$V_STAGE" == rc ]]; then
+        assert_timestamped_release_candidate_version "$release_version"
+    elif [[ "$V_STAGE" != stable ]]; then
+        fail "standard releases only support dev, rc, and stable; '$V_STAGE' is historical-only"
+    fi
     assert_history_transition "$release_version"
     if [[ "$current" != "$release_version" ]]; then
         assert_transition "$current" "$release_version"
@@ -557,7 +584,7 @@ bump_base() {
 
 next_version() {
     local stage=$1 bump=$2 current current_stage current_seq current_base target_base current_rank target_rank
-    case "$stage" in dev|alpha|beta|rc|stable) ;; *) fail "invalid stage '$stage'" ;; esac
+    case "$stage" in dev|rc|stable) ;; *) fail "invalid stage '$stage'; expected dev, rc, or stable" ;; esac
     current=$(workspace_version "$CARGO_TOML")
     validate_version "$current" any
     current_stage=$V_STAGE; current_seq=$V_SEQ
@@ -568,11 +595,8 @@ next_version() {
     if [[ "$current_stage" == stable ]]; then
         [[ "$stage" != stable ]] || fail "cannot calculate a new stable version without a prerelease cycle"
         target_base=$(bump_base "$current" "$bump")
-        if [[ "$stage" == dev ]]; then
-            next_development_for_base "$target_base"
-            return
-        fi
-        printf '%s-%s.1\n' "$target_base" "$stage"
+        [[ "$stage" == dev ]] || fail "a new release line must publish dev before rc"
+        next_development_for_base "$target_base"
         return
     fi
 
@@ -580,13 +604,11 @@ next_version() {
         fail "release stage must not move backward: $current_stage -> $stage"
     if [[ "$stage" == dev ]]; then
         next_development_for_base "$current_base"
-    elif [[ "$stage" == "$current_stage" ]]; then
-        printf '%s-%s.%d\n' "$current_base" "$stage" $((current_seq + 1))
+    elif [[ "$stage" == rc ]]; then
+        next_release_candidate_for_base "$current_base"
     elif [[ "$stage" == stable ]]; then
         [[ "$current_stage" == rc ]] || fail "stable release requires a prior rc version"
         printf '%s\n' "$current_base"
-    else
-        printf '%s-%s.1\n' "$current_base" "$stage"
     fi
 }
 
@@ -598,7 +620,7 @@ next_development_for_base() {
     fi
 
     current=$(workspace_version "$CARGO_TOML")
-    timestamp=$(development_timestamp)
+    timestamp=$(release_timestamp)
     candidate="${base}-dev.${timestamp}"
     if [[ "$current" == "$candidate" ]] || \
         git rev-parse --verify "refs/tags/v${candidate}^{commit}" >/dev/null 2>&1; then
@@ -607,6 +629,50 @@ next_development_for_base() {
     assert_transition "$current" "$candidate"
     assert_history_transition "$candidate"
     printf '%s\n' "$candidate"
+}
+
+next_release_candidate_for_base() {
+    local base=$1 current candidate timestamp
+    validate_version "$base" stable
+    current=$(workspace_version "$CARGO_TOML")
+    validate_version "$current" any
+    [[ "$V_STAGE" == dev || "$V_STAGE" == rc ]] || \
+        fail "release candidate requires an existing dev or rc version"
+
+    timestamp=$(release_timestamp)
+    candidate="${base}-rc.${timestamp}"
+    if [[ "$current" == "$candidate" ]] || \
+        git rev-parse --verify "refs/tags/v${candidate}^{commit}" >/dev/null 2>&1; then
+        fail "release candidate '$candidate' already exists; wait for the next UTC minute"
+    fi
+    assert_transition "$current" "$candidate"
+    assert_history_transition "$candidate"
+    printf '%s\n' "$candidate"
+}
+
+cleanup_tags_for_published_tag() {
+    local published_tag=$1 published_version published_base published_stage candidate candidate_version candidate_base candidate_stage
+    shift
+    [[ "$published_tag" == v* ]] || fail "published tag must start with 'v'"
+    published_version=${published_tag#v}
+    validate_version "$published_version" any
+    published_base="$V_MAJOR.$V_MINOR.$V_PATCH"
+    published_stage=$V_STAGE
+    [[ "$published_stage" == dev || "$published_stage" == rc || "$published_stage" == stable ]] || \
+        fail "published tag '$published_tag' is not managed by the standard release policy"
+    [[ "$published_stage" != dev ]] || return 0
+
+    for candidate in "$@"; do
+        candidate=${candidate#refs/tags/}
+        [[ "$candidate" != "$published_tag" && "$candidate" == v* ]] || continue
+        candidate_version=${candidate#v}
+        parse_version "$candidate_version" || continue
+        candidate_base="$V_MAJOR.$V_MINOR.$V_PATCH"
+        candidate_stage=$V_STAGE
+        [[ "$candidate_base" == "$published_base" ]] || continue
+        [[ "$candidate_stage" == dev || "$candidate_stage" == rc ]] || continue
+        printf '%s\n' "$candidate"
+    done | sort -u
 }
 
 assert_clean_tree() {
@@ -682,6 +748,11 @@ case "$MODE" in
         verify_tag "$TAG_NAME"
         exit 0
         ;;
+    cleanup-tags)
+        [[ -n "$CLEANUP_TAG" ]] || fail "--cleanup-tags requires a published tag"
+        cleanup_tags_for_published_tag "$CLEANUP_TAG" "${CLEANUP_TAGS[@]}"
+        exit 0
+        ;;
     next)
         [[ -n "$NEXT_STAGE" ]] || fail "--next requires a stage"
         next_version "$NEXT_STAGE" "$BUMP"
@@ -710,7 +781,9 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 PUSH_REMOTES=()
 if [[ "$NO_PUSH" != true ]]; then
     if [[ "$REMOTE" == all ]]; then
-        mapfile -t PUSH_REMOTES < <(git remote)
+        while IFS= read -r push_remote; do
+            [[ -n "$push_remote" ]] && PUSH_REMOTES+=("$push_remote")
+        done < <(git remote)
         [[ "${#PUSH_REMOTES[@]}" -gt 0 ]] || fail "no Git remotes are configured"
     else
         [[ -n "$(git remote get-url --push "$REMOTE" 2>/dev/null || true)" ]] || \
