@@ -48,6 +48,10 @@ impl zero_api::QueryService for ProxyHandle {
                     dual_stack: tun.dual_stack,
                     strict_route: tun.strict_route,
                     dns_hijack: tun.dns_hijack,
+                    fake_ip_enabled: self.proxy.resolver.fake_ip_enabled(),
+                    dns_hijacked_queries: tun
+                        .dns_hijacked_queries
+                        .load(std::sync::atomic::Ordering::Relaxed),
                     egress_interface: tun.egress_interface.clone(),
                     egress_interface_v4: tun.egress_interface_v4.clone(),
                     egress_interface_v6: tun.egress_interface_v6.clone(),

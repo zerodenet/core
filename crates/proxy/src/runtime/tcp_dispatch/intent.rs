@@ -14,11 +14,15 @@ pub(crate) enum TcpDispatchIntent {
     /// Manual diagnostics actively test the outbound without consulting or
     /// mutating the shared traffic-health state.
     DiagnosticProbe,
+    /// DNS detours must remain able to recover an outbound whose ordinary
+    /// traffic is quarantined. Their outcome is transport evidence for the
+    /// DNS fallback chain, not data-plane circuit-breaker evidence.
+    DnsDetour,
 }
 
 impl TcpDispatchIntent {
     pub(super) const fn checks_outbound_health(self) -> bool {
-        !matches!(self, Self::DiagnosticProbe)
+        !matches!(self, Self::DiagnosticProbe | Self::DnsDetour)
     }
 
     pub(super) const fn records_outbound_health(self) -> bool {

@@ -91,7 +91,7 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                 services,
                 &session,
                 resolved,
-                crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic,
+                crate::runtime::tcp_dispatch::TcpDispatchIntent::DnsDetour,
             )
             .await
             .map_err(|failure| {

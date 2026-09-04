@@ -10,6 +10,17 @@ use super::super::ProxyHandle;
 fn running_tun_status_exposes_route_health_and_error() {
     let config = RuntimeConfig::parse(
         r#"{
+            "runtime": {
+                "dns": {
+                    "servers": {"local": {"type": "system"}},
+                    "default_server": "local",
+                    "answer": {
+                        "type": "fake_ip",
+                        "cidr": "198.18.0.0/15",
+                        "ttl_seconds": 60
+                    }
+                }
+            },
             "route":{"rules":[],"final":{"type":"direct"}}
         }"#,
     )
@@ -36,6 +47,7 @@ fn running_tun_status_exposes_route_health_and_error() {
         dual_stack: false,
         strict_route: true,
         dns_hijack: true,
+        dns_hijacked_queries: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(7)),
         healthy: false,
         last_error: Some("route reconciliation failed".to_owned()),
         egress_interface: Some("physical0".to_owned()),
@@ -53,6 +65,8 @@ fn running_tun_status_exposes_route_health_and_error() {
         panic!("expected TUN status response");
     };
     assert!(status.running);
+    assert!(status.fake_ip_enabled);
+    assert_eq!(status.dns_hijacked_queries, 7);
     assert!(!status.healthy);
     assert_eq!(
         status.last_error.as_deref(),

@@ -16,15 +16,26 @@ mod refresh;
 
 #[derive(Default)]
 struct ProbeOperationState {
-    current: Option<String>,
+    current: Option<CurrentProbeOperation>,
     pending_manual: Option<String>,
+}
+
+struct CurrentProbeOperation {
+    operation_id: String,
+    manual: bool,
 }
 
 impl ProbeOperationState {
     fn request(&mut self, requested: String) -> ProbeTriggerAck {
-        if let Some(operation_id) = self.current.as_ref().or(self.pending_manual.as_ref()) {
+        if let Some(operation_id) = self.pending_manual.as_ref() {
             return ProbeTriggerAck {
                 operation_id: operation_id.clone(),
+                coalesced: true,
+            };
+        }
+        if let Some(current) = self.current.as_ref().filter(|current| current.manual) {
+            return ProbeTriggerAck {
+                operation_id: current.operation_id.clone(),
                 coalesced: true,
             };
         }
@@ -196,18 +207,28 @@ impl UrlTestRuntime {
             let mut state = operations
                 .lock()
                 .expect("urltest probe operation lock poisoned");
-            state.current = Some(operation_id.clone());
+            state.current = Some(CurrentProbeOperation {
+                operation_id: operation_id.clone(),
+                manual: trigger == "manual",
+            });
         }
         self.refresh_urltest_group(group_id, probe, trigger, &operation_id)
             .await;
         let mut state = operations
             .lock()
             .expect("urltest probe operation lock poisoned");
-        if state.current.as_deref() == Some(operation_id.as_str()) {
+        if state
+            .current
+            .as_ref()
+            .is_some_and(|current| current.operation_id == operation_id)
+        {
             state.current = None;
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 fn unix_timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};

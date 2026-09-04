@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,7 +10,38 @@ use zero_config::RuntimeConfig;
 use zero_stack::{packet, UserNetworkStack, UserTcpStack};
 use zero_traits::{TcpStack, UdpStack};
 
-use super::{accept_tcp, feed_packets, should_drop_non_unicast_udp, sniff_tcp_target};
+use super::{
+    accept_tcp, feed_packets, should_drop_non_unicast_udp, shutdown_tun_tasks, sniff_tcp_target,
+};
+
+#[tokio::test]
+async fn tun_task_shutdown_waits_until_owned_resources_are_dropped() {
+    struct DropSignal(Option<tokio::sync::oneshot::Sender<()>>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            if let Some(signal) = self.0.take() {
+                let _ = signal.send(());
+            }
+        }
+    }
+
+    let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+    let mut tasks = tokio::task::JoinSet::new();
+    tasks.spawn(async move {
+        let _resource = DropSignal(Some(dropped_tx));
+        std::future::pending::<()>().await;
+        ("test", Ok(()))
+    });
+    tokio::task::yield_now().await;
+
+    shutdown_tun_tasks(&mut tasks).await;
+
+    dropped_rx
+        .await
+        .expect("task-owned resources must be dropped before shutdown returns");
+    assert!(tasks.is_empty());
+}
 
 mod secure_dns_boundary;
 
@@ -336,6 +368,7 @@ async fn tun_tcp_uses_kernel_direct_route_and_records_traffic() {
         Arc::clone(&tcp),
         "tun-test".to_owned(),
         false,
+        Arc::new(AtomicU64::new(0)),
     ));
 
     complete_handshake(&tcp, &mut outbound, destination).await;
@@ -392,6 +425,7 @@ async fn tun_tcp_block_route_never_opens_the_destination() {
         Arc::clone(&tcp),
         "tun-test".to_owned(),
         false,
+        Arc::new(AtomicU64::new(0)),
     ));
 
     complete_handshake(&tcp, &mut outbound, destination).await;

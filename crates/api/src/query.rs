@@ -351,6 +351,12 @@ pub struct TunStatusSnapshot {
     pub strict_route: bool,
     #[serde(default)]
     pub dns_hijack: bool,
+    /// Whether the committed DNS runtime has a Fake-IP allocator available.
+    #[serde(default)]
+    pub fake_ip_enabled: bool,
+    /// Number of UDP/TCP DNS requests intercepted by this TUN lifetime.
+    #[serde(default)]
+    pub dns_hijacked_queries: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub egress_interface: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

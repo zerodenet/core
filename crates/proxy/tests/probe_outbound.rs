@@ -14,7 +14,7 @@ use zero_engine::EngineHandle;
 use zero_proxy::{Proxy, ProxyHandle};
 
 #[tokio::test]
-async fn manual_policy_probe_coalesces_with_a_running_scheduled_cycle() {
+async fn manual_policy_probe_queues_a_fresh_cycle_after_a_running_scheduled_cycle() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind controlled probe server");
@@ -87,16 +87,19 @@ async fn manual_policy_probe_coalesces_with_a_running_scheduled_cycle() {
     let ack = engine
         .trigger_urltest_probe("auto", Some("manual-during-scheduled"))
         .expect("trigger during scheduled probe");
-    assert!(ack.coalesced);
-    assert_ne!(ack.operation_id, "manual-during-scheduled");
+    assert!(!ack.coalesced);
+    assert_eq!(ack.operation_id, "manual-during-scheduled");
     release_tx.send(()).expect("release scheduled probe");
     let completed = wait_for_policy_probe(&subscriber, "scheduled").await;
-    assert_eq!(completed.payload["operation_id"], ack.operation_id);
+    assert_ne!(completed.payload["operation_id"], ack.operation_id);
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    while let Some(event) = subscriber.try_recv() {
-        assert_ne!(event.payload["trigger"], "manual");
-    }
+    timeout(std::time::Duration::from_secs(5), accepted_rx.recv())
+        .await
+        .expect("queued manual probe connection")
+        .expect("queued manual probe report");
+    release_tx.send(()).expect("release queued manual probe");
+    let manual = wait_for_policy_probe(&subscriber, "manual").await;
+    assert_eq!(manual.payload["operation_id"], ack.operation_id);
 
     running.shutdown().await.expect("shutdown proxy");
     server.abort();

@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use tokio::net::UdpSocket;
@@ -39,7 +40,13 @@ async fn tun_udp_uses_kernel_direct_dispatch_and_writes_raw_response() {
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(proxy, Arc::clone(&udp), "tun-test".to_owned(), false));
+    let task = tokio::spawn(run(
+        proxy,
+        Arc::clone(&udp),
+        "tun-test".to_owned(),
+        false,
+        Arc::new(AtomicU64::new(0)),
+    ));
 
     let source_ip = Ipv4Addr::new(10, 0, 0, 2);
     let request = packet::build_udp(
@@ -94,7 +101,13 @@ async fn tun_udp_port_conflict_falls_back_without_accepting_an_unregistered_send
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(proxy, Arc::clone(&udp), "tun-test".to_owned(), false));
+    let task = tokio::spawn(run(
+        proxy,
+        Arc::clone(&udp),
+        "tun-test".to_owned(),
+        false,
+        Arc::new(AtomicU64::new(0)),
+    ));
     let source_ip = Ipv4Addr::new(10, 0, 0, 2);
     udp.feed(&packet::build_udp(
         IpAddr::V4(source_ip),
@@ -146,7 +159,13 @@ async fn tun_udp_direct_dispatch_supports_ipv6_targets_and_responses() {
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(proxy, Arc::clone(&udp), "tun-test".to_owned(), false));
+    let task = tokio::spawn(run(
+        proxy,
+        Arc::clone(&udp),
+        "tun-test".to_owned(),
+        false,
+        Arc::new(AtomicU64::new(0)),
+    ));
     let source_ip = "fd00::2".parse().expect("source IPv6");
     udp.feed(&packet::build_udp(
         IpAddr::V6(source_ip),
@@ -194,7 +213,13 @@ async fn repeated_tun_udp_destination_reuses_flow_and_records_real_source() {
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(proxy, Arc::clone(&udp), "tun-test".to_owned(), false));
+    let task = tokio::spawn(run(
+        proxy,
+        Arc::clone(&udp),
+        "tun-test".to_owned(),
+        false,
+        Arc::new(AtomicU64::new(0)),
+    ));
     let source_ip = Ipv4Addr::new(10, 0, 0, 2);
     let source_port = 53_002;
 
@@ -247,7 +272,13 @@ async fn tun_udp_block_route_prevents_stun_network_leak() {
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(proxy, Arc::clone(&udp), "tun-test".to_owned(), false));
+    let task = tokio::spawn(run(
+        proxy,
+        Arc::clone(&udp),
+        "tun-test".to_owned(),
+        false,
+        Arc::new(AtomicU64::new(0)),
+    ));
 
     let request = packet::build_udp(
         IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
@@ -305,7 +336,14 @@ async fn tun_dns_hijack_answers_with_fake_ip_without_reaching_destination() {
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(proxy, Arc::clone(&udp), "tun-test".to_owned(), true));
+    let dns_hijacked_queries = Arc::new(AtomicU64::new(0));
+    let task = tokio::spawn(run(
+        proxy,
+        Arc::clone(&udp),
+        "tun-test".to_owned(),
+        true,
+        Arc::clone(&dns_hijacked_queries),
+    ));
 
     let source_ip = Ipv4Addr::new(10, 0, 0, 2);
     let dns_ip = Ipv4Addr::new(203, 0, 113, 53);
@@ -334,6 +372,10 @@ async fn tun_dns_hijack_answers_with_fake_ip_without_reaching_destination() {
     assert_eq!(
         &response.payload[response.payload.len() - 4..],
         &[198, 18, 0, 1]
+    );
+    assert_eq!(
+        dns_hijacked_queries.load(std::sync::atomic::Ordering::Relaxed),
+        1
     );
 
     task.abort();

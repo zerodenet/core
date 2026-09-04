@@ -269,7 +269,7 @@ fn command_managed_tun_name() -> &'static str {
 }
 
 #[test]
-#[ignore = "requires administrator/root, a TUN backend, internet access, and reachable Cloudflare DoH"]
+#[ignore = "requires administrator/root, a TUN backend, internet access, and a reachable DoH backend"]
 fn privileged_command_managed_tun_publishes_egress_before_capture() {
     let _guard = TUN_E2E_LOCK.lock().expect("TUN E2E lock poisoned");
     let binary = env!("CARGO_BIN_EXE_zero");
@@ -799,14 +799,16 @@ fn direct_udp_config_json_with_strict_route(listen_port: u16, strict_route: bool
 fn fake_ip_doh_config_json(listen_port: u16, tun: bool) -> String {
     let mut config: serde_json::Value =
         serde_json::from_str(&config_json(false, listen_port, None, tun, false)).unwrap();
+    let doh_host = tun_e2e_doh_host();
+    let doh_bootstrap = tun_e2e_doh_bootstrap();
     config["runtime"]["dns"] = serde_json::json!({
         "servers": {
             "global": {
                 "type": "doh",
-                "host": "cloudflare-dns.com",
+                "host": doh_host,
                 "port": 443,
                 "path": "/dns-query",
-                "bootstrap": ["1.1.1.1", "1.0.0.1"]
+                "bootstrap": doh_bootstrap
             }
         },
         "default_server": "global",
@@ -818,6 +820,23 @@ fn fake_ip_doh_config_json(listen_port: u16, tun: bool) -> String {
     });
     config["inbounds"][0]["protocol"] = serde_json::json!({ "type": "mixed" });
     serde_json::to_string_pretty(&config).unwrap()
+}
+
+fn tun_e2e_doh_host() -> String {
+    std::env::var("ZERO_TUN_E2E_DOH_HOST").unwrap_or_else(|_| "cloudflare-dns.com".to_owned())
+}
+
+fn tun_e2e_doh_bootstrap() -> Vec<String> {
+    std::env::var("ZERO_TUN_E2E_DOH_BOOTSTRAP")
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|address| !address.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_else(|_| vec!["1.1.1.1".to_owned(), "1.0.0.1".to_owned()])
 }
 
 fn dual_stack_config_json(
@@ -2100,9 +2119,11 @@ fn run_cli_output<const N: usize>(binary: &str, arguments: [&str; N]) -> String 
 
 fn assert_dns_underlay_not_captured(binary: &str, socket: &std::path::Path) {
     let flows = run_cli_output(binary, ["flows", "--socket", path(socket)]);
-    for endpoint in ["cloudflare-dns.com", "1.1.1.1", "1.0.0.1"] {
+    let mut endpoints = tun_e2e_doh_bootstrap();
+    endpoints.push(tun_e2e_doh_host());
+    for endpoint in endpoints {
         assert!(
-            !flows.contains(endpoint),
+            !flows.contains(&endpoint),
             "DNS underlay endpoint {endpoint} was captured as an active proxy flow: {flows}"
         );
     }

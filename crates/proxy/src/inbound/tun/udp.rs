@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -124,6 +125,7 @@ pub(super) async fn run(
     stack: Arc<UserUdpStack>,
     inbound_tag: String,
     dns_hijack: bool,
+    dns_hijacked_queries: Arc<AtomicU64>,
 ) -> Result<(), EngineError> {
     let mut buffer = vec![0_u8; 65_535];
     let mut next_id = 1_u64;
@@ -139,6 +141,7 @@ pub(super) async fn run(
                     return Ok(());
                 };
                 if dns_hijack && destination.port == 53 {
+                    dns_hijacked_queries.fetch_add(1, Ordering::Relaxed);
                     let now = Instant::now();
                     if dns_tasks.len() >= MAX_CONCURRENT_DNS_QUERIES {
                         if pressure_log_due(&mut last_dns_pressure_log, now) {

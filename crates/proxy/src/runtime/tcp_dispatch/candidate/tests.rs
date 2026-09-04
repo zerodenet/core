@@ -87,6 +87,52 @@ async fn diagnostic_probe_bypasses_quarantine_without_clearing_it() {
 }
 
 #[tokio::test]
+async fn dns_detour_bypasses_quarantine_without_mutating_it() {
+    let services = test_services();
+    let session = test_session();
+    quarantine(&services);
+
+    if let Err(failure) = dispatch_prepared_tcp_candidate(
+        services.clone(),
+        &session,
+        successful_candidate(),
+        TcpDispatchIntent::DnsDetour,
+    )
+    .await
+    {
+        panic!(
+            "DNS fallback must be allowed to test a quarantined detour: {}",
+            failure.error
+        );
+    }
+
+    let error = services
+        .check_outbound_health(HEALTH_TAG)
+        .expect_err("DNS detour success must not clear traffic quarantine");
+    assert_eq!(error.code(), "unhealthy_outbound");
+}
+
+#[tokio::test]
+async fn dns_detour_failures_do_not_quarantine_traffic() {
+    let services = test_services();
+    let session = test_session();
+
+    for _ in 0..5 {
+        let _ = dispatch_prepared_tcp_candidate(
+            services.clone(),
+            &session,
+            failing_candidate(),
+            TcpDispatchIntent::DnsDetour,
+        )
+        .await;
+    }
+
+    services
+        .check_outbound_health(HEALTH_TAG)
+        .expect("DNS transport failures must not quarantine user traffic");
+}
+
+#[tokio::test]
 async fn traffic_failures_still_update_shared_outbound_health() {
     let services = test_services();
     let session = test_session();

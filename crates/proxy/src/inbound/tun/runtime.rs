@@ -1,5 +1,6 @@
 use std::io;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -26,6 +27,7 @@ pub(super) struct TunIngressConfig {
     pub addresses: Vec<(IpAddr, IpAddr)>,
     pub tag: String,
     pub dns_hijack: bool,
+    pub dns_hijacked_queries: Arc<AtomicU64>,
     pub mtu: usize,
     pub network_responses: mpsc::Sender<Vec<u8>>,
 }
@@ -64,56 +66,69 @@ pub(super) async fn run(
         addresses,
         tag,
         dns_hijack,
+        dns_hijacked_queries,
         mtu,
         network_responses,
     } = config;
-    let mut packet_task = tokio::spawn(feed_packets(
-        packets,
-        Arc::clone(&tcp),
-        Arc::clone(&udp),
-        addresses,
-        mtu,
-        network_responses,
-    ));
-    let mut tcp_task = tokio::spawn(accept_tcp(
-        proxy.clone(),
-        Arc::clone(&tcp),
-        tag.clone(),
-        dns_hijack,
-    ));
-    let mut tcp_maintenance_task = tokio::spawn(maintain_tcp_state(tcp));
+    let mut tasks = JoinSet::new();
+    let packet_tcp = Arc::clone(&tcp);
+    let packet_udp = Arc::clone(&udp);
+    tasks.spawn(async move {
+        (
+            "packet",
+            feed_packets(
+                packets,
+                packet_tcp,
+                packet_udp,
+                addresses,
+                mtu,
+                network_responses,
+            )
+            .await,
+        )
+    });
+    let tcp_proxy = proxy.clone();
+    let tcp_stack = Arc::clone(&tcp);
+    let tcp_tag = tag.clone();
+    let tcp_dns_hijacked_queries = Arc::clone(&dns_hijacked_queries);
+    tasks.spawn(async move {
+        (
+            "TCP",
+            accept_tcp(
+                tcp_proxy,
+                tcp_stack,
+                tcp_tag,
+                dns_hijack,
+                tcp_dns_hijacked_queries,
+            )
+            .await,
+        )
+    });
+    tasks.spawn(async move { ("TCP maintenance", maintain_tcp_state(tcp).await) });
 
     #[cfg(feature = "udp-runtime")]
-    let mut udp_task = tokio::spawn(super::udp::run(proxy, udp, tag, dns_hijack));
+    tasks.spawn(async move {
+        (
+            "UDP",
+            super::udp::run(proxy, udp, tag, dns_hijack, dns_hijacked_queries).await,
+        )
+    });
     #[cfg(not(feature = "udp-runtime"))]
-    let mut udp_task = tokio::spawn(std::future::pending::<Result<(), EngineError>>());
+    tasks.spawn(async move {
+        (
+            "UDP",
+            std::future::pending::<Result<(), EngineError>>().await,
+        )
+    });
 
     let result = tokio::select! {
         changed = shutdown.changed() => {
             tracing::debug!(?changed, requested = *shutdown.borrow(), "TUN runtime received shutdown signal");
             Ok(())
         }
-        result = &mut packet_task => {
-            tracing::debug!(?result, "TUN packet loop exited");
-            flatten_task_result(result, "packet")
-        },
-        result = &mut tcp_task => {
-            tracing::debug!(?result, "TUN TCP loop exited");
-            flatten_task_result(result, "TCP")
-        },
-        result = &mut tcp_maintenance_task => {
-            tracing::debug!(?result, "TUN TCP maintenance loop exited");
-            flatten_task_result(result, "TCP maintenance")
-        },
-        result = &mut udp_task => {
-            tracing::debug!(?result, "TUN UDP loop exited");
-            flatten_task_result(result, "UDP")
-        },
+        completed = tasks.join_next() => flatten_task_result(completed),
     };
-    packet_task.abort();
-    tcp_task.abort();
-    tcp_maintenance_task.abort();
-    udp_task.abort();
+    shutdown_tun_tasks(&mut tasks).await;
     result
 }
 
@@ -127,14 +142,34 @@ async fn maintain_tcp_state(tcp: Arc<UserTcpStack>) -> Result<(), EngineError> {
 }
 
 fn flatten_task_result(
-    result: Result<Result<(), EngineError>, tokio::task::JoinError>,
-    task: &str,
+    completed: Option<Result<(&'static str, Result<(), EngineError>), tokio::task::JoinError>>,
 ) -> Result<(), EngineError> {
-    result.unwrap_or_else(|error| {
-        Err(EngineError::Io(io::Error::other(format!(
-            "TUN {task} task failed: {error}"
-        ))))
-    })
+    match completed {
+        Some(Ok((task, result))) => {
+            tracing::debug!(?result, "TUN {task} loop exited");
+            result
+        }
+        Some(Err(error)) => Err(EngineError::Io(io::Error::other(format!(
+            "TUN task failed: {error}"
+        )))),
+        None => Err(EngineError::Io(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "all TUN runtime tasks exited",
+        ))),
+    }
+}
+
+async fn shutdown_tun_tasks(tasks: &mut JoinSet<(&'static str, Result<(), EngineError>)>) {
+    tasks.abort_all();
+    while let Some(completed) = tasks.join_next().await {
+        match completed {
+            Ok((task, result)) => {
+                tracing::debug!(?result, "TUN {task} task stopped during shutdown");
+            }
+            Err(error) if error.is_cancelled() => {}
+            Err(error) => tracing::warn!(error = %error, "TUN task failed during shutdown"),
+        }
+    }
 }
 
 async fn feed_packets(
@@ -222,6 +257,7 @@ async fn accept_tcp(
     tcp: Arc<UserTcpStack>,
     tag: String,
     dns_hijack: bool,
+    dns_hijacked_queries: Arc<AtomicU64>,
 ) -> Result<(), EngineError> {
     let mut connections = JoinSet::new();
     let mut dns_connections = JoinSet::new();
@@ -236,6 +272,7 @@ async fn accept_tcp(
                 };
                 let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
                 if dns_hijack && destination.port == 53 {
+                    dns_hijacked_queries.fetch_add(1, Ordering::Relaxed);
                     if dns_connections.len() >= MAX_CONCURRENT_DNS_CONNECTIONS {
                         tracing::warn!(
                             active_dns_connections = dns_connections.len(),

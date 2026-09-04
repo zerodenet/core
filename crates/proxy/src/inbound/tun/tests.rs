@@ -190,6 +190,7 @@ fn configured_tun_fixture() -> (zero_config::TunConfig, TunInfo) {
         dual_stack: false,
         strict_route: true,
         dns_hijack: true,
+        dns_hijacked_queries: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         healthy: true,
         last_error: None,
         egress_interface: None,
@@ -220,6 +221,9 @@ fn tun_address_accepts_cidr_and_derives_mask() {
 fn tun_address_rejects_invalid_prefix_and_mixed_mask_family() {
     assert!(parse_address_and_mask("10.0.0.1/33", "255.255.255.0").is_err());
     assert!(parse_address_and_mask("10.0.0.1", "ffff:ffff::").is_err());
+    let mismatch = parse_address_and_mask("10.0.0.1/24", "255.255.255.252")
+        .expect_err("CIDR prefix and explicit mask must agree");
+    assert!(mismatch.to_string().contains("different networks"));
 }
 
 #[test]

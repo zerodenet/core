@@ -110,6 +110,7 @@ pub(crate) struct TunInfo {
     pub dual_stack: bool,
     pub strict_route: bool,
     pub dns_hijack: bool,
+    pub dns_hijacked_queries: Arc<std::sync::atomic::AtomicU64>,
     pub healthy: bool,
     pub last_error: Option<String>,
     pub egress_interface: Option<String>,

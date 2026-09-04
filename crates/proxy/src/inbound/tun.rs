@@ -10,6 +10,7 @@ mod udp;
 use std::io;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::{debug, info, warn};
@@ -375,6 +376,7 @@ impl Proxy {
                 .or_else(|| egress_interface_v6.clone())
         };
         let managed_by_config = managed_config.is_some();
+        let dns_hijacked_queries = Arc::new(AtomicU64::new(0));
 
         let id = NEXT_TUN_ID.fetch_add(1, Ordering::Relaxed);
         let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -415,6 +417,7 @@ impl Proxy {
             dual_stack,
             strict_route,
             dns_hijack,
+            dns_hijacked_queries: Arc::clone(&dns_hijacked_queries),
             healthy: route_error.is_none(),
             last_error: route_error,
             egress_interface,
@@ -445,6 +448,7 @@ impl Proxy {
                     addresses: address_pairs,
                     tag: inbound_tag,
                     dns_hijack,
+                    dns_hijacked_queries,
                     mtu: usize::from(mtu),
                     network_responses,
                 },

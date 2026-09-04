@@ -6,7 +6,7 @@
 //! tools used by this crate.
 
 use std::fs;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::mem;
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::fs::PermissionsExt;
@@ -36,6 +36,9 @@ static PRIVILEGED_HELPER: OnceLock<Mutex<Option<UnixStream>>> = OnceLock::new();
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum HelperRequest {
+    CreateUtun {
+        name: Option<String>,
+    },
     Command {
         program: HelperProgram,
         arguments: Vec<String>,
@@ -73,7 +76,24 @@ impl Drop for HelperSocketGuard {
 }
 
 pub(crate) fn request_utun(name: Option<&str>) -> io::Result<RawFd> {
-    shutdown_existing_helper();
+    let mut slot = helper_slot().lock().map_err(|_| helper_lock_error())?;
+    if let Some(stream) = slot.as_mut() {
+        match request_helper_utun(stream, name) {
+            Ok(fd) => return Ok(fd),
+            Err(error) if helper_connection_lost(&error) => {
+                slot.take();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    let mut stream = launch_authorized_helper()?;
+    let fd = request_helper_utun(&mut stream, name)?;
+    *slot = Some(stream);
+    Ok(fd)
+}
+
+fn launch_authorized_helper() -> io::Result<UnixStream> {
     let (listener, guard) = bind_helper_socket()?;
     let executable = std::env::current_exe()
         .map_err(|error| {
@@ -84,14 +104,11 @@ pub(crate) fn request_utun(name: Option<&str>) -> io::Result<RawFd> {
         })?
         .to_string_lossy()
         .into_owned();
-    let mut arguments = vec![
+    let arguments = vec![
         "__macos-tun-create-helper".to_owned(),
         "--socket".to_owned(),
         guard.socket.to_string_lossy().into_owned(),
     ];
-    if let Some(name) = name {
-        arguments.extend(["--name".to_owned(), name.to_owned()]);
-    }
 
     let mut child = Command::new("/usr/bin/osascript")
         .args(["-e", PRIVILEGED_COMMAND_SCRIPT, "--", executable.as_str()])
@@ -140,9 +157,33 @@ pub(crate) fn request_utun(name: Option<&str>) -> io::Result<RawFd> {
     std::thread::spawn(move || {
         let _ = child.wait();
     });
-    let fd = receive_fd(stream.as_raw_fd())?;
-    *helper_slot().lock().map_err(|_| helper_lock_error())? = Some(stream);
-    Ok(fd)
+    Ok(stream)
+}
+
+fn request_helper_utun(stream: &mut UnixStream, name: Option<&str>) -> io::Result<RawFd> {
+    let request = HelperRequest::CreateUtun {
+        name: name.map(str::to_owned),
+    };
+    serde_json::to_writer(&mut *stream, &request).map_err(io::Error::other)?;
+    stream.write_all(b"\n")?;
+    stream.flush()?;
+
+    let response = read_helper_response(stream)?;
+    if !response.success {
+        return Err(helper_response_error("create macOS utun", &response));
+    }
+    receive_fd(stream.as_raw_fd())
+}
+
+fn helper_connection_lost(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::NotConnected
+            | io::ErrorKind::UnexpectedEof
+    )
 }
 
 fn blocking_helper_stream(stream: UnixStream) -> io::Result<UnixStream> {
@@ -167,20 +208,18 @@ pub fn run_utun_create_helper(socket_path: &Path, name: Option<&str>) -> io::Res
             "macOS utun helper must run with administrator privileges",
         ));
     }
-    let fd = crate::macos::create_raw_utun(name)?;
     match UnixStream::connect(socket_path) {
         Ok(mut stream) => {
-            let transfer = send_fd(stream.as_raw_fd(), fd);
-            // SCM_RIGHTS duplicated the descriptor into the unprivileged process.
-            // Close the helper's copy immediately so dropping the device there
-            // tears the utun interface down without waiting for helper shutdown.
-            unsafe { libc::close(fd) };
-            transfer.and_then(|()| serve_helper(&mut stream))
+            // The optional name is retained for compatibility with older
+            // private invocations. New parents send every create request over
+            // the persistent channel so one authorization helper can serve
+            // repeated TUN starts for the lifetime of the Zero process.
+            if name.is_some() {
+                create_utun_for_parent(&mut stream, name)?;
+            }
+            serve_helper(&mut stream)
         }
-        Err(error) => {
-            unsafe { libc::close(fd) };
-            Err(error)
-        }
+        Err(error) => Err(error),
     }
 }
 
@@ -192,25 +231,92 @@ fn serve_helper(stream: &mut UnixStream) -> io::Result<()> {
             return Ok(());
         }
         let request: HelperRequest = serde_json::from_str(&line).map_err(io::Error::other)?;
-        let HelperRequest::Command {
-            program,
-            arguments,
-            input,
-        } = request
-        else {
-            return Ok(());
-        };
-        let output = run_as_root(program, &arguments, input.as_deref())?;
-        let response = HelperResponse {
-            success: output.status.success(),
-            code: output.status.code().unwrap_or(1),
-            stdout: output.stdout,
-            stderr: output.stderr,
-        };
-        serde_json::to_writer(&mut *stream, &response).map_err(io::Error::other)?;
-        stream.write_all(b"\n")?;
-        stream.flush()?;
+        match request {
+            HelperRequest::CreateUtun { name } => {
+                create_utun_for_parent(stream, name.as_deref())?;
+            }
+            HelperRequest::Command {
+                program,
+                arguments,
+                input,
+            } => {
+                let output = run_as_root(program, &arguments, input.as_deref())?;
+                write_helper_response(
+                    stream,
+                    &HelperResponse {
+                        success: output.status.success(),
+                        code: output.status.code().unwrap_or(1),
+                        stdout: output.stdout,
+                        stderr: output.stderr,
+                    },
+                )?;
+            }
+            HelperRequest::Shutdown => return Ok(()),
+        }
     }
+}
+
+fn create_utun_for_parent(stream: &mut UnixStream, name: Option<&str>) -> io::Result<()> {
+    match crate::macos::create_raw_utun(name) {
+        Ok(fd) => {
+            write_helper_response(
+                stream,
+                &HelperResponse {
+                    success: true,
+                    code: 0,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                },
+            )?;
+            let transfer = send_fd(stream.as_raw_fd(), fd);
+            // SCM_RIGHTS duplicated the descriptor into the unprivileged
+            // process. The helper never retains a TUN descriptor.
+            unsafe { libc::close(fd) };
+            transfer
+        }
+        Err(error) => write_helper_response(
+            stream,
+            &HelperResponse {
+                success: false,
+                code: error.raw_os_error().unwrap_or(1),
+                stdout: Vec::new(),
+                stderr: error.to_string().into_bytes(),
+            },
+        ),
+    }
+}
+
+fn write_helper_response(stream: &mut UnixStream, response: &HelperResponse) -> io::Result<()> {
+    serde_json::to_writer(&mut *stream, response).map_err(io::Error::other)?;
+    stream.write_all(b"\n")?;
+    stream.flush()
+}
+
+// Read exactly through the response delimiter. A buffered reader is not used
+// here because the next byte can carry SCM_RIGHTS ancillary data; prefetching
+// that byte with plain read(2) would discard the transferred descriptor.
+fn read_helper_response(stream: &mut UnixStream) -> io::Result<HelperResponse> {
+    let mut line = Vec::new();
+    loop {
+        let mut byte = [0_u8; 1];
+        if stream.read(&mut byte)? == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "macOS privileged TUN helper closed the control channel",
+            ));
+        }
+        if byte[0] == b'\n' {
+            break;
+        }
+        line.push(byte[0]);
+        if line.len() > 64 * 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "macOS privileged TUN helper response is too large",
+            ));
+        }
+    }
+    serde_json::from_slice(&line).map_err(io::Error::other)
 }
 
 fn run_as_root(
@@ -387,15 +493,7 @@ fn helper_output(program: &str, arguments: &[String], input: Option<&str>) -> io
         serde_json::to_writer(&mut *stream, &request).map_err(io::Error::other)?;
         stream.write_all(b"\n")?;
         stream.flush()?;
-        let mut line = String::new();
-        BufReader::new(&mut *stream).read_line(&mut line)?;
-        if line.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "macOS privileged TUN helper closed the control channel",
-            ));
-        }
-        let response: HelperResponse = serde_json::from_str(&line).map_err(io::Error::other)?;
+        let response = read_helper_response(stream)?;
         Ok(Output {
             status: exit_status(response.success, response.code),
             stdout: response.stdout,
@@ -427,17 +525,6 @@ fn helper_slot() -> &'static Mutex<Option<UnixStream>> {
     PRIVILEGED_HELPER.get_or_init(|| Mutex::new(None))
 }
 
-fn shutdown_existing_helper() {
-    let Ok(mut slot) = helper_slot().lock() else {
-        return;
-    };
-    if let Some(mut stream) = slot.take() {
-        let _ = serde_json::to_writer(&mut stream, &HelperRequest::Shutdown);
-        let _ = stream.write_all(b"\n");
-        let _ = stream.flush();
-    }
-}
-
 fn helper_lock_error() -> io::Error {
     io::Error::other("macOS privileged TUN helper lock is poisoned")
 }
@@ -457,13 +544,28 @@ fn command_failure(action: &str, output: &Output) -> io::Error {
     io::Error::other(format!("{action} failed: {}", detail.trim()))
 }
 
+fn helper_response_error(action: &str, response: &HelperResponse) -> io::Error {
+    let detail = if response.stderr.is_empty() {
+        String::from_utf8_lossy(&response.stdout)
+    } else {
+        String::from_utf8_lossy(&response.stderr)
+    };
+    io::Error::other(format!("{action} failed: {}", detail.trim()))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::File;
     use std::os::fd::AsRawFd;
     use std::os::unix::net::UnixStream;
 
-    use super::{blocking_helper_stream, receive_fd, send_fd, PRIVILEGED_COMMAND_SCRIPT};
+    use std::io::{BufRead, BufReader};
+    use std::thread;
+
+    use super::{
+        blocking_helper_stream, receive_fd, request_helper_utun, send_fd, HelperRequest,
+        HelperResponse, PRIVILEGED_COMMAND_SCRIPT,
+    };
 
     #[test]
     fn privileged_script_shell_quotes_every_external_value() {
@@ -493,5 +595,42 @@ mod tests {
 
         assert!(flags >= 0);
         assert_eq!(flags & libc::O_NONBLOCK, 0);
+    }
+
+    #[test]
+    fn one_helper_channel_serves_repeated_utun_requests() {
+        let (mut parent, helper) = UnixStream::pair().expect("create helper channel");
+        let server = thread::spawn(move || {
+            let mut helper = helper;
+            for expected in ["utun8", "utun9"] {
+                let mut line = String::new();
+                BufReader::new(&mut helper)
+                    .read_line(&mut line)
+                    .expect("read create request");
+                let request: HelperRequest = serde_json::from_str(&line).expect("parse request");
+                assert!(matches!(
+                    request,
+                    HelperRequest::CreateUtun { name: Some(name) } if name == expected
+                ));
+                super::write_helper_response(
+                    &mut helper,
+                    &HelperResponse {
+                        success: true,
+                        code: 0,
+                        stdout: Vec::new(),
+                        stderr: Vec::new(),
+                    },
+                )
+                .expect("write create response");
+                let file = File::open("/dev/null").expect("open descriptor fixture");
+                send_fd(helper.as_raw_fd(), file.as_raw_fd()).expect("send descriptor");
+            }
+        });
+
+        for name in ["utun8", "utun9"] {
+            let fd = request_helper_utun(&mut parent, Some(name)).expect("request descriptor");
+            unsafe { libc::close(fd) };
+        }
+        server.join().expect("helper server");
     }
 }

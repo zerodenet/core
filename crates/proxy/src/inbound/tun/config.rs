@@ -75,7 +75,23 @@ pub(super) fn parse_address_and_mask(
                 "invalid TUN prefix `{prefix}` for {address}"
             )));
         }
-        return Ok((address, zero_tun::prefix_to_mask(prefix, address.is_ipv6())));
+        let derived = zero_tun::prefix_to_mask(prefix, address.is_ipv6());
+        if !mask.trim().is_empty() {
+            let configured = parse_ip(mask, "TUN mask")?;
+            // An unspecified address is the historical sentinel used by
+            // callers that already supplied an authoritative CIDR prefix.
+            if !configured.is_unspecified() {
+                if configured.is_ipv4() != address.is_ipv4() {
+                    return Err(invalid_input("TUN address and mask families differ"));
+                }
+                if configured != derived {
+                    return Err(invalid_input(format!(
+                        "TUN address prefix /{prefix} and mask {configured} describe different networks"
+                    )));
+                }
+            }
+        }
+        return Ok((address, derived));
     }
 
     let address = parse_ip(addr, "TUN address")?;
