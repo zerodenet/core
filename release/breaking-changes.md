@@ -26,6 +26,7 @@
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
 | `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.16-rc.1` | - | No pending compatibility changes |
 | `0.0.15` | - | No pending compatibility changes |
 | `0.0.15-rc.4` | - | No pending compatibility changes |
 | `0.0.15-rc.3` | Diagnostics API 消费者、Connector 运维与事件 Sink | `diagnostics.trace_route` 改为执行真实会话路由追踪；Connector 对事实事件施加有界内存与可选 outbox 背压，采样事件改为仅 best-effort 且不持久化；默认重试次数由 3 调整为 10 |
@@ -36,6 +37,10 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.16-rc.1
+
+<!-- No compatibility changes in this release. -->
 
 ## 0.0.15
 
