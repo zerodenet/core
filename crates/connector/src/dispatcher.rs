@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -729,9 +729,26 @@ fn refresh_pending_stats(
     let now_unix_ms = now_unix_ms();
     let storage_status = outbox.map(DeliveryOutbox::storage_status);
     let recovery_status = outbox.and_then(DeliveryOutbox::recovery_status);
+    // Build the complete count before publishing it. Resetting the atomic to
+    // zero and incrementally rebuilding it exposed a transient false-idle
+    // snapshot to status readers, which could trigger shutdown while the last
+    // durable delivery was still awaiting its local ACK.
+    let mut pending_counts = BTreeMap::<String, usize>::new();
+    if let Some(outbox) = outbox {
+        pending_counts = outbox.pending_counts();
+    } else {
+        for delivery in pending {
+            *pending_counts.entry(delivery.sink_tag.clone()).or_default() += 1;
+        }
+        for worker in workers {
+            if worker.in_flight.is_some() {
+                *pending_counts.entry(worker.tag.clone()).or_default() += 1;
+            }
+        }
+    }
     let shared = stats.lock().expect("sink stats");
-    for (_, stat) in shared.iter() {
-        stat.set_pending(0);
+    for (tag, stat) in shared.iter() {
+        stat.set_pending(*pending_counts.get(tag).unwrap_or(&0));
         *stat.delivery.lock().expect("sink stats") = SinkDeliveryStatus::default();
         *stat.outbox_recovery.lock().expect("sink stats") = recovery_status.clone();
         *stat.outbox_storage.lock().expect("sink stats") = match &storage_status {
@@ -746,16 +763,12 @@ fn refresh_pending_stats(
     if let Some(outbox) = outbox {
         for (sink_tag, count) in outbox.pending_counts() {
             if let Some((_, stat)) = shared.iter().find(|(tag, _)| tag == &sink_tag) {
-                stat.set_pending(count);
                 stat.delivery.lock().expect("sink stats").durable_pending = count as u64;
             }
         }
     }
     for delivery in pending {
         if let Some((_, stat)) = shared.iter().find(|(tag, _)| tag == &delivery.sink_tag) {
-            if outbox.is_none() {
-                stat.pending.fetch_add(1, Ordering::Relaxed);
-            }
             let mut status = stat.delivery.lock().expect("sink stats");
             if delivery.awaiting_ack {
                 status.ack_retry_pending = status.ack_retry_pending.saturating_add(1);
@@ -769,9 +782,6 @@ fn refresh_pending_stats(
     for worker in workers {
         if worker.in_flight.is_some() {
             if let Some((_, stat)) = shared.iter().find(|(tag, _)| tag == &worker.tag) {
-                if outbox.is_none() {
-                    stat.pending.fetch_add(1, Ordering::Relaxed);
-                }
                 stat.delivery.lock().expect("sink stats").in_flight = true;
             }
         }
