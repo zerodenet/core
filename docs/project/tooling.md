@@ -77,8 +77,8 @@ macOS 特权测试由普通用户运行 Cargo 编译，通过
 无关改动正常返回跳过结果。配置分支保护时可要求这两个汇总检查，不要要求可能不触发的
 路径过滤工作流。工作流修改本身不会自动修改仓库分支保护设置。
 
-`CI`、`Privileged TUN E2E` 和 Connector soak 均有错峰的每日定时资格验证；RC/正式 Tag
-也会触发完整三平台 TUN。封板时仍可在候选 ref 上手动运行 `CI`，并运行
+`CI`、`Privileged TUN E2E` 和 Connector soak 均有错峰的每日定时资格验证；RC/正式发布
+提交因版本清单变化也会触发完整三平台 TUN。封板时仍可在候选 ref 上手动运行 `CI`，并运行
 `Privileged TUN E2E` 的 `hosted-all`。单平台手动入口只用于定向验证，不代表完整候选通过。
 分层不削弱 TUN 断言或增加失败重试。
 

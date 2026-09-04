@@ -154,7 +154,6 @@ test('workflow contracts preserve coverage and avoid root-owned build artifacts'
   assert.equal(tun.match(/cache-on-failure: true/g)?.length, 3);
   assert.match(tun, /cargo test --target x86_64-apple-darwin/);
   assert.match(tun, /privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains/);
-  assert.match(tun, /tags:\s+- "v\*"/);
   assert.match(tun, /schedule:\s+- cron:/);
   assert.doesNotMatch(tun, /if: github\.event_name != 'pull_request'\r?\n/);
   assert.doesNotMatch(tun, /continue-on-error:/);
