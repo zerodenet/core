@@ -109,7 +109,15 @@ pub(crate) fn request_utun(name: Option<&str>) -> io::Result<RawFd> {
     listener.set_nonblocking(true)?;
     let stream = loop {
         match listener.accept() {
-            Ok((stream, _)) if peer_effective_uid(&stream)? == 0 => break stream,
+            Ok((stream, _)) if peer_effective_uid(&stream)? == 0 => {
+                // The listener is non-blocking only so the parent can observe
+                // an authorization cancellation while waiting for the helper.
+                // On macOS the accepted socket can retain that mode. All
+                // helper requests below use blocking request/response I/O, so
+                // leaving it enabled races the helper response and surfaces a
+                // misleading EAGAIN as if `/sbin/ifconfig` failed to spawn.
+                break blocking_helper_stream(stream)?;
+            }
             Ok((_stream, _)) => continue,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
             Err(error) => {
@@ -135,6 +143,11 @@ pub(crate) fn request_utun(name: Option<&str>) -> io::Result<RawFd> {
     let fd = receive_fd(stream.as_raw_fd())?;
     *helper_slot().lock().map_err(|_| helper_lock_error())? = Some(stream);
     Ok(fd)
+}
+
+fn blocking_helper_stream(stream: UnixStream) -> io::Result<UnixStream> {
+    stream.set_nonblocking(false)?;
+    Ok(stream)
 }
 
 fn peer_effective_uid(stream: &UnixStream) -> io::Result<libc::uid_t> {
@@ -450,7 +463,7 @@ mod tests {
     use std::os::fd::AsRawFd;
     use std::os::unix::net::UnixStream;
 
-    use super::{receive_fd, send_fd, PRIVILEGED_COMMAND_SCRIPT};
+    use super::{blocking_helper_stream, receive_fd, send_fd, PRIVILEGED_COMMAND_SCRIPT};
 
     #[test]
     fn privileged_script_shell_quotes_every_external_value() {
@@ -466,5 +479,19 @@ mod tests {
         let received = receive_fd(receiver.as_raw_fd()).expect("receive descriptor");
         assert!(received >= 0);
         unsafe { libc::close(received) };
+    }
+
+    #[test]
+    fn helper_control_stream_is_restored_to_blocking_io() {
+        let (stream, _peer) = UnixStream::pair().expect("create helper control stream");
+        stream
+            .set_nonblocking(true)
+            .expect("make helper control stream non-blocking");
+
+        let stream = blocking_helper_stream(stream).expect("restore blocking helper stream");
+        let flags = unsafe { libc::fcntl(stream.as_raw_fd(), libc::F_GETFL) };
+
+        assert!(flags >= 0);
+        assert_eq!(flags & libc::O_NONBLOCK, 0);
     }
 }

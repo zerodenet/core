@@ -28,3 +28,41 @@ fn private_macos_utun_helper_requires_a_socket() {
 
     assert!(error.to_string().contains("requires `--socket PATH`"));
 }
+
+#[test]
+fn run_parses_managed_parent_lifetime_flag() {
+    let command = parse_args([
+        "zero".to_owned(),
+        "run".to_owned(),
+        "--parent-lifetime-stdin".to_owned(),
+        "--control-socket".to_owned(),
+        "/tmp/managed.sock".to_owned(),
+        "config.json".to_owned(),
+    ])
+    .expect("managed run command should parse");
+
+    assert_eq!(
+        command,
+        Command::Run {
+            config_path: "config.json".to_owned(),
+            status_listen: None,
+            control_socket: Some("/tmp/managed.sock".to_owned()),
+            ipc_hook_socket: None,
+            parent_lifetime_stdin: true,
+        }
+    );
+}
+
+#[test]
+fn managed_run_finds_config_after_lifetime_and_socket_options() {
+    let args = vec![
+        "zero".to_owned(),
+        "run".to_owned(),
+        "--parent-lifetime-stdin".to_owned(),
+        "--control-socket".to_owned(),
+        "/tmp/managed.sock".to_owned(),
+        "config.json".to_owned(),
+    ];
+
+    assert_eq!(config_path_from_args(&args), Some("config.json"));
+}

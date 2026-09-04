@@ -9,13 +9,12 @@ pub fn config_path_from_args(args: &[String]) -> Option<&str> {
     let first = iter.next()?;
     match first.as_str() {
         "run" | "validate" | "reload" => {
-            for arg in iter {
-                if arg == "--status-listen"
-                    || arg == "--control-socket"
-                    || arg == "--ipc-hook-socket"
-                    || arg == "--socket"
-                    || arg == "--json"
-                {
+            while let Some(arg) = iter.next() {
+                if matches!(
+                    arg.as_str(),
+                    "--status-listen" | "--control-socket" | "--ipc-hook-socket" | "--socket"
+                ) {
+                    iter.next();
                     continue;
                 }
                 if arg.starts_with('-') {
@@ -69,6 +68,7 @@ pub enum Command {
         status_listen: Option<String>,
         control_socket: Option<String>,
         ipc_hook_socket: Option<String>,
+        parent_lifetime_stdin: bool,
     },
     Status {
         config_path: Option<String>,
@@ -244,7 +244,7 @@ fn parse_macos_tun_create_helper(args: Vec<String>) -> Result<Command, CliError>
 
 pub fn usage() -> &'static str {
     "Usage:
-  zero run [--status-listen HOST:PORT] [--control-socket PATH] CONFIG
+  zero run [--status-listen HOST:PORT] [--control-socket PATH] [--parent-lifetime-stdin] CONFIG
   zero status [--json] [--socket PATH] [CONFIG]
   zero select <group> <target> [--socket PATH]
   zero flows [--socket PATH]
@@ -276,6 +276,7 @@ fn parse_run(args: Vec<String>) -> Result<Command, CliError> {
     let mut status_listen = None;
     let mut control_socket = None;
     let mut ipc_hook_socket = None;
+    let mut parent_lifetime_stdin = false;
     let mut config_path = None;
     let mut iter = args.into_iter();
 
@@ -308,6 +309,7 @@ fn parse_run(args: Vec<String>) -> Result<Command, CliError> {
                 })?;
                 ipc_hook_socket = Some(path);
             }
+            "--parent-lifetime-stdin" => parent_lifetime_stdin = true,
             _ if arg.starts_with('-') => {
                 return Err(CliError::new(format!(
                     "unknown run option `{arg}`\n\n{}",
@@ -334,6 +336,7 @@ fn parse_run(args: Vec<String>) -> Result<Command, CliError> {
         status_listen,
         control_socket,
         ipc_hook_socket,
+        parent_lifetime_stdin,
     })
 }
 
