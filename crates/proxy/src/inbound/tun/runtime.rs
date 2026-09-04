@@ -21,6 +21,8 @@ const TCP_STATE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 const TCP_STATE_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const MAX_CONCURRENT_DNS_CONNECTIONS: usize = 256;
 
+type TunTaskResult = (&'static str, Result<(), EngineError>);
+
 struct TunProtocol;
 
 pub(super) struct TunIngressConfig {
@@ -142,7 +144,7 @@ async fn maintain_tcp_state(tcp: Arc<UserTcpStack>) -> Result<(), EngineError> {
 }
 
 fn flatten_task_result(
-    completed: Option<Result<(&'static str, Result<(), EngineError>), tokio::task::JoinError>>,
+    completed: Option<Result<TunTaskResult, tokio::task::JoinError>>,
 ) -> Result<(), EngineError> {
     match completed {
         Some(Ok((task, result))) => {
@@ -159,7 +161,7 @@ fn flatten_task_result(
     }
 }
 
-async fn shutdown_tun_tasks(tasks: &mut JoinSet<(&'static str, Result<(), EngineError>)>) {
+async fn shutdown_tun_tasks(tasks: &mut JoinSet<TunTaskResult>) {
     tasks.abort_all();
     while let Some(completed) = tasks.join_next().await {
         match completed {
