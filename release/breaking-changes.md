@@ -26,6 +26,7 @@
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
 | `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.16-rc.2` | - | No pending compatibility changes |
 | `0.0.16-rc.1` | - | No pending compatibility changes |
 | `0.0.15` | - | No pending compatibility changes |
 | `0.0.15-rc.4` | - | No pending compatibility changes |
@@ -37,6 +38,10 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.16-rc.2
+
+<!-- No compatibility changes in this release. -->
 
 ## 0.0.16-rc.1
 
