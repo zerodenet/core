@@ -126,3 +126,4 @@ zero-tun = { path = "crates/tun" }
 socket2 = "0.6"
 tempfile.workspace = true
 zero-core = { path = "crates/core" }
+zero-platform-tokio = { path = "crates/platform/tokio" }

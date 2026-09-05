@@ -381,6 +381,9 @@ async fn tun_dns_hijack_answers_with_fake_ip_without_reaching_destination() {
     task.abort();
 }
 
+#[path = "tests/dns_modes.rs"]
+mod dns_modes;
+
 fn dns_query(domain: &str) -> Vec<u8> {
     let mut query = vec![
         0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

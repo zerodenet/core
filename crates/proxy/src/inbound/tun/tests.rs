@@ -1,5 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+#[path = "tests/dns_modes.rs"]
+mod dns_modes;
+
 use super::config::{
     configured_dns_endpoint_addresses, configured_dns_endpoint_addresses_with,
     parse_address_and_mask, parse_interface_addresses, DEFAULT_TUN_IPV4_ADDR,

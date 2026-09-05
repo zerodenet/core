@@ -19,7 +19,7 @@ use zero_stack::UserNetworkStack;
 use zero_tun::TunDevice;
 
 use crate::runtime::{Proxy, TunControl, TunInfo};
-use config::{configured_dns_endpoint_addresses, parse_interface_addresses};
+use config::{parse_interface_addresses, prepare_dns_routes};
 
 static NEXT_TUN_ID: AtomicU64 = AtomicU64::new(1);
 const MAX_CAPTURE_ROUTE_PREFIXES: usize = 512;
@@ -557,7 +557,7 @@ impl Proxy {
         strict_route: bool,
     ) -> Result<PreparedTunNetwork, EngineError> {
         let (dns_hijack, dns_route_exclusions) = self
-            .prepare_tun_dns_hijack(dns_hijack, strict_route)
+            .prepare_tun_dns_hijack(dns_hijack, auto_route, strict_route)
             .await?;
         let mut route_exclusions = if auto_route {
             dns_route_exclusions
@@ -578,24 +578,26 @@ impl Proxy {
     async fn prepare_tun_dns_hijack(
         &self,
         requested: bool,
+        auto_route: bool,
         strict: bool,
     ) -> Result<(bool, Vec<IpAddr>), EngineError> {
-        if !requested {
-            return Ok((false, Vec::new()));
-        }
         let config = self.engine().config();
-        let result =
-            tokio::task::spawn_blocking(move || configured_dns_endpoint_addresses(config.as_ref()))
-                .await
-                .map_err(|error| {
-                    io::Error::other(format!("system DNS discovery task failed: {error}"))
-                })
-                .and_then(|result| result);
+        let result = tokio::task::spawn_blocking(move || {
+            prepare_dns_routes(
+                config.as_ref(),
+                requested,
+                auto_route,
+                zero_platform_tokio::system_dns_servers,
+            )
+        })
+        .await
+        .map_err(|error| io::Error::other(format!("system DNS discovery task failed: {error}")))
+        .and_then(|result| result);
         match result {
-            Ok(addresses) => Ok((true, addresses)),
+            Ok(plan) => Ok(plan),
             Err(error) if strict => Err(EngineError::Io(error)),
             Err(error) => {
-                warn!(error = %error, "TUN DNS hijack disabled");
+                warn!(error = %error, "TUN DNS route protection unavailable; DNS hijack disabled");
                 Ok((false, Vec::new()))
             }
         }

@@ -80,6 +80,10 @@ jobs:
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
         run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
+      - name: Run disabled DNS with TUN system resolver E2E
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+        run: cargo test --target x86_64-unknown-linux-gnu --test tun_privileged_e2e dns_disabled::privileged_tun_without_builtin_dns_preserves_system_resolution -- --ignored --exact --nocapture
       - name: Run command-managed egress publication E2E
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
@@ -129,6 +133,10 @@ jobs:
         env:
           CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
         run: cargo test --target x86_64-apple-darwin --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
+      - name: Run disabled DNS with TUN system resolver E2E
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
+        run: cargo test --target x86_64-apple-darwin --test tun_privileged_e2e dns_disabled::privileged_tun_without_builtin_dns_preserves_system_resolution -- --ignored --exact --nocapture
       - name: Run command-managed egress publication E2E
         env:
           CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
@@ -174,6 +182,8 @@ jobs:
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run command-managed egress publication E2E
         run: cargo test --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
+      - name: Run disabled DNS with TUN system resolver E2E
+        run: cargo test --test tun_privileged_e2e dns_disabled::privileged_tun_without_builtin_dns_preserves_system_resolution -- --ignored --exact --nocapture
       - name: Run native Windows route reconciliation E2E
         run: cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
       - name: Run IPv4-only trusted-domain fallback E2E

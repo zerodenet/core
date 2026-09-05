@@ -18,6 +18,9 @@ const DIRECT_UDP_SOURCE_CHURN_ROUNDS: u16 = 32;
 const DIRECT_UDP_EXPECTED_ACTIVE_SOURCE_TUPLES: usize = DIRECT_UDP_SOURCE_CHURN_ROUNDS as usize + 1;
 const ONLY_AAAA_E2E_DOMAIN: &str = "only-aaaa.zero.invalid";
 
+#[path = "tun_privileged/dns_disabled.rs"]
+mod dns_disabled;
+
 #[test]
 #[ignore = "requires administrator/root, a TUN backend, and internet access"]
 fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {

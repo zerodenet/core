@@ -102,6 +102,7 @@ pub(super) fn parse_address_and_mask(
     Ok((address, netmask))
 }
 
+#[cfg(test)]
 pub(super) fn configured_dns_endpoint_addresses(
     config: &zero_config::RuntimeConfig,
 ) -> io::Result<Vec<IpAddr>> {
@@ -112,12 +113,12 @@ pub(super) fn configured_dns_endpoint_addresses_with(
     config: &zero_config::RuntimeConfig,
     discover_system_dns: impl FnOnce() -> io::Result<Vec<IpAddr>>,
 ) -> io::Result<Vec<IpAddr>> {
-    let dns = config.runtime.dns.as_ref().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "TUN DNS hijack requires a configured DNS server",
-        )
-    })?;
+    let Some(dns) = config.runtime.dns.as_ref() else {
+        let mut addresses = discover_system_dns()?;
+        addresses.sort_unstable();
+        addresses.dedup();
+        return Ok(addresses);
+    };
     let mut addresses = dns
         .tun_route_exclusion_addresses()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -127,6 +128,42 @@ pub(super) fn configured_dns_endpoint_addresses_with(
     addresses.sort_unstable();
     addresses.dedup();
     Ok(addresses)
+}
+
+/// DNS interception and protecting host DNS egress are independent concerns.
+pub(super) fn prepare_dns_routes(
+    config: &zero_config::RuntimeConfig,
+    hijack: bool,
+    auto_route: bool,
+    discover_system_dns: impl FnOnce() -> io::Result<Vec<IpAddr>>,
+) -> io::Result<(bool, Vec<IpAddr>)> {
+    if hijack && config.runtime.dns.is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "TUN DNS hijack requires a configured DNS server",
+        ));
+    }
+    if !auto_route {
+        return Ok((hijack, Vec::new()));
+    }
+    // Without interception, applications still use the OS resolver even if
+    // the kernel itself uses exclusively explicit DNS backends.
+    let extra_system = !hijack
+        && config
+            .runtime
+            .dns
+            .as_ref()
+            .is_some_and(|dns| !dns.uses_system_dns());
+    let mut endpoints = if extra_system {
+        let mut endpoints = configured_dns_endpoint_addresses_with(config, || Ok(Vec::new()))?;
+        endpoints.extend(discover_system_dns()?);
+        endpoints
+    } else {
+        configured_dns_endpoint_addresses_with(config, discover_system_dns)?
+    };
+    endpoints.sort_unstable();
+    endpoints.dedup();
+    Ok((hijack, endpoints))
 }
 
 fn parse_ip(value: &str, field: &str) -> Result<IpAddr, EngineError> {
