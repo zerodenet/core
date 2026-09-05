@@ -26,6 +26,7 @@
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
 | `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.16-rc.202609051609` | - | No pending compatibility changes |
 | `0.0.16-rc.202609050728` | GUI 首次启动、进程内 Proxy 集成 | 空入站且无 TUN 配置进入管理待命；控制面可应用第一个监听，移除最后监听后继续待命 |
 | `0.0.16-rc.202609041712` | - | No pending compatibility changes |
 | `0.0.16-rc.202609041703` | - | No pending compatibility changes |
@@ -43,6 +44,10 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.16-rc.202609051609
+
+<!-- No compatibility changes in this release. -->
 
 ## 0.0.16-rc.202609050728
 
