@@ -25,7 +25,7 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `Unreleased` | GUI 首次启动、进程内 Proxy 集成 | 空入站且无 TUN 配置进入管理待命；控制面可应用第一个监听，移除最后监听后继续待命 <!-- version-contract:unreleased-row --> |
 | `0.0.16-rc.202609041712` | - | No pending compatibility changes |
 | `0.0.16-rc.202609041703` | - | No pending compatibility changes |
 | `0.0.16-rc.202609041004` | - | No pending compatibility changes |
@@ -42,6 +42,9 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+- 空入站且无 TUN 的运行配置不再以 `NoInbounds` 退出，保持管理循环供控制器通过现有 `config.apply` 事务添加监听。首次绑定失败仍保留空配置供重试，移除最后监听后返回待命。
+- API 与事件信封版本不变。依赖空配置启动失败的进程内集成应显式校验自身约束；GUI 可在导入代理配置前启动管理内核。
 
 ## 0.0.16-rc.202609041712
 

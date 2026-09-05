@@ -2,7 +2,6 @@ use zero_engine::EngineError;
 
 use super::lifecycle::{
     handle_configured_tun_failure, handle_listener_result, handle_urltest_result,
-    has_runtime_inbound,
 };
 
 #[test]
@@ -55,26 +54,6 @@ fn clean_urltest_exit_is_allowed_during_shutdown() {
     let result = handle_urltest_result(Some(Ok(Ok(()))), true);
 
     assert!(result.is_ok());
-}
-
-#[test]
-fn declarative_tun_counts_as_a_runtime_inbound() {
-    let config = zero_config::RuntimeConfig::parse(
-        r#"{
-            "runtime": {
-                "dns": {
-                    "servers": { "global": { "type": "udp", "host": "1.1.1.1" } },
-                    "default_server": "global"
-                },
-                "tun": { "addr": "10.0.0.1/24" }
-            },
-            "route": { "rules": [], "final": { "type": "direct" } }
-        }"#,
-    )
-    .expect("valid TUN-only runtime config");
-
-    assert!(config.inbounds.is_empty());
-    assert!(has_runtime_inbound(&config));
 }
 
 #[test]

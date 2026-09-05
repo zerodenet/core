@@ -670,7 +670,11 @@ cleanup_tags_for_published_tag() {
         candidate_base="$V_MAJOR.$V_MINOR.$V_PATCH"
         candidate_stage=$V_STAGE
         [[ "$candidate_base" == "$published_base" ]] || continue
-        [[ "$candidate_stage" == dev || "$candidate_stage" == rc ]] || continue
+        if [[ "$published_stage" == rc ]]; then
+            [[ "$candidate_stage" == dev ]] || continue
+        else
+            [[ "$candidate_stage" == dev || "$candidate_stage" == rc ]] || continue
+        fi
         printf '%s\n' "$candidate"
     done | sort -u
 }

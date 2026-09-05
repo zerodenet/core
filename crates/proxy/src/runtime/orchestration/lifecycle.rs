@@ -12,10 +12,9 @@ pub(in crate::runtime) async fn run_until<F>(proxy: &Proxy, shutdown: F) -> Resu
 where
     F: Future<Output = ()> + Send,
 {
-    if !has_runtime_inbound(proxy.config.as_ref()) {
-        return Err(EngineError::NoInbounds);
-    }
-
+    // An empty configuration is a valid management-only runtime. Keep the
+    // reload/shutdown loop alive so a controller can install its first inbound
+    // through the same reconciled configuration transaction used on reload.
     let mut state = OrchestrationState::new(proxy).await?;
     tokio::pin!(shutdown);
     let mut shutting_down = false;
@@ -107,10 +106,6 @@ where
             }
         }
     }
-}
-
-pub(super) fn has_runtime_inbound(config: &zero_config::RuntimeConfig) -> bool {
-    !config.inbounds.is_empty() || config.runtime.tun.is_some()
 }
 
 pub(super) fn handle_configured_tun_failure(

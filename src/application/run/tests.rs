@@ -6,14 +6,21 @@ use super::{drain_parent_lifetime, proxy_stop_reason, run_supervised_proxy};
 
 #[tokio::test]
 async fn proxy_runtime_error_reaches_application_supervisor() {
-    let config =
-        RuntimeConfig::parse(r#"{ "route": { "rules": [], "final": { "type": "direct" } } }"#)
-            .expect("minimal runtime config");
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = occupied.local_addr().unwrap().port();
+    let config = RuntimeConfig::parse(&format!(
+        r#"{{ "inbounds": [{{ "tag":"conflict", "listen":{{"address":"127.0.0.1","port":{port}}}, "protocol":{{"type":"direct"}} }}], "route": {{ "rules": [], "final": {{ "type": "direct" }} }} }}"#
+    )).expect("runtime config with externally occupied inbound");
     let proxy = Proxy::new(config).expect("minimal proxy");
 
-    let result = run_supervised_proxy(&proxy, std::future::pending()).await;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        run_supervised_proxy(&proxy, std::future::pending()),
+    )
+    .await
+    .expect("supervisor must surface bind failure promptly");
 
-    assert!(matches!(result, Err(EngineError::NoInbounds)));
+    assert!(result.is_err());
 }
 
 #[test]

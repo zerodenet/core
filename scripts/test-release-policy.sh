@@ -132,7 +132,8 @@ CLEANUP_INPUT=(
     v0.0.17-dev.202608131600
 )
 RC_CLEANUP=$(run_release --cleanup-tags v0.0.16-rc.202608131531 "${CLEANUP_INPUT[@]}")
-[[ "$RC_CLEANUP" == $'v0.0.16-dev.202608131430\nv0.0.16-dev.202608131431\nv0.0.16-rc.202608131530' ]]
+[[ "$RC_CLEANUP" == $'v0.0.16-dev.202608131430\nv0.0.16-dev.202608131431' ]]
+[[ "$RC_CLEANUP" != *'v0.0.16-rc.202608131530'* ]]
 STABLE_CLEANUP=$(run_release --cleanup-tags v0.0.16 "${CLEANUP_INPUT[@]}")
 [[ "$STABLE_CLEANUP" == $'v0.0.16-dev.202608131430\nv0.0.16-dev.202608131431\nv0.0.16-rc.202608131530\nv0.0.16-rc.202608131531' ]]
 [[ -z "$(run_release --cleanup-tags v0.0.16-dev.202608131431 "${CLEANUP_INPUT[@]}")" ]]
