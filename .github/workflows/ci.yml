@@ -117,6 +117,9 @@ jobs:
       - name: Check native TUN and socket backends
         run: cargo check -p zero-tun -p zero-platform-tokio
 
+      - name: Verify validation alongside a running kernel
+        run: cargo test --test validate_isolation
+
       - name: Compile privileged TUN E2E harness
         # Daily platform checks cover the native backends. The privileged jobs
         # compile/run this harness; keep older-OS compilation for compatibility.

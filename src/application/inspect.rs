@@ -14,13 +14,13 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
         } => status(config_path.as_deref(), json, socket_path.as_deref()),
         Command::Validate { config_path } => {
             let config = zero_config::RuntimeConfig::load_from_path(&config_path)?;
-            let proxy = zero_proxy::Proxy::from_engine(zero_engine::Engine::new(config)?)?;
+            zero_proxy::validate_config(&config)?;
             println!(
                 "config valid: {} inbounds, {} outbounds, {} groups, {} rules",
-                proxy.config().inbounds.len(),
-                proxy.config().outbounds.len(),
-                proxy.config().outbound_groups.len(),
-                proxy.config().route.rules.len(),
+                config.inbounds.len(),
+                config.outbounds.len(),
+                config.outbound_groups.len(),
+                config.route.rules.len(),
             );
             Ok(())
         }

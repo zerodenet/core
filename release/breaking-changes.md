@@ -25,7 +25,7 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `Unreleased` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 <!-- version-contract:unreleased-row --> |
 | `0.0.16-rc.202609051609` | - | No pending compatibility changes |
 | `0.0.16-rc.202609050728` | GUI 首次启动、进程内 Proxy 集成 | 空入站且无 TUN 配置进入管理待命；控制面可应用第一个监听，移除最后监听后继续待命 |
 | `0.0.16-rc.202609041712` | - | No pending compatibility changes |
@@ -43,7 +43,7 @@
 
 ## Unreleased
 
-<!-- Record implemented but unsealed compatibility changes here. -->
+`zero validate CONFIG` 仅校验当前构建支持的配置和资源，不再实例化 Engine / Proxy、获取 Fake-IP 状态锁或读取配额状态。安装器可在旧内核运行时执行该命令。成功不代表运行端口可用、权限满足或持久化数据兼容；后者仍由运行启动和独立状态检查负责。CLI 输出保留 `config valid` 统计，移除校验阶段误报的 `engine started` 日志。详见 [校验隔离说明](../docs/project/config-validation-isolation.md)。
 
 ## 0.0.16-rc.202609051609
 
