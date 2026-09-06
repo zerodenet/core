@@ -67,6 +67,13 @@ test('ordinary test-only changes do not start privileged or compatibility jobs',
   });
 });
 
+test('offline validation keeps cross-platform lock coverage', () => {
+  for (const path of [
+    'tests/validate_isolation.rs', 'src/application/inspect.rs',
+    'crates/proxy/src/validation.rs',
+  ]) assert.equal(selectScope([path]).compatibility, true, path);
+});
+
 test('manual and scheduled qualification always run everything', () => {
   const noGit = () => assert.fail('full qualification must not depend on a diff');
   assert.deepEqual(scopeForEvent('workflow_dispatch', {}, noGit), full);

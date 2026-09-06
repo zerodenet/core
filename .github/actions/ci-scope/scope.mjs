@@ -35,6 +35,8 @@ export function selectScope(paths) {
   const compatibility = buildChanged || relevant.some(path => startsWithAny(path, [
     'protocols/', 'crates/platform/', 'crates/tun/',
     'crates/transport/', 'crates/ztls/',
+    'src/application/inspect.rs', 'crates/proxy/src/validation.rs',
+    'tests/validate_isolation.rs',
   ])) || relevant.includes('scripts/prepare-wintun.ps1') || qualificationPolicyChanged;
   // TUN qualification is intentionally narrower than the ordinary Linux gate.
   // It still covers every layer that participates in capture, routing, protocol

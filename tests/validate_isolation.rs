@@ -127,9 +127,18 @@ fn validate_succeeds_while_running_kernel_owns_fake_ip_state() {
             .unwrap()
             .map(|entry| {
                 let path = entry.unwrap().path();
+                // Windows enforces byte-range locks even for reads. The lease
+                // file is coordination, not journal data; inspect its metadata
+                // and verify contention separately instead of reading it.
+                let contents = if path.extension().is_some_and(|ext| ext == "lock") {
+                    None
+                } else {
+                    Some(std::fs::read(&path).unwrap())
+                };
                 (
                     path.file_name().unwrap().to_owned(),
-                    std::fs::read(path).unwrap(),
+                    std::fs::metadata(&path).unwrap().len(),
+                    contents,
                 )
             })
             .collect();
@@ -137,10 +146,25 @@ fn validate_succeeds_while_running_kernel_owns_fake_ip_state() {
         files
     };
     let before = snapshot();
-    assert!(before
+    let lock_name = &before
         .iter()
-        .any(|(name, _)| name.to_string_lossy().ends_with(".lock")));
+        .find(|(name, _, _)| name.to_string_lossy().ends_with(".lock"))
+        .expect("running kernel created its Fake-IP lease")
+        .0;
+    let assert_lease_held = || {
+        let lease = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(state.join(lock_name))
+            .unwrap();
+        assert!(matches!(
+            lease.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+    };
+    assert_lease_held();
     assert_valid(validate(&path, &state));
+    assert_lease_held();
     assert_eq!(snapshot(), before);
     assert!(runtime.0.try_wait().unwrap().is_none());
     assert!(TcpStream::connect_timeout(&address, Duration::from_secs(1)).is_ok());
