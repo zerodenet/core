@@ -92,7 +92,17 @@ fn reloading_bypass_does_not_change_old_snapshot_and_rejects_invalid_conditions(
             .decision,
         RouteDecision::Reject
     );
-    assert!(RuntimeConfig::parse(&json!({"route":{"bypass":[{"type":"domain_regex","values":["["]}],"final":{"type":"direct"}}}).to_string()).is_err());
+    let invalid = config(json!([{"type":"domain_regex","values":["["]}]));
+    assert!(invalid.compile_route_bypass().is_err());
+    let current = engine.runtime_snapshot();
+    assert!(engine.reload_runtime_config(invalid).is_err());
+    assert!(std::sync::Arc::ptr_eq(&current, &engine.runtime_snapshot()));
+    assert_eq!(
+        engine
+            .route_trace_with_inbound_and_resolved_ips(&address, None, None, &[])
+            .decision,
+        RouteDecision::Reject
+    );
 }
 
 #[test]
