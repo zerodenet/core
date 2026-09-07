@@ -25,7 +25,8 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
 | `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
 | `0.0.16-rc.202609051609` | - | No pending compatibility changes |
 | `0.0.16-rc.202609050728` | GUI 首次启动、进程内 Proxy 集成 | 空入站且无 TUN 配置进入管理待命；控制面可应用第一个监听，移除最后监听后继续待命 |
@@ -43,6 +44,10 @@
 | `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
 
 ## Unreleased
+
+<!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.16-rc.202609070904
 
 <!-- Record implemented but unsealed compatibility changes here. -->
 
