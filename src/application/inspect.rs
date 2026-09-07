@@ -31,6 +31,12 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
             println!("build_profile: {}", env!("ZERO_BUILD_PROFILE"));
             println!("features: {}", crate::collect_build_features().join(","));
             println!(
+                "protocol_capabilities: {}",
+                serde_json::to_string(
+                    &zero_proxy::ProtocolInventory::default().protocol_capabilities()
+                )?
+            );
+            println!(
                 "binary_sha256: {}",
                 crate::artifact::current_executable_sha256()?
             );

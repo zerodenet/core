@@ -26,6 +26,18 @@ impl NamedProtocolAdapter for DirectAdapter {
     const PROTOCOL_NAME: &'static str = "direct";
     const FEATURE_NAME: &'static str = "core";
     const HAS_OUTBOUND: bool = false;
+
+    fn validate_inbound_config(&self, config: &InboundConfig) -> Result<(), EngineError> {
+        if config.udp.enabled && !cfg!(feature = "managed-datagram-runtime") {
+            return Err(EngineError::CompiledFeatureDisabled {
+                kind: "inbound UDP",
+                tag: config.tag.clone(),
+                protocol: "direct",
+                feature: "managed-datagram-runtime",
+            });
+        }
+        Ok(())
+    }
 }
 
 impl DirectAdapter {
@@ -55,7 +67,16 @@ impl UdpFlowCapability for DirectAdapter {}
 #[cfg(feature = "udp-runtime")]
 impl UdpPacketPathCapability for DirectAdapter {}
 
+#[async_trait::async_trait]
 impl InboundListenerCapability for DirectAdapter {
+    async fn bind_inbound(
+        &self,
+        inbound: &InboundConfig,
+        _source_dir: Option<&std::path::Path>,
+    ) -> Result<crate::protocol_registry::BoundInbound, EngineError> {
+        self.bind_inbound_impl(inbound).await
+    }
+
     fn prepare_inbound_listener(
         &self,
         inbound: InboundConfig,
@@ -79,7 +100,11 @@ impl ProtocolMetadata for DirectAdapter {
             compatibility_baseline: "kernel_builtin",
             inbound: ProtocolNetworkCapability::new(
                 ProtocolCapabilityState::supported(),
-                ProtocolCapabilityState::unsupported(&[]),
+                if cfg!(feature = "managed-datagram-runtime") {
+                    ProtocolCapabilityState::supported()
+                } else {
+                    ProtocolCapabilityState::unsupported(&["managed-datagram-runtime"])
+                },
             ),
             outbound: ProtocolNetworkCapability::new(
                 ProtocolCapabilityState::supported(),

@@ -7,7 +7,13 @@ impl ProtocolRegistry {
     /// Validate that every inbound in the config has a compiled-in adapter.
     pub(crate) fn validate_inbounds(&self, configs: &[InboundConfig]) -> Result<(), EngineError> {
         for inbound in configs {
-            if !self.supports_inbound(&inbound.protocol) {
+            if let Some(entry) = self
+                .entries
+                .iter()
+                .find(|entry| entry.support.supports_inbound(&inbound.protocol))
+            {
+                entry.support.validate_inbound_config(inbound)?;
+            } else {
                 let name = self.inbound_protocol_label(&inbound.protocol);
                 return Err(EngineError::CompiledFeatureDisabled {
                     kind: "inbound",

@@ -233,9 +233,13 @@ impl OrchestrationState {
         for inbound in &proxy.config.inbounds {
             let (tx, rx) = watch::channel(false);
             self.listener_stops.insert(inbound.tag.clone(), tx);
-            let bound =
-                listeners::bind_inbound_listener(&proxy.protocols, source_dir.as_deref(), inbound)
-                    .await?;
+            let bound = listeners::bind_inbound_listener(
+                &proxy.protocols,
+                &self.inbound_runtime_factory,
+                source_dir.as_deref(),
+                inbound,
+            )
+            .await?;
             listeners::spawn_inbound_listener(
                 &proxy.protocols,
                 source_dir.as_deref(),

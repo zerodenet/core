@@ -25,7 +25,7 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `Unreleased` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 <!-- version-contract:unreleased-row --> |
 | `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
 | `0.0.16-rc.202609051609` | - | No pending compatibility changes |
 | `0.0.16-rc.202609050728` | GUI 首次启动、进程内 Proxy 集成 | 空入站且无 TUN 配置进入管理待命；控制面可应用第一个监听，移除最后监听后继续待命 |
@@ -45,6 +45,10 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+- 固定目标 `direct` 入站默认同时转发 TCP 和 UDP。升级前只有 TCP 的监听现在也会绑定同端口 UDP；若要保持 TCP-only，应将该入站或全局 `runtime.udp.enabled` 设为 `false`。任意一层禁用 UDP 都只绑定 TCP，热更新会重新协调监听，绑定失败通过既有事务回滚。协议配置仍为 `type`、`target` 和 `port`，不新增 `network` 字段。
+- `zero build-info` 新增 `protocol_capabilities:` JSON 行，内容复用既有协议能力记录。控制器应确认当前构建中 `direct` 入站 UDP 能力为受支持后再下发 UDP 转发；旧内核接受 `udp.enabled` 并不意味着支持该转发。未编译所需 UDP 运行时的构建会在配置验证阶段拒绝启用 UDP 的 direct 入站。
+- WebSocket 自定义 `Host` 现在替换拨号地址生成的默认 Host，避免发出重复 Host 头；连接地址、TLS 及其他头的配置不变。
 
 ## 0.0.16-rc.202609060636
 

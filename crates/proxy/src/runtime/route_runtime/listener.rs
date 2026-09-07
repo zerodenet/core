@@ -40,6 +40,15 @@ impl InboundListenerRuntimeFactory {
         Self { shared }
     }
 
+    pub(crate) fn listener_config(
+        &self,
+        inbound: &zero_config::InboundConfig,
+    ) -> zero_config::InboundConfig {
+        let mut effective = inbound.clone();
+        effective.udp.enabled &= self.shared.udp_enabled();
+        effective
+    }
+
     pub(crate) fn for_inbound(&self, inbound_tag: String) -> InboundListenerRuntime {
         InboundListenerRuntime::new(self.shared.clone(), inbound_tag)
     }

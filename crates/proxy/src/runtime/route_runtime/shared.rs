@@ -36,6 +36,10 @@ impl SharedIngressRuntimeServices {
         TcpIngressRuntime::new(self.tcp_services.clone(), inbound_tag, source_addr)
     }
 
+    pub(super) fn udp_enabled(&self) -> bool {
+        self.tcp_services.config().runtime.udp.enabled
+    }
+
     pub(super) fn with_current_snapshot(&self) -> Self {
         let tcp_services = self.tcp_services.with_current_snapshot();
         Self {

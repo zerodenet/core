@@ -1,6 +1,6 @@
 //! Adapter identity and shared support capability implementation.
 
-use zero_config::{InboundProtocolConfig, OutboundProtocolConfig, RuntimeConfig};
+use zero_config::{InboundConfig, InboundProtocolConfig, OutboundProtocolConfig, RuntimeConfig};
 use zero_traits::ProtocolMetadata;
 
 use crate::protocol_registry::ProtocolSupportCapability;
@@ -10,6 +10,13 @@ pub(crate) trait NamedProtocolAdapter: ProtocolMetadata + Send + Sync {
     const FEATURE_NAME: &'static str;
     const HAS_INBOUND: bool = true;
     const HAS_OUTBOUND: bool = true;
+
+    fn validate_inbound_config(
+        &self,
+        _config: &InboundConfig,
+    ) -> Result<(), zero_engine::EngineError> {
+        Ok(())
+    }
 
     fn on_config_reloaded(&self, _config: &RuntimeConfig) {}
 }
@@ -40,6 +47,13 @@ where
 
     fn has_outbound(&self) -> bool {
         T::HAS_OUTBOUND
+    }
+
+    fn validate_inbound_config(
+        &self,
+        config: &InboundConfig,
+    ) -> Result<(), zero_engine::EngineError> {
+        NamedProtocolAdapter::validate_inbound_config(self, config)
     }
 
     fn on_config_reloaded(&self, config: &RuntimeConfig) {

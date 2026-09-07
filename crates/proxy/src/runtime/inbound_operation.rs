@@ -10,6 +10,8 @@ mod contract;
 mod quic;
 #[cfg(feature = "managed-datagram-runtime")]
 mod tcp_and_datagram;
+#[cfg(feature = "managed-datagram-runtime")]
+mod tcp_and_peer_datagram;
 mod tcp_listener;
 #[cfg(feature = "transport_quic")]
 mod tcp_or_quic;
@@ -26,3 +28,6 @@ pub(crate) use tcp_and_datagram::TcpAndDatagramInboundListenerOperation;
 pub(crate) use tcp_listener::TcpInboundListenerOperation;
 #[cfg(feature = "transport_quic")]
 pub(crate) use tcp_or_quic::TcpOrQuicInboundListenerOperation;
+
+#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) use tcp_and_peer_datagram::TcpAndPeerDatagramInboundListenerOperation;

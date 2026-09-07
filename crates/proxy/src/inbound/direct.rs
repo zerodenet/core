@@ -13,8 +13,13 @@ use crate::runtime::inbound_operation::{
 use crate::runtime::tcp_ingress::NoClientResponseStreamProtocol;
 use crate::transport::TcpRelayStream;
 
+#[cfg(feature = "managed-datagram-runtime")]
+mod datagram;
+
 #[derive(Debug)]
 pub(crate) struct DirectInboundListenerOperation {
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) udp: bool,
     pub(crate) target: Option<Address>,
     pub(crate) port: Option<u16>,
 }
@@ -54,6 +59,19 @@ impl PreparedInboundListenerOperation for DirectInboundListenerOperation {
                     .await
             },
         };
+        #[cfg(feature = "managed-datagram-runtime")]
+        if self.udp {
+            let target = operation.request.0.clone();
+            let port = self.port.unwrap_or(443);
+            let combined =
+                crate::runtime::inbound_operation::TcpAndPeerDatagramInboundListenerOperation {
+                    tcp: operation,
+                    relay_factory: move |peer, packets| {
+                        datagram::DirectDatagramRelay::new(target.clone(), port, peer, packets)
+                    },
+                };
+            return Box::new(combined).execute(runtime, bound, shutdown);
+        }
         Box::new(operation).execute(runtime, bound, shutdown)
     }
 }

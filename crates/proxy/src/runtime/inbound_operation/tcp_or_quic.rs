@@ -48,6 +48,11 @@ where
             } = *self;
             let runtime_factory = runtime.route_factory();
             match bound {
+                #[cfg(feature = "managed-datagram-runtime")]
+                BoundInbound::TcpAndDatagram(..) => Err(EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "TCP/QUIC operation received combined datagram listener",
+                ))),
                 BoundInbound::Tcp(listener) => {
                     crate::runtime::listener_loop::run_logged_tcp_socket_listener_loop(
                         crate::runtime::listener_loop::LoggedTcpSocketListenerRequest {

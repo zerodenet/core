@@ -89,3 +89,22 @@ fn value_for<'a>(output: &'a str, key: &str) -> Option<&'a str> {
         .lines()
         .find_map(|line| line.strip_prefix(key)?.strip_prefix(": "))
 }
+
+#[test]
+fn build_info_exports_registered_protocol_capabilities() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_zero"))
+        .arg("build-info")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let raw = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("protocol_capabilities: "))
+        .unwrap();
+    let actual: Vec<zero_api::ProtocolCapability> = serde_json::from_str(raw).unwrap();
+    assert_eq!(
+        actual,
+        zero_proxy::ProtocolInventory::default().protocol_capabilities()
+    );
+}

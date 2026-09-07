@@ -95,6 +95,10 @@ pub(crate) trait ProtocolSupportCapability: ProtocolMetadata + Send + Sync {
     fn has_inbound(&self) -> bool;
     fn has_outbound(&self) -> bool;
 
+    fn validate_inbound_config(&self, _config: &InboundConfig) -> Result<(), EngineError> {
+        Ok(())
+    }
+
     fn on_config_reloaded(&self, _config: &RuntimeConfig) {}
 }
 

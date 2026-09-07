@@ -7,6 +7,11 @@
 /// into runtime dispatch.
 pub(crate) enum BoundInbound {
     Tcp(zero_platform_tokio::TokioListener),
+    #[cfg(feature = "managed-datagram-runtime")]
+    TcpAndDatagram(
+        zero_platform_tokio::TokioListener,
+        std::sync::Arc<tokio::net::UdpSocket>,
+    ),
     #[cfg(feature = "transport_quic")]
     Quic(crate::transport::QuicInbound),
 }
@@ -18,6 +23,8 @@ impl BoundInbound {
     pub(crate) fn into_tcp(self) -> zero_platform_tokio::TokioListener {
         match self {
             Self::Tcp(l) => l,
+            #[cfg(feature = "managed-datagram-runtime")]
+            Self::TcpAndDatagram(..) => panic!("combined listener requires datagram execution"),
             Self::Quic(_) => {
                 panic!("into_tcp: got QUIC listener, expected TCP (dispatch mismatch)")
             }
@@ -28,6 +35,8 @@ impl BoundInbound {
     pub(crate) fn into_tcp(self) -> zero_platform_tokio::TokioListener {
         match self {
             Self::Tcp(l) => l,
+            #[cfg(feature = "managed-datagram-runtime")]
+            Self::TcpAndDatagram(..) => panic!("combined listener requires datagram execution"),
         }
     }
 }

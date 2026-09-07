@@ -82,9 +82,15 @@ where
     };
     let url = format!("ws://{host}{path}");
 
+    let headers = ws.header_pairs();
+    let header_host = headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("host"))
+        .map(|(_, value)| value.as_str())
+        .unwrap_or(host.as_str());
     let mut request_builder = Request::builder()
         .uri(url)
-        .header("Host", host)
+        .header("Host", header_host)
         .header("Connection", "Upgrade")
         .header("Upgrade", "websocket")
         .header("Sec-WebSocket-Version", "13")
@@ -93,8 +99,10 @@ where
             tokio_tungstenite::tungstenite::handshake::client::generate_key(),
         );
 
-    for (key, value) in ws.header_pairs() {
-        request_builder = request_builder.header(key, value);
+    for (key, value) in headers {
+        if !key.eq_ignore_ascii_case("host") {
+            request_builder = request_builder.header(key, value);
+        }
     }
 
     let request = request_builder.body(()).map_err(|e| {

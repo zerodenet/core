@@ -18,7 +18,16 @@ impl ProtocolInventory {
     }
 
     pub fn validate_config(&self, config: &RuntimeConfig) -> Result<(), EngineError> {
-        self.registry.validate_inbounds(&config.inbounds)?;
+        let inbounds: Vec<_> = config
+            .inbounds
+            .iter()
+            .cloned()
+            .map(|mut inbound| {
+                inbound.udp.enabled &= config.runtime.udp.enabled;
+                inbound
+            })
+            .collect();
+        self.registry.validate_inbounds(&inbounds)?;
         self.registry.validate_outbounds(&config.outbounds)?;
         Ok(())
     }

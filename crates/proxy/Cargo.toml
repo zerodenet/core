@@ -9,6 +9,7 @@ homepage.workspace = true
 
 [features]
 default = [
+    "managed-datagram-runtime",
     "socks5",
     "http",
     "mixed",

@@ -460,3 +460,26 @@ zero-tun -> zero-traits
 - 禁止运行时重新引入协议命名的 UDP 状态。
 
 文件可以在不破坏职责的前提下重组。架构测试应优先约束所有权、依赖和执行边界，而不是把偶然的目录形状永久固化为设计本身。
+
+### Fixed-target raw forwarding
+
+The built-in `direct` inbound forwards opaque TCP streams and UDP datagrams to
+its fixed `target` and `port`. The existing `runtime.udp.enabled` and inbound
+`udp.enabled` switches are the only UDP controls; both default to true. Setting
+either false keeps the listener TCP-only. UDP availability is checked against
+the compiled adapter during configuration validation. No authentication identity
+is introduced at the forwarder. UDP client endpoints receive independent dispatch
+and upstream associations. The neutral listener runtime bounds peer count and
+packet queues; idle associations expire so replies do not cross between clients.
+The adapter eagerly binds both transports when UDP is enabled; the neutral
+`BoundInbound::TcpAndDatagram` carries sockets into the shared listener operation.
+UDP bind failure aborts activation and uses normal configuration rollback.
+Global and inbound UDP policy changes reconcile the effective listener shape.
+Proxy paths use ordinary route rules and outbound groups, including
+`relay.proxies`; no external controller dialect enters the kernel.
+
+Older direct listeners were TCP-only. Upgrades now also bind the same UDP port
+unless UDP is disabled explicitly. Controllers must check the direct inbound UDP
+capability instead of assuming that accepting `udp.enabled` implies UDP support.
+`zero build-info` exposes the existing protocol capability records as compact JSON
+on the `protocol_capabilities:` line, without requiring a running process.

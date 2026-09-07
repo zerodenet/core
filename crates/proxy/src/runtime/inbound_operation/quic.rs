@@ -59,6 +59,13 @@ where
         Box::pin(async move {
             let listener = match bound {
                 BoundInbound::Quic(listener) => listener,
+                #[cfg(feature = "managed-datagram-runtime")]
+                BoundInbound::TcpAndDatagram(..) => {
+                    return Err(EngineError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "QUIC operation received TCP/datagram listener",
+                    )))
+                }
                 BoundInbound::Tcp(_) => {
                     return Err(EngineError::Io(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
