@@ -60,6 +60,7 @@ impl ProxyHandle {
         config: zero_config::RuntimeConfig,
         timeout: std::time::Duration,
         persist: bool,
+        restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
     ) -> Result<(), String> {
         let mut ready = self.proxy.orchestration_ready.subscribe();
         if !*ready.borrow() {
@@ -76,8 +77,8 @@ impl ProxyHandle {
             .map_err(|_| "timed out waiting for proxy runtime startup".to_owned())??;
         }
 
-        let previous = self.proxy.engine.config();
-        let receiver = self.begin_acknowledged_reload(config, persist)?;
+        let previous = self.proxy.engine.runtime_snapshot();
+        let receiver = self.begin_acknowledged_reload(config, persist, restore)?;
 
         match tokio::time::timeout(timeout, receiver).await {
             Ok(Ok(result)) => result,
@@ -175,6 +176,7 @@ impl ProxyHandle {
         &self,
         config: zero_config::RuntimeConfig,
         persist: bool,
+        restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
     ) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         {
@@ -188,11 +190,14 @@ impl ProxyHandle {
             }
             *pending = Some(super::super::PendingReloadAck {
                 expected: config.clone(),
+                previous: self.proxy.engine.runtime_snapshot(),
                 persist,
                 sender,
             });
         }
-        let result = if persist {
+        let result = if let Some(snapshot) = restore {
+            self.proxy.engine.restore_staged_snapshot(snapshot, persist)
+        } else if persist {
             self.proxy.engine.stage_config(config)
         } else {
             self.proxy.engine.stage_runtime_config(config)
@@ -214,12 +219,12 @@ impl ProxyHandle {
 
     async fn rollback_unconfirmed_reload(
         &self,
-        previous: std::sync::Arc<zero_config::RuntimeConfig>,
+        previous: std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
         requested_timeout: std::time::Duration,
         persist: bool,
     ) -> Result<(), String> {
         let receiver = self
-            .begin_acknowledged_reload((*previous).clone(), persist)
+            .begin_acknowledged_reload((**previous.config()).clone(), persist, Some(previous))
             .map_err(|error| format!("failed to start last-known-good rollback: {error}"))?;
         let rollback_timeout = requested_timeout.max(std::time::Duration::from_secs(5));
         let result = match tokio::time::timeout(rollback_timeout, receiver).await {

@@ -283,11 +283,11 @@ impl UrlTestRuntime {
     }
 
     fn urltest_selected_target(&self, group_id: TargetId) -> Option<TargetId> {
-        self.services.engine().urltest_selected_target(group_id)
+        self.services.snapshot().urltest_selected_target(group_id)
     }
 
     fn urltest_state(&self, group_id: TargetId) -> Option<zero_engine::UrlTestGroupState> {
-        self.services.engine().urltest_state(group_id)
+        self.services.snapshot().urltest_state(group_id)
     }
 
     fn update_urltest_state(
@@ -299,7 +299,7 @@ impl UrlTestRuntime {
         selection: zero_engine::UrlTestSelection,
     ) {
         self.services
-            .engine()
+            .snapshot()
             .update_urltest_state(group_id, selected, latency_ms, members, selection);
     }
 }

@@ -83,6 +83,7 @@ If you change protocol behavior, config parsing, routing, or runtime wiring, run
 - Do not move protocol parsing into root binary
 - Do not construct control or TUN IPC requests in `src/main.rs`; command semantics belong to `src/application/{control,tun,inspect,run}.rs`.
 - Keep `crates/engine/src/runtime.rs` as the construction/mode/route facade. Configuration persistence, policy state, observability projection, diagnostics, and session lifecycle belong to `runtime/{configuration,policy,observability,diagnostics,session}.rs`.
+- Pure route evaluation and the decision to request resolved IPs live in `crates/engine/src/runtime/route.rs`. Proxy consumes that evaluation and owns asynchronous DNS execution; it must not duplicate bypass matching or mode precedence.
 - Keep raw packet parsing/building pure in `crates/stack/src/packet.rs`; async TCP/UDP connection lifecycle consumes that boundary from sibling modules and must not recreate IP parsing.
 - Keep:
   - config ADTs and validation -> `crates/config`

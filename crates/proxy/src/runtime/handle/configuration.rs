@@ -58,15 +58,15 @@ impl ProxyHandle {
         persist: bool,
     ) -> Result<Option<ConfigReconcileResult>, String> {
         let _apply_guard = self.proxy.reload_apply_lock.lock().await;
-        let previous = self.proxy.engine.config();
-        if expected_current.is_some_and(|expected| expected != previous.as_ref()) {
+        let previous = self.proxy.engine.runtime_snapshot();
+        if expected_current.is_some_and(|expected| expected != previous.config().as_ref()) {
             return Ok(None);
         }
         if let Some(reconciler) = &self.config_reconciler {
-            reconciler.validate(previous.as_ref(), &candidate)?;
+            reconciler.validate(previous.config().as_ref(), &candidate)?;
         }
 
-        self.apply_proxy_config_under_guard(candidate.clone(), timeout, persist)
+        self.apply_proxy_config_under_guard(candidate.clone(), timeout, persist, None)
             .await?;
 
         let Some(reconciler) = &self.config_reconciler else {
@@ -93,7 +93,7 @@ impl ProxyHandle {
                         .rollback_proxy_dns_under_guard(previous.clone(), timeout, persist)
                         .await;
                     let app_rollback = if proxy_rollback.is_ok() {
-                        reconciler.reconcile(previous).await
+                        reconciler.reconcile(previous.config().clone()).await
                     } else {
                         Err("application rollback skipped because proxy rollback failed".to_owned())
                     };
@@ -116,7 +116,7 @@ impl ProxyHandle {
                     .rollback_proxy_dns_under_guard(previous.clone(), timeout, persist)
                     .await;
                 let app_rollback = if proxy_rollback.is_ok() {
-                    reconciler.reconcile(previous).await
+                    reconciler.reconcile(previous.config().clone()).await
                 } else {
                     Err("application rollback skipped because proxy rollback failed".to_owned())
                 };
@@ -137,13 +137,18 @@ impl ProxyHandle {
 
     async fn rollback_proxy_dns_under_guard(
         &self,
-        previous: Arc<RuntimeConfig>,
+        previous: Arc<zero_engine::EngineRuntimeSnapshot>,
         timeout: Duration,
         persist: bool,
     ) -> Result<(), String> {
         self.proxy.resolver.discard_prepared_reload();
         let result = self
-            .apply_proxy_config_under_guard((*previous).clone(), timeout, persist)
+            .apply_proxy_config_under_guard(
+                (**previous.config()).clone(),
+                timeout,
+                persist,
+                Some(previous),
+            )
             .await;
         // The committed resolver was never replaced, so the rollback's
         // prepared last-known-good candidate is redundant.

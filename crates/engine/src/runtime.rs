@@ -7,7 +7,7 @@ use std::time::Duration;
 use tracing::info;
 use zero_config::{ModeConfig, RuntimeConfig};
 use zero_core::Address;
-use zero_router::{RouteAction, RouteContext};
+use zero_router::RouteAction;
 
 use super::error::EngineError;
 use super::groups::OutboundGroupStateStore;
@@ -29,9 +29,11 @@ mod diagnostics;
 mod observability;
 mod passive_health;
 mod policy;
+mod route;
 mod session;
 mod snapshot;
 
+pub use route::RouteEvaluation;
 pub use snapshot::EngineRuntimeSnapshot;
 
 #[derive(Debug, Clone)]
@@ -48,7 +50,6 @@ pub struct Engine {
     event_log: Arc<EngineEventLog>,
     config_revision: Arc<AtomicU64>,
     stats: Arc<EngineStats>,
-    pub(crate) outbound_group_state: Arc<OutboundGroupStateStore>,
     pub(crate) probe_trigger_registry: Arc<ProbeTriggerRegistry>,
     flow_hook: Arc<std::sync::RwLock<Option<Arc<FlowHookChain>>>>,
     flow_completion_sink: Arc<std::sync::RwLock<Option<FlowCompletionSink>>>,
@@ -115,41 +116,11 @@ fn started_at_unix_ms() -> u64 {
 impl Engine {
     pub fn new(config: RuntimeConfig) -> Result<Self, EngineError> {
         let router = Arc::new(config.compile_route()?);
+        let bypass = Arc::new(config.compile_route_bypass()?);
         let plan = Arc::new(EnginePlan::build(&config)?);
-        let plan_inner = plan.clone();
         let udp_upstream_idle_timeout =
             Duration::from_secs(config.runtime.udp_upstream_idle_timeout_seconds);
-        let outbound_group_state = OutboundGroupStateStore::shared();
-
-        for &group_id in plan_inner.selector_groups() {
-            let group = plan_inner
-                .target(group_id)
-                .expect("engine plan should resolve selector group");
-            let Some(selector) = group.as_selector() else {
-                continue;
-            };
-            outbound_group_state.initialize_selector(group_id, selector.initial_member());
-        }
-
-        for &group_id in plan_inner.urltest_groups() {
-            let group = plan_inner
-                .target(group_id)
-                .expect("engine plan should resolve urltest group");
-            let Some(urltest) = group.as_urltest() else {
-                continue;
-            };
-            if !urltest.members().is_empty() {
-                outbound_group_state.initialize_urltest(
-                    group_id,
-                    urltest.initial_member(),
-                    urltest.members(),
-                );
-            }
-        }
-
-        for &group_id in plan_inner.loadbalance_groups() {
-            outbound_group_state.initialize_loadbalance(group_id);
-        }
+        let outbound_group_state = OutboundGroupStateStore::for_plan(&plan, None);
 
         let event_log_capacity = config.runtime.event_log_capacity;
         let config_revision = Arc::new(AtomicU64::new(1));
@@ -185,6 +156,8 @@ impl Engine {
                 config: Arc::new(config),
                 plan,
                 router,
+                bypass,
+                outbound_group_state,
             }))),
             mode,
             next_session_id: Arc::new(AtomicU64::new(1)),
@@ -197,7 +170,6 @@ impl Engine {
             event_log,
             config_revision,
             stats: EngineStats::shared(),
-            outbound_group_state,
             probe_trigger_registry: ProbeTriggerRegistry::shared(),
             outbound_health: Arc::new(OutboundHealth::new()),
             passive_relay_health: Arc::new(PassiveRelayHealth::default()),
@@ -390,42 +362,8 @@ impl Engine {
         inbound_tag: Option<&str>,
         resolved_ips: &[IpAddr],
     ) -> RouteTrace {
-        let mode = self.mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        match &mode {
-            ModeConfig::Rule => {
-                let trace = snapshot.router.decide_trace_with_context_and_resolved_ips(
-                    RouteContext {
-                        address,
-                        sni,
-                        inbound_tag,
-                    },
-                    resolved_ips,
-                );
-                let decision = match trace.action {
-                    RouteAction::Route(tag) => RouteDecision::Route(tag),
-                    RouteAction::Direct => RouteDecision::Direct,
-                    RouteAction::Reject => RouteDecision::Reject,
-                };
-                RouteTrace {
-                    decision,
-                    mode: mode.kind().to_owned(),
-                    matched_rule: trace.matched_rule.map(|matched| crate::MatchedRouteRule {
-                        index: matched.index,
-                        condition: matched.condition,
-                    }),
-                }
-            }
-            ModeConfig::Direct => RouteTrace {
-                decision: RouteDecision::Direct,
-                mode: mode.kind().to_owned(),
-                matched_rule: None,
-            },
-            ModeConfig::Global { outbound } => RouteTrace {
-                decision: RouteDecision::Route(outbound.clone()),
-                mode: mode.kind().to_owned(),
-                matched_rule: None,
-            },
-        }
+        self.evaluate_route_in_snapshot(snapshot, address, sni, inbound_tag, resolved_ips)
+            .trace
     }
 
     pub fn route_requires_resolved_ip(&self) -> bool {
@@ -434,11 +372,9 @@ impl Engine {
     }
 
     pub fn route_requires_resolved_ip_in_snapshot(&self, snapshot: &EngineRuntimeSnapshot) -> bool {
-        if !matches!(self.current_mode(), ModeConfig::Rule) {
-            return false;
-        }
-
-        snapshot.router.requires_resolved_ip()
+        let mode = self.current_mode();
+        (!matches!(mode, ModeConfig::Direct) && snapshot.bypass.requires_resolved_ip())
+            || (matches!(mode, ModeConfig::Rule) && snapshot.router.requires_resolved_ip())
     }
 
     pub fn resolve_route_decision(
@@ -497,7 +433,7 @@ impl Engine {
         let resolved: ResolvedOutbound<'static> = unsafe {
             std::mem::transmute(resolve_target_id(
                 &plan,
-                &self.outbound_group_state,
+                &snapshot.outbound_group_state,
                 target_id,
             )?)
         };
@@ -505,8 +441,8 @@ impl Engine {
     }
 
     pub fn resolve_target_chains(&self, target_id: TargetId) -> Vec<Vec<TargetId>> {
-        let plan = self.plan();
-        resolve_target_chains(&plan, &self.outbound_group_state, target_id)
+        let snapshot = self.runtime_snapshot();
+        resolve_target_chains(&snapshot.plan, &snapshot.outbound_group_state, target_id)
     }
 
     pub fn resolve_target_chains_in_snapshot(
@@ -514,7 +450,7 @@ impl Engine {
         snapshot: &EngineRuntimeSnapshot,
         target_id: TargetId,
     ) -> Vec<Vec<TargetId>> {
-        resolve_target_chains(&snapshot.plan, &self.outbound_group_state, target_id)
+        resolve_target_chains(&snapshot.plan, &snapshot.outbound_group_state, target_id)
     }
 
     pub fn target_tag(&self, target_id: TargetId) -> Option<String> {
@@ -547,7 +483,7 @@ impl Engine {
         // SAFETY: plan is returned alongside, keeping data alive.
         let resolved: ResolvedOutbound<'static> = unsafe {
             std::mem::transmute(
-                resolve_target_id(&plan, &self.outbound_group_state, target_id).ok_or_else(
+                resolve_target_id(&plan, &snapshot.outbound_group_state, target_id).ok_or_else(
                     || EngineError::MissingRouteTarget {
                         tag: tag.to_owned(),
                     },

@@ -26,6 +26,7 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
     assert!(capabilities.contracts.is_some());
     let mut expected_features = vec![
         "query",
+        "route_bypass_v1",
         "config_snapshot",
         "runtime_snapshot",
         "flow_snapshot",

@@ -1,10 +1,13 @@
-﻿use ipnet::IpNet;
+use ipnet::IpNet;
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouteConfig {
+    /// Direct-access exceptions evaluated before rule/global mode selection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bypass: Vec<RuleConditionConfig>,
     /// Shared rule-set resources consumed by traffic routing and DNS dispatch.
     #[serde(default)]
     pub rule_sets: Vec<RouteRuleSetConfig>,

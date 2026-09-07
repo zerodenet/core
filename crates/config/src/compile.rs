@@ -10,6 +10,33 @@ use crate::{
 };
 
 impl RuntimeConfig {
+    pub fn compile_route_bypass(&self) -> Result<RuleSet, ConfigError> {
+        if self.route.bypass.is_empty() {
+            return Ok(RuleSet::new(Vec::new(), RouteAction::Reject));
+        }
+        let resources = self.route.bypass.iter().any(bypass_uses_resources);
+        let compiled = if resources {
+            compile_rule_sets(&self.route.rule_sets, self.source_dir())?
+        } else {
+            CompiledRuleSets::new()
+        };
+        let mut route = self.route.clone();
+        if !resources {
+            route.geoip_database = None;
+        }
+        route.rules = route
+            .bypass
+            .iter()
+            .cloned()
+            .map(|condition| RouteRuleConfig {
+                condition,
+                action: RouteActionConfig::Direct,
+            })
+            .collect();
+        route.final_action = RouteActionConfig::Reject;
+        route.compile(&compiled, self.source_dir())
+    }
+
     pub fn compile_route(&self) -> Result<RuleSet, ConfigError> {
         let compiled_rule_sets = compile_rule_sets(&self.route.rule_sets, self.source_dir())?;
         self.route.compile(&compiled_rule_sets, self.source_dir())
@@ -237,4 +264,14 @@ where
     }
 
     Ok(wrap(compiled))
+}
+
+fn bypass_uses_resources(condition: &RuleConditionConfig) -> bool {
+    match condition {
+        RuleConditionConfig::RuleSet { .. } | RuleConditionConfig::GeoIp { .. } => true,
+        RuleConditionConfig::And { items } | RuleConditionConfig::Or { items } => {
+            items.iter().any(bypass_uses_resources)
+        }
+        _ => false,
+    }
 }

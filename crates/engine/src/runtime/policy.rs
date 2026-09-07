@@ -1,6 +1,6 @@
 use tracing::info;
 
-use super::Engine;
+use super::{Engine, EngineRuntimeSnapshot};
 use crate::{EngineError, TargetId, UrlTestGroupState, UrlTestMemberState};
 
 impl Engine {
@@ -32,7 +32,11 @@ impl Engine {
         group_tag: &str,
         target_tag: &str,
     ) -> Result<(), EngineError> {
-        let plan = self.plan();
+        let snapshot = self
+            .runtime_snapshot
+            .read()
+            .expect("runtime snapshot lock poisoned");
+        let plan = snapshot.plan();
         let group_id =
             plan.target_id(group_tag)
                 .ok_or_else(|| EngineError::SelectorGroupNotFound {
@@ -59,7 +63,7 @@ impl Engine {
             });
         }
 
-        let previous = self
+        let previous = snapshot
             .outbound_group_state
             .selector_selected_target(group_id)
             .map(|id| plan.target(id).expect("selected target").tag().to_owned())
@@ -71,7 +75,8 @@ impl Engine {
                         .to_owned(),
                 )
             });
-        self.outbound_group_state
+        snapshot
+            .outbound_group_state
             .update_selector(group_id, target_id);
         self.event_log
             .push_policy_selected(group_tag, "selector", target_tag, previous.as_deref());
@@ -83,7 +88,9 @@ impl Engine {
         );
         Ok(())
     }
+}
 
+impl EngineRuntimeSnapshot {
     pub fn urltest_state(&self, group_id: TargetId) -> Option<UrlTestGroupState> {
         self.outbound_group_state.urltest_state(group_id)
     }

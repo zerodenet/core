@@ -406,6 +406,7 @@ fn capabilities() -> ApiCapabilities {
         "event_recovery".to_owned(),
         "principal_flow_observations_v1".to_owned(),
         "urltest_tolerance".to_owned(),
+        "route_bypass_v1".to_owned(),
     ];
     capabilities.build_features = build_features;
     capabilities.permissions = vec![Permission::Read];

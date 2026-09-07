@@ -92,6 +92,7 @@ pub struct Proxy {
 #[derive(Debug)]
 struct PendingReloadAck {
     expected: RuntimeConfig,
+    previous: Arc<zero_engine::EngineRuntimeSnapshot>,
     persist: bool,
     sender: oneshot::Sender<Result<(), String>>,
 }
@@ -225,6 +226,18 @@ impl Proxy {
             .as_ref()
             .filter(|pending| pending.expected == *expected)
             .is_none_or(|pending| pending.persist)
+    }
+
+    pub(crate) fn pending_reload_snapshot(
+        &self,
+        expected: &RuntimeConfig,
+    ) -> Option<Arc<zero_engine::EngineRuntimeSnapshot>> {
+        self.reload_ack
+            .lock()
+            .expect("reload ack lock poisoned")
+            .as_ref()
+            .filter(|pending| pending.expected == *expected)
+            .map(|pending| pending.previous.clone())
     }
 
     pub(crate) fn pending_reload_matches(&self, expected: &RuntimeConfig) -> bool {

@@ -44,7 +44,7 @@ impl Engine {
                     let group_id = plan
                         .target_id(group.tag())
                         .expect("engine plan should resolve outbound group");
-                    build_policy_snapshot(plan, &self.outbound_group_state, group_id)
+                    build_policy_snapshot(plan, &snapshot.outbound_group_state, group_id)
                 })
                 .collect(),
         }
@@ -298,7 +298,12 @@ fn build_policy_snapshot(
                         reason: selection.reason.as_str().to_owned(),
                     },
                     None => UrlTestSelectionSnapshot {
-                        selected: view.target_tag_owned(urltest.initial_member()),
+                        selected: view.target_tag_owned(
+                            runtime
+                                .as_ref()
+                                .map(|state| state.selected)
+                                .unwrap_or_else(|| urltest.initial_member()),
+                        ),
                         tolerance_ms: urltest.tolerance_ms(),
                         reason: "initial".to_owned(),
                         ..UrlTestSelectionSnapshot::default()

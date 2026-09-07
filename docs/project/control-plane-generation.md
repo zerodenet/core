@@ -14,6 +14,25 @@ projection from one immutable engine snapshot, so its revisions always agree.
 `config.apply` and `config.apply_runtime` acknowledgements are returned only
 after reconciliation and include the committed instance and revision.
 
+## Policy state ownership
+
+Each engine runtime snapshot owns its selector, URLTest and load-balancing
+state. Target IDs are local to that snapshot's plan. Routing, status export
+and asynchronous URLTest completion must use the same snapshot; a late probe
+may update its old snapshot, but never the current plan's state.
+
+Reload carries a still-valid selection by target tag, not by numeric ID.
+An explicit selector default change takes precedence over the prior runtime
+selection. URLTest health, historical selection IDs and effective chains are
+reset for the new generation because the target configuration may have
+changed. Mode-only changes retain the plan and its policy state. A failed
+staged apply restores the original snapshot, including its runtime selection
+and probe state, rather than rebuilding that state from configuration defaults.
+
+Staged configurations may share a committed revision number while owning
+different plans. Revision equality is therefore not sufficient to identify
+the policy state to update.
+
 ## Events and cursors
 
 Every event retained by the engine carries `core_instance_id`,

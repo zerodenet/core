@@ -14,6 +14,9 @@ impl RouteConfig {
         inbound_tags: &HashSet<String>,
         rule_set_tags: &HashSet<String>,
     ) -> Result<(), ConfigError> {
+        for condition in &self.bypass {
+            condition.validate(inbound_tags, rule_set_tags)?;
+        }
         for rule in &self.rules {
             rule.validate(route_target_tags, inbound_tags, rule_set_tags)?;
         }

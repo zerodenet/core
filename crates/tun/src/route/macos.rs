@@ -10,6 +10,7 @@ use super::{
     RouteInterface, RouteJournal, RouteLease,
 };
 
+mod exclusions;
 mod scoped;
 
 use scoped::{
@@ -27,6 +28,7 @@ pub struct SystemRouteGuard {
     gateway: Option<String>,
     tun_gateway: Option<String>,
     excluded: Vec<IpAddr>,
+    captured: Vec<IpNet>,
     journal: RouteJournal,
 }
 
@@ -76,7 +78,14 @@ impl SystemRouteGuard {
             IpAddr::V6(_) => None,
         };
         let journal = RouteJournal::new(lease, tun_name, ipv6, 0, egress.clone(), gateway.clone())?;
-        let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family);
+        let connected = exclusions::connected_networks(tun_name)?;
+        let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family)
+            .into_iter()
+            .filter(|peer| {
+                exclusions::requires_host_bypass(*peer, captured, &connected)
+                    && !exclusions::has_native_route(*peer, captured, tun_name)
+            })
+            .collect::<Vec<_>>();
         let mut guard = Self {
             egress,
             family_egress: selected.family,
@@ -85,6 +94,7 @@ impl SystemRouteGuard {
             gateway,
             tun_gateway,
             excluded: desired_exclusions.clone(),
+            captured: captured.to_vec(),
             journal,
         };
         publish_egress(&guard.family_egress)?;
@@ -117,8 +127,16 @@ impl SystemRouteGuard {
     /// bypass routes without replacing the TUN device or split default routes.
     pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
         let selected = select_physical_egress(self.ipv6, &self.tun_name)?;
+        let connected = exclusions::connected_networks(&self.tun_name)?;
         let desired_exclusions =
-            family_exclusions_for_egress(excluded, self.ipv6, &selected.family);
+            family_exclusions_for_egress(excluded, self.ipv6, &selected.family)
+                .into_iter()
+                .filter(|peer| {
+                    exclusions::requires_host_bypass(*peer, &self.captured, &connected)
+                        && (self.journal.excluded.contains(peer)
+                            || !exclusions::has_native_route(*peer, &self.captured, &self.tun_name))
+                })
+                .collect::<Vec<_>>();
         let family_changed = self.family_egress != selected.family;
         let changed =
             reconcile_route_state(self, selected.carrier, selected.gateway, desired_exclusions)?;

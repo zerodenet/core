@@ -47,7 +47,7 @@ impl Engine {
         let mut selections = Vec::new();
         let mut selector = |group_id: TargetId, selected: TargetId| {
             let (member_id, half_open) =
-                self.select_urltest_member_for_flow(&plan, group_id, selected, target, port);
+                self.select_urltest_member_for_flow(snapshot, group_id, selected, target, port);
             if let (Some(group), Some(member)) = (plan.target(group_id), plan.target(member_id)) {
                 selections.push(PassiveRelaySelection {
                     policy_tag: group.tag().to_owned(),
@@ -69,7 +69,7 @@ impl Engine {
         };
         let resolved = resolve_target_id_with_urltest_selector(
             &plan,
-            &self.outbound_group_state,
+            &snapshot.outbound_group_state,
             target_id,
             &mut selector,
         )
@@ -85,12 +85,13 @@ impl Engine {
 
     fn select_urltest_member_for_flow(
         &self,
-        plan: &EnginePlan,
+        snapshot: &EngineRuntimeSnapshot,
         group_id: TargetId,
         selected: TargetId,
         target: &Address,
         port: u16,
     ) -> (TargetId, bool) {
+        let plan = snapshot.plan();
         let Some(group) = plan.target(group_id) else {
             return (selected, false);
         };
@@ -112,7 +113,7 @@ impl Engine {
             return (selected, half_open);
         }
 
-        if let Some(state) = self.outbound_group_state.urltest_state(group_id) {
+        if let Some(state) = snapshot.outbound_group_state.urltest_state(group_id) {
             let mut healthy = state
                 .members
                 .into_iter()

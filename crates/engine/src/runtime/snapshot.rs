@@ -10,12 +10,16 @@ use crate::EnginePlan;
 ///
 /// Keeping these values in one `Arc` prevents consumers from combining a plan
 /// from one reload generation with configuration or routing data from another.
+/// Mutable group selections and probe results also belong to this generation;
+/// their target IDs must never be interpreted by a different snapshot's plan.
 #[derive(Debug)]
 pub struct EngineRuntimeSnapshot {
     pub(super) config_revision: Arc<AtomicU64>,
     pub(super) config: Arc<RuntimeConfig>,
     pub(super) plan: Arc<EnginePlan>,
     pub(super) router: Arc<RuleSet>,
+    pub(super) bypass: Arc<RuleSet>,
+    pub(crate) outbound_group_state: Arc<crate::groups::OutboundGroupStateStore>,
 }
 
 impl EngineRuntimeSnapshot {

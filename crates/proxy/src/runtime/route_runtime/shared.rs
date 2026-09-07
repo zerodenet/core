@@ -36,6 +36,10 @@ impl SharedIngressRuntimeServices {
         TcpIngressRuntime::new(self.tcp_services.clone(), inbound_tag, source_addr)
     }
 
+    pub(super) fn udp_enabled(&self) -> bool {
+        self.tcp_services.config().runtime.udp.enabled
+    }
+
     pub(super) fn with_current_snapshot(&self) -> Self {
         let tcp_services = self.tcp_services.with_current_snapshot();
         Self {
@@ -64,14 +68,15 @@ pub(crate) async fn route_trace_for_session(
 ) -> RouteTrace {
     let engine = services.engine();
     let snapshot = services.snapshot();
-    let mut trace = engine.route_trace_in_snapshot_with_inbound_and_resolved_ips(
+    let evaluation = engine.evaluate_route_in_snapshot(
         snapshot,
         &session.target,
         session.sni.as_deref(),
         session.inbound_tag.as_deref(),
         &[],
     );
-    if trace.matched_rule.is_none() && engine.route_requires_resolved_ip_in_snapshot(snapshot) {
+    let mut trace = evaluation.trace;
+    if evaluation.needs_resolution {
         if let Address::Domain(domain) = &session.target {
             if let Ok(resolved) = services.resolver().resolve_real(domain).await {
                 let resolved_ips = resolved_route_ips(resolved);
@@ -99,49 +104,5 @@ fn resolved_route_ips(addresses: impl IntoIterator<Item = IpAddress>) -> Vec<IpA
 }
 
 #[cfg(test)]
-mod tests {
-    use zero_config::RuntimeConfig;
-    use zero_core::{Address, Network, ProtocolType, Session};
-    use zero_engine::RouteDecision;
-
-    use super::route_trace_for_session;
-
-    #[tokio::test]
-    async fn domain_trace_rechecks_resolved_ip_rules() {
-        let config = RuntimeConfig::parse(
-            r#"{
-                "outbounds": [
-                    { "tag": "proxy", "protocol": { "type": "direct" } }
-                ],
-                "route": {
-                    "rules": [
-                        {
-                            "condition": {
-                                "type": "ip",
-                                "values": ["127.0.0.0/8", "::1/128"]
-                            },
-                            "action": { "type": "direct" }
-                        }
-                    ],
-                    "final": { "type": "route", "outbound": "proxy" }
-                }
-            }"#,
-        )
-        .expect("parse routing config");
-        let proxy = crate::runtime::Proxy::new(config).expect("build proxy");
-        let session = Session::new(
-            1,
-            Address::Domain("localhost".to_owned()),
-            80,
-            Network::Tcp,
-            ProtocolType::UNKNOWN,
-        );
-
-        let trace = route_trace_for_session(&proxy.tcp_runtime_services(), &session).await;
-
-        assert_eq!(trace.decision, RouteDecision::Direct);
-        let matched = trace.matched_rule.expect("resolved IP rule matched");
-        assert_eq!(matched.index, 0);
-        assert_eq!(matched.condition, "ip: 127.0.0.0/8, ::1/128");
-    }
-}
+#[path = "shared/tests.rs"]
+mod tests;

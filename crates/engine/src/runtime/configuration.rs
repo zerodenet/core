@@ -41,6 +41,39 @@ impl Engine {
         self.reload_config_inner(new_config, false)
     }
 
+    /// Restore this engine's last-known-good snapshot after a staged apply
+    /// fails. Rebuilding only its config would lose selections and disconnect
+    /// the still-running old probe tasks from their policy state.
+    pub fn restore_staged_snapshot(
+        &self,
+        snapshot: Arc<super::EngineRuntimeSnapshot>,
+        persist: bool,
+    ) -> Result<(), EngineError> {
+        if snapshot.config_revision() != self.config_revision() {
+            return Err(EngineError::InvalidPlan {
+                message: "cannot restore a snapshot across a committed configuration change"
+                    .to_owned(),
+            });
+        }
+        if persist {
+            if let Some(path) = &self.config_path {
+                write_config_to_file(path, snapshot.config())?;
+            }
+        }
+        *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = snapshot.config.mode.clone();
+        self.principal_policies
+            .replace_from_config(snapshot.config());
+        self.event_log
+            .set_capacity(snapshot.config.runtime.event_log_capacity);
+        *self
+            .runtime_snapshot
+            .write()
+            .expect("runtime snapshot lock poisoned") = snapshot;
+        self.passive_relay_health.clear();
+        self.notify_reload();
+        Ok(())
+    }
+
     fn reload_config_inner(
         &self,
         new_config: RuntimeConfig,
@@ -56,6 +89,7 @@ impl Engine {
             });
         }
         let new_router = Arc::new(new_config.compile_route()?);
+        let bypass = Arc::new(new_config.compile_route_bypass()?);
         let new_plan = Arc::new(EnginePlan::build(&new_config)?);
         if persist {
             if let Some(path) = &self.config_path {
@@ -67,18 +101,30 @@ impl Engine {
         *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = new_config.mode.clone();
 
         self.principal_policies.replace_from_config(&new_config);
-        *self
+        let mut current = self
             .runtime_snapshot
             .write()
-            .expect("runtime snapshot lock poisoned") = Arc::new(super::EngineRuntimeSnapshot {
-            config_revision: Arc::new(std::sync::atomic::AtomicU64::new(self.config_revision())),
+            .expect("runtime snapshot lock poisoned");
+        let outbound_group_state = crate::groups::OutboundGroupStateStore::for_plan(
+            &new_plan,
+            Some((&current.plan, &current.outbound_group_state)),
+        );
+        *current = Arc::new(super::EngineRuntimeSnapshot {
+            config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
             config: Arc::new(new_config),
             plan: new_plan,
             router: new_router,
+            bypass,
+            outbound_group_state,
         });
+        drop(current);
         self.passive_relay_health.clear();
         self.event_log.set_capacity(event_log_capacity);
+        self.notify_reload();
+        Ok(())
+    }
 
+    fn notify_reload(&self) {
         for sender in self
             .reload_notify
             .lock()
@@ -87,7 +133,6 @@ impl Engine {
         {
             let _ = sender.send(());
         }
-        Ok(())
     }
 
     /// Publish the currently staged runtime snapshot as one committed
@@ -121,6 +166,8 @@ impl Engine {
             config: Arc::new(config),
             plan: current.plan.clone(),
             router: current.router.clone(),
+            bypass: current.bypass.clone(),
+            outbound_group_state: current.outbound_group_state.clone(),
         });
         self.event_log.push_config_changed(revision);
         revision

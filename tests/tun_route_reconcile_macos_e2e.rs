@@ -35,8 +35,8 @@ fn macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun() {
     let running_path = directory.path().join("running.json");
     let stopped_path = directory.path().join("stopped.json");
     let port = free_tcp_port();
-    std::fs::write(&running_path, config_json(true, port)).unwrap();
-    std::fs::write(&stopped_path, config_json(false, port)).unwrap();
+    std::fs::write(&running_path, config_json(true, port, secondary_gateway)).unwrap();
+    std::fs::write(&stopped_path, config_json(false, port, secondary_gateway)).unwrap();
 
     let mut zero = ManagedZero::start(binary, &running_path, &stopped_path, &socket);
     assert_eq!(
@@ -44,6 +44,9 @@ fn macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun() {
         original.interface
     );
     assert_dns_exclusion_uses(&original.interface);
+    // The secondary LAN DNS must retain its native route even while a
+    // different interface owns the default route and public DNS bypass.
+    assert_route_uses(secondary_gateway, &secondary_interface);
 
     let mut route = DefaultRouteTransaction::new(original.clone());
     route.switch(secondary_gateway, &secondary_interface);
@@ -52,6 +55,7 @@ fn macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun() {
         secondary_interface
     );
     assert_dns_exclusion_uses(&secondary_interface);
+    assert_route_uses(secondary_gateway, &secondary_interface);
     assert!(
         zero.is_running(),
         "Zero exited during macOS route reconciliation"
@@ -63,12 +67,16 @@ fn macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun() {
         original.interface
     );
     assert_dns_exclusion_uses(&original.interface);
+    // The secondary LAN DNS must retain its native route even while a
+    // different interface owns the default route and public DNS bypass.
+    assert_route_uses(secondary_gateway, &secondary_interface);
     assert!(
         zero.is_running(),
         "Zero exited while restoring the macOS egress"
     );
 
     zero.stop();
+    assert_route_uses(secondary_gateway, &secondary_interface);
 }
 
 #[derive(Clone)]
@@ -193,7 +201,7 @@ impl Drop for ManagedZero<'_> {
     }
 }
 
-fn config_json(running: bool, port: u16) -> String {
+fn config_json(running: bool, port: u16, secondary_dns: Ipv4Addr) -> String {
     let tun = running.then(|| {
         serde_json::json!({
             "addr": "10.68.0.1/24",
@@ -208,8 +216,12 @@ fn config_json(running: bool, port: u16) -> String {
         "runtime": {
             "tun": tun,
             "dns": {
-                "servers": { "global": { "type": "udp", "host": "1.1.1.1", "port": 53 } },
-                "default_server": "global"
+                "servers": {
+                    "global": { "type": "udp", "host": "1.1.1.1", "port": 53 },
+                    "secondary": { "type": "udp", "host": secondary_dns.to_string(), "port": 53 }
+                },
+                "default_server": "global",
+                "fallback_servers": ["secondary"]
             }
         },
         "inbounds": [{

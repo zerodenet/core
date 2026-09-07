@@ -24,7 +24,7 @@ pub(super) struct OrchestrationState {
     pub(super) source_dir: Option<PathBuf>,
     pub(super) urltest_runtime: UrlTestRuntime,
     pub(super) inbound_runtime_factory: InboundListenerRuntimeFactory,
-    pub(super) applied_config: std::sync::Arc<RuntimeConfig>,
+    pub(super) applied_snapshot: std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
     pub(super) configured_tun_failures: tokio::sync::broadcast::Receiver<String>,
 }
 
@@ -53,7 +53,7 @@ impl OrchestrationState {
             source_dir,
             urltest_runtime,
             inbound_runtime_factory,
-            applied_config: proxy.config.clone(),
+            applied_snapshot: proxy.engine.runtime_snapshot(),
             configured_tun_failures: proxy.configured_tun_failures.subscribe(),
         };
 
@@ -103,7 +103,7 @@ impl OrchestrationState {
     pub(super) async fn reconcile_reload(&mut self, proxy: &Proxy) {
         let new_snapshot = proxy.engine.runtime_snapshot();
         let new_config = new_snapshot.config().clone();
-        let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot);
+        let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),
         );
@@ -185,7 +185,7 @@ impl OrchestrationState {
         proxy.protocols.on_config_reloaded(&new_config);
         self.inbound_runtime_factory = candidate_runtime_factory;
         self.urltest_runtime = candidate_urltest_runtime;
-        self.applied_config = new_config.clone();
+        self.applied_snapshot = new_snapshot;
         log_reload_reconciled(&new_config);
         proxy.complete_reload(&new_config, Ok(()));
     }
@@ -193,13 +193,10 @@ impl OrchestrationState {
     async fn reject_reload(&mut self, proxy: &Proxy, rejected: &RuntimeConfig, message: String) {
         proxy.resolver.discard_prepared_reload();
         let persist = proxy.pending_reload_persists(rejected);
-        let rollback = if persist {
-            proxy.engine.stage_config((*self.applied_config).clone())
-        } else {
-            proxy
-                .engine
-                .stage_runtime_config((*self.applied_config).clone())
-        };
+        let previous = proxy
+            .pending_reload_snapshot(rejected)
+            .unwrap_or_else(|| self.applied_snapshot.clone());
+        let rollback = proxy.engine.restore_staged_snapshot(previous, persist);
         let mut acknowledgement = message;
         if let Err(rollback_error) = rollback {
             warn!(
@@ -214,8 +211,8 @@ impl OrchestrationState {
             ));
         } else if let Err(error) = proxy
             .reconcile_configured_tun(
-                self.applied_config.runtime.tun.as_ref(),
-                self.applied_config.runtime.network.mtu,
+                self.applied_snapshot.config().runtime.tun.as_ref(),
+                self.applied_snapshot.config().runtime.network.mtu,
             )
             .await
         {

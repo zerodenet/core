@@ -4,6 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::plan::{TargetId, UrlTestSelection};
 
+mod reload;
+
 #[derive(Debug, Default)]
 pub(crate) struct OutboundGroupStateStore {
     selector: Mutex<HashMap<TargetId, TargetId>>,

@@ -29,7 +29,7 @@ pub use principal::{
     PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
 };
 pub use runtime::{Engine, EngineRuntimeSnapshot};
-pub use runtime::{RouteDecision, RouteTrace};
+pub use runtime::{RouteDecision, RouteEvaluation, RouteTrace};
 pub use session::{
     ActiveSession, BlockReason, CompletedSessionRecord, FlowAddressFamilyFallbackObservation,
     FlowConnectionAttemptObservation, FlowContext, FlowEgressObservation, FlowFailureObservation,
