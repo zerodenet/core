@@ -631,6 +631,9 @@ fn route_row(index: u32, prefix: &str, next_hop: IpAddr) -> io::Result<MIB_IPFOR
     row.NextHop = socket_address(next_hop);
     row.Metric = 0;
     row.Protocol = MIB_IPPROTO_NETMGMT;
+    // InitializeIpForwardEntry marks new entries as loopback by default.
+    // These entries forward through the selected physical or TUN interface.
+    row.Loopback = false;
     Ok(row)
 }
 

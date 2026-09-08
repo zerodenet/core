@@ -26,6 +26,7 @@
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
 | `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
 | `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
 | `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
 | `0.0.16-rc.202609051609` | - | No pending compatibility changes |
@@ -46,6 +47,13 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.1
+
+- 经项目所有者授权清理旧 Release 和 tag，基于当前 main 源码发布统一的首个正式版。以下旧编号条目仅保留兼容性背景，不代表仍可下载的发布记录。
+- 配置、控制 API 和事件信封继续使用既有 V1 契约，先前实现的能力保持不变。
+- 修复 Windows TUN 路由初始化时继承系统默认 Loopback 标志的问题，以及 macOS 路由锁被继承或复制的文件描述符延长持有的问题。
+- 旧版 0.0.4 至 0.0.16 的版本号高于新基线；切换至此版本需手动安装，不会通过递增版本检查自动升级。
 
 ## 0.0.16-rc.202609070904
 

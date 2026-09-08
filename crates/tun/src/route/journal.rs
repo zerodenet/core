@@ -90,8 +90,16 @@ impl Drop for RouteLease {
                 "failed to remove TUN route lease owner metadata"
             ),
         }
+        // A forked child or duplicated descriptor can outlive this owner. Release
+        // the shared file lock explicitly instead of waiting for its last close.
+        if let Err(error) = fs2::FileExt::unlock(&self._lock) {
+            tracing::warn!(error = %error, "failed to unlock TUN route lease");
+        }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 impl RouteJournal {
     pub(super) fn load(lease: &RouteLease, ipv6: bool) -> io::Result<Option<Self>> {
