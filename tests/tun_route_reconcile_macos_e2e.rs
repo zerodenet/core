@@ -244,7 +244,15 @@ fn route_reconciliation_fixtures_follow_the_current_dns_schema() {
         let config: zero_config::RuntimeConfig =
             serde_json::from_str(&config_json(running, 1080, Ipv4Addr::new(192, 0, 2, 1)))
                 .expect("route reconciliation fixture must parse before privileged execution");
-        assert_eq!(config.runtime.dns.policy.fallback_servers, ["secondary"]);
+        assert_eq!(
+            config
+                .runtime
+                .dns
+                .expect("DNS fixture")
+                .policy
+                .fallback_servers,
+            ["secondary"]
+        );
     }
 }
 
