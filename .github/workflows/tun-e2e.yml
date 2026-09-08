@@ -116,6 +116,10 @@ jobs:
         env:
           CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
         run: cargo test --target x86_64-apple-darwin -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
+      - name: Repair lost routes without changing the physical interface
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
+        run: cargo test --target x86_64-apple-darwin --test tun_route_reconcile_macos_e2e audit::same_interface_route_loss_recovers_automatically_and_on_manual_request -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
         if: github.event_name != 'pull_request' || github.base_ref == 'main'
         env:

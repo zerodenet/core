@@ -345,3 +345,14 @@ async fn loopback_datagram_does_not_bind_to_physical_egress() {
     assert!(socket.local_addr().unwrap().is_ipv4());
     assert!(socket.egress_interface().is_none());
 }
+
+#[test]
+fn explicit_recovery_invalidates_network_state_without_changing_interface() {
+    let controller = EgressInterfaceControl::default();
+    let interface = EgressInterface::new("physical0", 7).unwrap();
+    controller.replace_for(false, Some(interface.clone()));
+    let generation = controller.generation();
+    controller.invalidate_network();
+    assert_eq!(controller.current_for(false), Some(interface));
+    assert_eq!(controller.generation(), generation + 1);
+}

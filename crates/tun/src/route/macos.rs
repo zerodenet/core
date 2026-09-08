@@ -1,3 +1,5 @@
+mod audit;
+
 use std::io;
 use std::net::IpAddr;
 use std::process::Command;
@@ -11,6 +13,7 @@ use super::{
 };
 
 mod exclusions;
+mod interfaces;
 mod scoped;
 
 use scoped::{
@@ -108,6 +111,7 @@ impl SystemRouteGuard {
             guard.add(&prefix)?;
             guard.journal.record_route(&prefix)?;
         }
+        guard.audit_routes()?;
         Ok(guard)
     }
 
@@ -123,8 +127,8 @@ impl SystemRouteGuard {
         self.ipv6
     }
 
-    /// Re-resolve the preferred physical interface and reconcile explicit
-    /// bypass routes without replacing the TUN device or split default routes.
+    /// Re-resolve the physical interface, reconcile intent, and verify/repair
+    /// actual OS routes without replacing the TUN device.
     pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
         let selected = select_physical_egress(self.ipv6, &self.tun_name)?;
         let connected = exclusions::connected_networks(&self.tun_name)?;
@@ -244,14 +248,14 @@ impl SystemRouteGuard {
 }
 
 fn select_physical_egress(ipv6: bool, tun_name: &str) -> io::Result<MacosEgressSelection> {
-    match default_interface(ipv6, tun_name) {
+    match usable_default_interface(ipv6, tun_name) {
         Ok((carrier, gateway)) => Ok(MacosEgressSelection {
             family: FamilyEgressState::Available(carrier.clone()),
             carrier,
             gateway,
         }),
-        Err(error) => {
-            let (carrier, gateway) = default_interface(!ipv6, tun_name).map_err(|fallback| {
+        Err((reason, error)) => {
+            let (carrier, gateway) = usable_default_interface(!ipv6, tun_name).map_err(|(_, fallback)| {
                 io::Error::new(
                     fallback.kind(),
                     format!(
@@ -262,13 +266,17 @@ fn select_physical_egress(ipv6: bool, tun_name: &str) -> io::Result<MacosEgressS
             Ok(MacosEgressSelection {
                 carrier,
                 gateway,
-                family: FamilyEgressState::Unavailable(EgressUnavailableReason::NoDefaultRoute),
+                family: FamilyEgressState::Unavailable(reason),
             })
         }
     }
 }
 
 impl RouteReconcileState for SystemRouteGuard {
+    fn repair_routes(&mut self) -> io::Result<bool> {
+        self.audit_routes()
+    }
+
     type Gateway = Option<String>;
 
     fn current_egress(&self) -> &RouteInterface {
@@ -417,6 +425,31 @@ impl Drop for SystemRouteGuard {
     fn drop(&mut self) {
         let _ = self.cleanup();
     }
+}
+
+type NativeEgressResult =
+    Result<(RouteInterface, Option<String>), (EgressUnavailableReason, io::Error)>;
+
+fn usable_default_interface(ipv6: bool, tun_name: &str) -> NativeEgressResult {
+    let (interface, gateway) = default_interface(ipv6, tun_name)
+        .map_err(|error| (EgressUnavailableReason::NoDefaultRoute, error))?;
+    if let Some(reason) = interfaces::unavailable_reason(interface.name(), ipv6)
+        .map_err(|error| (EgressUnavailableReason::RouteLookupFailed, error))?
+    {
+        return Err((
+            reason,
+            io::Error::new(
+                io::ErrorKind::NotConnected,
+                format!(
+                    "{} egress {}: {}",
+                    if ipv6 { "IPv6" } else { "IPv4" },
+                    interface.name(),
+                    reason.as_str()
+                ),
+            ),
+        ));
+    }
+    Ok((interface, gateway))
 }
 
 fn default_interface(ipv6: bool, tun_name: &str) -> io::Result<(RouteInterface, Option<String>)> {

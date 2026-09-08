@@ -87,6 +87,7 @@ impl Permission {
 | mode.set | | | | ✓ |
 | tun.start | | | | ✓ |
 | tun.stop | | | | ✓ |
+| tun.recover | | | | ✓ |
 
 ---
 

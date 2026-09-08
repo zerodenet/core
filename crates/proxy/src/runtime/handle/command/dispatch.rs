@@ -5,7 +5,7 @@ use super::diagnostics::{
     execute_diagnostics_probe_target, execute_diagnostics_trace_route,
 };
 use super::fake_ip::execute_fake_ip_clear;
-use super::tun::{execute_tun_start, execute_tun_stop};
+use super::tun::{execute_tun_recover, execute_tun_start, execute_tun_stop};
 
 impl zero_api::CommandService for ProxyHandle {
     fn execute(
@@ -20,6 +20,7 @@ impl zero_api::CommandService for ProxyHandle {
             )),
             zero_api::CommandRequest::TunStart(cmd) => execute_tun_start(self, cmd),
             zero_api::CommandRequest::TunStop(_) => execute_tun_stop(self),
+            zero_api::CommandRequest::TunRecover(_) => execute_tun_recover(self),
             zero_api::CommandRequest::DiagnosticsProbeOutbound(cmd) => {
                 execute_diagnostics_probe_outbound(self, cmd)
             }

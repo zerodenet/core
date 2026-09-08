@@ -5,6 +5,8 @@ use tokio::io::sink;
 use super::copy_one_way;
 use crate::transport::SharedRateLimiter;
 
+mod attribution;
+
 #[tokio::test]
 async fn separate_tcp_copies_observe_one_shared_upload_timeline() {
     let limiter = SharedRateLimiter::new(1);

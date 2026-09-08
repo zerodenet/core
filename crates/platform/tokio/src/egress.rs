@@ -243,6 +243,13 @@ impl EgressInterfaceControl {
             .generation
     }
 
+    /// Invalidate network-dependent caches after route repair or an explicit
+    /// recovery request, even when the interface identity is unchanged.
+    pub fn invalidate_network(&self) {
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        bump_generation(&mut interfaces);
+    }
+
     pub fn current(&self) -> Option<EgressInterface> {
         let interfaces = self.0.read().expect("egress interface lock poisoned");
         interfaces.ipv4.clone().or_else(|| interfaces.ipv6.clone())

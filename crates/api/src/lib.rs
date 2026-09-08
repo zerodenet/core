@@ -20,7 +20,7 @@ pub use command::{
     DiagnosticsDnsCacheCommand, DiagnosticsDnsLookupCommand, DiagnosticsFakeipLookupCommand,
     DiagnosticsProbeOutboundCommand, DiagnosticsProbeTargetCommand, DiagnosticsTraceRouteCommand,
     FakeIpClearCommand, FlowCloseCommand, ModeSetCommand, PolicyProbeCommand, PolicySelectCommand,
-    TunStartCommand, TunStopCommand,
+    TunRecoverCommand, TunStartCommand, TunStopCommand,
 };
 pub use error::{ApiError, ApiErrorCode, ErrorDetail};
 pub use event::{

@@ -50,7 +50,7 @@ pub(super) fn connected_networks(tun_name: &str) -> io::Result<Vec<IpNet>> {
     Ok(networks)
 }
 
-unsafe fn socket_address(address: *const libc::sockaddr) -> Option<IpAddr> {
+pub(super) unsafe fn socket_address(address: *const libc::sockaddr) -> Option<IpAddr> {
     if address.is_null() {
         return None;
     }

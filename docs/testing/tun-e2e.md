@@ -267,3 +267,48 @@ sudo env \
 ```
 
 `.github/workflows/tun-e2e.yml` 将冒烟、direct UDP/DNS 自捕获、两个单栈 STUN 和离线双栈用例分发到 Linux、macOS 和 Windows 的 hosted runner，以及带 `tun` 标签的隔离自托管 runner。修改 TUN、stack、DNS、egress 或这些特权 harness 的 PR 会直接触发三套 hosted runner；PR 事件运行平台基础检查、direct UDP 门禁、macOS 确定性回环与崩溃恢复门禁、macOS Fake-IP DoH 回归，以及 Linux/Windows 的确定性离线双栈门禁。其余依赖公网的冒烟测试和 macOS 离线双栈完整套件仍在 `develop` push 和人工 dispatch 上执行。自托管 runner 仍只接受人工 dispatch。direct UDP 用例在未设置 `ZERO_TUN_E2E_DNS_ADDR` 时使用默认公网 DNS 目标，连续复用一个源 tuple 后再制造 32 个源端口，并断言权威 active-flow 快照不超过 33 条目标 TUN UDP flow、活动与最近完成记录合并后的新增目标 flow ID 也不超过 33；这样仍活跃或快速失败的每包递归自捕获 association/session 都会直接使测试失败，同时不会把 Windows 等平台在测试期间产生的无关后台流量计入门禁。STUN 用例需要对应地址族的原生连通性和可达服务，离线双栈用例不作此要求；Windows runner 还需预装匹配架构的 Wintun。
+
+## 断网后的恢复与手动控制
+
+TUN 自动路由监听网卡和路由变化，同时以定时重试和 watchdog 补偿遗漏的通知。
+严格路由模式下，无法确认物理出口时保留防泄漏保护；网络恢复后重新安装出口并解除阻断。
+macOS 网卡拔出后，已不存在接口上的 scoped 路由按已清理处理，不能阻止新网卡接管或手动关闭。
+权限失败、仍存在的网卡上的路由删除失败继续返回错误。
+
+可主动执行 `zero tun recover --socket PATH`（API：`tun.recover`，参数 `{}`），
+立即唤醒当前 TUN 的路由重检，等待本次检查结果。该命令适用于配置或命令管理的自动路由 TUN，
+不重启内核、不更改 TUN 开启意图、不跳过严格路由保护。网络仍不可用则返回失败，自动恢复继续。
+手动 `tun stop` 在清理完成后解除出口限制；客户端只有在停止且无遗留错误时才显示关闭成功。
+
+回归覆盖：拔出接口的删除错误、活动接口或权限错误不被吞掉、手动重检等待确认并传播失败、
+已阻断出口在成功清理后释放，以及客户端停止状态不能掩盖清理错误。
+
+
+### 恢复判据与同接口断线回归
+
+恢复分为出口发现、实际路由核验/补齐、读回确认三个步骤。接口名、索引、网关或
+排除地址未变化也必须核验；恢复日志只代表安装意图和清理责任，不代表系统路由仍存在。
+macOS 读取完整数值路由表，检查 scoped 默认绕行、DNS host 绕行和 TUN 接管前缀的
+地址族、前缀、接口、网关和可用标志；Linux 检查 main 表实际路由，Windows 查询
+IP Helper 路由表。缺失项先补绕行、再补接管，修复后读回确认。冲突或查询错误不能
+当成健康，已有的其他路由不能被恢复过程静默覆盖。部分修复失败保留清理日志并继续重试。
+
+macOS 出口还要求接口 UP/RUNNING 且有对应地址族的可用地址；仅接口存在或只有
+link-local 地址不能证明该族具有外网出口。PF_ROUTE 只把路由、接口、地址变更作为
+重查提示，忽略 GET/GET2 查询通知、邻居缓存变化和失败的路由命令，防止检查或 DNS 流量触发自身。健康 watchdog 不写完好的路由。
+
+`healthy` 与客户端“路由检查通过”表示本地 TUN 路由就绪，不代表公网、DNS 服务或
+代理节点已连通。不会因为某个公共探测网址失效就触发全局断网保护。网络变更通知、路由修复以及手动
+重检成功会推进网络代次，避免 DNS 协调器和支持代次的连接缓存继续沿用断网前状态。
+手动重检等待确认期间不占用 TUN 生命周期锁，显式停止可以中断它。
+
+本地单元测试模拟同一 en5 返回、三类路由丢失、重复核验不写路由、网关/接口冲突、
+部分失败后重试以及写入成功但读回缺失。真实系统回归已加入 hosted macOS CI，必须在
+隔离 runner 上执行（会移除测试 TUN 的活动路由，不能在日常工作网络上运行）：
+
+```bash
+sudo cargo test --test tun_route_reconcile_macos_e2e audit::same_interface_route_loss_recovers_automatically_and_on_manual_request -- --ignored --exact --nocapture
+```
+
+该回归保持默认物理接口和网关不变，分别验证自动恢复与 `tun.recover` 补齐实际路由，
+并断言内核 PID、TUN 设备均未重建。它模拟路由丢失，不替代真实网卡拔插/休眠测试。

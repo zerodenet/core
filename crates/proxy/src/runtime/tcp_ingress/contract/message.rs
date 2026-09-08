@@ -67,25 +67,18 @@ impl MessageRelayContext {
         client: &mut TcpRelayStream,
         upstream: TcpRelayStream,
     ) -> Result<(), EngineError> {
-        let (upstream_read, upstream_write) = tokio::io::split(upstream);
-        let (client_read, client_write) = tokio::io::split(client);
         let upload_services = self.services.clone();
         let download_services = self.services.clone();
         let session_id = self.session_id;
-        tokio::try_join!(
-            crate::transport::copy_one_way(
-                client_read,
-                upstream_write,
-                move |bytes| super::record_tcp_upload(&upload_services, session_id, bytes),
-                self.upload_limiter(),
-            ),
-            crate::transport::copy_one_way(
-                upstream_read,
-                client_write,
-                move |bytes| super::record_tcp_download(&download_services, session_id, bytes),
-                self.download_limiter(),
-            )
-        )?;
+        crate::transport::relay_bidirectional_metered_throttled(
+            client,
+            upstream,
+            move |bytes| super::record_tcp_upload(&upload_services, session_id, bytes),
+            move |bytes| super::record_tcp_download(&download_services, session_id, bytes),
+            self.upload_limiter(),
+            self.download_limiter(),
+        )
+        .await?;
         Ok(())
     }
 }

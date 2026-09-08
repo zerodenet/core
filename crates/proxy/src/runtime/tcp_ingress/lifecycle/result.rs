@@ -78,14 +78,20 @@ pub(crate) fn finish_route_or_establish_failure(
     started_at: Instant,
     error: &EngineError,
 ) {
+    let attribution = classify_relay_failure(error);
+    let stage = if attribution.upstream {
+        "route_or_establish"
+    } else {
+        attribution.stage
+    };
     let record = handle.finish_with_failure(
-        "upstream_error",
-        session_failure_observation("route_or_establish", error, None),
+        attribution.close_reason,
+        session_failure_observation(stage, error, None),
     );
     log_session_failed(
         session,
         record.as_ref(),
-        "route_or_establish",
+        stage,
         started_at.elapsed(),
         error,
         None,

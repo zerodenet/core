@@ -1,6 +1,7 @@
 //! TUN inbound lifecycle and proxy-kernel integration.
 
 mod config;
+mod recovery;
 mod routes;
 mod runtime;
 mod sniff;
@@ -381,6 +382,7 @@ impl Proxy {
         let id = NEXT_TUN_ID.fetch_add(1, Ordering::Relaxed);
         let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
         let (done_tx, done) = tokio::sync::oneshot::channel();
+        let (route_recovery, recovery_requests) = tokio::sync::mpsc::channel(1);
         let route_done = auto_route.then(|| {
             routes::spawn(
                 self.clone(),
@@ -399,6 +401,7 @@ impl Proxy {
                 installed.leak_guard,
                 route_monitor,
                 shutdown.subscribe(),
+                recovery_requests,
             )
         });
         *self.tun_info.lock().unwrap() = Some(TunInfo {
@@ -432,6 +435,7 @@ impl Proxy {
             shutdown,
             done,
             route_done,
+            route_recovery: auto_route.then_some(route_recovery),
         });
         debug!("TUN runtime state published");
 
@@ -633,6 +637,7 @@ impl Proxy {
             shutdown,
             done,
             route_done,
+            ..
         } = control;
         let _ = shutdown.send(true);
         let stopped = tokio::time::timeout(Duration::from_secs(5), done).await;

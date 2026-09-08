@@ -1,3 +1,5 @@
+mod audit;
+
 use std::io;
 use std::net::IpAddr;
 use std::process::Command;
@@ -92,6 +94,7 @@ impl SystemRouteGuard {
             guard.add(&prefix)?;
             guard.journal.record_route(&prefix)?;
         }
+        guard.audit_routes()?;
         Ok(guard)
     }
 
@@ -107,8 +110,8 @@ impl SystemRouteGuard {
         self.ipv6
     }
 
-    /// Re-resolve the preferred physical interface and reconcile explicit
-    /// bypass routes without replacing the TUN device or split default routes.
+    /// Re-resolve the physical interface, reconcile intent, and verify/repair
+    /// actual OS routes without replacing the TUN device.
     pub fn reconcile(&mut self, excluded: &[IpAddr]) -> io::Result<bool> {
         let selected = select_physical_egress(self.ipv6, &self.tun_name)?;
         let desired_exclusions =
@@ -226,6 +229,10 @@ fn select_physical_egress(ipv6: bool, tun_name: &str) -> io::Result<LinuxEgressS
 }
 
 impl RouteReconcileState for SystemRouteGuard {
+    fn repair_routes(&mut self) -> io::Result<bool> {
+        self.audit_routes()
+    }
+
     type Gateway = Option<String>;
 
     fn current_egress(&self) -> &RouteInterface {

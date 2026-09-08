@@ -7,6 +7,7 @@
 
 mod direct;
 mod direct_dial;
+mod failure;
 mod rate_limit;
 mod tcp_outbound;
 mod tcp_relay;
@@ -16,11 +17,11 @@ mod tests;
 pub(crate) use direct::{
     DirectConnector, DirectTargetResolution, DirectTcpConnectFailure, DirectTcpConnection,
 };
+pub(crate) use failure::{attributed_error, failure_origin, TransportFailureOrigin};
 pub(crate) use rate_limit::SharedRateLimiter;
 pub(crate) use tcp_outbound::{
     extract_tcp_stream, is_block_error, EstablishedTcpOutbound, TcpOutboundFailure, TcpRouteResult,
 };
-pub(crate) use tcp_relay::copy_one_way;
 pub(crate) use tcp_relay::relay_bidirectional_metered;
 pub(crate) use tcp_relay::relay_bidirectional_metered_throttled;
 pub(crate) use zero_transport::ClientStream;

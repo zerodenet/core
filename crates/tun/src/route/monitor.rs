@@ -13,7 +13,7 @@ mod platform;
 /// Event-driven notification that the host route topology may have changed.
 ///
 /// Notifications are deliberately treated as invalidation hints. Consumers
-/// must re-read the preferred route and compare desired state rather than
+/// must re-read the preferred route and verify actual installed state rather than
 /// interpreting an individual platform event as authoritative.
 #[derive(Debug)]
 pub struct RouteChangeMonitor(platform::RouteChangeMonitor);

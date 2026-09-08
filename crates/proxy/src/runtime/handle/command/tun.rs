@@ -147,3 +147,18 @@ pub(super) fn execute_tun_stop(
         })
     })
 }
+
+pub(super) fn execute_tun_recover(
+    handle: &ProxyHandle,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    with_current_runtime("no tokio runtime available for TUN command", |rt| {
+        rt.block_on(async {
+            handle
+                .proxy
+                .recover_tun()
+                .await
+                .map(|_| zero_api::CommandResponse::accepted())
+                .map_err(map_tun_start_error)
+        })
+    })
+}

@@ -1,5 +1,9 @@
 mod support;
 
+#[cfg(feature = "shadowsocks")]
+#[path = "http/client_reset.rs"]
+mod client_reset;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use zero_config::RuntimeConfig;

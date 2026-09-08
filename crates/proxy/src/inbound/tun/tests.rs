@@ -2,6 +2,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[path = "tests/dns_modes.rs"]
 mod dns_modes;
+#[path = "tests/recovery.rs"]
+mod recovery;
 
 use super::config::{
     configured_dns_endpoint_addresses, configured_dns_endpoint_addresses_with,
@@ -63,6 +65,7 @@ async fn unexpected_runtime_exit_waits_for_route_cleanup_before_clearing_egress(
         shutdown,
         done,
         route_done: Some(route_done),
+        route_recovery: None,
     });
 
     let finalize = super::finalize_tun_runtime_exit(&proxy, 41);
@@ -101,6 +104,7 @@ async fn unexpected_runtime_cleanup_failure_retains_egress_and_error() {
         shutdown,
         done,
         route_done: Some(route_done),
+        route_recovery: None,
     });
 
     let finalize = super::finalize_tun_runtime_exit(&proxy, 42);

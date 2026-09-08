@@ -58,3 +58,25 @@ clearing or extending that state. It is read-only with respect to every URLTest
 group and the shared traffic circuit breaker. Native completion logs
 distinguish the paths as `operation_kind=policy_urltest` and
 `operation_kind=diagnostic_outbound`.
+
+## Local failures and traffic health
+
+The shared traffic circuit breaker and passive URLTest observations use the
+same establishment-failure classification. DNS resolution failures, missing
+local addresses, unavailable local networks, and socket/interface setup errors
+must not count against a proxy node. A rejection by the shared circuit breaker
+is not a new failed connection and must not extend passive member quarantine.
+Actual node connection failures still participate in traffic health.
+
+TCP tunnel relays retain the failing endpoint (client or upstream) across read,
+write, flush, and shutdown. Client cancellation, including an ordinary TCP reset
+after HTTP CONNECT, is recorded as `client_transport` / `client_error`; local
+address or network loss is `local_network` / `network_error`. These outcomes are
+neutral for node health even if the outbound protocol already sent its address
+header. Failure to send the client's acceptance response also completes the
+session and releases passive recovery state as a neutral client failure.
+
+This prevents local failures from creating a node quarantine that would reject
+the first new connection after recovery. It does not replay an interrupted TCP
+application stream or switch a manually selected node. An existing quarantine
+caused by actual node failures retains the normal cooldown policy.

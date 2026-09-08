@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use ipnet::IpNet;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use zero_engine::EngineError;
 use zero_tun::{
     capture_route_prefixes_with_exclusions, strict_route_socket_mark, FamilyEgressState,
@@ -29,9 +29,14 @@ enum ReconcileTrigger {
     PlatformEvent,
     Retry,
     Watchdog,
+    Manual,
 }
 
 impl ReconcileTrigger {
+    fn invalidates_network(self, routes_changed: bool) -> bool {
+        routes_changed || matches!(self, Self::Manual | Self::PlatformEvent)
+    }
+
     fn should_debounce(self) -> bool {
         matches!(self, Self::PlatformEvent)
     }
@@ -305,10 +310,20 @@ pub(super) fn spawn(
     leak_guard: Option<SystemLeakGuard>,
     monitor: Option<RouteChangeMonitor>,
     shutdown: watch::Receiver<bool>,
+    recovery_requests: mpsc::Receiver<oneshot::Sender<Result<(), String>>>,
 ) -> oneshot::Receiver<Result<(), String>> {
     let (done_tx, done) = oneshot::channel();
     tokio::spawn(async move {
-        let result = run(proxy, spec, guards, leak_guard, monitor, shutdown).await;
+        let result = run(
+            proxy,
+            spec,
+            guards,
+            leak_guard,
+            monitor,
+            shutdown,
+            recovery_requests,
+        )
+        .await;
         let _ = done_tx.send(result.map_err(|error| error.to_string()));
     });
     done
@@ -321,17 +336,23 @@ async fn run(
     mut leak_guard: Option<SystemLeakGuard>,
     mut monitor: Option<RouteChangeMonitor>,
     mut shutdown: watch::Receiver<bool>,
+    mut recovery_requests: mpsc::Receiver<oneshot::Sender<Result<(), String>>>,
 ) -> io::Result<()> {
     // Re-read once after notification registration to close the small race
     // between initial route installation and monitor creation.
     let mut retry_index = Some(0_usize);
     loop {
+        let mut acknowledgement = None;
         let trigger = if let Some(index) = retry_index {
             let delay = ROUTE_RETRY_DELAYS[index.min(ROUTE_RETRY_DELAYS.len() - 1)];
             tokio::select! {
                 changed = shutdown.changed() => {
                     let _ = changed;
                     break;
+                }
+                request = recovery_requests.recv(), if !recovery_requests.is_closed() => {
+                    acknowledgement = request;
+                    ReconcileTrigger::Manual
                 }
                 changed = monitor_changed(&mut monitor) => {
                     if let Err(error) = changed {
@@ -347,6 +368,10 @@ async fn run(
                 changed = shutdown.changed() => {
                     let _ = changed;
                     break;
+                }
+                request = recovery_requests.recv(), if !recovery_requests.is_closed() => {
+                    acknowledgement = request;
+                    ReconcileTrigger::Manual
                 }
                 changed = monitor_changed(&mut monitor) => {
                     if let Err(error) = changed {
@@ -390,7 +415,6 @@ async fn run(
                 Err(error) => {
                     publish_runtime_error(&proxy, &spec, error.to_string());
                     retry_index = Some(next_retry(retry_index));
-                    continue;
                 }
             }
         }
@@ -412,6 +436,7 @@ async fn run(
         let exclusions = match prepared {
             Ok(prepared) => prepared.route_exclusions,
             Err(error) => {
+                acknowledge_recovery(&mut acknowledgement, Err(error.to_string()));
                 publish_runtime_error(&proxy, &spec, error.to_string());
                 retry_index = Some(next_retry(retry_index));
                 continue;
@@ -464,6 +489,23 @@ async fn run(
         leak_guard = returned_leak_guard;
         match result {
             Ok(changed) => {
+                // Identical interface identity can hide a lost/rebuilt route.
+                // DNS and reusable transports must stop reusing the old epoch.
+                if trigger.invalidates_network(changed) {
+                    let previous_generation = proxy.egress_interface.generation();
+                    proxy.egress_interface.invalidate_network();
+                    super::log_tun_generation_change(
+                        &proxy.egress_interface,
+                        previous_generation,
+                        if trigger == ReconcileTrigger::Manual {
+                            "manual_recovery"
+                        } else if trigger == ReconcileTrigger::PlatformEvent {
+                            "network_event"
+                        } else {
+                            "route_repair"
+                        },
+                    );
+                }
                 if let Err(error) = publish_state(&proxy, &spec, &guards, Some(exclusions), None) {
                     publish_runtime_error(&proxy, &spec, error.to_string());
                     return Err(error);
@@ -478,6 +520,17 @@ async fn run(
                     }
                     tracing::info!(tun = %spec.tun_name, "TUN physical egress routes reconciled");
                 }
+                let health = proxy
+                    .tun_info
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .filter(|info| info.id == spec.id && info.healthy)
+                    .map(|_| ())
+                    .ok_or_else(|| {
+                        "TUN route recovery did not restore a healthy runtime".to_owned()
+                    });
+                acknowledge_recovery(&mut acknowledgement, health);
                 retry_index = None;
             }
             Err(error) => {
@@ -488,6 +541,7 @@ async fn run(
                     "TUN route reconciliation failed"
                 );
                 let message = error.to_string();
+                acknowledge_recovery(&mut acknowledgement, Err(message.clone()));
                 if spec.strict_route {
                     publish_unavailable(&proxy, &spec, message);
                 } else if let Err(status_error) =
@@ -588,6 +642,15 @@ pub(super) fn route_names(guards: &[SystemRouteGuard]) -> (Option<String>, Optio
     state::route_names(guards)
 }
 
+fn acknowledge_recovery(
+    acknowledgement: &mut Option<oneshot::Sender<Result<(), String>>>,
+    result: Result<(), String>,
+) {
+    if let Some(reply) = acknowledgement.take() {
+        let _ = reply.send(result);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -610,6 +673,15 @@ mod tests {
         assert!(!ReconcileTrigger::Retry.should_debounce());
         assert!(!ReconcileTrigger::Watchdog.should_debounce());
         assert!(ROUTE_WATCHDOG_INTERVAL > ROUTE_RETRY_DELAYS[0]);
+    }
+
+    #[test]
+    fn network_notifications_invalidate_caches_even_after_a_coalesced_link_flap() {
+        assert!(ReconcileTrigger::PlatformEvent.invalidates_network(false));
+        assert!(ReconcileTrigger::Manual.invalidates_network(false));
+        assert!(!ReconcileTrigger::Watchdog.invalidates_network(false));
+        assert!(!ReconcileTrigger::Retry.invalidates_network(false));
+        assert!(ReconcileTrigger::Watchdog.invalidates_network(true));
     }
 
     #[test]

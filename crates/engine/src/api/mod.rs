@@ -291,7 +291,9 @@ fn execute_engine_command(
             engine.set_mode(mode);
             Ok(CommandResponse::accepted())
         }
-        CommandRequest::TunStart(_) | CommandRequest::TunStop(_) => Err(ApiError::new(
+        CommandRequest::TunStart(_)
+        | CommandRequest::TunStop(_)
+        | CommandRequest::TunRecover(_) => Err(ApiError::new(
             ApiErrorCode::Internal,
             "TUN commands are handled by the proxy runtime, not the engine",
         )),

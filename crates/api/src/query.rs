@@ -337,6 +337,8 @@ pub struct TunStatusSnapshot {
     pub mtu: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// Local TUN runtime and managed route readiness. This does not assert
+    /// end-to-end DNS, Internet, or proxy-node connectivity.
     #[serde(default)]
     pub healthy: bool,
     #[serde(default)]

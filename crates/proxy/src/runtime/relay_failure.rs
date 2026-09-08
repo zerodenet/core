@@ -1,3 +1,4 @@
+use crate::transport::{failure_origin, TransportFailureOrigin};
 use zero_engine::EngineError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +25,30 @@ pub(crate) fn classify_relay_failure(error: &EngineError) -> RelayFailureAttribu
             stage: "tun_transport",
             upstream: false,
         };
+    }
+    match failure_origin(error) {
+        Some(TransportFailureOrigin::Client) => {
+            return RelayFailureAttribution {
+                close_reason: "client_error",
+                stage: "client_transport",
+                upstream: false,
+            }
+        }
+        Some(TransportFailureOrigin::LocalNetwork) => {
+            return RelayFailureAttribution {
+                close_reason: "network_error",
+                stage: "local_network",
+                upstream: false,
+            }
+        }
+        Some(TransportFailureOrigin::NameResolution) => {
+            return RelayFailureAttribution {
+                close_reason: "dns_error",
+                stage: "resolve_upstream",
+                upstream: false,
+            }
+        }
+        _ => {}
     }
     RelayFailureAttribution {
         close_reason: "upstream_error",

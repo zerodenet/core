@@ -43,7 +43,6 @@ impl UpstreamConnectServices {
                 &self.egress_interface,
             )
             .await
-            .map_err(Into::into)
     }
 
     pub(crate) async fn connect_upstream(

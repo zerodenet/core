@@ -22,6 +22,7 @@ use candidates::{
 };
 
 pub(super) mod candidates;
+mod host;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DirectConnector;
@@ -415,29 +416,6 @@ impl DirectConnector {
             connect_stage: Some("resolve_target".to_owned()),
             ..FlowNetworkObservation::default()
         }
-    }
-
-    pub(crate) async fn connect_host(
-        &self,
-        host: &str,
-        port: u16,
-        resolver: &DnsSystem,
-        egress: &EgressInterfaceControl,
-    ) -> Result<TokioSocket, Error> {
-        if port == 0 {
-            return Err(Error::Config("target port is required"));
-        }
-
-        let candidates =
-            resolve_node_host_addresses(host, port, resolver, "failed to resolve upstream target")
-                .await?;
-        dial_tcp_candidates(candidates, egress)
-            .await
-            .map(|success| success.socket)
-            .map_err(|failure| {
-                log_dial_failure("upstream", &failure);
-                dial_failure_error(&failure, "failed to connect upstream target")
-            })
     }
 
     pub(crate) async fn resolve_address(

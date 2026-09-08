@@ -2,7 +2,11 @@ use std::io;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+use super::failure::{attributed_error, TransportFailureOrigin};
 use super::rate_limit::SharedRateLimiter;
+
+mod endpoint;
+use endpoint::RelayEndpoint;
 
 // ── Bidirectional relay ───────────────────────────────────────────────
 
@@ -40,8 +44,10 @@ where
     F1: FnMut(u64),
     F2: FnMut(u64),
 {
-    let (left_read, left_write) = tokio::io::split(left);
-    let (right_read, right_write) = tokio::io::split(right);
+    let (left_read, left_write) =
+        tokio::io::split(RelayEndpoint::new(left, TransportFailureOrigin::Client));
+    let (right_read, right_write) =
+        tokio::io::split(RelayEndpoint::new(right, TransportFailureOrigin::Upstream));
 
     tokio::try_join!(
         copy_one_way(left_read, right_write, left_to_right, upload_limiter),

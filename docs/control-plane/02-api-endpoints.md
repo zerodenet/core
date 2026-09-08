@@ -76,7 +76,8 @@ HTTP 和 IPC 响应共享 `zero_api::ApiResponse` 信封：
 | `config.apply` | 将配置对象应用到运行时状态 |
 | `mode.set` | 设置全局路由模式 |
 | `tun.start` | 启动 TUN |
-| `tun.stop` | 停止 TUN |
+| `tun.stop` | 停止 TUN；清理失败返回错误 |
+| `tun.recover` | 立即重检当前 TUN 的物理出口与路由，完成后返回结果；不重启内核或更改开启意图 |
 | `diagnostics.probe_target` | 探测目标 TCP 端点 |
 | `diagnostics.probe_outbound` | 经指定出站执行 HTTP 延迟探测；绕过且不修改共享出站健康状态，也不修改 URLTest 策略状态 |
 | `diagnostics.dns_lookup` | 解析主机名 |

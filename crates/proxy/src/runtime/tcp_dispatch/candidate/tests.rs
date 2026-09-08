@@ -13,6 +13,8 @@ use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 const HEALTH_TAG: &str = "health-isolation-test";
 
+mod local_failures;
+
 struct FailingConnectOperation;
 
 impl PreparedTcpConnectOperation for FailingConnectOperation {

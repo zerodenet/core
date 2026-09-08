@@ -6,6 +6,10 @@ use std::time::{Duration, Instant};
 const SECONDARY_GATEWAY_ENV: &str = "ZERO_TUN_E2E_MACOS_SECONDARY_GATEWAY";
 const SECONDARY_INTERFACE_ENV: &str = "ZERO_TUN_E2E_MACOS_SECONDARY_INTERFACE";
 
+#[cfg(target_os = "macos")]
+#[path = "tun_route_reconcile_macos_e2e/audit.rs"]
+mod audit;
+
 #[test]
 #[ignore = "requires root and an isolated macOS runner with a connected secondary gateway"]
 fn macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun() {

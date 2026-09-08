@@ -110,10 +110,10 @@ async fn unrelated_address_is_not_cached_or_reverse_mapped() {
         RealIpReverseLookup::Missing
     );
 
-    // A topology generation change deliberately invalidates the short-lived
-    // query-coordinator failure cache, so this second lookup proves that no
-    // address-cache entry was written for the unrelated answer.
-    egress.replace_tunnel_addresses(["10.66.0.1".parse().expect("TUN address")]);
+    // Explicit recovery invalidates the failure cache even when interface
+    // identity is unchanged; this also proves the unrelated answer was never
+    // written to the address cache.
+    egress.invalidate_network();
     assert_eq!(
         dns.resolve_real_type("victim.example", TYPE_A)
             .await

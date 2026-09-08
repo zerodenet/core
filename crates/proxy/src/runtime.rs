@@ -127,6 +127,7 @@ pub(crate) struct TunControl {
     pub shutdown: tokio::sync::watch::Sender<bool>,
     pub done: oneshot::Receiver<()>,
     pub route_done: Option<oneshot::Receiver<Result<(), String>>>,
+    pub route_recovery: Option<tokio::sync::mpsc::Sender<oneshot::Sender<Result<(), String>>>>,
 }
 
 impl Proxy {

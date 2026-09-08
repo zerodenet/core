@@ -37,6 +37,8 @@ pub enum CommandRequest {
     TunStart(TunStartCommand),
     #[serde(rename = "tun.stop")]
     TunStop(TunStopCommand),
+    #[serde(rename = "tun.recover")]
+    TunRecover(TunRecoverCommand),
 }
 
 impl CommandRequest {
@@ -57,6 +59,7 @@ impl CommandRequest {
             | Self::DiagnosticsTraceRoute(_)
             | Self::ModeSet(_)
             | Self::TunStart(_)
+            | Self::TunRecover(_)
             | Self::TunStop(_) => Permission::Admin,
         }
     }
@@ -282,6 +285,10 @@ fn default_tun_mask() -> String {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TunStopCommand {}
+
+/// Immediately audit and recover the running TUN network routes.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TunRecoverCommand {}
 
 #[cfg(test)]
 mod tests {

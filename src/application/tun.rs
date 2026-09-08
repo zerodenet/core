@@ -43,6 +43,15 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
             };
             send_command(socket_path.as_deref(), request, "tun started")
         }
+        Command::TunRecover { socket_path } => send_command(
+            socket_path.as_deref(),
+            IpcRequest::Command {
+                id: None,
+                method: "tun.recover".to_owned(),
+                params: serde_json::json!({}),
+            },
+            "tun network recovered",
+        ),
         Command::TunStop { socket_path } => send_command(
             socket_path.as_deref(),
             IpcRequest::Command {

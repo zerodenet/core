@@ -120,6 +120,9 @@ pub enum Command {
         dns_hijack: bool,
         socket_path: Option<String>,
     },
+    TunRecover {
+        socket_path: Option<String>,
+    },
     TunStop {
         socket_path: Option<String>,
     },
@@ -187,6 +190,9 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, Cli
             let remaining: Vec<String> = args.collect();
             match remaining.first().map(|s| s.as_str()) {
                 Some("start") => parse_tun_start(remaining[1..].to_vec()),
+                Some("recover") => parse_client_command(remaining[1..].to_vec(), |socket_path| {
+                    Command::TunRecover { socket_path }
+                }),
                 Some("stop") => parse_client_command(remaining[1..].to_vec(), |socket_path| {
                     Command::TunStop { socket_path }
                 }),
@@ -194,7 +200,7 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, Cli
                     Command::TunStatus { socket_path }
                 }),
                 _ => Err(CliError::new(
-                    "tun requires subcommand: start, stop, or status".to_owned(),
+                    "tun requires subcommand: start, stop, recover, or status".to_owned(),
                 )),
             }
         }
@@ -256,6 +262,7 @@ pub fn usage() -> &'static str {
   zero mode <rule|direct|global> [outbound] [--socket PATH]
   zero tun start --addr IP --tag TAG [--name NAME] [--mask MASK] [--secondary-addr CIDR] [--mtu MTU] [--include-cidr CIDR]... [--exclude-cidr CIDR]... [--no-auto-route] [--single-stack] [--no-strict-route] [--no-dns-hijack] [--socket PATH]
   zero tun stop [--socket PATH]
+  zero tun recover [--socket PATH]
   zero tun status [--socket PATH]
   zero build-info
   zero version

@@ -54,7 +54,39 @@ pub(super) fn route_output_has_scoped_flag(output: &[u8]) -> bool {
 }
 
 pub(super) fn remove_scoped_bypass(ipv6: bool, egress_name: &str) -> io::Result<()> {
-    run_route_remove(&scoped_bypass_remove_arguments(ipv6, egress_name))
+    remove_scoped_bypass_with(
+        || run_route_remove(&scoped_bypass_remove_arguments(ipv6, egress_name)),
+        || {
+            let name = std::ffi::CString::new(egress_name)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+            if unsafe { libc::if_nametoindex(name.as_ptr()) } != 0 {
+                return Ok(true);
+            }
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::ENXIO | libc::ENODEV) => Ok(false),
+                _ => Err(error),
+            }
+        },
+    )
+}
+
+pub(super) fn remove_scoped_bypass_with(
+    remove: impl FnOnce() -> io::Result<()>,
+    interface_exists: impl FnOnce() -> io::Result<bool>,
+) -> io::Result<()> {
+    match remove() {
+        // macOS removes interface-scoped routes when the interface disappears.
+        // Confirm absence after the command failure to cover unplug races. Do
+        // not forgive permission errors or failures on a still-live interface.
+        Err(error)
+            if error.to_string().contains("bad interface name")
+                && matches!(interface_exists(), Ok(false)) =>
+        {
+            Ok(())
+        }
+        result => result,
+    }
 }
 
 pub(super) fn scoped_bypass_get_arguments(ipv6: bool, egress_name: &str) -> Vec<String> {

@@ -119,7 +119,27 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
             let upstream_endpoint = result.upstream_endpoint;
             let passive_relay_selections = result.passive_relay_selections;
 
-            protocol.send_ok(&mut client).await?;
+            if let Err(error) = protocol.send_ok(&mut client).await {
+                let error = EngineError::Io(crate::transport::attributed_error(
+                    crate::transport::TransportFailureOrigin::Client,
+                    "client acceptance response failed",
+                    std::io::Error::other(error),
+                ));
+                if let Some(record) = finish_relay_failure(
+                    &mut handle,
+                    &session,
+                    started_at,
+                    &error,
+                    upstream_endpoint.as_ref(),
+                ) {
+                    runtime.record_passive_relay_outcome(
+                        &passive_relay_selections,
+                        &session,
+                        classify_relay_outcome(&record, Some(&error)),
+                    );
+                }
+                return Err(error);
+            }
 
             let relay_result = tokio::select! {
                 result = tokio::time::timeout(

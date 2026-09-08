@@ -1,9 +1,37 @@
 use std::io;
 
 use super::scoped::{
-    route_output_has_scoped_flag, scoped_bypass_add_arguments, scoped_bypass_get_arguments,
-    scoped_bypass_remove_arguments,
+    remove_scoped_bypass_with, route_output_has_scoped_flag, scoped_bypass_add_arguments,
+    scoped_bypass_get_arguments, scoped_bypass_remove_arguments,
 };
+
+#[test]
+fn unplugged_interface_does_not_block_scoped_route_cleanup() {
+    remove_scoped_bypass_with(
+        || Err(io::Error::other("route: bad interface name")),
+        || Ok(false),
+    )
+    .unwrap();
+}
+
+#[test]
+fn scoped_route_cleanup_preserves_live_interface_and_probe_errors() {
+    for exists in [Ok(true), Err(io::Error::other("interface lookup failed"))] {
+        assert!(remove_scoped_bypass_with(
+            || Err(io::Error::other("route: bad interface name")),
+            || exists,
+        )
+        .is_err());
+    }
+    assert!(remove_scoped_bypass_with(
+        || Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "permission denied"
+        )),
+        || Ok(false),
+    )
+    .is_err());
+}
 use super::{
     gateway_matches_family, parse_default_route, route_add_arguments, route_remove_arguments,
 };
