@@ -116,3 +116,7 @@ mod http3_tests;
 #[cfg(test)]
 #[path = "transport/tests/fixtures.rs"]
 mod test_fixtures;
+
+#[cfg(test)]
+#[path = "transport/tests/rate_limit.rs"]
+mod rate_limit_tests;

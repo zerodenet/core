@@ -193,6 +193,8 @@ pub(super) fn compiled_in_outbound_leaves(
         config_with_outbound(
             "hysteria2",
             OutboundProtocolConfig::Hysteria2 {
+                up_bps: None,
+                down_bps: None,
                 transport: Default::default(),
                 server_name: None,
                 server: "127.0.0.1".to_owned(),

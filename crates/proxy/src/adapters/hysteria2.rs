@@ -72,6 +72,8 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
         server,
         server_name,
         transport,
+        up_bps,
+        down_bps,
         port,
         password,
         insecure,
@@ -87,7 +89,7 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
         *port,
         Hysteria2OutboundOptionsRef {
             settings: transport
-                .validated()
+                .validated(*up_bps, *down_bps)
                 .expect("validated hysteria2 transport settings"),
             password,
             server_name: server_name.as_deref(),
@@ -162,6 +164,8 @@ impl InboundListenerCapability for Hysteria2Adapter {
         let InboundProtocolConfig::Hysteria2 {
             cert_path,
             key_path,
+            up_bps,
+            down_bps,
             transport,
             ..
         } = &inbound.protocol
@@ -178,7 +182,7 @@ impl InboundListenerCapability for Hysteria2Adapter {
                 key_path: key_path.as_deref(),
             },
         );
-        let plan = plan.with_settings(transport.validated().map_err(|e| {
+        let plan = plan.with_settings(transport.validated(*down_bps, *up_bps).map_err(|e| {
             EngineError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
         })?);
         let endpoint = plan.bind(&inbound_listen_addr(inbound)).await?;
@@ -197,6 +201,8 @@ impl InboundListenerCapability for Hysteria2Adapter {
             InboundProtocolConfig::Hysteria2 {
                 password,
                 users,
+                up_bps,
+                down_bps,
                 transport,
                 masquerade,
                 ..
@@ -208,7 +214,7 @@ impl InboundListenerCapability for Hysteria2Adapter {
                         users: users.iter().copied(),
                     },
                 )
-                .with_settings(transport.validated().map_err(|e| {
+                .with_settings(transport.validated(*down_bps, *up_bps).map_err(|e| {
                     EngineError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
                 })?)
                 .with_masquerade(inbound::prepare_masquerade(masquerade, source_dir)?)

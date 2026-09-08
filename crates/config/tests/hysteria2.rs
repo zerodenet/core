@@ -33,29 +33,97 @@ fn hysteria2_rejects_empty_server_name() {
     assert!(result.is_err());
 }
 
-fn outbound_with_transport(
-    transport: serde_json::Value,
+fn outbound_with_fields(
+    fields: serde_json::Value,
 ) -> Result<RuntimeConfig, zero_config::ConfigError> {
-    RuntimeConfig::parse(&serde_json::json!({"inbounds": [], "outbounds": [{"tag":"hy", "protocol":{"type":"hysteria2", "server":"192.0.2.1", "port":443, "password":"test", "transport":transport}}], "route":{"rules":[],"final":{"type":"route","outbound":"hy"}}}).to_string())
+    let mut protocol = serde_json::json!({"type":"hysteria2", "server":"192.0.2.1", "port":443, "password":"test"});
+    protocol
+        .as_object_mut()
+        .unwrap()
+        .extend(fields.as_object().unwrap().clone());
+    RuntimeConfig::parse(&serde_json::json!({"inbounds": [], "outbounds": [{"tag":"hy", "protocol":protocol}], "route":{"rules":[],"final":{"type":"route","outbound":"hy"}}}).to_string())
 }
+
 #[test]
-fn hysteria2_transport_configuration_is_validated_and_round_trips() {
-    let transport = serde_json::json!({"bandwidth":{"up":"100 Mbps","down":"1 Gbps","disable_loss_compensation":true},"congestion":{"type":"reno"},"quic":{"stream_receive_window":1048576,"connection_receive_window":4194304,"keep_alive_interval_secs":5,"disable_path_mtu_discovery":true}});
-    let config = outbound_with_transport(transport).unwrap();
+fn unified_connection_rates_map_to_hysteria_and_round_trip_without_bandwidth_fields() {
+    let config = outbound_with_fields(serde_json::json!({
+        "up_bps": 12_500_000, "down_bps": 125_000_000,
+        "transport":{"congestion":{"type":"reno", "disable_loss_compensation":true},"quic":{"disable_path_mtu_discovery":true}}
+    })).unwrap();
     let encoded = serde_json::to_string(&config).unwrap();
+    assert!(!encoded.contains("\"bandwidth\""));
     assert_eq!(RuntimeConfig::parse(&encoded).unwrap(), config);
-    let OutboundProtocolConfig::Hysteria2 { transport, .. } = &config.outbounds[0].protocol else {
+    let OutboundProtocolConfig::Hysteria2 {
+        transport,
+        up_bps,
+        down_bps,
+        ..
+    } = &config.outbounds[0].protocol
+    else {
         panic!()
     };
-    let settings = transport.validated().unwrap();
+    let settings = transport.validated(*up_bps, *down_bps).unwrap();
     assert_eq!(settings.upload, 12_500_000);
     assert_eq!(settings.download, 125_000_000);
+    assert!(settings.disable_loss_compensation);
     assert!(settings.quic.disable_path_mtu_discovery);
 }
+
 #[test]
-fn hysteria2_rejects_invalid_transport_values() {
+fn inbound_connection_rates_keep_zero_upload_direction() {
+    let config = RuntimeConfig::parse(&serde_json::json!({
+        "inbounds":[{"tag":"hy", "listen":{"address":"127.0.0.1","port":443}, "protocol":{"type":"hysteria2","password":"test","up_bps":1_000_000,"down_bps":2_000_000}}],
+        "outbounds":[], "route":{"rules":[],"final":{"type":"direct"}}
+    }).to_string()).unwrap();
+    let protocol = &config.inbounds[0].protocol;
+    assert_eq!(protocol.rate_limits(), (Some(1_000_000), Some(2_000_000)));
+    let zero_config::InboundProtocolConfig::Hysteria2 {
+        transport,
+        up_bps,
+        down_bps,
+        ..
+    } = protocol
+    else {
+        panic!()
+    };
+    let settings = transport.validated(*down_bps, *up_bps).unwrap();
+    assert_eq!(
+        settings.upload, 2_000_000,
+        "server sends the Zero download direction"
+    );
+    assert_eq!(
+        settings.download, 1_000_000,
+        "server receives the Zero upload direction"
+    );
+}
+
+#[test]
+fn zero_rates_have_one_numeric_byte_unit_and_no_official_application_minimum() {
+    for rate in [
+        serde_json::Value::Null,
+        serde_json::json!(0),
+        serde_json::json!(1),
+        serde_json::json!(65_535),
+    ] {
+        assert!(
+            outbound_with_fields(serde_json::json!({"up_bps": rate, "down_bps": rate})).is_ok()
+        );
+    }
+    for rate in [
+        serde_json::json!(-1),
+        serde_json::json!("100 Mbps"),
+        serde_json::json!(1.5),
+        serde_json::json!(u64::MAX),
+    ] {
+        assert!(outbound_with_fields(serde_json::json!({"up_bps": rate})).is_err());
+        assert!(outbound_with_fields(serde_json::json!({"down_bps": rate})).is_err());
+    }
+}
+
+#[test]
+fn hysteria2_rejects_duplicate_bandwidth_surface_and_invalid_transport_values() {
     for transport in [
-        serde_json::json!({"bandwidth":{"up":"1 Mbpss"}}),
+        serde_json::json!({"bandwidth":{"up":1_000_000}}),
         serde_json::json!({"quic":{"stream_receive_window":1}}),
         serde_json::json!({"quic":{"max_idle_timeout_secs":4,"keep_alive_interval_secs":10}}),
         serde_json::json!({"congestion":{"type":"brutal"}}),
@@ -63,21 +131,8 @@ fn hysteria2_rejects_invalid_transport_values() {
         serde_json::json!({"quic":{"unknown":true}}),
     ] {
         assert!(
-            outbound_with_transport(transport.clone()).is_err(),
+            outbound_with_fields(serde_json::json!({"transport":transport})).is_err(),
             "{transport}"
         );
     }
-}
-
-#[test]
-fn hysteria2_bandwidth_accepts_integer_bytes_per_second() {
-    let config =
-        outbound_with_transport(serde_json::json!({"bandwidth":{"up":1000000,"down":"8 mbps"}}))
-            .unwrap();
-    let OutboundProtocolConfig::Hysteria2 { transport, .. } = &config.outbounds[0].protocol else {
-        panic!()
-    };
-    let settings = transport.validated().unwrap();
-    assert_eq!(settings.upload, settings.download);
-    assert_eq!(settings.upload, 1_000_000);
 }

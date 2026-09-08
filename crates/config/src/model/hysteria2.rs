@@ -1,41 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Hysteria2BandwidthConfig {
-    pub up: Option<Hysteria2BandwidthValue>,
-    pub down: Option<Hysteria2BandwidthValue>,
-    pub disable_loss_compensation: bool,
-}
-
-/// String values are bit rates; integers are raw bytes per second.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Hysteria2BandwidthValue {
-    Rate(String),
-    BytesPerSecond(u64),
-}
-impl Hysteria2BandwidthValue {
-    fn bytes_per_second(&self) -> Result<u64, &'static str> {
-        match self {
-            Self::Rate(value) => hysteria2::settings::parse_bandwidth(Some(value)),
-            Self::BytesPerSecond(value) => Ok(*value),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Hysteria2CongestionConfig {
     #[serde(rename = "type")]
     pub kind: String,
     pub bbr_initial_window: u64,
+    pub disable_loss_compensation: bool,
 }
 impl Default for Hysteria2CongestionConfig {
     fn default() -> Self {
         Self {
             kind: "bbr".into(),
             bbr_initial_window: 38_400,
+            disable_loss_compensation: false,
         }
     }
 }
@@ -69,33 +47,26 @@ impl Default for Hysteria2QuicConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Hysteria2TransportConfig {
-    pub bandwidth: Hysteria2BandwidthConfig,
     pub congestion: Hysteria2CongestionConfig,
     pub quic: Hysteria2QuicConfig,
     pub ignore_client_bandwidth: bool,
 }
 impl Hysteria2TransportConfig {
-    pub fn validated(&self) -> Result<hysteria2::settings::Settings, &'static str> {
+    /// Materialize protocol settings from normalized local send/receive rates.
+    /// The owning adapter maps Zero upload/download directions at the boundary.
+    pub fn validated(
+        &self,
+        send_bps: Option<u64>,
+        receive_bps: Option<u64>,
+    ) -> Result<hysteria2::settings::Settings, &'static str> {
         use hysteria2::settings::{Congestion, QuicSettings, Settings};
         let congestion = Congestion::parse(&self.congestion.kind)?;
         let q = &self.quic;
         let settings = Settings {
-            upload: self
-                .bandwidth
-                .up
-                .as_ref()
-                .map(Hysteria2BandwidthValue::bytes_per_second)
-                .transpose()?
-                .unwrap_or(0),
-            download: self
-                .bandwidth
-                .down
-                .as_ref()
-                .map(Hysteria2BandwidthValue::bytes_per_second)
-                .transpose()?
-                .unwrap_or(0),
+            upload: send_bps.unwrap_or(0),
+            download: receive_bps.unwrap_or(0),
             ignore_client_bandwidth: self.ignore_client_bandwidth,
-            disable_loss_compensation: self.bandwidth.disable_loss_compensation,
+            disable_loss_compensation: self.congestion.disable_loss_compensation,
             congestion,
             bbr_initial_window: self.congestion.bbr_initial_window,
             quic: QuicSettings {

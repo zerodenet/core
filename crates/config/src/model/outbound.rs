@@ -68,6 +68,12 @@ pub enum OutboundProtocolConfig {
     },
     #[serde(rename = "hysteria2")]
     Hysteria2 {
+        /// Upload rate for each carrier connection, in bytes per second.
+        #[serde(default)]
+        up_bps: Option<u64>,
+        /// Download rate advertised to the peer, in bytes per second.
+        #[serde(default)]
+        down_bps: Option<u64>,
         #[serde(default)]
         transport: Box<super::Hysteria2TransportConfig>,
         server: String,

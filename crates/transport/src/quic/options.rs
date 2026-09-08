@@ -6,6 +6,8 @@ pub struct QuicTransportOptions {
     pub stream_receive_window: u64,
     pub connection_receive_window: u64,
     pub send_window: u64,
+    /// Per-connection pacing ceiling in bytes/sec; zero or None is unlimited.
+    pub max_send_rate: Option<u64>,
     pub max_idle_timeout: Duration,
     pub keep_alive_interval: Option<Duration>,
     pub max_incoming_streams: u32,
@@ -37,7 +39,10 @@ impl QuicTransportOptions {
         if self.disable_path_mtu_discovery {
             config.mtu_discovery_config(None);
         }
-        config.congestion_controller_factory(controller);
+        config.congestion_controller_factory(super::rate_limit::cap_factory(
+            controller,
+            self.max_send_rate,
+        ));
         Ok(config)
     }
 }

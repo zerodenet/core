@@ -58,10 +58,8 @@ impl Default for Settings {
 impl Settings {
     pub fn validate(&self) -> Result<(), &'static str> {
         for value in [self.upload, self.download] {
-            if value != 0 && !(65_536..=u64::MAX / 8).contains(&value) {
-                return Err(
-                    "bandwidth must be zero or at least 65536 bytes/sec and fit a bit rate",
-                );
+            if value > u64::MAX / 8 {
+                return Err("bandwidth must fit a bit rate");
             }
         }
         for value in [

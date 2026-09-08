@@ -3,7 +3,7 @@ use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::failure::{attributed_error, TransportFailureOrigin};
-use super::rate_limit::SharedRateLimiter;
+use super::SharedRateLimiter;
 
 mod endpoint;
 use endpoint::RelayEndpoint;

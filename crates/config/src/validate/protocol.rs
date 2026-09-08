@@ -112,6 +112,8 @@ pub(super) fn validate_inbound_protocol(
             Ok(())
         }
         InboundProtocolConfig::Hysteria2 {
+            up_bps,
+            down_bps,
             transport,
             masquerade,
             password,
@@ -121,7 +123,7 @@ pub(super) fn validate_inbound_protocol(
             ..
         } => {
             transport
-                .validated()
+                .validated(*down_bps, *up_bps)
                 .map_err(|e| ConfigError::InvalidInbound(e.into()))?;
             masquerade
                 .validate()
@@ -333,6 +335,8 @@ pub(super) fn validate_outbound_protocol(
             Ok(())
         }
         OutboundProtocolConfig::Hysteria2 {
+            up_bps,
+            down_bps,
             transport,
             server,
             port,
@@ -340,7 +344,7 @@ pub(super) fn validate_outbound_protocol(
             ..
         } => {
             transport
-                .validated()
+                .validated(*up_bps, *down_bps)
                 .map_err(|e| ConfigError::InvalidOutbound(e.into()))?;
             if transport.ignore_client_bandwidth {
                 return Err(ConfigError::InvalidOutbound(

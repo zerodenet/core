@@ -1,29 +1,33 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// A clonable GCRA timeline shared by every flow in one Zero rate policy.
+/// A byte-rate budget. Clones share capacity; separate instances are independent.
+/// Callers choose whether its lifetime belongs to a connection or a wider policy.
 #[derive(Debug, Clone)]
-pub(crate) struct SharedRateLimiter {
+pub struct SharedRateLimiter {
     inner: Arc<Mutex<RateLimiter>>,
 }
 
 impl SharedRateLimiter {
-    pub(crate) const MAX_BURST_BYTES: u32 = RateLimiter::MAX_BURST_BYTES;
+    pub const MAX_BURST_BYTES: u32 = RateLimiter::MAX_BURST_BYTES;
 
-    pub(crate) fn new(rate_bps: u64) -> Self {
+    /// Create a positive byte/second budget. Use no limiter for unlimited traffic.
+    /// Panics if `rate_bps` is zero.
+    pub fn new(rate_bps: u64) -> Self {
+        assert!(rate_bps > 0, "rate limit must be positive");
         Self {
             inner: Arc::new(Mutex::new(RateLimiter::new(rate_bps))),
         }
     }
 
-    pub(crate) fn check_n(&self, bytes: u64) -> Result<(), Duration> {
+    pub fn check_n(&self, bytes: u64) -> Result<(), Duration> {
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .check_n(bytes)
     }
 
-    pub(crate) async fn throttle(&self, bytes: usize) {
+    pub async fn throttle(&self, bytes: usize) {
         let mut remaining = u64::try_from(bytes).unwrap_or(u64::MAX);
         while remaining > 0 {
             let chunk = remaining.min(u64::from(Self::MAX_BURST_BYTES));
@@ -42,8 +46,7 @@ impl SharedRateLimiter {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn shares_timeline_with(&self, other: &Self) -> bool {
+    pub fn shares_timeline_with(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 }

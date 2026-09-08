@@ -22,6 +22,7 @@ pub mod profile;
 #[cfg(feature = "quic")]
 pub mod quic;
 pub mod quic_initial;
+pub mod rate_limit;
 #[cfg(feature = "split_http")]
 pub mod split_http;
 pub mod stream;

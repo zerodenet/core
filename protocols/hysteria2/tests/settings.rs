@@ -50,6 +50,8 @@ fn settings_enforce_window_and_liveness_bounds() {
     assert!(settings.validate().is_err());
     settings.quic.stream_receive_window = 16_384;
     settings.upload = 1;
+    assert!(settings.validate().is_ok());
+    settings.upload = u64::MAX;
     assert!(settings.validate().is_err());
 }
 #[test]

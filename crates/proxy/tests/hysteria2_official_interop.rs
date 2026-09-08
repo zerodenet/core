@@ -54,12 +54,15 @@ async fn configured_interop(zero_is_client: bool, udp: bool, brutal: bool) {
         )
     };
     if brutal {
-        let transport = serde_json::json!({"bandwidth":{"up":"10 Mbps","down":"20 Mbps"},"quic":{"stream_receive_window":1048576,"connection_receive_window":4194304,"keep_alive_interval_secs":5,"disable_path_mtu_discovery":true}});
-        if zero_is_client {
-            zero_config["outbounds"][0]["protocol"]["transport"] = transport;
+        let protocol = if zero_is_client {
+            &mut zero_config["outbounds"][0]["protocol"]
         } else {
-            zero_config["inbounds"][0]["protocol"]["transport"] = transport;
-        }
+            &mut zero_config["inbounds"][0]["protocol"]
+        };
+        // Zero keeps client-relative upload/download in bytes/sec on either side.
+        protocol["up_bps"] = serde_json::json!(1_250_000);
+        protocol["down_bps"] = serde_json::json!(2_500_000);
+        protocol["transport"] = serde_json::json!({"quic":{"stream_receive_window":1048576,"connection_receive_window":4194304,"keep_alive_interval_secs":5,"disable_path_mtu_discovery":true}});
         official_config["bandwidth"] = serde_json::json!({"up":"20 Mbps","down":"10 Mbps"});
     }
     let proxy =
