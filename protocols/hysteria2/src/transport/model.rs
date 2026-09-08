@@ -59,6 +59,7 @@ pub struct Hysteria2ManagedUdpFlowConfig<'a> {
     pub(super) password: &'a str,
     pub(super) insecure: bool,
     pub(super) client_fingerprint: Option<&'a str>,
+    pub(super) server_name: Option<&'a str>,
 }
 
 #[derive(Debug, Clone)]
@@ -69,10 +70,12 @@ pub struct Hysteria2TransportLeaf {
     pub(super) password: String,
     pub(super) insecure: bool,
     pub(super) client_fingerprint: Option<String>,
+    pub(super) server_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hysteria2QuicProfile {
     pub(super) insecure: bool,
     pub(super) client_fingerprint: Option<String>,
+    pub(super) server_name: Option<String>,
 }

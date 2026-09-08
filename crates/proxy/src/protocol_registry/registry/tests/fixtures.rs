@@ -191,6 +191,7 @@ pub(super) fn compiled_in_outbound_leaves(
         config_with_outbound(
             "hysteria2",
             OutboundProtocolConfig::Hysteria2 {
+                server_name: None,
                 server: "127.0.0.1".to_owned(),
                 port: 443,
                 password: "password".to_owned(),

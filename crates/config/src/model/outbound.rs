@@ -69,6 +69,8 @@ pub enum OutboundProtocolConfig {
     #[serde(rename = "hysteria2")]
     Hysteria2 {
         server: String,
+        #[serde(default)]
+        server_name: Option<String>,
         port: u16,
         password: String,
         #[serde(default)]

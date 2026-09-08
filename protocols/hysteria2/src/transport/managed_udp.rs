@@ -26,7 +26,8 @@ async fn open_udp_profile_connection(
     sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
     let quic_profile = Hysteria2QuicProfile::from_parts(profile.client_fingerprint())
-        .with_insecure(profile.insecure());
+        .with_insecure(profile.insecure())
+        .with_server_name(profile.server_name());
     let connection = open_quic_connection(QuicConnectionOptions {
         server,
         port,

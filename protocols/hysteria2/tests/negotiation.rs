@@ -42,7 +42,10 @@ fn udp_caches_separate_trust_policy_and_fingerprint() {
         Hysteria2UdpFlowConfig::new("hy", "localhost", 443, "password", None).with_insecure(true);
     let fingerprint =
         Hysteria2UdpFlowConfig::new("hy", "localhost", 443, "password", Some("chrome"));
-    for other in [insecure, fingerprint] {
+    let sni = Hysteria2UdpFlowConfig::new("hy", "localhost", 443, "password", None)
+        .with_server_name(Some("other.example"));
+    assert_eq!(sni.connector_profile().server_name(), Some("other.example"));
+    for other in [insecure, fingerprint, sni] {
         assert_ne!(strict.cache_key(), other.cache_key());
         assert_ne!(
             strict.flow_resume().flow_cache_key("localhost", 443),

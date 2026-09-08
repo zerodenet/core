@@ -28,10 +28,16 @@ pub struct Hysteria2UdpFlowConfig<'a> {
     port: u16,
     password: &'a str,
     client_fingerprint: Option<&'a str>,
+    server_name: Option<&'a str>,
     insecure: bool,
 }
 
 impl<'a> Hysteria2UdpFlowConfig<'a> {
+    pub fn with_server_name(mut self, server_name: Option<&'a str>) -> Self {
+        self.server_name = server_name;
+        self
+    }
+
     pub fn with_insecure(mut self, insecure: bool) -> Self {
         self.insecure = insecure;
         self
@@ -51,12 +57,13 @@ impl<'a> Hysteria2UdpFlowConfig<'a> {
             password,
             client_fingerprint,
             insecure: false,
+            server_name: None,
         }
     }
 
     pub fn cache_key(&self) -> String {
         alloc::format!(
-            "{}|insecure:{}",
+            "{}|insecure:{}|sni:{:?}",
             udp_cache_key(
                 self.tag,
                 self.server,
@@ -64,12 +71,14 @@ impl<'a> Hysteria2UdpFlowConfig<'a> {
                 self.password,
                 self.client_fingerprint
             ),
-            self.insecure
+            self.insecure,
+            self.server_name
         )
     }
 
     pub fn flow_resume(&self) -> Hysteria2UdpFlowResume {
         Hysteria2UdpFlowResume::new(self.password, self.client_fingerprint)
+            .with_server_name(self.server_name)
             .with_insecure(self.insecure)
     }
 

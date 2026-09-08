@@ -69,6 +69,7 @@ fn inbound_user_refs<'a>(
 fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hysteria2TransportLeaf> {
     let OutboundProtocolConfig::Hysteria2 {
         server,
+        server_name,
         port,
         password,
         insecure,
@@ -84,6 +85,7 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
         *port,
         Hysteria2OutboundOptionsRef {
             password,
+            server_name: server_name.as_deref(),
             insecure: *insecure,
             client_fingerprint: client_fingerprint.as_deref(),
         },

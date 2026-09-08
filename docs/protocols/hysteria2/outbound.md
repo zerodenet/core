@@ -18,7 +18,7 @@ Hysteria2 出站以显式 TCP 和 UDP 能力注册。适配器准备连接或 UD
 `insecure` 默认为 `false`：使用公共根证书校验服务端证书链和服务器名称。
 显式设置 `true` 才跳过证书信任与名称校验，TLS 握手签名仍须有效。
 这项策略同时作用于 TCP、managed UDP 和 packet-path；UDP 缓存标识包含校验策略与指纹，
-策略改变后不会复用不同策略的旧连接。当前服务器名称取自 `server`，自定义 SNI、私有 CA、证书固定仍待补齐。
+策略改变后不会复用不同策略的旧连接。`server_name` 可覆盖 TLS 的 SNI 与证书校验名称，缺省使用 `server`；拨号地址保持 `server`。私有 CA、证书固定仍待补齐。
 
 HTTP/3 认证响应保存 `Hysteria-UDP` 与 `Hysteria-CC-RX`（数值或 `auto`）。
 服务端未启用 UDP 或未协商 QUIC datagram 时，UDP 建连在发送业务包前失败，TCP 仍可使用。

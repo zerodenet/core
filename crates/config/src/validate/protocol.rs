@@ -324,8 +324,16 @@ pub(super) fn validate_outbound_protocol(
             )?;
             Ok(())
         }
-        OutboundProtocolConfig::Hysteria2 { server, port, .. } => {
+        OutboundProtocolConfig::Hysteria2 {
+            server,
+            port,
+            server_name,
+            ..
+        } => {
             validate_outbound_endpoint("hysteria2", server, *port)?;
+            if let Some(name) = server_name {
+                validate_outbound_optional_non_empty("hysteria2 server_name", name)?;
+            }
             Ok(())
         }
         OutboundProtocolConfig::Shadowsocks {

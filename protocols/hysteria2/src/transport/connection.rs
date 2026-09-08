@@ -2,10 +2,15 @@ use super::{Hysteria2QuicProfile, QuicConnectionOptions};
 use zero_transport::RuntimeError;
 
 impl Hysteria2QuicProfile {
+    pub fn with_server_name(mut self, server_name: Option<&str>) -> Self {
+        self.server_name = server_name.map(ToOwned::to_owned);
+        self
+    }
     pub fn from_parts(client_fingerprint: Option<&str>) -> Self {
         Self {
             client_fingerprint: client_fingerprint.map(ToOwned::to_owned),
             insecure: false,
+            server_name: None,
         }
     }
     pub fn with_insecure(mut self, insecure: bool) -> Self {
@@ -26,7 +31,11 @@ pub async fn open_quic_connection(
     zero_transport::quic::connect_quic_endpoint(
         options.server,
         options.port,
-        options.server,
+        options
+            .quic_profile
+            .server_name
+            .as_deref()
+            .unwrap_or(options.server),
         config,
         options.socket_factory,
     )

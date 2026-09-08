@@ -1263,6 +1263,7 @@ fn spawn_recv_task(
 pub struct Hysteria2UdpFlowResume {
     password: String,
     client_fingerprint: Option<String>,
+    server_name: Option<String>,
     insecure: bool,
 }
 
@@ -1296,6 +1297,11 @@ impl Hysteria2UdpConnectorFlowParts {
 }
 
 impl Hysteria2UdpFlowResume {
+    pub fn with_server_name(mut self, server_name: Option<&str>) -> Self {
+        self.server_name = server_name.map(ToOwned::to_owned);
+        self
+    }
+
     pub fn with_insecure(mut self, insecure: bool) -> Self {
         self.insecure = insecure;
         self
@@ -1306,6 +1312,7 @@ impl Hysteria2UdpFlowResume {
             password: password.to_owned(),
             client_fingerprint: client_fingerprint.map(ToOwned::to_owned),
             insecure: false,
+            server_name: None,
         }
     }
 
@@ -1314,6 +1321,7 @@ impl Hysteria2UdpFlowResume {
             password: &self.password,
             insecure: self.insecure,
             client_fingerprint: self.client_fingerprint.as_deref(),
+            server_name: self.server_name.as_deref(),
         }
     }
 
@@ -1331,11 +1339,12 @@ impl Hysteria2UdpFlowResume {
 
     pub fn flow_cache_key(&self, server: &str, port: u16) -> String {
         alloc::format!(
-            "leaf|{server}:{port}|password:{}:{}|insecure:{}|fingerprint:{:?}",
+            "leaf|{server}:{port}|password:{}:{}|insecure:{}|fingerprint:{:?}|sni:{:?}",
             self.password.len(),
             self.password,
             self.insecure,
-            self.client_fingerprint
+            self.client_fingerprint,
+            self.server_name
         )
     }
 
@@ -1350,6 +1359,7 @@ impl Hysteria2UdpFlowResume {
         Hysteria2UdpConnectorProfile {
             password: self.password.clone(),
             client_fingerprint: self.client_fingerprint.clone(),
+            server_name: self.server_name.clone(),
             insecure: self.insecure,
         }
     }
@@ -1479,10 +1489,15 @@ impl Hysteria2UdpFlowSessions {
 pub struct Hysteria2UdpConnectorProfile {
     password: String,
     client_fingerprint: Option<String>,
+    server_name: Option<String>,
     insecure: bool,
 }
 
 impl Hysteria2UdpConnectorProfile {
+    pub fn server_name(&self) -> Option<&str> {
+        self.server_name.as_deref()
+    }
+
     pub fn insecure(&self) -> bool {
         self.insecure
     }
@@ -1519,6 +1534,7 @@ struct Hysteria2UdpPeerConfig<'a> {
     password: &'a str,
     insecure: bool,
     client_fingerprint: Option<&'a str>,
+    server_name: Option<&'a str>,
 }
 
 impl<'a> Hysteria2UdpPeerConfig<'a> {
@@ -1529,6 +1545,7 @@ impl<'a> Hysteria2UdpPeerConfig<'a> {
             password: self.password.to_owned(),
             insecure: self.insecure,
             client_fingerprint: self.client_fingerprint.map(ToOwned::to_owned),
+            server_name: self.server_name.map(ToOwned::to_owned),
         }
     }
 }
@@ -1540,6 +1557,7 @@ struct Hysteria2UdpLeafKey {
     password: String,
     insecure: bool,
     client_fingerprint: Option<String>,
+    server_name: Option<String>,
 }
 
 impl DatagramCodec<Address> for Hysteria2DatagramCodec {

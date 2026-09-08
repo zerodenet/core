@@ -11,6 +11,7 @@ use zero_proxy::Proxy;
 
 /// HY2_BIN must be the official Hysteria application; use app/v2.12.2 for parity qualification.
 async fn interop(zero_is_client: bool, udp: bool) {
+    support::interop::init_logs("zero_proxy=debug,zero_transport=debug,quinn_proto=info");
     let binary = std::env::var("HY2_BIN").expect("HY2_BIN must point to official Hysteria");
     let material = TempMaterial::new("hysteria2-official-interop");
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
@@ -25,7 +26,7 @@ async fn interop(zero_is_client: bool, udp: bool) {
         (
             serde_json::json!({
                 "inbounds": [{"tag": "socks", "listen": {"address": "127.0.0.1", "port": socks_port}, "protocol": {"type": "socks5"}}],
-                "outbounds": [{"tag": "hy", "protocol": {"type": "hysteria2", "server": "127.0.0.1", "port": hy_port, "password": password, "insecure": true}}],
+                "outbounds": [{"tag": "hy", "protocol": {"type": "hysteria2", "server": "127.0.0.1", "server_name": "localhost", "port": hy_port, "password": password, "insecure": true}}],
                 "route": {"rules": [], "final": {"type": "route", "outbound": "hy"}}
             }),
             serde_json::json!({
