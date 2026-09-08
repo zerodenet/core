@@ -225,7 +225,7 @@ fn config_json(running: bool, port: u16, secondary_dns: Ipv4Addr) -> String {
                     "secondary": { "type": "udp", "host": secondary_dns.to_string(), "port": 53 }
                 },
                 "default_server": "global",
-                "fallback_servers": ["secondary"]
+                "policy": { "fallback_servers": ["secondary"] }
             }
         },
         "inbounds": [{
@@ -236,6 +236,16 @@ fn config_json(running: bool, port: u16, secondary_dns: Ipv4Addr) -> String {
         "route": { "rules": [], "final": { "type": "direct" } }
     }))
     .unwrap()
+}
+
+#[test]
+fn route_reconciliation_fixtures_follow_the_current_dns_schema() {
+    for running in [false, true] {
+        let config: zero_config::RuntimeConfig =
+            serde_json::from_str(&config_json(running, 1080, Ipv4Addr::new(192, 0, 2, 1)))
+                .expect("route reconciliation fixture must parse before privileged execution");
+        assert_eq!(config.runtime.dns.policy.fallback_servers, ["secondary"]);
+    }
 }
 
 fn wait_for_healthy_egress(binary: &str, socket: &Path, expected: Option<&str>) -> String {
