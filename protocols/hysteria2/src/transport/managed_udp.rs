@@ -5,7 +5,7 @@ use zero_traits::DatagramCodec;
 use zero_transport::RuntimeError;
 
 use super::{
-    auth::authenticate_http3, connection::negotiated_alpn, open_quic_connection,
+    auth::authenticate_http3_with_settings, connection::negotiated_alpn, open_quic_connection,
     outbound_quic_alpn_protocols, Hysteria2AuthenticatedConnection,
     Hysteria2ManagedDatagramFlowResume, Hysteria2ManagedUdpPacketPathCarrierBuild,
     Hysteria2QuicProfile, QuicConnectionOptions,
@@ -26,6 +26,7 @@ async fn open_udp_profile_connection(
     sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
     let quic_profile = Hysteria2QuicProfile::from_parts(profile.client_fingerprint())
+        .with_settings(profile.settings())
         .with_insecure(profile.insecure())
         .with_server_name(profile.server_name());
     let connection = open_quic_connection(QuicConnectionOptions {
@@ -38,7 +39,9 @@ async fn open_udp_profile_connection(
     })
     .await?;
     if negotiated_alpn(&connection).as_deref() == Some(b"h3") {
-        let authenticated = authenticate_http3(connection, profile.password()).await?;
+        let authenticated =
+            authenticate_http3_with_settings(connection, profile.password(), profile.settings())
+                .await?;
         authenticated.require_udp()?;
         Ok(Arc::new(authenticated))
     } else {

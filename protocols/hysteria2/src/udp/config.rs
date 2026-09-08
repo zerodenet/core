@@ -30,9 +30,14 @@ pub struct Hysteria2UdpFlowConfig<'a> {
     client_fingerprint: Option<&'a str>,
     server_name: Option<&'a str>,
     insecure: bool,
+    settings: crate::settings::Settings,
 }
 
 impl<'a> Hysteria2UdpFlowConfig<'a> {
+    pub fn with_settings(mut self, settings: crate::settings::Settings) -> Self {
+        self.settings = settings;
+        self
+    }
     pub fn with_server_name(mut self, server_name: Option<&'a str>) -> Self {
         self.server_name = server_name;
         self
@@ -58,12 +63,13 @@ impl<'a> Hysteria2UdpFlowConfig<'a> {
             client_fingerprint,
             insecure: false,
             server_name: None,
+            settings: Default::default(),
         }
     }
 
     pub fn cache_key(&self) -> String {
         alloc::format!(
-            "{}|insecure:{}|sni:{:?}",
+            "{}|insecure:{}|sni:{:?}|settings:{:?}",
             udp_cache_key(
                 self.tag,
                 self.server,
@@ -72,12 +78,14 @@ impl<'a> Hysteria2UdpFlowConfig<'a> {
                 self.client_fingerprint
             ),
             self.insecure,
-            self.server_name
+            self.server_name,
+            self.settings
         )
     }
 
     pub fn flow_resume(&self) -> Hysteria2UdpFlowResume {
         Hysteria2UdpFlowResume::new(self.password, self.client_fingerprint)
+            .with_settings(self.settings)
             .with_server_name(self.server_name)
             .with_insecure(self.insecure)
     }

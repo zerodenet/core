@@ -19,7 +19,9 @@ use zero_platform_tokio::ClientStream;
 
 mod client;
 mod inbound_accept;
+mod options;
 pub use client::{client_config, connect_quic_endpoint};
+pub use options::QuicTransportOptions;
 
 /// Bidirectional QUIC stream wrapping quinn SendStream and RecvStream.
 pub struct QuicStream {
@@ -69,6 +71,28 @@ impl QuicInbound {
         base_dir: Option<&Path>,
         alpn_protocols: &[Vec<u8>],
     ) -> Result<Self, RuntimeError> {
+        let mut transport = quinn::TransportConfig::default();
+        transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
+        transport.datagram_receive_buffer_size(Some(65536));
+        Self::bind_with_transport(
+            listen_addr,
+            cert_path,
+            key_path,
+            base_dir,
+            alpn_protocols,
+            transport,
+        )
+        .await
+    }
+
+    pub async fn bind_with_transport(
+        listen_addr: &str,
+        cert_path: &str,
+        key_path: &str,
+        base_dir: Option<&Path>,
+        alpn_protocols: &[Vec<u8>],
+        transport: quinn::TransportConfig,
+    ) -> Result<Self, RuntimeError> {
         use std::fs::File;
         use std::io::BufReader;
 
@@ -114,9 +138,6 @@ impl QuicInbound {
             .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic server cfg: {e}"))))?;
         let mut server_cfg = quinn::ServerConfig::with_crypto(Arc::new(quic_cfg));
 
-        let mut transport = quinn::TransportConfig::default();
-        transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
-        transport.datagram_receive_buffer_size(Some(65536));
         server_cfg.transport_config(Arc::new(transport));
 
         let bind_addr = listen_addr

@@ -60,6 +60,8 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     });
     #[cfg(feature = "hysteria2")]
     configs.push(InboundProtocolConfig::Hysteria2 {
+        transport: Default::default(),
+        masquerade: Default::default(),
         password: "password".to_string(),
         users: Vec::new(),
         cert_path: None,
@@ -191,6 +193,7 @@ pub(super) fn compiled_in_outbound_leaves(
         config_with_outbound(
             "hysteria2",
             OutboundProtocolConfig::Hysteria2 {
+                transport: Default::default(),
                 server_name: None,
                 server: "127.0.0.1".to_owned(),
                 port: 443,

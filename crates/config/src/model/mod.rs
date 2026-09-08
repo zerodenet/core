@@ -251,3 +251,6 @@ pub use outbound::*;
 pub use route::*;
 pub use transport::*;
 pub use tun::*;
+
+mod hysteria2;
+pub use hysteria2::*;

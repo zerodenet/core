@@ -12,3 +12,5 @@ Hysteria2 入站准备带鉴权的 QUIC profile。客户端通过 `h3` ALPN 发�
 运行时通过中立 `AuthenticatedQuicInboundProfile` / `AuthenticatedQuicInboundConnection` 契约执行 QUIC 生命周期，不在通用模块中命名 Hysteria2 类型。
 
 UDPMessage 按 `(session_id, packet_id)` 有界重组，单包最多接受 64 个分片，同时最多保留 64 个未完成包；不一致的目标、端口或分片总数会使该包失败。错误密码在创建 TCP/UDP 业务会话前拒绝。
+
+带宽协商、Brutal/BBR、QUIC 参数、连接复用与 HTTP/3 伪装见[传输与伪装配置](transport.md)。

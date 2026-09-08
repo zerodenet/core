@@ -82,7 +82,7 @@ async-trait = "0.1"
 futures-util = "0.3"
 ipnet.workspace = true
 regex = "1"
-quinn = { version = "0.11", default-features = false, features = ["rustls-ring"], optional = true }
+quinn = { workspace = true, features = ["rustls-ring"], optional = true }
 ring = { version = "0.17", optional = true }
 rustls = { workspace = true, optional = true }
 tokio.workspace = true
@@ -109,7 +109,7 @@ zero-stack = { path = "../stack" }
 zero-transport = { path = "../transport" }
 
 [dev-dependencies]
-quinn = { version = "0.11", default-features = false, features = ["rustls-ring", "runtime-tokio"] }
+quinn = { workspace = true, features = ["rustls-ring", "runtime-tokio"] }
 tempfile.workspace = true
 rcgen = "0.14"
 rustls = { workspace = true }

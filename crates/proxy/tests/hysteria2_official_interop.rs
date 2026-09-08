@@ -11,6 +11,10 @@ use zero_proxy::Proxy;
 
 /// HY2_BIN must be the official Hysteria application; use app/v2.12.2 for parity qualification.
 async fn interop(zero_is_client: bool, udp: bool) {
+    configured_interop(zero_is_client, udp, false).await;
+}
+
+async fn configured_interop(zero_is_client: bool, udp: bool, brutal: bool) {
     support::interop::init_logs("zero_proxy=debug,zero_transport=debug,quinn_proto=info");
     let binary = std::env::var("HY2_BIN").expect("HY2_BIN must point to official Hysteria");
     let material = TempMaterial::new("hysteria2-official-interop");
@@ -22,7 +26,7 @@ async fn interop(zero_is_client: bool, udp: bool) {
     let hy_port = free_udp_port();
     let socks_port = free_port();
     let password = "official-hy2-interop-password";
-    let (zero_config, official_config, mode) = if zero_is_client {
+    let (mut zero_config, mut official_config, mode) = if zero_is_client {
         (
             serde_json::json!({
                 "inbounds": [{"tag": "socks", "listen": {"address": "127.0.0.1", "port": socks_port}, "protocol": {"type": "socks5"}}],
@@ -49,6 +53,15 @@ async fn interop(zero_is_client: bool, udp: bool) {
             "client",
         )
     };
+    if brutal {
+        let transport = serde_json::json!({"bandwidth":{"up":"10 Mbps","down":"20 Mbps"},"quic":{"stream_receive_window":1048576,"connection_receive_window":4194304,"keep_alive_interval_secs":5,"disable_path_mtu_discovery":true}});
+        if zero_is_client {
+            zero_config["outbounds"][0]["protocol"]["transport"] = transport;
+        } else {
+            zero_config["inbounds"][0]["protocol"]["transport"] = transport;
+        }
+        official_config["bandwidth"] = serde_json::json!({"up":"20 Mbps","down":"10 Mbps"});
+    }
     let proxy =
         spawn_engine(Proxy::new(RuntimeConfig::parse(&zero_config.to_string()).unwrap()).unwrap());
     let config_path = material.path("hysteria.json");
@@ -69,7 +82,13 @@ async fn interop(zero_is_client: bool, udp: bool) {
     if zero_is_client {
         sleep(Duration::from_millis(300)).await;
     }
-    let payload = (0..if udp { 1600 } else { 128 })
+    let payload = (0..if udp {
+        1600
+    } else if brutal {
+        65_536
+    } else {
+        128
+    })
         .map(|i| (i % 251) as u8)
         .collect::<Vec<_>>();
     let target_port = if udp { free_udp_port() } else { free_port() };
@@ -121,4 +140,17 @@ async fn official_to_zero_hysteria2_tcp() {
 #[ignore = "requires HY2_BIN pointing to official Hysteria app/v2.12.2"]
 async fn official_to_zero_hysteria2_fragmented_udp() {
     interop(false, true).await;
+}
+
+#[tokio::test]
+#[ignore = "requires HY2_BIN pointing to official Hysteria app/v2.12.2"]
+async fn zero_to_official_brutal_tcp_and_udp() {
+    configured_interop(true, false, true).await;
+    configured_interop(true, true, true).await;
+}
+#[tokio::test]
+#[ignore = "requires HY2_BIN pointing to official Hysteria app/v2.12.2"]
+async fn official_to_zero_brutal_tcp_and_udp() {
+    configured_interop(false, false, true).await;
+    configured_interop(false, true, true).await;
 }

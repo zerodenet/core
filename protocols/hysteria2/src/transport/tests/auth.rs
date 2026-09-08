@@ -128,3 +128,76 @@ async fn cancellation_during_authentication_closes_quic_session() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn bandwidth_headers_select_directional_brutal_rates() {
+    timeout(Duration::from_secs(10), async {
+        let (client, server) = super::super::test_fixtures::pair().await;
+        let profile =
+            super::super::test_fixtures::profile().with_settings(crate::settings::Settings {
+                upload: 1_000_000,
+                download: 3_000_000,
+                ..Default::default()
+            });
+        let server = tokio::spawn(async move {
+            let connection = profile
+                .accept_authenticated_connection(server)
+                .await
+                .unwrap();
+            assert_eq!(
+                connection
+                    .datagram_source()
+                    .congestion_state()
+                    .pacing_rate(),
+                Some(1_000_000)
+            );
+            connection.datagram_source().closed().await;
+        });
+        let settings = crate::settings::Settings {
+            upload: 4_000_000,
+            download: 2_000_000,
+            ..Default::default()
+        };
+        let client = authenticate_http3_with_settings(client, "test-password", settings)
+            .await
+            .unwrap();
+        assert_eq!(
+            client.negotiated().receive_bandwidth,
+            crate::handshake::ReceiveBandwidth::Limit(3_000_000)
+        );
+        assert_eq!(
+            client.connection().congestion_state().pacing_rate(),
+            Some(3_000_000)
+        );
+        drop(client);
+        server.await.unwrap();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn releasing_udp_flow_closes_connection_even_with_keepalive() {
+    timeout(Duration::from_secs(10), async {
+        let (client, server) = super::super::test_fixtures::pair().await;
+        let server = tokio::spawn(async move {
+            let connection = super::super::test_fixtures::profile()
+                .accept_authenticated_connection(server)
+                .await
+                .unwrap();
+            connection.datagram_source().closed().await;
+        });
+        let connection = Arc::new(authenticate_http3(client, "test-password").await.unwrap());
+        let flow = crate::udp::start_udp_flow_with_initial_packet(
+            connection,
+            &zero_core::Address::Domain("example.com".into()),
+            53,
+            b"query",
+            crate::udp::Hysteria2UdpFlowResume::new("test-password", None),
+        );
+        drop(flow);
+        server.await.unwrap();
+    })
+    .await
+    .unwrap();
+}

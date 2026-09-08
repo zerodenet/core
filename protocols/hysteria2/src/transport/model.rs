@@ -14,6 +14,8 @@ pub struct Hysteria2ManagedDatagramFlowResume {
 
 #[derive(Debug, Clone)]
 pub struct Hysteria2AuthenticatedInboundProfile {
+    pub(super) masquerade: super::http3::Masquerade,
+    pub(super) settings: crate::settings::Settings,
     pub(super) protocol: crate::inbound::Hysteria2InboundProfile,
 }
 
@@ -24,7 +26,7 @@ pub struct Hysteria2InboundTcpResponseProtocol {
 
 pub struct Hysteria2AuthenticatedQuicConnection {
     pub(super) protocol: crate::inbound::Hysteria2AcceptedQuicConnection,
-    pub(super) _http3: Option<super::auth::Hysteria2Http3ServerGuard>,
+    pub(super) _http3: Option<super::http3::Hysteria2Http3ServerGuard>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,10 +62,12 @@ pub struct Hysteria2ManagedUdpFlowConfig<'a> {
     pub(super) insecure: bool,
     pub(super) client_fingerprint: Option<&'a str>,
     pub(super) server_name: Option<&'a str>,
+    pub(super) settings: crate::settings::Settings,
 }
 
 #[derive(Debug, Clone)]
 pub struct Hysteria2TransportLeaf {
+    pub(super) pool: super::pool::Hysteria2ConnectionPool,
     pub(super) tag: String,
     pub(super) server: String,
     pub(super) port: u16,
@@ -71,6 +75,7 @@ pub struct Hysteria2TransportLeaf {
     pub(super) insecure: bool,
     pub(super) client_fingerprint: Option<String>,
     pub(super) server_name: Option<String>,
+    pub(super) settings: crate::settings::Settings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,4 +83,5 @@ pub struct Hysteria2QuicProfile {
     pub(super) insecure: bool,
     pub(super) client_fingerprint: Option<String>,
     pub(super) server_name: Option<String>,
+    pub(super) settings: crate::settings::Settings,
 }

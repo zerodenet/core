@@ -10,11 +10,15 @@ homepage.workspace = true
 
 [features]
 default = []
+validation = ["dep:url"]
 crypto = ["dep:ring", "dep:subtle"]
 runtime = [
+    "validation",
+    "dep:futures-util",
     "crypto",
     "tokio",
     "dep:bytes",
+    "dep:quinn-proto",
     "dep:h3",
     "dep:h3-quinn",
     "dep:http",
@@ -28,16 +32,19 @@ tokio = ["dep:quinn", "dep:tokio"]
 async-trait = "0.1"
 bytes = { version = "1", optional = true }
 h3 = { version = "0.0.8", optional = true }
-h3-quinn = { version = "0.0.10", optional = true }
+h3-quinn = { version = "=0.0.10", optional = true }
+url = { version = "2", optional = true }
+futures-util = { version = "0.3", optional = true }
 http = { version = "1", optional = true }
 ring = { version = "0.17", optional = true }
 subtle = { version = "2.6", optional = true }
-quinn = { version = "0.11", default-features = false, features = ["rustls-ring"], optional = true }
+quinn-proto = { version = "=0.11.14", default-features = false, optional = true }
+quinn = { workspace = true, features = ["rustls-ring"], optional = true }
 rustls = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 zero-core = { path = "../../crates/core" }
-zero-transport = { path = "../../crates/transport", optional = true, features = ["quic"] }
+zero-transport = { path = "../../crates/transport", optional = true, features = ["quic", "http_client"] }
 zero-traits = { path = "../../crates/traits" }
 
 [dev-dependencies]

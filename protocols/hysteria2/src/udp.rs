@@ -1165,105 +1165,12 @@ impl Hysteria2UdpFlowSender {
     }
 }
 
-#[cfg(feature = "runtime")]
-pub fn spawn_udp_flow(
-    conn: Arc<crate::transport::Hysteria2AuthenticatedConnection>,
-    initial_packet: Hysteria2InitialUdpFlowPacket,
-    flow_io: Hysteria2UdpFlowIo,
-) -> Hysteria2UdpFlowHandle {
-    let (send_tx, send_rx) = mpsc::channel::<UdpFlowPacket>(32);
-    let (responses, _) = broadcast::channel::<Hysteria2UdpFlowResponse>(32);
-
-    spawn_send_task(conn.clone(), initial_packet, flow_io, send_rx);
-    spawn_recv_task(conn, flow_io, responses.clone());
-
-    Hysteria2UdpFlowHandle {
-        sender: Hysteria2UdpFlowSender { send_tx },
-        responses,
-    }
-}
-
-#[cfg(feature = "runtime")]
-pub fn start_udp_flow_with_initial_packet(
-    conn: Arc<crate::transport::Hysteria2AuthenticatedConnection>,
-    target: &Address,
-    port: u16,
-    payload: &[u8],
-    resume: Hysteria2UdpFlowResume,
-) -> Hysteria2UdpFlowConnection {
-    let flow_io = resume.flow_io();
-    let initial_packet = Hysteria2InitialUdpFlowPacket::from_parts(target, port, payload);
-    Hysteria2UdpFlowConnection::new(Hysteria2UdpFlowSession::new(spawn_udp_flow(
-        conn,
-        initial_packet,
-        flow_io,
-    )))
-}
-
-#[cfg(feature = "runtime")]
-fn spawn_send_task(
-    conn: Arc<crate::transport::Hysteria2AuthenticatedConnection>,
-    initial_packet: Hysteria2InitialUdpFlowPacket,
-    flow_io: Hysteria2UdpFlowIo,
-    mut send_rx: mpsc::Receiver<UdpFlowPacket>,
-) {
-    tokio::spawn(async move {
-        let Some(max_datagram_size) = conn.connection().max_datagram_size() else {
-            return;
-        };
-        let Ok(fragments) = flow_io.encode_fragments(&initial_packet.packet, max_datagram_size)
-        else {
-            return;
-        };
-        for fragment in fragments {
-            if conn.connection().send_datagram(fragment.into()).is_err() {
-                return;
-            }
-        }
-        while let Some(packet) = send_rx.recv().await {
-            let Ok(fragments) = flow_io.encode_fragments(&packet, max_datagram_size) else {
-                break;
-            };
-            for fragment in fragments {
-                if conn.connection().send_datagram(fragment.into()).is_err() {
-                    return;
-                }
-            }
-        }
-    });
-}
-
-#[cfg(feature = "runtime")]
-fn spawn_recv_task(
-    conn: Arc<crate::transport::Hysteria2AuthenticatedConnection>,
-    flow_io: Hysteria2UdpFlowIo,
-    responses: Hysteria2UdpFlowResponses,
-) {
-    tokio::spawn(async move {
-        let mut reassembler = Hysteria2UdpReassembler::default();
-        while let Ok(data) = conn.connection().read_datagram().await {
-            let Ok(fragment) = parse_udp_datagram(&data) else {
-                continue;
-            };
-            if fragment.session_id != flow_io.session_id {
-                continue;
-            }
-            let Ok(Some(packet)) = reassembler.push(fragment) else {
-                continue;
-            };
-            let (_, _, target, port, payload) = packet.into_parts();
-            if responses.send((target, port, payload)).is_err() {
-                break;
-            }
-        }
-    });
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hysteria2UdpFlowResume {
     password: String,
     client_fingerprint: Option<String>,
     server_name: Option<String>,
+    settings: crate::settings::Settings,
     insecure: bool,
 }
 
@@ -1297,6 +1204,10 @@ impl Hysteria2UdpConnectorFlowParts {
 }
 
 impl Hysteria2UdpFlowResume {
+    pub fn with_settings(mut self, settings: crate::settings::Settings) -> Self {
+        self.settings = settings;
+        self
+    }
     pub fn with_server_name(mut self, server_name: Option<&str>) -> Self {
         self.server_name = server_name.map(ToOwned::to_owned);
         self
@@ -1313,6 +1224,7 @@ impl Hysteria2UdpFlowResume {
             client_fingerprint: client_fingerprint.map(ToOwned::to_owned),
             insecure: false,
             server_name: None,
+            settings: Default::default(),
         }
     }
 
@@ -1322,6 +1234,7 @@ impl Hysteria2UdpFlowResume {
             insecure: self.insecure,
             client_fingerprint: self.client_fingerprint.as_deref(),
             server_name: self.server_name.as_deref(),
+            settings: self.settings,
         }
     }
 
@@ -1339,12 +1252,12 @@ impl Hysteria2UdpFlowResume {
 
     pub fn flow_cache_key(&self, server: &str, port: u16) -> String {
         alloc::format!(
-            "leaf|{server}:{port}|password:{}:{}|insecure:{}|fingerprint:{:?}|sni:{:?}",
+            "leaf|{server}:{port}|password:{}:{}|insecure:{}|fingerprint:{:?}|sni:{:?}|settings:{:?}",
             self.password.len(),
             self.password,
             self.insecure,
             self.client_fingerprint,
-            self.server_name
+            self.server_name, self.settings
         )
     }
 
@@ -1360,6 +1273,7 @@ impl Hysteria2UdpFlowResume {
             password: self.password.clone(),
             client_fingerprint: self.client_fingerprint.clone(),
             server_name: self.server_name.clone(),
+            settings: self.settings,
             insecure: self.insecure,
         }
     }
@@ -1490,10 +1404,14 @@ pub struct Hysteria2UdpConnectorProfile {
     password: String,
     client_fingerprint: Option<String>,
     server_name: Option<String>,
+    settings: crate::settings::Settings,
     insecure: bool,
 }
 
 impl Hysteria2UdpConnectorProfile {
+    pub fn settings(&self) -> crate::settings::Settings {
+        self.settings
+    }
     pub fn server_name(&self) -> Option<&str> {
         self.server_name.as_deref()
     }
@@ -1535,6 +1453,7 @@ struct Hysteria2UdpPeerConfig<'a> {
     insecure: bool,
     client_fingerprint: Option<&'a str>,
     server_name: Option<&'a str>,
+    settings: crate::settings::Settings,
 }
 
 impl<'a> Hysteria2UdpPeerConfig<'a> {
@@ -1546,6 +1465,7 @@ impl<'a> Hysteria2UdpPeerConfig<'a> {
             insecure: self.insecure,
             client_fingerprint: self.client_fingerprint.map(ToOwned::to_owned),
             server_name: self.server_name.map(ToOwned::to_owned),
+            settings: self.settings,
         }
     }
 }
@@ -1558,6 +1478,7 @@ struct Hysteria2UdpLeafKey {
     insecure: bool,
     client_fingerprint: Option<String>,
     server_name: Option<String>,
+    settings: crate::settings::Settings,
 }
 
 impl DatagramCodec<Address> for Hysteria2DatagramCodec {
@@ -1575,3 +1496,8 @@ impl DatagramCodec<Address> for Hysteria2DatagramCodec {
 
 mod config;
 pub use config::Hysteria2UdpFlowConfig;
+
+#[cfg(feature = "runtime")]
+mod pump;
+#[cfg(feature = "runtime")]
+pub use pump::{spawn_udp_flow, start_udp_flow_with_initial_packet};

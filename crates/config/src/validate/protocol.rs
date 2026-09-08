@@ -112,12 +112,20 @@ pub(super) fn validate_inbound_protocol(
             Ok(())
         }
         InboundProtocolConfig::Hysteria2 {
+            transport,
+            masquerade,
             password,
             users,
             cert_path,
             key_path,
             ..
         } => {
+            transport
+                .validated()
+                .map_err(|e| ConfigError::InvalidInbound(e.into()))?;
+            masquerade
+                .validate()
+                .map_err(|e| ConfigError::InvalidInbound(e.into()))?;
             validate_hysteria2_users(password, users)?;
             if cert_path.is_some() != key_path.is_some() {
                 return Err(ConfigError::InvalidInbound(
@@ -325,11 +333,20 @@ pub(super) fn validate_outbound_protocol(
             Ok(())
         }
         OutboundProtocolConfig::Hysteria2 {
+            transport,
             server,
             port,
             server_name,
             ..
         } => {
+            transport
+                .validated()
+                .map_err(|e| ConfigError::InvalidOutbound(e.into()))?;
+            if transport.ignore_client_bandwidth {
+                return Err(ConfigError::InvalidOutbound(
+                    "hysteria2 ignore_client_bandwidth is inbound-only".into(),
+                ));
+            }
             validate_outbound_endpoint("hysteria2", server, *port)?;
             if let Some(name) = server_name {
                 validate_outbound_optional_non_empty("hysteria2 server_name", name)?;

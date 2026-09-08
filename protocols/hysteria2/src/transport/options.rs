@@ -13,6 +13,7 @@ pub struct Hysteria2InboundOptionsRef<I> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Hysteria2OutboundOptionsRef<'a> {
+    pub settings: crate::settings::Settings,
     pub server_name: Option<&'a str>,
     pub password: &'a str,
     pub insecure: bool,

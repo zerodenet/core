@@ -31,6 +31,7 @@ pub(crate) mod udp;
 #[derive(Debug, Default)]
 pub(crate) struct Hysteria2Adapter {
     inbound_profiles: Hysteria2InboundProfileStore,
+    outbound_pool: ::hysteria2::transport::Hysteria2ConnectionPool,
 }
 
 #[cfg(feature = "hysteria2")]
@@ -70,6 +71,7 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
     let OutboundProtocolConfig::Hysteria2 {
         server,
         server_name,
+        transport,
         port,
         password,
         insecure,
@@ -84,6 +86,9 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
         server,
         *port,
         Hysteria2OutboundOptionsRef {
+            settings: transport
+                .validated()
+                .expect("validated hysteria2 transport settings"),
             password,
             server_name: server_name.as_deref(),
             insecure: *insecure,
@@ -98,6 +103,7 @@ impl NamedProtocolAdapter for Hysteria2Adapter {
     const FEATURE_NAME: &'static str = "hysteria2";
 
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
+        self.outbound_pool.clear();
         for inbound in &config.inbounds {
             let InboundProtocolConfig::Hysteria2 {
                 password, users, ..
@@ -120,7 +126,8 @@ impl Hysteria2Adapter {
         let OutboundLeafInput::Proxy { outbound, .. } = input else {
             return None;
         };
-        let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?;
+        let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?
+            .with_pool(self.outbound_pool.clone());
         let tcp = self.claim_tcp_outbound_leaf_impl(leaf.clone());
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::TransportSession,
@@ -155,6 +162,7 @@ impl InboundListenerCapability for Hysteria2Adapter {
         let InboundProtocolConfig::Hysteria2 {
             cert_path,
             key_path,
+            transport,
             ..
         } = &inbound.protocol
         else {
@@ -170,6 +178,9 @@ impl InboundListenerCapability for Hysteria2Adapter {
                 key_path: key_path.as_deref(),
             },
         );
+        let plan = plan.with_settings(transport.validated().map_err(|e| {
+            EngineError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
+        })?);
         let endpoint = plan.bind(&inbound_listen_addr(inbound)).await?;
         Ok(BoundInbound::Quic(endpoint))
     }
@@ -177,14 +188,18 @@ impl InboundListenerCapability for Hysteria2Adapter {
     fn prepare_inbound_listener(
         &self,
         inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
+        source_dir: Option<&std::path::Path>,
     ) -> Result<
         Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
         EngineError,
     > {
         let profile = match &inbound.protocol {
             InboundProtocolConfig::Hysteria2 {
-                password, users, ..
+                password,
+                users,
+                transport,
+                masquerade,
+                ..
             } => {
                 let users = inbound_user_refs(password, users);
                 let profile = self.inbound_profiles.replace(&inbound.tag, &users);
@@ -193,6 +208,10 @@ impl InboundListenerCapability for Hysteria2Adapter {
                         users: users.iter().copied(),
                     },
                 )
+                .with_settings(transport.validated().map_err(|e| {
+                    EngineError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
+                })?)
+                .with_masquerade(inbound::prepare_masquerade(masquerade, source_dir)?)
                 .with_profile(profile)
             }
             _ => {

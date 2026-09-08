@@ -35,3 +35,5 @@ UDP 仍标记为 `partial`，因为 packet-path/多跳大包和长稳故障恢�
 - [出站](./outbound.md)
 - [公共约定](./shared.md)
 - [官方实现对齐清单](./parity.md)
+
+带宽协商、Brutal/BBR、QUIC 参数、连接复用与 HTTP/3 伪装见[传输与伪装配置](transport.md)。

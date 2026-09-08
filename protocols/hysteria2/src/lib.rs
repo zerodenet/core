@@ -7,6 +7,7 @@ pub mod handshake;
 pub mod inbound;
 mod metadata;
 mod outbound;
+pub mod settings;
 pub mod shared;
 #[cfg(feature = "runtime")]
 pub mod transport;

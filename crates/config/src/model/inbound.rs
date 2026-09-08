@@ -65,6 +65,10 @@ pub enum InboundProtocolConfig {
     #[serde(rename = "hysteria2")]
     Hysteria2 {
         #[serde(default)]
+        transport: Box<super::Hysteria2TransportConfig>,
+        #[serde(default)]
+        masquerade: Box<super::Hysteria2MasqueradeConfig>,
+        #[serde(default)]
         password: String,
         #[serde(default)]
         users: Vec<Hysteria2UserConfig>,

@@ -24,3 +24,5 @@ HTTP/3 认证响应保存 `Hysteria-UDP` 与 `Hysteria-CC-RX`（数值或 `auto`
 服务端未启用 UDP 或未协商 QUIC datagram 时，UDP 建连在发送业务包前失败，TCP 仍可使用。
 客户端当前上报接收带宽 `0`，使用 QUIC 自适应拥塞控制；解析接收带宽不代表 Brutal 已实现。
 认证取消、出错和最后一个连接持有者释放时，关闭 QUIC 会话并停止 HTTP/3 驱动任务。
+
+带宽协商、Brutal/BBR、QUIC 参数、连接复用与 HTTP/3 伪装见[传输与伪装配置](transport.md)。

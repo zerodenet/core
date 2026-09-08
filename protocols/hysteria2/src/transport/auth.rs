@@ -5,12 +5,6 @@ use bytes::Bytes;
 use zero_transport::RuntimeError;
 
 type H3RequestSender = h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>;
-type H3ServerConnection = h3::server::Connection<h3_quinn::Connection, Bytes>;
-
-pub(crate) struct Hysteria2Http3ServerGuard {
-    _connection: std::sync::Mutex<H3ServerConnection>,
-}
-
 /// One authenticated standard Hysteria2 HTTP/3 session.
 ///
 /// The request sender and driver must remain alive for as long as raw proxy
@@ -68,15 +62,24 @@ impl Drop for Hysteria2AuthenticatedConnection {
     }
 }
 
+#[cfg(test)]
 pub async fn authenticate_http3(
     connection: quinn::Connection,
     password: &str,
+) -> Result<Hysteria2AuthenticatedConnection, RuntimeError> {
+    authenticate_http3_with_settings(connection, password, Default::default()).await
+}
+
+pub async fn authenticate_http3_with_settings(
+    connection: quinn::Connection,
+    password: &str,
+    settings: crate::settings::Settings,
 ) -> Result<Hysteria2AuthenticatedConnection, RuntimeError> {
     let request = http::Request::builder()
         .method(http::Method::POST)
         .uri("https://hysteria/auth")
         .header("Hysteria-Auth", password)
-        .header("Hysteria-CC-RX", "0")
+        .header("Hysteria-CC-RX", settings.download.to_string())
         .body(())
         .map_err(|error| {
             RuntimeError::Io(io::Error::other(format!(
@@ -137,85 +140,12 @@ pub async fn authenticate_http3(
             .get("hysteria-cc-rx")
             .and_then(|value| value.to_str().ok()),
     );
+    super::congestion::negotiate(
+        &authenticated.connection,
+        settings.client_send_rate(authenticated.negotiated.receive_bandwidth),
+    );
     drop(request_stream);
     Ok(authenticated)
-}
-
-pub(crate) async fn authenticate_http3_inbound(
-    connection: quinn::Connection,
-    profile: &crate::inbound::Hysteria2InboundProfile,
-) -> Result<(zero_core::SessionAuth, Hysteria2Http3ServerGuard), RuntimeError> {
-    let h3_connection = h3_quinn::Connection::new(connection);
-    let mut server = h3::server::builder()
-        .build(h3_connection)
-        .await
-        .map_err(h3_error("initialize HTTP/3 server"))?;
-    let resolver = server
-        .accept()
-        .await
-        .map_err(h3_error("accept authentication request"))?
-        .ok_or_else(|| {
-            RuntimeError::Io(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "hysteria2 HTTP/3 connection closed before authentication",
-            ))
-        })?;
-    let (request, mut request_stream) = resolver
-        .resolve_request()
-        .await
-        .map_err(h3_error("decode authentication request"))?;
-    let authority_is_hysteria = request
-        .uri()
-        .authority()
-        .map(|authority| authority.host() == "hysteria")
-        .unwrap_or(false);
-    let auth_value = request
-        .headers()
-        .get("hysteria-auth")
-        .and_then(|value| value.to_str().ok());
-    let is_auth_request = request.method() == http::Method::POST
-        && request.uri().path() == "/auth"
-        && authority_is_hysteria;
-    let auth = if is_auth_request {
-        auth_value.and_then(|password| profile.authenticate_password(password).ok())
-    } else {
-        None
-    };
-
-    let status = http::StatusCode::from_u16(if auth.is_some() { 233 } else { 404 })
-        .expect("valid Hysteria2 authentication status");
-    let mut response = http::Response::builder().status(status);
-    if auth.is_some() {
-        response = response
-            .header("Hysteria-UDP", "true")
-            .header("Hysteria-CC-RX", "0");
-    }
-    request_stream
-        .send_response(response.body(()).map_err(|error| {
-            RuntimeError::Io(io::Error::other(format!(
-                "hysteria2 build authentication response: {error}"
-            )))
-        })?)
-        .await
-        .map_err(h3_error("send authentication response"))?;
-    request_stream
-        .finish()
-        .await
-        .map_err(h3_error("finish authentication response"))?;
-    drop(request_stream);
-
-    let auth = auth.ok_or_else(|| {
-        RuntimeError::Io(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "hysteria2 authentication rejected",
-        ))
-    })?;
-    Ok((
-        auth,
-        Hysteria2Http3ServerGuard {
-            _connection: std::sync::Mutex::new(server),
-        },
-    ))
 }
 
 fn h3_error<E>(stage: &'static str) -> impl FnOnce(E) -> RuntimeError

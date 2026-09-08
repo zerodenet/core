@@ -9,14 +9,28 @@ use zero_traits::AsyncSocket;
 pub struct Hysteria2Stream {
     send: quinn::SendStream,
     recv: quinn::RecvStream,
+    prefix: bytes::Bytes,
     _connection_guard: Option<Arc<super::Hysteria2AuthenticatedConnection>>,
 }
 
 impl Hysteria2Stream {
+    pub(super) fn with_prefix(
+        send: quinn::SendStream,
+        recv: quinn::RecvStream,
+        prefix: bytes::Bytes,
+    ) -> Self {
+        Self {
+            send,
+            recv,
+            prefix,
+            _connection_guard: None,
+        }
+    }
     pub fn new(send: quinn::SendStream, recv: quinn::RecvStream) -> Self {
         Self {
             send,
             recv,
+            prefix: bytes::Bytes::new(),
             _connection_guard: None,
         }
     }
@@ -29,6 +43,7 @@ impl Hysteria2Stream {
         Self {
             send,
             recv,
+            prefix: bytes::Bytes::new(),
             _connection_guard: Some(connection),
         }
     }
@@ -40,6 +55,11 @@ impl AsyncRead for Hysteria2Stream {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        if !self.prefix.is_empty() && buf.remaining() > 0 {
+            let size = buf.remaining().min(self.prefix.len());
+            buf.put_slice(&self.prefix.split_to(size));
+            return Poll::Ready(Ok(()));
+        }
         Pin::new(&mut self.recv).poll_read(cx, buf)
     }
 }

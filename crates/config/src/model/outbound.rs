@@ -68,6 +68,8 @@ pub enum OutboundProtocolConfig {
     },
     #[serde(rename = "hysteria2")]
     Hysteria2 {
+        #[serde(default)]
+        transport: Box<super::Hysteria2TransportConfig>,
         server: String,
         #[serde(default)]
         server_name: Option<String>,

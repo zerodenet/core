@@ -68,3 +68,21 @@ pub(super) fn prepare(
         profile,
     })
 }
+
+pub(super) fn prepare_masquerade(
+    config: &zero_config::Hysteria2MasqueradeConfig,
+    source_dir: Option<&std::path::Path>,
+) -> Result<::hysteria2::transport::Hysteria2Masquerade, EngineError> {
+    use ::hysteria2::transport::Hysteria2Masquerade as M;
+    use zero_config::Hysteria2MasqueradeConfig as C;
+    Ok(match config {
+        C::NotFound => M::NotFound,
+        C::File { dir } => M::file(dir, source_dir)?,
+        C::Proxy { url, rewrite_host } => M::proxy(url, *rewrite_host)?,
+        C::String {
+            content,
+            status,
+            content_type,
+        } => M::content(content, *status, content_type)?,
+    })
+}

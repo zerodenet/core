@@ -18,9 +18,14 @@ pub struct Hysteria2InboundBindPlan {
     cert_path: String,
     key_path: String,
     source_dir: Option<PathBuf>,
+    settings: crate::settings::Settings,
 }
 
 impl Hysteria2InboundBindPlan {
+    pub fn with_settings(mut self, settings: crate::settings::Settings) -> Self {
+        self.settings = settings;
+        self
+    }
     pub fn from_options_refs(
         source_dir: Option<&Path>,
         options: Hysteria2InboundBindOptionsRef<'_>,
@@ -37,6 +42,7 @@ impl Hysteria2InboundBindPlan {
             cert_path: cert_path.unwrap_or("certs/fullchain.pem").to_owned(),
             key_path: key_path.unwrap_or("certs/privkey.pem").to_owned(),
             source_dir: source_dir.map(PathBuf::from),
+            settings: Default::default(),
         }
     }
 
@@ -45,12 +51,13 @@ impl Hysteria2InboundBindPlan {
         listen_addr: &str,
     ) -> Result<zero_transport::quic::QuicInbound, RuntimeError> {
         let alpn_protocols = inbound_quic_alpn_protocols();
-        zero_transport::quic::QuicInbound::bind(
+        zero_transport::quic::QuicInbound::bind_with_transport(
             listen_addr,
             &self.cert_path,
             &self.key_path,
             self.source_dir.as_deref(),
             &alpn_protocols,
+            super::congestion::transport(self.settings)?,
         )
         .await
     }
@@ -63,6 +70,14 @@ fn inbound_tcp_acceptor() -> Hysteria2InboundTcpResponseProtocol {
 }
 
 impl Hysteria2AuthenticatedInboundProfile {
+    pub fn with_masquerade(mut self, masquerade: super::http3::Masquerade) -> Self {
+        self.masquerade = masquerade;
+        self
+    }
+    pub fn with_settings(mut self, settings: crate::settings::Settings) -> Self {
+        self.settings = settings;
+        self
+    }
     pub fn from_options_refs<'a, I>(options: Hysteria2InboundOptionsRef<I>) -> Self
     where
         I: IntoIterator<Item = Hysteria2InboundUserRef<'a>>,
@@ -73,7 +88,11 @@ impl Hysteria2AuthenticatedInboundProfile {
     }
 
     fn new(protocol: crate::inbound::Hysteria2InboundProfile) -> Self {
-        Self { protocol }
+        Self {
+            protocol,
+            settings: Default::default(),
+            masquerade: Default::default(),
+        }
     }
 
     pub fn with_profile(mut self, profile: crate::inbound::Hysteria2InboundProfile) -> Self {
@@ -91,8 +110,7 @@ impl Hysteria2AuthenticatedInboundProfile {
     ) -> Result<Hysteria2AuthenticatedQuicConnection, RuntimeError> {
         if super::connection::negotiated_alpn(&connection).as_deref() == Some(b"h3") {
             let raw_connection = connection.clone();
-            let (auth, http3) =
-                super::auth::authenticate_http3_inbound(connection, &self.protocol).await?;
+            let (auth, http3) = super::http3::accept(connection, self).await?;
             let protocol = crate::inbound::Hysteria2AcceptedQuicConnection::new(
                 std::sync::Arc::new(raw_connection),
                 auth,
@@ -156,6 +174,13 @@ impl Hysteria2AuthenticatedQuicConnection {
     pub async fn accept_next_tcp_stream(
         &self,
     ) -> Result<Option<(zero_core::Session, Hysteria2Stream)>, RuntimeError> {
+        if let Some(http3) = &self._http3 {
+            let Some((mut session, stream)) = http3.next_stream().await else {
+                return Ok(None);
+            };
+            session.apply_auth(self.protocol.auth().clone());
+            return Ok(Some((session, stream)));
+        }
         self.protocol
             .accept_next_tcp_stream(Hysteria2Stream::new)
             .await

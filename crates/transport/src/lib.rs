@@ -50,3 +50,6 @@ impl StreamTraffic {
         self.read_bytes == 0 && self.written_bytes == 0
     }
 }
+
+#[cfg(feature = "http_client")]
+pub mod http_client;

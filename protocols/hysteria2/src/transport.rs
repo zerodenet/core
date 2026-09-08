@@ -5,8 +5,14 @@ use zero_core::Session;
 use zero_transport::RuntimeError;
 
 mod auth;
+mod http3;
+pub use http3::Masquerade as Hysteria2Masquerade;
+mod congestion;
+mod pool;
+pub use pool::Hysteria2ConnectionPool;
 mod connection;
 mod inbound;
+mod leaf;
 mod managed_udp;
 mod model;
 mod options;
@@ -48,6 +54,7 @@ async fn open_authenticated_hysteria2_quic_connection(
     quic_profile: Hysteria2QuicProfile,
     sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
+    let settings = quic_profile.settings;
     let conn = open_quic_connection(QuicConnectionOptions {
         server,
         port,
@@ -59,7 +66,7 @@ async fn open_authenticated_hysteria2_quic_connection(
     .await?;
 
     if connection::negotiated_alpn(&conn).as_deref() == Some(b"h3") {
-        auth::authenticate_http3(conn, profile.password())
+        auth::authenticate_http3_with_settings(conn, profile.password(), settings)
             .await
             .map(Arc::new)
     } else {
@@ -85,6 +92,7 @@ pub async fn connect_hysteria2_tcp_outbound(
     let profile =
         crate::outbound_profile_from_config_password(options.password, options.client_fingerprint);
     let quic_profile = Hysteria2QuicProfile::from_parts(options.client_fingerprint)
+        .with_settings(options.settings)
         .with_insecure(options.insecure)
         .with_server_name(options.server_name);
     let conn =
@@ -101,3 +109,10 @@ pub async fn connect_hysteria2_tcp_outbound(
     Ok(zero_transport::TcpRelayStream::new(stream))
 }
 pub use auth::Hysteria2AuthenticatedConnection;
+
+#[cfg(test)]
+#[path = "transport/tests/http3.rs"]
+mod http3_tests;
+#[cfg(test)]
+#[path = "transport/tests/fixtures.rs"]
+mod test_fixtures;
