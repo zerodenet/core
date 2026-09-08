@@ -38,6 +38,14 @@ struct RecordingDialer {
     attempts: Arc<Mutex<Vec<(String, u16)>>>,
 }
 
+struct PendingDialer;
+
+impl EventSinkTcpDialer for PendingDialer {
+    fn connect(&self, _host: String, _port: u16) -> EventSinkTcpConnectFuture {
+        Box::pin(std::future::pending())
+    }
+}
+
 impl EventSinkTcpDialer for RecordingDialer {
     fn connect(&self, host: String, port: u16) -> EventSinkTcpConnectFuture {
         let target = self.target;
@@ -1009,7 +1017,10 @@ async fn dispatcher_spills_backlog_to_disk_and_pages_a_bounded_working_set() {
         ..Default::default()
     };
 
-    let first = spawn_event_dispatcher(
+    // Keep all five deliveries pending until the first dispatcher is stopped.
+    // Otherwise the receiver can drain the backlog between status polls.
+    // The recovered dispatcher still exercises the two failures and five ACKs.
+    let first = spawn_event_dispatcher_with_network(
         StaticEventSource {
             events: Arc::new(Mutex::new(events)),
         },
@@ -1019,6 +1030,7 @@ async fn dispatcher_spills_backlog_to_disk_and_pages_a_bounded_working_set() {
             poll_interval: Duration::from_millis(10),
             max_retry_attempts: 10,
         },
+        EventDispatcherNetwork::new(Arc::new(PendingDialer)),
     )
     .expect("spawn bounded dispatcher")
     .expect("bounded dispatcher handle");

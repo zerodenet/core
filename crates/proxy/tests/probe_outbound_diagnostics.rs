@@ -100,16 +100,18 @@ async fn diagnostic_outbound_failure_has_stable_code_and_correlated_core_logs() 
         .compact()
         .finish();
 
-    let response = tracing::subscriber::with_default(subscriber, || {
-        tokio::task::block_in_place(|| {
-            handle.execute(CommandRequest::DiagnosticsProbeOutbound(
-                DiagnosticsProbeOutboundCommand {
-                    target_tag: "direct".to_owned(),
-                    url: Some("https://example.com/generate_204".to_owned()),
-                    operation_id: Some("diagnostic-log-1".to_owned()),
-                },
-            ))
-        })
+    // Other tests exercise the same tracing callsites concurrently. Use one
+    // process-wide subscriber so callsite interest is consistent on all threads.
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("install diagnostic test subscriber");
+    let response = tokio::task::block_in_place(|| {
+        handle.execute(CommandRequest::DiagnosticsProbeOutbound(
+            DiagnosticsProbeOutboundCommand {
+                target_tag: "direct".to_owned(),
+                url: Some("https://example.com/generate_204".to_owned()),
+                operation_id: Some("diagnostic-log-1".to_owned()),
+            },
+        ))
     })
     .expect("execute invalid outbound diagnostic");
     let result = response.result.expect("diagnostic result");
@@ -125,6 +127,11 @@ async fn diagnostic_outbound_failure_has_stable_code_and_correlated_core_logs() 
 
     let logs = String::from_utf8(buffer.lock().expect("log buffer lock").clone())
         .expect("utf-8 diagnostic logs");
+    let logs = logs
+        .lines()
+        .filter(|line| line.contains("operation_id=\"diagnostic-log-1\""))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
         logs.contains("method=\"diagnostics.probe_outbound\""),
         "{logs}"
