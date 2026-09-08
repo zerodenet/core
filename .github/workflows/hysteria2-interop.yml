@@ -1,0 +1,66 @@
+name: Hysteria2 Interop
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'protocols/hysteria2/**'
+      - 'crates/transport/**'
+      - 'crates/proxy/**'
+      - 'crates/config/**'
+      - 'crates/traits/**'
+      - '.github/workflows/hysteria2-interop.yml'
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'protocols/hysteria2/**'
+      - 'crates/transport/**'
+      - 'crates/proxy/**'
+      - 'crates/config/**'
+      - 'crates/traits/**'
+      - '.github/workflows/hysteria2-interop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  interop:
+    name: Official Hysteria and sing-box TCP/UDP
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-protoc
+        with:
+          version: '35.0'
+      - name: Download and verify pinned reference binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/hy2-interop"
+          cd "$RUNNER_TEMP/hy2-interop"
+          curl --fail --location --retry 3 -o hysteria https://github.com/HyNetworks/hysteria/releases/download/app/v2.12.2/hysteria-linux-amd64
+          echo '6493dfffd55b5883f64c76c63880ecc32988f0c568c9ca9014907877b4d55f94  hysteria' | sha256sum --check
+          curl --fail --location --retry 3 -o sing-box.tar.gz https://github.com/SagerNet/sing-box/releases/download/v1.13.14/sing-box-1.13.14-linux-amd64.tar.gz
+          echo 'f48703461a15476951ac4967cdad339d986f4b8096b4eb3ff0829a500502d697  sing-box.tar.gz' | sha256sum --check
+          tar -xzf sing-box.tar.gz
+          chmod +x hysteria
+          ./hysteria version
+          ./sing-box-1.13.14-linux-amd64/sing-box version
+          echo "HY2_BIN=$RUNNER_TEMP/hy2-interop/hysteria" >> "$GITHUB_ENV"
+          echo "SING_BOX_BIN=$RUNNER_TEMP/hy2-interop/sing-box-1.13.14-linux-amd64/sing-box" >> "$GITHUB_ENV"
+      - name: Run bidirectional TCP, UDP fragmentation, authentication and reload interop
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: >-
+          cargo test --workspace --all-features
+          --test hysteria2_official_interop
+          --test hysteria2_sing_box_interop
+          -- --include-ignored --test-threads=1
