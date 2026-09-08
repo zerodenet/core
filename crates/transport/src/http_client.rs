@@ -8,8 +8,10 @@ use hyper_util::{
 };
 use std::{io, sync::Arc, time::Duration};
 
+type OriginClient = Client<HttpsConnector<HttpConnector>, Full<Bytes>>;
+
 #[derive(Clone)]
-pub struct HttpClient(Client<HttpsConnector<HttpConnector>, Full<Bytes>>);
+pub struct HttpClient(Arc<OriginClient>);
 impl std::fmt::Debug for HttpClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("HttpClient")
@@ -34,12 +36,12 @@ impl HttpClient {
             .https_or_http()
             .enable_http1()
             .wrap_connector(tcp);
-        Ok(Self(
+        Ok(Self(Arc::new(
             Client::builder(TokioExecutor::new())
                 .pool_idle_timeout(Duration::from_secs(30))
                 .pool_max_idle_per_host(4)
                 .build(connector),
-        ))
+        )))
     }
     pub async fn send(
         &self,

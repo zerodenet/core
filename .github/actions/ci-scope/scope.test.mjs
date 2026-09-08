@@ -44,6 +44,7 @@ test('build, dependency, workflow and native changes require full coverage', () 
     '.github/workflows/ci.yml', '.github/actions/ci-scope/scope.mjs',
     'scripts/prepare-wintun.ps1', 'crates/platform/tokio/src/lib.rs',
     'crates/transport/src/tls.rs', 'crates/ztls/src/lib.rs',
+    'vendor/quinn-proto/src/connection/pacing.rs', 'vendor/h3-quinn/src/lib.rs',
   ]) assert.deepEqual(selectScope([path]), selectedFull, path);
 });
 

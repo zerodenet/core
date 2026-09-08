@@ -33,7 +33,7 @@ export function selectScope(paths) {
   // Keep native/crypto/transport changes on the compatibility gate. Ordinary
   // domain logic is tested on Linux; scheduled/manual runs check every surface.
   const compatibility = buildChanged || relevant.some(path => startsWithAny(path, [
-    'protocols/', 'crates/platform/', 'crates/tun/',
+    'vendor/', 'protocols/', 'crates/platform/', 'crates/tun/',
     'crates/transport/', 'crates/ztls/',
     'src/application/inspect.rs', 'crates/proxy/src/validation.rs',
     'tests/validate_isolation.rs',
@@ -44,7 +44,7 @@ export function selectScope(paths) {
   const tun = buildChanged || relevant.some(path => startsWithAny(path, [
     'crates/config/', 'crates/platform/', 'crates/proxy/', 'crates/router/',
     'crates/stack/', 'crates/traits/', 'crates/transport/', 'crates/tun/',
-    'crates/ztls/', 'protocols/', 'proto/', 'src/application/tun', 'tests/tun',
+    'vendor/', 'crates/ztls/', 'protocols/', 'proto/', 'src/application/tun', 'tests/tun',
   ])) || relevant.includes('scripts/prepare-wintun.ps1') || qualificationPolicyChanged;
   return selectedScope(true, compatibility, tun);
 }
