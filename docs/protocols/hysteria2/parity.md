@@ -16,10 +16,10 @@
 | 认证响应 UDP 能力、接收带宽解析 | 已实现 | 协议拥有解析和 UDP 拒绝；缺失/异常头按参考实现默认值处理 |
 | 认证取消与 HTTP/3 任务回收 | 已实现 | 协议连接 guard；认证等待取消后对端可观察连接关闭 |
 | 私有 CA、证书固定、客户端证书、ECH | 待实现或逐项审计 | 配置 ADT 在 config；协议建 profile；TLS 机制在 transport |
-| 带宽配置、Brutal、BBR 配置 | 已接入，扩展验收中 | 协议拥有协商和 Brutal；共享 QUIC 执行独立 pacing；BBR/Reno 选择和 BBR 初始窗口；官方 BBR 三档仍未实现 |
+| 带宽配置、Brutal、BBR 配置 | 已实现，有回归与互通证据 | 协议拥有协商和 Brutal；共享 QUIC 执行独立 pacing；BBR/Reno 选择和 BBR 初始窗口；官方 BBR 三档仍未实现 |
 | Salamander、Gecko | 待实现 | 协议拥有混淆编解码，transport 提供中立 datagram 包装；官方端双向和边界测试 |
-| QUIC 窗口、保活、PMTU、连接复用/恢复 | 参数和 TCP 池已接入，验收中 | 固定窗口、保活、PMTU；TCP 单次建连、并发复用、重建、重载和空闲回收；UDP 保留已有独立流缓存，长稳与跨流共享仍待验收/实现 |
-| HTTP/3 伪装站点/代理 | 已接入，扩展验收中 | 静态文件、固定 HTTP/HTTPS 源站代理、固定内容；认证前后持续 HTTP/3 分流；有界请求与任务回收 |
+| QUIC 窗口、保活、PMTU、连接复用/恢复 | 参数和 TCP 池已实现，有边界回归 | 固定窗口、保活、PMTU；TCP 单次建连、并发复用、重建、重载和空闲回收；UDP 保留已有独立流缓存，长稳与跨流共享仍待验收/实现 |
+| HTTP/3 伪装站点/代理 | 已实现，有回归与互通证据 | 静态文件、固定 HTTP/HTTPS 源站代理、固定内容；认证前后持续 HTTP/3 分流；有界请求与任务回收 |
 | 端口跳跃、Fast Open、Mimic、Realm | 待逐项设计和实现 | 根据官方稳定版源码列明载体依赖、平台限制和可测行为 |
 | 官方应用的 ACL、DNS、TUN、管理/统计 API | 映射已有 Zero 能力 | 复用 engine/router/dns/tun/api；不在 HY2 内建立第二套应用或控制面 |
 
@@ -46,3 +46,14 @@ HY2、共享传输和代理相关改动自动触发，也可手动运行。
 这份证据覆盖基础会话互通，不代表上表其余未完成项已经实现。
 
 详细字段、默认值、连接恢复边界及与官方剩余差异见[传输与伪装配置](transport.md)。
+
+2026-09-09，提交 `328a0344` 的[扩展互通验收](https://github.com/zerodenet/core/actions/runs/34250434280)
+通过官方 6 项与 sing-box 6 项测试，包含配置固定带宽后双向 TCP/UDP 的 Brutal 协商路径。
+独立 QUIC pacing 回归 6 项通过，HY2 运行时 11 项回归覆盖双向协商、丢包补偿、认证取消、
+UDP 保活回收、TCP 连接池、持续 HTTP/3 分流、静态文件和固定源站代理。
+这些结果不替代受控丢包、延迟、带宽整形下的长时间吞吐验收。
+
+同一代码提交的[工作区 CI](https://github.com/zerodenet/core/actions/runs/34250434333)
+通过 1477 项测试（87 项显式忽略）、严格 Clippy、Linux/macOS/Windows 平台检查和 musl 构建；
+[特权 TUN 验收](https://github.com/zerodenet/core/actions/runs/34250434334)在三个平台均通过。
+忽略的外部程序和特权用例按各自工作流单独执行，不计入普通工作区通过数量。
