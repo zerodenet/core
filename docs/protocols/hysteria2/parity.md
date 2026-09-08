@@ -10,11 +10,11 @@
 
 | 对象 | 实现状态 | 归属与后续验收 |
 | --- | --- | --- |
-| TCPRequest/TCPResponse、增量 varint 和长度边界 | 已实现 | `protocols/hysteria2`；确定性分段/粘包测试，sing-box 双向互通 |
-| UDPMessage、分片/有界重组 | 已实现，部分外部验收 | 协议模块；补官方端双向、乱序、重复、超时、MTU 和多跳大包验收 |
-| TLS 校验、`insecure` 与独立 `server_name` | 本批修复 | 通用 `zero-transport::quic`；HY2 适配器传递策略，TCP/UDP/packet-path 一致 |
-| 认证响应 UDP 能力、接收带宽解析 | 本批实现 | 协议拥有解析和 UDP 拒绝；缺失/异常头按参考实现默认值处理 |
-| 认证取消与 HTTP/3 任务回收 | 本批修复 | 协议连接 guard；认证等待取消后对端可观察连接关闭 |
+| TCPRequest/TCPResponse、增量 varint 和长度边界 | 已实现 | `protocols/hysteria2`；确定性分段/粘包测试，官方 v2.12.2 与 sing-box 双向互通 |
+| UDPMessage、分片/有界重组 | 已实现，部分外部验收 | 协议模块；官方端双向 1600 字节通过；补乱序、重复、超时、MTU 和多跳大包外部验收 |
+| TLS 校验、`insecure` 与独立 `server_name` | 已实现 | 通用 `zero-transport::quic`；HY2 适配器传递策略，TCP/UDP/packet-path 一致 |
+| 认证响应 UDP 能力、接收带宽解析 | 已实现 | 协议拥有解析和 UDP 拒绝；缺失/异常头按参考实现默认值处理 |
+| 认证取消与 HTTP/3 任务回收 | 已实现 | 协议连接 guard；认证等待取消后对端可观察连接关闭 |
 | 私有 CA、证书固定、客户端证书、ECH | 待实现或逐项审计 | 配置 ADT 在 config；协议建 profile；TLS 机制在 transport |
 | 带宽配置、Brutal、BBR 配置 | 待实现 | 协议处理收发带宽协商；通用 QUIC 执行拥塞控制，不在 proxy 模拟算法 |
 | Salamander、Gecko | 待实现 | 协议拥有混淆编解码，transport 提供中立 datagram 包装；官方端双向和边界测试 |
@@ -39,3 +39,7 @@
 下载后校验发布资产 SHA-256，再运行官方端四项和 sing-box 六项互通测试。
 HY2、共享传输和代理相关改动自动触发，也可手动运行。
 本地以 `HY2_BIN`、`SING_BOX_BIN` 指定同版本程序，执行该工作流中的同一 Cargo 命令。
+
+2026-09-08，代码提交 `2932c882` 的[自动互通验收](https://github.com/zerodenet/core/actions/runs/34245710843)
+通过全部 10 项测试（官方 4 项、sing-box 6 项），官方服务端保留默认 SNI 防护。
+这份证据覆盖基础会话互通，不代表上表其余未完成项已经实现。
