@@ -71,6 +71,7 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
         server,
         port,
         password,
+        insecure,
         client_fingerprint,
         ..
     } = protocol
@@ -83,6 +84,7 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
         *port,
         Hysteria2OutboundOptionsRef {
             password,
+            insecure: *insecure,
             client_fingerprint: client_fingerprint.as_deref(),
         },
     ))

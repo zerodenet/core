@@ -42,3 +42,4 @@ zero-traits = { path = "../../crates/traits" }
 
 [dev-dependencies]
 ring = { version = "0.17" }
+rcgen = "0.14"

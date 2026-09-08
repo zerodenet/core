@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+pub mod handshake;
 pub mod inbound;
 mod metadata;
 mod outbound;

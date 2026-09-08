@@ -20,6 +20,7 @@ pub(crate) struct Hysteria2Http3ServerGuard {
 pub struct Hysteria2AuthenticatedConnection {
     connection: quinn::Connection,
     authentication: AuthenticationGuard,
+    negotiated: crate::handshake::AuthResponse,
 }
 
 enum AuthenticationGuard {
@@ -35,16 +36,32 @@ impl Hysteria2AuthenticatedConnection {
         &self.connection
     }
 
+    pub fn negotiated(&self) -> crate::handshake::AuthResponse {
+        self.negotiated
+    }
+
+    pub(crate) fn require_udp(&self) -> Result<(), RuntimeError> {
+        if !self.negotiated.udp_enabled || self.connection.max_datagram_size().is_none() {
+            return Err(RuntimeError::Io(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "hysteria2 server does not support UDP relay",
+            )));
+        }
+        Ok(())
+    }
+
     pub(crate) fn legacy(connection: quinn::Connection) -> Self {
         Self {
             connection,
             authentication: AuthenticationGuard::Legacy,
+            negotiated: crate::handshake::AuthResponse::from_headers(Some("true"), Some("0")),
         }
     }
 }
 
 impl Drop for Hysteria2AuthenticatedConnection {
     fn drop(&mut self) {
+        self.connection.close(0x100u32.into(), b"");
         if let AuthenticationGuard::Http3 { driver, .. } = &self.authentication {
             driver.abort();
         }
@@ -55,14 +72,6 @@ pub async fn authenticate_http3(
     connection: quinn::Connection,
     password: &str,
 ) -> Result<Hysteria2AuthenticatedConnection, RuntimeError> {
-    let h3_connection = h3_quinn::Connection::new(connection.clone());
-    let (mut driver, mut request_sender) = h3::client::new(h3_connection)
-        .await
-        .map_err(h3_error("initialize HTTP/3 client"))?;
-    let driver = tokio::spawn(async move {
-        let _ = poll_fn(|context| driver.poll_close(context)).await;
-    });
-
     let request = http::Request::builder()
         .method(http::Method::POST)
         .uri("https://hysteria/auth")
@@ -74,6 +83,29 @@ pub async fn authenticate_http3(
                 "hysteria2 build authentication request: {error}"
             )))
         })?;
+    let h3_connection = h3_quinn::Connection::new(connection.clone());
+    let (mut driver, request_sender) = h3::client::new(h3_connection)
+        .await
+        .map_err(h3_error("initialize HTTP/3 client"))?;
+    let driver = tokio::spawn(async move {
+        let _ = poll_fn(|context| driver.poll_close(context)).await;
+    });
+
+    let mut authenticated = Hysteria2AuthenticatedConnection {
+        connection,
+        negotiated: crate::handshake::AuthResponse::from_headers(None, None),
+        authentication: AuthenticationGuard::Http3 {
+            _request_sender: request_sender,
+            driver,
+        },
+    };
+    let AuthenticationGuard::Http3 {
+        _request_sender: request_sender,
+        ..
+    } = &mut authenticated.authentication
+    else {
+        unreachable!()
+    };
     let mut request_stream = request_sender
         .send_request(request)
         .await
@@ -87,7 +119,6 @@ pub async fn authenticate_http3(
         .await
         .map_err(h3_error("receive authentication response"))?;
     if response.status().as_u16() != 233 {
-        driver.abort();
         return Err(RuntimeError::Io(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!(
@@ -96,15 +127,18 @@ pub async fn authenticate_http3(
             ),
         )));
     }
+    authenticated.negotiated = crate::handshake::AuthResponse::from_headers(
+        response
+            .headers()
+            .get("hysteria-udp")
+            .and_then(|value| value.to_str().ok()),
+        response
+            .headers()
+            .get("hysteria-cc-rx")
+            .and_then(|value| value.to_str().ok()),
+    );
     drop(request_stream);
-
-    Ok(Hysteria2AuthenticatedConnection {
-        connection,
-        authentication: AuthenticationGuard::Http3 {
-            _request_sender: request_sender,
-            driver,
-        },
-    })
+    Ok(authenticated)
 }
 
 pub(crate) async fn authenticate_http3_inbound(
@@ -190,3 +224,7 @@ where
 {
     move |error| RuntimeError::Io(io::Error::other(format!("hysteria2 {stage}: {error}")))
 }
+
+#[cfg(test)]
+#[path = "tests/auth.rs"]
+mod tests;

@@ -25,7 +25,8 @@ async fn open_udp_profile_connection(
     profile: crate::udp::Hysteria2UdpConnectorProfile,
     sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
-    let quic_profile = Hysteria2QuicProfile::from_parts(profile.client_fingerprint());
+    let quic_profile = Hysteria2QuicProfile::from_parts(profile.client_fingerprint())
+        .with_insecure(profile.insecure());
     let connection = open_quic_connection(QuicConnectionOptions {
         server,
         port,
@@ -36,9 +37,9 @@ async fn open_udp_profile_connection(
     })
     .await?;
     if negotiated_alpn(&connection).as_deref() == Some(b"h3") {
-        authenticate_http3(connection, profile.password())
-            .await
-            .map(Arc::new)
+        let authenticated = authenticate_http3(connection, profile.password()).await?;
+        authenticated.require_udp()?;
+        Ok(Arc::new(authenticated))
     } else {
         let (send, recv) = connection.open_bi().await.map_err(|error| {
             RuntimeError::Io(std::io::Error::other(format!("hysteria2 open_bi: {error}")))

@@ -30,3 +30,4 @@ UDP 仍标记为 `partial`，因为 packet-path/多跳大包和长稳故障恢�
 - [入站](./inbound.md)
 - [出站](./outbound.md)
 - [公共约定](./shared.md)
+- [官方实现对齐清单](./parity.md)

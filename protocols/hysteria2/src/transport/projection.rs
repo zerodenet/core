@@ -9,6 +9,11 @@ use super::{
 };
 
 impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
+    pub fn with_insecure(mut self, insecure: bool) -> Self {
+        self.insecure = insecure;
+        self
+    }
+
     pub fn new(
         tag: &'a str,
         server: &'a str,
@@ -22,6 +27,7 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
             port,
             password,
             client_fingerprint,
+            insecure: false,
         }
     }
 
@@ -34,6 +40,7 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
                 self.password,
                 self.client_fingerprint,
             )
+            .with_insecure(self.insecure)
             .flow_resume(),
         )
     }
@@ -47,6 +54,7 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
                 self.password,
                 self.client_fingerprint,
             )
+            .with_insecure(self.insecure)
             .packet_path_spec()
             .carrier_descriptor(self.server, self.port),
         )
@@ -61,6 +69,7 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
                 self.password,
                 self.client_fingerprint,
             )
+            .with_insecure(self.insecure)
             .packet_path_spec()
             .carrier_build(self.server, self.port),
         )
@@ -68,6 +77,11 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
 }
 
 impl Hysteria2TransportLeaf {
+    pub fn with_insecure(mut self, insecure: bool) -> Self {
+        self.insecure = insecure;
+        self
+    }
+
     pub fn from_options_refs(
         tag: &str,
         server: &str,
@@ -81,6 +95,7 @@ impl Hysteria2TransportLeaf {
             options.password,
             options.client_fingerprint.map(String::from),
         )
+        .with_insecure(options.insecure)
     }
 
     pub fn new(
@@ -96,6 +111,7 @@ impl Hysteria2TransportLeaf {
             port,
             password: password.into(),
             client_fingerprint,
+            insecure: false,
         }
     }
 
@@ -150,6 +166,7 @@ impl Hysteria2TransportLeaf {
             self.port,
             &self.password,
             self.client_fingerprint.as_deref(),
+            self.insecure,
             sockets,
         )
         .await
@@ -163,6 +180,7 @@ impl Hysteria2TransportLeaf {
             &self.password,
             self.client_fingerprint.as_deref(),
         )
+        .with_insecure(self.insecure)
     }
 }
 

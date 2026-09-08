@@ -273,7 +273,7 @@ fn outbound_companion_sockets_use_the_shared_egress_factory() {
     let workspace = workspace_root();
     let sources = [
         workspace.join("crates/transport/src/udp_packet_path.rs"),
-        workspace.join("protocols/hysteria2/src/transport/connection.rs"),
+        workspace.join("crates/transport/src/quic/client.rs"),
         workspace.join("protocols/shadowsocks/src/transport/udp_socket.rs"),
     ];
     for path in sources {
@@ -292,6 +292,11 @@ fn outbound_companion_sockets_use_the_shared_egress_factory() {
             );
         }
     }
+
+    let hysteria2 = read(&workspace.join("protocols/hysteria2/src/transport/connection.rs"));
+    assert!(hysteria2.contains("zero_transport::quic::connect_quic_endpoint"));
+    assert!(hysteria2.contains("options.socket_factory"));
+    assert!(!hysteria2.contains("Endpoint::new"));
 
     let vless = read(&workspace.join("protocols/vless/src/transport/outbound/direct.rs"));
     assert!(vless.contains("OutboundDatagramSocketFactory"));

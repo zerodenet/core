@@ -45,9 +45,11 @@ async fn open_authenticated_hysteria2_quic_connection(
     server: &str,
     port: u16,
     profile: &crate::Hysteria2OutboundProfile,
+    insecure: bool,
     sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
-    let quic_profile = Hysteria2QuicProfile::from_parts(profile.client_fingerprint());
+    let quic_profile =
+        Hysteria2QuicProfile::from_parts(profile.client_fingerprint()).with_insecure(insecure);
     let conn = open_quic_connection(QuicConnectionOptions {
         server,
         port,
@@ -81,11 +83,13 @@ pub async fn connect_hysteria2_tcp_outbound(
     port: u16,
     password: &str,
     client_fingerprint: Option<&str>,
+    insecure: bool,
     sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<zero_transport::TcpRelayStream, RuntimeError> {
     let profile = crate::outbound_profile_from_config_password(password, client_fingerprint);
     let conn =
-        open_authenticated_hysteria2_quic_connection(server, port, &profile, sockets).await?;
+        open_authenticated_hysteria2_quic_connection(server, port, &profile, insecure, sockets)
+            .await?;
     let (send, recv) = conn.connection().open_bi().await.map_err(|error| {
         RuntimeError::Io(io::Error::other(format!("hysteria2 open_bi: {error}")))
     })?;

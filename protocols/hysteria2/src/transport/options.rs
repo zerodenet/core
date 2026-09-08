@@ -14,5 +14,6 @@ pub struct Hysteria2InboundOptionsRef<I> {
 #[derive(Debug, Clone, Copy)]
 pub struct Hysteria2OutboundOptionsRef<'a> {
     pub password: &'a str,
+    pub insecure: bool,
     pub client_fingerprint: Option<&'a str>,
 }

@@ -174,3 +174,8 @@ When changing config, protocol scope, or control surface, update matching docs i
 ## Adapter subdirectory rule
 
 - Adapter subdirectories require multiple real sibling responsibilities. Mieru managed UDP stays in `crates/proxy/src/adapters/mieru/udp.rs`; do not recreate `mieru/udp/flow.rs`. Hysteria2 and Shadowsocks may keep `udp/{flow,packet_path}.rs`, SOCKS5 may keep `udp/{flow,packet_path,upstream_association}.rs`, and VLESS/VMess/Trojan retain adapter-local `listener.rs` because their capability roots and transport listener bridges are separate responsibilities. Transport-owned UDP plans normalize endpoint/resume state through `ManagedDatagramStartPlan` or `ManagedStreamPacketBridgePlan`; proxy adds only runtime context.
+
+## QUIC client security
+
+- Shared QUIC client TLS configuration and endpoint dialing live in `crates/transport/src/quic/client.rs`. Protocol profiles select trust policy; owning adapters must preserve it for TCP, UDP and packet-path. Insecure mode skips chain/name verification only, not handshake signature verification. Protocol-owned UDP cache identities must distinguish trust policy and fingerprint.
+- Hysteria2 HTTP/3 authentication header semantics and connection guards live in `protocols/hysteria2`; the generic proxy runtime must not parse these headers or choose protocol congestion policy. Official feature parity and qualification gaps are tracked in `docs/protocols/hysteria2/parity.md`.
