@@ -77,3 +77,11 @@ UDP 保活回收、TCP 连接池、持续 HTTP/3 分流、静态文件和固定�
 通过 1477 项测试（87 项显式忽略）、严格 Clippy、Linux/macOS/Windows 平台检查和 musl 构建；
 [特权 TUN 验收](https://github.com/zerodenet/core/actions/runs/34250434334)在三个平台均通过。
 本轮额外执行 HY2 外部程序互通与特权 TUN 用例，不计入普通工作区通过数量；其余忽略项不标记为已验收。
+
+2026-09-09，提交 `998caade` 将 Zero 配置统一为 `up_bps/down_bps`，并增加共享传输层的
+QUIC 连接发送上限。[工作区 CI](https://github.com/zerodenet/core/actions/runs/34259033921)
+通过 1483 项测试（87 项显式忽略）、严格 Clippy、三平台检查及 musl 构建；新增回归覆盖
+无 principal 时多流与 datagram 共用连接上限、协议协商后保留上限、配置方向映射和预算取消。
+[外部互通](https://github.com/zerodenet/core/actions/runs/34259033916)通过官方 6 项、sing-box 6 项及
+独立 pacing 6 项；Zero 使用统一字段，官方端保留自己的 bandwidth 配置。
+[特权 TUN 验收](https://github.com/zerodenet/core/actions/runs/34259033943)三个平台均通过。
