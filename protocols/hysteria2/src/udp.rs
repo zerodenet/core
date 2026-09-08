@@ -4,6 +4,7 @@ use alloc::borrow::ToOwned;
 #[cfg(feature = "tokio")]
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::sync::Arc;
 #[cfg(feature = "tokio")]
 use alloc::vec;
 use alloc::vec::Vec;
@@ -15,8 +16,6 @@ use zero_core::{
 };
 use zero_traits::DatagramCodec;
 
-#[cfg(feature = "tokio")]
-use alloc::sync::Arc;
 #[cfg(feature = "tokio")]
 use tokio::sync::{broadcast, mpsc};
 #[cfg(all(feature = "tokio", feature = "crypto"))]

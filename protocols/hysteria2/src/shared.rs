@@ -8,6 +8,14 @@ use alloc::vec::Vec;
 use zero_core::{Address, Error};
 use zero_traits::AsyncSocket;
 
+mod stream;
+pub(crate) use stream::{discard_exact, read_bounded_length, read_tcp_connect_header};
+
+// Match the reference implementation's TCP framing limits.
+pub(crate) const MAX_ADDRESS_LENGTH: usize = 2048;
+pub(crate) const MAX_MESSAGE_LENGTH: usize = 2048;
+pub(crate) const MAX_PADDING_LENGTH: usize = 4096;
+
 pub const HYSTERIA2_VERSION: u8 = 0x02;
 
 pub const AUTH_OK: u8 = 0x01;
@@ -85,6 +93,9 @@ pub fn parse_tcp_connect_header(data: &[u8]) -> Result<(Address, u16), Error> {
     let address_start = request_id_len + address_len_len;
     let address_len = usize::try_from(address_len)
         .map_err(|_| Error::Protocol("hysteria2: address length overflow"))?;
+    if address_len == 0 || address_len > MAX_ADDRESS_LENGTH {
+        return Err(Error::Protocol("hysteria2: invalid address length"));
+    }
     let address_end = address_start
         .checked_add(address_len)
         .ok_or(Error::Protocol("hysteria2: address length overflow"))?;
@@ -97,6 +108,9 @@ pub fn parse_tcp_connect_header(data: &[u8]) -> Result<(Address, u16), Error> {
     let padding_start = address_end + padding_len_len;
     let padding_len = usize::try_from(padding_len)
         .map_err(|_| Error::Protocol("hysteria2: padding length overflow"))?;
+    if padding_len > MAX_PADDING_LENGTH {
+        return Err(Error::Protocol("hysteria2: invalid padding length"));
+    }
     if data.len() < padding_start.saturating_add(padding_len) {
         return Err(Error::Protocol("hysteria2: truncated TCPRequest padding"));
     }

@@ -17,9 +17,13 @@ Zero 的 Hysteria2 实现使用标准 QUIC/HTTP/3 `POST /auth` 建立会话，�
 - sing-box v1.13.14 → Zero：TCP、UDP、1600 字节 UDP 分片/重组通过。
 - Zero → sing-box v1.13.14：TCP、UDP、1600 字节 UDP 分片/重组通过。
 - sing-box 使用错误密码连接 Zero：HTTP/3 鉴权拒绝，目标连接未建立。
+- 凭据热更新：旧连接被清退、旧密码不能建立新连接，新密码访问成功。
 - 入口：`crates/proxy/tests/hysteria2_sing_box_interop.rs`。
 
-UDP 仍标记为 `partial`，因为 packet-path/多跳大包、在线用户变更后的外部清退和长稳故障恢复尚未完成外部验收。
+2026-09-08 使用从 v1.13.14 源码构建的 sing-box 复验，6 项外部测试全部通过。
+TCP 头部的分段、合并读取与长度边界另有 11 项确定性回归测试，见[公共约定](./shared.md)。
+
+UDP 仍标记为 `partial`，因为 packet-path/多跳大包和长稳故障恢复尚未完成外部验收。
 
 ## 文档
 

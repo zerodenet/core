@@ -1,5 +1,6 @@
 // Hysteria2 inbound protocol — inbound.rs
 
+use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec::Vec;
 #[cfg(feature = "crypto")]
@@ -457,15 +458,8 @@ impl Hysteria2Inbound {
     where
         S: AsyncSocket,
     {
-        let mut header_buf = [0u8; 512];
-        let n = stream
-            .read(&mut header_buf)
-            .await
-            .map_err(|_| Error::Io("hysteria2: read tcp connect header"))?;
-        if n == 0 {
-            return Err(Error::Protocol("hysteria2: EOF on tcp connect stream"));
-        }
-        self.accept_tcp_connect_header(&header_buf[..n])
+        let (target, port) = crate::shared::read_tcp_connect_header(stream).await?;
+        Ok(Session::new(0, target, port, Network::Tcp, self.protocol()))
     }
 
     pub fn connect_ok_response(&self) -> Vec<u8> {

@@ -4,7 +4,10 @@ use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::shared::build_tcp_connect_header;
+use crate::shared::{
+    build_tcp_connect_header, discard_exact, read_bounded_length, MAX_MESSAGE_LENGTH,
+    MAX_PADDING_LENGTH,
+};
 use crate::udp::{Hysteria2UdpPacket, Hysteria2UdpPacketTarget};
 use zero_core::{Error, ProtocolType, Session};
 use zero_traits::{AsyncSocket, UdpDatagramFraming};
@@ -125,9 +128,19 @@ impl Hysteria2Outbound {
     pub async fn read_connect_response<S: AsyncSocket>(&self, stream: &mut S) -> Result<(), Error> {
         let mut status = [0u8; 1];
         crate::shared::read_exact(stream, &mut status).await?;
-        let message_len = read_varint_from_stream(stream).await?;
+        let message_len = read_bounded_length(
+            stream,
+            MAX_MESSAGE_LENGTH,
+            "hysteria2: invalid message length",
+        )
+        .await?;
         discard_exact(stream, message_len).await?;
-        let padding_len = read_varint_from_stream(stream).await?;
+        let padding_len = read_bounded_length(
+            stream,
+            MAX_PADDING_LENGTH,
+            "hysteria2: invalid padding length",
+        )
+        .await?;
         discard_exact(stream, padding_len).await?;
         if status[0] == 0x00 {
             Ok(())
@@ -164,34 +177,6 @@ impl Hysteria2Outbound {
         self.send_tcp_connect(stream, session).await?;
         self.read_connect_response(stream).await
     }
-}
-
-async fn read_varint_from_stream<S: AsyncSocket>(stream: &mut S) -> Result<usize, Error> {
-    let mut first = [0u8; 1];
-    crate::shared::read_exact(stream, &mut first).await?;
-    let width = 1usize << (first[0] >> 6);
-    let mut value = usize::from(first[0] & 0x3f);
-    if width > 1 {
-        let mut tail = [0u8; 7];
-        crate::shared::read_exact(stream, &mut tail[..width - 1]).await?;
-        for byte in &tail[..width - 1] {
-            value = value
-                .checked_shl(8)
-                .and_then(|value| value.checked_add(usize::from(*byte)))
-                .ok_or(Error::Protocol("hysteria2: QUIC varint overflow"))?;
-        }
-    }
-    Ok(value)
-}
-
-async fn discard_exact<S: AsyncSocket>(stream: &mut S, mut remaining: usize) -> Result<(), Error> {
-    let mut buffer = [0u8; 256];
-    while remaining > 0 {
-        let take = remaining.min(buffer.len());
-        crate::shared::read_exact(stream, &mut buffer[..take]).await?;
-        remaining -= take;
-    }
-    Ok(())
 }
 
 impl<'a> UdpDatagramFraming<Hysteria2UdpPacketTarget<'a>, ()> for Hysteria2Outbound {
