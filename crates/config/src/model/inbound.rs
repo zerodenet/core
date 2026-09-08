@@ -165,8 +165,10 @@ impl InboundProtocolConfig {
         }
     }
 
-    /// Global (per-inbound) rate limits. Returns `(up_bps, down_bps)`.
-    /// Per-user limits are handled separately by protocol accept handlers.
+    /// Inbound defaults for session upload/download limits, in bytes per second.
+    /// Protocol-authenticated per-user values take precedence. These defaults
+    /// do not create an inbound-wide aggregate limiter: matching principal
+    /// policies share a timeline, while anonymous sessions are independent.
     pub fn rate_limits(&self) -> (Option<u64>, Option<u64>) {
         match self {
             Self::Trojan {
