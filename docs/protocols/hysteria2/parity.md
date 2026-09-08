@@ -56,4 +56,4 @@ UDP 保活回收、TCP 连接池、持续 HTTP/3 分流、静态文件和固定�
 同一代码提交的[工作区 CI](https://github.com/zerodenet/core/actions/runs/34250434333)
 通过 1477 项测试（87 项显式忽略）、严格 Clippy、Linux/macOS/Windows 平台检查和 musl 构建；
 [特权 TUN 验收](https://github.com/zerodenet/core/actions/runs/34250434334)在三个平台均通过。
-忽略的外部程序和特权用例按各自工作流单独执行，不计入普通工作区通过数量。
+本轮额外执行 HY2 外部程序互通与特权 TUN 用例，不计入普通工作区通过数量；其余忽略项不标记为已验收。
