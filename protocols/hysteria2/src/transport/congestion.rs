@@ -1,6 +1,6 @@
 //! Protocol congestion selection; the QUIC carrier only executes the controller.
 use crate::settings::{Congestion, Settings};
-use quinn::congestion::{BbrConfig, Controller, ControllerFactory, NewRenoConfig};
+use quinn::congestion::{Controller, ControllerFactory, NewRenoConfig};
 use quinn_proto::RttEstimator;
 use std::{
     any::Any,
@@ -10,6 +10,8 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use zero_transport::quic::bbr::BbrConfig;
+mod bbr;
 mod brutal;
 use brutal::Brutal;
 
@@ -18,8 +20,10 @@ impl ControllerFactory for Factory {
     fn build(self: Arc<Self>, now: Instant, mtu: u16) -> Box<dyn Controller> {
         let adaptive = match self.0.congestion {
             Congestion::Bbr => {
-                let mut config = BbrConfig::default();
-                config.initial_window(self.0.bbr_initial_window);
+                let config = BbrConfig {
+                    parameters: bbr::parameters(self.0.bbr_profile),
+                    initial_window: self.0.bbr_initial_window,
+                };
                 Arc::new(config).build(now, mtu)
             }
             Congestion::Reno => Arc::new(NewRenoConfig::default()).build(now, mtu),
@@ -55,6 +59,9 @@ impl NegotiatedController {
     }
 }
 impl Controller for NegotiatedController {
+    fn on_packet_event(&mut self, event: quinn_proto::congestion::PacketEvent) {
+        self.selected_mut().on_packet_event(event);
+    }
     fn on_sent(&mut self, now: Instant, bytes: u64, pn: u64) {
         self.selected_mut().on_sent(now, bytes, pn);
     }

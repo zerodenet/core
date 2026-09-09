@@ -1,7 +1,7 @@
 //! Logic for controlling the rate at which data is sent
 
-use crate::Instant;
 use crate::connection::RttEstimator;
+use crate::Instant;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -15,6 +15,9 @@ pub use new_reno::{NewReno, NewRenoConfig};
 
 /// Common interface for different congestion controllers
 pub trait Controller: Send + Sync {
+    /// Exact packet feedback for controllers with delivery-rate samplers.
+    /// Legacy callbacks remain unchanged; implementations opt into this stream.
+    fn on_packet_event(&mut self, _event: PacketEvent) {}
     /// One or more packets were just sent
     #[allow(unused_variables)]
     fn on_sent(&mut self, now: Instant, bytes: u64, last_packet_number: u64) {}
@@ -60,7 +63,9 @@ pub trait Controller: Send + Sync {
     );
 
     /// Optional explicit pacing rate in bytes per second. None keeps RFC 9002 pacing.
-    fn pacing_rate(&self) -> Option<u64> { None }
+    fn pacing_rate(&self) -> Option<u64> {
+        None
+    }
 
     /// Non-probe packets declared lost in this event (not an ECN notification).
     #[allow(unused_variables)]
@@ -89,6 +94,65 @@ pub trait Controller: Send + Sync {
 
     /// Returns Self for use in down-casting to extract implementation details
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
+}
+
+/// Packet identity includes its number space (Initial, Handshake, or Data).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PacketKey(
+    /// Packet number space, encoded as Initial=0, Handshake=1, Data=2.
+    pub u8,
+    /// Packet number within that space.
+    pub u64,
+);
+
+/// Neutral, per-packet feedback. `FeedbackEnd` follows ACK processing and loss
+/// detection, including timer-driven loss, so a sampler sees one coherent batch.
+#[derive(Debug, Clone, Copy)]
+pub enum PacketEvent {
+    /// One QUIC packet has been built, before it enters flight accounting.
+    Sent {
+        /// Packet identity.
+        key: PacketKey,
+        /// Send time.
+        now: Instant,
+        /// Congestion-accounted packet size in bytes.
+        bytes: u64,
+        /// Bytes in flight before this packet.
+        in_flight: u64,
+        /// Whether the packet contributes to congestion-controlled flight.
+        ack_eliciting: bool,
+    },
+    /// A tracked packet was acknowledged in the current feedback batch.
+    Acked {
+        /// Packet identity.
+        key: PacketKey,
+    },
+    /// A non-PMTU-probe packet was declared lost in the current batch.
+    Lost {
+        /// Packet identity.
+        key: PacketKey,
+        /// Lost congestion-accounted bytes.
+        bytes: u64,
+    },
+    /// Forget a packet without attributing congestion loss (for example an MTU probe).
+    Discarded {
+        /// Packet identity.
+        key: PacketKey,
+    },
+    /// Forget all samples in a retired packet number space.
+    DiscardSpace {
+        /// Packet number space, using the same encoding as `PacketKey`.
+        space: u8,
+    },
+    /// ACK and loss accounting, and the RTT estimator update, are complete.
+    FeedbackEnd {
+        /// Feedback time.
+        now: Instant,
+        /// Bytes still in flight after this batch.
+        in_flight: u64,
+        /// Transport's minimum measured RTT.
+        min_rtt: std::time::Duration,
+    },
 }
 
 /// Common congestion controller metrics

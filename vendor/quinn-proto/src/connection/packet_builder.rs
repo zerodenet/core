@@ -213,6 +213,15 @@ impl PacketBuilder {
         };
 
         conn.path
+            .congestion
+            .on_packet_event(crate::congestion::PacketEvent::Sent {
+                key: crate::congestion::PacketKey(space_id as u8, exact_number),
+                now,
+                bytes: size as u64,
+                in_flight: conn.path.in_flight.bytes,
+                ack_eliciting,
+            });
+        conn.path
             .sent(exact_number, packet, &mut conn.spaces[space_id]);
         conn.stats.path.sent_packets += 1;
         conn.reset_keep_alive(now);

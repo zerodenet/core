@@ -21,6 +21,7 @@ HY2 与 Zero 其他限速配置使用相同的 `up_bps/down_bps`，整数单位�
     "congestion": {
       "type": "bbr",
       "bbr_initial_window": 38400,
+      "bbr_profile": "standard",
       "disable_loss_compensation": false
     },
     "quic": {
@@ -88,8 +89,10 @@ HY2 不将自己的带宽字段隐式绑定到这两种独立策略。内核 `Se
 至少 50 个样本和 0.8 ACK 比例下限进行丢包补偿；可用 `congestion.disable_loss_compensation` 关闭补偿。
 低 RTT 下拥塞窗口至少保留两个 QUIC 数据包，以满足 Quinn 的发包边界。
 
-BBR 使用 Quinn 的 BBR 实现，`bbr_initial_window` 的单位为字节，允许 4,800–16,777,216。
-这不是官方 Go 实现的逐行移植，也不等同于官方 `conservative/standard/aggressive` 三档；这些档位尚未实现。
+BBR 使用共享传输层的采样和控制器实现，协议将 `bbr_profile` 映射到
+`standard`（默认）、`conservative`、`aggressive` 对应参数。档位只在协商选择自适应 BBR 时生效。
+`bbr_initial_window` 独立控制初始窗口，单位为字节，默认 38,400，允许 4,800–16,777,216。
+档位变化会更新连接缓存身份，重载沿用现有连接退役规则。实现边界和验收见 [BBR 对齐](bbr.md)。
 
 ## QUIC 参数
 

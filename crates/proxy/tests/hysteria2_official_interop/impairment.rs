@@ -1,6 +1,7 @@
 //! One-client UDP link with deterministic data loss and 10 ms one-way delay.
 use std::{
-    collections::VecDeque,
+    cmp::Reverse,
+    collections::BinaryHeap,
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
@@ -15,6 +16,7 @@ pub(super) struct Counters {
     pub packets: u64,
     pub bytes: u64,
     pub dropped: u64,
+    pub peak_queue_us: u64,
 }
 
 pub(super) struct Link {
@@ -25,6 +27,10 @@ pub(super) struct Link {
 
 impl Link {
     pub async fn start(server_port: u16, drop_every: u64) -> Self {
+        Self::with_bottleneck(server_port, drop_every, None).await
+    }
+
+    pub async fn with_bottleneck(server_port: u16, drop_every: u64, rate: Option<u64>) -> Self {
         let front = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let address = front.local_addr().unwrap();
         let back = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -35,11 +41,14 @@ impl Link {
             let mut client = None;
             let mut up = vec![0; 65_536];
             let mut down = vec![0; 65_536];
-            let mut pending: VecDeque<(Instant, Option<SocketAddr>, Vec<u8>)> = VecDeque::new();
+            let mut pending =
+                BinaryHeap::<Reverse<(Instant, u64, Option<SocketAddr>, Vec<u8>)>>::new();
+            let mut serial = 0;
+            let mut up_ready = Instant::now();
             loop {
                 let wake = pending
-                    .front()
-                    .map(|p| p.0)
+                    .peek()
+                    .map(|p| p.0 .0)
                     .unwrap_or_else(|| Instant::now() + Duration::from_secs(3600));
                 tokio::select! {
                     packet = front.recv_from(&mut up) => {
@@ -57,15 +66,27 @@ impl Link {
                             drop
                         };
                         if !drop {
-                            pending.push_back((Instant::now() + Duration::from_millis(10), None, up[..len].to_vec()));
+                            let now = Instant::now();
+                            let departure = rate.map_or(now, |rate| up_ready.max(now) + Duration::from_secs_f64(len as f64 / rate as f64));
+                            let queued = departure - now;
+                            if queued > Duration::from_millis(200) {
+                                stats.lock().unwrap().dropped += 1;
+                            } else {
+                                up_ready = departure;
+                                let mut stats = stats.lock().unwrap();
+                                stats.peak_queue_us = stats.peak_queue_us.max(queued.as_micros() as u64);
+                                serial += 1;
+                                pending.push(Reverse((departure + Duration::from_millis(10), serial, None, up[..len].to_vec())));
+                            }
                         }
                     }
                     packet = back.recv(&mut down) => {
                         let len = packet.unwrap();
-                        pending.push_back((Instant::now() + Duration::from_millis(10), client, down[..len].to_vec()));
+                        serial += 1;
+                        pending.push(Reverse((Instant::now() + Duration::from_millis(10), serial, client, down[..len].to_vec())));
                     }
                     _ = sleep_until(wake), if !pending.is_empty() => {
-                        let (_, target, packet) = pending.pop_front().unwrap();
+                        let Reverse((_, _, target, packet)) = pending.pop().unwrap();
                         if let Some(target) = target {
                             front.send_to(&packet, target).await.unwrap();
                         } else {

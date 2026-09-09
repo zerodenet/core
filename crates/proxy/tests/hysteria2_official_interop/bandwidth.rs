@@ -10,21 +10,29 @@ const RATE: u64 = 262_144;
 const PAYLOAD: usize = 2 * 1024 * 1024;
 
 #[derive(Debug)]
-struct Measurement {
-    seconds: f64,
-    wire: Counters,
+pub(super) struct Measurement {
+    pub seconds: f64,
+    pub wire: Counters,
     official_brutal: bool,
+    pub first_chunk_seconds: f64,
+    pub tail_goodput: f64,
+    pub official_profile: bool,
 }
 impl Measurement {
     fn wire_rate(&self) -> f64 {
         self.wire.bytes as f64 / self.seconds
     }
-    fn goodput(&self) -> f64 {
+    pub fn goodput(&self) -> f64 {
         PAYLOAD as f64 / self.seconds
     }
 }
 
-async fn upload(zero_sender: bool, loss: u64, disabled: bool) -> Measurement {
+pub(super) async fn upload(
+    zero_sender: bool,
+    loss: u64,
+    disabled: bool,
+    profile: Option<&str>,
+) -> Measurement {
     let material = TempMaterial::new("hy2-bandwidth-loss");
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let cert_path = material.path("cert.pem");
@@ -33,27 +41,51 @@ async fn upload(zero_sender: bool, loss: u64, disabled: bool) -> Measurement {
     std::fs::write(&key_path, cert.signing_key.serialize_pem()).unwrap();
     let server_port = free_udp_port();
     let socks_port = free_port();
-    let link = Link::start(server_port, loss).await;
+    let link = if profile.is_some() {
+        Link::with_bottleneck(server_port, loss, Some(RATE)).await
+    } else {
+        Link::start(server_port, loss).await
+    };
     let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let target_port = target.local_addr().unwrap().port();
     let sink = tokio::spawn(async move {
         let (mut stream, _) = target.accept().await.unwrap();
         let mut bytes = vec![0; PAYLOAD];
-        stream.read_exact(&mut bytes).await.unwrap();
+        stream.read_exact(&mut bytes[..65_536]).await.unwrap();
+        let first_chunk = Instant::now();
+        stream
+            .read_exact(&mut bytes[65_536..PAYLOAD - 524_288])
+            .await
+            .unwrap();
+        let tail_start = Instant::now();
+        stream
+            .read_exact(&mut bytes[PAYLOAD - 524_288..])
+            .await
+            .unwrap();
+        let finished = Instant::now();
         assert!(bytes.iter().all(|b| *b == 0x5a));
         stream.write_all(b"done").await.unwrap();
+        (first_chunk, tail_start, finished)
     });
-    let client_protocol = serde_json::json!({
+    let mut client_protocol = serde_json::json!({
         "type":"hysteria2", "server":"127.0.0.1", "port":link.address.port(),
         "server_name":"localhost", "insecure":true, "password":"test",
         "up_bps":RATE, "down_bps":RATE,
         "transport":{"congestion":{"disable_loss_compensation":disabled}, "quic":{"disable_path_mtu_discovery":true}}
     });
-    let server_protocol = serde_json::json!({
+    let mut server_protocol = serde_json::json!({
         "type":"hysteria2", "password":"test", "cert_path":cert_path, "key_path":key_path,
         "up_bps":RATE, "down_bps":RATE,
         "transport":{"quic":{"disable_path_mtu_discovery":true}}
     });
+    if let Some(profile) = profile {
+        for protocol in [&mut client_protocol, &mut server_protocol] {
+            protocol["up_bps"] = serde_json::json!(0);
+            protocol["down_bps"] = serde_json::json!(0);
+            protocol["transport"]["congestion"] =
+                serde_json::json!({"type":"bbr", "bbr_profile":profile});
+        }
+    }
     let zero = if zero_sender {
         serde_json::json!({
             "inbounds":[{"tag":"socks", "listen":{"address":"127.0.0.1","port":socks_port}, "protocol":{"type":"socks5"}}],
@@ -75,6 +107,10 @@ async fn upload(zero_sender: bool, loss: u64, disabled: bool) -> Measurement {
     };
     official_config["bandwidth"] = serde_json::json!({"up":"2097152 bps", "down":"2097152 bps", "disableLossCompensation":disabled});
     official_config["quic"] = serde_json::json!({"disablePathMTUDiscovery":true});
+    if let Some(profile) = profile {
+        official_config.as_object_mut().unwrap().remove("bandwidth");
+        official_config["congestion"] = serde_json::json!({"type":"bbr", "bbrProfile":profile});
+    }
     let config_path = material.path("official.json");
     std::fs::write(&config_path, official_config.to_string()).unwrap();
     let proxy = spawn_engine(Proxy::new(RuntimeConfig::parse(&zero.to_string()).unwrap()).unwrap());
@@ -86,7 +122,10 @@ async fn upload(zero_sender: bool, loss: u64, disabled: bool) -> Measurement {
             config_path.to_str().unwrap(),
             "--disable-update-check",
         ],
-        &[("HYSTERIA_BRUTAL_DEBUG", "true")],
+        &[
+            ("HYSTERIA_BRUTAL_DEBUG", "true"),
+            ("HYSTERIA_BBR_DEBUG", "true"),
+        ],
         &material,
         "official",
     );
@@ -94,7 +133,7 @@ async fn upload(zero_sender: bool, loss: u64, disabled: bool) -> Measurement {
     if zero_sender {
         sleep(Duration::from_millis(300)).await;
     }
-    let measurement = timeout(Duration::from_secs(45), async {
+    let (mut measurement, started) = timeout(Duration::from_secs(45), async {
         let mut stream = TcpStream::connect(("127.0.0.1", socks_port)).await.unwrap();
         stream.write_all(&[5, 1, 0]).await.unwrap();
         let mut auth = [0; 2];
@@ -115,15 +154,24 @@ async fn upload(zero_sender: bool, loss: u64, disabled: bool) -> Measurement {
         let mut reply = [0; 4];
         stream.read_exact(&mut reply).await.unwrap();
         assert_eq!(&reply, b"done");
-        Measurement {
-            seconds: start.elapsed().as_secs_f64(),
-            wire: link.counters(),
-            official_brutal: official.logs().contains("BrutalSender"),
-        }
+        (
+            Measurement {
+                seconds: start.elapsed().as_secs_f64(),
+                wire: link.counters(),
+                official_brutal: official.logs().contains("BrutalSender"),
+                first_chunk_seconds: 0.0,
+                tail_goodput: 0.0,
+                official_profile: profile
+                    .is_some_and(|p| official.logs().contains(&format!("Profile: {p}"))),
+            },
+            start,
+        )
     })
     .await
     .unwrap_or_else(|e| panic!("bandwidth comparison: {e}; {}", official.logs()));
-    sink.await.unwrap();
+    let (first_chunk, tail_start, finished) = sink.await.unwrap();
+    measurement.first_chunk_seconds = first_chunk.duration_since(started).as_secs_f64();
+    measurement.tail_goodput = 524_288.0 / finished.duration_since(tail_start).as_secs_f64();
     timeout(Duration::from_secs(5), proxy.shutdown())
         .await
         .unwrap()
@@ -139,7 +187,7 @@ async fn official_and_zero_bandwidth_under_matched_loss_and_compensation_setting
     for zero_sender in [false, true] {
         let mut sender_results = Vec::new();
         for (loss, disabled) in [(0, false), (4, false), (4, true)] {
-            let measured = upload(zero_sender, loss, disabled).await;
+            let measured = upload(zero_sender, loss, disabled, None).await;
             eprintln!("HY2 bandwidth sender={} loss_every={loss} compensation={} goodput_Bps={:.0} wire_Bps={:.0} {:?}",
                 if zero_sender {"zero"} else {"official"}, !disabled, measured.goodput(), measured.wire_rate(), measured);
             assert!(

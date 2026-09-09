@@ -1,5 +1,7 @@
 //! Runtime-independent Hysteria2 transport policy and configuration validation.
 use alloc::string::String;
+mod bbr;
+pub use bbr::BbrProfile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Congestion {
@@ -15,6 +17,7 @@ pub struct Settings {
     pub disable_loss_compensation: bool,
     pub congestion: Congestion,
     pub bbr_initial_window: u64,
+    pub bbr_profile: BbrProfile,
     pub quic: QuicSettings,
 }
 
@@ -51,6 +54,7 @@ impl Default for Settings {
             disable_loss_compensation: false,
             congestion: Congestion::Bbr,
             bbr_initial_window: 32 * 1200,
+            bbr_profile: BbrProfile::Standard,
             quic: QuicSettings::default(),
         }
     }

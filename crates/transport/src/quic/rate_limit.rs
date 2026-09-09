@@ -33,6 +33,9 @@ struct CappedController {
 }
 
 impl Controller for CappedController {
+    fn on_packet_event(&mut self, event: quinn_proto::congestion::PacketEvent) {
+        self.inner.on_packet_event(event);
+    }
     fn on_sent(&mut self, now: Instant, bytes: u64, pn: u64) {
         self.inner.on_sent(now, bytes, pn);
     }

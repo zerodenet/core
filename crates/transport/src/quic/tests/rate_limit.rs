@@ -65,3 +65,29 @@ fn unlimited_connections_keep_the_original_controller() {
         assert_eq!(connection.pacing_rate(), Some(2_000_000));
     }
 }
+
+#[test]
+fn capped_bbr_receives_exact_packet_feedback() {
+    use crate::quic::bbr::BbrConfig;
+    use quinn_proto::congestion::{PacketEvent, PacketKey};
+    let now = Instant::now();
+    let mut controller =
+        cap_factory(Arc::new(BbrConfig::default()), Some(100_000)).build(now, 1200);
+    controller.on_packet_event(PacketEvent::Sent {
+        key: PacketKey(2, 0),
+        now,
+        bytes: 1200,
+        in_flight: 0,
+        ack_eliciting: true,
+    });
+    controller.on_packet_event(PacketEvent::Acked {
+        key: PacketKey(2, 0),
+    });
+    controller.on_packet_event(PacketEvent::FeedbackEnd {
+        now: now + std::time::Duration::from_millis(100),
+        in_flight: 0,
+        min_rtt: std::time::Duration::from_millis(100),
+    });
+    assert_eq!(controller.window(), 39_600);
+    assert_eq!(controller.pacing_rate(), Some(100_000));
+}

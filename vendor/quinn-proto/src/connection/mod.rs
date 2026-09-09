@@ -1499,6 +1499,19 @@ impl Connection {
                 // Notify ack frequency that a packet was acked, because it might contain an ACK_FREQUENCY frame
                 self.ack_frequency.on_acked(packet);
 
+                if self.path.challenge.is_none() {
+                    self.path
+                        .congestion
+                        .on_packet_event(crate::congestion::PacketEvent::Acked {
+                            key: crate::congestion::PacketKey(space as u8, packet),
+                        });
+                } else {
+                    self.path
+                        .congestion
+                        .on_packet_event(crate::congestion::PacketEvent::Discarded {
+                            key: crate::congestion::PacketKey(space as u8, packet),
+                        });
+                }
                 self.on_packet_acked(now, info);
             }
         }
@@ -1750,6 +1763,12 @@ impl Connection {
 
             for &packet in &lost_packets {
                 let info = self.spaces[pn_space].take(packet).unwrap(); // safe: lost_packets is populated just above
+                self.path
+                    .congestion
+                    .on_packet_event(crate::congestion::PacketEvent::Lost {
+                        key: crate::congestion::PacketKey(pn_space as u8, packet),
+                        bytes: info.size as u64,
+                    });
                 self.config.qlog_sink.emit_packet_lost(
                     packet,
                     &info,
@@ -1792,11 +1811,23 @@ impl Connection {
 
         // Handle a lost MTU probe
         if let Some(packet) = lost_mtu_probe {
+            self.path
+                .congestion
+                .on_packet_event(crate::congestion::PacketEvent::Discarded {
+                    key: crate::congestion::PacketKey(SpaceId::Data as u8, packet),
+                });
             let info = self.spaces[SpaceId::Data].take(packet).unwrap(); // safe: lost_mtu_probe is omitted from lost_packets, and therefore must not have been removed yet
             self.remove_in_flight(&info);
             self.path.mtud.on_probe_lost();
             self.stats.path.lost_plpmtud_probes += 1;
         }
+        self.path
+            .congestion
+            .on_packet_event(crate::congestion::PacketEvent::FeedbackEnd {
+                now,
+                in_flight: self.path.in_flight.bytes,
+                min_rtt: self.path.rtt.min(),
+            });
     }
 
     fn loss_time_and_space(&self) -> Option<(Instant, SpaceId)> {
@@ -2183,6 +2214,11 @@ impl Connection {
     }
 
     fn discard_space(&mut self, now: Instant, space_id: SpaceId) {
+        self.path
+            .congestion
+            .on_packet_event(crate::congestion::PacketEvent::DiscardSpace {
+                space: space_id as u8,
+            });
         debug_assert!(space_id != SpaceId::Data);
         trace!("discarding {:?} keys", space_id);
         if space_id == SpaceId::Initial {

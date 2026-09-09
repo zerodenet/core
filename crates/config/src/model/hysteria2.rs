@@ -6,6 +6,7 @@ pub struct Hysteria2CongestionConfig {
     #[serde(rename = "type")]
     pub kind: String,
     pub bbr_initial_window: u64,
+    pub bbr_profile: String,
     pub disable_loss_compensation: bool,
 }
 impl Default for Hysteria2CongestionConfig {
@@ -13,6 +14,7 @@ impl Default for Hysteria2CongestionConfig {
         Self {
             kind: "bbr".into(),
             bbr_initial_window: 38_400,
+            bbr_profile: "standard".into(),
             disable_loss_compensation: false,
         }
     }
@@ -69,6 +71,7 @@ impl Hysteria2TransportConfig {
             disable_loss_compensation: self.congestion.disable_loss_compensation,
             congestion,
             bbr_initial_window: self.congestion.bbr_initial_window,
+            bbr_profile: hysteria2::settings::BbrProfile::parse(&self.congestion.bbr_profile)?,
             quic: QuicSettings {
                 stream_receive_window: q.stream_receive_window,
                 connection_receive_window: q.connection_receive_window,

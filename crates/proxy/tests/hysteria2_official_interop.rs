@@ -1,6 +1,8 @@
 #![cfg(all(feature = "socks5", feature = "hysteria2"))]
 #[path = "hysteria2_official_interop/bandwidth.rs"]
 mod bandwidth;
+#[path = "hysteria2_official_interop/bbr.rs"]
+mod bbr;
 #[path = "hysteria2_official_interop/impairment.rs"]
 mod impairment;
 mod support;

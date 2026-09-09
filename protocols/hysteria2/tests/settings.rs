@@ -102,3 +102,15 @@ fn reverse_proxy_only_accepts_fixed_http_origins() {
     }
     assert!(hysteria2::settings::validate_proxy_url("https://example.com/base").is_ok());
 }
+
+#[test]
+fn bbr_profile_is_part_of_connection_cache_identity() {
+    let make =
+        || hysteria2::udp::Hysteria2UdpFlowConfig::new("hy", "localhost", 443, "password", None);
+    let mut settings = Settings::default();
+    let standard = make().with_settings(settings).cache_key();
+    settings.bbr_profile = hysteria2::settings::BbrProfile::Conservative;
+    assert_ne!(standard, make().with_settings(settings).cache_key());
+    settings.bbr_profile = hysteria2::settings::BbrProfile::Aggressive;
+    assert_ne!(standard, make().with_settings(settings).cache_key());
+}

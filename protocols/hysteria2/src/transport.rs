@@ -120,3 +120,7 @@ mod test_fixtures;
 #[cfg(test)]
 #[path = "transport/tests/bandwidth.rs"]
 mod bandwidth_tests;
+
+#[cfg(test)]
+#[path = "transport/tests/bbr.rs"]
+mod bbr_tests;

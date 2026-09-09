@@ -136,3 +136,33 @@ fn hysteria2_rejects_duplicate_bandwidth_surface_and_invalid_transport_values() 
         );
     }
 }
+
+#[test]
+fn bbr_profiles_validate_and_preserve_independent_initial_window() {
+    for (name, profile) in [
+        ("standard", hysteria2::settings::BbrProfile::Standard),
+        (
+            "conservative",
+            hysteria2::settings::BbrProfile::Conservative,
+        ),
+        ("aggressive", hysteria2::settings::BbrProfile::Aggressive),
+    ] {
+        let config = outbound_with_fields(serde_json::json!({
+            "transport":{"congestion":{"bbr_profile":name,"bbr_initial_window":48_000}}
+        }))
+        .unwrap();
+        let OutboundProtocolConfig::Hysteria2 { transport, .. } = &config.outbounds[0].protocol
+        else {
+            panic!()
+        };
+        let settings = transport.validated(None, None).unwrap();
+        assert_eq!(settings.bbr_profile, profile);
+        assert_eq!(settings.bbr_initial_window, 48_000);
+        let encoded = serde_json::to_string(&config).unwrap();
+        assert_eq!(RuntimeConfig::parse(&encoded).unwrap(), config);
+    }
+    assert!(outbound_with_fields(
+        serde_json::json!({"transport":{"congestion":{"bbr_profile":"turbo"}}})
+    )
+    .is_err());
+}

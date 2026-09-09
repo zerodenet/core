@@ -44,8 +44,27 @@ jobs:
       - uses: ./.github/actions/setup-protoc
         with:
           version: '35.0'
-      - name: Verify QUIC pacing extension
-        run: cargo test --manifest-path vendor/quinn-proto/Cargo.toml --lib connection::pacing
+      - name: Verify QUIC pacing and packet feedback extensions
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/quinn-tests
+        run: cargo test --manifest-path vendor/quinn-proto/Cargo.toml --lib
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - name: Reproduce pinned official BBR state vectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          reference="$RUNNER_TEMP/hysteria-reference"
+          git clone --depth 1 --branch app/v2.12.2 https://github.com/HyNetworks/hysteria.git "$reference"
+          test "$(git -C "$reference" rev-parse HEAD)" = 619a6f856b69fb7ee6a7a379e810e68b84004605
+          vectors="$GITHUB_WORKSPACE/crates/transport/src/quic/bbr/tests/reference"
+          cp "$vectors/generate_test.go" "$reference/core/internal/congestion/bbr/zero_reference_test.go"
+          export ZERO_BBR_EVENTS="$vectors/events.csv"
+          export ZERO_BBR_EXPECTED="$RUNNER_TEMP/bbr-expected.csv"
+          go -C "$reference" test ./core/internal/congestion/bbr -run TestZeroReferenceTrace -count=1
+          cmp "$vectors/expected.csv" "$ZERO_BBR_EXPECTED"
       - name: Download and verify pinned reference binaries
         shell: bash
         run: |
