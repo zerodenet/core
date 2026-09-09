@@ -18,15 +18,20 @@ impl ManagedUdpConnectionCache {
     where
         Fut: Future<Output = Result<SharedManagedUdpConnection, EngineError>>,
     {
-        self.entries.retain(|_, connection| !connection.is_closed());
         let sent = packet.payload.len();
-        if let Some(connection) = self.entries.get(&key) {
+        if let Some(connection) = self
+            .entries
+            .get(&key)
+            .filter(|connection| !connection.is_closed())
+        {
             connection.spawn_response_bridge(chain_tasks, session_id);
             return connection
                 .send(packet.target, packet.port, packet.payload)
                 .await;
         }
 
+        // Reclaim retired handles on a cache miss, not on every live UDP packet.
+        self.entries.retain(|_, connection| !connection.is_closed());
         let connection = establish.await?;
         connection.spawn_response_bridge(chain_tasks, session_id);
         self.entries.insert(key, connection);
