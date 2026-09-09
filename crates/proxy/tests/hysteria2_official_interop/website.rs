@@ -24,7 +24,7 @@ async fn official_and_zero_website_http_tls_http2_redirect_and_alt_svc_match() {
                 "masquerade":{"type":"string","string":{"content":"website","statusCode":200,"headers":{"Content-Type":"text/html; charset=utf-8"}},
                     "listenHTTP":format!("127.0.0.1:{}",site.http),"listenHTTPS":format!("127.0.0.1:{}",site.https),"forceHTTPS":redirect}});
             let path=material.path("official.json");std::fs::write(&path,official.to_string()).unwrap();
-            let mut process=ExternalProcess::start(&binary,&["server","--config",path.to_str().unwrap(),"--disable-update-check"],&material,"website");
+            let mut process=ExternalProcess::start(binary.clone(),&["server","--config",path.to_str().unwrap(),"--disable-update-check"],&material,"website");
             wait_for_listener(site.http).await;
             let official_http=http1_host(TcpStream::connect(("127.0.0.1",site.http)).await.unwrap(),"localhost").await;
             let official_https=http1(site.tls(b"http/1.1").await).await;
