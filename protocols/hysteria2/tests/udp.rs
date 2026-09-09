@@ -106,3 +106,30 @@ fn udp_flow_codec_roundtrips_payload() {
     assert_eq!(decoded.1, 443);
     assert_eq!(decoded.2, b"packet-path");
 }
+
+#[cfg(feature = "tokio")]
+#[test]
+fn inbound_udp_session_ids_remain_distinct_for_the_same_target() {
+    let target = Address::Ipv4([127, 0, 0, 1]);
+    let mut inbound = hysteria2::udp::Hysteria2InboundUdpSession::new();
+    for session_id in [0, 1, u32::MAX] {
+        let wire = Hysteria2Outbound
+            .encode_udp_datagram(&Hysteria2UdpPacketTarget {
+                session_id,
+                packet_id: 0,
+                target: &target,
+                port: 53,
+                payload: b"query",
+            })
+            .unwrap();
+        let dispatch = inbound
+            .decode_dispatch_parts(&wire)
+            .unwrap()
+            .unwrap()
+            .into_tracked_inbound_dispatch();
+        assert_eq!(
+            dispatch.dispatch().client_session_id(),
+            Some(u64::from(session_id))
+        );
+    }
+}

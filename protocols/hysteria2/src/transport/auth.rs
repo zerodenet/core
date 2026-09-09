@@ -15,6 +15,7 @@ pub struct Hysteria2AuthenticatedConnection {
     connection: quinn::Connection,
     authentication: AuthenticationGuard,
     negotiated: crate::handshake::AuthResponse,
+    udp: std::sync::OnceLock<crate::udp::dispatch::Dispatcher>,
 }
 
 enum AuthenticationGuard {
@@ -26,6 +27,11 @@ enum AuthenticationGuard {
 }
 
 impl Hysteria2AuthenticatedConnection {
+    pub(crate) fn udp_dispatcher(&self) -> &crate::udp::dispatch::Dispatcher {
+        self.udp
+            .get_or_init(|| crate::udp::dispatch::Dispatcher::new(self.connection.clone()))
+    }
+
     pub fn connection(&self) -> &quinn::Connection {
         &self.connection
     }
@@ -48,6 +54,7 @@ impl Hysteria2AuthenticatedConnection {
         Self {
             connection,
             authentication: AuthenticationGuard::Legacy,
+            udp: Default::default(),
             negotiated: crate::handshake::AuthResponse::from_headers(Some("true"), Some("0")),
         }
     }
@@ -97,6 +104,7 @@ pub async fn authenticate_http3_with_settings(
     let mut authenticated = Hysteria2AuthenticatedConnection {
         connection,
         negotiated: crate::handshake::AuthResponse::from_headers(None, None),
+        udp: Default::default(),
         authentication: AuthenticationGuard::Http3 {
             _request_sender: request_sender,
             driver,

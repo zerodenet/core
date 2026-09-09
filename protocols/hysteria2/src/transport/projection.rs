@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+static NEXT_FLOW_SCOPE: AtomicU64 = AtomicU64::new(1);
+
 use super::{
     Hysteria2ManagedDatagramFlowResume, Hysteria2ManagedUdpFlowConfig, Hysteria2ManagedUdpFlowPlan,
     Hysteria2ManagedUdpPacketPathCarrierBuild, Hysteria2ManagedUdpPacketPathCarrierDescriptor,
@@ -5,6 +8,10 @@ use super::{
 };
 
 impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
+    pub fn with_pool(mut self, pool: &'a super::pool::Hysteria2ConnectionPool) -> Self {
+        self.pool = Some(pool);
+        self
+    }
     pub fn with_settings(mut self, settings: crate::settings::Settings) -> Self {
         self.settings = settings;
         self
@@ -27,6 +34,7 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
         client_fingerprint: Option<&'a str>,
     ) -> Self {
         Self {
+            pool: None,
             tag,
             server,
             port,
@@ -51,6 +59,8 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
             .with_server_name(self.server_name)
             .with_insecure(self.insecure)
             .flow_resume(),
+            self.tag.to_owned(),
+            self.pool.cloned().unwrap_or_default(),
         )
     }
 
@@ -85,13 +95,25 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
             .with_insecure(self.insecure)
             .packet_path_spec()
             .carrier_build(self.server, self.port),
+            self.tag.to_owned(),
+            self.pool.cloned().unwrap_or_default(),
         )
     }
 }
 
 impl Hysteria2ManagedDatagramFlowResume {
-    pub(super) fn new(protocol: crate::udp::Hysteria2UdpFlowResume) -> Self {
-        Self { protocol }
+    pub(super) fn new(
+        protocol: crate::udp::Hysteria2UdpFlowResume,
+        tag: String,
+        pool: super::pool::Hysteria2ConnectionPool,
+    ) -> Self {
+        Self {
+            protocol,
+            cache_scope: NEXT_FLOW_SCOPE.fetch_add(1, Ordering::Relaxed),
+            lifetime: std::sync::Arc::new(tokio::sync::watch::channel(()).0),
+            tag,
+            pool,
+        }
     }
 
     pub(super) fn connector_flow(
@@ -100,10 +122,7 @@ impl Hysteria2ManagedDatagramFlowResume {
         port: u16,
     ) -> crate::udp::Hysteria2UdpConnectorFlow {
         crate::udp::connector_flow_from_resume(&self.protocol, server, port)
-    }
-
-    pub(super) fn into_protocol_resume(self) -> crate::udp::Hysteria2UdpFlowResume {
-        self.protocol
+            .with_cache_scope(self.cache_scope)
     }
 }
 
@@ -174,11 +193,15 @@ impl Hysteria2ManagedUdpPacketPathCarrierDescriptor {
 }
 
 impl Hysteria2ManagedUdpPacketPathCarrierBuild {
-    pub(super) fn new(protocol: crate::udp::Hysteria2UdpPacketPathCarrierBuild) -> Self {
-        Self { protocol }
-    }
-
-    pub(super) fn into_protocol_build(self) -> crate::udp::Hysteria2UdpPacketPathCarrierBuild {
-        self.protocol
+    pub(super) fn new(
+        protocol: crate::udp::Hysteria2UdpPacketPathCarrierBuild,
+        tag: String,
+        pool: super::pool::Hysteria2ConnectionPool,
+    ) -> Self {
+        Self {
+            protocol,
+            tag,
+            pool,
+        }
     }
 }

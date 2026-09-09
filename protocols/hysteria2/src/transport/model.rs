@@ -10,6 +10,10 @@ pub struct QuicConnectionOptions<'a> {
 #[derive(Debug, Clone)]
 pub struct Hysteria2ManagedDatagramFlowResume {
     pub(super) protocol: crate::udp::Hysteria2UdpFlowResume,
+    pub(super) cache_scope: u64,
+    pub(super) lifetime: std::sync::Arc<tokio::sync::watch::Sender<()>>,
+    pub(super) pool: super::pool::Hysteria2ConnectionPool,
+    pub(super) tag: String,
 }
 
 #[derive(Debug, Clone)]
@@ -34,9 +38,11 @@ pub struct Hysteria2ManagedUdpPacketPathCarrierDescriptor {
     pub(super) protocol: crate::udp::Hysteria2UdpPacketPathCarrierDescriptor,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Hysteria2ManagedUdpPacketPathCarrierBuild {
     pub(super) protocol: crate::udp::Hysteria2UdpPacketPathCarrierBuild,
+    pub(super) pool: super::pool::Hysteria2ConnectionPool,
+    pub(super) tag: String,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +61,7 @@ pub struct Hysteria2ManagedUdpPacketPathPlan {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Hysteria2ManagedUdpFlowConfig<'a> {
+    pub(super) pool: Option<&'a super::pool::Hysteria2ConnectionPool>,
     pub(super) tag: &'a str,
     pub(super) server: &'a str,
     pub(super) port: u16,

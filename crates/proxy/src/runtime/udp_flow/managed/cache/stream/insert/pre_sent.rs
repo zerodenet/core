@@ -18,6 +18,7 @@ impl ManagedUdpConnectionCache {
     where
         Fut: Future<Output = Result<SharedManagedUdpConnection, EngineError>>,
     {
+        self.entries.retain(|_, connection| !connection.is_closed());
         let sent = packet.payload.len();
         if let Some(connection) = self.entries.get(&key) {
             connection.spawn_response_bridge(chain_tasks, session_id);
@@ -53,3 +54,7 @@ impl ManagedUdpConnectionCache {
         .await
     }
 }
+
+#[cfg(test)]
+#[path = "tests/pre_sent.rs"]
+mod tests;

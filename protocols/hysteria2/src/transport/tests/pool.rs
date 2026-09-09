@@ -10,7 +10,7 @@ use tokio::{
 };
 use zero_core::InboundClientResponse;
 
-async fn echo(leaf: &Hysteria2TransportLeaf) {
+pub(super) async fn echo(leaf: &Hysteria2TransportLeaf) {
     let sockets = OutboundDatagramSocketFactory::new(Default::default());
     let session = Session::new(
         1,

@@ -105,3 +105,11 @@ impl<'a> Hysteria2UdpFlowConfig<'a> {
         udp_flow_codec()
     }
 }
+
+#[cfg(feature = "runtime")]
+impl super::Hysteria2UdpConnectorFlow {
+    pub(crate) fn with_cache_scope(mut self, scope: u64) -> Self {
+        self.cache_key = alloc::format!("{}|flow:{scope}", self.cache_key);
+        self
+    }
+}

@@ -21,6 +21,10 @@ async fn interop(zero_is_client: bool, udp: bool) {
 }
 
 async fn configured_interop(zero_is_client: bool, udp: bool, brutal: bool) {
+    interop_case(zero_is_client, udp, brutal, false).await;
+}
+
+async fn interop_case(zero_is_client: bool, udp: bool, brutal: bool, shared: bool) {
     support::interop::init_logs("zero_proxy=debug,zero_transport=debug,quinn_proto=info");
     let binary = std::env::var("HY2_BIN").expect("HY2_BIN must point to official Hysteria");
     let material = TempMaterial::new("hysteria2-official-interop");
@@ -90,6 +94,18 @@ async fn configured_interop(zero_is_client: bool, udp: bool, brutal: bool) {
     // UDP-only official servers have no TCP readiness endpoint.
     if zero_is_client {
         sleep(Duration::from_millis(300)).await;
+    }
+    if shared {
+        shared::mixed_traffic(socks_port).await;
+        assert_eq!(
+            official.logs().matches("client connected").count(),
+            1,
+            "mixed TCP/UDP must authenticate once: {}",
+            official.logs()
+        );
+        proxy.shutdown().await.unwrap();
+        official.kill();
+        return;
     }
     let payload = (0..if udp {
         1600
@@ -166,3 +182,6 @@ async fn official_to_zero_brutal_tcp_and_udp() {
 
 #[path = "hysteria2_official_interop/windows.rs"]
 mod windows;
+
+#[path = "hysteria2_official_interop/shared.rs"]
+mod shared;

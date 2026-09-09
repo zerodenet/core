@@ -131,5 +131,6 @@ impl Hysteria2TransportLeaf {
         .with_settings(self.settings)
         .with_server_name(self.server_name.as_deref())
         .with_insecure(self.insecure)
+        .with_pool(&self.pool)
     }
 }

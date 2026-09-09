@@ -1,4 +1,4 @@
-//! Authenticated TCP connection reuse; never replay application bytes on retry.
+//! Shared authenticated connection reuse; never replay application bytes on retry.
 use super::{
     Hysteria2AuthenticatedConnection, Hysteria2OutboundOptionsRef, Hysteria2QuicProfile,
     Hysteria2Stream,
@@ -40,19 +40,24 @@ impl Hysteria2ConnectionPool {
     pub fn clear(&self) {
         self.0.lock().unwrap().clear();
     }
-    fn entry(&self, key: Key) -> Arc<Entry> {
+    fn entry(&self, key: Key) -> Result<Arc<Entry>, RuntimeError> {
         let mut entries = self.0.lock().unwrap();
         if let Some(entry) = entries.get(&key) {
             *entry.touched.lock().unwrap() = Instant::now();
-            return entry.clone();
+            return Ok(entry.clone());
         }
         if entries.len() >= 256 {
             if let Some(oldest) = entries
                 .iter()
+                .filter(|(_, entry)| Arc::strong_count(entry) == 1 && entry.is_idle())
                 .min_by_key(|(_, e)| *e.touched.lock().unwrap())
                 .map(|(k, _)| k.clone())
             {
                 entries.remove(&oldest);
+            } else {
+                return Err(
+                    std::io::Error::other("hysteria2 connection pool is fully active").into(),
+                );
             }
         }
         let entry = Arc::new(Entry {
@@ -70,6 +75,10 @@ impl Hysteria2ConnectionPool {
                     return;
                 };
                 let mut entries = pool.lock().unwrap();
+                if Arc::strong_count(&entry) > 2 || !entry.is_idle() {
+                    *entry.touched.lock().unwrap() = Instant::now();
+                    continue;
+                }
                 if entry.touched.lock().unwrap().elapsed() >= idle {
                     if entries
                         .get(&key)
@@ -81,8 +90,79 @@ impl Hysteria2ConnectionPool {
                 }
             }
         });
-        entry
+        Ok(entry)
     }
+}
+
+impl Entry {
+    fn is_idle(&self) -> bool {
+        self.connection.try_lock().is_ok_and(|slot| {
+            slot.as_ref()
+                .is_none_or(|connection| Arc::strong_count(connection) == 1)
+        })
+    }
+}
+
+pub(super) async fn acquire(
+    pool: &Hysteria2ConnectionPool,
+    tag: &str,
+    server: &str,
+    port: u16,
+    options: Hysteria2OutboundOptionsRef<'_>,
+    sockets: &OutboundDatagramSocketFactory,
+) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
+    Ok(acquire_entry(pool, tag, server, port, options, sockets)
+        .await?
+        .1)
+}
+
+async fn acquire_entry(
+    pool: &Hysteria2ConnectionPool,
+    tag: &str,
+    server: &str,
+    port: u16,
+    options: Hysteria2OutboundOptionsRef<'_>,
+    sockets: &OutboundDatagramSocketFactory,
+) -> Result<(Arc<Entry>, Arc<Hysteria2AuthenticatedConnection>), RuntimeError> {
+    let entry = pool.entry(Key {
+        tag: tag.into(),
+        server: server.into(),
+        port,
+        password: options.password.into(),
+        server_name: options.server_name.map(Into::into),
+        fingerprint: options.client_fingerprint.map(Into::into),
+        insecure: options.insecure,
+        settings: options.settings,
+        egress_generation: sockets.egress_generation(),
+    })?;
+    let connection = {
+        // Single-flight dialing/authentication. Cancellation leaves an empty slot.
+        let mut slot = entry.connection.lock().await;
+        if slot
+            .as_ref()
+            .is_some_and(|c| c.connection().close_reason().is_some())
+        {
+            *slot = None;
+        }
+        if slot.is_none() {
+            let profile = crate::outbound_profile_from_config_password(
+                options.password,
+                options.client_fingerprint,
+            );
+            let quic = Hysteria2QuicProfile::from_parts(options.client_fingerprint)
+                .with_insecure(options.insecure)
+                .with_server_name(options.server_name)
+                .with_settings(options.settings);
+            *slot = Some(
+                super::open_authenticated_hysteria2_quic_connection(
+                    server, port, &profile, quic, sockets,
+                )
+                .await?,
+            );
+        }
+        slot.as_ref().unwrap().clone()
+    };
+    Ok((entry, connection))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -95,45 +175,8 @@ pub(super) async fn connect_pooled(
     options: Hysteria2OutboundOptionsRef<'_>,
     sockets: &OutboundDatagramSocketFactory,
 ) -> Result<TcpRelayStream, RuntimeError> {
-    let entry = pool.entry(Key {
-        tag: tag.into(),
-        server: server.into(),
-        port,
-        password: options.password.into(),
-        server_name: options.server_name.map(Into::into),
-        fingerprint: options.client_fingerprint.map(Into::into),
-        insecure: options.insecure,
-        settings: options.settings,
-        egress_generation: sockets.egress_generation(),
-    });
     for attempt in 0..2 {
-        let connection = {
-            // Single-flight dialing/authentication. Cancellation leaves an empty slot.
-            let mut slot = entry.connection.lock().await;
-            if slot
-                .as_ref()
-                .is_some_and(|c| c.connection().close_reason().is_some())
-            {
-                *slot = None;
-            }
-            if slot.is_none() {
-                let profile = crate::outbound_profile_from_config_password(
-                    options.password,
-                    options.client_fingerprint,
-                );
-                let quic = Hysteria2QuicProfile::from_parts(options.client_fingerprint)
-                    .with_insecure(options.insecure)
-                    .with_server_name(options.server_name)
-                    .with_settings(options.settings);
-                *slot = Some(
-                    super::open_authenticated_hysteria2_quic_connection(
-                        server, port, &profile, quic, sockets,
-                    )
-                    .await?,
-                );
-            }
-            slot.as_ref().unwrap().clone()
-        };
+        let (entry, connection) = acquire_entry(pool, tag, server, port, options, sockets).await?;
         match connection.connection().open_bi().await {
             Ok((send, recv)) => {
                 let mut stream = Hysteria2Stream::with_connection_guard(send, recv, connection);
@@ -165,3 +208,7 @@ pub(super) async fn connect_pooled(
 #[cfg(test)]
 #[path = "tests/pool.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/shared.rs"]
+mod shared;

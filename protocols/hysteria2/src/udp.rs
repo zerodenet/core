@@ -259,7 +259,7 @@ impl Hysteria2InboundUdpRequest {
             target,
             port,
             payload,
-            client_session_id: None,
+            client_session_id: Some(u64::from(session_id)),
         }
     }
 }
@@ -1054,20 +1054,6 @@ impl Hysteria2UdpFlowIo {
         let (target, port, payload) = decoded.into_datagram_parts();
         Some(UdpFlowPacket::new(target, port, payload))
     }
-
-    fn encode_fragments(
-        &self,
-        packet: &UdpFlowPacket,
-        max_datagram_size: usize,
-    ) -> Result<Vec<Vec<u8>>, Error> {
-        build_udp_fragments(
-            self.session_id,
-            &packet.target,
-            packet.port,
-            &packet.payload,
-            max_datagram_size,
-        )
-    }
 }
 
 #[cfg(feature = "tokio")]
@@ -1102,6 +1088,7 @@ impl Hysteria2InitialUdpFlowPacket {
 
 #[cfg(feature = "tokio")]
 pub struct Hysteria2UdpFlowHandle {
+    response_ready: Arc<tokio::sync::Notify>,
     sender: Hysteria2UdpFlowSender,
     responses: Hysteria2UdpFlowResponses,
 }
@@ -1109,6 +1096,7 @@ pub struct Hysteria2UdpFlowHandle {
 #[cfg(feature = "tokio")]
 #[derive(Clone)]
 pub struct Hysteria2UdpFlowSession {
+    response_ready: Arc<tokio::sync::Notify>,
     sender: Hysteria2UdpFlowSender,
     responses: Hysteria2UdpFlowResponses,
 }
@@ -1117,6 +1105,7 @@ pub struct Hysteria2UdpFlowSession {
 impl Hysteria2UdpFlowSession {
     pub fn new(handle: Hysteria2UdpFlowHandle) -> Self {
         Self {
+            response_ready: handle.response_ready,
             sender: handle.sender,
             responses: handle.responses,
         }
@@ -1127,7 +1116,9 @@ impl Hysteria2UdpFlowSession {
     }
 
     pub fn subscribe_responses(&self) -> Hysteria2UdpFlowResponseReceiver {
-        self.responses.subscribe()
+        let receiver = self.responses.subscribe();
+        self.response_ready.notify_one();
+        receiver
     }
 }
 
@@ -1139,6 +1130,9 @@ pub struct Hysteria2UdpFlowConnection {
 
 #[cfg(feature = "tokio")]
 impl Hysteria2UdpFlowConnection {
+    pub fn is_closed(&self) -> bool {
+        self.session.sender.send_tx.is_closed()
+    }
     pub fn new(session: Hysteria2UdpFlowSession) -> Self {
         Self { session }
     }
@@ -1500,4 +1494,13 @@ pub use config::Hysteria2UdpFlowConfig;
 #[cfg(feature = "runtime")]
 mod pump;
 #[cfg(feature = "runtime")]
-pub use pump::{spawn_udp_flow, start_udp_flow_with_initial_packet};
+pub(crate) use pump::start_managed_udp_flow;
+#[cfg(feature = "runtime")]
+pub use pump::start_udp_flow_with_initial_packet;
+
+#[cfg(feature = "runtime")]
+mod channel;
+#[cfg(feature = "runtime")]
+pub(crate) mod dispatch;
+#[cfg(feature = "runtime")]
+pub use channel::Hysteria2UdpChannel;

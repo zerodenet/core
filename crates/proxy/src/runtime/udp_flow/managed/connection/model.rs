@@ -10,6 +10,9 @@ use zero_engine::EngineError;
 ))]
 #[async_trait::async_trait]
 pub(crate) trait ManagedUdpConnection: Send + Sync {
+    fn is_closed(&self) -> bool {
+        false
+    }
     async fn send(&self, target: &Address, port: u16, payload: &[u8])
         -> Result<usize, EngineError>;
 

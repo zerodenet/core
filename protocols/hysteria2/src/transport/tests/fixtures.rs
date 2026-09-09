@@ -30,7 +30,7 @@ pub(super) fn endpoint_with_settings(settings: crate::settings::Settings) -> qui
     config.transport_config(Arc::new(super::congestion::transport(settings).unwrap()));
     quinn::Endpoint::server(config, "127.0.0.1:0".parse().unwrap()).unwrap()
 }
-pub(super) async fn pair() -> (quinn::Connection, quinn::Connection) {
+pub(crate) async fn pair() -> (quinn::Connection, quinn::Connection) {
     pair_with_settings(Default::default(), Default::default()).await
 }
 pub(super) async fn pair_with_settings(

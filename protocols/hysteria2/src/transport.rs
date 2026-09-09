@@ -115,7 +115,7 @@ pub use auth::Hysteria2AuthenticatedConnection;
 mod http3_tests;
 #[cfg(test)]
 #[path = "transport/tests/fixtures.rs"]
-mod test_fixtures;
+pub(crate) mod test_fixtures;
 
 #[cfg(test)]
 #[path = "transport/tests/bandwidth.rs"]

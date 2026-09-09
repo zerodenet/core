@@ -15,6 +15,10 @@ impl<T> ManagedTupleUdpSender for ManagedTupleUdpFlowSender<T>
 where
     T: ManagedTupleUdpFlowConnection,
 {
+    fn is_closed(&self) -> bool {
+        self.connection.is_closed()
+    }
+
     async fn send(
         &self,
         target: &Address,

@@ -15,6 +15,9 @@ struct ManagedTupleUdpConnection {
 
 #[async_trait::async_trait]
 impl ManagedUdpConnection for ManagedTupleUdpConnection {
+    fn is_closed(&self) -> bool {
+        self.sender.is_closed()
+    }
     async fn send(
         &self,
         target: &Address,

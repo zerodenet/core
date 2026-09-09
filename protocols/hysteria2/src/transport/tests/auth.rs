@@ -195,7 +195,7 @@ async fn releasing_udp_flow_closes_connection_even_with_keepalive() {
             b"query",
             crate::udp::Hysteria2UdpFlowResume::new("test-password", None),
         );
-        drop(flow);
+        drop(flow.unwrap());
         server.await.unwrap();
     })
     .await
