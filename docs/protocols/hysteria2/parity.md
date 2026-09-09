@@ -24,7 +24,7 @@
 | 带宽配置、Brutal、BBR 配置 | 已实现，配置已统一 | Zero 只暴露 `up_bps/down_bps`；适配器映射协议收发参数；协议拥有协商与 Brutal，不再隐式附加 QUIC 硬上限或逻辑流预算；BBR 三档映射到共享采样与控制器，详细边界见 [BBR 对齐](bbr.md) |
 | Salamander、Gecko | 待实现 | 协议拥有混淆编解码，transport 提供中立 datagram 包装；官方端双向和边界测试 |
 | QUIC 窗口、保活、PMTU、连接复用/恢复 | 自动接收扩窗、参数和共享认证连接池已实现，有边界回归 | 固定/初始/最大窗口、RTT 驱动增长和流/连接协调见[窗口对齐](windows.md)；保活、PMTU；TCP/UDP/packet-path 共用认证连接、单次建连、重建、重载和空闲回收见[连接统一](connections.md)；长稳仍待验收 |
-| HTTP 伪装站点/代理 | HTTP/3 已有互通证据；新增 TCP 网站入口见下文验收 | HTTP/1.1、TLS HTTP/2、301 与 Alt-Svc；共享文件/内容/源站策略；源站 TLS、转发头、Unix socket；有界请求与任务回收 |
+| HTTP 伪装站点/代理 | 三类入口已实现，有回归与部分官方对照 | HTTP/1.1、TLS HTTP/2、301 与 Alt-Svc；共享文件/内容/源站策略；源站 TLS、转发头、Unix socket；有界请求与任务回收 |
 | 端口跳跃、Fast Open、Mimic、Realm | 待逐项设计和实现 | 根据官方稳定版源码列明载体依赖、平台限制和可测行为 |
 | 官方应用的 ACL、DNS、TUN、管理/统计 API | 映射已有 Zero 能力 | 复用 engine/router/dns/tun/api；不在 HY2 内建立第二套应用或控制面 |
 
@@ -36,7 +36,7 @@
 | 共享传输能力接通 | 私有 CA 等 TLS 策略、QUIC 窗口与载体参数 | 复用配置/profile 和 `zero-transport`；当前 QUIC 参数执行已共享，HY2 配置表达仍独立；需要公共配置时扩展通用契约，不为每种协议复制 TLS/QUIC 执行代码 |
 | 拥塞与窗口行为差异 | 载体调度及长稳性能 | BBR 三档和自动接收扩窗由共享传输层执行，均有固定官方状态参考和受控链路对照；Quinn 与 quic-go 的调度并非逐包等价，长稳仍待验收 |
 | 协议与连接机制缺失 | Salamander/Gecko；端口跳跃、Fast Open、Mimic、Realm | 逐项界定协议策略和载体依赖，再实现与验收；共享认证连接与 UDP 分发已实现；任意网络恢复及长稳仍需单独验收 |
-| 伪装服务边界 | Upgrade/WebSocket、trailers、静态文件 Range/条件请求/目录列表、任意固定响应头 | HTTP/1、HTTP/2 入口与源站 TLS/Host/转发头/Unix socket 已实现；通用监听组及 HTTP 载体承载，协议拥有网站策略；明确边界见[HTTP 伪装](transport.md#http-伪装) |
+| 伪装服务边界 | 源站 HTTP/2/代理环境变量策略、Upgrade/WebSocket、trailers、静态文件 Range/条件请求/目录列表、任意固定响应头 | HTTP/1、HTTP/2 入口与源站 TLS/Host/转发头/Unix socket 已实现；通用监听组及 HTTP 载体承载，协议拥有网站策略；明确边界见[HTTP 伪装](transport.md#http-伪装) |
 | 配置边界已统一 | `up_bps/down_bps` 的单位与范围 | 字节/秒整数，0/省略表示不声明本地固定带宽；不继承官方应用服务端的 65,536 字节/秒最小值；协议保留可表示范围验证，低速连接仍受超时约束 |
 | 验收不足 | 受控丢包/延迟下的吞吐、长稳、UDP 乱序/重复/超时、多跳大包 | 补外部证据；不把未验收等同于未实现，也不把基础互通视为性能和全部功能等价 |
 
@@ -191,3 +191,40 @@ Quinn 268 项回归；新增官方服务端用例验证 4 路 TCP 与 4 路分�
 本次 push 的独立兼容性矩阵、musl 构建和穷举特性任务按 CI 路径选择规则跳过，未计作通过；
 91 项普通工作区忽略项中需要外部程序或权限的用例，只有上述独立作业实际执行的部分具有本轮证据。
 这些测试不替代长期运行、任意网络恢复或全部 UDP 故障组合的验收。
+
+### HTTP 网站入口与源站策略
+
+2026-09-09，`f88137de` 至 `4d4d6cf4` 增加 HTTP/1.1、TLS HTTP/2 网站入口，
+HTTP 到 HTTPS 的 301 跳转、指向 HY2 QUIC 端口的 Alt-Svc，以及源站 `insecure`、
+`x_forwarded` 和 Unix socket 支持。配置沿用 Zero 的监听地址/端口和既有证书，
+三个网站入口复用同一份伪装内容、源站策略及连接池，详见[配置说明](transport.md#http-伪装)
+和[示例](../../../examples/v0.1.0/hysteria2-website.json)。
+
+网站协议策略留在 `protocols/hysteria2`，`zero-transport` 提供共享 HTTP/TLS 和 Unix HTTP 载体，
+通用 runtime 执行原子监听组、连接任务回收和重载回滚。HTTP 网站请求不进入 HY2 认证或内核代理会话。
+本地 macOS 已通过配置 3 项、真实代理 2 项、HTTP 载体取消/失败传播 2 项和运行时分层 180 项回归；
+协议侧 4 项新回归及原有 HTTP/3 网站/认证回归通过。
+这些覆盖旧配置和未知字段、跨监听端口冲突、TLS/ALPN、Host/转发头、源站证书校验、Unix socket、
+301、绑定失败恢复、成功重载及关停释放端口。Zero 还规范化跳转 Host 的既有端口和 IPv6 authority。
+
+最终提交 `4d4d6cf4` 的[官方验收](https://github.com/zerodenet/core/actions/runs/34328883580)
+通过官方 11 项、sing-box 6 项和 Quinn 268 项回归，固定 BBR/窗口参考向量继续匹配。
+新增网站差分用例在同一组端口、同一证书和固定内容下，对比官方 v2.12.2 与 Zero 的
+明文 HTTP、TLS HTTP/1.1、TLS HTTP/2、301 Location 和 Alt-Svc；开启和关闭跳转分别执行。
+该对照使用不带端口的 Host；IPv6/既有端口由 Zero 边界回归覆盖，源站选项另由真实源站回归及固定官方源码核对。
+此证据不代表 Upgrade、Range、全部源站策略或长稳行为已经一致，剩余项仍列在上表。
+
+同提交的[工作区 CI](https://github.com/zerodenet/core/actions/runs/34328883524)通过 1535 项测试
+（92 项显式忽略）、格式检查、工作区严格 Clippy、180 项运行时分层回归和代表性最小特性检查。
+全工作区结果以上述 Linux CI 为准；需要外部程序的 ignored 用例只有独立作业实际执行的部分计作本轮通过。
+生产实现相同的 `d6f0edd8` 在[完整检查矩阵](https://github.com/zerodenet/core/actions/runs/34328013454)中，
+三平台编译、musl release 构建、代理特性组合和可选控制面组合的分项作业均通过。
+该运行整体未通过：两个旧分层断言只扫描适配器根文件；`4d4d6cf4` 改用既有模块递归检查后，
+180 项分层回归和完整工作区均通过，协议配置映射必须留在适配边界的约束保持不变。
+
+提交 `d6f0edd8` 的[特权 TUN 验收](https://github.com/zerodenet/core/actions/runs/34327605030)三个平台全部通过。
+后续仅调整分层测试的 `4d4d6cf4` 再次在 Windows 的 `tun/8/split` 出现 `10054 ConnectionReset`
+（[失败日志](https://github.com/zerodenet/core/actions/runs/34328883531/job/102392556763)）；该轮 Linux/macOS 通过，Windows 未通过。
+更早的提交 `98db6f97` 的 Windows 用例在 `tun/14/split` 发生 `10054 ConnectionReset`
+（[失败日志](https://github.com/zerodenet/core/actions/runs/34326849472/job/102386491287)）；
+该受控直连/TUN 路径不经过 HY2，本批未修改 TUN 实现或用例。保留失败证据，后续通过不作为根因修复声明。

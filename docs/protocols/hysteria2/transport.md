@@ -177,6 +177,7 @@ Unix URL 不允许 host、用户信息、查询或片段；Windows 配置阶段�
 通用 runtime 管理原子监听组：任一绑定失败会释放本次已绑定端口；重载失败恢复旧配置和整组监听，
 关闭时回收全部监听及连接。协议模块只拥有网站策略，通用 transport 提供 HTTP/TLS 载体。
 
+源站载体当前使用 HTTP/1.1，尚未接通源站 HTTP/2 协商或代理环境变量策略。
 本轮没有实现 WebSocket/HTTP Upgrade、响应 trailers、静态文件 Range/条件请求、目录列表或
 固定内容的任意响应头配置；不能将这组网站入口支持理解为完整复制 Go `ReverseProxy`/`FileServer` 的行为。
 固定参考为 [app/v2.12.2 的网站入口](https://github.com/HyNetworks/hysteria/blob/app/v2.12.2/extras/masq/server.go)
