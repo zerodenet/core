@@ -101,16 +101,24 @@ fn website_paths_cannot_escape_the_root() {
 }
 #[cfg(feature = "validation")]
 #[test]
-fn reverse_proxy_only_accepts_fixed_http_origins() {
+fn reverse_proxy_accepts_fixed_http_and_platform_unix_origins() {
     for url in [
         "file:///etc/passwd",
         "http://user:pass@host/",
         "https://host/#secret",
-        "/relative",
+        "relative",
+        "unix:relative",
+        "unix:///tmp/socket%00",
     ] {
         assert!(hysteria2::settings::validate_proxy_url(url).is_err());
     }
     assert!(hysteria2::settings::validate_proxy_url("https://example.com/base").is_ok());
+    for url in ["/run/origin.sock", "unix:///run/origin.sock"] {
+        assert_eq!(
+            hysteria2::settings::validate_proxy_url(url).is_ok(),
+            cfg!(unix)
+        );
+    }
 }
 
 #[test]
