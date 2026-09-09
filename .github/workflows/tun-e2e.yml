@@ -195,7 +195,7 @@ jobs:
       - name: Run native Windows route reconciliation E2E
         run: cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
       - name: Run IPv4-only trusted-domain fallback E2E
-        if: !cancelled() && steps.capture.outcome == 'success'
+        if: always() && !cancelled() && steps.capture.outcome == 'success'
         run: cargo test --test tun_privileged_e2e privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
