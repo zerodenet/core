@@ -146,3 +146,20 @@ Quinn 266 项回归，并从固定官方源码重新生成和校验参考数据�
 Windows 的 `privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains` 仍出现
 `10054 ConnectionReset`。这一失败单独保留在 [Windows TUN 记录](../../project/windows-tun-reset.md)，
 不纳入 HY2 通过范围，也不据本次运行推断其根因。本批未修改 TUN 实现或该用例。
+
+### QUIC 自动接收扩窗
+
+2026-09-09，提交 `d2f3e159` 增加共享接收窗口策略和中立载体反馈。
+旧固定窗口配置保持兼容，可选最大窗口启用初始值、自动增长、上限和流/连接协调；
+HY2 只映射参数，不增加另一套官方配置树。方向、单位、默认值和重载边界见[窗口对齐](windows.md)。
+
+[工作区 CI](https://github.com/zerodenet/core/actions/runs/34312975137)通过 1507 项测试
+（90 项显式忽略）、严格 Clippy、分层回归、三平台检查及 musl 构建。
+[外部验收](https://github.com/zerodenet/core/actions/runs/34312975214)通过官方 9 项、sing-box 6 项、
+Quinn 268 项回归，重新生成并匹配 147 个窗口与 252 个 BBR 官方检查点。
+受控高时延链路中，Zero/官方接收器的自动扩窗吞吐分别为小固定窗口的 3.25/3.55 倍，
+两端自动窗口吞吐比为 1.003；这不替代任意网络性能等价或长稳验收。
+
+同次[特权 TUN 验收](https://github.com/zerodenet/core/actions/runs/34312975151)三个平台全部通过，
+[Connector 验收](https://github.com/zerodenet/core/actions/runs/34312975204)也通过。
+本批未修改 TUN；此次通过不撤销此前 Windows 重置证据，也不宣称已修复其根因。
