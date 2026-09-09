@@ -32,7 +32,10 @@ impl UdpDispatch {
                 let Some(target_addr) = flow.outbound.direct_target_addr() else {
                     unreachable!("Direct category maps to Direct variant only");
                 };
-                match self.send_direct_packet(target_addr, payload).await {
+                match self
+                    .send_direct_packet(flow.session.id, target_addr, payload)
+                    .await
+                {
                     Ok(sent) => {
                         services.record_session_outbound_tx(flow.session.id, sent as u64);
                     }

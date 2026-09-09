@@ -123,3 +123,65 @@ fn direct_udp_binding_is_scoped_by_family_and_egress() {
     assert_ne!(physical_v4, system_route_v4);
     assert_ne!(physical_v4, physical_v6);
 }
+
+#[tokio::test]
+async fn scoped_direct_replies_retain_session_identity_and_retirement_closes_only_its_socket() {
+    use super::{DirectUdpSocket, DirectUdpSockets};
+    let mut sockets = DirectUdpSockets::bind_with(1, None, |peer, _| async move {
+        zero_platform_tokio::TokioDatagramSocket::bind_for_peer_on(peer, None)
+            .await
+            .map_err(zero_engine::EngineError::Io)
+    })
+    .await
+    .unwrap();
+    let shared_count = sockets.sockets.len();
+    let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let mut local = Vec::new();
+    for id in [41, 42] {
+        sockets.isolate_session(id);
+        let socket = zero_platform_tokio::TokioDatagramSocket::bind_for_peer_on(
+            peer.local_addr().unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+        local.push(socket.local_addr().unwrap().port());
+        let mut entry = DirectUdpSocket::new(socket, false);
+        entry.session_id = Some(id);
+        sockets.sockets.push(entry);
+    }
+    let mut buf = [0; 16];
+    for (index, id) in [(1, 42), (0, 41)] {
+        peer.send_to(&[id as u8], (std::net::Ipv4Addr::LOCALHOST, local[index]))
+            .await
+            .unwrap();
+        let (len, source) = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            sockets.recv_from_addr(&mut buf),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(source.session_id, Some(id));
+        assert_eq!(source.sender, peer.local_addr().unwrap());
+        assert_eq!(&buf[..len], &[id as u8]);
+    }
+    sockets.retire_session(41);
+    assert_eq!(sockets.sockets.len(), shared_count + 1);
+    assert!(!sockets.isolated_sessions.contains(&41));
+    assert!(sockets.isolated_sessions.contains(&42));
+    peer.send_to(b"alive", (std::net::Ipv4Addr::LOCALHOST, local[1]))
+        .await
+        .unwrap();
+    let (len, source) = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        sockets.recv_from_addr(&mut buf),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(source.session_id, Some(42));
+    assert_eq!(&buf[..len], b"alive");
+    sockets.retire_session(42);
+    assert_eq!(sockets.sockets.len(), shared_count);
+}

@@ -139,11 +139,17 @@ impl UdpDispatch {
         };
         runtime.log_session_accepted(&session, &action);
 
+        if input.client_session_id.is_some() {
+            self.direct_socket.isolate_session(session.id);
+        }
         match runtime
             .start_udp_resolved_outbound(self, &session, resolved, input.payload)
             .await
         {
             Ok(FlowStartResult::Flow { outbound, tx_bytes }) => {
+                if outbound.direct_target_addr().is_none() {
+                    self.direct_socket.retire_session(session.id);
+                }
                 let session_id = session.id;
                 session.outbound_tag = Some(outbound.tag().to_owned());
                 let remote = outbound.observed_remote();
@@ -162,6 +168,7 @@ impl UdpDispatch {
                 Ok(session_id)
             }
             Ok(FlowStartResult::Blocked { tag }) => {
+                self.direct_socket.retire_session(session.id);
                 session.outbound_tag = Some(tag);
                 runtime.set_session_outbound(&session, None);
                 if let Some(record) = session_handle.finish(SessionOutcome::Blocked) {
@@ -170,6 +177,7 @@ impl UdpDispatch {
                 Ok(session.id)
             }
             Err(failure) => {
+                self.direct_socket.retire_session(session.id);
                 let stage = failure.stage;
                 let upstream = failure
                     .upstream

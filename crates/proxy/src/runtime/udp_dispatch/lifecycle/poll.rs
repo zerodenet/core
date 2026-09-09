@@ -77,6 +77,7 @@ impl UdpDispatch {
     /// by their outer relay loop so a revoked credential cannot create a new
     /// flow on an already-authenticated carrier.
     pub(crate) fn finish_cancelled_flow(&mut self, cancellation: UdpFlowCancellation) -> bool {
+        self.direct_socket.retire_session(cancellation.session_id);
         let Some(completed) = self.flows.finish_cancelled(cancellation.session_id) else {
             return cancellation.close_association;
         };

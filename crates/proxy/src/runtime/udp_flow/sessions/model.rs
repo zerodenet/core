@@ -17,8 +17,8 @@ pub(crate) struct UdpFlowKey {
     /// Per-client-session isolation key.
     ///
     /// When `Some`, flows with the same `(target, port)` but different
-    /// `client_session_id` are treated as independent relay sessions (SIP022
-    /// 3.2.4). When `None` (legacy AEAD, non-SS protocols), the existing
+    /// `client_session_id` are treated as independent relay sessions (for example, HY2 or SIP022).
+    /// When `None`, the existing
     /// `(target, port)` keying is preserved.
     client_session_id: Option<u64>,
 }

@@ -4,7 +4,7 @@
 use std::net::SocketAddr;
 
 #[cfg(feature = "udp-runtime")]
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use std::collections::HashSet;
 #[cfg(feature = "udp-runtime")]
 use zero_core::Address;
 #[cfg(feature = "udp-runtime")]
@@ -17,6 +17,7 @@ pub(crate) struct DirectUdpSockets {
     sockets: Vec<DirectUdpSocket>,
     preferred_port: Option<u16>,
     generation: u64,
+    isolated_sessions: HashSet<u64>,
 }
 
 #[cfg(feature = "udp-runtime")]
@@ -24,6 +25,7 @@ struct DirectUdpSocket {
     socket: TokioDatagramSocket,
     binding: DirectUdpSocketBinding,
     receive_buffer: tokio::sync::Mutex<Vec<u8>>,
+    session_id: Option<u64>,
 }
 
 #[cfg(feature = "udp-runtime")]
@@ -44,6 +46,7 @@ impl DirectUdpSocket {
             socket,
             binding,
             receive_buffer: tokio::sync::Mutex::new(vec![0_u8; 65_535]),
+            session_id: None,
         }
     }
 }
@@ -111,6 +114,7 @@ impl DirectUdpSockets {
             sockets,
             preferred_port,
             generation,
+            isolated_sessions: HashSet::new(),
         })
     }
 
@@ -138,6 +142,7 @@ impl DirectUdpSockets {
             )));
         }
         let replacement_generation = replacement.generation;
+        replacement.isolated_sessions = std::mem::take(&mut self.isolated_sessions);
         *self = replacement;
         tracing::info!(
             previous_generation,
@@ -165,57 +170,6 @@ impl DirectUdpSockets {
 
     pub(crate) fn generation(&self) -> u64 {
         self.generation
-    }
-
-    pub(crate) async fn send_to_addr(
-        &mut self,
-        services: &crate::protocol_registry::UdpNetworkServices,
-        payload: &[u8],
-        target: SocketAddr,
-    ) -> Result<usize, EngineError> {
-        let binding = DirectUdpSocketBinding {
-            ipv6: target.is_ipv6(),
-            egress: services.direct_datagram_egress(target),
-        };
-        let socket_index = match self
-            .sockets
-            .iter()
-            .position(|socket| socket.binding == binding)
-        {
-            Some(index) => index,
-            None => {
-                let socket = services
-                    .bind_direct_datagram_socket(target, self.preferred_port)
-                    .await?;
-                log_direct_socket(if target.is_ipv6() { "IPv6" } else { "IPv4" }, &socket);
-                self.sockets
-                    .push(DirectUdpSocket::new(socket, target.is_ipv6()));
-                self.sockets.len() - 1
-            }
-        };
-        send_direct_udp_packet(&self.sockets[socket_index].socket, target, payload).await
-    }
-
-    pub(crate) async fn recv_from_addr(
-        &self,
-        output: &mut [u8],
-    ) -> Result<(usize, SocketAddr), std::io::Error> {
-        let mut receives = FuturesUnordered::new();
-        for entry in &self.sockets {
-            receives.push(async move {
-                let mut buffer = entry.receive_buffer.lock().await;
-                let result = entry.socket.recv_from_addr(&mut buffer).await;
-                (result, buffer)
-            });
-        }
-        let (result, buffer) = receives
-            .next()
-            .await
-            .expect("direct UDP socket set is never empty");
-        let (size, sender) = result?;
-        let size = size.min(output.len());
-        output[..size].copy_from_slice(&buffer[..size]);
-        Ok((size, sender))
     }
 }
 
@@ -342,3 +296,8 @@ pub(crate) async fn send_direct_udp_packet(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "udp-runtime")]
+mod io;
+#[cfg(feature = "udp-runtime")]
+pub(crate) use io::DirectUdpResponseSource;

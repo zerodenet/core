@@ -50,6 +50,9 @@ packet-path 现在也使用分片/重组，不再用固定会话 ID 和独立 QU
 同时修复入站 session ID 丢失：将其映射到已有中立 `client_session_id`，
 内核按 `(target, port, client_session_id)` 区分流。否则同连接内两个 UDP 会话访问同一目标时，
 可能复用同一内核流并覆盖响应映射。该映射由 HY2 拥有，内核不认识 HY2 私有报文。
+通用 direct UDP 出口对显式带 `client_session_id` 的逻辑流使用独立 socket，
+回复携带内核 session ID，而不是仅凭目标地址反查归属。取消或失败会释放该流 socket，
+出口代次变化后仍保留隔离要求；普通无会话标识的 UDP 继续使用原共享 socket 策略。
 
 ## 验收
 

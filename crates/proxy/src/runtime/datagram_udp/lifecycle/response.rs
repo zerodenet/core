@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use crate::runtime::udp_socket::DirectUdpResponseSource;
 
 use zero_core::DatagramUdpResponder;
 use zero_engine::EngineError;
@@ -26,7 +26,7 @@ pub(super) async fn handle_direct_response<S, R>(
     source: &S,
     responder: &mut R,
     dispatch: &UdpDispatch,
-    sender: SocketAddr,
+    sender: DirectUdpResponseSource,
     payload: &[u8],
 ) where
     S: Send,

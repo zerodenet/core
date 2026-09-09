@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use crate::runtime::udp_socket::DirectUdpResponseSource;
 
 use tokio::time::Instant as TokioInstant;
 use tracing::warn;
@@ -27,7 +27,7 @@ pub(super) async fn handle_direct_response<H>(
     handler: &mut H,
     dispatch: &UdpDispatch,
     last_activity: &mut TokioInstant,
-    sender: SocketAddr,
+    sender: DirectUdpResponseSource,
     payload: &[u8],
 ) -> Result<(), EngineError>
 where

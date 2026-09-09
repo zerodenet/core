@@ -1,7 +1,7 @@
 #![cfg(all(feature = "hysteria2", feature = "socks5"))]
 mod support;
 use hysteria2::transport::{open_hysteria2_udp_packet_path_build, Hysteria2TransportLeaf};
-use support::interop::TempMaterial;
+use support::interop::{init_logs, TempMaterial};
 use support::{free_udp_port, spawn_engine};
 use tokio::{
     net::UdpSocket,
@@ -23,7 +23,8 @@ async fn shared_hy2_outbound_keeps_same_target_logical_udp_sessions_isolated() {
 }
 
 async fn same_target_sessions(via_hy2: bool) {
-    timeout(Duration::from_secs(15), async {
+    init_logs("hysteria2=debug");
+    timeout(Duration::from_secs(20), async {
         let material = TempMaterial::new("hy2-shared-inbound");
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let cert_path = material.path("cert.pem");
@@ -53,16 +54,25 @@ async fn same_target_sessions(via_hy2: bool) {
         let echo = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let echo_port = echo.local_addr().unwrap().port();
         let echo_task = tokio::spawn(async move {
-            let mut packets = Vec::new();
+            let mut previous_peers = None;
             for _ in 0..2 {
-                let mut bytes = vec![0; 4096];
-                let (len, peer) = echo.recv_from(&mut bytes).await.unwrap();
-                bytes.truncate(len);
-                packets.push((bytes, peer));
-            }
-            // Both flows exist before either response is sent.
-            for (bytes, peer) in packets.into_iter().rev() {
-                echo.send_to(&bytes, peer).await.unwrap();
+                let mut packets = Vec::new();
+                for _ in 0..2 {
+                    let mut bytes = vec![0; 4096];
+                    let (len, peer) = timeout(Duration::from_secs(5), echo.recv_from(&mut bytes))
+                        .await.expect("target receives both isolated requests").unwrap();
+                    bytes.truncate(len);
+                    packets.push((bytes, peer));
+                }
+                packets.sort_by_key(|(bytes, _)| bytes[0]);
+                let peers = [packets[0].1, packets[1].1];
+                assert_ne!(peers[0], peers[1], "same-target sessions need separate direct sockets");
+                if let Some(previous) = previous_peers { assert_eq!(peers, previous); }
+                previous_peers = Some(peers);
+                // Both flows exist before either response is sent.
+                for (bytes, peer) in packets.into_iter().rev() {
+                    echo.send_to(&bytes, peer).await.unwrap();
+                }
             }
         });
         let leaf = Hysteria2TransportLeaf::new("hy", "127.0.0.1", port, "test-password", None).with_insecure(true);
@@ -70,11 +80,15 @@ async fn same_target_sessions(via_hy2: bool) {
         let a = open_hysteria2_udp_packet_path_build(leaf.packet_path_carrier_build(), &sockets).await.unwrap();
         let b = open_hysteria2_udp_packet_path_build(leaf.packet_path_carrier_build(), &sockets).await.unwrap();
         let target = Address::Ipv4([127, 0, 0, 1]);
-        a.send_to(&target, echo_port, &[1; 1600]).await.unwrap();
-        b.send_to(&target, echo_port, &[2; 1600]).await.unwrap();
-        let (a_reply, b_reply) = tokio::join!(a.receive(), b.receive());
-        assert_eq!(a_reply.unwrap().2, vec![1; 1600]);
-        assert_eq!(b_reply.unwrap().2, vec![2; 1600]);
+        for round in 0..2 {
+            let a_payload = vec![1 + round * 2; 1600];
+            let b_payload = vec![2 + round * 2; 1600];
+            a.send_to(&target, echo_port, &a_payload).await.unwrap();
+            b.send_to(&target, echo_port, &b_payload).await.unwrap();
+            let (a_reply, b_reply) = tokio::join!(timeout(Duration::from_secs(8), a.receive()), timeout(Duration::from_secs(8), b.receive()));
+            assert_eq!(a_reply.expect("first session receives its reply").unwrap().2, a_payload);
+            assert_eq!(b_reply.expect("second session receives its reply").unwrap().2, b_payload);
+        }
         echo_task.await.unwrap();
         drop(a); drop(b); drop(leaf);
         for proxy in proxies { proxy.shutdown().await.unwrap(); }

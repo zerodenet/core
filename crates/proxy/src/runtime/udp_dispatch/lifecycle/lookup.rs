@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use crate::runtime::udp_socket::DirectUdpResponseSource;
 
 #[cfg(feature = "upstream-association-runtime")]
 use zero_core::Address;
@@ -28,8 +28,13 @@ impl UdpDispatch {
     }
 
     /// Look up the session ID for a direct response sender.
-    pub(crate) fn direct_response_session_id(&self, sender: SocketAddr) -> Option<u64> {
-        self.flows.direct_response_session_id(sender)
+    pub(crate) fn direct_response_session_id(
+        &self,
+        sender: DirectUdpResponseSource,
+    ) -> Option<u64> {
+        sender
+            .session_id
+            .or_else(|| self.flows.direct_response_session_id(sender.sender))
     }
 
     /// Look up a session ID by target+port only, regardless of outbound type.

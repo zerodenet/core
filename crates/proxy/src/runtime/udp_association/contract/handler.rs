@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use crate::runtime::udp_socket::DirectUdpResponseSource;
 
 use zero_core::{InboundUdpAssociation, InboundUdpAssociationResponder};
 use zero_engine::EngineError;
@@ -25,7 +25,7 @@ pub(crate) trait UdpAssociationHandler {
         runtime: &UdpIngressRuntime,
         dispatch: &UdpDispatch,
         relay: &TokioDatagramSocket,
-        sender: SocketAddr,
+        sender: DirectUdpResponseSource,
         payload: &[u8],
     ) -> Result<(), EngineError>;
 
@@ -80,7 +80,10 @@ where
                     let response = record_direct_udp_response_parts(
                         runtime.services(),
                         dispatch_bridge.dispatch(),
-                        sender_socket_addr,
+                        DirectUdpResponseSource {
+                            sender: sender_socket_addr,
+                            session_id: None,
+                        },
                         &payload,
                     );
                     write_direct_udp_response(&response, || async {
@@ -113,7 +116,7 @@ where
         runtime: &UdpIngressRuntime,
         dispatch: &UdpDispatch,
         relay: &TokioDatagramSocket,
-        sender: SocketAddr,
+        sender: DirectUdpResponseSource,
         payload: &[u8],
     ) -> Result<(), EngineError> {
         let response =

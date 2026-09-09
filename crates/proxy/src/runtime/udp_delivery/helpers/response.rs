@@ -1,3 +1,4 @@
+use crate::runtime::udp_socket::DirectUdpResponseSource;
 use std::net::SocketAddr;
 
 use zero_core::Address;
@@ -58,7 +59,7 @@ pub(crate) fn record_upstream_udp_response_received(
 fn record_direct_udp_response_received(
     services: &UdpRuntimeServices,
     dispatch: &UdpDispatch,
-    sender: SocketAddr,
+    sender: DirectUdpResponseSource,
     payload_len: usize,
 ) -> UdpInboundResponseAccounting {
     let session_id = dispatch.direct_response_session_id(sender);
@@ -70,11 +71,11 @@ fn record_direct_udp_response_received(
 pub(crate) fn record_direct_udp_response_parts<'payload>(
     services: &UdpRuntimeServices,
     dispatch: &UdpDispatch,
-    sender: SocketAddr,
+    sender: DirectUdpResponseSource,
     payload: &'payload [u8],
 ) -> UdpDirectResponseParts<'payload> {
     let accounting = record_direct_udp_response_received(services, dispatch, sender, payload.len());
-    let (target, port) = udp_response_target_from_socket_addr(sender);
+    let (target, port) = udp_response_target_from_socket_addr(sender.sender);
     UdpDirectResponseParts {
         target,
         port,

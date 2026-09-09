@@ -37,18 +37,20 @@ impl UdpDispatch {
     /// Send a direct UDP packet through the dispatch-owned socket.
     pub(crate) async fn send_direct_packet(
         &mut self,
+        session_id: u64,
         target_addr: SocketAddr,
         payload: &[u8],
     ) -> Result<usize, EngineError> {
         self.refresh_direct_sockets().await?;
         let network = self.runtime.services().network();
         self.direct_socket
-            .send_to_addr(&network, payload, target_addr)
+            .send_to_addr(&network, payload, target_addr, session_id)
             .await
     }
 
     pub(crate) async fn send_new_direct_packet(
         &mut self,
+        session_id: u64,
         logical_target: &zero_core::Address,
         candidates: &[SocketAddr],
         payload: &[u8],
@@ -59,7 +61,12 @@ impl UdpDispatch {
             .select_target(logical_target, candidates)?;
         let sent = self
             .direct_socket
-            .send_to_addr(&self.runtime.services().network(), payload, target_addr)
+            .send_to_addr(
+                &self.runtime.services().network(),
+                payload,
+                target_addr,
+                session_id,
+            )
             .await?;
         tracing::debug!(
             target = %target_addr,
