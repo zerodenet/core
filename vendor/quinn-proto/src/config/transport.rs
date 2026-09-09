@@ -30,6 +30,7 @@ pub struct TransportConfig {
     pub(crate) max_idle_timeout: Option<VarInt>,
     pub(crate) stream_receive_window: VarInt,
     pub(crate) receive_window: VarInt,
+    pub(crate) receive_window_factory: Option<Arc<dyn crate::receive_window::ReceiveWindowFactory>>,
     pub(crate) send_window: u64,
     pub(crate) send_fairness: bool,
 
@@ -124,6 +125,16 @@ impl TransportConfig {
     /// stream while another is blocked.
     pub fn receive_window(&mut self, value: VarInt) -> &mut Self {
         self.receive_window = value;
+        self
+    }
+
+    /// Install an optional connection-local receive-window policy.
+    /// None retains the upstream fixed-window behavior.
+    pub fn receive_window_controller(
+        &mut self,
+        factory: Arc<dyn crate::receive_window::ReceiveWindowFactory>,
+    ) -> &mut Self {
+        self.receive_window_factory = Some(factory);
         self
     }
 
@@ -365,6 +376,7 @@ impl Default for TransportConfig {
             max_idle_timeout: Some(VarInt(30_000)),
             stream_receive_window: STREAM_RWND.into(),
             receive_window: VarInt::MAX,
+            receive_window_factory: None,
             send_window: (8 * STREAM_RWND).into(),
             send_fairness: true,
 
@@ -403,6 +415,7 @@ impl fmt::Debug for TransportConfig {
             max_idle_timeout,
             stream_receive_window,
             receive_window,
+            receive_window_factory: _,
             send_window,
             send_fairness,
             packet_threshold,

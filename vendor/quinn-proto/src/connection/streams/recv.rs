@@ -15,7 +15,7 @@ pub(super) struct Recv {
     // NB: when adding or removing fields, remember to update `reinit`.
     state: RecvState,
     pub(super) assembler: Assembler,
-    sent_max_stream_data: u64,
+    pub(super) sent_max_stream_data: u64,
     pub(super) end: u64,
     pub(super) stopped: bool,
 }
@@ -360,7 +360,11 @@ impl<'a> Chunks<'a> {
 
         // If the stream hasn't finished, we may need to issue stream-level flow control credit
         if let ChunksState::Readable(mut rs) = state {
-            let (_, max_stream_data) = rs.max_stream_data(self.streams.stream_receive_window);
+            let max_stream_data = if let Some(policy) = &mut self.streams.receive_policy {
+                ShouldTransmit(policy.read_stream(self.id, self.read) && rs.can_send_flow_control())
+            } else {
+                rs.max_stream_data(self.streams.stream_receive_window).1
+            };
             should_transmit |= max_stream_data.0;
             if max_stream_data.0 {
                 self.pending.max_stream_data.insert(self.id);

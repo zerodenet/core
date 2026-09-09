@@ -127,6 +127,8 @@ pub(super) fn transport(settings: Settings) -> Result<quinn::TransportConfig, st
     zero_transport::quic::QuicTransportOptions {
         stream_receive_window: q.stream_receive_window,
         connection_receive_window: q.connection_receive_window,
+        max_stream_receive_window: q.max_stream_receive_window,
+        max_connection_receive_window: q.max_connection_receive_window,
         send_window: q.send_window,
         // Negotiated bandwidth is the Brutal target, not a hard pacing ceiling:
         // loss compensation may send above it, and auto must remain adaptive.

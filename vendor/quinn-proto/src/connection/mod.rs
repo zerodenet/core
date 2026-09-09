@@ -356,6 +356,12 @@ impl Connection {
             stats: ConnectionStats::default(),
             version,
         };
+        this.streams.receive_policy = this.config.receive_window_factory.as_ref().map(|factory| {
+            factory.build(
+                this.config.stream_receive_window.into(),
+                this.config.receive_window.into(),
+            )
+        });
         if path_validated {
             this.on_path_validated();
         }
@@ -455,6 +461,8 @@ impl Connection {
         max_datagrams: usize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
+        self.streams.receive_now = now;
+        self.streams.receive_rtt = self.path.rtt.measured().unwrap_or(Duration::ZERO);
         assert!(max_datagrams != 0);
         let max_datagrams = match self.config.enable_segmentation_offload {
             false => 1,
@@ -2818,6 +2826,7 @@ impl Connection {
                     self.read_crypto(SpaceId::Data, &frame, payload_len)?;
                 }
                 Frame::Stream(frame) => {
+                    self.streams.receive_now = now;
                     if self.streams.received(frame, payload_len)?.should_transmit() {
                         self.spaces[SpaceId::Data].pending.max_data = true;
                     }
@@ -2864,6 +2873,7 @@ impl Connection {
                     self.streams.received_max_streams(dir, count)?;
                 }
                 Frame::ResetStream(frame) => {
+                    self.streams.receive_now = now;
                     if self.streams.received_reset(frame)?.should_transmit() {
                         self.spaces[SpaceId::Data].pending.max_data = true;
                     }

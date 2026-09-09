@@ -25,6 +25,10 @@ impl Default for Hysteria2CongestionConfig {
 pub struct Hysteria2QuicConfig {
     pub stream_receive_window: u64,
     pub connection_receive_window: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_stream_receive_window: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_connection_receive_window: Option<u64>,
     pub send_window: u64,
     pub max_idle_timeout_secs: u64,
     pub keep_alive_interval_secs: u64,
@@ -37,6 +41,8 @@ impl Default for Hysteria2QuicConfig {
         Self {
             stream_receive_window: q.stream_receive_window,
             connection_receive_window: q.connection_receive_window,
+            max_stream_receive_window: q.max_stream_receive_window,
+            max_connection_receive_window: q.max_connection_receive_window,
             send_window: q.send_window,
             max_idle_timeout_secs: q.max_idle_timeout_secs,
             keep_alive_interval_secs: q.keep_alive_interval_secs,
@@ -75,6 +81,8 @@ impl Hysteria2TransportConfig {
             quic: QuicSettings {
                 stream_receive_window: q.stream_receive_window,
                 connection_receive_window: q.connection_receive_window,
+                max_stream_receive_window: q.max_stream_receive_window,
+                max_connection_receive_window: q.max_connection_receive_window,
                 send_window: q.send_window,
                 max_idle_timeout_secs: q.max_idle_timeout_secs,
                 keep_alive_interval_secs: q.keep_alive_interval_secs,

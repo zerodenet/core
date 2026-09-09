@@ -36,6 +36,7 @@ mod util;
 use util::*;
 
 mod packet_feedback;
+mod receive_window;
 mod token;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]

@@ -294,6 +294,10 @@ pub struct RttEstimator {
 }
 
 impl RttEstimator {
+    /// Measured smoothed RTT, excluding the pre-handshake estimate.
+    pub(super) fn measured(&self) -> Option<Duration> {
+        self.smoothed
+    }
     fn new(initial_rtt: Duration) -> Self {
         Self {
             latest: initial_rtt,

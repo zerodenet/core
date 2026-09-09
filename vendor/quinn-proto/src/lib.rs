@@ -87,6 +87,7 @@ mod transport_error;
 pub use crate::transport_error::{Code as TransportErrorCode, Error as TransportError};
 
 pub mod congestion;
+pub mod receive_window;
 
 mod cid_generator;
 pub use crate::cid_generator::{

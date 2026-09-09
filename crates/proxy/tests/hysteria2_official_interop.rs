@@ -163,3 +163,6 @@ async fn official_to_zero_brutal_tcp_and_udp() {
     configured_interop(false, false, true).await;
     configured_interop(false, true, true).await;
 }
+
+#[path = "hysteria2_official_interop/windows.rs"]
+mod windows;

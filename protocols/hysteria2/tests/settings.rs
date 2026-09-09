@@ -38,6 +38,16 @@ fn bandwidth_units_and_negotiation_follow_hysteria() {
         3_000_000
     );
 }
+
+#[test]
+fn receive_window_ceiling_changes_connection_cache_identity() {
+    let make =
+        || hysteria2::udp::Hysteria2UdpFlowConfig::new("hy", "localhost", 443, "password", None);
+    let mut settings = Settings::default();
+    let fixed = make().with_settings(settings).cache_key();
+    settings.quic.max_stream_receive_window = Some(16_777_216);
+    assert_ne!(fixed, make().with_settings(settings).cache_key());
+}
 #[test]
 fn settings_enforce_window_and_liveness_bounds() {
     let mut settings = Settings::default();

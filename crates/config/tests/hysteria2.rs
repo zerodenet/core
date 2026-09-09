@@ -166,3 +166,41 @@ fn bbr_profiles_validate_and_preserve_independent_initial_window() {
     )
     .is_err());
 }
+
+#[test]
+fn receive_window_bounds_preserve_fixed_configs_and_validate_adaptive_ranges() {
+    for quic in [
+        serde_json::json!({}),
+        serde_json::json!({"stream_receive_window":32768,"connection_receive_window":65536}),
+    ] {
+        let config = outbound_with_fields(serde_json::json!({"transport":{"quic":quic}})).unwrap();
+        let OutboundProtocolConfig::Hysteria2 { transport, .. } = &config.outbounds[0].protocol
+        else {
+            panic!()
+        };
+        let settings = transport.validated(None, None).unwrap();
+        assert_eq!(settings.quic.max_stream_receive_window, None);
+        assert_eq!(settings.quic.max_connection_receive_window, None);
+    }
+    let quic = serde_json::json!({"stream_receive_window":32768,"connection_receive_window":65536,
+        "max_stream_receive_window":131072,"max_connection_receive_window":262144});
+    let config = outbound_with_fields(serde_json::json!({"transport":{"quic":quic}})).unwrap();
+    assert_eq!(
+        RuntimeConfig::parse(&serde_json::to_string(&config).unwrap()).unwrap(),
+        config
+    );
+    let OutboundProtocolConfig::Hysteria2 { transport, .. } = &config.outbounds[0].protocol else {
+        panic!()
+    };
+    let settings = transport.validated(None, None).unwrap();
+    assert_eq!(settings.quic.stream_receive_window, 32768);
+    assert_eq!(settings.quic.max_stream_receive_window, Some(131072));
+    assert_eq!(settings.quic.max_connection_receive_window, Some(262144));
+    for quic in [
+        serde_json::json!({"max_stream_receive_window":0}),
+        serde_json::json!({"max_connection_receive_window":16384}),
+        serde_json::json!({"max_stream_receive_window":(1u64<<60)+1}),
+    ] {
+        assert!(outbound_with_fields(serde_json::json!({"transport":{"quic":quic}})).is_err());
+    }
+}

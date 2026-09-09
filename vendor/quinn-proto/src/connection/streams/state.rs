@@ -137,6 +137,9 @@ pub struct StreamsState {
 
     /// The shrink to be applied to local_max_data when receive_window is shrunk
     receive_window_shrink_debt: u64,
+    pub(crate) receive_policy: Option<Box<dyn crate::receive_window::ReceiveWindowController>>,
+    pub(crate) receive_now: crate::Instant,
+    pub(crate) receive_rtt: crate::Duration,
 }
 
 impl StreamsState {
@@ -181,6 +184,9 @@ impl StreamsState {
             initial_max_stream_data_bidi_local: 0u32.into(),
             initial_max_stream_data_bidi_remote: 0u32.into(),
             receive_window_shrink_debt: 0,
+            receive_policy: None,
+            receive_now: crate::Instant::now(),
+            receive_rtt: crate::Duration::ZERO,
         };
 
         for dir in Dir::iter() {
@@ -230,6 +236,9 @@ impl StreamsState {
                 self.send.remove(&id).unwrap();
                 if let Dir::Bi = dir {
                     self.recv.remove(&id).unwrap();
+                    if let Some(policy) = &mut self.receive_policy {
+                        policy.closed(id);
+                    }
                 }
             }
             self.next[dir as usize] = 0;
@@ -281,6 +290,11 @@ impl StreamsState {
         let (new_bytes, closed) =
             rs.ingest(frame, payload_len, self.data_recvd, self.local_max_data)?;
         self.data_recvd = self.data_recvd.saturating_add(new_bytes);
+        if new_bytes != 0 {
+            if let Some(policy) = &mut self.receive_policy {
+                policy.received(id, self.receive_now);
+            }
+        }
 
         if !rs.stopped {
             self.on_stream_frame(true, id);
@@ -336,6 +350,11 @@ impl StreamsState {
         )? {
             // Redundant reset
             return Ok(ShouldTransmit(false));
+        }
+        if final_offset.into_inner() > rs.end {
+            if let Some(policy) = &mut self.receive_policy {
+                policy.received(id, self.receive_now);
+            }
         }
         let bytes_read = rs.assembler.bytes_read();
         let stopped = rs.stopped;
@@ -465,6 +484,11 @@ impl StreamsState {
         // MAX_DATA
         if pending.max_data && buf.len() + 9 < max_size {
             pending.max_data = false;
+            if let Some(policy) = &mut self.receive_policy {
+                if let Some(limit) = policy.connection_update(self.receive_now, self.receive_rtt) {
+                    self.local_max_data = self.local_max_data.max(limit);
+                }
+            }
 
             // `local_max_data` can grow bigger than `VarInt`.
             // For transmission inside QUIC frames we need to clamp it to the
@@ -506,7 +530,14 @@ impl StreamsState {
             }
             retransmits.get_or_create().max_stream_data.insert(id);
 
-            let (max, _) = rs.max_stream_data(self.stream_receive_window);
+            let max = if let Some(policy) = &mut self.receive_policy {
+                policy
+                    .stream_update(id, self.receive_now, self.receive_rtt)
+                    .unwrap_or(rs.sent_max_stream_data)
+                    .max(rs.sent_max_stream_data)
+            } else {
+                rs.max_stream_data(self.stream_receive_window).0
+            };
             rs.record_sent_max_stream_data(max);
 
             trace!(stream = %id, max = max, "MAX_STREAM_DATA");
@@ -869,6 +900,9 @@ impl StreamsState {
     /// expanded or shrunk: true if expanded, false if shrunk.
     pub(crate) fn set_receive_window(&mut self, receive_window: VarInt) -> bool {
         let receive_window = receive_window.into();
+        if let Some(policy) = &self.receive_policy {
+            self.receive_window = policy.connection_window();
+        }
         let mut expanded = false;
         if receive_window > self.receive_window {
             self.local_max_data = self
@@ -880,6 +914,9 @@ impl StreamsState {
             self.receive_window_shrink_debt = self.receive_window_shrink_debt.saturating_add(diff);
         }
         self.receive_window = receive_window;
+        if let Some(policy) = &mut self.receive_policy {
+            policy.set_connection_window(receive_window, self.local_max_data);
+        }
         expanded
     }
 
@@ -905,6 +942,9 @@ impl StreamsState {
     /// suppress sending further updates until the window increases significantly
     /// again.
     pub(super) fn add_read_credits(&mut self, credits: u64) -> ShouldTransmit {
+        if let Some(policy) = &mut self.receive_policy {
+            return ShouldTransmit(policy.read_connection(credits));
+        }
         if credits > self.receive_window_shrink_debt {
             let net_credits = credits - self.receive_window_shrink_debt;
             self.local_max_data = self.local_max_data.saturating_add(net_credits);
@@ -945,6 +985,9 @@ impl StreamsState {
     }
 
     pub(super) fn stream_recv_freed(&mut self, id: StreamId, recv: StreamRecv) {
+        if let Some(policy) = &mut self.receive_policy {
+            policy.closed(id);
+        }
         self.free_recv.push(recv.free(self.stream_receive_window));
         self.stream_freed(id, StreamHalf::Recv);
     }

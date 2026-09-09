@@ -33,6 +33,20 @@ pub(super) async fn upload(
     disabled: bool,
     profile: Option<&str>,
 ) -> Measurement {
+    upload_case(zero_sender, loss, disabled, profile, None).await
+}
+
+pub(super) async fn upload_with_windows(zero_sender: bool, adaptive: bool) -> Measurement {
+    upload_case(zero_sender, 0, false, Some("standard"), Some(adaptive)).await
+}
+
+async fn upload_case(
+    zero_sender: bool,
+    loss: u64,
+    disabled: bool,
+    profile: Option<&str>,
+    windows: Option<bool>,
+) -> Measurement {
     let material = TempMaterial::new("hy2-bandwidth-loss");
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let cert_path = material.path("cert.pem");
@@ -41,7 +55,9 @@ pub(super) async fn upload(
     std::fs::write(&key_path, cert.signing_key.serialize_pem()).unwrap();
     let server_port = free_udp_port();
     let socks_port = free_port();
-    let link = if profile.is_some() {
+    let link = if windows.is_some() {
+        Link::with_delay(server_port, loss, Some(RATE), Duration::from_millis(100)).await
+    } else if profile.is_some() {
         Link::with_bottleneck(server_port, loss, Some(RATE)).await
     } else {
         Link::start(server_port, loss).await
@@ -86,6 +102,17 @@ pub(super) async fn upload(
                 serde_json::json!({"type":"bbr", "bbr_profile":profile});
         }
     }
+    if let Some(adaptive) = windows {
+        for protocol in [&mut client_protocol, &mut server_protocol] {
+            let q = &mut protocol["transport"]["quic"];
+            q["stream_receive_window"] = serde_json::json!(16_384);
+            q["connection_receive_window"] = serde_json::json!(32_768);
+            if adaptive {
+                q["max_stream_receive_window"] = serde_json::json!(131_072);
+                q["max_connection_receive_window"] = serde_json::json!(262_144);
+            }
+        }
+    }
     let zero = if zero_sender {
         serde_json::json!({
             "inbounds":[{"tag":"socks", "listen":{"address":"127.0.0.1","port":socks_port}, "protocol":{"type":"socks5"}}],
@@ -110,6 +137,13 @@ pub(super) async fn upload(
     if let Some(profile) = profile {
         official_config.as_object_mut().unwrap().remove("bandwidth");
         official_config["congestion"] = serde_json::json!({"type":"bbr", "bbrProfile":profile});
+    }
+    if let Some(adaptive) = windows {
+        official_config["quic"] = serde_json::json!({
+            "disablePathMTUDiscovery":true,
+            "initStreamReceiveWindow":16384,"maxStreamReceiveWindow":if adaptive {131072} else {16384},
+            "initConnReceiveWindow":32768,"maxConnReceiveWindow":if adaptive {262144} else {32768}
+        });
     }
     let config_path = material.path("official.json");
     std::fs::write(&config_path, official_config.to_string()).unwrap();

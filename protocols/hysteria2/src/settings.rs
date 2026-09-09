@@ -25,6 +25,8 @@ pub struct Settings {
 pub struct QuicSettings {
     pub stream_receive_window: u64,
     pub connection_receive_window: u64,
+    pub max_stream_receive_window: Option<u64>,
+    pub max_connection_receive_window: Option<u64>,
     pub send_window: u64,
     pub max_idle_timeout_secs: u64,
     pub keep_alive_interval_secs: u64,
@@ -37,6 +39,8 @@ impl Default for QuicSettings {
         Self {
             stream_receive_window: 8_388_608,
             connection_receive_window: 20_971_520,
+            max_stream_receive_window: None,
+            max_connection_receive_window: None,
             send_window: 20_971_520,
             max_idle_timeout_secs: 30,
             keep_alive_interval_secs: 10,
@@ -73,6 +77,22 @@ impl Settings {
         ] {
             if !(16_384..=(1u64 << 60)).contains(&value) {
                 return Err("QUIC windows must be between 16384 and 2^60 bytes");
+            }
+        }
+        for (initial, maximum) in [
+            (
+                self.quic.stream_receive_window,
+                self.quic.max_stream_receive_window,
+            ),
+            (
+                self.quic.connection_receive_window,
+                self.quic.max_connection_receive_window,
+            ),
+        ] {
+            if maximum.is_some_and(|max| max < initial || max > (1 << 60)) {
+                return Err(
+                    "QUIC maximum receive windows must be between initial window and 2^60 bytes",
+                );
             }
         }
         if !(4..=120).contains(&self.quic.max_idle_timeout_secs) {

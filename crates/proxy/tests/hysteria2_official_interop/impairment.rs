@@ -31,6 +31,15 @@ impl Link {
     }
 
     pub async fn with_bottleneck(server_port: u16, drop_every: u64, rate: Option<u64>) -> Self {
+        Self::with_delay(server_port, drop_every, rate, Duration::from_millis(10)).await
+    }
+
+    pub async fn with_delay(
+        server_port: u16,
+        drop_every: u64,
+        rate: Option<u64>,
+        delay: Duration,
+    ) -> Self {
         let front = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let address = front.local_addr().unwrap();
         let back = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -76,14 +85,14 @@ impl Link {
                                 let mut stats = stats.lock().unwrap();
                                 stats.peak_queue_us = stats.peak_queue_us.max(queued.as_micros() as u64);
                                 serial += 1;
-                                pending.push(Reverse((departure + Duration::from_millis(10), serial, None, up[..len].to_vec())));
+                                pending.push(Reverse((departure + delay, serial, None, up[..len].to_vec())));
                             }
                         }
                     }
                     packet = back.recv(&mut down) => {
                         let len = packet.unwrap();
                         serial += 1;
-                        pending.push(Reverse((Instant::now() + Duration::from_millis(10), serial, client, down[..len].to_vec())));
+                        pending.push(Reverse((Instant::now() + delay, serial, client, down[..len].to_vec())));
                     }
                     _ = sleep_until(wake), if !pending.is_empty() => {
                         let Reverse((_, _, target, packet)) = pending.pop().unwrap();

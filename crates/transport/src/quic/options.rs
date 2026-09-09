@@ -5,6 +5,8 @@ use std::{io, sync::Arc, time::Duration};
 pub struct QuicTransportOptions {
     pub stream_receive_window: u64,
     pub connection_receive_window: u64,
+    pub max_stream_receive_window: Option<u64>,
+    pub max_connection_receive_window: Option<u64>,
     pub send_window: u64,
     /// Per-connection pacing ceiling in bytes/sec; zero or None is unlimited.
     pub max_send_rate: Option<u64>,
@@ -29,6 +31,32 @@ impl QuicTransportOptions {
                 .try_into()
                 .map_err(io::Error::other)?,
         );
+        let stream_max = self
+            .max_stream_receive_window
+            .unwrap_or(self.stream_receive_window);
+        let connection_max = self
+            .max_connection_receive_window
+            .unwrap_or(self.connection_receive_window);
+        if self.stream_receive_window == 0
+            || self.connection_receive_window == 0
+            || stream_max < self.stream_receive_window
+            || connection_max < self.connection_receive_window
+            || stream_max > (1 << 60)
+            || connection_max > (1 << 60)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid QUIC receive-window bounds",
+            ));
+        }
+        if stream_max > self.stream_receive_window
+            || connection_max > self.connection_receive_window
+        {
+            config.receive_window_controller(Arc::new(super::receive_window::Factory {
+                stream_max,
+                connection_max,
+            }));
+        }
         config.send_window(self.send_window);
         config.max_idle_timeout(Some(
             self.max_idle_timeout.try_into().map_err(io::Error::other)?,

@@ -65,6 +65,22 @@ jobs:
           export ZERO_BBR_EXPECTED="$RUNNER_TEMP/bbr-expected.csv"
           go -C "$reference" test ./core/internal/congestion/bbr -run TestZeroReferenceTrace -count=1
           cmp "$vectors/expected.csv" "$ZERO_BBR_EXPECTED"
+      - name: Reproduce pinned receive-window state vectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          reference="$RUNNER_TEMP/hysteria-reference"
+          test "$(go -C "$reference" list -m -f '{{.Version}}' github.com/apernet/quic-go)" = v0.61.1-0.20260806010916-184d081eef3e
+          source_dir="$(go -C "$reference" list -m -f '{{.Dir}}' github.com/apernet/quic-go)"
+          copy_dir="$RUNNER_TEMP/quic-window-reference"
+          cp -R "$source_dir" "$copy_dir"
+          chmod u+w "$copy_dir"
+          vectors="$GITHUB_WORKSPACE/crates/transport/src/quic/tests/receive_window_reference"
+          cp "$vectors/generate_test.go" "$copy_dir/zero_window_test.go"
+          export ZERO_WINDOW_EVENTS="$vectors/events.csv"
+          export ZERO_WINDOW_EXPECTED="$RUNNER_TEMP/window-expected.csv"
+          go -C "$copy_dir" test . -run TestZeroReceiveWindowReference -count=1
+          cmp "$vectors/expected.csv" "$ZERO_WINDOW_EXPECTED"
       - name: Download and verify pinned reference binaries
         shell: bash
         run: |

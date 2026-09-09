@@ -16,3 +16,12 @@ and Brutal remain outside this dependency.
 The local source is excluded from workspace membership. When updating Quinn,
 reapply and review these hooks and run the dependency unit tests (including pacing and exact packet feedback) alongside
 the workspace and Hysteria2 interoperability suites.
+
+An optional receive-window policy supplies absolute credit updates from validated
+receive/consume/close events and measured RTT. StreamsState retains QUIC offset
+validation and latest-credit retransmission; a policy is built per connection,
+and receive-half closure / rejected 0-RTT clears stream state. No tuning threshold,
+growth multiplier or protocol field lives in this carrier. Without a policy,
+the original fixed-window path remains active. Explicit connection-window overrides
+are synchronized to the policy. Run all dependency unit tests, including
+`receive_policy_grants_wire_credit_and_reclaims_closed_stream_state`.

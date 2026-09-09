@@ -22,6 +22,7 @@ mod client;
 mod inbound_accept;
 mod options;
 mod rate_limit;
+mod receive_window;
 pub use client::{client_config, connect_quic_endpoint};
 pub use options::QuicTransportOptions;
 
