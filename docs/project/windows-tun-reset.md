@@ -1,7 +1,7 @@
 # Windows TUN 连接重置跟踪
 
 状态：部分定位。2026-09-09 新的 Windows 失败已确认 TLS 测试服务端的非阻塞读取错误；
-测试修复已完成本地回归，待修复后的 Windows 特权验收。历史 HTTP 重置仍未定位；没有修改内核转发行为。
+TLS 测试修复已通过 Windows 特权用例。历史 HTTP 重置仍未定位，受控对照继续验证；没有修改内核转发行为。
 
 ## TLS 测试服务端缺陷已复现
 
@@ -28,14 +28,17 @@
 按 record 长度读取完整请求，读取失败不发送 alert，成功后关闭写方向。
 跨平台回归显式把接受流置为非阻塞，覆盖延迟请求、分段 header/body、请求中途 EOF；
 本地 macOS 上旧逻辑两项失败，修复后 `cargo test --test tun_privileged_e2e tls_responder::`
-两项通过。Windows 用例复用同一个 helper，修复后的 Windows 特权验收尚未运行。
+两项通过。Windows 用例复用同一个 helper；提交 `01e37b8e` 的
+[Windows job 102348778324](https://github.com/zerodenet/core/actions/runs/34314825863/job/102348778324)
+中 TLS 回退通过，服务端记录 `complete_record_response=Ok(245)`。
 HTTP 测试仍保持原断言，不将其未定位的 10054 忽略或改成重试。
 
 ## HTTP 受控对照
 
 新增 `http_control::windows::privileged_windows_http_direct_and_tun_control`，
 固定同机物理 IPv4 的 8080 端口作为 HTTP 服务端；不请求公网 HTTP 站点。
-依次执行 TUN 启动前物理地址直连、TUN 运行中物理地址直连、TUN 转发、TUN 停止后直连。
+依次执行 TUN 启动前物理地址直连、TUN 转发、TUN 停止后直连。
+TUN 运行时另检查物理旁路连接被严格防泄漏策略以 10013 拒绝，不关闭防泄漏来迁就测试。
 每组固定 16 轮，每轮四条新连接：
 
 - 一次写出较小响应，完整读取到 EOF 并逐字节校验。
@@ -43,7 +46,7 @@ HTTP 测试仍保持原断言，不将其未定位的 10054 忽略或改成重�
 - 刻意读取 32 字节就关闭，仅这一条允许服务端出现连接关闭类错误。
 - 提前关闭后立即重新连接，完整校验另一条 64 KiB 响应。
 
-每组 64 条连接，共 256 条；192 条完整响应和 64 条刻意提前关闭，不重试失败请求。
+每组 64 条连接，共 192 条；144 条完整响应和 48 条刻意提前关闭，不重试失败请求。
 请求和响应均包含唯一 case 编号，客户端记录原始源/目标端口，服务端记录实际物理源端口和结果，
 并检查接收数量、编号唯一性及所有非提前关闭请求均成功。读取截断、额外数据、内容错误或 RST 都会失败。
 
@@ -57,7 +60,10 @@ HTTP 测试仍保持原断言，不将其未定位的 10054 忽略或改成重�
 直连运行 64 次。每组 48 条完整校验通过，16 条提前关闭后重连通过；
 提前关闭在服务端产生 BrokenPipe，完整请求没有失败。项目内两项回归通过，
 其中另一项确认截断、内容损坏及多余字节均会被拒绝。这些不是 Windows/TUN 验收。
-Windows 特权对照已加入 `Privileged TUN E2E`，捕获范围补充 TCP 8080，尚待提交后的实际运行：
+Windows 特权对照已加入 `Privileged TUN E2E`，捕获范围补充 TCP 8080。
+首轮 `01e37b8e` 的 Windows job 在 direct-before 64 条通过后，direct-during 首次连接被 10013 拒绝，
+尚未进入 TUN 组。这是对照测试原先要求严格模式允许物理旁路的设计错误，不是 HTTP 读取重置。
+现已将该步骤改为严格验证旁路被拒绝，保留前后直连基线及全部 TUN 内容/关闭断言，等待新一轮执行：
 
 ```sh
 cargo test --test tun_privileged_e2e http_control::windows::privileged_windows_http_direct_and_tun_control -- --ignored --exact --nocapture

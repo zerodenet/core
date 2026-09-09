@@ -55,7 +55,17 @@ fn run_control() {
             "HTTP control mapping: {target} -> {} -> {physical_target}; TUN={name}",
             peer::HOST
         );
-        client::run_suite("direct-during", || connect_from(physical, physical_target));
+        // Strict-route WFP policy deliberately rejects this test process's
+        // physical bypass. Keep the guard enabled and use before/after as
+        // the direct baselines instead of weakening policy for the test.
+        let blocked = connect_from(physical, physical_target)
+            .expect_err("strict route must block the physical bypass during TUN capture");
+        assert_eq!(
+            blocked.raw_os_error(),
+            Some(10013),
+            "unexpected bypass failure: {blocked}"
+        );
+        eprintln!("HTTP control physical bypass correctly blocked during capture: {blocked}");
         client::run_suite("tun", || connect_from(tun_source(false), target));
         run_cli(
             binary,
@@ -72,7 +82,7 @@ fn run_control() {
         std::panic::resume_unwind(payload);
     }
     peer.stop();
-    peer.assert_observations(4);
+    peer.assert_observations(3);
 }
 
 fn connect_from(source: IpAddr, target: SocketAddr) -> std::io::Result<TcpStream> {
