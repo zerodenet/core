@@ -180,8 +180,6 @@ jobs:
         shell: pwsh
         run: ./scripts/capture-tun-windows.ps1 -Mode Start -OutputDirectory "$env:RUNNER_TEMP/tun-packets"
       - name: Run privileged TUN smoke test
-        id: smoke
-        continue-on-error: true
         if: github.event_name != 'pull_request' || github.base_ref == 'main'
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run direct UDP self-capture E2E
@@ -197,6 +195,7 @@ jobs:
       - name: Run native Windows route reconciliation E2E
         run: cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
       - name: Run IPv4-only trusted-domain fallback E2E
+        if: !cancelled() && steps.capture.outcome == 'success'
         run: cargo test --test tun_privileged_e2e privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
@@ -211,10 +210,6 @@ jobs:
           name: windows-tun-packets-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tun-packets
           retention-days: 7
-      - name: Preserve Windows smoke failure after collecting independent evidence
-        if: always() && steps.smoke.outcome == 'failure'
-        shell: pwsh
-        run: throw 'Windows TUN smoke failed; see its logs and packet artifact'
 
   result:
     name: TUN E2E result
