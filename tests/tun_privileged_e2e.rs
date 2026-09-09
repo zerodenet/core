@@ -1366,6 +1366,10 @@ fn assert_tcp_through_tun(target: SocketAddr) {
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
+    eprintln!(
+        "TUN HTTP probe source={} target={target}",
+        stream.local_addr().unwrap()
+    );
     stream
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
         .unwrap();
@@ -1376,6 +1380,10 @@ fn assert_tcp_through_tun(target: SocketAddr) {
     assert!(
         size > 0,
         "TCP target {target} returned no bytes through TUN"
+    );
+    eprintln!(
+        "TUN HTTP probe source={} response_bytes={size}",
+        stream.local_addr().unwrap()
     );
 }
 
@@ -1401,6 +1409,11 @@ fn assert_tls_sni_ipv6_falls_back_to_ipv4(target: SocketAddr, domain: &str) {
     stream
         .write_all(&client_hello)
         .expect("write TLS ClientHello through TUN");
+    eprintln!(
+        "TUN TLS probe source={} target={target} domain={domain} hello_bytes={}",
+        stream.local_addr().unwrap(),
+        client_hello.len()
+    );
     let mut response = [0_u8; 64];
     let size = stream
         .read(&mut response)
@@ -2315,13 +2328,24 @@ impl MockTcpResponder {
                             .set_read_timeout(Some(Duration::from_secs(2)))
                             .unwrap();
                         let mut request = [0_u8; 4096];
-                        let _ = stream.read(&mut request);
+                        let read = stream.read(&mut request);
+                        let record_bytes = match &read {
+                            Ok(n) if *n >= 5 => {
+                                Some(5 + usize::from(u16::from_be_bytes([request[3], request[4]])))
+                            }
+                            _ => None,
+                        };
+                        eprintln!("fallback responder local={:?} peer={:?} first_read={read:?} tls_record_bytes={record_bytes:?}", stream.local_addr(), stream.peer_addr());
                         // A syntactically valid TLS fatal alert proves that
                         // the replayed ClientHello reached this controlled
                         // IPv4 endpoint without requiring a certificate.
                         stream
                             .write_all(&[21, 3, 3, 0, 2, 2, 40])
                             .expect("write physical IPv4 fallback TLS alert");
+                        eprintln!(
+                            "fallback responder wrote 7-byte TLS alert; closing peer={:?}",
+                            stream.peer_addr()
+                        );
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(10));
