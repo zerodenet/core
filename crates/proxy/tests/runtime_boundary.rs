@@ -1609,11 +1609,11 @@ fn heavy_protocol_inbound_transport_requests_expose_public_option_ref_constructo
 
 #[test]
 fn hysteria2_adapter_uses_protocol_bind_option_refs() {
-    let adapter = read(&proxy_src().join("adapters/hysteria2.rs"));
+    let adapter = read_module(&proxy_src().join("adapters/hysteria2.rs"));
     let forbidden = "Hysteria2InboundBindPlan::from_paths";
     assert!(
         !adapter.contains(forbidden),
-        "adapters/hysteria2.rs must not build hysteria2 bind plans via `{forbidden}`"
+        "hysteria2 adapter module must not build hysteria2 bind plans via `{forbidden}`"
     );
     for required in [
         "Hysteria2InboundBindOptionsRef",
@@ -1621,7 +1621,7 @@ fn hysteria2_adapter_uses_protocol_bind_option_refs() {
     ] {
         assert!(
             adapter.contains(required),
-            "adapters/hysteria2.rs should project through protocol-owned hysteria2 bind option surface `{required}`"
+            "hysteria2 adapter module should project through protocol-owned hysteria2 bind option surface `{required}`"
         );
     }
 }
@@ -1647,14 +1647,14 @@ fn hysteria2_adapter_uses_protocol_outbound_option_refs() {
 
 #[test]
 fn hysteria2_inbound_projection_happens_at_adapter_boundary() {
-    let adapter = read(&proxy_src().join("adapters/hysteria2.rs"));
+    let adapter = read_module(&proxy_src().join("adapters/hysteria2.rs"));
     for required in [
         "Hysteria2InboundOptionsRef",
         "Hysteria2AuthenticatedInboundProfile::from_options_refs",
     ] {
         assert!(
             adapter.contains(required),
-            "adapters/hysteria2.rs should project through protocol-owned hysteria2 inbound option surface `{required}`"
+            "hysteria2 adapter module should project through protocol-owned hysteria2 inbound option surface `{required}`"
         );
     }
 
