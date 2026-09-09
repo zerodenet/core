@@ -163,3 +163,31 @@ Quinn 268 项回归，重新生成并匹配 147 个窗口与 252 个 BBR 官方�
 同次[特权 TUN 验收](https://github.com/zerodenet/core/actions/runs/34312975151)三个平台全部通过，
 [Connector 验收](https://github.com/zerodenet/core/actions/runs/34312975204)也通过。
 本批未修改 TUN；此次通过不撤销此前 Windows 重置证据，也不宣称已修复其根因。
+
+### TCP/UDP 共享认证连接与回复隔离
+
+2026-09-09，`e82683c4` 至 `6c3778dd` 将 TCP、普通 UDP 流和 packet-path 接入同一协议连接池，
+每连接只有一个 datagram reader，各 UDP 会话独立分发和重组。连接身份、并发单次认证、
+故障重建、重载退役、活跃借用和逻辑会话释放见[连接统一](connections.md)。
+Zero 配置保持不变，协议拥有共享连接与会话机制，通用 runtime 仅消费中立生命周期契约。
+
+同目标隔离回归还暴露了直连回复的第二处身份丢失：仅修复 HY2 入站 session ID 映射仍不足，
+共享 direct socket 按目标反查回复会覆盖归属。`6c3778dd` 在通用 UDP 层为显式带会话标识的流
+隔离 socket，并让回复携带内核 session ID；无会话标识的原有共享 socket 行为保留。
+两项真实代理回归覆盖直连与 HY2 多跳，连续两轮同目标、1600 字节、倒序回复均通过。
+
+最终代码提交 `6c3778dd` 的[工作区 CI](https://github.com/zerodenet/core/actions/runs/34319436056)
+通过 1524 项测试（91 项显式忽略）、严格 Clippy、格式、分层回归和代表性最小特性检查。
+[官方互通](https://github.com/zerodenet/core/actions/runs/34319435875)通过官方 10 项、sing-box 6 项及
+Quinn 268 项回归；新增官方服务端用例验证 4 路 TCP 与 4 路分片 UDP 并发传输只认证一次。
+固定 BBR 与窗口参考向量继续通过。本地 macOS 另通过 HY2 23 项运行时回归、两项代理隔离回归及
+工作区严格 Clippy；工作区全量结果以上述 Linux CI 为准。
+
+[特权 TUN 验收](https://github.com/zerodenet/core/actions/runs/34319435913)三个平台全部通过。
+较早的 `21aec662` 运行在 Windows HTTP 控制用例 `tun/3/split` 出现 `10054 ConnectionReset`
+（[失败记录](https://github.com/zerodenet/core/actions/runs/34318088846)）；该路径不经过 HY2，
+本次通过不撤销失败证据，也不作为其根因修复声明。本批未修改 TUN 实现或测试。
+
+本次 push 的独立兼容性矩阵、musl 构建和穷举特性任务按 CI 路径选择规则跳过，未计作通过；
+91 项普通工作区忽略项中需要外部程序或权限的用例，只有上述独立作业实际执行的部分具有本轮证据。
+这些测试不替代长期运行、任意网络恢复或全部 UDP 故障组合的验收。
