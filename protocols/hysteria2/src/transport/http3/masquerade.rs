@@ -1,10 +1,10 @@
 //! Protocol-owned HTTP masquerade policy; file IO and origin bodies are streamed.
-use super::RequestStream;
 use bytes::Bytes;
 use std::{
     io,
     path::{Path, PathBuf},
 };
+use zero_transport::http_server::HttpExchange;
 
 #[derive(Debug, Clone, Default)]
 pub enum Masquerade {
@@ -14,6 +14,7 @@ pub enum Masquerade {
     Proxy {
         url: url::Url,
         rewrite_host: bool,
+        x_forwarded: bool,
         client: zero_transport::http_client::HttpClient,
     },
     String {
@@ -40,11 +41,38 @@ impl Masquerade {
         Ok(Self::File(path))
     }
     pub fn proxy(url: &str, rewrite_host: bool) -> io::Result<Self> {
+        Self::proxy_with_options(url, rewrite_host, false, false)
+    }
+    pub fn proxy_with_options(
+        url: &str,
+        rewrite_host: bool,
+        insecure: bool,
+        x_forwarded: bool,
+    ) -> io::Result<Self> {
         let url = crate::settings::validate_proxy_url(url).map_err(io::Error::other)?;
+        let (url, client) = if url.scheme() == "unix" {
+            #[cfg(unix)]
+            {
+                let path = crate::settings::decode_unix_origin_path(url.path())
+                    .map_err(io::Error::other)?;
+                let client = zero_transport::http_client::HttpClient::unix(PathBuf::from(path));
+                (url::Url::parse("http://localhost/").unwrap(), client)
+            }
+            #[cfg(not(unix))]
+            {
+                return Err(io::Error::other("Unix socket origins are unavailable"));
+            }
+        } else {
+            (
+                url,
+                zero_transport::http_client::HttpClient::with_insecure(insecure)?,
+            )
+        };
         Ok(Self::Proxy {
             url,
             rewrite_host,
-            client: zero_transport::http_client::HttpClient::new()?,
+            x_forwarded,
+            client,
         })
     }
     pub fn content(content: &str, status: u16, content_type: &str) -> io::Result<Self> {
@@ -56,10 +84,10 @@ impl Masquerade {
             content_type: content_type.parse().map_err(io::Error::other)?,
         })
     }
-    pub(super) async fn serve(
+    pub(crate) async fn serve(
         &self,
         request: http::Request<()>,
-        stream: &mut RequestStream,
+        stream: &mut dyn HttpExchange,
     ) -> Result<(), io::Error> {
         match self {
             Self::NotFound => {
@@ -90,13 +118,14 @@ impl Masquerade {
             Self::Proxy {
                 url,
                 rewrite_host,
+                x_forwarded,
                 client,
-            } => proxy(client, url, *rewrite_host, request, stream).await,
+            } => proxy(client, url, *rewrite_host, *x_forwarded, request, stream).await,
         }
     }
 }
 pub(super) async fn respond(
-    stream: &mut RequestStream,
+    stream: &mut dyn HttpExchange,
     status: u16,
     content_type: &str,
     body: Bytes,

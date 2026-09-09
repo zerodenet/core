@@ -48,6 +48,10 @@ where
             } = *self;
             let runtime_factory = runtime.route_factory();
             match bound {
+                #[cfg(feature = "inbound-listener-group-runtime")]
+                BoundInbound::Group(_) => Err(EngineError::Io(std::io::Error::other(
+                    "nested listener group mismatch",
+                ))),
                 #[cfg(feature = "managed-datagram-runtime")]
                 BoundInbound::TcpAndDatagram(..) => Err(EngineError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,

@@ -6,6 +6,7 @@ use crate::{ConfigError, EventSinkConfig, ModeConfig, RuntimeConfig, RuntimeOpti
 mod api;
 mod dns;
 mod group;
+mod listeners;
 mod protocol;
 mod route;
 
@@ -36,6 +37,7 @@ impl RuntimeConfig {
                 ConfigError::InvalidInbound(format!("inbounds[{i}] `{}`: {e}", inbound.tag))
             })?;
         }
+        listeners::validate_auxiliary_listeners(self)?;
         if let Some(tun) = &self.runtime.tun {
             validate_tag("TUN inbound", &tun.tag, &mut inbound_tags)
                 .map_err(|error| ConfigError::InvalidRuntime(error.to_string()))?;

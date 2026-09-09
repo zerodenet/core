@@ -7,6 +7,8 @@
 /// into runtime dispatch.
 pub(crate) enum BoundInbound {
     Tcp(zero_platform_tokio::TokioListener),
+    #[cfg(feature = "inbound-listener-group-runtime")]
+    Group(Vec<BoundInbound>),
     #[cfg(feature = "managed-datagram-runtime")]
     TcpAndDatagram(
         zero_platform_tokio::TokioListener,
@@ -17,26 +19,16 @@ pub(crate) enum BoundInbound {
 }
 
 impl BoundInbound {
-    /// Unwrap into a TCP listener. Panics if the variant is QUIC; that
-    /// indicates a dispatch mismatch because bind and spawn disagreed.
-    #[cfg(feature = "transport_quic")]
+    /// A mismatch indicates that bind and preparation disagreed on listener shape.
     pub(crate) fn into_tcp(self) -> zero_platform_tokio::TokioListener {
         match self {
-            Self::Tcp(l) => l,
+            Self::Tcp(listener) => listener,
             #[cfg(feature = "managed-datagram-runtime")]
             Self::TcpAndDatagram(..) => panic!("combined listener requires datagram execution"),
-            Self::Quic(_) => {
-                panic!("into_tcp: got QUIC listener, expected TCP (dispatch mismatch)")
-            }
-        }
-    }
-
-    #[cfg(not(feature = "transport_quic"))]
-    pub(crate) fn into_tcp(self) -> zero_platform_tokio::TokioListener {
-        match self {
-            Self::Tcp(l) => l,
-            #[cfg(feature = "managed-datagram-runtime")]
-            Self::TcpAndDatagram(..) => panic!("combined listener requires datagram execution"),
+            #[cfg(feature = "inbound-listener-group-runtime")]
+            Self::Group(_) => panic!("listener group requires composite execution"),
+            #[cfg(feature = "transport_quic")]
+            Self::Quic(_) => panic!("into_tcp: got QUIC listener, expected TCP"),
         }
     }
 }

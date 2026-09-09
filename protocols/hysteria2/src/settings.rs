@@ -168,7 +168,29 @@ pub fn parse_bandwidth(value: Option<&str>) -> Result<u64, &'static str> {
 
 #[cfg(feature = "validation")]
 pub fn validate_proxy_url(value: &str) -> Result<url::Url, &'static str> {
-    let url = url::Url::parse(value).map_err(|_| "invalid masquerade proxy URL")?;
+    let value = if value.starts_with('/') {
+        alloc::format!("unix:{value}")
+    } else {
+        value.into()
+    };
+    let url = url::Url::parse(&value).map_err(|_| "invalid masquerade proxy URL")?;
+    if url.scheme() == "unix" {
+        if !cfg!(unix) {
+            return Err("Unix socket origins are unavailable on this platform");
+        }
+        if url.host_str().is_some()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || !url.path().starts_with('/')
+            || url.path() == "/"
+        {
+            return Err("masquerade Unix origin requires an absolute socket path without host, query or fragment");
+        }
+        decode_unix_origin_path(url.path())?;
+        return Ok(url);
+    }
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
@@ -196,6 +218,21 @@ pub fn validate_masquerade_response(status: u16, content_type: &str) -> Result<(
 }
 /// Percent decode first, then reject traversal and platform-specific separators.
 pub fn decode_site_path(value: &str) -> Result<String, &'static str> {
+    let path = decode_path(value)?;
+    if path.contains(['\\', ':', '\0']) || path.split('/').any(|p| p == "..") {
+        return Err("invalid site path");
+    }
+    Ok(path.trim_start_matches('/').into())
+}
+/// Decode the absolute Unix socket path; unlike a site request it has no document root.
+pub fn decode_unix_origin_path(value: &str) -> Result<String, &'static str> {
+    let path = decode_path(value)?;
+    if !path.starts_with('/') || path.contains('\0') || path == "/" {
+        return Err("invalid Unix socket path");
+    }
+    Ok(path)
+}
+fn decode_path(value: &str) -> Result<String, &'static str> {
     let mut bytes = alloc::vec::Vec::new();
     let mut input = value.bytes();
     while let Some(byte) = input.next() {
@@ -214,11 +251,7 @@ pub fn decode_site_path(value: &str) -> Result<String, &'static str> {
             bytes.push(byte);
         }
     }
-    let path = String::from_utf8(bytes).map_err(|_| "invalid path UTF-8")?;
-    if path.contains(['\\', ':', '\0']) || path.split('/').any(|p| p == "..") {
-        return Err("invalid site path");
-    }
-    Ok(path.trim_start_matches('/').into())
+    String::from_utf8(bytes).map_err(|_| "invalid path UTF-8")
 }
 
 impl Congestion {

@@ -1,6 +1,7 @@
-use super::{respond, RequestStream};
+use super::respond;
 use bytes::{Buf, Bytes};
 use std::io;
+use zero_transport::http_server::HttpExchange;
 
 fn strip_hop_headers(headers: &mut http::HeaderMap) {
     let tokens: Vec<_> = headers
@@ -30,8 +31,9 @@ pub(super) async fn proxy(
     client: &zero_transport::http_client::HttpClient,
     base: &url::Url,
     rewrite_host: bool,
+    x_forwarded: bool,
     request: http::Request<()>,
-    stream: &mut RequestStream,
+    stream: &mut dyn HttpExchange,
 ) -> io::Result<()> {
     let mut body = Vec::new();
     while let Some(mut chunk) = stream.recv_data().await.map_err(io::Error::other)? {
@@ -53,10 +55,54 @@ pub(super) async fn proxy(
     };
     url.set_query(query.as_deref());
     let (mut parts, ()) = request.into_parts();
-    let host = parts.uri.authority().map(|v| v.as_str().to_owned());
+    let host = parts
+        .uri
+        .authority()
+        .map(|v| v.as_str().to_owned())
+        .or_else(|| {
+            parts
+                .headers
+                .get("host")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+        });
+    let context = parts
+        .extensions
+        .get::<zero_transport::http_server::RequestContext>()
+        .copied();
     parts.uri = url.as_str().parse().map_err(io::Error::other)?;
     parts.version = http::Version::HTTP_11;
     strip_hop_headers(&mut parts.headers);
+    for name in [
+        "forwarded",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+    ] {
+        parts.headers.remove(name);
+    }
+    if x_forwarded {
+        if let Some(context) = context {
+            parts.headers.insert(
+                "x-forwarded-for",
+                context
+                    .peer
+                    .ip()
+                    .to_string()
+                    .parse()
+                    .map_err(io::Error::other)?,
+            );
+            parts.headers.insert(
+                "x-forwarded-proto",
+                if context.tls { "https" } else { "http" }.parse().unwrap(),
+            );
+        }
+        if let Some(host) = &host {
+            parts
+                .headers
+                .insert("x-forwarded-host", host.parse().map_err(io::Error::other)?);
+        }
+    }
     parts.headers.remove("host");
     parts.headers.remove("content-length");
     if !rewrite_host {
@@ -82,7 +128,7 @@ pub(super) async fn proxy(
     };
     let (mut parts, mut body) = response.into_parts();
     strip_hop_headers(&mut parts.headers);
-    parts.version = http::Version::HTTP_3;
+
     stream
         .send_response(http::Response::from_parts(parts, ()))
         .await

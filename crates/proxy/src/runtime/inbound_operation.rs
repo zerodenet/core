@@ -31,3 +31,8 @@ pub(crate) use tcp_or_quic::TcpOrQuicInboundListenerOperation;
 
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use tcp_and_peer_datagram::TcpAndPeerDatagramInboundListenerOperation;
+
+#[cfg(feature = "inbound-listener-group-runtime")]
+mod group;
+#[cfg(feature = "inbound-listener-group-runtime")]
+pub(crate) use group::InboundListenerGroupOperation;

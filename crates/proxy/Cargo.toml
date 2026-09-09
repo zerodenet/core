@@ -27,6 +27,7 @@ tcp-transport-session-runtime = []
 socks5 = ["udp-response-runtime", "upstream-association-runtime", "tcp-tunnel-runtime", "dep:socks5", "socks5/runtime"]
 http = ["dep:http"]
 mixed = ["socks5", "http"]
+inbound-listener-group-runtime = []
 transport_quic = ["zero-transport/quic"]
 authenticated-quic-inbound-runtime = [
     "managed-datagram-runtime",
@@ -41,6 +42,7 @@ vless = [
     "vless/reality",
 ]
 hysteria2 = [
+    "inbound-listener-group-runtime",
     "authenticated-quic-inbound-runtime",
     "tcp-transport-session-runtime",
     "dep:hysteria2",
@@ -109,6 +111,8 @@ zero-stack = { path = "../stack" }
 zero-transport = { path = "../transport" }
 
 [dev-dependencies]
+h2 = "0.4"
+http_uri = { package = "http", version = "1" }
 quinn = { workspace = true, features = ["rustls-ring", "runtime-tokio"] }
 tempfile.workspace = true
 rcgen = "0.14"

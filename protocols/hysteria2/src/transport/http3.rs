@@ -11,6 +11,7 @@ use std::{
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 use zero_transport::RuntimeError;
 mod dispatch;
+mod exchange;
 mod masquerade;
 pub use masquerade::Masquerade;
 type RequestStream = h3::server::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>;
@@ -176,6 +177,16 @@ async fn serve(
         }
         Ok(())
     } else {
-        profile.masquerade.serve(request, stream).await
+        let mut request = request;
+        request
+            .extensions_mut()
+            .insert(zero_transport::http_server::RequestContext {
+                peer: connection.remote_address(),
+                tls: true,
+            });
+        profile
+            .masquerade
+            .serve(request, &mut exchange::Exchange(stream))
+            .await
     }
 }

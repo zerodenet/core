@@ -59,6 +59,12 @@ where
         Box::pin(async move {
             let listener = match bound {
                 BoundInbound::Quic(listener) => listener,
+                #[cfg(feature = "inbound-listener-group-runtime")]
+                BoundInbound::Group(_) => {
+                    return Err(EngineError::Io(std::io::Error::other(
+                        "nested listener group mismatch",
+                    )))
+                }
                 #[cfg(feature = "managed-datagram-runtime")]
                 BoundInbound::TcpAndDatagram(..) => {
                     return Err(EngineError::Io(std::io::Error::new(

@@ -54,3 +54,9 @@ impl StreamTraffic {
 
 #[cfg(feature = "http_client")]
 pub mod http_client;
+
+#[cfg(feature = "http_server")]
+pub mod http_server;
+
+#[cfg(any(feature = "quic", feature = "http_client"))]
+mod certificate_verifier;

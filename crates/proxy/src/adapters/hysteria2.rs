@@ -22,6 +22,7 @@ use crate::runtime::udp_flow::managed::ManagedDatagramFlowHandler;
 
 #[cfg(feature = "hysteria2")]
 mod inbound;
+mod listener;
 #[cfg(feature = "hysteria2")]
 mod tcp;
 #[cfg(feature = "hysteria2")]
@@ -161,32 +162,7 @@ impl InboundListenerCapability for Hysteria2Adapter {
         inbound: &InboundConfig,
         source_dir: Option<&std::path::Path>,
     ) -> Result<BoundInbound, EngineError> {
-        let InboundProtocolConfig::Hysteria2 {
-            cert_path,
-            key_path,
-            up_bps,
-            down_bps,
-            transport,
-            ..
-        } = &inbound.protocol
-        else {
-            return Err(EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "hysteria2 inbound bind received non-hysteria2 inbound config",
-            )));
-        };
-        let plan = Hysteria2InboundBindPlan::from_options_refs(
-            source_dir,
-            Hysteria2InboundBindOptionsRef {
-                cert_path: cert_path.as_deref(),
-                key_path: key_path.as_deref(),
-            },
-        );
-        let plan = plan.with_settings(transport.validated(*down_bps, *up_bps).map_err(|e| {
-            EngineError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
-        })?);
-        let endpoint = plan.bind(&inbound_listen_addr(inbound)).await?;
-        Ok(BoundInbound::Quic(endpoint))
+        listener::bind(inbound, source_dir).await
     }
 
     fn prepare_inbound_listener(
@@ -197,37 +173,7 @@ impl InboundListenerCapability for Hysteria2Adapter {
         Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
         EngineError,
     > {
-        let profile = match &inbound.protocol {
-            InboundProtocolConfig::Hysteria2 {
-                password,
-                users,
-                up_bps,
-                down_bps,
-                transport,
-                masquerade,
-                ..
-            } => {
-                let users = inbound_user_refs(password, users);
-                let profile = self.inbound_profiles.replace(&inbound.tag, &users);
-                Hysteria2AuthenticatedInboundProfile::from_options_refs(
-                    Hysteria2InboundOptionsRef {
-                        users: users.iter().copied(),
-                    },
-                )
-                .with_settings(transport.validated(*down_bps, *up_bps).map_err(|e| {
-                    EngineError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
-                })?)
-                .with_masquerade(inbound::prepare_masquerade(masquerade, source_dir)?)
-                .with_profile(profile)
-            }
-            _ => {
-                return Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "hysteria2 inbound listener received non-hysteria2 inbound config",
-                )));
-            }
-        };
-        Ok(inbound::prepare(profile))
+        listener::prepare(self, inbound, source_dir)
     }
 }
 

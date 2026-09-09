@@ -1,11 +1,12 @@
-use super::{respond, RequestStream};
+use super::respond;
 use bytes::Bytes;
 use std::{io, path::Path};
+use zero_transport::http_server::HttpExchange;
 
 pub(super) async fn serve_file(
     root: &Path,
     request: http::Request<()>,
-    stream: &mut RequestStream,
+    stream: &mut dyn HttpExchange,
 ) -> io::Result<()> {
     let head = request.method() == http::Method::HEAD;
     if request.method() != http::Method::GET && !head {

@@ -46,6 +46,18 @@ impl Hysteria2InboundBindPlan {
         }
     }
 
+    pub(super) fn website_tls(&self) -> Result<tokio_rustls::TlsAcceptor, RuntimeError> {
+        zero_transport::tls::build_tls_acceptor(
+            &zero_transport::profile::OwnedServerTlsProfile {
+                cert_path: self.cert_path.clone(),
+                key_path: self.key_path.clone(),
+                alpn: vec!["h2".into(), "http/1.1".into()],
+                server_fingerprint: None,
+            },
+            self.source_dir.as_deref(),
+        )
+    }
+
     pub async fn bind(
         &self,
         listen_addr: &str,

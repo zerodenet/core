@@ -122,7 +122,7 @@ QUIC 连接窗口和保活自然由共享连接统一执行，不复制一份 TC
 业务数据不自动重放。旧 UDP 会话收到关闭，不迁移或重放已经发送的数据；后续流创建使用新连接。
 详细生命周期、队列上限、参考版本与验收见[连接统一](connections.md)。
 
-## HTTP/3 伪装
+## HTTP 伪装
 
 入站 `protocol.masquerade` 支持下列形态，默认是普通 404 响应。
 认证前后都可以持续处理网页请求；无效凭据走同一伪装服务。HY2 TCP 帧只有认证完成后才能进入代理路由。
@@ -140,7 +140,12 @@ QUIC 连接窗口和保活自然由共享连接统一执行，不复制一份 TC
 
 固定转发到指定 HTTP/HTTPS 站点，保留请求方法、路径、查询、请求体以及响应状态、响应体。
 `rewrite_host` 默认为 false，保留访问者的 Host；true 使用上游站点 Host。
-HTTPS 校验证书，HTTP 客户端不自动跟随重定向，剥离两端逐跳头。
+HTTPS 默认校验证书；`insecure: true` 显式跳过源站证书链/名称检查（仍验证握手签名）。
+`x_forwarded: true` 按实际连接生成 `X-Forwarded-For/Host/Proto`；默认不生成。
+无论开关如何，先删除访问者提供的 `Forwarded` 和这三个 `X-Forwarded-*` 头，避免伪造来源。
+HTTP 客户端复用源站连接、不自动跟随重定向，并剥离两端逐跳头。
+Unix 平台还可将 `url` 设为绝对 socket 路径或 `unix:///run/site.sock`，在该 socket 上转发 HTTP；
+Unix URL 不允许 host、用户信息、查询或片段；Windows 配置阶段明确拒绝。
 伪装是网站源站转发，不经过 Zero 的代理会话路由规则；源站解析与连接由普通 HTTP 载体执行。
 
 ```json
@@ -148,4 +153,31 @@ HTTPS 校验证书，HTTP 客户端不自动跟随重定向，剥离两端逐跳
 ```
 
 每个连接最多同时处理 64 个 HTTP 请求；每个请求总时限 30 秒，反向代理请求体上限 1 MiB，
-响应和文件分块发送。伪装服务使用同一 QUIC 端口；此配置不额外开放 HTTP/1、HTTP/2 或明文 HTTP 监听器。
+响应和文件分块发送。默认仅使用同一 QUIC 端口的 HTTP/3，不额外开端口。
+
+可在任意 `masquerade` 形态中增加网站入口：
+
+```json
+{
+  "type": "proxy", "url": "https://www.example.com/base",
+  "rewrite_host": true, "insecure": false, "x_forwarded": true,
+  "http": {"address": "0.0.0.0", "port": 80},
+  "https": {"address": "0.0.0.0", "port": 443},
+  "force_https": true
+}
+```
+
+`https` 通过 ALPN 提供 HTTP/1.1、HTTP/2，并复用 HY2 入站的证书配置；`http` 和 `force_https`
+都要求配置 `https`。开启 `force_https` 后，明文入口返回 301，保留路径和查询，转到配置的 HTTPS 端口。
+其余 TCP 网站响应覆盖源站的 `Alt-Svc`，通告本入站的 QUIC 端口：`h3=":端口"; ma=2592000`。
+三个入口共享同一份内容/源站策略和 HTTP 连接池。TCP 网站上的 `/auth` 也只是网站请求，不能认证 HY2。
+
+配置沿用 Zero 的 `{address, port}` 监听字段；协议适配器映射为网站入口，不照搬官方应用的监听字符串。
+配置验证拒绝与其他 TCP 入口的端口冲突；TCP HTTPS 与 UDP QUIC 可以使用相同地址和端口号。
+通用 runtime 管理原子监听组：任一绑定失败会释放本次已绑定端口；重载失败恢复旧配置和整组监听，
+关闭时回收全部监听及连接。协议模块只拥有网站策略，通用 transport 提供 HTTP/TLS 载体。
+
+本轮没有实现 WebSocket/HTTP Upgrade、响应 trailers、静态文件 Range/条件请求、目录列表或
+固定内容的任意响应头配置；不能将这组网站入口支持理解为完整复制 Go `ReverseProxy`/`FileServer` 的行为。
+固定参考为 [app/v2.12.2 的网站入口](https://github.com/HyNetworks/hysteria/blob/app/v2.12.2/extras/masq/server.go)
+和[源站策略](https://github.com/HyNetworks/hysteria/blob/app/v2.12.2/app/cmd/server.go)。

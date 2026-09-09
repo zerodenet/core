@@ -9,7 +9,8 @@ homepage.workspace = true
 
 [features]
 default = []
-http_client = ["dep:hyper", "dep:hyper-util", "dep:hyper-rustls", "dep:http-body-util"]
+http_server = ["http_client", "tls", "hyper/server", "hyper/http2", "hyper-util/server-auto"]
+http_client = ["dep:tower-service", "dep:hyper", "dep:hyper-util", "dep:hyper-rustls", "dep:http-body-util"]
 grpc = []
 h2 = []
 http_upgrade = []
@@ -19,6 +20,8 @@ tls = []
 ws = []
 
 [dependencies]
+tower-service = { version = "0.3", optional = true }
+async-trait = "0.1"
 http-body-util = { version = "0.1", optional = true }
 hyper = { version = "1", default-features = false, features = ["client", "http1"], optional = true }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "ring", "tls12"], optional = true }

@@ -185,3 +185,7 @@ mod windows;
 
 #[path = "hysteria2_official_interop/shared.rs"]
 mod shared;
+
+#[path = "hysteria2_official_interop/website.rs"]
+mod website;
+mod website_support;

@@ -124,3 +124,10 @@ mod bandwidth_tests;
 #[cfg(test)]
 #[path = "transport/tests/bbr.rs"]
 mod bbr_tests;
+
+mod website;
+pub use website::Hysteria2Website;
+
+#[cfg(test)]
+#[path = "transport/tests/website.rs"]
+mod website_tests;
