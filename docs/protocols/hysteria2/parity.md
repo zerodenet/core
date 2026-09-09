@@ -129,3 +129,20 @@ validation-only 检查和六场景外部对照已完成。
 Linux/macOS 成功，Windows 首次在直连 IPv6 到 IPv4 的 TLS 回退用例收到连接重置（10054）；
 原提交重跑又在直连 HTTP 冒烟用例读取 `104.20.23.154:80` 时收到同类重置，未执行到首次失败用例。
 这两条路径均未经过 HY2，但根因尚未确定，不能标记为环境问题或已解决；本批未修改 TUN。
+
+### BBR 三档与共享控制器
+
+2026-09-09，提交 `6d8e32b5` 实现 `transport.congestion.bbr_profile` 的三个官方档位。
+协议解析并映射名字，共享 `zero-transport::quic::bbr` 执行采样、启动/排空、恢复、
+带宽探测与 RTT 探测；vendor 只增加中立逐包反馈。统一 `up_bps/down_bps` 和 Brutal 协商含义保持不变。
+
+[工作区 CI](https://github.com/zerodenet/core/actions/runs/34310417881)通过 1501 项测试
+（89 项显式忽略）、严格 Clippy、三平台检查和 musl 构建；三档共 252 个官方状态检查点匹配。
+[外部验收](https://github.com/zerodenet/core/actions/runs/34310417906)通过官方 8 项、sing-box 6 项、
+Quinn 266 项回归，并从固定官方源码重新生成和校验参考数据。六种受控 BBR 场景全程吞吐为官方的
+97.2%–100.1%，启动与传输末段吞吐也通过预设门槛；详细链路、指标和边界见 [BBR 对齐](bbr.md)。
+
+同次 [特权 TUN 验收](https://github.com/zerodenet/core/actions/runs/34310417863)中 Linux/macOS 通过，
+Windows 的 `privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains` 仍出现
+`10054 ConnectionReset`。这一失败单独保留在 [Windows TUN 记录](../../project/windows-tun-reset.md)，
+不纳入 HY2 通过范围，也不据本次运行推断其根因。本批未修改 TUN 实现或该用例。
