@@ -118,5 +118,5 @@ mod http3_tests;
 mod test_fixtures;
 
 #[cfg(test)]
-#[path = "transport/tests/rate_limit.rs"]
-mod rate_limit_tests;
+#[path = "transport/tests/bandwidth.rs"]
+mod bandwidth_tests;

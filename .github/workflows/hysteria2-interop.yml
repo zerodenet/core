@@ -62,11 +62,11 @@ jobs:
           ./sing-box-1.13.14-linux-amd64/sing-box version
           echo "HY2_BIN=$RUNNER_TEMP/hy2-interop/hysteria" >> "$GITHUB_ENV"
           echo "SING_BOX_BIN=$RUNNER_TEMP/hy2-interop/sing-box-1.13.14-linux-amd64/sing-box" >> "$GITHUB_ENV"
-      - name: Run bidirectional TCP, UDP fragmentation, authentication and reload interop
+      - name: Run bidirectional interop, bandwidth loss comparison and reload checks
         env:
           RUST_MIN_STACK: '16777216'
         run: >-
           cargo test --workspace --all-features
           --test hysteria2_official_interop
           --test hysteria2_sing_box_interop
-          -- --include-ignored --test-threads=1
+          -- --include-ignored --test-threads=1 --nocapture

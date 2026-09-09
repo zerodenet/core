@@ -169,15 +169,14 @@ impl InboundProtocolConfig {
     /// Protocol-authenticated per-user values take precedence. These defaults
     /// do not create an inbound-wide aggregate limiter: matching principal
     /// policies share a timeline, while anonymous sessions are independent.
+    /// HY2 top-level rates describe transport bandwidth, not session defaults;
+    /// its authenticated entries may still supply independent policy budgets.
     pub fn rate_limits(&self) -> (Option<u64>, Option<u64>) {
         match self {
             Self::Trojan {
                 up_bps, down_bps, ..
             }
             | Self::Shadowsocks {
-                up_bps, down_bps, ..
-            }
-            | Self::Hysteria2 {
                 up_bps, down_bps, ..
             } => (*up_bps, *down_bps),
             _ => (None, None),

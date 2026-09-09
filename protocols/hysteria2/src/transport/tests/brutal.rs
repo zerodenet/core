@@ -1,4 +1,29 @@
 use super::*;
+
+#[test]
+fn brutal_packet_feedback_matches_pinned_official_reference_vectors() {
+    // app/v2.12.2 (619a6f856b69fb7ee6a7a379e810e68b84004605):
+    // core/internal/congestion/brutal/brutal.go, OnCongestionEventEx.
+    for disabled in [false, true] {
+        for (acked, lost, expected) in [
+            (49, 0, 1_000_000),
+            (40, 9, 1_000_000),
+            (45, 5, 1_111_111),
+            (40, 10, 1_250_000),
+            (25, 25, 1_250_000),
+            (50, 0, 1_000_000),
+        ] {
+            let now = Instant::now();
+            let mut brutal = Brutal::new(now, 1200, disabled, Arc::new(AtomicU64::new(1_000_000)));
+            brutal.sample(now, acked, lost);
+            assert_eq!(
+                brutal.pacing_rate(),
+                Some(if disabled { 1_000_000 } else { expected })
+            );
+        }
+    }
+}
+
 #[test]
 fn brutal_compensates_packet_loss_and_expires_samples() {
     let now = Instant::now();

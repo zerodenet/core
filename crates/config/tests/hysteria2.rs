@@ -76,7 +76,7 @@ fn inbound_connection_rates_keep_zero_upload_direction() {
         "outbounds":[], "route":{"rules":[],"final":{"type":"direct"}}
     }).to_string()).unwrap();
     let protocol = &config.inbounds[0].protocol;
-    assert_eq!(protocol.rate_limits(), (Some(1_000_000), Some(2_000_000)));
+    assert_eq!(protocol.rate_limits(), (None, None));
     let zero_config::InboundProtocolConfig::Hysteria2 {
         transport,
         up_bps,

@@ -121,7 +121,9 @@ pub(super) fn transport(settings: Settings) -> Result<quinn::TransportConfig, st
         stream_receive_window: q.stream_receive_window,
         connection_receive_window: q.connection_receive_window,
         send_window: q.send_window,
-        max_send_rate: Some(settings.upload),
+        // Negotiated bandwidth is the Brutal target, not a hard pacing ceiling:
+        // loss compensation may send above it, and auto must remain adaptive.
+        max_send_rate: None,
         max_idle_timeout: Duration::from_secs(q.max_idle_timeout_secs),
         keep_alive_interval: (q.keep_alive_interval_secs != 0)
             .then(|| Duration::from_secs(q.keep_alive_interval_secs)),
