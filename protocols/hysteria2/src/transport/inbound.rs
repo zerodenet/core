@@ -4,6 +4,8 @@ use zero_core::InboundClientResponse;
 use zero_traits::AsyncSocket;
 use zero_transport::RuntimeError;
 
+mod multiplex;
+
 use super::{
     inbound_quic_alpn_protocols,
     options::{

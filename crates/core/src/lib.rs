@@ -13,7 +13,8 @@ pub mod udp;
 pub use address::{Address, AddressFamily};
 pub use error::Error;
 pub use inbound::{
-    InboundClientResponse, InboundFallbackCapture, InboundFallbackReplay, InboundRouteAccept,
+    InboundClientResponse, InboundDatagramMultiplexer, InboundFallbackCapture,
+    InboundFallbackReplay, InboundRouteAccept, InboundStreamMultiplexer,
 };
 
 pub use session::{

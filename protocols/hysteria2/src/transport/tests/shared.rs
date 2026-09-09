@@ -13,7 +13,9 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     time::timeout,
 };
-use zero_core::{Address, InboundClientResponse};
+use zero_core::{
+    Address, InboundClientResponse, InboundDatagramMultiplexer, InboundStreamMultiplexer,
+};
 
 struct Server {
     port: u16,
@@ -41,20 +43,23 @@ impl Server {
                 clients.spawn(async move {
                     let Ok(raw) = incoming.await else { return };
                     let Ok(connection) = profile().accept_authenticated_connection(raw.clone()).await else { return };
+                    assert!(InboundStreamMultiplexer::auth(&connection).is_some());
+                    let source = InboundDatagramMultiplexer::datagram_source(&connection);
+                    assert_eq!(source.stable_id(), raw.stable_id());
                     let number = count.fetch_add(1, Ordering::Relaxed);
                     observed.lock().unwrap().push(raw.clone());
                     let mut streams = tokio::task::JoinSet::new();
                     tokio::select! {
                         _ = async {
-                            while let Ok(data) = raw.read_datagram().await {
+                            while let Ok(data) = source.read_datagram().await {
                                 let packet = crate::udp::parse_udp_datagram(&data).unwrap();
                                 ids.lock().unwrap().insert((number, packet.session_id()));
                                 if raw.send_datagram(data).is_err() { break; }
                             }
                         } => {},
                         _ = async {
-                            while let Ok(Some((_, mut stream))) = connection.accept_next_tcp_stream().await {
-                                let response = connection.response_protocol();
+                            while let Ok(Some((_, mut stream))) = InboundStreamMultiplexer::accept_next_tcp_stream(&connection).await {
+                                let response = InboundStreamMultiplexer::response_protocol(&connection);
                                 streams.spawn(async move {
                                     response.send_ok(&mut stream).await.unwrap();
                                     let mut bytes = [0; 4];

@@ -15,24 +15,13 @@ pub(super) fn prepare(
         dispatch: |profile: MieruInboundListenerRequest,
                    socket,
                    context: InboundConnectionContext| async move {
-            let tcp_context = context.clone();
-            let udp_context = context;
             let response = profile.response_protocol();
-            match profile
+            let route = profile
                 .accept_client(MeteredStream::new(TcpRelayStream::from(socket)))
-                .await?
-            {
-                ::mieru::inbound::MieruInboundAcceptedSession::Tcp { session, stream } => {
-                    tcp_context
-                        .serve_with_client_response(session, stream, response)
-                        .await
-                }
-                ::mieru::inbound::MieruInboundAcceptedSession::Udp { session, relay } => {
-                    udp_context
-                        .run_stream_udp_relay(session, relay, "mieru_udp")
-                        .await
-                }
-            }
+                .await?;
+            context
+                .dispatch_stream_route_with_client_response(route, response, "mieru_udp")
+                .await
         },
     })
 }

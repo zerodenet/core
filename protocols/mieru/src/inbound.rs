@@ -20,6 +20,8 @@ use crate::metadata::{
 use crate::segment::{build_data_segment, build_session_segment, parse_segment, Segment};
 use crate::session::MieruSession;
 
+mod route;
+
 /// Mieru inbound handler.
 #[derive(Debug, Default, Clone)]
 pub struct MieruInbound;

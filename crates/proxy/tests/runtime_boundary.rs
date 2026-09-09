@@ -220,11 +220,12 @@ fn transport_does_not_own_proxy_execution_contracts() {
 
     let quic_runtime = read(&proxy_src().join("runtime/inbound_operation/quic.rs"));
     assert!(quic_runtime.contains("trait AuthenticatedQuicInboundProfile"));
-    assert!(quic_runtime.contains("trait AuthenticatedQuicInboundConnection"));
+    assert!(quic_runtime.contains("InboundDatagramMultiplexer"));
+    assert!(!quic_runtime.contains("trait AuthenticatedQuicInboundConnection"));
 
     let hysteria2_adapter = read(&proxy_src().join("adapters/hysteria2/inbound.rs"));
     assert!(hysteria2_adapter.contains("impl AuthenticatedQuicInboundProfile"));
-    assert!(hysteria2_adapter.contains("impl AuthenticatedQuicInboundConnection"));
+    assert!(!hysteria2_adapter.contains("impl AuthenticatedQuicInboundConnection"));
 }
 
 #[test]
@@ -1728,12 +1729,12 @@ fn mieru_adapter_accepts_protocol_session_before_runtime_handoff() {
         "adapters/mieru/inbound.rs should accept a protocol-owned session surface before runtime handoff"
     );
     assert!(
-        listener.contains("MieruInboundAcceptedSession::Tcp"),
-        "adapters/mieru/inbound.rs should explicitly branch on accepted mieru TCP sessions"
+        !listener.contains("MieruInboundAcceptedSession::"),
+        "Mieru route classification belongs to the protocol, not its adapter"
     );
     assert!(
-        listener.contains("MieruInboundAcceptedSession::Udp"),
-        "adapters/mieru/inbound.rs should explicitly branch on accepted mieru UDP sessions"
+        listener.contains(".dispatch_stream_route_with_client_response("),
+        "Mieru must enter the neutral runtime through its core route contract"
     );
 
     let inbound = read(&workspace_root().join("protocols/mieru/src/inbound.rs"));
@@ -5188,3 +5189,6 @@ fn outbound_probe_owns_generic_tcp_dispatch_outside_urltest_policy() {
     assert!(!runtime_urltest.contains("use super::super::Proxy"));
     assert!(!runtime_urltest.contains("proxy: &Proxy"));
 }
+
+#[path = "runtime_boundary/multiplex.rs"]
+mod multiplex;

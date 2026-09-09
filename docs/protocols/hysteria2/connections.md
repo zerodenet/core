@@ -54,6 +54,13 @@ packet-path 现在也使用分片/重组，不再用固定会话 ID 和独立 QU
 回复携带内核 session ID，而不是仅凭目标地址反查归属。取消或失败会释放该流 socket，
 出口代次变化后仍保留隔离要求；普通无会话标识的 UDP 继续使用原共享 socket 策略。
 
+## 内核多流边界
+
+HY2 协议对象实现 `zero_core::InboundStreamMultiplexer` 及其可选数据报扩展
+`InboundDatagramMultiplexer`。协议持有认证、HTTP/3 分类、UDP 分发及共享连接池；
+内核通过契约接收逻辑流并管理路由、统计、任务和关停。QUIC 准备桥保留在适配边界，
+契约本身不依赖 Quinn 或 Tokio，也不强制 HY2 使用既有帧式 MUX 的 16 位子流 ID。
+
 ## 验收
 
 - 并发 TCP、普通 UDP 与多个 packet-path 只完成一次认证，分片回复正确分发。

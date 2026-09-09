@@ -23,6 +23,23 @@ Zero 的架构遵循以下原则：
 5. 能在底层 crate 表达的中性抽象，不依赖上层运行时。
 6. 根二进制只负责进程和命令入口，不承载领域逻辑。
 
+### MUX 与原生多流接入
+
+内核拥有中立抽象和运行时集成，协议拥有具体复用实现。
+`zero-core` 的既有 `InboundMuxServer`、`InboundMuxTcpRelay`、`InboundMuxUdpRelay`
+服务于帧式 MUX；`InboundStreamMultiplexer` 和可选的 `InboundDatagramMultiplexer`
+表达已经由协议完成认证/分类的原生流和数据报，不要求使用 Mux.Cool 帧或 16 位子流 ID。
+这些契约不依赖 Tokio、Quinn 或任何具体协议。
+
+协议模块实现契约并拥有认证、编解码、流 ID、连接池和分发状态。
+`zero-proxy::runtime::inbound_operation` 拥有监听、逻辑流任务、路由、统计、策略注册与关停；
+`zero-transport` 拥有共享载体执行，不能把协议复用规则收编为第二个通用协议实现。
+薄适配器只负责配置映射、载体准备和把协议对象交给运行时。
+
+HY2 在协议内实现原生多流契约，QUIC 入站桥接后由中立运行时消费；认证池和 UDP 分发仍留在 HY2。
+Mieru 当前通过既有 `InboundStreamRoute` 交付单隧道内的 TCP/UDP 路由，协议自己选择分支；
+这不代表 Mieru 底层多 session 复用已经实现。后续补 Mieru MUX 时仍遵守上述边界。
+
 ## 总体分层
 
 从外到内，仓库可以理解为以下几层：

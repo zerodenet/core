@@ -7,6 +7,8 @@
 mod context;
 mod contract;
 #[cfg(feature = "authenticated-quic-inbound-runtime")]
+mod multiplex;
+#[cfg(feature = "authenticated-quic-inbound-runtime")]
 mod quic;
 #[cfg(feature = "managed-datagram-runtime")]
 mod tcp_and_datagram;
@@ -19,10 +21,7 @@ mod tcp_or_quic;
 pub(crate) use context::InboundConnectionContext;
 pub(crate) use contract::PreparedInboundListenerOperation;
 #[cfg(feature = "authenticated-quic-inbound-runtime")]
-pub(crate) use quic::{
-    AuthenticatedQuicInboundConnection, AuthenticatedQuicInboundListenerOperation,
-    AuthenticatedQuicInboundProfile,
-};
+pub(crate) use quic::{AuthenticatedQuicInboundListenerOperation, AuthenticatedQuicInboundProfile};
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use tcp_and_datagram::TcpAndDatagramInboundListenerOperation;
 pub(crate) use tcp_listener::TcpInboundListenerOperation;

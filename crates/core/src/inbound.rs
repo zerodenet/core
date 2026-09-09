@@ -4,6 +4,9 @@ use core::future::Future;
 use crate::Error;
 use zero_traits::AsyncSocket;
 
+mod multiplex;
+pub use multiplex::{InboundDatagramMultiplexer, InboundStreamMultiplexer};
+
 pub trait InboundClientResponse<S>: Send + Sync
 where
     S: AsyncSocket,
