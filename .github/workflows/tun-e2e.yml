@@ -182,6 +182,9 @@ jobs:
       - name: Run privileged TUN smoke test
         if: github.event_name != 'pull_request' || github.base_ref == 'main'
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Compare controlled HTTP direct and TUN connections
+        if: always() && !cancelled() && steps.capture.outcome == 'success'
+        run: cargo test --test tun_privileged_e2e http_control::windows::privileged_windows_http_direct_and_tun_control -- --ignored --exact --nocapture
       - name: Run direct UDP self-capture E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH and open.bigmodel.cn multi-A fallback E2E

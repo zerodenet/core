@@ -1,6 +1,71 @@
 # Windows TUN 连接重置跟踪
 
-状态：未结。2026-09-09 带取证的重跑通过，历史失败尚无根因结论；没有修改内核转发行为。
+状态：部分定位。2026-09-09 新的 Windows 失败已确认 TLS 测试服务端的非阻塞读取错误；
+测试修复已完成本地回归，待修复后的 Windows 特权验收。历史 HTTP 重置仍未定位；没有修改内核转发行为。
+
+## TLS 测试服务端缺陷已复现
+
+提交 `6d8e32b5` 的[运行 34310417863](https://github.com/zerodenet/core/actions/runs/34310417863/job/102335780811)
+再次在 TLS 回退用例失败，HTTP 冒烟通过。新的日志和 artifact `10088237749` 给出直接证据：
+
+- TUN 客户端 `[fd66::1]:52974` 发送 245 字节 ClientHello；物理上游为 `10.1.0.23:8443`，
+  Zero 的物理源端口为 `52975`。
+- 测试服务端记录 `first_read=Err(...10035, WouldBlock...)`，随后仍打印
+  `wrote 7-byte TLS alert; closing`。读取错误被忽略，没有等到请求便回包关闭。
+- PktMon 文本记录 `10.1.0.23.8443 > 10.1.0.23.52975: Flags [R.]`，
+  `seq 1132345542, ack 2248355800`，方向为测试服务端到 Zero 的物理连接。
+  Zero 随后记录上游读取 10053、上行 245 / 下行 0，TUN 客户端读取报 10054。
+  同机流仍没有完整握手抓包；以上结论结合端点日志和这条 RST，不推断缺失的数据包。
+
+`MockTcpResponder` 的监听器使用非阻塞模式，但接受的流没有恢复阻塞模式。
+[Winsock accept 文档](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-accept)
+明确接受的套接字继承监听器属性。`set_read_timeout` 不改变非阻塞模式，
+所以请求与 accept 的调度先后决定是正常读取还是立即返回 WouldBlock。
+这解释了本次 TLS 失败及此前重跑时好时坏；首次历史 TLS 失败签名一致，
+但缺少当时服务端日志，不能追认其 first_read 的具体结果。
+
+修复仅在 `tests/tun_privileged/tls_responder.rs`：接受流恢复阻塞，读写均设超时，
+按 record 长度读取完整请求，读取失败不发送 alert，成功后关闭写方向。
+跨平台回归显式把接受流置为非阻塞，覆盖延迟请求、分段 header/body、请求中途 EOF；
+本地 macOS 上旧逻辑两项失败，修复后 `cargo test --test tun_privileged_e2e tls_responder::`
+两项通过。Windows 用例复用同一个 helper，修复后的 Windows 特权验收尚未运行。
+HTTP 测试仍保持原断言，不将其未定位的 10054 忽略或改成重试。
+
+## HTTP 受控对照
+
+新增 `http_control::windows::privileged_windows_http_direct_and_tun_control`，
+固定同机物理 IPv4 的 8080 端口作为 HTTP 服务端；不请求公网 HTTP 站点。
+依次执行 TUN 启动前物理地址直连、TUN 运行中物理地址直连、TUN 转发、TUN 停止后直连。
+每组固定 16 轮，每轮四条新连接：
+
+- 一次写出较小响应，完整读取到 EOF 并逐字节校验。
+- 请求头与 64 KiB 响应分别分段发送，完整读取到 EOF 并逐字节校验。
+- 刻意读取 32 字节就关闭，仅这一条允许服务端出现连接关闭类错误。
+- 提前关闭后立即重新连接，完整校验另一条 64 KiB 响应。
+
+每组 64 条连接，共 256 条；192 条完整响应和 64 条刻意提前关闭，不重试失败请求。
+请求和响应均包含唯一 case 编号，客户端记录原始源/目标端口，服务端记录实际物理源端口和结果，
+并检查接收数量、编号唯一性及所有非提前关闭请求均成功。读取截断、额外数据、内容错误或 RST 都会失败。
+
+本机物理 IP 存在系统本地路由，直接访问它不足以证明进入 TUN。
+因此 TUN 组通过受控 DNS 分配 Fake-IP，并断言 Windows 选路命中 TUN；Zero 反查后仍以 direct
+连接相同 HTTP 服务端。物理直连组绑定物理源 IP，TUN 组绑定 TUN 源 IP。
+该对照覆盖共享 TCP 生命周期及 Fake-IP 目标恢复；不完全等同于历史公网真实 IP 的 HTTP 冒烟路径，
+通过也不能单独排除后者的所有缺陷。
+
+本地 macOS 的 loopback 服务端自测完成 64 次连接，另以同一工具通过本机物理 IPv4 地址
+直连运行 64 次。每组 48 条完整校验通过，16 条提前关闭后重连通过；
+提前关闭在服务端产生 BrokenPipe，完整请求没有失败。项目内两项回归通过，
+其中另一项确认截断、内容损坏及多余字节均会被拒绝。这些不是 Windows/TUN 验收。
+Windows 特权对照已加入 `Privileged TUN E2E`，捕获范围补充 TCP 8080，尚待提交后的实际运行：
+
+```sh
+cargo test --test tun_privileged_e2e http_control::windows::privileged_windows_http_direct_and_tun_control -- --ignored --exact --nocapture
+```
+
+判定时优先比较同一 case 的客户端、服务端日志及抓包：直连也失败则先查服务端/宿主环境；
+只有 TUN 完整读取失败则进一步定位 TUN 路径；仅刻意提前关闭产生 RST 属于该用例的预期现象。
+所有组通过只能说明本轮条件未复现，历史 HTTP 故障仍保持未定位。
 
 ## 两次失败分别记录
 

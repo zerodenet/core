@@ -21,6 +21,12 @@ const ONLY_AAAA_E2E_DOMAIN: &str = "only-aaaa.zero.invalid";
 #[path = "tun_privileged/dns_disabled.rs"]
 mod dns_disabled;
 
+#[path = "tun_privileged/tls_responder.rs"]
+mod tls_responder;
+
+#[path = "tun_privileged/http_control.rs"]
+mod http_control;
+
 #[test]
 #[ignore = "requires administrator/root, a TUN backend, and internet access"]
 fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
@@ -2324,28 +2330,13 @@ impl MockTcpResponder {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         worker_accept_count.fetch_add(1, Ordering::Relaxed);
-                        stream
-                            .set_read_timeout(Some(Duration::from_secs(2)))
-                            .unwrap();
-                        let mut request = [0_u8; 4096];
-                        let read = stream.read(&mut request);
-                        let record_bytes = match &read {
-                            Ok(n) if *n >= 5 => {
-                                Some(5 + usize::from(u16::from_be_bytes([request[3], request[4]])))
-                            }
-                            _ => None,
-                        };
-                        eprintln!("fallback responder local={:?} peer={:?} first_read={read:?} tls_record_bytes={record_bytes:?}", stream.local_addr(), stream.peer_addr());
-                        // A syntactically valid TLS fatal alert proves that
-                        // the replayed ClientHello reached this controlled
-                        // IPv4 endpoint without requiring a certificate.
-                        stream
-                            .write_all(&[21, 3, 3, 0, 2, 2, 40])
-                            .expect("write physical IPv4 fallback TLS alert");
+                        let response = tls_responder::respond(&mut stream);
                         eprintln!(
-                            "fallback responder wrote 7-byte TLS alert; closing peer={:?}",
-                            stream.peer_addr()
+                            "fallback responder local={:?} peer={:?} complete_record_response={response:?}",
+                            stream.local_addr(), stream.peer_addr()
                         );
+                        response
+                            .expect("read complete physical IPv4 fallback TLS record and respond");
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(10));

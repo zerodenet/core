@@ -15,7 +15,7 @@ if ($Mode -eq 'Start') {
     pktmon filter remove
     if ($LASTEXITCODE -ne 0) { throw 'Cannot reset packet filters' }
     # Only the test's HTTP/TLS ports; avoid unrelated runner control traffic.
-    foreach ($Port in @(80, 8443)) {
+    foreach ($Port in @(80, 8080, 8443)) {
         pktmon filter add "zero-test-$Port" -t TCP -p $Port
         if ($LASTEXITCODE -ne 0) { throw "Cannot add TCP port $Port capture filter" }
     }
