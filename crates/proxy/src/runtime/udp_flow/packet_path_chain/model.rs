@@ -14,17 +14,17 @@ use crate::runtime::udp_flow::packet_path::{
 
 pub(crate) struct PacketPathStartRequest<'a> {
     pub(crate) session_id: u64,
-    pub(crate) carrier: PacketPathCarrierRequest<'a>,
+    pub(crate) carrier: PacketPathCarrierRequest,
     pub(crate) datagram: UdpDatagramSource,
     pub(crate) packet: UdpPacketRef<'a>,
 }
 
-pub(crate) struct PacketPathCarrierRequest<'a> {
+pub(crate) struct PacketPathCarrierRequest {
     pub(crate) descriptor: PacketPathCarrierDescriptor,
-    pub(crate) build_operation: Box<dyn PreparedUdpPacketPathOperation + 'a>,
+    pub(crate) build_operation: Box<dyn PreparedUdpPacketPathOperation>,
 }
 
-impl PacketPathCarrierRequest<'_> {
+impl PacketPathCarrierRequest {
     pub(crate) fn upstream(&self) -> (String, u16) {
         (self.descriptor.server.clone(), self.descriptor.port)
     }

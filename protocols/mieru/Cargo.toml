@@ -1,5 +1,6 @@
 [package]
 name = "mieru"
+# Official enfein/mieru v3.33.0; this identifies the comparison baseline.
 version = "3.33.0"
 edition.workspace = true
 authors.workspace = true
@@ -17,6 +18,7 @@ runtime = [
 ]
 
 [dependencies]
+mieru-config = { path = "config" }
 async-trait = "0.1"
 chacha20poly1305 = { version = "0.10", optional = true }
 sha2 = { version = "0.10", optional = true }
@@ -29,7 +31,7 @@ zero-transport = { path = "../../crates/transport", optional = true }
 zero-traits = { path = "../../crates/traits" }
 
 [dev-dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 chacha20poly1305 = "0.10"
 sha2 = "0.10"
 ring = "0.17"

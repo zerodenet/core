@@ -16,7 +16,7 @@ where
     ) -> Result<usize, FlowFailure> {
         let ManagedStreamRelayRequest {
             ctx,
-            stream,
+            carrier,
             tls_server_name,
             services,
             session,
@@ -30,7 +30,7 @@ where
             .connector_flow(endpoint.clone(), session_id)
             .into_parts();
         let entry = resume
-            .establish_relay(stream, tls_server_name, services, session, endpoint)
+            .establish_relay(carrier, tls_server_name, services, session, endpoint)
             .await
             .map_err(|error| FlowFailure {
                 stage: self.relay_establish_stage,
@@ -65,7 +65,7 @@ where
                 chain_tasks: request.chain_tasks,
                 session_id: request.session_id,
             },
-            stream: request.stream,
+            carrier: request.carrier,
             tls_server_name: request.tls_server_name,
             services: request.services,
             session: request.session,

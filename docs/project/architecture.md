@@ -37,8 +37,11 @@ Zero 的架构遵循以下原则：
 薄适配器只负责配置映射、载体准备和把协议对象交给运行时。
 
 HY2 在协议内实现原生多流契约，QUIC 入站桥接后由中立运行时消费；认证池和 UDP 分发仍留在 HY2。
-Mieru 当前通过既有 `InboundStreamRoute` 交付单隧道内的 TCP/UDP 路由，协议自己选择分支；
-这不代表 Mieru 底层多 session 复用已经实现。后续补 Mieru MUX 时仍遵守上述边界。
+Mieru 的 TCP/UDP 底层连接实现 `InboundRouteMultiplexer`：协议只出队逻辑 stream，
+运行时为每条 stream 并发执行协议握手，再通过既有 `InboundStreamRoute` 交付 TCP/UDP 路由。
+这样未完成的隧道请求不会阻塞同连接的其他握手。连接级 cipher、session ID 和有界分发留在协议；
+任务、握手超时、用户策略及关停留在 runtime。协议内 `client` 拥有共享出站池，
+`packet` 拥有原生 UDP 的认证后可靠性状态；通用 `peer_route` 只分发 datagram peer 和管理监听任务。
 
 ## 总体分层
 

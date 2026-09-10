@@ -8,6 +8,8 @@ use super::flow::{
 use super::ManagedPacketUdpResume;
 use crate::protocol_registry::{UdpRuntimeServices, UpstreamConnectServices};
 use crate::runtime::path::OutboundEndpoint;
+use crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier;
+use crate::runtime::udp_flow::managed::flow::ManagedRelayStreamCarrier;
 use crate::transport::TcpRelayStream;
 use async_trait::async_trait;
 use zero_core::Session;
@@ -41,6 +43,16 @@ pub(crate) trait ManagedPacketUdpResumeConnector:
         session: &Session,
         tls_server_name: Option<&str>,
     ) -> Result<Self::Connection, EngineError>;
+
+    async fn open_lazy_relay(
+        &self,
+        carrier: LazyTcpRelayCarrier<'_>,
+        session: &Session,
+        tls_server_name: Option<&str>,
+    ) -> Result<Self::Connection, EngineError> {
+        self.open_relay(carrier.open().await?, session, tls_server_name)
+            .await
+    }
 }
 
 #[async_trait]
@@ -72,13 +84,24 @@ where
 
     async fn establish_relay(
         &self,
-        stream: TcpRelayStream,
+        carrier: ManagedRelayStreamCarrier<'_>,
         tls_server_name: Option<&str>,
         _services: Option<UdpRuntimeServices>,
         session: &Session,
         _endpoint: OutboundEndpoint,
     ) -> Result<SharedManagedUdpConnection, EngineError> {
-        let connection = self.0.open_relay(stream, session, tls_server_name).await?;
+        let connection = match carrier {
+            ManagedRelayStreamCarrier::Ready(carrier) => {
+                self.0
+                    .open_relay(carrier.stream, session, tls_server_name)
+                    .await?
+            }
+            ManagedRelayStreamCarrier::Lazy(carrier) => {
+                self.0
+                    .open_lazy_relay(carrier, session, tls_server_name)
+                    .await?
+            }
+        };
         Ok(managed_packet_udp_connection_from_flow(connection))
     }
 }

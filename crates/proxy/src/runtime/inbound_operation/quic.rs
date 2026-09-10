@@ -37,6 +37,12 @@ where
     ) -> Pin<Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>> {
         Box::pin(async move {
             let listener = match bound {
+                #[cfg(feature = "datagram-route-runtime")]
+                BoundInbound::Datagram(_) => {
+                    return Err(EngineError::Io(std::io::Error::other(
+                        "unexpected datagram listener",
+                    )))
+                }
                 BoundInbound::Quic(listener) => listener,
                 #[cfg(feature = "inbound-listener-group-runtime")]
                 BoundInbound::Group(_) => {

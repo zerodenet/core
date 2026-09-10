@@ -3,7 +3,7 @@ use std::any::Any;
 use super::super::super::connection::SharedManagedUdpConnection;
 use crate::protocol_registry::UdpRuntimeServices;
 use crate::runtime::path::OutboundEndpoint;
-use crate::transport::TcpRelayStream;
+use crate::runtime::udp_flow::managed::flow::ManagedRelayStreamCarrier;
 use async_trait::async_trait;
 use zero_core::Session;
 use zero_engine::EngineError;
@@ -27,7 +27,7 @@ pub(crate) trait ManagedStreamFlowConnector:
 
     async fn establish_relay(
         &self,
-        stream: TcpRelayStream,
+        carrier: ManagedRelayStreamCarrier<'_>,
         tls_server_name: Option<&str>,
         services: Option<UdpRuntimeServices>,
         session: &Session,

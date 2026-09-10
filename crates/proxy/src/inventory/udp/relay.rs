@@ -56,6 +56,10 @@ impl ProtocolInventory {
         let operation = final_hop.prepare_udp_relay(ctx.source_dir())?;
         let outbound_ctx = OutboundAdapterContext::new(ctx.config());
 
+        if operation.requires_datagram_carrier() {
+            return super::datagram_relay::prepare(claimed_chain, operation);
+        }
+
         if operation.needs_two_streams() {
             let post_prepared = self
                 .prepare_claimed_tcp_relay_chain(outbound_ctx, claimed_chain)

@@ -149,6 +149,15 @@ impl ExternalProcess {
         }
     }
 
+    pub async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        loop {
+            if let Some(status) = self.child.try_wait()? {
+                return Ok(status);
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
     pub fn kill(&mut self) {
         if self.child.try_wait().ok().flatten().is_some() {
             return;

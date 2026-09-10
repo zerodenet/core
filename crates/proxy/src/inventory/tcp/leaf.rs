@@ -31,16 +31,6 @@ pub(crate) struct PreparedTcpRelayHop<'a> {
 }
 
 impl PreparedTcpRelayHop<'_> {
-    pub(crate) fn next_session(&self) -> zero_core::Session {
-        zero_core::Session::new(
-            0,
-            zero_core::Address::Domain(self.server.clone()),
-            self.port,
-            zero_core::Network::Tcp,
-            zero_core::ProtocolType::UNKNOWN,
-        )
-    }
-
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn upstream(&self) -> (String, u16) {
         (self.server.clone(), self.port)

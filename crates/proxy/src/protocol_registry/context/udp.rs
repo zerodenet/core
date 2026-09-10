@@ -115,6 +115,13 @@ impl UdpRuntimeServices {
         self.tcp.dispatch_prepared_tcp_relay_carrier(prepared).await
     }
 
+    pub(crate) fn prepare_lazy_tcp_relay_carrier<'a>(
+        &self,
+        prepared: crate::inventory::PreparedTcpRelayChain<'a>,
+    ) -> crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'a> {
+        self.tcp.prepare_lazy_tcp_relay_carrier(prepared)
+    }
+
     pub(crate) fn record_session_inbound_rx(&self, session_id: u64, bytes: u64) {
         self.tcp.record_session_inbound_rx(session_id, bytes);
     }

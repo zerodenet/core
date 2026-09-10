@@ -64,6 +64,7 @@ members = [
     "protocols/trojan",
     "protocols/vmess",
     "protocols/mieru",
+    "protocols/mieru/config",
     "crates/dns",
     "crates/engine",
     "crates/ffi",

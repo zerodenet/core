@@ -21,4 +21,6 @@ pub(crate) use datagram::ManagedDatagramFlow;
 ))]
 pub(crate) use envelope::{ManagedExistingFlowForward, ManagedUdpFlowKind, ManagedUdpFlowRequest};
 #[cfg(feature = "managed-stream-runtime")]
-pub(crate) use stream::{ManagedRelayStreamFlow, ManagedStreamPacketFlow};
+pub(crate) use stream::{
+    ManagedRelayStreamCarrier, ManagedRelayStreamFlow, ManagedStreamPacketFlow,
+};

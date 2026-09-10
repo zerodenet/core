@@ -12,7 +12,9 @@ mod socket;
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
 mod transport;
 
-pub(crate) use contract::{PreparedTcpConnectOperation, PreparedTcpRelayOperation};
+pub(crate) use contract::{
+    LazyTcpRelayCarrier, PreparedTcpConnectOperation, PreparedTcpRelayOperation,
+};
 pub(crate) use direct::DirectTcpConnectOperation;
 #[cfg(feature = "tcp-transport-session-runtime")]
 pub(crate) use session::{SessionTcpConnectOperation, SessionTcpHandshake};

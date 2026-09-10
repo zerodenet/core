@@ -2,6 +2,7 @@
 
 mod managed_udp;
 mod options;
+mod pool;
 
 use core::future::Future;
 
@@ -28,6 +29,9 @@ pub struct MieruInboundResponseProtocol {
 
 #[derive(Debug, Clone)]
 pub struct MieruTransportLeaf {
+    options: mieru_config::MieruTransportOptions,
+    udp: bool,
+    pool: std::sync::Arc<crate::client::ClientPool>,
     tag: String,
     server: String,
     port: u16,
@@ -44,6 +48,21 @@ pub struct MieruManagedUdpFlowPlan {
 }
 
 impl MieruInboundListenerRequest {
+    pub const MAX_PACKET_SIZE: usize = 1500;
+    // Cover a socket task's cooperative scheduling burst without unbounded queues.
+    pub const PACKET_QUEUE_CAPACITY: usize = 256;
+
+    pub async fn accept_packet_peer(
+        &self,
+        socket: std::sync::Arc<tokio::net::UdpSocket>,
+        peer: std::net::SocketAddr,
+        packets: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    ) -> std::io::Result<crate::inbound::multiplex::MieruInboundMultiplexer> {
+        self.protocol
+            .accept_packet_peer(socket, peer, packets)
+            .await
+    }
+
     pub fn from_options_refs<'a, I>(users: I) -> Self
     where
         I: IntoIterator<Item = MieruInboundUserRef<'a>>,
@@ -57,6 +76,21 @@ impl MieruInboundListenerRequest {
 
     fn new(protocol: crate::inbound::MieruInboundProfile) -> Self {
         Self { protocol }
+    }
+
+    pub fn with_options(mut self, options: mieru_config::MieruTransportOptions) -> Self {
+        self.protocol = self.protocol.with_options(options);
+        self
+    }
+
+    pub async fn accept_multiplexer<S>(
+        &self,
+        stream: S,
+    ) -> Result<crate::inbound::multiplex::MieruInboundMultiplexer, zero_core::Error>
+    where
+        S: AsyncSocket + AsyncRead + AsyncWrite + Unpin + 'static,
+    {
+        self.protocol.accept_multiplexer(stream).await
     }
 
     pub fn response_protocol(&self) -> MieruInboundResponseProtocol {
@@ -112,10 +146,15 @@ impl MieruTransportLeaf {
         options: MieruOutboundOptionsRef<'_>,
     ) -> Self {
         Self::new(tag, server, port, options.username, options.password)
+            .with_udp(options.udp)
+            .with_options(options.options.clone())
     }
 
     pub fn new(tag: &str, server: &str, port: u16, username: &str, password: &str) -> Self {
         Self {
+            options: Default::default(),
+            udp: false,
+            pool: Default::default(),
             tag: tag.to_owned(),
             server: server.to_owned(),
             port,
@@ -128,6 +167,11 @@ impl MieruTransportLeaf {
         &self.tag
     }
 
+    pub fn with_options(mut self, options: mieru_config::MieruTransportOptions) -> Self {
+        self.options = options;
+        self
+    }
+
     pub fn server(&self) -> &str {
         &self.server
     }
@@ -136,9 +180,12 @@ impl MieruTransportLeaf {
         self.port
     }
 
+    pub fn uses_udp_carrier(&self) -> bool {
+        self.udp
+    }
+
     pub fn flow_resume(&self, relay_chain: bool) -> MieruManagedUdpFlowResume {
-        MieruManagedUdpFlowConfig::new(&self.server, self.port, &self.username, &self.password)
-            .flow_resume(relay_chain)
+        MieruManagedUdpFlowResume::from_leaf(self.clone(), relay_chain)
     }
 
     pub fn udp_flow_plan(&self, relay_chain: bool) -> MieruManagedUdpFlowPlan {
@@ -154,22 +201,18 @@ impl MieruTransportLeaf {
         &self,
         session: &Session,
         open_socket: OpenSocket,
+        factory: zero_transport::OutboundDatagramSocketFactory,
     ) -> Result<TcpRelayStream, RuntimeError>
     where
         OpenSocket: Clone + Fn(&str, u16) -> OpenSocketFut + Send + Sync,
         OpenSocketFut: Future<Output = Result<TokioSocket, E>> + Send,
         E: Into<RuntimeError>,
     {
-        let socket = open_socket(&self.server, self.port)
+        let mut stream = self.open_pooled(open_socket, factory).await?;
+        crate::tunnel::request_tcp_connect(&mut stream, &session.target, session.port)
             .await
-            .map_err(Into::into)?;
-        establish_mieru_tcp_tunnel(
-            TcpRelayStream::new(socket),
-            session,
-            &self.username,
-            &self.password,
-        )
-        .await
+            .map_err(|e| RuntimeError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(TcpRelayStream::new(stream))
     }
 
     pub async fn open_tcp_relay_hop(
@@ -177,7 +220,50 @@ impl MieruTransportLeaf {
         stream: TcpRelayStream,
         session: &Session,
     ) -> Result<TcpRelayStream, RuntimeError> {
-        establish_mieru_tcp_tunnel(stream, session, &self.username, &self.password).await
+        if self.udp {
+            return Err(RuntimeError::Io(std::io::Error::other(
+                "mieru UDP underlay requires a datagram carrier; stream relay is unsupported",
+            )));
+        }
+        let connection = crate::client::ClientConnection::tcp_with_options(
+            stream,
+            &self.username,
+            &self.password,
+            &self.options,
+        )
+        .await
+        .map_err(RuntimeError::Io)?;
+        let mut stream = connection.open().await.map_err(RuntimeError::Io)?;
+        crate::tunnel::request_tcp_connect(&mut stream, &session.target, session.port)
+            .await
+            .map_err(|e| RuntimeError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(TcpRelayStream::new(stream))
+    }
+
+    pub async fn open_tcp_relay_hop_lazy<OpenCarrier, OpenCarrierFut, E>(
+        &self,
+        session: &Session,
+        generation: u64,
+        relay_identity: &str,
+        open_carrier: OpenCarrier,
+    ) -> Result<TcpRelayStream, RuntimeError>
+    where
+        OpenCarrier: FnMut() -> OpenCarrierFut,
+        OpenCarrierFut: Future<Output = Result<TcpRelayStream, E>> + Send,
+        E: Into<RuntimeError>,
+    {
+        if self.udp {
+            return Err(RuntimeError::Io(std::io::Error::other(
+                "mieru UDP underlay requires a datagram carrier",
+            )));
+        }
+        let mut stream = self
+            .open_pooled_relay_tcp(generation, relay_identity, open_carrier)
+            .await?;
+        crate::tunnel::request_tcp_connect(&mut stream, &session.target, session.port)
+            .await
+            .map_err(|e| RuntimeError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(TcpRelayStream::new(stream))
     }
 }
 

@@ -138,7 +138,13 @@ pub enum InboundProtocolConfig {
         port: Option<u16>,
     },
     #[serde(rename = "mieru")]
-    Mieru { users: Vec<MieruUserConfig> },
+    Mieru {
+        users: Vec<MieruUserConfig>,
+        #[serde(default)]
+        transport: MieruTransport,
+        #[serde(flatten)]
+        options: mieru_config::MieruTransportOptions,
+    },
 }
 
 impl InboundProtocolConfig {
@@ -348,7 +354,7 @@ impl InboundProtocolConfig {
         match self {
             Self::Socks5 { users } => normalize_socks5_users(users),
             Self::Mixed { socks5_users } => normalize_socks5_users(socks5_users),
-            Self::Mieru { users } => {
+            Self::Mieru { users, .. } => {
                 for user in users {
                     if let Some(name) = crate::auth::resolve_username_password(
                         Some(&user.username),
@@ -460,4 +466,13 @@ pub struct Hysteria2UserConfig {
     pub quota_remaining_bytes: Option<u64>,
     #[serde(default)]
     pub policy_revision: Option<u64>,
+}
+
+/// Underlying carrier; business TCP and UDP work over either variant.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MieruTransport {
+    #[default]
+    Tcp,
+    Udp,
 }

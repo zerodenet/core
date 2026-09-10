@@ -1,9 +1,11 @@
 use crate::adapters::mieru::MieruAdapter;
 use crate::protocol_registry::ClaimedUdpFlowLeaf;
+use crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier;
 use crate::runtime::udp_dispatch::operation::{
     ManagedStreamPacketBridgePlan, ManagedStreamPacketUdpOperation,
     PreparedManagedStreamPacketOperation, PreparedUdpFlowOperation,
 };
+use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier;
 use crate::runtime::udp_dispatch::relay::PreparedUdpRelayOperation;
 use crate::runtime::udp_dispatch::FlowFailure;
 use crate::runtime::udp_flow::managed::{
@@ -11,6 +13,10 @@ use crate::runtime::udp_flow::managed::{
     ManagedStreamConnectorParts, ManagedStreamHandlerPair, ManagedTupleUdpFlowConnection,
     ManagedTupleUdpResume, ManagedTupleUdpResumeConnector,
 };
+
+mod datagram_relay;
+
+pub(crate) use datagram_relay::managed_datagram_handler;
 
 #[async_trait::async_trait]
 impl ManagedTupleUdpResumeConnector for ::mieru::transport::MieruManagedUdpFlowResume {
@@ -33,11 +39,15 @@ impl ManagedTupleUdpResumeConnector for ::mieru::transport::MieruManagedUdpFlowR
         services: crate::protocol_registry::UpstreamConnectServices,
         _session: &zero_core::Session,
     ) -> Result<Self::Connection, zero_engine::EngineError> {
-        self.open_direct_connection(move |server, port| {
-            let services = services.clone();
-            let server = server.to_owned();
-            async move { services.connect_upstream(&server, port).await }
-        })
+        let factory = services.outbound_datagram_socket_factory();
+        self.open_direct_connection(
+            move |server, port| {
+                let services = services.clone();
+                let server = server.to_owned();
+                async move { services.connect_upstream(&server, port).await }
+            },
+            factory,
+        )
         .await
         .map_err(zero_engine::EngineError::from)
     }
@@ -51,6 +61,30 @@ impl ManagedTupleUdpResumeConnector for ::mieru::transport::MieruManagedUdpFlowR
         self.open_relay_connection(stream)
             .await
             .map_err(zero_engine::EngineError::from)
+    }
+
+    async fn open_lazy_relay(
+        &self,
+        carrier: LazyTcpRelayCarrier<'_>,
+        _session: &zero_core::Session,
+        _tls_server_name: Option<&str>,
+    ) -> Result<Self::Connection, zero_engine::EngineError> {
+        let generation = carrier.generation();
+        let relay_identity = carrier.identity().to_owned();
+        let mut carrier = Some(carrier);
+        self.open_pooled_relay_connection(generation, &relay_identity, move || {
+            let carrier = carrier.take();
+            async move {
+                let carrier = carrier.ok_or_else(|| {
+                    zero_engine::EngineError::Io(std::io::Error::other(
+                        "Mieru TCP relay carrier factory was reused",
+                    ))
+                })?;
+                carrier.open().await
+            }
+        })
+        .await
+        .map_err(zero_engine::EngineError::from)
     }
 }
 
@@ -114,9 +148,8 @@ struct ClaimedMieruUdpLeaf {
 }
 
 struct PreparedMieruUdpRelay {
-    plan: ManagedStreamPacketBridgePlan<
-        ManagedTupleUdpResume<::mieru::transport::MieruManagedUdpFlowResume>,
-    >,
+    plan: ::mieru::transport::MieruManagedUdpFlowPlan,
+    datagram_carrier: bool,
 }
 
 impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedMieruUdpLeaf {
@@ -140,22 +173,84 @@ impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedMieruUdpLeaf {
         _source_dir: Option<&std::path::Path>,
     ) -> Result<Box<dyn PreparedUdpRelayOperation<'a> + 'a>, FlowFailure> {
         Ok(Box::new(PreparedMieruUdpRelay {
-            plan: ManagedStreamPacketBridgePlan::from_parts(
-                runtime_flow_plan_parts(self.leaf.clone().udp_flow_plan(true).into_parts()),
-                true,
-            ),
+            plan: self.leaf.clone().udp_flow_plan(true),
+            datagram_carrier: self.leaf.uses_udp_carrier(),
         }))
     }
 }
 
 impl<'a> PreparedUdpRelayOperation<'a> for PreparedMieruUdpRelay {
+    fn requires_datagram_carrier(&self) -> bool {
+        self.datagram_carrier
+    }
+
+    fn uses_lazy_stream_carrier(&self) -> bool {
+        !self.datagram_carrier
+    }
+
     fn bind_final_hop(
         self: Box<Self>,
         carrier: crate::transport::RelayCarrier,
     ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
+        if self.datagram_carrier {
+            return Err(FlowFailure {
+                stage: "udp_relay_datagram_carrier",
+                error: zero_engine::EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "Mieru native UDP requires a datagram relay carrier",
+                )),
+                upstream: None,
+            });
+        }
         Ok(Box::new(ManagedStreamPacketUdpOperation {
             operation: PreparedManagedStreamPacketOperation::RelayFinalHop {
-                plan: self.plan,
+                plan: ManagedStreamPacketBridgePlan::from_parts(
+                    runtime_flow_plan_parts(self.plan.into_parts()),
+                    true,
+                ),
+                carrier,
+            },
+            needs_proxy: false,
+        }))
+    }
+
+    fn bind_datagram_carrier(
+        self: Box<Self>,
+        carrier: PreparedDatagramRelayCarrier,
+    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
+        if !self.datagram_carrier {
+            return Err(FlowFailure {
+                stage: "udp_relay_datagram_carrier",
+                error: zero_engine::EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Mieru TCP underlay cannot bind a datagram relay carrier",
+                )),
+                upstream: None,
+            });
+        }
+        Ok(datagram_relay::bind(self.plan, carrier))
+    }
+
+    fn bind_lazy_stream_carrier(
+        self: Box<Self>,
+        carrier: LazyTcpRelayCarrier<'a>,
+    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
+        if self.datagram_carrier {
+            return Err(FlowFailure {
+                stage: "udp_relay_lazy_stream_carrier",
+                error: zero_engine::EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Mieru UDP underlay cannot bind a stream relay carrier",
+                )),
+                upstream: None,
+            });
+        }
+        Ok(Box::new(ManagedStreamPacketUdpOperation {
+            operation: PreparedManagedStreamPacketOperation::LazyRelayFinalHop {
+                plan: ManagedStreamPacketBridgePlan::from_parts(
+                    runtime_flow_plan_parts(self.plan.into_parts()),
+                    true,
+                ),
                 carrier,
             },
             needs_proxy: false,

@@ -7,3 +7,6 @@ mod stream_route;
 mod udp;
 
 pub(crate) use model::InboundConnectionContext;
+
+#[cfg(feature = "managed-stream-runtime")]
+mod multiplex;

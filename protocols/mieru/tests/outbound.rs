@@ -6,6 +6,7 @@ use mieru::crypto::{derive_key, MieruCipher};
 use mieru::metadata::{DataMetadata, DATA_SERVER_TO_CLIENT};
 use mieru::segment::build_data_segment;
 use mieru::session::MieruSession;
+use mieru::traffic_pattern::TcpFragmentPattern;
 use mieru::MieruOutbound;
 
 #[test]
@@ -22,6 +23,10 @@ fn decrypt_server_data_waits_for_complete_segment() {
         server_cipher: MieruCipher::with_nonce(&key, *server_cipher.current_nonce()),
         c2s_nonce_sent: true,
         s2c_nonce_recv: false,
+        tcp_fragment: TcpFragmentPattern {
+            enable: false,
+            max_sleep_ms: 0,
+        },
     };
     let payload = b"hello through mieru";
     let meta = DataMetadata {
@@ -63,6 +68,10 @@ fn decrypt_server_data_does_not_advance_cipher_on_incomplete_implicit_segment() 
         server_cipher: MieruCipher::with_nonce(&key, *server_cipher.current_nonce()),
         c2s_nonce_sent: true,
         s2c_nonce_recv: false,
+        tcp_fragment: TcpFragmentPattern {
+            enable: false,
+            max_sleep_ms: 0,
+        },
     };
 
     let first = build_server_segment(

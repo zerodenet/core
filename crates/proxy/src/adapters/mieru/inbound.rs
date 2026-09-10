@@ -7,7 +7,25 @@ use crate::transport::{MeteredStream, TcpRelayStream};
 
 pub(super) fn prepare(
     profile: MieruInboundListenerRequest,
+    udp: bool,
 ) -> Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation> {
+    if udp {
+        return Box::new(
+            crate::runtime::inbound_operation::PeerRouteInboundListenerOperation {
+                request: profile,
+                max_packet_size: MieruInboundListenerRequest::MAX_PACKET_SIZE,
+                pending_packets: MieruInboundListenerRequest::PACKET_QUEUE_CAPACITY,
+                dispatch: |profile: MieruInboundListenerRequest,
+                           socket,
+                           peer,
+                           packets,
+                           context: InboundConnectionContext| async move {
+                    let connection = profile.accept_packet_peer(socket, peer, packets).await?;
+                    context.run_route_multiplexer(connection, "mieru_udp").await
+                },
+            },
+        );
+    }
     Box::new(TcpInboundListenerOperation {
         protocol_name: "mieru",
         error_protocol_name: "mieru",
@@ -15,13 +33,10 @@ pub(super) fn prepare(
         dispatch: |profile: MieruInboundListenerRequest,
                    socket,
                    context: InboundConnectionContext| async move {
-            let response = profile.response_protocol();
-            let route = profile
-                .accept_client(MeteredStream::new(TcpRelayStream::from(socket)))
+            let connection = profile
+                .accept_multiplexer(MeteredStream::new(TcpRelayStream::from(socket)))
                 .await?;
-            context
-                .dispatch_stream_route_with_client_response(route, response, "mieru_udp")
-                .await
+            context.run_route_multiplexer(connection, "mieru_udp").await
         },
     })
 }

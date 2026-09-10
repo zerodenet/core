@@ -20,23 +20,22 @@ pub struct MieruProtocol;
 
 impl ProtocolMetadata for MieruProtocol {
     fn descriptor(&self) -> ProtocolCapabilityDescriptor {
-        let unsupported = ProtocolCapabilityState::unsupported(&[]);
-        // Outbound TCP + UDP validated end-to-end against upstream mita
-        // (enfein/mieru) via socks5-in-tunnel. Inbound is symmetric and
-        // verified via an in-process loopback against the mita-validated
-        // outbound (tests/loopback.rs).
+        // Both carriers support multiplexed business TCP and UDP sessions.
         let supported = ProtocolCapabilityState::supported();
 
         ProtocolCapabilityDescriptor {
             protocol: "mieru",
             feature: "mieru",
-            status: ProtocolCapabilityLevel::Supported,
+            status: ProtocolCapabilityLevel::Partial,
             compatibility_baseline: "mieru",
             inbound: ProtocolNetworkCapability::new(supported, supported),
             outbound: ProtocolNetworkCapability::new(supported, supported),
             transports: &["tcp", "udp"],
-            mux: unsupported,
-            limitations: &[],
+            mux: supported,
+            limitations: &[
+                "udp_underlay_relay_requires_datagram_carrier",
+                "long_running_recovery_is_not_verified",
+            ],
         }
     }
 }

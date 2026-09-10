@@ -138,6 +138,10 @@ pub enum OutboundProtocolConfig {
     },
     #[serde(rename = "mieru")]
     Mieru {
+        #[serde(default)]
+        transport: MieruTransport,
+        #[serde(flatten)]
+        options: mieru_config::MieruTransportOptions,
         server: String,
         port: u16,
         #[serde(default)]

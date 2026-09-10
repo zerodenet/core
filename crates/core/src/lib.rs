@@ -14,7 +14,7 @@ pub use address::{Address, AddressFamily};
 pub use error::Error;
 pub use inbound::{
     InboundClientResponse, InboundDatagramMultiplexer, InboundFallbackCapture,
-    InboundFallbackReplay, InboundRouteAccept, InboundStreamMultiplexer,
+    InboundFallbackReplay, InboundRouteAccept, InboundRouteMultiplexer, InboundStreamMultiplexer,
 };
 
 pub use session::{

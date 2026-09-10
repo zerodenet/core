@@ -61,8 +61,7 @@ impl<'a> ClaimedInventoryLeaf<'a> {
         &self,
     ) -> Option<
         Box<
-            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation
-                + 'a,
+            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     > {
         self.claimed.prepare_udp_packet_path()

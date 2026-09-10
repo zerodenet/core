@@ -9,6 +9,10 @@
 
 extern crate alloc;
 
+pub use mieru_config as config;
+#[cfg(feature = "crypto")]
+pub mod traffic_pattern;
+
 pub mod metadata;
 pub mod protocol;
 #[cfg(feature = "crypto")]
@@ -35,3 +39,9 @@ pub use outbound::{
     MieruTcpStream, MieruTcpTunnelTarget,
 };
 pub use protocol::MieruProtocol;
+
+#[cfg(feature = "crypto")]
+pub mod client;
+
+#[cfg(feature = "crypto")]
+pub mod packet;

@@ -30,7 +30,7 @@ where
         let upstream = endpoint.upstream();
         let cache_key = self
             .connector
-            .connector_flow(&resume, endpoint.clone())
+            .connector_flow(&resume, endpoint.clone(), ctx.session_id)
             .into_cache_key();
         let establish = self
             .connector

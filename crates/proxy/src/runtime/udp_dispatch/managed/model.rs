@@ -11,7 +11,7 @@ pub(super) struct ManagedUdpSend<'a> {
     pub(super) tag: &'a str,
     pub(super) session: &'a Session,
     #[cfg(feature = "managed-stream-runtime")]
-    pub(super) carrier: Option<crate::transport::RelayCarrier>,
+    pub(super) carrier: Option<crate::runtime::udp_flow::managed::ManagedRelayStreamCarrier<'a>>,
     #[cfg(feature = "managed-stream-runtime")]
     pub(super) tls_server_name: Option<&'a str>,
     pub(super) server: &'a str,

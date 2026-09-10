@@ -9,8 +9,6 @@ pub(crate) use request::ManagedDatagramFlow;
 ))]
 pub(crate) use request::ManagedExistingFlowForward;
 #[cfg(feature = "managed-stream-runtime")]
-pub(crate) use request::ManagedRelayStreamFlow;
-#[cfg(feature = "managed-stream-runtime")]
 pub(crate) use request::ManagedStreamPacketFlow;
 #[cfg(any(
     feature = "managed-stream-runtime",
@@ -22,4 +20,6 @@ pub(crate) use request::ManagedUdpFlowKind;
     feature = "managed-datagram-runtime"
 ))]
 pub(crate) use request::ManagedUdpFlowRequest;
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) use request::{ManagedRelayStreamCarrier, ManagedRelayStreamFlow};
 pub(crate) use resume::ManagedUdpFlowResume;

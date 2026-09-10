@@ -180,3 +180,20 @@ Mieru 已实现 `InboundStreamRoute`，适配器将协议返回的 route 交给�
 - 首次默认配置运行在 `timed_out_reload_waits_for_last_known_good_rollback` 出现一次 2 秒监听就绪超时。该 direct 监听测试及其超时设置保持原样，单项、11 项整组及后续全量复测中的该组均通过；未据此宣称已定位首次超时的根因。
 - 未设置 CI 测试栈的复测在 SOCKS5→VLESS UDP 链路发生栈溢出；使用现有 CI 的 16 MiB 测试线程栈后，同一可执行文件的 25 项 UDP 矩阵全部通过。未修改协议代码或测试断言来绕过失败。
 - 此处的本地测试不替代固定官方版本的双向互通验收。
+
+## 后续实施：Mieru TCP 入站多会话
+
+继接入边界整理后，已接入协议拥有的 TCP underlay 多会话实现。
+内核通过中立 `InboundRouteMultiplexer` 分别执行逻辑 stream 的握手与路由；
+Mieru 拥有共享 cipher/nonce、会话分发、有界队列和单会话关闭。
+这落实了上表第 4 批中的入站 TCP 底层多会话部分，出站连接池和原生 UDP underlay 仍待推进。
+具体功能、官方固定版本与本地验收记录见 [TCP 多会话](../protocols/mieru/multiplex.md)。
+
+### 2026-09-10 后续实现：Mieru 出站池与 UDP 载体
+
+已增加协议拥有的 TCP/UDP 共享出站池，包含并发建连合并、凭据/出口身份隔离和重载退役；
+原生 UDP 载体接入双向监听/出站，包含 ACK/窗口、重传、乱序去重与有界会话回收。
+`transport` 默认 `tcp`，可选 `udp`。MUX 导出为 supported，整体仍因长稳验证缺口为 partial。
+官方 v3.33.0 参考端双向 TCP/UDP 载体均已取得本机互通通过记录；详细矩阵、
+最新全量检查状态和限制见 [Mieru 多会话与载体](../protocols/mieru/multiplex.md)。
+上文缺口是审计时快照，不代表本轮实现后的能力状态。

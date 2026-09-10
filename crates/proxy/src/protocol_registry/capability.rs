@@ -61,8 +61,7 @@ pub(crate) trait ClaimedUdpPacketPathLeaf<'a>: Send + Sync {
         &self,
     ) -> Option<
         Box<
-            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation
-                + 'a,
+            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     >;
 }

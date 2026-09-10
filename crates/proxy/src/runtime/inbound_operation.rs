@@ -35,3 +35,8 @@ pub(crate) use tcp_and_peer_datagram::TcpAndPeerDatagramInboundListenerOperation
 mod group;
 #[cfg(feature = "inbound-listener-group-runtime")]
 pub(crate) use group::InboundListenerGroupOperation;
+
+#[cfg(feature = "datagram-route-runtime")]
+mod peer_route;
+#[cfg(feature = "datagram-route-runtime")]
+pub(crate) use peer_route::PeerRouteInboundListenerOperation;

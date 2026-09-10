@@ -21,7 +21,7 @@ use zero_core::Error;
 pub const USER_HINT_LEN: usize = 4;
 
 /// Nonce pattern types matching upstream mieru.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum NoncePattern {
     /// No modification — full 24 random bytes.
     #[default]
@@ -32,13 +32,11 @@ pub enum NoncePattern {
     /// (A-Z, a-z, 0-9, '+', '/').
     PrintableSubset { min_len: usize, max_len: usize },
     /// First N bytes replaced with a random hex string from the set.
-    Fixed {
-        hex_strings: &'static [&'static str],
-    },
+    Fixed { prefixes: Vec<Vec<u8>> },
 }
 
 /// Configuration for nonce generation (patterns + user hint).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NonceConfig {
     pub pattern: NoncePattern,
     pub username: Option<String>,
@@ -57,6 +55,7 @@ impl Default for NonceConfig {
 #[derive(Clone)]
 pub struct MieruCipher {
     key: [u8; 32],
+    username: Option<String>,
     /// Full 24-byte nonce — incremented as big-endian after each use.
     nonce: [u8; 24],
     /// Whether encrypted data should include the nonce prefix.
@@ -91,6 +90,7 @@ impl MieruCipher {
 
         Self {
             key: *key,
+            username: config.username.clone(),
             nonce,
             include_nonce: true,
         }
@@ -100,6 +100,7 @@ impl MieruCipher {
     pub fn with_nonce(key: &[u8; 32], nonce: [u8; 24]) -> Self {
         Self {
             key: *key,
+            username: None,
             nonce,
             include_nonce: true,
         }
@@ -118,6 +119,10 @@ impl MieruCipher {
     /// Get the current nonce value (before next encryption).
     pub fn current_nonce(&self) -> &[u8; 24] {
         &self.nonce
+    }
+
+    pub(crate) fn username(&self) -> &str {
+        self.username.as_deref().unwrap_or("")
     }
 
     /// Compute the user hint for nonce acceleration.
@@ -247,67 +252,41 @@ fn apply_nonce_pattern(nonce: &mut [u8; 24], pattern: &NoncePattern) {
                 *byte = to_common64(*byte);
             }
         }
-        NoncePattern::Fixed { hex_strings } => {
-            if hex_strings.is_empty() {
+        NoncePattern::Fixed { prefixes } => {
+            if prefixes.is_empty() {
                 return;
             }
-            let idx = (nonce[0] as usize) % hex_strings.len();
-            if let Some(decoded) = hex_decode(hex_strings[idx]) {
-                let copy_len = decoded.len().min(24);
-                nonce[..copy_len].copy_from_slice(&decoded[..copy_len]);
-            }
+            let idx = rand::Rng::gen_range(&mut rand::thread_rng(), 0..prefixes.len());
+            let prefix = &prefixes[idx];
+            let copy_len = prefix.len().min(nonce.len());
+            nonce[..copy_len].copy_from_slice(&prefix[..copy_len]);
         }
     }
 }
 
 /// Generate a random length between min and max (inclusive, clamped to 24).
 fn random_pattern_len(min: usize, max: usize) -> usize {
-    use ring::rand::SecureRandom;
-    let mut buf = [0u8; 2];
-    let _ = ring::rand::SystemRandom::new().fill(&mut buf);
-    let range = max.saturating_sub(min).max(1);
-    let offset = (u16::from_be_bytes(buf) as usize) % range;
-    (min + offset).min(24)
+    let max = max.min(24);
+    let min = min.min(max);
+    rand::Rng::gen_range(&mut rand::thread_rng(), min..=max)
 }
 
 /// Map any byte to printable ASCII (0x20–0x7E).
 fn to_printable(byte: u8) -> u8 {
     if (0x20..=0x7E).contains(&byte) {
         byte
+    } else if byte & 0x80 != 0 && (0x20..=0x7E).contains(&(byte & 0x7F)) {
+        byte & 0x7F
     } else {
-        0x20 + (byte % 95) // 0x7E - 0x20 + 1 = 95
+        rand::Rng::gen_range(&mut rand::thread_rng(), 0x20..=0x7E)
     }
 }
 
 /// Map any byte to the common-64-character set.
-const COMMON64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const COMMON64: &[u8; 64] = b"!@#$%^&*()ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz<>";
 
 fn to_common64(byte: u8) -> u8 {
-    COMMON64[(byte as usize) % 64]
-}
-
-/// Simple hex string → bytes decoder.
-fn hex_decode(hex_str: &str) -> Option<alloc::vec::Vec<u8>> {
-    let hex_str = hex_str.trim();
-    if !hex_str.len().is_multiple_of(2) {
-        return None;
-    }
-    let mut bytes = alloc::vec![0u8; hex_str.len() / 2];
-    for (i, chunk) in hex_str.as_bytes().chunks(2).enumerate() {
-        let hi = hex_val(chunk[0])?;
-        let lo = hex_val(chunk[1])?;
-        bytes[i] = (hi << 4) | lo;
-    }
-    Some(bytes)
-}
-
-fn hex_val(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
+    COMMON64[(byte & 0x3F) as usize]
 }
 
 // ── Key derivation ───────────────────────────────────────────────────

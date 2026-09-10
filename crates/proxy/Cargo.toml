@@ -71,7 +71,10 @@ vmess = [
     "dep:vmess",
     "vmess/runtime",
 ]
+datagram-route-runtime = ["managed-stream-runtime"]
 mieru = [
+    "datagram-route-runtime",
+    "managed-datagram-runtime",
     "managed-stream-runtime",
     "tcp-session-runtime",
     "dep:mieru",

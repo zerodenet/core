@@ -45,6 +45,9 @@ mod relays_tcp_through_socks5_direct_outbound;
 #[path = "socks5/relays_tcp_through_socks5_inbound_with_username_password_auth.rs"]
 mod relays_tcp_through_socks5_inbound_with_username_password_auth;
 #[cfg(all(feature = "socks5", feature = "mieru"))]
+#[path = "socks5/relays_tcp_through_socks5_to_mieru_relay_chain_with_pooling.rs"]
+mod relays_tcp_through_socks5_to_mieru_relay_chain_with_pooling;
+#[cfg(all(feature = "socks5", feature = "mieru"))]
 #[path = "socks5/relays_tcp_through_socks5_to_mieru_to_socks5_relay_chain.rs"]
 mod relays_tcp_through_socks5_to_mieru_to_socks5_relay_chain;
 #[cfg(all(feature = "socks5", feature = "shadowsocks"))]

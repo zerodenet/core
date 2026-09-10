@@ -42,7 +42,7 @@ impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedSocks5UdpLeaf {
 }
 
 impl<'a> ClaimedUdpPacketPathLeaf<'a> for ClaimedSocks5PacketPathLeaf {
-    fn prepare_udp_packet_path(&self) -> Option<Box<dyn PreparedUdpPacketPathOperation + 'a>> {
+    fn prepare_udp_packet_path(&self) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
         Some(Box::new(Socks5PacketPathOperation {
             plan: self.plan.clone(),
         }))
@@ -57,7 +57,7 @@ impl PreparedUdpPacketPathOperation for Socks5PacketPathOperation {
     }
 
     fn build_carrier<'a>(
-        self: Box<Self>,
+        &'a self,
         services: crate::protocol_registry::UdpNetworkServices,
     ) -> std::pin::Pin<
         Box<
@@ -71,11 +71,9 @@ impl PreparedUdpPacketPathOperation for Socks5PacketPathOperation {
                 > + Send
                 + 'a,
         >,
-    >
-    where
-        Self: 'a,
-    {
-        Box::pin(async move { packet_path::build(services, self.plan).await })
+    > {
+        let plan = self.plan.clone();
+        Box::pin(async move { packet_path::build(services, plan).await })
     }
 }
 

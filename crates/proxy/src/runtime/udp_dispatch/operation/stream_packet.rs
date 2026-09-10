@@ -5,6 +5,7 @@ use zero_core::Session;
 
 use super::contract::PreparedUdpFlowOperation;
 use crate::protocol_registry::{UdpAdapterContext, UdpRuntimeServices};
+use crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier;
 use crate::runtime::udp_dispatch::UdpDispatch;
 use crate::runtime::udp_flow::managed::bridge::{
     start_direct_managed_stream_packet, start_relay_managed_stream_packet,
@@ -35,12 +36,12 @@ impl<T> ManagedStreamPacketBridgePlan<T> {
     }
 }
 
-pub(crate) struct ManagedStreamPacketUdpOperation<T> {
-    pub(crate) operation: PreparedManagedStreamPacketOperation<T>,
+pub(crate) struct ManagedStreamPacketUdpOperation<'op, T> {
+    pub(crate) operation: PreparedManagedStreamPacketOperation<'op, T>,
     pub(crate) needs_proxy: bool,
 }
 
-impl<T> PreparedUdpFlowOperation for ManagedStreamPacketUdpOperation<T>
+impl<'op, T> PreparedUdpFlowOperation for ManagedStreamPacketUdpOperation<'op, T>
 where
     T: std::any::Any + Send + Sync + std::fmt::Debug,
 {
@@ -68,13 +69,17 @@ where
     }
 }
 
-pub(crate) enum PreparedManagedStreamPacketOperation<T> {
+pub(crate) enum PreparedManagedStreamPacketOperation<'op, T> {
     Direct {
         plan: ManagedStreamPacketBridgePlan<T>,
     },
     RelayFinalHop {
         plan: ManagedStreamPacketBridgePlan<T>,
         carrier: RelayCarrier,
+    },
+    LazyRelayFinalHop {
+        plan: ManagedStreamPacketBridgePlan<T>,
+        carrier: LazyTcpRelayCarrier<'op>,
     },
 }
 
@@ -83,7 +88,7 @@ async fn execute_managed_stream_packet_operation<T>(
     services: Option<UdpRuntimeServices>,
     session: &Session,
     payload: &[u8],
-    operation: PreparedManagedStreamPacketOperation<T>,
+    operation: PreparedManagedStreamPacketOperation<'_, T>,
 ) -> Result<FlowStartResult, FlowFailure>
 where
     T: std::any::Any + Send + Sync + std::fmt::Debug,
@@ -116,9 +121,25 @@ where
                     &plan.tag,
                     session,
                     ManagedStreamPacketRelay {
-                        carrier,
+                        carrier: carrier.into(),
                         tls_server_name: None,
                     },
+                    (&plan.server, plan.port),
+                    plan.resume,
+                    payload,
+                ),
+            )
+            .await
+        }
+        PreparedManagedStreamPacketOperation::LazyRelayFinalHop { plan, carrier } => {
+            debug_assert!(plan.relay_chain);
+            start_relay_managed_stream_packet(
+                &mut context,
+                ManagedStreamPacketStartBridge::lazy_relay(
+                    services,
+                    &plan.tag,
+                    session,
+                    carrier,
                     (&plan.server, plan.port),
                     plan.resume,
                     payload,

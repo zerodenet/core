@@ -204,7 +204,12 @@ pub(super) fn validate_inbound_protocol(
             Ok(())
         }
         InboundProtocolConfig::Direct { .. } => Ok(()),
-        InboundProtocolConfig::Mieru { users } => validate_mieru_users(users),
+        InboundProtocolConfig::Mieru { users, options, .. } => {
+            options
+                .validate()
+                .map_err(|error| ConfigError::InvalidInbound(error.to_string()))?;
+            validate_mieru_users(users)
+        }
     }
 }
 
@@ -445,7 +450,12 @@ pub(super) fn validate_outbound_protocol(
             port,
             username,
             password,
+            options,
+            ..
         } => {
+            options
+                .validate()
+                .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
             validate_outbound_endpoint("mieru", server, *port)?;
             validate_outbound_optional_non_empty("mieru password", password)?;
             if let Some(username) = username {

@@ -5,7 +5,9 @@ use crate::Error;
 use zero_traits::AsyncSocket;
 
 mod multiplex;
-pub use multiplex::{InboundDatagramMultiplexer, InboundStreamMultiplexer};
+pub use multiplex::{
+    InboundDatagramMultiplexer, InboundRouteMultiplexer, InboundStreamMultiplexer,
+};
 
 pub trait InboundClientResponse<S>: Send + Sync
 where

@@ -1,0 +1,67 @@
+name: Mieru Interop
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'protocols/mieru/**'
+      - 'crates/core/**'
+      - 'crates/traits/**'
+      - 'crates/transport/**'
+      - 'crates/proxy/**'
+      - 'crates/config/**'
+      - 'scripts/prepare-mieru-interop.py'
+      - '.github/workflows/mieru-interop.yml'
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'protocols/mieru/**'
+      - 'crates/core/**'
+      - 'crates/traits/**'
+      - 'crates/transport/**'
+      - 'crates/proxy/**'
+      - 'crates/config/**'
+      - 'scripts/prepare-mieru-interop.py'
+      - '.github/workflows/mieru-interop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  interop:
+    name: Official Mieru package baseline bidirectional TCP/UDP
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-protoc
+        with:
+          version: '35.0'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - name: Verify package reference version
+        run: |
+          cargo generate-lockfile
+          python3 scripts/prepare-mieru-interop.py --check-baseline
+      - name: Build fixed official package reference
+        run: python3 scripts/prepare-mieru-interop.py --output "$RUNNER_TEMP/mieru-reference"
+      - name: Verify multiplexed sessions against the official implementation
+        env:
+          RUST_MIN_STACK: '16777216'
+          MIERU_REFERENCE_BIN: ${{ runner.temp }}/mieru-reference
+        run: >-
+          cargo test -p zero-proxy --all-features --test mieru_official_interop
+          -- --ignored --nocapture

@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 use core::pin::Pin;
-use core::task::{Context, Poll};
+use core::task::{ready, Context, Poll};
 use std::io;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
@@ -17,9 +17,16 @@ use crate::metadata::{
     DataMetadata, SessionMetadata, DATA_SERVER_TO_CLIENT, METADATA_LEN, OPEN_SESSION_REQUEST,
     OPEN_SESSION_RESPONSE,
 };
-use crate::segment::{build_data_segment, build_session_segment, parse_segment, Segment};
+use crate::segment::{
+    build_data_segment, build_session_segment_with_padding, parse_segment, Segment,
+};
 use crate::session::MieruSession;
+use crate::traffic_pattern::{
+    data_padding_lengths, session_padding, write_socket_with_fragmentation, TrafficPattern,
+};
 
+pub mod multiplex;
+mod packet;
 mod route;
 
 /// Mieru inbound handler.
@@ -29,9 +36,14 @@ pub struct MieruInbound;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MieruInboundProfile {
     users: Vec<MieruInboundUser>,
+    options: mieru_config::MieruTransportOptions,
 }
 
 impl MieruInboundProfile {
+    pub fn with_options(mut self, options: mieru_config::MieruTransportOptions) -> Self {
+        self.options = options;
+        self
+    }
     pub fn from_config(users: Vec<(String, String)>) -> Self {
         Self::from_config_parts(users)
     }
@@ -42,6 +54,7 @@ impl MieruInboundProfile {
         I::Item: IntoMieruInboundUserConfig,
     {
         Self {
+            options: Default::default(),
             users: users
                 .into_iter()
                 .map(IntoMieruInboundUserConfig::into_mieru_inbound_user_config)
@@ -61,8 +74,12 @@ impl MieruInboundProfile {
         &self,
         stream: &mut S,
     ) -> Result<MieruAccept, Error> {
+        self.options
+            .validate()
+            .map_err(|_| Error::Config("invalid mieru transport options"))?;
+        let pattern = TrafficPattern::from_config(self.options.traffic_pattern.as_ref())?;
         MieruInbound
-            .accept_request_for_configured_users(stream, &self.users)
+            .accept_request_for_configured_users(stream, &self.users, &pattern)
             .await
     }
 
@@ -172,6 +189,8 @@ pub struct MieruAccept {
     client_cipher: MieruCipher,
     server_cipher: MieruCipher,
     auth: SessionAuth,
+    username: String,
+    traffic_pattern: TrafficPattern,
     /// Bytes already decrypted from the first segment beyond its metadata
     /// (usually empty for socks5-in-tunnel clients).
     remaining_payload: Vec<u8>,
@@ -325,6 +344,10 @@ impl MieruInboundDataCodec {
     }
 
     pub fn encrypt_server_data(&mut self, data: &[u8]) -> Result<Vec<u8>, Error> {
+        if data.len() > u16::MAX as usize {
+            return Err(Error::Protocol("mieru: data fragment too large"));
+        }
+        let (prefix_length, suffix_length) = data_padding_lengths(u8::MAX as usize);
         let metadata = DataMetadata {
             protocol_type: DATA_SERVER_TO_CLIENT,
             timestamp: MieruSession::timestamp_minutes(),
@@ -333,9 +356,9 @@ impl MieruInboundDataCodec {
             unack_sequence: 0,
             window_size: 1024,
             fragment_number: 0,
-            prefix_length: 0,
+            prefix_length,
             payload_length: data.len() as u16,
-            suffix_length: 0,
+            suffix_length,
         };
         let include_nonce = !self.s2c_nonce_sent;
         let segment = build_data_segment(&metadata, data, &mut self.server_cipher, include_nonce)?;
@@ -354,13 +377,13 @@ pub struct MieruInboundStream<S> {
     read_buf: Vec<u8>,
     read_pos: usize,
     raw_read_buf: Vec<u8>,
-    write_buf: Vec<u8>,
-    write_pos: usize,
-    write_plain_len: usize,
+    write_state: crate::traffic_pattern::FragmentedWriteState,
 }
 
 impl<S> MieruInboundStream<S> {
     pub fn new(inner: S, accept: MieruAccept) -> Self {
+        let write_state =
+            crate::traffic_pattern::FragmentedWriteState::new(accept.traffic_pattern.tcp_fragment);
         let (codec, read_buf) = MieruInboundDataCodec::new(accept);
         Self {
             inner,
@@ -368,12 +391,13 @@ impl<S> MieruInboundStream<S> {
             read_buf,
             read_pos: 0,
             raw_read_buf: Vec::new(),
-            write_buf: Vec::new(),
-            write_pos: 0,
-            write_plain_len: 0,
+            write_state,
         }
     }
 
+    /// Returns the carrier. Like `BufWriter::into_inner`, callers should flush
+    /// first because a previously accepted encrypted frame may still be
+    /// buffered by this stream.
     pub fn into_inner(self) -> S {
         self.inner
     }
@@ -388,14 +412,27 @@ impl<S> MieruInboundStream<S> {
 
 impl<S> AsyncRead for MieruInboundStream<S>
 where
-    S: AsyncRead + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
         let this = Pin::into_inner(self);
+
+        if !this.write_state.is_idle() {
+            match this.write_state.poll_drain(Pin::new(&mut this.inner), cx) {
+                Poll::Ready(Ok(())) => {
+                    this.write_state.finish();
+                }
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Pending => {}
+            }
+        }
 
         if this.read_pos < this.read_buf.len() {
             let remaining = &this.read_buf[this.read_pos..];
@@ -471,46 +508,31 @@ where
     ) -> Poll<io::Result<usize>> {
         let this = Pin::into_inner(self);
 
-        if this.write_buf.is_empty() {
-            match this.codec.encrypt_server_data(buf) {
-                Ok(segment) => {
-                    this.write_buf = segment;
-                    this.write_pos = 0;
-                    this.write_plain_len = buf.len();
-                }
-                Err(_) => return Poll::Ready(Err(io::Error::other("mieru encrypt failed"))),
-            }
+        if !this.write_state.is_idle() {
+            ready!(this
+                .write_state
+                .poll_ready_for_write(Pin::new(&mut this.inner), cx))?;
         }
-
-        while this.write_pos < this.write_buf.len() {
-            match Pin::new(&mut this.inner).poll_write(cx, &this.write_buf[this.write_pos..]) {
-                Poll::Ready(Ok(0)) => {
-                    return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "mieru write zero",
-                    )));
-                }
-                Poll::Ready(Ok(n)) => {
-                    this.write_pos += n;
-                }
-                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-                Poll::Pending => return Poll::Pending,
-            }
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
         }
-
-        let written = this.write_plain_len;
-        this.write_buf.clear();
-        this.write_pos = 0;
-        this.write_plain_len = 0;
-        Poll::Ready(Ok(written))
+        let plain = &buf[..buf.len().min(crate::segment::MAX_FRAGMENT)];
+        match this.codec.encrypt_server_data(plain) {
+            Ok(segment) => this.write_state.start(segment, plain.len()),
+            Err(_) => return Poll::Ready(Err(io::Error::other("mieru encrypt failed"))),
+        }
+        Poll::Ready(Ok(plain.len()))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
+        let this = &mut *self;
+        this.write_state.poll_flush(Pin::new(&mut this.inner), cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
+        let this = &mut *self;
+        this.write_state
+            .poll_shutdown(Pin::new(&mut this.inner), cx)
     }
 }
 
@@ -584,7 +606,8 @@ impl MieruInbound {
                 MieruInboundUser::new(username.clone(), password.clone(), None)
             })
             .collect::<Vec<_>>();
-        self.accept_request_for_configured_users(stream, &users)
+        let pattern = TrafficPattern::from_config(None)?;
+        self.accept_request_for_configured_users(stream, &users, &pattern)
             .await
     }
 
@@ -592,6 +615,7 @@ impl MieruInbound {
         &self,
         stream: &mut S,
         users: &[MieruInboundUser],
+        pattern: &TrafficPattern,
     ) -> Result<MieruAccept, Error> {
         // Read first segment: nonce(24) + encrypted_meta(32) + tag(16) = 72 bytes.
         // Upstream mieru (and Zero's outbound) emit no leading padding0, so the
@@ -606,7 +630,8 @@ impl MieruInbound {
             .as_secs();
 
         // Try each user's key to decrypt the openSessionRequest metadata.
-        let mut matched: Option<(MieruCipher, MieruCipher, SessionMetadata, SessionAuth)> = None;
+        let mut matched: Option<(MieruCipher, [u8; 32], SessionMetadata, SessionAuth, String)> =
+            None;
 
         for user in users {
             let keys = try_derive_keys(&user.username, &user.password, unix_now);
@@ -616,7 +641,7 @@ impl MieruInbound {
                     if pt.len() >= METADATA_LEN {
                         let meta = SessionMetadata::decode(&pt[..METADATA_LEN]);
                         if meta.protocol_type == OPEN_SESSION_REQUEST {
-                            matched = Some((c, MieruCipher::new(key), meta, user.auth()));
+                            matched = Some((c, *key, meta, user.auth(), user.username.clone()));
                             break;
                         }
                     }
@@ -627,12 +652,17 @@ impl MieruInbound {
             }
         }
 
-        let (mut client_cipher, mut server_cipher, open_req, auth) =
+        let (mut client_cipher, key, open_req, auth, username) =
             matched.ok_or(Error::Protocol("mieru: no valid user key found"))?;
+        let mut server_cipher =
+            MieruCipher::with_config(&key, &pattern.nonce_config(&username, true));
 
-        // socks5-in-tunnel clients send no target in openSessionRequest. Consume
-        // any declared payload defensively; the target arrives via a socks5
-        // request in the data phase, read by the proxy handler.
+        if open_req.session_id == 0 || open_req.payload_length > 1024 {
+            return Err(Error::Protocol("mieru: invalid open session"));
+        }
+
+        // The first open may carry an early tunneled SOCKS5 request. Preserve
+        // its payload for the protocol-owned logical stream handshake.
         let remaining_payload = if open_req.payload_length > 0 {
             let plen = open_req.payload_length as usize;
             let mut payload_ct = vec![0u8; plen + 16]; // ciphertext + tag
@@ -642,8 +672,13 @@ impl MieruInbound {
             Vec::new()
         };
 
+        let mut suffix = vec![0; open_req.suffix_length as usize];
+        let suffix_len = suffix.len();
+        read_exact(stream, &mut suffix, suffix_len).await?;
+
         // Send openSessionResponse.
         let session = MieruSession::with_id(open_req.session_id);
+        let padding = session_padding(u8::MAX as usize, 64, &username);
         let resp_meta = SessionMetadata {
             protocol_type: OPEN_SESSION_RESPONSE,
             timestamp: MieruSession::timestamp_minutes(),
@@ -651,11 +686,16 @@ impl MieruInbound {
             sequence_number: 0,
             status_code: 0,
             payload_length: 0,
-            suffix_length: 0,
+            suffix_length: padding.len() as u8,
         };
-        let resp_seg = build_session_segment(&resp_meta, &[], &mut server_cipher, true)?;
-        stream
-            .write_all(&resp_seg)
+        let resp_seg = build_session_segment_with_padding(
+            &resp_meta,
+            &[],
+            &mut server_cipher,
+            true,
+            &padding,
+        )?;
+        write_socket_with_fragmentation(stream, &resp_seg, pattern.tcp_fragment)
             .await
             .map_err(|_| Error::Io("mieru: write response"))?;
 
@@ -664,6 +704,8 @@ impl MieruInbound {
             client_cipher,
             server_cipher,
             auth,
+            username,
+            traffic_pattern: pattern.clone(),
             remaining_payload,
         })
     }

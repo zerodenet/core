@@ -7,6 +7,8 @@ pub struct MieruInboundUserRef<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct MieruOutboundOptionsRef<'a> {
+    pub udp: bool,
     pub username: &'a str,
     pub password: &'a str,
+    pub options: &'a mieru_config::MieruTransportOptions,
 }

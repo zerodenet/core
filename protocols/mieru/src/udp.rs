@@ -24,3 +24,6 @@ pub use packet::{MieruInboundUdpPacket, MieruUdpAssociatePacket, MieruUdpAssocia
 #[cfg(feature = "crypto")]
 pub(crate) use packet::{decode_udp_flow_packet, encode_udp_flow_packet};
 pub(crate) use packet::{unwrap_udp_associate, wrap_udp_associate};
+
+#[cfg(feature = "crypto")]
+mod framing;

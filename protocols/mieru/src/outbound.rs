@@ -4,20 +4,26 @@ use alloc::vec::Vec;
 use std::io;
 use std::pin::Pin;
 use std::string::String;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::{broadcast, mpsc};
 use zero_core::{Address, Error, Session};
 use zero_traits::AsyncSocket;
 
-use crate::crypto::{derive_key, MieruCipher, NonceConfig};
+use crate::crypto::{derive_key, MieruCipher};
 use crate::metadata::{
     DataMetadata, SessionMetadata, CLOSE_SESSION_REQUEST, DATA_CLIENT_TO_SERVER, METADATA_LEN,
     OPEN_SESSION_REQUEST, OPEN_SESSION_RESPONSE,
 };
-use crate::segment::{build_data_segment, build_session_segment, parse_segment, Segment};
+use crate::segment::{
+    build_data_segment, build_session_segment_with_padding, parse_segment, Segment, MAX_FRAGMENT,
+};
 use crate::session::MieruSession;
+use crate::traffic_pattern::{
+    data_padding_lengths, session_padding, write_socket_with_fragmentation, FragmentedWriteState,
+    TcpFragmentPattern, TrafficPattern,
+};
 use crate::udp;
 
 /// Mieru outbound connection.
@@ -27,6 +33,7 @@ pub struct MieruOutbound {
     pub server_cipher: MieruCipher,
     pub c2s_nonce_sent: bool,
     pub s2c_nonce_recv: bool,
+    pub tcp_fragment: TcpFragmentPattern,
 }
 
 /// Target parameters for a Mieru TCP tunnel.
@@ -93,8 +100,7 @@ pub fn tcp_outbound_profile_from_config(
 pub struct MieruTcpStream<S> {
     inner: S,
     outbound: MieruOutbound,
-    write_buf: Vec<u8>,
-    write_pos: usize,
+    write_state: FragmentedWriteState,
     raw_read_buf: Vec<u8>,
     read_buf: Vec<u8>,
     read_pos: usize,
@@ -102,11 +108,11 @@ pub struct MieruTcpStream<S> {
 
 impl<S> MieruTcpStream<S> {
     pub fn new(inner: S, outbound: MieruOutbound) -> Self {
+        let write_state = FragmentedWriteState::new(outbound.tcp_fragment);
         Self {
             inner,
             outbound,
-            write_buf: Vec::new(),
-            write_pos: 0,
+            write_state,
             raw_read_buf: Vec::new(),
             read_buf: Vec::new(),
             read_pos: 0,
@@ -117,31 +123,21 @@ impl<S> MieruTcpStream<S> {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        if self.write_buf.is_empty() {
-            self.write_buf = self
-                .outbound
-                .encrypt_client_data(buf)
-                .map_err(|e| io::Error::other(format!("mieru encrypt: {e}")))?;
-            self.write_pos = 0;
+        if !self.write_state.is_idle() {
+            ready!(self
+                .write_state
+                .poll_ready_for_write(Pin::new(&mut self.inner), cx))?;
         }
-
-        while self.write_pos < self.write_buf.len() {
-            match Pin::new(&mut self.inner).poll_write(cx, &self.write_buf[self.write_pos..]) {
-                Poll::Ready(Ok(0)) => {
-                    return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "mieru write zero",
-                    )));
-                }
-                Poll::Ready(Ok(n)) => self.write_pos += n,
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => return Poll::Pending,
-            }
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
         }
-
-        self.write_buf.clear();
-        self.write_pos = 0;
-        Poll::Ready(Ok(buf.len()))
+        let plain = &buf[..buf.len().min(MAX_FRAGMENT)];
+        let wire = self
+            .outbound
+            .encrypt_client_data(plain)
+            .map_err(|e| io::Error::other(format!("mieru encrypt: {e}")))?;
+        self.write_state.start(wire, plain.len());
+        Poll::Ready(Ok(plain.len()))
     }
 
     fn poll_read_decrypted(
@@ -152,6 +148,19 @@ impl<S> MieruTcpStream<S> {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        if !self.write_state.is_idle() {
+            match self.write_state.poll_drain(Pin::new(&mut self.inner), cx) {
+                Poll::Ready(Ok(())) => {
+                    self.write_state.finish();
+                }
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Pending => {}
+            }
+        }
+
         if self.read_pos < self.read_buf.len() {
             let remaining = &self.read_buf[self.read_pos..];
             let n = remaining.len().min(buf.remaining());
@@ -230,11 +239,14 @@ where
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
+        let this = &mut *self;
+        this.write_state.poll_flush(Pin::new(&mut this.inner), cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
+        let this = &mut *self;
+        this.write_state
+            .poll_shutdown(Pin::new(&mut this.inner), cx)
     }
 }
 
@@ -631,21 +643,29 @@ impl MieruOutbound {
         username: &str,
         password: &str,
     ) -> Result<Self, Error> {
+        let pattern = TrafficPattern::from_config(None)?;
+        Self::connect_with_pattern(stream, username, password, &pattern).await
+    }
+
+    pub async fn connect_with_pattern<S: AsyncSocket>(
+        stream: &mut S,
+        username: &str,
+        password: &str,
+        pattern: &TrafficPattern,
+    ) -> Result<Self, Error> {
         let unix_now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_| Error::Protocol("mieru: time"))?
             .as_secs();
 
         let key = derive_key(username, password, unix_now);
-        let nc = NonceConfig {
-            username: Some(username.to_owned()),
-            ..Default::default()
-        };
+        let nc = pattern.nonce_config(username, true);
         let mut client_cipher = MieruCipher::with_config(&key, &nc);
         let mut server_cipher = MieruCipher::with_config(&key, &nc);
         let session = MieruSession::new();
 
         // openSessionRequest carries only the session ID — no target payload.
+        let padding = session_padding(u8::MAX as usize, 64, username);
         let open_meta = SessionMetadata {
             protocol_type: OPEN_SESSION_REQUEST,
             timestamp: MieruSession::timestamp_minutes(),
@@ -653,11 +673,16 @@ impl MieruOutbound {
             sequence_number: 0,
             status_code: 0,
             payload_length: 0,
-            suffix_length: 0,
+            suffix_length: padding.len() as u8,
         };
-        let open_seg = build_session_segment(&open_meta, &[], &mut client_cipher, true)?;
-        stream
-            .write_all(&open_seg)
+        let open_seg = build_session_segment_with_padding(
+            &open_meta,
+            &[],
+            &mut client_cipher,
+            true,
+            &padding,
+        )?;
+        write_socket_with_fragmentation(stream, &open_seg, pattern.tcp_fragment)
             .await
             .map_err(|_| Error::Io("mieru: send open"))?;
 
@@ -666,20 +691,24 @@ impl MieruOutbound {
         const CORE_LEN: usize = 24 + METADATA_LEN + 16; // nonce + meta + tag
         let mut resp = vec![0u8; CORE_LEN];
         read_exact(stream, &mut resp, CORE_LEN).await?;
-        let (seg, _) = parse_segment(&resp, &mut server_cipher, true, true)?;
-        let sm = seg
-            .session_meta
-            .ok_or(Error::Protocol("mieru: expected session meta"))?;
-        if sm.protocol_type != OPEN_SESSION_RESPONSE {
-            return Err(Error::Protocol("mieru: unexpected response"));
+        let mut probe = server_cipher.clone();
+        let plain = probe.decrypt(true, &resp)?;
+        let meta = SessionMetadata::decode(&plain);
+        if meta.protocol_type != OPEN_SESSION_RESPONSE
+            || meta.session_id != session.session_id
+            || meta.status_code != 0
+        {
+            return Err(Error::Protocol("mieru: invalid open response"));
         }
-
-        // Consume any suffix padding declared by the response so the stream is
-        // cleanly positioned for the data (socks5) phase.
-        if sm.suffix_length > 0 {
-            let mut suffix = vec![0u8; sm.suffix_length as usize];
-            read_exact(stream, &mut suffix, sm.suffix_length as usize).await?;
+        let tail = meta.payload_length as usize
+            + if meta.payload_length > 0 { 16 } else { 0 }
+            + meta.suffix_length as usize;
+        if tail > 0 {
+            let mut remaining = vec![0; tail];
+            read_exact(stream, &mut remaining, tail).await?;
+            resp.extend_from_slice(&remaining);
         }
+        parse_segment(&resp, &mut server_cipher, true, true)?;
 
         Ok(Self {
             mieru_session: session,
@@ -687,11 +716,16 @@ impl MieruOutbound {
             server_cipher,
             c2s_nonce_sent: true,
             s2c_nonce_recv: true,
+            tcp_fragment: pattern.tcp_fragment,
         })
     }
 
     /// Encrypt data for client→server.
     pub fn encrypt_client_data(&mut self, data: &[u8]) -> Result<Vec<u8>, Error> {
+        if data.len() > u16::MAX as usize {
+            return Err(Error::Protocol("mieru: data fragment too large"));
+        }
+        let (prefix_length, suffix_length) = data_padding_lengths(u8::MAX as usize);
         let meta = DataMetadata {
             protocol_type: DATA_CLIENT_TO_SERVER,
             timestamp: MieruSession::timestamp_minutes(),
@@ -700,9 +734,9 @@ impl MieruOutbound {
             unack_sequence: self.mieru_session.peer_unack,
             window_size: self.mieru_session.peer_window,
             fragment_number: 0,
-            prefix_length: 0,
+            prefix_length,
             payload_length: data.len() as u16,
-            suffix_length: 0,
+            suffix_length,
         };
         let include_nonce = !self.c2s_nonce_sent;
         let seg = build_data_segment(&meta, data, &mut self.client_cipher, include_nonce)?;
@@ -731,6 +765,7 @@ impl MieruOutbound {
 
     /// Build closeSessionRequest.
     pub fn close_request(&mut self) -> Result<Vec<u8>, Error> {
+        let padding = session_padding(u8::MAX as usize, 64, self.client_cipher.username());
         let meta = SessionMetadata {
             protocol_type: CLOSE_SESSION_REQUEST,
             timestamp: MieruSession::timestamp_minutes(),
@@ -738,9 +773,9 @@ impl MieruOutbound {
             sequence_number: self.mieru_session.next_send_seq(),
             status_code: 0,
             payload_length: 0,
-            suffix_length: 0,
+            suffix_length: padding.len() as u8,
         };
-        build_session_segment(&meta, &[], &mut self.client_cipher, false)
+        build_session_segment_with_padding(&meta, &[], &mut self.client_cipher, false, &padding)
     }
 }
 
@@ -795,3 +830,5 @@ pub(crate) struct MieruTcpTarget<'a> {
     pub username: &'a str,
     pub password: &'a str,
 }
+
+pub(crate) mod logical_udp;

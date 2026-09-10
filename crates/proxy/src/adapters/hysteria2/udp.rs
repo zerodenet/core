@@ -31,6 +31,7 @@ impl ManagedDatagramResumeConnector for ::hysteria2::transport::Hysteria2Managed
     fn connector_flow(
         &self,
         endpoint: crate::runtime::path::OutboundEndpoint,
+        _session_id: u64,
     ) -> ManagedDatagramConnectorFlow {
         let flow = ::hysteria2::transport::managed_datagram_connector_flow_from_resume(
             self,
@@ -164,7 +165,7 @@ impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedHysteria2UdpLeaf {
 }
 
 impl<'a> ClaimedUdpPacketPathLeaf<'a> for ClaimedHysteria2PacketPathLeaf {
-    fn prepare_udp_packet_path(&self) -> Option<Box<dyn PreparedUdpPacketPathOperation + 'a>> {
+    fn prepare_udp_packet_path(&self) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
         Some(Box::new(Hysteria2PacketPathOperation {
             plan: self.plan.clone(),
         }))
@@ -177,7 +178,7 @@ impl PreparedUdpPacketPathOperation for Hysteria2PacketPathOperation {
     }
 
     fn build_carrier<'a>(
-        self: Box<Self>,
+        &'a self,
         services: crate::protocol_registry::UdpNetworkServices,
     ) -> std::pin::Pin<
         Box<
@@ -186,11 +187,9 @@ impl PreparedUdpPacketPathOperation for Hysteria2PacketPathOperation {
                 > + Send
                 + 'a,
         >,
-    >
-    where
-        Self: 'a,
-    {
-        Box::pin(async move { build_packet_path(services, self.plan).await })
+    > {
+        let plan = self.plan.clone();
+        Box::pin(async move { build_packet_path(services, plan).await })
     }
 }
 

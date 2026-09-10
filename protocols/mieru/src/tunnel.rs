@@ -262,3 +262,10 @@ where
         .map_err(|_| Error::Io("mieru socks5: read BND address"))?;
     Ok(())
 }
+
+pub(crate) async fn request_udp_associate<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+) -> Result<(), Error> {
+    write_request(stream, 3, &Address::Ipv4([0; 4]), 0).await?;
+    read_success_response(stream).await
+}

@@ -46,6 +46,26 @@ pub fn build_session_segment(
     cipher: &mut MieruCipher,
     include_nonce: bool,
 ) -> Result<Vec<u8>, Error> {
+    let padding = random_bytes(meta.suffix_length as usize);
+    build_session_segment_with_padding(meta, payload, cipher, include_nonce, &padding)
+}
+
+/// Builds a session control segment with caller-selected suffix padding.
+/// Traffic-pattern padding must use this entry point so its byte shape, not
+/// merely its length, reaches the wire.
+pub fn build_session_segment_with_padding(
+    meta: &SessionMetadata,
+    payload: &[u8],
+    cipher: &mut MieruCipher,
+    include_nonce: bool,
+    padding: &[u8],
+) -> Result<Vec<u8>, Error> {
+    if payload.len() != meta.payload_length as usize {
+        return Err(Error::Protocol("mieru: payload length mismatch"));
+    }
+    if padding.len() != meta.suffix_length as usize {
+        return Err(Error::Protocol("mieru: suffix padding length mismatch"));
+    }
     let meta_bytes = meta.encode();
 
     // Set nonce inclusion for this segment
@@ -72,6 +92,7 @@ pub fn build_session_segment(
         buf.extend_from_slice(&encrypted_payload);
     }
 
+    buf.extend_from_slice(padding);
     Ok(buf)
 }
 
@@ -82,6 +103,9 @@ pub fn build_data_segment(
     cipher: &mut MieruCipher,
     include_nonce: bool,
 ) -> Result<Vec<u8>, Error> {
+    if payload.len() != meta.payload_length as usize {
+        return Err(Error::Protocol("mieru: payload length mismatch"));
+    }
     let meta_bytes = meta.encode();
 
     cipher.set_include_nonce(include_nonce);
@@ -137,6 +161,18 @@ pub fn parse_segment(
     cipher: &mut MieruCipher,
     has_nonce: bool,
     _is_session: bool,
+) -> Result<(Segment, usize), Error> {
+    // An incomplete frame must not advance the connection's implicit nonce.
+    let mut candidate = cipher.clone();
+    let result = parse_complete_segment(data, &mut candidate, has_nonce)?;
+    *cipher = candidate;
+    Ok(result)
+}
+
+fn parse_complete_segment(
+    data: &[u8],
+    cipher: &mut MieruCipher,
+    has_nonce: bool,
 ) -> Result<(Segment, usize), Error> {
     // Decrypt metadata (with optional padding0 scanning on first segment).
     let (meta_bytes, mut offset) = if has_nonce {
@@ -205,6 +241,10 @@ pub fn parse_segment(
                 offset += payload_len + TAG_LEN;
             }
 
+            offset += session_meta.suffix_length as usize;
+            if data.len() < offset {
+                return Err(Error::Protocol("mieru: need more data"));
+            }
             Ok((
                 Segment {
                     session_meta: Some(session_meta),
@@ -237,6 +277,9 @@ pub fn parse_segment(
 
             // Skip padding 2
             offset += data_meta.suffix_length as usize;
+            if data.len() < offset {
+                return Err(Error::Protocol("mieru: need more data"));
+            }
 
             Ok((
                 Segment {

@@ -1,12 +1,22 @@
 use crate::inventory::PreparedTcpRelayChain;
 use crate::protocol_registry::UdpAdapterContext;
+use crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier;
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
+use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier;
 use crate::runtime::udp_dispatch::{FlowFailure, FlowStartResult, UdpDispatch};
 use crate::runtime::udp_flow::packet_path::PacketPathFlowBinding;
 use crate::runtime::udp_flow::packet_path_chain::PacketPathStartRequest;
 use crate::transport::RelayCarrier;
 
 pub(crate) trait PreparedUdpRelayOperation<'a>: Send {
+    fn requires_datagram_carrier(&self) -> bool {
+        false
+    }
+
+    fn uses_lazy_stream_carrier(&self) -> bool {
+        false
+    }
+
     fn needs_two_streams(&self) -> bool {
         false
     }
@@ -31,12 +41,44 @@ pub(crate) trait PreparedUdpRelayOperation<'a>: Send {
             upstream: None,
         })
     }
+
+    fn bind_datagram_carrier(
+        self: Box<Self>,
+        _carrier: PreparedDatagramRelayCarrier,
+    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
+        Err(FlowFailure {
+            stage: "udp_relay_datagram_carrier",
+            error: zero_engine::EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "datagram relay carrier is unsupported for this outbound",
+            )),
+            upstream: None,
+        })
+    }
+
+    fn bind_lazy_stream_carrier(
+        self: Box<Self>,
+        _carrier: LazyTcpRelayCarrier<'a>,
+    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
+        Err(FlowFailure {
+            stage: "udp_relay_lazy_stream_carrier",
+            error: zero_engine::EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "lazy stream relay carrier is unsupported for this outbound",
+            )),
+            upstream: None,
+        })
+    }
 }
 
 pub(crate) enum PreparedUdpRelayChain<'a> {
     PacketPath {
         flow_binding: PacketPathFlowBinding,
         request: Box<PacketPathStartRequest<'a>>,
+    },
+    DatagramFinalHop {
+        carrier: PreparedDatagramRelayCarrier,
+        operation: Box<dyn PreparedUdpRelayOperation<'a> + 'a>,
     },
     FinalHop {
         prefix: PreparedTcpRelayChain<'a>,
@@ -68,7 +110,22 @@ impl PreparedUdpRelayChain<'_> {
                     tx_bytes: sent as u64,
                 })
             }
+            Self::DatagramFinalHop { carrier, operation } => {
+                operation
+                    .bind_datagram_carrier(carrier)?
+                    .execute(dispatch, ctx, session, payload)
+                    .await
+            }
             Self::FinalHop { prefix, operation } => {
+                if operation.uses_lazy_stream_carrier() {
+                    let carrier = ctx
+                        .runtime_services()
+                        .prepare_lazy_tcp_relay_carrier(prefix);
+                    return operation
+                        .bind_lazy_stream_carrier(carrier)?
+                        .execute(dispatch, ctx, session, payload)
+                        .await;
+                }
                 let carrier = ctx
                     .runtime_services()
                     .dispatch_prepared_tcp_relay_carrier(prefix)

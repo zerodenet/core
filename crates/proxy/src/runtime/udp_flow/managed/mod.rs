@@ -46,6 +46,8 @@ pub(crate) use datagram::ManagedDatagramFlowConnection;
     feature = "managed-datagram-runtime"
 ))]
 pub(crate) use flow::ManagedExistingFlowForward;
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) use flow::ManagedRelayStreamCarrier;
 pub(crate) use flow::ManagedUdpFlowResume;
 #[cfg(any(
     feature = "managed-stream-runtime",

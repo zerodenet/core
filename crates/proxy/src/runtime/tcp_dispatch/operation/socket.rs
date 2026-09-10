@@ -71,7 +71,6 @@ where
 {
     fn execute<'a>(
         self: Box<Self>,
-        _services: TcpRuntimeServices,
         stream: TcpRelayStream,
         session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>

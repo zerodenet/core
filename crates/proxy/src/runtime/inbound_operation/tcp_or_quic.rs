@@ -48,6 +48,10 @@ where
             } = *self;
             let runtime_factory = runtime.route_factory();
             match bound {
+                #[cfg(feature = "datagram-route-runtime")]
+                BoundInbound::Datagram(_) => Err(EngineError::Io(std::io::Error::other(
+                    "unexpected datagram listener",
+                ))),
                 #[cfg(feature = "inbound-listener-group-runtime")]
                 BoundInbound::Group(_) => Err(EngineError::Io(std::io::Error::other(
                     "nested listener group mismatch",

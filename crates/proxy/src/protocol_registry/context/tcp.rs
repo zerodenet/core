@@ -129,6 +129,14 @@ impl TcpRuntimeServices {
         .await
     }
 
+    #[cfg(feature = "udp-runtime")]
+    pub(crate) fn prepare_lazy_tcp_relay_carrier<'a>(
+        &self,
+        prepared: crate::inventory::PreparedTcpRelayChain<'a>,
+    ) -> crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'a> {
+        crate::runtime::tcp_dispatch::relay::prepare_lazy_tcp_relay_carrier(self.clone(), prepared)
+    }
+
     pub(crate) fn record_control_traffic(
         &self,
         session_id: u64,

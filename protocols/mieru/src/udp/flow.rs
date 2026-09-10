@@ -142,6 +142,10 @@ pub struct MieruUdpConnectorFlow {
 }
 
 impl MieruUdpConnectorFlow {
+    pub fn with_namespace(mut self, namespace: &str) -> Self {
+        self.cache_key = alloc::format!("{namespace}|{}", self.cache_key);
+        self
+    }
     pub fn into_parts(self) -> (alloc::string::String, bool) {
         (self.cache_key, self.requires_relay_upstream)
     }

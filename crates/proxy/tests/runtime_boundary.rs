@@ -1725,15 +1725,15 @@ fn shadowsocks_adapter_accepts_protocol_stream_before_runtime_handoff() {
 fn mieru_adapter_accepts_protocol_session_before_runtime_handoff() {
     let listener = read(&proxy_src().join("adapters/mieru/inbound.rs"));
     assert!(
-        listener.contains(".accept_client("),
-        "adapters/mieru/inbound.rs should accept a protocol-owned session surface before runtime handoff"
+        listener.contains(".accept_multiplexer("),
+        "adapters/mieru/inbound.rs should accept a protocol-owned multiplexed connection before runtime handoff"
     );
     assert!(
         !listener.contains("MieruInboundAcceptedSession::"),
         "Mieru route classification belongs to the protocol, not its adapter"
     );
     assert!(
-        listener.contains(".dispatch_stream_route_with_client_response("),
+        listener.contains(".run_route_multiplexer("),
         "Mieru must enter the neutral runtime through its core route contract"
     );
 

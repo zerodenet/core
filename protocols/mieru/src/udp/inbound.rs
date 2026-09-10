@@ -161,13 +161,13 @@ impl MieruInboundUdpRequest {
 #[derive(Debug, Default)]
 pub struct MieruInboundUdpSession {
     targets_by_sender: HashMap<SocketAddr, (Address, u16)>,
+    read_buf: tokio::sync::Mutex<Vec<u8>>,
 }
 
 #[cfg(feature = "crypto")]
 #[derive(Debug)]
 pub struct MieruInboundUdpResponder {
     session: MieruInboundUdpSession,
-    read_buf: Vec<u8>,
 }
 
 #[cfg(feature = "crypto")]
@@ -188,21 +188,22 @@ impl MieruInboundUdpSession {
             .map(MieruInboundUdpRequest::into_dispatch_parts)
     }
 
+    /// Read one framed packet, retaining partial bytes if the future is cancelled.
+    /// A session belongs to one logical input stream. The scratch buffer argument
+    /// is retained for API compatibility; framing storage is owned by the session.
     pub async fn read_dispatch_parts_tokio<R>(
         &self,
         reader: &mut R,
-        buf: &mut [u8],
+        _buf: &mut [u8],
     ) -> Result<Option<MieruInboundUdpDispatchParts>, Error>
     where
         R: tokio::io::AsyncRead + Unpin,
     {
-        let n = tokio::io::AsyncReadExt::read(reader, buf)
-            .await
-            .map_err(|_| Error::Io("failed to read Mieru UDP request"))?;
-        if n == 0 {
-            return Ok(None);
-        }
-        self.decode_dispatch_parts(&buf[..n]).map(Some)
+        let mut pending = self.read_buf.lock().await;
+        super::framing::read_packet(reader, &mut pending)
+            .await?
+            .map(|packet| self.decode_dispatch_parts(&packet))
+            .transpose()
     }
 
     pub async fn read_inbound_dispatch_tokio<R>(
@@ -295,10 +296,7 @@ impl MieruInboundUdpSession {
 #[cfg(feature = "crypto")]
 impl MieruInboundUdpResponder {
     pub fn new(session: MieruInboundUdpSession) -> Self {
-        Self {
-            session,
-            read_buf: vec![0_u8; 64 * 1024],
-        }
+        Self { session }
     }
 
     pub async fn read_inbound_dispatch_tokio<R>(
@@ -309,7 +307,7 @@ impl MieruInboundUdpResponder {
         R: tokio::io::AsyncRead + Unpin,
     {
         self.session
-            .read_inbound_dispatch_tokio(reader, &mut self.read_buf)
+            .read_inbound_dispatch_tokio(reader, &mut [])
             .await
     }
 

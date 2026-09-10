@@ -6,8 +6,8 @@ use zero_core::Session;
 use super::super::super::cache::ManagedUdpConnectionCache;
 use crate::protocol_registry::UdpRuntimeServices;
 use crate::runtime::path::OutboundEndpoint;
+use crate::runtime::udp_flow::managed::flow::ManagedRelayStreamCarrier;
 use crate::runtime::udp_flow::packet_path::{UdpFlowContext, UdpPacketRef};
-use crate::transport::TcpRelayStream;
 
 pub(crate) struct ManagedStreamFlowManager<T> {
     pub(super) upstreams: ManagedUdpConnectionCache,
@@ -32,7 +32,7 @@ impl<T> Clone for SharedManagedStreamFlowManager<T> {
 
 pub(super) struct ManagedStreamRelayRequest<'a, T> {
     pub(super) ctx: UdpFlowContext<'a>,
-    pub(super) stream: TcpRelayStream,
+    pub(super) carrier: ManagedRelayStreamCarrier<'a>,
     pub(super) tls_server_name: Option<&'a str>,
     pub(super) services: Option<UdpRuntimeServices>,
     pub(super) session: &'a Session,

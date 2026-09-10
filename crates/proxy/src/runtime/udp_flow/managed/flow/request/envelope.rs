@@ -13,7 +13,7 @@ pub(crate) struct ManagedUdpFlowRequest<'a> {
     pub(crate) kind: ManagedUdpFlowKind,
     pub(crate) session: &'a Session,
     #[cfg(feature = "managed-stream-runtime")]
-    pub(crate) carrier: Option<crate::transport::RelayCarrier>,
+    pub(crate) carrier: Option<super::ManagedRelayStreamCarrier<'a>>,
     #[cfg(feature = "managed-stream-runtime")]
     pub(crate) tls_server_name: Option<&'a str>,
     pub(crate) server: &'a str,

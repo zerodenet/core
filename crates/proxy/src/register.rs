@@ -62,7 +62,7 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
     {
         use crate::adapters::mieru::MieruAdapter;
         registry.register_managed_capability(
-            Arc::new(MieruAdapter),
+            Arc::new(MieruAdapter::default()),
             MieruAdapter::claim_outbound_leaf_impl,
         );
     }

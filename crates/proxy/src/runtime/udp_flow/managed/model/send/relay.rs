@@ -2,14 +2,15 @@ use tokio::task::JoinSet;
 use zero_core::{Address, Session};
 
 use crate::protocol_registry::UdpRuntimeServices;
-use crate::runtime::udp_flow::managed::flow::{ManagedRelayStreamFlow, ManagedUdpFlowResume};
+use crate::runtime::udp_flow::managed::flow::{
+    ManagedRelayStreamCarrier, ManagedRelayStreamFlow, ManagedUdpFlowResume,
+};
 use crate::runtime::udp_flow::packet_path::ChainTask;
-use crate::transport::TcpRelayStream;
 
 pub(crate) struct ManagedRelayExistingSend<'a> {
     pub(crate) chain_tasks: &'a mut JoinSet<ChainTask>,
     pub(crate) session_id: u64,
-    pub(crate) stream: TcpRelayStream,
+    pub(crate) carrier: ManagedRelayStreamCarrier<'a>,
     pub(crate) tls_server_name: Option<&'a str>,
     pub(crate) services: Option<UdpRuntimeServices>,
     pub(crate) session: &'a Session,
@@ -26,7 +27,7 @@ impl<'a> ManagedRelayExistingSend<'a> {
         Self {
             chain_tasks: request.chain_tasks,
             session_id: request.session.id,
-            stream: request.carrier.stream,
+            carrier: request.carrier,
             tls_server_name: request.tls_server_name,
             services: request.services,
             session: request.session,

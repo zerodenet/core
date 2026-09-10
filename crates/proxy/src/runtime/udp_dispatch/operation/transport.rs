@@ -165,7 +165,8 @@ where
                     stream: paired_stream,
                     server: endpoint.server.to_string(),
                     port: endpoint.port,
-                },
+                }
+                .into(),
                 tls_server_name: None,
             },
             (endpoint.server, endpoint.port),
@@ -220,7 +221,7 @@ where
                     endpoint.tag,
                     session,
                     ManagedStreamPacketRelay {
-                        carrier,
+                        carrier: carrier.into(),
                         tls_server_name: None,
                     },
                     (endpoint.server, endpoint.port),

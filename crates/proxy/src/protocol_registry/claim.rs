@@ -19,18 +19,37 @@ pub(crate) fn claim_socket_tcp_leaf<'a, T>(handshake: T) -> Box<dyn ClaimedTcpOu
 where
     T: SocketTcpHandshake + Clone + Send + Sync + 'a,
 {
-    Box::new(ClaimedSocketTcpLeaf { handshake })
+    let relay_handshake = handshake.clone();
+    claim_socket_tcp_leaf_with_relay(handshake, move || {
+        Box::new(SocketTcpRelayOperation {
+            handshake: relay_handshake.clone(),
+        })
+    })
 }
 
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
-struct ClaimedSocketTcpLeaf<T> {
+pub(crate) fn claim_socket_tcp_leaf_with_relay<'a, T, F>(
     handshake: T,
-}
-
-#[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
-impl<'a, T> ClaimedTcpOutboundLeaf<'a> for ClaimedSocketTcpLeaf<T>
+    relay: F,
+) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a>
 where
     T: SocketTcpHandshake + Clone + Send + Sync + 'a,
+    F: Fn() -> Box<dyn PreparedTcpRelayOperation + 'a> + Send + Sync + 'a,
+{
+    Box::new(ClaimedSocketTcpLeaf { handshake, relay })
+}
+
+#[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
+struct ClaimedSocketTcpLeaf<T, F> {
+    handshake: T,
+    relay: F,
+}
+
+#[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
+impl<'a, T, F> ClaimedTcpOutboundLeaf<'a> for ClaimedSocketTcpLeaf<T, F>
+where
+    T: SocketTcpHandshake + Clone + Send + Sync + 'a,
+    F: Fn() -> Box<dyn PreparedTcpRelayOperation + 'a> + Send + Sync + 'a,
 {
     fn prepare_tcp_connect(
         &self,
@@ -45,9 +64,7 @@ where
         &self,
         _source_dir: Option<&Path>,
     ) -> Result<Box<dyn PreparedTcpRelayOperation + 'a>, EngineError> {
-        Ok(Box::new(SocketTcpRelayOperation {
-            handshake: self.handshake.clone(),
-        }))
+        Ok((self.relay)())
     }
 }
 

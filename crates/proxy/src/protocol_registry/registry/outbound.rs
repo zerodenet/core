@@ -133,8 +133,7 @@ impl<'a> ClaimedOutboundLeaf<'a> {
         &self,
     ) -> Option<
         Box<
-            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation
-                + 'a,
+            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     > {
         let capability = self.udp.packet_path.as_ref()?;

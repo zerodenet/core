@@ -21,7 +21,7 @@ impl PacketPathManager {
     pub(super) async fn ensure_entry(
         &mut self,
         ctx: UdpAdapterContext<'_>,
-        carrier: PacketPathCarrierRequest<'_>,
+        carrier: PacketPathCarrierRequest,
         datagram: UdpDatagramSource,
     ) -> Result<&Entry, EngineError> {
         let candidate = EntryCandidate {

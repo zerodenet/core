@@ -20,6 +20,7 @@ pub(crate) trait ManagedDatagramFlowConnector<T>: Send + Sync {
         &self,
         resume: &T,
         endpoint: OutboundEndpoint,
+        session_id: u64,
     ) -> ManagedDatagramConnectorFlow;
 
     async fn establish(
@@ -45,7 +46,11 @@ pub(crate) trait ManagedDatagramResumeConnector:
     const MISMATCH_STAGE: &'static str;
     const MISMATCH_MESSAGE: &'static str;
 
-    fn connector_flow(&self, endpoint: OutboundEndpoint) -> ManagedDatagramConnectorFlow;
+    fn connector_flow(
+        &self,
+        endpoint: OutboundEndpoint,
+        session_id: u64,
+    ) -> ManagedDatagramConnectorFlow;
 
     async fn open_connection(
         self,
@@ -91,8 +96,9 @@ where
         &self,
         resume: &T,
         endpoint: OutboundEndpoint,
+        session_id: u64,
     ) -> ManagedDatagramConnectorFlow {
-        resume.connector_flow(endpoint)
+        resume.connector_flow(endpoint, session_id)
     }
 
     async fn establish(

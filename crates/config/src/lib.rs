@@ -7,6 +7,7 @@ mod validate;
 
 pub use auth::AuthRequirement;
 pub use error::ConfigError;
+pub use mieru_config::{MieruTrafficPatternConfig, MieruTransportOptions};
 pub use model::{
     ApiConfig, ClientTlsConfig, ControlApiConfig, ControlGrpcConfig, ControlGrpcTlsConfig,
     DnsAddressFamilyPolicy, DnsAnswerConfig, DnsCacheConfig, DnsConfig, DnsDispatchRuleConfig,
@@ -15,8 +16,8 @@ pub use model::{
     H2Config, HookConfig, HttpUpgradeConfig, Hysteria2CongestionConfig, Hysteria2MasqueradeConfig,
     Hysteria2MasqueradeResponseConfig, Hysteria2QuicConfig, Hysteria2TransportConfig,
     Hysteria2UserConfig, InboundConfig, InboundProtocolConfig, InboundRealityConfig, ListenConfig,
-    LoadBalanceStrategy, LogConfig, LogFileConfig, LogRateLimit, MieruUserConfig, ModeConfig,
-    NetworkOptionsConfig, OutboundConfig, OutboundGroupConfig, OutboundGroupKind,
+    LoadBalanceStrategy, LogConfig, LogFileConfig, LogRateLimit, MieruTransport, MieruUserConfig,
+    ModeConfig, NetworkOptionsConfig, OutboundConfig, OutboundGroupConfig, OutboundGroupKind,
     OutboundProtocolConfig, OutboundRuntimeKind, QuicConfig, RealityConfig, RouteActionConfig,
     RouteConfig, RouteRuleConfig, RouteRuleSetConfig, RuleConditionConfig, RuleSetConfig,
     RuleSetFormatConfig, RuleSetSourceType, RuntimeConfig, RuntimeOptionsConfig,

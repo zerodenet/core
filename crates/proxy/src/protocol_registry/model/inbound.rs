@@ -7,6 +7,8 @@
 /// into runtime dispatch.
 pub(crate) enum BoundInbound {
     Tcp(zero_platform_tokio::TokioListener),
+    #[cfg(feature = "datagram-route-runtime")]
+    Datagram(std::sync::Arc<tokio::net::UdpSocket>),
     #[cfg(feature = "inbound-listener-group-runtime")]
     Group(Vec<BoundInbound>),
     #[cfg(feature = "managed-datagram-runtime")]
@@ -23,6 +25,8 @@ impl BoundInbound {
     pub(crate) fn into_tcp(self) -> zero_platform_tokio::TokioListener {
         match self {
             Self::Tcp(listener) => listener,
+            #[cfg(feature = "datagram-route-runtime")]
+            Self::Datagram(_) => panic!("datagram listener requires peer execution"),
             #[cfg(feature = "managed-datagram-runtime")]
             Self::TcpAndDatagram(..) => panic!("combined listener requires datagram execution"),
             #[cfg(feature = "inbound-listener-group-runtime")]

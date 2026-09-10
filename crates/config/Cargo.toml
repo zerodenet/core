@@ -8,6 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+mieru-config = { path = "../../protocols/mieru/config" }
 hysteria2 = { path = "../../protocols/hysteria2", default-features = false, features = ["validation"] }
 ipnet.workspace = true
 maxminddb.workspace = true

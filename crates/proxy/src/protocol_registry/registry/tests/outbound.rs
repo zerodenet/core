@@ -140,7 +140,6 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
     use zero_engine::EngineError;
     use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
-    use crate::protocol_registry::TcpRuntimeServices;
     use crate::protocol_registry::{
         ClaimedTcpOutboundLeaf, ClaimedUdpFlowLeaf, InboundListenerCapability, OutboundLeafClaim,
         OutboundLeafInput, ProtocolSupportCapability, TcpOutboundCapability, UdpFlowCapability,
@@ -195,7 +194,6 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
     impl PreparedTcpRelayOperation for FakeRelayOperation {
         fn execute<'a>(
             self: Box<Self>,
-            _services: TcpRuntimeServices,
             stream: TcpRelayStream,
             _session: &'a Session,
         ) -> Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>
@@ -540,7 +538,7 @@ fn registry_executes_adapter_claimed_udp_packet_path_operations() {
     }
 
     impl<'a> ClaimedUdpPacketPathLeaf<'a> for FakeClaimedUdpPacketPathLeaf {
-        fn prepare_udp_packet_path(&self) -> Option<Box<dyn PreparedUdpPacketPathOperation + 'a>> {
+        fn prepare_udp_packet_path(&self) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
             Some(Box::new(FakeUdpPacketPathOperation))
         }
     }

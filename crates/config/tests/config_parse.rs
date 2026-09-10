@@ -2522,7 +2522,7 @@ fn parses_mieru_username_defaults_from_password() {
         _ => panic!("expected mieru outbound"),
     }
     match &config.inbounds[0].protocol {
-        InboundProtocolConfig::Mieru { users } => {
+        InboundProtocolConfig::Mieru { users, .. } => {
             assert_eq!(users[0].username, "inbound-secret");
             assert_eq!(users[0].password, "inbound-secret");
             assert_eq!(users[0].principal_key.as_deref(), Some("subscription:42"));

@@ -12,7 +12,45 @@ use crate::runtime::udp_flow::packet_path::{
 pub(crate) type PacketPathCarrierFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Arc<dyn PacketPathCarrier>, EngineError>> + Send + 'a>>;
 
-pub(crate) trait PreparedUdpPacketPathOperation: Send {
+#[derive(Clone)]
+pub(crate) struct PreparedDatagramRelayCarrier {
+    descriptor: PacketPathCarrierDescriptor,
+    operation: Arc<dyn PreparedUdpPacketPathOperation>,
+}
+
+impl PreparedDatagramRelayCarrier {
+    pub(crate) fn new(operation: Box<dyn PreparedUdpPacketPathOperation>) -> Option<Self> {
+        let descriptor = operation.carrier_descriptor()?;
+        Some(Self {
+            descriptor,
+            operation: Arc::from(operation),
+        })
+    }
+
+    pub(crate) fn identity(&self) -> &str {
+        &self.descriptor.cache_key
+    }
+
+    pub(crate) async fn build(
+        &self,
+        services: UdpNetworkServices,
+    ) -> Result<Arc<dyn PacketPathCarrier>, EngineError> {
+        self.operation.build_carrier(services).await
+    }
+}
+
+impl std::fmt::Debug for PreparedDatagramRelayCarrier {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PreparedDatagramRelayCarrier")
+            .field("identity", &self.descriptor.cache_key)
+            .field("server", &self.descriptor.server)
+            .field("port", &self.descriptor.port)
+            .finish_non_exhaustive()
+    }
+}
+
+pub(crate) trait PreparedUdpPacketPathOperation: Send + Sync + 'static {
     fn carrier_descriptor(&self) -> Option<PacketPathCarrierDescriptor> {
         None
     }
@@ -21,13 +59,7 @@ pub(crate) trait PreparedUdpPacketPathOperation: Send {
         None
     }
 
-    fn build_carrier<'a>(
-        self: Box<Self>,
-        _services: UdpNetworkServices,
-    ) -> PacketPathCarrierFuture<'a>
-    where
-        Self: 'a,
-    {
+    fn build_carrier<'a>(&'a self, _services: UdpNetworkServices) -> PacketPathCarrierFuture<'a> {
         Box::pin(async {
             Err(EngineError::Io(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,

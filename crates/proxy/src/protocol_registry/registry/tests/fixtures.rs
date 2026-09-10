@@ -99,7 +99,11 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
         grpc: None,
     });
     #[cfg(feature = "mieru")]
-    configs.push(InboundProtocolConfig::Mieru { users: Vec::new() });
+    configs.push(InboundProtocolConfig::Mieru {
+        options: Default::default(),
+        users: Vec::new(),
+        transport: Default::default(),
+    });
 
     configs
 }
@@ -267,6 +271,8 @@ pub(super) fn compiled_in_outbound_leaves(
         config_with_outbound(
             "mieru",
             OutboundProtocolConfig::Mieru {
+                options: Default::default(),
+                transport: Default::default(),
                 server: "127.0.0.1".to_owned(),
                 port: 8964,
                 username: Some("password".to_owned()),
