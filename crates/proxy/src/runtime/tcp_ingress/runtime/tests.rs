@@ -6,6 +6,92 @@ use zero_engine::RouteDecision;
 use super::TcpIngressRuntime;
 
 #[tokio::test]
+async fn active_tcp_relay_is_not_closed_at_absolute_idle_timeout() {
+    use std::time::Duration;
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind upstream");
+    let upstream_addr = upstream.local_addr().expect("upstream address");
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream.accept().await.expect("accept upstream");
+        let mut buffer = [0_u8; 1];
+        loop {
+            let read = stream.read(&mut buffer).await.expect("read upstream");
+            if read == 0 {
+                return;
+            }
+            stream
+                .write_all(&buffer[..read])
+                .await
+                .expect("echo upstream");
+        }
+    });
+    let config = RuntimeConfig::parse(
+        r#"{
+            "inbounds": [{
+                "tag": "test-inbound",
+                "listen": { "address": "127.0.0.1", "port": 12345 },
+                "protocol": { "type": "mixed" },
+                "idle_timeout_secs": 1
+            }],
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse TCP idle-timeout config");
+    let proxy = crate::runtime::Proxy::new(config).expect("build proxy");
+    let engine = proxy.engine().clone();
+    let runtime = TcpIngressRuntime::new(
+        proxy.tcp_runtime_services(),
+        "test-inbound".to_owned(),
+        None,
+    );
+    let session = Session::new(
+        1,
+        Address::Ipv4([127, 0, 0, 1]),
+        upstream_addr.port(),
+        Network::Tcp,
+        ProtocolType::UNKNOWN,
+    );
+    let (proxy_side, mut app_side) = tokio::io::duplex(64);
+    let serve_task = tokio::spawn(async move {
+        let protocol = crate::runtime::tcp_ingress::NoClientResponseStreamProtocol::new();
+        runtime.serve(session, proxy_side, &protocol).await
+    });
+
+    for byte in 0_u8..5 {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        app_side.write_all(&[byte]).await.expect("send activity");
+        let mut echoed = [0_u8; 1];
+        app_side
+            .read_exact(&mut echoed)
+            .await
+            .expect("receive activity");
+        assert_eq!(echoed[0], byte);
+    }
+    assert!(
+        !serve_task.is_finished(),
+        "regular traffic must refresh the one-second idle deadline"
+    );
+
+    tokio::time::timeout(Duration::from_secs(2), serve_task)
+        .await
+        .expect("relay should close after genuine inactivity")
+        .expect("serve task should join")
+        .expect("idle close should be graceful");
+    let completed = engine.completed_sessions();
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].close_reason.as_deref(), Some("idle_timeout"));
+
+    tokio::time::timeout(Duration::from_secs(1), upstream_task)
+        .await
+        .expect("upstream should observe relay close")
+        .expect("upstream task should join");
+}
+
+#[tokio::test]
 async fn unmatched_domain_is_rechecked_against_resolved_ip_rules() {
     let config = RuntimeConfig::parse(
         r#"{

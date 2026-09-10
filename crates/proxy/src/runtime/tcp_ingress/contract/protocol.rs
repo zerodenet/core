@@ -3,6 +3,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use zero_engine::EngineError;
 
 use super::accounting::{record_tcp_download, record_tcp_upload};
+use super::activity::{TcpActivityStream, TcpRelayActivity};
 use crate::protocol_registry::TcpRuntimeServices;
 use crate::runtime::principal_rate_limit::TrafficRateLimiters;
 use crate::transport::{relay_bidirectional_metered_throttled, TcpRelayStream};
@@ -27,9 +28,12 @@ pub(crate) trait InboundProtocol: Send + Sync {
         services: TcpRuntimeServices,
         session_id: u64,
         rate_limiters: TrafficRateLimiters,
+        activity: TcpRelayActivity,
     ) -> Result<(), EngineError> {
         let upload_services = services.clone();
         let download_services = services;
+        let client = TcpActivityStream::new(client, activity.clone());
+        let upstream = TcpActivityStream::new(upstream, activity);
         let result = relay_bidirectional_metered_throttled(
             client,
             upstream,

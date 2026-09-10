@@ -4,6 +4,7 @@
 //! client-response wrappers do not regrow into one implementation bucket.
 
 mod accounting;
+mod activity;
 #[cfg(any(
     feature = "managed-stream-runtime",
     feature = "upstream-association-runtime",
@@ -15,6 +16,7 @@ mod no_response;
 mod protocol;
 
 pub(crate) use accounting::{record_tcp_download, record_tcp_upload};
+pub(crate) use activity::TcpRelayActivity;
 #[cfg(any(
     feature = "managed-stream-runtime",
     feature = "upstream-association-runtime",

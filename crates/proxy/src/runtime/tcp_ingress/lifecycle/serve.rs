@@ -27,7 +27,7 @@ use zero_traits::AsyncSocket;
     feature = "managed-stream-runtime"
 ))]
 use super::super::contract::ClientResponseInboundProtocol;
-use super::super::contract::InboundProtocol;
+use super::super::contract::{InboundProtocol, TcpRelayActivity};
 use super::super::runtime::TcpIngressRuntime;
 use super::result::{
     finish_blocked, finish_relay_failure, finish_relay_idle_timeout, finish_relay_success,
@@ -141,17 +141,18 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
                 return Err(error);
             }
 
+            let idle_timeout = runtime.idle_timeout();
+            let activity = TcpRelayActivity::new();
             let relay_result = tokio::select! {
-                result = tokio::time::timeout(
-                    runtime.idle_timeout(),
-                    protocol.relay(
-                        client,
-                        result.upstream,
-                        runtime.runtime_services(),
-                        session.id,
-                        traffic_rate_limiters,
-                    ),
-                ) => result,
+                result = protocol.relay(
+                    client,
+                    result.upstream,
+                    runtime.runtime_services(),
+                    session.id,
+                    traffic_rate_limiters,
+                    activity.clone(),
+                ) => Some(result),
+                _ = activity.wait_for_idle(idle_timeout) => None,
                 _ = &mut cancel_rx => {
                     let reason = handle.cancellation_reason().unwrap_or_else(|| "cancelled".to_owned());
                     let _ = handle.finish_with_reason(SessionOutcome::Cancelled, Some(reason));
@@ -160,7 +161,7 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
             };
 
             match relay_result {
-                Ok(Ok(())) => {
+                Some(Ok(())) => {
                     if let Some(record) =
                         finish_relay_success(&mut handle, outcome, upstream_endpoint.as_ref())
                     {
@@ -172,7 +173,7 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
                     }
                     Ok(())
                 }
-                Ok(Err(error)) => {
+                Some(Err(error)) => {
                     if let Some(record) = finish_relay_failure(
                         &mut handle,
                         &session,
@@ -188,7 +189,7 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
                     }
                     Err(error)
                 }
-                Err(_elapsed) => {
+                None => {
                     if let Some(record) =
                         finish_relay_idle_timeout(&mut handle, outcome, upstream_endpoint.as_ref())
                     {

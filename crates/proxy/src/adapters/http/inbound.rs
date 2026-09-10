@@ -145,92 +145,84 @@ impl MessageInboundProtocol for HttpConnectInboundHandler {
         request: &Self::Request,
         context: MessageRelayContext,
     ) -> Result<MessageRelayOutcome, EngineError> {
-        tokio::time::timeout(context.idle_timeout(), async {
-            if request.expect_continue() {
+        if request.expect_continue() {
+            throttle_and_write(&mut upstream, request.head(), context.upload_limiter()).await?;
+            context.record_upload(request.head().len() as u64);
+            self.http_inbound.send_continue_response(client).await?;
+        }
+
+        let coalesced_body_length = match request.body() {
+            http::HttpBodyKind::ContentLength(length)
+                if !request.expect_continue() && length <= REQUEST_COALESCE_LIMIT =>
+            {
+                Some(length)
+            }
+            _ => None,
+        };
+        let request_body = if let Some(length) = coalesced_body_length {
+            let mut throttled = RateLimitedSocket::new(client, context.upload_limiter(), &context);
+            let body = read_fixed_body(&mut throttled, length).await?;
+            if let Some(limiter) = context.upload_limiter() {
+                limiter.throttle(request.head().len()).await;
+            }
+            let mut message = Vec::with_capacity(request.head().len() + body.len());
+            message.extend_from_slice(request.head());
+            message.extend_from_slice(&body);
+            zero_traits::AsyncSocket::write_all(&mut upstream, &message).await?;
+            context.record_upload(request.head().len() as u64);
+            http::HttpTransferCount {
+                read: body.len() as u64,
+                written: body.len() as u64,
+            }
+        } else {
+            if !request.expect_continue() {
                 throttle_and_write(&mut upstream, request.head(), context.upload_limiter()).await?;
                 context.record_upload(request.head().len() as u64);
-                self.http_inbound.send_continue_response(client).await?;
             }
+            let mut throttled = RateLimitedSocket::new(client, context.upload_limiter(), &context);
+            http::relay_http_body(&mut throttled, &mut upstream, request.body()).await?
+        };
+        context.record_upload_io(request_body.read, request_body.written);
 
-            let coalesced_body_length = match request.body() {
-                http::HttpBodyKind::ContentLength(length)
-                    if !request.expect_continue() && length <= REQUEST_COALESCE_LIMIT =>
-                {
-                    Some(length)
-                }
-                _ => None,
-            };
-            let request_body = if let Some(length) = coalesced_body_length {
-                let mut throttled = RateLimitedSocket::new(client, context.upload_limiter());
-                let body = read_fixed_body(&mut throttled, length).await?;
-                if let Some(limiter) = context.upload_limiter() {
-                    limiter.throttle(request.head().len()).await;
-                }
-                let mut message = Vec::with_capacity(request.head().len() + body.len());
-                message.extend_from_slice(request.head());
-                message.extend_from_slice(&body);
-                zero_traits::AsyncSocket::write_all(&mut upstream, &message).await?;
-                context.record_upload(request.head().len() as u64);
-                http::HttpTransferCount {
-                    read: body.len() as u64,
-                    written: body.len() as u64,
-                }
-            } else {
-                if !request.expect_continue() {
-                    throttle_and_write(&mut upstream, request.head(), context.upload_limiter())
-                        .await?;
-                    context.record_upload(request.head().len() as u64);
-                }
-                let mut throttled = RateLimitedSocket::new(client, context.upload_limiter());
-                http::relay_http_body(&mut throttled, &mut upstream, request.body()).await?
-            };
-            context.record_upload_io(request_body.read, request_body.written);
-
-            loop {
-                let response = self
-                    .http_inbound
+        loop {
+            let response = {
+                let mut active_upstream = RateLimitedSocket::new(&mut upstream, None, &context);
+                self.http_inbound
                     .accept_response(
-                        &mut upstream,
+                        &mut active_upstream,
                         request.method(),
                         request.upgrade_requested(),
                         request.close_after_response(),
                         request.supports_chunked_response(),
                     )
-                    .await?;
-                throttle_and_write(client, response.head(), context.download_limiter()).await?;
-                context.record_download(response.head().len() as u64);
+                    .await?
+            };
+            throttle_and_write(client, response.head(), context.download_limiter()).await?;
+            context.record_download(response.head().len() as u64);
 
-                if response.upgrade_accepted() {
-                    context.relay_bidirectional(client, upstream).await?;
-                    return Ok(MessageRelayOutcome::Upgraded);
-                }
-
-                let response_body = {
-                    let mut throttled =
-                        RateLimitedSocket::new(&mut upstream, context.download_limiter());
-                    if response.chunk_close_delimited() {
-                        http::relay_close_delimited_as_chunked(&mut throttled, client).await?
-                    } else {
-                        http::relay_http_body(&mut throttled, client, response.body()).await?
-                    }
-                };
-                context.record_download_io(response_body.read, response_body.written);
-                if !response.informational() {
-                    return Ok(if response.close_after_response() {
-                        MessageRelayOutcome::Close
-                    } else {
-                        MessageRelayOutcome::Continue
-                    });
-                }
+            if response.upgrade_accepted() {
+                context.relay_bidirectional(client, upstream).await?;
+                return Ok(MessageRelayOutcome::Upgraded);
             }
-        })
-        .await
-        .map_err(|_| {
-            EngineError::Io(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "HTTP forward transaction idle timeout",
-            ))
-        })?
+
+            let response_body = {
+                let mut throttled =
+                    RateLimitedSocket::new(&mut upstream, context.download_limiter(), &context);
+                if response.chunk_close_delimited() {
+                    http::relay_close_delimited_as_chunked(&mut throttled, client).await?
+                } else {
+                    http::relay_http_body(&mut throttled, client, response.body()).await?
+                }
+            };
+            context.record_download_io(response_body.read, response_body.written);
+            if !response.informational() {
+                return Ok(if response.close_after_response() {
+                    MessageRelayOutcome::Close
+                } else {
+                    MessageRelayOutcome::Continue
+                });
+            }
+        }
     }
 }
 
@@ -272,11 +264,20 @@ where
 struct RateLimitedSocket<'a, S> {
     inner: &'a mut S,
     limiter: Option<crate::transport::SharedRateLimiter>,
+    context: &'a MessageRelayContext,
 }
 
 impl<'a, S> RateLimitedSocket<'a, S> {
-    fn new(inner: &'a mut S, limiter: Option<crate::transport::SharedRateLimiter>) -> Self {
-        Self { inner, limiter }
+    fn new(
+        inner: &'a mut S,
+        limiter: Option<crate::transport::SharedRateLimiter>,
+        context: &'a MessageRelayContext,
+    ) -> Self {
+        Self {
+            inner,
+            limiter,
+            context,
+        }
     }
 }
 
@@ -291,11 +292,18 @@ where
         if let Some(limiter) = self.limiter.as_ref() {
             limiter.throttle(read).await;
         }
+        if read != 0 {
+            self.context.record_activity();
+        }
         Ok(read)
     }
 
     async fn write_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-        zero_traits::AsyncSocket::write_all(self.inner, buffer).await
+        zero_traits::AsyncSocket::write_all(self.inner, buffer).await?;
+        if !buffer.is_empty() {
+            self.context.record_activity();
+        }
+        Ok(())
     }
 
     async fn shutdown(&mut self) -> Result<(), Self::Error> {

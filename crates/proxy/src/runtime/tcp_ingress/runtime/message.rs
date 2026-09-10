@@ -2,9 +2,12 @@ use std::time::Instant;
 
 use zero_engine::{EngineError, SessionOutcome};
 
-use super::super::contract::{MessageInboundProtocol, MessageRelayContext, MessageRelayOutcome};
+use super::super::contract::{
+    MessageInboundProtocol, MessageRelayContext, MessageRelayOutcome, TcpRelayActivity,
+};
 use super::super::lifecycle::result::{
-    finish_blocked, finish_relay_failure, finish_relay_success, finish_route_or_establish_failure,
+    finish_blocked, finish_relay_failure, finish_relay_idle_timeout, finish_relay_success,
+    finish_route_or_establish_failure,
 };
 use super::TcpIngressRuntime;
 use crate::runtime::passive_relay_health::classify_relay_outcome;
@@ -88,14 +91,17 @@ impl TcpIngressRuntime {
         };
         let upstream_endpoint = result.upstream_endpoint;
         let passive_relay_selections = result.passive_relay_selections;
+        let idle_timeout = self.idle_timeout();
+        let activity = TcpRelayActivity::new();
         let relay_context = MessageRelayContext::new(
             self.runtime_services(),
             session.id,
             rate_limiters,
-            self.idle_timeout(),
+            activity.clone(),
         );
         let relay = tokio::select! {
-            result = protocol.relay(client, result.upstream, &request, relay_context) => result,
+            result = protocol.relay(client, result.upstream, &request, relay_context) => Some(result),
+            _ = activity.wait_for_idle(idle_timeout) => None,
             _ = &mut cancel_rx => {
                 let reason = handle.cancellation_reason().unwrap_or_else(|| "cancelled".to_owned());
                 let _ = handle.finish_with_reason(SessionOutcome::Cancelled, Some(reason));
@@ -104,7 +110,7 @@ impl TcpIngressRuntime {
         };
 
         match relay {
-            Ok(relay_outcome) => {
+            Some(Ok(relay_outcome)) => {
                 if let Some(record) =
                     finish_relay_success(&mut handle, outcome, upstream_endpoint.as_ref())
                 {
@@ -116,7 +122,7 @@ impl TcpIngressRuntime {
                 }
                 Ok(relay_outcome)
             }
-            Err(error) => {
+            Some(Err(error)) => {
                 if let Some(record) = finish_relay_failure(
                     &mut handle,
                     &session,
@@ -131,6 +137,18 @@ impl TcpIngressRuntime {
                     );
                 }
                 Err(error)
+            }
+            None => {
+                if let Some(record) =
+                    finish_relay_idle_timeout(&mut handle, outcome, upstream_endpoint.as_ref())
+                {
+                    self.record_passive_relay_outcome(
+                        &passive_relay_selections,
+                        &session,
+                        classify_relay_outcome(&record, None),
+                    );
+                }
+                Ok(MessageRelayOutcome::Close)
             }
         }
     }
