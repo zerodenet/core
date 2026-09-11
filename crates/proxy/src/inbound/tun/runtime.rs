@@ -273,6 +273,11 @@ async fn accept_tcp(
                     )));
                 };
                 let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
+                tracing::debug!(
+                    source = ?source,
+                    destination = ?destination,
+                    "TUN TCP connection accepted from stack"
+                );
                 if dns_hijack && destination.port == 53 {
                     dns_hijacked_queries.fetch_add(1, Ordering::Relaxed);
                     if dns_connections.len() >= MAX_CONCURRENT_DNS_CONNECTIONS {
@@ -303,7 +308,20 @@ async fn accept_tcp(
                 );
                 connections.spawn(async move {
                     let (session, stream) = sniff_tcp_target(session, stream).await;
-                    runtime.serve(session, stream, &TunProtocol).await
+                    tracing::debug!(
+                        source = %source_addr,
+                        target = ?session.target,
+                        port = session.port,
+                        "TUN TCP sniff completed"
+                    );
+                    let result = runtime.serve(session, stream, &TunProtocol).await;
+                    tracing::debug!(
+                        source = %source_addr,
+                        destination = ?destination,
+                        result = ?result,
+                        "TUN TCP connection completed"
+                    );
+                    result
                 });
             }
             Some(completed) = connections.join_next(), if !connections.is_empty() => {

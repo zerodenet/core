@@ -32,6 +32,7 @@ fn run_control() {
     let stopped = directory.path().join("stopped.json");
     let mut config: serde_json::Value =
         serde_json::from_str(&config_json(false, free_tcp_port(), None, true, false)).unwrap();
+    config["runtime"]["log"] = serde_json::json!({ "level": "debug" });
     config["runtime"]["dns"] = serde_json::json!({
         "servers": { "local": { "type": "udp", "host": dns.address.ip(), "port": dns.address.port() } },
         "default_server": "local",
