@@ -68,7 +68,16 @@ fn run_control() {
             "unexpected bypass failure: {blocked}"
         );
         eprintln!("HTTP control physical bypass correctly blocked during capture: {blocked}");
-        client::run_suite("tun", || connect_from(tun_source(false), target));
+        let tun_outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client::run_suite("tun", || connect_from(tun_source(false), target));
+        }));
+        if let Err(payload) = tun_outcome {
+            // Preserve the failing request exactly, but let the asynchronous
+            // proxy session and controlled peer publish their terminal error
+            // before the outer recovery tears down the TUN process.
+            std::thread::sleep(Duration::from_millis(500));
+            std::panic::resume_unwind(payload);
+        }
         run_cli(
             binary,
             ["reload", path(&stopped), "--socket", path(&socket)],
