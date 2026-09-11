@@ -191,7 +191,9 @@ jobs:
             Tee-Object -FilePath $log
           $status = $LASTEXITCODE
           if ($status -ne 0) {
-            $tail = (Get-Content -Path $log -Tail 80) -join "`n"
+            $signal = Get-Content -Path $log |
+              Select-String -Pattern 'HTTP control case=|HTTP client case=|HTTP peer case=|panicked|assertion|test result:|error: test failed'
+            $tail = ($signal | Select-Object -Last 24) -join "`n"
             $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error title=Windows controlled HTTP TUN failure::$escaped"
             exit $status
