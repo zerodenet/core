@@ -715,6 +715,7 @@ async fn dispatcher_recovers_unacknowledged_webhook_delivery_from_outbox() {
             allow_insecure: true,
         }],
         outbox_path: Some(outbox_path.display().to_string()),
+        dispatcher: unreserved_dispatcher_config(),
         ..Default::default()
     };
 
@@ -1012,7 +1013,7 @@ async fn dispatcher_spills_backlog_to_disk_and_pages_a_bounded_working_set() {
         dispatcher: EventDispatcherConfig {
             max_in_memory_deliveries: 2,
             replay_batch_size: 16,
-            ..Default::default()
+            ..unreserved_dispatcher_config()
         },
         ..Default::default()
     };
@@ -1230,8 +1231,16 @@ fn webhook_api(
         outbox_path: outbox_path.map(|path| path.display().to_string()),
         dispatcher: EventDispatcherConfig {
             max_in_memory_deliveries,
-            ..Default::default()
+            ..unreserved_dispatcher_config()
         },
+        ..Default::default()
+    }
+}
+
+fn unreserved_dispatcher_config() -> EventDispatcherConfig {
+    EventDispatcherConfig {
+        outbox_min_free_bytes: 0,
+        outbox_min_free_percent: 0,
         ..Default::default()
     }
 }

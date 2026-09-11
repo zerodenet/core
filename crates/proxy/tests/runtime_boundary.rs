@@ -2898,7 +2898,7 @@ fn tcp_ingress_lifecycle_root_stays_facade_only() {
         "pub(crate) async fn serve_inbound<",
         "pub(crate) async fn serve_inbound_with_client_response",
         "pub(crate) fn apply_kernel_rate_limits_from_config",
-        "tokio::time::timeout(",
+        "activity.wait_for_idle(idle_timeout)",
         "fn finish_relay_success(",
     ] {
         assert!(
@@ -2909,7 +2909,7 @@ fn tcp_ingress_lifecycle_root_stays_facade_only() {
     for expected in [
         "pub(crate) async fn serve_inbound<",
         "pub(crate) fn apply_kernel_rate_limits_from_config",
-        "tokio::time::timeout(",
+        "activity.wait_for_idle(idle_timeout)",
         "fn finish_relay_success(",
         "fn finish_route_or_establish_failure(",
     ] {

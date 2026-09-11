@@ -140,6 +140,8 @@ async fn connector_outbox_survives_sustained_delivery_and_restarts_without_loss(
         dispatcher: EventDispatcherConfig {
             max_in_memory_deliveries: 256,
             replay_batch_size: 512,
+            outbox_min_free_bytes: 0,
+            outbox_min_free_percent: 0,
             ..Default::default()
         },
         ..Default::default()

@@ -211,7 +211,7 @@ async fn outbox_only_workset_still_delivers_fact_events() {
         outbox_path: Some(outbox_path.display().to_string()),
         dispatcher: EventDispatcherConfig {
             max_in_memory_deliveries: 0,
-            ..Default::default()
+            ..unreserved_dispatcher_config()
         },
         ..Default::default()
     };
@@ -272,7 +272,7 @@ async fn outbox_only_workset_makes_progress_for_every_sink() {
             outbox_path: Some(outbox_path.display().to_string()),
             dispatcher: EventDispatcherConfig {
                 max_in_memory_deliveries: 0,
-                ..Default::default()
+                ..unreserved_dispatcher_config()
             },
             ..Default::default()
         },
@@ -648,6 +648,7 @@ async fn persistent_outbox_rejects_a_second_live_owner_and_recovers_after_releas
             source_id: Some("exclusive-source".to_owned()),
         }],
         outbox_path: Some(outbox_path.display().to_string()),
+        dispatcher: unreserved_dispatcher_config(),
         ..Default::default()
     };
     let source = StaticEventSource {
@@ -706,6 +707,7 @@ async fn dispatcher_compacts_a_large_outbox_and_restarts_without_redelivery() {
             source_id: Some("compact-source".to_owned()),
         }],
         outbox_path: Some(outbox_path.display().to_string()),
+        dispatcher: unreserved_dispatcher_config(),
         ..Default::default()
     };
     let first = spawn_event_dispatcher(
@@ -810,4 +812,12 @@ fn cleanup_persistent_path(path: &std::path::Path) {
     let mut lock_path = path.as_os_str().to_os_string();
     lock_path.push(".zero.lock");
     let _ = fs::remove_file(std::path::PathBuf::from(lock_path));
+}
+
+fn unreserved_dispatcher_config() -> EventDispatcherConfig {
+    EventDispatcherConfig {
+        outbox_min_free_bytes: 0,
+        outbox_min_free_percent: 0,
+        ..Default::default()
+    }
 }

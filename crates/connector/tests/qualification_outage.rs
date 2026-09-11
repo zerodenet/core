@@ -117,6 +117,8 @@ async fn connector_backlog_recovers_after_receiver_outage_without_losing_events(
         dispatcher: EventDispatcherConfig {
             max_in_memory_deliveries: 64,
             replay_batch_size: 256,
+            outbox_min_free_bytes: 0,
+            outbox_min_free_percent: 0,
             ..Default::default()
         },
         ..Default::default()
