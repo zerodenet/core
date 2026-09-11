@@ -207,8 +207,8 @@ jobs:
             $status = $LASTEXITCODE
             if ($status -ne 0) {
               $signal = Get-Content -Path $log |
-                Select-String -Pattern 'session accepted|session finished|session failed|user TCP retransmission failed|discarding stale user TCP accept entry|TCP control|TUN TCP connection|TUN TCP sniff|TUN .*loop exited|TUN runtime|HTTP control case=|HTTP client case=|HTTP peer case=|panicked|assertion|test result:|error: test failed'
-              $tail = ($signal | Select-Object -Last 12) -join "`n"
+                Select-String -Pattern 'session accepted|session finished|session failed|user TCP retransmission failed|TCP control|TUN TCP connection|HTTP control case=|HTTP client case=|HTTP peer case=|panicked|assertion|test result:|error: test failed'
+              $tail = ($signal | Select-Object -Last 10) -join "`n"
               $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
               Write-Output "::error title=Windows controlled HTTP TUN failure attempt ${attempt}::$escaped"
               exit $status

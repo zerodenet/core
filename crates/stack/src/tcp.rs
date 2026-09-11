@@ -35,6 +35,8 @@ use zero_traits::{SocketAddress, TcpStack};
 
 use crate::packet::{self, tcp_flags, Endpoint, ParsedTcp};
 
+#[cfg(test)]
+mod cancellation_tests;
 mod control;
 mod receive;
 mod retransmission;
@@ -498,6 +500,11 @@ struct ReadyConn {
     dst: SocketAddress,
 }
 
+struct TcpAcceptQueue {
+    receiver: mpsc::Receiver<ReadyConn>,
+    pending: Option<ReadyConn>,
+}
+
 // ── UserTcpStack ──────────────────────────────────────────────────────
 
 /// User-space TCP termination stack.
@@ -509,7 +516,7 @@ struct ReadyConn {
 pub struct UserTcpStack {
     connections: Arc<Mutex<HashMap<ConnKey, Conn>>>,
     accept_tx: mpsc::Sender<ReadyConn>,
-    accept_rx: Mutex<mpsc::Receiver<ReadyConn>>,
+    accept_queue: Mutex<TcpAcceptQueue>,
     outbound: mpsc::Sender<Vec<u8>>,
     control_packets: TcpControlPackets,
     mss: u16,
@@ -522,7 +529,10 @@ impl UserTcpStack {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
             accept_tx: tx,
-            accept_rx: Mutex::new(rx),
+            accept_queue: Mutex::new(TcpAcceptQueue {
+                receiver: rx,
+                pending: None,
+            }),
             outbound,
             control_packets,
             mss,
@@ -847,26 +857,35 @@ impl TcpStack for UserTcpStack {
     }
 
     async fn accept(&self) -> Option<(Self::Connection, SocketAddress, SocketAddress)> {
-        let mut rx = self.accept_rx.lock().await;
+        let mut queue = self.accept_queue.lock().await;
         loop {
-            let ready = rx.recv().await?;
-            let is_current = self
-                .connections
-                .lock()
-                .await
-                .get(&ready.key)
-                .is_some_and(|conn| {
-                    conn.id == ready.id
-                        && matches!(conn.state, TcpState::Established | TcpState::CloseWait)
-                });
+            if queue.pending.is_none() {
+                queue.pending = queue.receiver.recv().await;
+            }
+            let (key, connection_id) = {
+                let ready = queue.pending.as_ref()?;
+                (ready.key, ready.id)
+            };
+            let is_current = self.connections.lock().await.get(&key).is_some_and(|conn| {
+                conn.id == connection_id
+                    && matches!(conn.state, TcpState::Established | TcpState::CloseWait)
+            });
             if !is_current {
+                queue.pending.take();
                 tracing::debug!(
-                    key = ?ready.key,
-                    connection_id = ready.id,
+                    ?key,
+                    connection_id,
                     "discarding stale user TCP accept entry"
                 );
                 continue;
             }
+            // No await may occur between taking the connection and returning it.
+            // Keeping the dequeued value in `queue.pending` across the async
+            // validation above makes this accept operation cancellation-safe.
+            let ready = queue
+                .pending
+                .take()
+                .expect("validated TCP accept entry is pending");
             tracing::trace!(
                 source = ?ready.src,
                 destination = ?ready.dst,
