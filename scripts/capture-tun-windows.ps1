@@ -33,8 +33,8 @@ if ($Mode -eq 'Start') {
     # Prefer the end of the capture because a failed test exits immediately after
     # its unexpected reset, while earlier deliberate early-closes are expected.
     $ResetEvidence = @(
-        Select-String -Path $TextPath -Pattern '8080.*Flags \[R|Flags \[R.*8080' -Context 2,0 |
-            Select-Object -Last 24 | ForEach-Object { $_.ToString() }
+        Select-String -Path $TextPath -Pattern '8080.*Flags \[R|Flags \[R.*8080' |
+            Select-Object -Last 16 | ForEach-Object { $_.Line.Trim() }
     )
     $ResetEvidence | ForEach-Object { Write-Output $_ }
     if ($env:GITHUB_ACTIONS -eq 'true' -and $ResetEvidence.Count -gt 0) {
