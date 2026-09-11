@@ -30,6 +30,16 @@ if ($Mode -eq 'Start') {
     pktmon etl2txt $CapturePath --out $TextPath --verbose 3
     if ($LASTEXITCODE -ne 0) { throw 'Cannot format TUN packet capture' }
     # Keep reset provenance visible in job logs; the complete capture is an artifact.
-    Select-String -Path $TextPath -Pattern 'RST|Reset|Drop' -Context 2,2 |
-        Select-Object -First 80 | ForEach-Object { $_.ToString() }
+    # Prefer the end of the capture because a failed test exits immediately after
+    # its unexpected reset, while earlier deliberate early-closes are expected.
+    $ResetEvidence = @(
+        Select-String -Path $TextPath -Pattern 'RST|Reset|Drop' -Context 2,2 |
+            Select-Object -Last 80 | ForEach-Object { $_.ToString() }
+    )
+    $ResetEvidence | ForEach-Object { Write-Output $_ }
+    if ($env:GITHUB_ACTIONS -eq 'true' -and $ResetEvidence.Count -gt 0) {
+        $Tail = ($ResetEvidence | Select-Object -Last 16) -join "`n"
+        $Escaped = $Tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+        Write-Output "::notice title=Windows TUN packet reset evidence::$Escaped"
+    }
 }

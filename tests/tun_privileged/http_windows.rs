@@ -15,10 +15,9 @@ fn run_control() {
     probe.connect("1.1.1.1:53").unwrap();
     let physical = probe.local_addr().unwrap().ip();
     assert!(physical.is_ipv4() && !physical.is_loopback());
-    // The runner is shared with setup helpers and diagnostics. Do not assume
-    // the conventional HTTP-alt port is free; an ephemeral listener keeps the
-    // controlled peer independent of the runner image and resident services.
-    let mut peer = peer::Peer::start(SocketAddr::new(physical, 0));
+    // Keep the peer on the port selected by capture-tun-windows.ps1 so a
+    // failing inner flow can be correlated with its physical five-tuple.
+    let mut peer = peer::Peer::start(SocketAddr::new(physical, 8080));
     let physical_target = peer.address;
     client::run_suite("direct-before", || connect_from(physical, physical_target));
 
