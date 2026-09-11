@@ -184,7 +184,18 @@ jobs:
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
       - name: Compare controlled HTTP direct and TUN connections
         if: always() && !cancelled() && steps.capture.outcome == 'success'
-        run: cargo test --test tun_privileged_e2e http_control::windows::privileged_windows_http_direct_and_tun_control -- --ignored --exact --nocapture
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "windows-http-control.log"
+          & cargo test --test tun_privileged_e2e http_control::windows::privileged_windows_http_direct_and_tun_control -- --ignored --exact --nocapture 2>&1 |
+            Tee-Object -FilePath $log
+          $status = $LASTEXITCODE
+          if ($status -ne 0) {
+            $tail = (Get-Content -Path $log -Tail 80) -join "`n"
+            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows controlled HTTP TUN failure::$escaped"
+            exit $status
+          }
       - name: Run direct UDP self-capture E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH and open.bigmodel.cn multi-A fallback E2E
