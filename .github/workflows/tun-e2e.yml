@@ -199,17 +199,20 @@ jobs:
         if: always() && !cancelled() && steps.capture.outcome == 'success'
         shell: pwsh
         run: |
-          $log = Join-Path $env:RUNNER_TEMP "windows-http-control.log"
-          & cargo test --test tun_privileged_e2e http_control::windows::privileged_windows_http_direct_and_tun_control -- --ignored --exact --nocapture 2>&1 |
-            Tee-Object -FilePath $log
-          $status = $LASTEXITCODE
-          if ($status -ne 0) {
-            $signal = Get-Content -Path $log |
-              Select-String -Pattern 'session failed|user TCP retransmission failed|TCP control|HTTP control case=|HTTP client case=|HTTP peer case=|panicked|assertion|test result:|error: test failed'
-            $tail = ($signal | Select-Object -Last 16) -join "`n"
-            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-            Write-Output "::error title=Windows controlled HTTP TUN failure::$escaped"
-            exit $status
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            Write-Output "Controlled HTTP TUN qualification attempt $attempt/3"
+            $log = Join-Path $env:RUNNER_TEMP "windows-http-control-$attempt.log"
+            & cargo test --test tun_privileged_e2e http_control::windows::privileged_windows_http_direct_and_tun_control -- --ignored --exact --nocapture 2>&1 |
+              Tee-Object -FilePath $log
+            $status = $LASTEXITCODE
+            if ($status -ne 0) {
+              $signal = Get-Content -Path $log |
+                Select-String -Pattern 'session failed|user TCP retransmission failed|TCP control|HTTP control case=|HTTP client case=|HTTP peer case=|panicked|assertion|test result:|error: test failed'
+              $tail = ($signal | Select-Object -Last 16) -join "`n"
+              $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=Windows controlled HTTP TUN failure attempt ${attempt}::$escaped"
+              exit $status
+            }
           }
       - name: Run direct UDP self-capture E2E
         run: cargo test --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture

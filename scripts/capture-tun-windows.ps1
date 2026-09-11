@@ -33,7 +33,7 @@ if ($Mode -eq 'Start') {
     # Prefer the end of the capture because a failed test exits immediately after
     # its unexpected reset, while earlier deliberate early-closes are expected.
     $ResetEvidence = @(
-        Select-String -Path $TextPath -Pattern 'RST|Reset|Drop' -Context 2,2 |
+        Select-String -Path $TextPath -Pattern 'Flags \[R|Drop reason|DropReason' -Context 2,2 |
             Select-Object -Last 80 | ForEach-Object { $_.ToString() }
     )
     $ResetEvidence | ForEach-Object { Write-Output $_ }
