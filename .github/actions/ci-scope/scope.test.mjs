@@ -49,7 +49,11 @@ test('build, dependency, workflow and native changes require full coverage', () 
 });
 
 test('TUN test edits keep the privileged gate', () => {
-  for (const path of ['tests/tun_privileged_e2e.rs', 'tests/tun_route_reconcile_macos_e2e.rs']) {
+  for (const path of [
+    'tests/tun_privileged_e2e.rs',
+    'tests/tun_route_reconcile_macos_e2e.rs',
+    'scripts/capture-tun-windows.ps1',
+  ]) {
     assert.deepEqual(selectScope([path]), {
       code: true, compatibility: false, tun: true, exhaustive: false,
     });

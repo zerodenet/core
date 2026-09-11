@@ -45,7 +45,9 @@ export function selectScope(paths) {
     'crates/config/', 'crates/platform/', 'crates/proxy/', 'crates/router/',
     'crates/stack/', 'crates/traits/', 'crates/transport/', 'crates/tun/',
     'vendor/', 'crates/ztls/', 'protocols/', 'proto/', 'src/application/tun', 'tests/tun',
-  ])) || relevant.includes('scripts/prepare-wintun.ps1') || qualificationPolicyChanged;
+  ])) || relevant.includes('scripts/prepare-wintun.ps1')
+    || relevant.includes('scripts/capture-tun-windows.ps1')
+    || qualificationPolicyChanged;
   return selectedScope(true, compatibility, tun);
 }
 
