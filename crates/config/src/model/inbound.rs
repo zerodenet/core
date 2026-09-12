@@ -93,6 +93,12 @@ pub enum InboundProtocolConfig {
         #[serde(default = "default_ss_cipher")]
         cipher: String,
         #[serde(default)]
+        replay_attack: shadowsocks::validation::ReplayPolicy,
+        #[serde(default)]
+        plugin: Option<shadowsocks::validation::PluginConfig>,
+        #[serde(default)]
+        state_limits: shadowsocks::validation::StateLimits,
+        #[serde(default)]
         up_bps: Option<u64>,
         #[serde(default)]
         down_bps: Option<u64>,

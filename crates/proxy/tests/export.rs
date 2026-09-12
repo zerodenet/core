@@ -624,7 +624,7 @@ fn proxy_handle_capabilities_use_protocol_inventory() {
         .iter()
         .find(|protocol| protocol.protocol == "shadowsocks")
     {
-        assert_eq!(shadowsocks.status, "partial");
+        assert_eq!(shadowsocks.status, "supported");
         assert_eq!(
             shadowsocks.compatibility_baseline,
             "shadowsocks_rust_sip022_sip023"
@@ -639,9 +639,7 @@ fn proxy_handle_capabilities_use_protocol_inventory() {
         assert_eq!(shadowsocks.outbound.udp.level, "supported");
         assert_eq!(shadowsocks.transports, vec!["tcp", "udp"]);
         assert_eq!(shadowsocks.mux.level, "unsupported");
-        assert!(shadowsocks
-            .limitations
-            .contains(&"shadowsocks_2022_hardening_not_externally_validated".to_owned()));
+        assert!(shadowsocks.limitations.is_empty());
         assert!(!shadowsocks
             .limitations
             .contains(&"shadowsocks_2022_tcp_header_is_not_implemented".to_owned()));

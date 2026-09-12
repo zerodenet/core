@@ -27,15 +27,17 @@ pub(crate) mod udp;
 #[derive(Debug, Default)]
 pub(crate) struct ShadowsocksAdapter {
     inbound_profiles: ShadowsocksInboundProfileStore,
+    outbound_state: ::shadowsocks::transport::ShadowsocksTransportState,
 }
 
 #[cfg(feature = "shadowsocks")]
 fn inbound_user_refs<'a>(
+    cipher: &str,
     password: &'a str,
     users: &'a [zero_config::ShadowsocksUserConfig],
 ) -> Vec<ShadowsocksInboundUserRef<'a>> {
     if users.is_empty() {
-        return (!password.is_empty())
+        return (!password.is_empty() || ::shadowsocks::validation::is_plain(cipher))
             .then_some(ShadowsocksInboundUserRef {
                 password,
                 principal_key: None,
@@ -64,6 +66,7 @@ fn inbound_user_refs<'a>(
 
 #[cfg(feature = "shadowsocks")]
 fn transport_leaf(
+    state: &::shadowsocks::transport::ShadowsocksTransportState,
     tag: &str,
     protocol: &OutboundProtocolConfig,
 ) -> Option<ShadowsocksTransportLeaf> {
@@ -72,16 +75,28 @@ fn transport_leaf(
         port,
         password,
         cipher,
+        replay_attack,
+        plugin,
+        state_limits,
     } = protocol
     else {
         return None;
     };
-    Some(ShadowsocksTransportLeaf::from_options_refs(
-        tag,
-        server,
-        *port,
-        ShadowsocksOutboundOptionsRef { cipher, password },
-    ))
+    Some(
+        state.with_plugin(
+            state.apply(
+                ShadowsocksTransportLeaf::from_options_refs(
+                    tag,
+                    server,
+                    *port,
+                    ShadowsocksOutboundOptionsRef { cipher, password },
+                )
+                .with_state_limits(*state_limits),
+                *replay_attack,
+            ),
+            plugin.clone(),
+        ),
+    )
 }
 
 #[cfg(feature = "shadowsocks")]
@@ -90,6 +105,7 @@ impl NamedProtocolAdapter for ShadowsocksAdapter {
     const FEATURE_NAME: &'static str = "shadowsocks";
 
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
+        self.outbound_state.clear_plugins();
         for inbound in &config.inbounds {
             let InboundProtocolConfig::Shadowsocks {
                 password,
@@ -101,7 +117,7 @@ impl NamedProtocolAdapter for ShadowsocksAdapter {
             else {
                 continue;
             };
-            let users = inbound_user_refs(password, users);
+            let users = inbound_user_refs(cipher, password, users);
             let _ = self.inbound_profiles.replace_with_identity(
                 &inbound.tag,
                 cipher,
@@ -121,7 +137,7 @@ impl ShadowsocksAdapter {
         let OutboundLeafInput::Proxy { outbound, .. } = input else {
             return None;
         };
-        let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?;
+        let leaf = transport_leaf(&self.outbound_state, outbound.tag(), &outbound.protocol)?;
         let tcp = self.claim_tcp_outbound_leaf_impl(leaf.clone());
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Session,
@@ -161,9 +177,12 @@ impl InboundListenerCapability for ShadowsocksAdapter {
                 identity_password,
                 users,
                 cipher,
+                replay_attack,
+                plugin,
+                state_limits,
                 ..
             } => {
-                let users = inbound_user_refs(password, users);
+                let users = inbound_user_refs(cipher, password, users);
                 let profile = self
                     .inbound_profiles
                     .replace_with_identity(
@@ -183,7 +202,12 @@ impl InboundListenerCapability for ShadowsocksAdapter {
                     identity_password: identity_password.as_deref(),
                     users: users.iter().copied(),
                 })?
-                .with_profile(profile)
+                .with_profile(
+                    profile
+                        .with_replay_policy(*replay_attack)
+                        .with_state_limits(*state_limits),
+                )
+                .with_plugin(plugin.clone())
             }
             _ => {
                 return Err(EngineError::Io(std::io::Error::new(

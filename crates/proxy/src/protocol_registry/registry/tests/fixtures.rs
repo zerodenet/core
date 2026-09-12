@@ -71,6 +71,9 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     });
     #[cfg(feature = "shadowsocks")]
     configs.push(InboundProtocolConfig::Shadowsocks {
+        state_limits: Default::default(),
+        plugin: None,
+        replay_attack: Default::default(),
         password: "password".to_string(),
         identity_password: None,
         users: Vec::new(),
@@ -216,6 +219,9 @@ pub(super) fn compiled_in_outbound_leaves(
         config_with_outbound(
             "shadowsocks",
             OutboundProtocolConfig::Shadowsocks {
+                state_limits: Default::default(),
+                plugin: None,
+                replay_attack: Default::default(),
                 server: "127.0.0.1".to_owned(),
                 port: 8388,
                 password: "password".to_owned(),

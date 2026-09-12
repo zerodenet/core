@@ -150,7 +150,7 @@ async fn relays_udp_through_shadowsocks_outbound_for_cipher(cipher: &str) {
     let _ = echo_task.await;
 }
 
-fn password_for_cipher(cipher: &str) -> &'static str {
+pub(super) fn password_for_cipher(cipher: &str) -> &'static str {
     match cipher {
         "2022-blake3-aes-128-gcm" => "MDEyMzQ1Njc4OWFiY2RlZg==",
         "2022-blake3-aes-256-gcm" | "2022-blake3-chacha20-poly1305" => {

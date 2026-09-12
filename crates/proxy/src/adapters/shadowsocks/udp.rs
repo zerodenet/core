@@ -211,6 +211,9 @@ impl ShadowsocksAdapter {
         &self,
         leaf: ::shadowsocks::transport::ShadowsocksTransportLeaf,
     ) -> Option<Box<dyn ClaimedUdpPacketPathLeaf<'a> + 'a>> {
+        if !leaf.supports_udp_packet_path() {
+            return None;
+        }
         Some(Box::new(ClaimedShadowsocksPacketPathLeaf {
             plan: leaf.udp_packet_path_plan().ok()?,
         }))

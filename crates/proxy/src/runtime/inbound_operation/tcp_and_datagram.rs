@@ -7,7 +7,15 @@ use super::{PreparedInboundListenerOperation, TcpInboundListenerOperation};
 use crate::protocol_registry::BoundInbound;
 use crate::runtime::route_runtime::InboundListenerRuntime;
 
+struct AbortTask(tokio::task::AbortHandle);
+impl Drop for AbortTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub(crate) struct TcpAndDatagramInboundListenerOperation<R, D, U> {
+    pub(crate) carrier: Option<Box<dyn zero_transport::inbound_carrier::InboundCarrierPlan>>,
     pub(crate) protocol_name: &'static str,
     pub(crate) error_protocol_name: &'static str,
     pub(crate) listen_address: String,
@@ -37,6 +45,7 @@ where
     ) -> Pin<Box<dyn Future<Output = Result<(), EngineError>> + Send + 'static>> {
         Box::pin(async move {
             let TcpAndDatagramInboundListenerOperation {
+                carrier,
                 protocol_name,
                 error_protocol_name,
                 listen_address,
@@ -45,16 +54,22 @@ where
                 tcp_dispatch,
                 udp_relay,
             } = *self;
-            let udp_socket = match tokio::net::UdpSocket::bind(format!(
-                "{listen_address}:{listen_port}"
-            ))
-            .await
-            {
-                Ok(socket) => Some(std::sync::Arc::new(socket)),
-                Err(error) => {
-                    tracing::warn!(%error, protocol = protocol_name, "failed to bind inbound UDP socket; UDP disabled");
-                    None
-                }
+            let (bound, udp_socket, mut completion) = if let Some(carrier) = carrier {
+                let carrier = carrier.activate(bound.into_tcp()).await?;
+                (
+                    BoundInbound::Tcp(carrier.listener),
+                    Some(carrier.datagram),
+                    carrier.completion,
+                )
+            } else {
+                let socket =
+                    tokio::net::UdpSocket::bind(format!("{listen_address}:{listen_port}")).await?;
+                (
+                    bound,
+                    Some(std::sync::Arc::new(socket)),
+                    Box::pin(std::future::pending())
+                        as zero_transport::inbound_carrier::CarrierFuture<()>,
+                )
             };
             let udp_task = udp_socket.as_ref().map(|socket| {
                 let udp_runtime = runtime.udp_runtime();
@@ -72,14 +87,18 @@ where
                 })
             });
 
-            let result = Box::new(TcpInboundListenerOperation {
+            let _abort = udp_task.as_ref().map(|task| AbortTask(task.abort_handle()));
+            let tcp = Box::new(TcpInboundListenerOperation {
                 protocol_name,
                 error_protocol_name,
                 request: tcp_request,
                 dispatch: tcp_dispatch,
             })
-            .execute(runtime, bound, shutdown)
-            .await;
+            .execute(runtime, bound, shutdown);
+            let result = tokio::select! {
+                result = tcp => result,
+                result = &mut completion => result.map_err(EngineError::from),
+            };
 
             if let Some(task) = udp_task {
                 task.abort();

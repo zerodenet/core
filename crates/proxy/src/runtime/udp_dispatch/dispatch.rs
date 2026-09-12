@@ -139,8 +139,9 @@ impl UdpDispatch {
         };
         runtime.log_session_accepted(&session, &action);
 
-        if input.client_session_id.is_some() {
-            self.direct_socket.isolate_session(session.id);
+        if let Some(association_id) = input.client_session_id {
+            self.direct_socket
+                .isolate_association(session.id, association_id);
         }
         match runtime
             .start_udp_resolved_outbound(self, &session, resolved, input.payload)

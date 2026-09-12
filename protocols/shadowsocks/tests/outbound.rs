@@ -28,6 +28,7 @@ fn supported_ciphers() -> Vec<CipherKind> {
         CipherKind::Blake3Aes128Gcm,
         CipherKind::Blake3Aes256Gcm,
         CipherKind::Blake3Chacha20Poly1305,
+        CipherKind::Blake3Chacha8Poly1305,
     ]);
     ciphers
 }
@@ -50,6 +51,7 @@ fn blake3_ciphers() -> Vec<CipherKind> {
         CipherKind::Blake3Aes128Gcm,
         CipherKind::Blake3Aes256Gcm,
         CipherKind::Blake3Chacha20Poly1305,
+        CipherKind::Blake3Chacha8Poly1305,
     ]
 }
 
@@ -60,32 +62,25 @@ fn derive_test_key(cipher: CipherKind, password: &[u8], salt: &[u8]) -> Vec<u8> 
 fn password_for_cipher(cipher: CipherKind) -> &'static [u8] {
     match cipher {
         CipherKind::Blake3Aes128Gcm => b"MDEyMzQ1Njc4OWFiY2RlZg==",
-        CipherKind::Blake3Aes256Gcm | CipherKind::Blake3Chacha20Poly1305 => {
-            b"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-        }
+        CipherKind::Blake3Aes256Gcm
+        | CipherKind::Blake3Chacha20Poly1305
+        | CipherKind::Blake3Chacha8Poly1305 => b"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         _ => b"test-password",
     }
 }
 
 #[cfg(feature = "blake3")]
 fn cipher_name(cipher: CipherKind) -> &'static str {
-    match cipher {
-        CipherKind::Blake3Aes128Gcm => "2022-blake3-aes-128-gcm",
-        CipherKind::Blake3Aes256Gcm => "2022-blake3-aes-256-gcm",
-        CipherKind::Blake3Chacha20Poly1305 => "2022-blake3-chacha20-poly1305",
-        CipherKind::Aes128Gcm => "aes-128-gcm",
-        CipherKind::Aes256Gcm => "aes-256-gcm",
-        CipherKind::Chacha20Poly1305 => "chacha20-ietf-poly1305",
-    }
+    cipher.name()
 }
 
 #[cfg(feature = "blake3")]
 fn password_str(cipher: CipherKind) -> &'static str {
     match cipher {
         CipherKind::Blake3Aes128Gcm => "MDEyMzQ1Njc4OWFiY2RlZg==",
-        CipherKind::Blake3Aes256Gcm | CipherKind::Blake3Chacha20Poly1305 => {
-            "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-        }
+        CipherKind::Blake3Aes256Gcm
+        | CipherKind::Blake3Chacha20Poly1305
+        | CipherKind::Blake3Chacha8Poly1305 => "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         _ => "test-password",
     }
 }
@@ -203,6 +198,7 @@ async fn aead_stream_roundtrips_all_supported_ciphers() {
         let (client_io, mut server_io) = tokio::io::duplex(4096);
 
         let outbound_session = ShadowsocksOutboundSession {
+            legacy: None,
             session_key: upload_key.clone(),
             next_upload_nonce: 0,
             cipher,
@@ -255,6 +251,7 @@ async fn aead_stream_outbound_encrypts_upload_and_decrypts_download() {
     let (client_io, mut server_io) = tokio::io::duplex(4096);
 
     let outbound_session = ShadowsocksOutboundSession {
+        legacy: None,
         session_key: upload_key.clone(),
         next_upload_nonce: 0,
         cipher,
@@ -361,6 +358,7 @@ async fn accepted_inbound_stream_constructor_owns_response_key_derivation() {
         ProtocolType::new("shadowsocks"),
     );
     let accept = ShadowsocksAccept {
+        legacy: None,
         session,
         remaining_payload: b"early".to_vec(),
         session_key: upload_key,
@@ -481,10 +479,7 @@ fn udp_datagram_framing_roundtrips_aead_packet() {
 fn udp_datagram_helpers_roundtrip_aead_packet() {
     let cipher = CipherKind::Aes128Gcm;
     let password = b"test-password";
-    let codec = ShadowsocksDatagramCodec {
-        cipher,
-        password: password.to_vec(),
-    };
+    let codec = ShadowsocksDatagramCodec::new(cipher, password);
 
     let datagram = codec
         .encode(&Address::Domain("dns.google".to_owned()), 53, b"query")
@@ -543,10 +538,7 @@ fn udp_2022_server_response_flow_all_blake3_ciphers() {
     for cipher in blake3_ciphers() {
         let password = password_for_cipher(cipher);
         let target = Address::Domain("dns.google".to_owned());
-        let client_codec = ShadowsocksDatagramCodec {
-            cipher,
-            password: password.to_vec(),
-        };
+        let client_codec = ShadowsocksDatagramCodec::new(cipher, password);
         let profile =
             ShadowsocksInboundProfile::from_config(cipher_name(cipher), password_str(cipher))
                 .expect("build inbound profile");
@@ -573,29 +565,17 @@ fn udp_2022_server_response_flow_all_blake3_ciphers() {
             .encode_response_to_client(Some(client_session_id), &target, 53, b"answer")
             .expect("encode server response")
             .into_datagram();
-        // Client decodes the response.
-        let decoded_response = server_session
-            .decode_request(&response)
+        // Only the client association accepts a response; the server rejects it.
+        assert!(server_session.decode_request(&response).is_err());
+        let (response_target, response_port, response_payload) = client_codec
+            .decode(&response)
             .expect("decode server response");
-        assert_eq!(
-            decoded_response.target(),
-            &target,
-            "response target cipher: {cipher:?}"
-        );
-        assert_eq!(decoded_response.port(), 53);
-        assert_eq!(
-            decoded_response.payload(),
-            b"answer",
-            "response payload cipher: {cipher:?}"
-        );
-        // The response carries a fresh server session id in its separate header,
-        // distinct from the client session id it echoes in the body.
-        let server_session_id = decoded_response
-            .client_session_id()
-            .expect("2022 response should carry a server session id");
-        assert_ne!(
-            server_session_id, client_session_id,
-            "server session id must differ cipher: {cipher:?}"
+        assert_eq!(response_target, target);
+        assert_eq!(response_port, 53);
+        assert_eq!(response_payload, b"answer");
+        assert!(
+            client_codec.decode(&response).is_none(),
+            "duplicate response must be rejected"
         );
         // A response datagram (type 1) is 8 bytes larger than the equivalent
         // client datagram (type 0) because of the echoed client session id.

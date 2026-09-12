@@ -64,7 +64,7 @@ where
                 handle_chain_result(context, dispatch, source, responder, chain_result).await;
             }
             Some(session_id) = cancel_rx.recv() => {
-                if dispatch.finish_cancelled_flow(session_id) {
+                if dispatch.finish_cancelled_flow(session_id) && !responder.shared_listener() {
                     break;
                 }
             }

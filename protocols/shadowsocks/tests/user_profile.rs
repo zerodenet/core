@@ -127,10 +127,7 @@ async fn tcp_acceptor_matches_user_and_applies_identity() {
 fn udp_responder_matches_user_and_exposes_packet_auth() {
     let profile = ShadowsocksInboundProfile::from_config_users("aes-128-gcm", users()).unwrap();
     let mut responder = ShadowsocksInboundUdpResponder::from_profile(profile);
-    let codec = ShadowsocksDatagramCodec {
-        cipher: shadowsocks::CipherKind::Aes128Gcm,
-        password: b"second-secret".to_vec(),
-    };
+    let codec = ShadowsocksDatagramCodec::new(shadowsocks::CipherKind::Aes128Gcm, b"second-secret");
     let datagram = codec
         .encode(&Address::Domain("dns.example".to_owned()), 53, b"query")
         .unwrap();
@@ -493,10 +490,7 @@ fn sip023_udp_password_chain_interops_with_the_eih_responder() {
         .unwrap();
         let mut responder = ShadowsocksInboundUdpResponder::from_profile(profile);
         let password_chain = format!("{identity_password}:{user_password}");
-        let codec = ShadowsocksDatagramCodec {
-            cipher,
-            password: password_chain.into_bytes(),
-        };
+        let codec = ShadowsocksDatagramCodec::new(cipher, password_chain.into_bytes());
         let datagram = codec
             .encode(
                 &Address::Domain("chain.dns.eih.example".to_owned()),
@@ -524,10 +518,7 @@ fn sip023_udp_response_uses_the_selected_user_psk() {
     ] {
         let (identity_password, user_password) = eih_keys(cipher);
         let password_chain = format!("{identity_password}:{user_password}");
-        let outbound = ShadowsocksDatagramCodec {
-            cipher,
-            password: password_chain.into_bytes(),
-        };
+        let outbound = ShadowsocksDatagramCodec::new(cipher, password_chain.into_bytes());
         let request = outbound
             .encode(
                 &Address::Domain("request.eih.example".to_owned()),

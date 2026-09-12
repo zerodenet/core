@@ -15,6 +15,7 @@ impl ShadowsocksInboundProfile {
     fn into_listener_bindings(self) -> ShadowsocksInboundBindings {
         let (acceptor, udp_relay) = self.protocol.into_listener_bindings();
         ShadowsocksInboundBindings {
+            plugin: None,
             acceptor: ShadowsocksInboundTcpAcceptor::new(acceptor),
             udp_relay,
         }
@@ -38,6 +39,19 @@ impl ShadowsocksInboundTcpAcceptor {
 }
 
 impl ShadowsocksInboundBindings {
+    pub fn with_plugin(mut self, plugin: Option<crate::validation::PluginConfig>) -> Self {
+        self.plugin = plugin;
+        self
+    }
+    pub fn take_carrier_plan(
+        &mut self,
+    ) -> Option<Box<dyn zero_transport::inbound_carrier::InboundCarrierPlan>> {
+        self.plugin.take().map(|config| {
+            Box::new(super::plugin::ShadowsocksInboundPluginPlan::new(config))
+                as Box<dyn zero_transport::inbound_carrier::InboundCarrierPlan>
+        })
+    }
+
     pub fn from_options_refs<'a, I>(
         options: ShadowsocksInboundOptionsRef<'a, I>,
     ) -> Result<Self, RuntimeError>

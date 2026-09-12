@@ -4,7 +4,10 @@ mod inbound;
 mod leaf;
 mod model;
 mod options;
+pub mod plugin;
+mod state;
 mod tcp;
+pub use state::ShadowsocksTransportState;
 mod udp_socket;
 
 pub use model::{

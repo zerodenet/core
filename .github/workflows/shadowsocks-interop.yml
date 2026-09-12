@@ -1,0 +1,48 @@
+name: Shadowsocks Interop
+on:
+  push:
+    branches: [develop, main]
+    paths: ['protocols/shadowsocks/**', 'crates/proxy/**', 'crates/platform/**', 'crates/traits/**', 'crates/transport/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-ss-interop.py', '.github/workflows/shadowsocks-interop.yml']
+  pull_request:
+    branches: [develop, main]
+    paths: ['protocols/shadowsocks/**', 'crates/proxy/**', 'crates/platform/**', 'crates/traits/**', 'crates/transport/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-ss-interop.py', '.github/workflows/shadowsocks-interop.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  interop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve workspace lockfile
+        run: cargo generate-lockfile
+      - name: Prepare fixed official reference
+        run: python3 scripts/prepare-ss-interop.py --output "$RUNNER_TEMP/ss-reference"
+      - name: All official release methods in both TCP and UDP directions
+        env:
+          SS_RUST_BIN_DIR: ${{ runner.temp }}/ss-reference
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p shadowsocks --all-features --test reference_interop -- --ignored --nocapture
+      - name: Native plugin lifecycle and kernel carrier paths
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test shadowsocks_plugins --test shadowsocks_isolation
+      - name: Bidirectional SIP023 and sustained UDP session
+        env:
+          SS_RUST_BIN_DIR: ${{ runner.temp }}/ss-reference
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p shadowsocks --all-features --test external_sip023 -- --ignored --nocapture
+      - name: Kernel outbound UDP for all six ciphers
+        env:
+          SHADOWSOCKS_RUST_BIN: ${{ runner.temp }}/ss-reference/ssserver
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test shadowsocks_xray_interop zero_ss_outbound_interops_with_ssrust_inbound_udp_all_ciphers -- --ignored --nocapture

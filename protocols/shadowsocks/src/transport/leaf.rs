@@ -8,7 +8,6 @@ use zero_transport::RuntimeError;
 use zero_transport::{MeteredStream, StreamTraffic, TcpRelayStream};
 
 use super::{
-    apply_shadowsocks_tcp_relay_hop, establish_shadowsocks_tcp_connect,
     ShadowsocksManagedDatagramFlowResume, ShadowsocksManagedUdpFlowConfig,
     ShadowsocksManagedUdpFlowPlan, ShadowsocksManagedUdpPacketPathCarrierDescriptor,
     ShadowsocksManagedUdpPacketPathDatagramSourceBuild, ShadowsocksManagedUdpPacketPathPlan,
@@ -16,6 +15,10 @@ use super::{
 };
 
 impl ShadowsocksTransportLeaf {
+    pub fn with_state_limits(mut self, limits: crate::validation::StateLimits) -> Self {
+        self.limits = limits;
+        self
+    }
     pub fn from_options_refs(
         tag: &str,
         server: &str,
@@ -33,11 +36,14 @@ impl ShadowsocksTransportLeaf {
         password: impl Into<String>,
     ) -> Self {
         Self {
+            plugin: None,
+            limits: Default::default(),
             tag: tag.into(),
             server: server.into(),
             port,
             cipher: cipher.into(),
             password: password.into(),
+            replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
         }
     }
 
@@ -62,7 +68,14 @@ impl ShadowsocksTransportLeaf {
     }
 
     pub fn flow_resume(&self) -> Result<ShadowsocksManagedDatagramFlowResume, zero_core::Error> {
-        self.flow_config().flow_resume()
+        let mut resume = self.flow_config().flow_resume()?;
+        if let Some(plugin) = &self.plugin {
+            resume.protocol = resume
+                .protocol
+                .with_carrier_identity(&plugin.cache_identity());
+            resume.plugin = Some(plugin.clone());
+        }
+        Ok(resume)
     }
 
     pub fn packet_path_carrier_descriptor(
@@ -92,6 +105,13 @@ impl ShadowsocksTransportLeaf {
         ))
     }
 
+    pub fn supports_udp_packet_path(&self) -> bool {
+        !self
+            .plugin
+            .as_ref()
+            .is_some_and(|plugin| plugin.supports_udp())
+    }
+
     pub fn udp_packet_path_plan(
         &self,
     ) -> Result<ShadowsocksManagedUdpPacketPathPlan, zero_core::Error> {
@@ -114,11 +134,30 @@ impl ShadowsocksTransportLeaf {
         OpenSocketFut: Future<Output = Result<TokioSocket, E>> + Send,
         E: Into<RuntimeError>,
     {
-        let upstream = open_socket(&self.server, self.port)
-            .await
-            .map_err(Into::into)?;
+        let lease = match &self.plugin {
+            Some(plugin) => plugin.acquire(true).await?,
+            None => None,
+        };
+        let (server, port) = lease.as_ref().map_or_else(
+            || (self.server.clone(), self.port),
+            |lease| (lease.endpoint().ip().to_string(), lease.endpoint().port()),
+        );
+        let upstream = open_socket(&server, port).await.map_err(Into::into)?;
         let metered = MeteredStream::new(TcpRelayStream::from(upstream));
-        establish_shadowsocks_tcp_connect(metered, session, &self.cipher, &self.password).await
+        let (stream, traffic) = super::tcp::establish_with_replay(
+            metered,
+            session,
+            &self.cipher,
+            &self.password,
+            self.replay.clone(),
+        )
+        .await?;
+        let stream = if let Some(lease) = lease {
+            TcpRelayStream::new(super::plugin::stream::PluginStream { stream, lease })
+        } else {
+            stream
+        };
+        Ok((stream, traffic))
     }
 
     pub async fn open_tcp_relay_hop(
@@ -126,16 +165,36 @@ impl ShadowsocksTransportLeaf {
         stream: TcpRelayStream,
         session: &Session,
     ) -> Result<TcpRelayStream, RuntimeError> {
-        apply_shadowsocks_tcp_relay_hop(stream, session, &self.cipher, &self.password).await
+        if self
+            .plugin
+            .as_ref()
+            .is_some_and(|plugin| plugin.supports_tcp())
+        {
+            return Err(RuntimeError::Io(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "SIP003 plugins cannot wrap an existing relay stream",
+            )));
+        }
+        super::tcp::relay_with_replay(
+            stream,
+            session,
+            &self.cipher,
+            &self.password,
+            self.replay.clone(),
+        )
+        .await
     }
 
     fn flow_config(&self) -> ShadowsocksManagedUdpFlowConfig<'_> {
-        ShadowsocksManagedUdpFlowConfig::new(
+        let mut config = ShadowsocksManagedUdpFlowConfig::new(
             &self.tag,
             &self.server,
             self.port,
             &self.cipher,
             &self.password,
         )
+        .with_replay_guard(self.replay.clone());
+        config.limits = self.limits;
+        config
     }
 }

@@ -118,6 +118,9 @@ fn managed_user<'a>(password: &'a str) -> ShadowsocksInboundUserRef<'a> {
 }
 
 fn external_command(binary: &str) -> Command {
+    let binary = std::env::var_os("SS_RUST_BIN_DIR")
+        .map(|dir| PathBuf::from(dir).join(binary))
+        .unwrap_or_else(|| PathBuf::from(binary));
     let mut command = Command::new(binary);
     if std::env::var_os("ZERO_EXTERNAL_INTEROP_LOG").is_some() {
         command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
@@ -133,11 +136,22 @@ fn external_command(binary: &str) -> Command {
 }
 
 fn require_binary(binary: &str) {
-    let status = external_command(binary)
+    let output = external_command(binary)
         .arg("--version")
-        .status()
-        .unwrap_or_else(|error| panic!("{binary} is required on PATH: {error}"));
-    assert!(status.success(), "{binary} --version failed");
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("official SS binary required");
+    assert!(output.status.success());
+    let version = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        version.contains("shadowsocks 1.21.2"),
+        "expected fixed reference v1.21.2: {version}"
+    );
 }
 
 async fn connect_retry(address: SocketAddr) -> TcpStream {
@@ -215,7 +229,7 @@ fn spawn_ssserver(
 }
 
 #[tokio::test]
-#[ignore = "requires shadowsocks-rust sslocal 1.24+ on PATH"]
+#[ignore = "requires shadowsocks-rust sslocal 1.21.2 on PATH or SS_RUST_BIN_DIR"]
 async fn shadowsocks_rust_client_reaches_zero_sip023_inbound() {
     require_binary("sslocal");
 
@@ -272,7 +286,7 @@ async fn shadowsocks_rust_client_reaches_zero_sip023_inbound() {
 }
 
 #[tokio::test]
-#[ignore = "requires shadowsocks-rust ssserver 1.24+ on PATH"]
+#[ignore = "requires shadowsocks-rust ssserver 1.21.2 on PATH or SS_RUST_BIN_DIR"]
 async fn zero_sip023_outbound_reaches_shadowsocks_rust_server() {
     require_binary("ssserver");
 
@@ -324,7 +338,7 @@ async fn zero_sip023_outbound_reaches_shadowsocks_rust_server() {
 }
 
 #[tokio::test]
-#[ignore = "requires shadowsocks-rust sslocal 1.24+ on PATH"]
+#[ignore = "requires shadowsocks-rust sslocal 1.21.2 on PATH or SS_RUST_BIN_DIR"]
 async fn shadowsocks_rust_udp_client_reaches_zero_sip023_inbound() {
     require_binary("sslocal");
 
@@ -401,14 +415,12 @@ async fn shadowsocks_rust_udp_client_reaches_zero_sip023_inbound() {
 }
 
 #[tokio::test]
-#[ignore = "requires shadowsocks-rust ssserver 1.24+ on PATH"]
+#[ignore = "requires shadowsocks-rust ssserver 1.21.2 on PATH or SS_RUST_BIN_DIR"]
 async fn zero_sip023_udp_outbound_reaches_shadowsocks_rust_server() {
     require_binary("ssserver");
 
     for (cipher, method, identity_password, user_password) in methods() {
-        let ss_probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let ss_address = ss_probe.local_addr().unwrap();
-        drop(ss_probe);
+        let ss_address = available_dual_address().await;
         let target_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let target_address = target_socket.local_addr().unwrap();
         let target = tokio::spawn(async move {
@@ -434,10 +446,7 @@ async fn zero_sip023_udp_outbound_reaches_shadowsocks_rust_server() {
         drop(connect_retry(ss_address).await);
 
         let password_chain = format!("{identity_password}:{user_password}");
-        let codec = ShadowsocksDatagramCodec {
-            cipher,
-            password: password_chain.into_bytes(),
-        };
+        let codec = ShadowsocksDatagramCodec::new(cipher, password_chain.into_bytes());
         let request = codec
             .encode(
                 &Address::Ipv4([127, 0, 0, 1]),
@@ -459,3 +468,17 @@ async fn zero_sip023_udp_outbound_reaches_shadowsocks_rust_server() {
         target.await.unwrap();
     }
 }
+
+async fn available_dual_address() -> SocketAddr {
+    loop {
+        let tcp = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let address = tcp.local_addr().unwrap();
+        if let Ok(udp) = UdpSocket::bind(address).await {
+            drop(udp);
+            return address;
+        }
+    }
+}
+
+#[path = "external_sip023/udp_sessions.rs"]
+mod udp_sessions;

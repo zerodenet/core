@@ -4,7 +4,7 @@
 use std::net::SocketAddr;
 
 #[cfg(feature = "udp-runtime")]
-use std::collections::HashSet;
+use std::collections::HashMap;
 #[cfg(feature = "udp-runtime")]
 use zero_core::Address;
 #[cfg(feature = "udp-runtime")]
@@ -17,7 +17,8 @@ pub(crate) struct DirectUdpSockets {
     sockets: Vec<DirectUdpSocket>,
     preferred_port: Option<u16>,
     generation: u64,
-    isolated_sessions: HashSet<u64>,
+    isolated_sessions: HashMap<u64, u64>,
+    response_flows: HashMap<(u64, SocketAddr), u64>,
 }
 
 #[cfg(feature = "udp-runtime")]
@@ -114,7 +115,8 @@ impl DirectUdpSockets {
             sockets,
             preferred_port,
             generation,
-            isolated_sessions: HashSet::new(),
+            isolated_sessions: HashMap::new(),
+            response_flows: HashMap::new(),
         })
     }
 
@@ -143,6 +145,7 @@ impl DirectUdpSockets {
         }
         let replacement_generation = replacement.generation;
         replacement.isolated_sessions = std::mem::take(&mut self.isolated_sessions);
+        replacement.response_flows = std::mem::take(&mut self.response_flows);
         *self = replacement;
         tracing::info!(
             previous_generation,

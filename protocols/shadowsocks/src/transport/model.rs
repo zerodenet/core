@@ -7,6 +7,7 @@ pub type ShadowsocksUdpResponse = (Address, u16, Vec<u8>);
 
 #[derive(Debug, Clone)]
 pub struct ShadowsocksManagedDatagramFlowResume {
+    pub(super) plugin: Option<super::plugin::outbound::PluginPlan>,
     pub(super) protocol: crate::udp::ShadowsocksUdpFlowResume,
 }
 
@@ -37,22 +38,27 @@ pub struct ShadowsocksManagedUdpPacketPathPlan {
     pub(super) datagram_source: ShadowsocksManagedUdpPacketPathDatagramSourceBuild,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 pub struct ShadowsocksManagedUdpFlowConfig<'a> {
+    pub(super) limits: crate::validation::StateLimits,
     pub(super) tag: &'a str,
     pub(super) server: &'a str,
     pub(super) port: u16,
     pub(super) cipher: &'a str,
     pub(super) password: &'a str,
+    pub(super) replay: crate::shared::legacy_replay::LegacyReplay,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ShadowsocksTransportLeaf {
+    pub(super) limits: crate::validation::StateLimits,
+    pub(super) plugin: Option<super::plugin::outbound::PluginPlan>,
     pub(super) tag: String,
     pub(super) server: String,
     pub(super) port: u16,
     pub(super) cipher: String,
     pub(super) password: String,
+    pub(super) replay: crate::shared::legacy_replay::LegacyReplay,
 }
 
 #[derive(Debug, Clone)]
@@ -66,11 +72,20 @@ pub struct ShadowsocksInboundTcpAcceptor {
 }
 
 pub struct ShadowsocksInboundBindings {
+    pub(super) plugin: Option<crate::validation::PluginConfig>,
     pub(super) acceptor: ShadowsocksInboundTcpAcceptor,
     pub(super) udp_relay: crate::udp::ShadowsocksInboundUdpRelay,
 }
 
 impl<'a> ShadowsocksManagedUdpFlowConfig<'a> {
+    pub(super) fn with_replay_guard(
+        mut self,
+        replay: crate::shared::legacy_replay::LegacyReplay,
+    ) -> Self {
+        self.replay = replay;
+        self
+    }
+
     pub fn new(
         tag: &'a str,
         server: &'a str,
@@ -79,11 +94,13 @@ impl<'a> ShadowsocksManagedUdpFlowConfig<'a> {
         password: &'a str,
     ) -> Self {
         Self {
+            limits: Default::default(),
             tag,
             server,
             port,
             cipher,
             password,
+            replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
         }
     }
 
@@ -127,12 +144,17 @@ impl<'a> ShadowsocksManagedUdpFlowConfig<'a> {
             self.cipher,
             self.password,
         )
+        .with_replay_guard(self.replay.clone())
+        .with_state_limits(self.limits)
     }
 }
 
 impl ShadowsocksManagedDatagramFlowResume {
     fn new(protocol: crate::udp::ShadowsocksUdpFlowResume) -> Self {
-        Self { protocol }
+        Self {
+            protocol,
+            plugin: None,
+        }
     }
 
     pub(super) fn socket_flow_spec(&self) -> crate::udp::ShadowsocksUdpSocketFlowSpec {
@@ -245,5 +267,28 @@ impl ShadowsocksManagedUdpPacketPathDatagramSourceBuild {
         Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     ) {
         self.protocol.into_shared_codec_parts()
+    }
+}
+
+impl core::fmt::Debug for ShadowsocksManagedUdpFlowConfig<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ShadowsocksManagedUdpFlowConfig")
+            .field("cipher", &self.cipher)
+            .field("server", &self.server)
+            .field("port", &self.port)
+            .field("limits", &self.limits)
+            .finish_non_exhaustive()
+    }
+}
+
+impl core::fmt::Debug for ShadowsocksTransportLeaf {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ShadowsocksTransportLeaf")
+            .field("cipher", &self.cipher)
+            .field("server", &self.server)
+            .field("port", &self.port)
+            .field("limits", &self.limits)
+            .field("plugin", &self.plugin)
+            .finish_non_exhaustive()
     }
 }

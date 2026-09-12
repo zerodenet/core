@@ -8,13 +8,17 @@ pub(crate) struct DirectUdpResponseSource {
     pub(crate) session_id: Option<u64>,
 }
 impl DirectUdpSockets {
-    pub(crate) fn isolate_session(&mut self, session_id: u64) {
-        self.isolated_sessions.insert(session_id);
+    pub(crate) fn isolate_association(&mut self, session_id: u64, association_id: u64) {
+        self.isolated_sessions.insert(session_id, association_id);
     }
     pub(crate) fn retire_session(&mut self, session_id: u64) {
-        self.isolated_sessions.remove(&session_id);
-        self.sockets
-            .retain(|entry| entry.session_id != Some(session_id));
+        let Some(scope) = self.isolated_sessions.remove(&session_id) else {
+            return;
+        };
+        self.response_flows.retain(|_, id| *id != session_id);
+        if !self.isolated_sessions.values().any(|id| *id == scope) {
+            self.sockets.retain(|entry| entry.session_id != Some(scope));
+        }
     }
     pub(crate) async fn send_to_addr(
         &mut self,
@@ -23,10 +27,10 @@ impl DirectUdpSockets {
         target: SocketAddr,
         session_id: u64,
     ) -> Result<usize, EngineError> {
-        let scope = self
-            .isolated_sessions
-            .contains(&session_id)
-            .then_some(session_id);
+        let scope = self.isolated_sessions.get(&session_id).copied();
+        if let Some(scope) = scope {
+            self.response_flows.insert((scope, target), session_id);
+        }
         let binding = DirectUdpSocketBinding {
             ipv6: target.is_ipv6(),
             egress: services.direct_datagram_egress(target),
@@ -75,6 +79,16 @@ impl DirectUdpSockets {
             .await
             .expect("direct UDP socket set is never empty");
         let (size, sender) = result?;
+        let session_id = session_id.and_then(|scope| {
+            self.response_flows
+                .get(&(scope, sender))
+                .copied()
+                .or_else(|| {
+                    self.isolated_sessions
+                        .iter()
+                        .find_map(|(flow, id)| (*id == scope).then_some(*flow))
+                })
+        });
         let size = size.min(output.len());
         output[..size].copy_from_slice(&buffer[..size]);
         Ok((size, DirectUdpResponseSource { sender, session_id }))

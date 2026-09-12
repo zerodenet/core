@@ -138,7 +138,7 @@ async fn scoped_direct_replies_retain_session_identity_and_retirement_closes_onl
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let mut local = Vec::new();
     for id in [41, 42] {
-        sockets.isolate_session(id);
+        sockets.isolate_association(id, id);
         let socket = zero_platform_tokio::TokioDatagramSocket::bind_for_peer_on(
             peer.local_addr().unwrap(),
             None,
@@ -168,8 +168,8 @@ async fn scoped_direct_replies_retain_session_identity_and_retirement_closes_onl
     }
     sockets.retire_session(41);
     assert_eq!(sockets.sockets.len(), shared_count + 1);
-    assert!(!sockets.isolated_sessions.contains(&41));
-    assert!(sockets.isolated_sessions.contains(&42));
+    assert!(!sockets.isolated_sessions.contains_key(&41));
+    assert!(sockets.isolated_sessions.contains_key(&42));
     peer.send_to(b"alive", (std::net::Ipv4Addr::LOCALHOST, local[1]))
         .await
         .unwrap();

@@ -33,6 +33,7 @@ pub use outbound::ShadowsocksOutbound;
 #[cfg(feature = "runtime")]
 pub use outbound::{
     tcp_connect_config_from_config, ShadowsocksOutboundSession, ShadowsocksTcpConnectConfig,
+    ShadowsocksTcpTarget,
 };
 #[cfg(all(feature = "runtime", feature = "blake3"))]
 pub use shared::derive_key_blake3;

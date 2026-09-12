@@ -1,3 +1,5 @@
+mod read;
+mod write;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -10,6 +12,7 @@ use crate::{
 };
 
 enum ReadState {
+    Legacy,
     Salt {
         buf: Vec<u8>,
         pos: usize,
@@ -41,15 +44,20 @@ enum ReadState {
 
 pub struct ShadowsocksAeadStream<S> {
     inner: S,
+    legacy_read: Option<crate::shared::legacy::LegacyCipherState>,
+    legacy_write: Option<crate::shared::legacy::LegacyCipherState>,
+    replay: crate::shared::legacy_replay::LegacyReplay,
+    legacy_response_salt: Option<Vec<u8>>,
+    modern_response_salt: Option<Vec<u8>>,
     cipher: CipherKind,
     read_key: Option<Vec<u8>>,
     read_password: Option<Vec<u8>>,
-    read_nonce: u64,
+    read_nonce: u128,
     read_state: ReadState,
     read_plain: Vec<u8>,
     read_plain_pos: usize,
     write_key: Vec<u8>,
-    write_nonce: u64,
+    write_nonce: u128,
     write_buf: Vec<u8>,
     write_pos: usize,
     /// True for 2022 edition streams.
@@ -64,12 +72,20 @@ pub struct ShadowsocksAeadStream<S> {
 }
 
 impl<S> ShadowsocksAeadStream<S> {
+    pub(crate) fn with_replay_guard(
+        mut self,
+        replay: crate::shared::legacy_replay::LegacyReplay,
+    ) -> Self {
+        self.replay = replay;
+        self
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn inbound(
         inner: S,
         cipher: CipherKind,
         upload_key: Vec<u8>,
-        next_upload_nonce: u64,
+        next_upload_nonce: u128,
         download_key: Vec<u8>,
         response_salt: Vec<u8>,
         remaining_payload: Vec<u8>,
@@ -88,6 +104,11 @@ impl<S> ShadowsocksAeadStream<S> {
         };
         Self {
             inner,
+            legacy_read: None,
+            legacy_write: None,
+            replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+            legacy_response_salt: None,
+            modern_response_salt: None,
             cipher,
             read_key: Some(upload_key),
             read_password: None,
@@ -114,6 +135,11 @@ impl<S> ShadowsocksAeadStream<S> {
         let is_2022 = cipher.is_blake3();
         Self {
             inner,
+            legacy_read: None,
+            legacy_write: session.legacy,
+            replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+            legacy_response_salt: None,
+            modern_response_salt: None,
             cipher,
             read_key: None,
             read_password: Some(password),
@@ -162,14 +188,28 @@ impl ShadowsocksAccept {
     ///
     /// This is primarily useful for deterministic protocol tests.
     pub fn into_aead_stream_with_response_salt<S>(
-        self,
+        mut self,
         inner: S,
         password: &[u8],
         response_salt: Vec<u8>,
     ) -> Result<ShadowsocksAeadStream<S>, zero_core::Error> {
-        let download_key = derive_download_key(self.cipher, password, &response_salt)?;
+        let legacy_read = self.legacy.take();
+        let legacy_write = if self.cipher.is_stream() {
+            Some(crate::shared::legacy::LegacyCipherState::new(
+                self.cipher,
+                password,
+                &response_salt,
+            )?)
+        } else {
+            None
+        };
+        let download_key = if self.cipher.is_stream() {
+            vec![]
+        } else {
+            derive_download_key(self.cipher, password, &response_salt)?
+        };
         let is_2022 = self.cipher.is_blake3();
-        Ok(ShadowsocksAeadStream::inbound(
+        let mut stream = ShadowsocksAeadStream::inbound(
             inner,
             self.cipher,
             self.session_key,
@@ -179,308 +219,13 @@ impl ShadowsocksAccept {
             self.remaining_payload,
             is_2022,
             self.request_salt,
-        ))
-    }
-}
-
-impl<S> ShadowsocksAeadStream<S>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    fn serve_read_plain(&mut self, buf: &mut ReadBuf<'_>) -> bool {
-        if self.read_plain_pos >= self.read_plain.len() {
-            self.read_plain.clear();
-            self.read_plain_pos = 0;
-            return false;
+        );
+        if legacy_read.is_some() {
+            stream.read_state = ReadState::Legacy;
         }
-
-        let available = &self.read_plain[self.read_plain_pos..];
-        let n = available.len().min(buf.remaining());
-        buf.put_slice(&available[..n]);
-        self.read_plain_pos += n;
-        true
-    }
-
-    fn poll_read_decrypted(
-        &mut self,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        if buf.remaining() == 0 || self.serve_read_plain(buf) {
-            return Poll::Ready(Ok(()));
-        }
-
-        loop {
-            match &mut self.read_state {
-                ReadState::Salt { buf: salt, pos } => {
-                    match poll_fill(&mut self.inner, cx, salt, pos, false)? {
-                        Poll::Pending => return Poll::Pending,
-                        Poll::Ready(()) => {
-                            let password = self.read_password.take().ok_or_else(|| {
-                                io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "shadowsocks read password missing",
-                                )
-                            })?;
-                            self.read_key =
-                                Some(derive_download_key(self.cipher, &password, salt).map_err(
-                                    |error| io::Error::new(io::ErrorKind::InvalidData, error),
-                                )?);
-                            if self.is_2022 {
-                                // 2022 response: read the fixed-length header
-                                // chunk next (carries request salt + first
-                                // payload length).
-                                let header_len =
-                                    crate::shared::ss_2022_response_header_plain_len(salt.len())
-                                        + self.cipher.tag_len();
-                                self.read_state = ReadState::ResponseHeader2022 {
-                                    buf: vec![0_u8; header_len],
-                                    pos: 0,
-                                };
-                            } else {
-                                self.read_state = ReadState::Length {
-                                    buf: vec![0_u8; TCP_CHUNK_SIZE_LEN + self.cipher.tag_len()],
-                                    pos: 0,
-                                };
-                            }
-                        }
-                    }
-                }
-                ReadState::ResponseHeader2022 { buf, pos } => {
-                    match poll_fill(&mut self.inner, cx, buf, pos, false)? {
-                        Poll::Pending => return Poll::Pending,
-                        Poll::Ready(()) => {
-                            let key = self.read_key.as_ref().ok_or_else(|| {
-                                io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "shadowsocks read key missing",
-                                )
-                            })?;
-                            let header_plain = crate::shared::decrypt_tcp_2022_single_chunk(
-                                self.cipher,
-                                key,
-                                &mut self.read_nonce,
-                                buf,
-                            )
-                            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-                            let salt_len = self.cipher.salt_len();
-                            let (header_type, timestamp, resp_request_salt, length) =
-                                crate::shared::parse_2022_response_fixed_header(
-                                    &header_plain,
-                                    salt_len,
-                                )
-                                .map_err(|error| {
-                                    io::Error::new(io::ErrorKind::InvalidData, error)
-                                })?;
-                            if header_type != crate::shared::SS_2022_HEADER_TYPE_SERVER_STREAM {
-                                return Poll::Ready(Err(io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "ss: 2022 response header bad type",
-                                )));
-                            }
-                            #[cfg(feature = "blake3")]
-                            {
-                                crate::shared::validate_2022_timestamp(timestamp).map_err(
-                                    |error| io::Error::new(io::ErrorKind::InvalidData, error),
-                                )?;
-                            }
-                            // SIP022 3.1.3: the client MUST verify the echoed request salt.
-                            if resp_request_salt != self.request_salt {
-                                return Poll::Ready(Err(io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "ss: 2022 response request salt mismatch",
-                                )));
-                            }
-                            self.read_state = ReadState::FirstPayload2022 {
-                                expected_len: length as usize,
-                                buf: vec![0_u8; length as usize + self.cipher.tag_len()],
-                                pos: 0,
-                            };
-                        }
-                    }
-                }
-                ReadState::FirstPayload2022 {
-                    expected_len,
-                    buf: encrypted,
-                    pos,
-                } => match poll_fill(&mut self.inner, cx, encrypted, pos, false)? {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(()) => {
-                        let key = self.read_key.as_ref().ok_or_else(|| {
-                            io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "shadowsocks read key missing",
-                            )
-                        })?;
-                        self.read_plain = crate::shared::decrypt_tcp_2022_single_chunk(
-                            self.cipher,
-                            key,
-                            &mut self.read_nonce,
-                            encrypted,
-                        )
-                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-                        if self.read_plain.len() != *expected_len {
-                            return Poll::Ready(Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "ss: 2022 first payload length mismatch",
-                            )));
-                        }
-                        self.read_plain_pos = 0;
-                        self.read_state = ReadState::Length {
-                            buf: vec![0_u8; TCP_CHUNK_SIZE_LEN + self.cipher.tag_len()],
-                            pos: 0,
-                        };
-                        if self.serve_read_plain(buf) {
-                            return Poll::Ready(Ok(()));
-                        }
-                    }
-                },
-                ReadState::Length {
-                    buf: encrypted_len,
-                    pos,
-                } => match poll_fill(&mut self.inner, cx, encrypted_len, pos, true)? {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(()) => {
-                        if encrypted_len.is_empty() {
-                            self.read_state = ReadState::Eof;
-                            return Poll::Ready(Ok(()));
-                        }
-                        let key = self.read_key.as_ref().ok_or_else(|| {
-                            io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "shadowsocks read key missing",
-                            )
-                        })?;
-                        let expected_len = decrypt_tcp_chunk_length(
-                            self.cipher,
-                            key,
-                            &mut self.read_nonce,
-                            encrypted_len,
-                        )
-                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-                        self.read_state = ReadState::Payload {
-                            expected_len,
-                            buf: vec![0_u8; expected_len + self.cipher.tag_len()],
-                            pos: 0,
-                        };
-                    }
-                },
-                ReadState::Payload {
-                    expected_len,
-                    buf: encrypted_payload,
-                    pos,
-                } => match poll_fill(&mut self.inner, cx, encrypted_payload, pos, false)? {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(()) => {
-                        let key = self.read_key.as_ref().ok_or_else(|| {
-                            io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "shadowsocks read key missing",
-                            )
-                        })?;
-                        self.read_plain = decrypt_tcp_chunk_payload(
-                            self.cipher,
-                            key,
-                            &mut self.read_nonce,
-                            *expected_len,
-                            encrypted_payload,
-                        )
-                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-                        self.read_plain_pos = 0;
-                        self.read_state = ReadState::Length {
-                            buf: vec![0_u8; TCP_CHUNK_SIZE_LEN + self.cipher.tag_len()],
-                            pos: 0,
-                        };
-                        if self.serve_read_plain(buf) {
-                            return Poll::Ready(Ok(()));
-                        }
-                    }
-                },
-                ReadState::Eof => return Poll::Ready(Ok(())),
-            }
-        }
-    }
-
-    fn poll_flush_pending(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        while self.write_pos < self.write_buf.len() {
-            match Pin::new(&mut self.inner).poll_write(cx, &self.write_buf[self.write_pos..]) {
-                Poll::Ready(Ok(0)) => {
-                    return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "shadowsocks write zero",
-                    )));
-                }
-                Poll::Ready(Ok(n)) => self.write_pos += n,
-                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-                Poll::Pending => return Poll::Pending,
-            }
-        }
-        self.write_buf.clear();
-        self.write_pos = 0;
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_write_encrypted(
-        &mut self,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        match self.poll_flush_pending(cx) {
-            Poll::Ready(Ok(())) => {}
-            Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-            Poll::Pending => return Poll::Pending,
-        }
-
-        if buf.is_empty() {
-            return Poll::Ready(Ok(0));
-        }
-
-        let n = buf.len().min(crate::shared::MAX_TCP_PAYLOAD_SIZE);
-
-        // 2022 inbound: the first write emits the response salt + the
-        // fixed-length response header chunk (nonce 0, which doubles as the
-        // first length chunk) + the first payload chunk (nonce 1). Body
-        // length+payload pairs continue from nonce 2 via encrypt_tcp_chunk.
-        if self.is_2022 && self.write_response_header_pending {
-            let header_plain = crate::shared::build_2022_response_fixed_header(
-                crate::shared::now_unix_seconds(),
-                &self.request_salt,
-                n as u16,
-            )
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-            let enc_header = crate::shared::encrypt_tcp_2022_single_chunk(
-                self.cipher,
-                &self.write_key,
-                &mut self.write_nonce,
-                &header_plain,
-            )
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-            let enc_payload = crate::shared::encrypt_tcp_2022_single_chunk(
-                self.cipher,
-                &self.write_key,
-                &mut self.write_nonce,
-                &buf[..n],
-            )
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-
-            self.write_buf.clear();
-            self.write_buf.extend_from_slice(&self.response_salt);
-            self.write_buf.extend_from_slice(&enc_header);
-            self.write_buf.extend_from_slice(&enc_payload);
-            self.write_pos = 0;
-            self.write_response_header_pending = false;
-            return Poll::Ready(Ok(n));
-        }
-
-        self.write_buf = encrypt_tcp_chunk(
-            self.cipher,
-            &self.write_key,
-            &mut self.write_nonce,
-            &buf[..n],
-        )
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        self.write_pos = 0;
-        Poll::Ready(Ok(n))
+        stream.legacy_read = legacy_read;
+        stream.legacy_write = legacy_write;
+        Ok(stream)
     }
 }
 
@@ -524,35 +269,4 @@ where
             other => other,
         }
     }
-}
-
-fn poll_fill<S>(
-    inner: &mut S,
-    cx: &mut Context<'_>,
-    buf: &mut Vec<u8>,
-    pos: &mut usize,
-    allow_clean_eof: bool,
-) -> io::Result<Poll<()>>
-where
-    S: AsyncRead + Unpin,
-{
-    while *pos < buf.len() {
-        let mut read_buf = ReadBuf::new(&mut buf[*pos..]);
-        match Pin::new(&mut *inner).poll_read(cx, &mut read_buf) {
-            Poll::Ready(Ok(())) if read_buf.filled().is_empty() => {
-                if allow_clean_eof && *pos == 0 {
-                    buf.clear();
-                    return Ok(Poll::Ready(()));
-                }
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "shadowsocks unexpected EOF",
-                ));
-            }
-            Poll::Ready(Ok(())) => *pos += read_buf.filled().len(),
-            Poll::Ready(Err(error)) => return Err(error),
-            Poll::Pending => return Ok(Poll::Pending),
-        }
-    }
-    Ok(Poll::Ready(()))
 }

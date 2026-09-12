@@ -11,10 +11,12 @@ use crate::transport::{MeteredStream, TcpRelayStream};
 pub(super) fn prepare(
     listen_address: String,
     listen_port: u16,
-    bindings: ShadowsocksInboundBindings,
+    mut bindings: ShadowsocksInboundBindings,
 ) -> Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation> {
+    let carrier = bindings.take_carrier_plan();
     let (acceptor, udp_relay) = bindings.into_parts();
     Box::new(TcpAndDatagramInboundListenerOperation {
+        carrier,
         protocol_name: "shadowsocks",
         error_protocol_name: "shadowsocks",
         listen_address,

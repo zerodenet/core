@@ -1111,7 +1111,7 @@ fn shadowsocks_password_for_cipher(cipher: &str) -> &'static str {
 }
 
 #[test]
-fn rejects_invalid_shadowsocks_cipher_and_empty_outbound_password() {
+fn rejects_invalid_shadowsocks_cipher_and_accepts_reference_empty_v1_password() {
     let cipher_error = RuntimeConfig::parse(
         r#"{
             "inbounds": [
@@ -1138,7 +1138,7 @@ fn rejects_invalid_shadowsocks_cipher_and_empty_outbound_password() {
         zero_config::ConfigError::InvalidInbound(_)
     ));
 
-    let password_error = RuntimeConfig::parse(
+    RuntimeConfig::parse(
         r#"{
             "outbounds": [
                 {
@@ -1157,12 +1157,7 @@ fn rejects_invalid_shadowsocks_cipher_and_empty_outbound_password() {
             }
         }"#,
     )
-    .expect_err("empty shadowsocks outbound password should fail");
-
-    assert!(matches!(
-        password_error,
-        zero_config::ConfigError::InvalidOutbound(_)
-    ));
+    .expect("empty v1 passwords are valid reference credentials");
 }
 
 #[test]

@@ -292,6 +292,15 @@ where
         None
     }
 
+    /// Shared, per-packet-authenticated listeners survive one flow's cancellation.
+    fn shared_listener(&self) -> bool {
+        false
+    }
+
+    fn client_addr(&self) -> Option<core::net::SocketAddr> {
+        None
+    }
+
     fn on_dispatch_success(&mut self, _session_id: u64, _dispatch: &InboundUdpDispatch) {}
 
     async fn write_response_for_session(

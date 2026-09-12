@@ -149,6 +149,18 @@ pub(super) fn validate_inbound_protocol(
             cipher,
             ..
         } => {
+            if let InboundProtocolConfig::Shadowsocks {
+                plugin: Some(plugin),
+                ..
+            } = protocol
+            {
+                plugin.validate().map_err(ConfigError::InvalidInbound)?;
+            }
+            if let InboundProtocolConfig::Shadowsocks { state_limits, .. } = protocol {
+                state_limits
+                    .validate()
+                    .map_err(ConfigError::InvalidInbound)?;
+            }
             validate_shadowsocks_cipher("inbound", cipher)?;
             validate_shadowsocks_users(password, identity_password.as_deref(), users, cipher)
         }
@@ -367,9 +379,21 @@ pub(super) fn validate_outbound_protocol(
             port,
             password,
             cipher,
+            ..
         } => {
+            if let OutboundProtocolConfig::Shadowsocks {
+                plugin: Some(plugin),
+                ..
+            } = protocol
+            {
+                plugin.validate().map_err(ConfigError::InvalidOutbound)?;
+            }
+            if let OutboundProtocolConfig::Shadowsocks { state_limits, .. } = protocol {
+                state_limits
+                    .validate()
+                    .map_err(ConfigError::InvalidOutbound)?;
+            }
             validate_outbound_endpoint("shadowsocks", server, *port)?;
-            validate_outbound_optional_non_empty("shadowsocks password", password)?;
             validate_shadowsocks_cipher("outbound", cipher)?;
             validate_shadowsocks_password("outbound", cipher, password)?;
             Ok(())
@@ -628,96 +652,15 @@ fn validate_shadowsocks_users(
     users: &[ShadowsocksUserConfig],
     cipher: &str,
 ) -> Result<(), ConfigError> {
-    if users.is_empty() {
-        if let Some(identity_password) = identity_password {
-            if !legacy_password.is_empty() {
-                return Err(ConfigError::InvalidInbound(
-                    "`shadowsocks` inbound cannot configure both `password` and `identity_password`"
-                        .to_owned(),
-                ));
-            }
-            validate_inbound_optional_non_empty(
-                "shadowsocks identity_password",
-                identity_password,
-            )?;
-            if identity_password.contains(':') {
-                return Err(ConfigError::InvalidInbound(
-                    "`shadowsocks.identity_password` must contain exactly one 2022 PSK".to_owned(),
-                ));
-            }
-            if !cipher.starts_with("2022-blake3-aes-") {
-                return Err(ConfigError::InvalidInbound(
-                    "`shadowsocks.identity_password` requires a 2022 AES cipher".to_owned(),
-                ));
-            }
-            validate_shadowsocks_password("inbound identity", cipher, identity_password)?;
-        }
-        return if legacy_password.is_empty() || identity_password.is_some() {
-            Ok(())
-        } else {
-            validate_inbound_optional_non_empty("shadowsocks password", legacy_password)?;
-            if cipher.starts_with("2022-") && legacy_password.contains(':') {
-                return Err(ConfigError::InvalidInbound(
-                    "`shadowsocks` inbound single-user password must contain exactly one 2022 PSK"
-                        .to_owned(),
-                ));
-            }
-            validate_shadowsocks_password("inbound", cipher, legacy_password)
-        };
-    }
-    if cipher.starts_with("2022-") {
-        if cipher == "2022-blake3-chacha20-poly1305" {
-            return Err(ConfigError::InvalidInbound(
-                "`shadowsocks` SIP023 EIH multi-user mode requires a 2022 AES cipher".to_owned(),
-            ));
-        }
-        if !legacy_password.is_empty() {
-            return Err(ConfigError::InvalidInbound(
-                "`shadowsocks` 2022 managed inbound uses `identity_password`; legacy `password` must be empty"
-                    .to_owned(),
-            ));
-        }
-        let Some(identity_password) = identity_password else {
-            return Err(ConfigError::InvalidInbound(
-                "`shadowsocks` 2022 multi-user inbound requires `identity_password` as the SIP023 server identity PSK"
-                    .to_owned(),
-            ));
-        };
-        validate_inbound_optional_non_empty("shadowsocks identity_password", identity_password)?;
-        if identity_password.contains(':') {
-            return Err(ConfigError::InvalidInbound(
-                "`shadowsocks.identity_password` must contain exactly one 2022 PSK".to_owned(),
-            ));
-        }
-        validate_shadowsocks_password("inbound identity", cipher, identity_password)?;
-    } else if !legacy_password.is_empty() {
-        return Err(ConfigError::InvalidInbound(
-            "`shadowsocks` legacy AEAD inbound cannot configure both `password` and `users`"
-                .to_owned(),
-        ));
-    }
-
-    let mut passwords = HashSet::new();
+    shadowsocks::validation::validate_inbound_users(
+        cipher,
+        legacy_password,
+        identity_password,
+        users.iter().map(|user| user.password.as_str()),
+    )
+    .map_err(ConfigError::InvalidInbound)?;
     let mut principals = HashSet::new();
     for user in users {
-        validate_inbound_optional_non_empty("shadowsocks user password", &user.password)?;
-        if cipher.starts_with("2022-") && user.password.contains(':') {
-            return Err(ConfigError::InvalidInbound(
-                "`shadowsocks` managed user password must contain exactly one 2022 uPSK".to_owned(),
-            ));
-        }
-        validate_shadowsocks_password("inbound", cipher, &user.password)?;
-        if identity_password.is_some_and(|identity| identity == user.password) {
-            return Err(ConfigError::InvalidInbound(
-                "`shadowsocks` SIP023 server identity PSK must differ from every user PSK"
-                    .to_owned(),
-            ));
-        }
-        if !passwords.insert(user.password.as_str()) {
-            return Err(ConfigError::InvalidInbound(
-                "`shadowsocks` inbound contains duplicate user password".to_owned(),
-            ));
-        }
         if let Some(principal_key) = user.principal_key.as_deref() {
             validate_inbound_optional_non_empty("shadowsocks principal_key", principal_key)?;
             if !principals.insert(principal_key) {
@@ -974,27 +917,15 @@ fn normalize_uuid_key(value: &str) -> String {
 }
 
 fn validate_shadowsocks_cipher(kind: &'static str, cipher: &str) -> Result<(), ConfigError> {
-    const VALID_CIPHERS: &[&str] = &[
-        "aes-128-gcm",
-        "aes-256-gcm",
-        "chacha20-ietf-poly1305",
-        "2022-blake3-aes-128-gcm",
-        "2022-blake3-aes-256-gcm",
-        "2022-blake3-chacha20-poly1305",
-    ];
-    if shadowsocks::validation::validate_cipher(cipher).is_err() {
-        return Err(match kind {
-            "inbound" => ConfigError::InvalidInbound(format!(
-                "`shadowsocks` {kind} cipher `{cipher}` is not valid; expected one of: {}",
-                VALID_CIPHERS.join(", ")
-            )),
-            _ => ConfigError::InvalidOutbound(format!(
-                "`shadowsocks` {kind} cipher `{cipher}` is not valid; expected one of: {}",
-                VALID_CIPHERS.join(", ")
-            )),
-        });
-    }
-    Ok(())
+    shadowsocks::validation::validate_cipher(cipher)
+        .map(|_| ())
+        .map_err(|error| {
+            let message = format!("`shadowsocks` {kind} cipher is not valid: {error}");
+            match kind {
+                "inbound" => ConfigError::InvalidInbound(message),
+                _ => ConfigError::InvalidOutbound(message),
+            }
+        })
 }
 
 fn validate_optional_positive(name: &str, value: Option<u64>) -> Result<(), ConfigError> {

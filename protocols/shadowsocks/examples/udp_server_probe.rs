@@ -37,10 +37,7 @@ fn main() {
     query.extend_from_slice(b"\x07example\x03com\x00");
     query.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
 
-    let client_codec = ShadowsocksDatagramCodec {
-        cipher,
-        password: password.to_vec(),
-    };
+    let client_codec = ShadowsocksDatagramCodec::new(cipher, password);
     let packet = client_codec
         .encode(&dns_server, 53, &query)
         .expect("encode");

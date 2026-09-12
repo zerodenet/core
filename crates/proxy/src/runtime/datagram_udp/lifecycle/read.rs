@@ -24,7 +24,7 @@ where
     let auth = context.auth.or_else(|| responder.auth());
     match context
         .runtime
-        .dispatch_inbound_packet(dispatch, &inbound_dispatch, auth, None)
+        .dispatch_inbound_packet(dispatch, &inbound_dispatch, auth, responder.client_addr())
         .await
     {
         Ok(session_id) => responder.on_dispatch_success(session_id, &inbound_dispatch),

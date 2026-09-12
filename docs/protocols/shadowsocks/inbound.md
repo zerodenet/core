@@ -1,65 +1,18 @@
-# Shadowsocks Inbound
+# Shadowsocks TCP 入站
 
-对应 `protocols/shadowsocks/src/inbound.rs` — `ShadowsocksInbound`、`ShadowsocksAccept`。
+`inbound.rs` 是入口 facade，握手、profile、授权索引、热更新与 acceptor
+分布在 `inbound/`。UDP 入口和状态位于 `udp/inbound/`。
 
-## ShadowsocksInbound
+`ShadowsocksInboundTcpAcceptor` 接受 carrier socket，验证协议身份并返回
+中立 `Session` 和协议拥有的 `ShadowsocksAeadStream`。Session 携带原生
+principal/限速/额度策略；proxy runtime 再执行路由、取消和计量。
 
-实现 `InboundProtocol` trait，接入 `serve_inbound()` 统一管线。
+v1 支持 plain、单用户流密码和 AEAD；AEAD 的目标地址可跨多个认证 chunk。
+2022 按 SIP022 接收固定头与可变头，固定前缀保持探测边界，可变头允许续读。
+失败路径共用一次 2 秒、1 MiB 上限的 drain。AES EIH 按 SIP023 解密身份头并
+使用索引选择 uPSK，随后验证头、时间戳和 salt 重放。响应绑定本次请求 salt。
 
-TCP 入站流程：
-
-1. 读取 salt（salt 长度由 cipher 决定）
-2. 派生 session key (HKDF-SHA1 for AEAD, Blake3 for AEAD 2022)
-3. 用 session key 解密首 chunk 中的 address
-4. 验证 cipher/password 匹配（错误密码 → 连接关闭）
-5. 返回 `ShadowsocksAccept { session, remaining_payload, session_key, cipher, next_upload_nonce, request_salt }`
-
-UDP 入站通过 `UdpPipe` 接入 dispatch 管线。
-
-## ShadowsocksAccept
-
-```rust
-#[cfg(feature = "crypto")]
-pub struct ShadowsocksAccept {
-    pub session: Session,
-    /// 首 chunk 解密后的剩余数据，直接进入 relay 而非丢弃
-    pub remaining_payload: Vec<u8>,
-    /// 用于后续 AEAD 操作的派生 session key
-    pub session_key: Vec<u8>,
-    /// 后续 chunk 的 cipher kind
-    pub cipher: CipherKind,
-    /// 用于解密首 chunk 之后的 client-to-server chunk 的 nonce counter
-    pub next_upload_nonce: u64,
-    /// 2022 edition: 客户端请求 salt，回填到服务器响应固定头中；legacy AEAD 为空
-    pub request_salt: Vec<u8>,
-}
-```
-
-零拷贝入口：`remaining_payload` 保存了解密首 chunk 后未被 address 解析消费的数据，这些数据直接进入 relay 阶段，避免额外拷贝。
-
-`ShadowsocksAccept` 提供两个方法构造 `ShadowsocksAeadStream`：
-
-- `accept.into_aead_stream(stream, password)` — 自动生成 response salt 并派生 download key
-- `accept.into_aead_stream_with_response_salt(stream, password, response_salt)` — 使用指定的 response salt
-
-## Inbound 配置示例
-
-```json
-{
-  "tag": "ss-in",
-  "listen": { "address": "0.0.0.0", "port": 8388 },
-  "protocol": {
-    "type": "shadowsocks",
-    "password": "your-secret-password",
-    "cipher": "chacha20-ietf-poly1305"
-  }
-}
-```
-
-- `password`: 常规 AEAD 使用明文密码，AEAD 2022 使用 base64 编码的密钥材料
-- `cipher`: 可选，见 [shared.md](shared.md) 支持的 cipher 列表
-- `idle_timeout_secs`: 可选，空闲超时秒数（内核默认 300s）
-
-## Per-user Rate Limits
-
-通过 `Session::apply_auth()` 注入 `SessionAuth`，携带 per-user `up_bps`/`down_bps`。在 `accept()` 阶段应用到 session。
+`ShadowsocksInboundProfileStore` 原子替换用户快照，已有 listener 消费更新；
+静态 iPSK 与动态 uPSK 分开。用户删除同时清理其 UDP 状态，不能终止共享 listener。
+协议私有配置验证和密码规则见 [configuration.md](configuration.md)。
+实现矩阵与固定版本互通证据见 [parity.md](parity.md)。
