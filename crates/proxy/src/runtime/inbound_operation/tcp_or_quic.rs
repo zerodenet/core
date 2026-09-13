@@ -11,6 +11,7 @@ pub(crate) struct TcpOrQuicInboundListenerOperation<R, TD, QD> {
     pub(crate) protocol_name: &'static str,
     pub(crate) error_protocol_name: &'static str,
     pub(crate) request: R,
+    pub(crate) accept_proxy_protocol: bool,
     pub(crate) dispatch_tcp: TD,
     pub(crate) dispatch_quic: QD,
 }
@@ -43,6 +44,7 @@ where
                 protocol_name,
                 error_protocol_name,
                 request,
+                accept_proxy_protocol,
                 dispatch_tcp,
                 dispatch_quic,
             } = *self;
@@ -73,6 +75,12 @@ where
                             dispatch: move |runtime, request, socket| {
                                 let dispatch = dispatch_tcp.clone();
                                 async move {
+                                    let (socket, runtime) = super::prelude::prepare_socket(
+                                        socket,
+                                        runtime,
+                                        accept_proxy_protocol,
+                                    )
+                                    .await?;
                                     dispatch(
                                         request,
                                         socket,

@@ -45,6 +45,10 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     });
     #[cfg(feature = "vless")]
     configs.push(InboundProtocolConfig::Vless {
+        mkcp: None,
+        hysteria: None,
+        final_mask: None,
+        decryption: None,
         users: Vec::new(),
         mux_response_backlog_frames: None,
         mux_response_backlog_bytes: None,
@@ -173,10 +177,18 @@ pub(super) fn compiled_in_outbound_leaves(
         config_with_outbound(
             "vless",
             OutboundProtocolConfig::Vless {
+                mkcp: None,
+                hysteria: None,
+                final_mask: None,
+                reverse_tag: None,
+                reverse_sniffing: None,
+                encryption: None,
                 server: "127.0.0.1".to_owned(),
                 port: 443,
                 id: "00000000-0000-0000-0000-000000000000".to_owned(),
                 flow: None,
+                testpre: 0,
+                testseed: Vec::new(),
                 mux_concurrency: None,
                 xudp_concurrency: None,
                 mux_idle_timeout_secs: None,

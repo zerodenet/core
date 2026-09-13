@@ -9,6 +9,10 @@ use super::contract::KernelPipe;
 /// Input for one UDP packet dispatch within an inbound UDP association.
 pub(crate) struct UdpPipeInput<'a> {
     pub(crate) target: Address,
+    pub(crate) route_target: Option<Address>,
+    pub(crate) sniffed_original_target: Option<Address>,
+    pub(crate) sniffed_host_source: Option<TargetHostSource>,
+    pub(crate) skip_fake_ip_restore: bool,
     pub(crate) port: u16,
     pub(crate) payload: &'a [u8],
     pub(crate) protocol: ProtocolType,
@@ -55,6 +59,10 @@ impl<'a> UdpPipeInput<'a> {
     ) -> Self {
         Self {
             target: dispatch.target().clone(),
+            route_target: dispatch.route_target().cloned(),
+            sniffed_original_target: dispatch.sniffed_original_target().cloned(),
+            sniffed_host_source: dispatch.sniffed_host_source(),
+            skip_fake_ip_restore: dispatch.skip_fake_ip_restore(),
             port: dispatch.port(),
             payload: dispatch.payload(),
             protocol: dispatch.protocol(),

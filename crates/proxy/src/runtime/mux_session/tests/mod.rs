@@ -41,7 +41,7 @@ async fn principal_cancellation_ends_mux_carrier_and_aborts_substreams() {
 
     run_mux_session_loop(
         MuxSessionLoop {
-            inbound_tag: "vmess-in",
+            inbound_tag: "vmess-in".to_owned(),
             protocol: "vmess_mux",
             panic_message: "mux substream panicked",
             abort_on_end: true,

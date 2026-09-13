@@ -19,6 +19,7 @@ use zero_transport::split_http::{
 /// Build a config with the given host/path and `auto` mode.
 fn cfg(host: &str, path: &str) -> OwnedSplitHttpProfile {
     OwnedSplitHttpProfile {
+        options: Default::default(),
         host: Some(host.to_string()),
         path: path.to_string(),
         mode: "auto".to_string(),
@@ -53,7 +54,7 @@ async fn stream_one_decodes_multi_chunk_download() {
         let req = read_headers(&mut server).await;
         let req = String::from_utf8(req).unwrap();
         assert!(
-            req.starts_with("POST /up HTTP/1.1\r\n"),
+            req.starts_with("POST /up/ HTTP/1.1\r\n"),
             "bad request line: {req}"
         );
         assert!(
@@ -66,10 +67,10 @@ async fn stream_one_decodes_multi_chunk_download() {
         );
         let referer = req
             .lines()
-            .find_map(|line| line.strip_prefix("Referer: "))
+            .find_map(|line| line.strip_prefix("referer: "))
             .expect("missing XHTTP padding referer");
         let padding = referer
-            .strip_prefix("https://example.com/up?x_padding=")
+            .strip_prefix("https://example.com/up/?x_padding=")
             .expect("unexpected padding referer");
         assert!(
             (100..=1000).contains(&padding.len()),
@@ -242,12 +243,11 @@ async fn stream_one_handles_pipelined_response_header_and_body() {
 #[tokio::test]
 async fn two_connection_decodes_multi_chunk_download() {
     // POST socket (upload) and GET socket (download) are independent.
-    let (client_post, mut server_post) = duplex(8192);
+    let (client_post, _server_post) = duplex(8192);
     let (client_get, mut server_get) = duplex(8192);
 
     let server_task = tokio::spawn(async move {
         // Consume POST and GET request headers.
-        let _post_req = read_headers(&mut server_post).await;
         let _get_req = read_headers(&mut server_get).await;
 
         // Respond 200 with a chunked body in THREE data chunks.

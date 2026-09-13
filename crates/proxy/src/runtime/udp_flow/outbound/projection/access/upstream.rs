@@ -16,7 +16,7 @@ impl UdpFlowOutbound {
             #[cfg(feature = "managed-datagram-runtime")]
             Self::Datagram { .. } => None,
             #[cfg(feature = "managed-stream-runtime")]
-            Self::StreamPacket { .. } => None,
+            Self::StreamPacket { .. } | Self::LogicalStreamPacket { .. } => None,
         }
     }
 
@@ -41,6 +41,8 @@ impl UdpFlowOutbound {
                 server,
                 port: *port,
             }),
+            #[cfg(feature = "managed-stream-runtime")]
+            Self::LogicalStreamPacket { .. } => None,
             #[cfg(feature = "managed-stream-runtime")]
             Self::StreamPacket { server, port, .. } => Some(UdpFlowUpstream {
                 server,

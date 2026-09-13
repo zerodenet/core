@@ -16,8 +16,9 @@ pub(crate) async fn run_protocol_mux_udp_task<R>(
         runtime.udp_runtime(),
         runtime.mux_udp_continuity(),
         relay,
-        runtime.inbound_tag(),
+        runtime.inbound_tag().to_owned(),
         protocol,
+        None,
     )
     .await;
 }
@@ -42,8 +43,29 @@ pub(crate) async fn run_protocol_mux_udp_task_with_accept_log<R>(
         runtime.udp_runtime(),
         runtime.mux_udp_continuity(),
         relay,
-        runtime.inbound_tag(),
+        runtime.inbound_tag().to_owned(),
         protocol,
+        None,
+    )
+    .await;
+}
+
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) async fn run_protocol_mux_udp_task_with_sniffing<R>(
+    runtime: MuxSubstreamRuntime,
+    relay: R,
+    protocol: &'static str,
+    sniffing: Option<crate::runtime::sniff::SniffingPolicy>,
+) where
+    R: InboundMuxUdpRelay,
+{
+    run_protocol_mux_udp_relay(
+        runtime.udp_runtime(),
+        runtime.mux_udp_continuity(),
+        relay,
+        runtime.inbound_tag().to_owned(),
+        protocol,
+        sniffing,
     )
     .await;
 }

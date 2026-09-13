@@ -68,21 +68,22 @@ pub(crate) async fn route_trace_for_session(
 ) -> RouteTrace {
     let engine = services.engine();
     let snapshot = services.snapshot();
+    let route_target = session.effective_route_target();
     let evaluation = engine.evaluate_route_in_snapshot(
         snapshot,
-        &session.target,
+        route_target,
         session.sni.as_deref(),
         session.inbound_tag.as_deref(),
         &[],
     );
     let mut trace = evaluation.trace;
     if evaluation.needs_resolution {
-        if let Address::Domain(domain) = &session.target {
+        if let Address::Domain(domain) = route_target {
             if let Ok(resolved) = services.resolver().resolve_real(domain).await {
                 let resolved_ips = resolved_route_ips(resolved);
                 trace = engine.route_trace_in_snapshot_with_inbound_and_resolved_ips(
                     snapshot,
-                    &session.target,
+                    route_target,
                     session.sni.as_deref(),
                     session.inbound_tag.as_deref(),
                     &resolved_ips,

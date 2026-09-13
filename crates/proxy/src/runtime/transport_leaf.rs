@@ -4,7 +4,11 @@ use zero_core::Session;
 use zero_transport::StreamTraffic;
 use zero_transport::{RuntimeError, TcpRelayStream};
 
-#[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
+#[cfg(any(
+    feature = "tcp-tunnel-runtime",
+    feature = "tcp-session-runtime",
+    feature = "managed-stream-runtime"
+))]
 use crate::protocol_registry::UpstreamConnectServices;
 
 pub(crate) trait ProxyTransportLeaf {
@@ -60,9 +64,20 @@ pub(crate) trait ProxyTransportTcpLeaf: ProxyTransportLeaf + Send + Sync {
 
     async fn open_tcp_relay_hop(
         &self,
+        _services: UpstreamConnectServices,
         stream: TcpRelayStream,
         session: &Session,
     ) -> Result<TcpRelayStream, RuntimeError>;
+    async fn open_tcp_relay_carrier(
+        &self,
+        services: UpstreamConnectServices,
+        carrier: crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'_>,
+        session: &Session,
+    ) -> Result<TcpRelayStream, zero_engine::EngineError> {
+        self.open_tcp_relay_hop(services, carrier.open().await?, session)
+            .await
+            .map_err(Into::into)
+    }
 }
 
 #[cfg(feature = "managed-stream-runtime")]
@@ -91,9 +106,20 @@ pub(crate) trait ProxyRelayTwoStreamTransportLeaf:
 
     async fn open_relay_two_stream_udp_transport(
         &self,
+        services: UpstreamConnectServices,
         post_stream: TcpRelayStream,
         get_stream: TcpRelayStream,
     ) -> Result<TcpRelayStream, RuntimeError>;
+    fn udp_relay_uses_connector(&self) -> bool {
+        false
+    }
+    async fn open_udp_relay_connector(
+        &self,
+        _services: UpstreamConnectServices,
+        _connector: zero_transport::relay_connector::RelayStreamConnector,
+    ) -> Result<TcpRelayStream, RuntimeError> {
+        Err(zero_core::Error::Unsupported("reusable UDP relay carrier is unsupported").into())
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -146,10 +172,23 @@ where
 
     pub(crate) async fn open_tcp_relay_hop(
         &self,
+        services: UpstreamConnectServices,
         stream: TcpRelayStream,
         session: &Session,
     ) -> Result<TcpRelayStream, RuntimeError> {
-        self.leaf.open_tcp_relay_hop(stream, session).await
+        self.leaf
+            .open_tcp_relay_hop(services, stream, session)
+            .await
+    }
+    pub(crate) async fn open_tcp_relay_carrier(
+        &self,
+        services: UpstreamConnectServices,
+        carrier: crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'_>,
+        session: &Session,
+    ) -> Result<TcpRelayStream, zero_engine::EngineError> {
+        self.leaf
+            .open_tcp_relay_carrier(services, carrier, session)
+            .await
     }
 }
 
@@ -188,11 +227,24 @@ where
 {
     pub(crate) async fn open_relay_two_stream_udp_transport(
         &self,
+        services: UpstreamConnectServices,
         post_stream: TcpRelayStream,
         get_stream: TcpRelayStream,
     ) -> Result<TcpRelayStream, RuntimeError> {
         self.leaf
-            .open_relay_two_stream_udp_transport(post_stream, get_stream)
+            .open_relay_two_stream_udp_transport(services, post_stream, get_stream)
+            .await
+    }
+    pub(crate) fn udp_relay_uses_connector(&self) -> bool {
+        self.leaf.udp_relay_uses_connector()
+    }
+    pub(crate) async fn open_udp_relay_connector(
+        &self,
+        services: UpstreamConnectServices,
+        connector: zero_transport::relay_connector::RelayStreamConnector,
+    ) -> Result<TcpRelayStream, RuntimeError> {
+        self.leaf
+            .open_udp_relay_connector(services, connector)
             .await
     }
 }

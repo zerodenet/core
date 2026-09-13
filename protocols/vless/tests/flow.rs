@@ -47,7 +47,7 @@ fn test_parse_flow_valid() {
 fn test_parse_flow_invalid() {
     assert!(parse_flow("unknown-flow").is_err());
     assert!(parse_flow("").is_err());
-    assert!(parse_flow(FLOW_XTLS_RPRX_VISION_UDP_LEGACY).is_err());
+    assert!(parse_flow(FLOW_XTLS_RPRX_VISION_UDP_LEGACY).is_ok());
 }
 
 #[test]
@@ -90,4 +90,15 @@ fn addons_decoder_skips_unknown_protobuf_fields() {
         decode_addons(&encoded).unwrap(),
         Some(FLOW_XTLS_RPRX_VISION)
     );
+}
+
+#[test]
+fn vision_udp443_suffix_is_local_policy_and_never_sent_on_wire() {
+    assert_eq!(
+        encode_addons(Some(FLOW_XTLS_RPRX_VISION_UDP_LEGACY)).unwrap(),
+        encode_addons(Some(FLOW_XTLS_RPRX_VISION)).unwrap()
+    );
+    let mut invalid = vec![0x0a, FLOW_XTLS_RPRX_VISION_UDP_LEGACY.len() as u8];
+    invalid.extend_from_slice(FLOW_XTLS_RPRX_VISION_UDP_LEGACY.as_bytes());
+    assert!(decode_addons(&invalid).is_err());
 }

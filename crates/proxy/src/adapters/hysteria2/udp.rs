@@ -43,10 +43,11 @@ impl ManagedDatagramResumeConnector for ::hysteria2::transport::Hysteria2Managed
 
     async fn open_connection(
         self,
-        services: crate::protocol_registry::UdpNetworkServices,
+        services: crate::protocol_registry::PacketPathExecutionServices,
         endpoint: crate::runtime::path::OutboundEndpoint,
         initial_packet: crate::runtime::udp_flow::packet_path::UdpPacketRef<'_>,
     ) -> Result<Self::Connection, EngineError> {
+        let services = services.network();
         let sockets = services.outbound_datagram_socket_factory();
         ::hysteria2::transport::establish_hysteria2_udp_flow_connection(
             &endpoint.server,
@@ -165,7 +166,10 @@ impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedHysteria2UdpLeaf {
 }
 
 impl<'a> ClaimedUdpPacketPathLeaf<'a> for ClaimedHysteria2PacketPathLeaf {
-    fn prepare_udp_packet_path(&self) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
+    fn prepare_udp_packet_path(
+        &self,
+        _source_dir: Option<&std::path::Path>,
+    ) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
         Some(Box::new(Hysteria2PacketPathOperation {
             plan: self.plan.clone(),
         }))
@@ -179,7 +183,7 @@ impl PreparedUdpPacketPathOperation for Hysteria2PacketPathOperation {
 
     fn build_carrier<'a>(
         &'a self,
-        services: crate::protocol_registry::UdpNetworkServices,
+        services: crate::protocol_registry::PacketPathExecutionServices,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
@@ -189,6 +193,7 @@ impl PreparedUdpPacketPathOperation for Hysteria2PacketPathOperation {
         >,
     > {
         let plan = self.plan.clone();
+        let services = services.network();
         Box::pin(async move { build_packet_path(services, plan).await })
     }
 }

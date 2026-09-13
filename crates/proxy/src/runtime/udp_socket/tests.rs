@@ -139,6 +139,9 @@ async fn scoped_direct_replies_retain_session_identity_and_retirement_closes_onl
     let mut local = Vec::new();
     for id in [41, 42] {
         sockets.isolate_association(id, id);
+        sockets
+            .response_flows
+            .insert((id, peer.local_addr().unwrap()), id);
         let socket = zero_platform_tokio::TokioDatagramSocket::bind_for_peer_on(
             peer.local_addr().unwrap(),
             None,
@@ -150,7 +153,18 @@ async fn scoped_direct_replies_retain_session_identity_and_retirement_closes_onl
         entry.session_id = Some(id);
         sockets.sockets.push(entry);
     }
+    let stranger = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    stranger
+        .send_to(b"unknown", (std::net::Ipv4Addr::LOCALHOST, local[0]))
+        .await
+        .unwrap();
     let mut buf = [0; 16];
+    assert!(tokio::time::timeout(
+        std::time::Duration::from_millis(50),
+        sockets.recv_from_addr(&mut buf)
+    )
+    .await
+    .is_err());
     for (index, id) in [(1, 42), (0, 41)] {
         peer.send_to(&[id as u8], (std::net::Ipv4Addr::LOCALHOST, local[index]))
             .await

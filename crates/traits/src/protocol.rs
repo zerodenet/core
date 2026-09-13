@@ -31,6 +31,9 @@ pub trait InboundTransport {
 
 /// Neutral client TLS profile consumed by transport openers.
 pub trait ClientTlsProfile {
+    fn tls_options(&self) -> crate::ClientTlsOptions {
+        crate::ClientTlsOptions::default()
+    }
     fn server_name(&self) -> Option<&str>;
 
     fn disable_sni(&self) -> bool;
@@ -46,6 +49,9 @@ pub trait ClientTlsProfile {
 
 /// Neutral server TLS profile consumed by inbound acceptors.
 pub trait ServerTlsProfile {
+    fn tls_options(&self) -> crate::ServerTlsOptions {
+        crate::ServerTlsOptions::default()
+    }
     fn cert_path(&self) -> &str;
 
     fn key_path(&self) -> &str;
@@ -57,6 +63,18 @@ pub trait ServerTlsProfile {
 
 /// Neutral WebSocket transport profile consumed by transport openers.
 pub trait WebSocketTransportProfile {
+    fn browser_dialer(&self) -> Option<BrowserDialerSettings> {
+        None
+    }
+    fn accept_proxy_protocol(&self) -> bool {
+        false
+    }
+    fn heartbeat_period_secs(&self) -> u32 {
+        0
+    }
+    fn host(&self) -> Option<&str> {
+        None
+    }
     fn path(&self) -> &str;
 
     fn header_pairs(&self) -> Vec<(String, String)>;
@@ -65,6 +83,27 @@ pub trait WebSocketTransportProfile {
 /// Neutral gRPC transport profile consumed by transport openers.
 pub trait GrpcTransportProfile {
     fn service_names(&self) -> &[String];
+    fn authority(&self) -> Option<&str> {
+        None
+    }
+    fn multi_mode(&self) -> bool {
+        false
+    }
+    fn idle_timeout_secs(&self) -> u32 {
+        0
+    }
+    fn health_check_timeout_secs(&self) -> u32 {
+        0
+    }
+    fn permit_without_stream(&self) -> bool {
+        false
+    }
+    fn initial_window_size(&self) -> u32 {
+        0
+    }
+    fn user_agent(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Neutral HTTP/2 transport profile consumed by transport openers.
@@ -76,13 +115,26 @@ pub trait H2TransportProfile {
 
 /// Neutral HTTP upgrade transport profile consumed by transport openers.
 pub trait HttpUpgradeTransportProfile {
+    fn accept_proxy_protocol(&self) -> bool {
+        false
+    }
     fn host(&self) -> Option<&str>;
 
     fn path(&self) -> &str;
+
+    fn header_pairs(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
 }
 
 /// Neutral SplitHTTP/XHTTP transport profile consumed by transport openers.
 pub trait SplitHttpTransportProfile {
+    fn browser_dialer(&self) -> Option<BrowserDialerSettings> {
+        None
+    }
+    fn options(&self) -> crate::SplitHttpOptions {
+        crate::SplitHttpOptions::default()
+    }
     fn host(&self) -> Option<&str>;
 
     fn path(&self) -> &str;
@@ -90,8 +142,22 @@ pub trait SplitHttpTransportProfile {
     fn mode(&self) -> &str;
 }
 
+/// Explicit local browser data-channel listener settings. The owning protocol
+/// runtime shares listeners with identical settings and retires them on reload.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BrowserDialerSettings {
+    pub listen: String,
+    pub idle_capacity: u32,
+    pub task_timeout_ms: u64,
+    pub max_task_bytes: u32,
+    pub max_payload_bytes: u32,
+}
+
 /// Neutral inbound fallback target consumed by runtime fallback replay.
 pub trait InboundFallbackProfile {
+    fn rules(&self) -> Vec<crate::FallbackRule> {
+        Vec::new()
+    }
     fn server(&self) -> &str;
 
     fn port(&self) -> u16;

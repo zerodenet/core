@@ -1,7 +1,7 @@
 use zero_config::RuntimeConfig;
 
 #[cfg(feature = "udp-runtime")]
-use super::{UdpNetworkServices, UdpRuntimeServices};
+use super::{PacketPathExecutionServices, UdpRuntimeServices};
 
 #[derive(Clone, Copy)]
 pub(crate) struct OutboundAdapterContext<'a> {
@@ -51,7 +51,7 @@ impl<'a> UdpAdapterContext<'a> {
         self.services.clone()
     }
 
-    pub(crate) fn network_services(&self) -> UdpNetworkServices {
-        self.services.network()
+    pub(crate) fn packet_path_execution_services(&self) -> PacketPathExecutionServices {
+        self.services.packet_path_execution()
     }
 }

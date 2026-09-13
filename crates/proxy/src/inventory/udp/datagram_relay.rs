@@ -1,23 +1,13 @@
-use super::super::ClaimedRelayChain;
 use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier;
 use crate::runtime::udp_dispatch::relay::{PreparedUdpRelayChain, PreparedUdpRelayOperation};
 use crate::runtime::udp_dispatch::FlowFailure;
 
 pub(super) fn prepare<'a>(
-    claimed_chain: &ClaimedRelayChain<'a>,
+    carrier: Option<PreparedDatagramRelayCarrier>,
     operation: Box<dyn PreparedUdpRelayOperation<'a> + 'a>,
 ) -> Result<PreparedUdpRelayChain<'a>, FlowFailure> {
-    if claimed_chain.len() != 2 {
-        return Err(failure(
-            "datagram relay final hop currently requires exactly one packet-path carrier",
-        ));
-    }
-    let carrier_operation = claimed_chain
-        .first()
-        .prepare_udp_packet_path()
-        .ok_or_else(|| failure("relay prefix does not provide a datagram carrier"))?;
-    let carrier = PreparedDatagramRelayCarrier::new(carrier_operation)
-        .ok_or_else(|| failure("relay prefix does not expose datagram carrier identity"))?;
+    let carrier = carrier
+        .ok_or_else(|| failure("relay prefix does not provide a composable datagram carrier"))?;
     Ok(PreparedUdpRelayChain::DatagramFinalHop { carrier, operation })
 }
 

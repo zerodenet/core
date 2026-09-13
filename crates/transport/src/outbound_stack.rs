@@ -114,6 +114,19 @@ where
     TH2: H2TransportProfile + ?Sized,
     THttp: HttpUpgradeTransportProfile + ?Sized,
 {
+    #[cfg(feature = "grpc")]
+    let grpc_authority = stack
+        .tls
+        .and_then(ClientTlsProfile::server_name)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            if let Ok(ip) = _server.parse::<std::net::IpAddr>() {
+                std::net::SocketAddr::new(ip, _port).to_string()
+            } else {
+                _server.to_owned()
+            }
+        });
     let StreamTransportStack {
         ws: ws_config,
         grpc: grpc_config,
@@ -159,7 +172,7 @@ where
         )),
         #[cfg(feature = "grpc")]
         (None, Some(grpc), None) => Ok(TcpRelayStream::new(
-            grpc::connect_grpc(carrier, grpc.service_names()).await?,
+            grpc::connect_grpc_with_profile(carrier, grpc, &grpc_authority).await?,
         )),
         #[cfg(feature = "h2")]
         (None, None, Some(h2_config)) => Ok(TcpRelayStream::new(

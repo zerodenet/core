@@ -52,7 +52,11 @@ pub fn perform_ecdh(
 ) -> Result<[u8; 32], CryptoError> {
     let my_private_key = StaticSecret::from(*private_key);
     let peer_public_key = PublicKey::from(*public_key);
-    Ok(my_private_key.diffie_hellman(&peer_public_key).to_bytes())
+    let shared = my_private_key.diffie_hellman(&peer_public_key);
+    if !shared.was_contributory() {
+        return Err(CryptoError::EcdhFailed);
+    }
+    Ok(shared.to_bytes())
 }
 
 /// Derives authentication key using HKDF-SHA256

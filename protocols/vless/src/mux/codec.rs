@@ -13,7 +13,7 @@ fn checked_u16(value: usize, message: &'static str) -> Result<u16, Error> {
     u16::try_from(value).map_err(|_| Error::Protocol(message))
 }
 
-fn parse_metadata(metadata: &[u8]) -> Result<MuxFrame, Error> {
+fn parse_metadata(metadata: &[u8], reverse_metadata: bool) -> Result<MuxFrame, Error> {
     if metadata.len() < 4 {
         return Err(Error::Protocol("MUX metadata is shorter than 4 bytes"));
     }
@@ -39,9 +39,6 @@ fn parse_metadata(metadata: &[u8]) -> Result<MuxFrame, Error> {
             .ok_or(Error::Protocol("MUX target port is truncated"))?;
         let port = u16::from_be_bytes([port_bytes[0], port_bytes[1]]);
         offset += 2;
-        if port == 0 {
-            return Err(Error::Protocol("MUX target port must not be 0"));
-        }
         let atyp = *metadata
             .get(offset)
             .ok_or(Error::Protocol("MUX target address type is missing"))?;
@@ -55,7 +52,13 @@ fn parse_metadata(metadata: &[u8]) -> Result<MuxFrame, Error> {
         });
     }
 
-    let global_id = if status == STATUS_NEW
+    let origin = if reverse_metadata && status == STATUS_NEW {
+        Some(super::origin::Origin::parse(&metadata[offset..])?)
+    } else {
+        None
+    };
+    let global_id = if !reverse_metadata
+        && status == STATUS_NEW
         && target
             .as_ref()
             .is_some_and(|target| target.network == NETWORK_UDP)
@@ -74,6 +77,7 @@ fn parse_metadata(metadata: &[u8]) -> Result<MuxFrame, Error> {
         options,
         target,
         global_id,
+        origin,
         payload: Vec::new(),
     })
 }
@@ -166,6 +170,16 @@ pub(super) fn encode_new_udp_data_frame(
     global_id: [u8; 8],
     payload: &[u8],
 ) -> Result<Vec<u8>, Error> {
+    encode_new_udp_data_frame_optional(session_id, target, port, Some(global_id), payload)
+}
+
+pub(crate) fn encode_new_udp_data_frame_optional(
+    session_id: u16,
+    target: &Address,
+    port: u16,
+    global_id: Option<[u8; 8]>,
+    payload: &[u8],
+) -> Result<Vec<u8>, Error> {
     encode_frame(
         session_id,
         STATUS_NEW,
@@ -175,7 +189,7 @@ pub(super) fn encode_new_udp_data_frame(
             port,
             address: target.clone(),
         }),
-        Some(global_id),
+        global_id,
         payload,
     )
 }
@@ -228,7 +242,10 @@ where
     Ok(())
 }
 
-pub(super) async fn read_frame<S>(stream: &mut S) -> Result<MuxFrame, Error>
+pub(super) async fn read_frame_mode<S>(
+    stream: &mut S,
+    reverse_metadata: bool,
+) -> Result<MuxFrame, Error>
 where
     S: AsyncSocket,
 {
@@ -240,7 +257,7 @@ where
     }
     let mut metadata = alloc::vec![0_u8; metadata_len];
     read_exact(stream, &mut metadata).await?;
-    let mut frame = parse_metadata(&metadata)?;
+    let mut frame = parse_metadata(&metadata, reverse_metadata)?;
     read_data(stream, &mut frame).await?;
     Ok(frame)
 }
@@ -266,7 +283,7 @@ where
         .read_exact(&mut metadata)
         .await
         .map_err(|_| Error::Io("failed to read MUX metadata"))?;
-    let mut frame = parse_metadata(&metadata)?;
+    let mut frame = parse_metadata(&metadata, false)?;
     if frame.options & OPTION_DATA != 0 {
         let mut data_len = [0_u8; 2];
         reader

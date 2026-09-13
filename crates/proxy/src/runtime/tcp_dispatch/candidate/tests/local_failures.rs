@@ -7,8 +7,8 @@ struct FailsWith(fn() -> EngineError);
 
 impl PreparedTcpConnectOperation for FailsWith {
     fn execute<'a>(
-        self: Box<Self>,
-        _: TcpRuntimeServices,
+        &'a self,
+        _: TcpExecutionServices,
         _: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<EstablishedTcpOutbound, TcpOutboundFailure>> + Send + 'a>>
     where
@@ -53,7 +53,7 @@ async fn local_failures_do_not_block_the_first_connection_after_recovery() {
         for _ in 0..6 {
             let mut candidate = failing_candidate();
             candidate.execution =
-                PreparedTcpCandidateExecution::Connect(Box::new(FailsWith(make_error)));
+                PreparedTcpCandidateExecution::Connect(std::sync::Arc::new(FailsWith(make_error)));
             let failure = dispatch_prepared_tcp_candidate(
                 services.clone(),
                 &session,

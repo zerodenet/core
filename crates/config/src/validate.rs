@@ -5,10 +5,13 @@ use crate::{ConfigError, EventSinkConfig, ModeConfig, RuntimeConfig, RuntimeOpti
 
 mod api;
 mod dns;
+mod fallback;
 mod group;
 mod listeners;
 mod protocol;
+mod reverse;
 mod route;
+mod xhttp;
 
 use api::validate_api;
 use group::validate_group_reference_graph;
@@ -53,6 +56,8 @@ impl RuntimeConfig {
             })?;
             validate_route_target_tag(outbound.tag(), &mut route_target_tags)?;
         }
+
+        reverse::validate(self, &mut inbound_tags)?;
 
         let mut outbound_group_tags = HashSet::new();
         for (i, group) in self.outbound_groups.iter().enumerate() {

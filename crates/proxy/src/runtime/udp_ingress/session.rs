@@ -1,4 +1,4 @@
-use zero_core::Session;
+use zero_core::{Address, Session};
 use zero_engine::{EngineError, SessionHandle};
 use zero_traits::DnsResolver;
 
@@ -15,6 +15,17 @@ impl UdpIngressRuntime {
         session: &mut Session,
         inbound_tag: &str,
     ) -> Result<(), EngineError> {
+        if session.inbound_local.is_none() {
+            session.inbound_local = self.local_addr.map(|addr| {
+                (
+                    match addr.ip() {
+                        std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
+                        std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
+                    },
+                    addr.port(),
+                )
+            });
+        }
         if session.source_ip.is_none() {
             if let Some(source_addr) = self.source_addr {
                 session.source_ip = Some(match source_addr.ip() {

@@ -1025,7 +1025,7 @@ fn rejects_invalid_vless_uuid() {
                     "protocol": {
                         "type": "vless",
                         "users": [
-                            { "id": "not-a-uuid" }
+                            { "id": "invalid-uuid-string-is-too-long-to-map" }
                         ]
                     }
                 }
@@ -2658,7 +2658,7 @@ fn accepts_vless_vision_outbound_with_reality() {
 }
 
 #[test]
-fn rejects_vless_vision_without_reality() {
+fn rejects_vless_vision_without_switchable_carrier() {
     let error = RuntimeConfig::parse(
         r#"{
             "outbounds": [{
@@ -2674,8 +2674,10 @@ fn rejects_vless_vision_without_reality() {
             "route": { "final": { "type": "route", "outbound": "vision" } }
         }"#,
     )
-    .expect_err("Vision without REALITY should fail early");
-    assert!(error.to_string().contains("requires `reality`"));
+    .expect_err("Vision without a switchable carrier should fail early");
+    assert!(error
+        .to_string()
+        .contains("requires TLS 1.3, REALITY or VLESS Encryption"));
 }
 
 #[test]
@@ -2706,7 +2708,7 @@ fn rejects_vless_vision_with_mux() {
 }
 
 #[test]
-fn rejects_obsolete_vless_vision_udp443_name() {
+fn vision_udp443_requires_its_secure_carrier() {
     let error = RuntimeConfig::parse(
         r#"{
             "outbounds": [{
@@ -2722,8 +2724,10 @@ fn rejects_obsolete_vless_vision_udp443_name() {
             "route": { "final": { "type": "route", "outbound": "vision" } }
         }"#,
     )
-    .expect_err("obsolete flow name should fail early");
-    assert!(error.to_string().contains("obsolete"));
+    .expect_err("Vision alias must retain carrier validation");
+    assert!(error
+        .to_string()
+        .contains("requires TLS 1.3, REALITY or VLESS Encryption"));
 }
 
 #[test]
@@ -2747,7 +2751,7 @@ fn accepts_explicit_zero_aead_v1_name() {
 }
 
 #[test]
-fn rejects_vless_vision_inbound_without_reality() {
+fn rejects_vless_vision_inbound_without_switchable_carrier() {
     let error = RuntimeConfig::parse(
         r#"{
             "inbounds": [{
@@ -2764,10 +2768,10 @@ fn rejects_vless_vision_inbound_without_reality() {
             "route": { "final": { "type": "direct" } }
         }"#,
     )
-    .expect_err("Vision inbound without REALITY should fail early");
+    .expect_err("Vision inbound without a switchable carrier should fail early");
     assert!(error
         .to_string()
-        .contains("inbound flow `xtls-rprx-vision` requires `reality`"));
+        .contains("inbound flow `xtls-rprx-vision` requires TLS 1.3, REALITY or VLESS Encryption"));
 }
 
 #[test]

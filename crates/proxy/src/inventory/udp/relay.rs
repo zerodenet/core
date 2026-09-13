@@ -1,31 +1,12 @@
 use zero_engine::EngineError;
 
-use super::super::ClaimedInventoryLeaf;
 use super::super::{ClaimedRelayChain, ProtocolInventory};
 use crate::protocol_registry::{OutboundAdapterContext, UdpAdapterContext};
 use crate::runtime::udp_dispatch::relay::PreparedUdpRelayChain;
 use crate::runtime::udp_dispatch::FlowFailure;
-use crate::runtime::udp_flow::packet_path::{PacketPathFlowBinding, UdpPacketRef};
-use crate::runtime::udp_flow::packet_path_chain::PacketPathStartRequest;
+use crate::runtime::udp_flow::packet_path::UdpPacketRef;
 
 impl ProtocolInventory {
-    pub(in crate::inventory) fn prepare_claimed_udp_packet_path_pair<'a>(
-        &self,
-        session_id: u64,
-        carrier_leaf: &ClaimedInventoryLeaf<'a>,
-        datagram_leaf: &ClaimedInventoryLeaf<'a>,
-        packet: UdpPacketRef<'a>,
-    ) -> Option<(PacketPathFlowBinding, PacketPathStartRequest<'a>)> {
-        let carrier_operation = carrier_leaf.prepare_udp_packet_path()?;
-        let datagram_operation = datagram_leaf.prepare_udp_packet_path()?;
-
-        super::packet_path::build_udp_packet_path_pair(
-            session_id,
-            carrier_operation,
-            datagram_operation,
-            packet,
-        )
-    }
     pub(super) fn prepare_claimed_udp_relay_chain<'a>(
         &self,
         ctx: UdpAdapterContext<'a>,
@@ -34,11 +15,21 @@ impl ProtocolInventory {
         payload: &'a [u8],
     ) -> Result<PreparedUdpRelayChain<'a>, FlowFailure> {
         self.validate_udp_relay_chain(ctx.clone(), claimed_chain)?;
-        if claimed_chain.len() == 2 {
-            if let Some((flow_binding, request)) = self.prepare_claimed_udp_packet_path_pair(
+        let outbound_ctx = OutboundAdapterContext::new(ctx.config());
+        let prepared_prefix = self
+            .prepare_claimed_tcp_relay_chain(outbound_ctx, claimed_chain)
+            .map_err(flow_failure_from_tcp_outbound)?;
+        let prefix = prepared_prefix.datagram_prefixes.last().cloned().flatten();
+        if let (Some(prefix), Some(datagram)) = (
+            prefix.clone(),
+            claimed_chain
+                .final_hop()
+                .prepare_udp_packet_path(ctx.source_dir()),
+        ) {
+            if let Some((flow_binding, request)) = super::packet_path::build_udp_packet_path_pair(
                 session.id,
-                claimed_chain.first(),
-                claimed_chain.final_hop(),
+                Box::new(prefix),
+                datagram,
                 UdpPacketRef {
                     target: &session.target,
                     port: session.port,
@@ -54,29 +45,19 @@ impl ProtocolInventory {
 
         let final_hop = claimed_chain.final_hop().clone().into_claimed();
         let operation = final_hop.prepare_udp_relay(ctx.source_dir())?;
-        let outbound_ctx = OutboundAdapterContext::new(ctx.config());
 
         if operation.requires_datagram_carrier() {
-            return super::datagram_relay::prepare(claimed_chain, operation);
+            return super::datagram_relay::prepare(prefix, operation);
         }
 
         if operation.needs_two_streams() {
-            let post_prepared = self
-                .prepare_claimed_tcp_relay_chain(outbound_ctx, claimed_chain)
-                .map_err(flow_failure_from_tcp_outbound)?;
-            let get_prepared = self
-                .prepare_claimed_tcp_relay_chain(outbound_ctx, claimed_chain)
-                .map_err(flow_failure_from_tcp_outbound)?;
             return Ok(PreparedUdpRelayChain::TwoStream {
-                post_prefix: post_prepared,
-                get_prefix: get_prepared,
+                post_prefix: prepared_prefix.clone(),
+                get_prefix: prepared_prefix,
                 operation,
             });
         }
 
-        let prepared_prefix = self
-            .prepare_claimed_tcp_relay_chain(outbound_ctx, claimed_chain)
-            .map_err(flow_failure_from_tcp_outbound)?;
         Ok(PreparedUdpRelayChain::FinalHop {
             prefix: prepared_prefix,
             operation,

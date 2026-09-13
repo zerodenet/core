@@ -10,3 +10,5 @@ pub(super) use plan::{
     VlessDirectTransportRequest, VlessFinalHopTransportRequest, VlessOutboundTransportRequest,
     VlessTransportOptions, VlessUdpOutboundTransportRequest, VlessUdpTransportOptions,
 };
+
+mod xhttp;

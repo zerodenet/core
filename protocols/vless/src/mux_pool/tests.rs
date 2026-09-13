@@ -75,7 +75,7 @@ async fn xudp_frame_uses_separate_metadata_and_data_lengths() {
     assert_eq!(target.address, Address::Ipv4([127, 0, 0, 1]));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn mux_activity_refreshes_the_idle_timeout_before_the_carrier_closes() {
     let identity = MuxIdentity::from_uuid([8; 16]);
     let key = PoolKey::from_config_parts(
@@ -95,19 +95,19 @@ async fn mux_activity_refreshes_the_idle_timeout_before_the_carrier_closes() {
         .try_reserve_stream_id()
         .expect("reserve first logical stream");
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
     connection.touch_idle();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let refreshed_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    // Cross the original 500 ms deadline while staying below the refreshed
+    // 900 ms deadline. Virtual time makes this independent of host load.
+    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!connection.closed.load(Ordering::Acquire));
 
     connection.release_stream(session_id);
-    tokio::time::timeout(Duration::from_secs(1), async {
-        while !connection.closed.load(Ordering::Acquire) {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("idle VLESS MUX carrier should close");
+    tokio::time::sleep_until(refreshed_deadline - Duration::from_millis(10)).await;
+    assert!(!connection.closed.load(Ordering::Acquire));
+    tokio::time::sleep_until(refreshed_deadline + Duration::from_millis(10)).await;
+    assert!(connection.closed.load(Ordering::Acquire));
     assert!(connection.try_reserve_stream_id().is_none());
 }
 
@@ -201,4 +201,42 @@ async fn slow_consumer_is_cut_off_at_the_frame_limit() {
         assert!(matches!(rx.recv().await, Some(MuxDownlink::Data(_))));
     }
     assert!(matches!(rx.recv().await, Some(MuxDownlink::Overflow)));
+}
+
+#[tokio::test]
+async fn tcp_mux_splits_large_writes_and_shutdown_sends_end_after_payload() {
+    use tokio::io::AsyncWriteExt;
+    let (stream, mut peer) = tokio::io::duplex(131072);
+    let connection = Arc::new(super::MuxPoolConn::new(
+        stream,
+        &[0; 16],
+        32,
+        None,
+        MuxResponseBacklogPolicy::default(),
+        false,
+    ));
+    let sid = connection.try_reserve_stream_id().unwrap();
+    let mut stream = connection
+        .open_tcp_stream(sid, 80, &Address::Ipv4([127, 0, 0, 1]))
+        .unwrap();
+    let payload = vec![0x69; 65537];
+    let expected = payload.clone();
+    let upload = tokio::spawn(async move {
+        stream.write_all(&payload).await.unwrap();
+        stream.shutdown().await.unwrap();
+    });
+    let first = crate::mux::read_mux_frame_tokio(&mut peer).await.unwrap();
+    assert_eq!(first.status, crate::mux::STATUS_NEW);
+    let mut received = Vec::new();
+    loop {
+        let frame = crate::mux::read_mux_frame_tokio(&mut peer).await.unwrap();
+        if frame.status == crate::mux::STATUS_END {
+            break;
+        }
+        assert!(frame.payload.len() <= 8192);
+        received.extend(frame.payload);
+    }
+    assert_eq!(received, expected);
+    upload.await.unwrap();
+    connection.close();
 }

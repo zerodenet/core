@@ -4,6 +4,7 @@ use crate::protocol_registry::{TcpRuntimeServices, UdpRuntimeServices};
 pub(crate) struct UdpIngressRuntime {
     pub(super) tcp_services: TcpRuntimeServices,
     pub(super) services: UdpRuntimeServices,
+    pub(super) local_addr: Option<std::net::SocketAddr>,
     pub(super) source_addr: Option<std::net::SocketAddr>,
 }
 
@@ -14,6 +15,7 @@ impl UdpIngressRuntime {
             tcp_services,
             services,
             source_addr: None,
+            local_addr: None,
         }
     }
 
@@ -22,11 +24,19 @@ impl UdpIngressRuntime {
             tcp_services: self.tcp_services.clone(),
             services: self.services.clone(),
             source_addr,
+            local_addr: self.local_addr,
         }
     }
 
+    pub(crate) fn with_local_addr(mut self, local: Option<std::net::SocketAddr>) -> Self {
+        self.local_addr = local;
+        self
+    }
     pub(crate) fn services(&self) -> &UdpRuntimeServices {
         &self.services
+    }
+    pub(crate) fn resolver(&self) -> &zero_dns::DnsSystem {
+        self.tcp_services.resolver()
     }
 
     pub(crate) fn runtime_services(&self) -> UdpRuntimeServices {

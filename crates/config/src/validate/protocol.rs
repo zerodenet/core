@@ -1,4 +1,6 @@
+mod tls;
 use std::collections::HashSet;
+pub(super) use tls::validate_ech_name;
 
 use crate::{
     ConfigError, Hysteria2UserConfig, InboundProtocolConfig, InboundRealityConfig, MieruUserConfig,
@@ -9,6 +11,7 @@ use crate::{
 pub(super) fn validate_inbound_protocol(
     protocol: &InboundProtocolConfig,
 ) -> Result<(), ConfigError> {
+    tls::inbound(protocol)?;
     match protocol {
         InboundProtocolConfig::Socks5 { users } => validate_socks5_users("socks5 inbound", users),
         InboundProtocolConfig::Mixed { socks5_users } => {
@@ -16,6 +19,10 @@ pub(super) fn validate_inbound_protocol(
         }
         InboundProtocolConfig::HttpConnect => Ok(()),
         InboundProtocolConfig::Vless {
+            final_mask,
+            mkcp,
+            hysteria,
+            decryption,
             users,
             mux_response_backlog_frames,
             mux_response_backlog_bytes,
@@ -25,23 +32,101 @@ pub(super) fn validate_inbound_protocol(
             grpc,
             h2,
             http_upgrade,
-            fallback: _,
+            fallback,
             quic,
             split_http,
         } => {
+            if final_mask.as_ref().is_some_and(|mask| !mask.udp.is_empty())
+                && mkcp.is_none()
+                && quic.is_none()
+            {
+                return Err(ConfigError::InvalidInbound(
+                    "UDP FinalMask requires a UDP carrier".to_owned(),
+                ));
+            }
+            if final_mask.as_ref().is_some_and(|mask| !mask.tcp.is_empty())
+                && (mkcp.is_some() || quic.is_some())
+            {
+                return Err(ConfigError::InvalidInbound(
+                    "TCP FinalMask requires a TCP carrier".to_owned(),
+                ));
+            }
+            if let Some(hysteria) = hysteria {
+                hysteria
+                    .validate()
+                    .map_err(|error| ConfigError::InvalidInbound(error.to_owned()))?;
+                if hysteria.auth.is_empty()
+                    || quic.is_none()
+                    || mkcp.is_some()
+                    || tls.is_some()
+                    || reality.is_some()
+                    || ws.is_some()
+                    || grpc.is_some()
+                    || h2.is_some()
+                    || http_upgrade.is_some()
+                    || split_http.is_some()
+                {
+                    return Err(ConfigError::InvalidInbound("Hysteria carrier requires auth and QUIC TLS settings, without another carrier".to_owned()));
+                }
+            }
+
+            if let Some(mkcp) = mkcp {
+                mkcp.validate()
+                    .map_err(|error| ConfigError::InvalidInbound(error.to_owned()))?;
+                if quic.is_some()
+                    || reality.is_some()
+                    || ws.is_some()
+                    || grpc.is_some()
+                    || h2.is_some()
+                    || http_upgrade.is_some()
+                    || split_http.is_some()
+                {
+                    return Err(ConfigError::InvalidInbound(
+                        "mKCP is an independent carrier and only accepts optional TLS".to_owned(),
+                    ));
+                }
+            }
+            let encryption = vless::encryption::config::EncryptionConfig::server(
+                decryption.as_deref().unwrap_or("none"),
+            )
+            .map_err(|error| ConfigError::InvalidInbound(error.to_owned()))?;
+            if encryption.is_some() && fallback.is_some() {
+                return Err(ConfigError::InvalidInbound(
+                    "VLESS decryption cannot be combined with fallback".to_owned(),
+                ));
+            }
+            if let Some(fallback) = fallback {
+                super::fallback::validate(fallback)?;
+            }
             validate_vless_users(users)?;
+            if encryption.is_none()
+                && users.iter().any(|user| {
+                    user.flow
+                        .as_deref()
+                        .is_some_and(vless::validation::is_vision_flow)
+                })
+                && (ws.is_some()
+                    || grpc.is_some()
+                    || h2.is_some()
+                    || http_upgrade.is_some()
+                    || quic.is_some()
+                    || split_http.is_some())
+            {
+                return Err(ConfigError::InvalidInbound(
+                    "Vision over a framed carrier requires VLESS Encryption".to_owned(),
+                ));
+            }
+
             if users
                 .iter()
                 .any(|user| user.flow.as_deref() == Some(vless::validation::FLOW_XTLS_RPRX_VISION))
                 && reality.is_none()
+                && tls.is_none()
+                && encryption.is_none()
             {
                 return Err(ConfigError::InvalidInbound(
-                    "`vless` inbound flow `xtls-rprx-vision` requires `reality`".to_owned(),
+                    "`vless` inbound flow `xtls-rprx-vision` requires TLS 1.3, REALITY or VLESS Encryption".to_owned(),
                 ));
-            }
-            if let Some(tls) = tls {
-                validate_inbound_optional_non_empty("vless tls.cert_path", &tls.cert_path)?;
-                validate_inbound_optional_non_empty("vless tls.key_path", &tls.key_path)?;
             }
             if let Some(reality) = reality {
                 validate_vless_inbound_reality(reality)?;
@@ -78,10 +163,20 @@ pub(super) fn validate_inbound_protocol(
                 ));
             }
             if let Some(ws) = ws {
+                if let Some(browser) = &ws.browser_dialer {
+                    browser.validate().map_err(|message| {
+                        ConfigError::InvalidInbound(format!("vless ws.{message}"))
+                    })?;
+                    return Err(ConfigError::InvalidInbound(
+                        "vless ws.browser_dialer is outbound-only".to_owned(),
+                    ));
+                }
                 validate_inbound_optional_non_empty("vless ws.path", &ws.path)?;
                 validate_inbound_ws_headers("vless ws.headers", &ws.headers)?;
             }
             if let Some(grpc) = grpc {
+                grpc.validate()
+                    .map_err(|message| ConfigError::InvalidInbound(message.to_owned()))?;
                 for name in &grpc.service_names {
                     validate_inbound_optional_non_empty("vless grpc.service_names", name)?;
                 }
@@ -91,6 +186,7 @@ pub(super) fn validate_inbound_protocol(
             }
             if let Some(http_upgrade) = http_upgrade {
                 validate_inbound_optional_non_empty("vless http_upgrade.path", &http_upgrade.path)?;
+                validate_inbound_ws_headers("vless http_upgrade.headers", &http_upgrade.headers)?;
             }
             if let Some(quic) = quic {
                 if let Some(cert_path) = &quic.cert_path {
@@ -102,6 +198,27 @@ pub(super) fn validate_inbound_protocol(
             }
             if let Some(split_http) = split_http {
                 validate_xhttp_mode("inbound", &split_http.mode)?;
+                super::xhttp::validate(split_http, true)?;
+                if let Some(quic) = quic {
+                    if tls.is_some()
+                        || ws.is_some()
+                        || grpc.is_some()
+                        || h2.is_some()
+                        || http_upgrade.is_some()
+                    {
+                        return Err(ConfigError::InvalidInbound(
+                            "XHTTP over QUIC uses quic TLS settings and cannot wrap a TCP carrier"
+                                .into(),
+                        ));
+                    }
+                    if quic.cert_path.as_ref().is_none_or(|v| v.is_empty())
+                        || quic.key_path.as_ref().is_none_or(|v| v.is_empty())
+                    {
+                        return Err(ConfigError::InvalidInbound(
+                            "XHTTP over QUIC requires quic.cert_path and quic.key_path".into(),
+                        ));
+                    }
+                }
             }
             validate_mux_response_backlog(
                 "vless inbound",
@@ -191,8 +308,6 @@ pub(super) fn validate_inbound_protocol(
             let tls = tls.as_ref().ok_or_else(|| {
                 ConfigError::InvalidInbound("`vmess` inbound requires `tls`".to_owned())
             })?;
-            validate_inbound_optional_non_empty("vmess tls.cert_path", &tls.cert_path)?;
-            validate_inbound_optional_non_empty("vmess tls.key_path", &tls.key_path)?;
             if ws.is_some() && grpc.is_some() {
                 return Err(ConfigError::InvalidInbound(
                     "`vmess` inbound cannot set both `ws` and `grpc`".to_owned(),
@@ -203,6 +318,8 @@ pub(super) fn validate_inbound_protocol(
                 validate_inbound_ws_headers("vmess ws.headers", &ws.headers)?;
             }
             if let Some(grpc) = grpc {
+                grpc.validate()
+                    .map_err(|message| ConfigError::InvalidInbound(message.to_owned()))?;
                 for name in &grpc.service_names {
                     validate_inbound_optional_non_empty("vmess grpc.service_names", name)?;
                 }
@@ -228,15 +345,24 @@ pub(super) fn validate_inbound_protocol(
 pub(super) fn validate_outbound_protocol(
     protocol: &OutboundProtocolConfig,
 ) -> Result<(), ConfigError> {
+    tls::outbound(protocol)?;
     match protocol {
         OutboundProtocolConfig::Socks5 {
             username, password, ..
         } => validate_socks5_outbound_auth(username.as_deref(), password.as_deref()),
         OutboundProtocolConfig::Vless {
+            final_mask,
+            mkcp,
+            hysteria,
+            reverse_tag: _,
+            reverse_sniffing: _,
+            encryption,
             server,
             port,
             id,
             flow,
+            testpre: _,
+            testseed,
             mux_concurrency,
             xudp_concurrency,
             mux_idle_timeout_secs,
@@ -251,21 +377,171 @@ pub(super) fn validate_outbound_protocol(
             quic,
             split_http,
         } => {
+            if final_mask.as_ref().is_some_and(|mask| !mask.udp.is_empty())
+                && mkcp.is_none()
+                && quic.is_none()
+            {
+                return Err(ConfigError::InvalidOutbound(
+                    "UDP FinalMask requires a UDP carrier".to_owned(),
+                ));
+            }
+            if final_mask.as_ref().is_some_and(|mask| !mask.tcp.is_empty())
+                && (mkcp.is_some() || quic.is_some())
+            {
+                return Err(ConfigError::InvalidOutbound(
+                    "TCP FinalMask requires a TCP carrier".to_owned(),
+                ));
+            }
+            if let Some(hysteria) = hysteria {
+                hysteria
+                    .validate()
+                    .map_err(|error| ConfigError::InvalidOutbound(error.to_owned()))?;
+                if hysteria.auth.is_empty()
+                    || quic.is_none()
+                    || mkcp.is_some()
+                    || tls.is_some()
+                    || reality.is_some()
+                    || ws.is_some()
+                    || grpc.is_some()
+                    || h2.is_some()
+                    || http_upgrade.is_some()
+                    || split_http.is_some()
+                {
+                    return Err(ConfigError::InvalidOutbound("Hysteria carrier requires auth and QUIC TLS settings, without another carrier".to_owned()));
+                }
+            }
+
+            if let Some(mkcp) = mkcp {
+                mkcp.validate()
+                    .map_err(|error| ConfigError::InvalidOutbound(error.to_owned()))?;
+                if quic.is_some()
+                    || reality.is_some()
+                    || ws.is_some()
+                    || grpc.is_some()
+                    || h2.is_some()
+                    || http_upgrade.is_some()
+                    || split_http.is_some()
+                {
+                    return Err(ConfigError::InvalidOutbound(
+                        "mKCP is an independent carrier and only accepts optional TLS".to_owned(),
+                    ));
+                }
+            }
+            let ws_browser = ws
+                .as_deref()
+                .and_then(|profile| profile.browser_dialer.as_ref());
+            let xhttp_browser = split_http
+                .as_deref()
+                .and_then(|profile| profile.browser_dialer.as_ref());
+            for browser in [ws_browser, xhttp_browser].into_iter().flatten() {
+                browser
+                    .validate()
+                    .map_err(|message| ConfigError::InvalidOutbound(format!("vless {message}")))?;
+            }
+            if ws_browser.is_some() || xhttp_browser.is_some() {
+                if ws_browser.is_some() == xhttp_browser.is_some() {
+                    return Err(ConfigError::InvalidOutbound(
+                        "vless Browser Dialer must belong to exactly one WS or XHTTP carrier"
+                            .to_owned(),
+                    ));
+                }
+                if reality.is_some()
+                    || grpc.is_some()
+                    || h2.is_some()
+                    || http_upgrade.is_some()
+                    || quic.is_some()
+                    || mkcp.is_some()
+                    || hysteria.is_some()
+                    || final_mask
+                        .as_ref()
+                        .is_some_and(|mask| !mask.tcp.is_empty() || !mask.udp.is_empty())
+                    || (ws_browser.is_some() && split_http.is_some())
+                    || (xhttp_browser.is_some() && ws.is_some())
+                {
+                    return Err(ConfigError::InvalidOutbound(
+                        "vless Browser Dialer cannot preserve the configured native carrier"
+                            .to_owned(),
+                    ));
+                }
+                if let Some(tls) = tls {
+                    if tls.options != Default::default()
+                        || tls.disable_sni
+                        || tls.ca_cert_path.is_some()
+                        || tls.insecure
+                        || !tls.alpn.is_empty()
+                        || tls.client_fingerprint.is_some()
+                        || tls.server_name.as_deref().is_some_and(|name| {
+                            !name.is_empty() && !name.eq_ignore_ascii_case(server)
+                        })
+                    {
+                        return Err(ConfigError::InvalidOutbound(
+                            "vless Browser Dialer cannot apply custom TLS settings".to_owned(),
+                        ));
+                    }
+                }
+                if let Some(profile) = ws.as_deref().filter(|_| ws_browser.is_some()) {
+                    if profile.host.as_ref().is_some_and(|host| !host.is_empty())
+                        || !profile.headers.is_empty()
+                    {
+                        return Err(ConfigError::InvalidOutbound(
+                            "vless Browser Dialer WebSocket cannot apply custom Host or headers"
+                                .to_owned(),
+                        ));
+                    }
+                }
+                if let Some(profile) = split_http.as_deref().filter(|_| xhttp_browser.is_some()) {
+                    if profile.host.as_ref().is_some_and(|host| !host.is_empty())
+                        || !profile.headers.is_empty()
+                    {
+                        return Err(ConfigError::InvalidOutbound(
+                            "vless Browser Dialer XHTTP cannot apply custom Host or headers"
+                                .to_owned(),
+                        ));
+                    }
+                }
+            }
+            let encryption = vless::encryption::config::EncryptionConfig::client(
+                encryption.as_deref().unwrap_or("none"),
+            )
+            .map_err(|error| ConfigError::InvalidOutbound(error.to_owned()))?;
             validate_outbound_endpoint("vless", server, *port)?;
+            if encryption.is_none()
+                && flow
+                    .as_deref()
+                    .is_some_and(vless::validation::is_vision_flow)
+                && (ws.is_some()
+                    || grpc.is_some()
+                    || h2.is_some()
+                    || http_upgrade.is_some()
+                    || quic.is_some()
+                    || split_http.is_some())
+            {
+                return Err(ConfigError::InvalidOutbound(
+                    "Vision over a framed carrier requires VLESS Encryption".to_owned(),
+                ));
+            }
+
             vless::parse_uuid(id).map_err(|error| {
                 let message = error.to_string();
                 ConfigError::InvalidOutbound(format!("`vless` outbound `id` {message}"))
+            })?;
+            vless::validation::normalize_vision_testseed(testseed).map_err(|message| {
+                ConfigError::InvalidOutbound(format!("`vless` outbound {message}"))
             })?;
             if let Some(flow) = flow {
                 vless::validation::validate_flow(flow).map_err(|message| {
                     ConfigError::InvalidOutbound(format!("`vless` outbound {message}"))
                 })?;
-                if flow == vless::validation::FLOW_XTLS_RPRX_VISION && reality.is_none() {
+                if vless::validation::is_vision_flow(flow)
+                    && reality.is_none()
+                    && tls.is_none()
+                    && encryption.is_none()
+                {
                     return Err(ConfigError::InvalidOutbound(
-                        "`vless` outbound flow `xtls-rprx-vision` requires `reality`".to_owned(),
+                        "`vless` outbound flow `xtls-rprx-vision` requires TLS 1.3, REALITY or VLESS Encryption".to_owned(),
                     ));
                 }
-                if flow == vless::validation::FLOW_XTLS_RPRX_VISION && mux_concurrency.is_some() {
+                if vless::validation::is_vision_flow(flow) && mux_concurrency.is_some() {
                     return Err(ConfigError::InvalidOutbound(
                         "`vless` outbound flow `xtls-rprx-vision` cannot be combined with `mux_concurrency`"
                             .to_owned(),
@@ -319,6 +595,8 @@ pub(super) fn validate_outbound_protocol(
                 validate_outbound_ws_headers("vless ws.headers", &ws.headers)?;
             }
             if let Some(grpc) = grpc {
+                grpc.validate()
+                    .map_err(|message| ConfigError::InvalidOutbound(message.to_owned()))?;
                 for name in &grpc.service_names {
                     validate_outbound_optional_non_empty("vless grpc.service_names", name)?;
                 }
@@ -327,6 +605,7 @@ pub(super) fn validate_outbound_protocol(
                 validate_outbound_optional_non_empty("vless h2.path", &h2.path)?;
             }
             if let Some(http_upgrade) = http_upgrade {
+                validate_outbound_ws_headers("vless http_upgrade.headers", &http_upgrade.headers)?;
                 validate_outbound_optional_non_empty(
                     "vless http_upgrade.path",
                     &http_upgrade.path,
@@ -339,6 +618,19 @@ pub(super) fn validate_outbound_protocol(
             }
             if let Some(split_http) = split_http {
                 validate_xhttp_mode("outbound", &split_http.mode)?;
+                super::xhttp::validate(split_http, false)?;
+                if quic.is_some()
+                    && (tls.is_some()
+                        || ws.is_some()
+                        || grpc.is_some()
+                        || h2.is_some()
+                        || http_upgrade.is_some())
+                {
+                    return Err(ConfigError::InvalidOutbound(
+                        "XHTTP over QUIC uses quic TLS settings and cannot wrap a TCP carrier"
+                            .into(),
+                    ));
+                }
             }
             validate_optional_mux_concurrency("vless mux_concurrency", *mux_concurrency)?;
             validate_optional_mux_concurrency("vless xudp_concurrency", *xudp_concurrency)?;
@@ -462,13 +754,17 @@ pub(super) fn validate_outbound_protocol(
                 validate_outbound_ws_headers("vmess ws.headers", &ws.headers)?;
             }
             if let Some(grpc) = grpc {
+                grpc.validate()
+                    .map_err(|message| ConfigError::InvalidOutbound(message.to_owned()))?;
                 for name in &grpc.service_names {
                     validate_outbound_optional_non_empty("vmess grpc.service_names", name)?;
                 }
             }
             Ok(())
         }
-        OutboundProtocolConfig::Direct | OutboundProtocolConfig::Block => Ok(()),
+        OutboundProtocolConfig::Direct
+        | OutboundProtocolConfig::Block
+        | OutboundProtocolConfig::VlessReverse => Ok(()),
         OutboundProtocolConfig::Mieru {
             server,
             port,
@@ -523,12 +819,12 @@ fn validate_mieru_users(users: &[MieruUserConfig]) -> Result<(), ConfigError> {
 fn validate_vless_users(users: &[VlessUserConfig]) -> Result<(), ConfigError> {
     let mut seen = HashSet::new();
     for user in users {
-        vless::parse_uuid(&user.id).map_err(|error| {
+        let id = vless::parse_uuid(&user.id).map_err(|error| {
             let message = error.to_string();
             ConfigError::InvalidInbound(format!("`vless` inbound user `id` {message}"))
         })?;
 
-        if !seen.insert(normalize_uuid_key(&user.id)) {
+        if !seen.insert(id) {
             return Err(ConfigError::InvalidInbound(
                 "`vless` inbound contains duplicate user id".to_owned(),
             ));
@@ -538,10 +834,13 @@ fn validate_vless_users(users: &[VlessUserConfig]) -> Result<(), ConfigError> {
             validate_inbound_optional_non_empty("vless principal_key", principal_key)?;
         }
         if let Some(flow) = &user.flow {
-            vless::validation::validate_flow(flow).map_err(|message| {
+            vless::validation::validate_inbound_flow(flow).map_err(|message| {
                 ConfigError::InvalidInbound(format!("`vless` inbound user {message}"))
             })?;
         }
+        vless::validation::normalize_vision_testseed(&user.testseed).map_err(|message| {
+            ConfigError::InvalidInbound(format!("`vless` inbound user {message}"))
+        })?;
     }
 
     Ok(())
@@ -690,6 +989,49 @@ fn validate_vmess_cipher(kind: &'static str, cipher: &str) -> Result<(), ConfigE
 }
 
 fn validate_vless_inbound_reality(reality: &InboundRealityConfig) -> Result<(), ConfigError> {
+    if reality.short_ids.is_empty() {
+        return Err(ConfigError::InvalidInbound(
+            "REALITY requires at least one short_id, which may be an empty string".into(),
+        ));
+    }
+    if let Some(target) = &reality.target {
+        if target.proxy_protocol > 2 {
+            return Err(ConfigError::InvalidInbound(
+                "REALITY target proxy_protocol must be 0, 1 or 2".into(),
+            ));
+        }
+        match &target.destination {
+            crate::FallbackDestinationConfig::Tcp { server, port }
+                if !server.trim().is_empty() && *port > 0 => {}
+            crate::FallbackDestinationConfig::Unix { path } if !path.is_empty() => {}
+            _ => {
+                return Err(ConfigError::InvalidInbound(
+                    "REALITY target requires a valid TCP or Unix destination".into(),
+                ))
+            }
+        }
+    }
+
+    vless::reality_policy::ServerPolicy::new(
+        vless::reality_policy::PolicyRef {
+            server_names: &reality.server_names,
+            min_client_version: reality.min_client_version.as_deref(),
+            max_client_version: reality.max_client_version.as_deref(),
+            max_time_diff_ms: reality.max_time_diff_ms,
+        },
+        reality.server_name.as_deref(),
+    )
+    .map_err(|error| ConfigError::InvalidInbound(error.into()))?;
+    if let Some(seed) = &reality.mldsa65_seed {
+        vless::validation::validate_reality_key(seed).map_err(|error| {
+            ConfigError::InvalidInbound(format!("REALITY ML-DSA-65 seed: {error}"))
+        })?;
+        if seed == &reality.private_key {
+            return Err(ConfigError::InvalidInbound(
+                "REALITY ML-DSA seed must differ from its X25519 private key".into(),
+            ));
+        }
+    }
     validate_inbound_optional_non_empty("vless reality.private_key", &reality.private_key)?;
     if vless::validation::validate_reality_key(&reality.private_key).is_err() {
         return Err(ConfigError::InvalidInbound(
@@ -715,7 +1057,14 @@ fn validate_vless_inbound_reality(reality: &InboundRealityConfig) -> Result<(), 
     })
 }
 
-fn validate_vless_reality(reality: &RealityConfig) -> Result<(), ConfigError> {
+pub(super) fn validate_vless_reality(reality: &RealityConfig) -> Result<(), ConfigError> {
+    vless::reality_spider::Profile::parse(&reality.spider_x)
+        .map_err(ConfigError::InvalidOutbound)?;
+    if let Some(key) = &reality.mldsa65_verify {
+        vless::validation::validate_reality_mldsa_verify(key).map_err(|error| {
+            ConfigError::InvalidOutbound(format!("REALITY ML-DSA-65 verification key: {error}"))
+        })?;
+    }
     validate_outbound_optional_non_empty("vless reality.public_key", &reality.public_key)?;
     if vless::validation::validate_reality_key(&reality.public_key).is_err() {
         return Err(ConfigError::InvalidOutbound(

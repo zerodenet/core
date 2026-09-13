@@ -1,10 +1,8 @@
 //! Async wrapper around Tls13Connection for tokio integration.
 //!
-//! Provides TLS 1.3 handshake over both concrete TcpStream (fast path with
-//! spawn_blocking + into_std) and generic AsyncRead+AsyncWrite streams
-//! (async handshake loop for relay-stream TLS).
+//! Concrete sockets and relay streams share bounded, cancellation-safe async I/O.
 
-use std::io::{self, Read};
+use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -19,83 +17,21 @@ use super::handshake::{Tls13Config, Tls13Connection};
 ///
 /// # Construction
 ///
-/// - `Tls13Stream::connect(tcp_stream, config)` — fast path for fresh sockets
-///   (uses `spawn_blocking` + `into_std()`).
+/// - `Tls13Stream::connect(tcp_stream, config)` — fresh TCP sockets.
 /// - `Tls13Stream::connect_async(stream, config)` — generic async handshake for
 ///   any `AsyncRead + AsyncWrite + Unpin + Send + 'static` stream (relay streams,
 ///   trait objects, etc.).
 pub struct Tls13Stream<S> {
     inner: S,
     conn: Tls13Connection,
+    closing: bool,
+    bypass: Option<zero_traits::TransportBypassControl>,
 }
 
-/// Fast-path constructor: fresh TcpStream.
+/// Fresh sockets share the cancellation-safe asynchronous handshake path.
 impl Tls13Stream<TcpStream> {
-    /// Perform the full TLS 1.3 handshake over a concrete TcpStream.
-    ///
-    /// Uses `spawn_blocking` + `into_std()` for maximum throughput on
-    /// fresh-socket connections.
     pub async fn connect(stream: TcpStream, config: Tls13Config) -> io::Result<Self> {
-        let mut conn = Tls13Connection::new(config)?;
-
-        let mut stream_std = stream.into_std()?;
-        let (conn, stream_std) = tokio::task::spawn_blocking(move || {
-            loop {
-                if conn.wants_write() {
-                    let mut buf = Vec::new();
-                    conn.write_tls(&mut buf)?;
-                    if !buf.is_empty() {
-                        std::io::Write::write_all(&mut stream_std, &buf)?;
-                    }
-                }
-
-                let _ = conn.process_new_packets()?;
-
-                // The handshake only completes once our Finished flight has
-                // actually been written; `is_handshaking()` flips to false
-                // while the Finished is still queued, so also require no
-                // pending output before breaking.
-                if !conn.is_handshaking() && !conn.wants_write() {
-                    break;
-                }
-
-                // If processing just queued output (our Finished), flush it
-                // before trying to read — the peer may be waiting for it.
-                if conn.wants_write() {
-                    continue;
-                }
-
-                if conn.wants_read() {
-                    let mut buf = [0u8; 8192];
-                    match stream_std.read(&mut buf) {
-                        Ok(0) => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::UnexpectedEof,
-                                "TLS handshake: connection closed",
-                            ))
-                        }
-                        Ok(n) => {
-                            conn.read_tls(&mut io::Cursor::new(&buf[..n]))?;
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            std::thread::sleep(std::time::Duration::from_millis(1));
-                            continue;
-                        }
-                        Err(e) => return Err(e),
-                    }
-                }
-            }
-            Ok::<_, io::Error>((conn, stream_std))
-        })
-        .await
-        .map_err(io::Error::other)??;
-
-        let stream = TcpStream::from_std(stream_std)?;
-
-        Ok(Self {
-            inner: stream,
-            conn,
-        })
+        Self::connect_async(stream, config).await
     }
 }
 
@@ -109,15 +45,22 @@ where
     /// Uses async I/O primitives directly — no `spawn_blocking` or `into_std()`.
     /// Suitable for relay streams, trait objects, and any `AsyncRead + AsyncWrite`
     /// carrier that is not a concrete `TcpStream`.
-    pub async fn connect_async(mut stream: S, config: Tls13Config) -> io::Result<Self> {
-        let mut conn = Tls13Connection::new(config)?;
+    pub async fn connect_async(stream: S, config: Tls13Config) -> io::Result<Self> {
+        let timeout = std::time::Duration::from_millis(config.handshake_timeout_ms);
+        tokio::time::timeout(timeout, Self::connect_async_inner(stream, config))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "TLS handshake timed out"))?
+    }
 
+    async fn connect_async_inner(mut stream: S, config: Tls13Config) -> io::Result<Self> {
+        let mut conn = Tls13Connection::new(config)?;
         loop {
             if conn.wants_write() {
                 let mut buf = Vec::new();
                 conn.write_tls(&mut buf)?;
                 if !buf.is_empty() {
                     stream.write_all(&buf).await?;
+                    stream.flush().await?;
                 }
             }
 
@@ -140,7 +83,8 @@ where
 
             if conn.wants_read() {
                 let mut buf = [0u8; 8192];
-                let n = stream.read(&mut buf).await?;
+                let limit = conn.next_record_read_size()?.min(buf.len());
+                let n = stream.read(&mut buf[..limit]).await?;
                 if n == 0 {
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
@@ -154,11 +98,22 @@ where
         Ok(Self {
             inner: stream,
             conn,
+            closing: false,
+            bypass: None,
         })
     }
 }
 
 impl<S> Tls13Stream<S> {
+    pub fn with_bypass_control(mut self, control: zero_traits::TransportBypassControl) -> Self {
+        self.bypass = Some(control);
+        self
+    }
+
+    pub fn alpn_protocol(&self) -> Option<&[u8]> {
+        self.conn.alpn_protocol()
+    }
+
     pub fn get_ref(&self) -> &S {
         &self.inner
     }
@@ -173,10 +128,31 @@ where
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        match self.as_mut().poll_flush(cx) {
+            Poll::Ready(Ok(())) => {}
+            other => return other,
+        }
         // Serve already-decrypted plaintext first.
         let n = self.conn.read_plaintext(buf.initialize_unfilled());
         if n > 0 {
             buf.advance(n);
+            return Poll::Ready(Ok(()));
+        }
+
+        if self
+            .bypass
+            .as_ref()
+            .is_some_and(|c| c.read_bypass_requested())
+        {
+            if self.conn.buffered_ciphertext_len() != 0 {
+                return Poll::Ready(Err(io::Error::other("TLS handoff within a record")));
+            }
+            return Pin::new(&mut self.inner).poll_read(cx, buf);
+        }
+        if !self.conn.wants_read() {
             return Poll::Ready(Ok(()));
         }
 
@@ -186,7 +162,8 @@ where
         // brings in a partial (or non-application) record must keep reading.
         loop {
             let mut raw = [0u8; 8192];
-            let mut raw_buf = ReadBuf::new(&mut raw);
+            let limit = self.conn.next_record_read_size()?.min(raw.len());
+            let mut raw_buf = ReadBuf::new(&mut raw[..limit]);
             match Pin::new(&mut self.inner).poll_read(cx, &mut raw_buf) {
                 Poll::Ready(Ok(())) => {
                     let filled = raw_buf.filled();
@@ -206,10 +183,17 @@ where
             if let Err(e) = self.conn.process_new_packets() {
                 return Poll::Ready(Err(e));
             }
+            match self.as_mut().poll_flush(cx) {
+                Poll::Ready(Ok(())) => {}
+                other => return other,
+            }
 
             let n = self.conn.read_plaintext(buf.initialize_unfilled());
             if n > 0 {
                 buf.advance(n);
+                return Poll::Ready(Ok(()));
+            }
+            if !self.conn.wants_read() {
                 return Poll::Ready(Ok(()));
             }
             // Partial record or a non-application record (e.g. an alert) was
@@ -218,48 +202,5 @@ where
     }
 }
 
-impl<S> AsyncWrite for Tls13Stream<S>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        self.conn.write_plaintext(buf);
-
-        // Encrypt and flush to underlying stream
-        let mut enc = Vec::with_capacity(OUTGOING_BUFFER_LIMIT);
-        if let Err(e) = self.conn.write_tls(&mut enc) {
-            return Poll::Ready(Err(e));
-        }
-        if !enc.is_empty() {
-            let mut offset = 0;
-            while offset < enc.len() {
-                match Pin::new(&mut self.inner).poll_write(cx, &enc[offset..]) {
-                    Poll::Ready(Ok(0)) => {
-                        return Poll::Ready(Err(io::Error::new(
-                            io::ErrorKind::WriteZero,
-                            "TLS write zero",
-                        )));
-                    }
-                    Poll::Ready(Ok(n)) => offset += n,
-                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                    Poll::Pending => return Poll::Pending,
-                }
-            }
-        }
-        Poll::Ready(Ok(buf.len()))
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-}
-
-const OUTGOING_BUFFER_LIMIT: usize = 64 * 1024;
+#[path = "stream/write.rs"]
+mod write;

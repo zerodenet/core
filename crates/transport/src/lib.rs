@@ -20,10 +20,12 @@ pub mod outbound_datagram;
 ))]
 pub mod outbound_stack;
 pub mod profile;
+pub mod proxy_protocol;
 #[cfg(feature = "quic")]
 pub mod quic;
 pub mod quic_initial;
 pub mod rate_limit;
+pub mod relay_connector;
 #[cfg(feature = "split_http")]
 pub mod split_http;
 pub mod stream;
@@ -55,9 +57,42 @@ impl StreamTraffic {
 
 #[cfg(feature = "http_client")]
 pub mod http_client;
+#[cfg(feature = "http_client")]
+pub mod http_navigation;
 
 #[cfg(feature = "http_server")]
 pub mod http_server;
 
-#[cfg(any(feature = "quic", feature = "http_client"))]
+#[cfg(any(feature = "tls", feature = "quic", feature = "http_client"))]
 mod certificate_verifier;
+
+#[cfg(any(feature = "ws", feature = "http_upgrade", feature = "split_http"))]
+mod http_early_data;
+
+#[cfg(any(
+    feature = "grpc",
+    feature = "split_http",
+    feature = "ws",
+    feature = "http_upgrade"
+))]
+mod browser;
+
+#[cfg(any(feature = "ws", feature = "split_http"))]
+pub mod browser_dialer;
+
+#[cfg(feature = "mkcp")]
+pub mod mkcp;
+
+#[cfg(feature = "hysteria")]
+pub mod hysteria;
+
+pub mod finalmask;
+
+mod gorand;
+
+mod datagram_queue;
+pub mod datagram_relay;
+
+pub mod datagram_hop;
+
+pub mod handshake_target;

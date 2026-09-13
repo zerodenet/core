@@ -7,13 +7,29 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+[features]
+default = ["runtime"]
+validation = ["dep:base64", "dep:url"]
+runtime = ["validation", "dep:rand", "dep:ring", "dep:rustls", "dep:subtle", "dep:tokio", "dep:tracing", "dep:webpki-roots", "dep:x25519-dalek", "dep:zeroize", "dep:brotli-decompressor", "dep:zstd", "dep:flate2"]
+
 [dependencies]
-rand = "0.9"
-ring = "0.17"
-rustls.workspace = true
-subtle = "2.6"
-tokio = { workspace = true, features = ["net", "rt"] }
-tracing = { workspace = true }
-webpki-roots = "1"
-x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets"] }
-zero-core = { path = "../core" }
+base64 = { version = "0.22", optional = true }
+url = { version = "2", optional = true }
+zero-traits = { path = "../traits" }
+rand = { version = "0.9", optional = true }
+ring = { version = "0.17", optional = true }
+rustls = { workspace = true, optional = true }
+subtle = { version = "2.6", optional = true }
+tokio = { optional = true, workspace = true, features = ["net", "rt"] }
+tracing = { workspace = true, optional = true }
+webpki-roots = { version = "1", optional = true }
+x25519-dalek = { optional = true, version = "2.0.1", default-features = false, features = ["static_secrets"] }
+zeroize = { version = "1", optional = true }
+zstd = { version = "0.13.3", default-features = false, optional = true }
+brotli-decompressor = { version = "5.0.3", default-features = false, features = ["std"], optional = true }
+
+flate2 = { version = "1", optional = true }
+
+[dev-dependencies]
+brotli = { version = "8.0.4", default-features = false, features = ["std"] }
+rcgen = "0.14"

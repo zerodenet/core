@@ -136,3 +136,15 @@ where
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
+
+impl<S> zero_core::InboundRecording for MeteredStream<RecordingStream<S>> {
+    type Stream = S;
+    fn into_unrecorded(self) -> (S, u64, u64) {
+        let traffic = self.traffic;
+        (
+            self.into_unrecorded_inner(),
+            traffic.read_bytes,
+            traffic.written_bytes,
+        )
+    }
+}

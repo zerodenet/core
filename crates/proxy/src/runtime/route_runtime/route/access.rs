@@ -7,6 +7,18 @@ use super::model::{InboundRouteRuntime, InboundRouteRuntimeFactory};
 use crate::runtime::udp_ingress::UdpIngressRuntime;
 
 impl InboundRouteRuntime {
+    pub(crate) fn upstream_services(&self) -> crate::protocol_registry::UpstreamConnectServices {
+        self.tcp_runtime.runtime_services().upstream()
+    }
+    pub(crate) fn with_local_addr(mut self, local: Option<SocketAddr>) -> Self {
+        self.tcp_runtime = self.tcp_runtime.with_local_addr(local);
+        self
+    }
+
+    pub(crate) fn with_source_addr(mut self, source: Option<SocketAddr>) -> Self {
+        self.tcp_runtime = self.tcp_runtime.with_source_addr(source);
+        self
+    }
     pub(crate) fn inbound_tag(&self) -> &str {
         self.tcp_runtime.inbound_tag()
     }
@@ -45,15 +57,20 @@ impl InboundRouteRuntime {
 
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn udp_runtime(&self) -> UdpIngressRuntime {
-        self.udp_runtime.with_source_addr(self.source_addr())
+        self.udp_runtime
+            .with_source_addr(self.source_addr())
+            .with_local_addr(self.tcp_runtime.local_addr())
     }
 
     #[cfg(feature = "managed-stream-runtime")]
     pub(crate) fn into_mux_substream_runtime(self) -> MuxSubstreamRuntime {
         let source_addr = self.tcp_runtime.source_addr();
+        let local_addr = self.tcp_runtime.local_addr();
         MuxSubstreamRuntime::new(
             self.tcp_runtime,
-            self.udp_runtime.with_source_addr(source_addr),
+            self.udp_runtime
+                .with_source_addr(source_addr)
+                .with_local_addr(local_addr),
             self.mux_udp_continuity,
         )
     }

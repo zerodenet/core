@@ -10,6 +10,8 @@ use crate::runtime::udp_flow::registered::upstream::UpstreamAssociationState;
 impl RegisteredUdpState {
     pub(crate) fn new(handlers: RegisteredUdpHandlers) -> Self {
         Self {
+            #[cfg(feature = "managed-stream-runtime")]
+            logical_sessions: Default::default(),
             #[cfg(any(
                 feature = "managed-stream-runtime",
                 feature = "managed-datagram-runtime"

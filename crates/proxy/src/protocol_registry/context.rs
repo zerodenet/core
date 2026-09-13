@@ -7,7 +7,9 @@ mod upstream;
 pub(crate) use adapter::OutboundAdapterContext;
 #[cfg(feature = "udp-runtime")]
 pub(crate) use adapter::UdpAdapterContext;
-pub(crate) use tcp::TcpRuntimeServices;
+pub(crate) use tcp::{TcpExecutionServices, TcpRuntimeServices};
 #[cfg(feature = "udp-runtime")]
-pub(crate) use udp::{UdpAssociationCloseKind, UdpNetworkServices, UdpRuntimeServices};
+pub(crate) use udp::{
+    PacketPathExecutionServices, UdpAssociationCloseKind, UdpNetworkServices, UdpRuntimeServices,
+};
 pub(crate) use upstream::UpstreamConnectServices;

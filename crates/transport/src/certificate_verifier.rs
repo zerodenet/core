@@ -47,3 +47,7 @@ impl rustls::client::danger::ServerCertVerifier for InsecureServerVerifier {
             .supported_schemes()
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/certificate_verifier/mod.rs"]
+mod tests;

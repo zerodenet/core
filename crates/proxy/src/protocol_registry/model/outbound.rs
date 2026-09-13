@@ -19,6 +19,22 @@ pub(crate) struct OutboundLeafRuntime {
 }
 
 impl OutboundLeafRuntime {
+    pub(crate) fn virtual_outbound(tag: &str, protocol: &str, tcp_path: TcpPathCategory) -> Self {
+        Self {
+            tag: Some(tag.to_owned()),
+            protocol: protocol.to_owned(),
+            tcp_path,
+            #[cfg(feature = "udp-runtime")]
+            // An endpoint-free pool reports availability on each admission.
+            // Dial health cooldowns would hide newly registered workers.
+            health_tag: None,
+            endpoint: None,
+            kernel_tag: None,
+            #[cfg(feature = "udp-runtime")]
+            udp_policy_tag: Some(tag.to_owned()),
+        }
+    }
+
     pub(crate) fn proxy(
         tag: &str,
         protocol: &str,

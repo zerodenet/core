@@ -13,27 +13,113 @@ use zero_transport::profile::{
 };
 use zero_transport::{split_http, tls, RuntimeError};
 
+use super::session::decrypt_stream;
 use super::{
     carrier::{
         accept_vless_inbound_carrier, accept_vless_inbound_transport, VlessInboundTransportResult,
     },
-    VlessTcpFallbackReplay,
+    VlessInboundStreamMetadata, VlessTcpFallbackReplay,
 };
 
 #[derive(Clone)]
 pub(super) struct OwnedVlessInboundTransportPlan {
-    tls_acceptor: Option<tls::TlsAcceptor>,
+    pub(super) target_connector: Option<zero_transport::handshake_target::Connector>,
+    pub(super) final_mask: zero_transport::finalmask::Profile,
+    pub(super) tls_acceptor: Option<tls::TlsAcceptor>,
+    pub(super) decryption: Option<crate::encryption::EncryptionServer>,
     reality: Option<crate::reality::VlessRealityServerProfile>,
     ws: Option<OwnedWebSocketProfile>,
     grpc: Option<OwnedGrpcProfile>,
     h2: Option<OwnedH2Profile>,
     http_upgrade: Option<OwnedHttpUpgradeProfile>,
-    split_http: Option<OwnedSplitHttpProfile>,
-    split_http_registry: Option<split_http::SplitHttpRegistry>,
+    pub(super) split_http: Option<OwnedSplitHttpProfile>,
+    pub(super) split_http_registry: Option<split_http::SplitHttpRegistry>,
     fallback_alpn: Option<String>,
+    pub(super) fallback_policy: crate::fallback::FallbackPolicy,
 }
 
 impl OwnedVlessInboundTransportPlan {
+    pub(super) fn share_target_probes(
+        &mut self,
+        runtime: &crate::transport::VlessTransportRuntime,
+    ) {
+        if let Some(profile) = self.reality.take() {
+            self.reality = Some(profile.with_target_probes(runtime.target_probes()));
+        }
+    }
+
+    pub(super) fn accepts_proxy_protocol(&self) -> bool {
+        self.ws.as_ref().is_some_and(|p| p.accept_proxy_protocol)
+            || self
+                .http_upgrade
+                .as_ref()
+                .is_some_and(|p| p.accept_proxy_protocol)
+    }
+    pub(super) fn has_multiplexed_transport(&self) -> bool {
+        self.split_http.is_some() || self.grpc.is_some()
+    }
+
+    pub(super) async fn accept_transport_streams(
+        self,
+        socket: TokioSocket,
+    ) -> Result<
+        zero_core::InboundRouteAccept<
+            super::multiplex::VlessInboundTransportStreams,
+            VlessTcpFallbackReplay,
+        >,
+        RuntimeError,
+    > {
+        let socket = zero_transport::finalmask::tcp::wrap_prepared(
+            TcpRelayStream::from(socket),
+            self.final_mask.tcp(),
+            true,
+        )
+        .await?;
+        match accept_vless_inbound_transport(
+            socket,
+            self.tls_acceptor,
+            self.reality,
+            self.fallback_alpn,
+            self.target_connector,
+        )
+        .await?
+        {
+            VlessInboundTransportResult::Control(control) => {
+                Ok(zero_core::InboundRouteAccept::Control(control))
+            }
+            VlessInboundTransportResult::FallbackReplay(replay) => Ok(
+                zero_core::InboundRouteAccept::Fallback(VlessTcpFallbackReplay::Client(replay)),
+            ),
+            VlessInboundTransportResult::Stream { stream, sni } => {
+                let mut metadata = VlessInboundStreamMetadata::from_stream(&stream);
+                metadata.sni = sni;
+                metadata.alpn = stream.negotiated_alpn();
+                Ok(zero_core::InboundRouteAccept::Route(
+                    super::multiplex::VlessInboundTransportStreams {
+                        incoming: if let Some(grpc) = self.grpc.as_ref() {
+                            super::multiplex::Incoming::Grpc(
+                                zero_transport::grpc::accept_grpc_connection(stream, grpc)?,
+                            )
+                        } else {
+                            let config = self
+                                .split_http
+                                .as_ref()
+                                .ok_or_else(|| io::Error::other("missing multiplex transport"))?;
+                            let registry = self
+                                .split_http_registry
+                                .as_ref()
+                                .ok_or_else(|| io::Error::other("missing multiplex registry"))?;
+                            super::multiplex::Incoming::Xhttp(split_http::accept_xhttp_connection(
+                                stream, config, registry,
+                            ))
+                        },
+                        metadata,
+                    },
+                ))
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn from_profile_refs<TTls, TWs, TGrpc, TH2, THttp, TSplit, TFallback>(
         source_dir: Option<&Path>,
@@ -55,9 +141,20 @@ impl OwnedVlessInboundTransportPlan {
         TSplit: SplitHttpTransportProfile + ?Sized,
         TFallback: InboundFallbackProfile + ?Sized,
     {
+        let tls = tls.map(|profile| {
+            let mut owned = super::super::profile::server_tls(profile);
+            if profile.alpn().is_empty() && (grpc.is_some() || h2.is_some()) {
+                owned.alpn = vec!["h2".to_owned()];
+            }
+            owned
+        });
         Ok(Self {
+            target_connector: None,
+            final_mask: Default::default(),
+            decryption: None,
             tls_acceptor: zero_transport::inbound_stack::build_optional_tls_acceptor(
-                source_dir, tls,
+                source_dir,
+                tls.as_ref(),
             )?,
             reality,
             ws: ws.map(OwnedWebSocketProfile::from_profile),
@@ -66,6 +163,21 @@ impl OwnedVlessInboundTransportPlan {
             http_upgrade: http_upgrade.map(OwnedHttpUpgradeProfile::from_profile),
             split_http: split_http.map(OwnedSplitHttpProfile::from_profile),
             split_http_registry: split_http.map(|_| split_http::SplitHttpRegistry::new()),
+            fallback_policy: crate::fallback::FallbackPolicy::new(fallback.map_or_else(
+                Vec::new,
+                |profile| {
+                    let mut rules = profile.rules();
+                    if let Some(base) = source_dir {
+                        for rule in &mut rules {
+                            if let zero_traits::FallbackEndpoint::Unix { path } = &mut rule.endpoint
+                            {
+                                *path = base.join(&*path).to_string_lossy().into_owned();
+                            }
+                        }
+                    }
+                    rules
+                },
+            )),
             fallback_alpn: fallback
                 .and_then(InboundFallbackProfile::alpn)
                 .map(str::to_owned),
@@ -77,6 +189,8 @@ impl OwnedVlessInboundTransportPlan {
         socket: TokioSocket,
     ) -> Result<Option<VlessTcpInboundAcceptResult>, RuntimeError> {
         let Self {
+            final_mask,
+            target_connector,
             tls_acceptor,
             reality,
             ws,
@@ -86,26 +200,52 @@ impl OwnedVlessInboundTransportPlan {
             split_http,
             split_http_registry,
             fallback_alpn,
+            fallback_policy: _,
+            decryption: _,
         } = self;
 
-        match accept_vless_inbound_transport(socket, tls_acceptor, reality, fallback_alpn).await? {
+        let socket = zero_transport::finalmask::tcp::wrap_prepared(
+            TcpRelayStream::from(socket),
+            final_mask.tcp(),
+            true,
+        )
+        .await?;
+        match accept_vless_inbound_transport(
+            socket,
+            tls_acceptor,
+            reality,
+            fallback_alpn,
+            target_connector,
+        )
+        .await?
+        {
+            VlessInboundTransportResult::Control(control) => {
+                Ok(Some(VlessTcpInboundAcceptResult::Control(control)))
+            }
             VlessInboundTransportResult::FallbackReplay(fallback_replay) => Ok(Some(
                 VlessTcpInboundAcceptResult::FallbackReplay(fallback_replay),
             )),
-            VlessInboundTransportResult::Stream { stream, sni } => accept_vless_inbound_carrier(
-                stream,
-                sni,
-                ws,
-                grpc,
-                h2,
-                split_http,
-                split_http_registry,
-                http_upgrade,
-            )
-            .await
-            .map(|accepted| {
-                accepted.map(|(stream, sni)| VlessTcpInboundAcceptResult::Stream { stream, sni })
-            }),
+            VlessInboundTransportResult::Stream { stream, sni } => {
+                let alpn = stream.negotiated_alpn();
+                accept_vless_inbound_carrier(
+                    stream,
+                    sni,
+                    ws,
+                    grpc,
+                    h2,
+                    split_http,
+                    split_http_registry,
+                    http_upgrade,
+                )
+                .await
+                .map(|accepted| {
+                    accepted.map(|(stream, sni)| VlessTcpInboundAcceptResult::Stream {
+                        stream,
+                        sni,
+                        alpn,
+                    })
+                })
+            }
         }
     }
 
@@ -129,25 +269,49 @@ impl OwnedVlessInboundTransportPlan {
         S: ClientStream + zero_core::InboundFallbackCapture<Stream = TcpRelayStream> + 'static,
         FWrap: Fn(TcpRelayStream) -> S + Clone + Send + 'static,
     {
+        let decryption = self.decryption.clone();
+        let fallback_policy = self.fallback_policy.clone();
+        let source = socket.peer_addr().ok();
+        let destination = socket.local_addr().ok();
         let Some(accepted) = self.accept_tcp_inbound(socket).await? else {
             return Ok(None);
         };
 
         match accepted {
-            VlessTcpInboundAcceptResult::Stream { stream, sni } => {
+            VlessTcpInboundAcceptResult::Control(control) => {
+                Ok(Some(zero_core::InboundRouteAccept::Control(control)))
+            }
+            VlessTcpInboundAcceptResult::Stream { stream, sni, alpn } => {
+                let stream = decrypt_stream(decryption.as_ref(), stream).await?;
                 let wrapped = wrap_stream(stream);
                 match profile
+                    .clone()
                     .accept_client_owned(crate::inbound::VlessInbound, wrapped)
                     .await
                 {
-                    Ok(accepted) => accepted
-                        .into_route_with_sni(sni, mux_response_backlog)
-                        .await
-                        .map(|route| Some(zero_core::InboundRouteAccept::Route(route)))
-                        .map_err(RuntimeError::from),
+                    Ok(accepted) => match profile.prepare_reverse(
+                        accepted.with_inbound_endpoints(source, destination),
+                        mux_response_backlog,
+                    ) {
+                        Ok(control) => Ok(Some(zero_core::InboundRouteAccept::Control(control))),
+                        Err(accepted) => accepted
+                            .into_route_with_sni(sni, mux_response_backlog)
+                            .await
+                            .map(|route| Some(zero_core::InboundRouteAccept::Route(route)))
+                            .map_err(RuntimeError::from),
+                    },
                     Err(rejected) => {
-                        let (auth_error, fallback_replay) = rejected.into_fallback_replay();
+                        let (auth_error, mut fallback_replay) = rejected.into_fallback_replay();
                         if fallback_enabled {
+                            fallback_replay
+                                .select_route(
+                                    &fallback_policy,
+                                    sni.as_deref(),
+                                    alpn.as_deref(),
+                                    source,
+                                    destination,
+                                )
+                                .await?;
                             Ok(Some(zero_core::InboundRouteAccept::Fallback(
                                 VlessTcpFallbackReplay::Client(fallback_replay),
                             )))
@@ -165,7 +329,7 @@ impl OwnedVlessInboundTransportPlan {
                     )));
                 }
                 Ok(Some(zero_core::InboundRouteAccept::Fallback(
-                    VlessTcpFallbackReplay::Socket(fallback_replay),
+                    VlessTcpFallbackReplay::Client(fallback_replay),
                 )))
             }
         }
@@ -173,49 +337,11 @@ impl OwnedVlessInboundTransportPlan {
 }
 
 enum VlessTcpInboundAcceptResult {
+    Control(Box<dyn zero_core::inbound::InboundControlSession>),
     Stream {
         stream: TcpRelayStream,
         sni: Option<String>,
+        alpn: Option<String>,
     },
-    FallbackReplay(crate::inbound::VlessFallbackReplay<TokioSocket>),
-}
-
-pub(super) async fn accept_vless_stream_route<T, S, FWrap>(
-    profile: crate::inbound::VlessInboundProfile,
-    fallback_enabled: bool,
-    mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
-    stream: T,
-    sni: Option<String>,
-    wrap_stream: FWrap,
-) -> Result<
-    zero_core::InboundRouteAccept<
-        crate::inbound::VlessAcceptedClientRoute<S>,
-        crate::inbound::VlessFallbackReplay<<S as zero_core::InboundFallbackCapture>::Stream>,
-    >,
-    RuntimeError,
->
-where
-    T: ClientStream + 'static,
-    S: ClientStream + zero_core::InboundFallbackCapture + 'static,
-    <S as zero_core::InboundFallbackCapture>::Stream: ClientStream + Send + 'static,
-    FWrap: Fn(T) -> S + Clone + Send + 'static,
-{
-    match profile
-        .accept_client_owned(crate::inbound::VlessInbound, wrap_stream(stream))
-        .await
-    {
-        Ok(accepted) => accepted
-            .into_route_with_sni(sni, mux_response_backlog)
-            .await
-            .map(zero_core::InboundRouteAccept::Route)
-            .map_err(RuntimeError::from),
-        Err(rejected) => {
-            let (auth_error, fallback_replay) = rejected.into_fallback_replay();
-            if fallback_enabled {
-                Ok(zero_core::InboundRouteAccept::Fallback(fallback_replay))
-            } else {
-                Err(RuntimeError::Core(auth_error))
-            }
-        }
-    }
+    FallbackReplay(crate::inbound::VlessFallbackReplay<TcpRelayStream>),
 }

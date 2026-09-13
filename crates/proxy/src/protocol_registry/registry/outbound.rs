@@ -69,8 +69,7 @@ impl<'a> ClaimedOutboundLeaf<'a> {
     pub(crate) fn prepare_tcp_connect(
         &self,
         source_dir: Option<&Path>,
-    ) -> Result<Box<dyn PreparedTcpConnectOperation + 'a>, crate::transport::TcpOutboundFailure>
-    {
+    ) -> Result<Box<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure> {
         let capability = self
             .tcp
             .capability
@@ -82,7 +81,7 @@ impl<'a> ClaimedOutboundLeaf<'a> {
     pub(crate) fn prepare_tcp_relay_hop(
         &self,
         source_dir: Option<&Path>,
-    ) -> Result<(String, u16, Box<dyn PreparedTcpRelayOperation + 'a>), EngineError> {
+    ) -> Result<(String, u16, Box<dyn PreparedTcpRelayOperation>), EngineError> {
         let endpoint = self.runtime.endpoint.clone().ok_or_else(|| {
             EngineError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -131,13 +130,14 @@ impl<'a> ClaimedOutboundLeaf<'a> {
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn prepare_udp_packet_path(
         &self,
+        source_dir: Option<&std::path::Path>,
     ) -> Option<
         Box<
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     > {
         let capability = self.udp.packet_path.as_ref()?;
-        capability.prepare_udp_packet_path()
+        capability.prepare_udp_packet_path(source_dir)
     }
 }
 
@@ -157,6 +157,9 @@ fn claim_outbound_hooks<'a>(
         return Err(missing_claimed_outbound_leaf(entry.support.name()));
     };
     let runtime = match input {
+        OutboundLeafInput::Virtual { outbound } => {
+            OutboundLeafRuntime::virtual_outbound(outbound.tag(), entry.support.name(), tcp_path)
+        }
         OutboundLeafInput::Direct { tag } => OutboundLeafRuntime::direct(tag),
         OutboundLeafInput::Proxy {
             outbound,
@@ -225,11 +228,11 @@ impl ProtocolRegistry {
                 let entry = self
                     .outbound_protocol_entry(protocol)
                     .ok_or_else(|| unsupported_outbound_leaf(protocol))?;
-                let endpoint = outbound
-                    .protocol
-                    .endpoint()
-                    .ok_or_else(|| missing_proxy_endpoint(entry.support.name()))?;
-                claim_outbound_hooks(entry, OutboundLeafInput::Proxy { outbound, endpoint })
+                let input = match outbound.protocol.endpoint() {
+                    Some(endpoint) => OutboundLeafInput::Proxy { outbound, endpoint },
+                    None => OutboundLeafInput::Virtual { outbound },
+                };
+                claim_outbound_hooks(entry, input)
             }
         }
     }
@@ -257,11 +260,5 @@ fn missing_udp_relay_capability() -> crate::runtime::udp_dispatch::FlowFailure {
 fn missing_claimed_outbound_leaf(protocol: &str) -> EngineError {
     EngineError::Io(std::io::Error::other(format!(
         "{protocol} adapter owns the outbound leaf but did not provide a claimed outbound leaf",
-    )))
-}
-
-fn missing_proxy_endpoint(protocol: &str) -> EngineError {
-    EngineError::Io(std::io::Error::other(format!(
-        "configured proxy protocol `{protocol}` did not provide an outbound endpoint",
     )))
 }

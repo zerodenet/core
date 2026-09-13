@@ -1,0 +1,236 @@
+[
+  {
+    "Name": "chrome-83",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "chrome-87",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "chrome-96",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "chrome-100",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "chrome-102",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "chrome-106",
+    "Padding": true,
+    "Shuffle": true,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "chrome-120",
+    "Padding": true,
+    "Shuffle": true,
+    "ECHLengths": [
+      128,
+      160,
+      192,
+      224
+    ],
+    "ECHCiphers": [
+      [
+        1,
+        1
+      ]
+    ]
+  },
+  {
+    "Name": "chrome-131",
+    "Padding": false,
+    "Shuffle": true,
+    "ECHLengths": [
+      128,
+      160,
+      192,
+      224
+    ],
+    "ECHCiphers": [
+      [
+        1,
+        1
+      ]
+    ]
+  },
+  {
+    "Name": "chrome-133",
+    "Padding": false,
+    "Shuffle": true,
+    "ECHLengths": [
+      128,
+      160,
+      192,
+      224
+    ],
+    "ECHCiphers": [
+      [
+        1,
+        1
+      ]
+    ]
+  },
+  {
+    "Name": "firefox-99",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "firefox-102",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "firefox-105",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "firefox-120",
+    "Padding": false,
+    "Shuffle": false,
+    "ECHLengths": [
+      223
+    ],
+    "ECHCiphers": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        3
+      ]
+    ]
+  },
+  {
+    "Name": "firefox-148",
+    "Padding": false,
+    "Shuffle": false,
+    "ECHLengths": [
+      223
+    ],
+    "ECHCiphers": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        3
+      ]
+    ]
+  },
+  {
+    "Name": "ios-13",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "ios-14",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "edge-85",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "edge-106",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "safari-16.0",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "safari-26.3",
+    "Padding": false,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "360-11.0",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "qq-11.1",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "chrome-70",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "chrome-72",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "firefox-63",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  },
+  {
+    "Name": "firefox-65",
+    "Padding": true,
+    "Shuffle": false,
+    "ECHLengths": null,
+    "ECHCiphers": null
+  }
+]

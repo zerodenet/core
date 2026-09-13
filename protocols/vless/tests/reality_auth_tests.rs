@@ -299,3 +299,11 @@ fn test_validation_scenarios() {
 
     println!("\n=== All Validation Scenarios Passed ===\n");
 }
+
+#[test]
+fn ecdh_rejects_low_order_peer_keys() {
+    assert!(perform_ecdh(&[1; 32], &[0; 32]).is_err());
+    let mut order_one = [0; 32];
+    order_one[0] = 1;
+    assert!(perform_ecdh(&[1; 32], &order_one).is_err());
+}

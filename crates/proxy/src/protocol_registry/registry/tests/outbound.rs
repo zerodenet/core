@@ -114,7 +114,8 @@ fn packet_path_leaf_lookup_matches_claim_time_packet_path_projection() {
 
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
-        let expected_packet_path = matches!(protocol, "socks5" | "hysteria2" | "shadowsocks");
+        let expected_packet_path =
+            matches!(protocol, "socks5" | "hysteria2" | "shadowsocks" | "vless");
         let claimed = registry.claim_outbound_leaf(&config, leaf.clone());
         assert_eq!(
             claimed
@@ -160,7 +161,7 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
         fn prepare_tcp_connect(
             &self,
             _source_dir: Option<&std::path::Path>,
-        ) -> Result<Box<dyn PreparedTcpConnectOperation + 'a>, TcpOutboundFailure> {
+        ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
             Ok(Box::new(
                 crate::runtime::tcp_dispatch::operation::DirectTcpConnectOperation {
                     tag: "claimed".to_owned(),
@@ -171,7 +172,7 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
         fn prepare_tcp_relay_hop(
             &self,
             _source_dir: Option<&std::path::Path>,
-        ) -> Result<Box<dyn PreparedTcpRelayOperation + 'a>, EngineError> {
+        ) -> Result<Box<dyn PreparedTcpRelayOperation>, EngineError> {
             Ok(Box::new(FakeRelayOperation))
         }
     }
@@ -193,7 +194,8 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
 
     impl PreparedTcpRelayOperation for FakeRelayOperation {
         fn execute<'a>(
-            self: Box<Self>,
+            &'a self,
+            _services: crate::protocol_registry::UpstreamConnectServices,
             stream: TcpRelayStream,
             _session: &'a Session,
         ) -> Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>
@@ -345,7 +347,7 @@ fn registry_executes_adapter_claimed_udp_leaf_operations() {
         fn prepare_tcp_connect(
             &self,
             _source_dir: Option<&std::path::Path>,
-        ) -> Result<Box<dyn PreparedTcpConnectOperation + 'a>, TcpOutboundFailure> {
+        ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
             Ok(Box::new(DirectTcpConnectOperation {
                 tag: "fake-claimed-udp".to_owned(),
             }))
@@ -497,7 +499,7 @@ fn registry_executes_adapter_claimed_udp_packet_path_operations() {
         fn prepare_tcp_connect(
             &self,
             _source_dir: Option<&std::path::Path>,
-        ) -> Result<Box<dyn PreparedTcpConnectOperation + 'a>, TcpOutboundFailure> {
+        ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
             Ok(Box::new(DirectTcpConnectOperation {
                 tag: "fake-claimed-udp-packet-path".to_owned(),
             }))
@@ -538,7 +540,10 @@ fn registry_executes_adapter_claimed_udp_packet_path_operations() {
     }
 
     impl<'a> ClaimedUdpPacketPathLeaf<'a> for FakeClaimedUdpPacketPathLeaf {
-        fn prepare_udp_packet_path(&self) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
+        fn prepare_udp_packet_path(
+            &self,
+            _source_dir: Option<&std::path::Path>,
+        ) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
             Some(Box::new(FakeUdpPacketPathOperation))
         }
     }
@@ -645,7 +650,7 @@ fn registry_executes_adapter_claimed_udp_packet_path_operations() {
         .expect("claim-time udp packet-path leaf");
 
     assert!(
-        claimed.prepare_udp_packet_path().is_some(),
+        claimed.prepare_udp_packet_path(None).is_some(),
         "claimed packet-path leaf should prepare without falling back to raw-leaf callbacks"
     );
 }

@@ -15,11 +15,15 @@ use crate::protocol_registry::{UdpAssociationCloseKind, UdpNetworkServices};
 #[derive(Clone)]
 struct ProxySocks5UdpAssociationRuntime {
     services: UdpNetworkServices,
+    record_associations: bool,
 }
 
 impl ProxySocks5UdpAssociationRuntime {
-    fn new(services: UdpNetworkServices) -> Self {
-        Self { services }
+    fn new(services: UdpNetworkServices, record_associations: bool) -> Self {
+        Self {
+            services,
+            record_associations,
+        }
     }
 }
 
@@ -63,6 +67,9 @@ impl Socks5UdpAssociationRuntime for ProxySocks5UdpAssociationRuntime {
     }
 
     fn record_close(&self, reason: Socks5UpstreamAssociationCloseReason) {
+        if !self.record_associations {
+            return;
+        }
         match reason {
             Socks5UpstreamAssociationCloseReason::Closed => {
                 self.services
@@ -84,9 +91,14 @@ pub(super) async fn establish_packet_path_association(
     services: UdpNetworkServices,
     build: Socks5ManagedUdpPacketPathCarrierBuild,
 ) -> Result<Socks5UpstreamUdpAssociation, EngineError> {
-    establish_packet_path_udp_association(ProxySocks5UdpAssociationRuntime::new(services), build, 0)
-        .await
-        .map_err(Into::into)
+    // Packet-path lifecycle is tracked by the runtime's carrier wrapper.
+    establish_packet_path_udp_association(
+        ProxySocks5UdpAssociationRuntime::new(services, false),
+        build,
+        0,
+    )
+    .await
+    .map_err(Into::into)
 }
 
 #[async_trait::async_trait]
@@ -122,7 +134,7 @@ impl
         session_id: u64,
     ) -> Result<Self, EngineError> {
         establish_registered_udp_association(
-            ProxySocks5UdpAssociationRuntime::new(services),
+            ProxySocks5UdpAssociationRuntime::new(services, true),
             target,
             session_id,
         )

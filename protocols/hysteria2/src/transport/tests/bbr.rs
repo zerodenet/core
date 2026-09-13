@@ -1,11 +1,7 @@
-use super::congestion::Factory;
+use super::congestion::factory;
 use crate::settings::{BbrProfile, Settings};
-use quinn::congestion::ControllerFactory;
 use quinn_proto::congestion::{PacketEvent, PacketKey};
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 #[test]
 fn protocol_profiles_select_shared_bbr_and_forward_packet_feedback() {
@@ -15,11 +11,11 @@ fn protocol_profiles_select_shared_bbr_and_forward_packet_feedback() {
         (BbrProfile::Aggressive, 1_440_000),
     ] {
         let now = Instant::now();
-        let mut controller = Arc::new(Factory(Settings {
+        let mut controller = factory(Settings {
             bbr_profile: profile,
             bbr_initial_window: 48_000,
             ..Default::default()
-        }))
+        })
         .build(now, 1200);
         assert_eq!(controller.initial_window(), 48_000);
         assert_eq!(controller.pacing_rate(), Some(initial_rate));

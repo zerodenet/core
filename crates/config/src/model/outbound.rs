@@ -10,6 +10,26 @@ pub struct OutboundConfig {
     pub udp: UdpPolicyConfig,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ReverseSniffingConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(
+        default,
+        rename = "destOverride",
+        alias = "destinationOverride",
+        alias = "destination_override"
+    )]
+    pub destination_override: Vec<String>,
+    #[serde(default, rename = "domainsExcluded", alias = "domains_excluded")]
+    pub domains_excluded: Vec<String>,
+    #[serde(default, rename = "metadataOnly", alias = "metadata_only")]
+    pub metadata_only: bool,
+    #[serde(default, rename = "routeOnly", alias = "route_only")]
+    pub route_only: bool,
+}
+
 impl OutboundConfig {
     pub fn tag(&self) -> &str {
         &self.tag
@@ -34,11 +54,31 @@ pub enum OutboundProtocolConfig {
     },
     #[serde(rename = "vless")]
     Vless {
+        #[serde(default)]
+        final_mask: Option<Box<super::FinalMaskConfig>>,
+        #[serde(default)]
+        hysteria: Option<Box<super::HysteriaTransportConfig>>,
+        #[serde(default)]
+        mkcp: Option<Box<super::MkcpConfig>>,
+        /// Run an Rvs bridge whose accepted routes carry this virtual ingress tag.
+        #[serde(default)]
+        reverse_tag: Option<String>,
+        /// Content sniffing policy applied only to routes accepted by this Rvs bridge.
+        #[serde(default, alias = "sniffing")]
+        reverse_sniffing: Option<Box<ReverseSniffingConfig>>,
+        #[serde(default)]
+        encryption: Option<String>,
         server: String,
         port: u16,
         id: String,
         #[serde(default)]
         flow: Option<String>,
+        /// Number of transport connections kept ready before VLESS handshake.
+        #[serde(default)]
+        testpre: u32,
+        /// Xray-compatible Vision padding tuple.
+        #[serde(default)]
+        testseed: Vec<u32>,
         #[serde(default)]
         mux_concurrency: Option<u32>,
         #[serde(default)]
@@ -66,6 +106,10 @@ pub enum OutboundProtocolConfig {
         #[serde(default)]
         quic: Option<Box<QuicConfig>>,
     },
+    /// A portal reached through authenticated inbound Rvs workers. Its outbound
+    /// tag is referenced by inbound users; it has no network dial endpoint.
+    #[serde(rename = "vless_reverse")]
+    VlessReverse,
     #[serde(rename = "hysteria2")]
     Hysteria2 {
         /// Upload rate for each carrier connection, in bytes per second.
@@ -163,7 +207,7 @@ impl OutboundProtocolConfig {
             Self::Direct => "direct",
             Self::Block => "block",
             Self::Socks5 { .. } => "socks5",
-            Self::Vless { .. } => "vless",
+            Self::Vless { .. } | Self::VlessReverse => "vless",
             Self::Hysteria2 { .. } => "hysteria2",
             Self::Shadowsocks { .. } => "shadowsocks",
             Self::Trojan { .. } => "trojan",
@@ -189,7 +233,7 @@ impl OutboundProtocolConfig {
             | Self::Trojan { server, port, .. }
             | Self::Vmess { server, port, .. }
             | Self::Mieru { server, port, .. } => Some((server, *port)),
-            Self::Direct | Self::Block => None,
+            Self::Direct | Self::Block | Self::VlessReverse => None,
         }
     }
 
@@ -199,7 +243,7 @@ impl OutboundProtocolConfig {
         match self {
             Self::Socks5 { .. } | Self::Mieru { .. } => UsernamePassword,
             Self::Hysteria2 { .. } | Self::Shadowsocks { .. } | Self::Trojan { .. } => PasswordOnly,
-            Self::Direct | Self::Block => None,
+            Self::Direct | Self::Block | Self::VlessReverse => None,
             _ => Other,
         }
     }
@@ -230,6 +274,7 @@ impl OutboundProtocolConfig {
             Self::Direct
             | Self::Block
             | Self::Vless { .. }
+            | Self::VlessReverse
             | Self::Hysteria2 { .. }
             | Self::Shadowsocks { .. }
             | Self::Trojan { .. } => {}

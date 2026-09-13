@@ -1,61 +1,78 @@
-pub(super) fn starts_with_tls_application_data(content: &[u8]) -> bool {
-    content.len() >= 5 && content[0] == 0x17 && content[1] == 0x03 && content[2] == 0x03
+//! Bounded traffic classification matching the pinned Vision filter window.
+// The window is shared by both directions; only a recognized ServerHello can
+// authorize raw TLS record forwarding, and CCM-8 remains excluded.
+pub(super) struct TlsFilter {
+    pub(super) remaining_packets: u8,
+    pub(super) is_tls: bool,
+    pub(super) tls12_or_above: bool,
+    pub(super) direct: bool,
+    remaining_server_hello: usize,
+    cipher: u16,
+}
+impl Default for TlsFilter {
+    fn default() -> Self {
+        Self {
+            remaining_packets: 8,
+            is_tls: false,
+            tls12_or_above: false,
+            direct: false,
+            remaining_server_hello: 0,
+            cipher: 0,
+        }
+    }
+}
+impl TlsFilter {
+    pub(super) fn observe(&mut self, content: &[u8]) {
+        if self.remaining_packets == 0 || content.is_empty() {
+            return;
+        }
+        self.remaining_packets -= 1;
+        if content.len() >= 6 {
+            if content[..3] == [0x16, 0x03, 0x03] && content[5] == 2 {
+                self.remaining_server_hello =
+                    usize::from(u16::from_be_bytes([content[3], content[4]])) + 5;
+                self.tls12_or_above = true;
+                self.is_tls = true;
+                if content.len() >= 79 && self.remaining_server_hello >= 79 {
+                    let offset = 44 + usize::from(content[43]);
+                    if let Some(cipher) = content.get(offset..offset + 2) {
+                        self.cipher = u16::from_be_bytes([cipher[0], cipher[1]]);
+                    }
+                }
+            } else if content[..2] == [0x16, 0x03] && content[5] == 1 {
+                self.is_tls = true;
+            }
+        }
+        if self.remaining_server_hello == 0 {
+            return;
+        }
+        let end = self.remaining_server_hello.min(content.len());
+        self.remaining_server_hello = self.remaining_server_hello.saturating_sub(content.len());
+        if content[..end]
+            .windows(6)
+            .any(|window| window == [0, 0x2b, 0, 2, 3, 4])
+        {
+            self.direct = matches!(self.cipher, 0x1301..=0x1304);
+            self.remaining_packets = 0;
+        } else if self.remaining_server_hello == 0 {
+            self.remaining_packets = 0;
+        }
+    }
 }
 
-pub(super) fn contains_tls13_server_hello(input: &[u8]) -> bool {
-    let mut offset = 0;
-    while offset + 5 <= input.len() {
-        let record_len = u16::from_be_bytes([input[offset + 3], input[offset + 4]]) as usize;
-        let end = offset + 5 + record_len;
-        if end > input.len() {
+pub(super) fn complete_application_records(mut content: &[u8]) -> bool {
+    if content.len() < 6 {
+        return false;
+    }
+    while !content.is_empty() {
+        if content.len() < 5 || content[..3] != [0x17, 3, 3] {
             return false;
         }
-        let record = &input[offset + 5..end];
-        if input[offset] == 0x16
-            && record.len() >= 4
-            && record[0] == 0x02
-            && server_hello_selects_tls13(record)
-        {
-            return true;
-        }
-        offset = end;
-    }
-    false
-}
-
-fn server_hello_selects_tls13(handshake: &[u8]) -> bool {
-    if handshake.len() < 4 + 2 + 32 + 1 {
-        return false;
-    }
-    let body_len =
-        ((handshake[1] as usize) << 16) | ((handshake[2] as usize) << 8) | handshake[3] as usize;
-    if handshake.len() < 4 + body_len {
-        return false;
-    }
-    let body = &handshake[4..4 + body_len];
-    let session_id_len = body[34] as usize;
-    let mut offset = 35 + session_id_len;
-    if offset + 2 + 1 + 2 > body.len() {
-        return false;
-    }
-    offset += 3; // cipher suite + compression method
-    let extensions_len = u16::from_be_bytes([body[offset], body[offset + 1]]) as usize;
-    offset += 2;
-    let end = (offset + extensions_len).min(body.len());
-    while offset + 4 <= end {
-        let extension_type = u16::from_be_bytes([body[offset], body[offset + 1]]);
-        let extension_len = u16::from_be_bytes([body[offset + 2], body[offset + 3]]) as usize;
-        offset += 4;
-        if offset + extension_len > end {
+        let size = usize::from(u16::from_be_bytes([content[3], content[4]]));
+        if size == 0 || content.len() < 5 + size {
             return false;
         }
-        if extension_type == 0x002b
-            && extension_len == 2
-            && body[offset..offset + 2] == [0x03, 0x04]
-        {
-            return true;
-        }
-        offset += extension_len;
+        content = &content[5 + size..];
     }
-    false
+    true
 }

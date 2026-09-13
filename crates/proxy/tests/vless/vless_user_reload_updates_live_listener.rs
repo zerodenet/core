@@ -79,8 +79,10 @@ async fn vless_user_reload_updates_live_listener_without_rebind() {
         panic!("expected VLESS inbound");
     };
     *users = vec![zero_config::VlessUserConfig {
+        reverse_tag: None,
         id: NEW_USER_ID.to_owned(),
         flow: None,
+        testseed: Vec::new(),
         principal_key: Some("account:new".to_owned()),
         up_bps: None,
         down_bps: None,

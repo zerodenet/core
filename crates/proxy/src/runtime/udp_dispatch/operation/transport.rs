@@ -1,3 +1,5 @@
+mod connector;
+pub(crate) use connector::prepare_transport_udp_relay_connector;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -142,11 +144,12 @@ async fn execute_relay_two_stream_udp_operation<TLeaf>(
 where
     TLeaf: ProxyRelayTwoStreamTransportLeaf,
 {
-    let mut context = dispatch.flow_start_context();
-    let endpoint = prepared.endpoint();
-    let resume = prepared.relay_two_stream_udp_resume();
     let paired_stream = prepared
-        .open_relay_two_stream_udp_transport(post_carrier.stream, get_carrier.stream)
+        .open_relay_two_stream_udp_transport(
+            services.upstream(),
+            post_carrier.stream,
+            get_carrier.stream,
+        )
         .await
         .map_err(|error| FlowFailure {
             stage: TLeaf::UDP_RELAY_CHAIN_STAGE,
@@ -154,25 +157,13 @@ where
             upstream: None,
         })?;
 
-    start_relay_managed_stream_packet(
-        &mut context,
-        ManagedStreamPacketStartBridge::relay(
-            Some(services),
-            endpoint.tag,
-            session,
-            ManagedStreamPacketRelay {
-                carrier: RelayCarrier {
-                    stream: paired_stream,
-                    server: endpoint.server.to_string(),
-                    port: endpoint.port,
-                }
-                .into(),
-                tls_server_name: None,
-            },
-            (endpoint.server, endpoint.port),
-            resume,
-            payload,
-        ),
+    connector::start_prepared_relay_stream(
+        dispatch,
+        services,
+        session,
+        payload,
+        paired_stream,
+        prepared,
     )
     .await
 }

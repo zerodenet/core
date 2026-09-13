@@ -21,6 +21,10 @@ impl RegisteredUdpState {
         let Some(resume) = self.managed_flow_resume(flow_ref) else {
             return Err(unavailable("managed UDP flow resume was dropped"));
         };
+        #[cfg(feature = "managed-stream-runtime")]
+        if let Some(connection) = resume.as_ref::<super::LogicalConnection>() {
+            return connection.send(&request.0.session, request.1).await;
+        }
         #[cfg(feature = "upstream-association-runtime")]
         if self.upstream.handles_resume(&resume) {
             return Err(unavailable(

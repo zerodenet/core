@@ -21,6 +21,7 @@ managed-udp-runtime = ["udp-runtime"]
 managed-datagram-runtime = ["managed-udp-runtime"]
 managed-stream-runtime = ["managed-udp-runtime", "udp-response-runtime"]
 upstream-association-runtime = ["udp-runtime"]
+tls-ech-runtime = ["zero-transport/tls", "zero-dns/udp", "zero-dns/doh"]
 tcp-tunnel-runtime = []
 tcp-session-runtime = []
 tcp-transport-session-runtime = []
@@ -28,16 +29,17 @@ socks5 = ["udp-response-runtime", "upstream-association-runtime", "tcp-tunnel-ru
 http = ["dep:http"]
 mixed = ["socks5", "http"]
 inbound-listener-group-runtime = []
-transport_quic = ["zero-transport/quic"]
+transport_quic = ["zero-transport/quic", "dep:quinn"]
 authenticated-quic-inbound-runtime = [
     "managed-datagram-runtime",
     "quic_packet_path",
     "transport_quic",
 ]
 vless = [
-    "managed-stream-runtime",
+    "datagram-route-runtime",    "managed-stream-runtime",
     "tcp-tunnel-runtime",
     "transport_quic",
+    "tls-ech-runtime",
     "dep:vless",
     "vless/reality",
 ]
@@ -114,6 +116,8 @@ zero-stack = { path = "../stack" }
 zero-transport = { path = "../transport" }
 
 [dev-dependencies]
+base64 = "0.22"
+ring = "0.17"
 h2 = "0.4"
 http_uri = { package = "http", version = "1" }
 quinn = { workspace = true, features = ["rustls-ring", "runtime-tokio"] }

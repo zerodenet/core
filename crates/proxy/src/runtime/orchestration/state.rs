@@ -20,6 +20,7 @@ pub(super) struct OrchestrationState {
     pub(super) listener_stops: HashMap<String, watch::Sender<bool>>,
     pub(super) active_inbounds: HashMap<String, InboundConfig>,
     pub(super) urltests: JoinSet<Result<(), EngineError>>,
+    pub(super) services: crate::runtime::inbound_service::InboundServices,
     pub(super) reload_async_rx: tokio::sync::mpsc::UnboundedReceiver<()>,
     pub(super) source_dir: Option<PathBuf>,
     pub(super) urltest_runtime: UrlTestRuntime,
@@ -49,6 +50,7 @@ impl OrchestrationState {
                 .map(|inbound| (inbound.tag.clone(), inbound.clone()))
                 .collect(),
             urltests: JoinSet::new(),
+            services: Default::default(),
             reload_async_rx: reload::subscribe_reload_bridge(proxy.engine.subscribe_reload()),
             source_dir,
             urltest_runtime,
@@ -57,6 +59,8 @@ impl OrchestrationState {
             configured_tun_failures: proxy.configured_tun_failures.subscribe(),
         };
 
+        #[cfg(feature = "managed-stream-runtime")]
+        let prepared_services = proxy.protocols.prepare_inbound_services(&proxy.config)?;
         proxy
             .reconcile_configured_tun(
                 proxy.config.runtime.tun.as_ref(),
@@ -76,6 +80,15 @@ impl OrchestrationState {
             }
             return Err(error);
         }
+        #[cfg(feature = "managed-stream-runtime")]
+        state
+            .services
+            .replace(
+                prepared_services,
+                proxy.tcp_runtime_services(),
+                state.shutdown_rx.clone(),
+            )
+            .await;
         state.start_urltests();
         log_started(proxy);
         proxy.mark_orchestration_ready();
@@ -84,7 +97,7 @@ impl OrchestrationState {
     }
 
     pub(super) fn is_idle(&self) -> bool {
-        self.listeners.is_empty() && self.urltests.is_empty()
+        self.listeners.is_empty() && self.urltests.is_empty() && self.services.is_empty()
     }
 
     pub(super) fn propagate_shutdown(&self) {
@@ -107,7 +120,16 @@ impl OrchestrationState {
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),
         );
-        let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services);
+        let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services.clone());
+        #[cfg(feature = "managed-stream-runtime")]
+        let prepared_services = match proxy.protocols.prepare_inbound_services(&new_config) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.reject_reload(proxy, &new_config, error.to_string())
+                    .await;
+                return;
+            }
+        };
         let rollback_runtime_factory = self.inbound_runtime_factory.clone();
         let source_dir = self.source_dir.clone();
         let dns_reload = new_config
@@ -183,6 +205,14 @@ impl OrchestrationState {
         )
         .await;
         proxy.protocols.on_config_reloaded(&new_config);
+        #[cfg(feature = "managed-stream-runtime")]
+        self.services
+            .replace(
+                prepared_services,
+                candidate_tcp_services,
+                self.shutdown_rx.clone(),
+            )
+            .await;
         self.inbound_runtime_factory = candidate_runtime_factory;
         self.urltest_runtime = candidate_urltest_runtime;
         self.applied_snapshot = new_snapshot;

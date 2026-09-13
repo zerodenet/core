@@ -81,12 +81,12 @@ pub(crate) enum PreparedUdpRelayChain<'a> {
         operation: Box<dyn PreparedUdpRelayOperation<'a> + 'a>,
     },
     FinalHop {
-        prefix: PreparedTcpRelayChain<'a>,
+        prefix: PreparedTcpRelayChain,
         operation: Box<dyn PreparedUdpRelayOperation<'a> + 'a>,
     },
     TwoStream {
-        post_prefix: PreparedTcpRelayChain<'a>,
-        get_prefix: PreparedTcpRelayChain<'a>,
+        post_prefix: PreparedTcpRelayChain,
+        get_prefix: PreparedTcpRelayChain,
         operation: Box<dyn PreparedUdpRelayOperation<'a> + 'a>,
     },
 }

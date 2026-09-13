@@ -12,15 +12,15 @@ mod stream_io;
 mod tls;
 
 use padding::vision_padding_len;
-use tls::{contains_tls13_server_hello, starts_with_tls_application_data};
+use tls::{complete_application_records, TlsFilter};
 
 const COMMAND_CONTINUE: u8 = 0;
 const COMMAND_END: u8 = 1;
 const COMMAND_DIRECT: u8 = 2;
 const FRAME_HEADER_LEN: usize = 5;
 const UUID_LEN: usize = 16;
-const MAX_CONTENT_LEN: usize = 16 * 1024 - UUID_LEN - FRAME_HEADER_LEN;
-const MAX_FILTER_PACKETS: u8 = 8;
+const MAX_CONTENT_LEN: usize = 8192 - UUID_LEN - FRAME_HEADER_LEN;
+const MAX_ACCEPTED_CONTENT_LEN: usize = 16 * 1024 - UUID_LEN - FRAME_HEADER_LEN;
 
 pub struct VisionStream<S> {
     inner: S,
@@ -32,17 +32,30 @@ pub struct VisionStream<S> {
     read_framing: bool,
     write_first_frame: bool,
     write_framing: bool,
-    write_packets: u8,
     pending_write: Vec<u8>,
     pending_offset: usize,
     end_after_drain: bool,
     direct_after_drain: bool,
-    tls_probe: Vec<u8>,
-    tls13: bool,
+    tls_filter: TlsFilter,
+    testseed: [u32; 4],
 }
 
 impl<S> VisionStream<S> {
     pub fn new(inner: S, uuid: [u8; UUID_LEN], control: Option<TransportBypassControl>) -> Self {
+        Self::with_testseed(
+            inner,
+            uuid,
+            control,
+            crate::validation::DEFAULT_VISION_TESTSEED,
+        )
+    }
+
+    pub fn with_testseed(
+        inner: S,
+        uuid: [u8; UUID_LEN],
+        control: Option<TransportBypassControl>,
+        testseed: [u32; 4],
+    ) -> Self {
         Self {
             inner,
             uuid,
@@ -53,13 +66,32 @@ impl<S> VisionStream<S> {
             read_framing: true,
             write_first_frame: true,
             write_framing: true,
-            write_packets: 0,
             pending_write: Vec::new(),
             pending_offset: 0,
             end_after_drain: false,
             direct_after_drain: false,
-            tls_probe: Vec::new(),
-            tls13: false,
+            tls_filter: TlsFilter::default(),
+            testseed,
+        }
+    }
+
+    pub(crate) fn map_inner<T>(self, map: impl FnOnce(S) -> T) -> VisionStream<T> {
+        VisionStream {
+            inner: map(self.inner),
+            uuid: self.uuid,
+            control: self.control,
+            read_wire: self.read_wire,
+            read_output: self.read_output,
+            read_first_frame: self.read_first_frame,
+            read_framing: self.read_framing,
+            write_first_frame: self.write_first_frame,
+            write_framing: self.write_framing,
+            pending_write: self.pending_write,
+            pending_offset: self.pending_offset,
+            end_after_drain: self.end_after_drain,
+            direct_after_drain: self.direct_after_drain,
+            tls_filter: self.tls_filter,
+            testseed: self.testseed,
         }
     }
 
@@ -85,14 +117,41 @@ impl<S> VisionStream<S> {
     }
 
     fn process_read_wire(&mut self) -> io::Result<()> {
+        let before = self.read_output.len();
+        let result = self.decode_read_wire();
+        // A single read may contain several continue frames. The reference
+        // classifies the combined unpadded input buffer once, not each frame.
+        self.tls_filter
+            .observe(&self.read_output.make_contiguous()[before..]);
+        result
+    }
+
+    fn decode_read_wire(&mut self) -> io::Result<()> {
         loop {
             if !self.read_framing {
-                self.read_output.extend(self.read_wire.drain(..));
+                let content = core::mem::take(&mut self.read_wire);
+                self.read_output.extend(content);
                 return Ok(());
             }
 
             let prefix_len = if self.read_first_frame { UUID_LEN } else { 0 };
+            // An unframed short response must not wait for an entire Vision
+            // header. A matching partial UUID still waits for reassembly.
+            let compared = self.read_wire.len().min(UUID_LEN);
+            if self.read_first_frame && self.read_wire[..compared] != self.uuid[..compared] {
+                self.read_framing = false;
+                continue;
+            }
             if self.read_wire.len() < prefix_len + FRAME_HEADER_LEN {
+                if self.read_first_frame
+                    && self
+                        .read_wire
+                        .get(UUID_LEN)
+                        .is_some_and(|command| *command > COMMAND_DIRECT)
+                {
+                    self.read_framing = false;
+                    continue;
+                }
                 return Ok(());
             }
 
@@ -110,7 +169,7 @@ impl<S> VisionStream<S> {
             let padding_len =
                 u16::from_be_bytes([self.read_wire[header + 3], self.read_wire[header + 4]])
                     as usize;
-            if content_len > MAX_CONTENT_LEN || padding_len > 16 * 1024 {
+            if content_len > MAX_ACCEPTED_CONTENT_LEN || padding_len > 16 * 1024 {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "invalid VLESS Vision frame length",
@@ -124,7 +183,6 @@ impl<S> VisionStream<S> {
             self.read_wire.drain(..prefix_len + FRAME_HEADER_LEN);
             let content: Vec<u8> = self.read_wire.drain(..content_len).collect();
             self.read_wire.drain(..padding_len);
-            self.observe_tls(&content);
             self.read_output.extend(content);
             self.read_first_frame = false;
 
@@ -151,26 +209,15 @@ impl<S> VisionStream<S> {
         }
     }
 
-    fn observe_tls(&mut self, content: &[u8]) {
-        if self.tls_probe.len() >= 64 * 1024 {
-            return;
-        }
-        let remaining = 64 * 1024 - self.tls_probe.len();
-        self.tls_probe
-            .extend_from_slice(&content[..content.len().min(remaining)]);
-        self.tls13 |= contains_tls13_server_hello(&self.tls_probe);
-    }
-
     fn choose_command(&mut self, content: &[u8]) -> u8 {
-        self.write_packets = self.write_packets.saturating_add(1);
-        self.observe_tls(content);
-        if starts_with_tls_application_data(content) {
-            if self.tls13 && self.control.is_some() {
+        self.tls_filter.observe(content);
+        if self.tls_filter.is_tls && complete_application_records(content) {
+            if self.tls_filter.direct && self.control.is_some() {
                 return COMMAND_DIRECT;
             }
             return COMMAND_END;
         }
-        if self.write_packets >= MAX_FILTER_PACKETS {
+        if !self.tls_filter.tls12_or_above && self.tls_filter.remaining_packets <= 1 {
             COMMAND_END
         } else {
             COMMAND_CONTINUE
@@ -181,8 +228,12 @@ impl<S> VisionStream<S> {
         let consumed = content.len().min(MAX_CONTENT_LEN);
         let content = &content[..consumed];
         let command = self.choose_command(content);
-        let padding_len =
-            vision_padding_len(content.len(), self.write_packets <= 1, MAX_CONTENT_LEN);
+        let padding_len = vision_padding_len(
+            content.len(),
+            self.tls_filter.is_tls,
+            MAX_CONTENT_LEN,
+            self.testseed,
+        );
         let prefix_len = if self.write_first_frame { UUID_LEN } else { 0 };
         self.pending_write
             .reserve(prefix_len + FRAME_HEADER_LEN + consumed + padding_len);

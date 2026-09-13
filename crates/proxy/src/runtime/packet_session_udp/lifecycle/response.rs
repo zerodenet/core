@@ -33,6 +33,9 @@ pub(super) async fn handle_direct_response<H>(
 where
     H: PacketSessionUdpHandler,
 {
+    if dispatch.direct_response_session_id(sender).is_none() {
+        return Ok(());
+    }
     *last_activity = TokioInstant::now();
     let response =
         record_direct_udp_response_parts(context.runtime.services(), dispatch, sender, payload);

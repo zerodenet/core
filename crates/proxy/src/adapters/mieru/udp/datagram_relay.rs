@@ -91,14 +91,14 @@ impl ManagedDatagramResumeConnector for MieruDatagramRelayResume {
 
     async fn open_connection(
         self,
-        services: crate::protocol_registry::UdpNetworkServices,
+        services: crate::protocol_registry::PacketPathExecutionServices,
         endpoint: crate::runtime::path::OutboundEndpoint,
         initial_packet: crate::runtime::udp_flow::packet_path::UdpPacketRef<'_>,
     ) -> Result<Self::Connection, zero_engine::EngineError> {
-        let generation = services.egress_generation();
+        let generation = services.network().egress_generation();
         let relay_identity = format!("{}:egress={generation}", self.carrier.identity());
         let carrier_plan = self.carrier.clone();
-        let carrier_services = services.clone();
+        let carrier_services = services;
         let target = zero_core::Address::Domain(endpoint.server.clone());
         let port = endpoint.port;
         let connection = self

@@ -18,6 +18,8 @@ mod inbound;
 mod metadata;
 mod outbound;
 mod runtime;
+#[cfg(feature = "managed-stream-runtime")]
+mod service;
 mod support;
 mod validation;
 
@@ -30,6 +32,8 @@ pub(crate) use outbound::ClaimedOutboundLeaf;
 #[derive(Clone, Default)]
 pub(crate) struct ProtocolRegistry {
     entries: Vec<RegisteredProtocolEntry>,
+    #[cfg(feature = "managed-stream-runtime")]
+    services: Vec<Arc<dyn crate::protocol_registry::InboundServiceCapability>>,
 }
 
 pub(crate) trait OutboundLeafClaimer: Send + Sync {

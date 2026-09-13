@@ -8,6 +8,8 @@ mod carrier;
 mod context;
 mod datagram;
 mod snapshot;
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) mod tuple_flow;
 
 #[cfg(any(
     feature = "upstream-association-runtime",

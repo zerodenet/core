@@ -323,7 +323,7 @@ async fn read_framed<S: tokio::io::AsyncRead + Unpin>(stream: &mut S) -> io::Res
 #[cfg(feature = "doh")]
 mod doh;
 #[cfg(feature = "doh")]
-use doh::DohDnsResolver;
+pub(crate) use doh::DohDnsResolver;
 
 #[cfg(feature = "dot")]
 mod dot;

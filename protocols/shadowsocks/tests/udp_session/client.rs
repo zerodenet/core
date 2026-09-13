@@ -152,3 +152,48 @@ fn resume_packet_api_keeps_its_association_across_clones() {
         assert!(resume.decode_flow_packet(&response).is_none());
     }
 }
+
+#[test]
+#[cfg(feature = "runtime")]
+fn repeated_packet_path_builds_allocate_independent_associations() {
+    let cipher = CipherKind::Blake3Aes128Gcm;
+    let password = password(cipher);
+    let plan = crate::transport::ShadowsocksTransportLeaf::new(
+        "ss",
+        "127.0.0.1",
+        8388,
+        "2022-blake3-aes-128-gcm",
+        &password,
+    )
+    .udp_packet_path_plan()
+    .unwrap();
+    let first = plan.carrier_codec();
+    let clone = first.clone();
+    let second = plan.clone().carrier_codec();
+    let third = plan
+        .clone()
+        .into_datagram_source_build()
+        .into_shared_codec_parts()
+        .4;
+    let fourth = plan
+        .into_datagram_source_build()
+        .into_shared_codec_parts()
+        .4;
+    let target = Address::Ipv4([1, 2, 3, 4]);
+    let mut ids = std::collections::HashSet::new();
+    for codec in [first, second, third, fourth] {
+        let packet = codec.encode(&target, 53, b"query").unwrap();
+        let decoded =
+            crate::shared::decode_udp_wire_2022(cipher, password.as_bytes(), &packet).unwrap();
+        assert_eq!(decoded.packet_id, 1);
+        assert!(
+            ids.insert(decoded.session_id),
+            "a new carrier reused another carrier's sender session"
+        );
+    }
+    let packet = clone.encode(&target, 53, b"next").unwrap();
+    let decoded =
+        crate::shared::decode_udp_wire_2022(cipher, password.as_bytes(), &packet).unwrap();
+    assert_eq!(decoded.packet_id, 2);
+    assert!(ids.contains(&decoded.session_id));
+}

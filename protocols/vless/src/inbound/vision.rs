@@ -23,10 +23,21 @@ where
         Self::Plain(stream)
     }
 
-    pub(crate) fn vision(stream: S, uuid: [u8; 16]) -> Self {
+    pub(crate) fn vision_after_response(stream: S, uuid: [u8; 16], testseed: [u32; 4]) -> Self {
+        let mut stream = Self::vision(stream, uuid, testseed);
+        if let Self::Vision {
+            response_pending, ..
+        } = &mut stream
+        {
+            *response_pending = false;
+        }
+        stream
+    }
+
+    pub(crate) fn vision(stream: S, uuid: [u8; 16], testseed: [u32; 4]) -> Self {
         let control = stream.transport_bypass_control();
         Self::Vision {
-            stream: VisionStream::new(stream, uuid, control),
+            stream: VisionStream::with_testseed(stream, uuid, control, testseed),
             response_pending: true,
         }
     }
@@ -126,5 +137,53 @@ where
 
     async fn shutdown(&mut self) -> Result<(), Self::Error> {
         AsyncWriteExt::shutdown(self).await
+    }
+}
+
+impl<S: zero_core::InboundRecording> zero_core::InboundRecording for VlessInboundTcpStream<S> {
+    type Stream = VlessInboundTcpStream<S::Stream>;
+    fn into_unrecorded(self) -> (Self::Stream, u64, u64) {
+        match self {
+            Self::Plain(inner) => {
+                let (inner, read, written) = inner.into_unrecorded();
+                (VlessInboundTcpStream::Plain(inner), read, written)
+            }
+            Self::Vision {
+                stream,
+                response_pending,
+            } => {
+                let mut traffic = (0, 0);
+                let stream = stream.map_inner(|inner| {
+                    let (inner, read, written) = inner.into_unrecorded();
+                    traffic = (read, written);
+                    inner
+                });
+                (
+                    VlessInboundTcpStream::Vision {
+                        stream,
+                        response_pending,
+                    },
+                    traffic.0,
+                    traffic.1,
+                )
+            }
+        }
+    }
+}
+impl<S> zero_platform_tokio::ClientStream for VlessInboundTcpStream<S>
+where
+    S: zero_platform_tokio::ClientStream + AsyncRead + AsyncWrite + Unpin + Sync,
+{
+    fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
+        match self {
+            Self::Plain(inner) => inner.local_addr(),
+            Self::Vision { stream, .. } => stream.inner().local_addr(),
+        }
+    }
+    fn peer_addr(&self) -> io::Result<std::net::SocketAddr> {
+        match self {
+            Self::Plain(inner) => inner.peer_addr(),
+            Self::Vision { stream, .. } => stream.inner().peer_addr(),
+        }
     }
 }

@@ -12,12 +12,15 @@ mod outbound;
 mod profile;
 mod runtime;
 
-pub use inbound::{VlessInboundBindPlan, VlessInboundListenerRequest};
-pub use leaf::VlessOutboundLeaf;
+pub use inbound::{
+    VlessInboundBindPlan, VlessInboundListenerRequest, VlessInboundStreamMetadata,
+    VlessInboundTransportStreams,
+};
+pub use leaf::{VlessOutboundLeaf, VlessReverseBridge};
 pub use managed_udp::{VlessManagedUdpConnectorFlow, VlessManagedUdpFlowResume};
 pub use options::{
     VlessInboundOptionsRef, VlessInboundUserRef, VlessOutboundBuildOptionsRef,
     VlessOutboundOptionsRef, VlessQuicBindOptionsRef, VlessQuicClientOptionsRef,
-    VlessRealityClientOptionsRef, VlessRealityServerOptionsRef,
+    VlessRealityClientOptionsRef, VlessRealityServerOptionsRef, VlessXhttpDownloadOptionsRef,
 };
 pub use runtime::VlessTransportRuntime;

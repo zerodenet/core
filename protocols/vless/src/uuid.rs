@@ -3,36 +3,42 @@ use alloc::string::String;
 use zero_core::Error;
 
 pub fn parse_uuid(input: &str) -> Result<[u8; 16], Error> {
-    let input = input.trim();
-    let mut compact = [0_u8; 32];
-    let mut offset = 0;
-
-    for (index, byte) in input.bytes().enumerate() {
-        if byte == b'-' {
-            if !matches!(index, 8 | 13 | 18 | 23) || input.len() != 36 {
-                return Err(Error::Config("VLESS UUID is not canonical"));
-            }
-            continue;
+    // Xray's custom ID uses UUIDv5 with the nil namespace. Hash the exact
+    // UTF-8 bytes: whitespace is significant and the limit is bytes, not chars.
+    if !(32..=36).contains(&input.len()) {
+        if input.is_empty() || input.len() > 30 {
+            return Err(Error::Config("VLESS ID must be a UUID or 1..=30 bytes"));
         }
-        if offset >= compact.len() {
-            return Err(Error::Config("VLESS UUID has too many hex digits"));
-        }
-        if hex_nibble(byte).is_none() {
-            return Err(Error::Config("VLESS UUID contains non-hex digits"));
-        }
-        compact[offset] = byte;
-        offset += 1;
+        use sha1::{Digest, Sha1};
+        let mut hash = Sha1::new();
+        hash.update([0_u8; 16]);
+        hash.update(input.as_bytes());
+        let mut uuid: [u8; 16] = hash.finalize()[..16].try_into().unwrap();
+        uuid[6] = (uuid[6] & 0x0f) | 0x50;
+        uuid[8] = (uuid[8] & 0x3f) | 0x80;
+        return Ok(uuid);
     }
 
-    if offset != compact.len() {
-        return Err(Error::Config("VLESS UUID must contain 32 hex digits"));
-    }
-
+    // Match the reference parser's optional separator at each group boundary.
+    let mut text = input.as_bytes();
     let mut uuid = [0_u8; 16];
-    for i in 0..16 {
-        let high = hex_nibble(compact[i * 2]).expect("hex digit checked");
-        let low = hex_nibble(compact[i * 2 + 1]).expect("hex digit checked");
-        uuid[i] = (high << 4) | low;
+    let mut offset = 0;
+    for length in [8, 4, 4, 4, 12] {
+        if text.first() == Some(&b'-') {
+            text = &text[1..];
+        }
+        let group = text
+            .get(..length)
+            .ok_or(Error::Config("VLESS UUID is truncated"))?;
+        for pair in group.chunks_exact(2) {
+            let high =
+                hex_nibble(pair[0]).ok_or(Error::Config("VLESS UUID contains non-hex digits"))?;
+            let low =
+                hex_nibble(pair[1]).ok_or(Error::Config("VLESS UUID contains non-hex digits"))?;
+            uuid[offset] = (high << 4) | low;
+            offset += 1;
+        }
+        text = &text[length..];
     }
     Ok(uuid)
 }

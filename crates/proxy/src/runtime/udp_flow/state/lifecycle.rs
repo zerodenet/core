@@ -41,6 +41,9 @@ impl UdpFlowState {
 
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn chain_tasks(&mut self) -> &mut JoinSet<ChainTask> {
+        #[cfg(feature = "managed-stream-runtime")]
+        self.registered
+            .poll_logical_responses(&mut self.chain_tasks);
         &mut self.chain_tasks
     }
 
@@ -52,6 +55,9 @@ impl UdpFlowState {
         Option<TokioInstant>,
         &mut JoinSet<ChainTask>,
     ) {
+        #[cfg(feature = "managed-stream-runtime")]
+        self.registered
+            .poll_logical_responses(&mut self.chain_tasks);
         (
             UpstreamUdpPoll {
                 registered: &self.registered,

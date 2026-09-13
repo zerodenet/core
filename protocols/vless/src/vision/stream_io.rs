@@ -15,6 +15,9 @@ where
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
         if self.copy_read_output(buf) {
             return Poll::Ready(Ok(()));
         }

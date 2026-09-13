@@ -1,7 +1,7 @@
 use zero_core::Session;
 
 use crate::inventory::{PreparedTcpCandidate, PreparedTcpCandidateExecution};
-use crate::protocol_registry::TcpRuntimeServices;
+use crate::protocol_registry::TcpExecutionServices;
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 use super::TcpDispatchIntent;
@@ -9,9 +9,9 @@ use crate::runtime::passive_relay_health::classify_outbound_establishment_failur
 use zero_engine::PassiveRelayOutcome;
 
 pub(crate) async fn dispatch_prepared_tcp_candidate(
-    services: TcpRuntimeServices,
+    services: TcpExecutionServices,
     session: &Session,
-    prepared: PreparedTcpCandidate<'_>,
+    prepared: PreparedTcpCandidate,
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let health_tag = prepared.health_tag.clone();

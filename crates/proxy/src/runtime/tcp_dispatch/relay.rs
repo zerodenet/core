@@ -1,18 +1,22 @@
+#[cfg(feature = "udp-runtime")]
+mod datagram;
+mod identity;
 use zero_core::Session;
 
-use crate::inventory::PreparedTcpRelayChain;
-use crate::protocol_registry::TcpRuntimeServices;
+use crate::inventory::{PreparedTcpRelayChain, PreparedTcpRelayPrefix};
+use crate::protocol_registry::TcpExecutionServices;
 #[cfg(feature = "udp-runtime")]
 use crate::transport::RelayCarrier;
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 use super::TcpDispatchIntent;
 use crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier;
+use identity::{relay_chain_identity, relay_prefix_identity};
 
 pub(crate) async fn dispatch_prepared_tcp_relay_chain(
-    services: TcpRuntimeServices,
+    services: TcpExecutionServices,
     session: &Session,
-    prepared: PreparedTcpRelayChain<'_>,
+    prepared: PreparedTcpRelayChain,
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let upstream_endpoint = prepared.first.endpoint.clone();
@@ -35,12 +39,12 @@ pub(crate) async fn dispatch_prepared_tcp_relay_chain(
         .map(|(tag, _)| tag.clone())
         .unwrap_or_else(|| "relay".to_owned());
     let generation = egress_generation(&services);
-    let relay_identity = relay_identity(&prepared, generation);
+    let relay_identity = relay_chain_identity(&prepared, generation);
     let (prefix, final_hop) = split_relay_prefix(prepared);
     let carrier = lazy_relay_carrier(services.clone(), prefix, intent, relay_identity, generation);
     let stream = final_hop
         .operation
-        .execute_lazy(carrier, session)
+        .execute_lazy(services.upstream(), carrier, session)
         .await
         .map_err(|error| TcpOutboundFailure {
             stage: "relay_last",
@@ -58,12 +62,12 @@ pub(crate) async fn dispatch_prepared_tcp_relay_chain(
 }
 
 pub(crate) fn prepare_lazy_tcp_relay_carrier<'a>(
-    services: TcpRuntimeServices,
-    prepared: PreparedTcpRelayChain<'a>,
+    services: TcpExecutionServices,
+    prepared: PreparedTcpRelayChain,
 ) -> LazyTcpRelayCarrier<'a> {
     let generation = egress_generation(&services);
-    let relay_identity = relay_identity(&prepared, generation);
     let (prefix, _final_hop) = split_relay_prefix(prepared);
+    let relay_identity = relay_prefix_identity(&prefix, generation);
     lazy_relay_carrier(
         services,
         prefix,
@@ -73,18 +77,25 @@ pub(crate) fn prepare_lazy_tcp_relay_carrier<'a>(
     )
 }
 
-pub(crate) async fn dispatch_prepared_tcp_relay_hop(
-    stream: crate::transport::TcpRelayStream,
-    session: &Session,
-    prepared: crate::inventory::PreparedTcpRelayHop<'_>,
-) -> Result<crate::transport::TcpRelayStream, zero_engine::EngineError> {
-    prepared.operation.execute(stream, session).await
+pub(crate) fn prepare_lazy_tcp_relay_prefix<'a>(
+    services: TcpExecutionServices,
+    prefix: PreparedTcpRelayPrefix,
+) -> LazyTcpRelayCarrier<'a> {
+    let generation = egress_generation(&services);
+    let identity = relay_prefix_identity(&prefix, generation);
+    lazy_relay_carrier(
+        services,
+        prefix,
+        TcpDispatchIntent::Traffic,
+        identity,
+        generation,
+    )
 }
 
 #[cfg(feature = "udp-runtime")]
 pub(crate) async fn dispatch_prepared_tcp_relay_carrier(
-    services: TcpRuntimeServices,
-    prepared: PreparedTcpRelayChain<'_>,
+    services: TcpExecutionServices,
+    prepared: PreparedTcpRelayChain,
 ) -> Result<RelayCarrier, TcpOutboundFailure> {
     let (stream, final_hop) =
         execute_relay_prefix(services, prepared, TcpDispatchIntent::Traffic).await?;
@@ -96,14 +107,14 @@ pub(crate) async fn dispatch_prepared_tcp_relay_carrier(
     })
 }
 
-async fn execute_relay_prefix<'a>(
-    services: TcpRuntimeServices,
-    prepared: PreparedTcpRelayChain<'a>,
+async fn execute_relay_prefix(
+    services: TcpExecutionServices,
+    prepared: PreparedTcpRelayChain,
     intent: TcpDispatchIntent,
 ) -> Result<
     (
         crate::transport::TcpRelayStream,
-        crate::inventory::PreparedTcpRelayHop<'a>,
+        crate::inventory::PreparedTcpRelayHop,
     ),
     TcpOutboundFailure,
 > {
@@ -112,18 +123,11 @@ async fn execute_relay_prefix<'a>(
     Ok((stream, final_hop))
 }
 
-struct PreparedTcpRelayPrefix<'a> {
-    first: crate::inventory::PreparedTcpCandidate<'a>,
-    relay_hops: Vec<crate::inventory::PreparedTcpRelayHop<'a>>,
-    final_server: String,
-    final_port: u16,
-}
-
 fn split_relay_prefix(
-    mut prepared: PreparedTcpRelayChain<'_>,
+    mut prepared: PreparedTcpRelayChain,
 ) -> (
-    PreparedTcpRelayPrefix<'_>,
-    crate::inventory::PreparedTcpRelayHop<'_>,
+    PreparedTcpRelayPrefix,
+    crate::inventory::PreparedTcpRelayHop,
 ) {
     let final_hop = prepared
         .relay_hops
@@ -131,57 +135,79 @@ fn split_relay_prefix(
         .expect("relay chain must have at least one prepared hop");
     let prefix = PreparedTcpRelayPrefix {
         first: prepared.first,
+        #[cfg(feature = "udp-runtime")]
+        datagram_prefixes: prepared.datagram_prefixes,
         relay_hops: prepared.relay_hops,
+        final_tag: final_hop.tag.clone(),
+        final_protocol: final_hop.protocol.clone(),
         final_server: final_hop.server.clone(),
         final_port: final_hop.port,
     };
     (prefix, final_hop)
 }
 
-async fn execute_relay_prefix_stream(
-    services: TcpRuntimeServices,
-    prepared: PreparedTcpRelayPrefix<'_>,
+fn execute_relay_prefix_stream(
+    services: TcpExecutionServices,
+    mut prepared: PreparedTcpRelayPrefix,
     intent: TcpDispatchIntent,
-) -> Result<crate::transport::TcpRelayStream, TcpOutboundFailure> {
-    let first_target = prepared
-        .relay_hops
-        .first()
-        .map(|hop| (hop.server.clone(), hop.port))
-        .unwrap_or_else(|| (prepared.final_server.clone(), prepared.final_port));
-    let mut session_for_next = relay_session(first_target.0, first_target.1);
-    let outbound = super::candidate::dispatch_prepared_tcp_candidate(
-        services.clone(),
-        &session_for_next,
-        prepared.first,
-        intent,
-    )
-    .await?;
-    let mut stream = outbound
+) -> std::pin::Pin<
+    Box<
+        dyn std::future::Future<
+                Output = Result<crate::transport::TcpRelayStream, TcpOutboundFailure>,
+            > + Send,
+    >,
+> {
+    // Each nested carrier factory owns a strictly shorter prepared prefix.
+    // This permits multiplexed transports in intermediate hops as well as the
+    // final hop, without dialing any carrier outside the configured chain.
+    Box::pin(async move {
+        let session = relay_session(prepared.final_server.clone(), prepared.final_port);
+        if !prepared.relay_hops.is_empty() {
+            let generation = egress_generation(&services);
+            let identity = relay_chain_identity(
+                &PreparedTcpRelayChain {
+                    first: prepared.first.clone(),
+                    #[cfg(feature = "udp-runtime")]
+                    datagram_prefixes: prepared.datagram_prefixes.clone(),
+                    relay_hops: prepared.relay_hops.clone(),
+                },
+                generation,
+            );
+            let current = prepared.relay_hops.pop().unwrap();
+            #[cfg(feature = "udp-runtime")]
+            prepared.datagram_prefixes.pop();
+            prepared.final_tag = current.tag;
+            prepared.final_protocol = current.protocol;
+            prepared.final_server = current.server;
+            prepared.final_port = current.port;
+            let upstream = services.upstream();
+            let carrier = lazy_relay_carrier(services, prepared, intent, identity, generation);
+            return current
+                .operation
+                .execute_lazy(upstream, carrier, &session)
+                .await
+                .map_err(|error| TcpOutboundFailure {
+                    stage: "relay_hop",
+                    error,
+                    upstream_endpoint: None,
+                    network: None,
+                });
+        }
+        super::candidate::dispatch_prepared_tcp_candidate(
+            services,
+            &session,
+            prepared.first,
+            intent,
+        )
+        .await?
         .into_relay_stream()
         .map_err(|error| TcpOutboundFailure {
             stage: "relay_first_hop",
             error,
             upstream_endpoint: None,
             network: None,
-        })?;
-
-    let mut relay_hops = prepared.relay_hops.into_iter().peekable();
-    while let Some(current_prepared) = relay_hops.next() {
-        let (server, port) = relay_hops
-            .peek()
-            .map(|hop| (hop.server.clone(), hop.port))
-            .unwrap_or_else(|| (prepared.final_server.clone(), prepared.final_port));
-        session_for_next = relay_session(server, port);
-        stream = dispatch_prepared_tcp_relay_hop(stream, &session_for_next, current_prepared)
-            .await
-            .map_err(|error| TcpOutboundFailure {
-                stage: "relay_hop",
-                error,
-                upstream_endpoint: None,
-                network: None,
-            })?;
-    }
-    Ok(stream)
+        })
+    })
 }
 
 fn relay_session(server: String, port: u16) -> Session {
@@ -194,35 +220,7 @@ fn relay_session(server: String, port: u16) -> Session {
     )
 }
 
-fn relay_identity(prepared: &PreparedTcpRelayChain<'_>, generation: u64) -> String {
-    let mut identity = format!("egress={generation}");
-    if let Some(tag) = &prepared.first.tag {
-        identity.push_str(&format!("|{}:{}", tag.len(), tag));
-    }
-    identity.push_str(&format!(
-        "|{}:{}",
-        prepared.first.protocol.len(),
-        prepared.first.protocol
-    ));
-    if let Some((server, port)) = &prepared.first.endpoint {
-        identity.push_str(&format!("|{}:{server}:{port}", server.len()));
-    }
-    for hop in &prepared.relay_hops {
-        identity.push_str(&format!(
-            "|{}:{}|{}:{}|{}:{}:{}",
-            hop.tag.len(),
-            hop.tag,
-            hop.protocol.len(),
-            hop.protocol,
-            hop.server.len(),
-            hop.server,
-            hop.port
-        ));
-    }
-    identity
-}
-
-fn egress_generation(services: &TcpRuntimeServices) -> u64 {
+fn egress_generation(services: &TcpExecutionServices) -> u64 {
     services
         .upstream()
         .outbound_datagram_socket_factory()
@@ -230,19 +228,52 @@ fn egress_generation(services: &TcpRuntimeServices) -> u64 {
 }
 
 fn lazy_relay_carrier<'a>(
-    services: TcpRuntimeServices,
-    prefix: PreparedTcpRelayPrefix<'a>,
+    services: TcpExecutionServices,
+    prefix: PreparedTcpRelayPrefix,
     intent: TcpDispatchIntent,
     identity: String,
     generation: u64,
 ) -> LazyTcpRelayCarrier<'a> {
+    let endpoint = (prefix.final_server.clone(), prefix.final_port);
+    #[cfg(feature = "udp-runtime")]
+    let datagrams = prefix
+        .datagram_prefixes
+        .last()
+        .and_then(Option::as_ref)
+        .map(|plan| datagram::factory(&services, plan.clone()));
+    let connector = zero_transport::relay_connector::RelayStreamConnector::new(
+        identity.clone(),
+        generation,
+        std::sync::Arc::new(move |server, port| {
+            let mut prefix = prefix.clone();
+            prefix.final_server = server;
+            prefix.final_port = port;
+            let services = services.clone();
+            Box::pin(async move {
+                execute_relay_prefix_stream(services, prefix, intent)
+                    .await
+                    .map_err(|failure| {
+                        zero_transport::RuntimeError::Io(std::io::Error::other(failure.error))
+                    })
+            })
+        }),
+    );
+    #[cfg(feature = "udp-runtime")]
+    let connector = if let Some(factory) = datagrams {
+        connector.with_datagrams(factory)
+    } else {
+        connector
+    };
+    let first = connector.clone();
     LazyTcpRelayCarrier::new(
         identity,
         generation,
         Box::pin(async move {
-            execute_relay_prefix_stream(services, prefix, intent)
+            first
+                .connect(endpoint.0, endpoint.1)
                 .await
-                .map_err(|failure| failure.error)
+                .map_err(Into::into)
         }),
     )
+    .with_connector(connector)
 }

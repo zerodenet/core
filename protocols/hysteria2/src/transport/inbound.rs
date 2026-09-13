@@ -49,15 +49,24 @@ impl Hysteria2InboundBindPlan {
     }
 
     pub(super) fn website_tls(&self) -> Result<tokio_rustls::TlsAcceptor, RuntimeError> {
-        zero_transport::tls::build_tls_acceptor(
+        match zero_transport::tls::build_tls_acceptor(
             &zero_transport::profile::OwnedServerTlsProfile {
+                options: Default::default(),
                 cert_path: self.cert_path.clone(),
                 key_path: self.key_path.clone(),
                 alpn: vec!["h2".into(), "http/1.1".into()],
                 server_fingerprint: None,
             },
             self.source_dir.as_deref(),
-        )
+        )? {
+            zero_transport::tls::TlsAcceptor::Rustls(acceptor) => Ok(acceptor),
+            zero_transport::tls::TlsAcceptor::OpenSsl(_) => {
+                Err(RuntimeError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Hysteria2 website TLS requires the rustls backend",
+                )))
+            }
+        }
     }
 
     pub async fn bind(

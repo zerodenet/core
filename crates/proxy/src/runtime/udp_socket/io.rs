@@ -66,31 +66,32 @@ impl DirectUdpSockets {
         &self,
         output: &mut [u8],
     ) -> Result<(usize, DirectUdpResponseSource), std::io::Error> {
-        let mut receives = FuturesUnordered::new();
-        for entry in &self.sockets {
-            receives.push(async move {
-                let mut buffer = entry.receive_buffer.lock().await;
-                let result = entry.socket.recv_from_addr(&mut buffer).await;
-                (result, buffer, entry.session_id)
-            });
+        loop {
+            let mut receives = FuturesUnordered::new();
+            for entry in &self.sockets {
+                receives.push(async move {
+                    let mut buffer = entry.receive_buffer.lock().await;
+                    let result = entry.socket.recv_from_addr(&mut buffer).await;
+                    (result, buffer, entry.session_id)
+                });
+            }
+            let (result, buffer, scope) = receives
+                .next()
+                .await
+                .expect("direct UDP socket set is never empty");
+            let (size, sender) = result?;
+            let session_id = match scope {
+                Some(scope) => match self.response_flows.get(&(scope, sender)) {
+                    Some(session_id) => Some(*session_id),
+                    // A scoped socket must not attribute an unknown peer to
+                    // another flow merely because it shares an association.
+                    None => continue,
+                },
+                None => None,
+            };
+            let size = size.min(output.len());
+            output[..size].copy_from_slice(&buffer[..size]);
+            return Ok((size, DirectUdpResponseSource { sender, session_id }));
         }
-        let (result, buffer, session_id) = receives
-            .next()
-            .await
-            .expect("direct UDP socket set is never empty");
-        let (size, sender) = result?;
-        let session_id = session_id.and_then(|scope| {
-            self.response_flows
-                .get(&(scope, sender))
-                .copied()
-                .or_else(|| {
-                    self.isolated_sessions
-                        .iter()
-                        .find_map(|(flow, id)| (*id == scope).then_some(*flow))
-                })
-        });
-        let size = size.min(output.len());
-        output[..size].copy_from_slice(&buffer[..size]);
-        Ok((size, DirectUdpResponseSource { sender, session_id }))
     }
 }

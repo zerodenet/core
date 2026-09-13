@@ -94,6 +94,12 @@ pub struct Session {
     pub inbound_tag: Option<String>,
     pub outbound_tag: Option<String>,
     pub target: Address,
+    /// Optional hostname used for route evaluation while [`Self::target`]
+    /// remains the destination handed to the selected outbound.
+    pub route_target: Option<Address>,
+    /// Disable the ordinary Fake-IP recovery pass when a caller-owned
+    /// sniffing policy has already handled FakeDNS metadata.
+    pub skip_fake_ip_restore: bool,
     /// Destination used only when the selected outbound is direct.
     ///
     /// Transparent inbounds may recover a logical hostname for routing while
@@ -126,6 +132,8 @@ pub struct Session {
     pub source_ip: Option<Address>,
     /// Client's source port, if available.
     pub source_port: Option<u16>,
+    /// Local endpoint of the original inbound, when supplied by its carrier.
+    pub inbound_local: Option<(Address, u16)>,
     /// Local process ID that initiated this connection (Linux only).
     pub process_id: Option<u32>,
     /// Local process name (Linux only).
@@ -147,6 +155,8 @@ impl Session {
             inbound_tag: None,
             outbound_tag: None,
             target,
+            route_target: None,
+            skip_fake_ip_restore: false,
             direct_target: None,
             original_target: None,
             target_host_source: None,
@@ -161,6 +171,7 @@ impl Session {
             sni: None,
             source_ip: None,
             source_port: None,
+            inbound_local: None,
             process_id: None,
             process_name: None,
             process_path: None,
@@ -169,6 +180,10 @@ impl Session {
 
     pub fn effective_direct_target(&self) -> &Address {
         self.direct_target.as_ref().unwrap_or(&self.target)
+    }
+
+    pub fn effective_route_target(&self) -> &Address {
+        self.route_target.as_ref().unwrap_or(&self.target)
     }
 
     /// Apply authenticated user identity and rate limits to this session.

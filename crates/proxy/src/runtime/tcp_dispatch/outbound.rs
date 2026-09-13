@@ -14,13 +14,13 @@ pub(crate) async fn dispatch_tcp_outbound(
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let prepared = services.prepare_tcp_outbound(&resolved)?;
-    execute_prepared_tcp_outbound(services.clone(), session, prepared, intent).await
+    execute_prepared_tcp_outbound(services.execution(), session, prepared, intent).await
 }
 
 async fn execute_prepared_tcp_outbound(
-    services: TcpRuntimeServices,
+    services: crate::protocol_registry::TcpExecutionServices,
     session: &Session,
-    prepared: PreparedTcpOutbound<'_>,
+    prepared: PreparedTcpOutbound,
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     match prepared {

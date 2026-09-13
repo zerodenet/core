@@ -78,7 +78,8 @@ impl MieruAdapter {
 
 impl PreparedTcpRelayOperation for PreparedMieruTcpRelay {
     fn execute<'a>(
-        self: Box<Self>,
+        &'a self,
+        _services: crate::protocol_registry::UpstreamConnectServices,
         stream: crate::transport::TcpRelayStream,
         session: &'a zero_core::Session,
     ) -> std::pin::Pin<
@@ -101,7 +102,8 @@ impl PreparedTcpRelayOperation for PreparedMieruTcpRelay {
     }
 
     fn execute_lazy<'a>(
-        self: Box<Self>,
+        &'a self,
+        _services: crate::protocol_registry::UpstreamConnectServices,
         carrier: LazyTcpRelayCarrier<'a>,
         session: &'a zero_core::Session,
     ) -> std::pin::Pin<

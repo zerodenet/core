@@ -238,9 +238,11 @@ mod api;
 mod dns;
 mod inbound;
 mod log;
+mod mkcp;
 mod outbound;
 mod route;
 mod transport;
+pub use mkcp::MkcpConfig;
 mod tun;
 
 pub use api::*;
@@ -254,3 +256,19 @@ pub use tun::*;
 
 mod hysteria2;
 pub use hysteria2::*;
+
+mod hysteria_carrier;
+pub use hysteria_carrier::{
+    HysteriaCarrierMasqueradeConfig, HysteriaTransportConfig, QuicParametersConfig, UdpHopConfig,
+};
+
+mod finalmask;
+pub use finalmask::{
+    FinalMaskConfig, MaskItemConfig, MaskRangeConfig, NoiseItemConfig, TcpMaskConfig,
+    TcpMaskItemConfig, UdpMaskConfig,
+};
+
+pub use transport::{
+    ClientTlsOptionsConfig, ServerTlsOptionsConfig, TlsBackendConfig, TlsCertificateFilesConfig,
+    TlsCertificateUsageConfig, TlsParametersConfig,
+};

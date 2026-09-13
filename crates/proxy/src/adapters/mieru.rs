@@ -117,7 +117,7 @@ impl InboundListenerCapability for MieruAdapter {
             }
         ) {
             return Ok(crate::protocol_registry::BoundInbound::Datagram(
-                std::sync::Arc::new(tokio::net::UdpSocket::bind(&address).await?),
+                std::sync::Arc::new(tokio::net::UdpSocket::bind(&address).await?).into(),
             ));
         }
         Ok(crate::protocol_registry::BoundInbound::Tcp(

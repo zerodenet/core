@@ -24,15 +24,32 @@ fn ensure_rustls() {
     });
 }
 
-static NEXT_TCP_PORT: AtomicUsize = AtomicUsize::new(30000);
-static NEXT_UDP_PORT: AtomicUsize = AtomicUsize::new(40000);
+static NEXT_TCP_PORT: OnceLock<(AtomicUsize, usize)> = OnceLock::new();
+static NEXT_UDP_PORT: OnceLock<(AtomicUsize, usize)> = OnceLock::new();
+
+fn port_range(default: usize, parallel_base: usize) -> (AtomicUsize, usize) {
+    match std::env::var("ZERO_TEST_PORT_SLOT") {
+        Ok(slot) => {
+            let slot: usize = slot
+                .parse()
+                .expect("ZERO_TEST_PORT_SLOT must be an integer");
+            assert!(slot < 4, "ZERO_TEST_PORT_SLOT must be in 0..4");
+            let start = parallel_base + slot * 2000;
+            (AtomicUsize::new(start), start + 2000)
+        }
+        Err(std::env::VarError::NotPresent) => (AtomicUsize::new(default), 65536),
+        Err(error) => panic!("invalid ZERO_TEST_PORT_SLOT: {error}"),
+    }
+}
 
 pub fn free_port() -> u16 {
-    next_available_port(&NEXT_TCP_PORT, bind_tcp_port)
+    let (counter, end) = NEXT_TCP_PORT.get_or_init(|| port_range(30000, 20000));
+    next_available_port(counter, *end, bind_tcp_port)
 }
 
 pub fn free_udp_port() -> u16 {
-    next_available_port(&NEXT_UDP_PORT, bind_udp_port)
+    let (counter, end) = NEXT_UDP_PORT.get_or_init(|| port_range(40000, 30000));
+    next_available_port(counter, *end, bind_udp_port)
 }
 
 pub async fn wait_for_listener(port: u16) {
@@ -138,9 +155,13 @@ pub async fn wait_for_group_selection(engine: &RunningEngine, group_tag: &str, s
     );
 }
 
-fn next_available_port(counter: &AtomicUsize, binder: impl Fn(u16) -> bool) -> u16 {
+fn next_available_port(counter: &AtomicUsize, end: usize, binder: impl Fn(u16) -> bool) -> u16 {
     for _ in 0..10_000 {
-        let candidate = counter.fetch_add(1, Ordering::Relaxed) as u16;
+        let candidate = counter.fetch_add(1, Ordering::Relaxed);
+        if candidate >= end {
+            panic!("test port allocation exhausted its assigned range");
+        }
+        let candidate = candidate as u16;
         if candidate < 1024 {
             continue;
         }
@@ -160,3 +181,11 @@ fn bind_tcp_port(port: u16) -> bool {
 fn bind_udp_port(port: u16) -> bool {
     StdUdpSocket::bind(("127.0.0.1", port)).is_ok()
 }
+
+#[cfg(feature = "vless")]
+pub mod tls_echo;
+
+#[cfg(all(feature = "socks5", feature = "vless"))]
+pub mod xhttp;
+
+pub mod xhttp_tap;

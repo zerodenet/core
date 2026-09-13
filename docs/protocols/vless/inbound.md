@@ -15,12 +15,20 @@ VLESS 入站负责传输请求准备、协议接受、用户鉴权和目标解�
 
 VLESS 适配器只准备协议所需的操作，不自行启动监听循环，也不保留完整 `Proxy` 对象。
 
-标准 `xtls-rprx-vision` 已支持 REALITY TCP 入站。VLESS 响应头以原始字节发送后才切换到 Vision UUID/Continue/End/Direct 数据帧；Direct 模式的读写 bypass 控制会穿过录制与计量包装传递给 REALITY 载体。Vision 仅适用于 TCP，不能与 MUX/UDP 组合；配置校验会在启动前拒绝这些无效组合。Zero 私有的 `zero-aead-v1` 仍只用于旧 Zero 对端的显式迁移，不等同于 Xray Vision。
+`xtls-rprx-vision` 支持原始 TLS 1.3、REALITY，以及 VLESS Encryption 提供的可切换承载。响应头之后使用 Vision UUID/Continue/End/Direct 帧；直通控制穿过录制与计量包装，TLS 层在完整记录边界切换。TLS 1.2 不提供直通控制，连接在协议协商阶段拒绝。Vision UDP 使用 XUDP/MUX，拒绝普通 UDP 命令和 MUX TCP；出站 `xtls-rprx-vision-udp443` 仅调整 UDP/443 策略，线上 flow 仍为 `xtls-rprx-vision`。Zero 私有 `zero-aead-v1` 保留显式迁移用途。
 
-XHTTP `stream-one` 入站在 `zero-transport` 首包识别明文线协议：H2/H2C preface 进入 HTTP/2 单流，`POST` 进入 HTTP/1.1 chunked 单流；两者随后都只向 VLESS 暴露中立双向字节流。HTTP/1.1 请求必须匹配配置 path、`POST`、chunked transfer encoding 和 `application/grpc`，响应带 `text/event-stream`、`no-store` 与默认 padding。该路径已通过 Xray v26.3.27 出站到 Zero 入站的 TCP、标准 VLESS UDP、TCP MUX、A → B → A 多目标 XUDP，以及并发 XUDP association 黑盒测试。Xray 在这里仅是外部线协议样本；入站仍通过 Zero 自有 MUX relay 契约进入通用运行时。
+每个 VLESS 入站用户可配置 Xray 兼容的 `testseed` 四项参数，用于该用户通过鉴权后的 Vision 下行填充。默认值为 `[900, 500, 900, 256]`；不足四项时整体使用默认值，超过四项时忽略其余值。该参数跟随已鉴权用户进入普通 TCP、Vision MUX 和 Rvs 连接，不由通用运行时解析。
+
+XHTTP 入站由 `zero-transport` 执行 HTTP/1.1 和 HTTP/2 请求，支持 `packet-up`、`stream-up`、`stream-one`，`auto` 接受三种模式。每个 GET 下载或 stream-one 请求形成独立的中立字节流；通用运行时负责并发任务和回收，`protocols/vless` 逐流完成鉴权并返回 TCP、UDP 或 MUX 路由。会话配对和序号重排留在传输层，详细线协议、容量与参考版本见 [XHTTP 契约](./xhttp.md)。
 
 ## 数据路径
 
 - TCP 请求进入通用 stream route。
 - UDP-over-stream 请求通过协议所有的 relay 封装交给通用 UDP 路由。
 - MUX TCP/UDP 子流通过中立的 MUX relay 契约交给运行时。
+
+VLESS Encryption 的 `decryption` 配置与会话语义见 [Encryption](encryption.md)。
+
+WS/HTTPUpgrade 首包、Host 与自定义头配置见 [HTTP carrier Early Data](early-data.md)。
+
+多规则回落、Unix 目标和 PROXY 转交见 [Fallback](fallback.md)。

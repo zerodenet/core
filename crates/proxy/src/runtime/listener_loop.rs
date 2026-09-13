@@ -7,7 +7,7 @@ mod tests;
 
 #[cfg(feature = "transport_quic")]
 pub(crate) use quic::{run_logged_quic_stream_listener_loop, LoggedQuicStreamListenerRequest};
-#[cfg(feature = "authenticated-quic-inbound-runtime")]
+#[cfg(feature = "transport_quic")]
 pub(crate) use quic::{run_quic_listener_loop, QuicListenerLoopRequest};
 #[cfg(all(test, feature = "transport_quic"))]
 pub(crate) use quic::{run_quic_stream_listener_loop, QuicStreamListenerLoopRequest};

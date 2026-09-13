@@ -205,3 +205,5 @@ where
         self.inner.peer_addr()
     }
 }
+
+pub(crate) mod progress;

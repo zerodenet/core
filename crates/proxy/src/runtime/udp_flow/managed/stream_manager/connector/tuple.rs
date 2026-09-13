@@ -39,6 +39,7 @@ pub(crate) trait ManagedTupleUdpResumeConnector:
 
     async fn open_relay(
         &self,
+        services: UpstreamConnectServices,
         stream: TcpRelayStream,
         session: &Session,
         tls_server_name: Option<&str>,
@@ -46,11 +47,12 @@ pub(crate) trait ManagedTupleUdpResumeConnector:
 
     async fn open_lazy_relay(
         &self,
+        services: UpstreamConnectServices,
         carrier: LazyTcpRelayCarrier<'_>,
         session: &Session,
         tls_server_name: Option<&str>,
     ) -> Result<Self::Connection, EngineError> {
-        self.open_relay(carrier.open().await?, session, tls_server_name)
+        self.open_relay(services, carrier.open().await?, session, tls_server_name)
             .await
     }
 }
@@ -86,19 +88,26 @@ where
         &self,
         carrier: ManagedRelayStreamCarrier<'_>,
         tls_server_name: Option<&str>,
-        _services: Option<UdpRuntimeServices>,
+        services: Option<UdpRuntimeServices>,
         session: &Session,
         _endpoint: OutboundEndpoint,
     ) -> Result<SharedManagedUdpConnection, EngineError> {
+        let services = services
+            .ok_or_else(|| {
+                EngineError::Io(std::io::Error::other(
+                    "managed relay is missing runtime services",
+                ))
+            })?
+            .upstream();
         let connection = match carrier {
             ManagedRelayStreamCarrier::Ready(carrier) => {
                 self.0
-                    .open_relay(carrier.stream, session, tls_server_name)
+                    .open_relay(services, carrier.stream, session, tls_server_name)
                     .await?
             }
             ManagedRelayStreamCarrier::Lazy(carrier) => {
                 self.0
-                    .open_lazy_relay(carrier, session, tls_server_name)
+                    .open_lazy_relay(services, carrier, session, tls_server_name)
                     .await?
             }
         };

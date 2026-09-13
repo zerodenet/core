@@ -13,9 +13,15 @@ pub(crate) async fn resolve_dns_target(
 ) -> Result<(), EngineError> {
     let current_ip = address_ip(&session.target);
     let original_ip = session.original_target.as_ref().and_then(address_ip);
-    let synthetic = current_ip
-        .filter(|(_, standard_ip)| resolver.fake_ip_contains(*standard_ip))
-        .or_else(|| original_ip.filter(|(_, standard_ip)| resolver.fake_ip_contains(*standard_ip)));
+    let synthetic = (!session.skip_fake_ip_restore)
+        .then(|| {
+            current_ip
+                .filter(|(_, standard_ip)| resolver.fake_ip_contains(*standard_ip))
+                .or_else(|| {
+                    original_ip.filter(|(_, standard_ip)| resolver.fake_ip_contains(*standard_ip))
+                })
+        })
+        .flatten();
 
     if let Some((ip, standard_ip)) = synthetic {
         let synthetic_target = address_from_ip(ip);

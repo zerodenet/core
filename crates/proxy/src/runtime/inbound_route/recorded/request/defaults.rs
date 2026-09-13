@@ -26,7 +26,7 @@ pub(crate) async fn dispatch_recorded_protocol_mux_tcp_request_with_defaults<R, 
 ) -> Result<(), EngineError>
 where
     S: ClientStream + 'static,
-    R: InboundMuxStreamRoute<MuxReader = MeteredStream<RecordingStream<S>>>,
+    R: InboundMuxStreamRoute,
     R::TcpStream: tokio::io::AsyncRead
         + tokio::io::AsyncWrite
         + zero_traits::AsyncSocket<Error = std::io::Error>
@@ -35,15 +35,21 @@ where
         + Unpin
         + 'static,
     R::UdpRelay: zero_core::InboundStreamUdpRelay<Stream = MeteredStream<RecordingStream<S>>>,
-    R::MuxServer: InboundMuxServer<MeteredStream<S>>,
+    R::MuxServer:
+        InboundMuxServer<MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>>,
     <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
         zero_core::StreamUdpResponder<MeteredStream<S>>,
-    R::MuxReader: Send,
+    R::MuxReader: zero_core::InboundRecording + Send,
+    <R::MuxReader as zero_core::InboundRecording>::Stream: crate::transport::ClientStream + 'static,
     P: InboundProtocol<ClientStream = R::TcpStream> + 'static,
     FR: InboundFallbackReplay + 'static,
     FR::Stream: ClientStream,
-    <R::MuxServer as InboundMuxServer<MeteredStream<S>>>::TcpRelay: InboundMuxTcpRelay + 'static,
-    <R::MuxServer as InboundMuxServer<MeteredStream<S>>>::UdpRelay: InboundMuxUdpRelay + 'static,
+    <R::MuxServer as InboundMuxServer<
+        MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+    >>::TcpRelay: InboundMuxTcpRelay + 'static,
+    <R::MuxServer as InboundMuxServer<
+        MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+    >>::UdpRelay: InboundMuxUdpRelay + 'static,
 {
     dispatch_recorded_protocol_mux_tcp_request_result(
         accept_result,
@@ -75,7 +81,7 @@ pub(crate) async fn dispatch_recorded_protocol_mux_stream_request_with_defaults<
 ) -> Result<(), EngineError>
 where
     S: ClientStream + 'static,
-    R: InboundMuxStreamRoute<MuxReader = MeteredStream<RecordingStream<S>>>,
+    R: InboundMuxStreamRoute,
     R::TcpStream: tokio::io::AsyncRead
         + tokio::io::AsyncWrite
         + zero_traits::AsyncSocket<Error = std::io::Error>
@@ -84,15 +90,21 @@ where
         + Unpin
         + 'static,
     R::UdpRelay: zero_core::InboundStreamUdpRelay<Stream = MeteredStream<RecordingStream<S>>>,
-    R::MuxServer: InboundMuxServer<MeteredStream<S>>,
+    R::MuxServer:
+        InboundMuxServer<MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>>,
     <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
         zero_core::StreamUdpResponder<MeteredStream<S>>,
-    R::MuxReader: Send,
+    R::MuxReader: zero_core::InboundRecording + Send,
+    <R::MuxReader as zero_core::InboundRecording>::Stream: crate::transport::ClientStream + 'static,
     P: InboundProtocol<ClientStream = R::TcpStream> + 'static,
     FR: InboundFallbackReplay + 'static,
     FR::Stream: ClientStream,
-    <R::MuxServer as InboundMuxServer<MeteredStream<S>>>::TcpRelay: InboundMuxTcpRelay + 'static,
-    <R::MuxServer as InboundMuxServer<MeteredStream<S>>>::UdpRelay: InboundMuxUdpRelay + 'static,
+    <R::MuxServer as InboundMuxServer<
+        MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+    >>::TcpRelay: InboundMuxTcpRelay + 'static,
+    <R::MuxServer as InboundMuxServer<
+        MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+    >>::UdpRelay: InboundMuxUdpRelay + 'static,
 {
     dispatch_recorded_protocol_mux_stream_request_result(
         accept_result,

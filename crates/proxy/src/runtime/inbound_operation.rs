@@ -6,8 +6,12 @@
 
 mod context;
 mod contract;
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) mod control;
 #[cfg(feature = "authenticated-quic-inbound-runtime")]
 mod multiplex;
+#[cfg(feature = "transport_quic")]
+mod prelude;
 #[cfg(feature = "authenticated-quic-inbound-runtime")]
 mod quic;
 #[cfg(feature = "managed-datagram-runtime")]
@@ -40,3 +44,8 @@ pub(crate) use group::InboundListenerGroupOperation;
 mod peer_route;
 #[cfg(feature = "datagram-route-runtime")]
 pub(crate) use peer_route::PeerRouteInboundListenerOperation;
+
+#[cfg(feature = "transport_quic")]
+mod quic_connection;
+#[cfg(feature = "transport_quic")]
+pub(crate) use quic_connection::QuicConnectionInboundListenerOperation;

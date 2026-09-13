@@ -16,7 +16,7 @@ pub(crate) fn claim_transport_tcp_leaf<'a, TLeaf, F, E>(
     prepare_leaf: F,
 ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a>
 where
-    TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync + 'a,
+    TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync + 'static,
     F: Fn(Option<&Path>) -> Result<TLeaf, E> + Send + Sync + 'a,
     E: std::fmt::Display,
 {
@@ -33,14 +33,14 @@ struct ClaimedTransportTcpLeaf<'a, F> {
 
 impl<'a, TLeaf, F, E> ClaimedTcpOutboundLeaf<'a> for ClaimedTransportTcpLeaf<'a, F>
 where
-    TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync + 'a,
+    TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync + 'static,
     F: Fn(Option<&Path>) -> Result<TLeaf, E> + Send + Sync + 'a,
     E: std::fmt::Display,
 {
     fn prepare_tcp_connect(
         &self,
         source_dir: Option<&Path>,
-    ) -> Result<Box<dyn PreparedTcpConnectOperation + 'a>, TcpOutboundFailure> {
+    ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
         let prepared = (self.prepare_leaf)(source_dir)
             .map(PreparedTransportLeaf::new)
             .map_err(|error| {
@@ -52,7 +52,7 @@ where
     fn prepare_tcp_relay_hop(
         &self,
         source_dir: Option<&Path>,
-    ) -> Result<Box<dyn PreparedTcpRelayOperation + 'a>, EngineError> {
+    ) -> Result<Box<dyn PreparedTcpRelayOperation>, EngineError> {
         let prepared = (self.prepare_leaf)(source_dir)
             .map(PreparedTransportLeaf::new)
             .map_err(transport_tcp_relay_claim_prepare_error::<TLeaf, _>)?;
@@ -60,20 +60,20 @@ where
     }
 }
 
-pub(crate) fn prepare_transport_tcp_connect<'a, TLeaf>(
+pub(crate) fn prepare_transport_tcp_connect<TLeaf>(
     prepared: PreparedTransportLeaf<TLeaf>,
-) -> Box<dyn crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation + 'a>
+) -> Box<dyn crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation>
 where
-    TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync + 'a,
+    TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync + 'static,
 {
     Box::new(crate::runtime::tcp_dispatch::operation::TransportLeafTcpConnectOperation { prepared })
 }
 
-pub(crate) fn prepare_transport_tcp_relay<'a, TLeaf>(
+pub(crate) fn prepare_transport_tcp_relay<TLeaf>(
     prepared: PreparedTransportLeaf<TLeaf>,
-) -> Box<dyn crate::runtime::tcp_dispatch::operation::PreparedTcpRelayOperation + 'a>
+) -> Box<dyn crate::runtime::tcp_dispatch::operation::PreparedTcpRelayOperation>
 where
-    TLeaf: ProxyTransportTcpLeaf + Send + Sync + 'a,
+    TLeaf: ProxyTransportTcpLeaf + Send + Sync + 'static,
 {
     Box::new(crate::runtime::tcp_dispatch::operation::TransportLeafTcpRelayOperation { prepared })
 }

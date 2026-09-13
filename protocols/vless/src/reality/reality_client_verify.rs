@@ -21,64 +21,7 @@ use x509_parser::prelude::FromDer;
 ///
 #[inline]
 pub fn extract_certificate_der(certificate_message: &[u8]) -> io::Result<&[u8]> {
-    // Skip handshake header (type + 3-byte length)
-    if certificate_message.len() < 4 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Certificate message too short",
-        ));
-    }
-
-    let mut pos = 4;
-
-    // certificate_request_context length (1 byte)
-    if pos >= certificate_message.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Certificate message truncated at context length",
-        ));
-    }
-    let context_len = certificate_message[pos] as usize;
-    pos += 1 + context_len;
-
-    // certificate_list length (3 bytes)
-    if pos + 3 > certificate_message.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Certificate message truncated at list length",
-        ));
-    }
-    let _list_len = u32::from_be_bytes([
-        0,
-        certificate_message[pos],
-        certificate_message[pos + 1],
-        certificate_message[pos + 2],
-    ]) as usize;
-    pos += 3;
-
-    // First certificate entry: cert_data length (3 bytes)
-    if pos + 3 > certificate_message.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Certificate message truncated at cert length",
-        ));
-    }
-    let cert_len = u32::from_be_bytes([
-        0,
-        certificate_message[pos],
-        certificate_message[pos + 1],
-        certificate_message[pos + 2],
-    ]) as usize;
-    pos += 3;
-
-    if pos + cert_len > certificate_message.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Certificate message truncated at cert data",
-        ));
-    }
-
-    Ok(&certificate_message[pos..pos + cert_len])
+    ztls::certificate::server_chain(certificate_message).map(|chain| chain[0])
 }
 
 /// Verify the HMAC signature embedded in the REALITY certificate
@@ -206,7 +149,7 @@ pub fn extract_ed25519_public_key(cert_der: &[u8]) -> io::Result<[u8; 32]> {
 #[inline]
 pub fn extract_certificate_verify_signature(cert_verify_message: &[u8]) -> io::Result<Vec<u8>> {
     // Minimum: 1 (type) + 3 (len) + 2 (alg) + 2 (sig len) + 64 (ed25519 sig) = 72
-    if cert_verify_message.len() < 72 {
+    if cert_verify_message.len() != 72 || cert_verify_message[1..4] != [0, 0, 68] {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(

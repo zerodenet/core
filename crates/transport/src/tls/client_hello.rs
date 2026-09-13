@@ -1,7 +1,3 @@
-use std::io;
-
-use tokio::io::{AsyncRead, AsyncReadExt};
-
 use super::InboundClientHello;
 
 pub(super) fn parse_extensions(ext_data: &[u8], consumed: Vec<u8>) -> InboundClientHello {
@@ -28,13 +24,17 @@ pub(super) fn parse_extensions(ext_data: &[u8], consumed: Vec<u8>) -> InboundCli
                     }
                 }
             }
-            0x0010 if ext_bytes.len() >= 4 => {
-                let list_len = u16::from_be_bytes([ext_bytes[2], ext_bytes[3]]) as usize;
-                let mut pos = 4;
-                while pos < ext_bytes.len() && pos < 4 + list_len {
+            0x0010 if ext_bytes.len() >= 2 => {
+                let list_len = u16::from_be_bytes([ext_bytes[0], ext_bytes[1]]) as usize;
+                if list_len + 2 != ext_bytes.len() {
+                    offset += ext_len;
+                    continue;
+                }
+                let mut pos = 2;
+                while pos < ext_bytes.len() {
                     let proto_len = ext_bytes[pos] as usize;
                     pos += 1;
-                    if pos + proto_len <= ext_bytes.len() {
+                    if proto_len != 0 && pos + proto_len <= ext_bytes.len() {
                         if let Ok(proto) = std::str::from_utf8(&ext_bytes[pos..pos + proto_len]) {
                             alpn.push(proto.to_owned());
                         }
@@ -56,34 +56,6 @@ pub(super) fn parse_extensions(ext_data: &[u8], consumed: Vec<u8>) -> InboundCli
     }
 }
 
-pub(super) async fn read_exact<R>(
-    reader: &mut R,
-    consumed: &mut Vec<u8>,
-    dest: &mut [u8],
-) -> io::Result<()>
-where
-    R: AsyncRead + Unpin,
-{
-    reader.read_exact(dest).await?;
-    consumed.extend_from_slice(dest);
-    Ok(())
-}
-
-pub(super) async fn skip_exact<R>(
-    reader: &mut R,
-    consumed: &mut Vec<u8>,
-    len: usize,
-) -> io::Result<()>
-where
-    R: AsyncRead + Unpin,
-{
-    let mut chunk = vec![0u8; len.min(256)];
-    let mut remaining = len;
-    while remaining > 0 {
-        let to_read = remaining.min(chunk.len());
-        reader.read_exact(&mut chunk[..to_read]).await?;
-        consumed.extend_from_slice(&chunk[..to_read]);
-        remaining -= to_read;
-    }
-    Ok(())
-}
+#[cfg(test)]
+#[path = "../../tests/tls/client_hello.rs"]
+mod tests;

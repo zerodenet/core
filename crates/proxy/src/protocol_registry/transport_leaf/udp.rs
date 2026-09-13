@@ -66,7 +66,7 @@ pub(crate) fn transport_udp_relay_needs_two_streams<TLeaf>(
 where
     TLeaf: ProxyRelayTwoStreamTransportLeaf,
 {
-    prepared.udp_relay_needs_two_streams()
+    !prepared.udp_relay_uses_connector() && prepared.udp_relay_needs_two_streams()
 }
 
 impl<'a, TLeaf, F, E> ClaimedUdpFlowLeaf<'a> for ClaimedTransportUdpLeaf<'a, F>
@@ -162,6 +162,22 @@ impl<'a, TLeaf> PreparedUdpRelayOperation<'a> for PreparedTwoStreamTransportUdpR
 where
     TLeaf: ProxyRelayTwoStreamTransportLeaf + Send + Sync + 'a,
 {
+    fn uses_lazy_stream_carrier(&self) -> bool {
+        self.prepared.udp_relay_uses_connector()
+    }
+    fn bind_lazy_stream_carrier(
+        self: Box<Self>,
+        carrier: crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'a>,
+    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
+        let connector = carrier.connector().ok_or_else(|| FlowFailure {
+            stage: "udp_relay_connector",
+            error: EngineError::Io(std::io::Error::other(
+                "relay prefix has no reusable connector",
+            )),
+            upstream: None,
+        })?;
+        Ok(crate::runtime::udp_dispatch::operation::transport::prepare_transport_udp_relay_connector(connector, self.prepared))
+    }
     fn needs_two_streams(&self) -> bool {
         self.two_stream
     }

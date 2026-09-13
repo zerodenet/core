@@ -11,7 +11,7 @@ use super::UdpFlowState;
 
 pub(crate) struct UdpFlowStartContext<'a> {
     inbound_tag: &'a str,
-    state: &'a mut UdpFlowState,
+    pub(super) state: &'a mut UdpFlowState,
 }
 
 impl<'a> UdpFlowStartContext<'a> {

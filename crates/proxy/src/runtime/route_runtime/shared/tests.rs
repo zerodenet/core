@@ -83,6 +83,36 @@ async fn resolved_ip_bypass_overrides_an_already_matched_domain_rule() {
     assert!(trace.matched_rule.is_none());
 }
 
+#[tokio::test]
+async fn route_target_drives_rules_without_replacing_outbound_target() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "route": {
+                "rules": [{
+                    "condition":{"type":"domain","values":["sniffed.example"]},
+                    "action":{"type":"direct"}
+                }],
+                "final":{"type":"reject"}
+            }
+        }"#,
+    )
+    .unwrap();
+    let proxy = crate::runtime::Proxy::new(config).unwrap();
+    let original = Address::Ipv4([203, 0, 113, 9]);
+    let mut session = Session::new(
+        1,
+        original.clone(),
+        443,
+        Network::Tcp,
+        ProtocolType::UNKNOWN,
+    );
+    session.route_target = Some(Address::Domain("sniffed.example".to_owned()));
+
+    let trace = route_trace_for_session(&proxy.tcp_runtime_services(), &session).await;
+    assert_eq!(trace.decision, RouteDecision::Direct);
+    assert_eq!(session.target, original);
+}
+
 /// A DNS transport with no socket or resolver access. A regression records an
 /// attempt and returns an error immediately instead of touching the network.
 #[derive(Debug, Default)]

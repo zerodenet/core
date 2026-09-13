@@ -161,7 +161,10 @@ impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedShadowsocksUdpLeaf {
 }
 
 impl<'a> ClaimedUdpPacketPathLeaf<'a> for ClaimedShadowsocksPacketPathLeaf {
-    fn prepare_udp_packet_path(&self) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
+    fn prepare_udp_packet_path(
+        &self,
+        _source_dir: Option<&std::path::Path>,
+    ) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
         Some(Box::new(ShadowsocksPacketPathOperation {
             plan: self.plan.clone(),
         }))
@@ -179,7 +182,7 @@ impl PreparedUdpPacketPathOperation for ShadowsocksPacketPathOperation {
 
     fn build_carrier<'a>(
         &'a self,
-        services: crate::protocol_registry::UdpNetworkServices,
+        services: crate::protocol_registry::PacketPathExecutionServices,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
@@ -189,6 +192,7 @@ impl PreparedUdpPacketPathOperation for ShadowsocksPacketPathOperation {
         >,
     > {
         let plan = self.plan.clone();
+        let services = services.network();
         Box::pin(async move { build_packet_path(services, plan).await })
     }
 }

@@ -1,6 +1,8 @@
 #![allow(async_fn_in_trait)]
 
 #[cfg(feature = "runtime")]
+mod auth;
+#[cfg(feature = "runtime")]
 mod crypto;
 #[cfg(feature = "runtime")]
 pub mod inbound;

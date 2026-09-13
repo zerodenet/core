@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Once};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(any(feature = "trojan", feature = "vmess"))]
+#[cfg(any(feature = "trojan", feature = "vmess", feature = "vless"))]
 use ring::digest::{digest, SHA256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -209,7 +209,7 @@ impl TempMaterial {
         self.dir.join(name)
     }
 
-    #[cfg(any(feature = "trojan", feature = "vmess"))]
+    #[cfg(any(feature = "trojan", feature = "vmess", feature = "vless"))]
     pub fn tls(&self) -> TestTlsMaterial {
         let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
             .expect("generate self-signed cert");
@@ -333,7 +333,7 @@ pub fn escape_json_path(path: &Path) -> String {
 }
 
 /// Hex-encode bytes as lowercase hex.
-#[cfg(any(feature = "trojan", feature = "vmess"))]
+#[cfg(any(feature = "trojan", feature = "vmess", feature = "vless"))]
 pub fn hex_lower(bytes: &[u8]) -> String {
     const TABLE: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);

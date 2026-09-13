@@ -36,7 +36,18 @@ pub(crate) trait PacketPathPayloadTransport: Send + Sync {
 }
 
 #[cfg(feature = "upstream-association-runtime")]
-struct PacketPathPayloadCarrier(Arc<dyn PacketPathPayloadTransport>);
+struct PacketPathPayloadCarrier {
+    transport: Arc<dyn PacketPathPayloadTransport>,
+    services: crate::protocol_registry::UdpNetworkServices,
+}
+
+#[cfg(feature = "upstream-association-runtime")]
+impl Drop for PacketPathPayloadCarrier {
+    fn drop(&mut self) {
+        self.services
+            .record_association_close(crate::protocol_registry::UdpAssociationCloseKind::Closed);
+    }
+}
 
 #[async_trait]
 #[cfg(feature = "upstream-association-runtime")]
@@ -47,19 +58,24 @@ impl PacketPathCarrier for PacketPathPayloadCarrier {
         port: u16,
         payload: &[u8],
     ) -> Result<(), EngineError> {
-        self.0.send_to(target, port, payload).await
+        self.transport.send_to(target, port, payload).await
     }
 
     async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError> {
-        self.0.recv_from(buf).await
+        self.transport.recv_from(buf).await
     }
 }
 
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) fn packet_path_payload_carrier(
+    services: crate::protocol_registry::UdpNetworkServices,
     transport: Arc<dyn PacketPathPayloadTransport>,
 ) -> Arc<dyn PacketPathCarrier> {
-    Arc::new(PacketPathPayloadCarrier(transport))
+    services.record_association_created();
+    Arc::new(PacketPathPayloadCarrier {
+        transport,
+        services,
+    })
 }
 
 /// Carrier identity for cache lookup (cheap, computed before dialing).

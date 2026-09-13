@@ -1,6 +1,7 @@
 //! Ordinary HTTP/HTTPS origin carrier with verified TLS and no redirect handling.
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
+use futures_util::Stream;
+use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::{
     client::legacy::{connect::HttpConnector, Client},
@@ -8,7 +9,8 @@ use hyper_util::{
 };
 use std::{io, sync::Arc, time::Duration};
 
-type OriginClient = Client<HttpsConnector<HttpConnector>, Full<Bytes>>;
+type RequestBody = UnsyncBoxBody<Bytes, io::Error>;
+type OriginClient = Client<HttpsConnector<HttpConnector>, RequestBody>;
 
 #[derive(Clone)]
 pub struct HttpClient(Origin);
@@ -16,7 +18,7 @@ pub struct HttpClient(Origin);
 enum Origin {
     Network(Arc<OriginClient>),
     #[cfg(unix)]
-    Unix(Arc<Client<unix::Connector, Full<Bytes>>>),
+    Unix(Arc<Client<unix::Connector, RequestBody>>),
 }
 #[cfg(unix)]
 mod unix;
@@ -53,6 +55,7 @@ impl HttpClient {
             .with_tls_config(tls)
             .https_or_http()
             .enable_http1()
+            .enable_http2()
             .wrap_connector(tcp);
         Ok(Self(Origin::Network(Arc::new(
             Client::builder(TokioExecutor::new())
@@ -74,16 +77,40 @@ impl HttpClient {
         &self,
         request: http::Request<Bytes>,
     ) -> Result<http::Response<HttpBody>, io::Error> {
+        self.send_body(request.map(|bytes| {
+            Full::new(bytes)
+                .map_err(|never| match never {})
+                .boxed_unsync()
+        }))
+        .await
+    }
+    pub async fn send_stream<S>(
+        &self,
+        request: http::Request<S>,
+    ) -> Result<http::Response<HttpBody>, io::Error>
+    where
+        S: Stream<Item = Result<hyper::body::Frame<Bytes>, io::Error>> + Send + 'static,
+    {
+        self.send_body(request.map(|stream| StreamBody::new(stream).boxed_unsync()))
+            .await
+    }
+    async fn send_body(
+        &self,
+        request: http::Request<RequestBody>,
+    ) -> Result<http::Response<HttpBody>, io::Error> {
         let response = match &self.0 {
-            Origin::Network(client) => client.request(request.map(Full::new)).await,
+            Origin::Network(client) => client.request(request).await,
             #[cfg(unix)]
-            Origin::Unix(client) => client.request(request.map(Full::new)).await,
+            Origin::Unix(client) => client.request(request).await,
         };
         response.map(|r| r.map(HttpBody)).map_err(io::Error::other)
     }
 }
 pub struct HttpBody(hyper::body::Incoming);
 impl HttpBody {
+    pub async fn frame(&mut self) -> Result<Option<hyper::body::Frame<Bytes>>, io::Error> {
+        self.0.frame().await.transpose().map_err(io::Error::other)
+    }
     pub async fn data(&mut self) -> Result<Option<Bytes>, io::Error> {
         while let Some(frame) = self.0.frame().await {
             if let Ok(data) = frame.map_err(io::Error::other)?.into_data() {
@@ -93,3 +120,7 @@ impl HttpBody {
         Ok(None)
     }
 }
+
+#[cfg(all(test, feature = "http_server"))]
+#[path = "../tests/http_client/mod.rs"]
+mod tests;

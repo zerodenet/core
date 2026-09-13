@@ -79,7 +79,7 @@ where
                     .into());
                 };
                 let remote_address = incoming.remote_address();
-                let runtime = runtime_factory.for_connection(None);
+                let runtime = runtime_factory.for_connection(Some(remote_address));
                 let handler = handler.clone();
                 let inbound_tag = runtime_factory.inbound_tag().to_owned();
                 connections.spawn(async move {

@@ -30,3 +30,8 @@ pub(crate) use upstream::{
     UpstreamAssociationCloseReason, UpstreamAssociationStages, UpstreamAssociationTarget,
     UpstreamAssociationTransport,
 };
+
+#[cfg(feature = "managed-stream-runtime")]
+mod logical;
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) use logical::LogicalConnection;

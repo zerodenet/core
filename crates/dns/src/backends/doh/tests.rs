@@ -81,7 +81,7 @@ async fn exchanges_a_dns_message_over_bound_http2_transport() {
         path: "/dns-query".to_owned(),
         addrs: vec![address],
         server_name: "localhost".to_owned(),
-        tls: Arc::new(client_tls),
+        tls: Some(Arc::new(client_tls)),
         egress: zero_platform_tokio::EgressInterfaceControl::default(),
         clients: tokio::sync::Mutex::new(Vec::new()),
         connect_lock: tokio::sync::Mutex::new(()),

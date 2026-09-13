@@ -119,8 +119,8 @@ impl ShadowsocksTransportLeaf {
             self.server.clone(),
             self.port,
             self.packet_path_carrier_descriptor()?,
-            self.packet_path_carrier_codec()?,
-            self.packet_path_datagram_source_build()?,
+            self.tag.clone(),
+            self.flow_config().packet_path_spec()?,
         ))
     }
 

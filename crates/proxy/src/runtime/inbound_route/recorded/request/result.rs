@@ -28,7 +28,7 @@ pub(crate) async fn dispatch_recorded_protocol_mux_tcp_request_result<
 ) -> Result<(), EngineError>
 where
     S: ClientStream + 'static,
-    R: InboundMuxStreamRoute<MuxReader = MeteredStream<RecordingStream<S>>>,
+    R: InboundMuxStreamRoute,
     R::TcpStream: tokio::io::AsyncRead
         + tokio::io::AsyncWrite
         + zero_traits::AsyncSocket<Error = std::io::Error>
@@ -37,23 +37,29 @@ where
         + Unpin
         + 'static,
     R::UdpRelay: zero_core::InboundStreamUdpRelay<Stream = MeteredStream<RecordingStream<S>>>,
-    R::MuxServer: InboundMuxServer<MeteredStream<S>>,
+    R::MuxServer:
+        InboundMuxServer<MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>>,
     <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
         zero_core::StreamUdpResponder<MeteredStream<S>>,
-    R::MuxReader: Send,
+    R::MuxReader: zero_core::InboundRecording + Send,
+    <R::MuxReader as zero_core::InboundRecording>::Stream: crate::transport::ClientStream + 'static,
     P: InboundProtocol<ClientStream = R::TcpStream> + 'static,
     FR: InboundFallbackReplay + 'static,
     FR::Stream: ClientStream,
     FTcp: FnMut(
             MuxSubstreamRuntime,
             Session,
-            <R::MuxServer as InboundMuxServer<MeteredStream<S>>>::TcpRelay,
+            <R::MuxServer as InboundMuxServer<
+                MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+            >>::TcpRelay,
         ) -> FTcpFut
         + Send,
     FTcpFut: core::future::Future<Output = ()> + Send + 'static,
     FUdp: FnMut(
             MuxSubstreamRuntime,
-            <R::MuxServer as InboundMuxServer<MeteredStream<S>>>::UdpRelay,
+            <R::MuxServer as InboundMuxServer<
+                MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+            >>::UdpRelay,
         ) -> FUdpFut
         + Send,
     FUdpFut: core::future::Future<Output = ()> + Send + 'static,
@@ -84,7 +90,7 @@ pub(crate) async fn dispatch_recorded_protocol_mux_stream_request_result<
 ) -> Result<(), EngineError>
 where
     S: ClientStream + 'static,
-    R: InboundMuxStreamRoute<MuxReader = MeteredStream<RecordingStream<S>>>,
+    R: InboundMuxStreamRoute,
     R::TcpStream: tokio::io::AsyncRead
         + tokio::io::AsyncWrite
         + zero_traits::AsyncSocket<Error = std::io::Error>
@@ -93,23 +99,29 @@ where
         + Unpin
         + 'static,
     R::UdpRelay: zero_core::InboundStreamUdpRelay<Stream = MeteredStream<RecordingStream<S>>>,
-    R::MuxServer: InboundMuxServer<MeteredStream<S>>,
+    R::MuxServer:
+        InboundMuxServer<MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>>,
     <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
         zero_core::StreamUdpResponder<MeteredStream<S>>,
-    R::MuxReader: Send,
+    R::MuxReader: zero_core::InboundRecording + Send,
+    <R::MuxReader as zero_core::InboundRecording>::Stream: crate::transport::ClientStream + 'static,
     P: InboundProtocol<ClientStream = R::TcpStream> + 'static,
     FR: InboundFallbackReplay + 'static,
     FR::Stream: ClientStream,
     FTcp: FnMut(
             MuxSubstreamRuntime,
             Session,
-            <R::MuxServer as InboundMuxServer<MeteredStream<S>>>::TcpRelay,
+            <R::MuxServer as InboundMuxServer<
+                MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+            >>::TcpRelay,
         ) -> FTcpFut
         + Send,
     FTcpFut: core::future::Future<Output = ()> + Send + 'static,
     FUdp: FnMut(
             MuxSubstreamRuntime,
-            <R::MuxServer as InboundMuxServer<MeteredStream<S>>>::UdpRelay,
+            <R::MuxServer as InboundMuxServer<
+                MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+            >>::UdpRelay,
         ) -> FUdpFut
         + Send,
     FUdpFut: core::future::Future<Output = ()> + Send + 'static,

@@ -6,7 +6,7 @@ use zero_engine::EngineError;
 
 use super::dispatch_prepared_tcp_candidate;
 use crate::inventory::{PreparedTcpCandidate, PreparedTcpCandidateExecution};
-use crate::protocol_registry::TcpRuntimeServices;
+use crate::protocol_registry::TcpExecutionServices;
 use crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation;
 use crate::runtime::tcp_dispatch::TcpDispatchIntent;
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
@@ -19,8 +19,8 @@ struct FailingConnectOperation;
 
 impl PreparedTcpConnectOperation for FailingConnectOperation {
     fn execute<'a>(
-        self: Box<Self>,
-        _services: TcpRuntimeServices,
+        &'a self,
+        _services: TcpExecutionServices,
         _session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<EstablishedTcpOutbound, TcpOutboundFailure>> + Send + 'a>>
     where
@@ -204,13 +204,14 @@ async fn policy_probe_still_respects_the_shared_traffic_quarantine() {
     assert_eq!(failure.error.code(), "unhealthy_outbound");
 }
 
-fn test_services() -> TcpRuntimeServices {
+fn test_services() -> TcpExecutionServices {
     let config =
         zero_config::RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#)
             .expect("parse test config");
     crate::Proxy::new(config)
         .expect("build test proxy")
         .tcp_runtime_services()
+        .execution()
 }
 
 fn test_session() -> Session {
@@ -223,17 +224,19 @@ fn test_session() -> Session {
     )
 }
 
-fn failing_candidate() -> PreparedTcpCandidate<'static> {
+fn failing_candidate() -> PreparedTcpCandidate {
     PreparedTcpCandidate {
         health_tag: Some(HEALTH_TAG.to_owned()),
         tag: Some(HEALTH_TAG.to_owned()),
         protocol: "test".to_owned(),
         endpoint: None,
-        execution: PreparedTcpCandidateExecution::Connect(Box::new(FailingConnectOperation)),
+        execution: PreparedTcpCandidateExecution::Connect(std::sync::Arc::new(
+            FailingConnectOperation,
+        )),
     }
 }
 
-fn successful_candidate() -> PreparedTcpCandidate<'static> {
+fn successful_candidate() -> PreparedTcpCandidate {
     PreparedTcpCandidate {
         health_tag: Some(HEALTH_TAG.to_owned()),
         tag: Some(HEALTH_TAG.to_owned()),
@@ -245,7 +248,7 @@ fn successful_candidate() -> PreparedTcpCandidate<'static> {
     }
 }
 
-fn quarantine(services: &TcpRuntimeServices) {
+fn quarantine(services: &TcpExecutionServices) {
     for _ in 0..5 {
         services.record_outbound_failure(HEALTH_TAG);
     }

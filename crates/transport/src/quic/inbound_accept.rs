@@ -35,12 +35,15 @@ impl QuicInbound {
             .accept_bi()
             .await
             .map_err(|e| RuntimeError::Io(io::Error::other(format!("quic accept stream: {e}"))))?;
-        Ok(QuicStream::new(send, recv))
+        Ok(QuicStream::new(send, recv, &connection))
     }
 
     pub async fn accept(&self) -> Result<QuicStream, RuntimeError> {
         let incoming = self.accept_incoming().await.ok_or_else(endpoint_closed)?;
-        Self::establish_incoming_stream(incoming).await
+        let local = self.local_addr()?;
+        Self::establish_incoming_stream(incoming)
+            .await
+            .map(|stream| stream.with_local_addr(local))
     }
 
     /// Accept a raw QUIC connection for callers that need multi-stream support

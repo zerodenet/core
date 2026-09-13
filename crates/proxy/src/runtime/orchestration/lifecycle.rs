@@ -91,6 +91,14 @@ where
                     return Err(urltest_error);
                 }
             }
+            result = state.services.join_next(), if !state.services.is_empty() => {
+                match result {
+                    Some(Ok(Ok(()))) if shutting_down => {},
+                    Some(Ok(Err(error))) => return Err(error),
+                    Some(Err(error)) => return Err(io::Error::other(error).into()),
+                    _ => return Err(io::Error::other("background ingress service exited unexpectedly").into()),
+                }
+            }
             failure = state.configured_tun_failures.recv(), if !shutting_down => {
                 if let Err(error) = handle_configured_tun_failure(failure) {
                     error!(

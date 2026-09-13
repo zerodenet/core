@@ -162,7 +162,12 @@ pub fn decrypt_handshake_message(
     let mut plaintext = aead_key.open(ciphertext, iv, seq, &aad)?;
 
     // Strip content type and optional padding (external implementations may pad)
-    let _ = strip_content_type_with_padding(&mut plaintext)?;
+    if strip_content_type_with_padding(&mut plaintext)? != crate::common::CONTENT_TYPE_HANDSHAKE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "expected TLS handshake content",
+        ));
+    }
 
     Ok(plaintext)
 }

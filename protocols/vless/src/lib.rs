@@ -3,8 +3,13 @@
 
 extern crate alloc;
 
+#[cfg(any(feature = "runtime", feature = "validation"))]
+pub mod encryption;
+
 #[cfg(feature = "runtime")]
 pub mod deferred_response;
+#[cfg(feature = "runtime")]
+pub mod fallback;
 #[cfg(all(feature = "runtime", feature = "reality"))]
 pub mod flow;
 mod flow_name;
@@ -21,6 +26,12 @@ pub mod mux_pool;
 pub mod outbound;
 #[cfg(all(feature = "runtime", feature = "reality"))]
 pub mod reality;
+#[cfg(any(feature = "validation", feature = "runtime"))]
+pub mod reality_policy;
+#[cfg(any(feature = "validation", feature = "runtime"))]
+pub mod reality_spider;
+#[cfg(feature = "runtime")]
+pub mod reverse;
 #[cfg(feature = "runtime")]
 mod shared;
 #[cfg(all(feature = "runtime", feature = "reality"))]
@@ -28,7 +39,7 @@ pub mod transport;
 #[cfg(feature = "runtime")]
 pub mod udp;
 mod uuid;
-#[cfg(feature = "validation")]
+#[cfg(any(feature = "validation", feature = "runtime"))]
 pub mod validation;
 #[cfg(all(feature = "runtime", feature = "reality"))]
 pub mod vision;
@@ -36,3 +47,6 @@ pub mod vision;
 #[cfg(feature = "runtime")]
 pub use shared::VLESS_VERSION;
 pub use uuid::{format_uuid, parse_uuid};
+
+#[cfg(all(feature = "runtime", feature = "tokio"))]
+mod mlkem;

@@ -22,11 +22,13 @@ pub(crate) async fn run_protocol_mux_udp_relay<R>(
     runtime: UdpIngressRuntime,
     continuity_registry: MuxUdpContinuityRegistry,
     mut relay: R,
-    inbound_tag: &str,
+    inbound_tag: String,
     protocol: &'static str,
+    sniffing: Option<crate::runtime::sniff::SniffingPolicy>,
 ) where
     R: InboundMuxUdpRelay,
 {
+    let inbound_tag = inbound_tag.as_str();
     let mux_session_id = relay.mux_session_id();
     let auth = relay.auth().cloned();
     let termination_probe = relay.termination_probe();
@@ -44,7 +46,7 @@ pub(crate) async fn run_protocol_mux_udp_relay<R>(
     }
 
     if !reconnectable {
-        run_non_reconnectable_relay(runtime, relay, inbound_tag, protocol, auth).await;
+        run_non_reconnectable_relay(runtime, relay, inbound_tag, protocol, auth, sniffing).await;
         return;
     }
 
@@ -133,7 +135,15 @@ pub(crate) async fn run_protocol_mux_udp_relay<R>(
         "mux udp sub-stream started"
     );
 
-    let handler = MuxPacketSessionUdpHandler { relay };
+    let sniffing_runtime = runtime.clone();
+    let handler = MuxPacketSessionUdpHandler {
+        relay,
+        sniffing: sniffing.map(|policy| {
+            crate::runtime::sniff::udp::UdpSniffingState::new(policy, sniffing_runtime)
+        }),
+        relay_ended: false,
+        deferred_failure: None,
+    };
     let exit = run_packet_session_udp_relay_with_dispatch(
         runtime,
         PacketSessionUdpRelayRequest {
@@ -216,6 +226,7 @@ async fn run_non_reconnectable_relay<R>(
     inbound_tag: &str,
     protocol: &'static str,
     auth: Option<zero_core::SessionAuth>,
+    sniffing: Option<crate::runtime::sniff::SniffingPolicy>,
 ) where
     R: InboundMuxUdpRelay,
 {
@@ -228,7 +239,15 @@ async fn run_non_reconnectable_relay<R>(
         "mux udp sub-stream started"
     );
 
-    let handler = MuxPacketSessionUdpHandler { relay };
+    let sniffing_runtime = runtime.clone();
+    let handler = MuxPacketSessionUdpHandler {
+        relay,
+        sniffing: sniffing.map(|policy| {
+            crate::runtime::sniff::udp::UdpSniffingState::new(policy, sniffing_runtime)
+        }),
+        relay_ended: false,
+        deferred_failure: None,
+    };
     let _ = run_packet_session_udp_relay(
         runtime,
         PacketSessionUdpRelayRequest {

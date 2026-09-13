@@ -7,7 +7,7 @@ use zero_core::{Address, Network, ProtocolType, Session};
 use zero_dns::{DnsOutboundConnectFuture, DnsOutboundConnector, DnsSystem};
 use zero_engine::Engine;
 
-use crate::inventory::ProtocolInventory;
+use crate::inventory::{ProtocolInventory, WeakProtocolInventory};
 use crate::protocol_registry::TcpRuntimeServices;
 use crate::runtime::principal_rate_limit::PrincipalRateLimitRegistry;
 use crate::transport::extract_tcp_stream;
@@ -16,7 +16,7 @@ use crate::transport::extract_tcp_stream;
 pub(super) struct ProxyDnsOutboundConnector {
     engine: Engine,
     resolver: Weak<DnsSystem>,
-    protocols: ProtocolInventory,
+    protocols: WeakProtocolInventory,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     principal_rate_limits: PrincipalRateLimitRegistry,
 }
@@ -32,7 +32,9 @@ impl ProxyDnsOutboundConnector {
         Self {
             engine,
             resolver: Arc::downgrade(resolver),
-            protocols,
+            // Pooled carriers retain network services and their DNS resolver.
+            // The resolver's detour callback must not own those same pools.
+            protocols: protocols.downgrade(),
             egress_interface,
             principal_rate_limits,
         }
@@ -42,11 +44,17 @@ impl ProxyDnsOutboundConnector {
         let resolver = self.resolver.upgrade().ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotConnected, "DNS runtime is shutting down")
         })?;
+        let protocols = self.protocols.upgrade().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotConnected,
+                "proxy runtime is shutting down",
+            )
+        })?;
         Ok(TcpRuntimeServices::new(
             self.engine.clone(),
             self.engine.runtime_snapshot(),
             resolver,
-            self.protocols.clone(),
+            protocols,
             self.egress_interface.clone(),
             self.principal_rate_limits.clone(),
         ))

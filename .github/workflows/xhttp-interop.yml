@@ -1,0 +1,43 @@
+name: VLESS Reference Interop
+on:
+  push:
+    branches: [develop, main]
+    paths: ['protocols/vless/**', 'crates/transport/**', 'crates/proxy/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'crates/traits/**', 'crates/platform/**', 'vendor/blake3/**', 'vendor/rustls/**', 'crates/ztls/**', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/xhttp-interop.yml']
+  pull_request:
+    branches: [develop, main]
+    paths: ['protocols/vless/**', 'crates/transport/**', 'crates/proxy/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'crates/traits/**', 'crates/platform/**', 'vendor/blake3/**', 'vendor/rustls/**', 'crates/ztls/**', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/xhttp-interop.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  interop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve workspace lockfile
+        run: cargo generate-lockfile
+      - name: Prepare fixed official reference
+        run: python3 scripts/prepare-xhttp-interop.py --output "$RUNNER_TEMP/xray-reference"
+      - name: Bidirectional XHTTP modes and concurrent TCP/UDP
+        env:
+          XRAY_BIN: ${{ runner.temp }}/xray-reference/xray
+          RUST_MIN_STACK: '16777216'
+        run: |
+          cargo test --locked --workspace --all-features --test vless_xhttp_modes --test vless_xhttp_options --test vless_xhttp_h3 -- --ignored --nocapture
+          cargo test --locked --workspace --all-features --test vless_xray_interop xhttp -- --ignored --nocapture
+      - name: Encryption, Vision, Early Data and fallback reference matrices
+        env:
+          XRAY_BIN: ${{ runner.temp }}/xray-reference/xray
+          RUST_MIN_STACK: '16777216'
+        run: |
+          cargo test --locked --workspace --all-features --test vless_encryption --test vless_tls_vision --test vless_early_data --test vless_fallback_rules -- --include-ignored --nocapture
+          cargo test --locked --workspace --all-features --test tls_handoff --test ws_heartbeat --test proxy_protocol --test vless_proxy_preamble --test vless_carriers --test xhttp_modes --test xhttp_stream_one --test xhttp_h3 --test xhttp_xmux --test listener_latency --test vless_quic_ca --test vless_xhttp_relay

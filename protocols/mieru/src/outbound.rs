@@ -318,16 +318,20 @@ struct MieruUdpFlowSender {
 
 pub struct MieruUdpFlowHandle {
     sender: MieruUdpFlowSender,
-    responses: MieruUdpFlowResponses,
+    responses: broadcast::WeakSender<MieruUdpFlowResponse>,
 }
 
 #[derive(Clone)]
 pub struct MieruUdpFlowSession {
     sender: MieruUdpFlowSender,
-    responses: MieruUdpFlowResponses,
+    responses: broadcast::WeakSender<MieruUdpFlowResponse>,
 }
 
 impl MieruUdpFlowSession {
+    pub fn is_closed(&self) -> bool {
+        self.sender.send_tx.is_closed()
+    }
+
     pub fn new(handle: MieruUdpFlowHandle) -> Self {
         Self {
             sender: handle.sender,
@@ -340,7 +344,10 @@ impl MieruUdpFlowSession {
     }
 
     pub fn subscribe_responses(&self) -> MieruUdpFlowResponseReceiver {
-        self.responses.subscribe()
+        self.responses
+            .upgrade()
+            .map(|responses| responses.subscribe())
+            .unwrap_or_else(|| broadcast::channel(1).1)
     }
 }
 
@@ -350,6 +357,10 @@ pub struct MieruUdpFlowConnection {
 }
 
 impl MieruUdpFlowConnection {
+    pub fn is_closed(&self) -> bool {
+        self.session.is_closed()
+    }
+
     pub fn new(session: MieruUdpFlowSession) -> Self {
         Self { session }
     }
@@ -565,7 +576,7 @@ where
     spawn_udp_flow_task(stream, flow_io, send_rx, responses.clone());
     MieruUdpFlowHandle {
         sender: MieruUdpFlowSender { send_tx },
-        responses,
+        responses: responses.downgrade(),
     }
 }
 
@@ -832,3 +843,7 @@ pub(crate) struct MieruTcpTarget<'a> {
 }
 
 pub(crate) mod logical_udp;
+
+#[cfg(test)]
+#[path = "../tests/outbound/udp_worker_lifecycle.rs"]
+mod udp_worker_lifecycle;

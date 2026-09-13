@@ -15,6 +15,10 @@ fn input<'a>(
 ) -> UdpPipeInput<'a> {
     UdpPipeInput {
         target,
+        route_target: None,
+        sniffed_original_target: None,
+        sniffed_host_source: None,
+        skip_fake_ip_restore: false,
         port,
         payload,
         protocol: ProtocolType::new("test"),

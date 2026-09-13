@@ -8,7 +8,7 @@
 pub(crate) enum BoundInbound {
     Tcp(zero_platform_tokio::TokioListener),
     #[cfg(feature = "datagram-route-runtime")]
-    Datagram(std::sync::Arc<tokio::net::UdpSocket>),
+    Datagram(zero_platform_tokio::PacketSocket),
     #[cfg(feature = "inbound-listener-group-runtime")]
     Group(Vec<BoundInbound>),
     #[cfg(feature = "managed-datagram-runtime")]

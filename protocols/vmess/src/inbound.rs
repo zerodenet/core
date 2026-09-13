@@ -3,8 +3,8 @@ use zero_core::{Error, Network, ProtocolType, Session, SessionAuth};
 use zero_traits::AsyncSocket;
 
 use crate::crypto::{
-    derive_xray_cmd_key, hex, open_xray_aead_header_length, open_xray_aead_header_payload,
-    seal_xray_response_header, GCM_TAG_LEN,
+    decode_xray_auth_id, derive_xray_cmd_key, hex, open_xray_aead_header_length,
+    open_xray_aead_header_payload, seal_xray_response_header, GCM_TAG_LEN,
 };
 use crate::shared::{parse_address_from_bytes, read_exact, AUTH_ID_LEN, CMD_TCP, CMD_UDP, VERSION};
 use crate::{parse_uuid, VmessCipher};
@@ -422,23 +422,25 @@ impl VmessReadBuffer {
         let mut auth_id = [0u8; AUTH_ID_LEN];
         read_exact(stream, &mut auth_id).await?;
 
+        let (cmd_key, timestamp) = users
+            .iter()
+            .find_map(|user| {
+                let key = derive_xray_cmd_key(&user.id);
+                decode_xray_auth_id(&key, &auth_id)
+                    .ok()
+                    .map(|timestamp| (key, timestamp))
+            })
+            .ok_or(Error::Protocol("vmess: no user matched auth id"))?;
+        // Reserve before awaiting the rest of the header: concurrent replays,
+        // truncated requests and cancelled handshakes must not reuse this ID.
+        crate::auth::accept(cmd_key, auth_id, timestamp)?;
+
         let mut encrypted_len = [0_u8; 18];
         read_exact(stream, &mut encrypted_len).await?;
         let mut nonce = [0_u8; 8];
         read_exact(stream, &mut nonce).await?;
 
-        let mut header_len = None;
-        for user in users {
-            let cmd_key = derive_xray_cmd_key(&user.id);
-            if let Ok(len) =
-                open_xray_aead_header_length(&cmd_key, &auth_id, &encrypted_len, &nonce)
-            {
-                header_len = Some(len);
-                break;
-            }
-        }
-
-        let header_len = header_len.ok_or(Error::Protocol("vmess: no user matched"))?;
+        let header_len = open_xray_aead_header_length(&cmd_key, &auth_id, &encrypted_len, &nonce)?;
         let mut encrypted_payload = vec![0_u8; header_len + GCM_TAG_LEN];
         read_exact(stream, &mut encrypted_payload).await?;
 

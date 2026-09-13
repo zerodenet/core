@@ -46,7 +46,19 @@ impl TcpIngressRuntime {
     }
 
     pub(crate) async fn prepare_session(&self, session: &mut Session) -> Result<(), EngineError> {
-        if let Some(addr) = self.source_addr {
+        if session.inbound_local.is_none() {
+            session.inbound_local = self.local_addr.map(|addr| {
+                (
+                    match addr.ip() {
+                        std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
+                        std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
+                    },
+                    addr.port(),
+                )
+            });
+        }
+
+        if let Some(addr) = self.source_addr.filter(|_| session.source_ip.is_none()) {
             session.source_ip = Some(match addr.ip() {
                 std::net::IpAddr::V4(v4) => Address::Ipv4(v4.octets()),
                 std::net::IpAddr::V6(v6) => Address::Ipv6(v6.octets()),

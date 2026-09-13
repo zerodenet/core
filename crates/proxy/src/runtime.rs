@@ -1,3 +1,4 @@
+pub(crate) mod inbound_service;
 use std::future::Future;
 use std::ops::Deref;
 use std::path::Path;
@@ -44,6 +45,7 @@ mod relay_failure;
 mod reload;
 pub(crate) mod route_runtime;
 mod running;
+pub(crate) mod sniff;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod stream_udp;
 mod target;

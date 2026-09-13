@@ -1,5 +1,4 @@
 //! Shared QUIC client TLS and endpoint construction. Protocols select policy.
-use crate::certificate_verifier::InsecureServerVerifier;
 use crate::RuntimeError;
 use std::{
     io,
@@ -13,25 +12,50 @@ pub fn client_config(
     alpn: &[Vec<u8>],
     datagram_receive_buffer_size: Option<usize>,
 ) -> Result<quinn::ClientConfig, RuntimeError> {
-    let provider = Arc::new(
-        fingerprint
-            .and_then(crate::fingerprint::lookup_fingerprint)
-            .map(|preset| crate::fingerprint::build_client_provider(&preset))
-            .unwrap_or_else(rustls::crypto::ring::default_provider),
-    );
-    let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
-        .with_protocol_versions(&[&rustls::version::TLS13])
-        .map_err(io::Error::other)?;
-    let mut tls = if insecure {
-        builder
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(InsecureServerVerifier { provider }))
-            .with_no_client_auth()
-    } else {
-        let roots =
-            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        builder.with_root_certificates(roots).with_no_client_auth()
+    client_config_with_ca(
+        insecure,
+        fingerprint,
+        alpn,
+        datagram_receive_buffer_size,
+        None,
+    )
+}
+
+pub fn client_config_with_ca(
+    insecure: bool,
+    fingerprint: Option<&str>,
+    alpn: &[Vec<u8>],
+    datagram_receive_buffer_size: Option<usize>,
+    ca_cert_path: Option<&std::path::Path>,
+) -> Result<quinn::ClientConfig, RuntimeError> {
+    client_config_with_options(
+        insecure,
+        fingerprint,
+        alpn,
+        datagram_receive_buffer_size,
+        ca_cert_path,
+        &Default::default(),
+    )
+}
+
+pub fn client_config_with_options(
+    insecure: bool,
+    fingerprint: Option<&str>,
+    alpn: &[Vec<u8>],
+    datagram_receive_buffer_size: Option<usize>,
+    ca_cert_path: Option<&std::path::Path>,
+    options: &zero_traits::ClientTlsOptions,
+) -> Result<quinn::ClientConfig, RuntimeError> {
+    let profile = crate::profile::OwnedClientTlsProfile {
+        options: options.clone(),
+        server_name: None,
+        disable_sni: false,
+        ca_cert_path: ca_cert_path.map(|p| p.to_string_lossy().into_owned()),
+        insecure,
+        alpn: Vec::new(),
+        client_fingerprint: fingerprint.map(str::to_owned),
     };
+    let mut tls = crate::tls::config::client(&profile, None, true)?;
     tls.alpn_protocols = alpn.to_vec();
     let crypto =
         quinn::crypto::rustls::QuicClientConfig::try_from(tls).map_err(io::Error::other)?;
@@ -50,6 +74,36 @@ pub async fn connect_quic_endpoint(
     client_config: quinn::ClientConfig,
     sockets: &crate::OutboundDatagramSocketFactory,
 ) -> Result<quinn::Connection, RuntimeError> {
+    connect_quic_endpoint_masked(
+        server,
+        port,
+        server_name,
+        client_config,
+        sockets,
+        sockets.final_mask().udp(),
+    )
+    .await
+}
+
+pub async fn connect_quic_endpoint_masked(
+    server: &str,
+    port: u16,
+    server_name: &str,
+    client_config: quinn::ClientConfig,
+    sockets: &crate::OutboundDatagramSocketFactory,
+    masks: &[crate::finalmask::udp::Mask],
+) -> Result<quinn::Connection, RuntimeError> {
+    if sockets.is_relay()
+        && masks
+            .iter()
+            .any(|mask| matches!(mask, crate::finalmask::udp::Mask::Xicmp { .. }))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "raw ICMP cannot bypass a datagram relay",
+        )
+        .into());
+    }
     let server_addrs = sockets
         .resolve_server_addresses(server, port)
         .await
@@ -63,14 +117,20 @@ pub async fn connect_quic_endpoint(
 
     for server_addr in server_addrs {
         let bind_addr = wildcard_bind_addr(server_addr);
-        let socket = match sockets.bind_std(server_addr) {
+        let socket = match sockets.open_socket(server_addr).await {
             Ok(socket) => socket,
             Err(error) => {
                 last_error = Some(format!("bind {bind_addr} for {server_addr}: {error}"));
                 continue;
             }
         };
-        let mut endpoint = match quinn::Endpoint::new(
+        let socket = crate::finalmask::Socket::wrap_with_egress(
+            socket,
+            masks,
+            false,
+            sockets.egress_for(server_addr).as_ref(),
+        )?;
+        let mut endpoint = match quinn::Endpoint::new_with_abstract_socket(
             quinn::EndpointConfig::default(),
             None,
             socket,

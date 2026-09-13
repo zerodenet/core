@@ -54,6 +54,7 @@ impl ManagedTupleUdpResumeConnector for ::mieru::transport::MieruManagedUdpFlowR
 
     async fn open_relay(
         &self,
+        _services: crate::protocol_registry::UpstreamConnectServices,
         stream: crate::transport::TcpRelayStream,
         _session: &zero_core::Session,
         _tls_server_name: Option<&str>,
@@ -65,6 +66,7 @@ impl ManagedTupleUdpResumeConnector for ::mieru::transport::MieruManagedUdpFlowR
 
     async fn open_lazy_relay(
         &self,
+        _services: crate::protocol_registry::UpstreamConnectServices,
         carrier: LazyTcpRelayCarrier<'_>,
         _session: &zero_core::Session,
         _tls_server_name: Option<&str>,
@@ -96,6 +98,10 @@ impl ManagedStreamConnectorParts for ::mieru::transport::MieruManagedUdpConnecto
 
 #[async_trait::async_trait]
 impl ManagedTupleUdpFlowConnection for ::mieru::udp::MieruUdpFlowConnection {
+    fn is_closed(&self) -> bool {
+        ::mieru::udp::MieruUdpFlowConnection::is_closed(self)
+    }
+
     async fn send(
         &self,
         target: &zero_core::Address,

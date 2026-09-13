@@ -39,6 +39,11 @@ pub(crate) enum UdpFlowOutbound {
         managed: ManagedUdpFlowRef,
     },
     #[cfg(feature = "managed-stream-runtime")]
+    LogicalStreamPacket {
+        tag: String,
+        managed: ManagedUdpFlowRef,
+    },
+    #[cfg(feature = "managed-stream-runtime")]
     StreamPacket {
         tag: String,
         server: String,

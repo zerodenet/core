@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use zero_core::Error;
 
-use super::{is_vision_flow, is_zero_aead_flow, parse_flow, FLOW_XTLS_RPRX_VISION};
+use super::{is_vision_flow, is_zero_aead_flow, parse_inbound_flow, FLOW_XTLS_RPRX_VISION};
 
 /// Encodes the standard VLESS Addons protobuf, including its one-byte length.
 pub fn encode_addons(flow: Option<&str>) -> Result<Vec<u8>, Error> {
@@ -36,7 +36,7 @@ pub fn decode_addons(encoded: &[u8]) -> Result<Option<&'static str>, Error> {
                 let end = checked_field_end(encoded, offset, len)?;
                 let value = core::str::from_utf8(&encoded[offset..end])
                     .map_err(|_| Error::Protocol("VLESS addons flow is not UTF-8"))?;
-                flow = Some(parse_flow(value)?);
+                flow = Some(parse_inbound_flow(value)?);
                 offset = end;
             }
             (_, 0) => {

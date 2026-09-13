@@ -62,7 +62,7 @@ impl<'a> BufReader<'a> {
         Ok(value)
     }
 
-    pub fn read_slice(&mut self, len: usize) -> std::io::Result<&[u8]> {
+    pub fn read_slice(&mut self, len: usize) -> std::io::Result<&'a [u8]> {
         if self.pos + len > self.buf.len() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
@@ -74,7 +74,7 @@ impl<'a> BufReader<'a> {
         Ok(slice)
     }
 
-    pub fn read_str(&mut self, len: usize) -> std::io::Result<&str> {
+    pub fn read_str(&mut self, len: usize) -> std::io::Result<&'a str> {
         let slice = self.read_slice(len)?;
         std::str::from_utf8(slice).map_err(|e| {
             std::io::Error::new(

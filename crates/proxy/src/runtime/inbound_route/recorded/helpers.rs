@@ -20,18 +20,6 @@ pub(crate) fn record_metered_inbound_traffic<S>(
     runtime.record_session_inbound_traffic(session_id, client.drain_traffic());
 }
 
-pub(crate) fn record_metered_mux_inbound_traffic<S>(
-    runtime: &MuxSubstreamRuntime,
-    session_id: u64,
-    client: &mut MeteredStream<S>,
-) where
-    S: ClientStream,
-{
-    runtime
-        .udp_runtime()
-        .record_session_inbound_traffic(session_id, client.drain_traffic());
-}
-
 pub(crate) async fn run_recorded_protocol_stream_udp_relay<S, R>(
     runtime: InboundRouteRuntime,
     session: Session,
@@ -63,29 +51,37 @@ where
 
 pub(crate) async fn run_recorded_protocol_mux_session<S, M, FTcp, FTcpFut, FUdp, FUdpFut>(
     runtime: MuxSubstreamRuntime,
-    mut reader: MeteredStream<RecordingStream<S>>,
+    reader: S,
     mux_server: M,
     defaults: RecordedProtocolMuxRouteDefaults,
     spawn_tcp: FTcp,
     spawn_udp: FUdp,
 ) -> Result<(), EngineError>
 where
-    S: ClientStream + 'static,
-    M: InboundMuxServer<MeteredStream<S>>,
+    S: zero_core::InboundRecording + Send,
+    S::Stream: ClientStream + 'static,
+    M: InboundMuxServer<MeteredStream<S::Stream>>,
     FTcp: FnMut(MuxSubstreamRuntime, Session, M::TcpRelay) -> FTcpFut + Send,
     FTcpFut: Future<Output = ()> + Send + 'static,
     FUdp: FnMut(MuxSubstreamRuntime, M::UdpRelay) -> FUdpFut + Send,
     FUdpFut: Future<Output = ()> + Send + 'static,
 {
-    record_metered_mux_inbound_traffic(&runtime, 0, &mut reader);
-    let client = MeteredStream::new(reader.into_unrecorded_inner());
+    let (reader, read_bytes, written_bytes) = reader.into_unrecorded();
+    runtime.udp_runtime().record_session_inbound_traffic(
+        0,
+        crate::transport::StreamTraffic {
+            read_bytes,
+            written_bytes,
+        },
+    );
+    let client = MeteredStream::new(reader);
     let inbound_tag = runtime.inbound_tag().to_owned();
     run_protocol_mux_session(
         runtime,
         client,
         mux_server,
         MuxSessionLoop {
-            inbound_tag: &inbound_tag,
+            inbound_tag,
             protocol: defaults.mux_protocol,
             panic_message: defaults.panic_message,
             abort_on_end: defaults.abort_on_end,

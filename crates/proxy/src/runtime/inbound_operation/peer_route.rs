@@ -1,9 +1,8 @@
 //! Runtime-owned datagram peer dispatch, task fan-out and listener shutdown.
 use super::{InboundConnectionContext, PreparedInboundListenerOperation};
 use crate::{protocol_registry::BoundInbound, runtime::route_runtime::InboundListenerRuntime};
-use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
+use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin};
 use tokio::{
-    net::UdpSocket,
     sync::{mpsc, watch},
     task::JoinSet,
 };
@@ -17,7 +16,13 @@ pub(crate) struct PeerRouteInboundListenerOperation<R, D> {
 impl<R, D, Fut> PreparedInboundListenerOperation for PeerRouteInboundListenerOperation<R, D>
 where
     R: Clone + Send + Sync + 'static,
-    D: Fn(R, Arc<UdpSocket>, SocketAddr, mpsc::Receiver<Vec<u8>>, InboundConnectionContext) -> Fut
+    D: Fn(
+            R,
+            zero_platform_tokio::PacketSocket,
+            SocketAddr,
+            mpsc::Receiver<Vec<u8>>,
+            InboundConnectionContext,
+        ) -> Fut
         + Clone
         + Send
         + Sync

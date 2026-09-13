@@ -3,6 +3,30 @@ use zero_traits::IpAddress;
 
 use crate::runtime::Proxy;
 
+#[test]
+fn dns_callback_does_not_keep_outbound_pools_alive_after_proxy_drop() {
+    let config =
+        zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
+    let proxy = Proxy::new(config).unwrap();
+    let resolver = proxy.resolver.clone();
+    let callback = super::ProxyDnsOutboundConnector::new(
+        proxy.engine.clone(),
+        &resolver,
+        proxy.protocols.clone(),
+        proxy.egress_interface.clone(),
+        proxy.principal_rate_limits.clone(),
+    );
+    assert!(callback.runtime_services().is_ok());
+    drop(proxy);
+    // A retained resolver (as held by an established carrier) may outlive the
+    // proxy, but its callback must no longer revive the outbound inventory.
+    let error = callback
+        .runtime_services()
+        .err()
+        .expect("inventory retained by DNS callback");
+    assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+}
+
 #[tokio::test]
 async fn proxy_installs_dns_detour_connector_without_recursive_resolution() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

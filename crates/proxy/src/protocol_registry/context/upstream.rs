@@ -4,7 +4,11 @@ use std::sync::Arc;
 use zero_dns::DnsSystem;
 use zero_traits::IpAddress;
 
-use crate::inventory::ProtocolInventory;
+use crate::transport::DirectConnector;
+#[cfg(feature = "tls-ech-runtime")]
+mod ech;
+#[cfg(feature = "tls-ech-runtime")]
+use ech::RuntimeEchResolver;
 
 /// Narrow network service exposed to protocol-owned connect/handshake code.
 /// It deliberately carries no engine, configuration, health, or accounting
@@ -12,20 +16,29 @@ use crate::inventory::ProtocolInventory;
 #[derive(Clone)]
 pub(crate) struct UpstreamConnectServices {
     pub(super) resolver: Arc<DnsSystem>,
-    pub(super) protocols: ProtocolInventory,
+    pub(super) connector: DirectConnector,
     pub(super) egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    #[cfg(feature = "tls-ech-runtime")]
+    ech_resolver: Arc<RuntimeEchResolver>,
 }
 
 impl UpstreamConnectServices {
     pub(super) fn new(
         resolver: Arc<DnsSystem>,
-        protocols: ProtocolInventory,
+        connector: DirectConnector,
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
     ) -> Self {
+        #[cfg(feature = "tls-ech-runtime")]
+        let ech_resolver = Arc::new(RuntimeEchResolver::new(
+            resolver.clone(),
+            egress_interface.clone(),
+        ));
         Self {
             resolver,
-            protocols,
+            connector,
             egress_interface,
+            #[cfg(feature = "tls-ech-runtime")]
+            ech_resolver,
         }
     }
 
@@ -34,8 +47,7 @@ impl UpstreamConnectServices {
         server: String,
         port: u16,
     ) -> Result<zero_platform_tokio::TokioSocket, zero_transport::RuntimeError> {
-        self.protocols
-            .direct_connector()
+        self.connector
             .connect_host(
                 &server,
                 port,
@@ -60,6 +72,11 @@ impl UpstreamConnectServices {
             .with_host_resolver(Arc::new(NodeHostResolver {
                 resolver: self.resolver.clone(),
             }))
+    }
+
+    #[cfg(feature = "tls-ech-runtime")]
+    pub(crate) fn ech_resolver(&self) -> Arc<dyn zero_transport::tls::ech::EchConfigResolver> {
+        self.ech_resolver.clone()
     }
 
     #[cfg(feature = "udp-runtime")]

@@ -4,4 +4,4 @@ mod relay;
 
 pub(crate) use leaf::{PreparedTcpCandidate, PreparedTcpCandidateExecution, PreparedTcpRelayHop};
 pub(crate) use outbound::PreparedTcpOutbound;
-pub(crate) use relay::PreparedTcpRelayChain;
+pub(crate) use relay::{PreparedTcpRelayChain, PreparedTcpRelayPrefix};

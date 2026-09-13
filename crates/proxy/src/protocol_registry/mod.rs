@@ -37,10 +37,13 @@ pub(crate) use capability::{
 pub(crate) use claim::claim_session_tcp_leaf;
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
 pub(crate) use claim::{claim_socket_tcp_leaf, claim_socket_tcp_leaf_with_relay};
-pub(crate) use context::{OutboundAdapterContext, TcpRuntimeServices, UpstreamConnectServices};
+pub(crate) use context::{
+    OutboundAdapterContext, TcpExecutionServices, TcpRuntimeServices, UpstreamConnectServices,
+};
 #[cfg(feature = "udp-runtime")]
 pub(crate) use context::{
-    UdpAdapterContext, UdpAssociationCloseKind, UdpNetworkServices, UdpRuntimeServices,
+    PacketPathExecutionServices, UdpAdapterContext, UdpAssociationCloseKind, UdpNetworkServices,
+    UdpRuntimeServices,
 };
 pub(crate) use defaults::{bind_tcp_inbound, inbound_listen_addr};
 pub(crate) use model::{BoundInbound, OutboundLeafRuntime};
@@ -52,3 +55,8 @@ pub(crate) use transport_leaf::claim_relay_two_stream_transport_udp_leaf;
 pub(crate) use transport_leaf::claim_transport_tcp_leaf;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) use transport_leaf::claim_transport_udp_leaf;
+
+#[cfg(feature = "managed-stream-runtime")]
+mod service;
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) use service::InboundServiceCapability;

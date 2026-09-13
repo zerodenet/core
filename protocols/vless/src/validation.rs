@@ -8,16 +8,14 @@ pub const DEFAULT_MUX_RESPONSE_BACKLOG_BYTES: u64 = 1024 * 1024;
 pub const MAX_MUX_RESPONSE_BACKLOG_FRAMES: u32 = 4096;
 pub const MIN_MUX_RESPONSE_BACKLOG_BYTES: u64 = 16 * 1024;
 pub const MAX_MUX_RESPONSE_BACKLOG_BYTES: u64 = 64 * 1024 * 1024;
+pub const DEFAULT_VISION_TESTSEED: [u32; 4] = [900, 500, 900, 256];
 pub use crate::flow_name::{
     FLOW_XTLS_RPRX_VISION, FLOW_XTLS_RPRX_VISION_UDP_LEGACY, FLOW_ZERO_AEAD_V1,
 };
 
 pub fn validate_flow(flow: &str) -> Result<(), &'static str> {
     match flow {
-        FLOW_XTLS_RPRX_VISION | FLOW_ZERO_AEAD_V1 => Ok(()),
-        FLOW_XTLS_RPRX_VISION_UDP_LEGACY => {
-            Err("flow `xtls-rprx-vision-udp443` is obsolete; use `xtls-rprx-vision`")
-        }
+        FLOW_XTLS_RPRX_VISION | FLOW_XTLS_RPRX_VISION_UDP_LEGACY | FLOW_ZERO_AEAD_V1 => Ok(()),
         _ => Err("flow must be `xtls-rprx-vision` or `zero-aead-v1`"),
     }
 }
@@ -37,22 +35,44 @@ pub fn validate_mux_response_backlog(
     Ok(())
 }
 
-pub fn validate_reality_key(value: &str) -> Result<(), &'static str> {
-    if value.contains('=') {
-        return Err("must be base64url without padding");
+/// Normalize Xray's experimental Vision padding parameters.
+///
+/// Xray falls back to the complete default tuple when fewer than four values
+/// are supplied and ignores values after the first four. Zero preserves those
+/// compatibility semantics while rejecting tuples that would make Xray's
+/// random range or subtraction invalid.
+pub fn normalize_vision_testseed(testseed: &[u32]) -> Result<[u32; 4], &'static str> {
+    if testseed.len() < 4 {
+        return Ok(DEFAULT_VISION_TESTSEED);
     }
+    let normalized = [testseed[0], testseed[1], testseed[2], testseed[3]];
+    if normalized[1] == 0 || normalized[3] == 0 {
+        return Err("VLESS Vision testseed random ranges must be greater than zero");
+    }
+    if normalized[0] > normalized[2] {
+        return Err("VLESS Vision testseed long-padding threshold must not exceed its base");
+    }
+    Ok(normalized)
+}
+
+pub fn validate_reality_key(value: &str) -> Result<(), &'static str> {
+    decode_reality_material::<32>(value).map(|_| ())
+}
+pub fn validate_reality_mldsa_verify(value: &str) -> Result<(), &'static str> {
+    decode_reality_material::<1952>(value).map(|_| ())
+}
+pub(crate) fn decode_reality_material<const N: usize>(
+    value: &str,
+) -> Result<[u8; N], &'static str> {
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(value)
         .map_err(|_| "must be valid base64url without padding")?;
-    if decoded.len() != 32 {
-        return Err("must decode to exactly 32 bytes");
-    }
-    Ok(())
+    decoded.try_into().map_err(|_| "invalid key length")
 }
 
 pub fn validate_reality_short_id(short_id: &str) -> Result<(), &'static str> {
-    if short_id.len() > 16 {
-        return Err("must be at most 16 hex characters");
+    if short_id.len() > 16 || short_id.len() % 2 != 0 {
+        return Err("must contain an even number of hex characters, at most 16");
     }
     if !short_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("must contain only hex digits");
@@ -85,4 +105,18 @@ pub fn validate_xhttp_mode(mode: &str) -> Result<(), String> {
             "mode `{other}` is not one of: auto, packet-up, stream-up, stream-one"
         )),
     }
+}
+
+/// The UDP/443 suffix is an outbound policy, never an inbound wire flow.
+pub fn validate_inbound_flow(flow: &str) -> Result<(), &'static str> {
+    if flow == FLOW_XTLS_RPRX_VISION_UDP_LEGACY {
+        return Err("flow xtls-rprx-vision-udp443 is outbound-only");
+    }
+    validate_flow(flow)
+}
+pub fn is_vision_flow(flow: &str) -> bool {
+    matches!(
+        flow,
+        FLOW_XTLS_RPRX_VISION | FLOW_XTLS_RPRX_VISION_UDP_LEGACY
+    )
 }

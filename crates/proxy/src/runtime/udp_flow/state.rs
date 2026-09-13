@@ -6,6 +6,8 @@
 
 mod context;
 mod lifecycle;
+#[cfg(feature = "managed-stream-runtime")]
+mod logical;
 mod managed;
 mod model;
 mod packet_path;

@@ -13,7 +13,7 @@ pub(crate) struct DohDnsResolver {
     path: String,
     addrs: Vec<SocketAddr>,
     server_name: String,
-    tls: Arc<rustls::ClientConfig>,
+    tls: Option<Arc<rustls::ClientConfig>>,
     egress: zero_platform_tokio::EgressInterfaceControl,
     clients: tokio::sync::Mutex<Vec<DohClient>>,
     connect_lock: tokio::sync::Mutex<()>,
@@ -34,6 +34,28 @@ impl DohDnsResolver {
         bootstrap: Vec<std::net::IpAddr>,
         server_name: Option<String>,
         egress: zero_platform_tokio::EgressInterfaceControl,
+    ) -> io::Result<Self> {
+        Self::new_with_security(host, port, path, bootstrap, server_name, egress, true)
+    }
+
+    pub(crate) fn new_cleartext(
+        host: String,
+        port: u16,
+        path: String,
+        bootstrap: Vec<std::net::IpAddr>,
+        egress: zero_platform_tokio::EgressInterfaceControl,
+    ) -> io::Result<Self> {
+        Self::new_with_security(host, port, path, bootstrap, None, egress, false)
+    }
+
+    fn new_with_security(
+        host: String,
+        port: u16,
+        path: String,
+        bootstrap: Vec<std::net::IpAddr>,
+        server_name: Option<String>,
+        egress: zero_platform_tokio::EgressInterfaceControl,
+        secure: bool,
     ) -> io::Result<Self> {
         let ips = if bootstrap.is_empty() {
             host.parse().map(|ip| vec![ip]).unwrap_or_default()
@@ -64,7 +86,7 @@ impl DohDnsResolver {
             server_name: server_name.unwrap_or_else(|| host.clone()),
             port,
             path,
-            tls: Arc::new(tls),
+            tls: secure.then(|| Arc::new(tls)),
             egress,
             clients: tokio::sync::Mutex::new(Vec::new()),
             connect_lock: tokio::sync::Mutex::new(()),
@@ -247,16 +269,22 @@ impl DohDnsResolver {
             );
         }
 
-        let server_name = rustls::pki_types::ServerName::try_from(self.server_name.clone())
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        let connector = tokio_rustls::TlsConnector::from(Arc::clone(&self.tls));
-        let tls = connector
-            .connect(server_name, stream)
-            .await
-            .map_err(|error| io::Error::other(format!("DoH TLS failed: {error}")))?;
-        let (client, connection): (h2::client::SendRequest<Bytes>, _) = h2::client::handshake(tls)
-            .await
-            .map_err(|error| io::Error::other(format!("DoH HTTP/2 handshake failed: {error}")))?;
+        let stream = if let Some(tls) = &self.tls {
+            let server_name = rustls::pki_types::ServerName::try_from(self.server_name.clone())
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+            let connector = tokio_rustls::TlsConnector::from(Arc::clone(tls));
+            let tls = connector
+                .connect(server_name, stream)
+                .await
+                .map_err(|error| io::Error::other(format!("DoH TLS failed: {error}")))?;
+            zero_platform_tokio::TcpRelayStream::new(tls)
+        } else {
+            stream
+        };
+        let (client, connection): (h2::client::SendRequest<Bytes>, _) =
+            h2::client::handshake(stream).await.map_err(|error| {
+                io::Error::other(format!("DoH HTTP/2 handshake failed: {error}"))
+            })?;
         tokio::spawn(async move {
             if let Err(error) = connection.await {
                 tracing::debug!(%error, "DoH HTTP/2 connection closed");
@@ -279,7 +307,8 @@ impl DohDnsResolver {
         } else {
             self.server_name.clone()
         };
-        format!("https://{authority}:{}{}", self.port, self.path)
+        let scheme = if self.tls.is_some() { "https" } else { "http" };
+        format!("{scheme}://{authority}:{}{}", self.port, self.path)
     }
 }
 

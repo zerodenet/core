@@ -3,46 +3,71 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use zero_platform_tokio::{ClientStream, PrefixedSocket, TcpRelayStream, TokioSocket};
+use zero_platform_tokio::{ClientStream, TcpRelayStream};
 use zero_transport::profile::{
     OwnedGrpcProfile, OwnedH2Profile, OwnedHttpUpgradeProfile, OwnedSplitHttpProfile,
     OwnedWebSocketProfile,
 };
+use zero_transport::ReplayStream;
 use zero_transport::RuntimeError;
 
 use zero_transport::inbound_stack::{accept_inbound_stream_stack, InboundStreamStack};
 use zero_transport::{http_upgrade, split_http, tls};
 
 pub(super) enum VlessInboundTransportResult {
+    Control(Box<dyn zero_core::inbound::InboundControlSession>),
     Stream {
         stream: VlessInboundTransportStream,
         sni: Option<String>,
     },
-    FallbackReplay(crate::inbound::VlessFallbackReplay<TokioSocket>),
+    FallbackReplay(crate::inbound::VlessFallbackReplay<TcpRelayStream>),
 }
 
 pub(super) enum VlessInboundTransportStream {
-    Raw(TokioSocket),
-    Tls(Box<tls::InboundTlsStream<PrefixedSocket>>),
-    Reality(Box<crate::reality::RealityTlsStream<TokioSocket>>),
+    Raw(TcpRelayStream),
+    Tls(Box<tls::InboundTlsStream<ReplayStream<TcpRelayStream>>>),
+    Reality(Box<crate::reality::RealityTlsStream<TcpRelayStream>>),
+}
+
+impl VlessInboundTransportStream {
+    pub(super) fn negotiated_alpn(&self) -> Option<String> {
+        match self {
+            Self::Tls(stream) => stream
+                .negotiated_alpn()
+                .map(|bytes| String::from_utf8_lossy(bytes).into_owned()),
+            Self::Reality(stream) => stream.negotiated_alpn().map(str::to_owned),
+            Self::Raw(_) => None,
+        }
+    }
 }
 
 pub(super) async fn accept_vless_inbound_transport(
-    stream: TokioSocket,
+    stream: TcpRelayStream,
     tls_acceptor: Option<tls::TlsAcceptor>,
     reality: Option<crate::reality::VlessRealityServerProfile>,
     fallback_alpn: Option<String>,
+    target_connector: Option<zero_transport::handshake_target::Connector>,
 ) -> Result<VlessInboundTransportResult, RuntimeError> {
     match (tls_acceptor.as_ref(), reality.as_ref()) {
         (Some(acceptor), None) => {
             accept_vless_tls_inbound_transport(stream, acceptor, fallback_alpn).await
         }
-        (None, Some(profile)) => Ok(VlessInboundTransportResult::Stream {
-            stream: VlessInboundTransportStream::Reality(Box::new(
-                profile.upgrade_server(stream).await?,
-            )),
-            sni: None,
-        }),
+        (None, Some(profile)) => {
+            let stream = match profile
+                .accept_inbound(stream, target_connector.as_ref())
+                .await?
+            {
+                crate::reality::target::Acceptance::Established(stream) => stream,
+                crate::reality::target::Acceptance::Forward(control) => {
+                    return Ok(VlessInboundTransportResult::Control(control))
+                }
+            };
+            let sni = stream.server_name().map(str::to_owned);
+            Ok(VlessInboundTransportResult::Stream {
+                stream: VlessInboundTransportStream::Reality(Box::new(stream)),
+                sni,
+            })
+        }
         (None, None) => Ok(VlessInboundTransportResult::Stream {
             stream: VlessInboundTransportStream::Raw(stream),
             sni: None,
@@ -83,7 +108,6 @@ pub(super) async fn accept_vless_inbound_carrier(
         return Ok(Some((TcpRelayStream::new(stream), sni)));
     }
 
-    let clear_sni = grpc.is_some();
     let stream = accept_inbound_stream_stack(
         stream,
         InboundStreamStack {
@@ -94,24 +118,34 @@ pub(super) async fn accept_vless_inbound_carrier(
         "vless inbound: ws, grpc, and h2 are mutually exclusive",
     )
     .await?;
-    Ok(Some((stream, if clear_sni { None } else { sni })))
+    Ok(Some((stream, sni)))
 }
 
 impl zero_traits::AsyncSocket for VlessInboundTransportStream {
     type Error = io::Error;
 
+    fn transport_bypass_control(&self) -> Option<zero_traits::TransportBypassControl> {
+        match self {
+            Self::Raw(stream) => stream.transport_bypass_control(),
+            Self::Tls(stream) => stream.transport_bypass_control(),
+            Self::Reality(stream) => {
+                zero_traits::AsyncSocket::transport_bypass_control(stream.as_ref())
+            }
+        }
+    }
+
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             Self::Raw(stream) => zero_traits::AsyncSocket::read(stream, buf).await,
             Self::Tls(stream) => {
-                <tls::InboundTlsStream<PrefixedSocket> as zero_traits::AsyncSocket>::read(
+                <tls::InboundTlsStream<ReplayStream<TcpRelayStream>> as zero_traits::AsyncSocket>::read(
                     stream.as_mut(),
                     buf,
                 )
                 .await
             }
             Self::Reality(stream) => {
-                <crate::reality::RealityTlsStream<TokioSocket> as zero_traits::AsyncSocket>::read(
+                <crate::reality::RealityTlsStream<TcpRelayStream> as zero_traits::AsyncSocket>::read(
                     stream.as_mut(),
                     buf,
                 )
@@ -186,10 +220,7 @@ impl ClientStream for VlessInboundTransportStream {
         match self {
             Self::Raw(stream) => stream.local_addr(),
             Self::Tls(stream) => stream.local_addr(),
-            Self::Reality(_stream) => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "reality inbound local_addr not available",
-            )),
+            Self::Reality(stream) => stream.local_addr(),
         }
     }
 
@@ -197,16 +228,13 @@ impl ClientStream for VlessInboundTransportStream {
         match self {
             Self::Raw(stream) => stream.peer_addr(),
             Self::Tls(stream) => stream.peer_addr(),
-            Self::Reality(_stream) => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "reality inbound peer_addr not available",
-            )),
+            Self::Reality(stream) => stream.peer_addr(),
         }
     }
 }
 
 async fn accept_vless_tls_inbound_transport(
-    mut stream: TokioSocket,
+    mut stream: TcpRelayStream,
     tls_acceptor: &tls::TlsAcceptor,
     fallback_alpn: Option<String>,
 ) -> Result<VlessInboundTransportResult, RuntimeError> {
@@ -231,40 +259,35 @@ async fn accept_vless_tls_inbound_transport(
                     return Ok(VlessInboundTransportResult::FallbackReplay(fallback_replay));
                 }
                 Err((stream, replay_head)) => {
-                    let tls_stream = tls_acceptor
-                        .accept(PrefixedSocket::from_prefix(stream, replay_head))
-                        .await
-                        .map_err(|error| RuntimeError::Io(io::Error::other(error)))?;
+                    let tls_stream = tls::accept_tls_handshake(
+                        tls_acceptor,
+                        ReplayStream::new(stream, replay_head),
+                    )
+                    .await
+                    .map_err(|error| RuntimeError::Io(io::Error::other(error)))?;
                     return Ok(VlessInboundTransportResult::Stream {
-                        stream: VlessInboundTransportStream::Tls(Box::new(
-                            tls::InboundTlsStream::new_generic(tls_stream),
-                        )),
+                        stream: VlessInboundTransportStream::Tls(Box::new(tls_stream)),
                         sni,
                     });
                 }
             }
         }
 
-        let tls_stream = tls_acceptor
-            .accept(PrefixedSocket::from_prefix(stream, consumed))
-            .await
-            .map_err(|error| RuntimeError::Io(io::Error::other(error)))?;
+        let tls_stream =
+            tls::accept_tls_handshake(tls_acceptor, ReplayStream::new(stream, consumed))
+                .await
+                .map_err(|error| RuntimeError::Io(io::Error::other(error)))?;
         return Ok(VlessInboundTransportResult::Stream {
-            stream: VlessInboundTransportStream::Tls(Box::new(tls::InboundTlsStream::new_generic(
-                tls_stream,
-            ))),
+            stream: VlessInboundTransportStream::Tls(Box::new(tls_stream)),
             sni,
         });
     }
 
-    let tls_stream = tls_acceptor
-        .accept(PrefixedSocket::from_prefix(stream, Vec::new()))
+    let tls_stream = tls::accept_tls_handshake(tls_acceptor, ReplayStream::new(stream, Vec::new()))
         .await
         .map_err(|error| RuntimeError::Io(io::Error::other(error)))?;
     Ok(VlessInboundTransportResult::Stream {
-        stream: VlessInboundTransportStream::Tls(Box::new(tls::InboundTlsStream::new_generic(
-            tls_stream,
-        ))),
+        stream: VlessInboundTransportStream::Tls(Box::new(tls_stream)),
         sni: None,
     })
 }

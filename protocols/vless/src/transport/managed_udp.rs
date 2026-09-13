@@ -11,6 +11,7 @@ pub struct VlessManagedUdpFlowResume {
     mux_pool: crate::mux_pool::MuxConnectionPool,
     protocol: crate::udp::PreparedVlessUdpFlowPlan,
     transport: OwnedVlessOutboundTransportPlan,
+    preconnect: Option<super::runtime::preconnect::Access>,
 }
 
 pub type VlessManagedUdpConnectorFlow = crate::udp::VlessUdpConnectorFlow;
@@ -20,11 +21,13 @@ impl VlessManagedUdpFlowResume {
         mux_pool: crate::mux_pool::MuxConnectionPool,
         protocol: crate::udp::PreparedVlessUdpFlowPlan,
         transport: OwnedVlessOutboundTransportPlan,
+        preconnect: Option<super::runtime::preconnect::Access>,
     ) -> Self {
         Self {
             mux_pool,
             protocol,
             transport,
+            preconnect,
         }
     }
 
@@ -42,17 +45,38 @@ impl VlessManagedUdpFlowResume {
         session: &Session,
         open_socket: OpenSocket,
         socket_factory: zero_transport::OutboundDatagramSocketFactory,
+        ech_resolver: std::sync::Arc<dyn zero_transport::tls::ech::EchConfigResolver>,
     ) -> Result<crate::udp::VlessUdpFlowConnection, RuntimeError>
     where
-        OpenSocket: Clone + Fn(&str, u16) -> OpenSocketFut + Send + Sync,
-        OpenSocketFut: Future<Output = Result<TokioSocket, RuntimeError>> + Send,
+        OpenSocket: Clone + Fn(&str, u16) -> OpenSocketFut + Send + Sync + 'static,
+        OpenSocketFut: Future<Output = Result<TokioSocket, RuntimeError>> + Send + 'static,
     {
         let transport = self.transport.clone();
+        let preconnect = self.preconnect.clone();
         let direct_transport = || {
-            transport.open_direct(
-                move |server, port| open_socket.clone()(server, port),
-                socket_factory.clone(),
-            )
+            let finish = transport.clone();
+            let open = move || {
+                let open_socket = open_socket.clone();
+                let mut transport = transport.clone();
+                let socket_factory = socket_factory.clone();
+                let ech_resolver = ech_resolver.clone();
+                async move {
+                    transport.prepare_ech(ech_resolver.as_ref()).await?;
+                    transport
+                        .open_direct_unencrypted(
+                            move |server, port| open_socket.clone()(server, port),
+                            socket_factory,
+                        )
+                        .await
+                }
+            };
+            async move {
+                let stream = match preconnect {
+                    Some(pool) => pool.take(open).await,
+                    None => open().await,
+                }?;
+                finish.encrypt(stream).await
+            }
         };
         self.protocol
             .open_udp_flow_with_transport_or_mux(
@@ -69,8 +93,10 @@ impl VlessManagedUdpFlowResume {
         &self,
         stream: TcpRelayStream,
         session: &Session,
+        ech_resolver: std::sync::Arc<dyn zero_transport::tls::ech::EchConfigResolver>,
     ) -> Result<crate::udp::VlessUdpFlowConnection, RuntimeError> {
-        let transport = self.transport.clone();
+        let mut transport = self.transport.clone();
+        transport.prepare_ech(ech_resolver.as_ref()).await?;
         self.protocol
             .open_relay_udp_flow_with_transport(session, stream, |stream| {
                 transport.open_relay(stream)

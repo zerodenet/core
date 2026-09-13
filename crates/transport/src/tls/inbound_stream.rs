@@ -8,19 +8,46 @@ use tokio_rustls::server::TlsStream;
 use zero_platform_tokio::ClientStream;
 use zero_traits::AsyncSocket;
 
+enum Inner<IO> {
+    Rustls(super::switchable::SwitchableTlsStream<IO>),
+    OpenSsl(super::openssl::OpenSslTlsStream<IO>),
+}
+
 pub struct InboundTlsStream<IO = TcpStream> {
-    inner: TlsStream<IO>,
+    inner: Inner<IO>,
 }
 
 impl InboundTlsStream {
-    pub fn new(inner: TlsStream<TcpStream>) -> Self {
-        Self { inner }
+    pub fn new(inner: TlsStream<super::TlsRecordBoundary<TcpStream>>) -> Self {
+        Self::new_generic(inner)
     }
 }
 
 impl<IO> InboundTlsStream<IO> {
-    pub fn new_generic(inner: TlsStream<IO>) -> Self {
-        Self { inner }
+    pub fn negotiated_alpn(&self) -> Option<&[u8]> {
+        match &self.inner {
+            Inner::Rustls(inner) => inner.alpn_protocol(),
+            Inner::OpenSsl(inner) => inner.alpn_protocol(),
+        }
+    }
+
+    pub fn negotiated_server_name(&self) -> Option<&str> {
+        match &self.inner {
+            Inner::Rustls(inner) => inner.server_name(),
+            Inner::OpenSsl(inner) => inner.server_name(),
+        }
+    }
+
+    pub fn new_generic(inner: TlsStream<super::TlsRecordBoundary<IO>>) -> Self {
+        Self {
+            inner: Inner::Rustls(super::switchable::SwitchableTlsStream::server(inner)),
+        }
+    }
+
+    pub(super) fn new_openssl(inner: super::openssl::OpenSslTlsStream<IO>) -> Self {
+        Self {
+            inner: Inner::OpenSsl(inner),
+        }
     }
 }
 
@@ -38,17 +65,24 @@ where
     IO: AsyncRead + AsyncWrite + Unpin + Send + Sync,
 {
     type Error = io::Error;
+    fn transport_bypass_control(&self) -> Option<zero_traits::TransportBypassControl> {
+        match &self.inner {
+            Inner::Rustls(inner) => inner.control(),
+            Inner::OpenSsl(inner) => inner.control(),
+        }
+    }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        AsyncReadExt::read(&mut self.inner, buf).await
+        AsyncReadExt::read(self, buf).await
     }
 
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        AsyncWriteExt::write_all(&mut self.inner, buf).await
+        AsyncWriteExt::write_all(self, buf).await?;
+        AsyncWriteExt::flush(self).await
     }
 
     async fn shutdown(&mut self) -> Result<(), Self::Error> {
-        AsyncWriteExt::shutdown(&mut self.inner).await
+        AsyncWriteExt::shutdown(self).await
     }
 }
 
@@ -57,11 +91,14 @@ where
     IO: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buf)
+        match &mut self.get_mut().inner {
+            Inner::Rustls(inner) => Pin::new(inner).poll_read(cx, buf),
+            Inner::OpenSsl(inner) => Pin::new(inner).poll_read(cx, buf),
+        }
     }
 }
 
@@ -70,18 +107,27 @@ where
     IO: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_write(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
+        match &mut self.get_mut().inner {
+            Inner::Rustls(inner) => Pin::new(inner).poll_write(cx, buf),
+            Inner::OpenSsl(inner) => Pin::new(inner).poll_write(cx, buf),
+        }
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match &mut self.get_mut().inner {
+            Inner::Rustls(inner) => Pin::new(inner).poll_flush(cx),
+            Inner::OpenSsl(inner) => Pin::new(inner).poll_flush(cx),
+        }
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match &mut self.get_mut().inner {
+            Inner::Rustls(inner) => Pin::new(inner).poll_shutdown(cx),
+            Inner::OpenSsl(inner) => Pin::new(inner).poll_shutdown(cx),
+        }
     }
 }

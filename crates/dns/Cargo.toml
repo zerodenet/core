@@ -30,6 +30,7 @@ serde_json.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+url = "2"
 zero-config = { path = "../config" }
 zero-platform-tokio = { path = "../platform/tokio" }
 zero-router = { path = "../router" }

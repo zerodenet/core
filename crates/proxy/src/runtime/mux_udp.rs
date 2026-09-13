@@ -17,3 +17,5 @@ pub(crate) use continuity::{
 pub(crate) use task::run_protocol_mux_udp_task;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) use task::run_protocol_mux_udp_task_with_accept_log;
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) use task::run_protocol_mux_udp_task_with_sniffing;

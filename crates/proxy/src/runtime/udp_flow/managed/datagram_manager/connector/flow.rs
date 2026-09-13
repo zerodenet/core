@@ -8,7 +8,7 @@ use super::super::super::connection::{
     SharedManagedUdpConnection,
 };
 use super::super::manager::ManagedDatagramFlowManager;
-use crate::protocol_registry::{UdpNetworkServices, UdpRuntimeServices};
+use crate::protocol_registry::{PacketPathExecutionServices, UdpRuntimeServices};
 use crate::runtime::path::OutboundEndpoint;
 use crate::runtime::udp_flow::packet_path::UdpPacketRef;
 
@@ -54,7 +54,7 @@ pub(crate) trait ManagedDatagramResumeConnector:
 
     async fn open_connection(
         self,
-        services: UdpNetworkServices,
+        services: PacketPathExecutionServices,
         endpoint: OutboundEndpoint,
         initial_packet: UdpPacketRef<'_>,
     ) -> Result<Self::Connection, EngineError>;
@@ -114,7 +114,7 @@ where
             ))
         })?;
         let connection = resume
-            .open_connection(services.network(), endpoint, initial_packet)
+            .open_connection(services.packet_path_execution(), endpoint, initial_packet)
             .await?;
         Ok(managed_tuple_udp_connection_from_flow(connection))
     }

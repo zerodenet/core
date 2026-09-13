@@ -57,6 +57,32 @@ impl<'a> RecordEncryptor<'a> {
         Ok(())
     }
 
+    /// Encrypt one application-data record padded to an observed wire size.
+    /// Empty application content is permitted so REALITY can reproduce a
+    /// target's post-handshake record layout without exposing target bytes.
+    pub fn encrypt_app_data_with_padding(
+        &mut self,
+        data: &[u8],
+        out: &mut Vec<u8>,
+        target_record_size: usize,
+    ) -> io::Result<()> {
+        if !(TLS_RECORD_HEADER_SIZE + 17..=TLS_RECORD_HEADER_SIZE + MAX_TLS_CIPHERTEXT_LEN)
+            .contains(&target_record_size)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid padded TLS application record size",
+            ));
+        }
+        let mut buffer = data.to_vec();
+        self.encrypt_record_with_padding(
+            &mut buffer,
+            out,
+            CONTENT_TYPE_APPLICATION_DATA,
+            target_record_size,
+        )
+    }
+
     /// Encrypt handshake data into TLS 1.3 records.
     #[inline]
     pub fn encrypt_handshake(&mut self, data: &[u8], out: &mut Vec<u8>) -> io::Result<()> {

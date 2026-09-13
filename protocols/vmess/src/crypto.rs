@@ -1,4 +1,4 @@
-use aes::cipher::{BlockEncrypt, KeyInit};
+use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use std::sync::Mutex;
 
 use ring::aead::{Aad, BoundKey, Nonce, NonceSequence, OpeningKey, SealingKey, UnboundKey};
@@ -72,6 +72,19 @@ pub(crate) fn create_xray_auth_id(cmd_key: &[u8; 16], timestamp: u64) -> Result<
     cipher.encrypt_block(&mut block);
     out.copy_from_slice(&block);
     Ok(out)
+}
+
+pub(crate) fn decode_xray_auth_id(cmd_key: &[u8; 16], auth_id: &[u8; 16]) -> Result<u64, Error> {
+    let key = xray_kdf16(cmd_key, &[AUTH_ID_ENCRYPTION_KEY]);
+    let cipher = aes::Aes128::new_from_slice(&key)
+        .map_err(|_| Error::Protocol("vmess invalid auth id key"))?;
+    let mut block = aes::cipher::Block::<aes::Aes128>::clone_from_slice(auth_id);
+    cipher.decrypt_block(&mut block);
+    let checksum = u32::from_be_bytes(block[12..16].try_into().unwrap());
+    if crc32fast::hash(&block[..12]) != checksum {
+        return Err(Error::Protocol("vmess invalid auth id checksum"));
+    }
+    Ok(u64::from_be_bytes(block[..8].try_into().unwrap()))
 }
 
 pub(crate) fn seal_xray_aead_header(

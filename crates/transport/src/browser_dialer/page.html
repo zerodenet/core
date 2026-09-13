@@ -1,0 +1,121 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
+<title>Zero Browser Dialer</title>
+<link rel="icon" href="data:">
+<script>
+"use strict";
+const controlUrl = new URL("/websocket?token=__TOKEN__", window.location.href);
+controlUrl.protocol = controlUrl.protocol === "https:" ? "wss:" : "ws:";
+const idleTarget = __IDLE_TARGET__;
+let idle = 0;
+
+function requestInit(extra = {}) {
+  const init = {};
+  if (extra.referrer) {
+    const referrer = new URL(extra.referrer);
+    init.referrer = referrer.pathname + referrer.search + referrer.hash;
+    init.referrerPolicy = "unsafe-url";
+  }
+  if (extra.headers) init.headers = extra.headers;
+  if (extra.cookies && Object.keys(extra.cookies).length) init.credentials = "include";
+  return init;
+}
+
+function setCookies(task, clear = false) {
+  if (!task.extra.cookies) return;
+  const path = new URL(task.url).pathname;
+  for (const [name, value] of Object.entries(task.extra.cookies)) {
+    document.cookie = encodeURIComponent(name) + "=" + (clear ? "" : encodeURIComponent(value)) +
+      "; path=" + path + (clear ? "; Max-Age=0" : "");
+  }
+}
+
+function replenish() {
+  while (idle < idleTarget) register();
+}
+
+function register() {
+  idle++;
+  const control = new WebSocket(controlUrl);
+  control.binaryType = "arraybuffer";
+  let assigned = false;
+  control.onmessage = event => {
+    if (assigned) return;
+    assigned = true;
+    idle--;
+    const task = JSON.parse(event.data);
+    replenish();
+    if (task.method === "WS") return websocketTask(control, task);
+    if (task.method === "GET" && task.streamResponse) return getTask(control, task);
+    if (!task.streamResponse) return packetTask(control, task);
+    control.close(1008, "unsupported task");
+  };
+  control.onclose = () => {
+    if (!assigned) {
+      idle--;
+      setTimeout(replenish, 1000);
+    }
+  };
+  control.onerror = () => control.close();
+}
+
+function websocketTask(control, task) {
+  const upstream = task.extra.protocol ? new WebSocket(task.url, task.extra.protocol) : new WebSocket(task.url);
+  upstream.binaryType = "arraybuffer";
+  let opened = false;
+  control.onmessage = event => upstream.send(event.data);
+  upstream.onopen = () => { opened = true; control.send("ok"); };
+  upstream.onmessage = event => control.send(event.data);
+  upstream.onclose = () => control.close();
+  upstream.onerror = () => { if (!opened) control.send("fail"); upstream.close(); };
+  control.onclose = () => upstream.close();
+}
+
+async function getTask(control, task) {
+  const controller = new AbortController();
+  let reader;
+  control.send("ok");
+  control.onclose = () => {
+    try { if (reader) reader.cancel(); } catch (_) {}
+    controller.abort();
+  };
+  try {
+    const init = requestInit(task.extra);
+    init.signal = controller.signal;
+    setCookies(task);
+    const response = await fetch(task.url, init);
+    setCookies(task, true);
+    reader = response.body.getReader();
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (value) control.send(value);
+      if (done) break;
+    }
+  } catch (_) {
+  } finally {
+    control.close();
+  }
+}
+
+function packetTask(control, task) {
+  control.send("ok");
+  control.onmessage = async event => {
+    try {
+      const init = requestInit(task.extra);
+      init.method = task.method;
+      if (event.data.byteLength) init.body = event.data;
+      setCookies(task);
+      const response = await fetch(task.url, init);
+      setCookies(task, true);
+      control.send(response.ok ? "ok" : "fail");
+    } catch (_) {
+      control.send("fail");
+    } finally {
+      control.close();
+    }
+  };
+}
+
+replenish();
+</script>

@@ -10,12 +10,19 @@ use zero_transport::RuntimeError;
 
 mod bind;
 mod carrier;
+mod metadata;
+mod mkcp;
+pub use metadata::VlessInboundStreamMetadata;
+mod multiplex;
 mod plan;
+mod session;
+pub use multiplex::VlessInboundTransportStreams;
 
 use super::options::{VlessInboundOptionsRef, VlessInboundUserRef};
 
 pub use bind::VlessInboundBindPlan;
-use plan::{accept_vless_stream_route, OwnedVlessInboundTransportPlan};
+use plan::OwnedVlessInboundTransportPlan;
+use session::accept_vless_stream_route;
 
 fn record_client_stream<S>(
     stream: S,
@@ -28,6 +35,8 @@ where
 
 #[derive(Clone)]
 pub struct VlessInboundListenerRequest {
+    mkcp: Option<zero_transport::mkcp::ListenerProfile>,
+    hysteria: Option<zero_transport::hysteria::Profile>,
     profile: crate::inbound::VlessInboundProfile,
     transport: OwnedVlessInboundTransportPlan,
     fallback_enabled: bool,
@@ -41,6 +50,12 @@ pub enum VlessTcpFallbackReplay {
 
 impl zero_core::InboundFallbackReplay for VlessTcpFallbackReplay {
     type Stream = TcpRelayStream;
+    fn selected_route(&self) -> Option<zero_traits::FallbackRoute> {
+        match self {
+            Self::Client(replay) => zero_core::InboundFallbackReplay::selected_route(replay),
+            Self::Socket(replay) => zero_core::InboundFallbackReplay::selected_route(replay),
+        }
+    }
 
     async fn replay_to<'a, W>(self, upstream: &'a mut W) -> Result<Self::Stream, W::Error>
     where
@@ -58,6 +73,29 @@ impl zero_core::InboundFallbackReplay for VlessTcpFallbackReplay {
 }
 
 impl VlessInboundListenerRequest {
+    pub fn with_transport_runtime(mut self, runtime: &super::VlessTransportRuntime) -> Self {
+        self.transport.share_target_probes(runtime);
+        self
+    }
+
+    pub fn with_handshake_target_connector(
+        mut self,
+        connector: zero_transport::handshake_target::Connector,
+    ) -> Self {
+        self.transport.target_connector = Some(connector);
+        self
+    }
+    pub fn with_final_mask(
+        mut self,
+        settings: zero_transport::finalmask::Settings,
+    ) -> Result<Self, RuntimeError> {
+        self.transport.final_mask = zero_transport::finalmask::Profile::new(settings)?;
+        Ok(self)
+    }
+
+    pub fn accepts_proxy_protocol(&self) -> bool {
+        self.transport.accepts_proxy_protocol()
+    }
     pub const ERROR_PROTOCOL_NAME: &'static str = "vless";
     pub const UDP_PROTOCOL: &'static str = "vless_udp";
     pub const MUX_PROTOCOL: &'static str = "vless_mux";
@@ -71,6 +109,8 @@ impl VlessInboundListenerRequest {
         mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
     ) -> Self {
         Self {
+            mkcp: None,
+            hysteria: None,
             profile,
             transport,
             fallback_enabled,
@@ -137,6 +177,7 @@ impl VlessInboundListenerRequest {
         TFallback: InboundFallbackProfile + ?Sized,
     {
         let VlessInboundOptionsRef {
+            decryption,
             users,
             reality,
             tls,
@@ -150,12 +191,15 @@ impl VlessInboundListenerRequest {
             mux_response_backlog_bytes,
         } = options;
         let profile = crate::inbound::VlessInboundProfile::from_config_users(users)?;
-        let reality = reality.map(crate::reality::VlessRealityServerProfile::from);
+        let reality = reality
+            .map(crate::reality::VlessRealityServerProfile::try_from)
+            .transpose()?
+            .map(|profile| profile.resolve_target_path(source_dir));
         let mux_response_backlog = crate::mux::MuxResponseBacklogPolicy::from_config(
             mux_response_backlog_frames,
             mux_response_backlog_bytes,
         )?;
-        Self::from_profile_refs(
+        let mut request = Self::from_profile_refs(
             source_dir,
             profile,
             reality,
@@ -167,7 +211,17 @@ impl VlessInboundListenerRequest {
             split_http,
             fallback,
             mux_response_backlog,
-        )
+        )?;
+        let decryption =
+            crate::encryption::config::EncryptionConfig::server(decryption.unwrap_or("none"))
+                .map_err(zero_core::Error::Config)?;
+        if decryption.is_some() && fallback.is_some() {
+            return Err(zero_core::Error::Config("VLESS decryption cannot use fallback").into());
+        }
+        request.transport.decryption = decryption
+            .map(crate::encryption::EncryptionServer::new)
+            .transpose()?;
+        Ok(request)
     }
 
     pub fn with_profile(mut self, profile: crate::inbound::VlessInboundProfile) -> Self {
@@ -205,6 +259,8 @@ impl VlessInboundListenerRequest {
         FWrap: Fn(TcpRelayStream) -> S + Clone + Send + 'static,
     {
         let Self {
+            mkcp: _,
+            hysteria: _,
             profile,
             transport,
             fallback_enabled,
@@ -221,10 +277,10 @@ impl VlessInboundListenerRequest {
             .await
     }
 
-    async fn accept_stream_route<T, S, FWrap>(
+    async fn accept_stream_route<S, FWrap>(
         self,
-        stream: T,
-        sni: Option<String>,
+        stream: TcpRelayStream,
+        metadata: VlessInboundStreamMetadata,
         wrap_stream: FWrap,
     ) -> Result<
         zero_core::InboundRouteAccept<
@@ -234,23 +290,26 @@ impl VlessInboundListenerRequest {
         RuntimeError,
     >
     where
-        T: ClientStream + 'static,
         S: ClientStream + zero_core::InboundFallbackCapture + 'static,
         <S as zero_core::InboundFallbackCapture>::Stream: ClientStream + Send + 'static,
-        FWrap: Fn(T) -> S + Clone + Send + 'static,
+        FWrap: Fn(TcpRelayStream) -> S + Clone + Send + 'static,
     {
         let Self {
+            mkcp: _,
+            hysteria: _,
             profile,
             fallback_enabled,
             mux_response_backlog,
-            ..
+            transport,
         } = self;
+        let stream = session::decrypt_stream(transport.decryption.as_ref(), stream).await?;
         accept_vless_stream_route(
             profile,
             fallback_enabled,
+            transport.fallback_policy,
             mux_response_backlog,
             stream,
-            sni,
+            metadata,
             wrap_stream,
         )
         .await
@@ -273,22 +332,44 @@ impl VlessInboundListenerRequest {
         self.accept_tcp_route(socket, record_client_stream).await
     }
 
+    pub async fn accept_recorded_quic_route(
+        self,
+        stream: zero_transport::quic::QuicStream,
+    ) -> Result<
+        zero_core::InboundRouteAccept<
+            crate::inbound::VlessAcceptedClientRoute<
+                zero_transport::MeteredStream<zero_transport::RecordingStream<TcpRelayStream>>,
+            >,
+            crate::inbound::VlessFallbackReplay<TcpRelayStream>,
+        >,
+        RuntimeError,
+    > {
+        let mut metadata = VlessInboundStreamMetadata::from_stream(&stream);
+        (metadata.sni, metadata.alpn) = stream.tls_metadata();
+        self.accept_stream_route(TcpRelayStream::new(stream), metadata, record_client_stream)
+            .await
+    }
+
     pub async fn accept_recorded_stream_route<T>(
         self,
         stream: T,
     ) -> Result<
         zero_core::InboundRouteAccept<
             crate::inbound::VlessAcceptedClientRoute<
-                zero_transport::MeteredStream<zero_transport::RecordingStream<T>>,
+                zero_transport::MeteredStream<zero_transport::RecordingStream<TcpRelayStream>>,
             >,
-            crate::inbound::VlessFallbackReplay<T>,
+            crate::inbound::VlessFallbackReplay<TcpRelayStream>,
         >,
         RuntimeError,
     >
     where
         T: ClientStream + Send + 'static,
     {
-        self.accept_stream_route(stream, None, record_client_stream)
-            .await
+        self.accept_stream_route(
+            TcpRelayStream::new(stream),
+            VlessInboundStreamMetadata::default(),
+            record_client_stream,
+        )
+        .await
     }
 }

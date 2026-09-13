@@ -8,6 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+socket2 = { version = "0.6", features = ["all"] }
 tokio.workspace = true
 zero-traits = { path = "../../traits" }
 

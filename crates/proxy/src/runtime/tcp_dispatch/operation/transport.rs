@@ -5,7 +5,7 @@ use zero_core::Session;
 use zero_engine::EngineError;
 
 use super::contract::{PreparedTcpConnectOperation, PreparedTcpRelayOperation};
-use crate::protocol_registry::TcpRuntimeServices;
+use crate::protocol_registry::TcpExecutionServices;
 use crate::runtime::transport_leaf::{
     PreparedTransportLeaf, ProxyTransportLeaf, ProxyTransportTcpLeaf,
 };
@@ -20,8 +20,8 @@ where
     TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync,
 {
     fn execute<'a>(
-        self: Box<Self>,
-        services: TcpRuntimeServices,
+        &'a self,
+        services: TcpExecutionServices,
         session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<EstablishedTcpOutbound, TcpOutboundFailure>> + Send + 'a>>
     where
@@ -59,7 +59,8 @@ where
     TLeaf: ProxyTransportTcpLeaf + Send + Sync,
 {
     fn execute<'a>(
-        self: Box<Self>,
+        &'a self,
+        services: crate::protocol_registry::UpstreamConnectServices,
         stream: TcpRelayStream,
         session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>
@@ -68,9 +69,24 @@ where
     {
         Box::pin(async move {
             self.prepared
-                .open_tcp_relay_hop(stream, session)
+                .open_tcp_relay_hop(services, stream, session)
                 .await
                 .map_err(Into::into)
+        })
+    }
+    fn execute_lazy<'a>(
+        &'a self,
+        services: crate::protocol_registry::UpstreamConnectServices,
+        carrier: super::contract::LazyTcpRelayCarrier<'a>,
+        session: &'a Session,
+    ) -> Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>
+    where
+        Self: 'a,
+    {
+        Box::pin(async move {
+            self.prepared
+                .open_tcp_relay_carrier(services, carrier, session)
+                .await
         })
     }
 }

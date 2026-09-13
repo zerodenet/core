@@ -27,12 +27,12 @@ pub(crate) trait ClaimedTcpOutboundLeaf<'a>: Send + Sync {
     fn prepare_tcp_connect(
         &self,
         source_dir: Option<&std::path::Path>,
-    ) -> Result<Box<dyn PreparedTcpConnectOperation + 'a>, TcpOutboundFailure>;
+    ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure>;
 
     fn prepare_tcp_relay_hop(
         &self,
         _source_dir: Option<&std::path::Path>,
-    ) -> Result<Box<dyn PreparedTcpRelayOperation + 'a>, EngineError> {
+    ) -> Result<Box<dyn PreparedTcpRelayOperation>, EngineError> {
         Err(super::defaults::relay_hop_unsupported())
     }
 }
@@ -59,6 +59,7 @@ pub(crate) trait ClaimedUdpFlowLeaf<'a>: Send + Sync {
 pub(crate) trait ClaimedUdpPacketPathLeaf<'a>: Send + Sync {
     fn prepare_udp_packet_path(
         &self,
+        source_dir: Option<&std::path::Path>,
     ) -> Option<
         Box<
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
@@ -83,6 +84,9 @@ pub(crate) enum OutboundLeafInput<'a> {
     Proxy {
         outbound: &'a OutboundConfig,
         endpoint: (&'a str, u16),
+    },
+    Virtual {
+        outbound: &'a OutboundConfig,
     },
 }
 

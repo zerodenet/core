@@ -5,7 +5,7 @@ use zero_core::Session;
 use zero_transport::{RuntimeError, TcpRelayStream};
 
 use super::contract::PreparedTcpConnectOperation;
-use crate::protocol_registry::TcpRuntimeServices;
+use crate::protocol_registry::TcpExecutionServices;
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 #[async_trait::async_trait]
@@ -34,8 +34,8 @@ where
     T: SessionTcpHandshake + Send + Sync,
 {
     fn execute<'a>(
-        self: Box<Self>,
-        services: TcpRuntimeServices,
+        &'a self,
+        services: TcpExecutionServices,
         session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<EstablishedTcpOutbound, TcpOutboundFailure>> + Send + 'a>>
     where
@@ -59,7 +59,7 @@ struct PreparedSessionTcpOperation<'leaf, T> {
 }
 
 async fn execute_session_tcp_connect_operation<T>(
-    services: TcpRuntimeServices,
+    services: TcpExecutionServices,
     session: &Session,
     operation: PreparedSessionTcpOperation<'_, T>,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure>

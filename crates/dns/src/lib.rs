@@ -7,6 +7,7 @@
 mod backends;
 mod cache;
 mod coordinator;
+mod ech;
 mod fake_ip;
 mod message;
 mod reverse;
@@ -29,6 +30,7 @@ use zero_traits::{DnsResolver, IpAddress};
 use backends::ResolverBackend;
 use cache::{DnsCache, DnsWireCacheValue};
 use coordinator::{QueryCoordinator, QueryKey};
+pub use ech::EchDnsRecord;
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
 use reverse::RealIpReverseIndex;

@@ -86,6 +86,7 @@ impl ProxyTransportTcpLeaf for VmessOutboundLeaf {
 
     async fn open_tcp_relay_hop(
         &self,
+        _services: crate::protocol_registry::UpstreamConnectServices,
         stream: crate::transport::TcpRelayStream,
         session: &zero_core::Session,
     ) -> Result<crate::transport::TcpRelayStream, zero_transport::RuntimeError> {
@@ -194,6 +195,7 @@ impl ManagedTupleUdpResumeConnector for ::vmess::transport::VmessManagedUdpFlowR
 
     async fn open_relay(
         &self,
+        _services: crate::protocol_registry::UpstreamConnectServices,
         stream: crate::transport::TcpRelayStream,
         session: &zero_core::Session,
         _tls_server_name: Option<&str>,

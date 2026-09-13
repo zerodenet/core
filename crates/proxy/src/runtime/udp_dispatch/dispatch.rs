@@ -52,6 +52,18 @@ impl UdpDispatch {
         let runtime = self.runtime.clone();
         let ingress_key = UdpFlowKey::new(&input.target, input.port, input.client_session_id);
         let mut session = Session::new(0, input.target, input.port, Network::Udp, input.protocol);
+        session.route_target = input.route_target;
+        session.skip_fake_ip_restore = input.skip_fake_ip_restore;
+        session.original_target = input.sniffed_original_target;
+        if session.original_target.is_some() {
+            session.target_host_source = input.sniffed_host_source;
+        }
+        if input.sniffed_host_source == Some(zero_core::TargetHostSource::QuicSni) {
+            let sniffed_target = session.route_target.as_ref().unwrap_or(&session.target);
+            if let zero_core::Address::Domain(domain) = sniffed_target {
+                session.sni = Some(domain.clone());
+            }
+        }
         session.transparent_target = input.transparent_target;
         if let Some(original_target) = input.transparent_original_target {
             session.original_target = Some(original_target.clone());
@@ -154,7 +166,7 @@ impl UdpDispatch {
                 let session_id = session.id;
                 session.outbound_tag = Some(outbound.tag().to_owned());
                 let remote = outbound.observed_remote();
-                runtime.set_session_outbound(&session, Some(&remote));
+                runtime.set_session_outbound(&session, remote.as_ref());
                 self.flows.insert(
                     ingress_key,
                     session.clone(),

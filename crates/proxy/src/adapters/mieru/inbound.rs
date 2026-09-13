@@ -16,11 +16,13 @@ pub(super) fn prepare(
                 max_packet_size: MieruInboundListenerRequest::MAX_PACKET_SIZE,
                 pending_packets: MieruInboundListenerRequest::PACKET_QUEUE_CAPACITY,
                 dispatch: |profile: MieruInboundListenerRequest,
-                           socket,
+                           socket: zero_platform_tokio::PacketSocket,
                            peer,
                            packets,
                            context: InboundConnectionContext| async move {
-                    let connection = profile.accept_packet_peer(socket, peer, packets).await?;
+                    let connection = profile
+                        .accept_packet_peer(socket.udp()?, peer, packets)
+                        .await?;
                     context.run_route_multiplexer(connection, "mieru_udp").await
                 },
             },

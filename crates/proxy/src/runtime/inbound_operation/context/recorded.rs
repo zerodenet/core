@@ -13,9 +13,7 @@ impl InboundConnectionContext {
     ) -> Result<(), zero_engine::EngineError>
     where
         S: crate::transport::ClientStream + 'static,
-        R: zero_core::InboundMuxStreamRoute<
-            MuxReader = crate::transport::MeteredStream<crate::transport::RecordingStream<S>>,
-        >,
+        R: zero_core::InboundMuxStreamRoute,
         R::TcpStream: tokio::io::AsyncRead
             + tokio::io::AsyncWrite
             + zero_traits::AsyncSocket<Error = std::io::Error>
@@ -26,17 +24,23 @@ impl InboundConnectionContext {
         R::UdpRelay: zero_core::InboundStreamUdpRelay<
             Stream = crate::transport::MeteredStream<crate::transport::RecordingStream<S>>,
         >,
-        R::MuxServer: zero_core::InboundMuxServer<crate::transport::MeteredStream<S>>,
+        R::MuxServer: zero_core::InboundMuxServer<
+            crate::transport::MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+        >,
         <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
             zero_core::StreamUdpResponder<crate::transport::MeteredStream<S>>,
-        R::MuxReader: Send,
+        R::MuxReader: zero_core::InboundRecording + Send,
+        <R::MuxReader as zero_core::InboundRecording>::Stream:
+            crate::transport::ClientStream + 'static,
         P: crate::runtime::tcp_ingress::InboundProtocol<ClientStream = R::TcpStream> + 'static,
         FR: zero_core::InboundFallbackReplay + 'static,
         FR::Stream: crate::transport::ClientStream,
-        <R::MuxServer as zero_core::InboundMuxServer<crate::transport::MeteredStream<S>>>::TcpRelay:
-            zero_core::InboundMuxTcpRelay + 'static,
-        <R::MuxServer as zero_core::InboundMuxServer<crate::transport::MeteredStream<S>>>::UdpRelay:
-            zero_core::InboundMuxUdpRelay + 'static,
+        <R::MuxServer as zero_core::InboundMuxServer<
+            crate::transport::MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+        >>::TcpRelay: zero_core::InboundMuxTcpRelay + 'static,
+        <R::MuxServer as zero_core::InboundMuxServer<
+            crate::transport::MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+        >>::UdpRelay: zero_core::InboundMuxUdpRelay + 'static,
     {
         crate::runtime::inbound_route::dispatch_recorded_protocol_mux_tcp_request_with_defaults(
             accept_result,
@@ -59,9 +63,7 @@ impl InboundConnectionContext {
     ) -> Result<(), zero_engine::EngineError>
     where
         S: crate::transport::ClientStream + 'static,
-        R: zero_core::InboundMuxStreamRoute<
-            MuxReader = crate::transport::MeteredStream<crate::transport::RecordingStream<S>>,
-        >,
+        R: zero_core::InboundMuxStreamRoute,
         R::TcpStream: tokio::io::AsyncRead
             + tokio::io::AsyncWrite
             + zero_traits::AsyncSocket<Error = std::io::Error>
@@ -72,17 +74,23 @@ impl InboundConnectionContext {
         R::UdpRelay: zero_core::InboundStreamUdpRelay<
             Stream = crate::transport::MeteredStream<crate::transport::RecordingStream<S>>,
         >,
-        R::MuxServer: zero_core::InboundMuxServer<crate::transport::MeteredStream<S>>,
+        R::MuxServer: zero_core::InboundMuxServer<
+            crate::transport::MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+        >,
         <R::UdpRelay as zero_core::InboundStreamUdpRelay>::Responder:
             zero_core::StreamUdpResponder<crate::transport::MeteredStream<S>>,
-        R::MuxReader: Send,
+        R::MuxReader: zero_core::InboundRecording + Send,
+        <R::MuxReader as zero_core::InboundRecording>::Stream:
+            crate::transport::ClientStream + 'static,
         P: crate::runtime::tcp_ingress::InboundProtocol<ClientStream = R::TcpStream> + 'static,
         FR: zero_core::InboundFallbackReplay + 'static,
         FR::Stream: crate::transport::ClientStream,
-        <R::MuxServer as zero_core::InboundMuxServer<crate::transport::MeteredStream<S>>>::TcpRelay:
-            zero_core::InboundMuxTcpRelay + 'static,
-        <R::MuxServer as zero_core::InboundMuxServer<crate::transport::MeteredStream<S>>>::UdpRelay:
-            zero_core::InboundMuxUdpRelay + 'static,
+        <R::MuxServer as zero_core::InboundMuxServer<
+            crate::transport::MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+        >>::TcpRelay: zero_core::InboundMuxTcpRelay + 'static,
+        <R::MuxServer as zero_core::InboundMuxServer<
+            crate::transport::MeteredStream<<R::MuxReader as zero_core::InboundRecording>::Stream>,
+        >>::UdpRelay: zero_core::InboundMuxUdpRelay + 'static,
     {
         crate::runtime::inbound_route::dispatch_recorded_protocol_mux_stream_request_with_defaults(
             accept_result,

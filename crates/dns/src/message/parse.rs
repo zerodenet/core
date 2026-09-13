@@ -6,8 +6,10 @@ use zero_traits::IpAddress;
 use super::name::{decode_name, normalize_domain, skip_name};
 use super::{MAX_DNS_MESSAGE_SIZE, MAX_UDP_DNS_PAYLOAD, TYPE_A, TYPE_AAAA, TYPE_OPT};
 
-const TYPE_CNAME: u16 = 5;
+mod ech;
+pub(crate) use ech::parse_ech_config_response;
 
+const TYPE_CNAME: u16 = 5;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DnsQuestion {
     pub domain: String,
@@ -133,7 +135,7 @@ pub(crate) fn parse_response(query: &[u8], response: &[u8]) -> io::Result<Parsed
     if offset != response.len() {
         return Err(invalid("DNS response has trailing bytes"));
     }
-    let terminal_name = trusted_cname_terminal(&expected.domain, response, &answers)?;
+    let terminal_name = trusted_cname_terminal(&expected.domain, response, &answers)?.0;
     let mut addresses = Vec::new();
     for answer in answers {
         if answer.class != 1
@@ -172,8 +174,8 @@ fn trusted_cname_terminal(
     query_name: &str,
     message: &[u8],
     answers: &[ResourceRecord<'_>],
-) -> io::Result<String> {
-    let mut aliases = HashMap::new();
+) -> io::Result<(String, Option<u32>)> {
+    let mut aliases: HashMap<String, (String, u32)> = HashMap::new();
     for answer in answers {
         if answer.class != 1 || answer.record_type != TYPE_CNAME {
             continue;
@@ -184,22 +186,27 @@ fn trusted_cname_terminal(
             return Err(invalid("DNS CNAME RDATA length is invalid"));
         }
         let target = normalize_response_name(&target)?;
-        if let Some(previous) = aliases.insert(owner, target.clone()) {
-            if previous != target {
+        if let Some((previous, ttl)) = aliases.get_mut(&owner) {
+            if *previous != target {
                 return Err(invalid("DNS response contains conflicting CNAME targets"));
             }
+            *ttl = (*ttl).min(answer.ttl);
+        } else {
+            aliases.insert(owner, (target, answer.ttl));
         }
     }
 
     let mut current = query_name.to_owned();
     let mut visited = HashSet::new();
+    let mut ttl = None;
     loop {
         if !visited.insert(current.clone()) {
             return Err(invalid("DNS response contains a CNAME loop"));
         }
-        let Some(target) = aliases.get(&current) else {
-            return Ok(current);
+        let Some((target, record_ttl)) = aliases.get(&current) else {
+            return Ok((current, ttl));
         };
+        ttl = Some(ttl.map_or(*record_ttl, |current: u32| current.min(*record_ttl)));
         current = target.clone();
     }
 }

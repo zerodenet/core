@@ -9,28 +9,31 @@ use crate::runtime::tcp_dispatch::operation::{
 };
 use crate::transport::TcpOutboundFailure;
 
-pub(crate) struct PreparedTcpCandidate<'a> {
+#[derive(Clone)]
+pub(crate) struct PreparedTcpCandidate {
     pub(crate) health_tag: Option<String>,
     pub(crate) tag: Option<String>,
     pub(crate) protocol: String,
     pub(crate) endpoint: Option<(String, u16)>,
-    pub(crate) execution: PreparedTcpCandidateExecution<'a>,
+    pub(crate) execution: PreparedTcpCandidateExecution,
 }
 
-pub(crate) enum PreparedTcpCandidateExecution<'a> {
+#[derive(Clone)]
+pub(crate) enum PreparedTcpCandidateExecution {
     Block { tag: String },
-    Connect(Box<dyn PreparedTcpConnectOperation + 'a>),
+    Connect(std::sync::Arc<dyn PreparedTcpConnectOperation>),
 }
 
-pub(crate) struct PreparedTcpRelayHop<'a> {
+#[derive(Clone)]
+pub(crate) struct PreparedTcpRelayHop {
     pub(crate) tag: String,
     pub(crate) protocol: String,
     pub(crate) server: String,
     pub(crate) port: u16,
-    pub(crate) operation: Box<dyn PreparedTcpRelayOperation + 'a>,
+    pub(crate) operation: std::sync::Arc<dyn PreparedTcpRelayOperation>,
 }
 
-impl PreparedTcpRelayHop<'_> {
+impl PreparedTcpRelayHop {
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn upstream(&self) -> (String, u16) {
         (self.server.clone(), self.port)
@@ -42,7 +45,7 @@ impl ProtocolInventory {
         &self,
         ctx: OutboundAdapterContext,
         claimed: &ClaimedInventoryLeaf<'a>,
-    ) -> Result<PreparedTcpCandidate<'a>, TcpOutboundFailure> {
+    ) -> Result<PreparedTcpCandidate, TcpOutboundFailure> {
         let runtime = claimed.runtime();
         let health_tag = health_tag(&runtime).map(ToOwned::to_owned);
         let execution = if matches!(runtime.tcp_path, TcpPathCategory::Block) {
@@ -51,7 +54,7 @@ impl ProtocolInventory {
             }
         } else {
             let operation = claimed.prepare_tcp_connect(ctx.source_dir())?;
-            PreparedTcpCandidateExecution::Connect(operation)
+            PreparedTcpCandidateExecution::Connect(operation.into())
         };
         Ok(PreparedTcpCandidate {
             health_tag,
@@ -68,7 +71,7 @@ impl ProtocolInventory {
         &self,
         ctx: OutboundAdapterContext,
         claimed: &ClaimedInventoryLeaf<'a>,
-    ) -> Result<PreparedTcpRelayHop<'a>, EngineError> {
+    ) -> Result<PreparedTcpRelayHop, EngineError> {
         let (server, port, operation) = claimed.prepare_tcp_relay_hop(ctx.source_dir())?;
         let runtime = claimed.runtime();
         Ok(PreparedTcpRelayHop {
@@ -76,7 +79,7 @@ impl ProtocolInventory {
             protocol: runtime.protocol,
             server,
             port,
-            operation,
+            operation: operation.into(),
         })
     }
 }

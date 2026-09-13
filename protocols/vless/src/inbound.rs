@@ -1,3 +1,5 @@
+#[cfg(feature = "reality")]
+mod reverse;
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -19,6 +21,7 @@ use crate::shared::{
     parse_uuid, read_address, read_exact, CMD_MUX, CMD_TCP, CMD_UDP, VLESS_VERSION,
 };
 
+mod fallback;
 #[cfg(feature = "reality")]
 mod vision;
 #[cfg(feature = "reality")]
@@ -29,6 +32,8 @@ pub struct VlessInbound;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VlessUser {
+    pub reverse_tag: Option<String>,
+    pub testseed: [u32; 4],
     pub principal_key: Option<String>,
     pub up_bps: Option<u64>,
     pub down_bps: Option<u64>,
@@ -41,6 +46,8 @@ pub struct VlessUser {
 impl VlessUser {
     pub fn new() -> Self {
         Self {
+            reverse_tag: None,
+            testseed: crate::validation::DEFAULT_VISION_TESTSEED,
             principal_key: None,
             up_bps: None,
             down_bps: None,
@@ -61,6 +68,29 @@ impl VlessUser {
         quota_remaining_bytes: Option<u64>,
         policy_revision: Option<u64>,
     ) -> Result<Self, Error> {
+        Self::from_config_with_testseed(
+            flow,
+            &[],
+            principal_key,
+            up_bps,
+            down_bps,
+            device_limit,
+            quota_remaining_bytes,
+            policy_revision,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_config_with_testseed(
+        flow: Option<&str>,
+        testseed: &[u32],
+        principal_key: Option<String>,
+        up_bps: Option<u64>,
+        down_bps: Option<u64>,
+        device_limit: Option<u32>,
+        quota_remaining_bytes: Option<u64>,
+        policy_revision: Option<u64>,
+    ) -> Result<Self, Error> {
         #[cfg(feature = "reality")]
         let flow = flow.map(crate::flow::parse_inbound_flow).transpose()?;
         #[cfg(not(feature = "reality"))]
@@ -73,6 +103,9 @@ impl VlessUser {
             None
         };
         Ok(Self {
+            reverse_tag: None,
+            testseed: crate::validation::normalize_vision_testseed(testseed)
+                .map_err(Error::Config)?,
             principal_key,
             up_bps,
             down_bps,
@@ -103,12 +136,14 @@ pub struct VlessConfiguredUser {
 pub type VlessInboundUserConfigParts = (
     String,
     Option<String>,
+    Vec<u32>,
     Option<String>,
     Option<u64>,
     Option<u64>,
     Option<u32>,
     Option<u64>,
     Option<u64>,
+    Option<String>,
 );
 
 impl VlessConfiguredUser {
@@ -123,10 +158,36 @@ impl VlessConfiguredUser {
         quota_remaining_bytes: Option<u64>,
         policy_revision: Option<u64>,
     ) -> Result<Self, Error> {
+        Self::from_config_with_testseed(
+            id,
+            flow,
+            &[],
+            principal_key,
+            up_bps,
+            down_bps,
+            device_limit,
+            quota_remaining_bytes,
+            policy_revision,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_config_with_testseed(
+        id: &str,
+        flow: Option<&str>,
+        testseed: &[u32],
+        principal_key: Option<String>,
+        up_bps: Option<u64>,
+        down_bps: Option<u64>,
+        device_limit: Option<u32>,
+        quota_remaining_bytes: Option<u64>,
+        policy_revision: Option<u64>,
+    ) -> Result<Self, Error> {
         Ok(Self {
             id: parse_uuid(id)?,
-            user: VlessUser::from_config(
+            user: VlessUser::from_config_with_testseed(
                 flow,
+                testseed,
                 principal_key,
                 up_bps,
                 down_bps,
@@ -161,7 +222,11 @@ struct VlessAcceptedSession {
     session: Session,
     mux_master_uuid: [u8; 16],
     #[cfg(feature = "reality")]
+    reverse_tag: Option<String>,
+    #[cfg(feature = "reality")]
     flow: Option<&'static str>,
+    #[cfg(feature = "reality")]
+    testseed: [u32; 4],
 }
 
 pub(crate) struct VlessAcceptedClient<S> {
@@ -185,7 +250,7 @@ enum VlessAcceptedClientRouteState<S> {
     #[cfg(feature = "reality")]
     Mux {
         mux_server: crate::mux::VlessInboundMuxServer,
-        stream: S,
+        stream: VlessInboundTcpStream<S>,
     },
 }
 
@@ -207,6 +272,7 @@ pub(crate) struct VlessClientAcceptError<S> {
 
 pub struct VlessFallbackReplay<S> {
     stream: S,
+    selected: Option<zero_traits::FallbackRoute>,
     replay_head: Vec<u8>,
 }
 
@@ -270,18 +336,23 @@ impl VlessAcceptedSession {
         session: Session,
         user_id: [u8; 16],
         #[cfg(feature = "reality")] flow: Option<&'static str>,
+        #[cfg(feature = "reality")] testseed: [u32; 4],
     ) -> Self {
         Self {
             session,
             mux_master_uuid: user_id,
             #[cfg(feature = "reality")]
+            reverse_tag: None,
+            #[cfg(feature = "reality")]
             flow,
+            #[cfg(feature = "reality")]
+            testseed,
         }
     }
 
     #[cfg(feature = "reality")]
-    fn into_parts(self) -> (Session, [u8; 16], Option<&'static str>) {
-        (self.session, self.mux_master_uuid, self.flow)
+    fn into_parts(self) -> (Session, [u8; 16], Option<&'static str>, [u32; 4]) {
+        (self.session, self.mux_master_uuid, self.flow, self.testseed)
     }
 
     #[cfg(not(feature = "reality"))]
@@ -296,9 +367,9 @@ impl<S> VlessAcceptedClient<S> {
     }
 
     #[cfg(feature = "reality")]
-    fn into_parts(self) -> (Session, [u8; 16], Option<&'static str>, S) {
-        let (session, mux_master_uuid, flow) = self.accepted.into_parts();
-        (session, mux_master_uuid, flow, self.stream)
+    fn into_parts(self) -> (Session, [u8; 16], Option<&'static str>, [u32; 4], S) {
+        let (session, mux_master_uuid, flow, testseed) = self.accepted.into_parts();
+        (session, mux_master_uuid, flow, testseed, self.stream)
     }
 
     #[cfg(not(feature = "reality"))]
@@ -316,7 +387,11 @@ impl<S> VlessAcceptedClient<S> {
         S: AsyncSocket,
     {
         #[cfg(feature = "reality")]
-        let (mut session, mux_master_uuid, flow, mut stream) = self.into_parts();
+        if self.accepted.reverse_tag.is_some() {
+            return Err(Error::Unsupported("Rvs requires a control-session handoff"));
+        }
+        #[cfg(feature = "reality")]
+        let (mut session, mux_master_uuid, flow, testseed, mut stream) = self.into_parts();
         #[cfg(not(feature = "reality"))]
         let (mut session, mux_master_uuid, mut stream) = self.into_parts();
         match classify_inbound_session(&session) {
@@ -324,7 +399,7 @@ impl<S> VlessAcceptedClient<S> {
                 session.sni = sni;
                 #[cfg(feature = "reality")]
                 let stream = if crate::flow::is_vision_flow(flow) {
-                    VlessInboundTcpStream::vision(stream, mux_master_uuid)
+                    VlessInboundTcpStream::vision(stream, mux_master_uuid, testseed)
                 } else {
                     VlessInboundTcpStream::plain(stream)
                 };
@@ -354,7 +429,7 @@ impl<S> VlessAcceptedClient<S> {
                 #[cfg(feature = "reality")]
                 {
                     let auth = session.auth.clone();
-                    let mux_server = VlessInbound
+                    let mut mux_server = VlessInbound
                         .accept_mux_session_with_auth(
                             &mut stream,
                             mux_master_uuid,
@@ -362,6 +437,16 @@ impl<S> VlessAcceptedClient<S> {
                             mux_response_backlog,
                         )
                         .await?;
+                    let stream = if crate::flow::is_vision_flow(flow) {
+                        mux_server.require_udp_only();
+                        VlessInboundTcpStream::vision_after_response(
+                            stream,
+                            mux_master_uuid,
+                            testseed,
+                        )
+                    } else {
+                        VlessInboundTcpStream::plain(stream)
+                    };
                     Ok(VlessAcceptedClientRoute::mux(mux_server, stream))
                 }
                 #[cfg(not(feature = "reality"))]
@@ -431,7 +516,10 @@ impl<S> VlessAcceptedClientRoute<S> {
     }
 
     #[cfg(feature = "reality")]
-    fn mux(mux_server: crate::mux::VlessInboundMuxServer, stream: S) -> Self {
+    fn mux(
+        mux_server: crate::mux::VlessInboundMuxServer,
+        stream: VlessInboundTcpStream<S>,
+    ) -> Self {
         Self {
             state: VlessAcceptedClientRouteState::Mux { mux_server, stream },
         }
@@ -449,7 +537,7 @@ impl<S> VlessAcceptedClientRoute<S> {
         TcpFut: core::future::Future<Output = Result<(), E>>,
         Udp: FnOnce(Session, VlessInboundUdpRelay<S>) -> UdpFut,
         UdpFut: core::future::Future<Output = Result<(), E>>,
-        Mux: FnOnce(crate::mux::VlessInboundMuxServer, S) -> MuxFut,
+        Mux: FnOnce(crate::mux::VlessInboundMuxServer, VlessInboundTcpStream<S>) -> MuxFut,
         MuxFut: core::future::Future<Output = Result<(), E>>,
     {
         match self.state {
@@ -486,7 +574,7 @@ where
 {
     type TcpStream = VlessInboundTcpStream<S>;
     type UdpRelay = VlessInboundUdpRelay<S>;
-    type MuxReader = S;
+    type MuxReader = VlessInboundTcpStream<S>;
     type MuxServer = crate::mux::VlessInboundMuxServer;
 
     async fn dispatch_inbound_route<E, FTcp, FTcpFut, FUdp, FUdpFut, FMux, FMuxFut>(
@@ -529,6 +617,7 @@ impl<S> VlessFallbackReplay<S> {
         Self {
             stream,
             replay_head,
+            selected: None,
         }
     }
 
@@ -557,6 +646,7 @@ impl<S> VlessFallbackReplay<S> {
         let Self {
             stream,
             replay_head,
+            ..
         } = self;
         if !replay_head.is_empty() {
             writer.write_all(&replay_head).await?;
@@ -570,6 +660,9 @@ where
     S: Send,
 {
     type Stream = S;
+    fn selected_route(&self) -> Option<zero_traits::FallbackRoute> {
+        self.selected.clone()
+    }
 
     async fn replay_to<'a, W>(self, upstream: &'a mut W) -> Result<Self::Stream, W::Error>
     where
@@ -628,6 +721,8 @@ fn classify_inbound_session(session: &Session) -> VlessInboundSessionKind {
 #[derive(Clone)]
 pub struct VlessInboundProfile {
     users: Arc<std::sync::RwLock<Arc<[VlessConfiguredUser]>>>,
+    #[cfg(feature = "reality")]
+    portals: crate::reverse::PortalRegistry,
 }
 
 impl core::fmt::Debug for VlessInboundProfile {
@@ -643,6 +738,8 @@ impl VlessInboundProfile {
     pub fn from_users(users: Vec<VlessConfiguredUser>) -> Self {
         Self {
             users: Arc::new(std::sync::RwLock::new(users.into())),
+            #[cfg(feature = "reality")]
+            portals: Default::default(),
         }
     }
 
@@ -670,16 +767,19 @@ impl VlessInboundProfile {
                 |(
                     id,
                     flow,
+                    testseed,
                     principal_key,
                     up_bps,
                     down_bps,
                     device_limit,
                     quota_remaining_bytes,
                     policy_revision,
+                    reverse_tag,
                 )| {
-                    VlessConfiguredUser::from_config(
+                    VlessConfiguredUser::from_config_with_testseed(
                         &id,
                         flow.as_deref(),
+                        &testseed,
                         principal_key,
                         up_bps,
                         down_bps,
@@ -687,6 +787,10 @@ impl VlessInboundProfile {
                         quota_remaining_bytes,
                         policy_revision,
                     )
+                    .map(|mut configured| {
+                        configured.user.reverse_tag = reverse_tag;
+                        configured
+                    })
                 },
             )
             .collect::<Result<Vec<_>, Error>>()
@@ -713,16 +817,19 @@ impl VlessInboundProfile {
                 |(
                     id,
                     flow,
+                    testseed,
                     principal_key,
                     up_bps,
                     down_bps,
                     device_limit,
                     quota_remaining_bytes,
                     policy_revision,
+                    reverse_tag,
                 )| {
-                    VlessConfiguredUser::from_config(
+                    VlessConfiguredUser::from_config_with_testseed(
                         &id,
                         flow.as_deref(),
+                        &testseed,
                         principal_key,
                         up_bps,
                         down_bps,
@@ -730,6 +837,10 @@ impl VlessInboundProfile {
                         quota_remaining_bytes,
                         policy_revision,
                     )
+                    .map(|mut configured| {
+                        configured.user.reverse_tag = reverse_tag;
+                        configured
+                    })
                 },
             )
             .collect::<Result<Vec<_>, Error>>()?;
@@ -769,9 +880,7 @@ impl VlessInboundProfile {
             .clone();
         let auth = VlessConfiguredUsers::new(users.as_ref());
         #[cfg(feature = "reality")]
-        let accepted = inbound
-            .accept_tcp_with_auth_and_id_and_flow(&mut stream, &auth)
-            .await;
+        let accepted = inbound.accept_routed_request(&mut stream, &auth).await;
         #[cfg(not(feature = "reality"))]
         let accepted = inbound
             .accept_tcp_with_auth_and_id(&mut stream, &auth)
@@ -779,10 +888,7 @@ impl VlessInboundProfile {
             .map(|(session, user_id)| (session, user_id));
         match accepted {
             #[cfg(feature = "reality")]
-            Ok((session, user_id, flow)) => Ok(VlessAcceptedClient::new(
-                VlessAcceptedSession::new(session, user_id, flow),
-                stream,
-            )),
+            Ok(accepted) => Ok(VlessAcceptedClient::new(accepted, stream)),
             #[cfg(not(feature = "reality"))]
             Ok((session, user_id)) => Ok(VlessAcceptedClient::new(
                 VlessAcceptedSession::new(session, user_id),
@@ -826,12 +932,14 @@ impl IntoVlessInboundUserConfig for crate::transport::VlessInboundUserRef<'_> {
         (
             self.id.to_owned(),
             self.flow.map(str::to_owned),
+            self.testseed.to_vec(),
             self.principal_key.map(str::to_owned),
             self.up_bps,
             self.down_bps,
             self.device_limit,
             self.quota_remaining_bytes,
             self.policy_revision,
+            self.reverse_tag.map(str::to_owned),
         )
     }
 }
@@ -907,19 +1015,11 @@ impl VlessInbound {
         S: AsyncSocket,
         A: VlessUserStore,
     {
-        let (mut session, id, flow) = read_request_with_flow(stream).await?;
-        let Some(user) = auth.find_user(&id) else {
-            return Err(Error::Unsupported("VLESS user is not authorized"));
-        };
-        validate_user_flow(user.flow, flow)?;
-        let mut sa = SessionAuth::new("vless");
-        sa.principal_key = user.principal_key;
-        sa.up_bps = user.up_bps;
-        sa.down_bps = user.down_bps;
-        sa.device_limit = user.device_limit;
-        sa.quota_remaining_bytes = user.quota_remaining_bytes;
-        sa.policy_revision = user.policy_revision;
-        session.apply_auth(sa);
+        let accepted = self.accept_routed_request(stream, auth).await?;
+        if accepted.reverse_tag.is_some() {
+            return Err(Error::Unsupported("Rvs requires a control-session handoff"));
+        }
+        let (session, id, flow, _) = accepted.into_parts();
         Ok((session, id, flow))
     }
 
@@ -939,6 +1039,11 @@ impl VlessInbound {
                 return Err(Error::Unsupported("VLESS user is not authorized"));
             };
             validate_user_flow(user.flow, flow)?;
+            if crate::flow::is_vision_flow(flow) && stream.transport_bypass_control().is_none() {
+                return Err(Error::Unsupported(
+                    "Vision requires TLS 1.3, REALITY or VLESS Encryption",
+                ));
+            }
             let mut sa = SessionAuth::new("vless");
             sa.principal_key = user.principal_key;
             sa.up_bps = user.up_bps;
@@ -1095,6 +1200,22 @@ async fn read_request_with_flow<S>(
 where
     S: AsyncSocket,
 {
+    let (session, id, flow, reverse) = read_routed_request(stream).await?;
+    if reverse {
+        return Err(Error::Unsupported(
+            "Rvs requires an authenticated control session",
+        ));
+    }
+    Ok((session, id, flow))
+}
+
+#[cfg(feature = "reality")]
+async fn read_routed_request<S>(
+    stream: &mut S,
+) -> Result<(Session, [u8; 16], Option<&'static str>, bool), Error>
+where
+    S: AsyncSocket,
+{
     let mut version = [0_u8; 1];
     read_exact(stream, &mut version).await?;
     if version[0] != VLESS_VERSION {
@@ -1108,13 +1229,30 @@ where
         let (command, port, target) =
             flow_read_request(stream, Some(FLOW_ZERO_AEAD_V1), &id).await?;
         command_to_session(command, target, port, id)
-            .map(|(session, id)| (session, id, Some(FLOW_ZERO_AEAD_V1)))
+            .map(|(session, id)| (session, id, Some(FLOW_ZERO_AEAD_V1), false))
     } else {
         let mut command = [0_u8; 1];
         read_exact(stream, &mut command).await?;
+        if crate::flow::is_vision_flow(flow) && command[0] == CMD_UDP {
+            return Err(Error::Unsupported("Vision UDP must use XUDP MUX"));
+        }
+        if command[0] == crate::reverse::COMMAND {
+            return Ok((
+                Session::new(
+                    0,
+                    Address::Domain(crate::reverse::REQUEST_DOMAIN.into()),
+                    0,
+                    Network::Tcp,
+                    ProtocolType::new("vless"),
+                ),
+                id,
+                flow,
+                true,
+            ));
+        }
         if command[0] == CMD_MUX {
             return command_to_session(CMD_MUX, Address::Domain(String::new()), 0, id)
-                .map(|(session, id)| (session, id, flow));
+                .map(|(session, id)| (session, id, flow, false));
         }
         let mut port = [0_u8; 2];
         read_exact(stream, &mut port).await?;
@@ -1125,7 +1263,8 @@ where
         let mut atyp = [0_u8; 1];
         read_exact(stream, &mut atyp).await?;
         let target = read_address(stream, atyp[0]).await?;
-        command_to_session(command[0], target, port, id).map(|(session, id)| (session, id, flow))
+        command_to_session(command[0], target, port, id)
+            .map(|(session, id)| (session, id, flow, false))
     }
 }
 

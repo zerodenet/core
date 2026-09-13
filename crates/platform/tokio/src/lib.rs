@@ -1,4 +1,9 @@
 use std::io;
+mod icmp;
+mod packet_socket;
+pub use icmp::IcmpSocket;
+pub use packet_socket::PacketSocket;
+
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -9,6 +14,9 @@ use zero_traits::{
     AsyncSocket, DatagramSocket as DatagramSocketTrait, DnsResolver, IpAddress, SocketAddress,
     TcpListener as TcpListenerTrait, TransportBypassControl,
 };
+
+mod cpu;
+pub use cpu::{cpu_topology, CpuTopology};
 
 mod egress;
 mod process;
@@ -24,6 +32,7 @@ pub use system_dns::system_dns_servers;
 #[derive(Debug)]
 pub struct TokioSocket {
     inner: TcpStream,
+    effective_addresses: Option<(SocketAddr, SocketAddr)>,
     egress_interface: Option<EgressInterface>,
 }
 
@@ -61,6 +70,7 @@ impl TokioSocket {
     pub fn new(inner: TcpStream) -> Self {
         Self {
             inner,
+            effective_addresses: None,
             egress_interface: None,
         }
     }
@@ -133,6 +143,7 @@ impl TokioSocket {
         })?;
         Ok(Self {
             inner: stream,
+            effective_addresses: None,
             egress_interface: interface.cloned(),
         })
     }
@@ -141,11 +152,21 @@ impl TokioSocket {
         self.inner
     }
 
+    /// Addresses supplied by an explicitly enabled listener prelude.
+    pub fn set_effective_addresses(&mut self, source: SocketAddr, destination: SocketAddr) {
+        self.effective_addresses = Some((source, destination));
+    }
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        if let Some((_, destination)) = self.effective_addresses {
+            return Ok(destination);
+        }
         self.inner.local_addr()
     }
 
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
+        if let Some((source, _)) = self.effective_addresses {
+            return Ok(source);
+        }
         self.inner.peer_addr()
     }
 
@@ -322,6 +343,7 @@ impl TcpListenerTrait for TokioListener {
 
     async fn accept(&self) -> Result<(Self::Stream, Option<SocketAddress>), Self::Error> {
         let (stream, remote_addr) = self.inner.accept().await?;
+        stream.set_nodelay(true)?;
 
         Ok((
             TokioSocket::new(stream),
@@ -549,6 +571,7 @@ impl ClientStream for TokioSocket {
 pub struct TcpRelayStream {
     inner: Box<dyn RelayIo>,
     local_addr: Option<SocketAddr>,
+    peer_addr: Option<SocketAddr>,
     transport_bypass_control: Option<TransportBypassControl>,
 }
 
@@ -557,6 +580,18 @@ trait RelayIo: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
 impl<T> RelayIo for T where T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {}
 
 impl TcpRelayStream {
+    pub fn from_client<S: ClientStream + 'static>(stream: S) -> Self {
+        let local_addr = stream.local_addr().ok();
+        let peer_addr = stream.peer_addr().ok();
+        let transport_bypass_control = stream.transport_bypass_control();
+        Self {
+            inner: Box::new(stream),
+            local_addr,
+            peer_addr,
+            transport_bypass_control,
+        }
+    }
+
     pub fn new<S>(stream: S) -> Self
     where
         S: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
@@ -564,6 +599,7 @@ impl TcpRelayStream {
         Self {
             inner: Box::new(stream),
             local_addr: None,
+            peer_addr: None,
             transport_bypass_control: None,
         }
     }
@@ -575,6 +611,7 @@ impl TcpRelayStream {
         Self {
             inner: Box::new(stream),
             local_addr: Some(addr),
+            peer_addr: None,
             transport_bypass_control: None,
         }
     }
@@ -586,6 +623,7 @@ impl TcpRelayStream {
         Self {
             inner: Box::new(stream),
             local_addr: None,
+            peer_addr: None,
             transport_bypass_control: Some(control),
         }
     }
@@ -593,10 +631,7 @@ impl TcpRelayStream {
 
 impl From<TokioSocket> for TcpRelayStream {
     fn from(socket: TokioSocket) -> Self {
-        match socket.local_addr() {
-            Ok(addr) => Self::with_local_addr(socket, addr),
-            Err(_) => Self::new(socket),
-        }
+        Self::from_client(socket)
     }
 }
 
@@ -607,10 +642,8 @@ impl ClientStream for TcpRelayStream {
     }
 
     fn peer_addr(&self) -> io::Result<SocketAddr> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "ClientStream: peer_addr not available",
-        ))
+        self.peer_addr
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "peer_addr not available"))
     }
 }
 

@@ -28,7 +28,7 @@ pub(super) async fn build(
 ) -> Result<std::sync::Arc<dyn crate::runtime::udp_flow::packet_path::PacketPathCarrier>, EngineError>
 {
     let association = std::sync::Arc::new(
-        establish_packet_path_association(services, plan.into_carrier_build()).await?,
+        establish_packet_path_association(services.clone(), plan.into_carrier_build()).await?,
     ) as std::sync::Arc<Socks5UpstreamUdpAssociation>;
-    Ok(crate::runtime::udp_flow::packet_path::packet_path_payload_carrier(association))
+    Ok(crate::runtime::udp_flow::packet_path::packet_path_payload_carrier(services, association))
 }

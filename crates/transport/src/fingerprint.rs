@@ -76,16 +76,22 @@ fn kx_p384() -> &'static dyn rustls::crypto::SupportedKxGroup {
 
 /// Look up a fingerprint preset by name.
 pub fn lookup_fingerprint(name: &str) -> Option<TlsFingerprint> {
-    match name.to_lowercase().as_str() {
-        "chrome" => Some(chrome()),
-        "firefox" => Some(firefox()),
-        "safari" => Some(safari()),
-        "ios" => Some(ios()),
-        "edge" => Some(chrome()),
-        "randomized" => Some(randomized()),
-        "none" | "" => None,
-        _ => None,
-    }
+    use ztls::fingerprint::ClientHelloProfile as P;
+    let profile = name.parse::<P>().ok()?;
+    let mut fingerprint = match profile {
+        P::Firefox63
+        | P::Firefox65
+        | P::Firefox99
+        | P::Firefox102
+        | P::Firefox105
+        | P::Firefox120
+        | P::Firefox148 => firefox(),
+        P::Safari160 | P::Safari263 => safari(),
+        P::Ios13 | P::Ios14 => ios(),
+        _ => chrome(),
+    };
+    fingerprint.client_hello_profile = profile;
+    Some(fingerprint)
 }
 
 /// Build a `CryptoProvider` with the fingerprint's cipher suites and
@@ -194,36 +200,5 @@ fn ios() -> TlsFingerprint {
         ],
         kx_groups: vec![kx_p256(), kx_x25519(), kx_p384()],
         client_hello_profile: ztls::fingerprint::ClientHelloProfile::Safari160,
-    }
-}
-
-fn randomized() -> TlsFingerprint {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        / 60;
-    let s13 = (seed % 3) as usize;
-    let s12 = (seed % 4) as usize;
-
-    let mut t13 = vec![tls13_aes128(), tls13_aes256(), tls13_chacha()];
-    t13.rotate_left(s13);
-    let mut t12 = vec![
-        tls12_ecdsa_aes128(),
-        tls12_rsa_aes128(),
-        tls12_ecdsa_aes256(),
-        tls12_rsa_aes256(),
-    ];
-    t12.rotate_left(s12);
-
-    let mut all = Vec::new();
-    all.append(&mut t13);
-    all.append(&mut t12);
-
-    TlsFingerprint {
-        cipher_suites: all,
-        kx_groups: vec![kx_x25519(), kx_p256(), kx_p384()],
-        client_hello_profile: ztls::fingerprint::ClientHelloProfile::Chrome120,
     }
 }

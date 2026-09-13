@@ -32,14 +32,14 @@ pub fn decode_short_id(encoded: &str) -> Result<[u8; 8], std::io::Error> {
             format!("Invalid hex: {}", e),
         )
     })?;
-    if hex.len() != 8 {
+    if hex.len() > 8 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "short_id must be 8 bytes",
+            "short_id must be at most 8 bytes",
         ));
     }
     let mut id = [0u8; 8];
-    id.copy_from_slice(&hex);
+    id[..hex.len()].copy_from_slice(&hex);
     Ok(id)
 }
 

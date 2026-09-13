@@ -35,15 +35,14 @@ impl<'a> ClaimedInventoryLeaf<'a> {
     pub(crate) fn prepare_tcp_connect(
         &self,
         source_dir: Option<&Path>,
-    ) -> Result<Box<dyn PreparedTcpConnectOperation + 'a>, crate::transport::TcpOutboundFailure>
-    {
+    ) -> Result<Box<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure> {
         self.claimed.prepare_tcp_connect(source_dir)
     }
 
     pub(crate) fn prepare_tcp_relay_hop(
         &self,
         source_dir: Option<&Path>,
-    ) -> Result<(String, u16, Box<dyn PreparedTcpRelayOperation + 'a>), EngineError> {
+    ) -> Result<(String, u16, Box<dyn PreparedTcpRelayOperation>), EngineError> {
         self.claimed.prepare_tcp_relay_hop(source_dir)
     }
 
@@ -59,12 +58,13 @@ impl<'a> ClaimedInventoryLeaf<'a> {
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn prepare_udp_packet_path(
         &self,
+        source_dir: Option<&std::path::Path>,
     ) -> Option<
         Box<
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     > {
-        self.claimed.prepare_udp_packet_path()
+        self.claimed.prepare_udp_packet_path(source_dir)
     }
 }
 
@@ -109,6 +109,17 @@ impl<'a> ClaimedRelayChain<'a> {
 }
 
 impl ProtocolInventory {
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(crate) fn prepare_inbound_services(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Result<
+        Vec<Box<dyn crate::runtime::inbound_service::PreparedInboundServiceOperation>>,
+        EngineError,
+    > {
+        self.registry.prepare_inbound_services(config)
+    }
+
     pub(crate) fn on_config_reloaded(&self, config: &RuntimeConfig) {
         self.registry.on_config_reloaded(config);
     }

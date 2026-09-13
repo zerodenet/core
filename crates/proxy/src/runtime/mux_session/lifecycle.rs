@@ -4,13 +4,13 @@ use tracing::{info, warn};
 use super::model::{MuxOpenedDispatcher, MuxSessionLoop};
 
 pub(crate) async fn run_mux_session_loop<D>(
-    request: MuxSessionLoop<'_>,
+    request: MuxSessionLoop,
     tasks: &mut JoinSet<()>,
     dispatcher: &mut D,
     principal_cancel_rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>,
 ) -> Result<(), D::Error>
 where
-    D: MuxOpenedDispatcher,
+    D: MuxOpenedDispatcher + Send,
 {
     info!(
         inbound_tag = request.inbound_tag,

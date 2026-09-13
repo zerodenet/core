@@ -7,24 +7,26 @@ mod runtime;
 mod tcp;
 #[cfg(feature = "udp-runtime")]
 mod udp;
+mod weak;
 
 pub(crate) use runtime::{ClaimedInventoryLeaf, ClaimedRelayChain};
-pub(crate) use tcp::PreparedTcpRelayChain;
 pub(crate) use tcp::{
     PreparedTcpCandidate, PreparedTcpCandidateExecution, PreparedTcpOutbound, PreparedTcpRelayHop,
 };
+pub(crate) use tcp::{PreparedTcpRelayChain, PreparedTcpRelayPrefix};
 #[cfg(feature = "udp-runtime")]
 pub(crate) use udp::{PreparedUdpLeafCandidate, PreparedUdpOutbound};
+pub(crate) use weak::WeakProtocolInventory;
 
 #[derive(Debug, Clone)]
 pub struct ProtocolInventory {
-    registry: ProtocolRegistry,
+    registry: std::sync::Arc<ProtocolRegistry>,
 }
 
 impl Default for ProtocolInventory {
     fn default() -> Self {
         Self {
-            registry: crate::register::protocol_registry(),
+            registry: std::sync::Arc::new(crate::register::protocol_registry()),
         }
     }
 }

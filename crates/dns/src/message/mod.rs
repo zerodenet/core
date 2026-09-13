@@ -10,7 +10,9 @@ pub(crate) use build::{
 };
 pub(crate) use name::normalize_domain;
 pub use parse::DnsQuestion;
-pub(crate) use parse::{parse_question, parse_response, ParsedDnsResponse};
+pub(crate) use parse::{
+    parse_ech_config_response, parse_question, parse_response, ParsedDnsResponse,
+};
 pub(crate) use policy::{apply_response_address_policy, ResponseAddressPolicy};
 
 pub(crate) fn rewrite_response_ttls(

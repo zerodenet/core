@@ -10,7 +10,7 @@ use std::io::{Error, ErrorKind, Result};
 /// Intermediate TLS 1.3 keys (handshake secrets + master secret)
 /// Used for two-phase key derivation where application secrets
 /// must be derived after server Finished message
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Tls13HandshakeKeys {
     /// Client handshake traffic secret
     pub client_handshake_traffic_secret: Vec<u8>,
@@ -42,23 +42,10 @@ pub fn hkdf_expand(
         let key = hmac::Key::new(hmac_algorithm, prk);
         let mut ctx = hmac::Context::with_key(&key);
 
-        tracing::debug!(
-            "HKDF iteration {}: prev_len={}, info_len={}",
-            i,
-            prev.len(),
-            info.len()
-        );
-
         ctx.update(&prev);
         ctx.update(info);
         ctx.update(&[i as u8]);
         let tag = ctx.sign();
-
-        tracing::debug!(
-            "HKDF iteration {}: output={:02x?}",
-            i,
-            &tag.as_ref()[..tag.as_ref().len().min(16)]
-        );
 
         prev = tag.as_ref().to_vec();
         output.extend_from_slice(tag.as_ref());
@@ -76,13 +63,6 @@ pub fn hkdf_expand_label_with_algorithm(
     context: &[u8],
     length: usize,
 ) -> Result<Vec<u8>> {
-    tracing::debug!(
-        "DEBUG hkdf_expand_label: secret len={}, label={:?}, context len={}, length={}",
-        secret.len(),
-        std::str::from_utf8(label).unwrap_or("<binary>"),
-        context.len(),
-        length
-    );
     // HkdfLabel structure:
     // struct {
     //     uint16 length = Length;
@@ -103,8 +83,6 @@ pub fn hkdf_expand_label_with_algorithm(
     // Context length and content
     hkdf_label.push(context.len() as u8);
     hkdf_label.extend_from_slice(context);
-
-    tracing::debug!("HKDF_LABEL_BYTES: {:02x?}", hkdf_label);
 
     hkdf_expand(hmac_algorithm, secret, &hkdf_label, length)
 }
@@ -145,17 +123,7 @@ pub fn derive_traffic_keys(
 ) -> Result<(Vec<u8>, Vec<u8>)> {
     let key_length = cipher_suite.key_len();
     let iv_length = cipher_suite.nonce_len();
-    let hash_len = cipher_suite.hash_len();
     let hmac_algorithm = cipher_suite.hmac_algorithm();
-
-    tracing::debug!(
-        "TRAFFIC_KEY_DERIVE: cipher_suite={:?}, key_len={}, iv_len={}, hash_len={}",
-        cipher_suite,
-        key_length,
-        iv_length,
-        hash_len
-    );
-    tracing::debug!("TRAFFIC_KEY_DERIVE: traffic_secret={:02x?}", traffic_secret);
 
     // key = HKDF-Expand-Label(Secret, "key", "", key_length)
     let key =
@@ -164,9 +132,6 @@ pub fn derive_traffic_keys(
     // iv = HKDF-Expand-Label(Secret, "iv", "", iv_length)
     let iv =
         hkdf_expand_label_with_algorithm(hmac_algorithm, traffic_secret, b"iv", b"", iv_length)?;
-
-    tracing::debug!("TRAFFIC_KEY_DERIVE: key={:02x?}", key);
-    tracing::debug!("TRAFFIC_KEY_DERIVE: iv={:02x?}", iv);
 
     Ok((key, iv))
 }
@@ -196,11 +161,11 @@ pub fn derive_handshake_keys(
     let digest_algorithm = cipher_suite.digest_algorithm();
 
     // Validate input lengths
-    if shared_secret.len() != 32 {
+    if !matches!(shared_secret.len(), 32 | 48 | 64 | 66) {
         return Err(Error::new(
             ErrorKind::InvalidInput,
             format!(
-                "Invalid shared_secret length: {} (expected 32)",
+                "Invalid TLS key-exchange secret length: {}",
                 shared_secret.len()
             ),
         ));
@@ -215,11 +180,6 @@ pub fn derive_handshake_keys(
             ),
         ));
     }
-
-    tracing::debug!(
-        "TLS13 DEBUG: Deriving handshake keys (Phase 1) with {:?}...",
-        cipher_suite
-    );
 
     // 1. Early Secret = HKDF-Extract(salt=0, IKM=0)
     let zero_salt = vec![0u8; hash_len];
@@ -270,8 +230,6 @@ pub fn derive_handshake_keys(
     // 7. Master Secret = HKDF-Extract(salt=derived_secret, IKM=0)
     let master_secret = hkdf_extract_with_algorithm(hmac_algorithm, &derived_secret_2, &zero_salt);
 
-    tracing::debug!("  master_secret: {:?}", &master_secret[..8]);
-
     Ok(Tls13HandshakeKeys {
         client_handshake_traffic_secret,
         server_handshake_traffic_secret,
@@ -309,15 +267,6 @@ pub fn derive_application_secrets(
         ));
     }
 
-    tracing::debug!(
-        "TLS13 DEBUG: Deriving application secrets (Phase 2) with {:?}...",
-        cipher_suite
-    );
-    tracing::debug!(
-        "  handshake_hash (with Finished): {:?}",
-        &handshake_hash[..8]
-    );
-
     // Client Application Traffic Secret
     let client_application_traffic_secret = derive_secret_with_algorithm(
         hmac_algorithm,
@@ -326,15 +275,6 @@ pub fn derive_application_secrets(
         handshake_hash,
     )?;
 
-    tracing::debug!(
-        "  client_app_traffic: {:?}",
-        &client_application_traffic_secret[..8]
-    );
-    tracing::debug!(
-        "DERIVE_APP_SECRETS: ClientAppSecret(full)={:02x?}",
-        client_application_traffic_secret
-    );
-
     // Server Application Traffic Secret
     let server_application_traffic_secret = derive_secret_with_algorithm(
         hmac_algorithm,
@@ -342,15 +282,6 @@ pub fn derive_application_secrets(
         b"s ap traffic",
         handshake_hash,
     )?;
-
-    tracing::debug!(
-        "  server_app_traffic: {:?}",
-        &server_application_traffic_secret[..8]
-    );
-    tracing::debug!(
-        "DERIVE_APP_SECRETS: ServerAppSecret(full)={:02x?}",
-        server_application_traffic_secret
-    );
 
     Ok((
         client_application_traffic_secret,
@@ -380,4 +311,10 @@ pub fn compute_finished_verify_data(
     let verify_data = tag.as_ref().to_vec();
 
     Ok(verify_data)
+}
+
+impl std::fmt::Debug for Tls13HandshakeKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Tls13HandshakeKeys { redacted }")
+    }
 }

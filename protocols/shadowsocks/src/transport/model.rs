@@ -31,11 +31,11 @@ pub struct ShadowsocksManagedUdpFlowPlan {
 
 #[derive(Clone)]
 pub struct ShadowsocksManagedUdpPacketPathPlan {
+    pub(super) tag: String,
     pub(super) server: String,
     pub(super) port: u16,
     pub(super) carrier_descriptor: ShadowsocksManagedUdpPacketPathCarrierDescriptor,
-    pub(super) carrier_codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
-    pub(super) datagram_source: ShadowsocksManagedUdpPacketPathDatagramSourceBuild,
+    pub(super) spec: crate::udp::ShadowsocksUdpPacketPathSpec,
 }
 
 #[derive(Clone)]
@@ -126,6 +126,12 @@ impl<'a> ShadowsocksManagedUdpFlowConfig<'a> {
         Ok(self.protocol_config().packet_path_spec()?.carrier_codec())
     }
 
+    pub(super) fn packet_path_spec(
+        &self,
+    ) -> Result<crate::udp::ShadowsocksUdpPacketPathSpec, zero_core::Error> {
+        self.protocol_config().packet_path_spec()
+    }
+
     pub fn packet_path_datagram_source_build(
         &self,
     ) -> Result<ShadowsocksManagedUdpPacketPathDatagramSourceBuild, zero_core::Error> {
@@ -209,15 +215,15 @@ impl ShadowsocksManagedUdpPacketPathPlan {
         server: impl Into<String>,
         port: u16,
         carrier_descriptor: ShadowsocksManagedUdpPacketPathCarrierDescriptor,
-        carrier_codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
-        datagram_source: ShadowsocksManagedUdpPacketPathDatagramSourceBuild,
+        tag: String,
+        spec: crate::udp::ShadowsocksUdpPacketPathSpec,
     ) -> Self {
         Self {
             server: server.into(),
             port,
             carrier_descriptor,
-            carrier_codec,
-            datagram_source,
+            tag,
+            spec,
         }
     }
 
@@ -230,7 +236,7 @@ impl ShadowsocksManagedUdpPacketPathPlan {
     }
 
     pub fn carrier_codec(&self) -> Arc<dyn DatagramCodec<Address, Error = zero_core::Error>> {
-        self.carrier_codec.clone()
+        self.spec.carrier_codec()
     }
 
     pub fn into_carrier_descriptor(self) -> ShadowsocksManagedUdpPacketPathCarrierDescriptor {
@@ -238,7 +244,11 @@ impl ShadowsocksManagedUdpPacketPathPlan {
     }
 
     pub fn into_datagram_source_build(self) -> ShadowsocksManagedUdpPacketPathDatagramSourceBuild {
-        self.datagram_source
+        ShadowsocksManagedUdpPacketPathDatagramSourceBuild::new(self.spec.datagram_source_build(
+            &self.tag,
+            &self.server,
+            self.port,
+        ))
     }
 }
 

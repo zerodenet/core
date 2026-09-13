@@ -73,7 +73,7 @@ where
                     reader,
                     mux_server,
                     MuxSessionLoop {
-                        inbound_tag: &inbound_tag,
+                        inbound_tag: inbound_tag.clone(),
                         protocol: defaults.mux_protocol,
                         panic_message: defaults.panic_message,
                         abort_on_end: defaults.abort_on_end,

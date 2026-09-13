@@ -63,4 +63,14 @@ impl MuxSubstreamRuntime {
     ) -> Result<crate::transport::TcpRouteResult, EngineError> {
         self.tcp_runtime.open_tcp_upstream(session).await
     }
+
+    pub(crate) async fn apply_sniffing_metadata(
+        &self,
+        policy: &crate::runtime::sniff::SniffingPolicy,
+        session: &mut Session,
+    ) -> bool {
+        policy
+            .apply_fake_dns_metadata(self.tcp_runtime.resolver(), session)
+            .await
+    }
 }

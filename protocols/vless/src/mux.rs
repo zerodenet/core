@@ -1,3 +1,5 @@
+#[cfg(feature = "reality")]
+mod reverse;
 // VLESS MUX (Connection Multiplexing) — mux.rs
 //
 // Encodes multiple TCP/UDP streams within a single VLESS connection.
@@ -34,7 +36,8 @@ use zero_traits::AsyncSocket;
 use crate::shared::{ATYP_DOMAIN, ATYP_IPV4, ATYP_IPV6};
 
 pub(crate) mod backlog;
-mod codec;
+pub(crate) mod codec;
+pub(crate) mod origin;
 #[cfg(all(test, feature = "reality"))]
 mod tests;
 
@@ -75,6 +78,7 @@ pub(crate) struct MuxFrame {
     pub options: u8,
     pub target: Option<MuxTarget>,
     pub global_id: Option<[u8; 8]>,
+    pub origin: Option<origin::Origin>,
     pub payload: Vec<u8>,
 }
 
@@ -122,6 +126,7 @@ enum MuxServerEvent {
     NewStream {
         session_id: u16,
         target: MuxTarget,
+        origin: Option<origin::Origin>,
         global_id: Option<[u8; 8]>,
         initial_payload: Vec<u8>,
     },
@@ -207,6 +212,7 @@ impl VlessInboundMuxOpenedRoute {
 pub struct VlessInboundMuxTcpRelay {
     session_id: u16,
     up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    deferred_upload: Option<Vec<u8>>,
     writer: VlessInboundMuxWriter,
 }
 
@@ -220,16 +226,25 @@ impl VlessInboundMuxTcpRelay {
         Self {
             session_id,
             up_rx,
+            deferred_upload: None,
             writer,
         }
     }
 
-    async fn relay_stream<S>(self, upstream: S)
+    async fn relay_stream<S>(self, upstream: S, replay_prefix: Vec<u8>)
     where
         S: AsyncSocket + 'static,
         S::Error: Send,
     {
-        relay_inbound_mux_stream(self.session_id, self.up_rx, self.writer, upstream).await;
+        relay_inbound_mux_stream(
+            self.session_id,
+            self.up_rx,
+            self.writer,
+            upstream,
+            replay_prefix,
+            self.deferred_upload,
+        )
+        .await;
     }
 }
 
@@ -247,12 +262,45 @@ impl InboundMuxTcpRelay for VlessInboundMuxTcpRelay {
         }
     }
 
+    async fn read_inbound_chunk(&mut self, max_bytes: usize) -> Result<Option<Vec<u8>>, Error> {
+        if max_bytes == 0 {
+            return Ok(Some(Vec::new()));
+        }
+        let Some(mut chunk) = self
+            .deferred_upload
+            .take()
+            .or_else(|| self.up_rx.try_recv().ok())
+        else {
+            let Some(chunk) = self.up_rx.recv().await else {
+                return Ok(None);
+            };
+            if chunk.len() <= max_bytes {
+                return Ok(Some(chunk));
+            }
+            let mut chunk = chunk;
+            self.deferred_upload = Some(chunk.split_off(max_bytes));
+            return Ok(Some(chunk));
+        };
+        if chunk.len() > max_bytes {
+            self.deferred_upload = Some(chunk.split_off(max_bytes));
+        }
+        Ok(Some(chunk))
+    }
+
     async fn relay_stream<S>(self, upstream: S)
     where
         S: AsyncSocket + 'static,
         S::Error: Send,
     {
-        VlessInboundMuxTcpRelay::relay_stream(self, upstream).await;
+        VlessInboundMuxTcpRelay::relay_stream(self, upstream, Vec::new()).await;
+    }
+
+    async fn relay_stream_with_prefix<S>(self, upstream: S, replay_prefix: Vec<u8>)
+    where
+        S: AsyncSocket + 'static,
+        S::Error: Send,
+    {
+        VlessInboundMuxTcpRelay::relay_stream(self, upstream, replay_prefix).await;
     }
 }
 
@@ -452,6 +500,8 @@ enum VlessInboundMuxDownlinkKind {
 
 #[cfg(feature = "reality")]
 pub struct VlessInboundMuxServer {
+    reverse: Option<reverse::ReverseMuxState>,
+    udp_only: bool,
     mux: VlessInboundMuxSession,
     streams: VlessInboundMuxStreams,
     writer: VlessInboundMuxWriter,
@@ -461,9 +511,23 @@ pub struct VlessInboundMuxServer {
 
 #[cfg(feature = "reality")]
 impl VlessInboundMuxServer {
+    pub(crate) fn with_reverse(
+        mut self,
+        status: std::sync::Arc<crate::reverse::worker::WorkerStatus>,
+    ) -> Self {
+        self.mux.server.reverse_metadata = true;
+        self.reverse = Some(reverse::ReverseMuxState::new(status));
+        self
+    }
+
+    pub(crate) fn require_udp_only(&mut self) {
+        self.udp_only = true;
+    }
     fn new(mux: VlessInboundMuxSession, backlog_policy: MuxResponseBacklogPolicy) -> Self {
         let (writer, down_rx) = VlessInboundMuxWriter::channel(backlog_policy);
         Self {
+            reverse: None,
+            udp_only: false,
             mux,
             streams: VlessInboundMuxStreams::new(),
             writer,
@@ -502,11 +566,24 @@ impl VlessInboundMuxServer {
         S: AsyncSocket,
     {
         loop {
+            if let Some(reverse) = &self.reverse {
+                reverse.connections(self.streams.streams.len());
+            }
             tokio::select! {
                 action = self.mux.read_inbound_action(stream) => {
+                    let action = action?;
+                    if let Some(reverse) = &mut self.reverse {
+                        if reverse.consume(&action)? { continue; }
+                    }
+                    if matches!(&action, VlessInboundMuxAction::OpenStream { session, .. } if session.port == 0) {
+                        return Err(Error::Protocol("MUX application target port must not be 0"));
+                    }
+                    if self.udp_only && matches!(&action, VlessInboundMuxAction::OpenStream { session, .. } if session.network == Network::Tcp) {
+                        return Err(Error::Unsupported("Vision MUX only supports UDP"));
+                    }
                     if let Some(opened) = self
                         .streams
-                        .apply_inbound_action(&mut self.mux, stream, action?)
+                        .apply_inbound_action(&mut self.mux, stream, action)
                         .await?
                     {
                         let writer = self.writer();
@@ -871,10 +948,20 @@ async fn relay_inbound_mux_stream<S>(
     mut up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
     writer: VlessInboundMuxWriter,
     mut upstream: S,
+    replay_prefix: Vec<u8>,
+    deferred_upload: Option<Vec<u8>>,
 ) where
     S: AsyncSocket + 'static,
     S::Error: Send,
 {
+    if !replay_prefix.is_empty() && upstream.write_all(&replay_prefix).await.is_err() {
+        return;
+    }
+    if let Some(deferred_upload) = deferred_upload {
+        if upstream.write_all(&deferred_upload).await.is_err() {
+            return;
+        }
+    }
     let mut upload_open = true;
     let mut buf = [0_u8; MUX_MAX_PAYLOAD];
 
@@ -1006,7 +1093,9 @@ fn parse_address_from_bytes_with_len(atyp: u8, data: &[u8]) -> Result<(Address, 
 // ── mux server ─────────────────────────────────────────
 
 /// MUX server-side handler — reads frames and dispatches.
-struct MuxServer {}
+struct MuxServer {
+    reverse_metadata: bool,
+}
 
 struct VlessInboundMuxSession {
     server: MuxServer,
@@ -1028,7 +1117,7 @@ impl VlessInboundMuxSession {
     #[cfg(feature = "reality")]
     fn with_encryption(_master_uuid: &[u8; 16]) -> Self {
         Self {
-            server: MuxServer {},
+            server: MuxServer::new(),
         }
     }
 
@@ -1127,9 +1216,15 @@ impl From<MuxServerEvent> for VlessInboundMuxAction {
             MuxServerEvent::NewStream {
                 session_id,
                 target,
+                origin,
                 global_id,
                 initial_payload,
-            } => match target.into_session() {
+            } => match target.into_session().map(|mut session| {
+                if let Some(origin) = origin {
+                    origin.apply(&mut session);
+                }
+                session
+            }) {
                 Ok(session) => Self::OpenStream {
                     session_id,
                     session: Box::new(session),
@@ -1161,7 +1256,9 @@ impl Default for MuxServer {
 
 impl MuxServer {
     fn new() -> Self {
-        Self {}
+        Self {
+            reverse_metadata: false,
+        }
     }
 
     async fn recv_event<S>(&mut self, stream: &mut S) -> Result<MuxServerEvent, Error>
@@ -1178,6 +1275,7 @@ impl MuxServer {
                 Ok(MuxServerEvent::NewStream {
                     session_id: frame.session_id,
                     target,
+                    origin: frame.origin,
                     global_id: frame.global_id,
                     initial_payload: frame.payload,
                 })
@@ -1202,7 +1300,7 @@ impl MuxServer {
     where
         S: AsyncSocket,
     {
-        codec::read_frame(stream).await
+        codec::read_frame_mode(stream, self.reverse_metadata).await
     }
 
     /// Write data to a stream as a STATUS_KEEP frame.

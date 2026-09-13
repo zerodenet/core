@@ -13,7 +13,7 @@ impl<'a> ClaimedTcpOutboundLeaf<'a> for ClaimedDirectTcpLeaf {
     fn prepare_tcp_connect(
         &self,
         _source_dir: Option<&std::path::Path>,
-    ) -> Result<Box<dyn PreparedTcpConnectOperation + 'a>, TcpOutboundFailure> {
+    ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
         Ok(Box::new(DirectTcpConnectOperation {
             tag: self.tag.clone(),
         }))

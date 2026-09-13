@@ -32,6 +32,7 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
     {
         use crate::adapters::vless::VlessAdapter;
         let adapter = Arc::new(VlessAdapter::default());
+        registry.register_inbound_service(adapter.clone());
         registry.register_managed_capability(adapter, VlessAdapter::claim_outbound_leaf_impl);
     }
     #[cfg(feature = "hysteria2")]

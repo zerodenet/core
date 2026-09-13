@@ -5,7 +5,7 @@ use zero_transport::RuntimeError;
 
 use crate::reality::{upgrade_reality_client, RealityClientOptions};
 use zero_transport::outbound_stack::{connect_relay_transport_stack, StreamTransportStack};
-use zero_transport::{split_http, tls};
+use zero_transport::split_http;
 
 use super::{VlessFinalHopTransportRequest, VlessTransportOptions, VlessUdpTransportOptions};
 
@@ -32,16 +32,9 @@ pub(super) async fn build_vless_outbound_transport_over_stream(
     } = options;
 
     if let Some(cfg) = split_http_config {
-        let mode = split_http::XhttpMode::parse(&cfg.mode);
-        // stream-one (and `auto`): a single bidirectional connection. This is
-        // the path that makes XHTTP usable as a relay-chain final hop 閳?the
-        // relay prefix delivers exactly one stream, which stream-one uses for
-        // both the chunked upload and the chunked download.
+        let mode = split_http::XhttpMode::parse(&cfg.mode).resolve(reality.is_some());
         if mode.is_single_connection() {
-            let carrier: TcpRelayStream = match tls_config {
-                Some(tls) => tls::connect_tls_stream(stream, tls, source_dir, server).await?,
-                None => stream,
-            };
+            let carrier = super::xhttp::carrier(stream, options, server, true).await?;
             return Ok(TcpRelayStream::new(
                 split_http::connect_xhttp_stream_one(carrier, cfg).await?,
             ));
@@ -52,7 +45,7 @@ pub(super) async fn build_vless_outbound_transport_over_stream(
         // `build_vless_split_http_over_relay` (used by the UDP relay fast path).
         return Err(RuntimeError::Io(io::Error::new(
             io::ErrorKind::Unsupported,
-            "xhttp packet-up/stream-up require two streams; use mode stream-one (or auto) for relay final-hop",
+            "xhttp packet-up/stream-up require two streams; use mode stream-one for relay final-hop",
         )));
     }
 
@@ -69,6 +62,9 @@ pub(super) async fn build_vless_outbound_transport_over_stream(
                 let reality_stream = upgrade_reality_client(
                     stream,
                     RealityClientOptions {
+                        spider_x: &reality.spider_x,
+                        hybrid_key_exchange: reality.hybrid_key_exchange,
+                        mldsa65_verify: reality.mldsa65_verify.as_deref(),
                         public_key: &reality.public_key,
                         short_id: &reality.short_id,
                         server_name,
@@ -120,9 +116,7 @@ pub(super) async fn build_vless_split_http_over_relay(
     server: &str,
 ) -> Result<TcpRelayStream, RuntimeError> {
     let VlessUdpTransportOptions {
-        tls: tls_config,
         split_http: split_http_config,
-        source_dir,
         ..
     } = options;
     let config = split_http_config.ok_or_else(|| {
@@ -132,21 +126,30 @@ pub(super) async fn build_vless_split_http_over_relay(
         ))
     })?;
 
-    if split_http::XhttpMode::parse(&config.mode).is_single_connection() {
+    if split_http::XhttpMode::parse(&config.mode)
+        .resolve(options.reality.is_some())
+        .is_single_connection()
+    {
         return Err(RuntimeError::Io(io::Error::new(
             io::ErrorKind::Unsupported,
             "split-http relay transport requires packet-up or stream-up mode",
         )));
     }
 
-    let post_stream = match tls_config {
-        Some(tls) => tls::connect_tls_stream(post_stream, tls, source_dir, server).await?,
-        None => post_stream,
-    };
-    let get_stream = match tls_config {
-        Some(tls) => tls::connect_tls_stream(get_stream, tls, source_dir, server).await?,
-        None => get_stream,
-    };
+    let post_stream = super::xhttp::carrier(
+        post_stream,
+        options.stream_options(),
+        server,
+        super::xhttp::mode(options.stream_options()) == split_http::XhttpMode::StreamUp,
+    )
+    .await?;
+    let get_stream = super::xhttp::carrier(
+        get_stream,
+        options.stream_options(),
+        server,
+        super::xhttp::mode(options.stream_options()) == split_http::XhttpMode::StreamUp,
+    )
+    .await?;
     let paired = split_http::connect_split_http(post_stream, get_stream, config).await?;
     Ok(TcpRelayStream::new(paired))
 }

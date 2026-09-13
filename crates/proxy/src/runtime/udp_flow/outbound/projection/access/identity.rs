@@ -18,7 +18,7 @@ impl UdpFlowOutbound {
             #[cfg(feature = "managed-datagram-runtime")]
             Self::Datagram { tag, .. } => tag,
             #[cfg(feature = "managed-stream-runtime")]
-            Self::StreamPacket { tag, .. } => tag,
+            Self::StreamPacket { tag, .. } | Self::LogicalStreamPacket { tag, .. } => tag,
         }
     }
 
@@ -33,7 +33,9 @@ impl UdpFlowOutbound {
             #[cfg(feature = "managed-datagram-runtime")]
             Self::Datagram { .. } => UdpPathCategory::Datagram,
             #[cfg(feature = "managed-stream-runtime")]
-            Self::StreamPacket { .. } => UdpPathCategory::StreamPacket,
+            Self::StreamPacket { .. } | Self::LogicalStreamPacket { .. } => {
+                UdpPathCategory::StreamPacket
+            }
             #[cfg(feature = "udp-runtime")]
             Self::PacketPathDatagram { .. } => UdpPathCategory::PacketPathDatagram,
         }
@@ -52,7 +54,7 @@ impl UdpFlowOutbound {
             #[cfg(feature = "managed-datagram-runtime")]
             Self::Datagram { .. } => None,
             #[cfg(feature = "managed-stream-runtime")]
-            Self::StreamPacket { .. } => None,
+            Self::StreamPacket { .. } | Self::LogicalStreamPacket { .. } => None,
         }
     }
 }

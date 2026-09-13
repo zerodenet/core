@@ -38,6 +38,14 @@ pub enum InboundProtocolConfig {
     },
     #[serde(rename = "vless")]
     Vless {
+        #[serde(default)]
+        final_mask: Option<Box<super::FinalMaskConfig>>,
+        #[serde(default)]
+        hysteria: Option<Box<super::HysteriaTransportConfig>>,
+        #[serde(default)]
+        mkcp: Option<Box<super::MkcpConfig>>,
+        #[serde(default)]
+        decryption: Option<String>,
         users: Vec<VlessUserConfig>,
         #[serde(default)]
         mux_response_backlog_frames: Option<u32>,
@@ -401,8 +409,14 @@ fn normalize_socks5_users(users: &mut Vec<Socks5UserConfig>) {
 #[serde(deny_unknown_fields)]
 pub struct VlessUserConfig {
     pub id: String,
+    /// Permit only Rvs requests and attach them to this configured virtual portal.
+    #[serde(default)]
+    pub reverse_tag: Option<String>,
     #[serde(default)]
     pub flow: Option<String>,
+    /// Xray-compatible Vision padding tuple for this authenticated user.
+    #[serde(default)]
+    pub testseed: Vec<u32>,
     #[serde(default)]
     pub principal_key: Option<String>,
     #[serde(default)]

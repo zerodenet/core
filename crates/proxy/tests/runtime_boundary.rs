@@ -782,7 +782,7 @@ fn capability_surface_is_split_and_context_is_narrow() {
     let tcp_operation = read_module(&proxy_src().join("runtime/tcp_dispatch/operation.rs"));
     let udp_operation = read_module(&proxy_src().join("runtime/udp_dispatch/operation.rs"));
     assert!(tcp_leaf.contains("OutboundAdapterContext"));
-    assert!(tcp_operation.contains("TcpRuntimeServices"));
+    assert!(tcp_operation.contains("TcpExecutionServices"));
     assert!(udp_operation.contains("UdpAdapterContext"));
 }
 
@@ -2167,6 +2167,26 @@ fn heavy_transport_bridge_adapters_use_protocol_owned_outbound_options_directly(
 }
 
 #[test]
+fn active_ingress_preparation_receives_one_outbound_and_runtime_owns_inventory() {
+    let capability = read(&proxy_src().join("protocol_registry/service.rs"));
+    assert!(capability.contains("outbound: &OutboundConfig"));
+    assert!(capability.contains("source_dir: Option<&std::path::Path>"));
+    assert!(!capability.contains("RuntimeConfig"));
+    let registry = read(&proxy_src().join("protocol_registry/registry/service.rs"));
+    assert!(registry.contains("for outbound in &config.outbounds"));
+    let adapter = read(&proxy_src().join("adapters/vless/reverse/service.rs"));
+    for forbidden in [
+        "RuntimeConfig",
+        "config.outbounds",
+        "tokio::spawn",
+        "JoinSet",
+        "serve_inbound",
+    ] {
+        assert!(!adapter.contains(forbidden));
+    }
+}
+
+#[test]
 fn inventory_udp_dispatch_keeps_relay_choreography_outside_candidate_root() {
     let dispatch = read(&proxy_src().join("inventory/udp/outbound.rs"));
     assert!(!dispatch.contains("ClaimedResolvedOutbound"));
@@ -2262,7 +2282,10 @@ fn runtime_tcp_relay_executes_prepared_chain_without_engine_leaf_roundtrip() {
     );
     assert!(!inventory_relay.contains("current_prepared"));
     assert!(!inventory_relay.contains("stage: \"relay_last\""));
-    assert!(runtime_relay.contains("current_prepared"));
+    assert!(runtime_relay.contains("prepared.relay_hops.pop()"));
+    assert!(runtime_relay.contains(".execute_lazy(upstream, carrier, &session)"));
+    assert!(!inventory_relay.contains(".execute("));
+    assert!(!inventory_relay.contains(".await"));
     assert!(runtime_relay.contains("stage: \"relay_last\""));
 }
 
@@ -2395,7 +2418,7 @@ fn managed_udp_forward_paths_use_runtime_services_instead_of_proxy() {
 #[test]
 fn tcp_dispatch_operations_use_runtime_services_for_connect_flows() {
     let operation = read_module(&proxy_src().join("runtime/tcp_dispatch/operation.rs"));
-    assert!(operation.contains("TcpRuntimeServices"));
+    assert!(operation.contains("TcpExecutionServices"));
     assert!(!operation.contains("ctx.proxy()"));
 }
 
@@ -3443,7 +3466,7 @@ fn mux_session_root_stays_facade_only() {
         "pub(crate) trait MuxOpenedDispatcher",
         "pub(crate) async fn run_mux_session_loop",
         "pub(crate) fn drain_completed_mux_tasks",
-        "pub(crate) async fn run_protocol_mux_session",
+        "pub(crate) fn run_protocol_mux_session",
     ] {
         assert!(
             !mux_session_root.contains(forbidden),
@@ -3455,7 +3478,7 @@ fn mux_session_root_stays_facade_only() {
         "pub(crate) trait MuxOpenedDispatcher",
         "pub(crate) async fn run_mux_session_loop",
         "pub(crate) fn drain_completed_mux_tasks",
-        "pub(crate) async fn run_protocol_mux_session",
+        "pub(crate) fn run_protocol_mux_session",
     ] {
         assert!(
             mux_session.contains(expected),
@@ -5004,7 +5027,28 @@ fn adapters_receive_narrow_runtime_services_only() {
     let transport_leaf = read(&proxy_src().join("runtime/transport_leaf.rs"));
     assert!(transport_leaf.contains("services: UpstreamConnectServices"));
     let packet_path = read(&proxy_src().join("runtime/udp_dispatch/packet_path_operation.rs"));
-    assert!(packet_path.contains("_services: UdpNetworkServices"));
+    assert!(packet_path.contains("_services: PacketPathExecutionServices"));
+    let services = read(&proxy_src().join("protocol_registry/context/udp.rs"));
+    let fields = services
+        .split("pub(crate) struct PacketPathExecutionServices {")
+        .nth(1)
+        .expect("packet paths have a dedicated execution context")
+        .split('}')
+        .next()
+        .unwrap();
+    assert!(fields.contains("tcp: TcpExecutionServices"));
+    assert!(fields.contains("network: UdpNetworkServices"));
+    for forbidden in [
+        "ProtocolInventory",
+        "TcpRuntimeServices",
+        "UdpRuntimeServices",
+        "Proxy",
+    ] {
+        assert!(
+            !fields.contains(forbidden),
+            "packet path execution must not retain {forbidden}"
+        );
+    }
 }
 
 #[test]
@@ -5192,3 +5236,42 @@ fn outbound_probe_owns_generic_tcp_dispatch_outside_urltest_policy() {
 
 #[path = "runtime_boundary/multiplex.rs"]
 mod multiplex;
+
+#[test]
+fn reusable_transport_dialing_does_not_retain_its_own_protocol_registry() {
+    let upstream = read_module(&proxy_src().join("protocol_registry/context/upstream.rs"));
+    assert!(upstream.contains("struct UpstreamConnectServices"));
+    assert!(upstream.contains("DirectConnector"));
+    assert!(upstream.contains("DnsSystem"));
+    assert!(upstream.contains("EgressInterfaceControl"));
+    for forbidden in [
+        "ProtocolInventory",
+        "ProtocolRegistry",
+        "Proxy",
+        "engine: Engine",
+    ] {
+        assert!(
+            !upstream.contains(forbidden),
+            "network dialing must not retain {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn tcp_execution_state_cannot_prepare_capabilities_or_retain_registry() {
+    let execution = read_module(&proxy_src().join("protocol_registry/context/tcp/execution.rs"));
+    for forbidden in [
+        "ProtocolInventory",
+        "ProtocolRegistry",
+        "prepare_tcp_outbound",
+        "Proxy",
+    ] {
+        assert!(
+            !execution.contains(forbidden),
+            "TCP execution must not retain {forbidden}"
+        );
+    }
+    let operation = read_module(&proxy_src().join("runtime/tcp_dispatch/operation.rs"));
+    assert!(operation.contains("TcpExecutionServices"));
+    assert!(!operation.contains("TcpRuntimeServices"));
+}

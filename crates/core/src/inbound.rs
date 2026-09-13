@@ -4,9 +4,12 @@ use core::future::Future;
 use crate::Error;
 use zero_traits::AsyncSocket;
 
+mod control;
 mod multiplex;
+pub use control::InboundControlSession;
 pub use multiplex::{
     InboundDatagramMultiplexer, InboundRouteMultiplexer, InboundStreamMultiplexer,
+    InboundTransportMultiplexer,
 };
 
 pub trait InboundClientResponse<S>: Send + Sync
@@ -32,6 +35,10 @@ pub trait InboundFallbackCapture {
 pub trait InboundFallbackReplay: Send + Sized {
     type Stream;
 
+    fn selected_route(&self) -> Option<zero_traits::FallbackRoute> {
+        None
+    }
+
     fn replay_to<'a, W>(
         self,
         upstream: &'a mut W,
@@ -44,4 +51,12 @@ pub trait InboundFallbackReplay: Send + Sized {
 pub enum InboundRouteAccept<R, F> {
     Route(R),
     Fallback(F),
+    Control(alloc::boxed::Box<dyn InboundControlSession>),
+}
+
+/// Removes handshake recording while preserving an owning protocol's stream codec.
+/// The byte counters describe transport traffic consumed before this handoff.
+pub trait InboundRecording {
+    type Stream;
+    fn into_unrecorded(self) -> (Self::Stream, u64, u64);
 }

@@ -44,7 +44,7 @@ where
     Ok(MieruUdpFlowConnection::new(MieruUdpFlowSession::new(
         MieruUdpFlowHandle {
             sender: MieruUdpFlowSender { send_tx },
-            responses,
+            responses: responses.downgrade(),
         },
     )))
 }

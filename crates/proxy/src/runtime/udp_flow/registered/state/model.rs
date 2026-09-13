@@ -23,6 +23,8 @@ pub(crate) struct ClosedRegisteredUpstreamAssociation {
 }
 
 pub(crate) struct RegisteredUdpState {
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(in crate::runtime::udp_flow::registered) logical_sessions: HashMap<u64, ManagedUdpFlowRef>,
     #[cfg(any(
         feature = "managed-stream-runtime",
         feature = "managed-datagram-runtime"

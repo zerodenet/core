@@ -79,7 +79,7 @@ pub async fn accept_inbound_stream_stack<S, TWs, TGrpc, TH2>(
     invalid_message: &'static str,
 ) -> Result<TcpRelayStream, RuntimeError>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+    S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     TWs: WebSocketTransportProfile + ?Sized,
     TGrpc: GrpcTransportProfile + ?Sized,
     TH2: H2TransportProfile + ?Sized,
@@ -98,15 +98,18 @@ where
     match (ws_config, grpc_config, h2_config) {
         #[cfg(feature = "ws")]
         (Some(config), None, None) => Ok(TcpRelayStream::new(
-            ws::accept_ws(stream, config.path()).await?,
+            ws::accept_ws_profile(stream, config).await?,
         )),
         #[cfg(feature = "grpc")]
         (None, Some(config), None) => Ok(TcpRelayStream::new(
-            grpc::accept_grpc(stream, config.service_names()).await?,
+            grpc::accept_grpc_with_profile(stream, config).await?,
         )),
         #[cfg(feature = "h2")]
         (None, None, Some(config)) => Ok(TcpRelayStream::new(h2::accept_h2(stream, config).await?)),
-        (None, None, None) => Ok(TcpRelayStream::new(stream)),
+        (None, None, None) => Ok(match stream.transport_bypass_control() {
+            Some(control) => TcpRelayStream::with_transport_bypass_control(stream, control),
+            None => TcpRelayStream::new(stream),
+        }),
         _ => invalid_inbound_stack(invalid_message),
     }
 }

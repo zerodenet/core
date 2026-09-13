@@ -30,7 +30,7 @@ pub(super) async fn build_entry(
 ) -> Result<Entry, EngineError> {
     log_candidate(&candidate);
     let path = build_operation
-        .build_carrier(ctx.network_services())
+        .build_carrier(ctx.packet_path_execution_services())
         .await?;
     let codec = candidate.datagram.codec.clone();
     let datagram_desc = candidate.datagram.descriptor();

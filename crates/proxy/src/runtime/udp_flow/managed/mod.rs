@@ -68,3 +68,6 @@ pub(crate) use stream_manager::{
     ManagedPacketUdpResume, ManagedPacketUdpResumeConnector, ManagedStreamConnectorParts,
     ManagedTupleUdpResume, ManagedTupleUdpResumeConnector,
 };
+
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) use connection::{managed_tuple_udp_connection_from_flow, SharedManagedUdpConnection};

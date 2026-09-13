@@ -21,7 +21,7 @@ use subtle::ConstantTimeEq;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::aead::{decrypt_handshake_message, AeadKey};
-use crate::cipher::{CipherSuite, DEFAULT_CIPHER_SUITES};
+use crate::cipher::CipherSuite;
 use crate::common::{
     ALERT_DESC_CLOSE_NOTIFY, ALERT_LEVEL_WARNING, CIPHERTEXT_READ_BUF_CAPACITY, CONTENT_TYPE_ALERT,
     CONTENT_TYPE_APPLICATION_DATA, CONTENT_TYPE_CHANGE_CIPHER_SPEC, CONTENT_TYPE_HANDSHAKE,
@@ -34,13 +34,12 @@ use crate::keys::{
     compute_finished_verify_data, derive_application_secrets, derive_handshake_keys,
     derive_traffic_keys,
 };
-use crate::messages::{
-    construct_client_hello_with_profile, construct_finished, write_record_header,
-    DEFAULT_ALPN_PROTOCOLS,
-};
+use crate::messages::{construct_finished, write_record_header};
 use crate::record::{RecordDecryptor, RecordEncryptor};
 use crate::slide_buffer::SlideBuffer;
-use crate::util::{extract_server_cipher_suite, extract_server_public_key};
+mod extensions;
+mod hello_retry;
+mod server_hello;
 
 /// Configuration for a generic TLS 1.3 client.
 #[derive(Clone)]
@@ -51,8 +50,14 @@ pub struct Tls13Config {
     pub cipher_suites: Vec<CipherSuite>,
     /// ALPN protocols (default: ["h2", "http/1.1"]).
     pub alpn_protocols: Vec<String>,
+    /// Use the browser preset ALPN when no explicit protocols are supplied.
+    pub use_profile_alpn: bool,
     /// Browser-family ClientHello template.
     pub client_hello_profile: ClientHelloProfile,
+    /// Explicit wire overrides; generic TLS only advertises TLS 1.3.
+    pub client_hello_options: crate::fingerprint::wire::ClientHelloOptions,
+    /// Group implementations supplied by the owning transport for custom curves.
+    pub key_exchange_provider: Option<Arc<rustls::crypto::CryptoProvider>>,
     /// Certificate verification policy. `None` uses the public WebPKI roots.
     pub server_verifier: Option<Arc<dyn ServerCertVerifier>>,
     /// Handshake timeout in milliseconds.
@@ -99,73 +104,12 @@ fn verify_server_signature(
 }
 
 fn parse_certificate_chain(message: &[u8]) -> io::Result<Vec<CertificateDer<'static>>> {
-    if message.len() < 8 || message[0] != HANDSHAKE_TYPE_CERTIFICATE {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "invalid Certificate message",
-        ));
-    }
-    let body_len = read_u24(&message[1..4]);
-    if body_len + 4 != message.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "invalid Certificate message length",
-        ));
-    }
-    let context_len = message[4] as usize;
-    let list_len_offset = 5 + context_len;
-    if list_len_offset + 3 > message.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "truncated Certificate request context",
-        ));
-    }
-    let list_len = read_u24(&message[list_len_offset..list_len_offset + 3]);
-    let mut offset = list_len_offset + 3;
-    let end = offset + list_len;
-    if end != message.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "invalid Certificate list length",
-        ));
-    }
-    let mut certificates = Vec::new();
-    while offset < end {
-        if offset + 3 > end {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "truncated certificate length",
-            ));
-        }
-        let cert_len = read_u24(&message[offset..offset + 3]);
-        offset += 3;
-        if offset + cert_len + 2 > end {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "truncated certificate entry",
-            ));
-        }
-        certificates.push(CertificateDer::from(
-            message[offset..offset + cert_len].to_vec(),
-        ));
-        offset += cert_len;
-        let extensions_len = u16::from_be_bytes([message[offset], message[offset + 1]]) as usize;
-        offset += 2;
-        if offset + extensions_len > end {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "truncated certificate extensions",
-            ));
-        }
-        offset += extensions_len;
-    }
-    if certificates.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "empty certificate chain",
-        ));
-    }
-    Ok(certificates)
+    crate::certificate::server_chain(message).map(|chain| {
+        chain
+            .into_iter()
+            .map(|der| CertificateDer::from(der.to_vec()))
+            .collect()
+    })
 }
 
 fn parse_certificate_verify(message: &[u8]) -> io::Result<DigitallySignedStruct> {
@@ -266,12 +210,15 @@ impl Default for Tls13Config {
     fn default() -> Self {
         Self {
             server_name: String::new(),
-            cipher_suites: DEFAULT_CIPHER_SUITES.to_vec(),
-            alpn_protocols: DEFAULT_ALPN_PROTOCOLS
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            cipher_suites: Vec::new(),
+            alpn_protocols: Vec::new(),
+            use_profile_alpn: true,
             client_hello_profile: ClientHelloProfile::DEFAULT,
+            client_hello_options: crate::fingerprint::wire::ClientHelloOptions {
+                tls13_only: true,
+                ..Default::default()
+            },
+            key_exchange_provider: None,
             server_verifier: None,
             handshake_timeout_ms: 10_000,
         }
@@ -285,6 +232,10 @@ enum State {
     AwaitingServerHello {
         client_hello_bytes: Vec<u8>,
         client_private_key: [u8; 32],
+        extra_keys: crate::fingerprint::key_share::KeyShares,
+        retry_transcript: Vec<u8>,
+        retry_suite: Option<u16>,
+        server_hello_fragments: Vec<u8>,
     },
     /// ServerHello received, processing encrypted handshake messages.
     ProcessingHandshake {
@@ -307,6 +258,11 @@ enum State {
 /// Provides rustls-compatible `read_tls` / `write_tls` / `process_new_packets`
 /// for integration with async I/O.
 pub struct Tls13Connection {
+    negotiated_alpn: Option<Vec<u8>>,
+    offered_alpn: Vec<String>,
+    tickets: crate::post_handshake::TicketSink,
+    read_secret: Option<crate::post_handshake::traffic::TrafficSecret>,
+    write_secret: Option<crate::post_handshake::traffic::TrafficSecret>,
     config: Tls13Config,
     state: State,
 
@@ -332,13 +288,26 @@ pub struct Tls13Connection {
 
 impl Tls13Connection {
     /// Create a new TLS 1.3 client and build the ClientHello.
-    pub fn new(config: Tls13Config) -> io::Result<Self> {
+    pub fn new(mut config: Tls13Config) -> io::Result<Self> {
+        if config.client_hello_profile == ClientHelloProfile::Random {
+            config.client_hello_profile =
+                crate::fingerprint::wire::resolve(config.client_hello_profile);
+        }
         let mut conn = Self {
             config,
             state: State::AwaitingServerHello {
                 client_hello_bytes: Vec::new(),
                 client_private_key: [0u8; 32],
+                extra_keys: Default::default(),
+                retry_transcript: Vec::new(),
+                retry_suite: None,
+                server_hello_fragments: Vec::new(),
             },
+            negotiated_alpn: None,
+            offered_alpn: Vec::new(),
+            tickets: Default::default(),
+            read_secret: None,
+            write_secret: None,
             app_read_key: None,
             app_read_iv: None,
             app_write_key: None,
@@ -381,34 +350,70 @@ impl Tls13Connection {
             .iter()
             .map(|s| s.as_str())
             .collect();
-        let alpn_refs = if alpn_strs.is_empty() {
-            DEFAULT_ALPN_PROTOCOLS
+        let alpn_refs = if alpn_strs.is_empty() && self.config.use_profile_alpn {
+            self.config.client_hello_profile.alpn_protocols()
         } else {
             &alpn_strs
         };
 
-        let client_hello = construct_client_hello_with_profile(
+        let mut extra_keys =
+            crate::fingerprint::key_share::KeyShares::for_profile(self.config.client_hello_profile)
+                .with_provider(
+                    self.config.key_exchange_provider.clone(),
+                    !self.config.client_hello_options.supported_groups.is_empty(),
+                );
+        let client_hello = crate::fingerprint::wire::build_with_options(
             &client_random,
             &session_id,
-            our_public_key.as_bytes(),
             &self.config.server_name,
             &cipher_suite_ids,
             alpn_refs,
             self.config.client_hello_profile,
+            &self.config.client_hello_options,
+            |group| extra_keys.offer(group, our_public_key.as_bytes()),
         )?;
 
+        self.offered_alpn = extensions::offered_alpn(&client_hello)?;
         let mut record = write_record_header(CONTENT_TYPE_HANDSHAKE, client_hello.len() as u16);
+        record[1..3].copy_from_slice(&[3, 1]); // uTLS initial ClientHello record version
         record.extend_from_slice(&client_hello);
         self.ciphertext_write_buf.extend_from_slice(&record);
 
         self.state = State::AwaitingServerHello {
             client_hello_bytes: client_hello,
             client_private_key: our_private_bytes,
+            extra_keys,
+            retry_transcript: Vec::new(),
+            retry_suite: None,
+            server_hello_fragments: Vec::new(),
         };
         Ok(())
     }
 
     // ── Public API ──────────────────────────────────────────────────
+
+    pub fn alpn_protocol(&self) -> Option<&[u8]> {
+        self.negotiated_alpn.as_deref()
+    }
+
+    pub(crate) fn buffered_ciphertext_len(&self) -> usize {
+        self.ciphertext_read_buf.len()
+    }
+
+    pub(crate) fn next_record_read_size(&self) -> io::Result<usize> {
+        let buffered = self.ciphertext_read_buf.len();
+        if buffered < TLS_RECORD_HEADER_SIZE {
+            return Ok(TLS_RECORD_HEADER_SIZE - buffered);
+        }
+        let length = self.ciphertext_read_buf.get_u16_be(3).unwrap() as usize;
+        if length > 18432 {
+            return Err(io::Error::other("TLS record exceeds limit"));
+        }
+        (TLS_RECORD_HEADER_SIZE + length)
+            .checked_sub(buffered)
+            .filter(|n| *n > 0)
+            .ok_or_else(|| io::Error::other("unconsumed TLS record"))
+    }
 
     pub fn read_tls(&mut self, rd: &mut dyn Read) -> io::Result<usize> {
         if self.ciphertext_read_buf.remaining_capacity() < TLS_MAX_RECORD_SIZE {
@@ -439,6 +444,16 @@ impl Tls13Connection {
     }
 
     pub fn process_new_packets(&mut self) -> io::Result<usize> {
+        if let Some(kind) = self.fatal_error {
+            return Err(kind.into());
+        }
+        let result = self.process_packets_inner();
+        if let Err(error) = &result {
+            self.fatal_error = Some(error.kind());
+        }
+        result
+    }
+    fn process_packets_inner(&mut self) -> io::Result<usize> {
         loop {
             match &self.state {
                 State::AwaitingServerHello { .. } => {
@@ -518,7 +533,11 @@ impl Tls13Connection {
         let State::AwaitingServerHello {
             client_hello_bytes,
             client_private_key,
-        } = &self.state
+            extra_keys,
+            retry_transcript,
+            retry_suite,
+            server_hello_fragments,
+        } = &mut self.state
         else {
             unreachable!()
         };
@@ -543,16 +562,48 @@ impl Tls13Connection {
             return Ok(false);
         }
 
-        let client_hello_bytes = client_hello_bytes.clone();
         let record: Vec<u8> = self.ciphertext_read_buf[..total].to_vec();
         self.ciphertext_read_buf.consume(total);
-
-        let server_public_key = extract_server_public_key(&record)?;
-        let cipher_suite_id = extract_server_cipher_suite(&record)?;
-        let cipher_suite = CipherSuite::from_id(cipher_suite_id).ok_or_else(|| {
-            io::Error::other(format!("unsupported cipher suite 0x{cipher_suite_id:04x}"))
-        })?;
-
+        let Some(record) = server_hello::assemble(server_hello_fragments, &record)? else {
+            return Ok(true);
+        };
+        let hello = hello_retry::parse(&record, client_hello_bytes)?;
+        let cipher_suite = CipherSuite::from_id(hello.suite)
+            .ok_or_else(|| io::Error::other("unsupported TLS 1.3 cipher suite"))?;
+        if hello.retry {
+            if retry_suite.is_some() {
+                return Err(io::Error::other("repeated HelloRetryRequest"));
+            }
+            let hash = digest::digest(cipher_suite.digest_algorithm(), client_hello_bytes);
+            retry_transcript.extend_from_slice(&[254, 0, 0, hash.as_ref().len() as u8]);
+            retry_transcript.extend_from_slice(hash.as_ref());
+            retry_transcript.extend_from_slice(&record[TLS_RECORD_HEADER_SIZE..]);
+            let public = PublicKey::from(&StaticSecret::from(*client_private_key));
+            *client_hello_bytes =
+                hello_retry::rebuild(client_hello_bytes, &hello, extra_keys, public.as_bytes())?;
+            *retry_suite = Some(hello.suite);
+            for fragment in client_hello_bytes.chunks(16384) {
+                self.ciphertext_write_buf
+                    .extend_from_slice(&write_record_header(
+                        CONTENT_TYPE_HANDSHAKE,
+                        fragment.len() as u16,
+                    ));
+                self.ciphertext_write_buf.extend_from_slice(fragment);
+            }
+            return Ok(true);
+        }
+        if retry_suite.is_some_and(|suite| suite != hello.suite) {
+            return Err(io::Error::other(
+                "ServerHello changed the retry cipher suite",
+            ));
+        }
+        let (group, server_public_key) = crate::fingerprint::key_share::selected(&record)?;
+        if !hello_retry::offered_share(client_hello_bytes, group)? {
+            return Err(io::Error::other(
+                "ServerHello selected an unoffered key share",
+            ));
+        }
+        let client_hello_bytes = client_hello_bytes.clone();
         // Compute the cumulative transcript hash Hash(ClientHello || ServerHello).
         //
         // Per RFC 8446 §7.1, the handshake traffic secrets are bound to
@@ -564,27 +615,31 @@ impl Tls13Connection {
         // correctly; this path must match.
         let server_hello = &record[TLS_RECORD_HEADER_SIZE..];
         let mut transcript = digest::Context::new(cipher_suite.digest_algorithm());
+        transcript.update(retry_transcript);
         transcript.update(&client_hello_bytes);
         transcript.update(server_hello);
         let transcript_hash = transcript.finish();
 
-        // ECDH
-        let peer_public_key = PublicKey::from(
-            <[u8; 32]>::try_from(server_public_key.as_slice())
-                .map_err(|_| io::Error::other("invalid server public key"))?,
-        );
-        let my_private = StaticSecret::from(*client_private_key);
-        let shared_secret = my_private.diffie_hellman(&peer_public_key);
+        let shared_secret = if group == 29 && !extra_keys.reuses_x25519() {
+            let peer = PublicKey::from(
+                <[u8; 32]>::try_from(server_public_key.as_slice())
+                    .map_err(|_| io::Error::other("invalid X25519 key"))?,
+            );
+            let private = StaticSecret::from(*client_private_key);
+            let secret = private.diffie_hellman(&peer);
+            if !secret.was_contributory() {
+                return Err(io::Error::other("non-contributory X25519 key"));
+            }
+            secret.as_bytes().to_vec()
+        } else {
+            extra_keys.complete(group, &server_public_key)?
+        };
 
-        let hs_keys = derive_handshake_keys(
-            cipher_suite,
-            shared_secret.as_bytes(),
-            &[],
-            transcript_hash.as_ref(),
-        )?;
+        let hs_keys =
+            derive_handshake_keys(cipher_suite, &shared_secret, &[], transcript_hash.as_ref())?;
 
         // Build transcript (raw bytes, not hashes)
-        let mut transcript_bytes = Vec::new();
+        let mut transcript_bytes = retry_transcript.clone();
         transcript_bytes.extend_from_slice(&client_hello_bytes);
         transcript_bytes.extend_from_slice(server_hello);
 
@@ -634,11 +689,22 @@ impl Tls13Connection {
             .get_u16_be(3)
             .ok_or_else(|| io::Error::other("buffer too short"))? as usize;
 
-        // Skip ChangeCipherSpec (TLS 1.3 middlebox compat)
+        if record_len > 18432 {
+            return Err(io::Error::other("TLS handshake record exceeds limit"));
+        }
+        if self.ciphertext_read_buf.len() < TLS_RECORD_HEADER_SIZE + record_len {
+            return Ok(false);
+        }
+        // Compatibility records are complete, literal CCS messages only.
         if record_type == CONTENT_TYPE_CHANGE_CIPHER_SPEC {
+            if &self.ciphertext_read_buf[..TLS_RECORD_HEADER_SIZE + record_len]
+                != [20, 3, 3, 0, 1, 1]
+            {
+                return Err(io::Error::other("invalid TLS ChangeCipherSpec"));
+            }
             self.ciphertext_read_buf
                 .consume(TLS_RECORD_HEADER_SIZE + record_len);
-            return self.process_encrypted_handshake();
+            return Ok(true);
         }
         if record_type != CONTENT_TYPE_APPLICATION_DATA {
             return Err(io::Error::other(format!(
@@ -664,6 +730,12 @@ impl Tls13Connection {
         )?;
         handshake_seq += 1;
 
+        if accumulated_plaintext.len().saturating_add(plaintext.len()) > 256 * 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "TLS handshake exceeds size limit",
+            ));
+        }
         accumulated_plaintext.extend_from_slice(&plaintext);
 
         // Re-scan from the beginning so a message split across TLS records is
@@ -671,18 +743,25 @@ impl Tls13Connection {
         let encrypted_extensions_offset =
             find_handshake_message(&accumulated_plaintext, HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS);
         let certificate_offset =
-            find_handshake_message(&accumulated_plaintext, HANDSHAKE_TYPE_CERTIFICATE);
+            find_handshake_message(&accumulated_plaintext, HANDSHAKE_TYPE_CERTIFICATE)
+                .or_else(|| find_handshake_message(&accumulated_plaintext, 25));
         let cert_verify_offset =
             find_handshake_message(&accumulated_plaintext, HANDSHAKE_TYPE_CERTIFICATE_VERIFY);
         let finished_offset =
             find_handshake_message(&accumulated_plaintext, HANDSHAKE_TYPE_FINISHED);
 
-        let (Some(_), Some(certificate_offset), Some(cert_verify_offset), Some(finished_offset)) = (
+        let (
+            Some(extensions_offset),
+            Some(certificate_offset),
+            Some(cert_verify_offset),
+            Some(finished_offset),
+        ) = (
             encrypted_extensions_offset,
             certificate_offset,
             cert_verify_offset,
             finished_offset,
-        ) else {
+        )
+        else {
             self.state = State::ProcessingHandshake {
                 client_hs_secret,
                 server_hs_secret,
@@ -695,12 +774,29 @@ impl Tls13Connection {
             return Ok(true);
         };
 
+        if extensions_offset != 0
+            || extensions_offset >= certificate_offset
+            || certificate_offset >= cert_verify_offset
+            || cert_verify_offset >= finished_offset
+            || finished_offset
+                + 4
+                + read_u24(&accumulated_plaintext[finished_offset + 1..finished_offset + 4])
+                != accumulated_plaintext.len()
+        {
+            return Err(io::Error::other("invalid TLS server handshake ordering"));
+        }
+        self.negotiated_alpn = extensions::alpn(
+            &accumulated_plaintext[extensions_offset..],
+            &self.offered_alpn,
+        )?;
+
         // Verify the certificate chain and bind the server identity to SNI.
         let certificate_len =
             read_u24(&accumulated_plaintext[certificate_offset + 1..certificate_offset + 4]);
         let certificate_message =
             &accumulated_plaintext[certificate_offset..certificate_offset + 4 + certificate_len];
-        let certificates = parse_certificate_chain(certificate_message)?;
+        let certificate_message = crate::certificate::compression::decode(certificate_message)?;
+        let certificates = parse_certificate_chain(&certificate_message)?;
         let verifier = match &self.config.server_verifier {
             Some(verifier) => Arc::clone(verifier),
             None => default_server_verifier()?,
@@ -756,57 +852,24 @@ impl Tls13Connection {
         self.app_write_iv = Some(caiv);
         self.app_read_key = Some(AeadKey::new(cipher_suite, &sak)?);
         self.app_read_iv = Some(saiv);
+        self.read_secret = Some(crate::post_handshake::traffic::TrafficSecret::new(
+            cipher_suite,
+            server_app_secret,
+        ));
+        self.write_secret = Some(crate::post_handshake::traffic::TrafficSecret::new(
+            cipher_suite,
+            client_app_secret,
+        ));
         self.read_seq = 0;
         self.write_seq = 0;
         self.state = State::Complete;
         Ok(true)
-    }
-
-    fn process_app_data(&mut self) -> io::Result<()> {
-        let (app_read_key, app_read_iv) = match (&self.app_read_key, &self.app_read_iv) {
-            (Some(k), Some(iv)) => (k, iv),
-            _ => return Ok(()),
-        };
-        while self.ciphertext_read_buf.len() >= TLS_RECORD_HEADER_SIZE {
-            let record_len =
-                self.ciphertext_read_buf
-                    .get_u16_be(3)
-                    .ok_or_else(|| io::Error::other("buffer too short"))? as usize;
-            let total = TLS_RECORD_HEADER_SIZE + record_len;
-            if self.ciphertext_read_buf.len() < total {
-                break;
-            }
-
-            let ct_slice = self
-                .ciphertext_read_buf
-                .slice_mut(TLS_RECORD_HEADER_SIZE..total);
-            let mut dec = RecordDecryptor::new(app_read_key, app_read_iv, &mut self.read_seq);
-            let (content_type, plaintext) =
-                dec.decrypt_record_in_place(ct_slice, record_len as u16)?;
-
-            match content_type {
-                CONTENT_TYPE_APPLICATION_DATA => {
-                    self.plaintext_read_buf.maybe_compact(4096);
-                    self.plaintext_read_buf.extend_from_slice(plaintext);
-                }
-                CONTENT_TYPE_ALERT => {
-                    if plaintext.len() >= 2 && plaintext[1] == ALERT_DESC_CLOSE_NOTIFY {
-                        self.received_close_notify = true;
-                    } else if plaintext.len() >= 2 && plaintext[0] != ALERT_LEVEL_WARNING {
-                        return Err(io::Error::new(
-                            io::ErrorKind::ConnectionAborted,
-                            format!("fatal alert {}", plaintext[1]),
-                        ));
-                    }
-                }
-                _ => {}
-            }
-            self.ciphertext_read_buf.consume(total);
-        }
-        Ok(())
     }
 }
 
 #[cfg(test)]
 #[path = "../tests/unit/handshake_messages.rs"]
 mod tests;
+
+mod application;
+mod key_update;

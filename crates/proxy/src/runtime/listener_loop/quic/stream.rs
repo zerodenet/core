@@ -30,6 +30,7 @@ where
         mut shutdown,
         handler,
     } = request;
+    let local_addr = listener.local_addr()?;
     let mut connections = JoinSet::new();
 
     info!(
@@ -79,12 +80,12 @@ where
                     .into());
                 };
                 let remote_address = incoming.remote_address();
-                let runtime = runtime_factory.for_connection(None);
+                let runtime = runtime_factory.for_connection(Some(remote_address)).with_local_addr(Some(local_addr));
                 let handler = handler.clone();
                 let inbound_tag = runtime_factory.inbound_tag().to_owned();
                 connections.spawn(async move {
                     match crate::transport::QuicInbound::establish_incoming_stream(incoming).await {
-                        Ok(stream) => handler(runtime, stream).await,
+                        Ok(stream) => handler(runtime, stream.with_local_addr(local_addr)).await,
                         Err(connection_error) => error!(
                             inbound_tag = %inbound_tag,
                             protocol = protocol_name,

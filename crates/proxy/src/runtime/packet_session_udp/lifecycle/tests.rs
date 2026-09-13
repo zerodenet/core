@@ -208,3 +208,57 @@ async fn preserved_dispatch_reuses_the_same_udp_flow_after_transport_reattach() 
         .expect("echo task timed out")
         .expect("echo task failed");
 }
+
+#[tokio::test]
+async fn direct_replies_require_a_registered_peer_and_keep_valid_flow_alive() {
+    let config = RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
+    let proxy = crate::runtime::Proxy::new(config).unwrap();
+    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
+    let dispatch = runtime.new_dispatch("peer-filter").await.unwrap();
+    let echo = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let echo_port = echo.local_addr().unwrap().port();
+    let stranger = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let (inbound, mut responses, handler) = test_handler();
+    let task = tokio::spawn(async move {
+        run_packet_session_udp_relay_with_dispatch(
+            runtime,
+            PacketSessionUdpRelayRequest {
+                handler,
+                inbound_tag: "peer-filter",
+                protocol: "test",
+                auth: None,
+                failure_policy: PacketSessionUdpFailurePolicy::ReturnError,
+            },
+            dispatch,
+        )
+        .await
+    });
+    inbound
+        .send(TestInbound::Dispatch(inbound_packet(echo_port, b"request")))
+        .unwrap();
+    let mut packet = [0; 64];
+    let (_, peer) = tokio::time::timeout(Duration::from_secs(2), echo.recv_from(&mut packet))
+        .await
+        .unwrap()
+        .unwrap();
+    stranger.send_to(b"unregistered", peer).await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), responses.recv())
+            .await
+            .is_err()
+    );
+    echo.send_to(b"valid", peer).await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), responses.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        b"valid"
+    );
+    inbound.send(TestInbound::End).unwrap();
+    let exit = task.await.unwrap();
+    assert!(exit.outcome.is_ok());
+    let completed = exit.dispatch.finish_all();
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].record.bytes_down, 5);
+}

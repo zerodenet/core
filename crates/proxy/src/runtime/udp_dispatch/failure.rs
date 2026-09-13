@@ -16,6 +16,8 @@ impl UdpDispatch {
         error: &EngineError,
     ) {
         self.direct_socket.retire_session(flow.session.id);
+        #[cfg(feature = "managed-stream-runtime")]
+        self.flow_state.release_logical_session(flow.session.id);
         self.flow_start_backoff
             .record_failure(flow.key.clone(), Instant::now());
         if let Some(completed) = self

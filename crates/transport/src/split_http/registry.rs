@@ -1,42 +1,20 @@
-use std::any::Any;
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use rand::Rng;
-use tokio::sync::{oneshot, Mutex};
-
-pub(super) struct SplitHttpPending {
-    pub(super) stream: Box<dyn Any + Send>,
-    pub(super) _notify: oneshot::Sender<()>,
-}
-
-pub(super) fn generate_session_id() -> String {
-    let id: u64 = rand::rng().random();
-    format!("{id:016x}")
-}
-
+/// Listener-scoped HTTP upload/download session registry.
+#[derive(Clone)]
 pub struct SplitHttpRegistry {
-    pub(super) inner: Arc<Mutex<HashMap<String, SplitHttpPending>>>,
+    pub(super) sessions: super::sessions::Sessions,
+    pub(super) requests: std::sync::Arc<tokio::sync::Semaphore>,
 }
-
 impl SplitHttpRegistry {
     pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-}
-
-impl Clone for SplitHttpRegistry {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
+        Self::default()
     }
 }
 
 impl Default for SplitHttpRegistry {
     fn default() -> Self {
-        Self::new()
+        Self {
+            sessions: Default::default(),
+            requests: std::sync::Arc::new(tokio::sync::Semaphore::new(128)),
+        }
     }
 }

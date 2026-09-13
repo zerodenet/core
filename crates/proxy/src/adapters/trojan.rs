@@ -104,6 +104,7 @@ impl ProxyTransportTcpLeaf for TrojanOutboundLeaf {
 
     async fn open_tcp_relay_hop(
         &self,
+        _services: crate::protocol_registry::UpstreamConnectServices,
         stream: crate::transport::TcpRelayStream,
         session: &zero_core::Session,
     ) -> Result<crate::transport::TcpRelayStream, zero_transport::RuntimeError> {

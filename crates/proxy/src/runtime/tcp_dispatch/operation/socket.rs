@@ -6,7 +6,7 @@ use zero_engine::EngineError;
 use zero_transport::{RuntimeError, StreamTraffic};
 
 use super::contract::{PreparedTcpConnectOperation, PreparedTcpRelayOperation};
-use crate::protocol_registry::{TcpRuntimeServices, UpstreamConnectServices};
+use crate::protocol_registry::{TcpExecutionServices, UpstreamConnectServices};
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure, TcpRelayStream};
 
 #[async_trait::async_trait]
@@ -41,8 +41,8 @@ where
     T: SocketTcpHandshake + Send + Sync,
 {
     fn execute<'a>(
-        self: Box<Self>,
-        services: TcpRuntimeServices,
+        &'a self,
+        services: TcpExecutionServices,
         session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<EstablishedTcpOutbound, TcpOutboundFailure>> + Send + 'a>>
     where
@@ -70,7 +70,8 @@ where
     T: SocketTcpHandshake + Send + Sync,
 {
     fn execute<'a>(
-        self: Box<Self>,
+        &'a self,
+        _services: UpstreamConnectServices,
         stream: TcpRelayStream,
         session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>
@@ -95,7 +96,7 @@ struct PreparedSocketTcpOperation<'leaf, T> {
 }
 
 async fn execute_socket_tcp_connect_operation<T>(
-    services: TcpRuntimeServices,
+    services: TcpExecutionServices,
     session: &Session,
     operation: PreparedSocketTcpOperation<'_, T>,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure>

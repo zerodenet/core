@@ -2,6 +2,7 @@ use core::future::Future;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -92,6 +93,10 @@ pub struct InboundUdpAssociationResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundUdpDispatch {
     target: Address,
+    route_target: Option<Address>,
+    sniffed_original_target: Option<Address>,
+    sniffed_host_source: Option<TargetHostSource>,
+    skip_fake_ip_restore: bool,
     port: u16,
     payload: Vec<u8>,
     protocol: ProtocolType,
@@ -160,10 +165,38 @@ pub trait InboundMuxTcpRelay: Send + 'static {
 
     fn close_stream(&self) -> impl Future<Output = ()> + Send;
 
+    /// Read at most `max_bytes` from the logical upload stream for neutral
+    /// runtime inspection. The relay retains any unread remainder.
+    fn read_inbound_chunk(
+        &mut self,
+        _max_bytes: usize,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, Error>> + Send {
+        async { Ok(None) }
+    }
+
     fn relay_stream<S>(self, upstream: S) -> impl Future<Output = ()> + Send
     where
         S: AsyncSocket + 'static,
         S::Error: Send;
+
+    /// Relay the logical stream after replaying bytes consumed by
+    /// [`Self::read_inbound_chunk`].
+    fn relay_stream_with_prefix<S>(
+        self,
+        mut upstream: S,
+        replay_prefix: Vec<u8>,
+    ) -> impl Future<Output = ()> + Send
+    where
+        Self: Sized,
+        S: AsyncSocket + 'static,
+        S::Error: Send,
+    {
+        async move {
+            if replay_prefix.is_empty() || upstream.write_all(&replay_prefix).await.is_ok() {
+                self.relay_stream(upstream).await;
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -375,6 +408,10 @@ impl InboundUdpDispatch {
     ) -> Self {
         Self {
             target,
+            route_target: None,
+            sniffed_original_target: None,
+            sniffed_host_source: None,
+            skip_fake_ip_restore: false,
             port,
             payload,
             protocol,
@@ -404,12 +441,58 @@ impl InboundUdpDispatch {
         self
     }
 
+    /// Route this packet using `target` while retaining the protocol supplied
+    /// destination for flow identity and outbound dialing.
+    pub fn with_route_target(mut self, target: Address) -> Self {
+        self.route_target = Some(target);
+        self
+    }
+
+    /// Apply a domain recovered from this packet's content.
+    pub fn with_sniffed_domain(
+        mut self,
+        domain: String,
+        source: TargetHostSource,
+        route_only: bool,
+    ) -> Self {
+        let domain = Address::Domain(domain);
+        self.sniffed_host_source = Some(source);
+        if route_only {
+            self.route_target = Some(domain);
+        } else {
+            self.sniffed_original_target = Some(self.target.clone());
+            self.target = domain;
+        }
+        self
+    }
+
+    pub fn with_skip_fake_ip_restore(mut self) -> Self {
+        self.skip_fake_ip_restore = true;
+        self
+    }
+
     pub fn protocol(&self) -> ProtocolType {
         self.protocol
     }
 
     pub fn target(&self) -> &Address {
         &self.target
+    }
+
+    pub fn route_target(&self) -> Option<&Address> {
+        self.route_target.as_ref()
+    }
+
+    pub fn sniffed_original_target(&self) -> Option<&Address> {
+        self.sniffed_original_target.as_ref()
+    }
+
+    pub fn sniffed_host_source(&self) -> Option<TargetHostSource> {
+        self.sniffed_host_source
+    }
+
+    pub fn skip_fake_ip_restore(&self) -> bool {
+        self.skip_fake_ip_restore
     }
 
     pub fn port(&self) -> u16 {

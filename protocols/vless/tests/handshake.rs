@@ -119,6 +119,8 @@ impl VlessUserStore for TestUsers {
     fn find_user(&self, id: &[u8; 16]) -> Option<VlessUser> {
         if id == &self.id {
             Some(VlessUser {
+                reverse_tag: None,
+                testseed: vless::validation::DEFAULT_VISION_TESTSEED,
                 principal_key: Some("user:10001".to_owned()),
                 flow: None,
                 up_bps: None,
@@ -139,14 +141,16 @@ fn parses_and_formats_uuid() {
 
     assert_eq!(format_uuid(&id), USER_ID);
     assert_eq!(parse_uuid("11111111222233334444555555555555"), Ok(id));
-    assert!(parse_uuid("not-a-uuid").is_err());
+    assert!(parse_uuid("invalid-uuid-string-is-too-long-to-map").is_err());
 }
 
 #[tokio::test]
 async fn shared_inbound_profile_atomically_replaces_authorized_users() {
     let profile = VlessInboundProfile::from_config_users([VlessInboundUserRef {
+        reverse_tag: None,
         id: USER_ID,
         flow: None,
+        testseed: &[],
         principal_key: Some("account:old"),
         up_bps: None,
         down_bps: None,
@@ -168,8 +172,10 @@ async fn shared_inbound_profile_atomically_replaces_authorized_users() {
 
     profile
         .replace_config_users([VlessInboundUserRef {
+            reverse_tag: None,
             id: REPLACEMENT_USER_ID,
             flow: None,
+            testseed: &[],
             principal_key: Some("account:new"),
             up_bps: None,
             down_bps: None,

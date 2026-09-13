@@ -2,6 +2,12 @@
 #![allow(async_fn_in_trait)]
 
 extern crate alloc;
+mod fallback;
+mod packet_socket;
+pub use packet_socket::PacketSocketIo;
+mod split_http;
+pub use fallback::{FallbackEndpoint, FallbackRoute, FallbackRule};
+pub use split_http::{SplitHttpOptions, SplitHttpRange, SplitHttpXmux};
 
 pub mod outbound_leaf;
 pub mod protocol;
@@ -13,8 +19,8 @@ pub use udp_flow::{ProtocolRelayTwoStreamUdpFlowLeaf, ProtocolUdpFlowLeaf};
 use alloc::{sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicU8, Ordering};
 pub use protocol::{
-    ClientTlsProfile, DatagramCodec, DeferredTcpTunnelProtocol, GrpcTransportProfile,
-    H2TransportProfile, HttpUpgradeTransportProfile, InboundFallbackProfile,
+    BrowserDialerSettings, ClientTlsProfile, DatagramCodec, DeferredTcpTunnelProtocol,
+    GrpcTransportProfile, H2TransportProfile, HttpUpgradeTransportProfile, InboundFallbackProfile,
     ProtocolCapabilityDescriptor, ProtocolCapabilityLevel, ProtocolCapabilityState,
     ProtocolMetadata, ProtocolNetworkCapability, ServerTlsProfile, SplitHttpTransportProfile,
     StreamMuxTransportHints, TcpSessionProtocol, TcpTunnelProtocol, UdpDatagramFraming,
@@ -237,3 +243,9 @@ pub trait TimeProvider: Send + Sync {
 }
 
 pub trait Allocator: Send + Sync {}
+
+mod tls;
+pub use tls::{
+    ClientTlsOptions, EchClientOptions, EchConfigSource, EchForceQuery, ServerTlsOptions,
+    TlsBackend, TlsCertificateFiles, TlsCertificateUsage, TlsParameters,
+};

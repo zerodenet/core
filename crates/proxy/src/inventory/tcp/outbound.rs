@@ -4,10 +4,10 @@ use super::super::ProtocolInventory;
 use crate::protocol_registry::OutboundAdapterContext;
 use crate::transport::TcpOutboundFailure;
 
-pub(crate) enum PreparedTcpOutbound<'a> {
-    Relay(super::PreparedTcpRelayChain<'a>),
-    Single(super::PreparedTcpCandidate<'a>),
-    Fallback(Vec<super::PreparedTcpCandidate<'a>>),
+pub(crate) enum PreparedTcpOutbound {
+    Relay(super::PreparedTcpRelayChain),
+    Single(super::PreparedTcpCandidate),
+    Fallback(Vec<super::PreparedTcpCandidate>),
 }
 
 impl ProtocolInventory {
@@ -15,7 +15,7 @@ impl ProtocolInventory {
         &self,
         ctx: OutboundAdapterContext<'a>,
         resolved: &'a ResolvedOutbound<'a>,
-    ) -> Result<PreparedTcpOutbound<'a>, TcpOutboundFailure> {
+    ) -> Result<PreparedTcpOutbound, TcpOutboundFailure> {
         match resolved {
             ResolvedOutbound::Relay { chain } => {
                 let claimed = self.claim_relay_chain(

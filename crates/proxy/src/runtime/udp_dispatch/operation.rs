@@ -25,3 +25,8 @@ pub(crate) use stream_packet::{
     ManagedStreamPacketBridgePlan, ManagedStreamPacketUdpOperation,
     PreparedManagedStreamPacketOperation,
 };
+
+#[cfg(feature = "managed-stream-runtime")]
+mod logical;
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) use logical::LogicalUdpOperation;

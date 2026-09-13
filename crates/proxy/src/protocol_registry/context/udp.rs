@@ -1,6 +1,6 @@
 use zero_engine::Engine;
 
-use super::{TcpRuntimeServices, UpstreamConnectServices};
+use super::{TcpExecutionServices, TcpRuntimeServices, UpstreamConnectServices};
 use crate::inventory::ProtocolInventory;
 
 #[derive(Clone)]
@@ -13,6 +13,44 @@ pub(crate) struct UdpRuntimeServices {
 pub(crate) struct UdpNetworkServices {
     upstream: UpstreamConnectServices,
     engine: Engine,
+}
+
+/// Registry-free services retained by prepared packet-path carrier builders.
+#[derive(Clone)]
+pub(crate) struct PacketPathExecutionServices {
+    tcp: TcpExecutionServices,
+    network: UdpNetworkServices,
+}
+
+impl PacketPathExecutionServices {
+    pub(crate) fn from_tcp_execution(services: &TcpExecutionServices) -> Self {
+        Self {
+            tcp: services.clone(),
+            network: UdpNetworkServices::from_tcp_execution(services),
+        }
+    }
+
+    pub(crate) fn tcp(&self) -> TcpExecutionServices {
+        self.tcp.clone()
+    }
+
+    pub(crate) fn network(&self) -> UdpNetworkServices {
+        self.network.clone()
+    }
+
+    #[cfg(feature = "tls-ech-runtime")]
+    pub(crate) fn ech_resolver(
+        &self,
+    ) -> std::sync::Arc<dyn zero_transport::tls::ech::EchConfigResolver> {
+        self.tcp.upstream().ech_resolver()
+    }
+
+    pub(crate) fn prepare_lazy_tcp_relay_prefix<'a>(
+        &self,
+        prefix: crate::inventory::PreparedTcpRelayPrefix,
+    ) -> crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'a> {
+        crate::runtime::tcp_dispatch::relay::prepare_lazy_tcp_relay_prefix(self.tcp(), prefix)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -43,6 +81,13 @@ impl UdpRuntimeServices {
         self.network.clone()
     }
 
+    pub(crate) fn packet_path_execution(&self) -> PacketPathExecutionServices {
+        PacketPathExecutionServices {
+            tcp: self.tcp.execution(),
+            network: self.network(),
+        }
+    }
+
     pub(crate) async fn resolve_node_address(
         &self,
         address: &zero_core::Address,
@@ -60,8 +105,7 @@ impl UdpRuntimeServices {
     ) -> Result<crate::transport::DirectTargetResolution, zero_engine::EngineError> {
         self.tcp
             .upstream
-            .protocols
-            .direct_connector()
+            .connector
             .resolve_target_addrs(
                 session,
                 self.tcp.upstream.resolver.as_ref(),
@@ -76,26 +120,22 @@ impl UdpRuntimeServices {
         resolution: &crate::transport::DirectTargetResolution,
         remote: std::net::SocketAddr,
     ) -> zero_engine::FlowNetworkObservation {
-        self.tcp
-            .upstream
-            .protocols
-            .direct_connector()
-            .udp_network_observation(resolution, remote, &self.tcp.upstream.egress_interface)
+        self.tcp.upstream.connector.udp_network_observation(
+            resolution,
+            remote,
+            &self.tcp.upstream.egress_interface,
+        )
     }
 
     pub(crate) fn direct_resolution_failure_observation(
         &self,
         session: &zero_core::Session,
     ) -> zero_engine::FlowNetworkObservation {
-        self.tcp
-            .upstream
-            .protocols
-            .direct_connector()
-            .resolution_failure_observation(
-                session,
-                self.tcp.upstream.resolver.as_ref(),
-                &self.tcp.upstream.egress_interface,
-            )
+        self.tcp.upstream.connector.resolution_failure_observation(
+            session,
+            self.tcp.upstream.resolver.as_ref(),
+            &self.tcp.upstream.egress_interface,
+        )
     }
 
     pub(crate) fn record_session_network(
@@ -110,14 +150,14 @@ impl UdpRuntimeServices {
 
     pub(crate) async fn dispatch_prepared_tcp_relay_carrier(
         &self,
-        prepared: crate::inventory::PreparedTcpRelayChain<'_>,
+        prepared: crate::inventory::PreparedTcpRelayChain,
     ) -> Result<crate::transport::RelayCarrier, crate::transport::TcpOutboundFailure> {
         self.tcp.dispatch_prepared_tcp_relay_carrier(prepared).await
     }
 
     pub(crate) fn prepare_lazy_tcp_relay_carrier<'a>(
         &self,
-        prepared: crate::inventory::PreparedTcpRelayChain<'a>,
+        prepared: crate::inventory::PreparedTcpRelayChain,
     ) -> crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'a> {
         self.tcp.prepare_lazy_tcp_relay_carrier(prepared)
     }
@@ -196,6 +236,18 @@ impl UdpRuntimeServices {
 }
 
 impl UdpNetworkServices {
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(crate) fn upstream_idle_timeout(&self) -> std::time::Duration {
+        self.engine.udp_upstream_idle_timeout()
+    }
+
+    pub(crate) fn from_tcp_execution(services: &super::TcpExecutionServices) -> Self {
+        Self {
+            upstream: services.upstream(),
+            engine: services.engine().clone(),
+        }
+    }
+
     pub(crate) fn outbound_datagram_socket_factory(
         &self,
     ) -> zero_transport::OutboundDatagramSocketFactory {
@@ -235,8 +287,7 @@ impl UdpNetworkServices {
     > {
         let peer = self
             .upstream
-            .protocols
-            .direct_connector()
+            .connector
             .resolve_address(address, port, self.upstream.resolver.as_ref(), context)
             .await
             .map_err(zero_transport::RuntimeError::from)?;
@@ -269,8 +320,7 @@ impl UdpNetworkServices {
         error_message: &'static str,
     ) -> Result<std::net::SocketAddr, zero_engine::EngineError> {
         self.upstream
-            .protocols
-            .direct_connector()
+            .connector
             .resolve_node_address(
                 address,
                 port,
@@ -293,6 +343,10 @@ impl UdpNetworkServices {
             .record_session_outbound_rx(session_id, traffic.read_bytes);
         self.engine
             .record_session_outbound_tx(session_id, traffic.written_bytes);
+    }
+
+    pub(crate) fn record_association_created(&self) {
+        self.engine.record_udp_upstream_association_created();
     }
 
     pub(crate) fn record_association_close(&self, kind: UdpAssociationCloseKind) {

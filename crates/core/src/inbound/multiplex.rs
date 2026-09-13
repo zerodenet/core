@@ -57,3 +57,11 @@ pub trait InboundRouteMultiplexer: Send + Sync + 'static {
         incoming: Self::Incoming,
     ) -> impl Future<Output = Result<Self::Route, Self::Error>> + Send;
 }
+
+/// Neutral transport stream source. Protocol handshakes and routing are
+/// performed concurrently by the runtime after each stream is dequeued.
+pub trait InboundTransportMultiplexer: Send + Sync + 'static {
+    type Stream: Send + 'static;
+    fn accept_stream(&self) -> impl Future<Output = Option<Self::Stream>> + Send;
+    fn close(&self);
+}

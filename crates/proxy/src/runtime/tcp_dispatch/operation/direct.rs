@@ -4,7 +4,7 @@ use std::pin::Pin;
 use zero_core::Session;
 
 use super::contract::PreparedTcpConnectOperation;
-use crate::protocol_registry::TcpRuntimeServices;
+use crate::protocol_registry::TcpExecutionServices;
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 pub(crate) struct DirectTcpConnectOperation {
@@ -13,8 +13,8 @@ pub(crate) struct DirectTcpConnectOperation {
 
 impl PreparedTcpConnectOperation for DirectTcpConnectOperation {
     fn execute<'a>(
-        self: Box<Self>,
-        services: TcpRuntimeServices,
+        &'a self,
+        services: TcpExecutionServices,
         session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<EstablishedTcpOutbound, TcpOutboundFailure>> + Send + 'a>>
     where
@@ -36,7 +36,7 @@ enum PreparedTcpOperation<'a> {
 }
 
 async fn execute_direct_tcp_operation(
-    services: TcpRuntimeServices,
+    services: TcpExecutionServices,
     session: &Session,
     operation: PreparedTcpOperation<'_>,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {

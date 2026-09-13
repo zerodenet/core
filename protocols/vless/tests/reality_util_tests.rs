@@ -8,8 +8,12 @@ fn test_decode_short_id() {
     let short_id = decode_short_id("0123456789abcdef").unwrap();
     assert_eq!(short_id, [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]);
     // Shorter inputs are rejected (must be exactly 8 bytes / 16 hex chars)
-    assert!(decode_short_id("abcdef").is_err());
-    assert!(decode_short_id("").is_err());
+    assert_eq!(
+        decode_short_id("abcdef").unwrap(),
+        [0xab, 0xcd, 0xef, 0, 0, 0, 0, 0]
+    );
+    assert_eq!(decode_short_id("").unwrap(), [0; 8]);
+    assert!(decode_short_id("abc").is_err());
     assert!(decode_short_id("0123456789abcdef0").is_err());
 }
 
