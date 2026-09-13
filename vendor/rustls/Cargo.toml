@@ -95,6 +95,7 @@ std = [
     "once_cell/std",
 ]
 tls12 = []
+legacy-client = ["tls12", "aws_lc_rs", "dep:rustls-legacy-crypto"]
 zlib = ["dep:zlib-rs"]
 
 [lib]
@@ -232,3 +233,7 @@ check-cfg = [
     "cfg(read_buf)",
     "cfg(rustls_docsrs)",
 ]
+
+[dependencies.rustls-legacy-crypto]
+path = "../rustls-legacy-crypto"
+optional = true

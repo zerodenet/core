@@ -165,6 +165,10 @@ where
         ));
     }
 
+    let application_settings = carrier
+        .application_settings()
+        .filter(|s| s.protocol == b"h2")
+        .map(|s| s.peer.clone());
     match (ws_config, grpc_config, h2_config) {
         #[cfg(feature = "ws")]
         (Some(ws), None, None) => Ok(TcpRelayStream::new(
@@ -172,11 +176,24 @@ where
         )),
         #[cfg(feature = "grpc")]
         (None, Some(grpc), None) => Ok(TcpRelayStream::new(
-            grpc::connect_grpc_with_profile(carrier, grpc, &grpc_authority).await?,
+            grpc::connect_grpc_with_settings(
+                carrier,
+                grpc,
+                &grpc_authority,
+                application_settings.as_deref(),
+            )
+            .await?,
         )),
         #[cfg(feature = "h2")]
         (None, None, Some(h2_config)) => Ok(TcpRelayStream::new(
-            h2::connect_h2(carrier, h2_config, _server, _port).await?,
+            h2::connect_h2_with_settings(
+                carrier,
+                h2_config,
+                _server,
+                _port,
+                application_settings.as_deref(),
+            )
+            .await?,
         )),
         (None, None, None) => Ok(carrier),
         _ => invalid_transport_stack(invalid_message),

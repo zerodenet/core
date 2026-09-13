@@ -124,13 +124,13 @@ pub(super) async fn build_vless_outbound_transport(
             super::xhttp::carrier(TcpRelayStream::new(socket), options, server, http2).await?;
         if single {
             return Ok(TcpRelayStream::new(
-                split_http::connect_xhttp_stream_one(post, cfg).await?,
+                split_http::connect_xhttp_stream_one_carrier(post, cfg).await?,
             ));
         }
         let get = TokioSocket::connect_addr_on(peer, companion_egress.as_ref()).await?;
         let get = super::xhttp::carrier(TcpRelayStream::new(get), options, server, http2).await?;
         return Ok(TcpRelayStream::new(
-            split_http::connect_split_http(post, get, cfg).await?,
+            split_http::connect_split_http_carriers(post, get, cfg).await?,
         ));
     }
 

@@ -36,6 +36,8 @@ pub(crate) mod quic;
 pub(crate) mod ticketer;
 #[cfg(feature = "tls12")]
 pub(crate) mod tls12;
+#[cfg(feature = "legacy-client")]
+pub mod legacy;
 pub(crate) mod tls13;
 
 /// A `CryptoProvider` backed by aws-lc-rs.

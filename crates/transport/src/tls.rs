@@ -135,11 +135,23 @@ where
             e
         })?;
 
+    let settings = stream.get_ref().1.peer_application_settings().map(|peer| {
+        zero_platform_tokio::ApplicationSettings {
+            protocol: stream
+                .get_ref()
+                .1
+                .alpn_protocol()
+                .unwrap_or_default()
+                .to_vec(),
+            peer: peer.to_vec(),
+        }
+    });
     let stream = switchable::SwitchableTlsStream::client(stream);
     Ok(match stream.control() {
         Some(control) => TcpRelayStream::with_transport_bypass_control(stream, control),
         None => TcpRelayStream::new(stream),
-    })
+    }
+    .with_application_settings(settings))
 }
 
 pub async fn connect_tls_upstream<T>(
@@ -187,11 +199,23 @@ where
         .connect(server_name, TlsRecordBoundary::new(stream))
         .await?;
 
+    let settings = stream.get_ref().1.peer_application_settings().map(|peer| {
+        zero_platform_tokio::ApplicationSettings {
+            protocol: stream
+                .get_ref()
+                .1
+                .alpn_protocol()
+                .unwrap_or_default()
+                .to_vec(),
+            peer: peer.to_vec(),
+        }
+    });
     let stream = switchable::SwitchableTlsStream::client(stream);
     Ok(match stream.control() {
         Some(control) => TcpRelayStream::with_transport_bypass_control(stream, control),
         None => TcpRelayStream::new(stream),
-    })
+    }
+    .with_application_settings(settings))
 }
 
 pub async fn connect_tls_stream<S, T>(

@@ -165,6 +165,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
 
         ClientConfig {
             client_hello_profile: None,
+            application_settings: Default::default(),
             provider: self.provider,
             alpn_protocols: Vec::new(),
             check_selected_alpn: true,

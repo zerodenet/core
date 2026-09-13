@@ -36,7 +36,7 @@ pub(super) async fn build_vless_outbound_transport_over_stream(
         if mode.is_single_connection() {
             let carrier = super::xhttp::carrier(stream, options, server, true).await?;
             return Ok(TcpRelayStream::new(
-                split_http::connect_xhttp_stream_one(carrier, cfg).await?,
+                split_http::connect_xhttp_stream_one_carrier(carrier, cfg).await?,
             ));
         }
         // packet-up / stream-up require two independent connections (POST + GET);
@@ -150,6 +150,6 @@ pub(super) async fn build_vless_split_http_over_relay(
         super::xhttp::mode(options.stream_options()) == split_http::XhttpMode::StreamUp,
     )
     .await?;
-    let paired = split_http::connect_split_http(post_stream, get_stream, config).await?;
+    let paired = split_http::connect_split_http_carriers(post_stream, get_stream, config).await?;
     Ok(TcpRelayStream::new(paired))
 }

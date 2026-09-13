@@ -121,6 +121,8 @@ enum_builder! {
         UseSRTP => 0x000e,
         Heartbeat => 0x000f,
         ALProtocolNegotiation => 0x0010,
+        ApplicationSettingsOld => 17513,
+        ApplicationSettings => 17613,
         SCT => 0x0012,
         ClientCertificateType => 0x0013,
         ServerCertificateType => 0x0014,

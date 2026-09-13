@@ -47,7 +47,7 @@ impl OwnedVlessOutboundTransportPlan {
                         .unwrap_or_else(|_| self.server.clone())
                 });
             let stream = pool
-                .open(profile, &authority, || {
+                .open_carrier(profile, &authority, || {
                     carrier.open_direct_carrier(open, sockets)
                 })
                 .await?;

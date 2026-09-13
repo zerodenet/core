@@ -27,6 +27,21 @@ pub fn cipher_suite(value: &str) -> Result<u16, String> {
         "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA" => 0xc00a,
         "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA" => 0xc013,
         "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA" => 0xc014,
+        "TLS_RSA_WITH_3DES_EDE_CBC_SHA" => 0x000a,
+        "TLS_RSA_WITH_AES_128_CBC_SHA" => 0x002f,
+        "TLS_RSA_WITH_AES_256_CBC_SHA" => 0x0035,
+        "TLS_RSA_WITH_AES_128_CBC_SHA256" => 0x003c,
+        "TLS_RSA_WITH_AES_256_CBC_SHA256" => 0x003d,
+        "TLS_RSA_WITH_AES_128_GCM_SHA256" => 0x009c,
+        "TLS_RSA_WITH_AES_256_GCM_SHA384" => 0x009d,
+        "TLS_DHE_RSA_WITH_AES_128_CBC_SHA" => 0x0033,
+        "TLS_DHE_RSA_WITH_AES_256_CBC_SHA" => 0x0039,
+        "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA" => 0xc008,
+        "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA" => 0xc012,
+        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256" => 0xc023,
+        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384" => 0xc024,
+        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256" => 0xc027,
+        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384" => 0xc028,
         "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
         | "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305" => 0xcca9,
         "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256" | "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305" => {
@@ -38,6 +53,10 @@ pub fn cipher_suite(value: &str) -> Result<u16, String> {
 pub fn curve(value: &str) -> Result<u16, String> {
     Ok(match value {
         "X25519" | "x25519" => 29,
+        "FFDHE2048" | "ffdhe2048" => 256,
+        "FFDHE3072" | "ffdhe3072" => 257,
+        "FFDHE4096" | "ffdhe4096" => 258,
+        "FFDHE8192" | "ffdhe8192" => 260,
         "P256" | "p256" | "secp256r1" | "CurveP256" | "curvep256" => 23,
         "P384" | "p384" | "secp384r1" | "CurveP384" | "curvep384" => 24,
         "P521" | "p521" | "secp521r1" | "CurveP521" | "curvep521" => 25,
@@ -70,7 +89,11 @@ pub fn needs_openssl_parameters(options: &TlsParameters) -> Result<bool, String>
         .iter()
         .try_fold(false, |needed, name| {
             let suite = cipher_suite(name)?;
-            Ok(needed || matches!(suite, 0xc009 | 0xc00a | 0xc013 | 0xc014))
+            Ok(needed
+                || !matches!(
+                    suite,
+                    0x1301..=0x1303 | 0xc02b | 0xc02c | 0xc02f | 0xc030 | 0xcca8 | 0xcca9
+                ))
         })
 }
 
@@ -93,7 +116,7 @@ pub fn validate_client(options: &ClientTlsOptions, quic: bool) -> Result<(), Str
     let source = options.ech.source()?;
     if source.is_none()
         && options.backend == zero_traits::TlsBackend::Rustls
-        && needs_openssl_parameters(&options.parameters)?
+        && uses_legacy_versions(&options.parameters)?
     {
         return Err("rustls does not support the configured legacy TLS parameters".into());
     }

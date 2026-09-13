@@ -18,13 +18,16 @@ mod sessions;
 mod stream_one;
 mod wire;
 
-pub use client::{connect_split_http, connect_split_http_with_browser};
+pub use client::{
+    connect_split_http, connect_split_http_carriers, connect_split_http_with_browser,
+};
 pub use io::XhttpStream;
 pub use registry::SplitHttpRegistry;
 pub use server::{accept_xhttp_connection, XhttpIncoming};
 pub use stream_one::{
     accept_xhttp_stream_one, accept_xhttp_stream_one_http1, connect_xhttp_stream_one,
-    connect_xhttp_stream_one_http1, AcceptedXhttpStreamOne, XhttpStreamOne,
+    connect_xhttp_stream_one_carrier, connect_xhttp_stream_one_http1,
+    connect_xhttp_stream_one_with_settings, AcceptedXhttpStreamOne, XhttpStreamOne,
 };
 
 /// Single-stream convenience API. Listener integrations use the stream source

@@ -331,7 +331,19 @@ fn emit_client_hello_for_retry(
     }
 
     // Do we have a SessionID or ticket cached for this host?
-    let tls13_session = prepare_resumption(&input.resuming, &mut exts, suite, cx, config);
+    if let Some(factory) = &config.client_hello_profile {
+        if input.hello.wire_profile.is_none() {
+            input.hello.wire_profile = Some(factory.profile()?);
+        }
+    }
+    let tls13_session = prepare_resumption(
+        &input.resuming,
+        &mut exts,
+        suite,
+        cx,
+        config,
+        input.hello.wire_profile.as_ref(),
+    );
 
     // Extensions MAY be randomized
     // but they also need to keep the same order as the previous ClientHello
@@ -370,6 +382,7 @@ fn emit_client_hello_for_retry(
             input.hello.wire_profile.as_ref().unwrap(),
             retryreq.is_some_and(|rr| rr.key_share.is_some()),
             config.ech_mode.is_some(),
+            &config.application_settings,
         )?;
         input.hello.offered_cert_compression =
             chp_payload.certificate_compression_algorithms.is_some();
@@ -534,6 +547,7 @@ fn prepare_resumption<'a>(
     suite: Option<SupportedCipherSuite>,
     cx: &mut ClientContext<'_>,
     config: &ClientConfig,
+    profile: Option<&super::hello_profile::ClientHelloProfile>,
 ) -> Option<persist::Retrieved<&'a persist::Tls13ClientSessionValue>> {
     // Check whether we're resuming with a non-empty ticket.
     let resuming = match resuming {
@@ -576,7 +590,7 @@ fn prepare_resumption<'a>(
         suite.can_resume_from(tls13.suite())?;
     }
 
-    tls13::prepare_resumption(config, cx, &tls13, exts, suite.is_some());
+    tls13::prepare_resumption(config, cx, &tls13, exts, suite.is_some(), profile);
     Some(tls13)
 }
 

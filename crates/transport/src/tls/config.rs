@@ -30,7 +30,10 @@ pub(super) fn provider(
     }
     if !options.cipher_suites.is_empty() {
         // Go's CipherSuites selects TLS 1.2 suites; TLS 1.3 suites remain automatic.
-        let available = rustls::crypto::ring::default_provider().cipher_suites;
+        let mut available = rustls::crypto::ring::default_provider().cipher_suites;
+        if client {
+            available.extend_from_slice(rustls::crypto::aws_lc_rs::legacy::CIPHER_SUITES);
+        }
         let mut suites: Vec<_> = provider
             .cipher_suites
             .iter()
@@ -52,6 +55,11 @@ pub(super) fn provider(
         }
         provider.cipher_suites = suites;
     }
+    if client && !options.cipher_suites.is_empty() && options.curve_preferences.is_empty()
+        && provider.cipher_suites.iter().any(|s| matches!(s, rustls::SupportedCipherSuite::Tls12(s) if s.kx == rustls::crypto::KeyExchangeAlgorithm::DHE))
+        && !provider.kx_groups.iter().any(|g| g.ffdhe_group().is_some()) {
+        provider.kx_groups.extend_from_slice(rustls::crypto::aws_lc_rs::legacy::FFDHE_GROUPS);
+    }
     if !options.curve_preferences.is_empty() {
         let mut groups = Vec::new();
         for name in &options.curve_preferences {
@@ -66,6 +74,11 @@ pub(super) fn provider(
             }
         }
         provider.kx_groups = groups;
+    }
+    // Explicit curve policy can remove finite-field groups from a browser
+    // profile. Do not advertise suites whose key exchange cannot then run.
+    if !provider.kx_groups.iter().any(|g| g.ffdhe_group().is_some()) {
+        provider.cipher_suites.retain(|s| !matches!(s, rustls::SupportedCipherSuite::Tls12(s) if s.kx == rustls::crypto::KeyExchangeAlgorithm::DHE));
     }
     Ok(Arc::new(provider))
 }

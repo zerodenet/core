@@ -556,6 +556,7 @@ impl ExpectClientHello {
                 });
 
             match offered_group.key_exchange_algorithm() {
+                KeyExchangeAlgorithm::RSA => unreachable!("RSA is not a named group"),
                 KeyExchangeAlgorithm::DHE => {
                     ffdhe_possible |= supported.is_some();
                     ffdhe_offered = true;

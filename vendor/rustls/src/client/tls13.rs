@@ -14,8 +14,8 @@ use crate::client::{ClientConfig, ClientSessionStore, hs};
 use crate::common_state::{
     CommonState, HandshakeFlightTls13, HandshakeKind, KxState, Protocol, Side, State,
 };
-use crate::conn::ConnectionRandoms;
 use crate::conn::kernel::{Direction, KernelContext, KernelState};
+use crate::conn::ConnectionRandoms;
 use crate::crypto::hash::Hash;
 use crate::crypto::{ActiveKeyExchange, SharedSecret};
 use crate::enums::{
@@ -29,10 +29,10 @@ use crate::msgs::ccs::ChangeCipherSpecPayload;
 use crate::msgs::codec::{Codec, Reader};
 use crate::msgs::enums::{ExtensionType, KeyUpdateRequest};
 use crate::msgs::handshake::{
-    CERTIFICATE_MAX_SIZE_LIMIT, CertificatePayloadTls13, ClientExtensions, EchConfigPayload,
-    HandshakeMessagePayload, HandshakePayload, KeyShareEntry, NewSessionTicketPayloadTls13,
-    PresharedKeyBinder, PresharedKeyIdentity, PresharedKeyOffer, ServerExtensions,
-    ServerHelloPayload,
+    CertificatePayloadTls13, ClientExtensions, EchConfigPayload, HandshakeMessagePayload,
+    HandshakePayload, KeyShareEntry, NewSessionTicketPayloadTls13, PresharedKeyBinder,
+    PresharedKeyIdentity, PresharedKeyOffer, ServerExtensions, ServerHelloPayload,
+    CERTIFICATE_MAX_SIZE_LIMIT,
 };
 use crate::msgs::message::{Message, MessagePayload};
 use crate::msgs::persist::{self, Retrieved};
@@ -44,7 +44,7 @@ use crate::tls13::key_schedule::{
     KeyScheduleTraffic,
 };
 use crate::tls13::{
-    Tls13CipherSuite, construct_client_verify_message, construct_server_verify_message,
+    construct_client_verify_message, construct_server_verify_message, Tls13CipherSuite,
 };
 use crate::verify::{self, DigitallySignedStruct};
 use crate::{ConnectionTrafficSecrets, KeyLog, compress, crypto};
@@ -376,16 +376,19 @@ pub(super) fn prepare_resumption(
     resuming_session: &Retrieved<&persist::Tls13ClientSessionValue>,
     exts: &mut ClientExtensions<'_>,
     doing_retry: bool,
+    profile: Option<&super::hello_profile::ClientHelloProfile>,
 ) {
     let resuming_suite = resuming_session.suite();
     cx.common.suite = Some(resuming_suite.into());
     // The EarlyData extension MUST be supplied together with the
     // PreSharedKey extension.
     let max_early_data_size = resuming_session.max_early_data_size();
-    if config.enable_early_data && max_early_data_size > 0 && !doing_retry {
-        cx.data
-            .early_data
-            .enable(max_early_data_size as usize);
+    if config.enable_early_data
+        && super::alps::early_compatible(config, profile, resuming_session.alps.as_ref())
+        && max_early_data_size > 0
+        && !doing_retry
+    {
+        cx.data.early_data.enable(max_early_data_size as usize);
         exts.early_data_request = Some(());
     }
 
@@ -507,6 +510,13 @@ impl State<ClientConnectionData> for ExpectEncryptedExtensions {
                 .as_ref()
                 .map(|protocol| protocol.as_ref()),
             self.config.check_selected_alpn,
+        )?;
+        super::alps::receive(
+            cx.common,
+            &self.config,
+            &self.hello,
+            exts,
+            self.resuming_session.as_ref().and_then(|s| s.alps.as_ref()),
         )?;
         hs::process_client_cert_type_extension(
             cx.common,
@@ -1177,10 +1187,7 @@ impl State<ClientConnectionData> for ExpectCertificateVerify<'_> {
                 &self.server_cert.ocsp_response,
                 now,
             )
-            .map_err(|err| {
-                cx.common
-                    .send_cert_verify_error_alert(err)
-            })?;
+            .map_err(|err| cx.common.send_cert_verify_error_alert(err))?;
 
         // 2. Verify their signature on the handshake.
         let handshake_hash = self.transcript.current_hash();
@@ -1192,10 +1199,7 @@ impl State<ClientConnectionData> for ExpectCertificateVerify<'_> {
                 end_entity,
                 cert_verify,
             )
-            .map_err(|err| {
-                cx.common
-                    .send_cert_verify_error_alert(err)
-            })?;
+            .map_err(|err| cx.common.send_cert_verify_error_alert(err))?;
 
         cx.common.peer_certificates = Some(self.server_cert.cert_chain.into_owned());
         self.transcript.add_message(&m);
@@ -1362,6 +1366,7 @@ impl State<ClientConnectionData> for ExpectFinished {
         }
 
         let mut flight = HandshakeFlightTls13::new(&mut st.transcript);
+        super::alps::emit(cx.common, &mut flight);
 
         /* Send our authentication/finished messages.  These are still encrypted
          * with our handshake keys. */
@@ -1436,6 +1441,7 @@ impl State<ClientConnectionData> for ExpectFinished {
         }
 
         let st = ExpectTraffic {
+            alps: cx.common.alps.clone(),
             config: st.config.clone(),
             session_storage: st.config.resumption.store.clone(),
             server_name: st.server_name,
@@ -1462,6 +1468,7 @@ impl State<ClientConnectionData> for ExpectFinished {
 // In this state we can be sent tickets, key updates,
 // and application data.
 struct ExpectTraffic {
+    alps: Option<super::alps::Negotiated>,
     config: Arc<ClientConfig>,
     session_storage: Arc<dyn ClientSessionStore>,
     server_name: ServerName<'static>,
@@ -1502,6 +1509,8 @@ impl ExpectTraffic {
                 .max_early_data_size
                 .unwrap_or_default(),
         );
+
+        value.alps = self.alps.clone();
 
         if cx.is_quic() {
             if let Some(sz) = nst.extensions.max_early_data_size {

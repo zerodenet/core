@@ -54,6 +54,20 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     TProfile: H2TransportProfile + ?Sized,
 {
+    connect_h2_with_settings(stream, h2_config, server, port, None).await
+}
+
+pub async fn connect_h2_with_settings<S, TProfile>(
+    stream: S,
+    h2_config: &TProfile,
+    server: &str,
+    port: u16,
+    settings: Option<&[u8]>,
+) -> Result<H2Stream, RuntimeError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    TProfile: H2TransportProfile + ?Sized,
+{
     let host = h2_config
         .host()
         .map(str::to_owned)
@@ -72,17 +86,23 @@ where
         .body(())
         .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 request build: {e}"))))?;
 
-    connect_h2_request(stream, request).await
+    connect_h2_request_with_settings(stream, request, settings).await
 }
 
-pub(crate) async fn connect_h2_request<S>(
+pub(crate) async fn connect_h2_request_with_settings<S>(
     stream: S,
     request: Request<()>,
+    settings: Option<&[u8]>,
 ) -> Result<H2Stream, RuntimeError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let (mut client, conn) = h2::client::handshake(stream)
+    let mut builder = h2::client::Builder::new();
+    if let Some(settings) = settings {
+        builder.peer_application_settings(settings);
+    }
+    let (mut client, conn) = builder
+        .handshake(stream)
         .await
         .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 client handshake: {e}"))))?;
 

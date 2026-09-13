@@ -59,6 +59,32 @@ pub trait Tls12AeadAlgorithm: Send + Sync + 'static {
     /// The length of `iv` is set by [`KeyBlockShape::fixed_iv_len`].
     fn decrypter(&self, key: AeadKey, iv: &[u8]) -> Box<dyn MessageDecrypter>;
 
+    /// Length of each TLS 1.2 record MAC secret (zero for AEAD suites).
+    fn mac_key_len(&self) -> usize {
+        0
+    }
+
+    /// Construct a record writer with a separate MAC secret.
+    fn encrypter_with_mac(
+        &self,
+        key: AeadKey,
+        iv: &[u8],
+        extra: &[u8],
+        _mac: &[u8],
+    ) -> Box<dyn MessageEncrypter> {
+        self.encrypter(key, iv, extra)
+    }
+
+    /// Construct a record reader with a separate MAC secret.
+    fn decrypter_with_mac(
+        &self,
+        key: AeadKey,
+        iv: &[u8],
+        _mac: &[u8],
+    ) -> Box<dyn MessageDecrypter> {
+        self.decrypter(key, iv)
+    }
+
     /// Return a `KeyBlockShape` that defines how large the `key_block` is and how it
     /// is split up prior to calling `encrypter()`, `decrypter()` and/or `extract_keys()`.
     fn key_block_shape(&self) -> KeyBlockShape;
@@ -107,7 +133,7 @@ impl std::error::Error for UnsupportedOperationError {}
 
 /// How a TLS1.2 `key_block` is partitioned.
 ///
-/// Note: ciphersuites with non-zero `mac_key_length` are  not currently supported.
+/// MAC secrets, if any, precede this shape and are sized by `mac_key_len()`.
 pub struct KeyBlockShape {
     /// How long keys are.
     ///

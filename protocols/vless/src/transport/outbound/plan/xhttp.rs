@@ -187,7 +187,7 @@ impl OwnedVlessOutboundTransportPlan {
                 .filter(|name| !name.is_empty())
                 .unwrap_or(self.server());
             let stream = pool
-                .open(profile, authority, || async {
+                .open_carrier(profile, authority, || async {
                     let raw = connector
                         .connect(self.server().to_owned(), self.port())
                         .await?;

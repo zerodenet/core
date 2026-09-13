@@ -70,7 +70,7 @@ mod read;
 mod server;
 mod stream;
 mod write;
-pub use client::{connect_grpc, connect_grpc_with_profile};
+pub use client::{connect_grpc, connect_grpc_with_profile, connect_grpc_with_settings};
 use codec::{decode_grpc_hunk, encode_grpc_hunk};
 use read::read_grpc_hunks;
 pub use server::{

@@ -31,5 +31,6 @@ mod handshake;
 mod stream;
 pub use handshake::{
     accept_xhttp_stream_one, accept_xhttp_stream_one_http1, connect_xhttp_stream_one,
-    connect_xhttp_stream_one_http1,
+    connect_xhttp_stream_one_carrier, connect_xhttp_stream_one_http1,
+    connect_xhttp_stream_one_with_settings,
 };

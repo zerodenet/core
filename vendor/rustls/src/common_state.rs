@@ -36,6 +36,7 @@ pub struct CommonState {
     pub(crate) suite: Option<SupportedCipherSuite>,
     pub(crate) kx_state: KxState,
     pub(crate) alpn_protocol: Option<ProtocolName>,
+    pub(crate) alps: Option<crate::client::alps::Negotiated>,
     pub(crate) aligned_handshake: bool,
     pub(crate) may_send_application_data: bool,
     pub(crate) may_receive_application_data: bool,
@@ -73,6 +74,7 @@ impl CommonState {
             suite: None,
             kx_state: KxState::default(),
             alpn_protocol: None,
+            alps: None,
             aligned_handshake: true,
             may_send_application_data: false,
             may_receive_application_data: false,
@@ -140,11 +142,16 @@ impl CommonState {
         self.peer_certificates.as_deref()
     }
 
-    /// Retrieves the protocol agreed with the peer via ALPN.
-    ///
-    /// A return value of `None` after handshake completion
-    /// means no protocol was agreed (because no protocols
-    /// were offered or accepted by the peer).
+    /// Authenticated peer ALPS settings. Available only after handshake completion.
+    /// `None` means ALPS was not negotiated; `Some(&[])` is a valid empty setting.
+    pub fn peer_application_settings(&self) -> Option<&[u8]> {
+        if self.is_handshaking() {
+            return None;
+        }
+        self.alps.as_ref().map(|alps| alps.peer.as_slice())
+    }
+
+    /// Get the negotiated ALPN protocol.
     pub fn alpn_protocol(&self) -> Option<&[u8]> {
         self.get_alpn_protocol()
     }

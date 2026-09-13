@@ -9,6 +9,10 @@ mod p521;
 
 pub(super) fn lookup(id: u16) -> Option<&'static dyn SupportedKxGroup> {
     match id {
+        256..=260 => rustls::crypto::aws_lc_rs::legacy::FFDHE_GROUPS
+            .iter()
+            .copied()
+            .find(|group| u16::from(group.name()) == id),
         25 => Some(&p521::P521),
         4589 => Some(&P384MlKem1024),
         _ => rustls::crypto::aws_lc_rs::ALL_KX_GROUPS

@@ -62,3 +62,78 @@ fn default_versions_and_resumption_retain_the_fingerprint() {
         assert!(versions[1..].chunks_exact(2).any(|v| v == [3, 4]));
     }
 }
+
+#[test]
+fn all_pinned_fingerprint_cipher_suites_have_real_negotiation_implementations() {
+    for preset in ztls::fingerprint::ClientHelloProfile::VERSIONED {
+        let mut profile = profile();
+        profile.client_fingerprint = Some(preset.canonical_name().into());
+        profile.options.parameters.min_version.clear();
+        let config = super::super::config::client(&profile, None, false).unwrap();
+        let mut client = rustls::ClientConnection::new(
+            std::sync::Arc::new(config),
+            "example.com".try_into().unwrap(),
+        )
+        .unwrap();
+        let mut wire = Vec::new();
+        client.write_tls(&mut wire).unwrap();
+        let (actual, _) = ztls::fingerprint::wire::parts(&wire[5..]).unwrap();
+        let (expected, _) = ztls::fingerprint::wire::preset_parts(*preset).unwrap();
+        for id in expected
+            .into_iter()
+            .filter(|id| !ztls::fingerprint::wire::is_grease(*id))
+        {
+            assert!(
+                actual.contains(&id),
+                "{} omitted cipher {id:#06x}",
+                preset.canonical_name()
+            );
+        }
+    }
+}
+
+#[test]
+fn explicit_cbc_and_rsa_keep_auto_backend_fingerprint_and_tls12() {
+    for suite in [
+        "TLS_RSA_WITH_AES_256_CBC_SHA256",
+        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+        "TLS_DHE_RSA_WITH_AES_128_CBC_SHA",
+    ] {
+        let mut profile = profile();
+        profile.options.parameters.min_version.clear();
+        profile.options.parameters.cipher_suites = vec![suite.into()];
+        assert!(!super::super::openssl::use_openssl_client(&profile).unwrap());
+        let config = super::super::config::client(&profile, None, false).unwrap();
+        assert!(config.client_hello_profile.is_some());
+        let mut client = rustls::ClientConnection::new(
+            std::sync::Arc::new(config),
+            "example.com".try_into().unwrap(),
+        )
+        .unwrap();
+        let mut wire = Vec::new();
+        client.write_tls(&mut wire).unwrap();
+        let (suites, _) = ztls::fingerprint::wire::parts(&wire[5..]).unwrap();
+        assert!(suites.contains(&ztls::settings::cipher_suite(suite).unwrap()));
+    }
+}
+
+#[test]
+fn alps_is_not_offered_for_an_unconfigured_application_protocol_or_tls12_only() {
+    for (alpn, max) in [("http/1.1", ""), ("h2", "1.2")] {
+        let mut profile = profile();
+        profile.client_fingerprint = Some("chrome".into());
+        profile.alpn = vec![alpn.into()];
+        profile.options.parameters.min_version.clear();
+        profile.options.parameters.max_version = max.into();
+        let config = super::super::config::client(&profile, None, false).unwrap();
+        let mut client = rustls::ClientConnection::new(
+            std::sync::Arc::new(config),
+            "example.com".try_into().unwrap(),
+        )
+        .unwrap();
+        let mut wire = Vec::new();
+        client.write_tls(&mut wire).unwrap();
+        let (_, extensions) = ztls::fingerprint::wire::parts(&wire[5..]).unwrap();
+        assert!(!extensions.iter().any(|(id, _)| matches!(id, 17513 | 17613)));
+    }
+}

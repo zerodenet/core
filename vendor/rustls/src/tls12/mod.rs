@@ -67,7 +67,10 @@ impl Tls12CipherSuite {
     ///
     /// This means all the constituent parts that do cryptography return `true` for `fips()`.
     pub fn fips(&self) -> bool {
-        self.common.fips() && self.prf_provider.fips() && self.aead_alg.fips()
+        self.kx != KeyExchangeAlgorithm::RSA
+            && self.common.fips()
+            && self.prf_provider.fips()
+            && self.aead_alg.fips()
     }
 }
 
@@ -137,6 +140,34 @@ impl ConnectionSecrets {
         Ok(ret)
     }
 
+    #[cfg(feature = "legacy-client")]
+    pub(crate) fn from_premaster(
+        secret: &[u8],
+        ems_seed: Option<hash::Output>,
+        randoms: ConnectionRandoms,
+        suite: &'static Tls12CipherSuite,
+    ) -> Self {
+        let mut ret = Self {
+            randoms,
+            suite,
+            master_secret: [0; 48],
+        };
+        let (label, seed) = match ems_seed {
+            Some(seed) => ("extended master secret", Seed::Ems(seed)),
+            None => (
+                "master secret",
+                Seed::Randoms(join_randoms(&ret.randoms.client, &ret.randoms.server)),
+            ),
+        };
+        suite.prf_provider.for_secret(
+            &mut ret.master_secret,
+            secret,
+            label.as_bytes(),
+            seed.as_ref(),
+        );
+        ret
+    }
+
     pub(crate) fn new_resume(
         randoms: ConnectionRandoms,
         suite: &'static Tls12CipherSuite,
@@ -156,10 +187,16 @@ impl ConnectionSecrets {
     /// and the session's `secrets`.
     pub(crate) fn make_cipher_pair(&self, side: Side) -> MessageCipherPair {
         // Make a key block, and chop it up.
-        // Note: we don't implement any ciphersuites with nonzero mac_key_len.
-        let key_block = self.make_key_block();
+        let key_block = zeroize::Zeroizing::new(self.make_key_block());
         let shape = self.suite.aead_alg.key_block_shape();
 
+        let mac_len = self.suite.aead_alg.mac_key_len();
+        let (client_mac, key_block) = key_block.split_at(mac_len);
+        let (server_mac, key_block) = key_block.split_at(mac_len);
+        let (write_mac, read_mac) = match side {
+            Side::Client => (client_mac, server_mac),
+            Side::Server => (server_mac, client_mac),
+        };
         let (client_write_key, key_block) = key_block.split_at(shape.enc_key_len);
         let (server_write_key, key_block) = key_block.split_at(shape.enc_key_len);
         let (client_write_iv, key_block) = key_block.split_at(shape.fixed_iv_len);
@@ -183,17 +220,21 @@ impl ConnectionSecrets {
         (
             self.suite
                 .aead_alg
-                .decrypter(AeadKey::new(read_key), read_iv),
-            self.suite
-                .aead_alg
-                .encrypter(AeadKey::new(write_key), write_iv, extra),
+                .decrypter_with_mac(AeadKey::new(read_key), read_iv, read_mac),
+            self.suite.aead_alg.encrypter_with_mac(
+                AeadKey::new(write_key),
+                write_iv,
+                extra,
+                write_mac,
+            ),
         )
     }
 
     fn make_key_block(&self) -> Vec<u8> {
         let shape = self.suite.aead_alg.key_block_shape();
 
-        let len = (shape.enc_key_len + shape.fixed_iv_len) * 2 + shape.explicit_nonce_len;
+        let len = (self.suite.aead_alg.mac_key_len() + shape.enc_key_len + shape.fixed_iv_len) * 2
+            + shape.explicit_nonce_len;
 
         let mut out = vec![0u8; len];
 
@@ -260,8 +301,11 @@ impl ConnectionSecrets {
     }
 
     pub(crate) fn extract_secrets(&self, side: Side) -> Result<PartiallyExtractedSecrets, Error> {
+        if self.suite.aead_alg.mac_key_len() != 0 {
+            return Err(crypto::cipher::UnsupportedOperationError.into());
+        }
         // Make a key block, and chop it up
-        let key_block = self.make_key_block();
+        let key_block = zeroize::Zeroizing::new(self.make_key_block());
         let shape = self.suite.aead_alg.key_block_shape();
 
         let (client_key, key_block) = key_block.split_at(shape.enc_key_len);

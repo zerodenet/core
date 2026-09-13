@@ -9,13 +9,12 @@ use subtle::ConstantTimeEq;
 
 use super::client_conn::ClientConnectionData;
 use super::hs::ClientContext;
-use crate::ConnectionTrafficSecrets;
 use crate::check::{inappropriate_handshake_message, inappropriate_message};
 use crate::client::common::{ClientAuthDetails, ServerCertDetails};
 use crate::client::{ClientConfig, hs};
 use crate::common_state::{CommonState, HandshakeKind, KxState, Side, State};
-use crate::conn::ConnectionRandoms;
 use crate::conn::kernel::{Direction, KernelContext, KernelState};
+use crate::conn::ConnectionRandoms;
 use crate::crypto::KeyExchangeAlgorithm;
 use crate::enums::{AlertDescription, ContentType, HandshakeType, ProtocolVersion};
 use crate::error::{Error, InvalidMessage, PeerIncompatible, PeerMisbehaved};
@@ -35,6 +34,10 @@ use crate::suites::{PartiallyExtractedSecrets, SupportedCipherSuite};
 use crate::sync::Arc;
 use crate::tls12::{self, ConnectionSecrets, Tls12CipherSuite};
 use crate::verify::{self, DigitallySignedStruct};
+use crate::ConnectionTrafficSecrets;
+
+#[cfg(feature = "legacy-client")]
+mod rsa;
 
 mod server_hello {
     use super::*;
@@ -59,6 +62,14 @@ mod server_hello {
                 .server
                 .clone_from_slice(&server_hello.random.0[..]);
 
+            if server_hello.application_settings.is_some()
+                || server_hello.application_settings_old.is_some()
+            {
+                return Err(cx.common.send_fatal_alert(
+                    AlertDescription::UnsupportedExtension,
+                    Error::General("ALPS requires TLS 1.3".into()),
+                ));
+            }
             // Look for TLS1.3 downgrade signal in server random
             // both the server random and TLS12_DOWNGRADE_SENTINEL are
             // public values and don't require constant time comparison
@@ -310,7 +321,12 @@ impl State<ClientConnectionData> for ExpectCertificateStatusOrServerKx<'_> {
     {
         match m.payload {
             MessagePayload::Handshake {
-                parsed: HandshakeMessagePayload(HandshakePayload::ServerKeyExchange(..)),
+                parsed:
+                    HandshakeMessagePayload(
+                        HandshakePayload::ServerKeyExchange(..)
+                        | HandshakePayload::ServerHelloDone
+                        | HandshakePayload::CertificateRequest(..),
+                    ),
                 ..
             } => Box::new(ExpectServerKx {
                 config: self.config,
@@ -457,6 +473,28 @@ impl State<ClientConnectionData> for ExpectServerKx<'_> {
     where
         Self: 'm,
     {
+        #[cfg(feature = "legacy-client")]
+        if self.suite.kx == KeyExchangeAlgorithm::RSA {
+            // RSA carries no signed ServerKeyExchange. Finished authenticates
+            // possession of the private key from the verified certificate.
+            return Box::new(ExpectServerDoneOrCertReq {
+                config: self.config,
+                resuming_session: self.resuming_session,
+                session_id: self.session_id,
+                server_name: self.server_name,
+                randoms: self.randoms,
+                using_ems: self.using_ems,
+                transcript: self.transcript,
+                suite: self.suite,
+                server_cert: self.server_cert,
+                server_kx: ServerKxDetails {
+                    kx_params: Vec::new(),
+                    kx_sig: None,
+                },
+                must_issue_new_ticket: self.must_issue_new_ticket,
+            })
+            .handle(cx, m);
+        }
         let opaque_kx = require_handshake_msg!(
             m,
             HandshakeType::ServerKeyExchange,
@@ -548,9 +586,11 @@ fn emit_client_kx(
         KeyExchangeAlgorithm::ECDHE => ClientKeyExchangeParams::Ecdh(ClientEcdhParams {
             public: PayloadU8::new(pub_key.to_vec()),
         }),
-        KeyExchangeAlgorithm::DHE => ClientKeyExchangeParams::Dh(ClientDhParams {
-            public: PayloadU16::new(pub_key.to_vec()),
-        }),
+        KeyExchangeAlgorithm::DHE | KeyExchangeAlgorithm::RSA => {
+            ClientKeyExchangeParams::Dh(ClientDhParams {
+                public: PayloadU16::new(pub_key.to_vec()),
+            })
+        }
     }
     .encode(&mut buf);
     let pubkey = Payload::new(buf);
@@ -622,14 +662,14 @@ fn emit_finished(
 
 struct ServerKxDetails {
     kx_params: Vec<u8>,
-    kx_sig: DigitallySignedStruct,
+    kx_sig: Option<DigitallySignedStruct>,
 }
 
 impl ServerKxDetails {
     fn new(params: Vec<u8>, sig: DigitallySignedStruct) -> Self {
         Self {
             kx_params: params,
-            kx_sig: sig,
+            kx_sig: Some(sig),
         }
     }
 }
@@ -880,22 +920,18 @@ impl State<ClientConnectionData> for ExpectServerDone<'_> {
                 &st.server_cert.ocsp_response,
                 now,
             )
-            .map_err(|err| {
-                cx.common
-                    .send_cert_verify_error_alert(err)
-            })?;
+            .map_err(|err| cx.common.send_cert_verify_error_alert(err))?;
 
         // 2.
         // Build up the contents of the signed message.
         // It's ClientHello.random || ServerHello.random || ServerKeyExchange.params
-        let sig_verified = {
+        let sig_verified = if let Some(sig) = &st.server_kx.kx_sig {
             let mut message = Vec::new();
             message.extend_from_slice(&st.randoms.client);
             message.extend_from_slice(&st.randoms.server);
             message.extend_from_slice(&st.server_kx.kx_params);
 
             // Check the signature is compatible with the ciphersuite.
-            let sig = &st.server_kx.kx_sig;
             if !SupportedCipherSuite::from(suite)
                 .usable_for_signature_algorithm(sig.scheme.algorithm())
             {
@@ -910,10 +946,17 @@ impl State<ClientConnectionData> for ExpectServerDone<'_> {
             st.config
                 .verifier
                 .verify_tls12_signature(&message, end_entity, sig)
-                .map_err(|err| {
-                    cx.common
-                        .send_cert_verify_error_alert(err)
-                })?
+                .map_err(|err| cx.common.send_cert_verify_error_alert(err))?
+        } else {
+            // Only the static-RSA state above can omit SKE. Certificate
+            // validation is mandatory; Finished supplies proof of key possession.
+            verify::HandshakeSignatureValid::assertion()
+        };
+        #[cfg(feature = "legacy-client")]
+        let rsa = if st.suite.kx == KeyExchangeAlgorithm::RSA {
+            Some(rsa::prepare(end_entity, st.config.provider.secure_random)?)
+        } else {
+            None
         };
         cx.common.peer_certificates = Some(st.server_cert.cert_chain.into_owned());
 
@@ -926,64 +969,81 @@ impl State<ClientConnectionData> for ExpectServerDone<'_> {
             emit_certificate(&mut st.transcript, certs, cx.common);
         }
 
-        // 4a.
-        let kx_params = tls12::decode_kx_params::<ServerKeyExchangeParams>(
-            st.suite.kx,
-            cx.common,
-            &st.server_kx.kx_params,
-        )?;
-        let maybe_skxg = match &kx_params {
-            ServerKeyExchangeParams::Ecdh(ecdh) => st
-                .config
-                .find_kx_group(ecdh.curve_params.named_group, ProtocolVersion::TLSv1_2),
-            ServerKeyExchangeParams::Dh(dh) => {
-                let ffdhe_group = dh.as_ffdhe_group();
-
-                st.config
-                    .provider
-                    .kx_groups
-                    .iter()
-                    .find(|kxg| kxg.ffdhe_group() == Some(ffdhe_group))
-                    .copied()
-            }
-        };
-        let Some(skxg) = maybe_skxg else {
-            return Err(cx.common.send_fatal_alert(
-                AlertDescription::IllegalParameter,
-                PeerMisbehaved::SelectedUnofferedKxGroup,
-            ));
-        };
-        cx.common.kx_state = KxState::Start(skxg);
-        let kx = skxg.start()?;
-
-        // 4b.
         let mut transcript = st.transcript;
-        emit_client_kx(&mut transcript, st.suite.kx, cx.common, kx.pub_key());
-        // Note: EMS handshake hash only runs up to ClientKeyExchange.
-        let ems_seed = st
-            .using_ems
-            .then(|| transcript.current_hash());
+        #[cfg(feature = "legacy-client")]
+        let rsa_secrets = if let Some(rsa) = rsa {
+            emit_client_kx(
+                &mut transcript,
+                KeyExchangeAlgorithm::RSA,
+                cx.common,
+                &rsa.encrypted,
+            );
+            let ems_seed = st.using_ems.then(|| transcript.current_hash());
+            Some(ConnectionSecrets::from_premaster(
+                &*rsa.premaster,
+                ems_seed,
+                ConnectionRandoms {
+                    client: st.randoms.client,
+                    server: st.randoms.server,
+                },
+                suite,
+            ))
+        } else {
+            None
+        };
+        #[cfg(not(feature = "legacy-client"))]
+        let rsa_secrets: Option<ConnectionSecrets> = None;
+        let secrets = if let Some(secrets) = rsa_secrets {
+            secrets
+        } else {
+            let kx_params = tls12::decode_kx_params::<ServerKeyExchangeParams>(
+                st.suite.kx,
+                cx.common,
+                &st.server_kx.kx_params,
+            )?;
+            let maybe_skxg = match &kx_params {
+                ServerKeyExchangeParams::Ecdh(ecdh) => st
+                    .config
+                    .find_kx_group(ecdh.curve_params.named_group, ProtocolVersion::TLSv1_2),
+                ServerKeyExchangeParams::Dh(dh) => {
+                    let ffdhe_group = dh.as_ffdhe_group();
 
-        // 4c.
+                    st.config
+                        .provider
+                        .kx_groups
+                        .iter()
+                        .find(|kxg| kxg.ffdhe_group() == Some(ffdhe_group))
+                        .copied()
+                }
+            };
+            let Some(skxg) = maybe_skxg else {
+                return Err(cx.common.send_fatal_alert(
+                    AlertDescription::IllegalParameter,
+                    PeerMisbehaved::SelectedUnofferedKxGroup,
+                ));
+            };
+            cx.common.kx_state = KxState::Start(skxg);
+            let kx = skxg.start()?;
+
+            emit_client_kx(&mut transcript, st.suite.kx, cx.common, kx.pub_key());
+            let ems_seed = st.using_ems.then(|| transcript.current_hash());
+            let secrets = ConnectionSecrets::from_key_exchange(
+                kx,
+                kx_params.pub_key(),
+                ems_seed,
+                st.randoms,
+                suite,
+            )
+            .map_err(|err| {
+                cx.common
+                    .send_fatal_alert(AlertDescription::IllegalParameter, err)
+            })?;
+            cx.common.kx_state.complete();
+            secrets
+        };
         if let Some(ClientAuthDetails::Verify { signer, .. }) = &st.client_auth {
             emit_certverify(&mut transcript, signer.as_ref(), cx.common)?;
         }
-
-        // 4d. Derive secrets.
-        // An alert at this point will be sent in plaintext.  That must happen
-        // prior to the CCS, or else the peer will try to decrypt it.
-        let secrets = ConnectionSecrets::from_key_exchange(
-            kx,
-            kx_params.pub_key(),
-            ems_seed,
-            st.randoms,
-            suite,
-        )
-        .map_err(|err| {
-            cx.common
-                .send_fatal_alert(AlertDescription::IllegalParameter, err)
-        })?;
-        cx.common.kx_state.complete();
 
         // 4e. CCS. We are definitely going to switch on encryption.
         emit_ccs(cx.common);

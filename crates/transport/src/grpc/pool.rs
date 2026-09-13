@@ -23,6 +23,29 @@ impl GrpcPool {
         self.0.retired.store(true, Ordering::Release);
         self.0.cached.lock().unwrap().take();
     }
+    /// Open a TLS-aware carrier, preserving its authenticated application settings.
+    pub async fn open_carrier<F, Fut>(
+        &self,
+        profile: &OwnedGrpcProfile,
+        authority: &str,
+        open: F,
+    ) -> Result<GrpcStream, RuntimeError>
+    where
+        F: FnOnce() -> Fut,
+        Fut:
+            std::future::Future<Output = Result<zero_platform_tokio::TcpRelayStream, RuntimeError>>,
+    {
+        self.open_with_settings(profile, authority, || async move {
+            let stream = open().await?;
+            let settings = stream
+                .application_settings()
+                .filter(|s| s.protocol == b"h2")
+                .map(|s| s.peer.clone());
+            Ok((stream, settings))
+        })
+        .await
+    }
+
     pub async fn open<S, F, Fut>(
         &self,
         profile: &OwnedGrpcProfile,
@@ -33,6 +56,23 @@ impl GrpcPool {
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<S, RuntimeError>>,
+    {
+        self.open_with_settings(profile, authority, || async move {
+            open().await.map(|stream| (stream, None))
+        })
+        .await
+    }
+
+    pub async fn open_with_settings<S, F, Fut>(
+        &self,
+        profile: &OwnedGrpcProfile,
+        authority: &str,
+        open: F,
+    ) -> Result<GrpcStream, RuntimeError>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<(S, Option<Vec<u8>>), RuntimeError>>,
     {
         super::options::request(profile, authority)?;
         let cached = self.0.cached.lock().unwrap().clone();
@@ -62,7 +102,10 @@ impl GrpcPool {
                 cached.take();
             }
         }
-        let client = Arc::new(Client::new(open().await?, profile.clone()).await?);
+        let (stream, settings) = open().await?;
+        let client = Arc::new(
+            Client::new_with_settings(stream, profile.clone(), settings.as_deref()).await?,
+        );
         if !self.0.retired.load(Ordering::Acquire) {
             let mut cached = self.0.cached.lock().unwrap();
             if !self.0.retired.load(Ordering::Acquire) {

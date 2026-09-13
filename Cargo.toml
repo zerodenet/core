@@ -72,7 +72,7 @@ members = [
     "crates/tun",
     "crates/stack",
 ]
-exclude = ["vendor/quinn-proto", "vendor/h3-quinn", "vendor/blake3"]
+exclude = ["vendor/quinn-proto", "vendor/h3-quinn", "vendor/blake3", "vendor/h2", "vendor/hyper"]
 resolver = "2"
 
 [workspace.package]
@@ -99,7 +99,7 @@ tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
-rustls = { version = "=0.23.40", default-features = false, features = ["aws_lc_rs", "ring", "std", "tls12", "logging"] }
+rustls = { version = "=0.23.40", default-features = false, features = ["aws_lc_rs", "ring", "std", "tls12", "logging", "legacy-client"] }
 
 [build-dependencies]
 time = { version = "0.3", features = ["formatting", "macros"] }
@@ -133,6 +133,8 @@ zero-core = { path = "crates/core" }
 zero-platform-tokio = { path = "crates/platform/tokio" }
 
 [patch.crates-io]
+h2 = { path = "vendor/h2" }
+hyper = { path = "vendor/hyper" }
 rustls = { path = "vendor/rustls" }
 openssl-sys = { path = "vendor/openssl-sys-0.9.117-openssl4" }
 blake3 = { path = "vendor/blake3" }

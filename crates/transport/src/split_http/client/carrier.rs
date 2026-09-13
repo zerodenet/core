@@ -60,16 +60,25 @@ impl Sender {
         }
     }
 }
-pub(super) async fn open<S>(socket: S, h2: bool, stream: &mut XhttpStream) -> io::Result<Sender>
+pub(super) async fn open_with_settings<S>(
+    socket: S,
+    h2: bool,
+    stream: &mut XhttpStream,
+    settings: Option<&[u8]>,
+) -> io::Result<Sender>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let state = stream.life.clone();
     if h2 {
-        let (sender, driver) =
-            hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(socket))
-                .await
-                .map_err(io::Error::other)?;
+        let mut builder = hyper::client::conn::http2::Builder::new(TokioExecutor::new());
+        if let Some(settings) = settings {
+            builder.peer_application_settings(settings);
+        }
+        let (sender, driver) = builder
+            .handshake(TokioIo::new(socket))
+            .await
+            .map_err(io::Error::other)?;
         stream.tasks.push(
             tokio::spawn(async move {
                 tokio::select! {

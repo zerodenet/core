@@ -70,15 +70,21 @@ impl Connections {
                 } else {
                     None
                 };
-                let (sender, driver) =
-                    hyper::client::conn::http2::Builder::new(TokioExecutor::new())
-                        .timer(TokioTimer::new())
-                        .keep_alive_interval(period)
-                        .keep_alive_timeout(Duration::from_secs(15))
-                        .keep_alive_while_idle(true)
-                        .handshake::<_, Body>(TokioIo::new(stream))
-                        .await
-                        .map_err(io::Error::other)?;
+                let mut builder = hyper::client::conn::http2::Builder::new(TokioExecutor::new());
+                if let Some(settings) = stream
+                    .application_settings()
+                    .filter(|s| s.protocol == b"h2")
+                {
+                    builder.peer_application_settings(&settings.peer);
+                }
+                let (sender, driver) = builder
+                    .timer(TokioTimer::new())
+                    .keep_alive_interval(period)
+                    .keep_alive_timeout(Duration::from_secs(15))
+                    .keep_alive_while_idle(true)
+                    .handshake::<_, Body>(TokioIo::new(stream))
+                    .await
+                    .map_err(io::Error::other)?;
                 (
                     carrier::Sender::Http2(sender),
                     tokio::spawn(async move {

@@ -71,6 +71,7 @@ impl<T> core::ops::Deref for Retrieved<T> {
 
 #[derive(Debug)]
 pub struct Tls13ClientSessionValue {
+    pub(crate) alps: Option<crate::client::alps::Negotiated>,
     suite: &'static Tls13CipherSuite,
     age_add: u32,
     max_early_data_size: u32,
@@ -105,6 +106,7 @@ impl Tls13ClientSessionValue {
                 client_creds,
             ),
             quic_params: PayloadU16::new(Vec::new()),
+            alps: None,
         }
     }
 

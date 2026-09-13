@@ -56,6 +56,13 @@ pub(super) fn install(
     if preset == Preset::RandomizedNoAlpn {
         config.alpn_protocols.clear();
     }
+    if config.alpn_protocols.iter().any(|p| p == b"h2") {
+        // Empty HTTP/2 ALPS means default settings. The connection preface
+        // subsequently sends the carrier's configured SETTINGS normally.
+        config
+            .application_settings
+            .insert(b"h2".to_vec(), Vec::new());
+    }
     config.cert_decompressors = ztls::certificate::compression::RUSTLS_DECOMPRESSORS.to_vec();
     config.client_hello_profile = Some(Arc::new(Presentation {
         preset,
@@ -74,7 +81,8 @@ pub(super) fn configure_provider(
     preset: Preset,
 ) -> io::Result<()> {
     let (suites, extensions) = wire::preset_parts(preset)?;
-    let available = rustls::crypto::aws_lc_rs::default_provider().cipher_suites;
+    let mut available = rustls::crypto::aws_lc_rs::default_provider().cipher_suites;
+    available.extend_from_slice(rustls::crypto::aws_lc_rs::legacy::CIPHER_SUITES);
     provider.cipher_suites = suites
         .iter()
         .filter_map(|id| {

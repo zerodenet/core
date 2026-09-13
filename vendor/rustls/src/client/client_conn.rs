@@ -170,6 +170,10 @@ pub struct ClientConfig {
     /// If empty, no ALPN extension is sent.
     pub alpn_protocols: Vec<Vec<u8>>,
 
+    /// Local ALPS settings indexed by ALPN. Only protocols present in the
+    /// ClientHello profile's ALPS offer can negotiate these settings.
+    pub application_settings: alloc::collections::BTreeMap<Vec<u8>, Vec<u8>>,
+
     /// Whether to check the selected ALPN was offered.
     ///
     /// The default is true.

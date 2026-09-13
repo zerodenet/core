@@ -102,14 +102,14 @@ pub static TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
         prf_provider: &Tls12Prf(&tls_prf::P_SHA384),
     });
 
-static TLS12_ECDSA_SCHEMES: &[SignatureScheme] = &[
+pub(super) static TLS12_ECDSA_SCHEMES: &[SignatureScheme] = &[
     SignatureScheme::ED25519,
     SignatureScheme::ECDSA_NISTP521_SHA512,
     SignatureScheme::ECDSA_NISTP384_SHA384,
     SignatureScheme::ECDSA_NISTP256_SHA256,
 ];
 
-static TLS12_RSA_SCHEMES: &[SignatureScheme] = &[
+pub(super) static TLS12_RSA_SCHEMES: &[SignatureScheme] = &[
     SignatureScheme::RSA_PSS_SHA512,
     SignatureScheme::RSA_PSS_SHA384,
     SignatureScheme::RSA_PSS_SHA256,
@@ -425,7 +425,7 @@ fn gcm_iv(write_iv: &[u8], explicit: &[u8]) -> Iv {
     Iv::new(iv)
 }
 
-struct Tls12Prf(&'static tls_prf::Algorithm);
+pub(super) struct Tls12Prf(pub(super) &'static tls_prf::Algorithm);
 
 impl Prf for Tls12Prf {
     fn for_secret(&self, output: &mut [u8], secret: &[u8], label: &[u8], seed: &[u8]) {

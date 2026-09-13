@@ -32,6 +32,7 @@ pub(super) fn apply(
     profile: &ClientHelloProfile,
     retry_group: bool,
     managed_ech: bool,
+    settings: &alloc::collections::BTreeMap<Vec<u8>, Vec<u8>>,
 ) -> Result<(), Error> {
     let mut bytes = Vec::new();
     for (id, body) in &profile.extensions {
@@ -170,5 +171,38 @@ pub(super) fn apply(
         .wire_extra
         .iter()
         .any(|(id, _)| matches!(id, 0 | 16 | 35 | 41 | 42 | 44 | 51 | 65037)));
+    let alpn = hello.protocols.clone();
+    let tls13 = hello.supported_versions.as_ref().is_some_and(|v| v.tls13);
+    hello.wire_extra.retain_mut(|(id, body)| {
+        if !matches!(*id, 17513 | 17613) {
+            return true;
+        }
+        if !tls13 {
+            return false;
+        }
+        let Some(protocols) = super::alps::protocols(body) else {
+            return false;
+        };
+        let offered: Vec<_> = protocols
+            .into_iter()
+            .filter(|p| {
+                settings.contains_key(*p)
+                    && alpn
+                        .as_ref()
+                        .is_some_and(|list| list.iter().any(|v| v.as_ref() == *p))
+            })
+            .collect();
+        if offered.is_empty() {
+            return false;
+        }
+        let mut encoded = Vec::new();
+        for p in offered {
+            encoded.push(p.len() as u8);
+            encoded.extend_from_slice(p);
+        }
+        *body = (encoded.len() as u16).to_be_bytes().to_vec();
+        body.extend_from_slice(&encoded);
+        true
+    });
     Ok(())
 }

@@ -9,7 +9,11 @@ pub(super) struct Client {
     active: Arc<AtomicUsize>,
 }
 impl Client {
-    pub async fn new<S>(stream: S, profile: OwnedGrpcProfile) -> Result<Self, RuntimeError>
+    pub async fn new_with_settings<S>(
+        stream: S,
+        profile: OwnedGrpcProfile,
+        settings: Option<&[u8]>,
+    ) -> Result<Self, RuntimeError>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
@@ -19,6 +23,9 @@ impl Client {
             activity: activity.clone(),
         };
         let mut builder = h2::client::Builder::new();
+        if let Some(settings) = settings {
+            builder.peer_application_settings(settings);
+        }
         if profile.initial_window_size > 65535 {
             builder.initial_window_size(profile.initial_window_size.min(0x7fff_ffff));
         }
@@ -78,8 +85,20 @@ pub async fn connect_grpc_with_profile<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    connect_grpc_with_settings(stream, profile, authority, None).await
+}
+
+pub async fn connect_grpc_with_settings<S>(
+    stream: S,
+    profile: &(impl GrpcTransportProfile + ?Sized),
+    authority: &str,
+    settings: Option<&[u8]>,
+) -> Result<GrpcStream, RuntimeError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let profile = OwnedGrpcProfile::from_profile(profile);
-    Client::new(stream, profile.clone())
+    Client::new_with_settings(stream, profile.clone(), settings)
         .await?
         .open(&profile, authority)
         .await

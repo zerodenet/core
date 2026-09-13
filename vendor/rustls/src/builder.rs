@@ -240,10 +240,11 @@ impl<S: ConfigSide> ConfigBuilder<S, WantsVersions> {
 
         for cs in self.provider.cipher_suites.iter() {
             let cs_kx = cs.key_exchange_algorithms();
-            if cs_kx
-                .iter()
-                .any(|kx| supported_kx_algos.contains(kx))
-            {
+            #[cfg(feature = "legacy-client")]
+            if cs_kx == [crate::crypto::KeyExchangeAlgorithm::RSA] {
+                continue;
+            }
+            if cs_kx.iter().any(|kx| supported_kx_algos.contains(kx)) {
                 continue;
             }
             let suite_name = cs.common().suite;

@@ -154,6 +154,10 @@ impl<S> ClientStream for RecordingStream<S>
 where
     S: ClientStream + Send + Sync,
 {
+    fn application_settings(&self) -> Option<&zero_platform_tokio::ApplicationSettings> {
+        self.inner.application_settings()
+    }
+
     fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()
     }
@@ -197,6 +201,10 @@ impl<S> ClientStream for ReplayStream<S>
 where
     S: ClientStream + Send + Sync,
 {
+    fn application_settings(&self) -> Option<&zero_platform_tokio::ApplicationSettings> {
+        self.inner.application_settings()
+    }
+
     fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()
     }

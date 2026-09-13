@@ -17,7 +17,7 @@ pub(crate) fn use_openssl_client(profile: &(impl ClientTlsProfile + ?Sized)) -> 
     let options = profile.tls_options();
     let ech = options.ech.source().map_err(io::Error::other)?.is_some();
     let required =
-        ztls::settings::needs_openssl_parameters(&options.parameters).map_err(io::Error::other)?;
+        ztls::settings::uses_legacy_versions(&options.parameters).map_err(io::Error::other)?;
     match options.backend {
         TlsBackend::Auto => Ok(!ech && required),
         TlsBackend::Rustls => Ok(false),

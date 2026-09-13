@@ -522,3 +522,6 @@ async fn fingerprint_negotiates_tls12_and_tls13_with_opt_in_resumption() {
         }
     }
 }
+
+#[path = "tls_options/legacy.rs"]
+mod legacy;

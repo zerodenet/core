@@ -1202,6 +1202,12 @@ extension_struct! {
         ExtensionType::ALProtocolNegotiation =>
             pub(crate) selected_protocol: Option<SingleProtocolName>,
 
+        /// ALPS settings (both codepoints used by browser profiles).
+        ExtensionType::ApplicationSettingsOld =>
+            pub(crate) application_settings_old: Option<Payload<'a>>,
+        ExtensionType::ApplicationSettings =>
+            pub(crate) application_settings: Option<Payload<'a>>,
+
         /// Key exchange server share (RFC8446)
         ExtensionType::KeyShare =>
             pub(crate) key_share: Option<KeyShareEntry>,
@@ -1258,6 +1264,8 @@ impl ServerExtensions<'_> {
             session_ticket_ack,
             renegotiation_info,
             selected_protocol,
+            application_settings,
+            application_settings_old,
             key_share,
             preshared_key,
             client_certificate_type,
@@ -1277,6 +1285,8 @@ impl ServerExtensions<'_> {
             session_ticket_ack,
             renegotiation_info,
             selected_protocol,
+            application_settings: application_settings.map(|p| p.into_owned()),
+            application_settings_old: application_settings_old.map(|p| p.into_owned()),
             key_share,
             preshared_key,
             client_certificate_type,
@@ -1872,6 +1882,8 @@ pub enum KeyExchangeAlgorithm {
     DHE,
     /// Key exchange performed via elliptic curve Diffie-Hellman.
     ECDHE,
+    /// Static RSA encryption of the premaster secret (opt-in TLS 1.2 client).
+    RSA,
 }
 
 pub(crate) static ALL_KEY_EXCHANGE_ALGORITHMS: &[KeyExchangeAlgorithm] =
@@ -1943,7 +1955,7 @@ impl KxDecode<'_> for ClientKeyExchangeParams {
         use KeyExchangeAlgorithm::*;
         Ok(match algo {
             ECDHE => Self::Ecdh(ClientEcdhParams::read(r)?),
-            DHE => Self::Dh(ClientDhParams::read(r)?),
+            DHE | RSA => Self::Dh(ClientDhParams::read(r)?),
         })
     }
 }
@@ -2084,6 +2096,7 @@ impl ServerKeyExchangeParams {
         match kx.group().key_exchange_algorithm() {
             KeyExchangeAlgorithm::DHE => Self::Dh(ServerDhParams::new(kx)),
             KeyExchangeAlgorithm::ECDHE => Self::Ecdh(ServerEcdhParams::new(kx)),
+            KeyExchangeAlgorithm::RSA => unreachable!("static RSA has no ServerKeyExchange"),
         }
     }
 
@@ -2110,6 +2123,7 @@ impl KxDecode<'_> for ServerKeyExchangeParams {
         Ok(match algo {
             ECDHE => Self::Ecdh(ServerEcdhParams::read(r)?),
             DHE => Self::Dh(ServerDhParams::read(r)?),
+            RSA => return Err(InvalidMessage::MissingKeyExchange),
         })
     }
 }

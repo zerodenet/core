@@ -587,6 +587,7 @@ pub mod client {
     pub(super) mod handy;
     mod hs;
     pub mod hello_profile;
+    pub(crate) mod alps;
     #[cfg(test)]
     mod test;
     #[cfg(feature = "tls12")]

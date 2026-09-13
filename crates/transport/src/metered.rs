@@ -79,6 +79,10 @@ impl<S> ClientStream for MeteredStream<S>
 where
     S: ClientStream,
 {
+    fn application_settings(&self) -> Option<&zero_platform_tokio::ApplicationSettings> {
+        self.inner.application_settings()
+    }
+
     fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
         self.inner.local_addr()
     }

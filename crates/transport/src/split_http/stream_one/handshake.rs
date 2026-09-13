@@ -1,7 +1,31 @@
 use super::*;
+/// Connect over a carrier while retaining authenticated HTTP/2 ALPS settings.
+pub async fn connect_xhttp_stream_one_carrier<P: SplitHttpTransportProfile + ?Sized>(
+    stream: zero_platform_tokio::TcpRelayStream,
+    config: &P,
+) -> Result<crate::h2::H2Stream, RuntimeError> {
+    let settings = stream
+        .application_settings()
+        .filter(|s| s.protocol == b"h2")
+        .map(|s| s.peer.clone());
+    connect_xhttp_stream_one_with_settings(stream, config, settings.as_deref()).await
+}
+
 pub async fn connect_xhttp_stream_one<S, TProfile>(
     stream: S,
     config: &TProfile,
+) -> Result<crate::h2::H2Stream, RuntimeError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    TProfile: SplitHttpTransportProfile + ?Sized,
+{
+    connect_xhttp_stream_one_with_settings(stream, config, None).await
+}
+
+pub async fn connect_xhttp_stream_one_with_settings<S, TProfile>(
+    stream: S,
+    config: &TProfile,
+    settings: Option<&[u8]>,
 ) -> Result<crate::h2::H2Stream, RuntimeError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -16,7 +40,7 @@ where
             super::super::body::Body::empty(),
         )?
         .map(|_| ());
-    crate::h2::connect_h2_request(stream, request).await
+    crate::h2::connect_h2_request_with_settings(stream, request, settings).await
 }
 
 pub async fn connect_xhttp_stream_one_http1<S, TProfile>(

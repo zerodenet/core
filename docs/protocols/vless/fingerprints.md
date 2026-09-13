@@ -135,14 +135,27 @@ existing complete-policy cache is retained for resumption and is still opt-in.
 The existing CA, pin, alternative-name and disabled-SNI policies remain in use.
 Certificate compression reuses bounded zlib/Brotli/Zstd implementations.
 
-This is complete ClientHello presentation plumbing, not a claim of identical
-browser negotiation for unsupported algorithms: rustls-unavailable CBC and RSA
-key-exchange cipher suites are omitted. Static SCT/ALPS offers are inherited
-from the catalog; HTTP/2 ALPS application-settings consumption is not added by
-this patch. Legacy TLS-1.2-only presets, old Kyber, explicit OpenSSL presentation
-and QUIC browser emulation remain separate gaps.
+The ordinary client now has implementations for every cipher ID in the pinned
+capture catalog, including AES-CBC with SHA1/SHA256/SHA384, static RSA with CBC
+or GCM, DHE-RSA CBC and the historical 3DES suites. Default non-fingerprint
+providers retain their existing suites. Explicit client suite configuration
+selects the same implementation instead of losing presentation through an
+OpenSSL fallback. TLS 1.0/1.1 still use the explicit legacy backend.
+
+Both ALPS codepoints negotiate local settings for the selected ALPN. Settings
+are authenticated by the TLS 1.3 transcript, including the client's additional
+EncryptedExtensions before Finished. The implementation saves them with PSK
+tickets and checks compatibility before early-data reuse. Direct and relay TLS
+carriers preserve authenticated settings for H2, gRPC and XHTTP/HTTP2; h2 applies
+peer settings before opening streams and sends no ACK for the ALPS exchange.
+Normal on-wire SETTINGS retain their acknowledgement and update semantics.
+
+This closes the CBC/RSA and ALPS implementation gaps in the ordinary client.
+It does not change the separate old-Kyber, explicit-OpenSSL-presentation or QUIC
+browser-emulation scope, or establish browser-equivalence by packet capture.
 
 New regression sources cover TLS 1.2/1.3 negotiation, session resumption,
-configuration policies and combined ECH+PSK. Tests were not executed at the
+configuration policies, CBC/RSA full and resumed sessions, ALPS/H2 handling and
+combined ECH+PSK. Tests were not executed at the
 user's request. Earlier interoperability evidence does not validate this patch.
 See `vendor/rustls/ZERO-PATCH.md` for the exact source baseline and patch surface.

@@ -15,6 +15,30 @@ use std::{io, sync::Arc, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use zero_traits::SplitHttpTransportProfile;
 
+/// Connect both HTTP carriers with their independently negotiated ALPS settings.
+pub async fn connect_split_http_carriers<P: SplitHttpTransportProfile + ?Sized>(
+    post: zero_platform_tokio::TcpRelayStream,
+    get: zero_platform_tokio::TcpRelayStream,
+    config: &P,
+) -> Result<XhttpStream, crate::RuntimeError> {
+    let post_settings = post
+        .application_settings()
+        .filter(|s| s.protocol == b"h2")
+        .map(|s| s.peer.clone());
+    let get_settings = get
+        .application_settings()
+        .filter(|s| s.protocol == b"h2")
+        .map(|s| s.peer.clone());
+    connect_with_settings(
+        post,
+        get,
+        config,
+        post_settings.as_deref(),
+        get_settings.as_deref(),
+    )
+    .await
+}
+
 pub async fn connect_split_http<S, P>(
     post: S,
     get: S,
@@ -24,11 +48,25 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     P: SplitHttpTransportProfile + ?Sized,
 {
+    connect_with_settings(post, get, config, None, None).await
+}
+
+async fn connect_with_settings<S, P>(
+    post: S,
+    get: S,
+    config: &P,
+    post_settings: Option<&[u8]>,
+    get_settings: Option<&[u8]>,
+) -> Result<XhttpStream, crate::RuntimeError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    P: SplitHttpTransportProfile + ?Sized,
+{
     let profile = Profile::new(config);
     let (mut stream, network) = stream_pair();
     let http2 = profile.mode == XhttpMode::StreamUp;
-    let upload = carrier::open(post, http2, &mut stream).await?;
-    let download = carrier::open(get, http2, &mut stream).await?;
+    let upload = carrier::open_with_settings(post, http2, &mut stream, post_settings).await?;
+    let download = carrier::open_with_settings(get, http2, &mut stream, get_settings).await?;
     connect_channels(upload, download, stream, network, profile).await
 }
 pub(super) fn stream_pair() -> (XhttpStream, tokio::io::DuplexStream) {

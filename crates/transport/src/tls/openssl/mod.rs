@@ -52,6 +52,21 @@ fn openssl_cipher_name(name: &str) -> Option<&'static str> {
         "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA" => "ECDHE-ECDSA-AES256-SHA",
         "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA" => "ECDHE-RSA-AES128-SHA",
         "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA" => "ECDHE-RSA-AES256-SHA",
+        "TLS_RSA_WITH_3DES_EDE_CBC_SHA" => "DES-CBC3-SHA",
+        "TLS_RSA_WITH_AES_128_CBC_SHA" => "AES128-SHA",
+        "TLS_RSA_WITH_AES_256_CBC_SHA" => "AES256-SHA",
+        "TLS_RSA_WITH_AES_128_CBC_SHA256" => "AES128-SHA256",
+        "TLS_RSA_WITH_AES_256_CBC_SHA256" => "AES256-SHA256",
+        "TLS_RSA_WITH_AES_128_GCM_SHA256" => "AES128-GCM-SHA256",
+        "TLS_RSA_WITH_AES_256_GCM_SHA384" => "AES256-GCM-SHA384",
+        "TLS_DHE_RSA_WITH_AES_128_CBC_SHA" => "DHE-RSA-AES128-SHA",
+        "TLS_DHE_RSA_WITH_AES_256_CBC_SHA" => "DHE-RSA-AES256-SHA",
+        "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA" => "ECDHE-ECDSA-DES-CBC3-SHA",
+        "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA" => "ECDHE-RSA-DES-CBC3-SHA",
+        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256" => "ECDHE-ECDSA-AES128-SHA256",
+        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384" => "ECDHE-ECDSA-AES256-SHA384",
+        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256" => "ECDHE-RSA-AES128-SHA256",
+        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384" => "ECDHE-RSA-AES256-SHA384",
         _ => return None,
     })
 }
@@ -65,6 +80,10 @@ fn openssl_group_name(name: &str) -> Option<&'static str> {
         "X25519MLKEM768" | "x25519mlkem768" => "X25519MLKEM768",
         "SecP256r1MLKEM768" | "secp256r1mlkem768" => "SecP256r1MLKEM768",
         "SecP384r1MLKEM1024" | "secp384r1mlkem1024" => "SecP384r1MLKEM1024",
+        "FFDHE2048" | "ffdhe2048" => "ffdhe2048",
+        "FFDHE3072" | "ffdhe3072" => "ffdhe3072",
+        "FFDHE4096" | "ffdhe4096" => "ffdhe4096",
+        "FFDHE8192" | "ffdhe8192" => "ffdhe8192",
         _ => return None,
     })
 }

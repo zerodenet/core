@@ -533,10 +533,21 @@ fn socket_addr_from_ip(ip: IpAddress, port: u16) -> SocketAddr {
 
 // ── ClientStream & TcpRelayStream ──
 
-/// A bidirectional client stream that can report its local address.
+/// Authenticated application settings negotiated by a carrier handshake.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApplicationSettings {
+    pub protocol: Vec<u8>,
+    pub peer: Vec<u8>,
+}
+
+/// A bidirectional client stream with address and authenticated carrier metadata.
 pub trait ClientStream:
     AsyncSocket<Error = io::Error> + AsyncRead + AsyncWrite + Send + Sync + Unpin
 {
+    fn application_settings(&self) -> Option<&ApplicationSettings> {
+        None
+    }
+
     fn local_addr(&self) -> io::Result<SocketAddr> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
@@ -570,6 +581,7 @@ impl ClientStream for TokioSocket {
 /// from the same function.
 pub struct TcpRelayStream {
     inner: Box<dyn RelayIo>,
+    application_settings: Option<ApplicationSettings>,
     local_addr: Option<SocketAddr>,
     peer_addr: Option<SocketAddr>,
     transport_bypass_control: Option<TransportBypassControl>,
@@ -580,12 +592,22 @@ trait RelayIo: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
 impl<T> RelayIo for T where T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {}
 
 impl TcpRelayStream {
+    pub fn with_application_settings(mut self, settings: Option<ApplicationSettings>) -> Self {
+        self.application_settings = settings;
+        self
+    }
+    pub fn application_settings(&self) -> Option<&ApplicationSettings> {
+        self.application_settings.as_ref()
+    }
+
     pub fn from_client<S: ClientStream + 'static>(stream: S) -> Self {
+        let application_settings = stream.application_settings().cloned();
         let local_addr = stream.local_addr().ok();
         let peer_addr = stream.peer_addr().ok();
         let transport_bypass_control = stream.transport_bypass_control();
         Self {
             inner: Box::new(stream),
+            application_settings,
             local_addr,
             peer_addr,
             transport_bypass_control,
@@ -598,6 +620,7 @@ impl TcpRelayStream {
     {
         Self {
             inner: Box::new(stream),
+            application_settings: None,
             local_addr: None,
             peer_addr: None,
             transport_bypass_control: None,
@@ -610,6 +633,7 @@ impl TcpRelayStream {
     {
         Self {
             inner: Box::new(stream),
+            application_settings: None,
             local_addr: Some(addr),
             peer_addr: None,
             transport_bypass_control: None,
@@ -622,6 +646,7 @@ impl TcpRelayStream {
     {
         Self {
             inner: Box::new(stream),
+            application_settings: None,
             local_addr: None,
             peer_addr: None,
             transport_bypass_control: Some(control),
@@ -636,6 +661,9 @@ impl From<TokioSocket> for TcpRelayStream {
 }
 
 impl ClientStream for TcpRelayStream {
+    fn application_settings(&self) -> Option<&ApplicationSettings> {
+        self.application_settings.as_ref()
+    }
     fn local_addr(&self) -> io::Result<SocketAddr> {
         self.local_addr
             .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "local_addr not available"))
