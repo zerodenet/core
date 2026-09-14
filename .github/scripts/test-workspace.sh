@@ -14,11 +14,28 @@ fi
 python3 - "$log_file" <<'PY'
 from pathlib import Path
 import sys
+import re
 
-lines = Path(sys.argv[1]).read_text(errors="replace").splitlines()
-# Rust reports failed test names, panic locations, and the rerun command at the end.
-message = "\n".join(lines[-80:])[-16000:]
-message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-print(f"::error title=Workspace tests failed::{message}")
+text = re.sub(r"\x1b\[[0-9;]*m", "", Path(sys.argv[1]).read_text(errors="replace"))
+lines = text.splitlines()
+# Preserve every Rust failure block even when --no-fail-fast continues other targets.
+selected = []
+collecting = False
+for line in lines:
+    if line == "failures:":
+        collecting = True
+    if collecting:
+        selected.append(line)
+    if collecting and "error: test failed" in line:
+        collecting = False
+if not selected:
+    selected = lines[-80:]
+message = "\n".join(selected).encode()[-24000:]
+# Actions truncates each annotation to 4 KiB; split before escaping workflow syntax.
+parts = [message[i:i + 3000].decode(errors="replace") for i in range(0, len(message), 3000)]
+for index, part in enumerate(parts, 1):
+    escaped = part.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::error title=Workspace tests failed ({index}/{len(parts)})::{escaped}")
+
 PY
 exit "$status"
