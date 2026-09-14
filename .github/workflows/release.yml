@@ -70,7 +70,7 @@ jobs:
       - name: Test workspace contracts
         env:
           RUST_MIN_STACK: "16777216"
-        run: bash .github/scripts/test-workspace.sh
+        run: bash .github/scripts/test-workspace.sh cargo test --workspace --all-features
 
   build:
     name: Build (${{ matrix.name }})

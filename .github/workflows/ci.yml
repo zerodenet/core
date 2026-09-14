@@ -88,7 +88,7 @@ jobs:
       - name: Test (workspace, including connector webhook delivery)
         env:
           RUST_MIN_STACK: "16777216"
-        run: bash .github/scripts/test-workspace.sh
+        run: bash .github/scripts/test-workspace.sh cargo test --workspace --all-features
 
       - name: Check representative minimal feature surfaces
         shell: bash

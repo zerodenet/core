@@ -4,7 +4,7 @@ set -euo pipefail
 log_file=$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/zero-workspace-tests.XXXXXX")
 trap 'rm -f "$log_file"' EXIT
 set +e
-cargo test --workspace --all-features 2>&1 | tee "$log_file"
+"$@" 2>&1 | tee "$log_file"
 command_status=("${PIPESTATUS[@]}")
 set -e
 status=${command_status[0]}
