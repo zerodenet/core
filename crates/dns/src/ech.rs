@@ -1,5 +1,7 @@
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
+#[cfg(feature = "udp")]
+use std::net::SocketAddr;
 
 use crate::DnsSystem;
 
@@ -25,24 +27,41 @@ impl DnsSystem {
             .ok_or_else(|| invalid_endpoint("ECH DNS endpoint has no host"))?;
         let bootstrap = self.bootstrap(host).await?;
         let query = crate::message::build_query(&query_name, crate::message::TYPE_HTTPS)?;
-        let response = match endpoint.scheme() {
+        let response = self
+            .exchange_ech_query(&endpoint, host, bootstrap, &query)
+            .await?;
+        let parsed = crate::message::parse_ech_config_response(&query, &response)?;
+        Ok(EchDnsRecord {
+            config_list: parsed.config_list,
+            ttl_seconds: parsed.ttl_seconds,
+        })
+    }
+
+    async fn exchange_ech_query(
+        &self,
+        endpoint: &url::Url,
+        _host: &str,
+        _bootstrap: Vec<IpAddr>,
+        _query: &[u8],
+    ) -> io::Result<Vec<u8>> {
+        match endpoint.scheme() {
             #[cfg(feature = "udp")]
             "udp" => {
                 if endpoint.path() != "" && endpoint.path() != "/" {
                     return Err(invalid_endpoint("UDP ECH DNS endpoint cannot have a path"));
                 }
                 let port = endpoint.port().unwrap_or(53);
-                let addresses = bootstrap
+                let addresses = _bootstrap
                     .iter()
                     .copied()
                     .map(|ip| SocketAddr::new(ip, port))
                     .collect();
                 crate::udp::UdpDnsResolver::new(addresses, self.egress_interface.clone())
-                    .exchange(&query)
-                    .await?
+                    .exchange(_query)
+                    .await
             }
             #[cfg(not(feature = "udp"))]
-            "udp" => return Err(unsupported("UDP")),
+            "udp" => Err(unsupported("UDP")),
             #[cfg(feature = "doh")]
             "https" | "h2c" => {
                 let secure = endpoint.scheme() == "https";
@@ -57,33 +76,28 @@ impl DnsSystem {
                 }
                 let resolver = if secure {
                     crate::backends::DohDnsResolver::new(
-                        host.to_owned(),
+                        _host.to_owned(),
                         port,
                         path,
-                        bootstrap,
-                        Some(host.to_owned()),
+                        _bootstrap,
+                        Some(_host.to_owned()),
                         self.egress_interface.clone(),
                     )?
                 } else {
                     crate::backends::DohDnsResolver::new_cleartext(
-                        host.to_owned(),
+                        _host.to_owned(),
                         port,
                         path,
-                        bootstrap,
+                        _bootstrap,
                         self.egress_interface.clone(),
                     )?
                 };
-                resolver.exchange(&query, None, None).await?
+                resolver.exchange(_query, None, None).await
             }
             #[cfg(not(feature = "doh"))]
-            "https" | "h2c" => return Err(unsupported("DNS-over-HTTPS")),
-            _ => return Err(invalid_endpoint("unsupported ECH DNS endpoint scheme")),
-        };
-        let parsed = crate::message::parse_ech_config_response(&query, &response)?;
-        Ok(EchDnsRecord {
-            config_list: parsed.config_list,
-            ttl_seconds: parsed.ttl_seconds,
-        })
+            "https" | "h2c" => Err(unsupported("DNS-over-HTTPS")),
+            _ => Err(invalid_endpoint("unsupported ECH DNS endpoint scheme")),
+        }
     }
 
     async fn bootstrap(&self, host: &str) -> io::Result<Vec<IpAddr>> {
