@@ -70,7 +70,7 @@ async fn browser_xhttp_get_downlink_and_packet_uplink_form_one_stream() {
     .await
     .unwrap();
     let mut first = browser(&server).await;
-    let mut second = browser(&server).await;
+    let second = browser(&server).await;
     let agent = tokio::spawn(async move {
         let first_task: serde_json::Value =
             serde_json::from_str(first.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();

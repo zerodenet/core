@@ -45,10 +45,8 @@ fn opt() -> Record {
         data: Vec::new(),
     }
 }
-pub fn response_for(
-    query: Message,
-    domain: &Name,
-) -> Option<(Message, Option<[u8; 8]>, Vec<Vec<u8>>)> {
+pub type QueryResponse = (Message, Option<[u8; 8]>, Vec<Vec<u8>>);
+pub fn response_for(query: Message, domain: &Name) -> Option<QueryResponse> {
     if query.flags & 0x8000 != 0 {
         return None;
     }

@@ -269,6 +269,6 @@ pub use finalmask::{
 };
 
 pub use transport::{
-    ClientTlsOptionsConfig, ServerTlsOptionsConfig, TlsBackendConfig, TlsCertificateFilesConfig,
-    TlsCertificateUsageConfig, TlsParametersConfig,
+    ClientTlsOptionsConfig, EchForceQueryConfig, ServerTlsOptionsConfig, TlsBackendConfig,
+    TlsCertificateFilesConfig, TlsCertificateUsageConfig, TlsParametersConfig,
 };

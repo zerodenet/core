@@ -3,7 +3,7 @@ use blake2::{digest::consts::U32, Blake2b, Digest};
 use ring::{aead, digest};
 pub(super) enum Crypto {
     Original,
-    Aes(aead::LessSafeKey),
+    Aes(Box<aead::LessSafeKey>),
     Salamander(Vec<u8>),
 }
 impl Crypto {
@@ -14,7 +14,7 @@ impl Crypto {
                 let hash = digest::digest(&digest::SHA256, password.as_bytes());
                 let key = aead::UnboundKey::new(&aead::AES_128_GCM, &hash.as_ref()[..16])
                     .map_err(|_| invalid("invalid AES key"))?;
-                Ok(Self::Aes(aead::LessSafeKey::new(key)))
+                Ok(Self::Aes(Box::new(aead::LessSafeKey::new(key))))
             }
             Mask::Salamander { password } if password.len() >= 4 => {
                 Ok(Self::Salamander(password.as_bytes().to_vec()))

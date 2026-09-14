@@ -34,7 +34,7 @@ impl Profile {
     }
 }
 pub enum Acceptance {
-    Established(RealityTlsStream<TcpRelayStream>),
+    Established(Box<RealityTlsStream<TcpRelayStream>>),
     Forward(Box<dyn zero_core::inbound::InboundControlSession>),
 }
 
@@ -97,8 +97,8 @@ pub(super) async fn accept(
     .await
     .map_err(|_| timed_out())?;
     result?;
-    Ok(Acceptance::Established(RealityTlsStream::new_server(
-        client, connection,
+    Ok(Acceptance::Established(Box::new(
+        RealityTlsStream::new_server(client, connection),
     )))
 }
 fn timed_out() -> io::Error {

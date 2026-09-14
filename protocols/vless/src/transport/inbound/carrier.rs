@@ -64,7 +64,7 @@ pub(super) async fn accept_vless_inbound_transport(
             };
             let sni = stream.server_name().map(str::to_owned);
             Ok(VlessInboundTransportResult::Stream {
-                stream: VlessInboundTransportStream::Reality(Box::new(stream)),
+                stream: VlessInboundTransportStream::Reality(stream),
                 sni,
             })
         }

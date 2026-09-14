@@ -111,7 +111,7 @@ pub(super) fn authenticate(
     if versions.is_empty()
         || versions[0] as usize != versions.len() - 1
         || !(versions.len() - 1).is_multiple_of(2)
-        || !versions[1..].chunks_exact(2).any(|v| v == [3, 4])
+        || !versions[1..].as_chunks::<2>().0.contains(&[3, 4])
     {
         return Err(invalid());
     }

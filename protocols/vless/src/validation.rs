@@ -71,7 +71,7 @@ pub(crate) fn decode_reality_material<const N: usize>(
 }
 
 pub fn validate_reality_short_id(short_id: &str) -> Result<(), &'static str> {
-    if short_id.len() > 16 || short_id.len() % 2 != 0 {
+    if short_id.len() > 16 || !short_id.len().is_multiple_of(2) {
         return Err("must contain an even number of hex characters, at most 16");
     }
     if !short_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {

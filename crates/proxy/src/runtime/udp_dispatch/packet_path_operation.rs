@@ -51,7 +51,7 @@ impl PreparedDatagramRelayCarrier {
         if let Some(source) = operation.datagram_source() {
             let mut current = current?;
             let next = source.descriptor();
-            current.descriptor = chained_descriptor(&current.descriptor, &next);
+            current.descriptor = chained_descriptor(&current.descriptor, next);
             current
                 .layers
                 .push(PreparedDatagramRelayLayer::Codec(source));

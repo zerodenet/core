@@ -175,7 +175,7 @@ impl Registry {
 }
 
 impl Access {
-    pub(crate) async fn detect(
+    pub(super) async fn detect(
         &self,
         profile: &Profile,
         connector: &Connector,

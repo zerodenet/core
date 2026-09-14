@@ -30,7 +30,7 @@ pub fn parse_uuid(input: &str) -> Result<[u8; 16], Error> {
         let group = text
             .get(..length)
             .ok_or(Error::Config("VLESS UUID is truncated"))?;
-        for pair in group.chunks_exact(2) {
+        for pair in group.as_chunks::<2>().0 {
             let high =
                 hex_nibble(pair[0]).ok_or(Error::Config("VLESS UUID contains non-hex digits"))?;
             let low =

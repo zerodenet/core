@@ -40,7 +40,7 @@ fn material(url: &str) -> Material {
     std::fs::write(&cert_path, leaf.pem() + &issuer_cert.pem()).unwrap();
     std::fs::write(&key_path, key.serialize_pem()).unwrap();
     Material {
-        directory,
+        _directory: directory,
         cert_path: cert_path.to_string_lossy().into_owned(),
         key_path: key_path.to_string_lossy().into_owned(),
     }

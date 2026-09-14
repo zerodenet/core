@@ -37,7 +37,7 @@ fn crypto_masks_preserve_binary_payload_and_reject_corruption() {
             password: "key-long".into(),
         },
     ] {
-        let mut codec = Codec::new(&[mask.clone()], false).unwrap();
+        let mut codec = Codec::new(std::slice::from_ref(&mask), false).unwrap();
         let wire = codec.encode(&payload).unwrap();
         assert_eq!(codec.decode(&wire).unwrap(), payload);
         for length in 0..6 {

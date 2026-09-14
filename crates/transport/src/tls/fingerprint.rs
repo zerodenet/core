@@ -107,7 +107,7 @@ pub(super) fn configure_provider(
         }
     }
     if let Some((_, groups)) = extensions.iter().find(|(id, _)| *id == 10) {
-        for group in groups[2..].chunks_exact(2) {
+        for group in groups[2..].as_chunks::<2>().0 {
             let id = u16::from_be_bytes([group[0], group[1]]);
             if !wire::is_grease(id) && !order.contains(&id) {
                 order.push(id);

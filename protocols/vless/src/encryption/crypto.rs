@@ -27,7 +27,7 @@ pub(super) fn mask(ctr: &mut Option<Ctr>, header: &mut [u8]) {
     }
 }
 enum Cipher {
-    Aes(Aes256Gcm),
+    Aes(Box<Aes256Gcm>),
     ChaCha(ChaCha20Poly1305),
 }
 pub(super) struct AeadState {
@@ -39,7 +39,7 @@ impl AeadState {
     pub fn new(context: &[u8], key: &[u8], aes: bool) -> Self {
         let key = derive(context, key);
         let cipher = if aes {
-            Cipher::Aes(Aes256Gcm::new(&key.into()))
+            Cipher::Aes(Box::new(Aes256Gcm::new(&key.into())))
         } else {
             Cipher::ChaCha(ChaCha20Poly1305::new(&key.into()))
         };

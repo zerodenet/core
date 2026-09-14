@@ -207,16 +207,13 @@ struct VlessOutboundRequestBundle {
 
 impl VlessOutboundRequestBundle {
     fn from_config(
-        id: &str,
-        flow: Option<&str>,
-        testseed: &[u32],
+        parts: VlessOutboundParts<'_>,
         mux_concurrency: Option<u32>,
         xudp_concurrency: Option<u32>,
         mux_idle_timeout_secs: Option<u64>,
         mux_response_backlog_frames: Option<u32>,
         mux_response_backlog_bytes: Option<u64>,
     ) -> Result<Self, Error> {
-        let parts = VlessOutboundParts::new(id, flow, testseed);
         let mux_response_backlog = crate::mux::MuxResponseBacklogPolicy::from_config(
             mux_response_backlog_frames,
             mux_response_backlog_bytes,
@@ -346,9 +343,7 @@ impl PreparedVlessOutboundRequestBundle {
         #[cfg(not(feature = "reality"))]
         {
             VlessOutboundRequestBundle::from_config(
-                id,
-                flow,
-                &[],
+                VlessOutboundParts::new(id, flow, &[]),
                 mux_concurrency,
                 xudp_concurrency,
                 None,
@@ -439,9 +434,7 @@ impl PreparedVlessOutboundRequestBundle {
         hints: StreamMuxTransportHints,
     ) -> Result<Self, Error> {
         VlessOutboundRequestBundle::from_config(
-            id,
-            flow,
-            testseed,
+            VlessOutboundParts::new(id, flow, testseed),
             mux_concurrency,
             xudp_concurrency,
             mux_idle_timeout_secs,
@@ -721,10 +714,6 @@ impl VlessTcpStreamOpen {
 }
 
 impl VlessTcpConnectRequest {
-    pub fn from_config(id: &str, flow: Option<&str>) -> Result<Self, Error> {
-        Self::from_config_with_testseed(id, flow, &[])
-    }
-
     fn from_config_with_testseed(
         id: &str,
         flow: Option<&str>,

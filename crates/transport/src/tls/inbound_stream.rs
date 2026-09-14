@@ -9,7 +9,7 @@ use zero_platform_tokio::ClientStream;
 use zero_traits::AsyncSocket;
 
 enum Inner<IO> {
-    Rustls(super::switchable::SwitchableTlsStream<IO>),
+    Rustls(Box<super::switchable::SwitchableTlsStream<IO>>),
     OpenSsl(super::openssl::OpenSslTlsStream<IO>),
 }
 
@@ -40,7 +40,9 @@ impl<IO> InboundTlsStream<IO> {
 
     pub fn new_generic(inner: TlsStream<super::TlsRecordBoundary<IO>>) -> Self {
         Self {
-            inner: Inner::Rustls(super::switchable::SwitchableTlsStream::server(inner)),
+            inner: Inner::Rustls(Box::new(super::switchable::SwitchableTlsStream::server(
+                inner,
+            ))),
         }
     }
 

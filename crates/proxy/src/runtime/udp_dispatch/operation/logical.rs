@@ -12,10 +12,12 @@ use crate::{
 use std::{future::Future, pin::Pin, sync::Arc};
 use zero_core::Session;
 
+pub(crate) type LogicalConnectionOpener =
+    dyn Fn(&Session) -> Result<LogicalConnection, zero_core::Error> + Send + Sync;
+
 pub(crate) struct LogicalUdpOperation {
     pub(crate) tag: String,
-    pub(crate) open:
-        Arc<dyn Fn(&Session) -> Result<LogicalConnection, zero_core::Error> + Send + Sync>,
+    pub(crate) open: Arc<LogicalConnectionOpener>,
 }
 impl PreparedUdpFlowOperation for LogicalUdpOperation {
     fn execute<'a>(

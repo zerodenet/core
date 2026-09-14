@@ -697,7 +697,7 @@ impl Tls13Connection {
         }
         // Compatibility records are complete, literal CCS messages only.
         if record_type == CONTENT_TYPE_CHANGE_CIPHER_SPEC {
-            if &self.ciphertext_read_buf[..TLS_RECORD_HEADER_SIZE + record_len]
+            if self.ciphertext_read_buf[..TLS_RECORD_HEADER_SIZE + record_len]
                 != [20, 3, 3, 0, 1, 1]
             {
                 return Err(io::Error::other("invalid TLS ChangeCipherSpec"));

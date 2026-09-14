@@ -26,7 +26,7 @@ pub(crate) fn kem_public(bytes: &[u8]) -> io::Result<KemPublic> {
     }
     // FIPS 203 encapsulation-key modulus check. The library's decoder reduces
     // coefficients, so reject non-canonical encodings before constructing it.
-    for chunk in bytes[..1152].chunks_exact(3) {
+    for chunk in bytes[..1152].as_chunks::<3>().0 {
         let a = u16::from(chunk[0]) | (u16::from(chunk[1] & 15) << 8);
         let b = (u16::from(chunk[1]) >> 4) | (u16::from(chunk[2]) << 4);
         if a >= 3329 || b >= 3329 {

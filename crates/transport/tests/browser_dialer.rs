@@ -2,7 +2,7 @@
 
 use futures_util::{SinkExt, StreamExt};
 use http::Method;
-use std::{io, net::SocketAddr};
+use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_tungstenite::{
     connect_async,

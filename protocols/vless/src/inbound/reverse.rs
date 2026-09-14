@@ -42,6 +42,8 @@ impl VlessInboundProfile {
         self.portals = portals;
         self
     }
+    // Err returns ownership for the ordinary route; keep that fast path allocation-free.
+    #[allow(clippy::result_large_err)]
     pub(crate) fn prepare_reverse<S>(
         &self,
         accepted: VlessAcceptedClient<S>,

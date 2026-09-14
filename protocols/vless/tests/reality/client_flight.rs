@@ -105,8 +105,7 @@ fn invalid_finished_and_handshake_order_are_rejected_even_with_valid_record_auth
         client.read_tls(&mut &wire[..]).unwrap();
         let error = client
             .process_new_packets()
-            .err()
-            .expect("malformed handshake accepted");
+            .expect_err("malformed handshake accepted");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(client.is_handshaking());
     }

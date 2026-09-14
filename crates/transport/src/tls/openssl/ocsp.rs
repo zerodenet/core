@@ -95,7 +95,7 @@ pub(super) fn apply(
         targets.push(OcspTarget {
             certificates: Arc::new(certificates),
             staple,
-            interval: Duration::from_secs(files.ocsp_stapling_secs.into()),
+            interval: Duration::from_secs(files.ocsp_stapling_secs),
         });
     }
     Ok(())

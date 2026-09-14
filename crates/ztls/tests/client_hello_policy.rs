@@ -22,9 +22,12 @@ fn generic_client_does_not_offer_unimplemented_tls_versions() {
         .iter()
         .all(|s| ztls::fingerprint::wire::is_grease(*s) || (0x1301..=0x1303).contains(s)));
     let versions = &extensions.iter().find(|(k, _)| *k == 43).unwrap().1;
-    assert!(versions[1..].chunks_exact(2).all(
-        |v| v == [3, 4] || ztls::fingerprint::wire::is_grease(u16::from_be_bytes([v[0], v[1]]))
-    ));
+    assert!(versions[1..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .all(|v| *v == [3, 4]
+            || ztls::fingerprint::wire::is_grease(u16::from_be_bytes([v[0], v[1]]))));
 }
 #[test]
 fn explicit_groups_and_sni_override_preset() {

@@ -566,8 +566,7 @@ impl MuxPoolConn {
             read_half,
             streams.clone(),
             closed.clone(),
-            shutdown_tx.clone(),
-            shutdown_rx,
+            (shutdown_tx.clone(), shutdown_rx),
             activity_tx.clone(),
             response_backlog.clone(),
             response_pending,
@@ -946,14 +945,14 @@ fn spawn_mux_read_relay<R>(
     mut reader: R,
     streams: Arc<Mutex<HashMap<u16, MuxClientStreamState>>>,
     closed: Arc<AtomicBool>,
-    shutdown_tx: watch::Sender<bool>,
-    mut shutdown_rx: watch::Receiver<bool>,
+    shutdown: (watch::Sender<bool>, watch::Receiver<bool>),
     activity_tx: Option<watch::Sender<tokio::time::Instant>>,
     response_backlog: MuxResponseBacklog,
     response_pending: bool,
 ) where
     R: AsyncRead + Unpin + Send + 'static,
 {
+    let (shutdown_tx, mut shutdown_rx) = shutdown;
     tokio::spawn(async move {
         if response_pending {
             tokio::select! {

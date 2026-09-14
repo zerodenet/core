@@ -69,13 +69,8 @@ async fn run_case(official: Option<String>, official_portal: bool) {
     });
     let mut processes = Vec::new();
     let mut engines = Vec::new();
-    if official.is_some() && official_portal {
-        processes.push(start_official(
-            official.as_ref().unwrap(),
-            &material,
-            "portal",
-            xray_portal,
-        ));
+    if let Some(official) = official.as_ref().filter(|_| official_portal) {
+        processes.push(start_official(official, &material, "portal", xray_portal));
     } else {
         engines.push(spawn_engine(
             Proxy::new(RuntimeConfig::parse(&native_portal.to_string()).unwrap()).unwrap(),
@@ -84,13 +79,8 @@ async fn run_case(official: Option<String>, official_portal: bool) {
     wait_for_listener(portal_port).await;
     wait_for_listener(socks_port).await;
     let carrier = TcpResetProxy::start(carrier_port, portal_port).await;
-    if official.is_some() && !official_portal {
-        processes.push(start_official(
-            official.as_ref().unwrap(),
-            &material,
-            "bridge",
-            xray_bridge,
-        ));
+    if let Some(official) = official.as_ref().filter(|_| !official_portal) {
+        processes.push(start_official(official, &material, "bridge", xray_bridge));
     } else {
         engines.push(spawn_engine(
             Proxy::new(RuntimeConfig::parse(&native_bridge.to_string()).unwrap()).unwrap(),

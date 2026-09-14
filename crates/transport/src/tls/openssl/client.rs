@@ -123,23 +123,24 @@ where
     if !profile.disable_sni() {
         ssl.set_hostname(server_name).map_err(io::Error::other)?;
     }
-    if !profile.insecure() && options.pinned_peer_cert_sha256.is_empty() {
-        if options.verify_peer_names.len() <= 1 {
-            let verify_name = options
-                .verify_peer_names
-                .first()
-                .map(String::as_str)
-                .unwrap_or(server_name);
-            if let Ok(ip) = verify_name.parse::<IpAddr>() {
-                ssl.param_mut().set_ip(ip).map_err(io::Error::other)?;
-            } else {
-                ssl.param_mut().set_hostflags(
-                    X509CheckFlags::NEVER_CHECK_SUBJECT | X509CheckFlags::NO_PARTIAL_WILDCARDS,
-                );
-                ssl.param_mut()
-                    .set_host(verify_name)
-                    .map_err(io::Error::other)?;
-            }
+    if !profile.insecure()
+        && options.pinned_peer_cert_sha256.is_empty()
+        && options.verify_peer_names.len() <= 1
+    {
+        let verify_name = options
+            .verify_peer_names
+            .first()
+            .map(String::as_str)
+            .unwrap_or(server_name);
+        if let Ok(ip) = verify_name.parse::<IpAddr>() {
+            ssl.param_mut().set_ip(ip).map_err(io::Error::other)?;
+        } else {
+            ssl.param_mut().set_hostflags(
+                X509CheckFlags::NEVER_CHECK_SUBJECT | X509CheckFlags::NO_PARTIAL_WILDCARDS,
+            );
+            ssl.param_mut()
+                .set_host(verify_name)
+                .map_err(io::Error::other)?;
         }
     }
     let protocols = encode_alpn(profile.alpn())?;

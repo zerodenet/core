@@ -44,7 +44,7 @@ pub(crate) fn parse_ech_config_response(
         {
             continue;
         }
-        let config_list = parse_https_ech_parameter(response, &answer)?;
+        let config_list = parse_https_ech_parameter(response, answer)?;
         if config_list.is_some() {
             return Ok(ParsedEchConfig {
                 config_list,

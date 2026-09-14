@@ -218,7 +218,7 @@ pub(super) fn load(
 
     let certs = load_certs(&resolve_path(base_dir, &files.cert_path)).map_err(invalid)?;
     let key = load_private_key(&resolve_path(base_dir, &files.key_path)).map_err(invalid)?;
-    let mut key = CertifiedKey::from_der(certs, key, &provider).map_err(invalid)?;
+    let mut key = CertifiedKey::from_der(certs, key, provider).map_err(invalid)?;
     let (_, parsed) =
         x509_parser::parse_x509_certificate(key.end_entity_cert().map_err(invalid)?.as_ref())
             .map_err(invalid)?;

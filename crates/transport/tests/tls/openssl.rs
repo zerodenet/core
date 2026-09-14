@@ -26,7 +26,7 @@ unsafe extern "C" {
 }
 
 struct Material {
-    directory: tempfile::TempDir,
+    _directory: tempfile::TempDir,
     cert_path: String,
     key_path: String,
 }
@@ -40,7 +40,7 @@ impl Material {
         std::fs::write(&cert_path, generated.cert.pem()).unwrap();
         std::fs::write(&key_path, generated.signing_key.serialize_pem()).unwrap();
         Self {
-            directory,
+            _directory: directory,
             cert_path: cert_path.to_string_lossy().into_owned(),
             key_path: key_path.to_string_lossy().into_owned(),
         }

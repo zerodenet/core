@@ -201,7 +201,7 @@ async fn serve(
     if request.token.as_deref() != Some(token.as_str())
         || request.path != "/websocket"
         || !request.websocket
-        || request.origin.as_deref() != Some(origin.as_str())
+        || request.origin != Some(origin.as_str())
     {
         let _ = write_response(&mut stream, 403, "text/plain", "forbidden").await;
         return;
@@ -212,6 +212,8 @@ async fn serve(
         HANDSHAKE_TIMEOUT,
         tokio_tungstenite::accept_hdr_async(
             socket,
+            // Tungstenite requires its unboxed ErrorResponse in this callback.
+            #[allow(clippy::result_large_err)]
             move |request: &Request, response: Response| {
                 if request
                     .headers()

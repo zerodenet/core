@@ -11,7 +11,7 @@ pub(super) fn validate(config: &SplitHttpConfig, inbound: bool) -> Result<(), Co
         }
     };
     if let Some(browser) = &config.browser_dialer {
-        browser.validate().map_err(|message| fail(message))?;
+        browser.validate().map_err(&fail)?;
         if inbound {
             return Err(fail("browser_dialer is outbound-only"));
         }

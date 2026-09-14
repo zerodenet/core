@@ -44,7 +44,9 @@ async fn inferred_response_types_match_pinned_go_for_signatures_and_boundaries()
         let (input, mime) = vector.split_once('\t').unwrap();
         let body: Vec<_> = input
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
             .collect();
         let site = Appearance::String {

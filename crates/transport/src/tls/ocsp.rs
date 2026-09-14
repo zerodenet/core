@@ -32,7 +32,7 @@ async fn fetch(
                     .map_err(io::Error::other)?,
             )
             .await?;
-        if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
+        if matches!(response.status().as_u16(), 301..=303 | 307 | 308) {
             if redirects == 10 {
                 return Err(invalid("too many OCSP HTTP redirects"));
             }
@@ -43,7 +43,7 @@ async fn fetch(
                 .to_str()
                 .map_err(io::Error::other)?;
             url = url.join(location).map_err(io::Error::other)?;
-            if matches!(response.status().as_u16(), 301 | 302 | 303) {
+            if matches!(response.status().as_u16(), 301..=303) {
                 body = None;
             }
             continue;

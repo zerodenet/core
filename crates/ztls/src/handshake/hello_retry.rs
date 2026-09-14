@@ -104,10 +104,12 @@ pub(super) fn rebuild(
         let mut r = BufReader::new(&supported.1);
         let n = r.read_u16_be()? as usize;
         if n != r.remaining()
-            || n % 2 != 0
+            || !n.is_multiple_of(2)
             || !r
                 .read_slice(n)?
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .any(|g| u16::from_be_bytes([g[0], g[1]]) == group)
         {
             return Err(invalid("retry selected an unoffered group"));

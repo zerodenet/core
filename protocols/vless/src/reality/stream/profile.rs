@@ -68,6 +68,7 @@ impl VlessRealityServerProfile {
         }
         self.upgrade_server(io)
             .await
+            .map(Box::new)
             .map(super::super::target::Acceptance::Established)
     }
     fn server_config(&self) -> io::Result<RealityServerConfig> {

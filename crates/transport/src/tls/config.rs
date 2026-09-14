@@ -42,7 +42,7 @@ pub(super) fn provider(
             .collect();
         for name in &options.cipher_suites {
             let id = ztls::settings::cipher_suite(name).map_err(invalid)?;
-            if id >= 0x1301 && id <= 0x1303 {
+            if (0x1301..=0x1303).contains(&id) {
                 continue;
             }
             let suite = available

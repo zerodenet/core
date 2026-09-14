@@ -58,8 +58,8 @@ fn default_versions_and_resumption_retain_the_fingerprint() {
         client.write_tls(&mut wire).unwrap();
         let (_, extensions) = ztls::fingerprint::wire::parts(&wire[5..]).unwrap();
         let versions = &extensions.iter().find(|(id, _)| *id == 43).unwrap().1;
-        assert!(versions[1..].chunks_exact(2).any(|v| v == [3, 3]));
-        assert!(versions[1..].chunks_exact(2).any(|v| v == [3, 4]));
+        assert!(versions[1..].as_chunks::<2>().0.contains(&[3, 3]));
+        assert!(versions[1..].as_chunks::<2>().0.contains(&[3, 4]));
     }
 }
 

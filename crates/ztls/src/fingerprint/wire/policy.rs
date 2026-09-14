@@ -27,13 +27,19 @@ pub(super) fn apply(
             .find(|(k, _)| *k == 43)
             .ok_or_else(|| invalid("preset has no supported versions"))?;
         let mut offered = Vec::new();
-        for id in versions.get(1..).unwrap_or_default().chunks_exact(2) {
+        for id in versions
+            .get(1..)
+            .unwrap_or_default()
+            .as_chunks::<2>()
+            .0
+            .iter()
+        {
             let id = u16::from_be_bytes([id[0], id[1]]);
             if is_grease(id) || id == 0x0304 {
                 offered.extend_from_slice(&id.to_be_bytes());
             }
         }
-        if !offered.chunks_exact(2).any(|v| v == [3, 4]) {
+        if !offered.as_chunks::<2>().0.contains(&[3, 4]) {
             return Err(invalid("preset does not support TLS 1.3"));
         }
         *versions = vec![offered.len() as u8];

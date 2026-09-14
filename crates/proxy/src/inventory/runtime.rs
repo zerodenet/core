@@ -91,11 +91,6 @@ impl<'a> ClaimedRelayChain<'a> {
     }
 
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn len(&self) -> usize {
-        1 + self.relay_hops.len()
-    }
-
-    #[cfg(feature = "udp-runtime")]
     pub(crate) fn final_hop(&self) -> &ClaimedInventoryLeaf<'a> {
         self.relay_hops
             .last()

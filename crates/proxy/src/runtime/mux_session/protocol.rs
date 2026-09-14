@@ -10,6 +10,8 @@ use crate::runtime::route_runtime::MuxSubstreamRuntime;
 
 const MUX_SUBSTREAM_SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
 
+// Keep the Send guarantee on the returned future explicit at this runtime boundary.
+#[allow(clippy::manual_async_fn)]
 pub(crate) fn run_protocol_mux_session<R, S, FTcp, FTcpFut, FUdp, FUdpFut>(
     runtime: MuxSubstreamRuntime,
     reader: R,

@@ -33,6 +33,6 @@ pub use model::{
 pub use zero_api::CONFIG_SCHEMA_VERSION;
 
 pub use model::{
-    ClientTlsOptionsConfig, ServerTlsOptionsConfig, TlsBackendConfig, TlsCertificateFilesConfig,
-    TlsCertificateUsageConfig, TlsParametersConfig,
+    ClientTlsOptionsConfig, EchForceQueryConfig, ServerTlsOptionsConfig, TlsBackendConfig,
+    TlsCertificateFilesConfig, TlsCertificateUsageConfig, TlsParametersConfig,
 };

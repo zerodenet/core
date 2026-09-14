@@ -305,7 +305,7 @@ pub(super) fn validate_inbound_protocol(
             grpc,
         } => {
             validate_vmess_users(users)?;
-            let tls = tls.as_ref().ok_or_else(|| {
+            tls.as_ref().ok_or_else(|| {
                 ConfigError::InvalidInbound("`vmess` inbound requires `tls`".to_owned())
             })?;
             if ws.is_some() && grpc.is_some() {
