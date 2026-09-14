@@ -83,6 +83,11 @@ license = "MPL-2.0"
 repository = "https://github.com/zerodenet/zero"
 homepage = "https://zerodenet.org"
 
+# Keep throughput-oriented optimization and unwind-based hook isolation.
+# Drop shipped symbols without adding link-time optimization work.
+[profile.release]
+strip = "symbols"
+
 [workspace.dependencies]
 # Keep the reviewed QUIC carrier and local neutral extensions on one API version.
 quinn = { version = "=0.11.9", default-features = false }
