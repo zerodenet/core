@@ -358,6 +358,7 @@ async fn relays_udp_through_socks5_to_mieru_tcp_relay_chain_with_pooling() {
     ))
     .expect("parse outer config");
     let outer_engine = Engine::new(outer_config).expect("build outer engine");
+    let outer_probe = outer_engine.clone();
     let outer_handle = spawn_engine(outer_engine);
     wait_for_listener(outer_port).await;
 
@@ -382,7 +383,13 @@ async fn relays_udp_through_socks5_to_mieru_tcp_relay_chain_with_pooling() {
         first_client.recv_from(&mut first_buf),
     )
     .await
-    .expect("first udp recv timeout")
+    .unwrap_or_else(|error| {
+        panic!(
+            "first UDP response timed out: {error}; active={:?}; completed={:?}",
+            outer_probe.active_sessions(),
+            outer_probe.completed_sessions(),
+        )
+    })
     .expect("recv first udp response");
     assert_eq!(
         parse_udp_packet(&first_buf[..first_read])

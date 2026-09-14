@@ -216,7 +216,8 @@ impl<'a> PreparedUdpRelayOperation<'a> for PreparedMieruUdpRelay {
                 ),
                 carrier,
             },
-            needs_proxy: false,
+            // Tuple relay connectors require the narrow runtime network services.
+            needs_proxy: true,
         }))
     }
 
@@ -259,7 +260,8 @@ impl<'a> PreparedUdpRelayOperation<'a> for PreparedMieruUdpRelay {
                 ),
                 carrier,
             },
-            needs_proxy: false,
+            // Tuple relay connectors require the narrow runtime network services.
+            needs_proxy: true,
         }))
     }
 }
