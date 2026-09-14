@@ -171,15 +171,19 @@ test('workflow contracts preserve coverage and avoid root-owned build artifacts'
   assert.doesNotMatch(tun, /continue-on-error:/);
 });
 
-test('tag publishing reuses exact-sha CI while release keeps the final quality gate', () => {
+test('tag and artifact publishing reuse CI for the same commit', () => {
   const publish = readFileSync('.github/workflows/publish-release.yml', 'utf8');
   const release = readFileSync('.github/workflows/release.yml', 'utf8');
   assert.match(publish, /actions: read/);
   assert.match(publish, /workflows\/ci\.yml\/runs\?head_sha=\$GITHUB_SHA/);
   assert.doesNotMatch(publish, /cargo (fmt|clippy|test)/);
-  assert.match(release, /cargo fmt --all --check/);
-  assert.match(release, /cargo clippy --workspace --all-targets --all-features/);
-  assert.match(release, /cargo test --workspace --all-features/);
+  assert.match(release, /actions: read/);
+  assert.doesNotMatch(release, /cargo (fmt|clippy|test)/);
+  assert.match(release, /workflow_id: 'ci.yml', head_sha: sha/);
+  assert.match(release, /CI_SHA: \$\{\{ needs.guard.outputs.sha \}\}/);
+  assert.match(release, /needs: \[guard, build\]/);
+  assert.match(release, /Compile alongside branch CI[^]*?needs: guard/);
+  assert.ok(release.indexOf('Require successful CI for the release commit') < release.indexOf('Create release\n'));
 });
 
 test('both result gates propagate failures and cancellations but accept intentional skips', () => {
@@ -199,4 +203,51 @@ test('both result gates propagate failures and cancellations but accept intentio
       assert.equal(child.status, exitCode, `${file}: ${result}: ${child.stderr}`);
     }
   }
+});
+
+test('release gate accepts only successful CI for its exact source commit', async () => {
+  const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
+  const source = workflow.match(/          script: \|\n((?:            [^\n]*\n)+)/)[1]
+    .split('\n').map(line => line.slice(12)).join('\n');
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const gate = new AsyncFunction('github', 'context', 'core', 'process', 'Date', 'setTimeout', source);
+  const sha = 'a'.repeat(40);
+  const success = { id: 1, head_sha: sha, head_branch: 'develop', event: 'push',
+    status: 'completed', conclusion: 'success', html_url: 'https://example.invalid/ci/1' };
+  async function run(snapshots, { env = { CI_SHA: sha, CI_BRANCH: 'develop' }, apiError } = {}) {
+    let now = 0;
+    let calls = 0;
+    const requests = [];
+    const github = {
+      rest: { actions: { listWorkflowRuns: {} } },
+      paginate: async (_method, request) => {
+        if (apiError) throw apiError;
+        requests.push(request);
+        return snapshots[Math.min(calls++, snapshots.length - 1)];
+      },
+    };
+    await gate(github, { repo: { owner: 'zerodenet', repo: 'core' } }, { info() {} },
+      { env }, { now: () => now }, resolve => { now += 20 * 60 * 1000; resolve(); });
+    return requests;
+  }
+  const requests = await run([[success]]);
+  assert.equal(requests[0].head_sha, sha);
+  assert.equal(requests[0].branch, 'develop');
+  assert.equal(requests[0].workflow_id, 'ci.yml');
+  assert.equal((await run([[], [{ ...success, status: 'in_progress' }], [success]])).length, 3);
+  for (const conclusion of ['failure', 'cancelled', 'timed_out', 'skipped', 'neutral']) {
+    await assert.rejects(run([[{ ...success, conclusion }]]), /Release blocked/);
+  }
+  for (const override of [{ head_sha: 'b'.repeat(40) }, { head_branch: 'main' },
+    { event: 'pull_request' }, { event: 'schedule' }]) {
+    await assert.rejects(run([[{ ...success, ...override }]]), /No successful CI/);
+  }
+  // A newer run must supersede an older success, including while it is pending.
+  await assert.rejects(run([[success, { ...success, id: 2, conclusion: 'failure' }]]), /Release blocked/);
+  await assert.rejects(run([[success, { ...success, id: 2, status: 'queued' }]]), /No successful CI/);
+  await run([[{ ...success, event: 'workflow_dispatch' }]]);
+  await run([[{ ...success, head_branch: 'main' }]], { env: { CI_SHA: sha, CI_BRANCH: 'main' } });
+  await assert.rejects(run([[]]), /No successful CI/);
+  await assert.rejects(run([[success]], { env: {} }), /invalid release commit identity/);
+  await assert.rejects(run([[success]], { apiError: new Error('API unavailable') }), /API unavailable/);
 });
