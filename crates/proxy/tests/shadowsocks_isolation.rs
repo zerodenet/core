@@ -1,7 +1,7 @@
 #![cfg(feature = "shadowsocks")]
 mod support;
 use shadowsocks::{udp::ShadowsocksDatagramCodec, CipherKind};
-use support::{free_port, spawn_engine, wait_for_listener};
+use support::{free_port, spawn_engine, wait_for, wait_for_listener};
 use tokio::{
     net::UdpSocket,
     time::{timeout, Duration},
@@ -104,13 +104,40 @@ async fn principal_cancellation_preserves_other_users_on_shared_listener() {
         let (reply, _) = receive(s).await;
         assert_eq!(c.decode(&reply).unwrap().2, p);
     }
+    let active = running.active_sessions();
+    let principal_session = |principal: &str| {
+        active
+            .iter()
+            .find(|session| {
+                session
+                    .auth
+                    .as_ref()
+                    .and_then(|auth| auth.principal_key.as_deref())
+                    == Some(principal)
+            })
+            .map(|session| session.id)
+            .unwrap_or_else(|| panic!("missing active UDP session for principal {principal}"))
+    };
+    let session_a = principal_session("a");
+    let session_b = principal_session("b");
     assert_eq!(
-        running
-            .close_principal_flows("a", "principal_disabled")
-            .len(),
-        1
+        running.close_principal_flows("a", "principal_disabled"),
+        vec![session_a]
     );
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_for("revoked Shadowsocks UDP flow to finish", || {
+        !running
+            .active_sessions()
+            .iter()
+            .any(|session| session.id == session_a)
+    })
+    .await;
+    assert!(
+        running
+            .active_sessions()
+            .iter()
+            .any(|session| session.id == session_b),
+        "unrelated principal UDP flow must remain active"
+    );
     b.send_to(
         &cb.encode(&Address::Ipv4([127, 0, 0, 1]), target_port, b"b-after")
             .unwrap(),
