@@ -142,7 +142,7 @@ struct Hysteria2PacketPathOperation {
 }
 
 struct ClaimedHysteria2PacketPathLeaf {
-    plan: Hysteria2ManagedUdpPacketPathPlan,
+    leaf: ::hysteria2::transport::Hysteria2TransportLeaf,
 }
 
 struct ClaimedHysteria2UdpLeaf {
@@ -152,12 +152,16 @@ struct ClaimedHysteria2UdpLeaf {
 impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedHysteria2UdpLeaf {
     fn prepare_udp_flow(
         &self,
-        _source_dir: Option<&std::path::Path>,
+        source_dir: Option<&std::path::Path>,
     ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
         Ok(Box::new(
             crate::runtime::udp_dispatch::operation::ManagedDatagramUdpOperation {
                 plan: ManagedDatagramStartPlan::from_parts(
-                    self.leaf.clone().udp_flow_plan().into_parts(),
+                    self.leaf
+                        .clone()
+                        .with_source_dir(source_dir)
+                        .udp_flow_plan()
+                        .into_parts(),
                 ),
                 needs_proxy: true,
             },
@@ -168,10 +172,14 @@ impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedHysteria2UdpLeaf {
 impl<'a> ClaimedUdpPacketPathLeaf<'a> for ClaimedHysteria2PacketPathLeaf {
     fn prepare_udp_packet_path(
         &self,
-        _source_dir: Option<&std::path::Path>,
+        source_dir: Option<&std::path::Path>,
     ) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
         Some(Box::new(Hysteria2PacketPathOperation {
-            plan: self.plan.clone(),
+            plan: self
+                .leaf
+                .clone()
+                .with_source_dir(source_dir)
+                .udp_packet_path_plan(),
         }))
     }
 }
@@ -214,8 +222,6 @@ impl Hysteria2Adapter {
         &self,
         leaf: ::hysteria2::transport::Hysteria2TransportLeaf,
     ) -> Option<Box<dyn ClaimedUdpPacketPathLeaf<'a> + 'a>> {
-        Some(Box::new(ClaimedHysteria2PacketPathLeaf {
-            plan: leaf.udp_packet_path_plan(),
-        }))
+        Some(Box::new(ClaimedHysteria2PacketPathLeaf { leaf }))
     }
 }

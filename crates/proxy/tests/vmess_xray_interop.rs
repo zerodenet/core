@@ -49,6 +49,12 @@ async fn zero_vmess_outbound_none_interops_with_xray_vmess_inbound_tcp() {
 
 #[tokio::test]
 #[ignore = "requires XRAY_BIN pointing to an Xray executable"]
+async fn zero_vmess_outbound_zero_interops_with_xray_vmess_inbound_tcp() {
+    zero_vmess_outbound_interops_with_xray_vmess_inbound_tcp_cipher("zero").await;
+}
+
+#[tokio::test]
+#[ignore = "requires XRAY_BIN pointing to an Xray executable"]
 async fn zero_vmess_outbound_interops_with_xray_vmess_inbound_udp() {
     init_logs("vmess=debug");
     let material = TempMaterial::new("zero-xray-vmess-udp-out");
@@ -115,7 +121,7 @@ async fn zero_vmess_outbound_interops_with_xray_vmess_inbound_udp() {
 
 #[tokio::test]
 #[ignore = "requires XRAY_BIN pointing to an Xray executable"]
-async fn zero_vmess_outbound_zero_is_rejected_by_xray_vmess_inbound_tcp() {
+async fn zero_vmess_outbound_zero_plus_is_rejected_by_xray_vmess_inbound_tcp() {
     init_logs("vmess=debug");
     let material = TempMaterial::new("zero-xray-vmess-zero-out");
     let xray_port = free_port();
@@ -148,7 +154,7 @@ async fn zero_vmess_outbound_zero_is_rejected_by_xray_vmess_inbound_tcp() {
                         "server": "127.0.0.1",
                         "port": {xray_port},
                         "id": "{USER_ID}",
-                        "cipher": "zero"
+                        "cipher": "zero-plus"
                     }}
                 }}
             ],
@@ -167,7 +173,7 @@ async fn zero_vmess_outbound_zero_is_rejected_by_xray_vmess_inbound_tcp() {
     .await;
     assert!(
         !matches!(result, Ok(Ok(echoed)) if echoed == payload),
-        "Xray unexpectedly accepted VMess cipher zero; xray={}",
+        "Xray unexpectedly accepted VMess cipher zero-plus; xray={}",
         xray.logs()
     );
 
@@ -294,6 +300,12 @@ async fn xray_vmess_outbound_interops_with_zero_vmess_inbound_grpc_tcp() {
 #[ignore = "requires XRAY_BIN pointing to an Xray executable"]
 async fn xray_vmess_outbound_none_interops_with_zero_vmess_inbound_tcp() {
     xray_vmess_outbound_interops_with_zero_vmess_inbound_tcp_security("none").await;
+}
+
+#[tokio::test]
+#[ignore = "requires XRAY_BIN pointing to an Xray executable"]
+async fn xray_vmess_outbound_zero_interops_with_zero_vmess_inbound_tcp() {
+    xray_vmess_outbound_interops_with_zero_vmess_inbound_tcp_security("zero").await;
 }
 
 async fn xray_vmess_outbound_interops_with_zero_vmess_inbound_tcp_security(security: &str) {

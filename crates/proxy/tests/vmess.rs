@@ -20,7 +20,13 @@ static NEXT_TLS_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[tokio::test]
 async fn relays_tcp_through_vmess_tls_outbound_for_all_explicit_ciphers() {
-    for cipher in ["aes-128-gcm", "chacha20-poly1305", "none", "zero"] {
+    for cipher in [
+        "aes-128-gcm",
+        "chacha20-poly1305",
+        "none",
+        "zero",
+        "zero-plus",
+    ] {
         relays_tcp_through_vmess_tls_outbound(cipher).await;
     }
 }

@@ -66,6 +66,7 @@ async fn tcp_stream_encrypts_body_in_both_directions_for_all_ciphers() {
         VmessCipher::Chacha20Poly1305,
         VmessCipher::None,
         VmessCipher::Zero,
+        VmessCipher::ZeroPlus,
     ] {
         roundtrip_cipher(cipher).await;
     }
@@ -78,6 +79,7 @@ async fn tcp_stream_shutdown_sends_body_termination_for_all_ciphers() {
         VmessCipher::Chacha20Poly1305,
         VmessCipher::None,
         VmessCipher::Zero,
+        VmessCipher::ZeroPlus,
     ] {
         shutdown_roundtrip_cipher(cipher).await;
     }

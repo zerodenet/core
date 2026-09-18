@@ -25,6 +25,7 @@ pub struct VmessOutboundSession {
     pub download_key: Vec<u8>,
     pub download_nonce: Vec<u8>,
     pub cipher: VmessCipher,
+    pub chunk_stream: bool,
     pub authenticated_length: bool,
     pub chunk_masking: bool,
     pub global_padding: bool,
@@ -41,6 +42,7 @@ struct PendingVmessSession {
     response_key: Vec<u8>,
     response_nonce: Vec<u8>,
     cipher: VmessCipher,
+    chunk_stream: bool,
     authenticated_length: bool,
     chunk_masking: bool,
     global_padding: bool,
@@ -56,6 +58,7 @@ impl PendingVmessSession {
             download_key: self.response_key,
             download_nonce: self.response_nonce,
             cipher: self.cipher,
+            chunk_stream: self.chunk_stream,
             authenticated_length: self.authenticated_length,
             chunk_masking: self.chunk_masking,
             global_padding: self.global_padding,
@@ -180,7 +183,8 @@ async fn send_request<S: AsyncSocket>(
     header.push(response_header);
     let chunk_masking = false;
     let global_padding = false;
-    let options = 0x01;
+    let chunk_stream = cipher != VmessCipher::Zero;
+    let options = if chunk_stream { 0x01 } else { 0x00 };
     header.push(options);
     let security = security_byte(cipher);
     header.push(security);
@@ -211,6 +215,7 @@ async fn send_request<S: AsyncSocket>(
         response_key,
         response_nonce,
         cipher,
+        chunk_stream,
         authenticated_length: false,
         chunk_masking,
         global_padding,
@@ -222,7 +227,8 @@ fn security_byte(cipher: VmessCipher) -> u8 {
         VmessCipher::Aes128Gcm => 0x03,
         VmessCipher::Chacha20Poly1305 => 0x04,
         VmessCipher::None => 0x05,
-        VmessCipher::Zero => 0x06,
+        VmessCipher::Zero => 0x05,
+        VmessCipher::ZeroPlus => 0x06,
     }
 }
 

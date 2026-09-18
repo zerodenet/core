@@ -17,7 +17,7 @@ impl ProtocolMetadata for TrojanProtocol {
             compatibility_baseline: "trojan_go",
             inbound: ProtocolNetworkCapability::new(supported, supported),
             outbound: ProtocolNetworkCapability::new(supported, supported),
-            transports: &["tcp", "tls"],
+            transports: &["tcp", "tls", "ws", "grpc"],
             mux: supported,
             limitations: &[],
         }

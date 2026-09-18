@@ -14,6 +14,7 @@ pub struct Hysteria2ManagedDatagramFlowResume {
     pub(super) lifetime: std::sync::Arc<tokio::sync::watch::Sender<()>>,
     pub(super) pool: super::pool::Hysteria2ConnectionPool,
     pub(super) tag: String,
+    pub(super) node: Hysteria2NodeOptions,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +37,7 @@ pub struct Hysteria2AuthenticatedQuicConnection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hysteria2ManagedUdpPacketPathCarrierDescriptor {
     pub(super) protocol: crate::udp::Hysteria2UdpPacketPathCarrierDescriptor,
+    pub(super) node_identity: String,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +45,7 @@ pub struct Hysteria2ManagedUdpPacketPathCarrierBuild {
     pub(super) protocol: crate::udp::Hysteria2UdpPacketPathCarrierBuild,
     pub(super) pool: super::pool::Hysteria2ConnectionPool,
     pub(super) tag: String,
+    pub(super) node: Hysteria2NodeOptions,
 }
 
 #[derive(Debug, Clone)]
@@ -59,7 +62,7 @@ pub struct Hysteria2ManagedUdpPacketPathPlan {
     pub(super) carrier_build: Hysteria2ManagedUdpPacketPathCarrierBuild,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Hysteria2ManagedUdpFlowConfig<'a> {
     pub(super) pool: Option<&'a super::pool::Hysteria2ConnectionPool>,
     pub(super) tag: &'a str,
@@ -70,6 +73,7 @@ pub struct Hysteria2ManagedUdpFlowConfig<'a> {
     pub(super) client_fingerprint: Option<&'a str>,
     pub(super) server_name: Option<&'a str>,
     pub(super) settings: crate::settings::Settings,
+    pub(super) node: Hysteria2NodeOptions,
 }
 
 #[derive(Debug, Clone)]
@@ -83,12 +87,42 @@ pub struct Hysteria2TransportLeaf {
     pub(super) client_fingerprint: Option<String>,
     pub(super) server_name: Option<String>,
     pub(super) settings: crate::settings::Settings,
+    pub(super) node: Hysteria2NodeOptions,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Hysteria2QuicProfile {
     pub(super) insecure: bool,
     pub(super) client_fingerprint: Option<String>,
     pub(super) server_name: Option<String>,
     pub(super) settings: crate::settings::Settings,
+    pub(super) node: Hysteria2NodeOptions,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct Hysteria2NodeOptions {
+    pub(super) ca_cert_path: Option<String>,
+    pub(super) source_dir: Option<std::path::PathBuf>,
+    pub(super) tls_options: zero_traits::ClientTlsOptions,
+    pub(super) salamander_password: Option<String>,
+    pub(super) udp_hop: Option<zero_transport::datagram_hop::Profile>,
+}
+
+impl Hysteria2NodeOptions {
+    pub(super) fn identity(&self) -> String {
+        format!("{self:?}")
+    }
+
+    pub(super) fn ca_cert_path(&self) -> Option<std::path::PathBuf> {
+        self.ca_cert_path.as_ref().map(|path| {
+            let path = std::path::PathBuf::from(path);
+            if path.is_absolute() {
+                path
+            } else if let Some(source_dir) = &self.source_dir {
+                source_dir.join(path)
+            } else {
+                path
+            }
+        })
+    }
 }

@@ -2,6 +2,14 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use zero_platform_tokio::TokioSocket;
+use zero_traits::{GrpcTransportProfile, WebSocketTransportProfile};
+use zero_transport::outbound_stack::{
+    connect_relay_transport_stack, connect_socket_transport_stack, StreamTransportStack,
+};
+use zero_transport::profile::{
+    OwnedClientTlsProfile, OwnedGrpcProfile, OwnedH2Profile, OwnedHttpUpgradeProfile,
+    OwnedWebSocketProfile,
+};
 use zero_transport::RuntimeError;
 use zero_transport::TcpRelayStream;
 
@@ -12,18 +20,28 @@ pub struct OwnedTrojanOutboundTlsPlan {
     server: String,
     port: u16,
     source_dir: Option<PathBuf>,
+    ws: Option<OwnedWebSocketProfile>,
+    grpc: Option<OwnedGrpcProfile>,
 }
 
 impl OwnedTrojanOutboundTlsPlan {
-    pub(in crate::transport) fn from_parts(
+    pub(in crate::transport) fn from_parts<TWs, TGrpc>(
         source_dir: Option<&Path>,
         server: &str,
         port: u16,
-    ) -> Self {
+        ws: Option<&TWs>,
+        grpc: Option<&TGrpc>,
+    ) -> Self
+    where
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
         Self {
             server: server.to_owned(),
             port,
             source_dir: source_dir.map(PathBuf::from),
+            ws: ws.map(OwnedWebSocketProfile::from_profile),
+            grpc: grpc.map(OwnedGrpcProfile::from_profile),
         }
     }
 
@@ -52,8 +70,22 @@ impl OwnedTrojanOutboundTlsPlan {
         let upstream = open_socket(self.server(), self.port())
             .await
             .map_err(Into::into)?;
-        open_trojan_tls_stream_with_profile(upstream, self.source_dir(), self.server(), tls_profile)
-            .await
+        let tls_profile = self.tls_profile_for_transport(tls_profile);
+        connect_socket_transport_stack(
+            upstream,
+            StreamTransportStack {
+                tls: Some(&tls_profile),
+                ws: self.ws.as_ref(),
+                grpc: self.grpc.as_ref(),
+                h2: None::<&OwnedH2Profile>,
+                http_upgrade: None::<&OwnedHttpUpgradeProfile>,
+                source_dir: self.source_dir(),
+            },
+            self.server(),
+            self.port(),
+            "trojan: ws and grpc are mutually exclusive",
+        )
+        .await
     }
 
     pub(super) async fn open_relay_with_profile(
@@ -61,32 +93,33 @@ impl OwnedTrojanOutboundTlsPlan {
         stream: TcpRelayStream,
         tls_profile: crate::outbound::OwnedTrojanResolvedTlsProfile,
     ) -> Result<TcpRelayStream, RuntimeError> {
-        open_trojan_tls_relay_stream_with_profile(
+        let tls_profile = self.tls_profile_for_transport(tls_profile);
+        connect_relay_transport_stack(
             stream,
-            self.source_dir(),
+            StreamTransportStack {
+                tls: Some(&tls_profile),
+                ws: self.ws.as_ref(),
+                grpc: self.grpc.as_ref(),
+                h2: None::<&OwnedH2Profile>,
+                http_upgrade: None::<&OwnedHttpUpgradeProfile>,
+                source_dir: self.source_dir(),
+            },
             self.server(),
-            tls_profile,
+            self.port(),
+            "trojan: ws and grpc are mutually exclusive",
         )
         .await
     }
-}
 
-async fn open_trojan_tls_stream_with_profile(
-    socket: TokioSocket,
-    source_dir: Option<&Path>,
-    server: &str,
-    tls_profile: crate::outbound::OwnedTrojanResolvedTlsProfile,
-) -> Result<TcpRelayStream, RuntimeError> {
-    zero_transport::tls::connect_tls_upstream_with_profile(socket, &tls_profile, source_dir, server)
-        .await
-}
-
-async fn open_trojan_tls_relay_stream_with_profile(
-    stream: TcpRelayStream,
-    source_dir: Option<&Path>,
-    server: &str,
-    tls_profile: crate::outbound::OwnedTrojanResolvedTlsProfile,
-) -> Result<TcpRelayStream, RuntimeError> {
-    zero_transport::tls::connect_tls_stream_with_profile(stream, &tls_profile, source_dir, server)
-        .await
+    fn tls_profile_for_transport(
+        &self,
+        tls_profile: crate::outbound::OwnedTrojanResolvedTlsProfile,
+    ) -> OwnedClientTlsProfile {
+        let tls_profile = if self.grpc.is_some() {
+            tls_profile.with_alpn(["h2".to_owned()])
+        } else {
+            tls_profile
+        };
+        OwnedClientTlsProfile::from_profile(&tls_profile)
+    }
 }

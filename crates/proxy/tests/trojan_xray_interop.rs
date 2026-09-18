@@ -10,6 +10,67 @@ use support::interop::*;
 use support::{free_port, free_udp_port, spawn_engine, wait_for_listener};
 
 const PASSWORD: &str = "test-trojan-password";
+const TROJAN_WS_PATH: &str = "/zero-trojan-ws";
+const TROJAN_GRPC_SERVICE: &str = "zero.trojan";
+
+#[derive(Clone, Copy, Debug)]
+enum TrojanCarrier {
+    WebSocket,
+    Grpc,
+}
+
+impl TrojanCarrier {
+    fn zero_config(self) -> String {
+        match self {
+            Self::WebSocket => format!(r#", "ws": {{ "path": "{TROJAN_WS_PATH}" }}"#),
+            Self::Grpc => {
+                format!(r#", "grpc": {{ "service_names": ["/{TROJAN_GRPC_SERVICE}/Tun"] }}"#)
+            }
+        }
+    }
+
+    fn xray_stream_settings(self, tls: &TestTlsMaterial, inbound: bool) -> String {
+        let (network, carrier) = match self {
+            Self::WebSocket => (
+                "ws",
+                format!(r#", "wsSettings": {{ "path": "{TROJAN_WS_PATH}" }}"#),
+            ),
+            Self::Grpc => (
+                "grpc",
+                format!(r#", "grpcSettings": {{ "serviceName": "{TROJAN_GRPC_SERVICE}" }}"#),
+            ),
+        };
+        let tls_settings = if inbound {
+            format!(
+                r#"{{
+                    "serverName": "localhost",
+                    "certificates": [{{
+                        "certificateFile": "{}",
+                        "keyFile": "{}"
+                    }}]
+                }}"#,
+                escape_json_path(&tls.cert_path),
+                escape_json_path(&tls.key_path),
+            )
+        } else {
+            format!(
+                r#"{{
+                    "serverName": "localhost",
+                    "pinnedPeerCertSha256": "{}",
+                    "fingerprint": "chrome"
+                }}"#,
+                tls.cert_sha256_hex
+            )
+        };
+        format!(
+            r#"{{
+                "network": "{network}",
+                "security": "tls",
+                "tlsSettings": {tls_settings}{carrier}
+            }}"#
+        )
+    }
+}
 
 async fn wait_for_echo(echo: tokio::task::JoinHandle<()>) {
     timeout(Duration::from_secs(5), echo)
@@ -95,6 +156,80 @@ async fn zero_trojan_outbound_interops_with_xray_trojan_inbound_tcp() {
     };
     assert_eq!(echoed, payload, "xray={}", xray.logs());
 
+    xray.kill();
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
+}
+
+#[tokio::test]
+#[ignore = "requires XRAY_BIN pointing to official Xray v26.3.27"]
+async fn zero_trojan_websocket_outbound_interops_with_xray_inbound_tcp() {
+    zero_trojan_carrier_outbound_interops_with_xray(TrojanCarrier::WebSocket).await;
+}
+
+#[tokio::test]
+#[ignore = "requires XRAY_BIN pointing to official Xray v26.3.27"]
+async fn zero_trojan_grpc_outbound_interops_with_xray_inbound_tcp() {
+    zero_trojan_carrier_outbound_interops_with_xray(TrojanCarrier::Grpc).await;
+}
+
+async fn zero_trojan_carrier_outbound_interops_with_xray(carrier: TrojanCarrier) {
+    init_logs("trojan=debug");
+    let material = TempMaterial::new("zero-xray-trojan-carrier-out");
+    let tls = material.tls();
+    let xray_port = free_port();
+    let zero_socks_port = free_port();
+    let echo_port = free_port();
+    let payload = b"xray-trojan-carrier";
+    let xray_config = material.path("xray-server.json");
+    std::fs::write(
+        &xray_config,
+        xray_trojan_inbound_carrier_config(xray_port, &tls, carrier),
+    )
+    .expect("write Xray carrier config");
+    let xray_bin = std::env::var("XRAY_BIN").expect("official XRAY_BIN is required");
+    let mut xray = XrayProcess::start(xray_bin, &xray_config, &material);
+    wait_for_listener(xray_port).await;
+
+    let zero_config = RuntimeConfig::parse(&format!(
+        r#"{{
+            "inbounds": [{{
+                "tag": "socks-in",
+                "listen": {{ "address": "127.0.0.1", "port": {zero_socks_port} }},
+                "protocol": {{ "type": "socks5" }}
+            }}],
+            "outbounds": [{{
+                "tag": "trojan-out",
+                "protocol": {{
+                    "type": "trojan",
+                    "server": "127.0.0.1",
+                    "port": {xray_port},
+                    "password": "{PASSWORD}",
+                    "sni": "localhost",
+                    "insecure": true{}
+                }}
+            }}],
+            "route": {{ "rules": [], "final": {{ "type": "route", "outbound": "trojan-out" }} }}
+        }}"#,
+        carrier.zero_config(),
+    ))
+    .expect("parse Zero Trojan carrier config");
+    let zero = spawn_engine(Engine::new(zero_config).expect("build Zero engine"));
+    wait_for_listener(zero_socks_port).await;
+    let echo = spawn_tcp_echo(echo_port, payload.len()).await;
+    let echoed = timeout(
+        Duration::from_secs(10),
+        socks5_tcp_echo_once(zero_socks_port, echo_port, payload),
+    )
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "Zero -> Xray {carrier:?} timed out: {error}; {}",
+            xray.logs()
+        )
+    })
+    .unwrap_or_else(|error| panic!("Zero -> Xray {carrier:?} failed: {error}; {}", xray.logs()));
+    assert_eq!(echoed, payload, "Xray logs={}", xray.logs());
     xray.kill();
     shutdown_zero(zero).await;
     wait_for_echo(echo).await;
@@ -316,6 +451,76 @@ async fn xray_trojan_outbound_interops_with_zero_trojan_inbound_tcp() {
     };
     assert_eq!(echoed, payload, "xray={}", xray.logs());
 
+    xray.kill();
+    shutdown_zero(zero).await;
+    wait_for_echo(echo).await;
+}
+
+#[tokio::test]
+#[ignore = "requires XRAY_BIN pointing to official Xray v26.3.27"]
+async fn xray_trojan_websocket_outbound_interops_with_zero_inbound_tcp() {
+    xray_trojan_carrier_outbound_interops_with_zero(TrojanCarrier::WebSocket).await;
+}
+
+#[tokio::test]
+#[ignore = "requires XRAY_BIN pointing to official Xray v26.3.27"]
+async fn xray_trojan_grpc_outbound_interops_with_zero_inbound_tcp() {
+    xray_trojan_carrier_outbound_interops_with_zero(TrojanCarrier::Grpc).await;
+}
+
+async fn xray_trojan_carrier_outbound_interops_with_zero(carrier: TrojanCarrier) {
+    init_logs("trojan=debug");
+    let material = TempMaterial::new("xray-zero-trojan-carrier-in");
+    let tls = material.tls();
+    let zero_port = free_port();
+    let xray_socks_port = free_port();
+    let echo_port = free_port();
+    let payload = b"zero-trojan-carrier";
+    let zero_config = RuntimeConfig::parse(&format!(
+        r#"{{
+            "inbounds": [{{
+                "tag": "trojan-in",
+                "listen": {{ "address": "127.0.0.1", "port": {zero_port} }},
+                "protocol": {{
+                    "type": "trojan",
+                    "password": "{PASSWORD}",
+                    "tls": {{ "cert_path": "{}", "key_path": "{}" }}{}
+                }}
+            }}],
+            "outbounds": [],
+            "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
+        }}"#,
+        escape_json_path(&tls.cert_path),
+        escape_json_path(&tls.key_path),
+        carrier.zero_config(),
+    ))
+    .expect("parse Zero Trojan carrier config");
+    let zero = spawn_engine(Engine::new(zero_config).expect("build Zero engine"));
+    wait_for_listener(zero_port).await;
+
+    let xray_config = material.path("xray-client.json");
+    std::fs::write(
+        &xray_config,
+        xray_trojan_outbound_carrier_config(xray_socks_port, zero_port, &tls, carrier),
+    )
+    .expect("write Xray carrier config");
+    let xray_bin = std::env::var("XRAY_BIN").expect("official XRAY_BIN is required");
+    let mut xray = XrayProcess::start(xray_bin, &xray_config, &material);
+    wait_for_listener(xray_socks_port).await;
+    let echo = spawn_tcp_echo(echo_port, payload.len()).await;
+    let echoed = timeout(
+        Duration::from_secs(10),
+        socks5_tcp_echo_once(xray_socks_port, echo_port, payload),
+    )
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "Xray -> Zero {carrier:?} timed out: {error}; {}",
+            xray.logs()
+        )
+    })
+    .unwrap_or_else(|error| panic!("Xray -> Zero {carrier:?} failed: {error}; {}", xray.logs()));
+    assert_eq!(echoed, payload, "Xray logs={}", xray.logs());
     xray.kill();
     shutdown_zero(zero).await;
     wait_for_echo(echo).await;
@@ -738,6 +943,27 @@ fn xray_trojan_inbound_config(port: u16, tls: &TestTlsMaterial) -> String {
     )
 }
 
+fn xray_trojan_inbound_carrier_config(
+    port: u16,
+    tls: &TestTlsMaterial,
+    carrier: TrojanCarrier,
+) -> String {
+    let stream_settings = carrier.xray_stream_settings(tls, true);
+    format!(
+        r#"{{
+            "log": {{ "loglevel": "debug" }},
+            "inbounds": [{{
+                "listen": "127.0.0.1",
+                "port": {port},
+                "protocol": "trojan",
+                "settings": {{ "clients": [{{ "password": "{PASSWORD}" }}] }},
+                "streamSettings": {stream_settings}
+            }}],
+            "outbounds": [{{ "protocol": "freedom", "settings": {{}} }}]
+        }}"#
+    )
+}
+
 fn xray_trojan_outbound_config(socks_port: u16, trojan_port: u16, tls: &TestTlsMaterial) -> String {
     format!(
         r#"{{
@@ -775,6 +1001,37 @@ fn xray_trojan_outbound_config(socks_port: u16, trojan_port: u16, tls: &TestTlsM
             ]
         }}"#,
         tls.cert_sha256_hex
+    )
+}
+
+fn xray_trojan_outbound_carrier_config(
+    socks_port: u16,
+    trojan_port: u16,
+    tls: &TestTlsMaterial,
+    carrier: TrojanCarrier,
+) -> String {
+    let stream_settings = carrier.xray_stream_settings(tls, false);
+    format!(
+        r#"{{
+            "log": {{ "loglevel": "debug" }},
+            "inbounds": [{{
+                "listen": "127.0.0.1",
+                "port": {socks_port},
+                "protocol": "socks",
+                "settings": {{ "auth": "noauth", "udp": false }}
+            }}],
+            "outbounds": [{{
+                "protocol": "trojan",
+                "settings": {{
+                    "servers": [{{
+                        "address": "127.0.0.1",
+                        "port": {trojan_port},
+                        "password": "{PASSWORD}"
+                    }}]
+                }},
+                "streamSettings": {stream_settings}
+            }}]
+        }}"#
     )
 }
 

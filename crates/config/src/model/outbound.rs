@@ -129,6 +129,10 @@ pub enum OutboundProtocolConfig {
         insecure: bool,
         #[serde(default)]
         client_fingerprint: Option<String>,
+        #[serde(default)]
+        ca_cert_path: Option<String>,
+        #[serde(default)]
+        tls_options: super::ClientTlsOptionsConfig,
     },
     #[serde(rename = "shadowsocks")]
     Shadowsocks {
@@ -156,6 +160,10 @@ pub enum OutboundProtocolConfig {
         insecure: bool,
         #[serde(default)]
         client_fingerprint: Option<String>,
+        #[serde(default)]
+        ws: Option<Box<WebSocketConfig>>,
+        #[serde(default)]
+        grpc: Option<Box<GrpcConfig>>,
         #[serde(default)]
         mux_concurrency: Option<u32>,
         #[serde(default)]

@@ -10,6 +10,7 @@ use tokio_rustls::TlsAcceptor;
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy as Engine;
 
+use support::interop::TempMaterial;
 use support::{free_port, spawn_engine, wait_for_listener};
 
 const CMD_TCP: u8 = 0x01;
@@ -17,6 +18,145 @@ const ATYP_IPV4: u8 = 0x01;
 const PASSWORD_HASH_LEN: usize = 56;
 
 const PASSWORD: &str = "test-password";
+
+#[derive(Clone, Copy)]
+enum TrojanCarrier {
+    WebSocket,
+    Grpc,
+}
+
+impl TrojanCarrier {
+    fn json(self) -> &'static str {
+        match self {
+            Self::WebSocket => r#""ws":{"path":"/trojan-ws"}"#,
+            Self::Grpc => r#""grpc":{"service_names":["zero.trojan/Tun"]}"#,
+        }
+    }
+
+    fn payload(self) -> &'static [u8; 4] {
+        match self {
+            Self::WebSocket => b"tws!",
+            Self::Grpc => b"tgr!",
+        }
+    }
+}
+
+#[tokio::test]
+async fn relays_tcp_through_trojan_websocket_outbound() {
+    relay_tcp_through_trojan_carrier(TrojanCarrier::WebSocket).await;
+}
+
+#[tokio::test]
+async fn relays_tcp_through_trojan_grpc_outbound() {
+    relay_tcp_through_trojan_carrier(TrojanCarrier::Grpc).await;
+}
+
+async fn relay_tcp_through_trojan_carrier(carrier: TrojanCarrier) {
+    let upstream_port = free_port();
+    let outer_port = free_port();
+    let target_port = free_port();
+    let material = TempMaterial::new("zero-trojan-carrier");
+    let tls = material.tls();
+    let carrier_json = carrier.json();
+
+    let echo_task = tokio::spawn(async move {
+        let listener = TcpListener::bind(("127.0.0.1", target_port))
+            .await
+            .expect("bind echo target");
+        let (mut stream, _) = listener.accept().await.expect("accept echo target");
+        let mut payload = [0_u8; 4];
+        stream
+            .read_exact(&mut payload)
+            .await
+            .expect("read echo payload");
+        stream
+            .write_all(&payload)
+            .await
+            .expect("write echo payload");
+    });
+
+    let upstream_config = RuntimeConfig::parse(&format!(
+        r#"{{
+            "inbounds":[{{
+                "tag":"trojan-carrier-in",
+                "listen":{{"address":"127.0.0.1","port":{upstream_port}}},
+                "protocol":{{
+                    "type":"trojan",
+                    "password":"{PASSWORD}",
+                    "tls":{{"cert_path":"{}","key_path":"{}"}},
+                    {carrier_json}
+                }}
+            }}],
+            "outbounds":[],
+            "route":{{"rules":[],"final":{{"type":"direct"}}}}
+        }}"#,
+        tls.cert_path.display(),
+        tls.key_path.display(),
+    ))
+    .expect("parse upstream config");
+    let upstream_handle = spawn_engine(Engine::new(upstream_config).expect("build upstream"));
+    wait_for_listener(upstream_port).await;
+
+    let outer_config = RuntimeConfig::parse(&format!(
+        r#"{{
+            "inbounds":[{{
+                "tag":"http-in",
+                "listen":{{"address":"127.0.0.1","port":{outer_port}}},
+                "protocol":{{"type":"http"}}
+            }}],
+            "outbounds":[{{
+                "tag":"trojan-carrier-out",
+                "protocol":{{
+                    "type":"trojan",
+                    "server":"127.0.0.1",
+                    "port":{upstream_port},
+                    "password":"{PASSWORD}",
+                    "sni":"localhost",
+                    "insecure":true,
+                    {carrier_json}
+                }}
+            }}],
+            "route":{{"rules":[],"final":{{"type":"route","outbound":"trojan-carrier-out"}}}}
+        }}"#,
+    ))
+    .expect("parse outer config");
+    let outer_handle = spawn_engine(Engine::new(outer_config).expect("build outer"));
+    wait_for_listener(outer_port).await;
+
+    let mut client = TcpStream::connect(("127.0.0.1", outer_port))
+        .await
+        .expect("connect outer proxy");
+    client
+        .write_all(
+            format!(
+                "CONNECT 127.0.0.1:{target_port} HTTP/1.1\r\nHost: 127.0.0.1:{target_port}\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("write connect request");
+    let mut response = vec![0_u8; 39];
+    client
+        .read_exact(&mut response)
+        .await
+        .expect("read connect response");
+    assert_eq!(&response, b"HTTP/1.1 200 Connection Established\r\n\r\n");
+
+    client
+        .write_all(carrier.payload())
+        .await
+        .expect("write carrier payload");
+    let mut echoed = [0_u8; 4];
+    client
+        .read_exact(&mut echoed)
+        .await
+        .expect("read carrier payload");
+    assert_eq!(&echoed, carrier.payload());
+
+    outer_handle.shutdown().await.expect("shutdown outer");
+    upstream_handle.shutdown().await.expect("shutdown upstream");
+    echo_task.await.expect("echo task");
+}
 
 #[tokio::test]
 async fn trojan_raw_outbound_does_not_negotiate_h2_alpn() {

@@ -19,6 +19,31 @@ impl Hysteria2TransportLeaf {
         self
     }
 
+    pub fn with_ca_cert_path(mut self, ca_cert_path: Option<&str>) -> Self {
+        self.node.ca_cert_path = ca_cert_path.map(ToOwned::to_owned);
+        self
+    }
+
+    pub fn with_tls_options(mut self, options: zero_traits::ClientTlsOptions) -> Self {
+        self.node.tls_options = options;
+        self
+    }
+
+    pub fn with_salamander_password(mut self, password: Option<&str>) -> Self {
+        self.node.salamander_password = password.map(ToOwned::to_owned);
+        self
+    }
+
+    pub fn with_udp_hop(mut self, hop: Option<zero_transport::datagram_hop::Profile>) -> Self {
+        self.node.udp_hop = hop;
+        self
+    }
+
+    pub fn with_source_dir(mut self, source_dir: Option<&std::path::Path>) -> Self {
+        self.node.source_dir = source_dir.map(ToOwned::to_owned);
+        self
+    }
+
     pub fn from_options_refs(
         tag: &str,
         server: &str,
@@ -54,6 +79,7 @@ impl Hysteria2TransportLeaf {
             insecure: false,
             server_name: None,
             settings: Default::default(),
+            node: Default::default(),
         }
     }
 
@@ -115,6 +141,7 @@ impl Hysteria2TransportLeaf {
                 insecure: self.insecure,
                 server_name: self.server_name.as_deref(),
             },
+            &self.node,
             sockets,
         )
         .await
@@ -131,6 +158,7 @@ impl Hysteria2TransportLeaf {
         .with_settings(self.settings)
         .with_server_name(self.server_name.as_deref())
         .with_insecure(self.insecure)
+        .with_node(self.node.clone())
         .with_pool(&self.pool)
     }
 }

@@ -21,7 +21,8 @@ framing, TCP stream state, UDP packet framing, and Mux.Cool frame encoding.
 | Body AEAD periodic rekey (2^14 chunks) | implemented |
 | `cipher: auto` | normalized to the current AEAD baseline |
 | `cipher: none` | implemented; Xray TCP interoperability is covered |
-| `cipher: zero` | implemented for Zero-to-Zero paths; not claimed as mainstream external compatibility |
+| `cipher: zero` | implemented with Xray's unchunked NONE body semantics |
+| `cipher: zero-plus` | implemented for Zero-to-Zero paths; not claimed as mainstream external compatibility |
 
 Supported explicit cipher names:
 
@@ -29,6 +30,7 @@ Supported explicit cipher names:
 - `chacha20-poly1305`
 - `none`
 - `zero`
+- `zero-plus`
 
 `auto` is accepted as a config/import alias and maps to the current AEAD
 baseline.
@@ -47,7 +49,7 @@ UDP-over-stream, MUX UDP, and same-protocol VMess UDP relay-chain paths.
 
 External interoperability currently covers Xray TCP and UDP in both directions,
 Xray WS/gRPC TCP in both directions, Zero outbound to sing-box inbound TCP/UDP,
-and Mihomo outbound to Zero inbound TCP/UDP. `cipher: zero` remains a
+and Mihomo outbound to Zero inbound TCP/UDP. `cipher: zero-plus` remains a
 Zero-to-Zero capability, not a mainstream external compatibility claim.
 
 ## File Layout
@@ -63,3 +65,7 @@ src/metadata.rs  - protocol capability descriptor
 src/mux.rs       - Mux.Cool frame encode/decode, VmessMuxStream
 src/udp.rs       - UDP packet encode/decode, UDP packet-session and UDP-over-stream establishment
 ```
+
+`zero` now means Xray's unchunked NONE body semantics. Existing Zero-private
+`zero` configurations must explicitly migrate to `zero-plus`; the private wire
+format remains unchanged. See [cipher semantics](../../docs/protocols/vmess/shared.md).

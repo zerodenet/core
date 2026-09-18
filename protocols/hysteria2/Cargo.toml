@@ -1,7 +1,7 @@
 [package]
 name = "hysteria2"
-# hysteria v2.6.1
-version = "2.6.1"
+# Hysteria app/v2.12.2, commit 619a6f856b69fb7ee6a7a379e810e68b84004605
+version = "2.12.2"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true

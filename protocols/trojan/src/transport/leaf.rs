@@ -23,7 +23,7 @@ pub struct TrojanOutboundLeaf {
 
 impl TrojanOutboundLeaf {
     #[allow(clippy::too_many_arguments)]
-    fn from_parts(
+    fn from_parts<TWs, TGrpc>(
         source_dir: Option<&Path>,
         tag: &str,
         server: &str,
@@ -36,8 +36,14 @@ impl TrojanOutboundLeaf {
         mux_idle_timeout_secs: Option<u64>,
         mux_response_backlog_frames: Option<u32>,
         mux_response_backlog_bytes: Option<u64>,
+        ws: Option<&TWs>,
+        grpc: Option<&TGrpc>,
         mux_pool: crate::mux::TrojanMuxConnectionPool,
-    ) -> Result<Self, zero_core::Error> {
+    ) -> Result<Self, zero_core::Error>
+    where
+        TWs: zero_traits::WebSocketTransportProfile + ?Sized,
+        TGrpc: zero_traits::GrpcTransportProfile + ?Sized,
+    {
         let protocol =
             crate::outbound::PreparedTrojanOutboundRequestBundle::from_config_with_mux_policy(
                 password,
@@ -49,15 +55,19 @@ impl TrojanOutboundLeaf {
                 mux_response_backlog_frames,
                 mux_response_backlog_bytes,
             )?;
-        let transport = OwnedTrojanOutboundTlsPlan::from_parts(source_dir, server, port);
+        let transport = OwnedTrojanOutboundTlsPlan::from_parts(source_dir, server, port, ws, grpc);
         Ok(Self::new(tag, server, port, transport, protocol, mux_pool))
     }
 
-    pub fn from_options_refs(
+    pub fn from_options_refs<TWs, TGrpc>(
         source_dir: Option<&Path>,
-        options: TrojanOutboundBuildOptionsRef<'_>,
+        options: TrojanOutboundBuildOptionsRef<'_, TWs, TGrpc>,
         mux_pool: crate::mux::TrojanMuxConnectionPool,
-    ) -> Result<Self, zero_core::Error> {
+    ) -> Result<Self, zero_core::Error>
+    where
+        TWs: zero_traits::WebSocketTransportProfile + ?Sized,
+        TGrpc: zero_traits::GrpcTransportProfile + ?Sized,
+    {
         let TrojanOutboundBuildOptionsRef {
             tag,
             server,
@@ -73,6 +83,8 @@ impl TrojanOutboundLeaf {
                     mux_response_backlog_frames,
                     mux_response_backlog_bytes,
                 },
+            ws,
+            grpc,
         } = options;
         Self::from_parts(
             source_dir,
@@ -87,6 +99,8 @@ impl TrojanOutboundLeaf {
             mux_idle_timeout_secs,
             mux_response_backlog_frames,
             mux_response_backlog_bytes,
+            ws,
+            grpc,
             mux_pool,
         )
     }

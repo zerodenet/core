@@ -41,7 +41,8 @@ if sha224(password) != expected_password_hash {
     "tls": {
       "cert_path": "certs/fullchain.pem",
       "key_path": "certs/privkey.pem"
-    }
+    },
+    "ws": { "path": "/trojan-ws" }
   }
 }
 ```
@@ -49,6 +50,8 @@ if sha224(password) != expected_password_hash {
 - `users`: 面板管理与多用户节点使用；每项包含 secret `password`、稳定身份和可选用户限速
 - `password`: 兼容静态单用户节点；不能与 `users` 同时配置
 - `tls`: 必需，Trojan 必须使用 TLS
+- `ws` / `grpc`: 可选且互斥；TLS 握手后分别接受 WebSocket 或 gRPC 载体。gRPC 使用
+  `service_names` 数组，例如 `{"service_names":["zero.trojan/Tun"]}`。
 ## 边界说明
 
 用户集合由共享 profile 原子替换，现有 listener 无需解绑端口。Raw Trojan accept state is module-private.

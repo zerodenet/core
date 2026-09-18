@@ -1,7 +1,7 @@
 //! Shared authenticated connection reuse; never replay application bytes on retry.
 use super::{
-    Hysteria2AuthenticatedConnection, Hysteria2OutboundOptionsRef, Hysteria2QuicProfile,
-    Hysteria2Stream,
+    model::Hysteria2NodeOptions, Hysteria2AuthenticatedConnection, Hysteria2OutboundOptionsRef,
+    Hysteria2QuicProfile, Hysteria2Stream,
 };
 use std::{
     collections::HashMap,
@@ -22,6 +22,7 @@ struct Key {
     fingerprint: Option<String>,
     insecure: bool,
     settings: crate::settings::Settings,
+    node_identity: String,
     egress_generation: u64,
 }
 struct Entry {
@@ -109,11 +110,14 @@ pub(super) async fn acquire(
     server: &str,
     port: u16,
     options: Hysteria2OutboundOptionsRef<'_>,
+    node: &Hysteria2NodeOptions,
     sockets: &OutboundDatagramSocketFactory,
 ) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
-    Ok(acquire_entry(pool, tag, server, port, options, sockets)
-        .await?
-        .1)
+    Ok(
+        acquire_entry(pool, tag, server, port, options, node, sockets)
+            .await?
+            .1,
+    )
 }
 
 async fn acquire_entry(
@@ -122,6 +126,7 @@ async fn acquire_entry(
     server: &str,
     port: u16,
     options: Hysteria2OutboundOptionsRef<'_>,
+    node: &Hysteria2NodeOptions,
     sockets: &OutboundDatagramSocketFactory,
 ) -> Result<(Arc<Entry>, Arc<Hysteria2AuthenticatedConnection>), RuntimeError> {
     let entry = pool.entry(Key {
@@ -133,6 +138,7 @@ async fn acquire_entry(
         fingerprint: options.client_fingerprint.map(Into::into),
         insecure: options.insecure,
         settings: options.settings,
+        node_identity: node.identity(),
         egress_generation: sockets.egress_generation(),
     })?;
     let connection = {
@@ -152,7 +158,8 @@ async fn acquire_entry(
             let quic = Hysteria2QuicProfile::from_parts(options.client_fingerprint)
                 .with_insecure(options.insecure)
                 .with_server_name(options.server_name)
-                .with_settings(options.settings);
+                .with_settings(options.settings)
+                .with_node(node.clone());
             *slot = Some(
                 super::open_authenticated_hysteria2_quic_connection(
                     server, port, &profile, quic, sockets,
@@ -173,10 +180,12 @@ pub(super) async fn connect_pooled(
     server: &str,
     port: u16,
     options: Hysteria2OutboundOptionsRef<'_>,
+    node: &Hysteria2NodeOptions,
     sockets: &OutboundDatagramSocketFactory,
 ) -> Result<TcpRelayStream, RuntimeError> {
     for attempt in 0..2 {
-        let (entry, connection) = acquire_entry(pool, tag, server, port, options, sockets).await?;
+        let (entry, connection) =
+            acquire_entry(pool, tag, server, port, options, node, sockets).await?;
         match connection.connection().open_bi().await {
             Ok((send, recv)) => {
                 let mut stream = Hysteria2Stream::with_connection_guard(send, recv, connection);

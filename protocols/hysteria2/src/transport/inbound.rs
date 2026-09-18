@@ -21,11 +21,21 @@ pub struct Hysteria2InboundBindPlan {
     key_path: String,
     source_dir: Option<PathBuf>,
     settings: crate::settings::Settings,
+    masks: Vec<zero_transport::finalmask::udp::Mask>,
 }
 
 impl Hysteria2InboundBindPlan {
     pub fn with_settings(mut self, settings: crate::settings::Settings) -> Self {
         self.settings = settings;
+        self
+    }
+    pub fn with_salamander_password(mut self, password: Option<&str>) -> Self {
+        if let Some(password) = password {
+            self.masks
+                .push(zero_transport::finalmask::udp::Mask::Salamander {
+                    password: password.to_owned(),
+                });
+        }
         self
     }
     pub fn from_options_refs(
@@ -45,6 +55,7 @@ impl Hysteria2InboundBindPlan {
             key_path: key_path.unwrap_or("certs/privkey.pem").to_owned(),
             source_dir: source_dir.map(PathBuf::from),
             settings: Default::default(),
+            masks: Vec::new(),
         }
     }
 
@@ -74,13 +85,14 @@ impl Hysteria2InboundBindPlan {
         listen_addr: &str,
     ) -> Result<zero_transport::quic::QuicInbound, RuntimeError> {
         let alpn_protocols = inbound_quic_alpn_protocols();
-        zero_transport::quic::QuicInbound::bind_with_transport(
+        zero_transport::quic::QuicInbound::bind_with_masks(
             listen_addr,
             &self.cert_path,
             &self.key_path,
             self.source_dir.as_deref(),
             &alpn_protocols,
             super::congestion::transport(self.settings)?,
+            &self.masks,
         )
         .await
     }

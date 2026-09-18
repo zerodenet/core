@@ -58,6 +58,10 @@ pub struct Hysteria2TransportConfig {
     pub congestion: Hysteria2CongestionConfig,
     pub quic: Hysteria2QuicConfig,
     pub ignore_client_bandwidth: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub obfs: Option<Hysteria2ObfsConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub udp_hop: Option<super::UdpHopConfig>,
 }
 impl Hysteria2TransportConfig {
     /// Materialize protocol settings from normalized local send/receive rates.
@@ -92,6 +96,27 @@ impl Hysteria2TransportConfig {
         };
         settings.validate()?;
         Ok(settings)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Hysteria2ObfsConfig {
+    Salamander { password: String },
+}
+
+impl Hysteria2ObfsConfig {
+    pub fn salamander_password(&self) -> &str {
+        match self {
+            Self::Salamander { password } => password,
+        }
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), &'static str> {
+        if self.salamander_password().len() < 4 {
+            return Err("hysteria2 Salamander password must contain at least four bytes");
+        }
+        Ok(())
     }
 }
 

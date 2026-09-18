@@ -15,9 +15,10 @@ use crate::VmessCipher;
 impl VmessCipher {
     pub(crate) fn aead_algorithm(self) -> &'static ring::aead::Algorithm {
         match self {
-            VmessCipher::Aes128Gcm | VmessCipher::None | VmessCipher::Zero => {
-                &ring::aead::AES_128_GCM
-            }
+            VmessCipher::Aes128Gcm
+            | VmessCipher::None
+            | VmessCipher::Zero
+            | VmessCipher::ZeroPlus => &ring::aead::AES_128_GCM,
             VmessCipher::Chacha20Poly1305 => &ring::aead::CHACHA20_POLY1305,
         }
     }

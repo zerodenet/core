@@ -409,11 +409,12 @@ fn build_pending_indexes(
 }
 
 fn maintenance_reserve_bytes(reserve_bytes: u64) -> u64 {
-    const MIN_MAINTENANCE_RESERVE_BYTES: u64 = 64 * 1024 * 1024;
-    reserve_bytes
-        .saturating_div(4)
-        .max(MIN_MAINTENANCE_RESERVE_BYTES)
-        .min(reserve_bytes)
+    // Maintenance records are tiny and must be able to drain acknowledged
+    // deliveries even when a percentage-based PUT reserve expands to many
+    // gigabytes. Preserve at most 64 MiB for ACK/compaction bookkeeping while
+    // never exceeding the operator's configured reserve.
+    const MAX_MAINTENANCE_RESERVE_BYTES: u64 = 64 * 1024 * 1024;
+    reserve_bytes.min(MAX_MAINTENANCE_RESERVE_BYTES)
 }
 
 fn storage_probe_path(path: &Path) -> &Path {

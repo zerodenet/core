@@ -27,7 +27,10 @@ pub enum VmessCipher {
     Aes128Gcm,
     Chacha20Poly1305,
     None,
+    /// Xray-compatible unchunked plain body. The wire security byte is NONE.
     Zero,
+    /// Zero-private chunked body with wire security 0x06; not Xray zero.
+    ZeroPlus,
 }
 
 impl VmessCipher {
@@ -35,7 +38,7 @@ impl VmessCipher {
         match self {
             VmessCipher::Aes128Gcm => 16,
             VmessCipher::Chacha20Poly1305 => 32,
-            VmessCipher::None | VmessCipher::Zero => 16,
+            VmessCipher::None | VmessCipher::Zero | VmessCipher::ZeroPlus => 16,
         }
     }
 
@@ -45,6 +48,7 @@ impl VmessCipher {
             VmessCipher::Chacha20Poly1305 => "chacha20-poly1305",
             VmessCipher::None => "none",
             VmessCipher::Zero => "zero",
+            VmessCipher::ZeroPlus => "zero-plus",
         }
     }
 
@@ -55,23 +59,29 @@ impl VmessCipher {
             "chacha20-poly1305" => Some(VmessCipher::Chacha20Poly1305),
             "none" => Some(VmessCipher::None),
             "zero" => Some(VmessCipher::Zero),
+            "zero-plus" => Some(VmessCipher::ZeroPlus),
             _ => None,
         }
     }
 
     pub fn uses_plain_body(self) -> bool {
-        matches!(self, VmessCipher::None | VmessCipher::Zero)
+        matches!(
+            self,
+            VmessCipher::None | VmessCipher::Zero | VmessCipher::ZeroPlus
+        )
     }
 }
 
 pub fn parse_uuid(input: &str) -> Result<[u8; 16], Error> {
     let hex = input.replace('-', "");
-    if hex.len() != 32 {
+    if hex.len() != 32 || !hex.is_ascii() {
         return Err(Error::Protocol("vmess uuid must be 32 hex characters"));
     }
     let mut bytes = [0u8; 16];
-    for i in 0..16 {
-        bytes[i] = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)
+    for (index, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+        let pair = std::str::from_utf8(pair)
+            .map_err(|_| Error::Protocol("vmess uuid contains invalid hex characters"))?;
+        bytes[index] = u8::from_str_radix(pair, 16)
             .map_err(|_| Error::Protocol("vmess uuid contains invalid hex characters"))?;
     }
     Ok(bytes)
@@ -96,5 +106,11 @@ mod tests {
     #[test]
     fn accepts_auto_cipher_alias() {
         assert_eq!(VmessCipher::from_name("auto"), Some(VmessCipher::Aes128Gcm));
+    }
+
+    #[test]
+    fn rejects_non_ascii_uuid_without_panicking() {
+        let input = format!("aé{}", "0".repeat(29));
+        assert!(parse_uuid(&input).is_err());
     }
 }

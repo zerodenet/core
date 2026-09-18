@@ -29,10 +29,16 @@ pub(super) async fn bind(
             key_path: key_path.as_deref(),
         },
     );
-    let plan =
-        plan.with_settings(transport.validated(*down_bps, *up_bps).map_err(|e| {
+    let plan = plan
+        .with_settings(transport.validated(*down_bps, *up_bps).map_err(|e| {
             EngineError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
-        })?);
+        })?)
+        .with_salamander_password(
+            transport
+                .obfs
+                .as_ref()
+                .map(zero_config::Hysteria2ObfsConfig::salamander_password),
+        );
     let endpoint = plan.bind(&inbound_listen_addr(inbound)).await?;
     let mut listeners = vec![BoundInbound::Quic(endpoint)];
     for listen in masquerade.http.iter().chain(masquerade.https.iter()) {

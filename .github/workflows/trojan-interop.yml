@@ -1,0 +1,53 @@
+name: Trojan Reference Interop
+
+on:
+  push:
+    branches: [develop, main]
+    paths: ['protocols/trojan/**', 'crates/transport/**', 'crates/proxy/**', 'crates/core/**', 'crates/config/**', 'crates/traits/**', 'crates/platform/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/trojan-interop.yml']
+  pull_request:
+    branches: [develop, main]
+    paths: ['protocols/trojan/**', 'crates/transport/**', 'crates/proxy/**', 'crates/core/**', 'crates/config/**', 'crates/traits/**', 'crates/platform/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/trojan-interop.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  interop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - name: Resolve lockfile and prepare fixed references
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          python3 scripts/prepare-xhttp-interop.py --output "$RUNNER_TEMP/xray-reference"
+          git clone https://github.com/p4gefau1t/trojan-go.git "$RUNNER_TEMP/trojan-go-reference"
+          git -C "$RUNNER_TEMP/trojan-go-reference" checkout --detach 2dc60f52e79ff8b910e78e444f1e80678e936450
+          test "$(git -C "$RUNNER_TEMP/trojan-go-reference" rev-parse HEAD)" = 2dc60f52e79ff8b910e78e444f1e80678e936450
+          go -C "$RUNNER_TEMP/trojan-go-reference" build -tags full -o "$RUNNER_TEMP/trojan-go"
+      - name: Run Xray TLS WebSocket and gRPC matrix
+        env:
+          XRAY_BIN: ${{ runner.temp }}/xray-reference/xray
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test trojan_xray_interop xray -- --ignored --nocapture
+      - name: Run Trojan-Go TCP and UDP matrix
+        env:
+          TROJAN_GO_BIN: ${{ runner.temp }}/trojan-go
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test trojan_go_interop -- --ignored --nocapture

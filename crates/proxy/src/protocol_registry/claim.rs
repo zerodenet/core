@@ -69,31 +69,35 @@ where
 }
 
 #[cfg(feature = "tcp-transport-session-runtime")]
-pub(crate) fn claim_session_tcp_leaf<'a, T>(
+pub(crate) fn claim_session_tcp_leaf_with_source<'a, T, F>(
     handshake: T,
+    prepare: F,
 ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a>
 where
     T: SessionTcpHandshake + Clone + Send + Sync + 'static,
+    F: Fn(T, Option<&Path>) -> T + Send + Sync + 'a,
 {
-    Box::new(ClaimedSessionTcpLeaf { handshake })
+    Box::new(ClaimedSessionTcpLeaf { handshake, prepare })
 }
 
 #[cfg(feature = "tcp-transport-session-runtime")]
-struct ClaimedSessionTcpLeaf<T> {
+struct ClaimedSessionTcpLeaf<T, F> {
     handshake: T,
+    prepare: F,
 }
 
 #[cfg(feature = "tcp-transport-session-runtime")]
-impl<'a, T> ClaimedTcpOutboundLeaf<'a> for ClaimedSessionTcpLeaf<T>
+impl<'a, T, F> ClaimedTcpOutboundLeaf<'a> for ClaimedSessionTcpLeaf<T, F>
 where
     T: SessionTcpHandshake + Clone + Send + Sync + 'static,
+    F: Fn(T, Option<&Path>) -> T + Send + Sync + 'a,
 {
     fn prepare_tcp_connect(
         &self,
-        _source_dir: Option<&Path>,
+        source_dir: Option<&Path>,
     ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
         Ok(Box::new(SessionTcpConnectOperation {
-            handshake: self.handshake.clone(),
+            handshake: (self.prepare)(self.handshake.clone(), source_dir),
         }))
     }
 }

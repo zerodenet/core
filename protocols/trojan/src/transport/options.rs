@@ -18,10 +18,19 @@ pub struct TrojanOutboundOptionsRef<'a> {
     pub mux_response_backlog_bytes: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TrojanOutboundBuildOptionsRef<'a> {
+pub struct TrojanOutboundBuildOptionsRef<'a, TWs: ?Sized, TGrpc: ?Sized> {
     pub tag: &'a str,
     pub server: &'a str,
     pub port: u16,
     pub protocol: TrojanOutboundOptionsRef<'a>,
+    pub ws: Option<&'a TWs>,
+    pub grpc: Option<&'a TGrpc>,
+}
+
+impl<'a, TWs: ?Sized, TGrpc: ?Sized> Copy for TrojanOutboundBuildOptionsRef<'a, TWs, TGrpc> {}
+
+impl<'a, TWs: ?Sized, TGrpc: ?Sized> Clone for TrojanOutboundBuildOptionsRef<'a, TWs, TGrpc> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }

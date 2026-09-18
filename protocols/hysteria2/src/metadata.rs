@@ -10,19 +10,17 @@ impl ProtocolMetadata for Hysteria2Protocol {
     fn descriptor(&self) -> ProtocolCapabilityDescriptor {
         let unsupported = ProtocolCapabilityState::unsupported(&[]);
         let supported = ProtocolCapabilityState::supported();
-        let partial =
-            ProtocolCapabilityState::partial(&["external_interop_coverage_is_incomplete"]);
 
         ProtocolCapabilityDescriptor {
             protocol: "hysteria2",
             feature: "hysteria2",
-            status: ProtocolCapabilityLevel::Partial,
-            compatibility_baseline: "hysteria",
-            inbound: ProtocolNetworkCapability::new(supported, partial),
-            outbound: ProtocolNetworkCapability::new(supported, partial),
+            status: ProtocolCapabilityLevel::Supported,
+            compatibility_baseline: "hysteria_app_v2_12_2",
+            inbound: ProtocolNetworkCapability::new(supported, supported),
+            outbound: ProtocolNetworkCapability::new(supported, supported),
             transports: &["quic"],
             mux: unsupported,
-            limitations: &["external_interop_coverage_is_incomplete"],
+            limitations: &[],
         }
     }
 }

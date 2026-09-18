@@ -349,6 +349,7 @@ pub struct OwnedTrojanResolvedTlsProfile {
     server_name: Option<String>,
     insecure: bool,
     client_fingerprint: Option<String>,
+    alpn: Vec<String>,
 }
 
 impl<'a> TrojanResolvedTlsProfile<'a> {
@@ -391,6 +392,7 @@ impl OwnedTrojanResolvedTlsProfile {
             server_name,
             insecure,
             client_fingerprint,
+            alpn: Vec::new(),
         }
     }
 
@@ -413,6 +415,11 @@ impl OwnedTrojanResolvedTlsProfile {
     fn client_fingerprint(&self) -> Option<&str> {
         self.client_fingerprint.as_deref()
     }
+
+    pub(crate) fn with_alpn(mut self, alpn: impl IntoIterator<Item = String>) -> Self {
+        self.alpn = alpn.into_iter().collect();
+        self
+    }
 }
 
 impl ClientTlsProfile for OwnedTrojanResolvedTlsProfile {
@@ -433,7 +440,7 @@ impl ClientTlsProfile for OwnedTrojanResolvedTlsProfile {
     }
 
     fn alpn(&self) -> &[String] {
-        &[]
+        &self.alpn
     }
 
     fn client_fingerprint(&self) -> Option<&str> {

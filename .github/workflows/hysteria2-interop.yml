@@ -5,6 +5,7 @@ on:
     branches: [develop, main]
     paths:
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'vendor/**'
       - 'protocols/hysteria2/**'
       - 'crates/transport/**'
@@ -16,6 +17,7 @@ on:
     branches: [develop, main]
     paths:
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'vendor/**'
       - 'protocols/hysteria2/**'
       - 'crates/transport/**'
@@ -44,6 +46,20 @@ jobs:
       - uses: ./.github/actions/setup-protoc
         with:
           version: '35.0'
+      - name: Verify package and generated lock baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          python3 - <<'PY'
+          import pathlib, tomllib
+          root = pathlib.Path.cwd()
+          expected = "2.12.2"
+          manifest = tomllib.loads((root / "protocols/hysteria2/Cargo.toml").read_text())
+          lock = tomllib.loads((root / "Cargo.lock").read_text())
+          assert manifest["package"]["version"] == expected
+          assert any(p["name"] == "hysteria2" and p["version"] == expected for p in lock["package"])
+          PY
       - name: Verify QUIC pacing and packet feedback extensions
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/quinn-tests
@@ -101,7 +117,7 @@ jobs:
         env:
           RUST_MIN_STACK: '16777216'
         run: >-
-          cargo test --workspace --all-features
+          cargo test --locked --workspace --all-features
           --test hysteria2_official_interop
           --test hysteria2_sing_box_interop
           -- --include-ignored --test-threads=1 --nocapture

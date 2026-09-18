@@ -11,6 +11,9 @@
 | `mux` | `supported` | Mux.Cool TCP/UDP 子连接与连接池 |
 | `limitations` | 空 | 验证覆盖不再与实现能力混为一谈 |
 
-兼容基线是 `xray_core_vmess_aead`。`cipher: zero` 是 Zero 专用扩展，只承诺 Zero→Zero；它不是基线缺口，也不应作为 Xray/sing-box/Mihomo 兼容配置的默认值。
+兼容基线是 `xray_core_vmess_aead`。`cipher: zero-plus` 是 Zero 专用扩展，只承诺 Zero→Zero；它不是基线缺口，也不应作为 Xray/sing-box/Mihomo 兼容配置的默认值。
 
 外部互操作入口保留在 `crates/proxy/tests/vmess_xray_interop.rs` 并默认忽略。CI 内置测试覆盖各 cipher、TCP/UDP、Mux.Cool 及 TLS/WS/gRPC 组合。
+
+`zero` 实现 Xray 的无 chunk NONE 语义。旧的 Zero 私有 `zero` 配置需显式迁移为
+`zero-plus`，私有线路格式不变，详见[命名与语义](shared.md)。

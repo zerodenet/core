@@ -20,7 +20,7 @@ pub struct VmessAeadStream<T> {
 
 - **Body chunk 读取**: 解析 2 字节认证长度 → 读取 payload+tag → SHAKE128 unmask → AEAD decrypt → 缓存到 `read_buf`
 - **Body chunk 写入**: 缓存写入数据 → 构造 chunk (认证长度 + AEAD encrypt + SHAKE128 mask) → 写入底层 stream
-- **Shutdown 处理**: flush 时发送 termination chunk（空 body chunk 标记流结束）
+- **Shutdown 处理**: chunk 模式发送 termination chunk；标准 `zero` 直接关闭原始 body
 - **Rekey**: 每 2^14 chunks 自动触发 BodyAead rekey
 
 ### Chunk 格式
@@ -46,4 +46,4 @@ pub struct VmessAeadStream<T> {
 | Masking | SHAKE128 XOR (all cipher modes) | 无 |
 | Padding | Global padding (last chunk) | 无 |
 | Rekey | 2^14 chunks | 无 |
-| 非 AEAD cipher | `none`/`zero` 仍有 chunk 格式 | 不适用 |
+| 非 AEAD cipher | `none`/`zero-plus` 保留 chunk；`zero` 为无 chunk 原始 body | 不适用 |

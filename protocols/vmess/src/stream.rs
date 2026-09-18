@@ -32,6 +32,7 @@ enum ReadState {
         buf: Vec<u8>,
         pos: usize,
     },
+    Raw,
     Eof,
 }
 
@@ -39,6 +40,7 @@ pub struct VmessAeadStream<S> {
     inner: S,
     reader: BodyCodec,
     writer: BodyCodec,
+    chunk_stream: bool,
     read_plain: Vec<u8>,
     read_plain_pos: usize,
     read_state: ReadState,
@@ -81,6 +83,7 @@ struct VmessAeadStreamConfig<S> {
     write_length_key_source: Vec<u8>,
     write_length_nonce_source: Vec<u8>,
     cipher: VmessCipher,
+    chunk_stream: bool,
     authenticated_length: bool,
     chunk_masking: bool,
     global_padding: bool,
@@ -198,6 +201,7 @@ impl<S> VmessAeadStream<S> {
             write_length_key_source: Vec::new(),
             write_length_nonce_source: Vec::new(),
             cipher: session.cipher,
+            chunk_stream: session.chunk_stream,
             authenticated_length: session.authenticated_length,
             chunk_masking: session.chunk_masking,
             global_padding: session.global_padding,
@@ -220,6 +224,7 @@ impl<S> VmessAeadStream<S> {
             write_length_key_source: stream_state.length_key_source,
             write_length_nonce_source: stream_state.length_nonce_source,
             cipher: stream_state.cipher,
+            chunk_stream: stream_state.chunk_stream,
             authenticated_length: stream_state.authenticated_length,
             chunk_masking: stream_state.chunk_masking,
             global_padding: stream_state.global_padding,
@@ -243,6 +248,7 @@ impl<S> VmessAeadStream<S> {
             mut write_length_key_source,
             mut write_length_nonce_source,
             cipher,
+            chunk_stream,
             authenticated_length,
             chunk_masking,
             global_padding,
@@ -295,9 +301,13 @@ impl<S> VmessAeadStream<S> {
                 )
             } else {
                 (
-                    ReadState::Length {
-                        buf: vec![0_u8; reader.length_frame_size()],
-                        pos: 0,
+                    if chunk_stream {
+                        ReadState::Length {
+                            buf: vec![0_u8; reader.length_frame_size()],
+                            pos: 0,
+                        }
+                    } else {
+                        ReadState::Raw
                     },
                     None,
                     None,
@@ -307,6 +317,7 @@ impl<S> VmessAeadStream<S> {
             inner,
             reader,
             writer,
+            chunk_stream,
             read_plain: Vec::new(),
             read_plain_pos: 0,
             read_state,
@@ -436,9 +447,13 @@ where
                                 "vmess server rejected connection",
                             )));
                         }
-                        self.read_state = ReadState::Length {
-                            buf: vec![0_u8; self.reader.length_frame_size()],
-                            pos: 0,
+                        self.read_state = if self.chunk_stream {
+                            ReadState::Length {
+                                buf: vec![0_u8; self.reader.length_frame_size()],
+                                pos: 0,
+                            }
+                        } else {
+                            ReadState::Raw
                         };
                         self.response_header_key = None;
                         self.response_header_nonce = None;
@@ -490,6 +505,7 @@ where
                         }
                     }
                 },
+                ReadState::Raw => return Pin::new(&mut self.inner).poll_read(cx, buf),
                 ReadState::Eof => return Poll::Ready(Ok(())),
             }
         }
@@ -519,6 +535,9 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if !self.chunk_stream {
+            return Pin::new(&mut self.inner).poll_write(cx, buf);
+        }
         let had_pending = self.write_pos < self.write_buf.len();
         match self.poll_flush_pending(cx) {
             Poll::Ready(Ok(())) => {
@@ -551,6 +570,9 @@ where
     }
 
     fn poll_shutdown_encrypted(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if !self.chunk_stream {
+            return Pin::new(&mut self.inner).poll_shutdown(cx);
+        }
         match self.poll_flush_pending(cx) {
             Poll::Ready(Ok(())) => {}
             other => return other,

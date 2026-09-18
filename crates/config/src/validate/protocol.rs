@@ -242,6 +242,15 @@ pub(super) fn validate_inbound_protocol(
             transport
                 .validated(*down_bps, *up_bps)
                 .map_err(|e| ConfigError::InvalidInbound(e.into()))?;
+            if let Some(obfs) = &transport.obfs {
+                obfs.validate()
+                    .map_err(|e| ConfigError::InvalidInbound(e.into()))?;
+            }
+            if transport.udp_hop.is_some() {
+                return Err(ConfigError::InvalidInbound(
+                    "hysteria2 udp_hop is outbound-only".into(),
+                ));
+            }
             masquerade
                 .validate()
                 .map_err(|e| ConfigError::InvalidInbound(e.into()))?;
@@ -284,11 +293,29 @@ pub(super) fn validate_inbound_protocol(
         InboundProtocolConfig::Trojan {
             password,
             users,
+            ws,
+            grpc,
             mux_response_backlog_frames,
             mux_response_backlog_bytes,
             ..
         } => {
             validate_trojan_users(password, users)?;
+            if ws.is_some() && grpc.is_some() {
+                return Err(ConfigError::InvalidInbound(
+                    "`trojan` inbound cannot set both `ws` and `grpc`".to_owned(),
+                ));
+            }
+            if let Some(ws) = ws {
+                validate_inbound_optional_non_empty("trojan ws.path", &ws.path)?;
+                validate_inbound_ws_headers("trojan ws.headers", &ws.headers)?;
+            }
+            if let Some(grpc) = grpc {
+                grpc.validate()
+                    .map_err(|message| ConfigError::InvalidInbound(message.to_owned()))?;
+                for name in &grpc.service_names {
+                    validate_inbound_optional_non_empty("trojan grpc.service_names", name)?;
+                }
+            }
             validate_mux_response_backlog(
                 "trojan inbound",
                 *mux_response_backlog_frames,
@@ -650,6 +677,8 @@ pub(super) fn validate_outbound_protocol(
             server,
             port,
             server_name,
+            ca_cert_path,
+            tls_options,
             ..
         } => {
             transport
@@ -660,10 +689,23 @@ pub(super) fn validate_outbound_protocol(
                     "hysteria2 ignore_client_bandwidth is inbound-only".into(),
                 ));
             }
+            if let Some(obfs) = &transport.obfs {
+                obfs.validate()
+                    .map_err(|e| ConfigError::InvalidOutbound(e.into()))?;
+            }
+            if let Some(hop) = &transport.udp_hop {
+                hop.validate()
+                    .map_err(|e| ConfigError::InvalidOutbound(e.into()))?;
+            }
             validate_outbound_endpoint("hysteria2", server, *port)?;
             if let Some(name) = server_name {
                 validate_outbound_optional_non_empty("hysteria2 server_name", name)?;
             }
+            if let Some(path) = ca_cert_path {
+                validate_outbound_optional_non_empty("hysteria2 ca_cert_path", path)?;
+            }
+            ztls::settings::validate_client(&tls_options.to_options(), true)
+                .map_err(ConfigError::InvalidOutbound)?;
             Ok(())
         }
         OutboundProtocolConfig::Shadowsocks {
@@ -693,6 +735,8 @@ pub(super) fn validate_outbound_protocol(
         OutboundProtocolConfig::Trojan {
             server,
             port,
+            ws,
+            grpc,
             mux_concurrency,
             mux_idle_timeout_secs,
             mux_response_backlog_frames,
@@ -700,6 +744,22 @@ pub(super) fn validate_outbound_protocol(
             ..
         } => {
             validate_outbound_endpoint("trojan", server, *port)?;
+            if ws.is_some() && grpc.is_some() {
+                return Err(ConfigError::InvalidOutbound(
+                    "`trojan` outbound cannot set both `ws` and `grpc`".to_owned(),
+                ));
+            }
+            if let Some(ws) = ws {
+                validate_outbound_optional_non_empty("trojan ws.path", &ws.path)?;
+                validate_outbound_ws_headers("trojan ws.headers", &ws.headers)?;
+            }
+            if let Some(grpc) = grpc {
+                grpc.validate()
+                    .map_err(|message| ConfigError::InvalidOutbound(message.to_owned()))?;
+                for name in &grpc.service_names {
+                    validate_outbound_optional_non_empty("trojan grpc.service_names", name)?;
+                }
+            }
             validate_optional_positive("trojan mux_concurrency", mux_concurrency.map(u64::from))?;
             validate_optional_positive("trojan mux_idle_timeout_secs", *mux_idle_timeout_secs)?;
             validate_mux_response_backlog(
@@ -973,7 +1033,13 @@ fn validate_shadowsocks_users(
 }
 
 fn validate_vmess_cipher(kind: &'static str, cipher: &str) -> Result<(), ConfigError> {
-    let valid_ciphers = ["aes-128-gcm", "chacha20-poly1305", "none", "zero"];
+    let valid_ciphers = [
+        "aes-128-gcm",
+        "chacha20-poly1305",
+        "none",
+        "zero",
+        "zero-plus",
+    ];
     if cipher != "auto" && vmess::VmessCipher::from_name(cipher).is_some() {
         return Ok(());
     }

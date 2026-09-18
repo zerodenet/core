@@ -60,7 +60,8 @@ pub struct TrojanTcpTunnelTarget {
     "port": 443,
     "password": "your-password",
     "sni": "example.com",
-    "insecure": false
+    "insecure": false,
+    "grpc": { "service_names": ["zero.trojan/Tun"] }
   }
 }
 ```
@@ -69,3 +70,5 @@ pub struct TrojanTcpTunnelTarget {
 - `sni`: 可选 TLS SNI
 - `insecure`: 可选，跳过 TLS 证书验证
 - `client_fingerprint`: 可选 TLS 客户端兼容配置；默认 `"chrome"`，使用现代混合密钥组生成浏览器尺寸级别的 ClientHello；显式设置 `"none"` 可关闭。原始 Trojan 不会因该选项自动声明 HTTP ALPN。
+- `ws` / `grpc`: 可选且互斥；复用通用 WebSocket/gRPC 配置，TLS 建立后再打开对应载体，
+  Trojan 请求与 TCP/UDP/MUX 语义保持在载体内部。

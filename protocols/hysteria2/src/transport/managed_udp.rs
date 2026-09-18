@@ -20,6 +20,7 @@ async fn open_udp_profile_connection(
     profile: crate::udp::Hysteria2UdpConnectorProfile,
     pool: &super::Hysteria2ConnectionPool,
     tag: &str,
+    node: &super::model::Hysteria2NodeOptions,
     sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<Arc<Hysteria2AuthenticatedConnection>, RuntimeError> {
     let connection = super::pool::acquire(
@@ -34,6 +35,7 @@ async fn open_udp_profile_connection(
             insecure: profile.insecure(),
             settings: profile.settings(),
         },
+        node,
         sockets,
     )
     .await?;
@@ -47,9 +49,16 @@ pub async fn open_hysteria2_udp_packet_path_build(
 ) -> Result<crate::udp::Hysteria2UdpChannel, RuntimeError> {
     let parts = build.protocol.into_connection_parts();
     let (server, port, profile, _) = parts.into_shared_codec_parts();
-    let connection =
-        open_udp_profile_connection(&server, port, profile, &build.pool, &build.tag, sockets)
-            .await?;
+    let connection = open_udp_profile_connection(
+        &server,
+        port,
+        profile,
+        &build.pool,
+        &build.tag,
+        &build.node,
+        sockets,
+    )
+    .await?;
     crate::udp::Hysteria2UdpChannel::new(connection).map_err(RuntimeError::Core)
 }
 
@@ -64,9 +73,16 @@ pub async fn establish_hysteria2_udp_flow_connection(
 ) -> Result<crate::udp::Hysteria2UdpFlowConnection, RuntimeError> {
     let flow = managed_datagram_connector_flow_from_resume(&resume, server, port);
     let profile = flow.into_connection_parts().into_profile();
-    let connection =
-        open_udp_profile_connection(server, port, profile, &resume.pool, &resume.tag, sockets)
-            .await?;
+    let connection = open_udp_profile_connection(
+        server,
+        port,
+        profile,
+        &resume.pool,
+        &resume.tag,
+        &resume.node,
+        sockets,
+    )
+    .await?;
     crate::udp::start_managed_udp_flow(
         connection,
         target,

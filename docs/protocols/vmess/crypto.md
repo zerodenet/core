@@ -77,7 +77,7 @@ impl BodyAead {
 
 ### Option Mode (非 AEAD cipher)
 
-`none` 和 `zero` cipher 同样走 chunk 格式（2 字节长度 + payload），但不加密和认证。保持了流协议的 chunk 边界一致性。
+`none` 和 `zero-plus` cipher 同样走 chunk 格式（2 字节长度 + payload），但不加密和认证。`zero` 使用独立的原始 body 路径，不构造 chunk。
 
 ## Response Header
 

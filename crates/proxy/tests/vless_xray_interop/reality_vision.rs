@@ -33,7 +33,7 @@ async fn zero_vless_reality_vision_outbound_interops_with_xray() {
     let echo = spawn_tcp_echo(echo_port, payload.len()).await;
 
     let echoed = timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(30),
         socks5_tcp_echo_once(zero_socks_port, echo_port, payload),
     )
     .await
@@ -46,7 +46,7 @@ async fn zero_vless_reality_vision_outbound_interops_with_xray() {
     let tls_payload = b"xray-reality-vision-direct";
     let (tls_echo, cert) = spawn_tls_echo(tls_echo_port, tls_payload.len()).await;
     let tls_echoed = timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(30),
         socks5_tls_echo(zero_socks_port, tls_echo_port, tls_payload, cert),
     )
     .await

@@ -1,7 +1,7 @@
 [package]
 name = "vmess"
-# Xray-core v25.3.1
-version = "25.3.1"
+# Xray-core v26.3.27, commit d2758a023cd7f4174a5a5fa4ff66e487d4342ba0
+version = "26.3.27"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true

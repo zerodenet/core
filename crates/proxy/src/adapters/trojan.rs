@@ -134,7 +134,8 @@ fn outbound_options<'a>(
     tag: &'a str,
     endpoint: (&'a str, u16),
     protocol: &'a OutboundProtocolConfig,
-) -> Option<TrojanOutboundBuildOptionsRef<'a>> {
+) -> Option<TrojanOutboundBuildOptionsRef<'a, zero_config::WebSocketConfig, zero_config::GrpcConfig>>
+{
     let OutboundProtocolConfig::Trojan {
         password,
         sni,
@@ -144,6 +145,8 @@ fn outbound_options<'a>(
         mux_idle_timeout_secs,
         mux_response_backlog_frames,
         mux_response_backlog_bytes,
+        ws,
+        grpc,
         ..
     } = protocol
     else {
@@ -163,6 +166,8 @@ fn outbound_options<'a>(
             mux_response_backlog_frames: *mux_response_backlog_frames,
             mux_response_backlog_bytes: *mux_response_backlog_bytes,
         },
+        ws: ws.as_deref(),
+        grpc: grpc.as_deref(),
     })
 }
 
@@ -312,6 +317,8 @@ impl InboundListenerCapability for TrojanAdapter {
                 password,
                 users,
                 tls,
+                ws,
+                grpc,
                 mux_response_backlog_frames,
                 mux_response_backlog_bytes,
                 ..
@@ -326,6 +333,8 @@ impl InboundListenerCapability for TrojanAdapter {
                         mux_response_backlog_bytes: *mux_response_backlog_bytes,
                     },
                     tls.as_ref(),
+                    ws.as_deref(),
+                    grpc.as_deref(),
                 )
                 .map_err(EngineError::from)?
                 .with_profile(profile)

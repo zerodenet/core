@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare and verify the fixed official Xray XHTTP reference."""
+"""Prepare and verify the fixed official Xray reference used by VLESS and VMess."""
 import argparse
 import hashlib
 import os
@@ -23,10 +23,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def check_baseline():
-    package = tomllib.loads((ROOT / "protocols/vless/Cargo.toml").read_text())["package"]
     lock = tomllib.loads((ROOT / "Cargo.lock").read_text())
-    assert package["version"] == VERSION, "VLESS package/reference mismatch"
-    assert any(p["name"] == "vless" and p["version"] == VERSION for p in lock["package"]), "VLESS lock/reference mismatch"
+    for protocol in ("vless", "vmess"):
+        package = tomllib.loads((ROOT / f"protocols/{protocol}/Cargo.toml").read_text())["package"]
+        assert package["version"] == VERSION, f"{protocol} package/reference mismatch"
+        assert any(
+            item["name"] == protocol and item["version"] == VERSION
+            for item in lock["package"]
+        ), f"{protocol} lock/reference mismatch"
 
 
 def main():
@@ -36,7 +40,7 @@ def main():
     args = parser.parse_args()
     check_baseline()
     if args.check_baseline:
-        print(f"VLESS reference v{VERSION} / {COMMIT}")
+        print(f"VLESS/VMess reference v{VERSION} / {COMMIT}")
         return
     if args.output is None:
         parser.error("--output is required when preparing the binary")

@@ -15,6 +15,10 @@ HY2 与 Zero 其他限速配置使用相同的 `up_bps/down_bps`，整数单位�
   "server_name": "proxy.example.com",
   "port": 443,
   "password": "replace-me",
+  "ca_cert_path": "certs/node-ca.pem",
+  "tls_options": {
+    "pinned_peer_cert_sha256": ["base64-sha256-of-certificate"]
+  },
   "up_bps": 12500000,
   "down_bps": 25000000,
   "transport": {
@@ -32,10 +36,20 @@ HY2 与 Zero 其他限速配置使用相同的 `up_bps/down_bps`，整数单位�
       "keep_alive_interval_secs": 10,
       "max_incoming_streams": 1024,
       "disable_path_mtu_discovery": false
+    },
+    "obfs": { "type": "salamander", "password": "replace-mask-password" },
+    "udp_hop": {
+      "ports": [443, 8443],
+      "interval_min_secs": 5,
+      "interval_max_secs": 10
     }
   }
 }
 ```
+
+`obfs.type: salamander` 同时适用于 HY2 独立入站和出站，双方密码必须一致。`udp_hop`
+仅是出站 QUIC socket 策略；服务端通常由 NAT/负载均衡将这些端口转到同一个 HY2 入站，
+因此入站配置该字段会被拒绝。跳转间隔不得小于 5 秒。
 
 ## 带宽与拥塞控制
 

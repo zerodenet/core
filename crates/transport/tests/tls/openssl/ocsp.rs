@@ -113,6 +113,10 @@ async fn assert_automatic_ocsp_staple(
         .await
         .unwrap();
     request.write_all(&response).await.unwrap();
+    // Complete the close-delimited HTTP/1 response before waiting for the
+    // background client to publish the staple. Dropping the socket directly
+    // can race Hyper's EOF observation, especially in the second subcase.
+    request.shutdown().await.unwrap();
     drop(request);
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -129,7 +133,7 @@ async fn assert_automatic_ocsp_staple(
         }
     })
     .await
-    .unwrap();
+    .unwrap_or_else(|_| panic!("OCSP staple was not published for TLS {configured_version}"));
 
     let (client_io, server_io) = tokio::io::duplex(64 * 1024);
     let server = super::super::super::stream::OpenSslTlsStream::accept(&context, server_io);

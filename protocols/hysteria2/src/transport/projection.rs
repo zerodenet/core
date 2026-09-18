@@ -8,6 +8,10 @@ use super::{
 };
 
 impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
+    pub(super) fn with_node(mut self, node: super::model::Hysteria2NodeOptions) -> Self {
+        self.node = node;
+        self
+    }
     pub fn with_pool(mut self, pool: &'a super::pool::Hysteria2ConnectionPool) -> Self {
         self.pool = Some(pool);
         self
@@ -43,6 +47,7 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
             insecure: false,
             server_name: None,
             settings: Default::default(),
+            node: Default::default(),
         }
     }
 
@@ -61,6 +66,7 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
             .flow_resume(),
             self.tag.to_owned(),
             self.pool.cloned().unwrap_or_default(),
+            self.node.clone(),
         )
     }
 
@@ -78,6 +84,7 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
             .with_insecure(self.insecure)
             .packet_path_spec()
             .carrier_descriptor(self.server, self.port),
+            self.node.identity(),
         )
     }
 
@@ -97,6 +104,7 @@ impl<'a> Hysteria2ManagedUdpFlowConfig<'a> {
             .carrier_build(self.server, self.port),
             self.tag.to_owned(),
             self.pool.cloned().unwrap_or_default(),
+            self.node.clone(),
         )
     }
 }
@@ -106,6 +114,7 @@ impl Hysteria2ManagedDatagramFlowResume {
         protocol: crate::udp::Hysteria2UdpFlowResume,
         tag: String,
         pool: super::pool::Hysteria2ConnectionPool,
+        node: super::model::Hysteria2NodeOptions,
     ) -> Self {
         Self {
             protocol,
@@ -113,6 +122,7 @@ impl Hysteria2ManagedDatagramFlowResume {
             lifetime: std::sync::Arc::new(tokio::sync::watch::channel(()).0),
             tag,
             pool,
+            node,
         }
     }
 
@@ -183,12 +193,19 @@ impl Hysteria2ManagedUdpPacketPathPlan {
 }
 
 impl Hysteria2ManagedUdpPacketPathCarrierDescriptor {
-    pub(super) fn new(protocol: crate::udp::Hysteria2UdpPacketPathCarrierDescriptor) -> Self {
-        Self { protocol }
+    pub(super) fn new(
+        protocol: crate::udp::Hysteria2UdpPacketPathCarrierDescriptor,
+        node_identity: String,
+    ) -> Self {
+        Self {
+            protocol,
+            node_identity,
+        }
     }
 
     pub fn into_parts(self) -> (String, String, u16) {
-        self.protocol.into_parts()
+        let (key, server, port) = self.protocol.into_parts();
+        (format!("{key}|node:{:?}", self.node_identity), server, port)
     }
 }
 
@@ -197,11 +214,13 @@ impl Hysteria2ManagedUdpPacketPathCarrierBuild {
         protocol: crate::udp::Hysteria2UdpPacketPathCarrierBuild,
         tag: String,
         pool: super::pool::Hysteria2ConnectionPool,
+        node: super::model::Hysteria2NodeOptions,
     ) -> Self {
         Self {
             protocol,
             tag,
             pool,
+            node,
         }
     }
 }

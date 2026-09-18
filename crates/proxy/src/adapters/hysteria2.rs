@@ -79,25 +79,46 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
         password,
         insecure,
         client_fingerprint,
+        ca_cert_path,
+        tls_options,
         ..
     } = protocol
     else {
         return None;
     };
-    Some(Hysteria2TransportLeaf::from_options_refs(
-        tag,
-        server,
-        *port,
-        Hysteria2OutboundOptionsRef {
-            settings: transport
-                .validated(*up_bps, *down_bps)
-                .expect("validated hysteria2 transport settings"),
-            password,
-            server_name: server_name.as_deref(),
-            insecure: *insecure,
-            client_fingerprint: client_fingerprint.as_deref(),
-        },
-    ))
+    let udp_hop = transport.udp_hop.as_ref().map(|hop| {
+        zero_transport::datagram_hop::Profile::new(zero_transport::datagram_hop::OptionsRef {
+            ports: &hop.ports,
+            interval_min_secs: hop.interval_min_secs,
+            interval_max_secs: hop.interval_max_secs,
+        })
+        .expect("validated hysteria2 UDP hopping settings")
+    });
+    Some(
+        Hysteria2TransportLeaf::from_options_refs(
+            tag,
+            server,
+            *port,
+            Hysteria2OutboundOptionsRef {
+                settings: transport
+                    .validated(*up_bps, *down_bps)
+                    .expect("validated hysteria2 transport settings"),
+                password,
+                server_name: server_name.as_deref(),
+                insecure: *insecure,
+                client_fingerprint: client_fingerprint.as_deref(),
+            },
+        )
+        .with_ca_cert_path(ca_cert_path.as_deref())
+        .with_tls_options(tls_options.to_options())
+        .with_salamander_password(
+            transport
+                .obfs
+                .as_ref()
+                .map(zero_config::Hysteria2ObfsConfig::salamander_password),
+        )
+        .with_udp_hop(udp_hop),
+    )
 }
 
 #[cfg(feature = "hysteria2")]

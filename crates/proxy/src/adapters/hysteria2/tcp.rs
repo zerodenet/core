@@ -1,5 +1,5 @@
 use crate::adapters::hysteria2::Hysteria2Adapter;
-use crate::protocol_registry::{claim_session_tcp_leaf, ClaimedTcpOutboundLeaf};
+use crate::protocol_registry::{claim_session_tcp_leaf_with_source, ClaimedTcpOutboundLeaf};
 use crate::runtime::tcp_dispatch::operation::SessionTcpHandshake;
 
 #[async_trait::async_trait]
@@ -36,6 +36,8 @@ impl Hysteria2Adapter {
         &self,
         leaf: ::hysteria2::transport::Hysteria2TransportLeaf,
     ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> {
-        claim_session_tcp_leaf(leaf)
+        claim_session_tcp_leaf_with_source(leaf, |leaf, source_dir| {
+            leaf.with_source_dir(source_dir)
+        })
     }
 }

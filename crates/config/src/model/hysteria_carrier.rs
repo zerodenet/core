@@ -42,20 +42,7 @@ impl HysteriaTransportConfig {
         }
         let p = &self.quic_parameters;
         if let Some(hop) = &p.udp_hop {
-            if hop.ports.is_empty()
-                || hop.ports.len() > 65535
-                || hop.ports.contains(&0)
-                || [hop.interval_min_secs, hop.interval_max_secs]
-                    .iter()
-                    .any(|value| *value != 0 && *value < 5)
-                || (hop.interval_min_secs != 0
-                    && hop.interval_max_secs != 0
-                    && (hop.interval_min_secs.min(hop.interval_max_secs) < 5
-                        || hop.interval_min_secs.max(hop.interval_max_secs)
-                            > i64::MAX as u64 / 1_000_000_000))
-            {
-                return Err("invalid UDP hopping ports or interval");
-            }
+            hop.validate()?;
         }
         if (p.max_idle_timeout_secs != 0 && !(4..=120).contains(&p.max_idle_timeout_secs))
             || (p.keep_alive_secs != 0 && !(2..=60).contains(&p.keep_alive_secs))
@@ -115,4 +102,24 @@ pub struct UdpHopConfig {
     pub ports: Vec<u16>,
     pub interval_min_secs: u64,
     pub interval_max_secs: u64,
+}
+
+impl UdpHopConfig {
+    pub(crate) fn validate(&self) -> Result<(), &'static str> {
+        if self.ports.is_empty()
+            || self.ports.len() > 65535
+            || self.ports.contains(&0)
+            || [self.interval_min_secs, self.interval_max_secs]
+                .iter()
+                .any(|value| *value != 0 && *value < 5)
+            || (self.interval_min_secs != 0
+                && self.interval_max_secs != 0
+                && (self.interval_min_secs.min(self.interval_max_secs) < 5
+                    || self.interval_min_secs.max(self.interval_max_secs)
+                        > i64::MAX as u64 / 1_000_000_000))
+        {
+            return Err("invalid UDP hopping ports or interval");
+        }
+        Ok(())
+    }
 }
