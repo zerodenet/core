@@ -25,7 +25,7 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `Unreleased` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 <!-- version-contract:unreleased-row --> |
 | `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
 | `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
 | `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
@@ -47,6 +47,8 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+- VMess `cipher: zero` 现采用 Xray 标准的 NONE（0x05）、无 ChunkStream body 语义。此前使用 Zero 私有 0x06 格式的节点必须将配置显式改为 `cipher: zero-plus`，并协调两端升级；不保留含糊别名。标准 `zero` 与私有 `zero-plus` 不可互换。
 
 ## 0.0.1
 
