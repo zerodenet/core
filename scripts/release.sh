@@ -128,6 +128,7 @@ cd "${ZERO_REPO_ROOT:-$SCRIPT_DIR/..}"
 
 CARGO_TOML=Cargo.toml
 BREAKING_CHANGES=release/breaking-changes.md
+PROMOTION_SOURCE=release/promotion-source
 ROW_MARKER='<!-- version-contract:unreleased-row -->'
 EMPTY_ROW="| \`Unreleased\` | - | No pending compatibility changes ${ROW_MARKER} |"
 EMPTY_BODY_COMMENT='<!-- Record implemented but unsealed compatibility changes here. -->'
@@ -291,6 +292,31 @@ assert_transition() {
         [[ "$to_stage" == dev ]] || \
             fail "a new release line must enter through dev before rc or stable: $from -> $to"
     fi
+}
+
+assert_first_rc_promotion_transition() {
+    local base_ref=$1 head_ref=$2 target=$3 source source_version source_stage
+
+    source=$(git show "${head_ref}:${PROMOTION_SOURCE}" 2>/dev/null | tr -d '\r\n') || \
+        fail "first release candidate requires ${PROMOTION_SOURCE} at '$head_ref'"
+    [[ "$source" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-dev\.([1-9][0-9]*)$ ]] || \
+        fail "first release candidate promotion source must be a dev tag, got '$source'"
+
+    source_version=${source#v}
+    validate_version "$source_version" development
+    source_stage=$V_STAGE
+    [[ "$source_stage" == dev ]] || \
+        fail "first release candidate promotion source must be a dev version"
+    same_base "$source_version" "$target" || \
+        fail "promotion source '$source' does not match release candidate '$target'"
+    assert_transition "$source_version" "$target"
+
+    git rev-parse --verify "refs/tags/${source}^{commit}" >/dev/null 2>&1 || \
+        fail "promotion source tag '$source' does not exist"
+    git merge-base --is-ancestor "$base_ref" "$source" || \
+        fail "promotion source '$source' is not based on '$base_ref'"
+    git merge-base --is-ancestor "$source" "$head_ref" || \
+        fail "promotion source '$source' is not an ancestor of '$head_ref'"
 }
 
 workspace_version() {
@@ -742,7 +768,13 @@ case "$MODE" in
         if [[ "$from" == "$to" ]]; then
             echo "Version is unchanged ($to)."
         else
-            assert_transition "$from" "$to"
+            validate_version "$to" any
+            to_stage=$V_STAGE
+            if ! same_base "$from" "$to" && [[ "$to_stage" == rc ]]; then
+                assert_first_rc_promotion_transition "$BASE_REF" "$HEAD_REF" "$to"
+            else
+                assert_transition "$from" "$to"
+            fi
             echo "Version transition is valid ($from -> $to)."
         fi
         exit 0
