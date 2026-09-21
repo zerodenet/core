@@ -25,7 +25,8 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.2-rc.202609210616` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 |
 | `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
 | `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
 | `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
@@ -45,6 +46,10 @@
 | `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
 
 ## Unreleased
+
+<!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.2-rc.202609210616
 
 <!-- Record implemented but unsealed compatibility changes here. -->
 
