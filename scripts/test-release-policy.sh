@@ -101,8 +101,19 @@ git checkout -q develop
 RELEASE_TIMESTAMP=202608131530
 [[ "$(run_release --next rc)" == "0.0.16-rc.202608131530" ]]
 run_release 0.0.16-rc.202608131530 --seal-only
-git add Cargo.toml release/breaking-changes.md
+printf 'v0.0.16-dev.202608131431\n' > release/promotion-source
+git add Cargo.toml release/breaking-changes.md release/promotion-source
 git commit -qm "release: v0.0.16-rc.202608131530"
+run_release --check-transition v0.0.15 HEAD >/dev/null
+
+printf 'v0.0.15\n' > release/promotion-source
+git add release/promotion-source
+git commit -qm "test: invalid first rc promotion source"
+expect_fail --check-transition v0.0.15 HEAD
+grep -Fq "first release candidate promotion source must be a dev tag" /tmp/zero-release-policy.out
+printf 'v0.0.16-dev.202608131431\n' > release/promotion-source
+git add release/promotion-source
+git commit -qm "test: restore first rc promotion source"
 git tag -a v0.0.16-rc.202608131530 -m v0.0.16-rc.202608131530
 
 RELEASE_TIMESTAMP=202608131531
