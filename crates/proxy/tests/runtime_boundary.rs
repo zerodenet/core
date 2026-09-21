@@ -94,12 +94,21 @@ fn external_protocol_feature_names() -> Vec<String> {
         .collect()
 }
 
-fn protocol_crate_feature_names() -> Vec<String> {
+fn runtime_protocol_crate_feature_names() -> Vec<String> {
     let mut features = fs::read_dir(workspace_root().join("protocols"))
         .expect("read protocol crates")
         .filter_map(|entry| {
             let path = entry.ok()?.path();
-            if !path.is_dir() {
+            let manifest_path = path.join("Cargo.toml");
+            if !manifest_path.is_file() {
+                return None;
+            }
+            let manifest = read(&manifest_path);
+            let declares_features = manifest.lines().any(|line| line.trim() == "[features]");
+            let declares_runtime = manifest
+                .lines()
+                .any(|line| line.trim_start().starts_with("runtime ="));
+            if declares_features && !declares_runtime {
                 return None;
             }
             path.file_name()?.to_str().map(str::to_owned)
@@ -424,9 +433,9 @@ fn concrete_protocol_feature_gates_exist_only_in_adapters_and_registration() {
 }
 
 #[test]
-fn protocol_crates_adapters_manifests_and_registration_share_one_feature_inventory() {
+fn runtime_protocol_crates_adapters_manifests_and_registration_share_one_feature_inventory() {
     let adapter_features = adapter_feature_names();
-    assert_eq!(adapter_features, protocol_crate_feature_names());
+    assert_eq!(adapter_features, runtime_protocol_crate_feature_names());
 
     let adapters = read(&proxy_src().join("adapters/mod.rs"));
     let manifest = read(&workspace_root().join("crates/proxy/Cargo.toml"));

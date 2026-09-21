@@ -9,6 +9,9 @@
 - 行为与配置对照：Xray-core `v26.3.27`，commit `d2758a023cd7f4174a5a5fa4ff66e487d4342ba0`。该基线用于固定 TCP/UDP、IPv4/IPv6、peer、allowed IP、keepalive、MTU 和 endpoint 解析的互操作目标，不要求复制 Xray 的 Go/gVisor/kernel-TUN 内部结构。
 - Rust 协议引擎候选：BoringTun `0.7.1`。只允许精确固定版本或审计后的仓库内补丁；不得跟随 `master`。在完成消息上限、重放、cookie、定时器、密钥擦除和畸形包审计前，不进入默认 `full` feature。
 - `protocols/wireguard` 的 package version 跟随最终选定并固定的 Rust 协议引擎版本；Zero 产品版本仍由 workspace version 管理。
+- WireGuard 的日常进度提交不自动生成新的 dev tag 或 Release；只有在目标进度完成并收到明确发布指令后，才执行版本晋级和打标。
+
+当前实现进度：已开始 M1 的第一段纵切面，建立独立 protocol crate、密钥/地址/endpoint/peer 校验和 outbound 配置契约。握手、cookie、replay、timer、数据包运行时、客户端网络栈、proxy capability 与外部互操作尚未实现，因此当前配置只代表契约已固定，不代表 WireGuard 已可运行或生产可用。
 
 ## 2. 范围决定
 

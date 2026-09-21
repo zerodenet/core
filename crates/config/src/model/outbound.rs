@@ -10,6 +10,20 @@ pub struct OutboundConfig {
     pub udp: UdpPolicyConfig,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireguardPeerConfig {
+    pub public_key: String,
+    #[serde(default)]
+    pub pre_shared_key: Option<String>,
+    pub endpoint: String,
+    pub allowed_ips: Vec<String>,
+    #[serde(default)]
+    pub keepalive_secs: u16,
+    #[serde(default)]
+    pub reserved: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ReverseSniffingConfig {
@@ -207,6 +221,14 @@ pub enum OutboundProtocolConfig {
         username: Option<String>,
         password: String,
     },
+    #[serde(rename = "wireguard")]
+    Wireguard {
+        private_key: String,
+        addresses: Vec<String>,
+        #[serde(default = "default_wireguard_mtu")]
+        mtu: u16,
+        peers: Vec<WireguardPeerConfig>,
+    },
 }
 
 impl OutboundProtocolConfig {
@@ -221,6 +243,7 @@ impl OutboundProtocolConfig {
             Self::Trojan { .. } => "trojan",
             Self::Vmess { .. } => "vmess",
             Self::Mieru { .. } => "mieru",
+            Self::Wireguard { .. } => "wireguard",
         }
     }
 
@@ -241,7 +264,7 @@ impl OutboundProtocolConfig {
             | Self::Trojan { server, port, .. }
             | Self::Vmess { server, port, .. }
             | Self::Mieru { server, port, .. } => Some((server, *port)),
-            Self::Direct | Self::Block | Self::VlessReverse => None,
+            Self::Direct | Self::Block | Self::VlessReverse | Self::Wireguard { .. } => None,
         }
     }
 
@@ -285,7 +308,8 @@ impl OutboundProtocolConfig {
             | Self::VlessReverse
             | Self::Hysteria2 { .. }
             | Self::Shadowsocks { .. }
-            | Self::Trojan { .. } => {}
+            | Self::Trojan { .. }
+            | Self::Wireguard { .. } => {}
         }
     }
 }
@@ -306,6 +330,10 @@ pub(super) fn normalize_vmess_cipher_name(cipher: &str) -> String {
 
 fn default_vmess_cipher() -> String {
     "aes-128-gcm".to_owned()
+}
+
+const fn default_wireguard_mtu() -> u16 {
+    wireguard::validation::DEFAULT_MTU
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

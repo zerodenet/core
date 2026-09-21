@@ -65,6 +65,7 @@ members = [
     "protocols/vmess",
     "protocols/mieru",
     "protocols/mieru/config",
+    "protocols/wireguard",
     "crates/dns",
     "crates/engine",
     "crates/ffi",

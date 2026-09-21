@@ -28,7 +28,8 @@ pub use model::{
     ShadowsocksUserConfig, Socks5UserConfig, SplitHttpConfig, SplitHttpDownloadConfig,
     SplitHttpRangeConfig, SplitHttpXmuxConfig, TcpMaskConfig, TcpMaskItemConfig, TlsConfig,
     TrojanUserConfig, TunConfig, UdpHopConfig, UdpMaskConfig, UrlRewriteRule, VlessUserConfig,
-    VmessUserConfig, WebSocketConfig, DEFAULT_EVENT_LOG_CAPACITY, DEFAULT_LATENCY_TEST_URL,
+    VmessUserConfig, WebSocketConfig, WireguardPeerConfig, DEFAULT_EVENT_LOG_CAPACITY,
+    DEFAULT_LATENCY_TEST_URL,
 };
 pub use zero_api::CONFIG_SCHEMA_VERSION;
 

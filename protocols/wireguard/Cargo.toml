@@ -1,0 +1,24 @@
+[package]
+name = "wireguard"
+# BoringTun 0.7.1 is the pinned runtime candidate; the runtime dependency stays
+# disabled until its protocol and security audit is complete.
+version = "0.7.1"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[features]
+default = []
+validation = ["dep:base64", "dep:zeroize"]
+
+[dependencies]
+base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
+zeroize = { version = "1", default-features = false, features = ["derive"], optional = true }
+zero-core = { path = "../../crates/core" }
+zero-traits = { path = "../../crates/traits" }
+
+[[test]]
+name = "validation"
+required-features = ["validation"]

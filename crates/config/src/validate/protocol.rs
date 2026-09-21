@@ -843,6 +843,45 @@ pub(super) fn validate_outbound_protocol(
             }
             Ok(())
         }
+        OutboundProtocolConfig::Wireguard {
+            private_key,
+            addresses,
+            mtu,
+            peers,
+        } => {
+            let addresses = addresses.iter().map(String::as_str).collect::<Vec<_>>();
+            let allowed_ips = peers
+                .iter()
+                .map(|peer| {
+                    peer.allowed_ips
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            let peers = peers
+                .iter()
+                .zip(&allowed_ips)
+                .map(|(peer, allowed_ips)| wireguard::validation::PeerInput {
+                    public_key: &peer.public_key,
+                    pre_shared_key: peer.pre_shared_key.as_deref(),
+                    endpoint: &peer.endpoint,
+                    allowed_ips,
+                    keepalive_secs: peer.keepalive_secs,
+                    reserved: &peer.reserved,
+                })
+                .collect::<Vec<_>>();
+            wireguard::validation::validate_outbound(wireguard::validation::OutboundInput {
+                private_key,
+                addresses: &addresses,
+                mtu: *mtu,
+                peers: &peers,
+            })
+            .map_err(|error| {
+                ConfigError::InvalidOutbound(format!("`wireguard` outbound {error}"))
+            })?;
+            Ok(())
+        }
     }
 }
 
