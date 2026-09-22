@@ -242,6 +242,7 @@ mod mkcp;
 mod outbound;
 mod route;
 mod transport;
+mod wireguard;
 pub use mkcp::MkcpConfig;
 mod tun;
 
@@ -253,6 +254,7 @@ pub use outbound::*;
 pub use route::*;
 pub use transport::*;
 pub use tun::*;
+pub use wireguard::*;
 
 mod hysteria2;
 pub use hysteria2::*;

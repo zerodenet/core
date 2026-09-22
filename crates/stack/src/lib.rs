@@ -30,12 +30,14 @@
 //!   serve_inbound()  (proxy kernel pipeline)
 //! ```
 
+pub mod client_udp;
 pub mod fragment;
 pub mod packet;
 pub mod system;
 pub mod tcp;
 pub mod udp;
 
+pub use client_udp::{ClientUdpDatagram, ClientUdpSocket, ClientUdpStack, ClientUdpStackError};
 pub use fragment::{FragmentOutcome, FragmentReassembler, FragmentRejectReason};
 pub use system::{SystemTcpStack, SystemUdpStack};
 pub use tcp::{UserTcpStack, UserTcpStream};

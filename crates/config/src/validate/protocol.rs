@@ -5,7 +5,7 @@ pub(super) use tls::validate_ech_name;
 use crate::{
     ConfigError, Hysteria2UserConfig, InboundProtocolConfig, InboundRealityConfig, MieruUserConfig,
     OutboundProtocolConfig, RealityConfig, ShadowsocksUserConfig, Socks5UserConfig,
-    TrojanUserConfig, VlessUserConfig, VmessUserConfig,
+    TrojanUserConfig, VlessUserConfig, VmessUserConfig, WireguardSecret,
 };
 
 pub(super) fn validate_inbound_protocol(
@@ -864,7 +864,7 @@ pub(super) fn validate_outbound_protocol(
                 .zip(&allowed_ips)
                 .map(|(peer, allowed_ips)| wireguard::validation::PeerInput {
                     public_key: &peer.public_key,
-                    pre_shared_key: peer.pre_shared_key.as_deref(),
+                    pre_shared_key: peer.pre_shared_key.as_ref().map(WireguardSecret::as_str),
                     endpoint: &peer.endpoint,
                     allowed_ips,
                     keepalive_secs: peer.keepalive_secs,
@@ -872,7 +872,7 @@ pub(super) fn validate_outbound_protocol(
                 })
                 .collect::<Vec<_>>();
             wireguard::validation::validate_outbound(wireguard::validation::OutboundInput {
-                private_key,
+                private_key: private_key.as_str(),
                 addresses: &addresses,
                 mtu: *mtu,
                 peers: &peers,

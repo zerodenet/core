@@ -12,6 +12,7 @@ homepage.workspace = true
 [features]
 default = []
 validation = ["dep:base64", "dep:zeroize"]
+routing = ["validation"]
 
 [dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
@@ -22,3 +23,7 @@ zero-traits = { path = "../../crates/traits" }
 [[test]]
 name = "validation"
 required-features = ["validation"]
+
+[[test]]
+name = "routing"
+required-features = ["routing"]

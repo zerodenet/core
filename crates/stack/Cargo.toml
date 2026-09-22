@@ -8,6 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+rand = "0.9"
 tokio.workspace = true
 tracing.workspace = true
 zero-traits = { path = "../traits" }

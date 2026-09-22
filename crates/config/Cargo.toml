@@ -15,6 +15,7 @@ maxminddb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+zeroize = "1"
 zero-api = { path = "../api" }
 zero-router = { path = "../router" }
 zero-rule = { path = "../rule" }

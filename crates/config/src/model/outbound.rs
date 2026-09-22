@@ -15,7 +15,7 @@ pub struct OutboundConfig {
 pub struct WireguardPeerConfig {
     pub public_key: String,
     #[serde(default)]
-    pub pre_shared_key: Option<String>,
+    pub pre_shared_key: Option<WireguardSecret>,
     pub endpoint: String,
     pub allowed_ips: Vec<String>,
     #[serde(default)]
@@ -223,7 +223,7 @@ pub enum OutboundProtocolConfig {
     },
     #[serde(rename = "wireguard")]
     Wireguard {
-        private_key: String,
+        private_key: WireguardSecret,
         addresses: Vec<String>,
         #[serde(default = "default_wireguard_mtu")]
         mtu: u16,
@@ -333,7 +333,7 @@ fn default_vmess_cipher() -> String {
 }
 
 const fn default_wireguard_mtu() -> u16 {
-    wireguard::validation::DEFAULT_MTU
+    ::wireguard::validation::DEFAULT_MTU
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

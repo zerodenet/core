@@ -89,3 +89,21 @@ fn rejects_invalid_reserved_length() {
         .to_string()
         .contains("reserved must contain exactly 3 bytes"));
 }
+
+#[test]
+fn configuration_debug_redacts_private_and_pre_shared_keys() {
+    let private = key(1);
+    let pre_shared = key(9);
+    let mut protocol = valid_protocol();
+    protocol["peers"][0]["pre_shared_key"] = json!(pre_shared);
+    let parsed = RuntimeConfig::parse(&config(protocol)).unwrap();
+
+    let debug = format!("{parsed:?}");
+    assert!(!debug.contains(&private));
+    assert!(!debug.contains(&pre_shared));
+    assert!(debug.contains("WireguardSecret([REDACTED])"));
+
+    let serialized = serde_json::to_value(&parsed.outbounds[0].protocol).unwrap();
+    assert_eq!(serialized["private_key"], private);
+    assert_eq!(serialized["peers"][0]["pre_shared_key"], pre_shared);
+}

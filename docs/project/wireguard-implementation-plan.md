@@ -11,7 +11,9 @@
 - `protocols/wireguard` 的 package version 跟随最终选定并固定的 Rust 协议引擎版本；Zero 产品版本仍由 workspace version 管理。
 - WireGuard 的日常进度提交不自动生成新的 dev tag 或 Release；只有在目标进度完成并收到明确发布指令后，才执行版本晋级和打标。
 
-当前实现进度：已开始 M1 的第一段纵切面，建立独立 protocol crate、密钥/地址/endpoint/peer 校验和 outbound 配置契约。握手、cookie、replay、timer、数据包运行时、客户端网络栈、proxy capability 与外部互操作尚未实现，因此当前配置只代表契约已固定，不代表 WireGuard 已可运行或生产可用。
+当前实现进度：M1 已建立独立 protocol crate、密钥/地址/endpoint/peer 校验、allowed-IP 最长前缀 peer 选择、按已认证 peer 反查源地址，以及 outbound 配置契约；配置中的 private/pre-shared key 在 Debug 中脱敏，配置对象销毁时擦除其 String 缓冲区。M2 已开始独立的客户端 UDP 栈：可在纯内存 raw-IP 通道中主动发送、接收 IPv4/IPv6 UDP，提供临时端口、分片/重组与有界 socket/接收队列。握手、cookie、replay、timer、加密数据包运行时、主动 TCP 客户端栈、proxy capability 与外部互操作尚未实现；客户端 UDP 栈也尚未接入 WireGuard device，因此当前 WireGuard 仍不可运行或生产使用。
+
+引擎审计阻断项（截至 2026-09-22）：候选 BoringTun `0.7.1` 有未关闭的[会话单向失联报告](https://github.com/cloudflare/boringtun/issues/495)和[未按 16 字节填充传输包的报告](https://github.com/cloudflare/boringtun/issues/494)；[消息数拒绝上限补丁](https://github.com/cloudflare/boringtun/pull/478)仍未合入。报告尚须在固定版本上独立复现和审计，不可仅凭 issue 判定全部部署都会触发；在修复、替换或取得充分反证之前，不引入运行时依赖，也不开放默认 `full`/proxy capability。`0.7.1` 仍只是候选基线，不是已审计通过的最终选型。
 
 ## 2. 范围决定
 
@@ -181,13 +183,14 @@ UDP listener
 ### M1：协议与验证
 
 - 新建 `protocols/wireguard`；
-- key/peer/allowed-IP validation；
+- key/peer/allowed-IP validation 与最长前缀 peer 选择、已认证 peer 源地址反查；
 - handshake、transport data、cookie、replay、timers 的单元与向量测试；
 - 私密字段 redaction 和 zeroize 测试。
 
 ### M2：客户端网络栈
 
 - 在 `zero-stack` 增加主动 TCP/UDP 栈；
+- 已完成主动 UDP 的独立内存包收发子段；主动 TCP、ICMP/错误反馈及 WireGuard device 接线未完成；
 - IPv4/IPv6、ICMP、MTU、fragmentation、TCP close/reset、UDP error 的确定性测试；
 - 使用纯内存 raw-IP device 测试，不依赖特权 TUN。
 
