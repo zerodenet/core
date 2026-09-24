@@ -20,6 +20,7 @@ udp-response-runtime = ["udp-runtime"]
 managed-udp-runtime = ["udp-runtime"]
 managed-datagram-runtime = ["managed-udp-runtime"]
 managed-stream-runtime = ["managed-udp-runtime", "udp-response-runtime"]
+raw-ip-runtime = ["managed-stream-runtime", "tcp-session-runtime"]
 upstream-association-runtime = ["udp-runtime"]
 tls-ech-runtime = ["zero-transport/tls", "zero-dns/udp", "zero-dns/doh"]
 tcp-tunnel-runtime = []
@@ -82,6 +83,7 @@ mieru = [
     "dep:mieru",
     "mieru/runtime",
 ]
+wireguard = ["raw-ip-runtime", "datagram-route-runtime", "dep:sha2", "dep:wireguard", "wireguard/runtime"]
 dns = ["zero-dns/udp", "zero-dns/doh", "zero-dns/dot", "zero-dns/doq"]
 
 [dependencies]
@@ -108,8 +110,10 @@ shadowsocks = { path = "../../protocols/shadowsocks", optional = true, default-f
 trojan = { path = "../../protocols/trojan", optional = true, default-features = false }
 vmess = { path = "../../protocols/vmess", optional = true, default-features = false }
 mieru = { path = "../../protocols/mieru", optional = true, default-features = false }
+wireguard = { path = "../../protocols/wireguard", optional = true, default-features = false }
 zero-api = { path = "../api" }
 serde_json.workspace = true
+sha2 = { workspace = true, optional = true }
 zero-traits = { path = "../traits" }
 zero-tun = { path = "../tun" }
 zero-stack = { path = "../stack" }
@@ -117,6 +121,7 @@ zero-transport = { path = "../transport" }
 
 [dev-dependencies]
 base64 = "0.22"
+boringtun = { version = "=0.7.1", default-features = false }
 ring = "0.17"
 h2 = "0.4"
 http_uri = { package = "http", version = "1" }
@@ -126,5 +131,7 @@ rcgen = "0.14"
 rustls = { workspace = true }
 serde_json.workspace = true
 tokio-rustls = { version = "0.26" }
+tokio = { workspace = true, features = ["test-util"] }
 tokio-tungstenite = "0.23"
 tracing-subscriber.workspace = true
+wireguard = { path = "../../protocols/wireguard", default-features = false, features = ["runtime"] }

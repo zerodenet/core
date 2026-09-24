@@ -31,3 +31,4 @@ ztls = { path = "../ztls", default-features = false, features = ["validation"] }
 
 [dev-dependencies]
 base64 = "0.22"
+zero-core = { path = "../core" }

@@ -35,12 +35,24 @@ pub struct ClientUdpDatagram {
     pub payload: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClientUdpEvent {
+    Datagram(ClientUdpDatagram),
+    IcmpError(packet::ParsedIcmpError),
+}
+
+struct SocketEntry {
+    sender: mpsc::Sender<ClientUdpEvent>,
+    last_destination: Option<Endpoint>,
+    path_mtu: Option<usize>,
+}
+
 struct Inner {
     local_addresses: Vec<IpAddr>,
     outbound: mpsc::Sender<Vec<u8>>,
     mtu: usize,
     next_fragment_id: AtomicU32,
-    sockets: Mutex<HashMap<Endpoint, mpsc::Sender<ClientUdpDatagram>>>,
+    sockets: Mutex<HashMap<Endpoint, SocketEntry>>,
     fragments: Mutex<FragmentReassembler>,
 }
 
@@ -102,7 +114,14 @@ impl ClientUdpStack {
                 continue;
             }
             let (sender, receiver) = mpsc::channel(RECEIVE_QUEUE_CAPACITY);
-            sockets.insert(endpoint, sender);
+            sockets.insert(
+                endpoint,
+                SocketEntry {
+                    sender,
+                    last_destination: None,
+                    path_mtu: None,
+                },
+            );
             return Ok(ClientUdpSocket {
                 inner: Arc::clone(&self.inner),
                 endpoint,
@@ -128,16 +147,40 @@ impl ClientUdpStack {
                 FragmentOutcome::Pending | FragmentOutcome::Rejected(_) => return false,
             }
         };
-        let Some(datagram) = packet::parse_udp(&packet) else {
+        let mut sockets = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(datagram) = packet::parse_udp(&packet) {
+            return sockets.get(&datagram.dst).is_some_and(|socket| {
+                socket
+                    .sender
+                    .try_send(ClientUdpEvent::Datagram(ClientUdpDatagram {
+                        source: datagram.src,
+                        payload: datagram.payload.to_vec(),
+                    }))
+                    .is_ok()
+            });
+        }
+        let Some(error) = packet::parse_icmp_error(&packet) else {
             return false;
         };
-        let sockets = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
-        sockets.get(&datagram.dst).is_some_and(|sender| {
-            sender
-                .try_send(ClientUdpDatagram {
-                    source: datagram.src,
-                    payload: datagram.payload.to_vec(),
-                })
+        if error.quoted_protocol != packet::IPPROTO_UDP {
+            return false;
+        }
+        sockets.get_mut(&error.quoted_source).is_some_and(|socket| {
+            if socket.last_destination != Some(error.quoted_destination) {
+                return false;
+            }
+            if let packet::IcmpErrorKind::PacketTooBig { mtu: Some(mtu) } = error.kind {
+                let minimum = if error.quoted_destination.ip.is_ipv6() {
+                    1_280
+                } else {
+                    68
+                };
+                let mtu = (mtu as usize).max(minimum).min(self.inner.mtu);
+                socket.path_mtu = Some(socket.path_mtu.unwrap_or(self.inner.mtu).min(mtu));
+            }
+            socket
+                .sender
+                .try_send(ClientUdpEvent::IcmpError(error))
                 .is_ok()
         })
     }
@@ -147,7 +190,7 @@ impl ClientUdpStack {
 pub struct ClientUdpSocket {
     inner: Arc<Inner>,
     endpoint: Endpoint,
-    receiver: mpsc::Receiver<ClientUdpDatagram>,
+    receiver: mpsc::Receiver<ClientUdpEvent>,
 }
 
 impl ClientUdpSocket {
@@ -171,6 +214,21 @@ impl ClientUdpSocket {
         if payload.len() > maximum_payload {
             return Err(ClientUdpStackError::PayloadTooLarge);
         }
+        let mtu = if let Some(socket) = self
+            .inner
+            .sockets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_mut(&self.endpoint)
+        {
+            if socket.last_destination != Some(destination) {
+                socket.path_mtu = None;
+                socket.last_destination = Some(destination);
+            }
+            socket.path_mtu.unwrap_or(self.inner.mtu)
+        } else {
+            return Err(ClientUdpStackError::OutboundClosed);
+        };
         let packet = packet::build_udp(
             self.endpoint.ip,
             destination.ip,
@@ -179,7 +237,7 @@ impl ClientUdpSocket {
             payload,
         );
         let identification = self.inner.next_fragment_id.fetch_add(1, Ordering::Relaxed);
-        let fragments = packet::fragment_ip_packet(&packet, self.inner.mtu, identification);
+        let fragments = packet::fragment_ip_packet(&packet, mtu, identification);
         if fragments.is_empty() {
             return Err(ClientUdpStackError::InvalidMtu);
         }
@@ -193,8 +251,19 @@ impl ClientUdpSocket {
         Ok(())
     }
 
-    pub async fn recv_from(&mut self) -> Option<ClientUdpDatagram> {
+    pub async fn recv_event(&mut self) -> Option<ClientUdpEvent> {
         self.receiver.recv().await
+    }
+
+    /// Receive only payloads; callers that need network errors use
+    /// `recv_event` so ICMP cannot be silently mistaken for a UDP response.
+    pub async fn recv_from(&mut self) -> Option<ClientUdpDatagram> {
+        loop {
+            match self.recv_event().await? {
+                ClientUdpEvent::Datagram(datagram) => return Some(datagram),
+                ClientUdpEvent::IcmpError(_) => {}
+            }
+        }
     }
 }
 

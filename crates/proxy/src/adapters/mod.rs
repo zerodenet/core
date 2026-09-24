@@ -20,3 +20,5 @@ pub(crate) mod trojan;
 pub(crate) mod vless;
 #[cfg(feature = "vmess")]
 pub(crate) mod vmess;
+#[cfg(feature = "wireguard")]
+pub(crate) mod wireguard;

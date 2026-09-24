@@ -1,12 +1,14 @@
 //! TUN inbound lifecycle and proxy-kernel integration.
 
 mod config;
+#[cfg(feature = "raw-ip-runtime")]
+mod packet;
 mod recovery;
 mod routes;
 mod runtime;
 mod sniff;
 #[cfg(feature = "udp-runtime")]
-mod udp;
+pub(crate) mod udp;
 
 use std::io;
 use std::net::IpAddr;

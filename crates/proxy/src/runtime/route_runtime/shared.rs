@@ -18,6 +18,11 @@ pub(crate) struct SharedIngressRuntimeServices {
 }
 
 impl SharedIngressRuntimeServices {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn tcp_services(&self) -> &TcpRuntimeServices {
+        &self.tcp_services
+    }
+
     pub(crate) fn new(tcp_services: TcpRuntimeServices) -> Self {
         Self {
             tcp_services: tcp_services.clone(),

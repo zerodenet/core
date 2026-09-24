@@ -15,7 +15,6 @@ use zero_traits::{IpAddress, SocketAddress, UdpStack};
 
 use super::sniff::udp::TunQuicSniffer;
 use crate::runtime::udp_ingress::UdpIngressRuntime;
-use crate::runtime::Proxy;
 
 mod association;
 use association::{AdmissionRejection, AssociationRegistry, Delivery};
@@ -43,7 +42,7 @@ struct TunUdpResponder {
 }
 
 struct AssociationStart {
-    proxy: Proxy,
+    runtime: UdpIngressRuntime,
     stack: Arc<UserUdpStack>,
     inbound_tag: String,
     source: SocketAddress,
@@ -121,7 +120,24 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
 }
 
 pub(super) async fn run(
-    proxy: Proxy,
+    proxy: crate::runtime::Proxy,
+    stack: Arc<UserUdpStack>,
+    inbound_tag: String,
+    dns_hijack: bool,
+    dns_hijacked_queries: Arc<AtomicU64>,
+) -> Result<(), EngineError> {
+    run_with_runtime(
+        UdpIngressRuntime::new(proxy.tcp_runtime_services()),
+        stack,
+        inbound_tag,
+        dns_hijack,
+        dns_hijacked_queries,
+    )
+    .await
+}
+
+pub(crate) async fn run_with_runtime(
+    runtime: UdpIngressRuntime,
     stack: Arc<UserUdpStack>,
     inbound_tag: String,
     dns_hijack: bool,
@@ -152,15 +168,15 @@ pub(super) async fn run(
                                 "dropping TUN DNS query at the concurrency limit"
                             );
                         }
-                        let response = proxy.resolver.busy_response(&buffer[..size]);
+                        let response = runtime.resolver().busy_response(&buffer[..size]);
                         stack.send_to(&response, destination, source).await;
                         continue;
                     }
-                    let resolver = Arc::clone(&proxy.resolver);
+                    let query_runtime = runtime.clone();
                     let stack = Arc::clone(&stack);
                     let query = buffer[..size].to_vec();
                     dns_tasks.spawn(async move {
-                        let response = resolver.answer_udp_query(&query).await?;
+                        let response = query_runtime.resolver().answer_udp_query(&query).await?;
                         stack.send_to(&response, destination, source).await;
                         Ok::<(), std::io::Error>(())
                     });
@@ -187,7 +203,7 @@ pub(super) async fn run(
                                 &mut tasks,
                                 &mut associations,
                                 AssociationStart {
-                                    proxy: proxy.clone(),
+                                    runtime: runtime.clone(),
                                     stack: Arc::clone(&stack),
                                     inbound_tag: inbound_tag.clone(),
                                     source,
@@ -291,7 +307,7 @@ fn spawn_association(
     start: AssociationStart,
 ) {
     let AssociationStart {
-        proxy,
+        runtime,
         stack,
         inbound_tag,
         source,
@@ -303,7 +319,7 @@ fn spawn_association(
         .try_send(first)
         .expect("new TUN UDP association receiver must be open");
     associations.insert(source, id, sender);
-    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services()).with_source_addr(Some(
+    let runtime = runtime.with_source_addr(Some(
         zero_platform_tokio::socket_address_to_socket_addr(source),
     ));
     tasks.spawn(async move {

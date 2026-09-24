@@ -5,6 +5,15 @@ use crate::protocol_registry::{BoundInbound, InboundListenerCapability};
 use crate::runtime::inbound_operation::PreparedInboundListenerOperation;
 
 impl ProtocolInventory {
+    pub(crate) fn update_inbound_listener(
+        &self,
+        inbound: zero_config::InboundConfig,
+        source_dir: Option<&std::path::Path>,
+    ) -> Result<bool, EngineError> {
+        let adapter = self.registry.find_inbound(&inbound.protocol)?;
+        InboundListenerCapability::update_inbound_listener(adapter.as_ref(), inbound, source_dir)
+    }
+
     pub(crate) async fn bind_inbound(
         &self,
         inbound: &zero_config::InboundConfig,

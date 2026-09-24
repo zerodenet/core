@@ -41,14 +41,16 @@ pub(super) fn claim<'a>(
     }
     Some(OutboundLeafClaim {
         tcp_path: TCP_PATH,
-        tcp: Box::new(ClaimedPortal {
+        tcp: Some(Box::new(ClaimedPortal {
             tag: outbound.tag().to_owned(),
             portal: runtime.reverse_portal(outbound.tag()),
-        }),
+        })),
         udp: Some(Box::new(ClaimedPortal {
             tag: outbound.tag().to_owned(),
             portal: runtime.reverse_portal(outbound.tag()),
         })),
+        #[cfg(feature = "raw-ip-runtime")]
+        packet: None,
         packet_path: None,
     })
 }

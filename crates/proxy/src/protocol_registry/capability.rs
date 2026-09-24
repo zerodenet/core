@@ -55,6 +55,19 @@ pub(crate) trait ClaimedUdpFlowLeaf<'a>: Send + Sync {
     }
 }
 
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) trait ClaimedPacketLeaf: Send + Sync {
+    fn prepare_packet_route(
+        &self,
+    ) -> Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>;
+
+    fn prepare_datagram_exchange(
+        &self,
+    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>> {
+        None
+    }
+}
+
 #[cfg(feature = "udp-runtime")]
 pub(crate) trait ClaimedUdpPacketPathLeaf<'a>: Send + Sync {
     fn prepare_udp_packet_path(
@@ -69,11 +82,13 @@ pub(crate) trait ClaimedUdpPacketPathLeaf<'a>: Send + Sync {
 
 pub(crate) struct OutboundLeafClaim<'a> {
     pub(crate) tcp_path: TcpPathCategory,
-    pub(crate) tcp: Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a>,
+    pub(crate) tcp: Option<Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a>>,
     #[cfg(feature = "udp-runtime")]
     pub(crate) udp: Option<Box<dyn ClaimedUdpFlowLeaf<'a> + 'a>>,
     #[cfg(feature = "udp-runtime")]
     pub(crate) packet_path: Option<Box<dyn ClaimedUdpPacketPathLeaf<'a> + 'a>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) packet: Option<Box<dyn ClaimedPacketLeaf>>,
 }
 
 #[derive(Clone, Copy)]
@@ -105,8 +120,42 @@ pub(crate) trait ProtocolSupportCapability: ProtocolMetadata + Send + Sync {
     fn on_config_reloaded(&self, _config: &RuntimeConfig) {}
 }
 
+#[cfg(feature = "raw-ip-runtime")]
+#[async_trait]
+pub(crate) trait OutboundDeviceLifecycleCapability: ProtocolSupportCapability {
+    async fn prepare_outbound_devices(
+        &self,
+        outbounds: &[&OutboundConfig],
+        upstream: crate::protocol_registry::UpstreamConnectServices,
+    ) -> Result<Box<dyn PreparedOutboundDeviceState>, EngineError>;
+
+    fn shutdown_outbound_devices(&self);
+
+    fn outbound_device_health(
+        &self,
+        _outbounds: &[&OutboundConfig],
+    ) -> Vec<zero_api::OutboundDeviceHealthSnapshot> {
+        Vec::new()
+    }
+}
+
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) trait PreparedOutboundDeviceState: Send {
+    fn publish(self: Box<Self>);
+}
+
 #[async_trait]
 pub(crate) trait InboundListenerCapability: Send + Sync {
+    /// Apply a prepared update to an active listener without replacing its
+    /// bound socket. Returning false leaves the ordinary restart path intact.
+    fn update_inbound_listener(
+        &self,
+        _inbound: InboundConfig,
+        _source_dir: Option<&std::path::Path>,
+    ) -> Result<bool, EngineError> {
+        Ok(false)
+    }
+
     /// Bind the listener socket eagerly so port-in-use errors surface before
     /// the proxy announces "started".
     async fn bind_inbound(

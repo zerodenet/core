@@ -23,6 +23,14 @@ pub(crate) struct UpstreamConnectServices {
 }
 
 impl UpstreamConnectServices {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn egress_for_ip(
+        &self,
+        destination: std::net::IpAddr,
+    ) -> Option<zero_platform_tokio::EgressInterface> {
+        self.egress_interface.current_for(destination.is_ipv6())
+    }
+
     pub(super) fn new(
         resolver: Arc<DnsSystem>,
         connector: DirectConnector,
@@ -72,6 +80,24 @@ impl UpstreamConnectServices {
             .with_host_resolver(Arc::new(NodeHostResolver {
                 resolver: self.resolver.clone(),
             }))
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn egress_generation(&self) -> u64 {
+        self.outbound_datagram_socket_factory().egress_generation()
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn resolve_node_address(
+        &self,
+        address: &zero_core::Address,
+        port: u16,
+        error_message: &'static str,
+    ) -> Result<std::net::SocketAddr, zero_engine::EngineError> {
+        self.connector
+            .resolve_node_address(address, port, self.resolver.as_ref(), error_message)
+            .await
+            .map_err(Into::into)
     }
 
     #[cfg(feature = "tls-ech-runtime")]

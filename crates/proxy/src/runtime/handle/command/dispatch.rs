@@ -102,7 +102,15 @@ impl zero_api::CommandService for ProxyHandle {
                 });
             }
 
-            self.execute(command)
+            let handle = self.clone();
+            tokio::task::spawn_blocking(move || handle.execute(command))
+                .await
+                .map_err(|error| {
+                    zero_api::ApiError::new(
+                        zero_api::ApiErrorCode::Internal,
+                        format!("command execution task failed: {error}"),
+                    )
+                })?
         })
     }
 }

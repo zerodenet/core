@@ -1,7 +1,12 @@
 use std::net::IpAddr;
 
 use tokio::sync::mpsc;
-use zero_stack::{packet, packet::Endpoint, ClientUdpStack, ClientUdpStackError};
+use zero_stack::{
+    client_udp::ClientUdpEvent,
+    packet,
+    packet::{Endpoint, IcmpErrorKind},
+    ClientUdpStack, ClientUdpStackError,
+};
 
 fn ip(value: &str) -> IpAddr {
     value.parse().unwrap()
@@ -80,6 +85,126 @@ async fn client_udp_bounds_each_socket_receive_queue() {
     assert!(!stack.feed(&packet));
     assert_eq!(socket.recv_from().await.unwrap().payload, b"bounded");
     assert!(stack.feed(&packet));
+}
+
+#[tokio::test]
+async fn client_udp_reports_matching_icmp_error_without_delivering_it_as_payload() {
+    let (outbound, mut packets) = mpsc::channel(16);
+    let stack = ClientUdpStack::new(vec![ip("10.0.0.2")], outbound, 1_420).unwrap();
+    let mut socket = stack.bind(ip("10.0.0.2")).unwrap();
+    let destination = Endpoint {
+        ip: ip("203.0.113.7"),
+        port: 53,
+    };
+    socket.send_to(b"query", destination).await.unwrap();
+    let request = packets.recv().await.unwrap();
+
+    let unrelated = packet::build_udp(
+        socket.local_endpoint().ip,
+        ip("203.0.113.8"),
+        socket.local_endpoint().port,
+        53,
+        b"other",
+    );
+    let unrelated = packet::build_udp_unreachable_response(&unrelated, 1_420).unwrap();
+    assert!(!stack.feed(&unrelated));
+
+    let error = packet::build_udp_unreachable_response(&request, 1_420).unwrap();
+    assert!(stack.feed(&error));
+    let event = socket.recv_event().await.unwrap();
+    assert!(matches!(
+        event,
+        ClientUdpEvent::IcmpError(error)
+            if error.kind == IcmpErrorKind::DestinationUnreachable { code: 13 }
+                && error.quoted_destination == destination
+    ));
+}
+
+#[tokio::test]
+async fn client_udp_reports_ipv6_packet_too_big() {
+    let (outbound, mut packets) = mpsc::channel(16);
+    let stack = ClientUdpStack::new(vec![ip("fd00::2")], outbound, 1_420).unwrap();
+    let mut socket = stack.bind(ip("fd00::2")).unwrap();
+    let destination = Endpoint {
+        ip: ip("2001:db8::7"),
+        port: 443,
+    };
+    socket.send_to(b"query", destination).await.unwrap();
+    let _ = packets.recv().await.unwrap();
+    let oversized = packet::build_udp(
+        socket.local_endpoint().ip,
+        destination.ip,
+        socket.local_endpoint().port,
+        destination.port,
+        &vec![0x42; 1_500],
+    );
+    let error = packet::build_icmp_response(&oversized, 1_280).unwrap();
+    assert!(stack.feed(&error));
+    assert!(matches!(
+        socket.recv_event().await,
+        Some(ClientUdpEvent::IcmpError(error))
+            if error.kind == IcmpErrorKind::PacketTooBig { mtu: Some(1_280) }
+    ));
+    socket
+        .send_to(&vec![0x43; 1_300], destination)
+        .await
+        .unwrap();
+    let first = packets.recv().await.unwrap();
+    let second = packets.recv().await.unwrap();
+    assert!(first.len() <= 1_280 && second.len() <= 1_280);
+}
+
+#[tokio::test]
+async fn client_udp_lowers_only_matching_socket_path_mtu_after_packet_too_big() {
+    let (outbound, mut packets) = mpsc::channel(16);
+    let stack = ClientUdpStack::new(vec![ip("10.0.0.2")], outbound, 1_420).unwrap();
+    let mut affected = stack.bind(ip("10.0.0.2")).unwrap();
+    let unaffected = stack.bind(ip("10.0.0.2")).unwrap();
+    let destination = Endpoint {
+        ip: ip("203.0.113.7"),
+        port: 443,
+    };
+    affected.send_to(b"initial", destination).await.unwrap();
+    let _ = packets.recv().await.unwrap();
+    unaffected.send_to(b"initial", destination).await.unwrap();
+    let _ = packets.recv().await.unwrap();
+
+    let oversized = packet::build_udp(
+        affected.local_endpoint().ip,
+        destination.ip,
+        affected.local_endpoint().port,
+        destination.port,
+        &vec![0x42; 1_500],
+    );
+    let error = packet::build_icmp_response(&oversized, 900).unwrap();
+    assert!(stack.feed(&error));
+    assert!(matches!(
+        affected.recv_event().await,
+        Some(ClientUdpEvent::IcmpError(error))
+            if error.kind == IcmpErrorKind::PacketTooBig { mtu: Some(900) }
+    ));
+
+    let payload = vec![0x43; 1_100];
+    affected.send_to(&payload, destination).await.unwrap();
+    let first = packets.recv().await.unwrap();
+    let second = packets.recv().await.unwrap();
+    assert!(first.len() <= 900 && second.len() <= 900);
+    assert!(packet::parse_ip_fragment(&first).is_some());
+    assert!(packet::parse_ip_fragment(&second).is_some());
+
+    unaffected.send_to(&payload, destination).await.unwrap();
+    let unchanged = packets.recv().await.unwrap();
+    assert!(unchanged.len() > 900);
+    assert!(packet::parse_ip_fragment(&unchanged).is_none());
+
+    let other_destination = Endpoint {
+        ip: ip("203.0.113.8"),
+        port: 443,
+    };
+    affected.send_to(&payload, other_destination).await.unwrap();
+    let reset = packets.recv().await.unwrap();
+    assert!(reset.len() > 900);
+    assert!(packet::parse_ip_fragment(&reset).is_none());
 }
 
 #[tokio::test]

@@ -134,6 +134,31 @@ pub(in crate::runtime) async fn reconcile_inbounds(
             continue;
         }
 
+        if previous.as_ref().is_some_and(|current| {
+            current.listen == inbound.listen
+                && current.protocol.protocol_name() == inbound.protocol.protocol_name()
+        }) && protocols
+            .update_inbound_listener(runtime_factory.listener_config(inbound), source_dir)?
+        {
+            state
+                .active_inbounds
+                .insert(inbound.tag.clone(), inbound.clone());
+            info!(inbound_tag = %inbound.tag, reason = "listener_updated_in_place", "updated inbound listener on its existing socket");
+            continue;
+        }
+
+        // When the listen port changes, reserve the candidate before
+        // stopping the old listener. A failed bind then leaves its socket and
+        // protocol session state untouched (not merely re-created on rollback).
+        let prebound = if previous
+            .as_ref()
+            .is_some_and(|current| current.listen.port != inbound.listen.port)
+        {
+            Some(bind_inbound_with_retry(protocols, runtime_factory, source_dir, inbound).await?)
+        } else {
+            None
+        };
+
         if let Some(shutdown) = state.listener_stops.remove(&inbound.tag) {
             let _ = shutdown.send(true);
             *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
@@ -148,60 +173,63 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         }
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let error =
-            match bind_inbound_with_retry(protocols, runtime_factory, source_dir, inbound).await {
-                Ok(bound) => match spawn_inbound_listener(
-                    protocols,
-                    source_dir,
-                    runtime_factory,
-                    inbound,
-                    bound,
-                    shutdown_rx,
-                    state.listeners,
-                ) {
-                    Ok(()) => {
-                        state
-                            .listener_stops
-                            .insert(inbound.tag.clone(), shutdown_tx);
-                        state
-                            .active_inbounds
-                            .insert(inbound.tag.clone(), inbound.clone());
-                        info!(
-                            inbound_tag = %inbound.tag,
-                            protocol = inbound.protocol.protocol_name(),
-                            listen_address = %inbound.listen.address,
-                            listen_port = inbound.listen.port,
-                            reason = "config_reconciled",
-                            "started new inbound listener"
-                        );
-                        continue;
-                    }
-                    Err(error) => {
-                        warn!(
-                            inbound_tag = %inbound.tag,
-                            protocol = inbound.protocol.protocol_name(),
-                            listen_address = %inbound.listen.address,
-                            listen_port = inbound.listen.port,
-                            reason = "listener_prepare_error",
-                            error = %error,
-                            "failed to prepare inbound listener"
-                        );
-                        error
-                    }
-                },
+        let bound = match prebound {
+            Some(bound) => Ok(bound),
+            None => bind_inbound_with_retry(protocols, runtime_factory, source_dir, inbound).await,
+        };
+        let error = match bound {
+            Ok(bound) => match spawn_inbound_listener(
+                protocols,
+                source_dir,
+                runtime_factory,
+                inbound,
+                bound,
+                shutdown_rx,
+                state.listeners,
+            ) {
+                Ok(()) => {
+                    state
+                        .listener_stops
+                        .insert(inbound.tag.clone(), shutdown_tx);
+                    state
+                        .active_inbounds
+                        .insert(inbound.tag.clone(), inbound.clone());
+                    info!(
+                        inbound_tag = %inbound.tag,
+                        protocol = inbound.protocol.protocol_name(),
+                        listen_address = %inbound.listen.address,
+                        listen_port = inbound.listen.port,
+                        reason = "config_reconciled",
+                        "started new inbound listener"
+                    );
+                    continue;
+                }
                 Err(error) => {
                     warn!(
                         inbound_tag = %inbound.tag,
                         protocol = inbound.protocol.protocol_name(),
                         listen_address = %inbound.listen.address,
                         listen_port = inbound.listen.port,
-                        reason = "listener_bind_error",
+                        reason = "listener_prepare_error",
                         error = %error,
-                        "failed to bind inbound listener"
+                        "failed to prepare inbound listener"
                     );
                     error
                 }
-            };
+            },
+            Err(error) => {
+                warn!(
+                    inbound_tag = %inbound.tag,
+                    protocol = inbound.protocol.protocol_name(),
+                    listen_address = %inbound.listen.address,
+                    listen_port = inbound.listen.port,
+                    reason = "listener_bind_error",
+                    error = %error,
+                    "failed to bind inbound listener"
+                );
+                error
+            }
+        };
         if let Some(previous) = previous {
             let (rollback_tx, rollback_rx) = watch::channel(false);
             match bind_inbound_with_retry(

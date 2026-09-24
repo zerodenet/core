@@ -67,6 +67,13 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
             MieruAdapter::claim_outbound_leaf_impl,
         );
     }
+    #[cfg(feature = "wireguard")]
+    {
+        use crate::adapters::wireguard::WireguardAdapter;
+        let adapter = Arc::new(WireguardAdapter::default());
+        registry.register_outbound_device_lifecycle(adapter.clone());
+        registry.register_capability(adapter, WireguardAdapter::claim_outbound_leaf_impl);
+    }
     #[cfg(feature = "mixed")]
     {
         use crate::adapters::mixed::MixedAdapter;

@@ -1,6 +1,8 @@
 use std::io;
 
-use zero_api::{ApiErrorCode, CommandRequest, CommandService, FakeIpClearCommand};
+use zero_api::{
+    ApiErrorCode, CommandRequest, CommandService, DiagnosticsDnsLookupCommand, FakeIpClearCommand,
+};
 use zero_config::RuntimeConfig;
 use zero_engine::EngineError;
 use zero_engine::EngineHandle;
@@ -107,4 +109,40 @@ fn fake_ip_clear_rejects_multiple_selectors_before_execution() {
         }))
         .expect_err("multiple selectors must fail");
     assert_eq!(error.code, ApiErrorCode::InvalidArgument);
+}
+
+#[tokio::test]
+async fn acknowledged_dns_lookup_runs_from_async_control_plane() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": { "system": { "type": "system" } },
+                    "default_server": "system",
+                    "answer": {
+                        "type": "fake_ip",
+                        "cidr": "198.18.0.0/24",
+                        "ttl_seconds": 60,
+                        "max_entries": 16
+                    }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse Fake-IP config");
+    let proxy = Proxy::new(config).expect("build proxy");
+    let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy);
+
+    let response = handle
+        .execute_acknowledged(CommandRequest::DiagnosticsDnsLookup(
+            DiagnosticsDnsLookupCommand {
+                hostname: "internal.example".to_owned(),
+            },
+        ))
+        .await
+        .expect("execute DNS diagnostic from async control plane");
+    let result = response.result.expect("DNS diagnostic result");
+    assert_eq!(result["hostname"], "internal.example");
+    assert_eq!(result["count"], 1);
 }

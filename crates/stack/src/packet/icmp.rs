@@ -1,6 +1,203 @@
-use std::net::Ipv6Addr;
+use std::net::{IpAddr, Ipv6Addr};
 
 use super::{checksum, transport_header, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TCP, IPPROTO_UDP};
+
+mod error;
+mod forward;
+pub use error::{parse_icmp_error, IcmpErrorKind, ParsedIcmpError};
+pub use forward::build_icmp_time_exceeded_response;
+
+pub struct IcmpEchoRequest<'a> {
+    pub source: IpAddr,
+    pub destination: IpAddr,
+    pub message: &'a [u8],
+}
+
+pub struct IcmpEchoReply<'a> {
+    pub source: IpAddr,
+    pub destination: IpAddr,
+    pub identifier: u16,
+    pub message: &'a [u8],
+}
+
+pub fn parse_icmp_echo_reply(packet: &[u8]) -> Option<IcmpEchoReply<'_>> {
+    let transport = transport_header(packet)?;
+    let message = packet.get(transport.offset..transport.end)?;
+    if message.len() < 8 || message[1] != 0 {
+        return None;
+    }
+    match (transport.src, transport.dst, transport.protocol, message[0]) {
+        (IpAddr::V4(_), IpAddr::V4(_), IPPROTO_ICMP, 0) if checksum(message) == 0 => {}
+        (IpAddr::V6(source), IpAddr::V6(destination), IPPROTO_ICMPV6, 129)
+            if icmpv6_checksum(source, destination, message) == 0 => {}
+        _ => return None,
+    }
+    Some(IcmpEchoReply {
+        source: transport.src,
+        destination: transport.dst,
+        identifier: u16::from_be_bytes([message[4], message[5]]),
+        message,
+    })
+}
+
+pub fn parse_icmp_echo_request(packet: &[u8]) -> Option<IcmpEchoRequest<'_>> {
+    let transport = transport_header(packet)?;
+    let message = packet.get(transport.offset..transport.end)?;
+    if message.len() < 8 || message[1] != 0 {
+        return None;
+    }
+    match (transport.src, transport.dst, transport.protocol, message[0]) {
+        (IpAddr::V4(_), IpAddr::V4(_), IPPROTO_ICMP, 8) if checksum(message) == 0 => {}
+        (IpAddr::V6(source), IpAddr::V6(destination), IPPROTO_ICMPV6, 128)
+            if icmpv6_checksum(source, destination, message) == 0 => {}
+        _ => return None,
+    }
+    Some(IcmpEchoRequest {
+        source: transport.src,
+        destination: transport.dst,
+        message,
+    })
+}
+
+pub fn build_icmp_echo_probe(
+    request: &IcmpEchoRequest<'_>,
+    probe_id: u16,
+    local: IpAddr,
+) -> Option<Vec<u8>> {
+    let mut probe = request.message.to_vec();
+    probe[4..6].copy_from_slice(&probe_id.to_be_bytes());
+    probe[2..4].fill(0);
+    let checksum = match (local, request.destination) {
+        (IpAddr::V4(_), IpAddr::V4(_)) => checksum(&probe),
+        (IpAddr::V6(local), IpAddr::V6(destination)) => icmpv6_checksum(local, destination, &probe),
+        _ => return None,
+    };
+    probe[2..4].copy_from_slice(&checksum.to_be_bytes());
+    Some(probe)
+}
+
+/// Build one inner IP echo request for a packet-capable outbound. The source
+/// is the outbound tunnel address; the original inbound source stays private.
+pub fn build_icmp_echo_tunnel_probe(
+    request: &IcmpEchoRequest<'_>,
+    probe_id: u16,
+    local: IpAddr,
+    mtu: usize,
+) -> Option<Vec<u8>> {
+    let message = build_icmp_echo_probe(request, probe_id, local)?;
+    let header_size: usize = match (local, request.destination) {
+        (IpAddr::V4(_), IpAddr::V4(_)) => 20,
+        (IpAddr::V6(_), IpAddr::V6(_)) => 40,
+        _ => return None,
+    };
+    let total = header_size.checked_add(message.len())?;
+    if total > mtu || total > u16::MAX as usize {
+        return None;
+    }
+    let mut packet = vec![0_u8; total];
+    match (local, request.destination) {
+        (IpAddr::V4(source), IpAddr::V4(destination)) => {
+            packet[0] = 0x45;
+            packet[2..4].copy_from_slice(&(total as u16).to_be_bytes());
+            packet[8] = 64;
+            packet[9] = IPPROTO_ICMP;
+            packet[12..16].copy_from_slice(&source.octets());
+            packet[16..20].copy_from_slice(&destination.octets());
+            let ip_checksum = checksum(&packet[..20]);
+            packet[10..12].copy_from_slice(&ip_checksum.to_be_bytes());
+        }
+        (IpAddr::V6(source), IpAddr::V6(destination)) => {
+            packet[0] = 0x60;
+            packet[4..6].copy_from_slice(&(message.len() as u16).to_be_bytes());
+            packet[6] = IPPROTO_ICMPV6;
+            packet[7] = 64;
+            packet[8..24].copy_from_slice(&source.octets());
+            packet[24..40].copy_from_slice(&destination.octets());
+        }
+        _ => return None,
+    }
+    packet[header_size..].copy_from_slice(&message);
+    Some(packet)
+}
+
+pub fn build_icmp_echo_reply(
+    request: &IcmpEchoRequest<'_>,
+    probe_id: u16,
+    reply: &[u8],
+    local: IpAddr,
+    mtu: usize,
+) -> Option<Vec<u8>> {
+    if reply.len() < 8
+        || reply[1] != 0
+        || reply[4..6] != probe_id.to_be_bytes()
+        || reply[6..8] != request.message[6..8]
+        || reply[8..] != request.message[8..]
+    {
+        return None;
+    }
+    let mut message = reply.to_vec();
+    let header_size: usize = match (request.source, request.destination, local, reply[0]) {
+        (IpAddr::V4(_), IpAddr::V4(_), IpAddr::V4(_), 0) if checksum(reply) == 0 => 20,
+        (IpAddr::V6(_), IpAddr::V6(destination), IpAddr::V6(local), 129)
+            if icmpv6_checksum(destination, local, reply) == 0 =>
+        {
+            40
+        }
+        _ => return None,
+    };
+    let total = header_size.checked_add(message.len())?;
+    if total > mtu || total > u16::MAX as usize {
+        return None;
+    }
+    message[4..6].copy_from_slice(&request.message[4..6]);
+    message[2..4].fill(0);
+    let mut response = vec![0_u8; total];
+    match (request.destination, request.source) {
+        (IpAddr::V4(source), IpAddr::V4(destination)) => {
+            let icmp_checksum = checksum(&message);
+            message[2..4].copy_from_slice(&icmp_checksum.to_be_bytes());
+            response[0] = 0x45;
+            response[2..4].copy_from_slice(&(total as u16).to_be_bytes());
+            response[8] = 64;
+            response[9] = IPPROTO_ICMP;
+            response[12..16].copy_from_slice(&source.octets());
+            response[16..20].copy_from_slice(&destination.octets());
+            let ip_checksum = checksum(&response[..20]);
+            response[10..12].copy_from_slice(&ip_checksum.to_be_bytes());
+        }
+        (IpAddr::V6(source), IpAddr::V6(destination)) => {
+            let icmp_checksum = icmpv6_checksum(source, destination, &message);
+            message[2..4].copy_from_slice(&icmp_checksum.to_be_bytes());
+            response[0] = 0x60;
+            response[4..6].copy_from_slice(&(message.len() as u16).to_be_bytes());
+            response[6] = IPPROTO_ICMPV6;
+            response[7] = 64;
+            response[8..24].copy_from_slice(&source.octets());
+            response[24..40].copy_from_slice(&destination.octets());
+        }
+        _ => return None,
+    }
+    response[header_size..].copy_from_slice(&message);
+    Some(response)
+}
+
+pub fn build_icmp_echo_unreachable_response(packet: &[u8], mtu: usize) -> Option<Vec<u8>> {
+    parse_icmp_echo_request(packet)?;
+    match packet[0] >> 4 {
+        4 => build_ipv4_response(packet, mtu, true),
+        6 => build_ipv6_response(packet, mtu, true),
+        _ => None,
+    }
+}
+
+/// Return only MTU errors for echo requests so a caller with an ICMP relay
+/// can forward them. Other traffic keeps the ordinary rejection policy.
+pub fn build_icmp_mtu_response(packet: &[u8], mtu: usize) -> Option<Vec<u8>> {
+    if packet.len() <= mtu && parse_icmp_echo_request(packet).is_some() {
+        return None;
+    }
+    build_icmp_response(packet, mtu)
+}
 
 /// Build an explicit ICMP response for traffic the TUN stack cannot carry.
 /// TCP/UDP within the configured MTU return `None` and continue normally.

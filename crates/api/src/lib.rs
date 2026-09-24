@@ -37,9 +37,10 @@ pub use flow::{
 };
 pub use query::{
     CapabilitiesQuery, ConfigQuery, DiagnosticsQuery, FlowFilter, FlowGetQuery, FlowListQuery,
-    HealthQuery, HealthSnapshot, PoliciesQuery, PolicyGetQuery, PrincipalFlowsQuery, QueryRequest,
-    QueryResponse, RuntimeQuery, SinkStatusSnapshot, SinksQuery, StatsQuery,
-    TunFamilyEgressAvailability, TunFamilyEgressSnapshot, TunStatusQuery, TunStatusSnapshot,
+    HealthQuery, HealthSnapshot, OutboundDeviceHealthSnapshot, OutboundDeviceHealthState,
+    PoliciesQuery, PolicyGetQuery, PrincipalFlowsQuery, QueryRequest, QueryResponse, RuntimeQuery,
+    SinkStatusSnapshot, SinksQuery, StatsQuery, TunFamilyEgressAvailability,
+    TunFamilyEgressSnapshot, TunStatusQuery, TunStatusSnapshot,
 };
 pub use response::{ApiResponse, EnvelopeError, RawResponse};
 pub use sink::{

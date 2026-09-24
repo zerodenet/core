@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::net::IpAddr;
 
-use crate::validation::{IpNetwork, ValidatedOutbound};
+use crate::validation::{IpNetwork, ValidatedInbound, ValidatedOutbound};
 
 /// Protocol-owned allowed-IP selection for encrypted outbound and authenticated inbound packets.
 ///
@@ -14,6 +14,22 @@ pub struct PeerRoutes {
 
 impl PeerRoutes {
     pub fn from_validated(profile: &ValidatedOutbound<'_>) -> Self {
+        let routes = profile
+            .peers
+            .iter()
+            .enumerate()
+            .flat_map(|(peer, entry)| {
+                entry
+                    .allowed_ips
+                    .iter()
+                    .copied()
+                    .map(move |network| (network, peer))
+            })
+            .collect();
+        Self { routes }
+    }
+
+    pub fn from_validated_inbound(profile: &ValidatedInbound) -> Self {
         let routes = profile
             .peers
             .iter()

@@ -406,15 +406,17 @@ impl VlessAdapter {
         let udp_runtime = self.runtime.clone();
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: claim_transport_tcp_leaf(endpoint, move |source_dir| {
+            tcp: Some(claim_transport_tcp_leaf(endpoint, move |source_dir| {
                 VlessOutboundLeaf::from_options_refs(source_dir, tcp_options.clone(), &tcp_runtime)
-            }),
+            })),
             udp: Some(claim_relay_two_stream_transport_udp_leaf(
                 endpoint,
                 move |source_dir| {
                     VlessOutboundLeaf::from_options_refs(source_dir, options.clone(), &udp_runtime)
                 },
             )),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet: None,
             packet_path: Some(packet_path::claim(packet_identity, move |source_dir| {
                 VlessOutboundLeaf::from_options_refs(
                     source_dir,

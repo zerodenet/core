@@ -55,6 +55,25 @@ impl<'a> ClaimedInventoryLeaf<'a> {
         self.claimed.prepare_udp_flow(source_dir)
     }
 
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn prepare_packet_route(
+        &self,
+    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
+        self.claimed.prepare_packet_route()
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn prepare_datagram_exchange(
+        &self,
+    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>> {
+        self.claimed.prepare_datagram_exchange()
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn data_plane_sinks(&self) -> crate::runtime::network_graph::PlaneSet {
+        self.claimed.data_plane_sinks()
+    }
+
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn prepare_udp_packet_path(
         &self,
@@ -104,6 +123,31 @@ impl<'a> ClaimedRelayChain<'a> {
 }
 
 impl ProtocolInventory {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn outbound_device_health(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Vec<zero_api::OutboundDeviceHealthSnapshot> {
+        self.registry.outbound_device_health(config)
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn prepare_outbound_devices(
+        &self,
+        config: &RuntimeConfig,
+        upstream: crate::protocol_registry::UpstreamConnectServices,
+    ) -> Result<Vec<Box<dyn crate::protocol_registry::PreparedOutboundDeviceState>>, EngineError>
+    {
+        self.registry
+            .prepare_outbound_devices(config, upstream)
+            .await
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn shutdown_outbound_devices(&self) {
+        self.registry.shutdown_outbound_devices();
+    }
+
     #[cfg(feature = "managed-stream-runtime")]
     pub(crate) fn prepare_inbound_services(
         &self,

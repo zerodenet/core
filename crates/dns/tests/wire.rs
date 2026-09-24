@@ -37,6 +37,32 @@ impl zero_dns::DnsOutboundConnector for RecordingDnsConnector {
     }
 }
 
+#[derive(Debug, Default)]
+struct DatagramDnsConnector {
+    calls: Mutex<Vec<(String, SocketAddr)>>,
+}
+
+impl zero_dns::DnsOutboundConnector for DatagramDnsConnector {
+    fn connect(&self, _: String, _: SocketAddr) -> zero_dns::DnsOutboundConnectFuture {
+        panic!("DNS-over-TCP should not be used for a complete UDP response")
+    }
+
+    fn exchange_datagram(
+        &self,
+        outbound: String,
+        endpoint: SocketAddr,
+        query: Vec<u8>,
+    ) -> zero_dns::DnsOutboundDatagramFuture {
+        self.calls.lock().unwrap().push((outbound, endpoint));
+        Box::pin(async move {
+            Ok(zero_dns::udp::build_dns_response(
+                &query,
+                &[IpAddress::V4([192, 0, 2, 54])],
+            ))
+        })
+    }
+}
+
 fn query(domain: &str, query_type: u16, edns_size: Option<u16>) -> Vec<u8> {
     let mut query = vec![
         0x42,
@@ -175,6 +201,33 @@ async fn udp_server_detour_uses_dns_over_tcp_and_reports_outbound() {
     let attempts = dns.recent_query_attempts("detour.example", zero_dns::DnsQueryRole::Default, 1);
     assert_eq!(attempts[0].outbound, "proxy");
     server.await.unwrap();
+}
+
+#[tokio::test]
+async fn udp_server_detour_uses_datagram_capability_when_available() {
+    let endpoint: SocketAddr = "192.0.2.53:53".parse().unwrap();
+    let mut config = config(endpoint.port(), DnsAnswerConfig::Real);
+    config.servers.insert(
+        "local".to_owned(),
+        DnsServerConfig::Udp {
+            host: endpoint.ip().to_string(),
+            port: endpoint.port(),
+            bootstrap: Vec::new(),
+            detour: Some("wg".to_owned()),
+        },
+    );
+    let dns = zero_dns::DnsSystem::build(Some(&config)).unwrap();
+    let connector = Arc::new(DatagramDnsConnector::default());
+    dns.set_outbound_connector(connector.clone());
+
+    assert_eq!(
+        dns.resolve_real_type("internal.example", 1).await.unwrap(),
+        vec![IpAddress::V4([192, 0, 2, 54])]
+    );
+    assert_eq!(
+        connector.calls.lock().unwrap().as_slice(),
+        &[("wg".into(), endpoint)]
+    );
 }
 
 #[tokio::test]

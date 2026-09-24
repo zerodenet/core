@@ -1,8 +1,9 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::net::{IpAddr, Ipv4Addr};
 use wireguard::validation::{
-    parse_endpoint, parse_key, parse_network, validate_outbound, EndpointError, KeyError,
-    NetworkError, OutboundInput, PeerInput, ValidationError, DEFAULT_MTU,
+    parse_endpoint, parse_key, parse_network, validate_inbound, validate_outbound, EndpointError,
+    InboundInput, InboundPeerInput, InboundValidationError, KeyError, NetworkError, OutboundInput,
+    PeerInput, ValidationError, DEFAULT_MTU, MAX_MTU,
 };
 use zeroize::Zeroize;
 
@@ -19,6 +20,85 @@ fn peer<'a>(public_key: &'a str, allowed_ips: &'a [&'a str]) -> PeerInput<'a> {
         keepalive_secs: 25,
         reserved: &[],
     }
+}
+
+#[test]
+fn validates_inbound_peers_and_rejects_ambiguous_source_ownership() {
+    let private = key(51);
+    let peer_a = key(52);
+    let peer_b = key(53);
+    let allowed_a = ["10.0.0.2/32"];
+    let allowed_b = ["10.0.0.3/32"];
+    let peers = [
+        InboundPeerInput {
+            public_key: &peer_a,
+            pre_shared_key: None,
+            allowed_ips: &allowed_a,
+            keepalive_secs: 0,
+            reserved: &[],
+        },
+        InboundPeerInput {
+            public_key: &peer_b,
+            pre_shared_key: None,
+            allowed_ips: &allowed_b,
+            keepalive_secs: 0,
+            reserved: &[],
+        },
+    ];
+    assert_eq!(
+        validate_inbound(InboundInput {
+            private_key: &private,
+            mtu: DEFAULT_MTU,
+            peers: &peers,
+        })
+        .unwrap()
+        .peers
+        .len(),
+        2
+    );
+    let conflict = ["10.0.0.2/32"];
+    let conflicting = [
+        peers[0],
+        InboundPeerInput {
+            allowed_ips: &conflict,
+            ..peers[1]
+        },
+    ];
+    assert_eq!(
+        validate_inbound(InboundInput {
+            private_key: &private,
+            mtu: DEFAULT_MTU,
+            peers: &conflicting,
+        }),
+        Err(InboundValidationError::ConflictingAllowedIp {
+            first_peer: 0,
+            second_peer: 1
+        })
+    );
+}
+
+#[test]
+fn inbound_peer_table_is_bounded_before_allocating_peer_state() {
+    let private = key(54);
+    let public = key(55);
+    let peers = vec![
+        InboundPeerInput {
+            public_key: &public,
+            pre_shared_key: None,
+            allowed_ips: &["10.0.0.2/32"],
+            keepalive_secs: 0,
+            reserved: &[],
+        };
+        129
+    ];
+    assert_eq!(
+        validate_inbound(InboundInput {
+            private_key: &private,
+            mtu: DEFAULT_MTU,
+            peers: &peers,
+        }),
+        Err(InboundValidationError::TooManyPeers)
+    );
 }
 
 #[test]
@@ -122,6 +202,46 @@ fn rejects_ipv6_when_mtu_is_below_the_ipv6_minimum() {
             peers: &peers,
         }),
         Err(ValidationError::Ipv6MtuTooSmall { mtu: 1279 })
+    );
+}
+
+#[test]
+fn rejects_mtu_outside_ip_and_wire_datagram_limits() {
+    let private = key(1);
+    let public = key(2);
+    let addresses = ["10.0.0.1/32"];
+    let allowed = ["10.0.0.2/32"];
+    let peers = [peer(&public, &allowed)];
+    for mtu in [67, MAX_MTU + 1] {
+        assert_eq!(
+            validate_outbound(OutboundInput {
+                private_key: &private,
+                addresses: &addresses,
+                mtu,
+                peers: &peers,
+            }),
+            Err(ValidationError::InvalidMtu)
+        );
+    }
+}
+
+#[test]
+fn rejects_non_zero_reserved_bytes_before_runtime() {
+    let private = key(1);
+    let public = key(2);
+    let allowed = ["10.0.0.2/32"];
+    let peers = [PeerInput {
+        reserved: &[1, 0, 0],
+        ..peer(&public, &allowed)
+    }];
+    assert_eq!(
+        validate_outbound(OutboundInput {
+            private_key: &private,
+            addresses: &["10.0.0.1/32"],
+            mtu: DEFAULT_MTU,
+            peers: &peers,
+        }),
+        Err(ValidationError::UnsupportedReserved { peer: 0 })
     );
 }
 

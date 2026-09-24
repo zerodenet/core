@@ -474,10 +474,17 @@ fn runtime_protocol_crates_adapters_manifests_and_registration_share_one_feature
             root_forward.contains(&format!("zero-proxy/{feature}")),
             "root feature `{feature}` must forward to zero-proxy"
         );
-        assert!(
-            full_feature.contains(&format!("\"{feature}\"")),
-            "root `full` feature must include protocol `{feature}`"
-        );
+        if feature == "wireguard" {
+            assert!(
+                !full_feature.contains("\"wireguard\""),
+                "experimental WireGuard must remain opt-in until its audit closes"
+            );
+        } else {
+            assert!(
+                full_feature.contains(&format!("\"{feature}\"")),
+                "root `full` feature must include protocol `{feature}`"
+            );
+        }
         assert!(
             register.contains(&format!("feature = \"{feature}\"")),
             "register.rs must own the compiled entry for `{feature}`"

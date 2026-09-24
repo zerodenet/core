@@ -5,6 +5,8 @@
 
 mod contract;
 mod direct;
+#[cfg(feature = "raw-ip-runtime")]
+mod raw_ip;
 #[cfg(feature = "tcp-transport-session-runtime")]
 mod session;
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
@@ -16,6 +18,8 @@ pub(crate) use contract::{
     LazyTcpRelayCarrier, PreparedTcpConnectOperation, PreparedTcpRelayOperation,
 };
 pub(crate) use direct::DirectTcpConnectOperation;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use raw_ip::RawIpTcpOperation;
 #[cfg(feature = "tcp-transport-session-runtime")]
 pub(crate) use session::{SessionTcpConnectOperation, SessionTcpHandshake};
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]

@@ -20,6 +20,8 @@ use super::sniff::sniff_tcp_target;
 const TCP_STATE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 const TCP_STATE_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const MAX_CONCURRENT_DNS_CONNECTIONS: usize = 256;
+#[cfg(feature = "raw-ip-runtime")]
+static NEXT_PACKET_INGRESS_ID: AtomicU64 = AtomicU64::new(1);
 
 type TunTaskResult = (&'static str, Result<(), EngineError>);
 
@@ -73,6 +75,17 @@ pub(super) async fn run(
         network_responses,
     } = config;
     let mut tasks = JoinSet::new();
+    #[cfg(feature = "raw-ip-runtime")]
+    let packet_route = crate::runtime::route_runtime::InboundRouteRuntimeFactory::new(
+        crate::runtime::route_runtime::SharedIngressRuntimeServices::new(
+            proxy.tcp_runtime_services(),
+        ),
+        tag.clone(),
+    );
+    #[cfg(feature = "raw-ip-runtime")]
+    let packet_ingress_id = NEXT_PACKET_INGRESS_ID.fetch_add(1, Ordering::Relaxed);
+    #[cfg(feature = "raw-ip-runtime")]
+    let packet_shutdown = shutdown.clone();
     let packet_tcp = Arc::clone(&tcp);
     let packet_udp = Arc::clone(&udp);
     tasks.spawn(async move {
@@ -85,6 +98,13 @@ pub(super) async fn run(
                 addresses,
                 mtu,
                 network_responses,
+                dns_hijack,
+                #[cfg(feature = "raw-ip-runtime")]
+                packet_route,
+                #[cfg(feature = "raw-ip-runtime")]
+                packet_ingress_id,
+                #[cfg(feature = "raw-ip-runtime")]
+                packet_shutdown,
             )
             .await,
         )
@@ -181,26 +201,73 @@ async fn feed_packets(
     addresses: Vec<(IpAddr, IpAddr)>,
     mtu: usize,
     network_responses: mpsc::Sender<Vec<u8>>,
+    dns_hijack: bool,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_route: crate::runtime::route_runtime::InboundRouteRuntimeFactory,
+    #[cfg(feature = "raw-ip-runtime")] packet_ingress_id: u64,
+    #[cfg(feature = "raw-ip-runtime")] packet_shutdown: watch::Receiver<bool>,
 ) -> Result<(), EngineError> {
     const PACKET_BATCH_BEFORE_YIELD: usize = 32;
+    #[cfg(not(feature = "raw-ip-runtime"))]
+    let _ = dns_hijack;
     let mut batch_size = 0;
     let mut fragments = zero_stack::FragmentReassembler::new();
+    #[cfg(feature = "raw-ip-runtime")]
+    let mut packet_pins = crate::runtime::packet_route::PacketSessionPins::default();
+    #[cfg(feature = "raw-ip-runtime")]
+    let echo = crate::runtime::inbound_operation::raw_ip::IcmpEchoRelay::new(
+        network_responses.clone(),
+        packet_route.clone(),
+        packet_shutdown,
+    );
     while let Some(packet) = packets.recv().await {
         match fragments.process(&packet, std::time::Instant::now()) {
             zero_stack::FragmentOutcome::NotFragmented(packet) => {
-                if let Some(response) = zero_stack::packet::build_icmp_response(packet, mtu) {
-                    if network_responses.send(response).await.is_err() {
-                        return Err(EngineError::Io(io::Error::new(
-                            io::ErrorKind::BrokenPipe,
-                            "TUN response packet channel closed",
-                        )));
+                #[cfg(feature = "raw-ip-runtime")]
+                let handled = super::packet::try_forward(
+                    packet,
+                    &packet_route,
+                    packet_ingress_id,
+                    &mut packet_pins,
+                    &network_responses,
+                    &echo,
+                    mtu,
+                    dns_hijack,
+                )
+                .await;
+                #[cfg(not(feature = "raw-ip-runtime"))]
+                let handled = false;
+                if !handled {
+                    if let Some(response) = zero_stack::packet::build_icmp_response(packet, mtu) {
+                        if network_responses.send(response).await.is_err() {
+                            return Err(EngineError::Io(io::Error::new(
+                                io::ErrorKind::BrokenPipe,
+                                "TUN response packet channel closed",
+                            )));
+                        }
+                    } else {
+                        feed_transport_packet(packet, &tcp, &udp, &addresses).await;
                     }
-                } else {
-                    feed_transport_packet(packet, &tcp, &udp, &addresses).await;
                 }
             }
             zero_stack::FragmentOutcome::Reassembled(packet) => {
-                feed_transport_packet(&packet, &tcp, &udp, &addresses).await;
+                #[cfg(feature = "raw-ip-runtime")]
+                let handled = super::packet::try_forward(
+                    &packet,
+                    &packet_route,
+                    packet_ingress_id,
+                    &mut packet_pins,
+                    &network_responses,
+                    &echo,
+                    mtu.max(packet.len()),
+                    dns_hijack,
+                )
+                .await;
+                #[cfg(not(feature = "raw-ip-runtime"))]
+                let handled = false;
+                if !handled {
+                    feed_transport_packet(&packet, &tcp, &udp, &addresses).await;
+                }
             }
             zero_stack::FragmentOutcome::Pending => continue,
             zero_stack::FragmentOutcome::Rejected(reason) => {

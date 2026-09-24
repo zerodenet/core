@@ -64,8 +64,10 @@ impl Socks5Adapter {
         let tcp = self.claim_tcp_outbound_leaf_impl(leaf.clone());
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Tunnel,
-            tcp,
+            tcp: Some(tcp),
             udp: Some(self.claim_udp_flow_leaf_impl(leaf.clone())),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet: None,
             packet_path: self.claim_udp_packet_path_leaf_impl(leaf),
         })
     }

@@ -4,8 +4,12 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Weak};
 
 use zero_core::{Address, Network, ProtocolType, Session};
+#[cfg(feature = "raw-ip-runtime")]
+use zero_dns::DnsOutboundDatagramFuture;
 use zero_dns::{DnsOutboundConnectFuture, DnsOutboundConnector, DnsSystem};
 use zero_engine::Engine;
+#[cfg(feature = "raw-ip-runtime")]
+use zero_engine::ResolvedOutbound;
 
 use crate::inventory::{ProtocolInventory, WeakProtocolInventory};
 use crate::protocol_registry::TcpRuntimeServices;
@@ -113,6 +117,53 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                 .map_err(|error| {
                     io::Error::other(format!("DNS detour `{outbound}` failed: {error}"))
                 })
+        })
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    fn exchange_datagram(
+        &self,
+        outbound: String,
+        endpoint: SocketAddr,
+        query: Vec<u8>,
+    ) -> DnsOutboundDatagramFuture {
+        let connector = self.clone();
+        Box::pin(async move {
+            let snapshot = connector.engine.runtime_snapshot();
+            let target_id = snapshot.plan().target_id(&outbound).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("DNS detour `{outbound}` was not found"),
+                )
+            })?;
+            let (resolved, _) = connector
+                .engine
+                .resolve_target_id_in_snapshot(&snapshot, target_id)
+                .ok_or_else(|| io::Error::other("DNS datagram detour could not be resolved"))?;
+            let ResolvedOutbound::Single(leaf) = resolved else {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "DNS datagram detour requires one packet-capable outbound",
+                ));
+            };
+            let protocols = connector.protocols.upgrade().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "proxy runtime is shutting down",
+                )
+            })?;
+            let claimed = protocols
+                .claim_outbound_leaf(snapshot.config(), leaf)
+                .map_err(io::Error::other)?;
+            let operation = claimed.prepare_datagram_exchange().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "DNS detour outbound has no datagram exchange capability",
+                )
+            })?;
+            operation
+                .exchange(endpoint, query, connector.egress_interface.generation())
+                .await
         })
     }
 }

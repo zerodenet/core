@@ -329,6 +329,8 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary() {
         }
         let relative = path.strip_prefix(&proxy).expect("proxy-relative path");
         let allowed = relative == Path::new("inventory/runtime.rs")
+            || relative == Path::new("inventory/packet.rs")
+            || relative == Path::new("inventory/packet/tests.rs")
             || relative == Path::new("protocol_registry/registry/outbound.rs")
             || relative.starts_with("protocol_registry/registry/tests");
         assert!(
@@ -594,6 +596,13 @@ fn engine_and_transport_sources_do_not_name_concrete_proxy_protocols() {
         for path in rust_sources(&root) {
             let source = read(&path).to_ascii_lowercase();
             for protocol in &protocols {
+                // FinalMask's pre-existing Wireguard UDP header is a cover
+                // format, not a dependency on the WireGuard proxy protocol.
+                if protocol == "wireguard"
+                    && path.starts_with(workspace_root().join("crates/transport/src/finalmask"))
+                {
+                    continue;
+                }
                 assert!(
                     !source.contains(protocol.as_str()),
                     "{} must not know concrete protocol `{protocol}`",

@@ -25,6 +25,10 @@ mod transport_leaf;
 pub(crate) use capability::ManagedUdpHandlerProvider;
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) use capability::UpstreamUdpHandlerProvider;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use capability::{
+    ClaimedPacketLeaf, OutboundDeviceLifecycleCapability, PreparedOutboundDeviceState,
+};
 pub(crate) use capability::{
     ClaimedTcpOutboundLeaf, InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput,
     ProtocolSupportCapability, TcpOutboundCapability,

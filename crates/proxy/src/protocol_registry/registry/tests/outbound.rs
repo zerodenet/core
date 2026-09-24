@@ -256,8 +256,10 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
             let tcp: Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> = Box::new(FakeClaimedLeaf);
             Some(OutboundLeafClaim {
                 tcp_path: TcpPathCategory::Tunnel,
-                tcp,
+                tcp: Some(tcp),
                 udp: Some(Box::new(FakeClaimedUdpLeaf)),
+                #[cfg(feature = "raw-ip-runtime")]
+                packet: None,
                 packet_path: None,
             })
         }
@@ -425,8 +427,10 @@ fn registry_executes_adapter_claimed_udp_leaf_operations() {
             let tcp: Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> = Box::new(FakeClaimedTcpLeaf);
             Some(OutboundLeafClaim {
                 tcp_path: TcpPathCategory::Tunnel,
-                tcp,
+                tcp: Some(tcp),
                 udp: Some(Box::new(FakeClaimedUdpLeaf)),
+                #[cfg(feature = "raw-ip-runtime")]
+                packet: None,
                 packet_path: None,
             })
         }
@@ -625,8 +629,10 @@ fn registry_executes_adapter_claimed_udp_packet_path_operations() {
             let tcp: Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> = Box::new(FakeClaimedTcpLeaf);
             Some(OutboundLeafClaim {
                 tcp_path: TcpPathCategory::Tunnel,
-                tcp,
+                tcp: Some(tcp),
                 udp: Some(Box::new(FakeClaimedUdpLeaf)),
+                #[cfg(feature = "raw-ip-runtime")]
+                packet: None,
                 packet_path: Some(Box::new(FakeClaimedUdpPacketPathLeaf)),
             })
         }

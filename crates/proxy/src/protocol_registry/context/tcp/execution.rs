@@ -64,6 +64,22 @@ impl TcpExecutionServices {
             .await
     }
 
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn resolve_direct_targets(
+        &self,
+        session: &zero_core::Session,
+    ) -> Result<crate::transport::DirectTargetResolution, zero_engine::EngineError> {
+        self.upstream
+            .connector
+            .resolve_target_addrs(
+                session,
+                self.upstream.resolver.as_ref(),
+                &self.upstream.egress_interface,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
     pub(crate) fn check_outbound_health(&self, tag: &str) -> Result<(), zero_engine::EngineError> {
         self.engine.check_outbound_health(tag)
     }

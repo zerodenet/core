@@ -1,7 +1,6 @@
 [package]
 name = "wireguard"
-# BoringTun 0.7.1 is the pinned runtime candidate; the runtime dependency stays
-# disabled until its protocol and security audit is complete.
+# The protocol engine is opt-in until its interoperability and security gates close.
 version = "0.7.1"
 edition.workspace = true
 authors.workspace = true
@@ -13,10 +12,13 @@ homepage.workspace = true
 default = []
 validation = ["dep:base64", "dep:zeroize"]
 routing = ["validation"]
+runtime = ["routing", "dep:boringtun", "dep:x25519-dalek"]
 
 [dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
+boringtun = { version = "=0.7.1", default-features = false, optional = true }
 zeroize = { version = "1", default-features = false, features = ["derive"], optional = true }
+x25519-dalek = { version = "=2.0.1", default-features = false, features = ["static_secrets", "zeroize"], optional = true }
 zero-core = { path = "../../crates/core" }
 zero-traits = { path = "../../crates/traits" }
 
@@ -27,3 +29,7 @@ required-features = ["validation"]
 [[test]]
 name = "routing"
 required-features = ["routing"]
+
+[[test]]
+name = "runtime"
+required-features = ["runtime"]

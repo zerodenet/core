@@ -12,15 +12,21 @@ pub struct IcmpSocket {
 impl IcmpSocket {
     pub fn bind(address: IpAddr, egress: Option<&EgressInterface>) -> io::Result<Self> {
         let ipv6 = address.is_ipv6();
-        let socket = Socket::new(
-            if ipv6 { Domain::IPV6 } else { Domain::IPV4 },
-            Type::RAW,
-            Some(if ipv6 {
-                Protocol::ICMPV6
+        let domain = if ipv6 { Domain::IPV6 } else { Domain::IPV4 };
+        let protocol = if ipv6 {
+            Protocol::ICMPV6
+        } else {
+            Protocol::ICMPV4
+        };
+        let socket = Socket::new(domain, Type::RAW, Some(protocol)).or_else(|error| {
+            if error.kind() == io::ErrorKind::PermissionDenied {
+                // Ping sockets are available to unprivileged processes on
+                // supported hosts; they preserve the ICMP message contract.
+                Socket::new(domain, Type::DGRAM, Some(protocol))
             } else {
-                Protocol::ICMPV4
-            }),
-        )?;
+                Err(error)
+            }
+        })?;
         socket.bind(&SocketAddr::new(address, 0).into())?;
         socket.set_nonblocking(true)?;
         let socket: std::net::UdpSocket = socket.into();
@@ -34,6 +40,19 @@ impl IcmpSocket {
     }
     pub fn local_addr(&self) -> io::Result<IpAddr> {
         self.socket.local_addr().map(|addr| addr.ip())
+    }
+    pub async fn connect(&self, peer: IpAddr) -> io::Result<IpAddr> {
+        if peer.is_ipv6() != self.ipv6 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "ICMP address family mismatch",
+            ));
+        }
+        self.socket.connect(SocketAddr::new(peer, 0)).await?;
+        self.local_addr()
+    }
+    pub async fn send(&self, bytes: &[u8]) -> io::Result<usize> {
+        self.socket.send(bytes).await
     }
     pub async fn send_to(&self, bytes: &[u8], peer: IpAddr) -> io::Result<usize> {
         if peer.is_ipv6() != self.ipv6 {

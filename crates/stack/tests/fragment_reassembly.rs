@@ -5,6 +5,29 @@ use zero_stack::packet::{self, fragment_ip_packet};
 use zero_stack::{FragmentOutcome, FragmentReassembler, FragmentRejectReason};
 
 #[test]
+fn reads_destination_from_every_fragment_without_parsing_transport_header() {
+    for (source, destination, mtu) in [
+        (
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            576,
+        ),
+        (
+            IpAddr::V6("fd00::2".parse().unwrap()),
+            IpAddr::V6("fd00::1".parse().unwrap()),
+            1280,
+        ),
+    ] {
+        let packet = packet::build_udp(source, destination, 50000, 53, &[7; 4096]);
+        let fragments = fragment_ip_packet(&packet, mtu, 37);
+        assert!(fragments.len() > 1);
+        for fragment in fragments {
+            assert_eq!(packet::ip_destination(&fragment), Some(destination));
+        }
+    }
+}
+
+#[test]
 fn reassembles_out_of_order_ipv4_udp_fragments() {
     let payload = vec![0x5a; 4_096];
     let packet = packet::build_udp(

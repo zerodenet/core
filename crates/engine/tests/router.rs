@@ -7,6 +7,52 @@ use zero_config::RuntimeConfig;
 use zero_engine::Engine;
 
 #[test]
+fn engine_rebuilds_automatic_wireguard_routes_on_reload() {
+    let mut input = serde_json::json!({
+        "outbounds":[
+            {"tag":"a", "protocol":{"type":"wireguard", "private_key":"01".repeat(32),
+                "addresses":["10.10.0.11/32"], "peers":[{"public_key":"02".repeat(32),
+                    "endpoint":"127.0.0.1:51820", "allowed_ips":["10.10.0.0/24"]}]}},
+            {"tag":"b", "protocol":{"type":"wireguard", "private_key":"03".repeat(32),
+                "addresses":["10.68.1.1/24"], "peers":[{"public_key":"04".repeat(32),
+                    "endpoint":"127.0.0.1:51821", "allowed_ips":["10.0.0.0/8"]}]}}
+        ],
+        "route":{"auto_outbounds":["a", "b"], "rules":[], "final":{"type":"direct"}}
+    });
+    let config = RuntimeConfig::parse(&input.to_string()).unwrap();
+    let engine = Engine::new(config).unwrap();
+    let address = zero_core::Address::Ipv4([10, 68, 1, 8]);
+    assert_eq!(
+        engine.route_for(&address),
+        zero_router::RouteAction::Route("b".into())
+    );
+    let domain = zero_core::Address::Domain("host.internal.example".into());
+    assert!(engine.route_requires_resolved_ip());
+    assert!(matches!(
+        engine
+            .route_trace_with_inbound_and_resolved_ips(
+                &domain,
+                None,
+                None,
+                &[IpAddr::V4(Ipv4Addr::new(10, 10, 0, 8))],
+            )
+            .decision,
+        zero_engine::RouteDecision::Route(ref tag) if tag == "a"
+    ));
+
+    input["outbounds"][1]["protocol"]["peers"][0]["allowed_ips"] =
+        serde_json::json!(["172.20.0.0/16"]);
+    engine
+        .reload_config(RuntimeConfig::parse(&input.to_string()).unwrap())
+        .unwrap();
+    assert_eq!(engine.route_for(&address), zero_router::RouteAction::Direct);
+    assert_eq!(
+        engine.route_for(&zero_core::Address::Ipv4([172, 20, 0, 8])),
+        zero_router::RouteAction::Route("b".into())
+    );
+}
+
+#[test]
 fn engine_builds_router_from_config() {
     let config = RuntimeConfig::parse(
         r#"{

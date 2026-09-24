@@ -10,7 +10,13 @@ mod icmp;
 pub use fragment::{
     fragment_ip_packet, parse_ip_fragment, rebuild_fragmented_packet, FragmentKey, ParsedIpFragment,
 };
-pub use icmp::{build_icmp_response, build_udp_unreachable_response};
+pub use icmp::{
+    build_icmp_echo_probe, build_icmp_echo_reply, build_icmp_echo_tunnel_probe,
+    build_icmp_echo_unreachable_response, build_icmp_mtu_response, build_icmp_response,
+    build_icmp_time_exceeded_response, build_udp_unreachable_response, parse_icmp_echo_reply,
+    parse_icmp_echo_request, parse_icmp_error, IcmpEchoReply, IcmpEchoRequest, IcmpErrorKind,
+    ParsedIcmpError,
+};
 
 // ── Protocol numbers ──────────────────────────────────────────────────
 
@@ -54,6 +60,47 @@ pub struct ParsedUdp<'a> {
 /// Determine the transport protocol of a raw IP packet.
 pub fn ip_protocol(packet: &[u8]) -> Option<u8> {
     transport_header(packet).map(|header| header.protocol)
+}
+
+/// Destination of a complete IPv4/IPv6 packet, independent of its transport.
+pub fn ip_destination(packet: &[u8]) -> Option<IpAddr> {
+    parse_ip(packet).map(|(_, destination, _, _)| destination)
+}
+
+/// Source of a complete IPv4/IPv6 packet, including fragmented packets.
+pub fn ip_source(packet: &[u8]) -> Option<IpAddr> {
+    parse_ip(packet).map(|(source, _, _, _)| source)
+}
+
+pub fn ip_hop_limit(packet: &[u8]) -> Option<u8> {
+    parse_ip(packet)?;
+    match packet[0] >> 4 {
+        4 => Some(packet[8]),
+        6 => Some(packet[7]),
+        _ => None,
+    }
+}
+
+/// Advance an IP packet through one L3 hop while preserving its payload.
+/// Returns false for malformed packets or an exhausted TTL/Hop Limit.
+pub fn advance_ip_hop(packet: &mut [u8]) -> bool {
+    let Some((_, _, header_len, _)) = parse_ip(packet) else {
+        return false;
+    };
+    match packet[0] >> 4 {
+        4 if packet[8] > 1 && checksum(&packet[..header_len]) == 0 => {
+            packet[8] -= 1;
+            packet[10..12].fill(0);
+            let checksum = checksum(&packet[..header_len]);
+            packet[10..12].copy_from_slice(&checksum.to_be_bytes());
+            true
+        }
+        6 if packet[7] > 1 => {
+            packet[7] -= 1;
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Return the advertised TCP receive window from a complete IP packet.

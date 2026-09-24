@@ -13,6 +13,8 @@ use crate::runtime::route_runtime::{InboundListenerRuntimeFactory, SharedIngress
 use crate::runtime::{listeners, reload, Proxy};
 
 pub(super) struct OrchestrationState {
+    #[cfg(feature = "raw-ip-runtime")]
+    outbound_devices: crate::inventory::ProtocolInventory,
     pub(super) shutdown_tx: watch::Sender<bool>,
     pub(super) shutdown_rx: watch::Receiver<bool>,
     pub(super) listeners: JoinSet<Result<(), EngineError>>,
@@ -38,6 +40,8 @@ impl OrchestrationState {
         let inbound_runtime_factory =
             InboundListenerRuntimeFactory::new(SharedIngressRuntimeServices::new(tcp_services));
         let mut state = Self {
+            #[cfg(feature = "raw-ip-runtime")]
+            outbound_devices: proxy.protocols.clone(),
             shutdown_tx,
             shutdown_rx,
             listeners: JoinSet::new(),
@@ -67,6 +71,31 @@ impl OrchestrationState {
                 proxy.config.runtime.network.mtu,
             )
             .await?;
+        #[cfg(feature = "raw-ip-runtime")]
+        let prepared_outbound_devices = match proxy
+            .protocols
+            .prepare_outbound_devices(&proxy.config, proxy.tcp_runtime_services().upstream())
+            .await
+        {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                if let Err(cleanup_error) = proxy
+                    .reconcile_configured_tun(None, proxy.config.runtime.network.mtu)
+                    .await
+                {
+                    warn!(
+                        error = %cleanup_error,
+                        reason = "tun_startup_rollback_error",
+                        "failed to roll back configured TUN after outbound device preparation failure"
+                    );
+                }
+                return Err(error);
+            }
+        };
+        #[cfg(feature = "raw-ip-runtime")]
+        for prepared in prepared_outbound_devices {
+            prepared.publish();
+        }
         if let Err(error) = state.start_inbounds(proxy).await {
             if let Err(cleanup_error) = proxy
                 .reconcile_configured_tun(None, proxy.config.runtime.network.mtu)
@@ -164,6 +193,20 @@ impl OrchestrationState {
                 .await;
             return;
         }
+        #[cfg(feature = "raw-ip-runtime")]
+        let prepared_outbound_devices = match proxy
+            .protocols
+            .prepare_outbound_devices(&new_config, candidate_tcp_services.upstream())
+            .await
+        {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                warn!(%error, reason = "outbound_device_prepare_error", "failed to prepare outbound devices");
+                self.reject_reload(proxy, &new_config, error.to_string())
+                    .await;
+                return;
+            }
+        };
         let inbound_result = listeners::reconcile_inbounds(
             &proxy.protocols,
             source_dir.as_deref(),
@@ -197,6 +240,10 @@ impl OrchestrationState {
                     .await;
                 return;
             }
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        for prepared in prepared_outbound_devices {
+            prepared.publish();
         }
         listeners::reconcile_urltests(
             &candidate_urltest_runtime,
@@ -306,5 +353,12 @@ impl OrchestrationState {
                 result
             });
         }
+    }
+}
+
+#[cfg(feature = "raw-ip-runtime")]
+impl Drop for OrchestrationState {
+    fn drop(&mut self) {
+        self.outbound_devices.shutdown_outbound_devices();
     }
 }

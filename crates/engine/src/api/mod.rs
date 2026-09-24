@@ -80,6 +80,7 @@ fn query_engine(engine: &Engine, request: QueryRequest) -> zero_api::ApiResult<Q
             config_revision: engine.config_revision(),
             started_at_unix_ms: Some(engine.started_at_unix_ms()),
             healthy: true,
+            outbound_devices: Vec::new(),
         })),
         QueryRequest::Config(_) => Ok(QueryResponse::Config(engine.export_config())),
         QueryRequest::Runtime(_) => Ok(QueryResponse::Runtime(engine.export_runtime())),

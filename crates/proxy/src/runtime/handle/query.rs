@@ -7,6 +7,19 @@ impl zero_api::QueryService for ProxyHandle {
         &self,
         request: zero_api::QueryRequest,
     ) -> zero_api::ApiResult<zero_api::QueryResponse> {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let zero_api::QueryRequest::Health(_) = &request {
+            let response = self.inner.query(request)?;
+            let zero_api::QueryResponse::Health(mut health) = response else {
+                return Ok(response);
+            };
+            let snapshot = self.proxy.engine().runtime_snapshot();
+            health.outbound_devices = self
+                .proxy
+                .protocols
+                .outbound_device_health(snapshot.config());
+            return Ok(zero_api::QueryResponse::Health(health));
+        }
         if let zero_api::QueryRequest::Capabilities(_) = &request {
             let response = self.inner.query(request)?;
             let zero_api::QueryResponse::Capabilities(mut capabilities) = response else {

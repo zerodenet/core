@@ -13,6 +13,10 @@ pub struct RouteConfig {
     pub rule_sets: Vec<RouteRuleSetConfig>,
     #[serde(default)]
     pub rules: Vec<RouteRuleConfig>,
+    /// Concrete outbounds whose protocol advertises destination prefixes.
+    /// User rules run first; advertised routes use longest-prefix match before `final`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auto_outbounds: Vec<String>,
     #[serde(rename = "final")]
     pub final_action: RouteActionConfig,
     /// Path to a GeoLite2-Country.mmdb file for the `geoip` condition.

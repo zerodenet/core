@@ -18,6 +18,41 @@ pub(super) fn validate_inbound_protocol(
             validate_socks5_users("mixed inbound socks5", socks5_users)
         }
         InboundProtocolConfig::HttpConnect => Ok(()),
+        InboundProtocolConfig::Wireguard {
+            private_key,
+            mtu,
+            peers,
+        } => {
+            let allowed_ips = peers
+                .iter()
+                .map(|peer| {
+                    peer.allowed_ips
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            let peers = peers
+                .iter()
+                .zip(&allowed_ips)
+                .map(
+                    |(peer, allowed_ips)| wireguard::validation::InboundPeerInput {
+                        public_key: &peer.public_key,
+                        pre_shared_key: peer.pre_shared_key.as_ref().map(WireguardSecret::as_str),
+                        allowed_ips,
+                        keepalive_secs: peer.keepalive_secs,
+                        reserved: &peer.reserved,
+                    },
+                )
+                .collect::<Vec<_>>();
+            wireguard::validation::validate_inbound(wireguard::validation::InboundInput {
+                private_key: private_key.as_str(),
+                mtu: *mtu,
+                peers: &peers,
+            })
+            .map_err(|error| ConfigError::InvalidInbound(format!("`wireguard` inbound {error}")))?;
+            Ok(())
+        }
         InboundProtocolConfig::Vless {
             final_mask,
             mkcp,

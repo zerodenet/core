@@ -264,12 +264,14 @@ impl TrojanAdapter {
         let udp_mux_pool = self.mux_pool.clone();
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: claim_transport_tcp_leaf(endpoint, move |source_dir| {
+            tcp: Some(claim_transport_tcp_leaf(endpoint, move |source_dir| {
                 TrojanOutboundLeaf::from_options_refs(source_dir, options, tcp_mux_pool.clone())
-            }),
+            })),
             udp: Some(claim_transport_udp_leaf(endpoint, move |source_dir| {
                 TrojanOutboundLeaf::from_options_refs(source_dir, options, udp_mux_pool.clone())
             })),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet: None,
             packet_path: None,
         })
     }

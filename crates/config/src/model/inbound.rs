@@ -22,6 +22,19 @@ pub struct ListenConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireguardInboundPeerConfig {
+    pub public_key: String,
+    #[serde(default)]
+    pub pre_shared_key: Option<WireguardSecret>,
+    pub allowed_ips: Vec<String>,
+    #[serde(default)]
+    pub keepalive_secs: u16,
+    #[serde(default)]
+    pub reserved: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
 pub enum InboundProtocolConfig {
     #[serde(rename = "socks5")]
@@ -163,6 +176,17 @@ pub enum InboundProtocolConfig {
         #[serde(flatten)]
         options: mieru_config::MieruTransportOptions,
     },
+    #[serde(rename = "wireguard")]
+    Wireguard {
+        private_key: WireguardSecret,
+        #[serde(default = "default_wireguard_inbound_mtu")]
+        mtu: u16,
+        peers: Vec<WireguardInboundPeerConfig>,
+    },
+}
+
+const fn default_wireguard_inbound_mtu() -> u16 {
+    ::wireguard::validation::DEFAULT_MTU
 }
 
 impl InboundProtocolConfig {
@@ -178,6 +202,7 @@ impl InboundProtocolConfig {
             Self::Vmess { .. } => "vmess",
             Self::Direct { .. } => "direct",
             Self::Mieru { .. } => "mieru",
+            Self::Wireguard { .. } => "wireguard",
         }
     }
 
@@ -256,7 +281,8 @@ impl InboundProtocolConfig {
             | Self::Shadowsocks { .. }
             | Self::Trojan { .. }
             | Self::Vmess { .. }
-            | Self::Mieru { .. } => &[],
+            | Self::Mieru { .. }
+            | Self::Wireguard { .. } => &[],
         }
     }
 
@@ -392,7 +418,8 @@ impl InboundProtocolConfig {
             | Self::Hysteria2 { .. }
             | Self::Shadowsocks { .. }
             | Self::Trojan { .. }
-            | Self::Direct { .. } => {}
+            | Self::Direct { .. }
+            | Self::Wireguard { .. } => {}
         }
     }
 }

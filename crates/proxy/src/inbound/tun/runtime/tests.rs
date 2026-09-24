@@ -314,6 +314,18 @@ async fn tun_packet_loop_reassembles_fragmented_udp_before_dispatch() {
     let stack = UserNetworkStack::new(network_responses.clone(), 516);
     let (tcp, udp) = stack.into_parts();
     let (packets, packet_rx) = mpsc::channel(16);
+    #[cfg(feature = "raw-ip-runtime")]
+    let packet_route = {
+        let config =
+            RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#).unwrap();
+        let proxy = crate::runtime::Proxy::new(config).unwrap();
+        crate::runtime::route_runtime::InboundRouteRuntimeFactory::new(
+            crate::runtime::route_runtime::SharedIngressRuntimeServices::new(
+                proxy.tcp_runtime_services(),
+            ),
+            "tun-test".to_owned(),
+        )
+    };
     let runtime = tokio::spawn(feed_packets(
         packet_rx,
         tcp,
@@ -321,6 +333,13 @@ async fn tun_packet_loop_reassembles_fragmented_udp_before_dispatch() {
         vec![],
         576,
         network_responses,
+        false,
+        #[cfg(feature = "raw-ip-runtime")]
+        packet_route,
+        #[cfg(feature = "raw-ip-runtime")]
+        1,
+        #[cfg(feature = "raw-ip-runtime")]
+        tokio::sync::watch::channel(false).1,
     ));
     let payload = vec![0x33; 2_048];
     let datagram = packet::build_udp(

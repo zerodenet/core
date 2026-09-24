@@ -50,6 +50,14 @@ where
 }
 
 impl ProtocolRegistry {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn register_outbound_device_lifecycle<T>(&mut self, adapter: Arc<T>)
+    where
+        T: crate::protocol_registry::OutboundDeviceLifecycleCapability + 'static,
+    {
+        self.outbound_devices.push(adapter);
+    }
+
     fn push_registered_entry(&mut self, entry: super::RegisteredProtocolEntry) {
         let name = entry.support.name();
         assert!(

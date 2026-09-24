@@ -13,6 +13,7 @@ pub(super) fn inbound_protocol_name(config: &InboundProtocolConfig) -> &'static 
         InboundProtocolConfig::Vmess { .. } => "vmess",
         InboundProtocolConfig::Direct { .. } => "direct",
         InboundProtocolConfig::Mieru { .. } => "mieru",
+        InboundProtocolConfig::Wireguard { .. } => "wireguard",
     }
 }
 
@@ -37,6 +38,18 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
 
     #[cfg(feature = "socks5")]
     configs.push(InboundProtocolConfig::Socks5 { users: Vec::new() });
+    #[cfg(feature = "wireguard")]
+    configs.push(InboundProtocolConfig::Wireguard {
+        private_key: serde_json::from_str("\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=\"").unwrap(),
+        mtu: 1_420,
+        peers: vec![zero_config::WireguardInboundPeerConfig {
+            public_key: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned(),
+            pre_shared_key: None,
+            allowed_ips: vec!["10.0.0.2/32".to_owned()],
+            keepalive_secs: 0,
+            reserved: Vec::new(),
+        }],
+    });
     #[cfg(feature = "http")]
     configs.push(InboundProtocolConfig::HttpConnect);
     #[cfg(feature = "mixed")]
@@ -301,6 +314,30 @@ pub(super) fn compiled_in_outbound_leaves(
                 port: 8964,
                 username: Some("password".to_owned()),
                 password: "password".to_owned(),
+            },
+        ),
+        proxy_leaf(),
+        1,
+    ));
+    #[cfg(feature = "wireguard")]
+    leaves.push((
+        config_with_outbound(
+            "wireguard",
+            OutboundProtocolConfig::Wireguard {
+                private_key: serde_json::from_str(
+                    "\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=\"",
+                )
+                .unwrap(),
+                addresses: vec!["10.0.0.1/32".to_owned()],
+                mtu: 1_420,
+                peers: vec![zero_config::WireguardPeerConfig {
+                    public_key: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned(),
+                    pre_shared_key: None,
+                    endpoint: "127.0.0.1:51820".to_owned(),
+                    allowed_ips: vec!["10.0.0.2/32".to_owned()],
+                    keepalive_secs: 0,
+                    reserved: Vec::new(),
+                }],
             },
         ),
         proxy_leaf(),

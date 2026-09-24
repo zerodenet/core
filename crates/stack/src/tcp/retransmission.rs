@@ -14,6 +14,8 @@ use super::{sequence_after, sequence_before};
 const INITIAL_RETRANSMISSION_TIMEOUT: Duration = Duration::from_millis(250);
 const MIN_RETRANSMISSION_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_RETRANSMISSION_TIMEOUT: Duration = Duration::from_secs(2);
+const NETWORK_INITIAL_RETRANSMISSION_TIMEOUT: Duration = Duration::from_secs(1);
+const NETWORK_MAX_RETRANSMISSION_TIMEOUT: Duration = Duration::from_secs(10);
 const OUTBOUND_QUEUE_RETRY_DELAY: Duration = Duration::from_millis(10);
 const ZERO_WINDOW_PROBE_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_RETRANSMISSIONS: u8 = 5;
@@ -21,6 +23,7 @@ const MAX_RETRANSMISSIONS: u8 = 5;
 const SEND_FAILURE_NONE: u8 = 0;
 const SEND_FAILURE_TIMED_OUT: u8 = 1;
 const SEND_FAILURE_TRANSPORT_CLOSED: u8 = 2;
+const SEND_FAILURE_UNREACHABLE: u8 = 3;
 
 pub(super) struct TcpSendControl {
     snd_una: AtomicU32,
@@ -28,6 +31,8 @@ pub(super) struct TcpSendControl {
     congestion_window: AtomicU32,
     slow_start_threshold: AtomicU32,
     segment_size: u32,
+    path_mss: AtomicU32,
+    max_retransmission_timeout: Duration,
     peer_reset: AtomicBool,
     send_failure: AtomicU8,
     writer_waker: Mutex<Option<Waker>>,
@@ -59,14 +64,16 @@ struct RtoEstimator {
     smoothed_rtt_micros: Option<u64>,
     rtt_variance_micros: u64,
     timeout: Duration,
+    maximum: Duration,
 }
 
 impl RtoEstimator {
-    fn new() -> Self {
+    fn new(initial: Duration, maximum: Duration) -> Self {
         Self {
             smoothed_rtt_micros: None,
             rtt_variance_micros: 0,
-            timeout: INITIAL_RETRANSMISSION_TIMEOUT,
+            timeout: initial,
+            maximum,
         }
     }
 
@@ -90,7 +97,8 @@ impl RtoEstimator {
         self.smoothed_rtt_micros = Some(smoothed);
         let timeout_micros =
             smoothed.saturating_add(self.rtt_variance_micros.saturating_mul(4).max(1_000));
-        self.timeout = clamp_retransmission_timeout(Duration::from_micros(timeout_micros));
+        self.timeout =
+            clamp_retransmission_timeout(Duration::from_micros(timeout_micros), self.maximum);
     }
 }
 
@@ -98,8 +106,8 @@ fn duration_micros(duration: Duration) -> u64 {
     duration.as_micros().min(u128::from(u64::MAX)) as u64
 }
 
-fn clamp_retransmission_timeout(timeout: Duration) -> Duration {
-    timeout.clamp(MIN_RETRANSMISSION_TIMEOUT, MAX_RETRANSMISSION_TIMEOUT)
+fn clamp_retransmission_timeout(timeout: Duration, maximum: Duration) -> Duration {
+    timeout.clamp(MIN_RETRANSMISSION_TIMEOUT, maximum)
 }
 
 pub(super) enum RetransmissionWait {
@@ -115,6 +123,32 @@ pub(super) enum RetransmissionResult {
 
 impl TcpSendControl {
     pub(super) fn new(snd_una: u32, peer_window: u16, segment_size: u16) -> Self {
+        Self::with_timing(
+            snd_una,
+            peer_window,
+            segment_size,
+            INITIAL_RETRANSMISSION_TIMEOUT,
+            MAX_RETRANSMISSION_TIMEOUT,
+        )
+    }
+
+    pub(super) fn new_network(snd_una: u32, peer_window: u16, segment_size: u16) -> Self {
+        Self::with_timing(
+            snd_una,
+            peer_window,
+            segment_size,
+            NETWORK_INITIAL_RETRANSMISSION_TIMEOUT,
+            NETWORK_MAX_RETRANSMISSION_TIMEOUT,
+        )
+    }
+
+    fn with_timing(
+        snd_una: u32,
+        peer_window: u16,
+        segment_size: u16,
+        initial_timeout: Duration,
+        max_retransmission_timeout: Duration,
+    ) -> Self {
         let segment_size = u32::from(segment_size.max(1));
         let initial_congestion_window = segment_size
             .saturating_mul(10)
@@ -125,13 +159,15 @@ impl TcpSendControl {
             congestion_window: AtomicU32::new(initial_congestion_window),
             slow_start_threshold: AtomicU32::new(u32::MAX),
             segment_size,
+            path_mss: AtomicU32::new(segment_size),
+            max_retransmission_timeout,
             peer_reset: AtomicBool::new(false),
             send_failure: AtomicU8::new(SEND_FAILURE_NONE),
             writer_waker: Mutex::new(None),
             reader_waker: Mutex::new(None),
             retransmission: Mutex::new(RetransmissionState {
                 segments: VecDeque::new(),
-                estimator: RtoEstimator::new(),
+                estimator: RtoEstimator::new(initial_timeout, max_retransmission_timeout),
                 duplicate_acks: 0,
                 persist_packet: None,
                 persist_retry_at: Instant::now() + ZERO_WINDOW_PROBE_INTERVAL,
@@ -209,6 +245,15 @@ impl TcpSendControl {
             .saturating_sub(outstanding)
     }
 
+    pub(super) fn reduce_path_mss(&self, mss: u16) {
+        self.path_mss
+            .fetch_min(u32::from(mss.max(1)), Ordering::AcqRel);
+    }
+
+    pub(super) fn path_mss(&self) -> u16 {
+        self.path_mss.load(Ordering::Acquire) as u16
+    }
+
     fn grow_congestion_window(&self, acknowledged: u32) {
         let congestion_window = self.congestion_window.load(Ordering::Acquire);
         let threshold = self.slow_start_threshold.load(Ordering::Acquire);
@@ -268,17 +313,21 @@ impl TcpSendControl {
         if self.peer_reset.load(Ordering::Acquire) {
             return Some(io::Error::new(
                 io::ErrorKind::ConnectionReset,
-                "connection reset by local client",
+                "TCP connection reset by peer",
             ));
         }
         match self.send_failure.load(Ordering::Acquire) {
             SEND_FAILURE_TIMED_OUT => Some(io::Error::new(
                 io::ErrorKind::TimedOut,
-                "local TUN TCP acknowledgement timed out",
+                "TCP acknowledgement timed out",
             )),
             SEND_FAILURE_TRANSPORT_CLOSED => Some(io::Error::new(
                 io::ErrorKind::BrokenPipe,
-                "local TUN packet transport closed",
+                "TCP packet transport closed",
+            )),
+            SEND_FAILURE_UNREACHABLE => Some(io::Error::new(
+                io::ErrorKind::NetworkUnreachable,
+                "TCP destination unreachable",
             )),
             _ => None,
         }
@@ -415,7 +464,10 @@ impl TcpSendControl {
             Ok(()) => {
                 segment.retransmissions += 1;
                 segment.was_retransmitted = true;
-                segment.timeout = clamp_retransmission_timeout(segment.timeout.saturating_mul(2));
+                segment.timeout = clamp_retransmission_timeout(
+                    segment.timeout.saturating_mul(2),
+                    self.max_retransmission_timeout,
+                );
                 segment.retry_at = now + segment.timeout;
                 RetransmissionResult::Continue
             }
@@ -453,6 +505,12 @@ impl TcpSendControl {
 
     pub(super) fn observe_reset(&self) {
         self.peer_reset.store(true, Ordering::Release);
+        self.stop();
+    }
+
+    pub(super) fn observe_unreachable(&self) {
+        self.send_failure
+            .store(SEND_FAILURE_UNREACHABLE, Ordering::Release);
         self.stop();
     }
 }

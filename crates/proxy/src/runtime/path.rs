@@ -35,6 +35,7 @@ pub(crate) enum UdpPathCategory {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TcpPathCategory {
+    Unavailable,
     Direct,
     Block,
     #[cfg(feature = "tcp-tunnel-runtime")]

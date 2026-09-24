@@ -6,7 +6,9 @@ use super::{
 };
 
 pub const DEFAULT_MTU: u16 = 1420;
+pub const MIN_IPV4_MTU: u16 = 68;
 pub const MIN_IPV6_MTU: u16 = 1280;
+pub const MAX_MTU: u16 = 65_488;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PeerInput<'a> {
@@ -79,6 +81,9 @@ pub enum ValidationError {
     InvalidReservedLength {
         peer: usize,
     },
+    UnsupportedReserved {
+        peer: usize,
+    },
     DuplicatePeerKey {
         first: usize,
         second: usize,
@@ -109,7 +114,10 @@ impl core::fmt::Display for ValidationError {
             Self::DuplicateAddress { first, second } => {
                 write!(formatter, "addresses {first} and {second} are duplicates")
             }
-            Self::InvalidMtu => formatter.write_str("MTU must be greater than zero"),
+            Self::InvalidMtu => write!(
+                formatter,
+                "MTU must be between {MIN_IPV4_MTU} and {MAX_MTU}"
+            ),
             Self::Ipv6MtuTooSmall { mtu } => {
                 write!(formatter, "IPv6 requires MTU >= {MIN_IPV6_MTU}, got {mtu}")
             }
@@ -132,6 +140,12 @@ impl core::fmt::Display for ValidationError {
                 write!(
                     formatter,
                     "peer {peer} reserved must contain exactly 3 bytes"
+                )
+            }
+            Self::UnsupportedReserved { peer } => {
+                write!(
+                    formatter,
+                    "peer {peer} non-zero reserved bytes are not supported"
                 )
             }
             Self::DuplicatePeerKey { first, second } => {
@@ -198,6 +212,9 @@ pub fn validate_outbound(
             [first, second, third] => Some([*first, *second, *third]),
             _ => return Err(ValidationError::InvalidReservedLength { peer: peer_index }),
         };
+        if reserved.is_some_and(|reserved| reserved != [0; 3]) {
+            return Err(ValidationError::UnsupportedReserved { peer: peer_index });
+        }
         peers.push(ValidatedPeer {
             public_key,
             pre_shared_key,
@@ -220,7 +237,7 @@ fn validate_addresses(values: &[&str], mtu: u16) -> Result<Vec<IpNetwork>, Valid
     if values.is_empty() {
         return Err(ValidationError::MissingAddresses);
     }
-    if mtu == 0 {
+    if !(MIN_IPV4_MTU..=MAX_MTU).contains(&mtu) {
         return Err(ValidationError::InvalidMtu);
     }
     let mut addresses = Vec::with_capacity(values.len());

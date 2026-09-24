@@ -117,7 +117,17 @@ impl ResolverBackend {
                 tcp_addrs,
                 egress,
             } => {
-                if detour.is_some() {
+                if let Some(outbound) = detour {
+                    if let Some(connector) = connector {
+                        match exchange_detoured_udp(tcp_addrs, query, outbound, connector).await {
+                            Ok(response) if !parse_response(query, &response)?.truncated => {
+                                return Ok(response);
+                            }
+                            Ok(_) => {}
+                            Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
+                            Err(error) => return Err(error),
+                        }
+                    }
                     return exchange_tcp_many(tcp_addrs, query, egress, detour, connector).await;
                 }
                 let response = resolver.exchange(query).await?;
@@ -167,6 +177,33 @@ impl ResolverBackend {
             Self::Doq(resolver) => resolver.endpoint_labels(),
         }
     }
+}
+
+#[cfg(feature = "udp")]
+async fn exchange_detoured_udp(
+    addrs: &[SocketAddr],
+    query: &[u8],
+    outbound: &str,
+    connector: &dyn DnsOutboundConnector,
+) -> io::Result<Vec<u8>> {
+    let mut last_error = io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "DNS UDP backend has no endpoint",
+    );
+    for addr in addrs {
+        let response = connector
+            .exchange_datagram(outbound.to_owned(), *addr, query.to_vec())
+            .await;
+        match response {
+            Ok(response) => match parse_response(query, &response) {
+                Ok(_) => return Ok(response),
+                Err(error) => last_error = error,
+            },
+            Err(error) if error.kind() == io::ErrorKind::Unsupported => return Err(error),
+            Err(error) => last_error = error,
+        }
+    }
+    Err(last_error)
 }
 
 pub(crate) struct ResolvedAddresses {

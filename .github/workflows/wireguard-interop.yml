@@ -1,0 +1,75 @@
+name: WireGuard Reference Interop
+
+on:
+  push:
+    branches: [develop]
+    paths: ['protocols/wireguard/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
+  pull_request:
+    branches: [develop]
+    paths: ['protocols/wireguard/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  interop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: tests/reference/wireguard_go/go.mod
+          cache-dependency-path: tests/reference/wireguard_go/go.sum
+      - name: Prepare fixed official Xray reference
+        run: |
+          cargo generate-lockfile
+          python3 scripts/prepare-xhttp-interop.py --output "$RUNNER_TEMP/xray-reference"
+      - name: Bidirectional Zero and Xray WireGuard TCP and UDP interop
+        env:
+          XRAY_BIN: ${{ runner.temp }}/xray-reference/xray
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test wireguard_xray_interop -- --ignored --test-threads=1 --nocapture
+      - name: Build pinned wireguard-go userspace reference peer
+        working-directory: tests/reference/wireguard_go
+        run: go build -mod=readonly -o "$RUNNER_TEMP/wireguard-go-reference" .
+      - name: Bidirectional wireguard-go TCP and UDP payload interop
+        env:
+          WIREGUARD_GO_BIN: ${{ runner.temp }}/wireguard-go-reference
+          WG_SUSTAINED_ROUNDS: '45'
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test wireguard_go_interop -- --ignored --test-threads=1 --nocapture
+      - name: Zero WireGuard inbound TCP and UDP round trips
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test wireguard_inbound -- --test-threads=1 --nocapture
+      - name: Live direct ICMP echo from WireGuard inbound
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test wireguard_inbound -- --ignored --test-threads=1 --nocapture
+      - name: Live IPv4 and IPv6 direct ICMP probes
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --lib direct_icmp_echo_probe_returns_real_ipv4_and_ipv6_loopback_replies -- --ignored --nocapture
+      - name: L3 packet routing through two WireGuard peers
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test wireguard_icmp_route -- --ignored --test-threads=1 --nocapture
+      - name: Non-Echo ICMP stays on the WireGuard packet path
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p zero-proxy --all-features --test wireguard_packet_non_echo -- --test-threads=1 --nocapture
+      - name: Malformed packet from one peer leaves another peer usable
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p wireguard --features runtime --test runtime malformed_data_from_one_peer_does_not_break_another_authenticated_peer -- --nocapture

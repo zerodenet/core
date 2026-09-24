@@ -37,6 +37,7 @@ use crate::packet::{self, tcp_flags, Endpoint, ParsedTcp};
 
 #[cfg(test)]
 mod cancellation_tests;
+pub mod client;
 mod control;
 mod receive;
 mod retransmission;
@@ -98,6 +99,8 @@ fn default_peer_mss(ip: IpAddr) -> u16 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TcpState {
+    /// We sent SYN, waiting for SYN-ACK from the remote peer.
+    SynSent,
     /// We sent SYN-ACK, waiting for ACK from client.
     SynReceived,
     /// Three-way handshake complete, data transfer.
@@ -123,6 +126,9 @@ struct Conn {
     /// Shared with the stream writer so the stack can retire a fully closed flow.
     fin_sent: Arc<AtomicBool>,
     peer_mss: u16,
+    /// Client-side tunnel path MTU learned from an authenticated ICMP error.
+    path_mtu: Option<usize>,
+    connect_waiter: Option<tokio::sync::oneshot::Sender<UserTcpStream>>,
 }
 
 impl Drop for Conn {
@@ -418,7 +424,7 @@ impl AsyncWrite for UserTcpStream {
         }
         let count = data
             .len()
-            .min(usize::from(w.mss.max(1)))
+            .min(usize::from(w.mss.min(w.send_control.path_mss()).max(1)))
             .min(available as usize);
         let packet = packet::build_tcp_with_window(
             w.src_ip,
@@ -640,6 +646,7 @@ impl TcpStack for UserTcpStack {
             conn.last_active = Instant::now();
 
             match conn.state {
+                TcpState::SynSent => return,
                 TcpState::SynReceived => {
                     if tcp.syn
                         && !tcp.ack_flag
@@ -843,6 +850,8 @@ impl TcpStack for UserTcpStack {
                 last_active: Instant::now(),
                 fin_sent,
                 peer_mss,
+                path_mtu: None,
+                connect_waiter: None,
             },
         );
         send_control.track_segment(iss.wrapping_add(1), syn_ack.clone());

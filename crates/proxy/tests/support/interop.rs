@@ -452,6 +452,24 @@ pub async fn socks5_tcp_echo_once(
 /// single UDP datagram to `127.0.0.1:target_port` and read the response.
 #[cfg(feature = "socks5")]
 pub async fn socks5_udp_echo(proxy_port: u16, target_port: u16, payload: &[u8]) -> Vec<u8> {
+    socks5_udp_echo_to(
+        proxy_port,
+        Address::Ipv4([127, 0, 0, 1]),
+        target_port,
+        payload,
+    )
+    .await
+}
+
+/// Issue a UDP ASSOCIATE to an explicit IPv4 target. Non-loopback targets are
+/// required when a reference user-space IP stack rejects martian IP packets.
+#[cfg(feature = "socks5")]
+pub async fn socks5_udp_echo_to(
+    proxy_port: u16,
+    target: Address,
+    target_port: u16,
+    payload: &[u8],
+) -> Vec<u8> {
     let mut control = TcpStream::connect(("127.0.0.1", proxy_port))
         .await
         .expect("connect socks5 control");
@@ -484,8 +502,8 @@ pub async fn socks5_udp_echo(proxy_port: u16, target_port: u16, payload: &[u8]) 
     let client = UdpSocket::bind(("127.0.0.1", 0))
         .await
         .expect("bind udp client");
-    let packet = super::build_udp_packet(&Address::Ipv4([127, 0, 0, 1]), target_port, payload)
-        .expect("build socks5 udp packet");
+    let packet =
+        super::build_udp_packet(&target, target_port, payload).expect("build socks5 udp packet");
     client
         .send_to(&packet, ("127.0.0.1", relay_port))
         .await
@@ -494,7 +512,7 @@ pub async fn socks5_udp_echo(proxy_port: u16, target_port: u16, payload: &[u8]) 
     let mut buf = [0_u8; 2048];
     let (read, _) = client.recv_from(&mut buf).await.expect("recv udp response");
     let response = super::parse_udp_packet(&buf[..read]).expect("parse socks5 udp response");
-    assert_eq!(response.target, Address::Ipv4([127, 0, 0, 1]));
+    assert_eq!(response.target, target);
     assert_eq!(response.port, target_port);
     response.payload.to_vec()
 }

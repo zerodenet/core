@@ -281,6 +281,37 @@ pub struct HealthSnapshot {
     pub started_at_unix_ms: Option<u64>,
     #[serde(default)]
     pub healthy: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outbound_devices: Vec<OutboundDeviceHealthSnapshot>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutboundDeviceHealthSnapshot {
+    #[serde(default)]
+    pub tag: String,
+    #[serde(default)]
+    pub peer_index: usize,
+    #[serde(default)]
+    pub state: OutboundDeviceHealthState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_handshake_age_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_authenticated_packet_age_ms: Option<u64>,
+    #[serde(default)]
+    pub endpoint_resolution_failed: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutboundDeviceHealthState {
+    #[default]
+    NotStarted,
+    EndpointUnresolved,
+    AwaitingHandshake,
+    RecentlyHandshaken,
+    Reachable,
+    Degraded,
+    Stopped,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

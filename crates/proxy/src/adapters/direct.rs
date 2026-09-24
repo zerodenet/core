@@ -52,10 +52,12 @@ impl DirectAdapter {
         let tcp = self.claim_tcp_outbound_leaf_impl(tag.clone());
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Direct,
-            tcp,
+            tcp: Some(tcp),
             #[cfg(feature = "udp-runtime")]
             udp: Some(self.claim_udp_flow_leaf_impl(tag)),
             #[cfg(feature = "udp-runtime")]
+            #[cfg(feature = "raw-ip-runtime")]
+            packet: None,
             packet_path: None,
         })
     }

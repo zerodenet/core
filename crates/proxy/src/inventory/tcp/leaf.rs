@@ -86,7 +86,7 @@ impl ProtocolInventory {
 
 fn health_tag(runtime: &crate::protocol_registry::OutboundLeafRuntime) -> Option<&str> {
     match runtime.tcp_path {
-        TcpPathCategory::Direct | TcpPathCategory::Block => None,
+        TcpPathCategory::Unavailable | TcpPathCategory::Direct | TcpPathCategory::Block => None,
         #[cfg(feature = "tcp-tunnel-runtime")]
         TcpPathCategory::Tunnel => runtime.health_tag.as_deref(),
         #[cfg(feature = "tcp-session-runtime")]

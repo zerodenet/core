@@ -80,6 +80,25 @@ fn health_snapshot_defaults_missing_fields() {
     assert_eq!(result.engine_build_id, "0.0.10");
     assert!(result.healthy);
     assert_eq!(result.started_at_unix_ms, None); // Missing → default
+    assert!(result.outbound_devices.is_empty());
+}
+
+#[test]
+fn health_snapshot_accepts_endpoint_resolution_state() {
+    let result: HealthSnapshot = serde_json::from_value(json!({
+        "outbound_devices": [{
+            "tag": "wg",
+            "peer_index": 0,
+            "state": "endpoint_unresolved",
+            "endpoint_resolution_failed": true
+        }]
+    }))
+    .expect("parse endpoint resolution state");
+    assert_eq!(
+        result.outbound_devices[0].state,
+        zero_api::OutboundDeviceHealthState::EndpointUnresolved
+    );
+    assert!(result.outbound_devices[0].endpoint_resolution_failed);
 }
 
 #[test]

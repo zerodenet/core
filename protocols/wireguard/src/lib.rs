@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "runtime"), no_std)]
 
 extern crate alloc;
 
@@ -7,3 +7,6 @@ pub mod validation;
 
 #[cfg(feature = "routing")]
 pub mod routing;
+
+#[cfg(feature = "runtime")]
+pub mod runtime;

@@ -31,6 +31,7 @@ shadowsocks = ["zero-proxy/shadowsocks"]
 trojan = ["zero-proxy/trojan"]
 vmess = ["zero-proxy/vmess"]
 mieru = ["zero-proxy/mieru"]
+wireguard = ["zero-proxy/wireguard"]
 status-api = []
 event-dispatcher = [
     "dep:zero-connector",

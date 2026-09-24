@@ -33,14 +33,20 @@ pub(crate) mod mux_session;
 pub(crate) mod mux_tcp;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod mux_udp;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) mod network_graph;
 pub(crate) mod orchestration;
 pub(crate) mod outbound_probe;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) mod packet_route;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod packet_session_udp;
 mod passive_relay_health;
 pub(crate) mod path;
 pub(crate) mod pipe;
 pub(crate) mod principal_rate_limit;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) mod raw_ip;
 mod relay_failure;
 mod reload;
 pub(crate) mod route_runtime;

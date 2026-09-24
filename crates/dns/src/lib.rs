@@ -66,11 +66,29 @@ pub struct DnsQueryAttempt {
 pub type DnsOutboundConnectFuture =
     Pin<Box<dyn Future<Output = io::Result<zero_platform_tokio::TcpRelayStream>> + Send + 'static>>;
 
+/// One DNS datagram exchange through a named outbound.
+pub type DnsOutboundDatagramFuture =
+    Pin<Box<dyn Future<Output = io::Result<Vec<u8>>> + Send + 'static>>;
+
 /// Opens a TCP stream to a deterministic DNS endpoint through a named route
 /// target. The proxy runtime supplies this bridge; standalone DNS users get a
 /// clear error if they configure a detour without installing one.
 pub trait DnsOutboundConnector: fmt::Debug + Send + Sync {
     fn connect(&self, outbound: String, endpoint: SocketAddr) -> DnsOutboundConnectFuture;
+
+    fn exchange_datagram(
+        &self,
+        _outbound: String,
+        _endpoint: SocketAddr,
+        _query: Vec<u8>,
+    ) -> DnsOutboundDatagramFuture {
+        Box::pin(async {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "outbound does not provide a DNS datagram exchange",
+            ))
+        })
+    }
 }
 
 impl DnsQueryRole {
