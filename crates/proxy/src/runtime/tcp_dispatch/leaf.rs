@@ -16,29 +16,52 @@ pub(crate) async fn dispatch_tcp(
 ) -> Result<TcpRouteResult, EngineError> {
     let trace = runtime.route_trace(session).await;
     let action = trace.decision;
-    let (resolved, passive_relay_selections) = runtime.resolve_outbound(&action, session)?;
-    let outbound = match super::dispatch_tcp_outbound(
-        runtime.runtime_services(),
-        session,
-        resolved,
-        trace.route_mode,
-        super::TcpDispatchIntent::Traffic,
-    )
-    .await
-    {
-        Ok(outbound) => outbound,
-        Err(failure) => {
-            let health_outcome =
-                classify_outbound_establishment_failure(&failure.error, failure.network.as_deref());
-            if let Some(network) = failure.network {
-                runtime.record_session_network(session.id, *network);
+    let (mut resolved, mut passive_relay_selections) =
+        runtime.resolve_outbound(&action, session)?;
+    let mut retried_health_race = false;
+    let outbound = loop {
+        match super::dispatch_tcp_outbound(
+            runtime.runtime_services(),
+            session,
+            resolved,
+            trace.route_mode,
+            super::TcpDispatchIntent::Traffic,
+        )
+        .await
+        {
+            Ok(outbound) => break outbound,
+            Err(failure)
+                if !retried_health_race
+                    && !passive_relay_selections.is_empty()
+                    && matches!(&failure.error, EngineError::UnhealthyOutbound { .. }) =>
+            {
+                // The leaf can be quarantined between URLTest selection and
+                // admission. Release any passive half-open slot, then resolve
+                // once more against the updated shared health state.
+                runtime.record_passive_relay_outcome(
+                    &passive_relay_selections,
+                    session,
+                    zero_engine::PassiveRelayOutcome::Neutral,
+                );
+                retried_health_race = true;
+                (resolved, passive_relay_selections) =
+                    runtime.resolve_outbound(&action, session)?;
             }
-            runtime.record_passive_relay_outcome(
-                &passive_relay_selections,
-                session,
-                health_outcome,
-            );
-            return Err(EngineError::Io(io::Error::other(failure.error)));
+            Err(failure) => {
+                let health_outcome = classify_outbound_establishment_failure(
+                    &failure.error,
+                    failure.network.as_deref(),
+                );
+                if let Some(network) = failure.network {
+                    runtime.record_session_network(session.id, *network);
+                }
+                runtime.record_passive_relay_outcome(
+                    &passive_relay_selections,
+                    session,
+                    health_outcome,
+                );
+                return Err(EngineError::Io(io::Error::other(failure.error)));
+            }
         }
     };
     let mut result = extract_tcp_stream(outbound)?;

@@ -15,8 +15,8 @@ pub type EventsSinceResult = zero_api::EventReplay;
 // to import from two different crates for the same logical types.
 pub use groups::{UrlTestGroupState, UrlTestMemberState};
 pub use health::{
-    PassiveRelayHealthKey, PassiveRelayOutcome, PassiveRelaySelection, ProbeTrigger,
-    ProbeTriggerAck, ProbeTriggerRegistry,
+    OutboundAttempt, PassiveRelayHealthKey, PassiveRelayOutcome, PassiveRelaySelection,
+    ProbeTrigger, ProbeTriggerAck, ProbeTriggerRegistry,
 };
 pub use observability::SessionOutcome;
 pub use plan::{

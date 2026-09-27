@@ -4,6 +4,7 @@ mod outbound;
 mod passive_relay;
 mod probe;
 
+pub use outbound::OutboundAttempt;
 pub use passive_relay::{PassiveRelayHealthKey, PassiveRelayOutcome, PassiveRelaySelection};
 pub use probe::{ProbeTrigger, ProbeTriggerAck, ProbeTriggerRegistry};
 
