@@ -294,6 +294,9 @@ impl Engine {
     pub fn check_outbound_health(&self, tag: &str) -> Result<(), EngineError> {
         self.outbound_health.check(tag)
     }
+    pub fn begin_outbound_attempt(&self, tag: &str) -> Result<crate::OutboundAttempt, EngineError> {
+        self.outbound_health.begin(tag)
+    }
     pub fn record_outbound_failure(&self, tag: &str) {
         self.outbound_health.record_failure(tag);
     }

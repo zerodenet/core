@@ -184,24 +184,28 @@ async fn policy_probe_failures_do_not_mutate_shared_outbound_health() {
 }
 
 #[tokio::test]
-async fn policy_probe_still_respects_the_shared_traffic_quarantine() {
+async fn policy_probe_bypasses_stale_traffic_quarantine() {
     let services = test_services();
     let session = test_session();
     quarantine(&services);
 
-    let failure = match dispatch_prepared_tcp_candidate(
-        services,
+    if let Err(failure) = dispatch_prepared_tcp_candidate(
+        services.clone(),
         &session,
         successful_candidate(),
         TcpDispatchIntent::PolicyProbe,
     )
     .await
     {
-        Ok(_) => panic!("policy probe must preserve existing quarantine semantics"),
-        Err(failure) => failure,
-    };
-    assert_eq!(failure.stage, "health_check");
-    assert_eq!(failure.error.code(), "unhealthy_outbound");
+        panic!("policy probe must reach the upstream: {}", failure.error);
+    }
+    assert_eq!(
+        services
+            .check_outbound_health(HEALTH_TAG)
+            .expect_err("policy probe does not change shared traffic health")
+            .code(),
+        "unhealthy_outbound"
+    );
 }
 
 fn test_services() -> TcpExecutionServices {
