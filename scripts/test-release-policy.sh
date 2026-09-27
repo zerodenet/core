@@ -117,8 +117,11 @@ git commit -qm "test: restore first rc promotion source"
 git tag -a v0.0.16-rc.202608131530 -m v0.0.16-rc.202608131530
 
 RELEASE_TIMESTAMP=202608131531
+git tag -a v0.0.17-dev.202608131600 -m v0.0.17-dev.202608131600
 [[ "$(run_release --next rc)" == "0.0.16-rc.202608131531" ]]
 [[ "$(run_release --next stable)" == "0.0.16" ]]
+run_release 0.0.16-rc.202608131531 --seal-only --dry-run >/dev/null
+git tag -d v0.0.17-dev.202608131600 >/dev/null
 expect_fail 0.0.16-beta.1 --seal-only
 expect_fail 0.0.16-rc.202608131530 --seal-only
 
