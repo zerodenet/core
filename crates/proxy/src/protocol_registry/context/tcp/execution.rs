@@ -97,11 +97,6 @@ impl TcpExecutionServices {
         self.engine.record_outbound_failure(tag);
     }
 
-    #[cfg(test)]
-    pub(crate) fn record_outbound_success(&self, tag: &str) {
-        self.engine.record_outbound_success(tag);
-    }
-
     pub(crate) fn record_control_traffic(
         &self,
         session_id: u64,
