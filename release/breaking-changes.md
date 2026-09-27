@@ -26,6 +26,7 @@
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
 | `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.2-rc.202609271132` | - | No pending compatibility changes |
 | `0.0.2-rc.202609210616` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 |
 | `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
 | `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
@@ -48,6 +49,10 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.2-rc.202609271132
+
+<!-- No compatibility changes in this release. -->
 
 ## 0.0.2-rc.202609210616
 

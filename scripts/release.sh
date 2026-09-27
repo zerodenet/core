@@ -358,10 +358,22 @@ strict_tag_versions() {
 }
 
 latest_strict_version() {
-    local exclude=${1:-} latest="" candidate
+    local exclude=${1:-} latest="" candidate target_stage="" candidate_stage
+    if [[ -n "$exclude" ]]; then
+        parse_version "$exclude" || fail "cannot compare invalid version '$exclude'"
+        target_stage=$V_STAGE
+    fi
     while IFS= read -r candidate; do
         [[ -n "$candidate" ]] || continue
         [[ "$candidate" != "$exclude" ]] || continue
+        parse_version "$candidate" || continue
+        candidate_stage=$V_STAGE
+        # develop may already be on the next base while main continues its RC line.
+        if [[ "$target_stage" == rc || "$target_stage" == stable ]] &&
+            [[ "$candidate_stage" == dev ]] &&
+            [[ "$(compare_versions "$candidate" "$exclude")" -gt 0 ]]; then
+            continue
+        fi
         if [[ -z "$latest" || "$(compare_versions "$candidate" "$latest")" -gt 0 ]]; then
             latest=$candidate
         fi
