@@ -127,14 +127,13 @@ fn auto_outbounds_use_longest_prefix_across_wireguard_profiles() {
     let dns = config.compile_dns_dispatch().unwrap().unwrap();
     assert_eq!(dns.select("host.office.example"), "a-dns");
     assert_eq!(dns.select("public.example"), "system");
-    assert!(config
+    assert!(!config
         .runtime
         .dns
         .as_ref()
         .unwrap()
         .servers
-        .get("b-dns")
-        .is_none());
+        .contains_key("b-dns"));
 }
 
 #[test]

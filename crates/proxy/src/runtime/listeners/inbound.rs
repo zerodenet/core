@@ -49,6 +49,7 @@ pub(in crate::runtime) fn spawn_inbound_listener(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_inbound_listener_with_state(
     protocols: &ProtocolInventory,
     source_dir: Option<&Path>,

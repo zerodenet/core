@@ -32,6 +32,7 @@ async fn loopback_icmp_echo_uses_the_host_socket_contract() {
         };
         request[2..4].copy_from_slice(&checksum.to_be_bytes());
         socket.send(&request).await.expect("send ICMP echo");
+        let reply_id = socket.reply_identifier(0x4567).expect("echo identifier");
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             let mut buffer = [0_u8; 1500];
             loop {
@@ -39,7 +40,8 @@ async fn loopback_icmp_echo_uses_the_host_socket_contract() {
                 if source == target
                     && size >= request.len()
                     && buffer[0] == reply_type
-                    && buffer[4..8] == request[4..8]
+                    && buffer[4..6] == reply_id.to_be_bytes()
+                    && buffer[6..8] == request[6..8]
                     && buffer[8..request.len()] == request[8..]
                 {
                     break;

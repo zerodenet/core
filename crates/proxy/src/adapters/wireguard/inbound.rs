@@ -72,6 +72,7 @@ impl LinkedEndpointUpdate {
 }
 
 impl LinkedEndpoint {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         identity: [u8; 32],
         generation: u64,

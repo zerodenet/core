@@ -18,6 +18,7 @@ use crate::{
 };
 
 impl WireguardAdapter {
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn prepare_linked_endpoint(
         &self,
         outbound: &OutboundConfig,

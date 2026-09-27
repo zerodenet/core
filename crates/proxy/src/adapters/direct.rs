@@ -58,6 +58,7 @@ impl DirectAdapter {
             #[cfg(feature = "udp-runtime")]
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
+            #[cfg(feature = "udp-runtime")]
             packet_path: None,
         })
     }

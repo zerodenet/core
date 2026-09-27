@@ -194,6 +194,7 @@ async fn shutdown_tun_tasks(tasks: &mut JoinSet<TunTaskResult>) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn feed_packets(
     mut packets: mpsc::Receiver<Vec<u8>>,
     tcp: Arc<UserTcpStack>,

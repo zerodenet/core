@@ -28,13 +28,16 @@ use crate::protocol_registry::{
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::raw_ip::RawIpDevicePool;
 
+type LinkedEndpointMap = HashMap<String, Arc<inbound::LinkedEndpoint>>;
+type PendingEndpointMap = Arc<Mutex<Option<LinkedEndpointMap>>>;
+
 #[derive(Default)]
 pub(crate) struct WireguardAdapter {
     pool: Arc<RawIpDevicePool>,
     profiles: Arc<Mutex<HashMap<String, CachedProfile>>>,
     inbound_devices: Mutex<HashMap<String, Weak<inbound::LiveInboundDevice>>>,
-    linked_endpoints: Arc<Mutex<HashMap<String, Arc<inbound::LinkedEndpoint>>>>,
-    pending_endpoints: Arc<Mutex<Option<HashMap<String, Arc<inbound::LinkedEndpoint>>>>>,
+    linked_endpoints: Arc<Mutex<LinkedEndpointMap>>,
+    pending_endpoints: PendingEndpointMap,
 }
 
 struct CachedProfile {

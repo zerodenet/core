@@ -230,6 +230,8 @@ dev Release PR 合并到 `develop`；RC 与正式版 Release PR 合并到 `main`
 
 随后生成 Linux GNU、Linux musl、macOS Intel、macOS Apple Silicon 和 Windows 制品以及 SHA-256 校验文件。Windows x86_64 制品必须同时包含 `zero.exe`、匹配架构的 `wintun.dll` 和 Wintun 许可文件；工作流从官方固定版本下载分发包并验证固定 SHA-256，缺少 DLL 时发布构建直接失败。
 
+`dev` 制品显式编入可选的 `wireguard` feature，并在每个平台检查二进制的 `build-info`；普通 `full` 构建与 RC/正式版的 feature 集合不受此设置影响。WireGuard 的运行与安全验收状态仍以独立实现计划为准。
+
 预发布版本创建 GitHub prerelease。正式版本创建 Draft Release，人工检查制品和发布说明后再公开并标记为 latest。
 
 新阶段成功后，工作流进行同基础版本的定向清理：RC prerelease 及其所有平台制品创建成功后，删除全部 `X.Y.Z-dev.*` 以及更早的 `X.Y.Z-rc.*` Release 与标签；正式版 Draft 经人工确认并实际公开后，删除同版本线剩余的全部 dev/RC Release 与标签。清理不会跨基础版本，也不会删除 stable，也不会在构建、发布失败或正式版仍为 Draft 时运行。
