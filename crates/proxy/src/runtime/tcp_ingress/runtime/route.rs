@@ -24,6 +24,12 @@ impl TcpIngressRuntime {
         trace
     }
 
+    // Keep the decision projection beside the route trace for inbound callers.
+    #[allow(dead_code)]
+    pub(crate) async fn route_decision(&self, session: &Session) -> RouteDecision {
+        self.route_trace(session).await.decision
+    }
+
     pub(crate) fn resolve_outbound(
         &self,
         action: &RouteDecision,
