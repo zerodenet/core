@@ -69,3 +69,37 @@ fn stale_half_open_failure_does_not_undo_another_success() {
     attempt.failed();
     assert!(health.check("node-a").is_ok());
 }
+
+#[test]
+fn stale_half_open_result_does_not_finish_a_new_attempt() {
+    let health = quarantined();
+    expire_cooldown(&health);
+    let stale = health.begin("node-a").unwrap();
+    health.record_success("node-a");
+    for _ in 0..FAILURE_THRESHOLD {
+        health.record_failure("node-a");
+    }
+    expire_cooldown(&health);
+    let current = health.begin("node-a").unwrap();
+    stale.failed();
+    assert!(health.check("node-a").is_err());
+    current.succeeded();
+    assert!(health.check("node-a").is_ok());
+}
+
+#[test]
+fn stale_half_open_success_does_not_clear_a_new_quarantine() {
+    let health = quarantined();
+    expire_cooldown(&health);
+    let stale = health.begin("node-a").unwrap();
+    health.record_success("node-a");
+    for _ in 0..FAILURE_THRESHOLD {
+        health.record_failure("node-a");
+    }
+    expire_cooldown(&health);
+    let current = health.begin("node-a").unwrap();
+    stale.succeeded();
+    assert!(health.check("node-a").is_err());
+    current.failed();
+    assert!(health.check("node-a").is_err());
+}
