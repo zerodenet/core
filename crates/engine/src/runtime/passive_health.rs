@@ -47,40 +47,42 @@ impl Engine {
             .ok_or_else(|| EngineError::MissingRouteTarget { tag: tag.clone() })?;
         let mut selections = Vec::new();
         let mut no_usable_urltest = None;
-        let mut selector = |group_id: TargetId, selected: TargetId| {
-            let Some((member_id, half_open)) =
-                self.select_urltest_member_for_flow(snapshot, group_id, selected, target, port)
-            else {
-                no_usable_urltest = plan.target(group_id).map(|group| group.tag().to_owned());
-                return None;
-            };
-            if let (Some(group), Some(member)) = (plan.target(group_id), plan.target(member_id)) {
-                selections.push(PassiveRelaySelection {
-                    policy_tag: group.tag().to_owned(),
-                    member_tag: member.tag().to_owned(),
-                    half_open,
-                });
-                if half_open {
-                    self.event_log.push_passive_relay_health_changed(
-                        group.tag(),
-                        member.tag(),
-                        target,
-                        port,
-                        PassiveRelayHealthState::HalfOpen,
-                        None,
-                    );
+        let resolved = {
+            let mut selector = |group_id: TargetId, selected: TargetId| {
+                let Some((member_id, half_open)) =
+                    self.select_urltest_member_for_flow(snapshot, group_id, selected, target, port)
+                else {
+                    no_usable_urltest = plan.target(group_id).map(|group| group.tag().to_owned());
+                    return None;
+                };
+                if let (Some(group), Some(member)) = (plan.target(group_id), plan.target(member_id))
+                {
+                    selections.push(PassiveRelaySelection {
+                        policy_tag: group.tag().to_owned(),
+                        member_tag: member.tag().to_owned(),
+                        half_open,
+                    });
+                    if half_open {
+                        self.event_log.push_passive_relay_health_changed(
+                            group.tag(),
+                            member.tag(),
+                            target,
+                            port,
+                            PassiveRelayHealthState::HalfOpen,
+                            None,
+                        );
+                    }
                 }
-            }
-            Some(member_id)
+                Some(member_id)
+            };
+            resolve_target_id_with_urltest_selector(
+                &plan,
+                &snapshot.outbound_group_state,
+                target_id,
+                &mut selector,
+            )
         };
-        let resolved = resolve_target_id_with_urltest_selector(
-            &plan,
-            &snapshot.outbound_group_state,
-            target_id,
-            &mut selector,
-        );
-        drop(selector);
-        let resolved = resolved.ok_or_else(|| match no_usable_urltest {
+        let resolved = resolved.ok_or(match no_usable_urltest {
             Some(tag) => EngineError::NoUsableUrlTestMember { tag },
             None => EngineError::MissingRouteTarget { tag },
         })?;
@@ -102,12 +104,8 @@ impl Engine {
         port: u16,
     ) -> Option<(TargetId, bool)> {
         let plan = snapshot.plan();
-        let Some(group) = plan.target(group_id) else {
-            return None;
-        };
-        let Some(urltest) = group.as_urltest() else {
-            return None;
-        };
+        let group = plan.target(group_id)?;
+        let urltest = group.as_urltest()?;
         let member_allowed = |member_id: TargetId| {
             let member = plan.target(member_id)?;
             if !self.urltest_member_globally_allowed(snapshot, member_id) {
