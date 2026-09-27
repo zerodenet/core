@@ -35,6 +35,10 @@ fn engine() -> Engine {
                 "password": "password",
                 "cipher": "aes-256-gcm"
               }
+            },
+            {
+              "tag": "direct-out",
+              "protocol": { "type": "direct" }
             }
           ],
           "outbound_groups": [{
@@ -43,6 +47,18 @@ fn engine() -> Engine {
             "outbounds": ["primary", "alternate"],
             "url": "http://probe.example/",
             "interval_seconds": 60
+          }, {
+            "tag": "wrapper",
+            "type": "selector",
+            "outbounds": ["auto"]
+          }, {
+            "tag": "pinned",
+            "type": "selector",
+            "outbounds": ["primary"]
+          }, {
+            "tag": "later",
+            "type": "fallback",
+            "outbounds": ["auto", "direct-out"]
           }],
           "mode": { "type": "global", "outbound": "auto" },
           "route": {
@@ -126,4 +142,65 @@ fn quarantine_transition_is_visible_in_control_plane_events() {
     assert_eq!(events[0].payload["member_tag"], "primary");
     assert_eq!(events[0].payload["port"], 14788);
     assert_eq!(events[0].payload["quarantine_duration_ms"], 15_000);
+}
+
+#[test]
+fn selector_wrapped_urltest_skips_a_leaf_quarantined_by_another_policy_path() {
+    let engine = engine();
+    let target = Address::Domain("landing.example".to_owned());
+    let (pinned, _, _) = engine
+        .resolve_route_decision_for_flow(RouteDecision::Route("pinned".to_owned()), &target, 443)
+        .expect("resolve explicit selector");
+    assert!(matches!(
+        pinned,
+        ResolvedOutbound::Single(ResolvedLeafOutbound::Proxy { identity })
+            if identity.config_index() == 0
+    ));
+    for _ in 0..5 {
+        engine.record_outbound_failure("primary");
+    }
+    let (resolved, _, selections) = engine
+        .resolve_route_decision_for_flow(RouteDecision::Route("wrapper".to_owned()), &target, 443)
+        .expect("resolve wrapped urltest");
+    assert!(matches!(
+        resolved,
+        ResolvedOutbound::Single(ResolvedLeafOutbound::Proxy { identity })
+            if identity.config_index() == 1
+    ));
+    assert_eq!(selections[0].member_tag, "alternate");
+
+    let (pinned, _, _) = engine
+        .resolve_route_decision_for_flow(RouteDecision::Route("pinned".to_owned()), &target, 443)
+        .expect("explicit selector remains pinned");
+    assert!(matches!(
+        pinned,
+        ResolvedOutbound::Single(ResolvedLeafOutbound::Proxy { identity })
+            if identity.config_index() == 0
+    ));
+}
+
+#[test]
+fn urltest_reports_no_usable_member_and_outer_fallback_keeps_its_next_candidate() {
+    let engine = engine();
+    let target = Address::Domain("landing.example".to_owned());
+    for tag in ["primary", "alternate"] {
+        for _ in 0..5 {
+            engine.record_outbound_failure(tag);
+        }
+    }
+    let error = engine
+        .resolve_route_decision_for_flow(RouteDecision::Route("auto".to_owned()), &target, 443)
+        .expect_err("all urltest leaves are quarantined");
+    assert_eq!(error.code(), "no_usable_urltest_member");
+    assert!(error.to_string().contains("auto"));
+
+    let (resolved, _, selections) = engine
+        .resolve_route_decision_for_flow(RouteDecision::Route("later".to_owned()), &target, 443)
+        .expect("outer fallback still has direct candidate");
+    assert!(selections.is_empty());
+    assert!(matches!(
+        resolved,
+        ResolvedOutbound::Fallback { candidates }
+            if matches!(candidates.as_slice(), [ResolvedLeafOutbound::Direct { .. }])
+    ));
 }

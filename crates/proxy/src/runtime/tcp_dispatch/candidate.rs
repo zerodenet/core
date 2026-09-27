@@ -15,18 +15,20 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let health_tag = prepared.health_tag.clone();
-    if intent.checks_outbound_health() {
-        if let Some(tag) = health_tag.as_deref() {
-            if let Err(error) = services.check_outbound_health(tag) {
-                return Err(TcpOutboundFailure {
-                    stage: "health_check",
-                    error,
-                    upstream_endpoint: None,
-                    network: None,
-                });
-            }
-        }
-    }
+    let attempt = if intent.checks_outbound_health() {
+        health_tag
+            .as_deref()
+            .map(|tag| services.begin_outbound_attempt(tag))
+            .transpose()
+            .map_err(|error| TcpOutboundFailure {
+                stage: "health_check",
+                error,
+                upstream_endpoint: None,
+                network: None,
+            })?
+    } else {
+        None
+    };
 
     let result = match prepared.execution {
         PreparedTcpCandidateExecution::Block { tag } => Ok(EstablishedTcpOutbound::block(tag)),
@@ -36,18 +38,18 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
     };
 
     if intent.records_outbound_health() {
-        if let Some(tag) = health_tag.as_deref() {
+        if let Some(attempt) = attempt {
             match &result {
-                Ok(_) => services.record_outbound_success(tag),
-                Err(failure) => {
+                Ok(_) => attempt.succeeded(),
+                Err(failure)
                     if classify_outbound_establishment_failure(
                         &failure.error,
                         failure.network.as_deref(),
-                    ) == PassiveRelayOutcome::Failure
-                    {
-                        services.record_outbound_failure(tag);
-                    }
+                    ) == PassiveRelayOutcome::Failure =>
+                {
+                    attempt.failed();
                 }
+                Err(_) => attempt.neutral(),
             }
         }
     }

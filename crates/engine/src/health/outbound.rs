@@ -1,23 +1,13 @@
-//! Outbound health tracking — circuit breaker for failing upstreams.
-//!
-//! Kernel primitive: records connection failures per outbound tag.  When
-//! enough failures accumulate within a short window, the outbound is
-//! temporarily skipped (unhealthy).  After a cooldown, one probe connection
-//! is allowed; success restores health, failure restarts the cooldown.
+//! Shared outbound circuit breaker for traffic establishment.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::error::EngineError;
 
-/// Failure count within the sliding window that triggers unhealthy state.
 const FAILURE_THRESHOLD: u64 = 5;
-
-/// Sliding window for counting failures.
 const FAILURE_WINDOW: Duration = Duration::from_secs(30);
-
-/// How long an unhealthy outbound stays quarantined before a probe attempt.
 const QUARANTINE_DURATION: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
@@ -26,10 +16,59 @@ struct FailureWindow {
     since: Instant,
 }
 
+#[derive(Debug)]
+struct Quarantine {
+    since: Instant,
+    half_open_in_flight: bool,
+}
+
+#[derive(Debug, Default)]
+struct HealthState {
+    failures: HashMap<String, FailureWindow>,
+    unhealthy: HashMap<String, Quarantine>,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct OutboundHealth {
-    failures: Mutex<HashMap<String, FailureWindow>>,
-    unhealthy: Mutex<HashMap<String, Instant>>,
+    inner: Mutex<HealthState>,
+}
+
+/// One admitted traffic establishment attempt. Dropping an unfinished
+/// half-open attempt releases its slot and restarts the cooldown.
+#[derive(Debug)]
+pub struct OutboundAttempt {
+    health: Arc<OutboundHealth>,
+    tag: String,
+    half_open: bool,
+    finished: bool,
+}
+
+impl OutboundAttempt {
+    pub fn succeeded(mut self) {
+        self.health.record_success(&self.tag);
+        self.finished = true;
+    }
+
+    pub fn failed(mut self) {
+        self.health
+            .record_failure_of_attempt(&self.tag, self.half_open);
+        self.finished = true;
+    }
+
+    pub fn neutral(mut self) {
+        if self.half_open {
+            self.health.release_half_open(&self.tag);
+        }
+        self.finished = true;
+    }
+}
+
+impl Drop for OutboundAttempt {
+    fn drop(&mut self) {
+        if self.half_open && !self.finished {
+            self.health.release_half_open(&self.tag);
+        }
+    }
 }
 
 impl OutboundHealth {
@@ -37,76 +76,113 @@ impl OutboundHealth {
         Self::default()
     }
 
-    /// Check whether the given outbound is healthy enough to accept connections.
-    ///
-    /// Returns `Ok(())` if healthy or the quarantine has expired (probe
-    /// allowed).  Returns `Err(EngineError::UnhealthyOutbound)` if the
-    /// outbound should be skipped.
+    /// Read-only eligibility check for policy member selection. The actual
+    /// traffic admission must use `begin` to reserve a half-open slot.
     pub fn check(&self, tag: &str) -> Result<(), EngineError> {
-        let unhealthy = self
-            .unhealthy
-            .lock()
-            .expect("outbound health lock poisoned");
-        if let Some(&quarantined_at) = unhealthy.get(tag) {
-            if quarantined_at.elapsed() < QUARANTINE_DURATION {
-                return Err(EngineError::UnhealthyOutbound {
-                    tag: tag.to_owned(),
-                });
-            }
-            // Quarantine expired — allow a probe.  Drop the lock so
-            // record_failure can re-acquire it.
+        let state = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+        if state.unhealthy.get(tag).is_some_and(|quarantine| {
+            quarantine.since.elapsed() < QUARANTINE_DURATION || quarantine.half_open_in_flight
+        }) {
+            return Err(EngineError::UnhealthyOutbound {
+                tag: tag.to_owned(),
+            });
         }
         Ok(())
     }
 
-    /// Record a connection failure for the given outbound tag.
-    ///
-    /// If the failure count within `FAILURE_WINDOW` reaches
-    /// `FAILURE_THRESHOLD`, the outbound is marked unhealthy.
-    pub fn record_failure(&self, tag: &str) {
-        let now = Instant::now();
-
-        // Update failure window.
-        {
-            let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-            let entry = failures
-                .entry(tag.to_owned())
-                .or_insert_with(|| FailureWindow {
-                    count: 0,
-                    since: now,
+    pub fn begin(self: &Arc<Self>, tag: &str) -> Result<OutboundAttempt, EngineError> {
+        let mut state = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+        let mut half_open = false;
+        if let Some(quarantine) = state.unhealthy.get_mut(tag) {
+            if quarantine.since.elapsed() < QUARANTINE_DURATION || quarantine.half_open_in_flight {
+                return Err(EngineError::UnhealthyOutbound {
+                    tag: tag.to_owned(),
                 });
-            // Reset window if it expired.
-            if entry.since.elapsed() > FAILURE_WINDOW {
-                entry.count = 0;
-                entry.since = now;
             }
-            entry.count += 1;
-
-            if entry.count < FAILURE_THRESHOLD {
-                return; // Not enough failures yet.
-            }
-            // Threshold reached — fall through to quarantine.
-            entry.count = 0;
-            entry.since = now;
+            quarantine.half_open_in_flight = true;
+            half_open = true;
         }
-
-        // Mark unhealthy.
-        let mut unhealthy = self
-            .unhealthy
-            .lock()
-            .expect("outbound health lock poisoned");
-        unhealthy.insert(tag.to_owned(), now);
+        Ok(OutboundAttempt {
+            health: Arc::clone(self),
+            tag: tag.to_owned(),
+            half_open,
+            finished: false,
+        })
     }
 
-    /// Record a successful connection — clears unhealthy state immediately.
+    pub fn record_failure(&self, tag: &str) {
+        self.record_failure_of_attempt(tag, false);
+    }
+
+    fn record_failure_of_attempt(&self, tag: &str, half_open: bool) {
+        let now = Instant::now();
+        let mut state = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+        if half_open {
+            if !state
+                .unhealthy
+                .get(tag)
+                .is_some_and(|quarantine| quarantine.half_open_in_flight)
+            {
+                return;
+            }
+            state.failures.remove(tag);
+            state.unhealthy.insert(
+                tag.to_owned(),
+                Quarantine {
+                    since: now,
+                    half_open_in_flight: false,
+                },
+            );
+            return;
+        }
+        // A failure from an older in-flight connection must not extend an
+        // active quarantine or interfere with its half-open attempt.
+        if state.unhealthy.get(tag).is_some_and(|quarantine| {
+            now.duration_since(quarantine.since) < QUARANTINE_DURATION
+                || quarantine.half_open_in_flight
+        }) {
+            return;
+        }
+        let window = state
+            .failures
+            .entry(tag.to_owned())
+            .or_insert(FailureWindow {
+                count: 0,
+                since: now,
+            });
+        if now.duration_since(window.since) > FAILURE_WINDOW {
+            window.count = 0;
+            window.since = now;
+        }
+        window.count += 1;
+        if window.count >= FAILURE_THRESHOLD {
+            state.failures.remove(tag);
+            state.unhealthy.insert(
+                tag.to_owned(),
+                Quarantine {
+                    since: now,
+                    half_open_in_flight: false,
+                },
+            );
+        }
+    }
+
     pub fn record_success(&self, tag: &str) {
-        self.failures
-            .lock()
-            .expect("outbound health lock poisoned")
-            .remove(tag);
-        self.unhealthy
-            .lock()
-            .expect("outbound health lock poisoned")
-            .remove(tag);
+        let mut state = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+        state.failures.remove(tag);
+        state.unhealthy.remove(tag);
+    }
+
+    fn release_half_open(&self, tag: &str) {
+        let mut state = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(quarantine) = state.unhealthy.get_mut(tag) {
+            if quarantine.half_open_in_flight {
+                quarantine.half_open_in_flight = false;
+                quarantine.since = Instant::now();
+            }
+        }
     }
 }
+
+#[cfg(test)]
+mod tests;

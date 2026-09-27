@@ -53,7 +53,7 @@ pub(crate) fn resolve_target_id_with_urltest_selector<'a>(
     plan: &'a EnginePlan,
     outbound_group_state: &OutboundGroupStateStore,
     target_id: TargetId,
-    selector: &mut dyn FnMut(TargetId, TargetId) -> TargetId,
+    selector: &mut dyn FnMut(TargetId, TargetId) -> Option<TargetId>,
 ) -> Option<ResolvedOutbound<'a>> {
     let mut stack = Vec::new();
     resolve_target_inner(
@@ -79,116 +79,121 @@ fn resolve_target_inner<'a>(
     outbound_group_state: &OutboundGroupStateStore,
     target_id: TargetId,
     stack: &mut Vec<TargetId>,
-    urltest_selector: &mut Option<&mut dyn FnMut(TargetId, TargetId) -> TargetId>,
+    urltest_selector: &mut Option<&mut dyn FnMut(TargetId, TargetId) -> Option<TargetId>>,
 ) -> Option<ResolvedOutbound<'a>> {
     if stack.contains(&target_id) {
         return None;
     }
     stack.push(target_id);
 
-    let target = plan.target(target_id)?;
-    let resolved = match target.kind() {
-        TargetKind::Outbound(outbound) => Some(ResolvedOutbound::Single(resolve_leaf_outbound(
-            target.tag(),
-            outbound,
-        ))),
-        TargetKind::Selector(selector) => {
-            let selected = outbound_group_state
-                .selector_selected_target(target_id)
-                .unwrap_or_else(|| selector.initial_member());
-            resolve_target_inner(
-                plan,
-                outbound_group_state,
-                selected,
-                stack,
-                urltest_selector,
-            )
-        }
-        TargetKind::Relay(relay) => {
-            let mut chain = Vec::with_capacity(relay.chain().len());
-            for &member_id in relay.chain() {
-                let resolved = resolve_target_inner(
+    let resolved = (|| {
+        let target = plan.target(target_id)?;
+        match target.kind() {
+            TargetKind::Outbound(outbound) => Some(ResolvedOutbound::Single(
+                resolve_leaf_outbound(target.tag(), outbound),
+            )),
+            TargetKind::Selector(selector) => {
+                let selected = outbound_group_state
+                    .selector_selected_target(target_id)
+                    .unwrap_or_else(|| selector.initial_member());
+                resolve_target_inner(
                     plan,
                     outbound_group_state,
-                    member_id,
+                    selected,
                     stack,
                     urltest_selector,
-                )?;
-                match resolved {
-                    ResolvedOutbound::Single(leaf) => chain.push(leaf),
-                    _ => return None,
-                }
+                )
             }
-            Some(ResolvedOutbound::Relay { chain })
-        }
-        TargetKind::Fallback(fallback) => {
-            let mut candidates = Vec::new();
-            for &member_id in fallback.members() {
-                let resolved = resolve_target_inner(
+            TargetKind::Relay(relay) => {
+                let mut chain = Vec::with_capacity(relay.chain().len());
+                for &member_id in relay.chain() {
+                    let resolved = resolve_target_inner(
+                        plan,
+                        outbound_group_state,
+                        member_id,
+                        stack,
+                        urltest_selector,
+                    )?;
+                    match resolved {
+                        ResolvedOutbound::Single(leaf) => chain.push(leaf),
+                        _ => return None,
+                    }
+                }
+                Some(ResolvedOutbound::Relay { chain })
+            }
+            TargetKind::Fallback(fallback) => {
+                let mut candidates = Vec::new();
+                for &member_id in fallback.members() {
+                    let Some(resolved) = resolve_target_inner(
+                        plan,
+                        outbound_group_state,
+                        member_id,
+                        stack,
+                        urltest_selector,
+                    ) else {
+                        continue;
+                    };
+                    append_candidates(&mut candidates, resolved);
+                }
+
+                (!candidates.is_empty()).then_some(ResolvedOutbound::Fallback { candidates })
+            }
+            TargetKind::UrlTest(urltest) => {
+                let default_selected = outbound_group_state
+                    .selected_target(target_id)
+                    .unwrap_or_else(|| urltest.initial_member());
+                let selected = match urltest_selector.as_deref_mut() {
+                    Some(selector) => selector(target_id, default_selected)?,
+                    None => default_selected,
+                };
+                resolve_target_inner(
                     plan,
                     outbound_group_state,
-                    member_id,
+                    selected,
                     stack,
                     urltest_selector,
-                )?;
-                append_candidates(&mut candidates, resolved);
+                )
             }
+            TargetKind::LoadBalance(lb) => {
+                let member_count = lb.members().len();
+                let index = match lb.strategy() {
+                    zero_config::LoadBalanceStrategy::RoundRobin => {
+                        outbound_group_state.loadbalance_next_pick(target_id, member_count)
+                    }
+                    zero_config::LoadBalanceStrategy::Random => {
+                        rand::rng().random_range(0..member_count)
+                    }
+                };
 
-            Some(ResolvedOutbound::Fallback { candidates })
-        }
-        TargetKind::UrlTest(urltest) => {
-            let default_selected = outbound_group_state
-                .selected_target(target_id)
-                .unwrap_or_else(|| urltest.initial_member());
-            let selected = urltest_selector
-                .as_deref_mut()
-                .map(|selector| selector(target_id, default_selected))
-                .unwrap_or(default_selected);
-            resolve_target_inner(
-                plan,
-                outbound_group_state,
-                selected,
-                stack,
-                urltest_selector,
-            )
-        }
-        TargetKind::LoadBalance(lb) => {
-            let member_count = lb.members().len();
-            let index = match lb.strategy() {
-                zero_config::LoadBalanceStrategy::RoundRobin => {
-                    outbound_group_state.loadbalance_next_pick(target_id, member_count)
+                // Picked member first, remaining members follow in original order.
+                let mut ordered = Vec::with_capacity(member_count);
+                ordered.push(lb.members()[index]);
+                ordered.extend(
+                    lb.members()
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| *i != index)
+                        .map(|(_, &member_id)| member_id),
+                );
+
+                let mut candidates = Vec::new();
+                for &member_id in &ordered {
+                    let Some(resolved) = resolve_target_inner(
+                        plan,
+                        outbound_group_state,
+                        member_id,
+                        stack,
+                        urltest_selector,
+                    ) else {
+                        continue;
+                    };
+                    append_candidates(&mut candidates, resolved);
                 }
-                zero_config::LoadBalanceStrategy::Random => {
-                    rand::rng().random_range(0..member_count)
-                }
-            };
 
-            // Picked member first, remaining members follow in original order.
-            let mut ordered = Vec::with_capacity(member_count);
-            ordered.push(lb.members()[index]);
-            ordered.extend(
-                lb.members()
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| *i != index)
-                    .map(|(_, &member_id)| member_id),
-            );
-
-            let mut candidates = Vec::new();
-            for &member_id in &ordered {
-                let resolved = resolve_target_inner(
-                    plan,
-                    outbound_group_state,
-                    member_id,
-                    stack,
-                    urltest_selector,
-                )?;
-                append_candidates(&mut candidates, resolved);
+                (!candidates.is_empty()).then_some(ResolvedOutbound::Fallback { candidates })
             }
-
-            Some(ResolvedOutbound::Fallback { candidates })
         }
-    };
+    })();
 
     stack.pop();
     resolved

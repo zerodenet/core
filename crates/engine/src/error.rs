@@ -32,6 +32,8 @@ pub enum EngineError {
     InboundTaskExited,
     #[error("url_test group `{tag}` is invalid: {message}")]
     InvalidUrlTestGroup { tag: String, message: String },
+    #[error("url_test group `{tag}` has no usable outbound member")]
+    NoUsableUrlTestMember { tag: String },
     #[error("url_test task exited unexpectedly")]
     UrlTestTaskExited,
     #[error("selector group `{tag}` does not exist")]
@@ -63,6 +65,7 @@ impl EngineError {
             Self::InvalidPlan { .. } => "invalid_plan",
             Self::InboundTaskExited => "inbound_task_exited",
             Self::InvalidUrlTestGroup { .. } => "invalid_url_test_group",
+            Self::NoUsableUrlTestMember { .. } => "no_usable_urltest_member",
             Self::UrlTestTaskExited => "url_test_task_exited",
             Self::SelectorGroupNotFound { .. } => "selector_group_not_found",
             Self::SelectorGroupTypeMismatch { .. } => "selector_group_type_mismatch",
