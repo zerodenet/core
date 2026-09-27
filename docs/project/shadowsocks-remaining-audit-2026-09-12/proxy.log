@@ -1,0 +1,12 @@
+   Compiling zero-proxy v0.0.2-dev.202609110445 (/Volumes/tool/rust/zero/crates/proxy)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.93s
+     Running tests/audit_ss_remaining_20260912.rs (target/debug/deps/audit_ss_remaining_20260912-19118e075db91e39)
+
+running 2 tests
+separate_users=false: B received A response; shared upstream socket=127.0.0.1:60486
+separate_users=true: B received A response; shared upstream socket=127.0.0.1:59920
+test legacy_udp_clients_share_flow_and_last_client_receives_other_response ... ok
+A cancellation: previously working B no longer reaches target
+test principal_cancellation_stops_shared_ss_udp_listener ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s

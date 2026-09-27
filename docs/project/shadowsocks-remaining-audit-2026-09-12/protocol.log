@@ -1,0 +1,12 @@
+   Compiling shadowsocks v1.21.2 (/Volumes/tool/rust/zero/protocols/shadowsocks)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.32s
+     Running tests/audit_remaining_20260912.rs (target/debug/deps/audit_remaining_20260912-b1d03a1d5b75d5d3)
+
+running 2 tests
+fragmented variable header rejected: protocol error: ss: 2022 variable header too short
+same bytes unfragmented: accepted
+test variable_header_fragmentation_is_rejected ... ok
+failed handshake with one read per second completed after 7s
+test drain_has_no_total_two_second_deadline ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

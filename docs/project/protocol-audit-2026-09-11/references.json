@@ -1,0 +1,56 @@
+[
+  {
+    "name": "sing-box",
+    "repo": "SagerNet/sing-box",
+    "ref": "v1.13.14",
+    "sha": "25a600db24f7680ad9806ce5427bd0ab8afe1114",
+    "path": "/tmp/zero-protocol-audit-20260911/sing-box"
+  },
+  {
+    "name": "mihomo",
+    "repo": "MetaCubeX/mihomo",
+    "ref": "v1.19.30",
+    "sha": "ac017cdd246ce8bd547653d927e7bf77d7ee73d5",
+    "path": "/tmp/zero-protocol-audit-20260911/mihomo"
+  },
+  {
+    "name": "hysteria",
+    "repo": "HyNetwork/hysteria",
+    "ref": "app/v2.6.1",
+    "sha": "401ed5245d9bdfe0a35d629a8d977f256da07a75",
+    "path": "/tmp/zero-protocol-audit-20260911/hysteria"
+  },
+  {
+    "name": "mieru",
+    "repo": "enfein/mieru",
+    "ref": "v3.33.0",
+    "sha": "48ddb69d5d343d76c9004c5054ee36609579ba13",
+    "path": "/tmp/zero-protocol-audit-20260911/mieru"
+  },
+  {
+    "name": "ssrust",
+    "repo": "shadowsocks/shadowsocks-rust",
+    "ref": "v1.21.2",
+    "sha": "a03006a753486e64717d6e3afa91e0c6d043c557",
+    "path": "/tmp/zero-protocol-audit-20260911/ssrust"
+  },
+  {
+    "name": "trojan-go",
+    "repo": "p4gefau1t/trojan-go",
+    "ref": "v0.10.6",
+    "sha": "2dc60f52e79ff8b910e78e444f1e80678e936450",
+    "path": "/tmp/zero-protocol-audit-20260911/trojan-go"
+  },
+  {
+    "name": "xray",
+    "repo": "XTLS/Xray-core",
+    "ref": "v26.3.27",
+    "sha": "d2758a023cd7f4174a5a5fa4ff66e487d4342ba0"
+  },
+  {
+    "name": "sing-vmess",
+    "repo": "SagerNet/sing-vmess",
+    "ref": "3aed155119a1",
+    "sha": "3aed155119a174c9290a4099841049f0cb275e02"
+  }
+]

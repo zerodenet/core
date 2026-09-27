@@ -5,6 +5,7 @@ use super::*;
 async fn directory_links_preserve_relative_path_semantics_and_html_escaping() {
     let root = std::env::temp_dir().join(format!("zero-listing-{}", rand::random::<u64>()));
     std::fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
     for name in [
         "a&b.txt",
         "x y?#.txt",

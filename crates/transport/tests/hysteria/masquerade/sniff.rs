@@ -4,6 +4,7 @@ use super::*;
 async fn file_extensions_take_precedence_over_sniffing_in_both_cases() {
     let root = std::env::temp_dir().join(format!("zero-mime-{}", rand::random::<u64>()));
     std::fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
     for (extension, mime) in [
         ("JPG", "image/jpeg"),
         ("jpg", "image/jpeg"),

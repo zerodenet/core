@@ -1,0 +1,27 @@
+   Compiling vmess v25.3.1 (/Volumes/tool/rust/zero/protocols/vmess)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.52s
+     Running tests/audit_replay_20260911.rs (target/debug/deps/audit_replay_20260911-3c9982704b0cc5d5)
+
+running 2 tests
+SS2022 packet id 0: accepted twice
+SS2022 left boundary packet id 2048 after 4096: accepted twice
+Control ordinary packet id 1: duplicate correctly rejected
+test audit_ss2022_replay_window_accepts_zero_and_left_edge_duplicates ... ok
+Shadowsocks aes-128-gcm identical captured handshake attempt 1: ACCEPTED
+Shadowsocks aes-128-gcm identical captured handshake attempt 2: ACCEPTED
+test audit_classic_ss_handshake_is_accepted_twice ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/audit_replay_20260911.rs (target/debug/deps/audit_replay_20260911-54bef6b35fa80f20)
+
+running 4 tests
+test audit_validation::tests::accepts_auto_cipher_alias ... ok
+test audit_validation::tests::parses_hyphenated_uuid ... ok
+VMess identical captured handshake attempt 1: ACCEPTED
+VMess AuthID timestamp=1 (1970): ACCEPTED
+VMess identical captured handshake attempt 2: ACCEPTED
+test audit_vmess_stale_authid_is_accepted ... ok
+test audit_identical_vmess_handshake_is_accepted_twice ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
