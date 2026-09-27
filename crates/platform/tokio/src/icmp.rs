@@ -8,6 +8,7 @@ use std::{
 pub struct IcmpSocket {
     socket: tokio::net::UdpSocket,
     ipv6: bool,
+    ping_datagram: bool,
 }
 impl IcmpSocket {
     pub fn bind(address: IpAddr, egress: Option<&EgressInterface>) -> io::Result<Self> {
@@ -18,15 +19,15 @@ impl IcmpSocket {
         } else {
             Protocol::ICMPV4
         };
-        let socket = Socket::new(domain, Type::RAW, Some(protocol)).or_else(|error| {
-            if error.kind() == io::ErrorKind::PermissionDenied {
+        let (socket, ping_datagram) = match Socket::new(domain, Type::RAW, Some(protocol)) {
+            Ok(socket) => (socket, false),
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
                 // Ping sockets are available to unprivileged processes on
-                // supported hosts; they preserve the ICMP message contract.
-                Socket::new(domain, Type::DGRAM, Some(protocol))
-            } else {
-                Err(error)
+                // supported hosts. Linux assigns their ICMP identifier.
+                (Socket::new(domain, Type::DGRAM, Some(protocol))?, true)
             }
-        })?;
+            Err(error) => return Err(error),
+        };
         socket.bind(&SocketAddr::new(address, 0).into())?;
         socket.set_nonblocking(true)?;
         let socket: std::net::UdpSocket = socket.into();
@@ -36,7 +37,17 @@ impl IcmpSocket {
         Ok(Self {
             socket: tokio::net::UdpSocket::from_std(socket)?,
             ipv6,
+            ping_datagram,
         })
+    }
+    /// Linux ping datagram sockets replace the sent echo identifier with the
+    /// socket's assigned port. Raw sockets preserve the caller's identifier.
+    pub fn reply_identifier(&self, sent_identifier: u16) -> io::Result<u16> {
+        if self.ping_datagram {
+            Ok(self.socket.local_addr()?.port())
+        } else {
+            Ok(sent_identifier)
+        }
     }
     pub fn local_addr(&self) -> io::Result<IpAddr> {
         self.socket.local_addr().map(|addr| addr.ip())

@@ -108,13 +108,27 @@ jobs:
           echo "RUSTFLAGS=-C link-arg=-fuse-ld=lld" >> "$GITHUB_ENV"
 
       - name: Build release
-        run: cargo build --features full,status-api,connector --release --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          FEATURES=full,status-api,connector
+          if [[ "$RELEASE_TAG" == *-dev.* ]]; then
+            FEATURES+=,wireguard
+          fi
+          cargo build --features "$FEATURES" --release --target ${{ matrix.target }}
 
       - name: Verify binary size and startup
         shell: bash
         env:
           RELEASE_BINARY: target/${{ matrix.target }}/release/zero${{ runner.os == 'Windows' && '.exe' || '' }}
         run: bash .github/scripts/check-release-binary.sh "$RELEASE_BINARY"
+
+      - name: Verify dev artifact includes WireGuard
+        if: contains(env.RELEASE_TAG, '-dev.')
+        shell: bash
+        env:
+          RELEASE_BINARY: target/${{ matrix.target }}/release/zero${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: |
+          "$RELEASE_BINARY" build-info | grep -E '^features: .*wireguard(,|$)'
 
       - name: Verify musl static linkage
         if: matrix.target == 'x86_64-unknown-linux-musl'

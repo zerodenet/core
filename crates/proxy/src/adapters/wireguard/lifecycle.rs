@@ -14,7 +14,10 @@ use zero_config::{InboundConfig, OutboundConfig, OutboundProtocolConfig};
 use zero_core::Address;
 use zero_engine::EngineError;
 
-use super::{inbound, protocol_identity, udp::WireguardRawIpPlan, CachedProfile, WireguardAdapter};
+use super::{
+    inbound, protocol_identity, udp::WireguardRawIpPlan, CachedProfile, LinkedEndpointMap,
+    PendingEndpointMap, WireguardAdapter,
+};
 use crate::{
     protocol_registry::{
         OutboundDeviceLifecycleCapability, OutboundDevicePreparationContext,
@@ -30,13 +33,13 @@ struct PreparedWireguardDevices {
     profiles: Arc<Mutex<HashMap<String, CachedProfile>>>,
     next_profiles: HashMap<String, CachedProfile>,
     staged: crate::runtime::raw_ip::StagedRawIpDevices,
-    linked: Arc<Mutex<HashMap<String, Arc<inbound::LinkedEndpoint>>>>,
-    next_linked: HashMap<String, Arc<inbound::LinkedEndpoint>>,
+    linked: Arc<Mutex<LinkedEndpointMap>>,
+    next_linked: LinkedEndpointMap,
     linked_updates: Vec<inbound::LinkedEndpointUpdate>,
     pending: PendingEndpoints,
 }
 
-struct PendingEndpoints(Arc<Mutex<Option<HashMap<String, Arc<inbound::LinkedEndpoint>>>>>);
+struct PendingEndpoints(PendingEndpointMap);
 
 impl Drop for PendingEndpoints {
     fn drop(&mut self) {

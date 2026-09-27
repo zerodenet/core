@@ -38,11 +38,11 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             }
             let path =
                 NetworkGraph::flow_ingress().shortest_path(Plane::Stream, sinks, Some(IPPROTO_TCP));
-            return match path.as_ref().and_then(|path| path.planes.last()) {
+            match path.as_ref().and_then(|path| path.planes.last()) {
                 Some(Plane::Packet) => Ok(converted.expect("packet conversion was advertised")),
                 Some(Plane::Stream) => self.prepare_tcp_connect(source_dir),
                 _ => Err(missing_tcp_route_capability(mode)),
-            };
+            }
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
         {
@@ -86,11 +86,11 @@ impl<'a> ClaimedOutboundLeaf<'a> {
                 sinks,
                 Some(IPPROTO_UDP),
             );
-            return match path.as_ref().and_then(|path| path.planes.last()) {
+            match path.as_ref().and_then(|path| path.planes.last()) {
                 Some(Plane::Packet) => Ok(converted.expect("packet conversion was advertised")),
                 Some(Plane::Datagram) => self.prepare_udp_flow(source_dir),
                 _ => Err(missing_udp_route_capability(mode)),
-            };
+            }
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
         {

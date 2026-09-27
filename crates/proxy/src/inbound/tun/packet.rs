@@ -11,6 +11,7 @@ use crate::{
 use tokio::sync::mpsc;
 use zero_stack::packet;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn try_forward(
     inner: &[u8],
     route: &InboundRouteRuntimeFactory,

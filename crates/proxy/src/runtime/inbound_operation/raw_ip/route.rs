@@ -9,6 +9,7 @@ use super::IcmpEchoRelay;
 use crate::inventory::PacketRouteTarget;
 use crate::runtime::packet_route::{PacketPlane, PacketSessionPins};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn feed_inner_packet(
     packet: &[u8],
     mtu: u16,

@@ -20,10 +20,6 @@ impl UdpIngressRuntime {
         trace
     }
 
-    pub(crate) async fn route_decision(&self, session: &Session) -> RouteDecision {
-        self.route_trace(session).await.decision
-    }
-
     pub(crate) fn resolve_outbound(
         &self,
         action: &RouteDecision,

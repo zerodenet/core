@@ -14,6 +14,7 @@ pub(super) struct ProxiedWirePacket {
     pub(super) revision: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn refresh_endpoint_peers(
     endpoint: Option<&mut RawIpInboundEndpoint>,
     revision: &mut u64,

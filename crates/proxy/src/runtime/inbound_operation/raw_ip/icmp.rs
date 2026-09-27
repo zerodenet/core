@@ -106,6 +106,7 @@ async fn probe(
         return Ok(None);
     };
     socket.send(&message).await?;
+    let reply_id = socket.reply_identifier(probe_id)?;
     let deadline = tokio::time::Instant::now() + ECHO_TIMEOUT;
     let mut buffer = vec![0_u8; usize::from(mtu).max(1_280)];
     loop {
@@ -120,7 +121,7 @@ async fn probe(
         }
         if let Some(reply) = packet::build_icmp_echo_reply(
             &request,
-            probe_id,
+            reply_id,
             &buffer[..size],
             local,
             usize::from(mtu),

@@ -21,6 +21,7 @@ pub(crate) type OpenFuture = Pin<
 >;
 pub(crate) type Open = Arc<dyn Fn(Address, u16) -> OpenFuture + Send + Sync>;
 type Accounting = Arc<dyn Fn(Option<UdpAssociationCloseKind>) + Send + Sync>;
+type TupleResponse = Result<(Address, u16, Vec<u8>), EngineError>;
 const MAX_TARGETS: usize = 64;
 
 pub(crate) fn carrier(
@@ -79,8 +80,8 @@ type Slots = Arc<Mutex<HashMap<(Address, u16), Arc<Slot>>>>;
 pub(crate) struct TupleCarrier {
     open: Open,
     slots: Slots,
-    sender: mpsc::Sender<Result<(Address, u16, Vec<u8>), EngineError>>,
-    receiver: tokio::sync::Mutex<mpsc::Receiver<Result<(Address, u16, Vec<u8>), EngineError>>>,
+    sender: mpsc::Sender<TupleResponse>,
+    receiver: tokio::sync::Mutex<mpsc::Receiver<TupleResponse>>,
     accounting: Accounting,
     _cleanup: Driver,
 }
