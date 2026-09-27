@@ -5,7 +5,7 @@ mod support;
 use std::net::{IpAddr, Ipv4Addr};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use boringtun::x25519::{PublicKey, StaticSecret};
+use gotatun::x25519::{PublicKey, StaticSecret};
 use tokio::time::{sleep, timeout, Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

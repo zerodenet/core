@@ -40,6 +40,7 @@ impl Engine {
                 trace: RouteTrace {
                     decision: RouteDecision::Direct,
                     mode: mode.kind().to_owned(),
+                    route_mode: zero_router::RouteMode::Auto,
                     matched_rule: None,
                 },
                 needs_resolution: false,
@@ -63,6 +64,7 @@ impl Engine {
                 RouteTrace {
                     decision,
                     mode: mode.kind().to_owned(),
+                    route_mode: trace.mode,
                     matched_rule: trace.matched_rule.map(|matched| crate::MatchedRouteRule {
                         index: matched.index,
                         condition: matched.condition,
@@ -72,11 +74,13 @@ impl Engine {
             ModeConfig::Direct => RouteTrace {
                 decision: RouteDecision::Direct,
                 mode: mode.kind().to_owned(),
+                route_mode: zero_router::RouteMode::Auto,
                 matched_rule: None,
             },
             ModeConfig::Global { outbound } => RouteTrace {
                 decision: RouteDecision::Route(outbound.clone()),
                 mode: mode.kind().to_owned(),
+                route_mode: zero_router::RouteMode::Auto,
                 matched_rule: None,
             },
         };

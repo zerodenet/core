@@ -8,7 +8,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use boringtun::x25519::{PublicKey, StaticSecret};
+use gotatun::x25519::{PublicKey, StaticSecret};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream, UdpSocket},
@@ -106,7 +106,7 @@ async fn tcp_echo_domain(proxy_port: u16, domain: &str, port: u16, payload: &[u8
 
 #[tokio::test]
 #[ignore = "requires pinned WIREGUARD_GO_BIN reference helper"]
-async fn zero_outbound_interops_with_wireguard_go_ipv4_ipv6_tcp_udp() {
+async fn zero_linked_endpoint_interops_with_wireguard_go_ipv4_ipv6_tcp_udp() {
     let Some(reference_bin) = require_env("WIREGUARD_GO_BIN") else {
         return;
     };
@@ -114,6 +114,7 @@ async fn zero_outbound_interops_with_wireguard_go_ipv4_ipv6_tcp_udp() {
     let peer_port = free_udp_port();
     let echo_port = free_port();
     let socks_port = free_port();
+    let zero_port = free_udp_port();
     let zero_private = STANDARD.encode([1_u8; 32]);
     let go_public = STANDARD.encode(public_key(2));
     let peer_port_string = peer_port.to_string();
@@ -144,9 +145,15 @@ async fn zero_outbound_interops_with_wireguard_go_ipv4_ipv6_tcp_udp() {
     .unwrap_or_else(|_| panic!("wireguard-go did not start: {}", reference.logs()));
 
     let config = RuntimeConfig::parse(&serde_json::json!({
-        "inbounds": [{"tag":"socks-in", "listen":{"address":"127.0.0.1", "port":socks_port}, "protocol":{"type":"socks5"}}],
+        "inbounds": [
+            {"tag":"socks-in", "listen":{"address":"127.0.0.1", "port":socks_port}, "protocol":{"type":"socks5"}},
+            {"tag":"wg-in", "listen":{"address":"127.0.0.1", "port":zero_port},
+                "protocol":{"type":"wireguard", "private_key":zero_private, "mtu":1420,
+                    "peers":[{"public_key":go_public,
+                        "allowed_ips":["10.77.0.2/32", "fd77::2/128"], "keepalive_secs":25}]}}
+        ],
         "outbounds": [{"tag":"wg-out", "protocol":{
-            "type":"wireguard", "private_key":zero_private,
+            "type":"wireguard", "private_key":zero_private, "inbound_tag":"wg-in",
             "addresses":["10.77.0.1/32", "fd77::1/128"], "mtu":1420,
             "peers":[{"public_key":go_public, "endpoint":format!("127.0.0.1:{peer_port}"),
                 "allowed_ips":["10.77.0.2/32", "fd77::2/128"], "keepalive_secs":25}]

@@ -71,6 +71,23 @@ fn registered_reverse_adapter_can_extend_graph_without_changing_solver() {
 }
 
 #[test]
+fn registered_flow_to_packet_edges_choose_native_flow_first() {
+    let graph = NetworkGraph::flow_ingress();
+    let tcp = graph
+        .shortest_path(
+            Plane::Stream,
+            sinks(&[Plane::Stream, Plane::Packet]),
+            Some(IPPROTO_TCP),
+        )
+        .expect("native TCP flow");
+    assert_eq!(tcp.planes, [Plane::Stream]);
+    let udp = graph
+        .shortest_path(Plane::Datagram, sinks(&[Plane::Packet]), Some(IPPROTO_UDP))
+        .expect("UDP packet conversion");
+    assert_eq!(udp.planes, [Plane::Datagram, Plane::Packet]);
+}
+
+#[test]
 fn solver_uses_total_conversion_cost_instead_of_edge_order() {
     let edges = [
         ConversionEdge {

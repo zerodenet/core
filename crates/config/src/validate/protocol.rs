@@ -883,7 +883,19 @@ pub(super) fn validate_outbound_protocol(
             addresses,
             mtu,
             peers,
+            inbound_tag,
+            outer_udp_proxy,
         } => {
+            if inbound_tag.as_ref().is_some_and(String::is_empty) {
+                return Err(ConfigError::InvalidOutbound(
+                    "`wireguard` inbound_tag must be a non-empty inbound tag".to_owned(),
+                ));
+            }
+            if outer_udp_proxy.as_ref().is_some_and(String::is_empty) {
+                return Err(ConfigError::InvalidOutbound(
+                    "`wireguard` outer_udp_proxy must be a non-empty outbound tag".to_owned(),
+                ));
+            }
             let addresses = addresses.iter().map(String::as_str).collect::<Vec<_>>();
             let allowed_ips = peers
                 .iter()

@@ -178,6 +178,18 @@ impl Socks5UpstreamUdpAssociation {
             .await
             .map_err(|error| error.into_mapped(RuntimeError::from))
     }
+
+    pub async fn control_event(&self) -> std::io::Result<()> {
+        let mut probe = [0_u8; 1];
+        match self.association.control().inner().peek(&mut probe).await {
+            Ok(0) => Ok(()),
+            Ok(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unexpected SOCKS5 UDP ASSOCIATE control data",
+            )),
+            Err(error) => Err(error),
+        }
+    }
 }
 
 impl Drop for Socks5UpstreamUdpAssociation {

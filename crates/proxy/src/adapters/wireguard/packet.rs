@@ -7,6 +7,9 @@ use crate::{
     runtime::{
         packet_route::{PreparedDatagramExchangeOperation, PreparedPacketRouteOperation},
         raw_ip::{RawIpDatagramOperation, RawIpDevicePool, RawIpPacketOperation},
+        tcp_dispatch::operation::{PreparedTcpConnectOperation, RawIpTcpOperation},
+        udp_dispatch::operation::PreparedUdpFlowOperation,
+        udp_flow::managed::raw_ip::RawIpUdpOperation,
     },
 };
 
@@ -31,6 +34,24 @@ impl ClaimedPacketLeaf for WireguardPacketLeaf {
 
     fn prepare_datagram_exchange(&self) -> Option<Box<dyn PreparedDatagramExchangeOperation>> {
         Some(Box::new(RawIpDatagramOperation {
+            tag: self.tag.clone(),
+            identity: self.identity,
+            plan: self.plan.clone(),
+            pool: self.pool.clone(),
+        }))
+    }
+
+    fn prepare_tcp_flow(&self) -> Option<Box<dyn PreparedTcpConnectOperation>> {
+        Some(Box::new(RawIpTcpOperation {
+            tag: self.tag.clone(),
+            identity: self.identity,
+            plan: self.plan.clone(),
+            pool: self.pool.clone(),
+        }))
+    }
+
+    fn prepare_udp_flow(&self) -> Option<Box<dyn PreparedUdpFlowOperation>> {
+        Some(Box::new(RawIpUdpOperation {
             tag: self.tag.clone(),
             identity: self.identity,
             plan: self.plan.clone(),

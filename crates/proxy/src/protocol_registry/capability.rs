@@ -66,6 +66,17 @@ pub(crate) trait ClaimedPacketLeaf: Send + Sync {
     ) -> Option<Box<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>> {
         None
     }
+
+    /// A PacketSink may expose a shared user-space stack for L4 callers.
+    /// The adapter owns local addressing; generic routing only selects this edge.
+    fn prepare_tcp_flow(&self) -> Option<Box<dyn PreparedTcpConnectOperation>> {
+        None
+    }
+
+    #[cfg(feature = "udp-runtime")]
+    fn prepare_udp_flow(&self) -> Option<Box<dyn PreparedUdpFlowOperation>> {
+        None
+    }
 }
 
 #[cfg(feature = "udp-runtime")]
@@ -126,7 +137,8 @@ pub(crate) trait OutboundDeviceLifecycleCapability: ProtocolSupportCapability {
     async fn prepare_outbound_devices(
         &self,
         outbounds: &[&OutboundConfig],
-        upstream: crate::protocol_registry::UpstreamConnectServices,
+        inbounds: &[InboundConfig],
+        context: crate::protocol_registry::OutboundDevicePreparationContext,
     ) -> Result<Box<dyn PreparedOutboundDeviceState>, EngineError>;
 
     fn shutdown_outbound_devices(&self);
@@ -146,6 +158,12 @@ pub(crate) trait PreparedOutboundDeviceState: Send {
 
 #[async_trait]
 pub(crate) trait InboundListenerCapability: Send + Sync {
+    /// A related outbound change may alter an inbound's runtime shape even
+    /// when its own configuration is unchanged.
+    fn inbound_listener_requires_restart(&self, _inbound: &InboundConfig) -> bool {
+        false
+    }
+
     /// Apply a prepared update to an active listener without replacing its
     /// bound socket. Returning false leaves the ordinary restart path intact.
     fn update_inbound_listener(
@@ -180,6 +198,18 @@ pub(crate) trait InboundListenerCapability: Send + Sync {
             std::io::ErrorKind::Unsupported,
             "this adapter does not provide an inbound listener",
         )))
+    }
+
+    /// Recreate the published listener after a candidate reload failed.
+    fn prepare_rollback_inbound_listener(
+        &self,
+        inbound: InboundConfig,
+        source_dir: Option<&std::path::Path>,
+    ) -> Result<
+        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
+        EngineError,
+    > {
+        self.prepare_inbound_listener(inbound, source_dir)
     }
 }
 

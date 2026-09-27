@@ -42,6 +42,7 @@ pub use zero_api::{
     ListenerSnapshot, ModeSnapshot, OutboundTargetSnapshot, PolicyMemberSnapshot, PolicySnapshot,
     RuntimeSnapshot, StatsSnapshot, StatusSnapshot,
 };
+pub use zero_router::RouteMode;
 // Re-export stats sub-types from zero-api.
 pub use zero_api::{OutboundTrafficStats, UdpUpstreamStats};
 pub use zero_api::{PolicyProbeCompletedPayload, PolicyProbeMember};

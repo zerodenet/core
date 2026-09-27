@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use zero_engine::EngineError;
@@ -13,12 +13,12 @@ pub(crate) trait RawIpTunnel: Send {
     fn send_ip_packet(&mut self, packet: &[u8]) -> Result<Vec<RawIpAction>, EngineError>;
     fn receive_datagram(
         &mut self,
-        source: Option<IpAddr>,
+        source: Option<SocketAddr>,
         datagram: &[u8],
     ) -> Result<Vec<RawIpAction>, EngineError>;
     fn receive_datagram_with_authentication(
         &mut self,
-        source: Option<IpAddr>,
+        source: Option<SocketAddr>,
         datagram: &[u8],
     ) -> Result<(Vec<RawIpAction>, bool), EngineError> {
         self.receive_datagram(source, datagram)

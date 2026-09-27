@@ -102,7 +102,10 @@ async fn nested_codecs_preserve_hop_order_and_receive_small_plaintext() {
         .unwrap();
     carrier.received.lock().unwrap().extend([vec![0], outer]);
     let mut output = [0; 1];
-    assert_eq!(path.recv_from(&mut output).await.unwrap(), 1);
+    assert_eq!(
+        path.recv_from_with_source(&mut output).await.unwrap(),
+        (1, Some("192.0.2.3:53".parse().unwrap()))
+    );
     assert_eq!(&output, b"y");
     let oversize = Codec(1).encode(&destination, 53, b"large").unwrap();
     carrier.received.lock().unwrap().push_back(oversize);

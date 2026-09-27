@@ -36,6 +36,10 @@ impl PlaneSet {
         self.0 |= 1 << plane.index();
     }
 
+    pub(crate) fn retain_only(&mut self, plane: Plane) {
+        self.0 &= 1 << plane.index();
+    }
+
     fn contains(self, plane: Plane) -> bool {
         self.0 & (1 << plane.index()) != 0
     }
@@ -76,9 +80,28 @@ const PACKET_INGRESS_EDGES: [ConversionEdge; 2] = [
     },
 ];
 
+const FLOW_INGRESS_EDGES: [ConversionEdge; 2] = [
+    ConversionEdge {
+        from: Plane::Stream,
+        to: Plane::Packet,
+        protocol: IPPROTO_TCP,
+        cost: 1,
+    },
+    ConversionEdge {
+        from: Plane::Datagram,
+        to: Plane::Packet,
+        protocol: IPPROTO_UDP,
+        cost: 1,
+    },
+];
+
 impl NetworkGraph<'static> {
     pub(crate) fn packet_ingress() -> Self {
         Self::with_edges(&PACKET_INGRESS_EDGES)
+    }
+
+    pub(crate) fn flow_ingress() -> Self {
+        Self::with_edges(&FLOW_INGRESS_EDGES)
     }
 }
 

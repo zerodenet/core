@@ -118,7 +118,32 @@ impl crate::runtime::udp_flow::packet_path::PacketPathPayloadTransport
     }
 
     async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError> {
-        self.recv_payload(buf).await.map_err(Into::into)
+        self.recv_from_with_source(buf).await.map(|(size, _)| size)
+    }
+
+    async fn recv_from_with_source(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, Option<std::net::SocketAddr>), EngineError> {
+        tokio::select! {
+            received = self.recv_response_parts(buf) => {
+                let (source, port, payload) = received.map_err(EngineError::from)?;
+                if payload.len() > buf.len() {
+                    return Err(EngineError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "SOCKS5 relay datagram exceeds receive buffer",
+                    )));
+                }
+                buf[..payload.len()].copy_from_slice(&payload);
+                Ok((payload.len(), crate::runtime::udp_flow::packet_path::packet_path_source(&source, port)))
+            },
+            control = self.control_event() => Err(EngineError::Io(control.err().unwrap_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "SOCKS5 UDP ASSOCIATE control connection closed",
+                )
+            }))),
+        }
     }
 }
 

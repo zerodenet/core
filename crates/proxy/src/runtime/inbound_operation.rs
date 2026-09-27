@@ -30,7 +30,8 @@ pub(crate) use contract::PreparedInboundListenerOperation;
 pub(crate) use quic::{AuthenticatedQuicInboundListenerOperation, AuthenticatedQuicInboundProfile};
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use raw_ip::{
-    RawIpInboundAction, RawIpInboundDevice, RawIpInboundDispatch, RawIpInboundListenerOperation,
+    EndpointPeerState, RawIpInboundAction, RawIpInboundDevice, RawIpInboundDispatch,
+    RawIpInboundEndpoint, RawIpInboundListenerOperation,
 };
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use tcp_and_datagram::TcpAndDatagramInboundListenerOperation;

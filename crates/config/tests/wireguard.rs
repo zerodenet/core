@@ -31,6 +31,47 @@ fn valid_protocol() -> Value {
     })
 }
 
+#[test]
+fn linked_wireguard_endpoint_requires_one_matching_inbound() {
+    let mut outbound = valid_protocol();
+    outbound["inbound_tag"] = json!("wg-in");
+    let inbound = json!({
+        "tag": "wg-in",
+        "listen": {"address": "127.0.0.1", "port": 51820},
+        "protocol": {
+            "type": "wireguard", "private_key": key(1),
+            "peers": [{
+                "public_key": key(2), "allowed_ips": ["0.0.0.0/0", "::/0"],
+                "keepalive_secs": 25, "reserved": [0, 0, 0]
+            }]
+        }
+    });
+    let mut input = json!({
+        "inbounds": [inbound],
+        "outbounds": [{"tag": "wg", "protocol": outbound}],
+        "route": {"rules": [], "final": {"type": "direct"}}
+    });
+    assert!(RuntimeConfig::parse(&input.to_string()).is_ok());
+
+    input["outbounds"].as_array_mut().unwrap().push(json!({
+        "tag": "outer", "protocol": {"type": "socks5", "server": "127.0.0.1", "port": 1080}
+    }));
+    input["outbounds"][0]["protocol"]["outer_udp_proxy"] = json!("outer");
+    assert!(RuntimeConfig::parse(&input.to_string()).is_ok());
+
+    input["inbounds"][0]["protocol"]["peers"][0]["allowed_ips"] = json!(["10.0.0.0/8"]);
+    assert!(RuntimeConfig::parse(&input.to_string())
+        .unwrap_err()
+        .to_string()
+        .contains("must use the linked inbound's key, MTU and ordered peers"));
+
+    input["inbounds"] = json!([]);
+    assert!(RuntimeConfig::parse(&input.to_string())
+        .unwrap_err()
+        .to_string()
+        .contains("missing inbound"));
+}
+
 fn multi_outbound_config() -> Value {
     json!({
         "outbounds": [
@@ -160,6 +201,70 @@ fn parses_and_validates_wireguard_outbound() {
     assert_eq!(peers[0].keepalive_secs, 25);
     assert_eq!(parsed.outbounds[0].protocol.protocol_name(), "wireguard");
     assert!(parsed.outbounds[0].protocol.endpoint().is_none());
+}
+
+#[test]
+fn outer_udp_proxy_must_reference_another_outbound() {
+    let mut protocol = valid_protocol();
+    protocol["outer_udp_proxy"] = json!("outer");
+    let config = json!({
+        "outbounds": [
+            {"tag":"outer", "protocol":{"type":"socks5", "server":"127.0.0.1", "port":1080}},
+            {"tag":"wg", "protocol":protocol}
+        ],
+        "route":{"rules":[],"final":{"type":"direct"}}
+    });
+    RuntimeConfig::parse(&config.to_string()).expect("valid outer UDP proxy reference");
+
+    let mut self_ref = config.clone();
+    self_ref["outbounds"][1]["protocol"]["outer_udp_proxy"] = json!("wg");
+    assert!(RuntimeConfig::parse(&self_ref.to_string())
+        .unwrap_err()
+        .to_string()
+        .contains("cannot use itself"));
+
+    let mut missing = config;
+    missing["outbounds"][1]["protocol"]["outer_udp_proxy"] = json!("absent");
+    assert!(RuntimeConfig::parse(&missing.to_string())
+        .unwrap_err()
+        .to_string()
+        .contains("unknown outer_udp_proxy"));
+}
+
+#[test]
+fn outer_udp_proxy_accepts_concrete_relay_and_rejects_recursive_or_dynamic_groups() {
+    let mut protocol = valid_protocol();
+    protocol["outer_udp_proxy"] = json!("outer-chain");
+    let mut config = json!({
+        "outbounds": [
+            {"tag":"first", "protocol":{"type":"socks5", "server":"127.0.0.1", "port":1080}},
+            {"tag":"second", "protocol":{"type":"socks5", "server":"127.0.0.1", "port":1081}},
+            {"tag":"wg", "protocol":protocol}
+        ],
+        "outbound_groups": [
+            {"tag":"outer-chain", "type":"relay", "proxies":["first", "second"]}
+        ],
+        "route":{"rules":[],"final":{"type":"direct"}}
+    });
+    RuntimeConfig::parse(&config.to_string()).expect("concrete outer UDP relay group");
+
+    config["outbound_groups"][0]["proxies"][1] = json!("wg");
+    assert!(RuntimeConfig::parse(&config.to_string())
+        .unwrap_err()
+        .to_string()
+        .contains("cannot occur in its outer_udp_proxy relay group"));
+
+    config["outbound_groups"][0]["proxies"][1] = json!("second");
+    config["outbound_groups"][0]["type"] = json!("selector");
+    config["outbound_groups"][0]["outbounds"] = json!(["first", "second"]);
+    config["outbound_groups"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("proxies");
+    assert!(RuntimeConfig::parse(&config.to_string())
+        .unwrap_err()
+        .to_string()
+        .contains("must be a relay group"));
 }
 
 #[test]

@@ -33,9 +33,11 @@ impl RuntimeConfig {
             .map(|condition| RouteRuleConfig {
                 condition,
                 action: RouteActionConfig::Direct,
+                mode: crate::RouteModeConfig::Auto,
             })
             .collect();
         route.final_action = RouteActionConfig::Reject;
+        route.final_mode = crate::RouteModeConfig::Auto;
         route.compile(&compiled, self.source_dir())
     }
 
@@ -79,13 +81,17 @@ impl RouteConfig {
             })?;
             let reader = maxminddb::Reader::from_source(data)
                 .map_err(|e| ConfigError::InvalidRuleSet(format!("invalid geoip database: {e}")))?;
-            Ok(RuleSet::with_geoip(
+            let mut router = RuleSet::with_geoip(
                 rules,
                 self.final_action.compile(),
                 std::sync::Arc::new(reader),
-            ))
+            );
+            router.final_mode = self.final_mode.compile();
+            Ok(router)
         } else {
-            Ok(RuleSet::new(rules, self.final_action.compile()))
+            let mut router = RuleSet::new(rules, self.final_action.compile());
+            router.final_mode = self.final_mode.compile();
+            Ok(router)
         }
     }
 }
@@ -140,6 +146,7 @@ impl RouteRuleConfig {
         Ok(Rule {
             condition: self.condition.compile(compiled_rule_sets)?,
             action: self.action.compile(),
+            mode: self.mode.compile(),
         })
     }
 }

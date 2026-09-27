@@ -64,6 +64,7 @@ pub(super) fn compile(config: &RuntimeConfig) -> Result<Vec<Rule>, ConfigError> 
         .map(|(prefix, tag)| Rule {
             condition: RuleCondition::Ip(vec![prefix]),
             action: RouteAction::Route(tag),
+            mode: zero_router::RouteMode::Auto,
         })
         .collect())
 }

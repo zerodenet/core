@@ -36,6 +36,9 @@ export function selectScope(paths) {
     'vendor/', 'protocols/', 'crates/platform/', 'crates/tun/',
     'crates/transport/', 'crates/ztls/',
     'src/application/inspect.rs', 'crates/proxy/src/validation.rs',
+    'crates/proxy/src/adapters/wireguard',
+    'crates/proxy/src/runtime/inbound_operation/raw_ip',
+    'crates/proxy/src/runtime/raw_ip',
     'tests/validate_isolation.rs',
   ])) || relevant.includes('scripts/prepare-wintun.ps1') || qualificationPolicyChanged;
   // TUN qualification is intentionally narrower than the ordinary Linux gate.

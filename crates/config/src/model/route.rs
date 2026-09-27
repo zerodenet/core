@@ -19,6 +19,8 @@ pub struct RouteConfig {
     pub auto_outbounds: Vec<String>,
     #[serde(rename = "final")]
     pub final_action: RouteActionConfig,
+    #[serde(default, skip_serializing_if = "RouteModeConfig::is_auto")]
+    pub final_mode: RouteModeConfig,
     /// Path to a GeoLite2-Country.mmdb file for the `geoip` condition.
     #[serde(default)]
     pub geoip_database: Option<String>,
@@ -102,6 +104,31 @@ fn default_rule_set_update_interval() -> u64 {
 pub struct RouteRuleConfig {
     pub condition: RuleConditionConfig,
     pub action: RouteActionConfig,
+    #[serde(default, skip_serializing_if = "RouteModeConfig::is_auto")]
+    pub mode: RouteModeConfig,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteModeConfig {
+    #[default]
+    Auto,
+    Packet,
+    Flow,
+}
+
+impl RouteModeConfig {
+    pub const fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
+    }
+
+    pub const fn compile(self) -> zero_router::RouteMode {
+        match self {
+            Self::Auto => zero_router::RouteMode::Auto,
+            Self::Packet => zero_router::RouteMode::Packet,
+            Self::Flow => zero_router::RouteMode::Flow,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

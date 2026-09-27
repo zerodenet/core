@@ -66,17 +66,19 @@ impl InboundRouteRuntimeFactory {
         let services = shared.tcp_services();
         let engine = services.engine();
         let snapshot = services.snapshot();
-        let decision = engine
+        let trace = engine
             .evaluate_route_in_snapshot(snapshot, &address, None, Some(&self.inbound_tag), &[])
-            .trace
-            .decision;
-        let Ok((resolved, _)) = engine.resolve_route_decision_in_snapshot(snapshot, decision)
+            .trace;
+        let Ok((resolved, _)) = engine.resolve_route_decision_in_snapshot(snapshot, trace.decision)
         else {
             return crate::inventory::PacketRouteTarget::Unsupported;
         };
-        services
-            .protocols()
-            .prepare_packet_route_target(services.config(), resolved, protocol)
+        services.protocols().prepare_packet_route_target_with_mode(
+            services.config(),
+            resolved,
+            protocol,
+            trace.route_mode,
+        )
     }
 
     #[cfg(feature = "raw-ip-runtime")]

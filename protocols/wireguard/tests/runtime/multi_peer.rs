@@ -1,5 +1,5 @@
 use super::{ipv4_packet, key, network_packets, public_key, tunnel};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use wireguard::{
     runtime::{InboundDevice, PeerTunnel, PreparedInbound, TunnelAction, TunnelError},
     validation::{InboundInput, InboundPeerInput},
@@ -9,7 +9,7 @@ fn establish(
     server: &mut InboundDevice,
     client: &mut PeerTunnel,
     index: usize,
-    outer_source: IpAddr,
+    outer_source: SocketAddr,
     inner_source: Ipv4Addr,
 ) {
     let request = ipv4_packet(inner_source, Ipv4Addr::new(10, 0, 0, 1), b"first payload");
@@ -65,8 +65,8 @@ fn malformed_data_from_one_peer_does_not_break_another_authenticated_peer() {
     let mut second = tunnel(93, 91, "10.0.0.3/32");
     let first_inner = Ipv4Addr::new(10, 0, 0, 2);
     let second_inner = Ipv4Addr::new(10, 0, 0, 3);
-    let first_outer = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 92));
-    let second_outer = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 93));
+    let first_outer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 92)), 51_820);
+    let second_outer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 93)), 51_821);
     establish(&mut server, &mut first, 0, first_outer, first_inner);
     establish(&mut server, &mut second, 1, second_outer, second_inner);
 

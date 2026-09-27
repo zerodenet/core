@@ -4,6 +4,7 @@ use crate::protocol_registry::UdpAdapterContext;
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 use crate::runtime::udp_dispatch::FlowFailure;
+use zero_engine::RouteMode;
 
 pub(crate) enum PreparedUdpLeafCandidate<'a> {
     Block { tag: String },
@@ -15,6 +16,7 @@ impl ProtocolInventory {
         &self,
         ctx: UdpAdapterContext<'a>,
         claimed: &ClaimedInventoryLeaf<'a>,
+        mode: RouteMode,
     ) -> Result<PreparedUdpLeafCandidate<'a>, FlowFailure> {
         let runtime = claimed.runtime();
         if !ctx.udp_enabled_for_outbound(runtime.udp_policy_tag.as_deref()) {
@@ -32,7 +34,7 @@ impl ProtocolInventory {
             });
         }
 
-        let operation = claimed.prepare_udp_flow(ctx.source_dir())?;
+        let operation = claimed.prepare_udp_flow_for_route(ctx.source_dir(), mode)?;
         Ok(PreparedUdpLeafCandidate::Flow(operation))
     }
 }

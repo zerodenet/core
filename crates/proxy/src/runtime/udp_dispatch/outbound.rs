@@ -1,5 +1,5 @@
 use zero_core::Session;
-use zero_engine::{EngineError, ResolvedOutbound};
+use zero_engine::{EngineError, ResolvedOutbound, RouteMode};
 
 use crate::inventory::{PreparedUdpLeafCandidate, PreparedUdpOutbound};
 use crate::protocol_registry::UdpAdapterContext;
@@ -12,12 +12,14 @@ pub(crate) async fn start_udp_resolved_outbound(
     session: &Session,
     resolved: ResolvedOutbound<'_>,
     payload: &[u8],
+    mode: RouteMode,
 ) -> Result<FlowStartResult, FlowFailure> {
     let prepared = ctx.runtime_services().protocols().prepare_udp_outbound(
         ctx.clone(),
         session,
         &resolved,
         payload,
+        mode,
     )?;
     execute_prepared_udp_outbound(dispatch, ctx, session, payload, prepared).await
 }

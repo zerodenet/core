@@ -9,35 +9,7 @@ use wireguard::{
 use zero_config::OutboundProtocolConfig;
 use zero_engine::EngineError;
 
-use crate::{
-    protocol_registry::ClaimedUdpFlowLeaf,
-    runtime::{
-        raw_ip::{RawIpAction, RawIpDevicePool, RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel},
-        udp_dispatch::{operation::PreparedUdpFlowOperation, FlowFailure},
-        udp_flow::managed::raw_ip::RawIpUdpOperation,
-    },
-};
-
-pub(super) struct WireguardUdpLeaf {
-    pub(super) tag: String,
-    pub(super) plan: Arc<WireguardRawIpPlan>,
-    pub(super) identity: [u8; 32],
-    pub(super) pool: Arc<RawIpDevicePool>,
-}
-
-impl<'a> ClaimedUdpFlowLeaf<'a> for WireguardUdpLeaf {
-    fn prepare_udp_flow(
-        &self,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
-        Ok(Box::new(RawIpUdpOperation {
-            tag: self.tag.clone(),
-            identity: self.identity,
-            plan: self.plan.clone(),
-            pool: self.pool.clone(),
-        }))
-    }
-}
+use crate::runtime::raw_ip::{RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel};
 
 pub(super) struct WireguardRawIpPlan {
     profile: Arc<PreparedOutbound>,
@@ -73,6 +45,7 @@ impl WireguardRawIpPlan {
             addresses,
             mtu,
             peers,
+            ..
         } = protocol
         else {
             return Err(invalid("wrong outbound protocol"));
@@ -164,7 +137,7 @@ impl RawIpTunnel for WireguardRawIpTunnel {
 
     fn receive_datagram(
         &mut self,
-        source: Option<IpAddr>,
+        source: Option<std::net::SocketAddr>,
         datagram: &[u8],
     ) -> Result<Vec<RawIpAction>, EngineError> {
         self.tunnel
@@ -175,7 +148,7 @@ impl RawIpTunnel for WireguardRawIpTunnel {
 
     fn receive_datagram_with_authentication(
         &mut self,
-        source: Option<IpAddr>,
+        source: Option<std::net::SocketAddr>,
         datagram: &[u8],
     ) -> Result<(Vec<RawIpAction>, bool), EngineError> {
         self.tunnel

@@ -117,6 +117,9 @@ jobs:
       - name: Check native TUN and socket backends
         run: cargo check -p zero-tun -p zero-platform-tokio
 
+      - name: Check opt-in WireGuard endpoint on this platform
+        run: cargo check -p zero-proxy --no-default-features --features wireguard
+
       - name: Verify validation alongside a running kernel
         run: cargo test --test validate_isolation
 

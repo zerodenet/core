@@ -1,5 +1,5 @@
 use zero_core::Session;
-use zero_engine::ResolvedOutbound;
+use zero_engine::{ResolvedOutbound, RouteMode};
 
 use crate::inventory::PreparedTcpOutbound;
 use crate::protocol_registry::TcpRuntimeServices;
@@ -11,9 +11,10 @@ pub(crate) async fn dispatch_tcp_outbound(
     services: TcpRuntimeServices,
     session: &Session,
     resolved: ResolvedOutbound<'static>,
+    mode: RouteMode,
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
-    let prepared = services.prepare_tcp_outbound(&resolved)?;
+    let prepared = services.prepare_tcp_outbound(&resolved, mode)?;
     execute_prepared_tcp_outbound(services.execution(), session, prepared, intent).await
 }
 

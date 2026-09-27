@@ -39,14 +39,23 @@ impl UdpSocketPacketPath {
     }
 
     pub async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, RuntimeError> {
+        self.recv_from_with_source(buf)
+            .await
+            .map(|(size, _, _)| size)
+    }
+
+    pub async fn recv_from_with_source(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, Address, u16), RuntimeError> {
         let (read, _) = self.socket.recv_from_addr(buf).await?;
-        let (_, _, payload) = self.codec.decode(&buf[..read]).ok_or_else(|| {
+        let (source, port, payload) = self.codec.decode(&buf[..read]).ok_or_else(|| {
             RuntimeError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "failed to decode UDP packet-path datagram",
             ))
         })?;
-        copy_payload(buf, payload, "UDP socket carrier")
+        copy_payload(buf, payload, "UDP socket carrier").map(|size| (size, source, port))
     }
 }
 

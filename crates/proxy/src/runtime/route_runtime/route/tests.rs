@@ -27,11 +27,19 @@ async fn existing_connection_keeps_old_snapshot_and_new_connection_captures_new_
     );
 
     assert_eq!(
-        old_connection.tcp_runtime.route_decision(&session).await,
+        old_connection
+            .tcp_runtime
+            .route_trace(&session)
+            .await
+            .decision,
         RouteDecision::Direct
     );
     assert_eq!(
-        new_connection.tcp_runtime.route_decision(&session).await,
+        new_connection
+            .tcp_runtime
+            .route_trace(&session)
+            .await
+            .decision,
         RouteDecision::Reject
     );
 }

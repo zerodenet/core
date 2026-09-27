@@ -4,6 +4,8 @@ use std::sync::Arc;
 use zero_config::RuntimeConfig;
 use zero_engine::{EngineError, ResolvedLeafOutbound};
 
+mod plane;
+
 use super::{ProtocolRegistry, RegisteredProtocolEntry};
 #[cfg(feature = "raw-ip-runtime")]
 use crate::protocol_registry::ClaimedPacketLeaf;
@@ -210,7 +212,13 @@ fn claim_outbound_hooks<'a>(
     else {
         return Err(missing_claimed_outbound_leaf(entry.support.name()));
     };
-    let tcp_path = if tcp.is_some() {
+    #[cfg(feature = "raw-ip-runtime")]
+    let packet_tcp = packet
+        .as_ref()
+        .is_some_and(|leaf| leaf.prepare_tcp_flow().is_some());
+    #[cfg(not(feature = "raw-ip-runtime"))]
+    let packet_tcp = false;
+    let tcp_path = if tcp.is_some() || packet_tcp {
         tcp_path
     } else {
         TcpPathCategory::Unavailable

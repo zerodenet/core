@@ -1,5 +1,5 @@
 use zero_core::Session;
-use zero_engine::{EngineError, ResolvedOutbound};
+use zero_engine::{EngineError, ResolvedOutbound, RouteMode};
 
 use super::super::ProtocolInventory;
 use crate::protocol_registry::UdpAdapterContext;
@@ -18,6 +18,7 @@ impl ProtocolInventory {
         session: &'a Session,
         resolved: &'a ResolvedOutbound<'a>,
         payload: &'a [u8],
+        mode: RouteMode,
     ) -> Result<PreparedUdpOutbound<'a>, FlowFailure> {
         match resolved {
             ResolvedOutbound::Single(candidate) => {
@@ -29,7 +30,7 @@ impl ProtocolInventory {
                         upstream: None,
                     })?;
                 Ok(PreparedUdpOutbound::Single(
-                    self.prepare_claimed_udp_leaf_candidate(ctx, &claimed)?,
+                    self.prepare_claimed_udp_leaf_candidate(ctx, &claimed, mode)?,
                 ))
             }
             ResolvedOutbound::Fallback { candidates } => {
@@ -45,7 +46,7 @@ impl ProtocolInventory {
                             upstream: None,
                         })
                         .and_then(|claimed| {
-                            self.prepare_claimed_udp_leaf_candidate(ctx.clone(), &claimed)
+                            self.prepare_claimed_udp_leaf_candidate(ctx.clone(), &claimed, mode)
                         });
                     match prepared_candidate {
                         Ok(candidate) => prepared.push(candidate),
@@ -66,6 +67,16 @@ impl ProtocolInventory {
                 }
             }
             ResolvedOutbound::Relay { chain } => {
+                if mode == RouteMode::Packet {
+                    return Err(FlowFailure {
+                        stage: "data_plane_route",
+                        error: EngineError::Io(std::io::Error::new(
+                            std::io::ErrorKind::Unsupported,
+                            "packet route mode has no executable UDP relay-chain path",
+                        )),
+                        upstream: None,
+                    });
+                }
                 let claimed = self.claim_relay_chain(
                     ctx.config(),
                     chain.iter().cloned(),

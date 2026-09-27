@@ -9,6 +9,14 @@ mod rule_set;
 pub use condition::{condition_describe, CompiledRegex, RuleCondition};
 pub use rule_set::RuleSetMatcher;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RouteMode {
+    #[default]
+    Auto,
+    Packet,
+    Flow,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RouteAction {
     Route(String),
@@ -21,11 +29,13 @@ pub enum RouteAction {
 pub struct Rule {
     pub condition: RuleCondition,
     pub action: RouteAction,
+    pub mode: RouteMode,
 }
 
 pub struct RuleSet {
     pub rules: Vec<Rule>,
     pub final_action: RouteAction,
+    pub final_mode: RouteMode,
     pub geoip_db: Option<Arc<maxminddb::Reader<Vec<u8>>>>,
 }
 
@@ -34,6 +44,7 @@ impl std::fmt::Debug for RuleSet {
         f.debug_struct("RuleSet")
             .field("rules", &self.rules)
             .field("final_action", &self.final_action)
+            .field("final_mode", &self.final_mode)
             .field("geoip_db", &self.geoip_db.is_some())
             .finish()
     }
@@ -44,6 +55,7 @@ impl RuleSet {
         Self {
             rules,
             final_action,
+            final_mode: RouteMode::Auto,
             geoip_db: None,
         }
     }
@@ -56,6 +68,7 @@ impl RuleSet {
         Self {
             rules,
             final_action,
+            final_mode: RouteMode::Auto,
             geoip_db: Some(db),
         }
     }
@@ -146,6 +159,7 @@ impl RuleSet {
         }) {
             RouteDecision {
                 action: rule.action.clone(),
+                mode: rule.mode,
                 matched_rule: Some(MatchedRule {
                     index,
                     condition: condition_describe(&rule.condition),
@@ -154,6 +168,7 @@ impl RuleSet {
         } else {
             RouteDecision {
                 action: self.final_action.clone(),
+                mode: self.final_mode,
                 matched_rule: None,
             }
         }
@@ -179,6 +194,7 @@ pub struct MatchedRule {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteDecision {
     pub action: RouteAction,
+    pub mode: RouteMode,
     /// `None` when the decision came from `final_action` (no rule matched).
     pub matched_rule: Option<MatchedRule>,
 }
@@ -254,10 +270,12 @@ mod tests {
             Rule {
                 condition: RuleCondition::Domain(vec!["example.com".to_owned()]),
                 action: RouteAction::Reject,
+                mode: RouteMode::Auto,
             },
             Rule {
                 condition: RuleCondition::Ip(vec!["10.0.0.0/8".parse().unwrap()]),
                 action: RouteAction::Route("proxy".to_owned()),
+                mode: RouteMode::Auto,
             },
         ];
         let router = rs(rules, RouteAction::Direct);
@@ -322,6 +340,7 @@ mod tests {
             vec![Rule {
                 condition: RuleCondition::Inbound(vec!["hk-in".to_owned()]),
                 action: RouteAction::Route("hk-lb".to_owned()),
+                mode: RouteMode::Auto,
             }],
             RouteAction::Direct,
         );
@@ -351,6 +370,7 @@ mod tests {
                     RuleCondition::Domain(vec!["example.com".to_owned()]),
                 ]),
                 action: RouteAction::Route("hk-lb".to_owned()),
+                mode: RouteMode::Auto,
             }],
             RouteAction::Direct,
         );

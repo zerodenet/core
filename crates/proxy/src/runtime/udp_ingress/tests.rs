@@ -34,7 +34,7 @@ async fn unmatched_domain_is_rechecked_against_resolved_ip_rules() {
     );
 
     assert_eq!(
-        runtime.route_decision(&session).await,
+        runtime.route_trace(&session).await.decision,
         RouteDecision::Direct
     );
 }

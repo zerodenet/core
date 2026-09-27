@@ -1,5 +1,8 @@
 //! Compose an adapter-provided datagram codec over an already opened packet path.
-use crate::runtime::udp_flow::packet_path::{PacketPathCarrier, UdpDatagramSource};
+use crate::runtime::udp_flow::packet_path::{
+    packet_path_source, PacketPathCarrier, UdpDatagramSource,
+};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use zero_core::Address;
 use zero_engine::EngineError;
@@ -17,6 +20,29 @@ pub(crate) fn wrap(
 struct Encoded {
     path: Arc<dyn PacketPathCarrier>,
     source: UdpDatagramSource,
+}
+impl Encoded {
+    async fn recv_decoded(
+        &self,
+        output: &mut [u8],
+    ) -> Result<(usize, Option<SocketAddr>), EngineError> {
+        let mut wire = vec![0; 65536];
+        loop {
+            let length = self.path.recv_from(&mut wire).await?;
+            let Some((source, port, payload)) = self.source.codec.decode(&wire[..length]) else {
+                tokio::task::consume_budget().await;
+                continue;
+            };
+            if payload.len() > output.len() {
+                return Err(EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "decoded relay datagram exceeds receive buffer",
+                )));
+            }
+            output[..payload.len()].copy_from_slice(&payload);
+            return Ok((payload.len(), packet_path_source(&source, port)));
+        }
+    }
 }
 #[async_trait::async_trait]
 impl PacketPathCarrier for Encoded {
@@ -37,22 +63,13 @@ impl PacketPathCarrier for Encoded {
             .await
     }
     async fn recv_from(&self, output: &mut [u8]) -> Result<usize, EngineError> {
-        // The caller's plaintext buffer does not include intermediate framing.
-        let mut wire = vec![0; 65536];
-        loop {
-            let length = self.path.recv_from(&mut wire).await?;
-            let Some((_, _, payload)) = self.source.codec.decode(&wire[..length]) else {
-                tokio::task::consume_budget().await;
-                continue;
-            };
-            if payload.len() > output.len() {
-                return Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "decoded relay datagram exceeds receive buffer",
-                )));
-            }
-            output[..payload.len()].copy_from_slice(&payload);
-            return Ok(payload.len());
-        }
+        self.recv_decoded(output).await.map(|(size, _)| size)
+    }
+
+    async fn recv_from_with_source(
+        &self,
+        output: &mut [u8],
+    ) -> Result<(usize, Option<SocketAddr>), EngineError> {
+        self.recv_decoded(output).await
     }
 }

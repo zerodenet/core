@@ -79,6 +79,14 @@ test('offline validation keeps cross-platform lock coverage', () => {
   ]) assert.equal(selectScope([path]).compatibility, true, path);
 });
 
+test('WireGuard endpoint changes keep the cross-platform build gate', () => {
+  for (const path of [
+    'crates/proxy/src/adapters/wireguard/inbound.rs',
+    'crates/proxy/src/runtime/inbound_operation/raw_ip/outer.rs',
+    'crates/proxy/src/runtime/raw_ip/device/endpoint.rs',
+  ]) assert.equal(selectScope([path]).compatibility, true, path);
+});
+
 test('manual and scheduled qualification always run everything', () => {
   const noGit = () => assert.fail('full qualification must not depend on a diff');
   assert.deepEqual(scopeForEvent('workflow_dispatch', {}, noGit), full);

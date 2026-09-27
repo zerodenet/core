@@ -1,11 +1,12 @@
 use std::{
+    io,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
     time::Duration,
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use boringtun::x25519::{PublicKey, StaticSecret};
+use gotatun::x25519::{PublicKey, StaticSecret};
 use wireguard::{
     routing::PeerRoutes,
     runtime::{PeerTunnel, TunnelAction},
@@ -17,7 +18,7 @@ use zero_platform_tokio::TokioDatagramSocket;
 use zero_stack::packet;
 
 use crate::runtime::{
-    raw_ip::{RawIpAction, RawIpDevicePool, RawIpTunnel, SharedRawIpDevice},
+    raw_ip::{RawIpAction, RawIpDevicePool, RawIpTunnel, RawIpWireCarrier, SharedRawIpDevice},
     udp_flow::managed::{raw_ip::RawIpUdpFlow, ManagedTupleUdpFlowConnection},
 };
 
@@ -37,7 +38,7 @@ impl RawIpTunnel for TestTunnel {
 
     fn receive_datagram(
         &mut self,
-        source: Option<IpAddr>,
+        source: Option<SocketAddr>,
         datagram: &[u8],
     ) -> Result<Vec<RawIpAction>, EngineError> {
         Ok(convert(
@@ -100,8 +101,33 @@ fn profile(
     )
 }
 
+struct OpaqueSocketCarrier(TokioDatagramSocket);
+
+#[async_trait::async_trait]
+impl RawIpWireCarrier for OpaqueSocketCarrier {
+    async fn recv(&self, buffer: &mut [u8]) -> io::Result<(usize, Option<SocketAddr>)> {
+        self.0
+            .recv_from_addr(buffer)
+            .await
+            .map(|(size, _)| (size, None))
+    }
+
+    async fn send(&self, packet: &[u8], endpoint: SocketAddr) -> io::Result<()> {
+        self.0.send_to_addr(packet, endpoint).await.map(|_| ())
+    }
+}
+
 #[tokio::test]
 async fn wireguard_udp_device_shares_handshake_across_flows() {
+    exercise_udp_device_shares_handshake(false).await;
+}
+
+#[tokio::test]
+async fn wireguard_opaque_carrier_keeps_bidirectional_udp_payload() {
+    exercise_udp_device_shares_handshake(true).await;
+}
+
+async fn exercise_udp_device_shares_handshake(opaque: bool) {
     let local = Ipv4Addr::new(10, 0, 0, 1);
     let remote = Ipv4Addr::new(10, 0, 0, 2);
     let server_socket = TokioDatagramSocket::bind_addr("127.0.0.1:0".parse().unwrap())
@@ -119,7 +145,7 @@ async fn wireguard_udp_device_shares_handshake_across_flows() {
         loop {
             let (len, sender) = server_socket.recv_from_addr(&mut wire).await.unwrap();
             let actions = server_tunnel
-                .receive_datagram(Some(sender.ip()), &wire[..len])
+                .receive_datagram(Some(sender), &wire[..len])
                 .unwrap();
             for action in actions {
                 match action {
@@ -152,16 +178,27 @@ async fn wireguard_udp_device_shares_handshake_across_flows() {
     };
     let client = async move {
         let target = Address::Ipv4(remote.octets());
-        let device = SharedRawIpDevice::start(
-            vec![IpAddr::V4(local)],
-            1_420,
-            server_endpoint,
-            client_socket,
-            Box::new(TestTunnel {
-                tunnel: client_tunnel,
-                routes: client_routes,
-            }),
-        )
+        let tunnel = Box::new(TestTunnel {
+            tunnel: client_tunnel,
+            routes: client_routes,
+        });
+        let device = if opaque {
+            SharedRawIpDevice::start_with_carrier(
+                vec![IpAddr::V4(local)],
+                1_420,
+                server_endpoint,
+                Arc::new(OpaqueSocketCarrier(client_socket)),
+                tunnel,
+            )
+        } else {
+            SharedRawIpDevice::start(
+                vec![IpAddr::V4(local)],
+                1_420,
+                server_endpoint,
+                client_socket,
+                tunnel,
+            )
+        }
         .unwrap();
         let flow = RawIpUdpFlow::open(
             device.clone(),
@@ -226,7 +263,7 @@ async fn wireguard_udp_flow_reports_authenticated_icmp_unreachable() {
         loop {
             let (len, sender) = server_socket.recv_from_addr(&mut wire).await.unwrap();
             let actions = server_tunnel
-                .receive_datagram(Some(sender.ip()), &wire[..len])
+                .receive_datagram(Some(sender), &wire[..len])
                 .unwrap();
             for action in actions {
                 match action {
@@ -301,7 +338,7 @@ impl RawIpTunnel for FailedTunnel {
 
     fn receive_datagram(
         &mut self,
-        _source: Option<IpAddr>,
+        _source: Option<SocketAddr>,
         _datagram: &[u8],
     ) -> Result<Vec<RawIpAction>, EngineError> {
         unreachable!()
@@ -328,7 +365,7 @@ async fn raw_ip_staging_failure_keeps_published_device() {
         }
         fn receive_datagram(
             &mut self,
-            _: Option<IpAddr>,
+            _: Option<SocketAddr>,
             _: &[u8],
         ) -> Result<Vec<RawIpAction>, EngineError> {
             Ok(vec![])

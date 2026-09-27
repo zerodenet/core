@@ -249,6 +249,18 @@ impl ClientTcpStack {
         }
     }
 
+    /// Whether an authenticated packet belongs to an active client flow.
+    /// A shared endpoint uses this to distinguish replies from new ingress.
+    pub async fn has_connection(&self, raw_packet: &[u8]) -> bool {
+        let Some(tcp) = packet::parse_tcp(raw_packet) else {
+            return false;
+        };
+        self.connections
+            .lock()
+            .await
+            .contains_key(&key_from_parsed(&tcp))
+    }
+
     /// Apply Packet Too Big to the matching client connection. Hard errors
     /// fail only a matching half-open connection.
     pub async fn feed_icmp_error(&self, error: packet::ParsedIcmpError) -> bool {

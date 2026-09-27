@@ -59,9 +59,13 @@ impl TcpRuntimeServices {
     pub(crate) fn prepare_tcp_outbound<'a>(
         &'a self,
         resolved: &'a zero_engine::ResolvedOutbound<'a>,
+        mode: zero_engine::RouteMode,
     ) -> Result<crate::inventory::PreparedTcpOutbound, crate::transport::TcpOutboundFailure> {
-        self.protocols
-            .prepare_tcp_outbound(OutboundAdapterContext::new(self.config()), resolved)
+        self.protocols.prepare_tcp_outbound(
+            OutboundAdapterContext::new(self.config()),
+            resolved,
+            mode,
+        )
     }
 
     #[cfg(feature = "udp-runtime")]

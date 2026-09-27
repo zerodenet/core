@@ -14,12 +14,14 @@ pub(crate) async fn dispatch_tcp(
     runtime: &TcpIngressRuntime,
     session: &mut Session,
 ) -> Result<TcpRouteResult, EngineError> {
-    let action = runtime.route_decision(session).await;
+    let trace = runtime.route_trace(session).await;
+    let action = trace.decision;
     let (resolved, passive_relay_selections) = runtime.resolve_outbound(&action, session)?;
     let outbound = match super::dispatch_tcp_outbound(
         runtime.runtime_services(),
         session,
         resolved,
+        trace.route_mode,
         super::TcpDispatchIntent::Traffic,
     )
     .await

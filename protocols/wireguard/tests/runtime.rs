@@ -1,10 +1,19 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use boringtun::x25519::{PublicKey, StaticSecret};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use gotatun::x25519::{PublicKey, StaticSecret};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use wireguard::{
     runtime::{PeerTunnel, PreparedInbound, PreparedOutbound, TunnelAction, TunnelError},
     validation::{validate_outbound, InboundInput, InboundPeerInput, OutboundInput, PeerInput},
 };
+
+#[test]
+fn protocol_engine_static_secret_is_zeroized_on_drop() {
+    // x25519-dalek attaches zeroize(drop) to StaticSecret behind its feature.
+    // This bound fails to compile if a dependency update drops that feature.
+    fn requires_zeroize<T: zeroize::Zeroize>() {}
+    requires_zeroize::<StaticSecret>();
+    assert!(std::mem::needs_drop::<StaticSecret>());
+}
 
 fn key(byte: u8) -> String {
     STANDARD.encode([byte; 32])
@@ -13,6 +22,10 @@ fn key(byte: u8) -> String {
 fn public_key(private: u8) -> String {
     let secret = StaticSecret::from([private; 32]);
     STANDARD.encode(PublicKey::from(&secret).as_bytes())
+}
+
+fn outer(ip: IpAddr) -> SocketAddr {
+    SocketAddr::new(ip, 51_820)
 }
 
 fn tunnel(private: u8, peer_private: u8, address: &str) -> PeerTunnel {
@@ -87,14 +100,14 @@ fn peers_handshake_and_exchange_encrypted_ipv4_payload_both_ways() {
     assert_eq!(&initiation[0][..4], &1_u32.to_le_bytes());
 
     let handshake_response = network_packets(
-        b.receive_datagram(Some(IpAddr::V4(a_ip)), &initiation[0])
+        b.receive_datagram(Some(outer(IpAddr::V4(a_ip))), &initiation[0])
             .unwrap(),
     );
     assert_eq!(handshake_response.len(), 1);
     assert_eq!(&handshake_response[0][..4], &2_u32.to_le_bytes());
 
     let queued = network_packets(
-        a.receive_datagram(Some(IpAddr::V4(b_ip)), &handshake_response[0])
+        a.receive_datagram(Some(outer(IpAddr::V4(b_ip))), &handshake_response[0])
             .unwrap(),
     );
     assert!(a.time_since_last_handshake().is_some());
@@ -103,7 +116,10 @@ fn peers_handshake_and_exchange_encrypted_ipv4_payload_both_ways() {
         .any(|packet| packet.starts_with(&4_u32.to_le_bytes())));
     let mut delivered = Vec::new();
     for packet in &queued {
-        delivered.extend(b.receive_datagram(Some(IpAddr::V4(a_ip)), packet).unwrap());
+        delivered.extend(
+            b.receive_datagram(Some(outer(IpAddr::V4(a_ip))), packet)
+                .unwrap(),
+        );
     }
     assert!(delivered.iter().any(|action| matches!(
         action,
@@ -114,7 +130,7 @@ fn peers_handshake_and_exchange_encrypted_ipv4_payload_both_ways() {
     let reply = network_packets(b.send_ip_packet(&response).unwrap());
     assert_eq!(reply.len(), 1);
     let decrypted = a
-        .receive_datagram(Some(IpAddr::V4(b_ip)), &reply[0])
+        .receive_datagram(Some(outer(IpAddr::V4(b_ip))), &reply[0])
         .unwrap();
     assert!(decrypted.iter().any(|action| matches!(
         action,
@@ -134,16 +150,19 @@ fn peers_handshake_and_exchange_encrypted_ipv6_payload_both_ways() {
 
     let initiation = network_packets(a.send_ip_packet(&request).unwrap());
     let handshake_response = network_packets(
-        b.receive_datagram(Some(IpAddr::V6(a_ip)), &initiation[0])
+        b.receive_datagram(Some(outer(IpAddr::V6(a_ip))), &initiation[0])
             .unwrap(),
     );
     let queued = network_packets(
-        a.receive_datagram(Some(IpAddr::V6(b_ip)), &handshake_response[0])
+        a.receive_datagram(Some(outer(IpAddr::V6(b_ip))), &handshake_response[0])
             .unwrap(),
     );
     let mut delivered = Vec::new();
     for packet in &queued {
-        delivered.extend(b.receive_datagram(Some(IpAddr::V6(a_ip)), packet).unwrap());
+        delivered.extend(
+            b.receive_datagram(Some(outer(IpAddr::V6(a_ip))), packet)
+                .unwrap(),
+        );
     }
     assert!(delivered.iter().any(|action| matches!(
         action,
@@ -153,7 +172,7 @@ fn peers_handshake_and_exchange_encrypted_ipv6_payload_both_ways() {
 
     let reply = network_packets(b.send_ip_packet(&response).unwrap());
     let decrypted = a
-        .receive_datagram(Some(IpAddr::V6(b_ip)), &reply[0])
+        .receive_datagram(Some(outer(IpAddr::V6(b_ip))), &reply[0])
         .unwrap();
     assert!(decrypted.iter().any(|action| matches!(
         action,
@@ -323,20 +342,20 @@ fn inbound_device_demultiplexes_handshake_and_checks_authenticated_inner_source(
 
     let initiation = network_packets(client.send_ip_packet(&request).unwrap());
     let dispatch = server
-        .receive_datagram(IpAddr::V4(outer_ip), &initiation[0])
+        .receive_datagram(outer(IpAddr::V4(outer_ip)), &initiation[0])
         .unwrap();
     assert_eq!(dispatch.peer_index, Some(0));
     assert!(dispatch.authenticated);
     let handshake_response = network_packets(dispatch.actions);
     let queued = network_packets(
         client
-            .receive_datagram(Some(IpAddr::V4(server_ip)), &handshake_response[0])
+            .receive_datagram(Some(outer(IpAddr::V4(server_ip))), &handshake_response[0])
             .unwrap(),
     );
     let mut delivered = Vec::new();
     for datagram in queued {
         let dispatch = server
-            .receive_datagram(IpAddr::V4(outer_ip), &datagram)
+            .receive_datagram(outer(IpAddr::V4(outer_ip)), &datagram)
             .unwrap();
         assert_eq!(dispatch.peer_index, Some(0));
         delivered.extend(dispatch.actions);
@@ -349,7 +368,7 @@ fn inbound_device_demultiplexes_handshake_and_checks_authenticated_inner_source(
     let forged_source = ipv4_packet(Ipv4Addr::new(10, 0, 0, 99), server_ip, b"spoofed");
     let encrypted = network_packets(client.send_ip_packet(&forged_source).unwrap());
     let dropped = server
-        .receive_datagram(IpAddr::V4(outer_ip), &encrypted[0])
+        .receive_datagram(outer(IpAddr::V4(outer_ip)), &encrypted[0])
         .unwrap();
     assert!(dropped.actions.is_empty());
     assert_eq!(server.peer_for_destination(IpAddr::V4(client_ip)), Some(0));
@@ -378,9 +397,94 @@ fn inbound_device_rejects_unknown_peer_handshake() {
     let mut unknown = tunnel(43, 41, "10.0.0.3/32");
     let initiation = network_packets(unknown.initiate_handshake().unwrap());
     assert!(matches!(
-        server.receive_datagram(IpAddr::V4(Ipv4Addr::LOCALHOST), &initiation[0]),
+        server.receive_datagram(outer(IpAddr::V4(Ipv4Addr::LOCALHOST)), &initiation[0]),
         Err(TunnelError::UnknownPeer)
     ));
+}
+
+#[test]
+fn inbound_handshake_rate_limit_resets_after_one_second() {
+    let server_private = key(91);
+    let client_public = public_key(92);
+    let peers = [InboundPeerInput {
+        public_key: &client_public,
+        pre_shared_key: None,
+        allowed_ips: &["10.0.0.2/32"],
+        keepalive_secs: 0,
+        reserved: &[],
+    }];
+    let mut server = PreparedInbound::from_input(InboundInput {
+        private_key: &server_private,
+        mtu: 1420,
+        peers: &peers,
+    })
+    .unwrap()
+    .into_device()
+    .unwrap();
+    let mut client = tunnel(92, 91, "10.0.0.2/32");
+    let initiation = network_packets(client.initiate_handshake().unwrap()).remove(0);
+    let source = outer(IpAddr::V4(Ipv4Addr::LOCALHOST));
+
+    for _ in 0..100 {
+        let _ = server.receive_datagram(source, &initiation);
+    }
+    let challenge = server.receive_datagram(source, &initiation).unwrap();
+    assert!(
+        matches!(challenge.actions.first(), Some(TunnelAction::SendNetwork(packet)) if packet[0] == 3)
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(1_100));
+    let after_reset = server.receive_datagram(source, &initiation);
+    assert!(
+        !matches!(after_reset, Ok(dispatch) if matches!(dispatch.actions.first(), Some(TunnelAction::SendNetwork(packet)) if packet[0] == 3))
+    );
+}
+
+#[test]
+fn opaque_outer_carrier_rejects_handshakes_at_cookie_threshold() {
+    let server_private = key(93);
+    let client_public = public_key(94);
+    let peers = [InboundPeerInput {
+        public_key: &client_public,
+        pre_shared_key: None,
+        allowed_ips: &["10.0.0.2/32"],
+        keepalive_secs: 0,
+        reserved: &[],
+    }];
+    let mut server = PreparedInbound::from_input(InboundInput {
+        private_key: &server_private,
+        mtu: 1420,
+        peers: &peers,
+    })
+    .unwrap()
+    .into_device()
+    .unwrap();
+    let mut outbound = tunnel(93, 94, "10.0.0.1/32");
+    let mut client = tunnel(94, 93, "10.0.0.2/32");
+    let initiation = network_packets(client.initiate_handshake().unwrap()).remove(0);
+
+    for _ in 0..100 {
+        let _ = server.receive_datagram_with_source(None, &initiation);
+        let _ = outbound.receive_datagram(None, &initiation);
+    }
+    assert!(matches!(
+        server.receive_datagram_with_source(None, &initiation),
+        Err(TunnelError::RateLimited)
+    ));
+    assert!(matches!(
+        outbound.receive_datagram(None, &initiation),
+        Err(TunnelError::RateLimited)
+    ));
+
+    std::thread::sleep(std::time::Duration::from_millis(1_100));
+    assert_ne!(
+        server.receive_datagram_with_source(None, &initiation).err(),
+        Some(TunnelError::RateLimited)
+    );
+    assert_ne!(
+        outbound.receive_datagram(None, &initiation).err(),
+        Some(TunnelError::RateLimited)
+    );
 }
 
 #[test]
@@ -421,7 +525,7 @@ fn inbound_device_routes_transport_packets_to_each_authenticated_peer() {
         let request = ipv4_packet(address, destination, b"peer-specific payload");
         let initiation = network_packets(client.send_ip_packet(&request).unwrap());
         let response = server
-            .receive_datagram(IpAddr::V4(Ipv4Addr::LOCALHOST), &initiation[0])
+            .receive_datagram(outer(IpAddr::V4(Ipv4Addr::LOCALHOST)), &initiation[0])
             .unwrap();
         assert_eq!(response.peer_index, Some(peer_index));
         let response = network_packets(response.actions);
@@ -429,7 +533,7 @@ fn inbound_device_routes_transport_packets_to_each_authenticated_peer() {
         let mut delivered_payload = false;
         for datagram in queued {
             let delivered = server
-                .receive_datagram(IpAddr::V4(Ipv4Addr::LOCALHOST), &datagram)
+                .receive_datagram(outer(IpAddr::V4(Ipv4Addr::LOCALHOST)), &datagram)
                 .unwrap();
             assert_eq!(delivered.peer_index, Some(peer_index));
             delivered_payload |= delivered.actions.iter().any(|action| {

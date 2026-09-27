@@ -20,7 +20,7 @@ udp-response-runtime = ["udp-runtime"]
 managed-udp-runtime = ["udp-runtime"]
 managed-datagram-runtime = ["managed-udp-runtime"]
 managed-stream-runtime = ["managed-udp-runtime", "udp-response-runtime"]
-raw-ip-runtime = ["managed-stream-runtime", "tcp-session-runtime"]
+raw-ip-runtime = ["managed-stream-runtime", "tcp-session-runtime", "dep:sha2"]
 upstream-association-runtime = ["udp-runtime"]
 tls-ech-runtime = ["zero-transport/tls", "zero-dns/udp", "zero-dns/doh"]
 tcp-tunnel-runtime = []
@@ -121,7 +121,7 @@ zero-transport = { path = "../transport" }
 
 [dev-dependencies]
 base64 = "0.22"
-boringtun = { version = "=0.7.1", default-features = false }
+gotatun = { version = "=0.9.2", default-features = false, features = ["zeroized-rustcrypto"] }
 ring = "0.17"
 h2 = "0.4"
 http_uri = { package = "http", version = "1" }

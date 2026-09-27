@@ -1,7 +1,7 @@
 use zero_api::{event_type, EventFilter, EventSource};
 use zero_config::RuntimeConfig;
 use zero_core::{Address, Network, ProtocolType, Session};
-use zero_engine::RouteDecision;
+use zero_engine::{RouteDecision, RouteMode};
 
 use super::TcpIngressRuntime;
 
@@ -125,9 +125,40 @@ async fn unmatched_domain_is_rechecked_against_resolved_ip_rules() {
     );
 
     assert_eq!(
-        runtime.route_decision(&session).await,
+        runtime.route_trace(&session).await.decision,
         RouteDecision::Direct
     );
+}
+
+#[tokio::test]
+async fn tcp_ingress_preserves_selected_packet_route_mode() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "route": {
+                "rules": [],
+                "final": { "type": "direct" },
+                "final_mode": "packet"
+            }
+        }"#,
+    )
+    .expect("parse packet route mode");
+    let proxy = crate::runtime::Proxy::new(config).expect("build proxy");
+    let runtime = TcpIngressRuntime::new(proxy.tcp_runtime_services(), "test-inbound".into(), None);
+    let mut session = Session::new(
+        1,
+        Address::Ipv4([127, 0, 0, 1]),
+        80,
+        Network::Tcp,
+        ProtocolType::UNKNOWN,
+    );
+    let trace = runtime.route_trace(&session).await;
+    assert_eq!(trace.decision, RouteDecision::Direct);
+    assert_eq!(trace.route_mode, RouteMode::Packet);
+    let error = match crate::runtime::tcp_dispatch::dispatch_tcp(&runtime, &mut session).await {
+        Ok(_) => panic!("packet mode cannot silently use direct TCP flow"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("no executable TCP path"));
 }
 
 #[tokio::test]

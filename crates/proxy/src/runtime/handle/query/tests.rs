@@ -10,7 +10,7 @@ use super::super::ProxyHandle;
 #[test]
 fn wireguard_health_reports_configured_peer_before_device_start() {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
-    use boringtun::x25519::{PublicKey, StaticSecret};
+    use gotatun::x25519::{PublicKey, StaticSecret};
     let public_key = STANDARD.encode(PublicKey::from(&StaticSecret::from([2; 32])).as_bytes());
     let config = RuntimeConfig::parse(
         &serde_json::json!({

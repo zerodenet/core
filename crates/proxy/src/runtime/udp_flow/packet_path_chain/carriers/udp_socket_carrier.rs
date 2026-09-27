@@ -46,4 +46,15 @@ impl PacketPathCarrier for PacketPathCarrierAdapter {
     async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError> {
         self.0.recv_from(buf).await.map_err(Into::into)
     }
+
+    async fn recv_from_with_source(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, Option<std::net::SocketAddr>), EngineError> {
+        let (size, source, port) = self.0.recv_from_with_source(buf).await?;
+        Ok((
+            size,
+            crate::runtime::udp_flow::packet_path::packet_path_source(&source, port),
+        ))
+    }
 }

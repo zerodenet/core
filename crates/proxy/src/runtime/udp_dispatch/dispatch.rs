@@ -129,7 +129,8 @@ impl UdpDispatch {
             .services()
             .record_session_inbound_rx(session.id, input.payload.len() as u64);
 
-        let action = runtime.route_decision(&session).await;
+        let trace = runtime.route_trace(&session).await;
+        let action = trace.decision;
         let (resolved, passive_relay_selections) = match runtime.resolve_outbound(&action, &session)
         {
             Ok(resolved) => resolved,
@@ -156,7 +157,7 @@ impl UdpDispatch {
                 .isolate_association(session.id, association_id);
         }
         match runtime
-            .start_udp_resolved_outbound(self, &session, resolved, input.payload)
+            .start_udp_resolved_outbound(self, &session, resolved, input.payload, trace.route_mode)
             .await
         {
             Ok(FlowStartResult::Flow { outbound, tx_bytes }) => {

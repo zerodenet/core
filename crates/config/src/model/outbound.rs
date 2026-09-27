@@ -228,6 +228,13 @@ pub enum OutboundProtocolConfig {
         #[serde(default = "default_wireguard_mtu")]
         mtu: u16,
         peers: Vec<WireguardPeerConfig>,
+        /// Reuse this WireGuard inbound's UDP listener and authenticated peer
+        /// sessions as a bidirectional endpoint.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        inbound_tag: Option<String>,
+        /// Tag of an outbound with a persistent bidirectional UDP packet path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outer_udp_proxy: Option<String>,
     },
 }
 

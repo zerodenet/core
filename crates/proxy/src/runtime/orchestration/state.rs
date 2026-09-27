@@ -74,7 +74,7 @@ impl OrchestrationState {
         #[cfg(feature = "raw-ip-runtime")]
         let prepared_outbound_devices = match proxy
             .protocols
-            .prepare_outbound_devices(&proxy.config, proxy.tcp_runtime_services().upstream())
+            .prepare_outbound_devices(&proxy.config, proxy.tcp_runtime_services())
             .await
         {
             Ok(prepared) => prepared,
@@ -196,7 +196,7 @@ impl OrchestrationState {
         #[cfg(feature = "raw-ip-runtime")]
         let prepared_outbound_devices = match proxy
             .protocols
-            .prepare_outbound_devices(&new_config, candidate_tcp_services.upstream())
+            .prepare_outbound_devices(&new_config, candidate_tcp_services.clone())
             .await
         {
             Ok(prepared) => prepared,
@@ -230,12 +230,16 @@ impl OrchestrationState {
                 %error,
                 "config reload listener reconciliation failed; restoring last known-good config"
             );
+            #[cfg(feature = "raw-ip-runtime")]
+            drop(prepared_outbound_devices);
             self.reject_reload(proxy, &new_config, message).await;
             return;
         }
         if !proxy.pending_reload_matches(&new_config) {
             if let Err(error) = proxy.resolver.commit_prepared_reload() {
                 warn!(%error, reason = "dns_commit_error", "failed to commit dns config");
+                #[cfg(feature = "raw-ip-runtime")]
+                drop(prepared_outbound_devices);
                 self.reject_reload(proxy, &new_config, error.to_string())
                     .await;
                 return;
@@ -301,6 +305,26 @@ impl OrchestrationState {
                 "failed to restore last-known-good TUN after reload failure"
             );
             acknowledgement.push_str(&format!("; TUN rollback failed: {error}"));
+        }
+        let previous_config = self.applied_snapshot.config().clone();
+        let previous_runtime = self.inbound_runtime_factory.clone();
+        if let Err(error) = listeners::reconcile_inbounds(
+            &proxy.protocols,
+            self.source_dir.as_deref(),
+            &previous_runtime,
+            &previous_runtime,
+            &previous_config,
+            listeners::InboundReconcileState {
+                listener_stops: &mut self.listener_stops,
+                active_inbounds: &mut self.active_inbounds,
+                expected_listener_exits: &mut self.expected_listener_exits,
+                listeners: &mut self.listeners,
+            },
+        )
+        .await
+        {
+            warn!(%error, reason = "listener_reload_rollback_error", "failed to restore last-known-good listeners after reload failure");
+            acknowledgement.push_str(&format!("; listener rollback failed: {error}"));
         }
         proxy.complete_reload(rejected, Err(acknowledgement));
     }

@@ -1,4 +1,4 @@
-use zero_engine::ResolvedOutbound;
+use zero_engine::{ResolvedOutbound, RouteMode};
 
 use super::super::ProtocolInventory;
 use crate::protocol_registry::OutboundAdapterContext;
@@ -15,9 +15,21 @@ impl ProtocolInventory {
         &self,
         ctx: OutboundAdapterContext<'a>,
         resolved: &'a ResolvedOutbound<'a>,
+        mode: RouteMode,
     ) -> Result<PreparedTcpOutbound, TcpOutboundFailure> {
         match resolved {
             ResolvedOutbound::Relay { chain } => {
+                if mode == RouteMode::Packet {
+                    return Err(crate::transport::TcpOutboundFailure {
+                        stage: "data_plane_route",
+                        error: zero_engine::EngineError::Io(std::io::Error::new(
+                            std::io::ErrorKind::Unsupported,
+                            "packet route mode has no executable TCP relay-chain path",
+                        )),
+                        upstream_endpoint: None,
+                        network: None,
+                    });
+                }
                 let claimed = self.claim_relay_chain(
                     ctx.config(),
                     chain.iter().cloned(),
@@ -48,7 +60,7 @@ impl ProtocolInventory {
                         network: None,
                     })?;
                 Ok(PreparedTcpOutbound::Single(
-                    self.prepare_claimed_tcp_candidate(ctx, &claimed)?,
+                    self.prepare_claimed_tcp_candidate(ctx, &claimed, mode)?,
                 ))
             }
             ResolvedOutbound::Fallback { candidates } => {
@@ -64,7 +76,9 @@ impl ProtocolInventory {
                             upstream_endpoint: None,
                             network: None,
                         })
-                        .and_then(|claimed| self.prepare_claimed_tcp_candidate(ctx, &claimed));
+                        .and_then(|claimed| {
+                            self.prepare_claimed_tcp_candidate(ctx, &claimed, mode)
+                        });
                     match prepared_candidate {
                         Ok(candidate) => prepared.push(candidate),
                         Err(failure) => last_failure = Some(failure),

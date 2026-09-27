@@ -201,6 +201,10 @@ impl<C, S> Socks5EstablishedUdpAssociation<C, S> {
     pub fn from_relay_socket_address(control: C, socket: S, endpoint: SocketAddress) -> Self {
         Self::from_relay_endpoint(control, socket, endpoint.ip, endpoint.port)
     }
+
+    pub fn control(&self) -> &C {
+        &self.association._control
+    }
 }
 
 impl<C, S> Socks5EstablishedUdpAssociation<C, S>

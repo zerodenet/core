@@ -5,7 +5,7 @@ mod support;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use boringtun::x25519::{PublicKey, StaticSecret};
+use gotatun::x25519::{PublicKey, StaticSecret};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, UdpSocket},
@@ -302,7 +302,7 @@ async fn receive_inner(client: &mut PeerTunnel, socket: &UdpSocket, source: IpAd
     loop {
         let size = socket.recv(&mut buffer).await.unwrap();
         for action in client
-            .receive_datagram(Some(source), &buffer[..size])
+            .receive_datagram(Some(std::net::SocketAddr::new(source, 0)), &buffer[..size])
             .unwrap()
         {
             match action {

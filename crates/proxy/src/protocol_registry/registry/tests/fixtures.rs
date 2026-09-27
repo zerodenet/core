@@ -330,6 +330,8 @@ pub(super) fn compiled_in_outbound_leaves(
                 .unwrap(),
                 addresses: vec!["10.0.0.1/32".to_owned()],
                 mtu: 1_420,
+                inbound_tag: None,
+                outer_udp_proxy: None,
                 peers: vec![zero_config::WireguardPeerConfig {
                     public_key: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned(),
                     pre_shared_key: None,

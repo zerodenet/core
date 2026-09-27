@@ -37,20 +37,46 @@ pub(in crate::runtime) fn spawn_inbound_listener(
     shutdown_rx: watch::Receiver<bool>,
     listeners: &mut JoinSet<Result<(), EngineError>>,
 ) -> Result<(), EngineError> {
-    let operation = protocols
-        .prepare_inbound_listener(runtime_factory.listener_config(inbound), source_dir)
-        .map_err(|error| {
-            warn!(
-                inbound_tag = %inbound.tag,
-                protocol = inbound.protocol.protocol_name(),
-                listen_address = %inbound.listen.address,
-                listen_port = inbound.listen.port,
-                reason = "adapter_prepare_error",
-                error = %error,
-                "inbound listener adapter preparation failed"
-            );
-            error
-        })?;
+    spawn_inbound_listener_with_state(
+        protocols,
+        source_dir,
+        runtime_factory,
+        inbound,
+        bound,
+        shutdown_rx,
+        listeners,
+        false,
+    )
+}
+
+fn spawn_inbound_listener_with_state(
+    protocols: &ProtocolInventory,
+    source_dir: Option<&Path>,
+    runtime_factory: &InboundListenerRuntimeFactory,
+    inbound: &InboundConfig,
+    bound: crate::protocol_registry::BoundInbound,
+    shutdown_rx: watch::Receiver<bool>,
+    listeners: &mut JoinSet<Result<(), EngineError>>,
+    rollback: bool,
+) -> Result<(), EngineError> {
+    let listener_config = runtime_factory.listener_config(inbound);
+    let operation = (if rollback {
+        protocols.prepare_rollback_inbound_listener(listener_config, source_dir)
+    } else {
+        protocols.prepare_inbound_listener(listener_config, source_dir)
+    })
+    .map_err(|error| {
+        warn!(
+            inbound_tag = %inbound.tag,
+            protocol = inbound.protocol.protocol_name(),
+            listen_address = %inbound.listen.address,
+            listen_port = inbound.listen.port,
+            reason = "adapter_prepare_error",
+            error = %error,
+            "inbound listener adapter preparation failed"
+        );
+        error
+    })?;
     let inbound_tag = inbound.tag.clone();
     let protocol = inbound.protocol.protocol_name();
     let listen_address = inbound.listen.address.clone();
@@ -122,12 +148,16 @@ pub(in crate::runtime) async fn reconcile_inbounds(
 
     for inbound in &new_config.inbounds {
         let previous = state.active_inbounds.get(&inbound.tag).cloned();
+        let mode_changed = previous.is_some()
+            && protocols
+                .inbound_listener_requires_restart(&runtime_factory.listener_config(inbound))?;
         if previous.as_ref().is_some_and(|current| {
             !requires_listener_restart(
                 &rollback_runtime_factory.listener_config(current),
                 &runtime_factory.listener_config(inbound),
             )
-        }) {
+        }) && !mode_changed
+        {
             state
                 .active_inbounds
                 .insert(inbound.tag.clone(), inbound.clone());
@@ -240,7 +270,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
             )
             .await
             {
-                Ok(bound) => match spawn_inbound_listener(
+                Ok(bound) => match spawn_inbound_listener_with_state(
                     protocols,
                     source_dir,
                     rollback_runtime_factory,
@@ -248,6 +278,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
                     bound,
                     rollback_rx,
                     state.listeners,
+                    true,
                 ) {
                     Ok(()) => {
                         info!(

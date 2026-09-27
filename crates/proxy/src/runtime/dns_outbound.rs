@@ -103,6 +103,7 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                 services,
                 &session,
                 resolved,
+                zero_engine::RouteMode::Auto,
                 crate::runtime::tcp_dispatch::TcpDispatchIntent::DnsDetour,
             )
             .await

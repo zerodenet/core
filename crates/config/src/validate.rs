@@ -57,6 +57,64 @@ impl RuntimeConfig {
             validate_route_target_tag(outbound.tag(), &mut route_target_tags)?;
         }
 
+        // A linked outbound is another view of the same authenticated device.
+        // Reject mismatched keys or peer tables before either side can bind.
+        let mut claimed_wireguard_inbounds = HashSet::new();
+        for outbound in &self.outbounds {
+            let crate::OutboundProtocolConfig::Wireguard {
+                private_key,
+                mtu,
+                peers,
+                inbound_tag: Some(inbound_tag),
+                ..
+            } = &outbound.protocol
+            else {
+                continue;
+            };
+            if !claimed_wireguard_inbounds.insert(inbound_tag) {
+                return Err(ConfigError::InvalidOutbound(format!(
+                    "wireguard inbound `{inbound_tag}` is linked by multiple outbounds"
+                )));
+            }
+            let inbound = self
+                .inbounds
+                .iter()
+                .find(|inbound| inbound.tag == *inbound_tag)
+                .ok_or_else(|| {
+                    ConfigError::InvalidOutbound(format!(
+                        "wireguard outbound `{}` refers to missing inbound `{inbound_tag}`",
+                        outbound.tag
+                    ))
+                })?;
+            let crate::InboundProtocolConfig::Wireguard {
+                private_key: inbound_key,
+                mtu: inbound_mtu,
+                peers: inbound_peers,
+            } = &inbound.protocol
+            else {
+                return Err(ConfigError::InvalidOutbound(format!(
+                    "wireguard outbound `{}` refers to a non-WireGuard inbound",
+                    outbound.tag
+                )));
+            };
+            if private_key != inbound_key
+                || mtu != inbound_mtu
+                || peers.len() != inbound_peers.len()
+                || peers.iter().zip(inbound_peers).any(|(a, b)| {
+                    a.public_key != b.public_key
+                        || a.pre_shared_key != b.pre_shared_key
+                        || a.allowed_ips != b.allowed_ips
+                        || a.keepalive_secs != b.keepalive_secs
+                        || a.reserved != b.reserved
+                })
+            {
+                return Err(ConfigError::InvalidOutbound(format!(
+                    "wireguard outbound `{}` must use the linked inbound's key, MTU and ordered peers",
+                    outbound.tag
+                )));
+            }
+        }
+
         reverse::validate(self, &mut inbound_tags)?;
 
         let mut outbound_group_tags = HashSet::new();
@@ -74,6 +132,51 @@ impl RuntimeConfig {
             group.validate(&group_target_tags)?;
         }
         validate_group_reference_graph(&self.outbound_groups)?;
+
+        for outbound in &self.outbounds {
+            let crate::OutboundProtocolConfig::Wireguard {
+                outer_udp_proxy: Some(proxy_tag),
+                ..
+            } = &outbound.protocol
+            else {
+                continue;
+            };
+            if proxy_tag == &outbound.tag {
+                return Err(ConfigError::InvalidOutbound(format!(
+                    "wireguard outbound `{}` cannot use itself as outer_udp_proxy",
+                    outbound.tag
+                )));
+            }
+            if let Some(group) = self
+                .outbound_groups
+                .iter()
+                .find(|group| group.tag == *proxy_tag)
+            {
+                let crate::OutboundGroupKind::Relay { proxies } = &group.group else {
+                    return Err(ConfigError::InvalidOutbound(format!(
+                        "wireguard outbound `{}` outer_udp_proxy `{proxy_tag}` must be a relay group",
+                        outbound.tag
+                    )));
+                };
+                if proxies.iter().any(|member| member == &outbound.tag) {
+                    return Err(ConfigError::InvalidOutbound(format!(
+                        "wireguard outbound `{}` cannot occur in its outer_udp_proxy relay group `{proxy_tag}`",
+                        outbound.tag
+                    )));
+                }
+                if proxies.iter().any(|member| !outbound_tags.contains(member)) {
+                    return Err(ConfigError::InvalidOutbound(format!(
+                        "wireguard outbound `{}` outer_udp_proxy relay group `{proxy_tag}` must contain only concrete outbounds",
+                        outbound.tag
+                    )));
+                }
+            } else if !outbound_tags.contains(proxy_tag) {
+                return Err(ConfigError::InvalidOutbound(format!(
+                    "wireguard outbound `{}` references unknown outer_udp_proxy `{proxy_tag}`",
+                    outbound.tag
+                )));
+            }
+        }
 
         let rule_set_tags = validate_rule_sets(&self.route.rule_sets)?;
         self.route

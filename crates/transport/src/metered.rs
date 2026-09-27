@@ -31,6 +31,10 @@ impl<S> MeteredStream<S> {
     pub fn into_inner(self) -> S {
         self.inner
     }
+
+    pub fn inner(&self) -> &S {
+        &self.inner
+    }
 }
 
 impl<S> MeteredStream<RecordingStream<S>> {

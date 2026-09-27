@@ -1,4 +1,4 @@
-use zero_engine::EngineError;
+use zero_engine::{EngineError, RouteMode};
 
 use super::super::ProtocolInventory;
 use crate::inventory::ClaimedInventoryLeaf;
@@ -45,6 +45,7 @@ impl ProtocolInventory {
         &self,
         ctx: OutboundAdapterContext,
         claimed: &ClaimedInventoryLeaf<'a>,
+        mode: RouteMode,
     ) -> Result<PreparedTcpCandidate, TcpOutboundFailure> {
         let runtime = claimed.runtime();
         let health_tag = health_tag(&runtime).map(ToOwned::to_owned);
@@ -53,7 +54,7 @@ impl ProtocolInventory {
                 tag: runtime.kernel_tag.unwrap_or_else(|| "block".to_owned()),
             }
         } else {
-            let operation = claimed.prepare_tcp_connect(ctx.source_dir())?;
+            let operation = claimed.prepare_tcp_connect_for_route(ctx.source_dir(), mode)?;
             PreparedTcpCandidateExecution::Connect(operation.into())
         };
         Ok(PreparedTcpCandidate {

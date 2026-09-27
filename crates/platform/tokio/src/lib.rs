@@ -75,6 +75,11 @@ impl TokioSocket {
         }
     }
 
+    /// Observe control-channel closure without consuming protocol bytes.
+    pub async fn peek(&self, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner.peek(buf).await
+    }
+
     pub async fn connect(addr: &str) -> io::Result<Self> {
         let stream = TcpStream::connect(addr).await?;
         stream.set_nodelay(true)?;

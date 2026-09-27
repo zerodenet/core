@@ -2,7 +2,9 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
 use zero_core::Address;
-use zero_router::{RouteAction, RouteContext, Rule, RuleCondition, RuleSet, RuleSetMatcher};
+use zero_router::{
+    RouteAction, RouteContext, RouteMode, Rule, RuleCondition, RuleSet, RuleSetMatcher,
+};
 use zero_rule::{Rule as MatcherRule, RuleSet as MatcherRuleSet, RuleSetCompiler};
 
 #[test]
@@ -10,6 +12,7 @@ fn routes_domain_suffix_to_reject() {
     let rules = vec![Rule {
         condition: RuleCondition::Domain(vec!["blocked.example".to_owned()]),
         action: RouteAction::Reject,
+        mode: RouteMode::Auto,
     }];
     let ruleset = RuleSet::new(rules, RouteAction::Direct);
 
@@ -23,6 +26,7 @@ fn borrowed_decision_reuses_ruleset_action() {
     let rules = vec![Rule {
         condition: RuleCondition::Domain(vec!["blocked.example".to_owned()]),
         action: RouteAction::Reject,
+        mode: RouteMode::Auto,
     }];
     let ruleset = RuleSet::new(rules, RouteAction::Direct);
 
@@ -43,6 +47,7 @@ fn route_condition_uses_zero_rule_matcher_and_reports_its_tag() {
         vec![Rule {
             condition: RuleCondition::RuleSet(RuleSetMatcher::new("private", Arc::new(compiled))),
             action: RouteAction::Reject,
+            mode: RouteMode::Auto,
         }],
         RouteAction::Direct,
     );
@@ -69,6 +74,7 @@ fn unresolved_domain_can_be_rechecked_against_resolved_ip_rules() {
         vec![Rule {
             condition: RuleCondition::Ip(vec!["10.0.0.0/8".parse().unwrap()]),
             action: RouteAction::Direct,
+            mode: RouteMode::Auto,
         }],
         RouteAction::Route("proxy".to_owned()),
     );
@@ -107,6 +113,7 @@ fn rule_set_query_keeps_domain_and_resolved_ip_facts_together() {
         vec![Rule {
             condition: RuleCondition::RuleSet(RuleSetMatcher::new("private", Arc::new(compiled))),
             action: RouteAction::Direct,
+            mode: RouteMode::Auto,
         }],
         RouteAction::Route("proxy".to_owned()),
     );
@@ -134,6 +141,7 @@ fn and_conditions_use_one_resolved_ip_at_a_time() {
                 RuleCondition::Ip(vec!["192.168.0.0/16".parse().unwrap()]),
             ]),
             action: RouteAction::Direct,
+            mode: RouteMode::Auto,
         }],
         RouteAction::Route("proxy".to_owned()),
     );
@@ -166,6 +174,7 @@ fn domain_only_rules_do_not_request_dns_backed_route_facts() {
         vec![Rule {
             condition: RuleCondition::RuleSet(RuleSetMatcher::new("domains", Arc::new(compiled))),
             action: RouteAction::Direct,
+            mode: RouteMode::Auto,
         }],
         RouteAction::Route("proxy".to_owned()),
     );

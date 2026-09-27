@@ -35,7 +35,11 @@ impl ProtocolInventory {
         ctx: OutboundAdapterContext,
         claimed_chain: &ClaimedRelayChain<'a>,
     ) -> Result<PreparedTcpRelayChain, TcpOutboundFailure> {
-        let first_prepared = self.prepare_claimed_tcp_candidate(ctx, claimed_chain.first())?;
+        let first_prepared = self.prepare_claimed_tcp_candidate(
+            ctx,
+            claimed_chain.first(),
+            zero_engine::RouteMode::Flow,
+        )?;
         let claimed_hops = claimed_chain.relay_hops();
         let mut prepared_hops = Vec::with_capacity(claimed_hops.len());
         #[cfg(feature = "udp-runtime")]

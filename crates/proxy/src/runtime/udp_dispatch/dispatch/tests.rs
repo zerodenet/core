@@ -32,6 +32,33 @@ fn input<'a>(
 }
 
 #[tokio::test]
+async fn packet_mode_rejects_udp_flow_without_conversion() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "route": {
+                "rules": [],
+                "final": { "type": "direct" },
+                "final_mode": "packet"
+            }
+        }"#,
+    )
+    .expect("parse packet route mode");
+    let proxy = crate::runtime::Proxy::new(config).expect("build proxy");
+    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
+    let mut dispatch = runtime
+        .new_dispatch("managed-in")
+        .await
+        .expect("create UDP dispatch");
+    let auth = SessionAuth::new("test");
+    let error = dispatch
+        .dispatch(input(Address::Ipv4([127, 0, 0, 1]), 53, b"query", &auth))
+        .await
+        .expect_err("packet mode cannot silently use direct UDP flow");
+    assert!(error.to_string().contains("no executable UDP path"));
+    assert_eq!(proxy.engine().completed_sessions().len(), 1);
+}
+
+#[tokio::test]
 async fn authenticated_udp_flow_applies_bidirectional_session_rate_limits() {
     let config = RuntimeConfig::parse(
         r#"{

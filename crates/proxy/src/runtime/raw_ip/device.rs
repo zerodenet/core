@@ -1,5 +1,6 @@
 //! Shared raw-IP peer device for active TCP and UDP stacks.
 
+mod endpoint;
 mod returns;
 #[cfg(test)]
 mod tests;
@@ -25,7 +26,8 @@ use zero_stack::{
     UserTcpStream,
 };
 
-use super::{RawIpAction, RawIpTunnel};
+use super::{DirectRawIpWireCarrier, RawIpAction, RawIpTunnel, RawIpWireCarrier};
+pub(crate) use endpoint::EndpointPacket;
 use returns::PacketReturns;
 
 pub(crate) struct SharedRawIpDevice {
@@ -56,6 +58,22 @@ impl SharedRawIpDevice {
         socket: TokioDatagramSocket,
         tunnel: Box<dyn RawIpTunnel>,
     ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+        Self::start_with_carrier(
+            local_addresses,
+            mtu,
+            endpoint,
+            Arc::new(DirectRawIpWireCarrier(socket)),
+            tunnel,
+        )
+    }
+
+    pub(crate) fn start_with_carrier(
+        local_addresses: Vec<IpAddr>,
+        mtu: u16,
+        endpoint: SocketAddr,
+        carrier: Arc<dyn RawIpWireCarrier>,
+        tunnel: Box<dyn RawIpTunnel>,
+    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
         let (outbound, raw_packets) = mpsc::channel(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
         let udp = ClientUdpStack::new(local_addresses.clone(), outbound.clone(), mtu)?;
@@ -70,7 +88,7 @@ impl SharedRawIpDevice {
         let task = tokio::spawn(run_device(
             Device {
                 endpoint,
-                socket,
+                carrier,
                 tunnel,
                 udp: udp.clone(),
                 tcp: tcp.clone(),
@@ -206,7 +224,7 @@ impl Drop for SharedRawIpDevice {
 
 struct Device {
     endpoint: SocketAddr,
-    socket: TokioDatagramSocket,
+    carrier: Arc<dyn RawIpWireCarrier>,
     tunnel: Box<dyn RawIpTunnel>,
     udp: ClientUdpStack,
     tcp: Arc<ClientTcpStack>,
@@ -304,18 +322,20 @@ async fn run_device_inner(
                     device.refresh_handshake_health();
                 }
             }
-            received = device.socket.recv_from_addr(&mut wire) => {
+            received = device.carrier.recv(&mut wire) => {
                 let (size, sender) = received.map_err(EngineError::Io)?;
                 let Ok((actions, authenticated)) = device.tunnel
-                    .receive_datagram_with_authentication(Some(sender.ip()), &wire[..size]) else {
+                    .receive_datagram_with_authentication(sender, &wire[..size]) else {
                     continue;
                 };
-                if sender != device.endpoint {
-                    if !authenticated || sender.is_ipv4() != device.endpoint.is_ipv4() {
-                        continue;
+                if let Some(sender) = sender {
+                    if sender != device.endpoint {
+                        if !authenticated || sender.is_ipv4() != device.endpoint.is_ipv4() {
+                            continue;
+                        }
+                        tracing::debug!(old_endpoint = %device.endpoint, new_endpoint = %sender, "raw-IP peer endpoint roamed");
+                        device.endpoint = sender;
                     }
-                    tracing::debug!(old_endpoint = %device.endpoint, new_endpoint = %sender, "raw-IP peer endpoint roamed");
-                    device.endpoint = sender;
                 }
                 tracing::trace!(wire_bytes = size, actions = actions.len(), "raw-IP outbound datagram processed");
                 device.apply(actions).await?;
@@ -349,8 +369,8 @@ impl Device {
         for action in actions {
             match action {
                 RawIpAction::SendNetwork(packet) => {
-                    self.socket
-                        .send_to_addr(&packet, self.endpoint)
+                    self.carrier
+                        .send(&packet, self.endpoint)
                         .await
                         .map_err(EngineError::Io)?;
                 }

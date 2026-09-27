@@ -1,5 +1,7 @@
 use zero_core::Session;
-use zero_engine::{EngineError, PassiveRelaySelection, ResolvedOutbound, RouteDecision};
+use zero_engine::{
+    EngineError, PassiveRelaySelection, ResolvedOutbound, RouteDecision, RouteTrace,
+};
 
 use crate::logging::log_session_accepted;
 
@@ -13,13 +15,17 @@ impl TcpIngressRuntime {
         )
     }
 
-    pub(crate) async fn route_decision(&self, session: &Session) -> RouteDecision {
+    pub(crate) async fn route_trace(&self, session: &Session) -> RouteTrace {
         let trace =
             crate::runtime::route_runtime::route_trace_for_session(&self.services, session).await;
         self.services
             .engine()
             .record_session_route(session.id, &trace);
-        trace.decision
+        trace
+    }
+
+    pub(crate) async fn route_decision(&self, session: &Session) -> RouteDecision {
+        self.route_trace(session).await.decision
     }
 
     pub(crate) fn resolve_outbound(

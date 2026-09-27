@@ -1,6 +1,7 @@
 use zero_core::Session;
 use zero_engine::{
     EngineError, PassiveRelayOutcome, PassiveRelaySelection, ResolvedOutbound, RouteDecision,
+    RouteMode, RouteTrace,
 };
 
 use super::model::UdpIngressRuntime;
@@ -9,14 +10,18 @@ use crate::protocol_registry::UdpAdapterContext;
 use crate::runtime::udp_dispatch::{FlowFailure, FlowStartResult, UdpDispatch};
 
 impl UdpIngressRuntime {
-    pub(crate) async fn route_decision(&self, session: &Session) -> RouteDecision {
+    pub(crate) async fn route_trace(&self, session: &Session) -> RouteTrace {
         let trace =
             crate::runtime::route_runtime::route_trace_for_session(&self.tcp_services, session)
                 .await;
         self.tcp_services
             .engine()
             .record_session_route(session.id, &trace);
-        trace.decision
+        trace
+    }
+
+    pub(crate) async fn route_decision(&self, session: &Session) -> RouteDecision {
+        self.route_trace(session).await.decision
     }
 
     pub(crate) fn resolve_outbound(
@@ -81,6 +86,7 @@ impl UdpIngressRuntime {
         session: &Session,
         resolved: ResolvedOutbound<'_>,
         payload: &[u8],
+        mode: RouteMode,
     ) -> Result<FlowStartResult, FlowFailure> {
         crate::runtime::udp_dispatch::start_udp_resolved_outbound(
             dispatch,
@@ -88,6 +94,7 @@ impl UdpIngressRuntime {
             session,
             resolved,
             payload,
+            mode,
         )
         .await
     }

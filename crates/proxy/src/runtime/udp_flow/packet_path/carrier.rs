@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
 use zero_core::Address;
@@ -18,6 +19,24 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
 
     /// Receive the next datagram, stripping transport framing.
     async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError>;
+
+    /// Return the source reported by an address-bearing packet path, when one
+    /// is available. Opaque connected transports have no source to report.
+    async fn recv_from_with_source(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, Option<SocketAddr>), EngineError> {
+        self.recv_from(buf).await.map(|size| (size, None))
+    }
+}
+
+pub(crate) fn packet_path_source(address: &Address, port: u16) -> Option<SocketAddr> {
+    let ip = match address {
+        Address::Ipv4(octets) => IpAddr::V4(Ipv4Addr::from(*octets)),
+        Address::Ipv6(octets) => IpAddr::V6(Ipv6Addr::from(*octets)),
+        Address::Domain(_) => return None,
+    };
+    Some(SocketAddr::new(ip, port))
 }
 
 /// Generic payload-based packet-path transport bridge.
@@ -33,6 +52,13 @@ pub(crate) trait PacketPathPayloadTransport: Send + Sync {
         -> Result<(), EngineError>;
 
     async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError>;
+
+    async fn recv_from_with_source(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, Option<SocketAddr>), EngineError> {
+        self.recv_from(buf).await.map(|size| (size, None))
+    }
 }
 
 #[cfg(feature = "upstream-association-runtime")]
@@ -63,6 +89,13 @@ impl PacketPathCarrier for PacketPathPayloadCarrier {
 
     async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError> {
         self.transport.recv_from(buf).await
+    }
+
+    async fn recv_from_with_source(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, Option<SocketAddr>), EngineError> {
+        self.transport.recv_from_with_source(buf).await
     }
 }
 

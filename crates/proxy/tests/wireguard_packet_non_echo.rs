@@ -5,7 +5,7 @@ mod support;
 use std::net::{IpAddr, Ipv4Addr};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use boringtun::x25519::{PublicKey, StaticSecret};
+use gotatun::x25519::{PublicKey, StaticSecret};
 use tokio::{
     net::UdpSocket,
     time::{sleep, timeout, Duration},
@@ -80,10 +80,10 @@ async fn authenticated_non_echo_icmp_keeps_packet_plane_through_wireguard() {
         let mut buffer = [0_u8; 2048];
         loop {
             let (length, sender) = remote_socket.recv_from(&mut buffer).await.unwrap();
-            for action in remote
-                .receive_datagram(Some(sender.ip()), &buffer[..length])
-                .unwrap()
-            {
+            let Ok(actions) = remote.receive_datagram(Some(sender), &buffer[..length]) else {
+                continue;
+            };
+            for action in actions {
                 match action {
                     TunnelAction::SendNetwork(datagram) => {
                         remote_socket.send_to(&datagram, sender).await.unwrap();
@@ -133,7 +133,7 @@ async fn authenticated_non_echo_icmp_keeps_packet_plane_through_wireguard() {
                 length = socket.recv(&mut buffer) => {
                     let length = length.unwrap();
                     for action in client
-                        .receive_datagram(Some(IpAddr::V4(Ipv4Addr::LOCALHOST)), &buffer[..length])
+                        .receive_datagram(Some(std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)), &buffer[..length])
                         .unwrap()
                     {
                         if let TunnelAction::SendNetwork(datagram) = action {
@@ -153,6 +153,100 @@ async fn authenticated_non_echo_icmp_keeps_packet_plane_through_wireguard() {
     );
     assert_eq!(packet::ip_protocol(&forwarded), Some(packet::IPPROTO_ICMP));
     assert_eq!(forwarded[8], 63, "packet route must decrement IPv4 TTL");
+    assert_eq!(&forwarded[20..], &request[20..]);
+    zero.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn linked_endpoint_forwards_packet_between_peers_on_one_socket() {
+    let source = Ipv4Addr::new(10, 0, 0, 2);
+    let destination = Ipv4Addr::new(198, 51, 100, 1);
+    let zero_port = free_udp_port();
+    let client_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let client_port = client_socket.local_addr().unwrap().port();
+    client_socket
+        .connect((Ipv4Addr::LOCALHOST, zero_port))
+        .await
+        .unwrap();
+    let remote_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let remote_port = remote_socket.local_addr().unwrap().port();
+    let zero_public = public_key(91);
+    let client_public = public_key(92);
+    let remote_public = public_key(93);
+    let mut remote = peer_tunnel(93, &zero_public, "198.51.100.1/32", "10.0.0.2/32");
+    let mut remote_task = tokio::spawn(async move {
+        let mut buffer = [0_u8; 2048];
+        loop {
+            let (length, sender) = remote_socket.recv_from(&mut buffer).await.unwrap();
+            for action in remote
+                .receive_datagram(Some(sender), &buffer[..length])
+                .unwrap()
+            {
+                match action {
+                    TunnelAction::SendNetwork(datagram) => {
+                        remote_socket.send_to(&datagram, sender).await.unwrap();
+                    }
+                    TunnelAction::ReceiveIp { packet, .. } => return packet,
+                }
+            }
+        }
+    });
+    let zero_private = STANDARD.encode([91_u8; 32]);
+    let config = RuntimeConfig::parse(
+        &serde_json::json!({
+            "inbounds": [{"tag":"wg-in", "listen":{"address":"127.0.0.1", "port":zero_port},
+                "protocol":{"type":"wireguard", "private_key":zero_private,
+                    "peers":[
+                        {"public_key":client_public, "allowed_ips":["10.0.0.2/32"]},
+                        {"public_key":remote_public, "allowed_ips":["198.51.100.1/32"]}
+                    ]}}],
+            "outbounds": [{"tag":"wg-out", "protocol":{"type":"wireguard",
+                "private_key":zero_private, "addresses":["10.9.0.2/32"],
+                "inbound_tag":"wg-in", "peers":[
+                    {"public_key":client_public, "endpoint":format!("127.0.0.1:{client_port}"),
+                        "allowed_ips":["10.0.0.2/32"]},
+                    {"public_key":remote_public, "endpoint":format!("127.0.0.1:{remote_port}"),
+                        "allowed_ips":["198.51.100.1/32"]}
+                ]}}],
+            "route":{"rules":[], "final":{"type":"route", "outbound":"wg-out"}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let zero = spawn_engine(Proxy::new(config).unwrap());
+    sleep(Duration::from_millis(100)).await;
+    let mut client = peer_tunnel(92, &zero_public, "10.0.0.2/32", "198.51.100.1/32");
+    let request = timestamp_request(source, destination);
+    for action in client.send_ip_packet(&request).unwrap() {
+        if let TunnelAction::SendNetwork(datagram) = action {
+            client_socket.send(&datagram).await.unwrap();
+        }
+    }
+    let forwarded = timeout(Duration::from_secs(15), async {
+        let mut buffer = [0_u8; 2048];
+        loop {
+            tokio::select! {
+                delivered = &mut remote_task => break delivered.unwrap(),
+                length = client_socket.recv(&mut buffer) => {
+                    let length = length.unwrap();
+                    let Ok(actions) = client.receive_datagram(Some(std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)), &buffer[..length]) else {
+                        continue;
+                    };
+                    for action in actions {
+                        if let TunnelAction::SendNetwork(datagram) = action {
+                            client_socket.send(&datagram).await.unwrap();
+                        }
+                    }
+                }
+            }
+        }
+    }).await.expect("linked endpoint did not forward packet between peers");
+    assert_eq!(packet::ip_source(&forwarded), Some(IpAddr::V4(source)));
+    assert_eq!(
+        packet::ip_destination(&forwarded),
+        Some(IpAddr::V4(destination))
+    );
+    assert_eq!(forwarded[8], 63);
     assert_eq!(&forwarded[20..], &request[20..]);
     zero.shutdown().await.unwrap();
 }

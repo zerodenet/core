@@ -44,7 +44,7 @@ fn compiled_in_outbound_leaf_variants_have_expected_protocol_owners() {
         let claimed = registry.claim_outbound_leaf(&config, leaf.clone());
         assert_eq!(
             claimed.as_ref().map(|claim| claim.has_tcp_capability()).ok(),
-            Some(expected_owners == 1),
+            Some(expected_owners == 1 && protocol != "wireguard"),
             "{} claimed outbound lookup should expose runtime facts and optional adapter with the same ownership policy",
             protocol
         );
@@ -100,11 +100,33 @@ fn udp_outbound_leaf_lookup_matches_tcp_claim_policy() {
                 .as_ref()
                 .map(|claim| claim.has_udp_flow_capability())
                 .ok(),
-            Some(expected_claims == 1),
+            Some(expected_claims == 1 && protocol != "wireguard"),
             "{} claimed udp-flow lookup should follow the same claim policy as tcp outbound lookup",
             protocol
         );
     }
+}
+
+#[cfg(feature = "wireguard")]
+#[test]
+fn wireguard_packet_leaf_supplies_executable_flow_conversion() {
+    let registry = crate::register::protocol_registry();
+    let (config, leaf, _) = compiled_in_outbound_leaves()
+        .into_iter()
+        .find(|(config, leaf, _)| outbound_leaf_name(config, leaf) == "wireguard")
+        .expect("WireGuard fixture");
+    let claimed = registry
+        .claim_outbound_leaf(&config, leaf)
+        .expect("claim WireGuard");
+    assert!(claimed
+        .prepare_tcp_connect_for_route(None, zero_engine::RouteMode::Packet)
+        .is_ok());
+    assert!(claimed
+        .prepare_udp_flow_for_route(None, zero_engine::RouteMode::Packet)
+        .is_ok());
+    assert!(claimed
+        .prepare_tcp_connect_for_route(None, zero_engine::RouteMode::Flow)
+        .is_err());
 }
 
 #[cfg(feature = "udp-runtime")]

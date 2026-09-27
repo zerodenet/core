@@ -3,6 +3,9 @@ use std::iter;
 use std::path::Path;
 
 use zero_config::RuntimeConfig;
+#[cfg(feature = "raw-ip-runtime")]
+use zero_engine::OutboundIdentity;
+use zero_engine::RouteMode;
 use zero_engine::{EngineError, ResolvedLeafOutbound};
 
 use super::ProtocolInventory;
@@ -32,11 +35,12 @@ impl<'a> ClaimedInventoryLeaf<'a> {
         self.claimed
     }
 
-    pub(crate) fn prepare_tcp_connect(
+    pub(crate) fn prepare_tcp_connect_for_route(
         &self,
         source_dir: Option<&Path>,
+        mode: RouteMode,
     ) -> Result<Box<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure> {
-        self.claimed.prepare_tcp_connect(source_dir)
+        self.claimed.prepare_tcp_connect_for_route(source_dir, mode)
     }
 
     pub(crate) fn prepare_tcp_relay_hop(
@@ -47,12 +51,13 @@ impl<'a> ClaimedInventoryLeaf<'a> {
     }
 
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn prepare_udp_flow(
+    pub(crate) fn prepare_udp_flow_for_route(
         &self,
         source_dir: Option<&Path>,
+        mode: RouteMode,
     ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, crate::runtime::udp_dispatch::FlowFailure>
     {
-        self.claimed.prepare_udp_flow(source_dir)
+        self.claimed.prepare_udp_flow_for_route(source_dir, mode)
     }
 
     #[cfg(feature = "raw-ip-runtime")]
@@ -124,6 +129,35 @@ impl<'a> ClaimedRelayChain<'a> {
 
 impl ProtocolInventory {
     #[cfg(feature = "raw-ip-runtime")]
+    pub(super) fn claim_config_outbound<'a>(
+        &self,
+        config: &'a RuntimeConfig,
+        index: usize,
+    ) -> Result<ClaimedInventoryLeaf<'a>, EngineError> {
+        self.claim_outbound_leaf(
+            config,
+            ResolvedLeafOutbound::Proxy {
+                identity: OutboundIdentity::from_config_index(index),
+            },
+        )
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) fn claim_config_relay_chain<'a>(
+        &self,
+        config: &'a RuntimeConfig,
+        indices: &[usize],
+    ) -> Result<ClaimedRelayChain<'a>, EngineError> {
+        let chain = indices
+            .iter()
+            .copied()
+            .map(|index| ResolvedLeafOutbound::Proxy {
+                identity: OutboundIdentity::from_config_index(index),
+            });
+        self.claim_relay_chain(config, chain, |error| error, |error| error)
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn outbound_device_health(
         &self,
         config: &RuntimeConfig,
@@ -135,11 +169,23 @@ impl ProtocolInventory {
     pub(crate) async fn prepare_outbound_devices(
         &self,
         config: &RuntimeConfig,
-        upstream: crate::protocol_registry::UpstreamConnectServices,
+        services: crate::protocol_registry::TcpRuntimeServices,
     ) -> Result<Vec<Box<dyn crate::protocol_registry::PreparedOutboundDeviceState>>, EngineError>
     {
+        use std::sync::Arc;
+
+        let (packet_paths, packet_path_identities) = self.prepare_device_packet_paths(config)?;
+        let context = crate::protocol_registry::OutboundDevicePreparationContext {
+            upstream: services.upstream(),
+            packet_path_services:
+                crate::protocol_registry::PacketPathExecutionServices::from_tcp_execution(
+                    &services.execution(),
+                ),
+            packet_paths: Arc::new(packet_paths),
+            packet_path_identities: Arc::new(packet_path_identities),
+        };
         self.registry
-            .prepare_outbound_devices(config, upstream)
+            .prepare_outbound_devices(config, context)
             .await
     }
 

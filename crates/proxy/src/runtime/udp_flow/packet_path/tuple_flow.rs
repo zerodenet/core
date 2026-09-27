@@ -1,5 +1,5 @@
 //! A bounded packet carrier over target-specific logical datagram connections.
-use super::PacketPathCarrier;
+use super::{packet_path_source, PacketPathCarrier};
 use crate::protocol_registry::UdpAssociationCloseKind;
 use crate::runtime::udp_flow::managed::ManagedTupleUdpFlowConnection;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     future::Future,
     io,
+    net::SocketAddr,
     pin::Pin,
     sync::{Arc, Mutex},
     time::Duration,
@@ -78,8 +79,8 @@ type Slots = Arc<Mutex<HashMap<(Address, u16), Arc<Slot>>>>;
 pub(crate) struct TupleCarrier {
     open: Open,
     slots: Slots,
-    sender: mpsc::Sender<Result<Vec<u8>, EngineError>>,
-    receiver: tokio::sync::Mutex<mpsc::Receiver<Result<Vec<u8>, EngineError>>>,
+    sender: mpsc::Sender<Result<(Address, u16, Vec<u8>), EngineError>>,
+    receiver: tokio::sync::Mutex<mpsc::Receiver<Result<(Address, u16, Vec<u8>), EngineError>>>,
     accounting: Accounting,
     _cleanup: Driver,
 }
@@ -177,7 +178,7 @@ impl PacketPathCarrier for TupleCarrier {
                             _ = sender.closed() => break,
                         };
                         let (packet, failed) = match response {
-                            Ok((_, _, data)) => (Ok(data), false),
+                            Ok((source, port, data)) => (Ok((source, port, data)), false),
                             Err(_) => (
                                 Err(failure(
                                     "packet carrier logical connection closed or overflowed",
@@ -216,7 +217,14 @@ impl PacketPathCarrier for TupleCarrier {
     }
 
     async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError> {
-        let packet = self
+        self.recv_from_with_source(buf).await.map(|(size, _)| size)
+    }
+
+    async fn recv_from_with_source(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, Option<SocketAddr>), EngineError> {
+        let (source, port, packet) = self
             .receiver
             .lock()
             .await
@@ -227,7 +235,7 @@ impl PacketPathCarrier for TupleCarrier {
             return Err(failure("packet carrier receive buffer too small"));
         }
         buf[..packet.len()].copy_from_slice(&packet);
-        Ok(packet.len())
+        Ok((packet.len(), packet_path_source(&source, port)))
     }
 }
 fn failure(message: &'static str) -> EngineError {

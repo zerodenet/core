@@ -24,7 +24,7 @@ pub(crate) use carrier::{
 #[allow(unused_imports)]
 pub(crate) use carrier::{packet_path_payload_carrier, PacketPathPayloadTransport};
 #[allow(unused_imports)]
-pub(crate) use carrier::{PacketPathCarrier, PacketPathCarrierDescriptor};
+pub(crate) use carrier::{packet_path_source, PacketPathCarrier, PacketPathCarrierDescriptor};
 #[cfg(feature = "udp-runtime")]
 #[allow(unused_imports)]
 pub(crate) use context::{ChainTask, UdpFlowContext, UdpPacketRef};

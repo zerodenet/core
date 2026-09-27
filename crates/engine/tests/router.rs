@@ -7,6 +7,47 @@ use zero_config::RuntimeConfig;
 use zero_engine::Engine;
 
 #[test]
+fn route_mode_tracks_the_selected_rule_and_defaults_to_auto() {
+    let config = RuntimeConfig::parse(
+        r#"{
+            "route": {
+                "rules": [{
+                    "condition": {"type": "ip", "values": ["10.0.0.0/8"]},
+                    "action": {"type": "direct"},
+                    "mode": "packet"
+                }],
+                "final": {"type": "direct"},
+                "final_mode": "flow"
+            }
+        }"#,
+    )
+    .unwrap();
+    let engine = Engine::new(config).unwrap();
+    assert_eq!(
+        engine
+            .route_trace_with_inbound(&zero_core::Address::Ipv4([10, 1, 1, 1]), None, None)
+            .route_mode,
+        zero_engine::RouteMode::Packet
+    );
+    assert_eq!(
+        engine
+            .route_trace_with_inbound(&zero_core::Address::Ipv4([192, 0, 2, 1]), None, None)
+            .route_mode,
+        zero_engine::RouteMode::Flow
+    );
+    let default = Engine::new(
+        RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        default
+            .route_trace_with_inbound(&zero_core::Address::Ipv4([192, 0, 2, 1]), None, None)
+            .route_mode,
+        zero_engine::RouteMode::Auto
+    );
+}
+
+#[test]
 fn engine_rebuilds_automatic_wireguard_routes_on_reload() {
     let mut input = serde_json::json!({
         "outbounds":[

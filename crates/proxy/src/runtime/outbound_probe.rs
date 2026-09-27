@@ -227,6 +227,7 @@ impl OutboundProbeRuntime {
                 self.services.clone(),
                 &session,
                 resolved,
+                zero_engine::RouteMode::Auto,
                 intent,
             )
             .await

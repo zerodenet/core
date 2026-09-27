@@ -24,7 +24,7 @@ impl ProtocolRegistry {
     pub(crate) async fn prepare_outbound_devices(
         &self,
         config: &RuntimeConfig,
-        upstream: crate::protocol_registry::UpstreamConnectServices,
+        context: crate::protocol_registry::OutboundDevicePreparationContext,
     ) -> Result<
         Vec<Box<dyn crate::protocol_registry::PreparedOutboundDeviceState>>,
         zero_engine::EngineError,
@@ -38,7 +38,7 @@ impl ProtocolRegistry {
                 .collect::<Vec<_>>();
             prepared.push(
                 capability
-                    .prepare_outbound_devices(&outbounds, upstream.clone())
+                    .prepare_outbound_devices(&outbounds, &config.inbounds, context.clone())
                     .await?,
             );
         }

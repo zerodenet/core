@@ -82,6 +82,7 @@ pub enum RouteDecision {
 pub struct RouteTrace {
     pub decision: RouteDecision,
     pub mode: String,
+    pub route_mode: zero_router::RouteMode,
     pub matched_rule: Option<crate::MatchedRouteRule>,
 }
 

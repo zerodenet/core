@@ -41,6 +41,8 @@ pub(crate) use capability::{
 pub(crate) use claim::claim_session_tcp_leaf_with_source;
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
 pub(crate) use claim::{claim_socket_tcp_leaf, claim_socket_tcp_leaf_with_relay};
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use context::OutboundDevicePreparationContext;
 pub(crate) use context::{
     OutboundAdapterContext, TcpExecutionServices, TcpRuntimeServices, UpstreamConnectServices,
 };

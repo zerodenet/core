@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use core::fmt;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct Key([u8; 32]);
@@ -26,16 +26,16 @@ pub enum KeyError {
 pub fn parse_key(value: &str) -> Result<Key, KeyError> {
     if value.len() == 64 && value.as_bytes().iter().all(u8::is_ascii_hexdigit) {
         let bytes = value.as_bytes();
-        let mut key = [0_u8; 32];
+        let mut key = Zeroizing::new([0_u8; 32]);
         for index in 0..32 {
             key[index] = (hex_nibble(bytes[index * 2]) << 4) | hex_nibble(bytes[index * 2 + 1]);
         }
-        return Ok(Key(key));
+        return Ok(Key(*key));
     }
 
-    let mut key = [0_u8; 32];
-    match STANDARD.decode_slice(value, &mut key) {
-        Ok(32) => Ok(Key(key)),
+    let mut key = Zeroizing::new([0_u8; 32]);
+    match STANDARD.decode_slice(value, &mut *key) {
+        Ok(32) => Ok(Key(*key)),
         Ok(_) | Err(base64::DecodeSliceError::OutputSliceTooSmall) => Err(KeyError::InvalidLength),
         Err(base64::DecodeSliceError::DecodeError(_)) => Err(KeyError::InvalidEncoding),
     }
