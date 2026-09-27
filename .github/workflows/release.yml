@@ -107,6 +107,20 @@ jobs:
           echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
           echo "RUSTFLAGS=-C link-arg=-fuse-ld=lld" >> "$GITHUB_ENV"
 
+      - name: Select complete Perl for vendored OpenSSL (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $perl = Join-Path $env:SystemDrive 'Strawberry\perl\bin\perl.exe'
+          if (-not (Test-Path $perl)) {
+            throw "Strawberry Perl is missing: $perl"
+          }
+          & $perl -MLocale::Maketext::Simple -e '1'
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Strawberry Perl cannot load Locale::Maketext::Simple'
+          }
+          "OPENSSL_SRC_PERL=$perl" >> $env:GITHUB_ENV
+
       - name: Build release
         shell: bash
         run: |
