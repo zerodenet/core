@@ -49,15 +49,33 @@ selection function.
 
 URLTest and `diagnostics.probe_outbound` share the neutral, process-bounded
 outbound HTTP probe executor, but not policy or traffic-health state. A URLTest
-probe continues to respect an existing traffic quarantine, but never records
-generic outbound success or failure; only its explicit policy path applies the
-result, selection tolerance, member health/selection snapshots, and
-`policy.probe.completed`. A single-outbound diagnostic additionally bypasses
-the shared quarantine, so it can actively test a quarantined outbound without
-clearing or extending that state. It is read-only with respect to every URLTest
-group and the shared traffic circuit breaker. Native completion logs
-distinguish the paths as `operation_kind=policy_urltest` and
+policy probe bypasses an existing traffic quarantine and never records generic
+outbound success or failure; only its explicit policy path applies the result,
+selection tolerance, member health/selection snapshots, and
+`policy.probe.completed`. A single-outbound diagnostic also bypasses the
+shared quarantine, but does not change URLTest or traffic-health state. Native
+completion logs distinguish the paths as `operation_kind=policy_urltest` and
 `operation_kind=diagnostic_outbound`.
+
+## Traffic selection and shared quarantine
+
+An explicit selector remains pinned to its chosen target. Within a URLTest
+group, ordinary traffic first checks whether the current member's resolved
+proxy leaf is globally available, then checks passive member health for the
+destination. If either check rejects it, the resolver considers members with
+healthy URLTest measurements by latency and then the remaining configured
+members. A member is usable only when both the global leaf gate and passive
+member gate allow it. If none is usable, resolution returns
+`no_usable_urltest_member` with the group tag. A surrounding fallback group may
+still choose another configured candidate.
+
+The global gate is read-only during group selection. TCP candidate admission
+reserves the actual traffic attempt. After the 60-second cooldown, only one
+half-open attempt may run for a leaf; a failed or abandoned attempt restarts
+the cooldown. If the leaf becomes quarantined between URLTest selection and
+admission, traffic releases its passive reservation and resolves the group
+once more. Policy probes may update the URLTest winner while a leaf remains
+globally quarantined; ordinary traffic continues to honor the global gate.
 
 ## Local failures and traffic health
 
