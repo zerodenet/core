@@ -2,6 +2,22 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use super::checksum;
 
+/// Whether a complete IPv4 packet permits router fragmentation.
+pub fn ipv4_fragmentation_allowed(packet: &[u8]) -> bool {
+    super::parse_ip(packet).is_some()
+        && packet[0] >> 4 == 4
+        && u16::from_be_bytes([packet[6], packet[7]]) & 0x4000 == 0
+}
+
+/// Fragment a forwarded IPv4 packet using its existing identification.
+pub fn fragment_forwarded_packet(packet: &[u8], mtu: usize) -> Vec<Vec<u8>> {
+    if !ipv4_fragmentation_allowed(packet) {
+        return Vec::new();
+    }
+    let identification = u32::from(u16::from_be_bytes([packet[4], packet[5]]));
+    fragment_ip_packet(packet, mtu, identification)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FragmentKey {
     pub src: IpAddr,

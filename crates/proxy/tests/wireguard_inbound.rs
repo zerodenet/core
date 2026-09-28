@@ -1,6 +1,10 @@
 #![cfg(all(feature = "wireguard", feature = "socks5"))]
 
+#[path = "support/host.rs"]
+mod host;
 mod support;
+
+use host::non_loopback_host_ipv4;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -26,15 +30,6 @@ use support::{free_port, free_udp_port, spawn_engine, wait_for_listener};
 
 fn public_key(private: u8) -> String {
     STANDARD.encode(PublicKey::from(&StaticSecret::from([private; 32])).as_bytes())
-}
-
-fn non_loopback_host_ipv4() -> Ipv4Addr {
-    let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
-    socket.connect("192.0.2.1:9").unwrap();
-    let IpAddr::V4(ip) = socket.local_addr().unwrap().ip() else {
-        panic!("IPv4 required")
-    };
-    ip
 }
 
 #[tokio::test]

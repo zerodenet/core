@@ -126,7 +126,10 @@ fn wireguard_packet_leaf_supplies_executable_flow_conversion() {
         .is_ok());
     assert!(claimed
         .prepare_tcp_connect_for_route(None, zero_engine::RouteMode::Flow)
-        .is_err());
+        .is_ok());
+    assert!(claimed
+        .prepare_udp_flow_for_route(None, zero_engine::RouteMode::Flow)
+        .is_ok());
 }
 
 #[cfg(feature = "udp-runtime")]

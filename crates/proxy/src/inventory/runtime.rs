@@ -68,6 +68,13 @@ impl<'a> ClaimedInventoryLeaf<'a> {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn prepare_translated_packet_route(
+        &self,
+    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
+        self.claimed.prepare_translated_packet_route()
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn prepare_datagram_exchange(
         &self,
     ) -> Option<Box<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>> {

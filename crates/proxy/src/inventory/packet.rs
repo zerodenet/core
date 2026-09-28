@@ -12,6 +12,7 @@ use crate::runtime::{packet_route::PreparedPacketRouteOperation, path::TcpPathCa
 pub(crate) enum PacketRouteTarget {
     Packet {
         tag: String,
+        translated: bool,
         operation: Box<dyn PreparedPacketRouteOperation>,
     },
     Flow,
@@ -82,15 +83,41 @@ impl ProtocolInventory {
             TcpPathCategory::Block => return PacketRouteTarget::Block,
             _ => {}
         }
+        if mode == RouteMode::Translate && matches!(protocol, Some(IPPROTO_ICMP | IPPROTO_ICMPV6)) {
+            return match claimed.prepare_translated_packet_route() {
+                Some(operation) => PacketRouteTarget::Packet {
+                    tag: runtime.tag.unwrap_or_default(),
+                    translated: true,
+                    operation,
+                },
+                None => PacketRouteTarget::Unsupported,
+            };
+        }
+        if matches!(mode, RouteMode::Flow | RouteMode::Translate) {
+            // Force the ingress through its L4 stack. The selected outbound
+            // may still execute a registered Flow -> Packet conversion.
+            let supported = match protocol {
+                Some(IPPROTO_TCP) => claimed
+                    .prepare_tcp_connect_for_route(config.source_dir(), mode)
+                    .is_ok(),
+                Some(IPPROTO_UDP) => claimed
+                    .prepare_udp_flow_for_route(config.source_dir(), mode)
+                    .is_ok(),
+                _ => false,
+            };
+            return if supported {
+                PacketRouteTarget::Flow
+            } else {
+                PacketRouteTarget::Unsupported
+            };
+        }
         let mut sinks = claimed.data_plane_sinks();
         match mode {
             RouteMode::Auto => {}
             RouteMode::Packet => sinks.retain_only(Plane::Packet),
-            RouteMode::Flow => match protocol {
-                Some(IPPROTO_TCP) => sinks.retain_only(Plane::Stream),
-                Some(IPPROTO_UDP) => sinks.retain_only(Plane::Datagram),
-                _ => return PacketRouteTarget::Unsupported,
-            },
+            RouteMode::Flow | RouteMode::Translate => {
+                unreachable!("converted ingress was prepared above")
+            }
         }
         let path = NetworkGraph::packet_ingress().shortest_path(Plane::Packet, sinks, protocol);
         match path.as_ref().and_then(|path| path.planes.last()) {
@@ -100,6 +127,7 @@ impl ProtocolInventory {
                 };
                 PacketRouteTarget::Packet {
                     tag: runtime.tag.unwrap_or_default(),
+                    translated: false,
                     operation,
                 }
             }

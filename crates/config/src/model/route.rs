@@ -115,6 +115,8 @@ pub enum RouteModeConfig {
     Auto,
     Packet,
     Flow,
+    /// TCP/UDP use Flow; ICMP Echo requires an outbound-addressed Packet adapter.
+    Translate,
 }
 
 impl RouteModeConfig {
@@ -127,6 +129,7 @@ impl RouteModeConfig {
             Self::Auto => zero_router::RouteMode::Auto,
             Self::Packet => zero_router::RouteMode::Packet,
             Self::Flow => zero_router::RouteMode::Flow,
+            Self::Translate => zero_router::RouteMode::Translate,
         }
     }
 }

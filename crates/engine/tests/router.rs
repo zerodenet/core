@@ -7,6 +7,28 @@ use zero_config::RuntimeConfig;
 use zero_engine::Engine;
 
 #[test]
+fn explicit_translation_mode_survives_config_roundtrip_and_engine_route_evaluation() {
+    let config = RuntimeConfig::parse(
+        r#"{"route":{"rules":[{
+        "condition":{"type":"ip","values":["10.0.0.0/8"]},
+        "action":{"type":"direct"},"mode":"translate"
+    }],"final":{"type":"direct"},"final_mode":"translate"}}"#,
+    )
+    .unwrap();
+    let serialized = serde_json::to_string(&config).unwrap();
+    let config = RuntimeConfig::parse(&serialized).unwrap();
+    let engine = Engine::new(config).unwrap();
+    for address in [[10, 1, 1, 1], [192, 0, 2, 1]] {
+        assert_eq!(
+            engine
+                .route_trace_with_inbound(&zero_core::Address::Ipv4(address), None, None)
+                .route_mode,
+            zero_engine::RouteMode::Translate
+        );
+    }
+}
+
+#[test]
 fn route_mode_tracks_the_selected_rule_and_defaults_to_auto() {
     let config = RuntimeConfig::parse(
         r#"{

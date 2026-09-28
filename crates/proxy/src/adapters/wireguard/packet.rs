@@ -25,11 +25,22 @@ pub(super) struct WireguardPacketLeaf {
 impl ClaimedPacketLeaf for WireguardPacketLeaf {
     fn prepare_packet_route(&self) -> Box<dyn PreparedPacketRouteOperation> {
         Box::new(RawIpPacketOperation {
+            translate_source: false,
             tag: self.tag.clone(),
             identity: self.identity,
             plan: self.plan.clone(),
             pool: self.pool.clone(),
         })
+    }
+
+    fn prepare_translated_packet_route(&self) -> Option<Box<dyn PreparedPacketRouteOperation>> {
+        Some(Box::new(RawIpPacketOperation {
+            translate_source: true,
+            tag: self.tag.clone(),
+            identity: self.identity,
+            plan: self.plan.clone(),
+            pool: self.pool.clone(),
+        }))
     }
 
     fn prepare_datagram_exchange(&self) -> Option<Box<dyn PreparedDatagramExchangeOperation>> {

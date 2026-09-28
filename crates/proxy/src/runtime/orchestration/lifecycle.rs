@@ -26,6 +26,26 @@ where
             return shutdown_error.map_or(Ok(()), Err);
         }
 
+        #[cfg(feature = "raw-ip-runtime")]
+        let network_change = {
+            let retry_at = state.device_retry_at;
+            let changes = &mut state.egress_updates;
+            async move {
+                tokio::select! {
+                    Ok(()) = changes.changed() => {},
+                    _ = async {
+                        if let Some(deadline) = retry_at {
+                            tokio::time::sleep_until(deadline).await;
+                        } else {
+                            std::future::pending::<()>().await;
+                        }
+                    } => {},
+                }
+            }
+        };
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let network_change = std::future::pending::<()>();
+
         tokio::select! {
             _ = &mut shutdown, if !shutting_down => {
                 shutting_down = true;
@@ -58,6 +78,10 @@ where
                     "proxy orchestration reload requested"
                 );
                 state.reconcile_reload(proxy).await;
+            }
+            _ = network_change, if !shutting_down => {
+                #[cfg(feature = "raw-ip-runtime")]
+                state.reconcile_outbound_network(proxy).await;
             }
             result = state.listeners.join_next(), if !state.listeners.is_empty() => {
                 if let Err(listener_error) = handle_listener_result(

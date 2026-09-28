@@ -15,6 +15,8 @@ pub enum RouteMode {
     Auto,
     Packet,
     Flow,
+    /// L4 flow conversion for TCP/UDP, explicit Packet source translation for Echo.
+    Translate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

@@ -2,7 +2,6 @@
 
 use std::{
     collections::HashMap,
-    net::IpAddr,
     time::{Duration, Instant},
 };
 use zero_stack::packet;
@@ -13,16 +12,12 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PacketPlane {
     Packet(String),
+    TranslatedPacket(String),
     Flow,
     DirectEcho,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct RouteKey {
-    source: IpAddr,
-    destination: IpAddr,
-    protocol: u8,
-}
+type RouteKey = packet::PacketConversationKey;
 
 struct RoutePin {
     plane: PacketPlane,
@@ -74,11 +69,7 @@ impl PacketSessionPins {
 }
 
 fn key(packet: &[u8]) -> Option<RouteKey> {
-    Some(RouteKey {
-        source: packet::ip_source(packet)?,
-        destination: packet::ip_destination(packet)?,
-        protocol: packet::ip_protocol(packet)?,
-    })
+    packet::packet_conversation_key(packet)
 }
 
 #[cfg(test)]

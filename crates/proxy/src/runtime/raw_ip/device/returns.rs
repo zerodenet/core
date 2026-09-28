@@ -17,6 +17,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 #[derive(Default)]
 pub(super) struct PacketReturns {
     routes: Mutex<HashMap<IpAddr, ReturnRoute>>,
+    translated: Mutex<zero_stack::echo_translation::EchoTranslation<mpsc::Sender<Vec<u8>>>>,
 }
 
 struct ReturnRoute {
@@ -74,6 +75,17 @@ impl PacketReturns {
     }
 
     pub(super) fn deliver(&self, packet: &[u8]) -> bool {
+        if let Some((replies, mut restored)) = self
+            .translated
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .response(packet, Instant::now())
+        {
+            if packet::advance_ip_hop(&mut restored) {
+                let _ = replies.try_send(restored);
+            }
+            return true;
+        }
         let Some(destination) = packet::ip_destination(packet) else {
             return false;
         };
@@ -95,10 +107,33 @@ impl PacketReturns {
     }
 
     pub(super) fn clear(&self) {
+        self.translated
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
         self.routes
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clear();
+    }
+
+    pub(super) fn translate(
+        &self,
+        packet: &[u8],
+        local: IpAddr,
+        replies: mpsc::Sender<Vec<u8>>,
+    ) -> io::Result<Vec<u8>> {
+        self.translated
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .request(packet, local, replies, Instant::now())
+    }
+
+    pub(super) fn expire(&self) {
+        self.translated
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .expire(Instant::now(), mpsc::Sender::is_closed);
     }
 }
 

@@ -14,6 +14,14 @@ use crate::runtime::{listeners, reload, Proxy};
 
 pub(super) struct OrchestrationState {
     #[cfg(feature = "raw-ip-runtime")]
+    pub(super) egress_updates: watch::Receiver<u64>,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) device_generation: u64,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) device_retry_at: Option<tokio::time::Instant>,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) device_retry_delay: std::time::Duration,
+    #[cfg(feature = "raw-ip-runtime")]
     outbound_devices: crate::inventory::ProtocolInventory,
     pub(super) shutdown_tx: watch::Sender<bool>,
     pub(super) shutdown_rx: watch::Receiver<bool>,
@@ -40,6 +48,14 @@ impl OrchestrationState {
         let inbound_runtime_factory =
             InboundListenerRuntimeFactory::new(SharedIngressRuntimeServices::new(tcp_services));
         let mut state = Self {
+            #[cfg(feature = "raw-ip-runtime")]
+            egress_updates: proxy.egress_interface.subscribe_generation(),
+            #[cfg(feature = "raw-ip-runtime")]
+            device_generation: proxy.egress_interface.generation(),
+            #[cfg(feature = "raw-ip-runtime")]
+            device_retry_at: None,
+            #[cfg(feature = "raw-ip-runtime")]
+            device_retry_delay: std::time::Duration::from_secs(1),
             #[cfg(feature = "raw-ip-runtime")]
             outbound_devices: proxy.protocols.clone(),
             shutdown_tx,
@@ -72,6 +88,8 @@ impl OrchestrationState {
             )
             .await?;
         #[cfg(feature = "raw-ip-runtime")]
+        let prepared_generation = proxy.egress_interface.generation();
+        #[cfg(feature = "raw-ip-runtime")]
         let prepared_outbound_devices = match proxy
             .protocols
             .prepare_outbound_devices(&proxy.config, proxy.tcp_runtime_services())
@@ -95,6 +113,12 @@ impl OrchestrationState {
         #[cfg(feature = "raw-ip-runtime")]
         for prepared in prepared_outbound_devices {
             prepared.publish();
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            state.device_generation = prepared_generation;
+            // Leave startup notifications queued. A topology change racing
+            // preparation completion must stay visible to the runtime loop.
         }
         if let Err(error) = state.start_inbounds(proxy).await {
             if let Err(cleanup_error) = proxy

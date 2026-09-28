@@ -7,16 +7,19 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 mod fragment;
 mod icmp;
+mod identity;
 pub use fragment::{
-    fragment_ip_packet, parse_ip_fragment, rebuild_fragmented_packet, FragmentKey, ParsedIpFragment,
+    fragment_forwarded_packet, fragment_ip_packet, ipv4_fragmentation_allowed, parse_ip_fragment,
+    rebuild_fragmented_packet, FragmentKey, ParsedIpFragment,
 };
 pub use icmp::{
     build_icmp_echo_probe, build_icmp_echo_reply, build_icmp_echo_tunnel_probe,
     build_icmp_echo_unreachable_response, build_icmp_mtu_response, build_icmp_response,
-    build_icmp_time_exceeded_response, build_udp_unreachable_response, parse_icmp_echo_reply,
-    parse_icmp_echo_request, parse_icmp_error, IcmpEchoReply, IcmpEchoRequest, IcmpErrorKind,
-    ParsedIcmpError,
+    build_icmp_time_exceeded_response, build_udp_unreachable_response, echo_response_key,
+    parse_icmp_echo_reply, parse_icmp_echo_request, parse_icmp_error, restore_echo_response,
+    translate_echo_request, IcmpEchoReply, IcmpEchoRequest, IcmpErrorKind, ParsedIcmpError,
 };
+pub use identity::{packet_conversation_key, PacketConversationKey};
 
 // ── Protocol numbers ──────────────────────────────────────────────────
 

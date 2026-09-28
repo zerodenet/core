@@ -34,7 +34,9 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             match mode {
                 RouteMode::Auto => {}
                 RouteMode::Packet => sinks.retain_only(Plane::Packet),
-                RouteMode::Flow => sinks.retain_only(Plane::Stream),
+                // A Flow path may terminate at Packet through its executable
+                // active-stack conversion; it need not have a native stream sink.
+                RouteMode::Flow | RouteMode::Translate => {}
             }
             let path =
                 NetworkGraph::flow_ingress().shortest_path(Plane::Stream, sinks, Some(IPPROTO_TCP));
@@ -79,7 +81,7 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             match mode {
                 RouteMode::Auto => {}
                 RouteMode::Packet => sinks.retain_only(Plane::Packet),
-                RouteMode::Flow => sinks.retain_only(Plane::Datagram),
+                RouteMode::Flow | RouteMode::Translate => {}
             }
             let path = NetworkGraph::flow_ingress().shortest_path(
                 Plane::Datagram,

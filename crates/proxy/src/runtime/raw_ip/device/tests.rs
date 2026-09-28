@@ -14,7 +14,7 @@ async fn wireguard_opaque_carrier_does_not_invent_a_wire_source() {
     use tokio::sync::{mpsc, Mutex};
     use zero_engine::EngineError;
 
-    use super::{RawIpAction, RawIpTunnel, RawIpWireCarrier};
+    use super::super::{RawIpAction, RawIpTunnel, RawIpWireCarrier};
 
     struct Carrier {
         incoming: Mutex<mpsc::Receiver<(Vec<u8>, Option<SocketAddr>)>>,

@@ -61,6 +61,14 @@ pub(crate) trait ClaimedPacketLeaf: Send + Sync {
         &self,
     ) -> Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>;
 
+    /// Explicit, opt-in source translation implemented by the common IP stack.
+    /// This remains a Packet operation, never an ICMP L4 capability.
+    fn prepare_translated_packet_route(
+        &self,
+    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
+        None
+    }
+
     fn prepare_datagram_exchange(
         &self,
     ) -> Option<Box<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>> {

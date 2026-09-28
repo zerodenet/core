@@ -12,7 +12,7 @@
 - `protocols/wireguard` 的 package version 跟随最终选定并固定的 Rust 协议引擎版本；Zero 产品版本仍由 workspace version 管理。
 - WireGuard 的日常进度提交不自动生成新的 dev tag 或 Release；只有在目标进度完成并收到明确发布指令后，才执行版本晋级和打标。
 
-当前实现进度：M1 已建立独立 protocol crate、密钥/地址/endpoint/peer 校验、allowed-IP 最长前缀 peer 选择、按已认证 peer 反查源地址，以及 outbound/inbound 配置契约；配置中的 private/pre-shared key 在 Debug 中脱敏，配置对象销毁时擦除其 String 缓冲区。`runtime` feature 已接入固定 GotaTun `0.9.2`，实现握手、加解密、16 字节数据填充、定时器调用和保守消息上限。M2 的客户端 UDP 栈已有主动 IPv4/IPv6 UDP、临时端口、分片/重组与有界队列；客户端 TCP 栈已有主动握手、双向流、FIN、重传、闲置清理和独立跨网 RTO 策略。已认证的 ICMPv4/ICMPv6 错误现在可按引用的 TCP/UDP 四元组关联：UDP flow 收到不可达等错误后关闭；收到 Packet Too Big 后按该 socket 的目标地址降低后续 UDP 包的分片 MTU，并保持 flow 可用；半开 TCP 遇到硬不可达会提前失败。TCP 收到 Packet Too Big 后按连接降低后续新发 TCP 段的 MSS，之前已发包的重传仍按降低后的 IP MTU 分片。L3 入站按既有 Router 决策自动选择最少转换的数据路径：出站具备 PacketSink 时，IPv4/IPv6 内层包保留原始源/目标并经共享 WireGuard 设备转发，TTL/Hop Limit 减一，回包按原始源地址送回入站；TCP/UDP 仅在出站没有 PacketSink 时进入原有 Flow 栈。direct 的 ICMP echo 仍使用宿主 raw/ping datagram socket 真实探测；仅支持 TCP/UDP 的出站对 ICMP 明确拒绝。fallback 保留候选顺序，阻断与能力不兼容的候选不会暗中绕到 direct。出站 MTU 不足时，IPv4 DF=0 按出站 MTU 分片，IPv4 DF=1 与 IPv6 返回 Packet Too Big。direct 的本机 IPv4/IPv6 loopback 探测、单段 IPv4 往返，以及两段 WireGuard 的 IPv4/IPv6 原源地址 Echo、TCP、UDP 往返和 1280 MTU 下的大 UDP 分片重组已通过；真实 TUN、外部目标及故障恢复仍待验收。M3 的 opt-in `wireguard` 出站注册原生 PacketSink；通用 Flow→Packet 转换使同一 outbound/peer 的 TCP 连接和 UDP flow 共享握手、外层 socket 和 IP 栈。设备在启动或 reload 时按 peer 预备：保留身份及 egress 未变的设备，新设备构造和初始握手包发送成功后才发布；预备或后续 reload 阶段失败则关闭候选并保留旧状态。发布后的旧设备拒绝新 flow，最长 30 秒后强制终止任务；活动设备上限 128、退役队列上限 128。这里的“预备成功”不代表远端完成认证握手或业务可达，密钥材料也只能在最后一个持有者释放时擦除，不能宣称即时清除所有副本。M4 入站已实现 UDP bind、协议层握手公钥/receiver index peer 分发、allowed-IP 源验证、已认证 endpoint roaming，以及现有用户态 TCP/UDP 栈与通用路由接入；Zero ↔ Zero 的 TCP/UDP 双向 payload（含超 MTU 分片）和新端口绑定失败时旧会话继续可用，已通过本地集成测试。同地址同端口的 WireGuard 入站配置更新现在复用原 UDP socket；密钥与计时身份未变的同位置 peer 保留认证会话，改变身份的 peer 重新握手。Zero outbound 到 Xray `v26.3.27` inbound 的 TCP/UDP echo，以及 Xray outbound 到 Zero inbound 的 TCP/UDP echo，均已在 macOS 上通过。wireguard-go 的双向 payload、两个入站 peer、约 134 秒持续收发及本地端口 roaming已在旧引擎上通过，故障恢复场景、其余平台和生产安全审计尚未完成，不能将当前能力视为完整 WireGuard 或生产可用。
+当前实现进度：M1 已建立独立 protocol crate、密钥/地址/endpoint/peer 校验、allowed-IP 最长前缀 peer 选择、按已认证 peer 反查源地址，以及 outbound/inbound 配置契约；配置中的 private/pre-shared key 在 Debug 中脱敏，配置对象销毁时擦除其 String 缓冲区。`runtime` feature 已接入固定 GotaTun `0.9.2`，实现握手、加解密、16 字节数据填充、定时器调用和保守消息上限。M2 的客户端 UDP 栈已有主动 IPv4/IPv6 UDP、临时端口、分片/重组与有界队列；客户端 TCP 栈已有主动握手、双向流、FIN、重传、闲置清理和独立跨网 RTO 策略。已认证的 ICMPv4/ICMPv6 错误现在可按引用的 TCP/UDP 四元组关联：UDP flow 收到不可达等错误后关闭；收到 Packet Too Big 后按该 socket 的目标地址降低后续 UDP 包的分片 MTU，并保持 flow 可用；半开 TCP 遇到硬不可达会提前失败。TCP 收到 Packet Too Big 后按连接降低后续新发 TCP 段的 MSS，之前已发包的重传仍按降低后的 IP MTU 分片。L3 入站在 auto 模式下按既有 Router 决策选择最少转换的数据路径：出站具备 PacketSink 时，IPv4/IPv6 内层包保留原始源/目标并经共享 WireGuard 设备转发，TTL/Hop Limit 减一，回包按原始源地址送回入站；auto 模式的 TCP/UDP 仅在出站没有 PacketSink 时进入原有 Flow 栈；flow 模式先终止为 Flow，再通过出站可执行的转换发送。direct 的 ICMP echo 仍使用宿主 raw/ping datagram socket 真实探测；仅支持 TCP/UDP 的出站对 ICMP 明确拒绝。fallback 保留候选顺序，阻断与能力不兼容的候选不会暗中绕到 direct。出站 MTU 不足时，IPv4 DF=0 按出站 MTU 分片，IPv4 DF=1 与 IPv6 返回 Packet Too Big。direct 的本机 IPv4/IPv6 loopback 探测、单段 IPv4 往返，以及两段 WireGuard 的 IPv4/IPv6 原源地址 Echo、TCP、UDP 往返和 1280 MTU 下的大 UDP 分片重组已通过；真实 TUN、外部目标及故障恢复仍待验收。M3 的 opt-in `wireguard` 出站注册原生 PacketSink；通用 Flow→Packet 转换使同一 outbound/peer 的 TCP 连接和 UDP flow 共享握手、外层 socket 和 IP 栈。设备在启动、reload 或物理出口 generation 变化时按 peer 预备：保留身份及 egress 未变的设备，新设备构造和初始握手包发送成功后才发布；预备或后续 reload 阶段失败则关闭候选并保留旧状态。发布后的旧设备拒绝新 flow，最长 30 秒后强制终止任务；活动设备上限 128、退役队列上限 128。这里的“预备成功”不代表远端完成认证握手或业务可达，密钥材料也只能在最后一个持有者释放时擦除，不能宣称即时清除所有副本。M4 入站已实现 UDP bind、协议层握手公钥/receiver index peer 分发、allowed-IP 源验证、已认证 endpoint roaming，以及现有用户态 TCP/UDP 栈与通用路由接入；Zero ↔ Zero 的 TCP/UDP 双向 payload（含超 MTU 分片）和新端口绑定失败时旧会话继续可用，已通过本地集成测试。同地址同端口的 WireGuard 入站配置更新现在复用原 UDP socket；密钥与计时身份未变的同位置 peer 保留认证会话，改变身份的 peer 重新握手。Zero outbound 到 Xray `v26.3.27` inbound 的 TCP/UDP echo，以及 Xray outbound 到 Zero inbound 的 TCP/UDP echo，均已在 macOS 上通过。wireguard-go 的双向 payload、两个入站 peer、约 134 秒持续收发及本地端口 roaming已在旧引擎上通过，故障恢复场景、其余平台和生产安全审计尚未完成，不能将当前能力视为完整 WireGuard 或生产可用。
 
 双向端点模式已通过 `inbound_tag` 接线：一份 peer Noise 状态和一个入站 UDP socket 同时服务入站 Packet 与出站 Packet/派生 TCP/UDP。本地两端点双向 TCP/UDP、超 MTU UDP 及单端点两个 peer 之间的原始 Packet 转发已通过。共享端点同端口的 peer 配置变更在设备预备完成后提交，失败的候选监听端口绑定保留旧端点；`outer_udp_proxy` 也可用于共享端点。密钥轮换时业务连接是否全程无丢包、外部网络故障恢复仍待验证。
 
@@ -45,7 +45,7 @@
 | wireguard-go 双向互操作 | 固定 commit userspace peer 的 IPv4/IPv6 出站、IPv4 direct 入站、IPv4/IPv6 两 peer Packet 转发 payload 已在 macOS 本地通过；同一 Zero 入站接受两个独立 wireguard-go peer 的 IPv4 TCP/UDP payload；25 秒 keepalive 配置下约 134 秒持续收发通过 | 多 peer 真实失联或重协商故障、真实网络与其余平台验收 |
 | GotaTun 默认启用 | 安全审计未完成，仍为 opt-in | 关闭审计阻断项后再评估默认 `full` |
 
-数据平面采用 Packet/Flow 双平面与 capability graph：Engine 先确定候选出站及 fallback 顺序，Proxy 只在当前候选内部寻找成本最低的可执行路径。当前运行时注册 Packet→Stream（TCP）、Packet→Datagram（UDP）、Stream→Packet（TCP）和 Datagram→Packet（UDP）；后两条边仅在 PacketSink 提供共享用户态栈转换操作时可执行。WireGuard 注册原生 PacketSink，并通过通用边为 SOCKS 等 Flow 入站提供 TCP/UDP；本地 SOCKS→WireGuard→WireGuard 入站的双向 payload 已在 `route.final_mode=packet` 下通过。配置层支持规则 `mode` 与 `final_mode` 的 `auto`、`packet`、`flow`，默认 `auto`；强制路径不存在时明确失败，不悄悄转 Direct。通用 Direct PacketSink 尚未实现；Direct 的特定 ICMP Echo 探测仍是独立宿主 socket 路径。只有具备 PacketSink 的出站接收完整 IP 包；仅具备 Stream/Datagram 的出站不能接收 ICMP。候选失败才按配置顺序尝试下一个，Block 与能力不兼容终止本次 Packet 选择。WireGuard 出站以原始源地址发送 Packet，需要远端 AllowedIPs 与回程路由覆盖该源；同一共享设备上来自不同入站的重叠源地址被拒绝，不隐式执行 NAT。外层 UDP 可通过 `outer_udp_proxy` 引用具备双向 packet-path 的具体出站，或引用成员均为具体出站的 Relay 组；SOCKS5 单跳和 SOCKS5→Shadowsocks 多跳的 TCP/UDP 本地往返已通过。
+数据平面采用 Packet/Flow 双平面与 capability graph：Engine 先确定候选出站及 fallback 顺序，Proxy 只在当前候选内部寻找成本最低的可执行路径。当前运行时注册 Packet→Stream（TCP）、Packet→Datagram（UDP）、Stream→Packet（TCP）和 Datagram→Packet（UDP）；后两条边仅在 PacketSink 提供共享用户态栈转换操作时可执行。WireGuard 注册原生 PacketSink，并通过通用边为 SOCKS 等 Flow 入站提供 TCP/UDP；本地 SOCKS→WireGuard→WireGuard 入站的双向 payload 已在 `route.final_mode=packet` 下通过。配置层支持规则 `mode` 与 `final_mode` 的 `auto`、`packet`、`flow`、`translate`，默认 `auto`；强制路径不存在时明确失败，不悄悄转 Direct。通用 Direct PacketSink 尚未实现；Direct 的特定 ICMP Echo 探测仍是独立宿主 socket 路径。只有具备 PacketSink 的出站接收完整 IP 包；仅具备 Stream/Datagram 的出站不能接收 ICMP。候选失败才按配置顺序尝试下一个，Block 与能力不兼容终止本次 Packet 选择。WireGuard 出站以原始源地址发送 Packet，需要远端 AllowedIPs 与回程路由覆盖该源；同一共享设备上来自不同入站的重叠源地址被拒绝，不隐式执行 NAT。外层 UDP 可通过 `outer_udp_proxy` 引用具备双向 packet-path 的具体出站，或引用成员均为具体出站的 Relay 组；SOCKS5 单跳和 SOCKS5→Shadowsocks 多跳的 TCP/UDP 本地往返已通过。
 
 通用 Direct PacketSink 是 Packet/Flow 总方案中的独立扩展，不计入 WireGuard 端点的完成门槛。当前 Direct 只有 Stream/Datagram 能力及特定 ICMP Echo 探测；L3 入站选中 Direct 时，TCP/UDP 可走 Packet→Flow，其他无法转换的 IP 协议明确失败。如果以后要求将原始 IP 包直接送入宿主网络并收回包，Zero 需要新增可执行的 Direct PacketSink 和平台 L3 收发适配；这项独立工程不由 WireGuard 实现代办。宿主转发、NAT、防火墙和回程路由由操作系统及部署环境负责，Zero 不因选择 Direct 隐式改动它们。WireGuard 原生 PacketSink、WireGuard 入站到出站的 Packet 路径，以及现有 TCP/UDP Direct Flow 路径均不依赖这项扩展。
 
@@ -366,3 +366,99 @@ WireGuard feature 进入默认 `full` 之前必须同时满足：
 4. reload/last-known-good、密钥 redaction、资源上限和 shutdown 测试通过；
 5. 三平台编译与 workspace 全量门禁通过；
 6. 文档明确列出未经外部验证的 inbound、未实现的 relay-chain 或 kernel-TUN 能力；未完成项不得由 capability discovery 报告为生产支持。
+
+## 2026-09-28 TUN 接入回归
+
+本机应用测试发现，命令启动 TUN 后 egress generation 改变，但已发布的
+WireGuard 设备只在启动和配置 reload 时预备。设备池因此拒绝新 TCP、UDP 和
+DNS 请求，报 `raw-IP peer device is not active`。保持 TUN 运行并重新应用配置后，
+域名 DNS detour 和 SOCKS/HTTP 到远端隧道内业务恢复，证明这不是远端离线。
+
+修复在中性物理出口控制中增加 generation 通知，由现有 Proxy orchestration
+串行预备和发布当前配置的 outbound devices。拓扑在异步预备期间再次改变时
+丢弃候选，失败时保留旧池并按 1 至 30 秒退避重试；不把协议逻辑移入 TUN。
+启动预备完成后保留 watch 通知交由运行循环处理，避免检查 generation 与
+确认通知之间的竞态吞掉更新。
+
+原始 Packet 路径继续保留来源地址，不隐式执行 NAT。普通主机 TUN 的地址与
+WireGuard 分配地址不同，而远端只允许后者时，TCP/UDP 可配置规则 `mode=flow`：
+入口先通过 Packet→Flow 转换终止连接，再通过已注册的 Flow→Packet 操作使用
+隧道本地地址。这是允许的组合路径；强制 Flow 不应因最终 sink 是 Packet 而
+拒绝已实现的转换。ICMP 没有 Flow 转换，强制 Flow 仍拒绝 ICMP；需要面向普通
+主机的 TCP/UDP 与 ping 混合接入时，使用下述显式 `translate` 模式。
+
+路径锁定按 TCP/UDP 四元组隔离，保留旧连接的平面，同时允许新端口连接采用
+更新后的规则。此前按源 IP、目标 IP 和协议锁定会阻止同地址的新连接切换平面。
+
+此外，TUN port-53 interception 只处理实际进入 TUN 的查询。系统解析服务器的
+物理路由保护可能使应用 DNS 绕过 TUN；内核主动 DNS 查询成功不能证明系统
+应用已接管 DNS。宿主 DNS 指向或域名级 resolver 的部署、停止后的恢复由平台
+控制者负责，不在选择 WireGuard 出站时自动修改宿主 DNS。
+
+新增 topology generation、强制 Flow 到 Packet 出站、独立 TCP 连接平面锁定、
+WireGuard TCP/UDP 无配置 reload 网络恢复的回归测试。测试使用的宿主 IPv4
+可以通过 `ZERO_TEST_HOST_IPV4` 指定，必须是本机实际持有的非 loopback 地址；
+默认路由的探测在已有 TUN 运行时可能返回 TUN 地址，不能据此构造宿主 echo 服务。
+本机初轮全量执行发现这一问题：探测返回 `10.0.0.1`，导致 AllowedIPs 重复或
+流量重新进入宿主 TUN。显式使用物理地址后，入站 5/5（另 1 项 live ICMP 默认
+ignored）与新增 TCP/UDP 三轮网络恢复 1/1 均通过，断言没有调整。
+
+工作区测试使用临时 APFS runner 复制并签名已有测试程序后执行，保留原参数、
+环境和源码目录；避免本机接近容量上限的 HFS+ 工作卷启动测试程序时长时间等待。
+完整工作区 `RUST_MIN_STACK=16777216 cargo test --workspace --all-features`
+最终启动通知竞态修正后，在 UTC 06:30:22 至 07:10:00 完成，
+退出码 0，耗时 2378.0 秒：
+308 个已完成目标、2185 项通过、0 失败、155 项按定义 ignored。
+默认 ignored 的官方互操作、live ICMP 或特定平台测试不计入已验证能力。
+日志为 `/tmp/zero-wireguard-tun-regression-final4-20260928.log`。
+最终 `cargo check --workspace` 与 `cargo clippy --workspace --all-targets`
+均退出码 0；Clippy 仍有既有 dead-code、参数数量和类型复杂度等告警。
+日志为 `/tmp/zero-wireguard-tun-final-gates-final-20260928.log`。
+优化版 `cargo build --release --all-features --locked` 在 UTC 06:56:33
+完成，退出码 0；桌面签名后产物的
+`--version` 在 2.655 秒内成功，配置校验在 0.189 秒内成功。
+这是含未提交修复的本地验证构建，尚未替换客户端正在运行的内核，
+域名级 resolver 也尚未应用；普通应用通过真实 TUN 的访问仍待用户切换后验证。
+
+
+### 2026-09-28: explicit Packet address adapter for native application ping
+
+用户已在实际客户端确认 A 的内网数据库和 yt 网站可访问。这是用户侧 TCP/域名
+访问验收；不等同于 ICMP 验收。
+
+原方案的 Flow 是 TCP Stream / UDP Datagram。新增 `mode=translate`（也支持
+`route.final_mode=translate`）显式组合：TCP/UDP 使用既有 Flow 转换路径；ICMP Echo
+使用当前选中 PacketSink 提供的源地址转换适配器。严格 `flow` 仍不接受 ICMP。
+`auto` / `packet` 的原生 Packet 路径保留原始来源地址，不改变为隐式 NAT。
+无 Packet 地址适配器的出站明确不支持 ping；不会另选 Direct。
+
+通用栈 `zero-stack::echo_translation` 负责有界请求状态和回包关联；
+`zero-stack::packet::icmp::translation` 负责纯地址、标识、校验和以及 ICMP 错误引用
+还原。中性 raw-IP 设备负责队列、回包通道、关闭和周期清理。WireGuard 适配层
+只提供既有协议计划、地址和设备池；握手、密钥、peer 索引和 AllowedIPs 仍由
+`protocols/wireguard` 所有。Capability graph 保持 Packet / Stream / Datagram 三个节点。
+
+IPv4/IPv6 Echo 的源地址转换为选中 peer 的隧道分配地址，返回时还原原始来源、
+Echo identifier 和 payload；不同入站即使原始源、identifier、sequence 相同，也分配
+独立的在途标识。ICMP 不可达、超时和 MTU 错误引用匹配请求时，还原被引用的
+原始 IP/Echo 头，保留错误类型、代码、MTU 和路由器来源。请求上限 1024、原始及
+转换包合计 2 MiB、超时 30 秒；回包或关闭释放，设备定时器清理超时和已关闭入口。
+新 ping identifier 独立锁定路由平面；纯 IP/传输身份提取也在 stack 的 packet 层。
+这不是任意 IP 协议的通用 NAT：非 Echo ICMP 不在 `translate` 支持范围，原生 Packet
+仍可承载它们。WireGuard 远端也必须支持 Echo/允许对应目标。
+
+审查记录见 `wireguard-packet-flow-audit-20260928.md`。本次额外将旧 ICMP 内联测试
+移入独立 tests 文件，并将共享设备根文件拆为 driver / health / translation 模块。
+新增纯栈测试、协议加密往返和中性边界测试。最终源码快照的全工作区测试在
+UTC 08:23:17 至 08:52:40 完成，退出码 0，耗时 1763.4 秒：312 个测试目标，
+2201 项通过、0 失败、155 项按定义 ignored。日志为桌面
+`zero-wireguard-ping-test-20260928.log`；格式与 diff 检查均退出码 0。
+`cargo check --workspace` 在 UTC 09:00:56 完成（495.6 秒、退出码 0），
+`cargo clippy --workspace --all-targets` 在 UTC 09:11:32 完成（636.3 秒、退出码 0）；
+已有告警仍保留。优化构建 `cargo build --release --all-features --locked` 在
+UTC 09:49:14 完成（2122.4 秒、退出码 0），构建目录为
+`target/wg-tun-build-20260928`。桌面最终产物签名验证通过，版本启动 1.70 秒、
+新 JSON 校验 0.17 秒，均退出码 0。50 个 Rust 源文件快照与测试源码一致。
+产物 SHA-256：`1aaf5b23456622d62617f61896187503932ccb15567965cd0b1d43bc7abcfc38`。
+源码和构建记录见桌面 `zero-wireguard-ping-manifest-20260928.json`。本轮未提交、
+推送或替换运行内核；A/B 真实网络 ping 待用户切换新内核验收。

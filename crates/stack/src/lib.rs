@@ -31,6 +31,7 @@
 //! ```
 
 pub mod client_udp;
+pub mod echo_translation;
 pub mod fragment;
 pub mod packet;
 pub mod system;

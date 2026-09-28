@@ -57,9 +57,17 @@ pub(super) async fn feed_inner_packet(
         .into_candidates();
     for target in candidates {
         match target {
-            PacketRouteTarget::Packet { tag, operation } => {
+            PacketRouteTarget::Packet {
+                tag,
+                translated,
+                operation,
+            } => {
                 let generation = route.icmp_egress_generation();
-                let plane = PacketPlane::Packet(tag);
+                let plane = if translated {
+                    PacketPlane::TranslatedPacket(tag)
+                } else {
+                    PacketPlane::Packet(tag)
+                };
                 if !pins.permits(packet, &plane) {
                     continue;
                 }

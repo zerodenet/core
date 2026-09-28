@@ -46,6 +46,23 @@ fn generation_changes_only_when_published_topology_changes() {
 }
 
 #[test]
+fn generation_subscription_observes_changes_and_retains_latest_value() {
+    let controller = EgressInterfaceControl::default();
+    controller.invalidate_network();
+    let mut changes = controller.subscribe_generation();
+    assert_eq!(*changes.borrow_and_update(), 1);
+    assert!(!changes.has_changed().unwrap());
+    controller.replace_for(false, Some(EgressInterface::new("ethernet", 7).unwrap()));
+    controller.invalidate_network();
+    assert!(changes.has_changed().unwrap());
+    assert_eq!(*changes.borrow_and_update(), 3);
+    assert!(!changes.has_changed().unwrap());
+    drop(changes);
+    controller.invalidate_network();
+    assert_eq!(*controller.subscribe_generation().borrow(), 4);
+}
+
+#[test]
 fn controller_selects_independent_ipv4_and_ipv6_interfaces() {
     let controller = EgressInterfaceControl::default();
     let ipv4 = EgressInterface::new("ethernet", 7).expect("valid IPv4 interface");

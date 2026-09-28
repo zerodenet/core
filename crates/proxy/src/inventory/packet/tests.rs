@@ -79,3 +79,14 @@ fn forced_flow_rejects_icmp_without_a_packet_sink() {
     );
     assert!(matches!(target, PacketRouteTarget::Unsupported));
 }
+
+#[test]
+fn translated_packet_requires_an_explicit_adapter_and_never_uses_direct_echo() {
+    let target = ProtocolInventory::default().prepare_packet_route_target_with_mode(
+        &config(),
+        ResolvedOutbound::Single(ResolvedLeafOutbound::Direct { tag: None }),
+        Some(IPPROTO_ICMP),
+        RouteMode::Translate,
+    );
+    assert!(matches!(target, PacketRouteTarget::Unsupported));
+}

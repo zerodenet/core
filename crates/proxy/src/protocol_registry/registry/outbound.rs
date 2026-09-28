@@ -149,6 +149,13 @@ impl<'a> ClaimedOutboundLeaf<'a> {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn prepare_translated_packet_route(
+        &self,
+    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
+        self.packet.as_ref()?.prepare_translated_packet_route()
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn data_plane_sinks(&self) -> crate::runtime::network_graph::PlaneSet {
         use crate::runtime::network_graph::{Plane, PlaneSet};
 

@@ -54,14 +54,15 @@ impl SharedRawIpDevice {
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
         let (_ready_tx, ready) = watch::channel(Some(Ok(())));
-        let task = tokio::spawn(run_endpoint_stack(
+        let task = tokio::spawn(run_endpoint_stack(EndpointStack {
             peer,
             endpoint,
-            tcp.clone(),
+            tcp: tcp.clone(),
             raw_packets,
-            forwarded_rx,
-            closed.clone(),
-        ))
+            forwarded_packets: forwarded_rx,
+            closed: closed.clone(),
+            returns: returns.clone(),
+        }))
         .abort_handle();
         Ok(Arc::new(Self {
             udp,
@@ -103,16 +104,30 @@ impl SharedRawIpDevice {
     }
 }
 
-async fn run_endpoint_stack(
+struct EndpointStack {
     peer: usize,
-    mut endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
+    endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
     tcp: Arc<ClientTcpStack>,
-    mut raw_packets: mpsc::Receiver<Vec<u8>>,
-    mut forwarded_packets: mpsc::Receiver<Vec<Vec<u8>>>,
+    raw_packets: mpsc::Receiver<Vec<u8>>,
+    forwarded_packets: mpsc::Receiver<Vec<Vec<u8>>>,
     closed: Arc<AtomicBool>,
-) {
+    returns: Arc<PacketReturns>,
+}
+
+async fn run_endpoint_stack(stack: EndpointStack) {
+    let EndpointStack {
+        peer,
+        mut endpoint,
+        tcp,
+        mut raw_packets,
+        mut forwarded_packets,
+        closed,
+        returns,
+    } = stack;
+    let mut sweep = tokio::time::interval(Duration::from_secs(5));
     loop {
         tokio::select! {
+            _ = sweep.tick() => returns.expire(),
             packet = raw_packets.recv() => {
                 let Some(packet) = packet else { break; };
                 let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {

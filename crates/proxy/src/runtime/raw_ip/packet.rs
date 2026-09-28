@@ -10,6 +10,7 @@ use super::{RawIpDevicePool, RawIpOutboundPlan};
 use crate::runtime::packet_route::PreparedPacketRouteOperation;
 
 pub(crate) struct RawIpPacketOperation {
+    pub(crate) translate_source: bool,
     pub(crate) tag: String,
     pub(crate) identity: [u8; 32],
     pub(crate) plan: Arc<dyn RawIpOutboundPlan>,
@@ -29,13 +30,11 @@ impl PreparedPacketRouteOperation for RawIpPacketOperation {
         let destination = packet::ip_destination(&packet).ok_or_else(invalid_packet)?;
         let mtu = usize::from(self.plan.mtu());
         let requires_fragmentation = packet.len() > mtu;
-        let ipv4_may_fragment = packet.first().is_some_and(|version| version >> 4 == 4)
-            && packet.len() >= 8
-            && u16::from_be_bytes([packet[6], packet[7]]) & 0x4000 == 0;
+        let ipv4_may_fragment = packet::ipv4_fragmentation_allowed(&packet);
         if requires_fragmentation && !ipv4_may_fragment {
             return Ok(packet::build_icmp_response(&packet, mtu));
         }
-        if self.plan.is_local_address(source) {
+        if !self.translate_source && self.plan.is_local_address(source) {
             return Err(io::Error::new(
                 io::ErrorKind::AddrInUse,
                 "forwarded source overlaps tunnel local address",
@@ -71,9 +70,13 @@ impl PreparedPacketRouteOperation for RawIpPacketOperation {
         if !packet::advance_ip_hop(&mut packet) {
             return Err(invalid_packet());
         }
+        if self.translate_source {
+            return device
+                .forward_translated_packet(&packet, peer.local_ip, replies, mtu)
+                .map(|()| None);
+        }
         let packets = if requires_fragmentation {
-            let identification = u32::from(u16::from_be_bytes([packet[4], packet[5]]));
-            let fragments = packet::fragment_ip_packet(&packet, mtu, identification);
+            let fragments = packet::fragment_forwarded_packet(&packet, mtu);
             if fragments.is_empty() {
                 return Err(invalid_packet());
             }

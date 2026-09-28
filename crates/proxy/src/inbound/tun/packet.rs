@@ -40,9 +40,17 @@ pub(super) async fn try_forward(
         .into_candidates()
     {
         match candidate {
-            PacketRouteTarget::Packet { tag, operation } => {
+            PacketRouteTarget::Packet {
+                tag,
+                translated,
+                operation,
+            } => {
                 let generation = route.icmp_egress_generation();
-                let plane = PacketPlane::Packet(tag);
+                let plane = if translated {
+                    PacketPlane::TranslatedPacket(tag)
+                } else {
+                    PacketPlane::Packet(tag)
+                };
                 if !pins.permits(inner, &plane) {
                     continue;
                 }

@@ -3,6 +3,8 @@
 //! The root stays as a facade so startup, reload coordination, task loop
 //! control, and runtime logging do not regrow into one implementation bucket.
 
+#[cfg(feature = "raw-ip-runtime")]
+mod devices;
 mod lifecycle;
 mod logging;
 mod state;

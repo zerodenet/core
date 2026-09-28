@@ -198,6 +198,7 @@ struct EgressInterfaces {
     ipv6_unavailable_reason: Option<String>,
     tunnel_addresses: Vec<IpAddr>,
     generation: u64,
+    generation_updates: Option<tokio::sync::watch::Sender<u64>>,
     ipv6_to_ipv4_fallbacks: u64,
 }
 
@@ -241,6 +242,17 @@ impl EgressInterfaceControl {
             .read()
             .expect("egress interface lock poisoned")
             .generation
+    }
+
+    /// Subscribe to topology changes so persistent device owners can rebuild
+    /// their carriers even when no new configuration is applied.
+    pub fn subscribe_generation(&self) -> tokio::sync::watch::Receiver<u64> {
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        let generation = interfaces.generation;
+        interfaces
+            .generation_updates
+            .get_or_insert_with(|| tokio::sync::watch::channel(generation).0)
+            .subscribe()
     }
 
     /// Invalidate network-dependent caches after route repair or an explicit
@@ -560,6 +572,9 @@ fn bump_generation(interfaces: &mut EgressInterfaces) {
         .generation
         .checked_add(1)
         .expect("egress topology generation exhausted");
+    if let Some(updates) = &interfaces.generation_updates {
+        updates.send_replace(interfaces.generation);
+    }
 }
 
 fn route_source_for(peer: SocketAddr) -> io::Result<IpAddr> {
