@@ -15,6 +15,10 @@
   `zero-traits` 与 `zero-platform-tokio`。
 - Fake-IP 分配、反查、缓存和持久化属于 `zero-dns`，不得在 TUN 或代理运行时复制映射状态。
 - 原始 IP 包解析与构造保持在 `zero-stack::packet` 的纯函数边界内。
+- Fake-IP 是内核的逻辑目标别名，不能作为原生 Packet 出站的网络目的地址。
+  共享 raw-IP 入口将其 TCP/UDP 交给既有 Packet→Flow 转换，先完成 DNS 反查，再由
+  Engine 执行域名规则和配置的出站模式；缺失映射继续走明确的失败记录。
+  没有逻辑目标转换能力的 IP 协议明确不支持，不向原生 PacketSink 泄露虚拟地址。
 - 新配置、控制面字段和观测字段必须同时更新对应契约、验证、工程文档和公开文档。
 
 ## P0：生产可用闭环

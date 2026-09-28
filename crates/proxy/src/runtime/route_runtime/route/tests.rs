@@ -4,6 +4,9 @@ use zero_engine::RouteDecision;
 
 use super::super::{InboundRouteRuntimeFactory, SharedIngressRuntimeServices};
 
+#[cfg(feature = "raw-ip-runtime")]
+mod packet_dns;
+
 #[tokio::test]
 async fn existing_connection_keeps_old_snapshot_and_new_connection_captures_new_snapshot() {
     let proxy = crate::runtime::Proxy::new(config_with_final("direct")).expect("build proxy");

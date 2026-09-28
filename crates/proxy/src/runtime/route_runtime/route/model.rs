@@ -58,12 +58,24 @@ impl InboundRouteRuntimeFactory {
         destination: IpAddr,
         protocol: Option<u8>,
     ) -> crate::inventory::PacketRouteTarget {
+        let shared = self.shared.with_current_snapshot();
+        let services = shared.tcp_services();
+        if services.resolver().fake_ip_contains(destination) {
+            // A synthetic DNS address is a logical target, never a native
+            // packet destination. Restore it in the existing session path
+            // before the engine chooses a rule and its outbound route mode.
+            // Missing mappings retain that path's explicit failure handling.
+            return match protocol {
+                Some(zero_stack::packet::IPPROTO_TCP | zero_stack::packet::IPPROTO_UDP) => {
+                    crate::inventory::PacketRouteTarget::Flow
+                }
+                _ => crate::inventory::PacketRouteTarget::Unsupported,
+            };
+        }
         let address = match destination {
             IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
             IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
         };
-        let shared = self.shared.with_current_snapshot();
-        let services = shared.tcp_services();
         let engine = services.engine();
         let snapshot = services.snapshot();
         let trace = engine
