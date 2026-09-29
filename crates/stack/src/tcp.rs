@@ -153,7 +153,19 @@ fn accept_client_segment(conn: &mut Conn, tcp: &ParsedTcp<'_>) -> (bool, bool) {
                 conn.rcv_nxt.store(accepted_through, Ordering::Release);
             } else {
                 // Keep rcv_nxt unchanged so the peer retransmits the segment.
-                warn!("tcp receive buffer full, rejecting segment");
+                if let Some(report) = conn.receive_buffer.rejection_report(Instant::now()) {
+                    warn!(
+                        connection_id = conn.id,
+                        source = ?tcp.src,
+                        destination = ?tcp.dst,
+                        buffered_bytes = report.buffered,
+                        available_bytes = report.available,
+                        payload_bytes = payload.len(),
+                        buffer_closed = report.closed,
+                        suppressed_rejections = report.suppressed,
+                        "tcp receive buffer full, rejecting segment"
+                    );
+                }
             }
         }
         needs_ack = true;
@@ -200,6 +212,7 @@ struct TcpRead {
     dport: u16,
     snd_nxt: Arc<AtomicU32>,
     rcv_nxt: Arc<AtomicU32>,
+    mss: u16,
 }
 
 struct TcpWrite {
@@ -313,6 +326,7 @@ impl UserTcpStream {
                 dport: write.dport,
                 snd_nxt: Arc::clone(&write.snd_nxt),
                 rcv_nxt: Arc::clone(&write.rcv_nxt),
+                mss: write.mss,
             }),
             write: StdMutex::new(write),
         }
@@ -359,7 +373,7 @@ impl AsyncRead for UserTcpStream {
         if let Some(error) = read.send_control.io_error() {
             return Poll::Ready(Err(error));
         }
-        let (result, reopened) = read.receive_buffer.poll_read(cx, buf);
+        let (result, reopened) = read.receive_buffer.poll_read(cx, buf, read.mss);
         if reopened {
             let update = packet::build_tcp_with_window(
                 read.src_ip,
@@ -567,7 +581,21 @@ async fn run_retransmission_worker(
     loop {
         let notified = send_control.retransmission_notify.notified();
         match send_control.retransmission_wait(Instant::now()) {
-            RetransmissionWait::Stopped => return,
+            RetransmissionWait::Stopped => {
+                // A dropped stream stops its worker. Retire the matching entry
+                // so late payload cannot keep an abandoned receive buffer alive.
+                // Never remove a replacement connection with the same tuple.
+                if let Some(connections) = connections.upgrade() {
+                    let mut connections = connections.lock().await;
+                    if connections
+                        .get(&key)
+                        .is_some_and(|connection| connection.id == connection_id)
+                    {
+                        connections.remove(&key);
+                    }
+                }
+                return;
+            }
             RetransmissionWait::Idle => notified.await,
             RetransmissionWait::Delay(delay) if delay.is_zero() => {}
             RetransmissionWait::Delay(delay) => {
