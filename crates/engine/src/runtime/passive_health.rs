@@ -98,8 +98,19 @@ impl Engine {
         let Some(urltest) = group.as_urltest() else {
             return (selected, false);
         };
+        let selected = if self.urltest_member_available(snapshot, selected) {
+            selected
+        } else {
+            self.reconcile_urltest_health();
+            snapshot
+                .urltest_selected_target(group_id)
+                .unwrap_or(selected)
+        };
         let member_allowed = |member_id: TargetId| {
             let member = plan.target(member_id)?;
+            if !self.urltest_member_available(snapshot, member_id) {
+                return None;
+            }
             self.passive_relay_health
                 .allow_flow(&PassiveRelayHealthKey {
                     policy_tag: group.tag().to_owned(),

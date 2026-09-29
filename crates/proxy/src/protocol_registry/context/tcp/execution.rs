@@ -80,16 +80,14 @@ impl TcpExecutionServices {
             .map_err(Into::into)
     }
 
-    pub(crate) fn check_outbound_health(&self, tag: &str) -> Result<(), zero_engine::EngineError> {
-        self.engine.check_outbound_health(tag)
-    }
-
     pub(crate) fn record_outbound_failure(&self, tag: &str) {
-        self.engine.record_outbound_failure(tag);
+        self.engine
+            .record_outbound_failure_in_snapshot(&self.snapshot, tag);
     }
 
     pub(crate) fn record_outbound_success(&self, tag: &str) {
-        self.engine.record_outbound_success(tag);
+        self.engine
+            .record_outbound_success_in_snapshot(&self.snapshot, tag);
     }
 
     pub(crate) fn record_control_traffic(

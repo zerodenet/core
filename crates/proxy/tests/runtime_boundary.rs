@@ -5237,8 +5237,14 @@ fn outbound_probe_owns_generic_tcp_dispatch_outside_urltest_policy() {
     assert!(dispatch_intent.contains("enum TcpDispatchIntent"));
     assert!(dispatch_intent.contains("DiagnosticProbe"));
     assert!(dispatch_intent.contains("PolicyProbe"));
-    assert!(dispatch_candidate.contains("checks_outbound_health"));
+    assert!(!dispatch_intent.contains("checks_outbound_health"));
+    assert!(!dispatch_candidate.contains("check_outbound_health"));
     assert!(dispatch_candidate.contains("records_outbound_health"));
+    assert!(urltest_refresh.contains("apply_urltest_probe_result("));
+    assert!(!urltest_refresh.contains("urltest.select("));
+    let engine_policy = read_module(&workspace_root().join("crates/engine/src/runtime/policy.rs"));
+    assert!(engine_policy.contains("pub fn apply_urltest_probe_result("));
+    assert!(engine_policy.contains("fn reconcile_urltest_group_health("));
     assert!(!outbound_probe.contains("crate::groups"));
     assert!(!outbound_probe.to_ascii_lowercase().contains("urltest"));
     assert!(!urltest.contains("use crate::runtime::Proxy"));

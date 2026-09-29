@@ -1,9 +1,9 @@
-//! Outbound health tracking — circuit breaker for failing upstreams.
+//! Carrier failure observations used by URLTest candidate selection.
 //!
 //! Kernel primitive: records connection failures per outbound tag.  When
-//! enough failures accumulate within a short window, the outbound is
-//! temporarily skipped (unhealthy).  After a cooldown, one probe connection
-//! is allowed; success restores health, failure restarts the cooldown.
+//! enough failures accumulate within a short window, automatic selection
+//! temporarily avoids the candidate. This is not a socket admission gate:
+//! fixed traffic and policy probes remain free to dial and observe recovery.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -17,7 +17,7 @@ const FAILURE_THRESHOLD: u64 = 5;
 /// Sliding window for counting failures.
 const FAILURE_WINDOW: Duration = Duration::from_secs(30);
 
-/// How long an unhealthy outbound stays quarantined before a probe attempt.
+/// How long automatic selection avoids a repeatedly failing carrier.
 const QUARANTINE_DURATION: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
@@ -37,11 +37,10 @@ impl OutboundHealth {
         Self::default()
     }
 
-    /// Check whether the given outbound is healthy enough to accept connections.
+    /// Check whether automatic selection should currently avoid a carrier.
     ///
-    /// Returns `Ok(())` if healthy or the quarantine has expired (probe
-    /// allowed).  Returns `Err(EngineError::UnhealthyOutbound)` if the
-    /// outbound should be skipped.
+    /// Returns `Ok(())` if healthy or the cooldown has expired. Dial executors
+    /// must not use this observation to reject fixed traffic or probes.
     pub fn check(&self, tag: &str) -> Result<(), EngineError> {
         let unhealthy = self
             .unhealthy
@@ -53,8 +52,6 @@ impl OutboundHealth {
                     tag: tag.to_owned(),
                 });
             }
-            // Quarantine expired — allow a probe.  Drop the lock so
-            // record_failure can re-acquire it.
         }
         Ok(())
     }
@@ -63,7 +60,8 @@ impl OutboundHealth {
     ///
     /// If the failure count within `FAILURE_WINDOW` reaches
     /// `FAILURE_THRESHOLD`, the outbound is marked unhealthy.
-    pub fn record_failure(&self, tag: &str) {
+    /// Returns whether the threshold was reached and selection needs checking.
+    pub fn record_failure(&self, tag: &str) -> bool {
         let now = Instant::now();
 
         // Update failure window.
@@ -83,7 +81,7 @@ impl OutboundHealth {
             entry.count += 1;
 
             if entry.count < FAILURE_THRESHOLD {
-                return; // Not enough failures yet.
+                return false;
             }
             // Threshold reached — fall through to quarantine.
             entry.count = 0;
@@ -96,6 +94,7 @@ impl OutboundHealth {
             .lock()
             .expect("outbound health lock poisoned");
         unhealthy.insert(tag.to_owned(), now);
+        true
     }
 
     /// Record a successful connection — clears unhealthy state immediately.

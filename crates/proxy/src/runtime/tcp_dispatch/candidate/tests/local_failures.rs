@@ -69,6 +69,7 @@ async fn local_failures_do_not_block_the_first_connection_after_recovery() {
             );
         }
         services
+            .engine()
             .check_outbound_health(HEALTH_TAG)
             .expect("no local-failure quarantine");
         assert!(

@@ -15,19 +15,6 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let health_tag = prepared.health_tag.clone();
-    if intent.checks_outbound_health() {
-        if let Some(tag) = health_tag.as_deref() {
-            if let Err(error) = services.check_outbound_health(tag) {
-                return Err(TcpOutboundFailure {
-                    stage: "health_check",
-                    error,
-                    upstream_endpoint: None,
-                    network: None,
-                });
-            }
-        }
-    }
-
     let result = match prepared.execution {
         PreparedTcpCandidateExecution::Block { tag } => Ok(EstablishedTcpOutbound::block(tag)),
         PreparedTcpCandidateExecution::Connect(operation) => {
