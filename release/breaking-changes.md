@@ -25,7 +25,8 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | TCP 接收窗口、连接退出与诊断日志 | 配置和控制面 V1 保持兼容；窗口释放后持续更新，废弃流及时清理 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.2-rc.202609290540` | TCP 接收窗口、连接退出与诊断日志 | 配置和控制面 V1 保持兼容；窗口释放后持续更新，废弃流及时清理 |
 | `0.0.2-rc.202609271132` | - | No pending compatibility changes |
 | `0.0.2-rc.202609210616` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 |
 | `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
@@ -47,6 +48,10 @@
 | `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
 
 ## Unreleased
+
+<!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.2-rc.202609290540
 
 - TCP 接收缓冲仍为 65,535 字节，MTU 配置不变。零窗口首次小量释放后，累计继续释放达到有效 MSS 或半个缓冲区（取较小值）时发送窗口更新 ACK，避免对端停留在微小窗口。配置和控制面 V1 无需迁移。
 - 转发流退出并停止重传工作后，按连接 ID 清理对应 TCP 状态，避免迟到数据继续占用无人读取的缓冲；同地址元组上的替代连接保留。
