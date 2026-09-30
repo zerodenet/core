@@ -85,8 +85,13 @@ fn resolve_target_inner<'a>(
         return None;
     }
     stack.push(target_id);
-    let resolved =
-        resolve_target_kind(plan, outbound_group_state, target_id, stack, urltest_selector);
+    let resolved = resolve_target_kind(
+        plan,
+        outbound_group_state,
+        target_id,
+        stack,
+        urltest_selector,
+    );
     stack.pop();
     resolved
 }

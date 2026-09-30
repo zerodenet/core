@@ -63,7 +63,9 @@ fn outer_fallback_retains_a_cooling_urltest_candidate_before_its_configured_back
     );
     assert!(matches!(
         candidates[1],
-        ResolvedLeafOutbound::Direct { tag: Some("direct") }
+        ResolvedLeafOutbound::Direct {
+            tag: Some("direct")
+        }
     ));
     assert_eq!(selections.len(), 1);
     assert_eq!(selections[0].member_tag, "alternate");
