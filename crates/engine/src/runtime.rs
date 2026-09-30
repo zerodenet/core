@@ -66,6 +66,7 @@ pub struct Engine {
     /// Source path of the running config.  When set, `reload_config`
     /// writes the new config back to this path so it survives restarts.
     config_path: Option<std::path::PathBuf>,
+    config_write_fact: Arc<std::sync::Mutex<configuration::ConfigWriteFact>>,
     /// Process start time (UNIX epoch milliseconds), captured on Engine::new.
     pub(crate) started_at_unix_ms: u64,
     /// ID of the OS process hosting this engine.
@@ -192,6 +193,7 @@ impl Engine {
             udp_upstream_idle_timeout,
             reload_notify: Arc::new(std::sync::Mutex::new(Vec::new())),
             config_path: None,
+            config_write_fact: Arc::new(std::sync::Mutex::new(Default::default())),
             started_at_unix_ms: started_at_unix_ms(),
             pid: std::process::id(),
             sink_status: Arc::new(std::sync::Mutex::new(Vec::new())),

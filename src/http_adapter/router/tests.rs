@@ -74,3 +74,61 @@ async fn endpoint_http_queries_enforce_read_permission_and_return_structured_err
         assert_eq!(error["error"]["code"], code);
     }
 }
+
+#[tokio::test]
+async fn endpoint_http_control_accepts_instance_condition_and_returns_conflict_without_startup() {
+    let handle = handle();
+    let (_, observed) = get(
+        &handle,
+        "/api/v1/endpoints/legacy%3Ainbound%3Awg%2Fa",
+        vec![Permission::Read],
+    )
+    .await;
+    let request = HttpRequest {
+        method: "POST".into(),
+        path: "/api/v1/commands".into(),
+        headers: vec![],
+        body: serde_json::to_vec(&json!({"method":"endpoints.set_state","params":{
+            "endpoint_id":observed["result"]["endpoint_id"], "enabled":false,
+            "expected_core_instance_id":"stale-instance",
+            "expected_intent_revision":observed["result"]["intent_revision"]}}))
+        .unwrap(),
+    };
+    for (permissions, expected_status, expected_code) in [
+        (vec![Permission::Read], "403", "permission_denied"),
+        (vec![Permission::Admin], "409", "conflict"),
+    ] {
+        let RouteResult::Respond(status, body) = route(
+            &request,
+            &handle,
+            &AuthContext {
+                subject: None,
+                permissions,
+            },
+        )
+        .await
+        else {
+            panic!("wrong response")
+        };
+        let error: Value = serde_json::from_slice(&body).unwrap();
+        assert!(status.contains(expected_status));
+        assert_eq!(error["error"]["code"], expected_code);
+        if expected_code == "conflict" {
+            assert_eq!(
+                error["error"]["field_path"],
+                "params.expected_core_instance_id"
+            );
+        }
+    }
+    let (_, after) = get(
+        &handle,
+        "/api/v1/endpoints/legacy%3Ainbound%3Awg%2Fa",
+        vec![Permission::Read],
+    )
+    .await;
+    assert_eq!(after["result"]["enabled"], observed["result"]["enabled"]);
+    assert_eq!(
+        after["result"]["intent_revision"],
+        observed["result"]["intent_revision"]
+    );
+}

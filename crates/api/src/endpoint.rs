@@ -1,6 +1,7 @@
 //! Controller-neutral network resource observation and management contracts.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::ErrorDetail;
 
@@ -42,6 +43,47 @@ pub struct EndpointCapabilities {
     pub derived_datagram: bool,
     #[serde(default)]
     pub operations: Vec<String>,
+    #[serde(default)]
+    pub operation_capabilities: BTreeMap<String, EndpointOperationCapability>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointOperationCapability {
+    #[serde(default)]
+    pub persistence: Vec<EndpointPersistence>,
+    #[serde(default)]
+    pub preconditions: Vec<String>,
+    /// Supported contractions while running, independent of the current intent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_direction_contraction: Option<EndpointDirections>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointConfigurationOrigin {
+    #[default]
+    Unknown,
+    Canonical,
+    Legacy,
+}
+
+/// Base configuration facts, before any runtime intent override.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointConfiguration {
+    pub origin: EndpointConfigurationOrigin,
+    pub enabled: bool,
+    pub directions: EndpointDirections,
+    pub source_file: EndpointSourceFileCapability,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointSourceFileCapability {
+    /// Structural support; caller permissions and filesystem state are separate.
+    pub available: bool,
+    /// Last actual write result, not an assertion about future filesystem access.
+    pub writable: Option<bool>,
+    pub writable_observed_at_unix_ms: Option<u64>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +139,8 @@ pub struct EndpointSnapshot {
     pub inbound_tags: Vec<String>,
     pub outbound_tags: Vec<String>,
     pub supported: EndpointCapabilities,
+    #[serde(default)]
+    pub configuration: EndpointConfiguration,
     pub enabled: bool,
     pub allowed: EndpointDirections,
     pub effective: EndpointDirections,
@@ -138,6 +182,12 @@ pub struct EndpointListSnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EndpointDetailsSnapshot {
     pub endpoint_id: String,
+    #[serde(default)]
+    pub core_instance_id: String,
+    #[serde(default)]
+    pub config_revision: u64,
+    #[serde(default)]
+    pub observed_at_unix_ms: u64,
     pub generation: Option<u64>,
     pub schema_id: String,
     pub schema_version: u32,
@@ -161,6 +211,8 @@ pub struct EndpointSetStateCommand {
     pub persistence: EndpointPersistence,
     #[serde(default)]
     pub expected_intent_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_core_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +224,8 @@ pub struct EndpointSetDirectionsCommand {
     pub persistence: EndpointPersistence,
     #[serde(default)]
     pub expected_intent_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_core_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,4 +234,6 @@ pub struct EndpointOperationCommand {
     pub endpoint_id: String,
     #[serde(default)]
     pub expected_intent_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_core_instance_id: Option<String>,
 }

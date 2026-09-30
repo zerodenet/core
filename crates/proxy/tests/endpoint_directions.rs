@@ -150,6 +150,7 @@ async fn live_inbound_contraction_preserves_outbound_replies_and_ends_inbound_bu
                 directions: EndpointDirections::outbound_only(),
                 persistence: EndpointPersistence::RuntimeOnly,
                 expected_intent_revision: None,
+                expected_core_instance_id: None,
             },
         ))
         .await
@@ -196,6 +197,7 @@ async fn live_inbound_contraction_preserves_outbound_replies_and_ends_inbound_bu
             enabled: false,
             persistence: EndpointPersistence::RuntimeOnly,
             expected_intent_revision: None,
+            expected_core_instance_id: None,
         }))
         .await
         .expect("stop confirms business termination");

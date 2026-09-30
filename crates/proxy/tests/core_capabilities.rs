@@ -43,14 +43,20 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
     ];
     let mut expected_limitations = vec![
         "direct_udp_trusted_candidate_retarget_unsupported",
-        "endpoint_generation_and_counters_unavailable",
+        "endpoint_packet_and_byte_counters_unavailable",
+        "endpoint_transitional_lifecycle_facts_incomplete",
+        "endpoint_individual_packet_route_control_unavailable",
         "canonical_wireguard_endpoint_requires_configured_peer_endpoints",
     ];
     #[cfg(feature = "wireguard")]
     {
         expected_features.push("network_endpoint_control_v1");
+        expected_features.extend([
+            "network_endpoint_control_preconditions_v1",
+            "network_endpoint_operation_capabilities_v1",
+        ]);
         expected_limitations.extend([
-            "endpoint_live_direction_contraction_requires_stop",
+            "endpoint_live_outbound_direction_contraction_requires_stop",
             "legacy_endpoint_source_file_control_unsupported",
         ]);
     }

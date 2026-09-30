@@ -52,6 +52,7 @@ pub fn set_state(tag: &str, enabled: bool) -> CommandRequest {
         enabled,
         persistence: EndpointPersistence::RuntimeOnly,
         expected_intent_revision: None,
+        expected_core_instance_id: None,
     })
 }
 

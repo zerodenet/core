@@ -8,6 +8,9 @@ use zero_config::{ModeConfig, RuntimeConfig};
 use super::Engine;
 use crate::{EngineError, EnginePlan};
 
+mod source;
+pub(super) use source::ConfigWriteFact;
+
 impl Engine {
     /// Rebuild and atomically install the route/config plan, persist it when
     /// this engine owns a source path, then notify runtime subscribers.
@@ -57,7 +60,7 @@ impl Engine {
         }
         if persist {
             if let Some(path) = &self.config_path {
-                write_config_to_file(path, snapshot.config())?;
+                self.persist_config_to_file(path, snapshot.config())?;
             }
         }
         *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = snapshot.config.mode.clone();
@@ -103,7 +106,7 @@ impl Engine {
         );
         if persist {
             if let Some(path) = &self.config_path {
-                write_config_to_file(path, &new_config)?;
+                self.persist_config_to_file(path, &new_config)?;
                 info!(path = %path.display(), "config persisted");
             }
         }

@@ -5,8 +5,9 @@ Zero 的控制面和观测模型以自有核心规范为准。
 通用网络端点的身份、方向、启停、状态与观测补充规划见
 [通用网络端点管理规划](network-endpoint-management-plan.md)。已接入第一阶段
 [端点目录 V1](network-endpoint-catalog-v1.md) 及后续
-[独立控制 V1](network-endpoint-control-v1.md)，运行中方向收缩仍待开发；
-各阶段能力按契约及验收证据发布。
+[独立控制 V1](network-endpoint-control-v1.md)，运行中入站收缩已支持，出站收缩
+仍需停用；客户端条件、持久化能力及真实观测见
+[对接说明](network-endpoint-client-integration-v1.md)。各阶段能力按契约及验收证据发布。
 
 Clash、sing-box、Xray 等项目只作为行业经验参考，不作为 Zero 内核的 API 契约来源。任何兼容转换由外部项目负责；Zero 内核、SDK 和客户端围绕统一的 Zero 模型设计。
 

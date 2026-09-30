@@ -19,13 +19,18 @@ IPC/gRPC/Rust 采用同一请求信封，不新建配置 API 或协议专用管�
     "endpoint_id": "endpoint:wg-a",
     "enabled": false,
     "persistence": "runtime_only",
+    "expected_core_instance_id": "<core_instance_id from the endpoint snapshot>",
     "expected_intent_revision": 7
   }
 }
 ```
 
-`endpoint_id` 为目录返回的不透明 ID。`expected_intent_revision` 可省略；提供时，
-在与配置应用共用的锁内检查，不匹配返回 conflict。
+`endpoint_id` 为目录返回的不透明 ID。`expected_core_instance_id` 和
+`expected_intent_revision` 均可省略；提供时，在与配置应用共用的锁内检查，
+检查发生在幂等返回、候选分配、持久化和资源操作之前。任一不匹配返回
+conflict，field_path 分别为 params.expected_core_instance_id 或
+params.expected_intent_revision。实例不匹配优先于资源查找；失败不改变资源。
+客户端应同时提供两个条件，避免重启后意图版本重用的竞态；旧请求仍兼容。
 
 | 命令 | params 特有字段 | 执行语义 |
 | --- | --- | --- |
@@ -34,7 +39,7 @@ IPC/gRPC/Rust 采用同一请求信封，不新建配置 API 或协议专用管�
 | endpoints.restart | 无 | 停止并重建启用资源；停用资源返回 invalid_argument |
 | endpoints.clear_overrides | 无 | 清除该资源的全部临时覆盖，恢复配置意图 |
 
-四项命令均接受 endpoint_id 和可选 expected_intent_revision。directions 形状为
+四项命令均接受 endpoint_id 和上述两个可选条件。directions 形状为
 `{"inbound":false,"outbound":true}`。set_state/set_directions 的 persistence 默认
 runtime_only；restart/clear_overrides 不写源配置。
 
@@ -57,6 +62,13 @@ runtime_only；restart/clear_overrides 不写源配置。
   generation 仍与端点代际分开。
 
 ## 生命周期与回滚
+
+资源快照的 configuration 公开规范/旧角色来源和未覆盖的配置基准 enabled、
+directions，以及 source_file.available。supported.operation_capabilities 按操作
+声明 persistence 模式、preconditions 和运行中方向收缩范围，客户端无需解析 ID。
+source_file.writable 是最近一次实际写入观察：未尝试或普通 I/O 错误为 null，
+写入成功为 true，权限拒绝为 false；同时提供 writable_observed_at_unix_ms 和
+reason。它不保证未来文件权限，查询不会创建探测文件，最终结果仍由确认事务决定。
 
 控制命令、config.apply 和 runtime reload 复用 Proxy 的串行确认事务。每个待确认
 操作匹配具体 Engine 快照；相同基础配置但意图不同的通知不能相互确认。
@@ -84,6 +96,9 @@ stop 阻止新准入、取消属于该资源的 Flow，终止监听和 raw-IP �
 **运行中撤销出站方向仍不支持。** 共享客户端栈与 Packet 返回关联尚无独立
 撤权边界，当前明确返回 unsupported，要求先停用、修改方向、再启用；
 clear_overrides 和完整配置 reload 不能绕过该限制。
+能力限制为 endpoint_live_outbound_direction_contraction_requires_stop；资源
+set_directions 操作的 live_direction_contraction 为配置支持的 inbound 和 false
+outbound。旧的全方向限制标识不再发布。
 旧配置中增加、移除或重新关联 inbound/outbound 角色属于配置拓扑变更，仍由
 已有监听/设备协调流程处理；它可能重建设备，与保留角色时修改方向权限不同。
 
@@ -111,3 +126,6 @@ EndpointControlCapability 单独注册控制支持，与观察、TCP/UDP/Packet 
 
 真实 A/B、TUN、故障恢复、长期运行和跨平台属于后续验收，不由本地开关测试
 自动关闭 WireGuard 生产门禁。WireGuard 继续为 opt-in。
+
+客户端请求、错误处理与观测边界见
+[对接说明](network-endpoint-client-integration-v1.md)。

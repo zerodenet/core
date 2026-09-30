@@ -120,6 +120,7 @@ impl EndpointObservationCapability for WireguardAdapter {
                 derived_stream: !binding.outbound_tags.is_empty(),
                 derived_datagram: !binding.outbound_tags.is_empty(),
                 operations: vec!["list".into(), "get".into(), "details".into()],
+                operation_capabilities: Default::default(),
             },
             state,
             health: health_state,

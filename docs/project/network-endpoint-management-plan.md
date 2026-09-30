@@ -3,7 +3,9 @@
 日期：2026-09-29。状态：P0/P1 第一阶段已实现；P2 独立启停切片此前通过
 本地工作区门禁。2026-09-30 的后续工作增加运行中入站撤权和部分 P3 事件，
 并通过单独的本地工作区门禁；运行中出站撤权及完整统计仍待开发。
-代码核查基线：develop / `c71a7c22`，工作区另有既存 DNS/TCP 修改。
+上述基线与既存 DNS/TCP 修改已提交至 develop / `f7681499`。客户端后续契约
+补全增加实例条件、精确方向限制、资源操作能力及配置来源；独立验证见
+[客户端对接说明](network-endpoint-client-integration-v1.md)。
 
 第一阶段已增加规范配置/旧配置目录、Engine 准入、注册观察器及只读查询。
 已接入范围和明确缺口见 [端点目录 V1](network-endpoint-catalog-v1.md)。
@@ -215,7 +217,7 @@ WireGuard 提供有版本的详情 schema：peer 稳定公开 ID/公钥指纹、
 null，不当作零。
 沿用 zero-api 的 Query/Command/Event、鉴权、错误信封与 capabilities，按现有 HTTP/IPC/gRPC/
 Rust/FFI 暴露方式挂载。修改操作沿用现有管理员控制约束；源配置持久化服从
-已有 Config 权限及持久化入口。复用现有 SSE/事件回放，不新建观测服务器。
+已有持久化事务和源路径条件。复用现有 SSE/事件回放，不新建观测服务器。
 错误原因作为结构化 detail/code 发布，P0 决定是否需要提升现有错误契约版本。
 旧 HealthSnapshot.outbound_devices 保留为兼容投影，不再作为资源身份来源。
 

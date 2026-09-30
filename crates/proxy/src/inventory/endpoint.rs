@@ -1,5 +1,8 @@
 use super::ProtocolInventory;
-use zero_api::{EndpointDirections, EndpointRuntimeState, EndpointSnapshot};
+use zero_api::{
+    EndpointDirections, EndpointOperationCapability, EndpointPersistence, EndpointRuntimeState,
+    EndpointSnapshot,
+};
 use zero_config::RuntimeConfig;
 
 impl ProtocolInventory {
@@ -28,6 +31,32 @@ impl ProtocolInventory {
             endpoint.supported.operations.extend(
                 ["set_state", "set_directions", "restart", "clear_overrides"].map(str::to_owned),
             );
+            for operation in ["set_state", "set_directions", "restart", "clear_overrides"] {
+                let mut persistence = vec![EndpointPersistence::RuntimeOnly];
+                if matches!(operation, "set_state" | "set_directions")
+                    && endpoint.configuration.source_file.available
+                {
+                    persistence.push(EndpointPersistence::SourceFile);
+                }
+                endpoint.supported.operation_capabilities.insert(
+                    operation.into(),
+                    EndpointOperationCapability {
+                        persistence,
+                        preconditions: vec![
+                            "expected_core_instance_id".into(),
+                            "expected_intent_revision".into(),
+                        ],
+                        live_direction_contraction: matches!(
+                            operation,
+                            "set_directions" | "clear_overrides"
+                        )
+                        .then_some(EndpointDirections {
+                            inbound: binding.supported_directions.inbound,
+                            outbound: false,
+                        }),
+                    },
+                );
+            }
         }
         if !matches!(
             endpoint.state,

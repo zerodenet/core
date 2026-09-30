@@ -47,6 +47,9 @@ fn shared_wireguard_endpoint_catalog_is_one_resource_and_never_leaks_keys() {
         panic!("wrong details");
     };
     assert_eq!(details.schema_id, "zero.endpoint.wireguard.v1");
+    assert_eq!(details.core_instance_id, endpoint.core_instance_id);
+    assert_eq!(details.config_revision, endpoint.config_revision);
+    assert!(details.observed_at_unix_ms > 0);
     assert_eq!(details.details["peers"].as_array().unwrap().len(), 1);
     assert!(details.details["peers"][0]["peer_id"]
         .as_str()

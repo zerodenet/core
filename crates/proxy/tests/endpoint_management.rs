@@ -20,6 +20,7 @@ fn operation(tag: &str) -> EndpointOperationCommand {
     EndpointOperationCommand {
         endpoint_id: format!("endpoint:{tag}"),
         expected_intent_revision: None,
+        expected_core_instance_id: None,
     }
 }
 
@@ -173,6 +174,7 @@ async fn restart_is_explicit_conditional_and_outbound_contraction_requires_stop(
     let error = handle
         .execute_acknowledged(CommandRequest::EndpointSetState(EndpointSetStateCommand {
             expected_intent_revision: Some(original.intent_revision),
+            expected_core_instance_id: None,
             ..match set_state("a", false) {
                 CommandRequest::EndpointSetState(command) => command,
                 _ => unreachable!(),
@@ -189,6 +191,7 @@ async fn restart_is_explicit_conditional_and_outbound_contraction_requires_stop(
         },
         persistence: EndpointPersistence::RuntimeOnly,
         expected_intent_revision: None,
+        expected_core_instance_id: None,
     });
     assert_eq!(
         handle
@@ -264,6 +267,7 @@ async fn source_file_control_persists_canonical_config_and_clears_runtime_overri
             enabled: false,
             persistence: EndpointPersistence::SourceFile,
             expected_intent_revision: None,
+            expected_core_instance_id: None,
         }))
         .await
         .unwrap();

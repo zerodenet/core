@@ -57,7 +57,8 @@ fn endpoint_catalog_is_paginated_and_does_not_claim_device_execution() {
         engine
             .execute(CommandRequest::EndpointRestart(EndpointOperationCommand {
                 endpoint_id: "endpoint:wg".into(),
-                expected_intent_revision: None
+                expected_intent_revision: None,
+                expected_core_instance_id: None,
             }))
             .unwrap_err()
             .code,

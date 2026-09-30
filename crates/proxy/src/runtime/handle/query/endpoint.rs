@@ -47,6 +47,9 @@ impl ProxyHandle {
             })?;
         Ok(QueryResponse::EndpointDetails(EndpointDetailsSnapshot {
             endpoint_id: endpoint.endpoint_id,
+            core_instance_id: endpoint.core_instance_id,
+            config_revision: endpoint.config_revision,
+            observed_at_unix_ms: endpoint.observed_at_unix_ms,
             generation: endpoint.generation,
             schema_id,
             schema_version,

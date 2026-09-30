@@ -24,10 +24,11 @@ pub use command::{
     TunRecoverCommand, TunStartCommand, TunStopCommand,
 };
 pub use endpoint::{
-    EndpointCapabilities, EndpointCounters, EndpointDetailsSnapshot, EndpointDirections,
-    EndpointGetQuery, EndpointHealthState, EndpointListQuery, EndpointListSnapshot,
-    EndpointOperationCommand, EndpointPersistence, EndpointRuntimeState,
-    EndpointSetDirectionsCommand, EndpointSetStateCommand, EndpointSnapshot, EndpointStateSource,
+    EndpointCapabilities, EndpointConfiguration, EndpointConfigurationOrigin, EndpointCounters,
+    EndpointDetailsSnapshot, EndpointDirections, EndpointGetQuery, EndpointHealthState,
+    EndpointListQuery, EndpointListSnapshot, EndpointOperationCapability, EndpointOperationCommand,
+    EndpointPersistence, EndpointRuntimeState, EndpointSetDirectionsCommand,
+    EndpointSetStateCommand, EndpointSnapshot, EndpointSourceFileCapability, EndpointStateSource,
 };
 pub use error::{ApiError, ApiErrorCode, ErrorDetail};
 pub use event::{

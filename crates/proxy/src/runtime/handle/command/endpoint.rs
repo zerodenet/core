@@ -25,30 +25,34 @@ impl ProxyHandle {
         &self,
         command: CommandRequest,
     ) -> zero_api::ApiResult<CommandResponse> {
-        let (id, change, persist, expected) = match command {
+        let (id, change, persist, expected, expected_core) = match command {
             CommandRequest::EndpointSetState(request) => (
                 request.endpoint_id,
                 EndpointChange::Enabled(request.enabled),
                 request.persistence == EndpointPersistence::SourceFile,
                 request.expected_intent_revision,
+                request.expected_core_instance_id,
             ),
             CommandRequest::EndpointSetDirections(request) => (
                 request.endpoint_id,
                 EndpointChange::Directions(request.directions),
                 request.persistence == EndpointPersistence::SourceFile,
                 request.expected_intent_revision,
+                request.expected_core_instance_id,
             ),
             CommandRequest::EndpointRestart(request) => (
                 request.endpoint_id,
                 EndpointChange::Restart,
                 false,
                 request.expected_intent_revision,
+                request.expected_core_instance_id,
             ),
             CommandRequest::EndpointClearOverrides(request) => (
                 request.endpoint_id,
                 EndpointChange::ClearOverrides,
                 false,
                 request.expected_intent_revision,
+                request.expected_core_instance_id,
             ),
             _ => {
                 return Err(ApiError::new(
@@ -61,6 +65,13 @@ impl ProxyHandle {
         // resource control. Admission and revision checks happen under it.
         let _guard = self.proxy.reload_apply_lock.lock().await;
         let previous = self.proxy.engine.runtime_snapshot();
+        let previous_source_write = self.proxy.engine.config_source_write_generation();
+        self.proxy.engine.check_endpoint_preconditions(
+            &previous,
+            &id,
+            expected_core.as_deref(),
+            expected,
+        )?;
         let binding = previous
             .config()
             .endpoint_bindings()
@@ -154,7 +165,18 @@ impl ProxyHandle {
         }
         .await;
         if let Err(error) = result {
-            let rollback = self.apply_endpoint_snapshot(previous, persist).await;
+            // The candidate resolver is staged until application reconciliation
+            // succeeds. Release that stage before preparing the old config.
+            self.proxy.resolver.discard_prepared_reload();
+            // A failed first write leaves the old source intact. Only rewrite
+            // it when this transaction actually replaced it; runtime resources
+            // still need reconciliation in either case.
+            let rollback_persist = persist
+                && self.proxy.engine.config_source_write_generation() != previous_source_write;
+            let rollback = self
+                .apply_endpoint_snapshot(previous, rollback_persist)
+                .await;
+            self.proxy.resolver.discard_prepared_reload();
             self.proxy.engine.record_endpoint_runtime_error(
                 &id,
                 if rollback.is_ok() {

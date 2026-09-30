@@ -1,7 +1,10 @@
 //! Configuration-owned endpoint identity. Runtime facts are injected by Proxy.
 
 use super::Engine;
-use zero_api::{EndpointGetQuery, EndpointListQuery, EndpointListSnapshot, EndpointSnapshot};
+use zero_api::{
+    EndpointConfiguration, EndpointConfigurationOrigin, EndpointGetQuery, EndpointListQuery,
+    EndpointListSnapshot, EndpointSnapshot,
+};
 
 mod admission;
 mod facts;
@@ -92,6 +95,7 @@ impl Engine {
                 let intent = &snapshot.endpoint_intents.entries[&binding.endpoint_id];
                 let (stream, datagram) = self.endpoint_active_flow_counts(&binding);
                 let mut endpoint = EndpointSnapshot {
+                    configuration: self.endpoint_configuration(&binding),
                     endpoint_id: binding.endpoint_id,
                     tag: binding.tag,
                     protocol: binding.protocol,
@@ -150,6 +154,7 @@ impl Engine {
         let intent = &snapshot.endpoint_intents.entries[&binding.endpoint_id];
         let (stream, datagram) = self.endpoint_active_flow_counts(&binding);
         let mut endpoint = EndpointSnapshot {
+            configuration: self.endpoint_configuration(&binding),
             endpoint_id: binding.endpoint_id,
             tag: binding.tag,
             protocol: binding.protocol,
@@ -171,6 +176,22 @@ impl Engine {
         };
         self.endpoint_facts.project(&mut endpoint);
         Ok(endpoint)
+    }
+
+    fn endpoint_configuration(
+        &self,
+        binding: &zero_config::EndpointBindingConfig,
+    ) -> EndpointConfiguration {
+        EndpointConfiguration {
+            origin: if binding.canonical {
+                EndpointConfigurationOrigin::Canonical
+            } else {
+                EndpointConfigurationOrigin::Legacy
+            },
+            enabled: binding.enabled,
+            directions: binding.directions,
+            source_file: self.endpoint_source_file_capability(binding.canonical),
+        }
     }
 
     /// Proxy reports an applied resource fact only after listener/device

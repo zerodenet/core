@@ -152,6 +152,7 @@ async fn stopping_a_ends_its_existing_business_while_b_keeps_its_tcp_flow() {
             enabled: false,
             persistence: EndpointPersistence::RuntimeOnly,
             expected_intent_revision: None,
+            expected_core_instance_id: None,
         }))
         .await
         .unwrap();

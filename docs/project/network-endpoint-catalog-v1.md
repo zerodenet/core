@@ -1,7 +1,8 @@
 # 通用端点目录 V1（实施第一阶段）
 
 目录提供内核配置和只读观测。独立启停、重启、临时意图与回滚已在后续
-[控制 V1 切片](network-endpoint-control-v1.md) 接线；运行中方向收缩仍未完成。
+[控制 V1 切片](network-endpoint-control-v1.md) 接线；运行中入站收缩已实现，
+出站收缩仍需停用。
 完整实施范围见 [管理规划](network-endpoint-management-plan.md)。
 本地门禁与仍待验收的场景见 [验证记录](network-endpoint-catalog-verification-20260929.md)。
 
@@ -76,14 +77,20 @@ WireGuard 详情为 `schema_id=zero.endpoint.wireguard.v1`、schema_version=1；
 
 running 仅说明观察到本地资源，不证明远端握手或业务可达。握手和认证报文的健康
 事实沿用旧 `HealthSnapshot.outbound_devices`；并非业务可达探测。
-尚未接入的实例 generation、计数、认证远端地址和来源已知状态使用 null，绝不
-把缺失数据填成可信的 0/false。入站独立设备的逐 peer 健康尚未接入该详情视图。
+已应用资源提供 generation、启动时间、错误与状态事件；现有 Stream/Datagram
+Flow 数和低频 endpoint.stats_sampled 事件可用。Packet/字节计数仍使用 null。
+已有注册设备提供认证远端地址、来源已知状态和认证报文年龄；没有可用事实
+时返回 null。入站独立设备的逐 peer 完整健康尚未接入该详情视图。
 intent_revision 已生成并支持条件更新；state_source 反映 config/runtime_override。
+详情响应同样带 core_instance_id、config_revision、observed_at_unix_ms；客户端按
+实例关联结果，不把同一个 endpoint_id 或 generation 当作进程身份。
+configuration 公布来源、基准方向和源文件条件；操作级支持见控制契约及
+[客户端对接说明](network-endpoint-client-integration-v1.md)。
 
 ## 未完成开发
 
-- 运行中方向收缩的独立撤权、完整依赖停止协调。
-- 资源实例 generation、启动时间、错误和统计/事件投影。
-- 规范配置中的仅监听 peer；入站健康、认证来源和实际 endpoint 事实。
+- 运行中出站收缩的独立撤权、完整依赖停止协调。
+- 完整生命周期过渡和 Packet/内外层流量计数。
+- 规范配置中的仅监听 peer；独立入站 peer 的完整健康。
 - 控制载体完整验收、运行时 schema 导出和端点诊断能力。
 - A/B 实网及长时运行验收。目录完成不会自动关闭 WireGuard 生产门禁。

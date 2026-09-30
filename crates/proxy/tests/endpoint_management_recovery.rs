@@ -106,6 +106,7 @@ async fn explicitly_linked_legacy_roles_share_runtime_control_but_require_canoni
             enabled,
             persistence,
             expected_intent_revision: None,
+            expected_core_instance_id: None,
         })
     };
     handle

@@ -16,6 +16,41 @@ pub enum EndpointChange {
 }
 
 impl Engine {
+    /// The acknowledged executor calls this under the shared apply lock, before
+    /// any candidate allocation, idempotent return, persistence or resource work.
+    pub fn check_endpoint_preconditions(
+        &self,
+        current: &EngineRuntimeSnapshot,
+        id: &str,
+        expected_core_instance_id: Option<&str>,
+        expected_revision: Option<u64>,
+    ) -> zero_api::ApiResult<()> {
+        let conflict = |field: &str, message: &str| {
+            let mut error = ApiError::new(ApiErrorCode::Conflict, message);
+            error.field_path = Some(format!("params.{field}"));
+            error
+        };
+        if expected_core_instance_id.is_some_and(|expected| expected != self.core_instance_id()) {
+            return Err(conflict(
+                "expected_core_instance_id",
+                "core instance changed",
+            ));
+        }
+        let entry = current.endpoint_intents.entries.get(id).ok_or_else(|| {
+            ApiError::new(
+                ApiErrorCode::NotFound,
+                format!("endpoint `{id}` was not found"),
+            )
+        })?;
+        if expected_revision.is_some_and(|expected| expected != entry.revision) {
+            return Err(conflict(
+                "expected_intent_revision",
+                "endpoint intent revision changed",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn endpoint_source_file_available(&self) -> bool {
         self.config_path.is_some()
     }
@@ -31,18 +66,8 @@ impl Engine {
         persist: bool,
         expected_revision: Option<u64>,
     ) -> zero_api::ApiResult<Arc<EngineRuntimeSnapshot>> {
-        let entry = current.endpoint_intents.entries.get(id).ok_or_else(|| {
-            ApiError::new(
-                ApiErrorCode::NotFound,
-                format!("endpoint `{id}` was not found"),
-            )
-        })?;
-        if expected_revision.is_some_and(|expected| expected != entry.revision) {
-            return Err(ApiError::new(
-                ApiErrorCode::Conflict,
-                "endpoint intent revision changed",
-            ));
-        }
+        self.check_endpoint_preconditions(current, id, None, expected_revision)?;
+        let entry = &current.endpoint_intents.entries[id];
         if let EndpointChange::Directions(directions) = change {
             if !entry.binding.supported_directions.permits(directions) {
                 return Err(ApiError::new(
