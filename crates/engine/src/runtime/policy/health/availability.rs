@@ -17,8 +17,11 @@ impl Engine {
         let available = |id| self.urltest_member_available(snapshot, id);
         match target.kind() {
             TargetKind::Outbound(outbound) => {
-                outbound.runtime_kind() != OutboundRuntimeKind::Proxy
-                    || self.check_outbound_health(target.tag()).is_ok()
+                crate::EndpointAdmission::from_snapshot(snapshot)
+                    .outbound_denial(target.tag())
+                    .is_none()
+                    && (outbound.runtime_kind() != OutboundRuntimeKind::Proxy
+                        || self.check_outbound_health(target.tag()).is_ok())
             }
             TargetKind::Selector(selector) => available(
                 snapshot

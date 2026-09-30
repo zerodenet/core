@@ -54,7 +54,9 @@ impl SharedRawIpDevice {
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
         let (_ready_tx, ready) = watch::channel(Some(Ok(())));
-        let task = tokio::spawn(run_endpoint_stack(EndpointStack {
+        let (completed_tx, completed) = watch::channel(false);
+        let completion = super::completion::Completion(completed_tx);
+        let stack = EndpointStack {
             peer,
             endpoint,
             tcp: tcp.clone(),
@@ -62,7 +64,11 @@ impl SharedRawIpDevice {
             forwarded_packets: forwarded_rx,
             closed: closed.clone(),
             returns: returns.clone(),
-        }))
+        };
+        let task = tokio::spawn(async move {
+            let _completion = completion;
+            run_endpoint_stack(stack).await;
+        })
         .abort_handle();
         Ok(Arc::new(Self {
             udp,
@@ -74,13 +80,19 @@ impl SharedRawIpDevice {
             retired: AtomicBool::new(false),
             ready,
             task,
+            completed,
         }))
     }
 
     /// Consume decrypted packets belonging to an active outbound flow or
     /// explicitly registered Packet return route.
-    pub(crate) async fn deliver_decrypted(&self, packet: &[u8]) -> bool {
-        if self.returns.deliver(packet) {
+    pub(crate) async fn deliver_decrypted(&self, packet: &[u8], allow_native: bool) -> bool {
+        let delivered = if allow_native {
+            self.returns.deliver(packet)
+        } else {
+            self.returns.deliver_correlated(packet)
+        };
+        if delivered {
             return true;
         }
         match packet::ip_protocol(packet) {
@@ -88,6 +100,7 @@ impl SharedRawIpDevice {
                 self.tcp.feed(packet).await;
                 true
             }
+            Some(packet::IPPROTO_UDP) if !allow_native => self.udp.feed_correlated(packet),
             Some(packet::IPPROTO_UDP) => self.udp.feed(packet),
             Some(packet::IPPROTO_ICMP) | Some(packet::IPPROTO_ICMPV6) => {
                 let Some(error) = packet::parse_icmp_error(packet) else {

@@ -41,6 +41,16 @@ pub fn parse_key(value: &str) -> Result<Key, KeyError> {
     }
 }
 
+/// Stable public identity independent of the accepted key text encoding.
+/// Callers must only pass a peer's public key, never private/PSK material.
+pub fn public_peer_id(value: &str) -> Result<alloc::string::String, KeyError> {
+    let key = parse_key(value)?;
+    Ok(alloc::format!(
+        "wireguard:{}",
+        STANDARD.encode(key.as_bytes())
+    ))
+}
+
 const fn hex_nibble(byte: u8) -> u8 {
     match byte {
         b'0'..=b'9' => byte - b'0',

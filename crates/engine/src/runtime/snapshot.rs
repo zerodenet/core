@@ -16,6 +16,7 @@ use crate::EnginePlan;
 pub struct EngineRuntimeSnapshot {
     pub(super) config_revision: Arc<AtomicU64>,
     pub(super) config: Arc<RuntimeConfig>,
+    pub(super) endpoint_intents: Arc<super::endpoint::EndpointIntents>,
     pub(super) plan: Arc<EnginePlan>,
     pub(super) router: Arc<RuleSet>,
     pub(super) bypass: Arc<RuleSet>,

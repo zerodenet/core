@@ -26,6 +26,7 @@ use super::session::{CompletedSessionHistory, FlowHook, FlowHookChain, SessionRe
 
 mod configuration;
 mod diagnostics;
+mod endpoint;
 mod observability;
 mod passive_health;
 mod policy;
@@ -33,6 +34,8 @@ mod route;
 mod session;
 mod snapshot;
 
+pub(crate) use endpoint::Fact as EndpointFact;
+pub use endpoint::{EndpointAdmission, EndpointChange};
 pub use route::RouteEvaluation;
 pub use snapshot::EngineRuntimeSnapshot;
 
@@ -42,6 +45,7 @@ pub struct Engine {
     mode: Arc<std::sync::Mutex<ModeConfig>>,
     next_session_id: Arc<AtomicU64>,
     session_registry: Arc<SessionRegistry>,
+    endpoint_facts: Arc<endpoint::EndpointFacts>,
     principal_cancellations: Arc<PrincipalCancellationRegistry>,
     principal_devices: Arc<PrincipalDeviceRegistry>,
     principal_policies: Arc<PrincipalPolicyRegistry>,
@@ -115,7 +119,8 @@ fn started_at_unix_ms() -> u64 {
 }
 
 impl Engine {
-    pub fn new(config: RuntimeConfig) -> Result<Self, EngineError> {
+    pub fn new(mut config: RuntimeConfig) -> Result<Self, EngineError> {
+        config.materialize_endpoints()?;
         let router = Arc::new(config.compile_route()?);
         let bypass = Arc::new(config.compile_route_bypass()?);
         let plan = Arc::new(EnginePlan::build(&config)?);
@@ -154,6 +159,13 @@ impl Engine {
         Ok(Self {
             runtime_snapshot: Arc::new(std::sync::RwLock::new(Arc::new(EngineRuntimeSnapshot {
                 config_revision: Arc::new(AtomicU64::new(1)),
+                endpoint_intents: Arc::new(
+                    endpoint::EndpointIntents::for_config(&config, None).map_err(|error| {
+                        EngineError::InvalidPlan {
+                            message: error.message,
+                        }
+                    })?,
+                ),
                 config: Arc::new(config),
                 plan,
                 router,
@@ -163,6 +175,7 @@ impl Engine {
             mode,
             next_session_id: Arc::new(AtomicU64::new(1)),
             session_registry: SessionRegistry::shared(),
+            endpoint_facts: Arc::new(endpoint::EndpointFacts::default()),
             principal_cancellations: Arc::new(PrincipalCancellationRegistry::default()),
             principal_devices: Arc::new(PrincipalDeviceRegistry::default()),
             principal_policies,
@@ -432,11 +445,15 @@ impl Engine {
         // borrows from data inside `plan`, which stays alive as long as
         // the caller holds the returned `Arc<EnginePlan>`.
         let resolved: ResolvedOutbound<'static> = unsafe {
-            std::mem::transmute(resolve_target_id(
-                &plan,
-                &snapshot.outbound_group_state,
-                target_id,
-            )?)
+            std::mem::transmute(
+                snapshot
+                    .admit_endpoint_outbound(resolve_target_id(
+                        &plan,
+                        &snapshot.outbound_group_state,
+                        target_id,
+                    )?)
+                    .ok()?,
+            )
         };
         Some((resolved, plan))
     }
@@ -483,13 +500,13 @@ impl Engine {
         };
         // SAFETY: plan is returned alongside, keeping data alive.
         let resolved: ResolvedOutbound<'static> = unsafe {
-            std::mem::transmute(
+            std::mem::transmute(snapshot.admit_endpoint_outbound(
                 resolve_target_id(&plan, &snapshot.outbound_group_state, target_id).ok_or_else(
                     || EngineError::MissingRouteTarget {
                         tag: tag.to_owned(),
                     },
                 )?,
-            )
+            )?)
         };
         Ok((resolved, plan))
     }

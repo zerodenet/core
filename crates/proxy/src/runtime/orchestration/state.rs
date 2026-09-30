@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tracing::{error, info, warn};
-use zero_config::{InboundConfig, RuntimeConfig};
+use zero_config::InboundConfig;
 use zero_engine::EngineError;
 
 use super::logging::{log_reload_reconciled, log_started};
@@ -67,6 +67,10 @@ impl OrchestrationState {
                 .config
                 .inbounds
                 .iter()
+                .filter(|inbound| {
+                    zero_engine::EndpointAdmission::from_snapshot(&proxy.engine.runtime_snapshot())
+                        .listener_enabled(&inbound.tag)
+                })
                 .map(|inbound| (inbound.tag.clone(), inbound.clone()))
                 .collect(),
             urltests: JoinSet::new(),
@@ -112,7 +116,7 @@ impl OrchestrationState {
         };
         #[cfg(feature = "raw-ip-runtime")]
         for prepared in prepared_outbound_devices {
-            prepared.publish();
+            prepared.publish().await;
         }
         #[cfg(feature = "raw-ip-runtime")]
         {
@@ -143,6 +147,7 @@ impl OrchestrationState {
             )
             .await;
         state.start_urltests();
+        state.publish_endpoint_facts(proxy);
         log_started(proxy);
         proxy.mark_orchestration_ready();
 
@@ -168,6 +173,19 @@ impl OrchestrationState {
 
     pub(super) async fn reconcile_reload(&mut self, proxy: &Proxy) {
         let new_snapshot = proxy.engine.runtime_snapshot();
+        // Notifications may outlive the rollback that emitted them. Replaying
+        // an already applied snapshot after its acknowledgement would consume
+        // the DNS candidate still owned by the acknowledged apply transaction.
+        if std::sync::Arc::ptr_eq(&new_snapshot, &self.applied_snapshot)
+            && !proxy.pending_reload_matches(&new_snapshot)
+        {
+            return;
+        }
+        if let Err(error) = self.validate_endpoint_directions(proxy, &new_snapshot) {
+            self.reject_reload(proxy, &new_snapshot, error.to_string())
+                .await;
+            return;
+        }
         let new_config = new_snapshot.config().clone();
         let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
@@ -178,7 +196,7 @@ impl OrchestrationState {
         let prepared_services = match proxy.protocols.prepare_inbound_services(&new_config) {
             Ok(prepared) => prepared,
             Err(error) => {
-                self.reject_reload(proxy, &new_config, error.to_string())
+                self.reject_reload(proxy, &new_snapshot, error.to_string())
                     .await;
                 return;
             }
@@ -195,7 +213,7 @@ impl OrchestrationState {
             });
         if let Err(error) = dns_reload {
             warn!(%error, reason = "dns_reload_error", "failed to reload dns config");
-            self.reject_reload(proxy, &new_config, error.to_string())
+            self.reject_reload(proxy, &new_snapshot, error.to_string())
                 .await;
             return;
         }
@@ -213,7 +231,7 @@ impl OrchestrationState {
                 %error,
                 "config reload TUN reconciliation failed; restoring last known-good config"
             );
-            self.reject_reload(proxy, &new_config, error.to_string())
+            self.reject_reload(proxy, &new_snapshot, error.to_string())
                 .await;
             return;
         }
@@ -226,11 +244,12 @@ impl OrchestrationState {
             Ok(prepared) => prepared,
             Err(error) => {
                 warn!(%error, reason = "outbound_device_prepare_error", "failed to prepare outbound devices");
-                self.reject_reload(proxy, &new_config, error.to_string())
+                self.reject_reload(proxy, &new_snapshot, error.to_string())
                     .await;
                 return;
             }
         };
+        let revoked_directions = new_snapshot.revoked_endpoint_directions(&self.applied_snapshot);
         let inbound_result = listeners::reconcile_inbounds(
             &proxy.protocols,
             source_dir.as_deref(),
@@ -256,22 +275,22 @@ impl OrchestrationState {
             );
             #[cfg(feature = "raw-ip-runtime")]
             drop(prepared_outbound_devices);
-            self.reject_reload(proxy, &new_config, message).await;
+            self.reject_reload(proxy, &new_snapshot, message).await;
             return;
         }
-        if !proxy.pending_reload_matches(&new_config) {
+        if !proxy.pending_reload_matches(&new_snapshot) {
             if let Err(error) = proxy.resolver.commit_prepared_reload() {
                 warn!(%error, reason = "dns_commit_error", "failed to commit dns config");
                 #[cfg(feature = "raw-ip-runtime")]
                 drop(prepared_outbound_devices);
-                self.reject_reload(proxy, &new_config, error.to_string())
+                self.reject_reload(proxy, &new_snapshot, error.to_string())
                     .await;
                 return;
             }
         }
         #[cfg(feature = "raw-ip-runtime")]
         for prepared in prepared_outbound_devices {
-            prepared.publish();
+            prepared.publish().await;
         }
         listeners::reconcile_urltests(
             &candidate_urltest_runtime,
@@ -291,11 +310,23 @@ impl OrchestrationState {
         self.inbound_runtime_factory = candidate_runtime_factory;
         self.urltest_runtime = candidate_urltest_runtime;
         self.applied_snapshot = new_snapshot;
+        // Do not terminate old business until every fallible preparation and
+        // listener reconcile has succeeded. The published snapshot denies
+        // new admission; only then retire sessions in revoked directions.
+        for (binding, directions) in revoked_directions {
+            proxy.engine.cancel_endpoint_flows(&binding, directions);
+        }
+        self.publish_endpoint_facts(proxy);
         log_reload_reconciled(&new_config);
-        proxy.complete_reload(&new_config, Ok(()));
+        proxy.complete_reload(&self.applied_snapshot, Ok(()));
     }
 
-    async fn reject_reload(&mut self, proxy: &Proxy, rejected: &RuntimeConfig, message: String) {
+    async fn reject_reload(
+        &mut self,
+        proxy: &Proxy,
+        rejected: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
+        message: String,
+    ) {
         proxy.resolver.discard_prepared_reload();
         let persist = proxy.pending_reload_persists(rejected);
         let previous = proxy
@@ -350,12 +381,18 @@ impl OrchestrationState {
             warn!(%error, reason = "listener_reload_rollback_error", "failed to restore last-known-good listeners after reload failure");
             acknowledgement.push_str(&format!("; listener rollback failed: {error}"));
         }
+        self.publish_endpoint_facts(proxy);
         proxy.complete_reload(rejected, Err(acknowledgement));
     }
 
     async fn start_inbounds(&mut self, proxy: &Proxy) -> Result<(), EngineError> {
         let source_dir = self.source_dir.clone();
         for inbound in &proxy.config.inbounds {
+            if !zero_engine::EndpointAdmission::from_snapshot(&proxy.engine.runtime_snapshot())
+                .listener_enabled(&inbound.tag)
+            {
+                continue;
+            }
             let (tx, rx) = watch::channel(false);
             self.listener_stops.insert(inbound.tag.clone(), tx);
             let bound = listeners::bind_inbound_listener(

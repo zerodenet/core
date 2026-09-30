@@ -57,6 +57,12 @@ pub(crate) trait ClaimedUdpFlowLeaf<'a>: Send + Sync {
 
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) trait ClaimedPacketLeaf: Send + Sync {
+    /// True only when native Packet return paths distinguish replies from
+    /// remote-initiated business. Destination IP ownership alone is insufficient.
+    fn native_packet_returns_correlated(&self) -> bool {
+        false
+    }
+
     fn prepare_packet_route(
         &self,
     ) -> Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>;
@@ -161,7 +167,8 @@ pub(crate) trait OutboundDeviceLifecycleCapability: ProtocolSupportCapability {
 
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) trait PreparedOutboundDeviceState: Send {
-    fn publish(self: Box<Self>);
+    /// Publish prepared devices, then confirm tasks revoked by publication ended.
+    fn publish(self: Box<Self>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 }
 
 #[async_trait]

@@ -135,6 +135,17 @@ impl ClientUdpStack {
     /// the packet source belongs to the authenticated tunnel peer first.
     /// Fragment reassembly and socket queues are bounded; excess packets drop.
     pub fn feed(&self, raw_packet: &[u8]) -> bool {
+        self.feed_inner(raw_packet, false)
+    }
+
+    /// Deliver only replies from the socket's last sent destination. The
+    /// caller selects this neutral correlation mode; the stack owns no
+    /// endpoint direction policy. ICMP errors already require a matching quote.
+    pub fn feed_correlated(&self, raw_packet: &[u8]) -> bool {
+        self.feed_inner(raw_packet, true)
+    }
+
+    fn feed_inner(&self, raw_packet: &[u8], correlated: bool) -> bool {
         let packet = {
             let mut fragments = self
                 .inner
@@ -150,6 +161,9 @@ impl ClientUdpStack {
         let mut sockets = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(datagram) = packet::parse_udp(&packet) {
             return sockets.get(&datagram.dst).is_some_and(|socket| {
+                if correlated && socket.last_destination != Some(datagram.src) {
+                    return false;
+                }
                 socket
                     .sender
                     .try_send(ClientUdpEvent::Datagram(ClientUdpDatagram {

@@ -73,6 +73,16 @@ impl EventSource for Engine {
 
 fn query_engine(engine: &Engine, request: QueryRequest) -> zero_api::ApiResult<QueryResponse> {
     match request {
+        QueryRequest::Endpoints(query) => {
+            Ok(QueryResponse::Endpoints(engine.endpoints_snapshot(&query)))
+        }
+        QueryRequest::Endpoint(query) => {
+            Ok(QueryResponse::Endpoint(engine.endpoint_snapshot(&query)?))
+        }
+        QueryRequest::EndpointDetails(_) => Err(ApiError::new(
+            ApiErrorCode::Unsupported,
+            "endpoint details require a registered runtime observer",
+        )),
         QueryRequest::Capabilities(_) => Ok(QueryResponse::Capabilities(capabilities())),
         QueryRequest::Health(_) => Ok(QueryResponse::Health(zero_api::HealthSnapshot {
             engine_build_id: env!("CARGO_PKG_VERSION").to_owned(),
@@ -317,6 +327,13 @@ fn execute_engine_command(
         CommandRequest::DiagnosticsFakeipLookup(_) => Err(ApiError::new(
             ApiErrorCode::Internal,
             "fakeip_lookup is handled by the proxy runtime, not the engine",
+        )),
+        CommandRequest::EndpointSetState(_)
+        | CommandRequest::EndpointSetDirections(_)
+        | CommandRequest::EndpointRestart(_)
+        | CommandRequest::EndpointClearOverrides(_) => Err(ApiError::new(
+            ApiErrorCode::Unsupported,
+            "endpoint lifecycle operations are not registered in this control service",
         )),
         CommandRequest::FakeIpClear(_) => Err(ApiError::new(
             ApiErrorCode::Internal,

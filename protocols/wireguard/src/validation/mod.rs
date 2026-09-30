@@ -9,7 +9,7 @@ pub use inbound::{
     validate_inbound, InboundInput, InboundPeerInput, InboundValidationError, ValidatedInbound,
     ValidatedInboundPeer,
 };
-pub use key::{parse_key, Key, KeyError};
+pub use key::{parse_key, public_peer_id, Key, KeyError};
 pub use network::{parse_network, IpNetwork, NetworkError};
 pub use outbound::{
     validate_outbound, OutboundInput, PeerInput, ValidatedOutbound, ValidatedPeer, ValidationError,

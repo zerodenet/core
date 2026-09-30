@@ -41,6 +41,12 @@ struct PreparedWireguardDevices {
 
 struct PendingEndpoints(PendingEndpointMap);
 
+impl crate::protocol_registry::EndpointControlCapability for WireguardAdapter {
+    fn supports_endpoint_control(&self, binding: &zero_config::EndpointBindingConfig) -> bool {
+        binding.protocol == "wireguard"
+    }
+}
+
 impl Drop for PendingEndpoints {
     fn drop(&mut self) {
         *self.0.lock().unwrap_or_else(|error| error.into_inner()) = None;
@@ -48,7 +54,7 @@ impl Drop for PendingEndpoints {
 }
 
 impl PreparedOutboundDeviceState for PreparedWireguardDevices {
-    fn publish(self: Box<Self>) {
+    fn publish(self: Box<Self>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
         let Self {
             pool,
             profiles,
@@ -63,10 +69,15 @@ impl PreparedOutboundDeviceState for PreparedWireguardDevices {
         for update in linked_updates {
             update.publish();
         }
-        pool.publish(staged);
+        let stopped = pool.publish(staged);
         *active = next_profiles;
         *linked.lock().unwrap_or_else(|error| error.into_inner()) = next_linked;
         drop(pending);
+        Box::pin(async move {
+            for device in stopped {
+                device.wait_stopped().await;
+            }
+        })
     }
 }
 

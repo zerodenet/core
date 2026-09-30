@@ -61,6 +61,11 @@ impl<'a> ClaimedInventoryLeaf<'a> {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn native_packet_returns_correlated(&self) -> bool {
+        self.claimed.native_packet_returns_correlated()
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn prepare_packet_route(
         &self,
     ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
@@ -181,7 +186,9 @@ impl ProtocolInventory {
     {
         use std::sync::Arc;
 
-        let (packet_paths, packet_path_identities) = self.prepare_device_packet_paths(config)?;
+        let admission = zero_engine::EndpointAdmission::from_snapshot(services.snapshot());
+        let (packet_paths, packet_path_identities) =
+            self.prepare_device_packet_paths(config, &admission)?;
         let context = crate::protocol_registry::OutboundDevicePreparationContext {
             upstream: services.upstream(),
             packet_path_services:
@@ -192,7 +199,7 @@ impl ProtocolInventory {
             packet_path_identities: Arc::new(packet_path_identities),
         };
         self.registry
-            .prepare_outbound_devices(config, context)
+            .prepare_outbound_devices(config, context, admission)
             .await
     }
 
@@ -221,6 +228,18 @@ impl ProtocolInventory {
         config: &'a RuntimeConfig,
         leaf: ResolvedLeafOutbound<'a>,
     ) -> Result<ClaimedInventoryLeaf<'a>, EngineError> {
+        if let ResolvedLeafOutbound::Proxy { identity } = &leaf {
+            if let Some(outbound) = config.outbounds.get(identity.config_index()) {
+                if let Some((reason, endpoint_id)) =
+                    zero_engine::EndpointAdmission::from_config(config)
+                        .outbound_denial(&outbound.tag)
+                {
+                    return Err(EngineError::InvalidPlan {
+                        message: format!("{reason}: {endpoint_id}"),
+                    });
+                }
+            }
+        }
         let claimed = self.registry.claim_outbound_leaf(config, leaf)?;
         Ok(ClaimedInventoryLeaf::new(claimed))
     }

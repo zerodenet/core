@@ -131,6 +131,13 @@ impl<'a> ClaimedOutboundLeaf<'a> {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn native_packet_returns_correlated(&self) -> bool {
+        self.packet
+            .as_ref()
+            .is_some_and(|capability| capability.native_packet_returns_correlated())
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn prepare_packet_route(
         &self,
     ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {

@@ -26,6 +26,9 @@ pub enum QueryRequest {
     Diagnostics(DiagnosticsQuery),
     Sinks(SinksQuery),
     TunStatus(TunStatusQuery),
+    Endpoints(crate::EndpointListQuery),
+    Endpoint(crate::EndpointGetQuery),
+    EndpointDetails(crate::EndpointGetQuery),
     /// Catch-all for unknown query types from newer clients.
     Unknown(serde_json::Value),
 }
@@ -47,6 +50,9 @@ impl Serialize for QueryRequest {
             Self::Diagnostics(_) => serde_json::json!({ "diagnostics": {} }),
             Self::Sinks(_) => serde_json::json!({ "sinks": {} }),
             Self::TunStatus(_) => serde_json::json!({ "tun_status": {} }),
+            Self::Endpoints(v) => serde_json::json!({ "endpoints": v }),
+            Self::Endpoint(v) => serde_json::json!({ "endpoint": v }),
+            Self::EndpointDetails(v) => serde_json::json!({ "endpoint_details": v }),
             Self::Unknown(v) => v.clone(),
         };
         json.serialize(serializer)
@@ -102,6 +108,15 @@ impl<'de> Deserialize<'de> for QueryRequest {
             "diagnostics" => Ok(Self::Diagnostics(DiagnosticsQuery)),
             "sinks" => Ok(Self::Sinks(SinksQuery)),
             "tun_status" => Ok(Self::TunStatus(TunStatusQuery)),
+            "endpoints" => serde_json::from_value(inner.clone())
+                .map(Self::Endpoints)
+                .map_err(D::Error::custom),
+            "endpoint" => serde_json::from_value(inner.clone())
+                .map(Self::Endpoint)
+                .map_err(D::Error::custom),
+            "endpoint_details" => serde_json::from_value(inner.clone())
+                .map(Self::EndpointDetails)
+                .map_err(D::Error::custom),
             _ => Ok(Self::Unknown(value)),
         }
     }
@@ -130,6 +145,9 @@ pub enum QueryResponse {
     Diagnostics(serde_json::Value),
     Sinks(SinkStatusSnapshot),
     TunStatus(TunStatusSnapshot),
+    Endpoints(crate::EndpointListSnapshot),
+    Endpoint(crate::EndpointSnapshot),
+    EndpointDetails(crate::EndpointDetailsSnapshot),
     /// Catch-all for unknown response types from newer servers.
     /// Preserves the raw JSON so consumers can inspect it if needed.
     Unknown(serde_json::Value),
@@ -152,6 +170,9 @@ impl Serialize for QueryResponse {
             Self::Diagnostics(v) => serde_json::json!({ "diagnostics": v }),
             Self::Sinks(v) => serde_json::json!({ "sinks": v }),
             Self::TunStatus(v) => serde_json::json!({ "tun_status": v }),
+            Self::Endpoints(v) => serde_json::json!({ "endpoints": v }),
+            Self::Endpoint(v) => serde_json::json!({ "endpoint": v }),
+            Self::EndpointDetails(v) => serde_json::json!({ "endpoint_details": v }),
             Self::Unknown(v) => v.clone(),
         };
         json.serialize(serializer)
@@ -211,6 +232,15 @@ impl<'de> Deserialize<'de> for QueryResponse {
                 .map_err(D::Error::custom),
             "tun_status" => serde_json::from_value(inner.clone())
                 .map(Self::TunStatus)
+                .map_err(D::Error::custom),
+            "endpoints" => serde_json::from_value(inner.clone())
+                .map(Self::Endpoints)
+                .map_err(D::Error::custom),
+            "endpoint" => serde_json::from_value(inner.clone())
+                .map(Self::Endpoint)
+                .map_err(D::Error::custom),
+            "endpoint_details" => serde_json::from_value(inner.clone())
+                .map(Self::EndpointDetails)
                 .map_err(D::Error::custom),
             _ => Ok(Self::Unknown(value)),
         }

@@ -76,9 +76,10 @@ impl Engine {
 
     fn reload_config_inner(
         &self,
-        new_config: RuntimeConfig,
+        mut new_config: RuntimeConfig,
         persist: bool,
     ) -> Result<(), EngineError> {
+        new_config.materialize_endpoints()?;
         let event_log_capacity = new_config.runtime.event_log_capacity;
         if self.config().runtime.principal_quota_state_path
             != new_config.runtime.principal_quota_state_path
@@ -91,6 +92,15 @@ impl Engine {
         let new_router = Arc::new(new_config.compile_route()?);
         let bypass = Arc::new(new_config.compile_route_bypass()?);
         let new_plan = Arc::new(EnginePlan::build(&new_config)?);
+        let endpoint_intents = Arc::new(
+            super::endpoint::EndpointIntents::for_config(
+                &new_config,
+                Some(&self.runtime_snapshot().endpoint_intents),
+            )
+            .map_err(|error| EngineError::InvalidPlan {
+                message: error.message,
+            })?,
+        );
         if persist {
             if let Some(path) = &self.config_path {
                 write_config_to_file(path, &new_config)?;
@@ -112,6 +122,7 @@ impl Engine {
         *current = Arc::new(super::EngineRuntimeSnapshot {
             config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
             config: Arc::new(new_config),
+            endpoint_intents,
             plan: new_plan,
             router: new_router,
             bypass,
@@ -164,6 +175,7 @@ impl Engine {
             .expect("runtime snapshot lock poisoned") = Arc::new(super::EngineRuntimeSnapshot {
             config_revision: Arc::new(std::sync::atomic::AtomicU64::new(revision)),
             config: Arc::new(config),
+            endpoint_intents: current.endpoint_intents.clone(),
             plan: current.plan.clone(),
             router: current.router.clone(),
             bypass: current.bypass.clone(),

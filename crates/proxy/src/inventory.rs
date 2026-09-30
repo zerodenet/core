@@ -2,6 +2,7 @@ use crate::protocol_registry::ProtocolRegistry;
 
 #[cfg(feature = "raw-ip-runtime")]
 mod device;
+mod endpoint;
 mod inbound;
 mod metadata;
 #[cfg(feature = "raw-ip-runtime")]

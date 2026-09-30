@@ -31,7 +31,7 @@ impl OrchestrationState {
         match prepared {
             Ok(prepared) => {
                 for device in prepared {
-                    device.publish();
+                    device.publish().await;
                 }
                 self.device_generation = generation;
                 self.device_retry_at = None;

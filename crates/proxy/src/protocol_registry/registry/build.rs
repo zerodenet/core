@@ -50,6 +50,28 @@ where
 }
 
 impl ProtocolRegistry {
+    // Endpoint hooks are kept neutral even in builds without a registered
+    // endpoint protocol. WireGuard is the current opt-in implementation.
+    #[allow(dead_code, reason = "some builds register no endpoint controller")]
+    pub(crate) fn register_endpoint_controller<
+        T: crate::protocol_registry::EndpointControlCapability + 'static,
+    >(
+        &mut self,
+        adapter: Arc<T>,
+    ) {
+        self.endpoint_controllers.push(adapter);
+    }
+
+    #[allow(dead_code, reason = "some builds register no endpoint observer")]
+    pub(crate) fn register_endpoint_observer<
+        T: crate::protocol_registry::EndpointObservationCapability + 'static,
+    >(
+        &mut self,
+        adapter: Arc<T>,
+    ) {
+        self.endpoint_observers.push(adapter);
+    }
+
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn register_outbound_device_lifecycle<T>(&mut self, adapter: Arc<T>)
     where

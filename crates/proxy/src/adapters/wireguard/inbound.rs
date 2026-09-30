@@ -139,6 +139,16 @@ pub(super) struct LiveInboundDevice {
 }
 
 impl LiveInboundDevice {
+    pub(super) fn peer_source(
+        &self,
+        peer_index: usize,
+    ) -> Option<wireguard::runtime::PeerSourceObservation> {
+        self.device
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .peer_source(peer_index)
+    }
+
     pub(super) fn new(device: InboundDevice, identity: [u8; 32]) -> Self {
         Self {
             device: Mutex::new(device),

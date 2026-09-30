@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod capabilities;
 pub mod command;
+pub mod endpoint;
 pub mod error;
 pub mod event;
 pub mod flow;
@@ -21,6 +22,12 @@ pub use command::{
     DiagnosticsProbeOutboundCommand, DiagnosticsProbeTargetCommand, DiagnosticsTraceRouteCommand,
     FakeIpClearCommand, FlowCloseCommand, ModeSetCommand, PolicyProbeCommand, PolicySelectCommand,
     TunRecoverCommand, TunStartCommand, TunStopCommand,
+};
+pub use endpoint::{
+    EndpointCapabilities, EndpointCounters, EndpointDetailsSnapshot, EndpointDirections,
+    EndpointGetQuery, EndpointHealthState, EndpointListQuery, EndpointListSnapshot,
+    EndpointOperationCommand, EndpointPersistence, EndpointRuntimeState,
+    EndpointSetDirectionsCommand, EndpointSetStateCommand, EndpointSnapshot, EndpointStateSource,
 };
 pub use error::{ApiError, ApiErrorCode, ErrorDetail};
 pub use event::{

@@ -179,17 +179,17 @@ impl ProxyHandle {
         restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
     ) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
+        let mut pending = self
+            .proxy
+            .reload_ack
+            .lock()
+            .expect("reload ack lock poisoned");
         {
-            let mut pending = self
-                .proxy
-                .reload_ack
-                .lock()
-                .expect("reload ack lock poisoned");
             if pending.is_some() {
                 return Err("another acknowledged proxy reload is already pending".to_owned());
             }
             *pending = Some(super::super::PendingReloadAck {
-                expected: config.clone(),
+                expected: self.proxy.engine.runtime_snapshot(),
                 previous: self.proxy.engine.runtime_snapshot(),
                 persist,
                 sender,
@@ -203,9 +203,14 @@ impl ProxyHandle {
             self.proxy.engine.stage_runtime_config(config)
         };
         if let Err(error) = result {
-            self.clear_pending_reload();
+            pending.take();
             return Err(error.to_string());
         }
+        pending
+            .as_mut()
+            .expect("installed reload acknowledgement")
+            .expected = self.proxy.engine.runtime_snapshot();
+        drop(pending);
         Ok(receiver)
     }
 

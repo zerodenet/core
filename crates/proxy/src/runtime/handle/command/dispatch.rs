@@ -13,6 +13,12 @@ impl zero_api::CommandService for ProxyHandle {
         command: zero_api::CommandRequest,
     ) -> zero_api::ApiResult<zero_api::CommandResponse> {
         match &command {
+            command if super::endpoint::is_endpoint_command(command) => {
+                Err(zero_api::ApiError::new(
+                    zero_api::ApiErrorCode::Unsupported,
+                    "endpoint control requires execute_acknowledged",
+                ))
+            }
             zero_api::CommandRequest::ConfigApply(_)
             | zero_api::CommandRequest::ConfigApplyRuntime(_) => Err(zero_api::ApiError::new(
                 zero_api::ApiErrorCode::Internal,
@@ -55,6 +61,19 @@ impl zero_api::CommandService for ProxyHandle {
         >,
     > {
         Box::pin(async move {
+            if super::endpoint::is_endpoint_command(&command) {
+                // Once staged, complete or roll back even when the requesting
+                // HTTP/IPC connection drops its acknowledgement future.
+                let handle = self.clone();
+                return tokio::spawn(async move { handle.execute_endpoint(command).await })
+                    .await
+                    .map_err(|error| {
+                        zero_api::ApiError::new(
+                            zero_api::ApiErrorCode::Internal,
+                            format!("endpoint control task failed: {error}"),
+                        )
+                    })?;
+            }
             if let zero_api::CommandRequest::ConfigApply(request)
             | zero_api::CommandRequest::ConfigApplyRuntime(request) = &command
             {

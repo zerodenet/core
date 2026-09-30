@@ -16,6 +16,8 @@ pub mod event_type {
     pub const POLICY_PASSIVE_RELAY_HEALTH_CHANGED: &str = "policy.passive_relay_health.changed";
 
     pub const STATS_SAMPLED: &str = "stats.sampled";
+    pub const ENDPOINT_STATE_CHANGED: &str = "endpoint.state_changed";
+    pub const ENDPOINT_STATS_SAMPLED: &str = "endpoint.stats_sampled";
 
     pub const CONFIG_CHANGED: &str = "config.changed";
 
@@ -35,6 +37,8 @@ pub mod event_type {
         POLICY_PROBE_COMPLETED,
         POLICY_PASSIVE_RELAY_HEALTH_CHANGED,
         STATS_SAMPLED,
+        ENDPOINT_STATE_CHANGED,
+        ENDPOINT_STATS_SAMPLED,
         CONFIG_CHANGED,
         ENGINE_STARTED,
         ENGINE_STOPPED,

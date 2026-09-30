@@ -130,14 +130,21 @@ pub(in crate::runtime) async fn reconcile_inbounds(
     let new_tags: Vec<&str> = new_config
         .inbounds
         .iter()
+        .filter(|item| {
+            runtime_factory
+                .endpoint_admission()
+                .listener_enabled(&item.tag)
+        })
         .map(|item| item.tag.as_str())
         .collect();
 
+    let mut removed = Vec::new();
     state.listener_stops.retain(|tag, shutdown| {
         if new_tags.contains(&tag.as_str()) {
             true
         } else {
             let _ = shutdown.send(true);
+            removed.push(shutdown.clone());
             *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
             info!(%tag, reason = "config_removed", "signalled shutdown for removed inbound listener");
             false
@@ -146,8 +153,17 @@ pub(in crate::runtime) async fn reconcile_inbounds(
     state
         .active_inbounds
         .retain(|tag, _| new_tags.contains(&tag.as_str()));
+    for shutdown in removed {
+        wait_listener_stopped(&shutdown).await?;
+    }
 
     for inbound in &new_config.inbounds {
+        if !runtime_factory
+            .endpoint_admission()
+            .listener_enabled(&inbound.tag)
+        {
+            continue;
+        }
         let previous = state.active_inbounds.get(&inbound.tag).cloned();
         let mode_changed = previous.is_some()
             && protocols
@@ -192,6 +208,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
 
         if let Some(shutdown) = state.listener_stops.remove(&inbound.tag) {
             let _ = shutdown.send(true);
+            wait_listener_stopped(&shutdown).await?;
             *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
             info!(
                 inbound_tag = %inbound.tag,
@@ -336,6 +353,17 @@ async fn bind_inbound_with_retry(
         }
     }
     Err(last_error.expect("bind retry loop always attempts at least once"))
+}
+
+async fn wait_listener_stopped(shutdown: &watch::Sender<bool>) -> Result<(), EngineError> {
+    tokio::time::timeout(std::time::Duration::from_secs(5), shutdown.closed())
+        .await
+        .map_err(|_| {
+            EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "listener shutdown was not confirmed",
+            ))
+        })
 }
 
 fn requires_listener_restart(current: &InboundConfig, next: &InboundConfig) -> bool {

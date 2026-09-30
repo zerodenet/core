@@ -1,6 +1,6 @@
 use std::sync::mpsc::SyncSender;
 
-use zero_api::{EventFilter, EventReplay, RawApiEvent};
+use zero_api::{EndpointListQuery, EventFilter, EventReplay, RawApiEvent};
 
 use super::Engine;
 use crate::{ActiveSession, CompletedSessionRecord};
@@ -56,6 +56,28 @@ impl Engine {
 
     pub fn push_stats_sampled(&self) {
         self.event_log.push_stats_sampled(&self.stats_snapshot());
+    }
+
+    pub fn push_endpoint_stats_sampled(&self) {
+        let snapshot = self.runtime_snapshot();
+        let mut offset = 0;
+        loop {
+            let page = self.endpoints_snapshot_in(
+                &snapshot,
+                &EndpointListQuery {
+                    offset,
+                    limit: Some(64),
+                },
+            );
+            if page.endpoints.is_empty() {
+                break;
+            }
+            self.event_log.push_endpoint_stats_sampled(&page.endpoints);
+            let Some(next) = page.next_offset else {
+                break;
+            };
+            offset = next;
+        }
     }
 
     pub fn push_engine_stopped(&self, reason: &str) {

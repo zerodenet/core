@@ -71,6 +71,8 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
     {
         use crate::adapters::wireguard::WireguardAdapter;
         let adapter = Arc::new(WireguardAdapter::default());
+        registry.register_endpoint_observer(adapter.clone());
+        registry.register_endpoint_controller(adapter.clone());
         registry.register_outbound_device_lifecycle(adapter.clone());
         registry.register_capability(adapter, WireguardAdapter::claim_outbound_leaf_impl);
     }

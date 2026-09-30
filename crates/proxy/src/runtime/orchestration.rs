@@ -5,6 +5,7 @@
 
 #[cfg(feature = "raw-ip-runtime")]
 mod devices;
+mod endpoint;
 mod lifecycle;
 mod logging;
 mod state;

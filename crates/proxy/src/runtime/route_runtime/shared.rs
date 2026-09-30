@@ -18,6 +18,10 @@ pub(crate) struct SharedIngressRuntimeServices {
 }
 
 impl SharedIngressRuntimeServices {
+    pub(super) fn endpoint_admission(&self) -> zero_engine::EndpointAdmission<'_> {
+        zero_engine::EndpointAdmission::from_snapshot(self.tcp_services.snapshot())
+    }
+
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn tcp_services(&self) -> &TcpRuntimeServices {
         &self.tcp_services

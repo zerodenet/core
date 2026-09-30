@@ -2,6 +2,7 @@
 
 mod inbound;
 mod lifecycle;
+mod observation;
 mod packet;
 mod udp;
 

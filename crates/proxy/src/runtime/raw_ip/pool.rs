@@ -22,7 +22,7 @@ pub(crate) struct RawIpDevicePool {
 struct PoolState {
     entries: HashMap<(String, usize), CachedDevice>,
     unresolved_endpoints: HashMap<(String, usize), [u8; 32]>,
-    retiring: VecDeque<Weak<SharedRawIpDevice>>,
+    retiring: VecDeque<(String, Weak<SharedRawIpDevice>)>,
     shutdown: bool,
 }
 
@@ -170,7 +170,8 @@ impl RawIpDevicePool {
             .is_some_and(|current| Arc::ptr_eq(&current, device))
     }
 
-    pub(crate) fn publish(&self, mut staged: StagedRawIpDevices) {
+    pub(crate) fn publish(&self, mut staged: StagedRawIpDevices) -> Vec<Arc<SharedRawIpDevice>> {
+        let mut stopped = Vec::new();
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state.shutdown = false;
         state.unresolved_endpoints.clear();
@@ -182,22 +183,49 @@ impl RawIpDevicePool {
                 .is_some_and(|next| Arc::ptr_eq(&entry.cell, &next.cell));
             if !reused {
                 if let Some(device) = entry.cell.get() {
-                    device.retire_after(RETIRE_GRACE);
-                    state.retiring.push_back(Arc::downgrade(device));
+                    if state.entries.keys().any(|(tag, _)| tag == &key.0) {
+                        device.retire_after(RETIRE_GRACE);
+                        state
+                            .retiring
+                            .push_back((key.0.clone(), Arc::downgrade(device)));
+                    } else {
+                        // Removing/administratively disabling a resource must
+                        // not leave a detached carrier sending during grace.
+                        device.close_now();
+                        stopped.push(device.clone());
+                    }
                 }
             }
         }
-        state.retiring.retain(|device| device.strong_count() > 0);
+        let active_tags = state
+            .entries
+            .keys()
+            .map(|(tag, _)| tag.clone())
+            .collect::<std::collections::HashSet<_>>();
+        state.retiring.retain(|(tag, weak)| {
+            let Some(device) = weak.upgrade() else {
+                return false;
+            };
+            if !active_tags.contains(tag) {
+                device.close_now();
+                stopped.push(device);
+                false
+            } else {
+                true
+            }
+        });
         while state.retiring.len() > MAX_RAW_IP_DEVICES {
             if let Some(device) = state
                 .retiring
                 .pop_front()
-                .and_then(|device| device.upgrade())
+                .and_then(|(_, device)| device.upgrade())
             {
                 device.close_now();
+                stopped.push(device);
             }
         }
         staged.published = true;
+        stopped
     }
 
     pub(crate) fn shutdown(&self) {
@@ -208,7 +236,7 @@ impl RawIpDevicePool {
                 device.close_now();
             }
         }
-        for device in state.retiring.drain(..) {
+        for (_, device) in state.retiring.drain(..) {
             if let Some(device) = device.upgrade() {
                 device.close_now();
             }

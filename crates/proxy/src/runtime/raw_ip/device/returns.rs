@@ -75,6 +75,13 @@ impl PacketReturns {
     }
 
     pub(super) fn deliver(&self, packet: &[u8]) -> bool {
+        if self.deliver_correlated(packet) {
+            return true;
+        }
+        self.deliver_native(packet)
+    }
+
+    pub(super) fn deliver_correlated(&self, packet: &[u8]) -> bool {
         if let Some((replies, mut restored)) = self
             .translated
             .lock()
@@ -86,6 +93,10 @@ impl PacketReturns {
             }
             return true;
         }
+        false
+    }
+
+    fn deliver_native(&self, packet: &[u8]) -> bool {
         let Some(destination) = packet::ip_destination(packet) else {
             return false;
         };

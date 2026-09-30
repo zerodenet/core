@@ -29,6 +29,10 @@ async fn packet_returns_deliver_by_original_destination() {
     reply[16..20].copy_from_slice(&[10, 0, 0, 2]);
     let checksum = zero_stack::packet::checksum(&reply[..20]);
     reply[10..12].copy_from_slice(&checksum.to_be_bytes());
+    // A previously registered IP return route must not bypass a subsequently
+    // withdrawn inbound direction.
+    assert!(!routes.deliver_correlated(&reply));
+    assert!(receiver.try_recv().is_err());
     assert!(routes.deliver(&reply));
     let routed = receiver.recv().await.unwrap();
     assert_eq!(routed[8], 63);

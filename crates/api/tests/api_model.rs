@@ -326,6 +326,8 @@ fn event_type_catalog_lists_current_api_events() {
             event_type::POLICY_PROBE_COMPLETED,
             event_type::POLICY_PASSIVE_RELAY_HEALTH_CHANGED,
             event_type::STATS_SAMPLED,
+            event_type::ENDPOINT_STATE_CHANGED,
+            event_type::ENDPOINT_STATS_SAMPLED,
             event_type::CONFIG_CHANGED,
             event_type::ENGINE_STARTED,
             event_type::ENGINE_STOPPED,

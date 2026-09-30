@@ -36,6 +36,9 @@ pub(crate) struct InboundListenerRuntimeFactory {
 }
 
 impl InboundListenerRuntimeFactory {
+    pub(crate) fn endpoint_admission(&self) -> zero_engine::EndpointAdmission<'_> {
+        self.shared.endpoint_admission()
+    }
     pub(crate) fn new(shared: SharedIngressRuntimeServices) -> Self {
         Self { shared }
     }

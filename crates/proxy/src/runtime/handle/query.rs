@@ -1,12 +1,16 @@
 use super::model::ProxyHandle;
 
 mod capabilities;
+mod endpoint;
 
 impl zero_api::QueryService for ProxyHandle {
     fn query(
         &self,
         request: zero_api::QueryRequest,
     ) -> zero_api::ApiResult<zero_api::QueryResponse> {
+        if let Some(response) = self.query_endpoint(&request) {
+            return response;
+        }
         #[cfg(feature = "raw-ip-runtime")]
         if let zero_api::QueryRequest::Health(_) = &request {
             let response = self.inner.query(request)?;
@@ -29,6 +33,26 @@ impl zero_api::QueryService for ProxyHandle {
             capabilities
                 .features
                 .push("diagnostic_probe_health_isolation_v1".to_owned());
+            capabilities
+                .features
+                .push("network_endpoint_catalog_v1".to_owned());
+            if self.proxy.protocols.endpoint_control_available() {
+                capabilities
+                    .features
+                    .push("network_endpoint_control_v1".to_owned());
+                capabilities.global_limitations.extend([
+                    "endpoint_live_direction_contraction_requires_stop".to_owned(),
+                    "legacy_endpoint_source_file_control_unsupported".to_owned(),
+                ]);
+            } else {
+                capabilities
+                    .global_limitations
+                    .push("endpoint_runtime_lifecycle_commands_not_registered".to_owned());
+            }
+            capabilities.global_limitations.extend([
+                "endpoint_generation_and_counters_unavailable".to_owned(),
+                "canonical_wireguard_endpoint_requires_configured_peer_endpoints".to_owned(),
+            ]);
             capabilities::extend(&mut capabilities);
             return Ok(zero_api::QueryResponse::Capabilities(capabilities));
         }

@@ -52,11 +52,17 @@ impl ProxyHandle {
 
     pub(super) async fn apply_config_transaction_and_wait_if_current(
         &self,
-        candidate: RuntimeConfig,
+        mut candidate: RuntimeConfig,
         expected_current: Option<&RuntimeConfig>,
         timeout: Duration,
         persist: bool,
     ) -> Result<Option<ConfigReconcileResult>, String> {
+        // Typed callers may supply an unprojected canonical resource. The
+        // acknowledgement and application services must see the same candidate
+        // that Engine will publish, not its pre-materialization shape.
+        candidate
+            .materialize_endpoints()
+            .map_err(|error| error.to_string())?;
         let _apply_guard = self.proxy.reload_apply_lock.lock().await;
         let previous = self.proxy.engine.runtime_snapshot();
         if expected_current.is_some_and(|expected| expected != previous.config().as_ref()) {

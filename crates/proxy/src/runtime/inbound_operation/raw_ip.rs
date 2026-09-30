@@ -228,7 +228,11 @@ async fn run(
                                 FragmentOutcome::Pending | FragmentOutcome::Rejected(_) => continue,
                             };
                             device.observe_authenticated_packet();
-                            if device.deliver_decrypted(&packet).await { continue; }
+                            let inbound_allowed = packet_route.endpoint_inbound_allowed();
+                            if device.deliver_decrypted(&packet, inbound_allowed).await { continue; }
+                            // Established outbound replies are consumed before
+                            // admitting any remote-initiated inner business.
+                            if !inbound_allowed { continue; }
                             let mtu = if reassembled {
                                 operation.device.mtu().max(packet.len().min(u16::MAX as usize) as u16)
                             } else {
@@ -238,6 +242,7 @@ async fn run(
                             continue;
                         }
                     }
+                    if !packet_route.endpoint_inbound_allowed() { continue; }
                     feed_inner_packet(&packet, operation.device.mtu(), &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
                 }
             }

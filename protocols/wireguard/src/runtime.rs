@@ -19,7 +19,7 @@ use crate::validation::ValidatedOutbound;
 mod inbound;
 mod profile;
 
-pub use inbound::{InboundDevice, InboundDispatch, PreparedInbound};
+pub use inbound::{InboundDevice, InboundDispatch, PeerSourceObservation, PreparedInbound};
 pub use profile::{PreparedOutbound, PreparedPeer};
 
 const MAX_WIRE_DATAGRAM: usize = 65_535;

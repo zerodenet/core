@@ -1,5 +1,6 @@
 //! Shared raw-IP peer device for active TCP and UDP stacks.
 
+mod completion;
 mod driver;
 mod endpoint;
 mod health;
@@ -42,6 +43,7 @@ pub(crate) struct SharedRawIpDevice {
     retired: AtomicBool,
     ready: watch::Receiver<Option<Result<(), String>>>,
     task: AbortHandle,
+    completed: watch::Receiver<bool>,
 }
 
 impl SharedRawIpDevice {
@@ -87,22 +89,25 @@ impl SharedRawIpDevice {
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
         let (ready_tx, ready) = watch::channel(None);
-        let task = tokio::spawn(run_device(
-            Device {
-                endpoint,
-                carrier,
-                tunnel,
-                udp: udp.clone(),
-                tcp: tcp.clone(),
-                returns: returns.clone(),
-                fragments: FragmentReassembler::new(),
-                raw_packets,
-                forwarded_packets: forwarded_rx,
-                closed: closed.clone(),
-                health: health.clone(),
-            },
-            ready_tx,
-        ))
+        let (completed_tx, completed) = watch::channel(false);
+        let completion = completion::Completion(completed_tx);
+        let driver = Device {
+            endpoint,
+            carrier,
+            tunnel,
+            udp: udp.clone(),
+            tcp: tcp.clone(),
+            returns: returns.clone(),
+            fragments: FragmentReassembler::new(),
+            raw_packets,
+            forwarded_packets: forwarded_rx,
+            closed: closed.clone(),
+            health: health.clone(),
+        };
+        let task = tokio::spawn(async move {
+            let _completion = completion;
+            run_device(driver, ready_tx).await;
+        })
         .abort_handle();
         Ok(Arc::new(Self {
             udp,
@@ -114,6 +119,7 @@ impl SharedRawIpDevice {
             retired: AtomicBool::new(false),
             ready,
             task,
+            completed,
         }))
     }
 

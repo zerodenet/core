@@ -12,6 +12,9 @@ use zero_api::ApiResponse;
 type HttpApiError = (&'static str, Vec<u8>);
 type EventStream = (zero_engine::EventSubscriber, Vec<zero_api::RawApiEvent>);
 
+mod endpoint;
+pub use endpoint::{endpoint_get, endpoints_list};
+
 /// Handle GET /api/v1/capabilities.
 pub fn capabilities(handle: &ProxyHandle) -> io::Result<Vec<u8>> {
     let resp = handle.query(QueryRequest::Capabilities(Default::default()));
@@ -232,6 +235,9 @@ fn unwrap_query_response(resp: QueryResponse) -> serde_json::Value {
     match resp {
         QueryResponse::Capabilities(v) => serde_json::to_value(v),
         QueryResponse::Health(v) => serde_json::to_value(v),
+        QueryResponse::Endpoints(v) => serde_json::to_value(v),
+        QueryResponse::Endpoint(v) => serde_json::to_value(v),
+        QueryResponse::EndpointDetails(v) => serde_json::to_value(v),
         QueryResponse::Config(v) => serde_json::to_value(v),
         QueryResponse::Runtime(v) => serde_json::to_value(v),
         QueryResponse::Stats(v) => serde_json::to_value(v),

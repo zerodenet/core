@@ -4,6 +4,7 @@ use core::net::{IpAddr, SocketAddr};
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
+    time::Instant,
 };
 
 use gotatun::noise::handshake::parse_handshake_anon;
@@ -61,6 +62,7 @@ impl PreparedInbound {
         }
         Ok(InboundDevice {
             profile: self,
+            peer_sources: vec![PeerSource::default(); peers.len()],
             peers,
             static_private,
             static_public,
@@ -75,12 +77,29 @@ impl PreparedInbound {
 pub struct InboundDevice {
     profile: PreparedInbound,
     peers: Vec<PeerTunnel>,
+    peer_sources: Vec<PeerSource>,
     static_private: StaticSecret,
     static_public: PublicKey,
     rate_limiter: Arc<RateLimiter>,
     local_indices: HashMap<u32, usize>,
     index_order: VecDeque<u32>,
     unknown_source_handshakes: UnknownSourceHandshakeLimiter,
+}
+
+#[derive(Clone, Default)]
+struct PeerSource {
+    last_authenticated_at: Option<Instant>,
+    endpoint: Option<SocketAddr>,
+}
+
+/// The last source of a packet accepted by this peer's Noise state machine.
+/// An opaque carrier can authenticate the peer without reporting a real
+/// source address; `source_known` is then false, never an invented endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PeerSourceObservation {
+    pub authenticated_endpoint: Option<SocketAddr>,
+    pub source_known: Option<bool>,
+    pub last_authenticated_packet_age: Option<core::time::Duration>,
 }
 
 pub struct InboundDispatch {
@@ -111,6 +130,7 @@ impl InboundDevice {
                     && old.reserved == new.reserved
                 {
                     core::mem::swap(&mut self.peers[index], &mut next.peers[index]);
+                    core::mem::swap(&mut self.peer_sources[index], &mut next.peer_sources[index]);
                     next.peers[index].set_mtu(next.profile.profile.mtu);
                     retained.push(index);
                 } else {
@@ -142,6 +162,17 @@ impl InboundDevice {
         self.profile.peer_for_destination(destination)
     }
 
+    pub fn peer_source(&self, peer_index: usize) -> Option<PeerSourceObservation> {
+        let source = self.peer_sources.get(peer_index)?;
+        Some(PeerSourceObservation {
+            authenticated_endpoint: source.endpoint,
+            source_known: source
+                .last_authenticated_at
+                .map(|_| source.endpoint.is_some()),
+            last_authenticated_packet_age: source.last_authenticated_at.map(|at| at.elapsed()),
+        })
+    }
+
     pub fn receive_datagram(
         &mut self,
         source: SocketAddr,
@@ -157,6 +188,7 @@ impl InboundDevice {
     ) -> Result<InboundDispatch, TunnelError> {
         check_wire_datagram(datagram)?;
         let observed_source = source.is_some();
+        let authenticated_source = source;
         let source = source.unwrap_or(SocketAddr::V4(std::net::SocketAddrV4::new(
             std::net::Ipv4Addr::UNSPECIFIED,
             0,
@@ -257,6 +289,12 @@ impl InboundDevice {
                 }
             }
             checked.push(action);
+        }
+        if received.authenticated {
+            self.peer_sources[peer_index] = PeerSource {
+                last_authenticated_at: Some(Instant::now()),
+                endpoint: authenticated_source,
+            };
         }
         Ok(InboundDispatch {
             peer_index: Some(peer_index),

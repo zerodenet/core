@@ -32,6 +32,7 @@ impl PacketRouteTarget {
 }
 
 impl ProtocolInventory {
+    #[cfg(test)]
     pub(crate) fn prepare_packet_route_target_with_mode(
         &self,
         config: &RuntimeConfig,
@@ -39,13 +40,32 @@ impl ProtocolInventory {
         protocol: Option<u8>,
         mode: RouteMode,
     ) -> PacketRouteTarget {
+        self.prepare_packet_route_target_admitted(
+            config,
+            resolved,
+            protocol,
+            mode,
+            &zero_engine::EndpointAdmission::from_config(config),
+        )
+    }
+
+    pub(crate) fn prepare_packet_route_target_admitted(
+        &self,
+        config: &RuntimeConfig,
+        resolved: ResolvedOutbound<'_>,
+        protocol: Option<u8>,
+        mode: RouteMode,
+        admission: &zero_engine::EndpointAdmission<'_>,
+    ) -> PacketRouteTarget {
         let leaf = match resolved {
             ResolvedOutbound::Single(leaf) => leaf,
             ResolvedOutbound::Fallback { candidates } => {
                 return PacketRouteTarget::Fallback(
                     candidates
                         .into_iter()
-                        .map(|leaf| self.prepare_packet_leaf(config, leaf, protocol, mode))
+                        .map(|leaf| {
+                            self.prepare_packet_leaf(config, leaf, protocol, mode, admission)
+                        })
                         .collect(),
                 );
             }
@@ -59,7 +79,7 @@ impl ProtocolInventory {
                 };
             }
         };
-        self.prepare_packet_leaf(config, leaf, protocol, mode)
+        self.prepare_packet_leaf(config, leaf, protocol, mode, admission)
     }
 
     fn prepare_packet_leaf(
@@ -68,6 +88,7 @@ impl ProtocolInventory {
         leaf: ResolvedLeafOutbound<'_>,
         protocol: Option<u8>,
         mode: RouteMode,
+        admission: &zero_engine::EndpointAdmission<'_>,
     ) -> PacketRouteTarget {
         let Ok(claimed) = self.claim_outbound_leaf(config, leaf) else {
             return PacketRouteTarget::Unsupported;
@@ -93,7 +114,18 @@ impl ProtocolInventory {
                 None => PacketRouteTarget::Unsupported,
             };
         }
-        if matches!(mode, RouteMode::Flow | RouteMode::Translate) {
+        let correlated_returns_required = runtime
+            .tag
+            .as_deref()
+            .is_some_and(|tag| admission.requires_correlated_packet_returns(tag));
+        let unsafe_native_returns =
+            correlated_returns_required && !claimed.native_packet_returns_correlated();
+        if mode == RouteMode::Packet && unsafe_native_returns {
+            return PacketRouteTarget::Unsupported;
+        }
+        if matches!(mode, RouteMode::Flow | RouteMode::Translate)
+            || (mode == RouteMode::Auto && unsafe_native_returns)
+        {
             // Force the ingress through its L4 stack. The selected outbound
             // may still execute a registered Flow -> Packet conversion.
             let supported = match protocol {

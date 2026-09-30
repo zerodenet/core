@@ -90,3 +90,88 @@ fn translated_packet_requires_an_explicit_adapter_and_never_uses_direct_echo() {
     );
     assert!(matches!(target, PacketRouteTarget::Unsupported));
 }
+
+mod endpoint {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use serde_json::json;
+    use zero_engine::OutboundIdentity;
+    use zero_stack::packet::IPPROTO_UDP;
+
+    use super::*;
+
+    fn target(inbound: bool, protocol: u8, mode: RouteMode) -> PacketRouteTarget {
+        let config = RuntimeConfig::parse(
+            &json!({"endpoints":[{"tag":"wg", "directions":{"inbound":inbound,"outbound":true},
+                "listen":{"address":"127.0.0.1","port":51820}, "protocol":{
+                    "type":"wireguard", "private_key":STANDARD.encode([1;32]), "addresses":["10.0.0.1/32"],
+                    "peers":[{"public_key":STANDARD.encode([2;32]), "endpoint":"127.0.0.1:51821", "allowed_ips":["10.0.0.0/24"]}]}}],
+                "route":{"rules":[],"final":{"type":"route","outbound":"wg"}}}).to_string(),
+        ).unwrap();
+        ProtocolInventory::default().prepare_packet_route_target_with_mode(
+            &config,
+            ResolvedOutbound::Single(ResolvedLeafOutbound::Proxy {
+                identity: OutboundIdentity::from_config_index(0),
+            }),
+            Some(protocol),
+            mode,
+        )
+    }
+
+    #[test]
+    fn outbound_only_packet_ingress_uses_correlated_flows_and_rejects_unsafe_native_returns() {
+        if !ProtocolInventory::default()
+            .supported_outbounds()
+            .contains(&"wireguard")
+        {
+            assert!(matches!(
+                target(false, IPPROTO_TCP, RouteMode::Auto),
+                PacketRouteTarget::Unsupported
+            ));
+            return;
+        }
+        for protocol in [IPPROTO_TCP, IPPROTO_UDP] {
+            assert!(matches!(
+                target(false, protocol, RouteMode::Auto),
+                PacketRouteTarget::Flow
+            ));
+            assert!(matches!(
+                target(false, protocol, RouteMode::Packet),
+                PacketRouteTarget::Unsupported
+            ));
+        }
+        assert!(matches!(
+            target(false, IPPROTO_ICMP, RouteMode::Auto),
+            PacketRouteTarget::Unsupported
+        ));
+        assert!(matches!(
+            target(false, IPPROTO_ICMP, RouteMode::Translate),
+            PacketRouteTarget::Packet {
+                translated: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn bidirectional_endpoint_preserves_native_packet_selection() {
+        if !ProtocolInventory::default()
+            .supported_outbounds()
+            .contains(&"wireguard")
+        {
+            assert!(matches!(
+                target(true, IPPROTO_TCP, RouteMode::Auto),
+                PacketRouteTarget::Unsupported
+            ));
+            return;
+        }
+        for protocol in [IPPROTO_TCP, IPPROTO_UDP, IPPROTO_ICMP] {
+            assert!(matches!(
+                target(true, protocol, RouteMode::Auto),
+                PacketRouteTarget::Packet {
+                    translated: false,
+                    ..
+                }
+            ));
+        }
+    }
+}

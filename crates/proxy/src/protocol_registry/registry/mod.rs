@@ -32,6 +32,8 @@ pub(crate) use outbound::ClaimedOutboundLeaf;
 #[derive(Clone, Default)]
 pub(crate) struct ProtocolRegistry {
     entries: Vec<RegisteredProtocolEntry>,
+    endpoint_observers: Vec<Arc<dyn crate::protocol_registry::EndpointObservationCapability>>,
+    endpoint_controllers: Vec<Arc<dyn crate::protocol_registry::EndpointControlCapability>>,
     #[cfg(feature = "raw-ip-runtime")]
     outbound_devices: Vec<Arc<dyn crate::protocol_registry::OutboundDeviceLifecycleCapability>>,
     #[cfg(feature = "managed-stream-runtime")]

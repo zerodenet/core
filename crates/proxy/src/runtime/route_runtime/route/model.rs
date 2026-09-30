@@ -85,11 +85,12 @@ impl InboundRouteRuntimeFactory {
         else {
             return crate::inventory::PacketRouteTarget::Unsupported;
         };
-        services.protocols().prepare_packet_route_target_with_mode(
+        services.protocols().prepare_packet_route_target_admitted(
             services.config(),
             resolved,
             protocol,
             trace.route_mode,
+            &zero_engine::EndpointAdmission::from_snapshot(snapshot),
         )
     }
 

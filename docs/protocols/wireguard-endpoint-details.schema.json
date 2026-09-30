@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zero.endpoint.wireguard.v1",
+  "title": "WireGuard endpoint detail facts, version 1",
+  "type": "object",
+  "required": ["peers"],
+  "additionalProperties": false,
+  "properties": {
+    "peers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["peer_id", "peer_index", "public_key", "allowed_ips", "configured_endpoint", "authenticated_endpoint", "source_known", "health"],
+        "additionalProperties": false,
+        "properties": {
+          "peer_id": { "type": ["string", "null"] },
+          "peer_index": { "type": "integer", "minimum": 0 },
+          "public_key": { "type": "string" },
+          "allowed_ips": { "type": "array", "items": { "type": "string" } },
+          "configured_endpoint": { "type": ["string", "null"] },
+          "authenticated_endpoint": { "type": ["string", "null"] },
+          "source_known": { "type": ["boolean", "null"] },
+          "last_authenticated_packet_age_ms": { "type": ["integer", "null"], "minimum": 0 },
+          "health": {
+            "type": ["object", "null"],
+            "properties": {
+              "tag": { "type": "string" },
+              "peer_index": { "type": "integer", "minimum": 0 },
+              "state": { "enum": ["not_started", "endpoint_unresolved", "awaiting_handshake", "recently_handshaken", "reachable", "degraded", "stopped"] },
+              "last_handshake_age_ms": { "type": ["integer", "null"], "minimum": 0 },
+              "last_authenticated_packet_age_ms": { "type": ["integer", "null"], "minimum": 0 },
+              "endpoint_resolution_failed": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

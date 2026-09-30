@@ -32,7 +32,7 @@ trojan = ["zero-proxy/trojan"]
 vmess = ["zero-proxy/vmess"]
 mieru = ["zero-proxy/mieru"]
 wireguard = ["zero-proxy/wireguard"]
-status-api = []
+status-api = ["dep:percent-encoding"]
 event-dispatcher = [
     "dep:zero-connector",
     "dep:zero-platform-tokio",
@@ -113,6 +113,7 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 
 [dependencies]
 async-trait = "0.1"
+percent-encoding = { version = "2", optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

@@ -37,6 +37,14 @@ pub enum CommandRequest {
     TunStart(TunStartCommand),
     #[serde(rename = "tun.stop")]
     TunStop(TunStopCommand),
+    #[serde(rename = "endpoints.set_state")]
+    EndpointSetState(crate::EndpointSetStateCommand),
+    #[serde(rename = "endpoints.set_directions")]
+    EndpointSetDirections(crate::EndpointSetDirectionsCommand),
+    #[serde(rename = "endpoints.restart")]
+    EndpointRestart(crate::EndpointOperationCommand),
+    #[serde(rename = "endpoints.clear_overrides")]
+    EndpointClearOverrides(crate::EndpointOperationCommand),
     #[serde(rename = "tun.recover")]
     TunRecover(TunRecoverCommand),
 }
@@ -60,7 +68,11 @@ impl CommandRequest {
             | Self::ModeSet(_)
             | Self::TunStart(_)
             | Self::TunRecover(_)
-            | Self::TunStop(_) => Permission::Admin,
+            | Self::TunStop(_)
+            | Self::EndpointSetState(_)
+            | Self::EndpointSetDirections(_)
+            | Self::EndpointRestart(_)
+            | Self::EndpointClearOverrides(_) => Permission::Admin,
         }
     }
 }

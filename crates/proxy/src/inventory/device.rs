@@ -19,11 +19,12 @@ impl ProtocolInventory {
     pub(super) fn prepare_device_packet_paths(
         &self,
         config: &RuntimeConfig,
+        admission: &zero_engine::EndpointAdmission<'_>,
     ) -> Result<(PacketPaths, PathIdentities), EngineError> {
         let mut paths: PacketPaths = HashMap::new();
         let mut identities = HashMap::new();
         for (index, outbound) in config.outbounds.iter().enumerate() {
-            if !outbound.udp.enabled {
+            if !outbound.udp.enabled || admission.outbound_denial(&outbound.tag).is_some() {
                 continue;
             }
             let Ok(claimed) = self.claim_config_outbound(config, index) else {
@@ -50,10 +51,12 @@ impl ProtocolInventory {
             let Some(indices) = indices else {
                 continue;
             };
-            if indices
-                .iter()
-                .any(|&index| !config.outbounds[index].udp.enabled)
-            {
+            if indices.iter().any(|&index| {
+                !config.outbounds[index].udp.enabled
+                    || admission
+                        .outbound_denial(&config.outbounds[index].tag)
+                        .is_some()
+            }) {
                 continue;
             }
             let Ok(operation) = self.prepare_relay_device_packet_path(config, &indices) else {

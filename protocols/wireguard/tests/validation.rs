@@ -1,4 +1,15 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+#[test]
+fn peer_identity_uses_public_key_bytes_and_is_independent_of_text_encoding() {
+    let base64 = STANDARD.encode([9; 32]);
+    let hex = "09".repeat(32);
+    assert_eq!(
+        wireguard::validation::public_peer_id(&base64).unwrap(),
+        wireguard::validation::public_peer_id(&hex).unwrap()
+    );
+    assert!(wireguard::validation::public_peer_id("invalid").is_err());
+}
 use std::net::{IpAddr, Ipv4Addr};
 use wireguard::validation::{
     parse_endpoint, parse_key, parse_network, validate_inbound, validate_outbound, EndpointError,

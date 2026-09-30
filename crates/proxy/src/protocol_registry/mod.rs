@@ -14,6 +14,10 @@ mod capability;
 mod claim;
 mod context;
 mod defaults;
+mod endpoint;
+pub(crate) use endpoint::{
+    EndpointControlCapability, EndpointObservation, EndpointObservationCapability,
+};
 mod model;
 mod registry;
 mod transport_leaf;

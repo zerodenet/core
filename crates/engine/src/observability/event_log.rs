@@ -39,6 +39,28 @@ impl Default for EngineEventLog {
 }
 
 impl EngineEventLog {
+    pub(crate) fn push_endpoint_state_changed(&self, fact: &crate::runtime::EndpointFact) {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let event = ApiEvent::new(
+            format!("endpoint-{}-{now_ms}", fact.endpoint_id),
+            event_type::ENDPOINT_STATE_CHANGED,
+            now_ms,
+            json!({
+                "endpoint_id": fact.endpoint_id,
+                "state": fact.state,
+                "generation": fact.generation,
+                "intent_revision": fact.intent_revision,
+                "enabled": fact.enabled,
+                "started_at_unix_ms": fact.started_at_unix_ms,
+                "last_error": fact.last_error,
+            }),
+        );
+        self.push_generated(event);
+    }
+
     fn with_capacity(capacity: usize) -> Self {
         let event_epoch = rand::random();
         Self {
@@ -232,6 +254,37 @@ impl EngineEventLog {
             event_type::STATS_SAMPLED,
             now_ms,
             payload,
+        );
+        self.push_generated(event);
+    }
+
+    /// A single bounded event carries one page of resource samples. Missing
+    /// counters remain null and must not be interpreted as observed zero.
+    pub(crate) fn push_endpoint_stats_sampled(&self, endpoints: &[zero_api::EndpointSnapshot]) {
+        let Some(first) = endpoints.first() else {
+            return;
+        };
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let samples = endpoints
+            .iter()
+            .map(|endpoint| {
+                json!({
+                    "endpoint_id": endpoint.endpoint_id,
+                    "config_revision": endpoint.config_revision,
+                    "generation": endpoint.generation,
+                    "observed_at_unix_ms": endpoint.observed_at_unix_ms,
+                    "counters": endpoint.counters,
+                })
+            })
+            .collect::<Vec<_>>();
+        let event = ApiEvent::new(
+            format!("endpoint-stats-{now_ms}-{}", first.endpoint_id),
+            event_type::ENDPOINT_STATS_SAMPLED,
+            now_ms,
+            json!({ "samples": samples }),
         );
         self.push_generated(event);
     }

@@ -69,6 +69,12 @@ fn malformed_data_from_one_peer_does_not_break_another_authenticated_peer() {
     let second_outer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 93)), 51_821);
     establish(&mut server, &mut first, 0, first_outer, first_inner);
     establish(&mut server, &mut second, 1, second_outer, second_inner);
+    let first_source = server.peer_source(0).unwrap();
+    let second_source = server.peer_source(1).unwrap();
+    assert_eq!(first_source.authenticated_endpoint, Some(first_outer));
+    assert_eq!(second_source.authenticated_endpoint, Some(second_outer));
+    assert_eq!(first_source.source_known, Some(true));
+    assert!(second_source.last_authenticated_packet_age.is_some());
 
     let first_packet = ipv4_packet(first_inner, Ipv4Addr::new(10, 0, 0, 1), b"corrupt this");
     let mut corrupted = network_packets(first.send_ip_packet(&first_packet).unwrap());
@@ -78,6 +84,10 @@ fn malformed_data_from_one_peer_does_not_break_another_authenticated_peer() {
     assert_eq!(
         server.receive_datagram(first_outer, &corrupted[0]).err(),
         Some(TunnelError::Engine)
+    );
+    assert_eq!(
+        server.peer_source(0).unwrap().authenticated_endpoint,
+        Some(first_outer)
     );
     drop(first);
 
@@ -106,4 +116,18 @@ fn malformed_data_from_one_peer_does_not_break_another_authenticated_peer() {
     assert!(decrypted.iter().any(|action| {
         matches!(action, TunnelAction::ReceiveIp { packet, .. } if packet == &response)
     }));
+
+    let opaque_packet = ipv4_packet(second_inner, Ipv4Addr::new(10, 0, 0, 1), b"opaque carrier");
+    let opaque = network_packets(second.send_ip_packet(&opaque_packet).unwrap());
+    let dispatch = server
+        .receive_datagram_with_source(None, &opaque[0])
+        .unwrap();
+    assert!(dispatch.authenticated);
+    let source = server.peer_source(1).unwrap();
+    assert_eq!(source.source_known, Some(false));
+    assert_eq!(source.authenticated_endpoint, None);
+    assert_eq!(
+        server.peer_source(0).unwrap().authenticated_endpoint,
+        Some(first_outer)
+    );
 }

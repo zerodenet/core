@@ -403,10 +403,12 @@ fn drain_parent_lifetime(mut reader: impl Read) -> std::io::Result<()> {
 fn spawn_stats_sampler(engine: Engine) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut stats_tick = tokio::time::interval(std::time::Duration::from_secs(1));
+        let mut endpoint_tick = tokio::time::interval(std::time::Duration::from_secs(10));
         let mut flow_tick = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
             tokio::select! {
                 _ = stats_tick.tick() => engine.push_stats_sampled(),
+                _ = endpoint_tick.tick() => engine.push_endpoint_stats_sampled(),
                 _ = flow_tick.tick() => engine.push_flow_updates(),
             }
         }

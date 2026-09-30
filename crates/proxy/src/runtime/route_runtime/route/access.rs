@@ -77,6 +77,14 @@ impl InboundRouteRuntime {
 }
 
 impl InboundRouteRuntimeFactory {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn endpoint_inbound_allowed(&self) -> bool {
+        self.shared
+            .tcp_services()
+            .engine()
+            .endpoint_inbound_allowed(&self.inbound_tag)
+    }
+
     pub(crate) fn inbound_tag(&self) -> &str {
         &self.inbound_tag
     }

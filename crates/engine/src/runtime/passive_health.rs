@@ -74,6 +74,7 @@ impl Engine {
             &mut selector,
         )
         .ok_or(EngineError::MissingRouteTarget { tag })?;
+        let resolved = snapshot.admit_endpoint_outbound(resolved)?;
 
         // SAFETY: `plan` is returned alongside the resolved value and owns all
         // borrowed target data for at least as long as the caller holds it.

@@ -13,6 +13,41 @@ fn ip(value: &str) -> IpAddr {
 }
 
 #[tokio::test]
+async fn correlated_udp_delivery_rejects_unsolicited_sources_but_preserves_unconnected_mode() {
+    let (outbound, mut packets) = mpsc::channel(16);
+    let stack = ClientUdpStack::new(vec![ip("10.0.0.1")], outbound, 1_420).unwrap();
+    let mut socket = stack.bind(ip("10.0.0.1")).unwrap();
+    let local = socket.local_endpoint();
+    let remote = Endpoint {
+        ip: ip("10.0.0.2"),
+        port: 53,
+    };
+    let reply = packet::build_udp(remote.ip, local.ip, remote.port, local.port, b"reply");
+    assert!(!stack.feed_correlated(&reply));
+    socket.send_to(b"request", remote).await.unwrap();
+    let _ = packets.recv().await.unwrap();
+    for source in [
+        Endpoint {
+            ip: ip("10.0.0.3"),
+            port: remote.port,
+        },
+        Endpoint {
+            ip: remote.ip,
+            port: remote.port + 1,
+        },
+    ] {
+        let unrelated =
+            packet::build_udp(source.ip, local.ip, source.port, local.port, b"unsolicited");
+        assert!(!stack.feed_correlated(&unrelated));
+    }
+    assert!(stack.feed_correlated(&reply));
+    assert_eq!(socket.recv_from().await.unwrap().payload, b"reply");
+    let unrelated = packet::build_udp(ip("10.0.0.3"), local.ip, 54, local.port, b"unconnected");
+    assert!(stack.feed(&unrelated));
+    assert_eq!(socket.recv_from().await.unwrap().payload, b"unconnected");
+}
+
+#[tokio::test]
 async fn client_udp_round_trips_ipv4_packets_in_memory() {
     let (a_outbound, mut a_packets) = mpsc::channel(16);
     let (b_outbound, mut b_packets) = mpsc::channel(16);

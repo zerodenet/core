@@ -19,6 +19,7 @@ use wireguard::{
     runtime::{PeerTunnel, TunnelAction},
     validation::{validate_outbound, OutboundInput, PeerInput},
 };
+use zero_api::{EndpointGetQuery, QueryRequest, QueryResponse, QueryService};
 use zero_config::RuntimeConfig;
 use zero_core::Address;
 use zero_engine::EngineHandle;
@@ -683,7 +684,9 @@ async fn authenticated_wireguard_peer_roams_to_new_udp_source_port() {
     }}"#
     ))
     .unwrap();
-    let server = spawn_engine(Proxy::new(config).unwrap());
+    let proxy = Proxy::new(config).unwrap();
+    let control = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone());
+    let server = spawn_engine(proxy);
     sleep(Duration::from_millis(100)).await;
 
     let echo = UdpSocket::bind((host_ip, 0)).await.unwrap();
@@ -763,6 +766,19 @@ async fn authenticated_wireguard_peer_roams_to_new_udp_source_port() {
         .await
         .expect("roamed peer did not receive UDP response on its current socket");
         assert_eq!(parse_udp(&reply).unwrap().payload, payload);
+        let QueryResponse::EndpointDetails(details) = control
+            .query(QueryRequest::EndpointDetails(EndpointGetQuery {
+                endpoint_id: "legacy:inbound:wg-in".into(),
+            }))
+            .unwrap()
+        else {
+            panic!("wrong endpoint detail response");
+        };
+        assert_eq!(details.details["peers"][0]["source_known"], true);
+        assert_eq!(
+            details.details["peers"][0]["authenticated_endpoint"],
+            socket.local_addr().unwrap().to_string()
+        );
     }
 
     timeout(Duration::from_secs(10), echo_task)

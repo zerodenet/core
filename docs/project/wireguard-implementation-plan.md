@@ -2,6 +2,10 @@
 
 本文固定 Zero `v0.0.3-dev.*` 开发线中的 WireGuard 范围、分层、运行路径与验收门禁。实现以当前 Zero 能力边界、WireGuard 官方协议和固定互操作基线为准，不把 WireGuard 当成普通的流式代理协议。
 
+端点身份、方向授权、独立启停和通用观测的补充实施范围见
+[通用网络端点管理规划](network-endpoint-management-plan.md)。该规划复用本文的数据
+平面与生产门禁；规划中的新增管理契约尚未实现，不能据此提升完成度声明。
+
 ## 1. 版本与基线
 
 - Zero 开发线：`v0.0.3-dev.YYYYMMDDHHMM`，只从 `develop` 发布。
@@ -462,3 +466,26 @@ UTC 09:49:14 完成（2122.4 秒、退出码 0），构建目录为
 产物 SHA-256：`1aaf5b23456622d62617f61896187503932ccb15567965cd0b1d43bc7abcfc38`。
 源码和构建记录见桌面 `zero-wireguard-ping-manifest-20260928.json`。本轮未提交、
 推送或替换运行内核；A/B 真实网络 ping 待用户切换新内核验收。
+
+### 2026-09-29: neutral endpoint identity and independent control
+
+The kernel now exposes canonical/legacy endpoint identities, registered read-only observers
+and acknowledged set_state/set_directions/restart/clear_overrides commands. Engine owns
+intent, revisions and admission; Proxy reuses configuration reconcile/rollback and waits for
+listener, raw-IP driver and revoked business completion. WireGuard remains a registered
+adapter over the neutral Packet lifecycle; no protocol-specific management server was added.
+
+Local regressions cover two independent tunnels with established TCP payload, stopping A
+while B continues, listener release, failed-start rollback/retry, source-file/runtime intent,
+stale revisions, caller disconnect and legacy linked inbound/outbound role changes.
+Live contraction of retained direction permissions still requires stop/change/start. Complete
+lifecycle/generation facts, statistics/events, dependency coordination and external acceptance
+remain development or acceptance work; these controls do not close M5 production gates.
+
+Final all-feature workspace tests: 325 targets, 2267 passed, 0 failed, 155 ignored; exit 0.
+Workspace check, formatting, all-target/all-feature Clippy with warnings denied, a release
+build with WireGuard, version launch and diff checks also passed. All 2479 source/build-input
+hashes matched the test-start manifest. No commit, push, release or installed-core replacement
+was performed. See [control contract](network-endpoint-control-v1.md),
+[verification record](network-endpoint-control-verification-20260929.md) and
+[management plan](network-endpoint-management-plan.md) for precise scope and remaining work.

@@ -2,6 +2,28 @@ use super::ProtocolRegistry;
 use zero_config::RuntimeConfig;
 
 impl ProtocolRegistry {
+    pub(crate) fn endpoint_control_available(&self) -> bool {
+        !self.endpoint_controllers.is_empty()
+    }
+    pub(crate) fn endpoint_control_supported(
+        &self,
+        binding: &zero_config::EndpointBindingConfig,
+    ) -> bool {
+        self.endpoint_controllers
+            .iter()
+            .any(|capability| capability.supports_endpoint_control(binding))
+    }
+
+    pub(crate) fn observe_endpoint(
+        &self,
+        binding: &zero_config::EndpointBindingConfig,
+        config: &RuntimeConfig,
+    ) -> Option<crate::protocol_registry::EndpointObservation> {
+        self.endpoint_observers
+            .iter()
+            .find_map(|observer| observer.observe_endpoint(binding, config))
+    }
+
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn outbound_device_health(
         &self,
@@ -25,6 +47,7 @@ impl ProtocolRegistry {
         &self,
         config: &RuntimeConfig,
         context: crate::protocol_registry::OutboundDevicePreparationContext,
+        admission: zero_engine::EndpointAdmission<'_>,
     ) -> Result<
         Vec<Box<dyn crate::protocol_registry::PreparedOutboundDeviceState>>,
         zero_engine::EngineError,
@@ -34,7 +57,10 @@ impl ProtocolRegistry {
             let outbounds = config
                 .outbounds
                 .iter()
-                .filter(|outbound| capability.supports_outbound(&outbound.protocol))
+                .filter(|outbound| {
+                    admission.device_enabled(&outbound.tag)
+                        && capability.supports_outbound(&outbound.protocol)
+                })
                 .collect::<Vec<_>>();
             prepared.push(
                 capability

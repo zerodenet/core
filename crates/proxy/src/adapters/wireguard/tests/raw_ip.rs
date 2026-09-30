@@ -398,7 +398,7 @@ async fn raw_ip_staging_failure_keeps_published_device() {
     active
         .insert("wg".to_owned(), 0, [1; 32], 1, first_cell.clone(), true)
         .unwrap();
-    pool.publish(active);
+    let _ = pool.publish(active);
     assert!(pool.is_current("wg", 0, [1; 32], 1, &first));
     assert!(pool.health_snapshot("wg", 0, [1; 32]).is_some());
     assert!(pool.health_snapshot("wg", 0, [2; 32]).is_none());
@@ -473,7 +473,7 @@ async fn raw_ip_staging_failure_keeps_published_device() {
     committed
         .insert("wg".to_owned(), 0, [2; 32], 1, replacement_cell, true)
         .unwrap();
-    pool.publish(committed);
+    let _ = pool.publish(committed);
     assert!(pool.health_snapshot("wg", 0, [1; 32]).is_none());
     assert!(
         !pool

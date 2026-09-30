@@ -99,7 +99,7 @@ pub struct Proxy {
 
 #[derive(Debug)]
 struct PendingReloadAck {
-    expected: RuntimeConfig,
+    expected: Arc<zero_engine::EngineRuntimeSnapshot>,
     previous: Arc<zero_engine::EngineRuntimeSnapshot>,
     persist: bool,
     sender: oneshot::Sender<Result<(), String>>,
@@ -211,12 +211,16 @@ impl Proxy {
         self.orchestration_ready.send_replace(true);
     }
 
-    pub(crate) fn complete_reload(&self, expected: &RuntimeConfig, result: Result<(), String>) {
+    pub(crate) fn complete_reload(
+        &self,
+        expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
+        result: Result<(), String>,
+    ) {
         let pending = {
             let mut pending = self.reload_ack.lock().expect("reload ack lock poisoned");
             if pending
                 .as_ref()
-                .is_some_and(|pending| pending.expected == *expected)
+                .is_some_and(|pending| Arc::ptr_eq(&pending.expected, expected))
             {
                 pending.take()
             } else {
@@ -228,33 +232,39 @@ impl Proxy {
         }
     }
 
-    pub(crate) fn pending_reload_persists(&self, expected: &RuntimeConfig) -> bool {
+    pub(crate) fn pending_reload_persists(
+        &self,
+        expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
+    ) -> bool {
         self.reload_ack
             .lock()
             .expect("reload ack lock poisoned")
             .as_ref()
-            .filter(|pending| pending.expected == *expected)
+            .filter(|pending| Arc::ptr_eq(&pending.expected, expected))
             .is_none_or(|pending| pending.persist)
     }
 
     pub(crate) fn pending_reload_snapshot(
         &self,
-        expected: &RuntimeConfig,
+        expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
     ) -> Option<Arc<zero_engine::EngineRuntimeSnapshot>> {
         self.reload_ack
             .lock()
             .expect("reload ack lock poisoned")
             .as_ref()
-            .filter(|pending| pending.expected == *expected)
+            .filter(|pending| Arc::ptr_eq(&pending.expected, expected))
             .map(|pending| pending.previous.clone())
     }
 
-    pub(crate) fn pending_reload_matches(&self, expected: &RuntimeConfig) -> bool {
+    pub(crate) fn pending_reload_matches(
+        &self,
+        expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
+    ) -> bool {
         self.reload_ack
             .lock()
             .expect("reload ack lock poisoned")
             .as_ref()
-            .is_some_and(|pending| pending.expected == *expected)
+            .is_some_and(|pending| Arc::ptr_eq(&pending.expected, expected))
     }
 
     pub(crate) fn tcp_runtime_services(&self) -> TcpRuntimeServices {

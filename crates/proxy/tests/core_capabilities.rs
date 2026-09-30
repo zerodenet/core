@@ -39,8 +39,23 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
         "diagnostic_probe_health_isolation_v1",
         "direct_tcp_dial_attempt_observability_v1",
         "direct_tcp_trusted_target_candidate_fallback",
+        "network_endpoint_catalog_v1",
     ];
-    let mut expected_limitations = vec!["direct_udp_trusted_candidate_retarget_unsupported"];
+    let mut expected_limitations = vec![
+        "direct_udp_trusted_candidate_retarget_unsupported",
+        "endpoint_generation_and_counters_unavailable",
+        "canonical_wireguard_endpoint_requires_configured_peer_endpoints",
+    ];
+    #[cfg(feature = "wireguard")]
+    {
+        expected_features.push("network_endpoint_control_v1");
+        expected_limitations.extend([
+            "endpoint_live_direction_contraction_requires_stop",
+            "legacy_endpoint_source_file_control_unsupported",
+        ]);
+    }
+    #[cfg(not(feature = "wireguard"))]
+    expected_limitations.push("endpoint_runtime_lifecycle_commands_not_registered");
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     {

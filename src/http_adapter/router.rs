@@ -48,6 +48,14 @@ pub async fn route(
         (m, p) if route_path.starts_with("/api/v1/") => match (m, p) {
             ("GET", "/capabilities") => read_json(handlers::capabilities(handle), auth_ctx),
             ("GET", "/health") => read_json(handlers::health(handle), auth_ctx),
+            ("GET", "/endpoints") => read_json(handlers::endpoints_list(handle, query), auth_ctx),
+            ("GET", path) if path.starts_with("/endpoints/") => {
+                let id = &path["/endpoints/".len()..];
+                let (id, details) = id
+                    .strip_suffix("/details")
+                    .map_or((id, false), |id| (id, true));
+                read_json(handlers::endpoint_get(handle, id, details), auth_ctx)
+            }
             ("GET", "/config") => read_json(handlers::config(handle), auth_ctx),
             ("GET", "/runtime") => read_json(handlers::runtime(handle), auth_ctx),
             ("GET", "/stats") => read_json(handlers::stats(handle), auth_ctx),
@@ -153,3 +161,6 @@ fn path_query_part(path: &str) -> &str {
 fn path_path_part(path: &str) -> &str {
     path.split_once('?').map(|(p, _)| p).unwrap_or(path)
 }
+
+#[cfg(all(test, feature = "wireguard"))]
+mod tests;

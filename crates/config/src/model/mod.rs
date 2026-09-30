@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ConfigError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
     /// Public runtime configuration schema generation.
@@ -14,6 +14,8 @@ pub struct RuntimeConfig {
     /// validation before any runtime state is constructed.
     #[serde(default = "default_config_schema_version")]
     pub schema_version: u32,
+    #[serde(default)]
+    pub endpoints: Vec<EndpointConfig>,
     #[serde(default)]
     pub inbounds: Vec<InboundConfig>,
     #[serde(default)]
@@ -80,7 +82,9 @@ impl RuntimeConfig {
         }
         let mut config = serde_json::from_str::<Self>(raw)?;
         config.source_dir = source_dir;
+        config.validate_endpoint_projection_collisions()?;
         config.normalize();
+        config.materialize_endpoints()?;
         config.validate()?;
 
         Ok(config)
@@ -236,11 +240,13 @@ impl ModeConfig {
 
 mod api;
 mod dns;
+mod endpoint;
 mod inbound;
 mod log;
 mod mkcp;
 mod outbound;
 mod route;
+mod serialization;
 mod transport;
 mod wireguard;
 pub use mkcp::MkcpConfig;
@@ -248,6 +254,7 @@ mod tun;
 
 pub use api::*;
 pub use dns::*;
+pub use endpoint::*;
 pub use inbound::*;
 pub use log::*;
 pub use outbound::*;
