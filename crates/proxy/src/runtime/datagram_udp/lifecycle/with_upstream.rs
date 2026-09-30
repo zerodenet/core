@@ -59,7 +59,17 @@ where
                     Err(error) => tracing::warn!(error = %error, "datagram udp upstream response error"),
                 }
             }
-            _ = wait_for_upstream_idle(upstream_idle_deadline) => {}
+            _ = wait_for_upstream_idle(upstream_idle_deadline) => {
+                if let Some(closed) = dispatch.drop_idle_upstream_association() {
+                    crate::logging::log_udp_upstream_association_idle_timeout(
+                        dispatch.inbound_tag(),
+                        &closed.outbound_tag,
+                        &closed.server,
+                        closed.port,
+                        context.runtime.services().udp_upstream_idle_timeout(),
+                    );
+                }
+            }
             Some(chain_result) = chain_tasks.join_next() => {
                 handle_chain_result(context, dispatch, source, responder, chain_result).await;
             }

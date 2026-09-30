@@ -129,3 +129,16 @@ fn browser_defaults_preserve_explicit_request_policy() {
     transport_headers(&mut headers, 151, true);
     assert!(!headers.contains_key("priority"));
 }
+
+#[cfg(feature = "http_client")]
+#[test]
+fn http_client_navigation_headers_do_not_require_other_carriers() {
+    let mut headers = HeaderMap::new();
+    apply_navigation_headers(&mut headers);
+    assert_eq!(headers["sec-fetch-mode"], "navigate");
+    assert_eq!(headers["sec-fetch-dest"], "document");
+    assert_eq!(headers["sec-fetch-site"], "none");
+    assert_eq!(headers["cache-control"], "max-age=0");
+    assert_eq!(headers["upgrade-insecure-requests"], "1");
+    assert!(!headers.contains_key("pragma"));
+}

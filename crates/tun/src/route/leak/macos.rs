@@ -14,7 +14,8 @@ pub struct SystemLeakGuard {
     tun_name: String,
     protected: Vec<IpNet>,
     excluded: Vec<IpAddr>,
-    enable_token: Option<String>,
+    enable_tokens: Vec<String>,
+    installed_rules: String,
     active: bool,
 }
 
@@ -31,37 +32,62 @@ impl SystemLeakGuard {
         let protected = normalized_prefixes(protected);
         let excluded = normalized_exclusions(excluded);
         apply_policy(&anchor, tun_name, &protected, &excluded)?;
-        let enable_token = if pf_enabled()? {
-            None
-        } else {
-            match enable_pf() {
-                Ok(token) => token,
-                Err(error) => {
-                    let _ = flush_anchor(&anchor);
-                    return Err(error);
-                }
-            }
-        };
-        Ok(Self {
+        // Establish ownership before fallible readback/activation, so failure
+        // rolls back the installed anchor through the normal cleanup handle.
+        let mut guard = Self {
             anchor,
             tun_name: tun_name.to_owned(),
             protected,
             excluded,
-            enable_token,
+            enable_tokens: Vec::new(),
+            installed_rules: String::new(),
             active: true,
-        })
+        };
+        guard.installed_rules = super::audit::snapshot(&anchor_rules(&guard.anchor)?)?;
+        if !pf_enabled()? {
+            guard.enable_tokens.push(enable_pf()?);
+            if !pf_enabled()? {
+                return Err(io::Error::other("pf is still disabled after installation"));
+            }
+        }
+        Ok(guard)
     }
 
     pub fn reconcile(&mut self, protected: &[IpNet], excluded: &[IpAddr]) -> io::Result<bool> {
         let protected = normalized_prefixes(protected);
         let excluded = normalized_exclusions(excluded);
-        if protected == self.protected && excluded == self.excluded {
-            return Ok(false);
+        // Audit activation and the actual anchor even when desired configuration
+        // is unchanged. A retained but flushed anchor is not leak protection.
+        verify_anchor_namespace()?;
+        let observed = anchor_rules(&self.anchor)?;
+        let observed = std::str::from_utf8(&observed)
+            .map_err(io::Error::other)?
+            .trim();
+        let repaired = super::audit::repair_policy(
+            &self.installed_rules,
+            Some(observed),
+            protected != self.protected || excluded != self.excluded,
+            || {
+                apply_policy(&self.anchor, &self.tun_name, &protected, &excluded)?;
+                super::audit::snapshot(&anchor_rules(&self.anchor)?)
+            },
+        )?;
+        let reenabled = if pf_enabled()? {
+            false
+        } else {
+            // Retain every reference acquired by this guard for normal cleanup.
+            self.enable_tokens.push(enable_pf()?);
+            if !pf_enabled()? {
+                return Err(io::Error::other("pf is still disabled after recovery"));
+            }
+            true
+        };
+        if let Some(installed_rules) = repaired.as_ref() {
+            self.installed_rules = installed_rules.clone();
         }
-        apply_policy(&self.anchor, &self.tun_name, &protected, &excluded)?;
         self.protected = protected;
         self.excluded = excluded;
-        Ok(true)
+        Ok(repaired.is_some() || reenabled)
     }
 
     pub fn close(mut self) -> io::Result<()> {
@@ -73,11 +99,12 @@ impl SystemLeakGuard {
             return Ok(());
         }
         flush_anchor(&self.anchor)?;
-        if let Some(token) = self.enable_token.take() {
-            let output = run_pfctl(&["-X", &token])?;
+        while let Some(token) = self.enable_tokens.last() {
+            let output = run_pfctl(&["-X", token])?;
             if !output.status.success() {
                 return Err(command_error("release pf enable token", &output.stderr));
             }
+            self.enable_tokens.pop();
         }
         self.active = false;
         Ok(())
@@ -96,12 +123,36 @@ fn verify_anchor_namespace() -> io::Result<()> {
         return Err(command_error("inspect pf rules", &output.stderr));
     }
     let rules = String::from_utf8_lossy(&output.stdout);
-    if rules.contains("com.apple/*") {
+    if evaluates_anchor_namespace(&rules) {
         Ok(())
     } else {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
-            "pf main ruleset does not evaluate the `com.apple/*` anchor namespace",
+            "pf main ruleset requires an unconditional `anchor \"com.apple/*\" all` rule",
+        ))
+    }
+}
+
+fn evaluates_anchor_namespace(rules: &str) -> bool {
+    // Accept only the canonical unconditional anchor emitted by pfctl. A
+    // direction/interface/family/address-limited reference can leave protected
+    // outbound traffic outside our anchor, even though its name is present.
+    rules.lines().any(|line| {
+        line.split_whitespace()
+            .eq(["anchor", "\"com.apple/*\"", "all"])
+    })
+}
+
+fn anchor_rules(anchor: &str) -> io::Result<Vec<u8>> {
+    // No verbose counters/state table or -r/-P name resolution. Do not use
+    // -n here: for pfctl it means no-action, not numeric output.
+    let output = run_pfctl(&["-a", anchor, "-sr"])?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(command_error(
+            "inspect pf kill-switch anchor",
+            &output.stderr,
         ))
     }
 }
@@ -114,7 +165,7 @@ fn pf_enabled() -> io::Result<bool> {
     Ok(String::from_utf8_lossy(&output.stdout).contains("Status: Enabled"))
 }
 
-fn enable_pf() -> io::Result<Option<String>> {
+fn enable_pf() -> io::Result<String> {
     let output = run_pfctl(&["-E"])?;
     if !output.status.success() {
         return Err(command_error("enable pf", &output.stderr));
@@ -124,11 +175,12 @@ fn enable_pf() -> io::Result<Option<String>> {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    Ok(combined
+    combined
         .split_whitespace()
         .rev()
         .find(|value| value.chars().all(|character| character.is_ascii_digit()))
-        .map(str::to_owned))
+        .map(str::to_owned)
+        .ok_or_else(|| io::Error::other("pf did not return an enable reference token"))
 }
 
 fn apply_policy(
@@ -176,6 +228,11 @@ fn pfctl_program() -> &'static str {
 }
 
 fn policy_rules(tun_name: &str, protected: &[IpNet], excluded: &[IpAddr]) -> String {
+    // macOS PF has no Linux-style per-socket mark/AppID match. This UID-wide
+    // exception is required by current direct underlay sockets, so strict route
+    // does NOT isolate other programs running as Zero's effective UID. Do not
+    // replace it with endpoint-only rules: arbitrary direct destinations are
+    // supported. A narrower identity requires a separate platform mechanism.
     let uid = unsafe { libc::geteuid() };
     let mut rules = format!(
         "pass out quick on lo0 all\n\
@@ -221,53 +278,4 @@ fn command_error(action: &str, stderr: &[u8]) -> io::Error {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pf_policy_ends_in_a_quick_block() {
-        let rules = policy_rules(
-            "utun8",
-            &["203.0.113.0/24".parse().unwrap()],
-            &["192.0.2.1".parse().unwrap()],
-        );
-        let uid = unsafe { libc::geteuid() };
-        assert!(rules.contains("pass out quick on utun8 all"));
-        assert!(rules.contains(&format!("pass out quick all user {uid}\n")));
-        assert!(!rules.contains("pass out quick user"));
-        assert!(rules.contains("pass out quick to 127.0.0.0/8\n"));
-        assert!(rules.contains("pass out quick to ::1/128\n"));
-        assert!(rules.contains("pass out quick to 192.0.2.1"));
-        assert!(rules.ends_with("block drop out quick to 203.0.113.0/24\n"));
-    }
-
-    #[test]
-    fn pf_policy_exempts_loopback_destinations_before_protected_routes() {
-        let rules = policy_rules(
-            "utun8",
-            &[
-                "0.0.0.0/1".parse().unwrap(),
-                "128.0.0.0/1".parse().unwrap(),
-                "::/1".parse().unwrap(),
-                "8000::/1".parse().unwrap(),
-            ],
-            &[],
-        );
-        let ipv4_pass = rules.find("pass out quick to 127.0.0.0/8").unwrap();
-        let ipv6_pass = rules.find("pass out quick to ::1/128").unwrap();
-        let first_block = rules.find("block drop out quick").unwrap();
-        assert!(ipv4_pass < first_block);
-        assert!(ipv6_pass < first_block);
-        let blocked = rules
-            .lines()
-            .filter_map(|line| line.strip_prefix("block drop out quick to "))
-            .map(|prefix| prefix.parse::<IpNet>().unwrap())
-            .collect::<Vec<_>>();
-        assert!(!blocked
-            .iter()
-            .any(|prefix| prefix.contains(&"127.0.0.1".parse::<IpAddr>().unwrap())));
-        assert!(!blocked
-            .iter()
-            .any(|prefix| prefix.contains(&"::1".parse::<IpAddr>().unwrap())));
-    }
-}
+mod tests;

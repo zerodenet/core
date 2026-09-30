@@ -7,6 +7,8 @@
 mod read;
 mod relay;
 mod response;
+#[cfg(test)]
+mod tests;
 #[cfg(feature = "upstream-association-runtime")]
 mod with_upstream;
 mod without_upstream;
