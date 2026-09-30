@@ -85,9 +85,21 @@ fn resolve_target_inner<'a>(
         return None;
     }
     stack.push(target_id);
+    let resolved =
+        resolve_target_kind(plan, outbound_group_state, target_id, stack, urltest_selector);
+    stack.pop();
+    resolved
+}
 
+fn resolve_target_kind<'a>(
+    plan: &'a EnginePlan,
+    outbound_group_state: &OutboundGroupStateStore,
+    target_id: TargetId,
+    stack: &mut Vec<TargetId>,
+    urltest_selector: &mut Option<&mut dyn FnMut(TargetId, TargetId) -> TargetId>,
+) -> Option<ResolvedOutbound<'a>> {
     let target = plan.target(target_id)?;
-    let resolved = match target.kind() {
+    match target.kind() {
         TargetKind::Outbound(outbound) => Some(ResolvedOutbound::Single(resolve_leaf_outbound(
             target.tag(),
             outbound,
@@ -124,17 +136,19 @@ fn resolve_target_inner<'a>(
         TargetKind::Fallback(fallback) => {
             let mut candidates = Vec::new();
             for &member_id in fallback.members() {
-                let resolved = resolve_target_inner(
+                let Some(resolved) = resolve_target_inner(
                     plan,
                     outbound_group_state,
                     member_id,
                     stack,
                     urltest_selector,
-                )?;
+                ) else {
+                    continue;
+                };
                 append_candidates(&mut candidates, resolved);
             }
 
-            Some(ResolvedOutbound::Fallback { candidates })
+            (!candidates.is_empty()).then_some(ResolvedOutbound::Fallback { candidates })
         }
         TargetKind::UrlTest(urltest) => {
             let default_selected = outbound_group_state
@@ -176,22 +190,21 @@ fn resolve_target_inner<'a>(
 
             let mut candidates = Vec::new();
             for &member_id in &ordered {
-                let resolved = resolve_target_inner(
+                let Some(resolved) = resolve_target_inner(
                     plan,
                     outbound_group_state,
                     member_id,
                     stack,
                     urltest_selector,
-                )?;
+                ) else {
+                    continue;
+                };
                 append_candidates(&mut candidates, resolved);
             }
 
-            Some(ResolvedOutbound::Fallback { candidates })
+            (!candidates.is_empty()).then_some(ResolvedOutbound::Fallback { candidates })
         }
-    };
-
-    stack.pop();
-    resolved
+    }
 }
 
 fn resolve_leaf_outbound<'a>(

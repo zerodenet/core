@@ -5,6 +5,8 @@ use zero_engine::{Engine, ResolvedLeafOutbound, ResolvedOutbound, RouteDecision}
 
 #[path = "urltest_traffic_health/immediate.rs"]
 mod immediate;
+#[path = "urltest_traffic_health/wrapped.rs"]
+mod wrapped;
 
 fn engine(members: &[&str], extra_groups: Vec<Value>) -> Engine {
     let mut groups = vec![json!({
