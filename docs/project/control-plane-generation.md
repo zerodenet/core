@@ -33,6 +33,17 @@ Staged configurations may share a committed revision number while owning
 different plans. Revision equality is therefore not sufficient to identify
 the policy state to update.
 
+## Reload notification ownership
+
+Reload notifications are wakeups to reconcile the current runtime snapshot, not
+one transaction per queued notification. Once that exact snapshot has been
+applied, duplicate wakeups must not prepare, commit or discard DNS again while
+the acknowledged configuration caller is finishing its transaction. Explicit
+pending rollback requests still receive reconciliation and acknowledgement,
+even when they restore the already applied snapshot. Snapshot identity, rather
+than equal configuration content or revision, distinguishes a new staged apply
+from a duplicate notification.
+
 ## Events and cursors
 
 Every event retained by the engine carries `core_instance_id`,
