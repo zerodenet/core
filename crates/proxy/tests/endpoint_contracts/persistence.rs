@@ -1,8 +1,6 @@
 #![cfg(feature = "wireguard")]
 
-#[path = "endpoint_management/support.rs"]
-mod management;
-mod support;
+use crate::{management_support as management, support};
 
 use management::{config, endpoint, handle, ready, set_state};
 use std::sync::{

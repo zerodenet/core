@@ -68,5 +68,14 @@
 新增回滚测试首次运行暴露候选 DNS 阶段未释放的问题，已修正；失败日志
 保存在 /Volumes/tool/tmp/zero-endpoint-rollback-focused-20260930-attempt1.log。
 
+## 测试布局后续整理
+
+完整源码门禁结束后，契约实现提交为 66c041e2。随后仅调整端点 integration
+测试组织及测试脚本，运行代码未变：七个目标迁至 endpoint_contracts，保留
+18 个用例及原断言，共用 fixture 初始化与端口分配。默认并发回归 18 passed、
+0 failed，聚合前后用例名称集合一致；定向 Clippy 通过，fmt/diff/脚本回归通过。
+没有把布局迁移后的定向执行冒充第二次全量验收。详细开销与证据见
+[测试流程整理记录](test-workflow-verification-20260930.md)。
+
 真实 A/B、TUN、外部故障、长期运行、跨平台及已安装客户端验收保持独立。
 本地构建不代表新版本已发布、推送或安装；WireGuard 继续为 opt-in。

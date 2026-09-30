@@ -3,15 +3,20 @@
 set -euo pipefail
 log_file=$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/zero-workspace-tests.XXXXXX")
 trap 'rm -f "$log_file"' EXIT
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+started_seconds=$SECONDS
+echo "TEST_START $started_at"
 set +e
 "$@" 2>&1 | tee "$log_file"
 command_status=("${PIPESTATUS[@]}")
 set -e
 status=${command_status[0]}
+if [[ "$status" -eq 0 ]]; then status=${command_status[1]}; fi
+echo "TEST_END $(date -u +%Y-%m-%dT%H:%M:%SZ) exit=$status seconds=$((SECONDS - started_seconds))"
 if [[ "$status" -eq 0 ]]; then
-    exit "${command_status[1]}"
+    exit 0
 fi
-python3 - "$log_file" <<'PY'
+python3 - "$log_file" <<'PY' || echo "failure summary unavailable; command exit=$status" >&2
 from pathlib import Path
 import sys
 import re

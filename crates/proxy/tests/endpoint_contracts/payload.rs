@@ -1,8 +1,6 @@
 #![cfg(all(feature = "wireguard", feature = "socks5"))]
 
-#[path = "support/host.rs"]
-mod host;
-mod support;
+use crate::{host, support};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use gotatun::x25519::{PublicKey, StaticSecret};

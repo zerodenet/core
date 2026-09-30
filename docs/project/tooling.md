@@ -12,13 +12,13 @@
 
 ## Workspace 命令
 
-默认运行 workspace 级命令：
+默认运行 workspace 级命令（以下环境变量语法用于 Bash）：
 
-```powershell
+```bash
 cargo fmt --all
 cargo fmt --all --check
 cargo check --workspace
-cargo test --workspace
+RUST_MIN_STACK=16777216 cargo test --workspace --all-features
 cargo clippy --workspace --all-targets
 cargo build --release
 ```
@@ -37,6 +37,44 @@ cargo test <test_name>
 ```
 
 修改协议行为、配置解析、路由、运行时接线或日志后，应运行完整测试集。
+
+### 本地测试入口
+
+`scripts/test-workspace.sh` 固定使用 workspace、all-features、16 MiB 测试栈和
+现有 test profile；与 CI 共用日志和失败汇总器，打印 TEST_START/TEST_END、
+UTC 时间、耗时和退出码。无目标参数表示全量，包括 unit/integration/doctest：
+
+```bash
+./scripts/test-workspace.sh
+```
+
+编辑时可选择 integration 目标，减少重复执行；输出明确标记 focused，不能
+作为全量通过证据。例如回归端点与能力目录；`--test` 可以重复：
+
+```bash
+./scripts/test-workspace.sh --test endpoint_contracts --test core_capabilities
+```
+
+`--jobs 2` 限制 Cargo 编译 worker，适用于内存受限设备；它不限制测试线程，
+也不减少测试范围。保留默认 Cargo 并行度或显式选择 worker 数时，都需结合
+机器资源评估耗时。编辑阶段的 focused 回归通过后，最终协议/配置/路由/运行时
+提交仍执行完整门禁；外部互操作和特权场景仍按各自条件验证。
+
+入口脚本回归：`bash scripts/tests/test-workspace.sh`。覆盖范围标记、栈设置、
+编译 worker 参数、起止日志、命令/日志写入失败退出码和汇总器失败传播；这些是脚本测试，不是内核验收。
+
+小文件并不要求每个文件都是独立 Cargo test target。同一领域的用例可用一个
+integration 入口装配多个短模块，保留每项断言和独立用例名；减少重复链接和
+进程启动。目前端点目录、控制、方向与恢复的 18 个用例由
+`crates/proxy/tests/endpoint_contracts.rs` 装配，子模块在 `endpoint_contracts/`。
+对依赖外部工具、权限或不同 feature 的独立目标保留显式入口。
+
+缓存复用受 feature、profile、编译参数及目标平台影响。定向与全量入口保持
+相同的 workspace/feature/profile 策略，不在每轮调整 RUSTFLAGS、debug 级别或
+清理 target；初次编译和修改导致的必要重编译仍会存在。见
+[Cargo build cache](https://doc.rust-lang.org/cargo/reference/build-cache.html) 和
+[Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)。
+本次开销诊断与端点聚合范围见 [测试流程整理记录](test-workflow-verification-20260930.md)。
 
 公开文档站由 `zerodenet/docs` 仓库独立构建和部署。本仓库只维护工程资料；公开文档变更应提交到该仓库并运行其 `pnpm check:build`。
 
