@@ -363,6 +363,8 @@ TCP 入站身份包含完整源 IP/端口；平台 listener 不得把 peer 降�
 
 `strict_route=true` 还要求 `zero-tun` 在捕获路由提交后安装平台泄露保护：Linux 使用独立 nftables table，macOS 使用 `com.apple/*` 下的独立 pf anchor，Windows 使用稳定的持久 WFP sublayer 和 ALE connect filters，不修改 Domain/Private/Public 的全局默认出站策略。保护范围与同一份捕获前缀计划一致：全隧道阻断受管地址族的全部非 TUN 出口，选择性接管只阻断所列目的前缀，未接管目的网络保持正常直连。Linux/macOS 直接为捕获前缀生成拒绝规则；Windows 在同一 sublayer 内用高权重 soft permit 放行 Zero AppID、Wintun LUID、loopback 与显式排除地址，再用低权重 block 阻断受管前缀，既避免全局 profile 副作用，也不让 Zero 的 permit 覆盖其他 sublayer 的企业安全 block。Linux 不再按进程 UID 放行 underlay：每个恢复 key 派生独立的非零 socket mark，所有受管 TCP/UDP socket 在绑定物理接口前以 `SO_MARK` 写入该身份，nftables 只放行精确 mark；打标失败会让 socket 创建失败，不能回退为未标记直连。同 UID 的浏览器或其他进程因此不能借用 Zero 的 strict-route 例外。资源 key 由 TUN 入站 tag 稳定派生，Windows 持久对象在进程崩溃后继续 fail closed，并由同 tag 的下一实例在单一 WFP transaction 中删除和重建；watchdog 同时审计 filter key 集，外部删除会触发修复。旧版 profile 快照只用于一次性迁移恢复。正常停止先清理防泄露状态再删除路由；更新失败继续保留旧保护。平台权限、工具或恢复日志不可用时严格模式启动失败，不能降级为仅安装路由。
 
+Linux/macOS 防泄露协调必须核验完整规则内容而不是仅核验 table/anchor 存在。Linux 读取无计数器、数值化的 nftables table（包括 chain 属性与规则顺序）；macOS 读取非 verbose PF anchor 并检查主 ruleset 引用与 PF enabled 状态。比较基线来自成功安装后的平台读回，未变更配置的修复必须读回相同内容；它不是独立的语义证明。缺失规则通过平台原子事务恢复，查询或读回错误传播给严格路由健康检查。该机制按事件/手动请求/周期 watchdog 审计，不是管理员防篡改或零泄露窗口保证；外部移除规则后到审计修复前可能存在保护空窗。macOS 当前仍使用有效 UID 的 PF underlay 放行，其他同 UID 程序可以共享此例外；PF 既有 state、主 ruleset 更早的终止规则也不由 anchor 快照覆盖。不能把 macOS 当前实现视为 Linux socket mark 或 Windows AppID 级隔离，收窄该边界需要单独的平台 underlay 身份机制。
+
 TUN 入站的基本路径为：
 
 ```text

@@ -24,7 +24,7 @@ Zero 的 TUN 模式面向 Linux、macOS 和 Windows。`tun start` 会创建并�
 - macOS strict-route PF 策略会把 IPv4 `127.0.0.0/8` 和 IPv6 `::1/128` 从 fail-closed block 前缀中结构性扣除，并保留显式回环放行规则作为额外防线。系统原生 `lo0` 路由不会被 Zero 认领或改写；本机控制面和代理入站在正常启停、重载及崩溃残留期间始终可达，且回环连接不会进入 TUN 会话。
 - 路由恢复日志按稳定的 TUN 入站 `tag` 与地址族寻址，并记录当次真实设备名；因此 macOS 在崩溃重启后即使 `utunN` 编号变化，也能清理旧设备留下的路由。系统路由 lease 则按地址族全局持有，第二个进程即使使用不同 tag，也必须明确失败且报告当前 owner，不能同时改写同一组捕获路由。
 
-调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。`--include-cidr CIDR` 与 `--exclude-cidr CIDR` 均可重复传入以验证选择性接管。生产防泄露验证不应关闭 strict route。Linux smoke case 还会用与 Zero 相同的有效 UID 创建一个未打 `SO_MARK`、强制绑定物理网卡的 TCP socket；该 socket 必须被 nftables kill switch 拒绝，而紧邻的受管 TUN TCP 请求必须成功，从而同时验证“同 UID 不继承例外”和 Zero 自身 underlay 身份链。
+调试时可分别使用 `--no-auto-route`、`--single-stack`、`--no-strict-route` 或 `--no-dns-hijack`。`--include-cidr CIDR` 与 `--exclude-cidr CIDR` 均可重复传入以验证选择性接管。生产防泄露验证不应关闭 strict route。macOS 当前 PF underlay 例外按 Zero 的有效 UID 放行，该 UID 下其他进程也能通过此例外；它不提供 Linux socket-mark 或 Windows AppID 等价的进程隔离，因此不能将同用户浏览器/STUN 的防绕过视为已保证。Linux smoke case 还会用与 Zero 相同的有效 UID 创建一个未打 `SO_MARK`、强制绑定物理网卡的 TCP socket；该 socket 必须被 nftables kill switch 拒绝，而紧邻的受管 TUN TCP 请求必须成功，从而同时验证“同 UID 不继承例外”和 Zero 自身 underlay 身份链。
 
 ## DNS 前置约束
 
@@ -233,11 +233,13 @@ ZERO_TUN_E2E_STUN_ADDR_V6='[2001:db8::10]:3478' \
 cargo test --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
 ```
 
-运行中的默认出口协调另有独立特权用例。Windows 用例创建临时默认路由并验证状态与 DNS 排除路由迁移；Linux 用例在隔离 network namespace 中切换两个虚拟物理出口：
+运行中的默认出口协调另有独立特权用例。Windows 用例创建临时默认路由并验证状态与 DNS 排除路由迁移；候选接口必须已连接、没有现存默认路由，且 metric 能优先于原出口。它也可能使用虚拟接口，因此通过不等价于真实物理网卡拔插验证。Linux 用例在隔离 network namespace 中切换两个虚拟物理出口，并删除单条 nftables reject、清空保留的 output chain、删除整张表，分别验证 watchdog 和手动重检恢复完整规则：
 
 ```powershell
 cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
 ```
+
+Windows 若缺少合适的第二接口，直接运行上述用例默认失败，不再把未执行场景报告为测试通过。只有显式设置 `ZERO_TUN_ROUTE_RECONCILE_ALLOW_SKIP=1` 才允许跳过；hosted CI 使用此选项，并通过 `ZERO_TUN_ROUTE_RECONCILE_REPORT` 输出 JSON 执行证据。CI 注释、step summary、聚合 summary 和 `windows-route-switch-*` artifact 明确区分 `passed`（执行并通过）、`skipped`（未执行）和失败；job 绿色且场景 `skipped` 不能证明已覆盖 Windows 网络切换。独立的有双接口 qualification runner 应不设置该 skip 选项。报告判定测试可用 `node --test scripts/report-tun-route-reconcile.test.mjs` 执行。
 
 ```bash
 sudo cargo test --test tun_route_reconcile_linux_e2e linux_reconciles_runtime_egress_and_dns_exclusion_inside_network_namespace -- --ignored --exact --nocapture
@@ -310,5 +312,21 @@ link-local 地址不能证明该族具有外网出口。PF_ROUTE 只把路由、
 sudo cargo test --test tun_route_reconcile_macos_e2e audit::same_interface_route_loss_recovers_automatically_and_on_manual_request -- --ignored --exact --nocapture
 ```
 
-该回归保持默认物理接口和网关不变，分别验证自动恢复与 `tun.recover` 补齐实际路由，
-并断言内核 PID、TUN 设备均未重建。它模拟路由丢失，不替代真实网卡拔插/休眠测试。
+该回归保持默认物理接口和网关不变，分别清空 PF 测试 anchor 和删除其中一条 block，
+验证自动恢复与 `tun.recover` 补齐实际路由和完整 PF 规则，并断言内核 PID、TUN 设备均未重建。
+它仅改写测试 anchor，不清空主 ruleset/state table；它模拟路由/规则丢失，不替代真实网卡拔插/休眠测试。
+
+### 防火墙审计边界
+
+Linux 每次协调读取完整的数值化、无计数器 nftables table（含 chain hook/priority 与有序规则），
+不能只检查 table 存在；macOS 每次协调读取完整 PF anchor，同时核验主规则仍引用 `com.apple/*`
+及 PF 是否启用。私有 PF anchor 加载固定使用 `-o none` 关闭 basic optimizer，保持目的前缀显式可审计，避免随机生成的 table 名和未被规则快照核验的 table 成员。保留容器但清空/删除/改变规则也会触发原子替换，未改变配置的修复必须读回与
+上次成功安装相同的规则，否则返回错误并由运行期撤回受管出口。PF 被关闭时尝试重新取得启用引用；
+主 anchor 引用丢失则报告错误，不擅自重写其他程序管理的主 ruleset。
+
+比较基线是成功安装后由平台工具读回的可信快照，并非独立推导/形式化验证的防火墙语义。
+新配置的安装也会读回后才提交内存状态。审计发生在网络事件、手动重检及周期 watchdog（最长 30 秒）中；
+管理员删除防火墙规则到下一次发现/修复之间可能出现保护空窗，这不是连续防篡改机制，也不保证零泄露窗口。
+PF 现有 state 和更早的主 ruleset 规则同样不是这个 anchor 快照所验证的范围。
+macOS 保留 UID-wide underlay 例外是当前平台限制，不能从这些恢复测试推断同 UID 程序隔离已完成。
+上述新增原生场景必须在对应 OS 的隔离 runner 上执行；Linux 单元测试或脚本测试不能代替 macOS/Windows 原生验证。

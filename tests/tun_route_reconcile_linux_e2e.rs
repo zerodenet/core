@@ -5,6 +5,9 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+#[path = "tun_route_reconcile_linux_e2e/leak_audit.rs"]
+mod leak_audit;
+
 const DNS_EXCLUSION: &str = "1.1.1.1/32";
 
 #[test]
@@ -58,6 +61,8 @@ fn linux_reconciles_runtime_egress_and_dns_exclusion_inside_network_namespace() 
         "Zero exited while restoring the Linux egress"
     );
 
+    leak_audit::assert_rule_loss_recovers(namespace.name(), binary, &socket);
+    assert!(zero.is_running(), "Zero exited during firewall-rule repair");
     zero.stop();
 
     let unmanaged_path = directory.path().join("unmanaged.json");

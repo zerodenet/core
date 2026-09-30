@@ -9,6 +9,8 @@ use std::net::IpAddr;
 
 use ipnet::IpNet;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod audit;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
