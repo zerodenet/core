@@ -71,3 +71,11 @@ fn main_rules_must_unconditionally_evaluate_the_anchor_namespace() {
         assert!(!evaluates_anchor_namespace(rules), "accepted: {rules}");
     }
 }
+
+#[test]
+fn private_anchor_load_disables_optimizer_without_changing_main_rules() {
+    assert_eq!(
+        policy_arguments("com.apple/zero_test"),
+        ["-a", "com.apple/zero_test", "-o", "none", "-f", "-"]
+    );
+}

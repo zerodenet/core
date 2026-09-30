@@ -24,6 +24,11 @@ fn same_interface_route_loss_recovers_automatically_and_on_manual_request() {
         "strict-route PF rules must be installed"
     );
 
+    assert!(
+        !firewall.contains("<__automatic_"),
+        "PF policy unexpectedly contains optimizer-generated tables: {firewall}"
+    );
+
     // A pre-existing OS scoped default is borrowed, never delete it in a test.
     let owns_scoped = std::fs::read_dir(directory.path().join("tun-route-state"))
         .unwrap()
@@ -59,12 +64,16 @@ fn same_interface_route_loss_recovers_automatically_and_on_manual_request() {
         // Inspect actual OS routes, not just an unchanged healthy status.
         let deadline = Instant::now() + Duration::from_secs(40);
         loop {
-            if intact(&name, &original.interface) && firewall_rules() == firewall {
+            let routes_intact = intact(&name, &original.interface);
+            let observed = firewall_rules();
+            if routes_intact && observed == firewall {
                 break;
             }
             assert!(
                 Instant::now() < deadline,
-                "missing routes/firewall rules were not repaired (manual={manual})"
+                "missing routes/firewall rules were not repaired (manual={manual}, routes_intact={routes_intact}); expected PF rules:\n{}\nobserved PF rules:\n{}",
+                bounded_rules(&firewall),
+                bounded_rules(&observed)
             );
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -142,7 +151,7 @@ fn lose_firewall_rules(installed: &str, partial: bool) {
         String::new()
     };
     let mut child = Command::new("/sbin/pfctl")
-        .args(["-a", ANCHOR, "-f", "-"])
+        .args(["-a", ANCHOR, "-o", "none", "-f", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -162,4 +171,13 @@ fn lose_firewall_rules(installed: &str, partial: bool) {
     );
     // The live watcher may repair the anchor before another read; successful
     // mutation plus eventual complete readback is the recovery assertion.
+}
+
+fn bounded_rules(rules: &str) -> String {
+    rules
+        .lines()
+        .take(24)
+        .map(|line| line.chars().take(200).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
 }

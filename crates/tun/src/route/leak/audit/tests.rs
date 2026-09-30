@@ -70,3 +70,31 @@ fn empty_or_invalid_readbacks_are_rejected() {
     assert!(snapshot(&[0xff]).is_err());
     assert_eq!(snapshot(b"  block out\n").unwrap(), "block out");
 }
+
+#[test]
+fn repair_failure_reports_first_difference_without_weakening_comparison() {
+    let expected = "pass out quick all\nblock drop out to 192.0.2.0/24";
+    let observed = "pass out quick all\nblock drop out to 198.51.100.0/24";
+    let error = repair_policy(expected, None, false, || Ok(observed.to_owned()))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("line 2"));
+    assert!(error.contains("192.0.2.0/24"));
+    assert!(error.contains("198.51.100.0/24"));
+    assert!(!error.contains("pass out"));
+}
+
+#[test]
+fn repair_diagnostics_bound_long_lines_and_distinguish_missing_rules() {
+    let expected = format!("{}SENSITIVE_TAIL", "x".repeat(200));
+    let error = repair_policy(&expected, None, false, || Ok("y".repeat(500)))
+        .unwrap_err()
+        .to_string();
+    assert!(error.len() < 450);
+    assert!(!error.contains("SENSITIVE_TAIL"));
+    let error = repair_policy("pass\nblock", None, false, || Ok("pass".to_owned()))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("line 2"));
+    assert!(error.contains("observed None"));
+}

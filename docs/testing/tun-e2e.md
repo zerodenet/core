@@ -320,7 +320,7 @@ sudo cargo test --test tun_route_reconcile_macos_e2e audit::same_interface_route
 
 Linux 每次协调读取完整的数值化、无计数器 nftables table（含 chain hook/priority 与有序规则），
 不能只检查 table 存在；macOS 每次协调读取完整 PF anchor，同时核验主规则仍引用 `com.apple/*`
-及 PF 是否启用。保留容器但清空/删除/改变规则也会触发原子替换，未改变配置的修复必须读回与
+及 PF 是否启用。私有 PF anchor 加载固定使用 `-o none` 关闭 basic optimizer，保持目的前缀显式可审计，避免随机生成的 table 名和未被规则快照核验的 table 成员。保留容器但清空/删除/改变规则也会触发原子替换，未改变配置的修复必须读回与
 上次成功安装相同的规则，否则返回错误并由运行期撤回受管出口。PF 被关闭时尝试重新取得启用引用；
 主 anchor 引用丢失则报告错误，不擅自重写其他程序管理的主 ruleset。
 

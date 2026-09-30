@@ -27,11 +27,35 @@ pub(super) fn repair_policy(
     }
     let repaired = install_and_read_back()?;
     if !policy_changed && repaired != installed {
-        return Err(io::Error::other(
-            "kill-switch rules still differ after repair",
-        ));
+        return Err(io::Error::other(format!(
+            "kill-switch rules still differ after repair: {}",
+            first_difference(installed, &repaired)
+        )));
     }
     Ok(Some(repaired))
+}
+
+fn first_difference(expected: &str, observed: &str) -> String {
+    let mut expected_lines = expected.lines();
+    let mut observed_lines = observed.lines();
+    for line in 1.. {
+        let expected = expected_lines.next();
+        let observed = observed_lines.next();
+        if expected != observed {
+            // Do not dump the whole firewall policy or unbounded tool output.
+            let bounded =
+                |value: Option<&str>| value.map(|line| line.chars().take(160).collect::<String>());
+            return format!(
+                "line {line}, expected {:?}, observed {:?}",
+                bounded(expected),
+                bounded(observed)
+            );
+        }
+        if expected.is_none() {
+            return "different raw formatting".to_owned();
+        }
+    }
+    unreachable!()
 }
 
 #[cfg(test)]
