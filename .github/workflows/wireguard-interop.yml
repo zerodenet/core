@@ -68,7 +68,8 @@ jobs:
       - name: Non-Echo ICMP stays on the WireGuard packet path
         env:
           RUST_MIN_STACK: '16777216'
-        run: cargo test --locked -p zero-proxy --all-features --test proxy_wireguard wireguard_packet_non_echo:: -- --test-threads=1 --nocapture
+        run: |
+          cargo test --locked -p zero-proxy --all-features --test proxy_wireguard wireguard_packet_non_echo:: -- --test-threads=1 --nocapture
       - name: Malformed packet from one peer leaves another peer usable
         env:
           RUST_MIN_STACK: '16777216'
