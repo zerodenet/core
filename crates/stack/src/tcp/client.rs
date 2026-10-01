@@ -132,6 +132,7 @@ impl ClientTcpStack {
                 peer_mss: default_peer_mss(remote.ip()),
                 path_mtu: None,
                 connect_waiter: Some(waiter),
+                peer_identity: None,
             },
         );
         drop(connections);

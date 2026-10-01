@@ -1,12 +1,82 @@
 use std::io;
 use std::net::IpAddr;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use zero_tun::TunDevice;
+
+#[derive(Debug, Default)]
+struct ObservedIo {
+    rx: AtomicU64,
+    tx: AtomicU64,
+    errors: AtomicU64,
+    drops: AtomicU64,
+}
+impl zero_traits::IoObserver for ObservedIo {
+    fn received(&self, n: usize) {
+        self.rx.fetch_add(n as u64, Ordering::Relaxed);
+    }
+    fn sent(&self, n: usize) {
+        self.tx.fetch_add(n as u64, Ordering::Relaxed);
+    }
+    fn error(&self) {
+        self.errors.fetch_add(1, Ordering::Relaxed);
+    }
+    fn dropped(&self) {
+        self.drops.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[tokio::test]
+async fn tun_observation_counts_device_io_and_not_queue_admission() {
+    let (device, mut peer) = tokio::io::duplex(1);
+    let observer = Arc::new(ObservedIo::default());
+    let (writer, mut reader) = TestTun(device)
+        .into_channels_observed(observer.clone())
+        .unwrap();
+    writer.send(vec![1, 2, 3, 4]).await.unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(
+        observer.tx.load(Ordering::Relaxed),
+        0,
+        "blocked partial write is not a successful packet"
+    );
+    let mut sent = [0; 4];
+    tokio::time::timeout(Duration::from_secs(1), peer.read_exact(&mut sent))
+        .await
+        .unwrap()
+        .unwrap();
+    peer.write_all(&[5]).await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), reader.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        [5]
+    );
+    assert_eq!(observer.tx.load(Ordering::Relaxed), 4);
+    assert_eq!(observer.rx.load(Ordering::Relaxed), 1);
+    drop(peer);
+    writer.send(vec![9, 8]).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while observer.drops.load(Ordering::Relaxed) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        observer.tx.load(Ordering::Relaxed),
+        4,
+        "failed packet must not count as sent"
+    );
+    assert!(observer.errors.load(Ordering::Relaxed) >= 1);
+    drop(writer);
+}
 
 struct TestTun(tokio::io::DuplexStream);
 

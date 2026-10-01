@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 
 #[cfg(feature = "shadowsocks")]
 #[path = "http/client_reset.rs"]

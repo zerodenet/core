@@ -94,6 +94,12 @@ fn query_engine(engine: &Engine, request: QueryRequest) -> zero_api::ApiResult<Q
         })),
         QueryRequest::Config(_) => Ok(QueryResponse::Config(engine.export_config())),
         QueryRequest::Runtime(_) => Ok(QueryResponse::Runtime(engine.export_runtime())),
+        QueryRequest::TrafficStat(query) => {
+            Ok(QueryResponse::TrafficStat(engine.traffic_snapshot(&query)?))
+        }
+        QueryRequest::TrafficStats(query) => Ok(QueryResponse::TrafficStats(
+            engine.traffic_snapshots(&query)?,
+        )),
         QueryRequest::Stats(_) => Ok(QueryResponse::Stats(engine.stats_snapshot())),
         QueryRequest::PrincipalFlows(_) => Ok(QueryResponse::PrincipalFlows(
             engine.principal_flows_snapshot(),
@@ -225,6 +231,12 @@ fn execute_engine_command(
     command: CommandRequest,
 ) -> zero_api::ApiResult<CommandResponse> {
     match command {
+        CommandRequest::StatsReset(command) => Ok(CommandResponse {
+            accepted: true,
+            result: Some(
+                serde_json::to_value(engine.reset_traffic(&command)?).map_err(to_internal_error)?,
+            ),
+        }),
         CommandRequest::ConfigValidate(command) => validate_config_command(engine, command),
         CommandRequest::ConfigApply(command) => apply_config_command(engine, command),
         CommandRequest::ConfigApplyRuntime(command) => {
@@ -406,6 +418,7 @@ fn validate_config_command(
 
 fn capabilities() -> ApiCapabilities {
     let mut capabilities = ApiCapabilities::new();
+    capabilities.traffic_statistics = Some(Default::default());
     let build_features = build_features();
     capabilities.adapters = vec![AdapterCapability {
         kind: "in_process".to_owned(),
@@ -416,6 +429,12 @@ fn capabilities() -> ApiCapabilities {
         enabled: false,
     }];
     capabilities.features = vec![
+        "traffic_observation_v1".to_owned(),
+        "traffic_failed_flow_counters_v1".to_owned(),
+        "traffic_peer_flow_bindings_v1".to_owned(),
+        "traffic_packet_pin_activity_v1".to_owned(),
+        "traffic_period_reset_v1".to_owned(),
+        "traffic_scopes_sampling_v1".to_owned(),
         "query".to_owned(),
         "config_snapshot".to_owned(),
         "runtime_snapshot".to_owned(),

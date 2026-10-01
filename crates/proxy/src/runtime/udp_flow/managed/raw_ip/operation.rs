@@ -56,6 +56,9 @@ impl PreparedUdpFlowOperation for RawIpUdpOperation {
                 )
                 .map_err(|error| failure("raw_ip_device", error))?;
             let local_ip = peer.local_ip;
+            if let Some(peer_id) = self.plan.peer_identity(peer.peer_index) {
+                services.bind_outbound_peer_flow(session.id, &self.tag, &peer_id);
+            }
             let device = cell
                 .get()
                 .ok_or_else(|| failure("raw_ip_device", invalid("peer device not initialized")))?;

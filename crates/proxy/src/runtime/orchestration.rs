@@ -9,6 +9,7 @@ mod endpoint;
 mod lifecycle;
 mod logging;
 mod state;
+mod statistics;
 #[cfg(test)]
 mod tests;
 

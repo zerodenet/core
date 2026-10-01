@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "vmess"
 # Xray-core v26.3.27, commit d2758a023cd7f4174a5a5fa4ff66e487d4342ba0
 version = "26.3.27"
@@ -42,6 +43,8 @@ zero-traits = { path = "../../crates/traits" }
 [dev-dependencies]
 tokio.workspace = true
 
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
 [[test]]
-name = "tcp_stream"
-required-features = ["runtime"]
+name = "vmess_contracts"
+path = "tests/suites/vmess_contracts.rs"

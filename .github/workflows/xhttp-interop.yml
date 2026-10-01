@@ -40,4 +40,4 @@ jobs:
           RUST_MIN_STACK: '16777216'
         run: |
           cargo test --locked --workspace --all-features --test vless_encryption --test vless_tls_vision --test vless_early_data --test vless_fallback_rules -- --include-ignored --nocapture
-          cargo test --locked --workspace --all-features --test tls_handoff --test ws_heartbeat --test proxy_protocol --test vless_proxy_preamble --test vless_carriers --test xhttp_modes --test xhttp_stream_one --test xhttp_h3 --test xhttp_xmux --test listener_latency --test vless_quic_ca --test vless_xhttp_relay
+          cargo test --locked --workspace --all-features --test tls_contracts --test web_carriers --test carrier_contracts --test proxy_vless --test transport_config --test xhttp_contracts --test platform_contracts

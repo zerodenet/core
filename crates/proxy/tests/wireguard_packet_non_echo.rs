@@ -1,6 +1,6 @@
 #![cfg(feature = "wireguard")]
 
-mod support;
+use crate::support;
 
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -69,6 +69,7 @@ async fn authenticated_non_echo_icmp_keeps_packet_plane_through_wireguard() {
     let source = Ipv4Addr::new(10, 0, 0, 2);
     let destination = Ipv4Addr::new(198, 51, 100, 1);
     let first_port = free_udp_port();
+    let second_port = free_udp_port();
     let remote_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
     let remote_port = remote_socket.local_addr().unwrap().port();
     let first_public = public_key(81);
@@ -94,26 +95,22 @@ async fn authenticated_non_echo_icmp_keeps_packet_plane_through_wireguard() {
         }
     });
 
-    let config = RuntimeConfig::parse(
-        &serde_json::json!({
-            "inbounds": [{"tag":"wg-in", "listen":{"address":"127.0.0.1", "port":first_port},
-                "protocol":{"type":"wireguard", "private_key":STANDARD.encode([81_u8; 32]),
-                    "peers":[{"public_key":client_public, "allowed_ips":["10.0.0.2/32"]}]}}],
-            "outbounds": [{"tag":"wg-out", "protocol":{"type":"wireguard",
-                "private_key":STANDARD.encode([83_u8; 32]), "addresses":["10.9.0.2/32"],
-                "peers":[{"public_key":remote_public,
-                    "endpoint":format!("127.0.0.1:{remote_port}"),
-                    "allowed_ips":["198.51.100.1/32"]}]}}],
-            "route":{"rules":[], "final":{"type":"route", "outbound":"wg-out"}}
-        })
-        .to_string(),
-    )
-    .unwrap();
-    let zero = spawn_engine(Proxy::new(config).unwrap());
+    let client_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let client_port = client_socket.local_addr().unwrap().port();
+    let config = RuntimeConfig::parse(&serde_json::json!({
+        "endpoints":[
+            {"tag":"wg-in","directions":{"inbound":true,"outbound":false},"listen":{"address":"127.0.0.1","port":first_port},
+                "protocol":{"type":"wireguard","private_key":STANDARD.encode([81_u8;32]),"addresses":["10.8.0.1/32"],"peers":[{"public_key":client_public,"endpoint":format!("127.0.0.1:{client_port}"),"allowed_ips":["10.0.0.2/32"]}]}},
+            {"tag":"wg-out","directions":{"inbound":true,"outbound":true},"listen":{"address":"127.0.0.1","port":second_port},"protocol":{"type":"wireguard","private_key":STANDARD.encode([83_u8;32]),"addresses":["10.9.0.2/32"],"peers":[{"public_key":remote_public,"endpoint":format!("127.0.0.1:{remote_port}"),"allowed_ips":["198.51.100.1/32"]}]}}
+        ],
+        "route":{"rules":[],"final":{"type":"route","outbound":"wg-out"}}
+    }).to_string()).unwrap();
+    let proxy = Proxy::new(config).unwrap();
+    let zero = spawn_engine(proxy.clone());
     sleep(Duration::from_millis(100)).await;
 
     let mut client = peer_tunnel(82, &first_public, "10.0.0.2/32", "198.51.100.1/32");
-    let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let socket = client_socket;
     socket
         .connect((Ipv4Addr::LOCALHOST, first_port))
         .await
@@ -154,6 +151,49 @@ async fn authenticated_non_echo_icmp_keeps_packet_plane_through_wireguard() {
     assert_eq!(packet::ip_protocol(&forwarded), Some(packet::IPPROTO_ICMP));
     assert_eq!(forwarded[8], 63, "packet route must decrement IPv4 TTL");
     assert_eq!(&forwarded[20..], &request[20..]);
+    use zero_api::{TrafficGetQuery, TrafficScope};
+    let measure = |tag: &str| {
+        proxy
+            .engine()
+            .traffic_snapshot(&TrafficGetQuery {
+                scope: TrafficScope::Endpoint {
+                    endpoint_id: format!("endpoint:{tag}"),
+                },
+            })
+            .unwrap()
+    };
+    let ingress = measure("wg-in");
+    let egress = measure("wg-out");
+    assert_eq!(
+        ingress.planes[1].counters.rx_bytes,
+        Some(request.len() as u64)
+    );
+    assert_eq!(
+        egress.planes[1].counters.tx_bytes,
+        Some(request.len() as u64)
+    );
+    assert_eq!(egress.activity.active_packet_routes, Some(1));
+    assert_eq!(
+        proxy.stats_snapshot().bytes_up,
+        0,
+        "native packets do not pretend to be Flow usage"
+    );
+    assert!(egress.planes[2].counters.tx_bytes.unwrap() > request.len() as u64);
+    socket.send(b"invalid-wireguard-datagram").await.unwrap();
+    support::wait_for("unidentified carrier rejection is observed", || {
+        measure("wg-in").planes[2].counters.dropped_packets == Some(1)
+    })
+    .await;
+    let peer = proxy
+        .engine()
+        .traffic_snapshot(&TrafficGetQuery {
+            scope: TrafficScope::Peer {
+                endpoint_id: "endpoint:wg-in".into(),
+                peer_id: format!("wireguard:{}", public_key(82)),
+            },
+        })
+        .unwrap();
+    assert_eq!(peer.planes[2].counters.dropped_packets, Some(0));
     zero.shutdown().await.unwrap();
 }
 

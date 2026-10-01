@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "zero-stack"
 version.workspace = true
 edition.workspace = true
@@ -12,3 +13,13 @@ rand = "0.9"
 tokio.workspace = true
 tracing.workspace = true
 zero-traits = { path = "../traits" }
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "stack_packet"
+path = "tests/suites/stack_packet.rs"
+
+[[test]]
+name = "stack_io"
+path = "tests/suites/stack_io.rs"

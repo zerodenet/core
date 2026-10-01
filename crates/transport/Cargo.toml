@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "zero-transport"
 version.workspace = true
 edition.workspace = true
@@ -81,3 +82,28 @@ hyper = { version = "=1.9.0", features = ["server", "http1"] }
 rcgen = "0.14"
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "carrier_contracts"
+path = "tests/suites/carrier_contracts.rs"
+
+[[test]]
+name = "tls_contracts"
+path = "tests/suites/tls_contracts.rs"
+
+[[test]]
+name = "web_carriers"
+path = "tests/suites/web_carriers.rs"
+
+[[test]]
+name = "xhttp_contracts"
+path = "tests/suites/xhttp_contracts.rs"
+
+[[test]]
+name = "quic_contracts"
+path = "tests/suites/quic_contracts.rs"
+
+[[test]]
+name = "browser_dialer_real"

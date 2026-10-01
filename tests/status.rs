@@ -1,6 +1,6 @@
 use std::process::Command;
 
-mod support;
+use crate::support;
 
 use support::config_path;
 

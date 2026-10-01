@@ -1,6 +1,5 @@
 #![cfg(all(feature = "runtime", feature = "blake3"))]
-#[path = "support/socket.rs"]
-mod socket;
+use crate::socket;
 use socket::Socket;
 use zero_core::{Address, Network, ProtocolType, Session};
 fn target() -> Session {

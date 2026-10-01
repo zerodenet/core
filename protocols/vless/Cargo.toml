@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "vless"
 # Xray-core v26.3.27 / d2758a023cd7f4174a5a5fa4ff66e487d4342ba0
 version = "26.3.27"
@@ -71,3 +72,13 @@ futures-util = { version = "0.3" }
 bytes = "1"
 serde_json.workspace = true
 tokio-tungstenite = "0.23"
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "vless_contracts"
+path = "tests/suites/vless_contracts.rs"
+
+[[test]]
+name = "vless_reality"
+path = "tests/suites/vless_reality.rs"

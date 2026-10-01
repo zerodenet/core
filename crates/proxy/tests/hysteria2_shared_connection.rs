@@ -1,5 +1,5 @@
 #![cfg(all(feature = "hysteria2", feature = "socks5"))]
-mod support;
+use crate::support;
 use hysteria2::transport::{open_hysteria2_udp_packet_path_build, Hysteria2TransportLeaf};
 use support::interop::{init_logs, TempMaterial};
 use support::{free_udp_port, spawn_engine};

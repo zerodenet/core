@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "zero-config"
 version.workspace = true
 edition.workspace = true
@@ -32,3 +33,17 @@ ztls = { path = "../ztls", default-features = false, features = ["validation"] }
 [dev-dependencies]
 base64 = "0.22"
 zero-core = { path = "../core" }
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "config_contracts"
+path = "tests/suites/config_contracts.rs"
+
+[[test]]
+name = "protocol_config"
+path = "tests/suites/protocol_config.rs"
+
+[[test]]
+name = "transport_config"
+path = "tests/suites/transport_config.rs"

@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "hysteria2"
 # Hysteria app/v2.12.2, commit 619a6f856b69fb7ee6a7a379e810e68b84004605
 version = "2.12.2"
@@ -53,3 +54,9 @@ zero-traits = { path = "../../crates/traits" }
 tempfile.workspace = true
 ring = { version = "0.17" }
 rcgen = "0.14"
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "hysteria2_contracts"
+path = "tests/suites/hysteria2_contracts.rs"

@@ -15,6 +15,7 @@ pub(super) fn extend(capabilities: &mut zero_api::ApiCapabilities) {
     {
         capabilities.features.extend(
             [
+                "traffic_host_tun_io_v1",
                 "tun_dual_stack_ingress",
                 "tun_family_aware_egress",
                 "direct_tun_domain_family_fallback",

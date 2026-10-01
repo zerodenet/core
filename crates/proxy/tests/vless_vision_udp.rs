@@ -1,5 +1,5 @@
 #![cfg(all(feature = "socks5", feature = "vless"))]
-mod support;
+use crate::support;
 use support::interop::{socks5_udp_echo_targets, spawn_udp_echo_count};
 use support::{free_port, free_udp_port, spawn_engine, wait_for_listener};
 use zero_config::RuntimeConfig;

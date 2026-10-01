@@ -1,5 +1,5 @@
 #![cfg(all(unix, feature = "shadowsocks", feature = "socks5"))]
-mod support;
+use crate::support;
 use serde_json::json;
 use support::interop::{socks5_tcp_echo, spawn_tcp_echo, spawn_udp_echo};
 use support::{free_port, free_udp_port, spawn_engine, wait_for_listener};

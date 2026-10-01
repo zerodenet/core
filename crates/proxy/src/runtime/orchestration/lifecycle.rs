@@ -16,6 +16,7 @@ where
     // reload/shutdown loop alive so a controller can install its first inbound
     // through the same reconciled configuration transaction used on reload.
     let mut state = OrchestrationState::new(proxy).await?;
+    let _sampler = super::statistics::Sampler::start(proxy.engine.clone());
     tokio::pin!(shutdown);
     let mut shutting_down = false;
     let mut shutdown_error = None;

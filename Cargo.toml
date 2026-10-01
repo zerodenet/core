@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "zero"
 version.workspace = true
 edition.workspace = true
@@ -149,3 +150,30 @@ openssl-sys = { path = "vendor/openssl-sys-0.9.117-openssl4" }
 blake3 = { path = "vendor/blake3" }
 quinn-proto = { path = "vendor/quinn-proto" }
 h3-quinn = { path = "vendor/h3-quinn" }
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "kernel_process"
+path = "tests/suites/kernel_process.rs"
+
+[[test]]
+name = "tun_privileged_e2e"
+
+[[test]]
+name = "tun_route_reconcile_e2e"
+
+[[test]]
+name = "tun_route_reconcile_linux_e2e"
+
+[[test]]
+name = "tun_route_reconcile_macos_e2e"
+
+[[test]]
+name = "validate_isolation"
+
+[[test]]
+name = "windows_release_artifact"
+
+[[test]]
+name = "workspace_architecture"

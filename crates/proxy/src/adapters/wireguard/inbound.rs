@@ -264,6 +264,14 @@ pub(super) fn prepare_device(inbound: &InboundConfig) -> Result<InboundDevice, E
 struct WireguardInboundDevice(Arc<LiveInboundDevice>);
 
 impl RawIpInboundDevice for WireguardInboundDevice {
+    fn peer_identity(&self, peer: usize) -> Option<String> {
+        self.0
+            .device
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .public_peer_id(peer)
+    }
+
     fn generation(&self) -> u64 {
         self.0.generation.load(Ordering::Acquire)
     }

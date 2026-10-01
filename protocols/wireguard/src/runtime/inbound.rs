@@ -113,6 +113,13 @@ pub struct InboundDispatch {
 const MAX_TRACKED_INDICES: usize = 4096;
 
 impl InboundDevice {
+    pub fn public_peer_id(&self, peer: usize) -> Option<alloc::string::String> {
+        self.profile
+            .profile
+            .peers
+            .get(peer)
+            .map(|p| crate::validation::validated_public_peer_id(&p.public_key))
+    }
     /// Keep authenticated Noise sessions when their key and timer identity is
     /// unchanged. Locally generated receiver indices remain associated with
     /// the same peer position; moved peers must start new sessions.

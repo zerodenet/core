@@ -1,6 +1,6 @@
 #![cfg(feature = "socks5")]
 
-mod support;
+use crate::support;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};

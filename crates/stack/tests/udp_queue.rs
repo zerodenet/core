@@ -65,3 +65,22 @@ async fn oversized_udp_response_is_fragmented_to_the_stack_mtu() {
         payload
     );
 }
+
+#[tokio::test]
+async fn queued_udp_preserves_opaque_peer_identity_for_each_datagram() {
+    let (sender, _receiver) = mpsc::channel(4);
+    let (_, udp) = UserNetworkStack::new(sender, 1440).into_parts();
+    let packet = packet::build_udp(client_ip(), "1.1.1.1".parse().unwrap(), 53000, 53, b"dns");
+    for peer in [Some("peer-a"), Some("peer-b"), None] {
+        udp.feed_with_peer(&packet, peer.map(Into::into)).await;
+    }
+    let mut payload = [0; 8];
+    for peer in [Some("peer-a"), Some("peer-b"), None] {
+        let (n, _, _, observed) = udp.recv_from_with_peer(&mut payload).await.unwrap();
+        assert_eq!(observed.as_deref(), peer);
+        assert_eq!(&payload[..n], b"dns");
+    }
+}
+fn client_ip() -> IpAddr {
+    "10.0.0.2".parse().unwrap()
+}

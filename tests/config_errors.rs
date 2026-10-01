@@ -1,6 +1,6 @@
 use std::process::Command;
 
-mod support;
+use crate::support;
 
 use support::{remove_temp_file, write_temp_config};
 

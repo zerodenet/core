@@ -1,7 +1,7 @@
 //! Phase 1: port-conflict detection lives in config validation (DuplicateInboundListen),
 //! surfacing at config load time rather than deferred to runtime bind.
 
-mod support;
+use crate::support;
 
 use std::process::Command;
 use support::{remove_temp_file, write_temp_config};

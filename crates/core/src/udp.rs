@@ -92,6 +92,7 @@ pub struct InboundUdpAssociationResponse {
 /// protocol-specific inbound UDP request structs to route a packet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundUdpDispatch {
+    peer_identity: Option<Arc<str>>,
     target: Address,
     route_target: Option<Address>,
     sniffed_original_target: Option<Address>,
@@ -399,6 +400,13 @@ pub trait InboundUdpAssociationResponder: Send {
 }
 
 impl InboundUdpDispatch {
+    pub fn with_peer_identity(mut self, peer: Option<Arc<str>>) -> Self {
+        self.peer_identity = peer;
+        self
+    }
+    pub fn peer_identity(&self) -> Option<&Arc<str>> {
+        self.peer_identity.as_ref()
+    }
     pub fn new(
         protocol: ProtocolType,
         target: Address,
@@ -407,6 +415,7 @@ impl InboundUdpDispatch {
         client_session_id: Option<u64>,
     ) -> Self {
         Self {
+            peer_identity: None,
             target,
             route_target: None,
             sniffed_original_target: None,

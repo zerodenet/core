@@ -58,13 +58,11 @@ pub(super) async fn try_forward(
                     .forward(inner.to_vec(), ingress_id, responses.clone(), generation)
                     .await
                 {
-                    Ok(Some(response)) => {
-                        pins.record(inner, plane);
-                        let _ = responses.try_send(response);
-                        return true;
-                    }
-                    Ok(None) => {
-                        pins.record(inner, plane);
+                    Ok(observed) => {
+                        pins.record_peers(inner, plane, None, observed.peer_identity);
+                        if let Some(response) = observed.response {
+                            let _ = responses.try_send(response);
+                        }
                         return true;
                     }
                     Err(error) => tracing::debug!(%error, "TUN packet route candidate unavailable"),

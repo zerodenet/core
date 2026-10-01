@@ -1,6 +1,6 @@
 //! Engine-wide session, traffic, and upstream statistics.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -26,14 +26,37 @@ pub struct EngineStats {
     udp_upstream_recv_failures: AtomicU64,
     udp_upstream_packets_sent: AtomicU64,
     udp_upstream_packets_received: AtomicU64,
-    bytes_up: AtomicU64,
-    bytes_down: AtomicU64,
+    pub(super) bytes_up: Arc<AtomicU64>,
+    pub(super) bytes_down: Arc<AtomicU64>,
     per_outbound: Mutex<HashMap<String, PerOutboundStats>>,
+    current_outbounds: Mutex<Option<BTreeSet<String>>>,
 }
 
 impl EngineStats {
     pub fn shared() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    pub(crate) fn live_counter_sources(&self) -> (Arc<AtomicU64>, Arc<AtomicU64>) {
+        (self.bytes_up.clone(), self.bytes_down.clone())
+    }
+
+    pub(crate) fn reconcile_outbounds(&self, config: &zero_config::RuntimeConfig) {
+        let mut current = self
+            .current_outbounds
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let tags = config
+            .outbounds
+            .iter()
+            .map(|o| o.tag.clone())
+            .chain(std::iter::once("direct".into()))
+            .collect::<BTreeSet<_>>();
+        self.per_outbound
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|tag, _| tags.contains(tag));
+        *current = Some(tags);
     }
 
     /// Add user-direction bytes as soon as an active flow observes them.
@@ -50,6 +73,13 @@ impl EngineStats {
         bytes_down: u64,
     ) {
         if let Some(tag) = outbound_tag {
+            let current = self
+                .current_outbounds
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if current.as_ref().is_some_and(|tags| !tags.contains(tag)) {
+                return;
+            }
             let mut map = self
                 .per_outbound
                 .lock()

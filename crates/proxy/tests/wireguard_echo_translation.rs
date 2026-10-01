@@ -2,7 +2,7 @@
 
 #[path = "support/echo.rs"]
 mod echo;
-mod support;
+use crate::support;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use gotatun::x25519::{PublicKey, StaticSecret};

@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "wireguard"
 # The protocol engine is opt-in until its interoperability and security gates close.
 version = "0.9.2"
@@ -22,13 +23,11 @@ zeroize = { version = "1", default-features = false, features = ["derive"], opti
 zero-core = { path = "../../crates/core" }
 zero-traits = { path = "../../crates/traits" }
 
-[[test]]
-name = "validation"
-required-features = ["validation"]
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
 
 [[test]]
-name = "routing"
-required-features = ["routing"]
+name = "wireguard_model"
+path = "tests/suites/wireguard_model.rs"
 
 [[test]]
 name = "runtime"

@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "zero-platform-tokio"
 version.workspace = true
 edition.workspace = true
@@ -27,3 +28,12 @@ windows-sys = { version = "0.61", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 libproc = "0.14.11"
 netstat2 = "0.11.2"
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "platform_contracts"
+path = "tests/suites/platform_contracts.rs"
+
+[[test]]
+name = "icmp_echo"

@@ -90,6 +90,9 @@ impl PreparedOutbound {
 }
 
 impl PreparedPeer {
+    pub fn public_peer_id(&self) -> String {
+        crate::validation::validated_public_peer_id(&self.public_key)
+    }
     pub fn endpoint_host(&self) -> &str {
         &self.endpoint_host
     }

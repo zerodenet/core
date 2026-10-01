@@ -1,6 +1,6 @@
 //! Fixed-target datagram forwarding must preserve client isolation and rollback.
 #![cfg(feature = "managed-datagram-runtime")]
-mod support;
+use crate::support;
 use std::time::Duration;
 use support::{free_port, spawn_engine, wait_for_listener};
 use tokio::net::UdpSocket;

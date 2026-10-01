@@ -1,5 +1,5 @@
 #![cfg(all(feature = "socks5", feature = "hysteria2"))]
-mod support;
+use crate::support;
 
 use base64::Engine as _;
 use ring::digest::{digest, SHA256};

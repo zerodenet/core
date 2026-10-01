@@ -1,6 +1,5 @@
 #![cfg(all(feature = "runtime", feature = "blake3"))]
-#[path = "support/socket.rs"]
-mod socket;
+use crate::socket;
 use shadowsocks::{CipherKind, ShadowsocksOutbound};
 use shadowsocks_crypto::v2::{tcp::TcpCipher, udp::UdpCipher};
 use zero_core::{Address, Network, ProtocolType, Session};

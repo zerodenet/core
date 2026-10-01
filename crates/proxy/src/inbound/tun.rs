@@ -7,6 +7,7 @@ mod recovery;
 mod routes;
 mod runtime;
 mod sniff;
+mod statistics;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod udp;
 
@@ -295,7 +296,10 @@ impl Proxy {
             .map_err(EngineError::Io)?;
         let device_name = device.name().to_owned();
         debug!(name = %device_name, "TUN device configured");
-        let (device_writer, device_reader) = device.into_channels().map_err(EngineError::Io)?;
+        let traffic = statistics::TunTraffic::prepare(self.engine(), tag);
+        let (device_writer, device_reader) = device
+            .into_channels_observed(traffic)
+            .map_err(EngineError::Io)?;
         let network_responses = device_writer.clone();
         let stack = UserNetworkStack::new(device_writer, zero_stack::tcp_mss_for_mtu(mtu));
         let (tcp, udp) = stack.into_parts();

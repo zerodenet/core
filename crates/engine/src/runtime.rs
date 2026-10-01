@@ -33,6 +33,7 @@ mod policy;
 mod route;
 mod session;
 mod snapshot;
+mod traffic;
 
 pub(crate) use endpoint::Fact as EndpointFact;
 pub use endpoint::{EndpointAdmission, EndpointChange};
@@ -54,6 +55,7 @@ pub struct Engine {
     event_log: Arc<EngineEventLog>,
     config_revision: Arc<AtomicU64>,
     stats: Arc<EngineStats>,
+    traffic: Arc<crate::observability::traffic::TrafficRegistry>,
     pub(crate) probe_trigger_registry: Arc<ProbeTriggerRegistry>,
     flow_hook: Arc<std::sync::RwLock<Option<Arc<FlowHookChain>>>>,
     flow_completion_sink: Arc<std::sync::RwLock<Option<FlowCompletionSink>>>,
@@ -157,7 +159,8 @@ impl Engine {
                 }
             });
         let principal_quotas = Arc::new(PrincipalQuotaRegistry::open(principal_quota_state_path)?);
-        Ok(Self {
+        let stats = EngineStats::shared();
+        let engine = Self {
             runtime_snapshot: Arc::new(std::sync::RwLock::new(Arc::new(EngineRuntimeSnapshot {
                 config_revision: Arc::new(AtomicU64::new(1)),
                 endpoint_intents: Arc::new(
@@ -184,7 +187,11 @@ impl Engine {
             completed_sessions: CompletedSessionHistory::shared(),
             event_log,
             config_revision,
-            stats: EngineStats::shared(),
+            traffic: Arc::new(crate::observability::traffic::TrafficRegistry::new(
+                stats.live_counter_sources().0,
+                stats.live_counter_sources().1,
+            )),
+            stats,
             probe_trigger_registry: ProbeTriggerRegistry::shared(),
             outbound_health: Arc::new(OutboundHealth::new()),
             passive_relay_health: Arc::new(PassiveRelayHealth::default()),
@@ -197,7 +204,12 @@ impl Engine {
             started_at_unix_ms: started_at_unix_ms(),
             pid: std::process::id(),
             sink_status: Arc::new(std::sync::Mutex::new(Vec::new())),
-        })
+        };
+        engine.stats.reconcile_outbounds(&engine.config());
+        engine
+            .traffic
+            .reconcile(&engine.config(), engine.config_revision());
+        Ok(engine)
     }
 
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, EngineError> {

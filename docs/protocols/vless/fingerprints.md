@@ -74,7 +74,7 @@ Validation commands:
 
 ```sh
 cargo test -p ztls --all-features
-XRAY_BIN=/path/to/pinned/xray RUST_MIN_STACK=16777216 cargo test -p zero-proxy --all-features --test vless_reality_extensions
+XRAY_BIN=/path/to/pinned/xray RUST_MIN_STACK=16777216 cargo test -p zero-proxy --all-features --test proxy_vless vless_reality_extensions::
 RUST_MIN_STACK=16777216 cargo test --workspace --all-features
 ```
 

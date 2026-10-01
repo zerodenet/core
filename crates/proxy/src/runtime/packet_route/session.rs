@@ -17,21 +17,47 @@ pub(crate) enum PacketPlane {
     DirectEcho,
 }
 
-type RouteKey = packet::PacketConversationKey;
+type RouteKey = (packet::PacketConversationKey, Option<std::sync::Arc<str>>);
+
+type MeterProvider = std::sync::Arc<
+    dyn Fn(&str, Option<&str>, Option<&str>) -> Vec<zero_engine::TrafficMeter> + Send + Sync,
+>;
 
 struct RoutePin {
+    _traffic: Vec<zero_engine::TrafficRouteLease>,
     plane: PacketPlane,
+    outbound_peer: Option<std::sync::Arc<str>>,
     touched: Instant,
 }
 
 #[derive(Default)]
 pub(crate) struct PacketSessionPins {
     entries: HashMap<RouteKey, RoutePin>,
+    meters: Option<MeterProvider>,
 }
 
 impl PacketSessionPins {
+    pub(crate) fn with_meters(meters: MeterProvider) -> Self {
+        Self {
+            entries: Default::default(),
+            meters: Some(meters),
+        }
+    }
+    pub(crate) fn expire(&mut self) {
+        let now = Instant::now();
+        self.entries
+            .retain(|_, pin| now.duration_since(pin.touched) < IDLE_TIMEOUT);
+    }
     pub(crate) fn permits(&mut self, packet: &[u8], plane: &PacketPlane) -> bool {
-        let Some(key) = key(packet) else {
+        self.permits_peer(packet, plane, None)
+    }
+    pub(crate) fn permits_peer(
+        &mut self,
+        packet: &[u8],
+        plane: &PacketPlane,
+        peer: Option<std::sync::Arc<str>>,
+    ) -> bool {
+        let Some(key) = key(packet, peer) else {
             return false;
         };
         let now = Instant::now();
@@ -44,12 +70,31 @@ impl PacketSessionPins {
     }
 
     pub(crate) fn record(&mut self, packet: &[u8], plane: PacketPlane) -> bool {
-        let Some(key) = key(packet) else {
+        self.record_peers(packet, plane, None, None)
+    }
+    pub(crate) fn record_peers(
+        &mut self,
+        packet: &[u8],
+        plane: PacketPlane,
+        inbound_peer: Option<std::sync::Arc<str>>,
+        outbound_peer: Option<std::sync::Arc<str>>,
+    ) -> bool {
+        let Some(key) = key(packet, inbound_peer.clone()) else {
             return false;
         };
         if let Some(pin) = self.entries.get_mut(&key) {
             if pin.plane != plane {
                 return false;
+            }
+            if pin.outbound_peer != outbound_peer {
+                pin._traffic = leases(
+                    self.meters.as_ref(),
+                    &plane,
+                    inbound_peer.as_deref(),
+                    outbound_peer.as_deref(),
+                    std::mem::take(&mut pin._traffic),
+                );
+                pin.outbound_peer = outbound_peer;
             }
             pin.touched = Instant::now();
             return true;
@@ -60,6 +105,14 @@ impl PacketSessionPins {
         self.entries.insert(
             key,
             RoutePin {
+                _traffic: leases(
+                    self.meters.as_ref(),
+                    &plane,
+                    inbound_peer.as_deref(),
+                    outbound_peer.as_deref(),
+                    Vec::new(),
+                ),
+                outbound_peer,
                 plane,
                 touched: Instant::now(),
             },
@@ -68,8 +121,31 @@ impl PacketSessionPins {
     }
 }
 
-fn key(packet: &[u8]) -> Option<RouteKey> {
-    packet::packet_conversation_key(packet)
+fn leases(
+    provider: Option<&MeterProvider>,
+    plane: &PacketPlane,
+    input: Option<&str>,
+    output: Option<&str>,
+    mut previous: Vec<zero_engine::TrafficRouteLease>,
+) -> Vec<zero_engine::TrafficRouteLease> {
+    match (provider, plane) {
+        (Some(provider), PacketPlane::Packet(tag) | PacketPlane::TranslatedPacket(tag)) => {
+            provider(tag, input, output)
+                .into_iter()
+                .map(
+                    |meter| match previous.iter().position(|lease| lease.belongs_to(&meter)) {
+                        Some(index) => previous.swap_remove(index),
+                        None => meter.packet_route(),
+                    },
+                )
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn key(packet: &[u8], peer: Option<std::sync::Arc<str>>) -> Option<RouteKey> {
+    packet::packet_conversation_key(packet).map(|key| (key, peer))
 }
 
 #[cfg(test)]

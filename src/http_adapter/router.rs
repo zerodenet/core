@@ -58,6 +58,7 @@ pub async fn route(
             }
             ("GET", "/config") => read_json(handlers::config(handle), auth_ctx),
             ("GET", "/runtime") => read_json(handlers::runtime(handle), auth_ctx),
+            ("POST", "/query") => read_json(handlers::typed_query(handle, &request.body), auth_ctx),
             ("GET", "/stats") => read_json(handlers::stats(handle), auth_ctx),
             ("GET", "/principal_flows") => read_json(handlers::principal_flows(handle), auth_ctx),
             ("GET", "/flows") => read_json(handlers::flows_list(handle, query), auth_ctx),

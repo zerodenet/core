@@ -14,6 +14,7 @@ fn input<'a>(
     auth: &'a SessionAuth,
 ) -> UdpPipeInput<'a> {
     UdpPipeInput {
+        peer_identity: None,
         target,
         route_target: None,
         sniffed_original_target: None,

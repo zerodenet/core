@@ -5,6 +5,8 @@ use crate::Permission;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum CommandRequest {
+    #[serde(rename = "stats.reset")]
+    StatsReset(crate::StatsResetCommand),
     #[serde(rename = "config.validate")]
     ConfigValidate(ConfigValidateCommand),
     #[serde(rename = "config.apply")]
@@ -58,7 +60,8 @@ impl CommandRequest {
             Self::FlowClose(_) | Self::PolicySelect(_) | Self::PolicyProbe(_) => {
                 Permission::Control
             }
-            Self::DiagnosticsProbeTarget(_)
+            Self::StatsReset(_)
+            | Self::DiagnosticsProbeTarget(_)
             | Self::DiagnosticsProbeOutbound(_)
             | Self::DiagnosticsDnsLookup(_)
             | Self::DiagnosticsDnsCache(_)

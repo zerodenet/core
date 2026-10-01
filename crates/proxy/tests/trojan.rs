@@ -1,6 +1,6 @@
 #![cfg(all(feature = "http", feature = "trojan"))]
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

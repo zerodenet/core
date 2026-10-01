@@ -18,15 +18,13 @@ impl UdpDispatch {
     /// the payload. Otherwise creates a new session, routes through the engine,
     /// and dispatches to the resolved outbound.
     pub(crate) async fn dispatch(&mut self, input: UdpPipeInput<'_>) -> Result<u64, EngineError> {
-        if let Some(flow) = self
-            .flows
-            .snapshot(&input.target, input.port, input.client_session_id)
-        {
+        let key = UdpFlowKey::new(&input.target, input.port, input.client_session_id)
+            .with_peer(input.peer_identity.clone());
+        if let Some(flow) = self.flows.snapshot_key(&key) {
             self.forward_existing(&flow, input.payload).await?;
             return Ok(flow.session.id);
         }
 
-        let key = UdpFlowKey::new(&input.target, input.port, input.client_session_id);
         if let Some(retry_after) = self.flow_start_backoff.retry_after(&key, Instant::now()) {
             return Err(EngineError::AdmissionDenied {
                 reason: format!(
@@ -50,8 +48,10 @@ impl UdpDispatch {
 
     async fn start_new_routed_flow(&mut self, input: UdpPipeInput<'_>) -> Result<u64, EngineError> {
         let runtime = self.runtime.clone();
-        let ingress_key = UdpFlowKey::new(&input.target, input.port, input.client_session_id);
+        let ingress_key = UdpFlowKey::new(&input.target, input.port, input.client_session_id)
+            .with_peer(input.peer_identity.clone());
         let mut session = Session::new(0, input.target, input.port, Network::Udp, input.protocol);
+        session.inbound_peer_identity = input.peer_identity.clone();
         session.route_target = input.route_target;
         session.skip_fake_ip_restore = input.skip_fake_ip_restore;
         session.original_target = input.sniffed_original_target;

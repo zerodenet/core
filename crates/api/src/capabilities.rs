@@ -7,6 +7,8 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiCapabilities {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traffic_statistics: Option<crate::TrafficStatisticsCapability>,
     #[serde(default)]
     pub api_id: String,
     #[serde(default)]
@@ -42,6 +44,7 @@ pub struct ApiCapabilities {
 impl ApiCapabilities {
     pub fn new() -> Self {
         Self {
+            traffic_statistics: None,
             api_id: API_ID.to_owned(),
             schema_id: EVENT_SCHEMA_ID.to_owned(),
             contracts: Some(ApiContractVersions::current()),

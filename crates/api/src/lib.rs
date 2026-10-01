@@ -9,7 +9,9 @@ pub mod query;
 pub mod response;
 pub mod sink;
 pub mod snapshot;
+pub mod traffic;
 pub mod traits;
+pub use traffic::*;
 
 pub use auth::{AuthContext, Permission};
 pub use capabilities::{

@@ -61,6 +61,12 @@ pub(crate) enum UdpAssociationCloseKind {
 }
 
 impl UdpRuntimeServices {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn bind_outbound_peer_flow(&self, session_id: u64, tag: &str, peer_id: &str) {
+        self.tcp
+            .engine
+            .bind_session_peer(session_id, tag, true, peer_id);
+    }
     pub(crate) fn new(tcp: TcpRuntimeServices) -> Self {
         let network = UdpNetworkServices {
             upstream: tcp.upstream(),

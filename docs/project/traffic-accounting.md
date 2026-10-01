@@ -22,7 +22,10 @@ known. While a flow is active, its traffic is visible through the global
 counters and active flow snapshots; it enters the per-outbound aggregate when
 the flow completes.
 
-Counters reset when a new engine instance starts. Until an explicit instance
-identifier is negotiated, control-plane consumers must discard the previous
-rate baseline when the health snapshot's start time changes rather than
-subtracting samples across a restart.
+Counters restart with a new `core_instance_id` from the health snapshot and
+current event envelopes. Do not subtract cumulative samples across instances.
+
+The additive [traffic observation contract](traffic-observation-v1.md) provides
+live role/resource views and independent `stats_epoch` baselines. `stats.reset`
+changes only those observation baselines; this legacy snapshot and per-connection
+business/usage/quota counters remain unchanged.

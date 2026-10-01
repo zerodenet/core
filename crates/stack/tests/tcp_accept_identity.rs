@@ -955,3 +955,45 @@ async fn stale_accept_entry_cannot_duplicate_a_reused_four_tuple() {
         "stale and current generations were both accepted"
     );
 }
+
+#[tokio::test]
+async fn accepted_tcp_keeps_the_authenticated_syn_peer_provenance() {
+    let (sender, mut packets) = mpsc::channel(16);
+    let (tcp, _) = UserNetworkStack::new(sender, 1440).into_parts();
+    let peer: std::sync::Arc<str> = "public-peer-a".into();
+    tcp.feed_with_peer(
+        &client_packet(packet::tcp_flags::SYN, 1000, 0),
+        Some(peer.clone()),
+    )
+    .await;
+    let reply = packets.recv().await.unwrap();
+    let reply = packet::parse_tcp(&reply).unwrap();
+    tcp.feed_with_peer(
+        &client_packet(packet::tcp_flags::ACK, 1001, reply.seq + 1),
+        Some(peer.clone()),
+    )
+    .await;
+    let (mut stream, _, _) = tcp.accept().await.unwrap();
+    assert_eq!(stream.peer_identity(), Some(peer.clone()));
+    tcp.feed_with_peer(
+        &client_packet(packet::tcp_flags::RST, 1001, 0),
+        Some("other-peer".into()),
+    )
+    .await;
+    tcp.feed_with_peer(
+        &client_packet_with_payload(
+            packet::tcp_flags::ACK | packet::tcp_flags::PSH,
+            1001,
+            reply.seq + 1,
+            b"safe",
+        ),
+        Some(peer),
+    )
+    .await;
+    let mut bytes = [0; 4];
+    tokio::time::timeout(Duration::from_secs(1), stream.read_exact(&mut bytes))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&bytes, b"safe");
+}

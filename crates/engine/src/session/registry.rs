@@ -1,6 +1,7 @@
 //! Active session registry, accounting, cancellation, and snapshots.
 
 mod principal;
+mod traffic;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -97,6 +98,45 @@ impl SessionRegistry {
         }
     }
 
+    pub(crate) fn bind_endpoint_traffic(
+        &self,
+        id: u64,
+        outbound: bool,
+        meter: Option<crate::TrafficMeter>,
+    ) {
+        if let Some(meter) = &meter {
+            meter.observes_role(zero_api::TrafficPlane::Flow, outbound);
+        }
+        if let Some(entry) = self.get(id) {
+            let mut roles = entry
+                .endpoint_traffic
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            roles[outbound as usize] = meter.map(|meter| {
+                roles
+                    .iter()
+                    .flatten()
+                    .find(|existing| existing.meter.same_source(&meter))
+                    .cloned()
+                    .unwrap_or_else(|| super::accounting::EndpointFlowMeter::new(meter))
+            });
+        }
+    }
+    pub(crate) fn bind_traffic(&self, id: u64, outbound: bool, meter: Option<crate::TrafficMeter>) {
+        if let Some(meter) = &meter {
+            meter.observes_role(zero_api::TrafficPlane::Flow, outbound);
+            meter.enable(
+                zero_api::TrafficPlane::Flow,
+                &[zero_api::TrafficMetric::Errors],
+            );
+        }
+        if let Some(entry) = self.get(id) {
+            *entry.role_traffic[outbound as usize]
+                .write()
+                .unwrap_or_else(|e| e.into_inner()) = meter;
+        }
+    }
+
     pub fn update_outbound(
         &self,
         session_id: u64,
@@ -175,7 +215,14 @@ impl SessionRegistry {
             unix_timestamp_ms(),
         );
         drop(state);
+        if outcome == SessionOutcome::Failed {
+            session.record_failure();
+        }
         let record = session.finish(outcome, close_reason, failure);
+        *session
+            .peer_traffic
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Default::default();
         let traffic_delta = session.claim_traffic_delta_for(record.bytes_up, record.bytes_down);
         Some(FinishedSession {
             record,
@@ -301,6 +348,10 @@ impl SessionRegistry {
 
 #[derive(Debug)]
 struct ActiveSessionEntry {
+    endpoint_traffic: std::sync::RwLock<[Option<Arc<super::accounting::EndpointFlowMeter>>; 2]>,
+    peer_traffic_available: AtomicBool,
+    peer_traffic: std::sync::RwLock<[Option<Arc<super::accounting::EndpointFlowMeter>>; 2]>,
+    role_traffic: [std::sync::RwLock<Option<crate::TrafficMeter>>; 2],
     id: u64,
     inbound_tag: Option<String>,
     outbound_tag: Mutex<Option<String>>,
@@ -358,6 +409,10 @@ impl ActiveSessionEntry {
         let started_at_unix_ms = unix_timestamp_ms();
 
         Self {
+            endpoint_traffic: Default::default(),
+            peer_traffic_available: AtomicBool::new(false),
+            peer_traffic: Default::default(),
+            role_traffic: Default::default(),
             id: session.id,
             inbound_tag: session.inbound_tag.clone(),
             outbound_tag: Mutex::new(session.outbound_tag.clone()),
@@ -490,6 +545,29 @@ impl ActiveSessionEntry {
         self.bump_revision();
     }
 
+    fn record_failure(&self) {
+        let mut seen: Vec<crate::TrafficMeter> = Vec::new();
+        for role in &self.role_traffic {
+            if let Some(meter) = role.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                if !seen.iter().any(|old| old.same_source(meter)) {
+                    meter.error(zero_api::TrafficPlane::Flow);
+                    seen.push(meter.clone());
+                }
+            }
+        }
+        let endpoints = self
+            .endpoint_traffic
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let peers = self.peer_traffic.read().unwrap_or_else(|e| e.into_inner());
+        for flow in endpoints.iter().chain(peers.iter()).flatten() {
+            if !seen.iter().any(|old| old.same_source(&flow.meter)) {
+                flow.meter.error(zero_api::TrafficPlane::Flow);
+                seen.push(flow.meter.clone());
+            }
+        }
+    }
+
     fn record_upload(&self, bytes: u64) -> Option<String> {
         let exhausted = self.record_inbound_rx(bytes);
         self.record_outbound_tx(bytes);
@@ -506,6 +584,25 @@ impl ActiveSessionEntry {
             return None;
         }
 
+        self.record_peer_boundary(false, true, bytes);
+        if let Some(meter) = self.role_traffic[0]
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            meter.record(
+                zero_api::TrafficPlane::Flow,
+                zero_api::TrafficMetric::RxBytes,
+                bytes,
+            );
+        }
+        if let Some(meter) = &self
+            .endpoint_traffic
+            .read()
+            .unwrap_or_else(|e| e.into_inner())[0]
+        {
+            meter.record(false, true, bytes);
+        }
         self.inbound_rx_bytes.fetch_add(bytes, Ordering::Relaxed);
         self.touch();
         self.quota_registration
@@ -518,6 +615,25 @@ impl ActiveSessionEntry {
             return None;
         }
 
+        self.record_peer_boundary(false, false, bytes);
+        if let Some(meter) = self.role_traffic[0]
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            meter.record(
+                zero_api::TrafficPlane::Flow,
+                zero_api::TrafficMetric::TxBytes,
+                bytes,
+            );
+        }
+        if let Some(meter) = &self
+            .endpoint_traffic
+            .read()
+            .unwrap_or_else(|e| e.into_inner())[0]
+        {
+            meter.record(false, false, bytes);
+        }
         self.inbound_tx_bytes.fetch_add(bytes, Ordering::Relaxed);
         self.touch();
         self.quota_registration
@@ -530,6 +646,25 @@ impl ActiveSessionEntry {
             return;
         }
 
+        self.record_peer_boundary(true, true, bytes);
+        if let Some(meter) = self.role_traffic[1]
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            meter.record(
+                zero_api::TrafficPlane::Flow,
+                zero_api::TrafficMetric::RxBytes,
+                bytes,
+            );
+        }
+        if let Some(meter) = &self
+            .endpoint_traffic
+            .read()
+            .unwrap_or_else(|e| e.into_inner())[1]
+        {
+            meter.record(true, true, bytes);
+        }
         self.outbound_rx_bytes.fetch_add(bytes, Ordering::Relaxed);
         self.touch();
     }
@@ -539,6 +674,25 @@ impl ActiveSessionEntry {
             return;
         }
 
+        self.record_peer_boundary(true, false, bytes);
+        if let Some(meter) = self.role_traffic[1]
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            meter.record(
+                zero_api::TrafficPlane::Flow,
+                zero_api::TrafficMetric::TxBytes,
+                bytes,
+            );
+        }
+        if let Some(meter) = &self
+            .endpoint_traffic
+            .read()
+            .unwrap_or_else(|e| e.into_inner())[1]
+        {
+            meter.record(true, false, bytes);
+        }
         self.outbound_tx_bytes.fetch_add(bytes, Ordering::Relaxed);
         self.touch();
     }

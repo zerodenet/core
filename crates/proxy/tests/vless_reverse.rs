@@ -1,5 +1,5 @@
 #![cfg(all(feature = "socks5", feature = "vless"))]
-mod support;
+use crate::support;
 #[path = "vless_reverse/udp.rs"]
 mod udp;
 use serde_json::json;

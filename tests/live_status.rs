@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -138,6 +138,21 @@ fn local_status_listener_exposes_live_runtime_view() {
     let status_json: serde_json::Value =
         serde_json::from_str(status_body).expect("parse status json");
     assert_eq!(status_json["result"]["stats"]["active_sessions"], 1);
+
+    let traffic = http_post_json(
+        status_port,
+        "/api/v1/query",
+        r#"{"traffic_stats":{"limit":1}}"#,
+    );
+    let traffic: serde_json::Value =
+        serde_json::from_str(traffic.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(traffic["ok"], true);
+    assert_eq!(traffic["result"]["scopes"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        traffic["result"]["scopes"][0]["activity"]["active_stream_flows"],
+        1
+    );
+    assert!(traffic["result"]["scopes"][0]["planes"][0]["counters"]["rx_packets"].is_null());
 
     release_tx.send(()).expect("release echo");
     client.write_all(b"ping").expect("write echo payload");

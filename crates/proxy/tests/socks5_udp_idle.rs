@@ -1,6 +1,6 @@
 #![cfg(all(feature = "socks5", feature = "socks5"))]
 
-mod support;
+use crate::support;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

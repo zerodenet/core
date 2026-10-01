@@ -1,6 +1,5 @@
 #![cfg(feature = "runtime")]
-#[path = "support/socket.rs"]
-mod socket;
+use crate::socket;
 use shadowsocks::udp::{ShadowsocksDatagramCodec, ShadowsocksInboundUdpCodec};
 use shadowsocks::{
     validation::ReplayPolicy, CipherKind, ShadowsocksInboundProfile, ShadowsocksInboundTcpAcceptor,

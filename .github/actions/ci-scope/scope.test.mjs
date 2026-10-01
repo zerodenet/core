@@ -162,7 +162,10 @@ test('workflow contracts preserve coverage and avoid root-owned build artifacts'
     assert.match(workflow, /fetch-depth: 0/);
     assert.match(workflow, /if: always\(\)/);
   }
-  assert.match(ci, /cargo test --workspace --all-features/);
+  assert.match(ci, /bash scripts\/test-workspace\.sh/);
+  const testEntry = readFileSync('scripts/test-workspace.sh', 'utf8');
+  assert.match(testEntry, /cargo test --workspace --all-features --no-fail-fast/);
+  assert.match(testEntry, /check-test-layout\.py/);
   assert.match(ci, /cargo clippy --workspace --all-targets --all-features/);
   assert.match(ci, /Check representative minimal feature surfaces/);
   assert.equal(ci.match(/if: needs\.scope\.outputs\.exhaustive == 'true'/g)?.length, 2);

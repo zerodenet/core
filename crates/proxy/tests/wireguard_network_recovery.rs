@@ -1,8 +1,6 @@
 #![cfg(all(feature = "wireguard", feature = "socks5"))]
 
-#[path = "support/host.rs"]
-mod host;
-mod support;
+use crate::{host, support};
 
 use std::{io, net::Ipv4Addr};
 

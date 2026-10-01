@@ -87,13 +87,19 @@ impl Engine {
         let bindings = snapshot.config().endpoint_bindings();
         let total = bindings.len();
         let limit = query.limit.unwrap_or(100).clamp(1, 1000);
+        let activities = self.traffic_activity_index();
         let endpoints = bindings
             .into_iter()
             .skip(query.offset)
             .take(limit)
             .map(|binding| {
                 let intent = &snapshot.endpoint_intents.entries[&binding.endpoint_id];
-                let (stream, datagram) = self.endpoint_active_flow_counts(&binding);
+                let (stream, datagram) = activities
+                    .get(&zero_api::TrafficScope::Endpoint {
+                        endpoint_id: binding.endpoint_id.clone(),
+                    })
+                    .copied()
+                    .unwrap_or_default();
                 let mut endpoint = EndpointSnapshot {
                     configuration: self.endpoint_configuration(&binding),
                     endpoint_id: binding.endpoint_id,
@@ -116,6 +122,7 @@ impl Engine {
                     ..Default::default()
                 };
                 self.endpoint_facts.project(&mut endpoint);
+                self.project_endpoint_traffic(&mut endpoint);
                 endpoint
             })
             .collect::<Vec<_>>();
@@ -175,6 +182,7 @@ impl Engine {
             ..Default::default()
         };
         self.endpoint_facts.project(&mut endpoint);
+        self.project_endpoint_traffic(&mut endpoint);
         Ok(endpoint)
     }
 
@@ -197,13 +205,22 @@ impl Engine {
     /// Proxy reports an applied resource fact only after listener/device
     /// reconciliation has completed. The engine owns its generation and event.
     pub fn record_endpoint_runtime_state(&self, endpoint: &EndpointSnapshot) {
-        if let Some(changed) = self.endpoint_facts.record(endpoint) {
+        let changed = self.endpoint_facts.record(endpoint);
+        let mut applied = endpoint.clone();
+        self.endpoint_facts.project(&mut applied);
+        if let Some(generation) = applied.generation {
+            self.traffic
+                .set_generation(&applied.endpoint_id, generation);
+        }
+        if let Some(changed) = changed {
             self.event_log.push_endpoint_state_changed(&changed);
         }
     }
 
     pub fn record_endpoint_runtime_error(&self, id: &str, message: &str, failed: bool) {
         if let Some(changed) = self.endpoint_facts.record_error(id, message, failed) {
+            self.traffic
+                .set_generation(&changed.endpoint_id, changed.generation);
             self.event_log.push_endpoint_state_changed(&changed);
         }
     }

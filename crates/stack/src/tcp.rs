@@ -129,6 +129,7 @@ struct Conn {
     /// Client-side tunnel path MTU learned from an authenticated ICMP error.
     path_mtu: Option<usize>,
     connect_waiter: Option<tokio::sync::oneshot::Sender<UserTcpStream>>,
+    peer_identity: Option<Arc<str>>,
 }
 
 impl Drop for Conn {
@@ -202,6 +203,7 @@ fn accept_client_segment(conn: &mut Conn, tcp: &ParsedTcp<'_>) -> (bool, bool) {
 /// - `AsyncWrite` wraps data in TCP segments and sends them through
 ///   the outbound packet channel (back to TUN).
 pub struct UserTcpStream {
+    peer_identity: Option<Arc<str>>,
     /// Data from application (proxy reads this).
     read: StdMutex<TcpRead>,
     /// Connection metadata + outbound writer (proxy writes this).
@@ -319,6 +321,11 @@ impl TcpWrite {
 }
 
 impl UserTcpStream {
+    /// Opaque identity supplied by the authenticated IP device at SYN admission.
+    pub fn peer_identity(&self) -> Option<Arc<str>> {
+        self.peer_identity.clone()
+    }
+
     fn new(receive_buffer: Arc<TcpReceiveBuffer>, write: TcpWrite) -> Self {
         let send_control = Arc::clone(&write.send_control);
         Self {
@@ -335,6 +342,7 @@ impl UserTcpStream {
                 mss: write.mss,
             }),
             write: StdMutex::new(write),
+            peer_identity: None,
         }
     }
 }
@@ -641,10 +649,9 @@ async fn run_retransmission_worker(
     }
 }
 
-impl TcpStack for UserTcpStack {
-    type Connection = UserTcpStream;
-
-    async fn feed(&self, packet: &[u8]) {
+impl UserTcpStack {
+    /// Feed authenticated IP input with protocol-neutral peer provenance.
+    pub async fn feed_with_peer(&self, packet: &[u8], peer_identity: Option<Arc<str>>) {
         self.control_packets.ensure_worker();
         if packet::ip_protocol(packet) != Some(packet::IPPROTO_TCP) {
             return;
@@ -659,6 +666,15 @@ impl TcpStack for UserTcpStack {
         let rev = key_reversed(&key);
 
         let mut conns = self.connections.lock().await;
+
+        // Provenance belongs to the admitted flow; another authenticated peer
+        // must not consume or reset an existing connection with the same tuple.
+        if conns
+            .get(&key)
+            .is_some_and(|conn| conn.peer_identity != peer_identity)
+        {
+            return;
+        }
 
         // ── RST: tear down immediately ──
         if tcp.rst {
@@ -705,7 +721,8 @@ impl TcpStack for UserTcpStack {
                         conn,
                         conn.peer_mss.min(self.mss),
                     );
-                    let stream = UserTcpStream::new(Arc::clone(&conn.receive_buffer), write);
+                    let mut stream = UserTcpStream::new(Arc::clone(&conn.receive_buffer), write);
+                    stream.peer_identity = conn.peer_identity.clone();
 
                     let src = endpoint_to_sockaddr(&tcp.src);
                     let dst = endpoint_to_sockaddr(&tcp.dst);
@@ -880,6 +897,7 @@ impl TcpStack for UserTcpStack {
                 peer_mss,
                 path_mtu: None,
                 connect_waiter: None,
+                peer_identity,
             },
         );
         send_control.track_segment(iss.wrapping_add(1), syn_ack.clone());
@@ -891,6 +909,13 @@ impl TcpStack for UserTcpStack {
             self.outbound.downgrade(),
         ));
         self.send_response(syn_ack);
+    }
+}
+
+impl TcpStack for UserTcpStack {
+    type Connection = UserTcpStream;
+    async fn feed(&self, packet: &[u8]) {
+        self.feed_with_peer(packet, None).await;
     }
 
     async fn accept(&self) -> Option<(Self::Connection, SocketAddress, SocketAddress)> {

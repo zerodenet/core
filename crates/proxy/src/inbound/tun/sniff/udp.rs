@@ -18,6 +18,7 @@ const MAX_BUFFERED_DATAGRAMS: usize = 8;
 const MAX_BUFFERED_BYTES: usize = 64 * 1024;
 
 pub(in crate::inbound::tun) struct SniffedTunDatagram {
+    pub(in crate::inbound::tun) peer_identity: Option<std::sync::Arc<str>>,
     pub(in crate::inbound::tun) original_destination: SocketAddress,
     pub(in crate::inbound::tun) target: Address,
     pub(in crate::inbound::tun) payload: Vec<u8>,
@@ -166,12 +167,14 @@ fn apply_decision(datagram: TunDatagram, decision: Decision) -> SniffedTunDatagr
     let original_destination = datagram.destination;
     match decision {
         Decision::Domain(domain) => SniffedTunDatagram {
+            peer_identity: datagram.peer_identity,
             original_destination,
             target: Address::Domain(domain),
             payload: datagram.payload,
             host_source: Some(TargetHostSource::QuicSni),
         },
         Decision::Fallback => SniffedTunDatagram {
+            peer_identity: datagram.peer_identity,
             original_destination,
             target: socket_address_to_address(original_destination),
             payload: datagram.payload,

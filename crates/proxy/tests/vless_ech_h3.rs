@@ -1,6 +1,6 @@
 #![cfg(all(feature = "socks5", feature = "vless"))]
 
-mod support;
+use crate::support;
 
 use base64::Engine;
 use serde_json::{json, Value};

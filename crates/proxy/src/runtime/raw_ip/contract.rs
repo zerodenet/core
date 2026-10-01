@@ -37,6 +37,9 @@ pub(crate) struct RawIpPeerPlan {
 }
 
 pub(crate) trait RawIpOutboundPlan: Send + Sync {
+    fn peer_identity(&self, _peer: usize) -> Option<std::sync::Arc<str>> {
+        None
+    }
     fn mtu(&self) -> u16;
     fn is_local_address(&self, _address: IpAddr) -> bool {
         false

@@ -15,7 +15,10 @@
 use std::io;
 use std::net::IpAddr;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, OnceLock,
+};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -52,6 +55,7 @@ pub struct WindowsTun {
     name: String,
     rx: mpsc::Receiver<Vec<u8>>,
     tx: mpsc::Sender<Vec<u8>>,
+    observer: Arc<OnceLock<Arc<dyn zero_traits::IoObserver>>>,
     _session: Arc<wintun::Session>,
     _adapter: Arc<wintun::Adapter>,
 }
@@ -83,39 +87,81 @@ impl WindowsTun {
         let (read_tx, read_rx) = mpsc::channel::<Vec<u8>>(256);
         let (write_tx, mut write_rx) = mpsc::channel::<Vec<u8>>(256);
 
+        let observer: Arc<OnceLock<Arc<dyn zero_traits::IoObserver>>> = Arc::new(OnceLock::new());
+        let closing = Arc::new(AtomicBool::new(false));
+
         // Reader thread.
         let reader_session = session.clone();
-        std::thread::spawn(move || {
-            while let Ok(pkt) = reader_session.receive_blocking() {
-                let data = pkt.bytes().to_vec();
-                if read_tx.blocking_send(data).is_err() {
-                    break; // channel closed
+        let reader_observer = observer.clone();
+        let reader_closing = closing.clone();
+        std::thread::spawn(move || loop {
+            let packet = match reader_session.receive_blocking() {
+                Ok(packet) => packet,
+                Err(_) => {
+                    if !reader_closing.load(Ordering::Acquire) && !read_tx.is_closed() {
+                        if let Some(observer) = reader_observer.get() {
+                            observer.error();
+                        }
+                    }
+                    break;
                 }
+            };
+            if let Some(observer) = reader_observer.get() {
+                observer.received(packet.bytes().len());
+            }
+            let data = packet.bytes().to_vec();
+            if read_tx.blocking_send(data).is_err() {
+                if let Some(observer) = reader_observer.get() {
+                    observer.dropped();
+                }
+                break;
             }
         });
 
-        // Writer thread.
         let writer_session = session.clone();
+        let writer_observer = observer.clone();
         std::thread::spawn(move || {
             while let Some(data) = write_rx.blocking_recv() {
-                let len = data.len().min(u16::MAX as usize) as u16;
+                let Ok(len) = u16::try_from(data.len()) else {
+                    if let Some(observer) = writer_observer.get() {
+                        observer.error();
+                        observer.dropped();
+                    }
+                    tracing::warn!(bytes = data.len(), "oversized Wintun packet rejected");
+                    continue;
+                };
                 match writer_session.allocate_send_packet(len) {
-                    Ok(mut pkt) => {
-                        pkt.bytes_mut()[..len as usize].copy_from_slice(&data[..len as usize]);
-                        writer_session.send_packet(pkt);
+                    Ok(mut packet) => {
+                        packet.bytes_mut().copy_from_slice(&data);
+                        writer_session.send_packet(packet);
+                        if let Some(observer) = writer_observer.get() {
+                            observer.sent(data.len());
+                        }
                     }
                     Err(error) => {
+                        if let Some(observer) = writer_observer.get() {
+                            observer.error();
+                            observer.dropped();
+                        }
                         tracing::warn!(%error, "Wintun packet allocation failed");
                         break;
                     }
                 }
             }
+            write_rx.close();
+            while write_rx.blocking_recv().is_some() {
+                if let Some(observer) = writer_observer.get() {
+                    observer.dropped();
+                }
+            }
+            closing.store(true, Ordering::Release);
             let _ = writer_session.shutdown();
         });
 
         Ok(Self {
             name: adapter_name.to_owned(),
             rx: read_rx,
+            observer,
             tx: write_tx,
             _session: session,
             _adapter: adapter,
@@ -261,6 +307,19 @@ impl TunDevice for WindowsTun {
     }
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn into_channels_observed(
+        self,
+        observer: Arc<dyn zero_traits::IoObserver>,
+    ) -> io::Result<(mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>)> {
+        self.observer.set(observer).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "TUN observer already attached",
+            )
+        })?;
+        self.into_channels()
     }
 
     fn into_channels(mut self) -> io::Result<(mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>)> {

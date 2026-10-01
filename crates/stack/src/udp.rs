@@ -7,6 +7,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use tokio::sync::{mpsc, Mutex, Notify};
 use tracing::warn;
@@ -18,6 +19,7 @@ use crate::packet::{self};
 // ── Queued datagram ───────────────────────────────────────────────────
 
 struct Datagram {
+    peer_identity: Option<Arc<str>>,
     data: Vec<u8>,
     src: SocketAddress,
     dst: SocketAddress,
@@ -92,8 +94,9 @@ impl UserUdpStack {
     }
 }
 
-impl UdpStack for UserUdpStack {
-    async fn feed(&self, packet: &[u8]) {
+impl UserUdpStack {
+    /// Feed IP input with opaque authenticated peer provenance.
+    pub async fn feed_with_peer(&self, packet: &[u8], peer_identity: Option<Arc<str>>) {
         if packet::ip_protocol(packet) != Some(packet::IPPROTO_UDP) {
             return;
         }
@@ -112,6 +115,7 @@ impl UdpStack for UserUdpStack {
             return;
         }
         dgrams.push_back(Datagram {
+            peer_identity,
             data: udp.payload.to_vec(),
             src: endpoint_to_sockaddr(&udp.src),
             dst: endpoint_to_sockaddr(&udp.dst),
@@ -120,18 +124,32 @@ impl UdpStack for UserUdpStack {
         self.available.notify_one();
     }
 
-    async fn recv_from(&self, buf: &mut [u8]) -> Option<(usize, SocketAddress, SocketAddress)> {
+    /// Receive a datagram and its original device-supplied provenance.
+    pub async fn recv_from_with_peer(
+        &self,
+        buf: &mut [u8],
+    ) -> Option<(usize, SocketAddress, SocketAddress, Option<Arc<str>>)> {
         loop {
             let notified = self.available.notified();
             if let Some(dgram) = self.datagrams.lock().await.pop_front() {
                 let n = dgram.data.len().min(buf.len());
                 buf[..n].copy_from_slice(&dgram.data[..n]);
-                return Some((n, dgram.src, dgram.dst));
+                return Some((n, dgram.src, dgram.dst, dgram.peer_identity));
             }
             notified.await;
         }
     }
+}
 
+impl UdpStack for UserUdpStack {
+    async fn feed(&self, packet: &[u8]) {
+        self.feed_with_peer(packet, None).await;
+    }
+    async fn recv_from(&self, buf: &mut [u8]) -> Option<(usize, SocketAddress, SocketAddress)> {
+        self.recv_from_with_peer(buf)
+            .await
+            .map(|(n, src, dst, _)| (n, src, dst))
+    }
     async fn send_to(&self, data: &[u8], src: SocketAddress, dst: SocketAddress) {
         let src_ip = sockaddr_to_ipaddr(&src);
         let dst_ip = sockaddr_to_ipaddr(&dst);

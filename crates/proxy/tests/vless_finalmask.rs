@@ -1,7 +1,7 @@
 #![cfg(all(feature = "socks5", feature = "vless"))]
 #[path = "vless_finalmask/cases.rs"]
 mod cases;
-mod support;
+use crate::support;
 use serde_json::{json, Value};
 use support::interop::{
     socks5_tcp_echo_once, socks5_udp_echo_sequence, spawn_tcp_echo, spawn_udp_echo_count,

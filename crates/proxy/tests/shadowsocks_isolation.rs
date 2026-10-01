@@ -1,5 +1,5 @@
 #![cfg(feature = "shadowsocks")]
-mod support;
+use crate::support;
 use shadowsocks::{udp::ShadowsocksDatagramCodec, CipherKind};
 use support::{free_port, spawn_engine, wait_for, wait_for_listener};
 use tokio::{

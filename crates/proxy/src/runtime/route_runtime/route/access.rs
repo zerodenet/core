@@ -78,6 +78,47 @@ impl InboundRouteRuntime {
 
 impl InboundRouteRuntimeFactory {
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn global_packet_traffic(&self) -> Option<zero_engine::TrafficMeter> {
+        self.shared
+            .tcp_services()
+            .engine()
+            .traffic_meter(&zero_api::TrafficScope::Global)
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn inbound_packet_traffic(&self) -> Option<zero_engine::TrafficMeter> {
+        self.shared
+            .tcp_services()
+            .engine()
+            .traffic_meter(&zero_api::TrafficScope::Inbound {
+                tag: self.inbound_tag.clone(),
+            })
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn packet_statistics_pins(&self) -> crate::runtime::packet_route::PacketSessionPins {
+        let engine = self.shared.tcp_services().engine().clone();
+        let inbound = self.inbound_tag.clone();
+        crate::runtime::packet_route::PacketSessionPins::with_meters(std::sync::Arc::new(
+            move |tag, inbound_peer, outbound_peer| {
+                engine.packet_route_traffic_meters(&inbound, tag, inbound_peer, outbound_peer)
+            },
+        ))
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn endpoint_traffic(
+        &self,
+        peers: &[String],
+    ) -> Option<zero_engine::PreparedEndpointTraffic> {
+        let services = self.shared.tcp_services();
+        let engine = services.engine();
+        let binding = engine
+            .config()
+            .endpoint_bindings()
+            .into_iter()
+            .find(|b| b.canonical && b.inbound_tags.contains(&self.inbound_tag))?;
+        engine.prepare_endpoint_traffic(&binding, peers)
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn endpoint_inbound_allowed(&self) -> bool {
         self.shared
             .tcp_services()

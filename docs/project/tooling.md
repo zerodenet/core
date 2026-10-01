@@ -52,7 +52,7 @@ UTC 时间、耗时和退出码。无目标参数表示全量，包括 unit/inte
 作为全量通过证据。例如回归端点与能力目录；`--test` 可以重复：
 
 ```bash
-./scripts/test-workspace.sh --test endpoint_contracts --test core_capabilities
+./scripts/test-workspace.sh --test endpoint_contracts --test proxy_control
 ```
 
 `--jobs 2` 限制 Cargo 编译 worker，适用于内存受限设备；它不限制测试线程，
@@ -246,3 +246,22 @@ X.Y.Z
 - 文档只描述当前事实，避免使用“从某版本开始”“截至目前”等版本历史措辞。
 - Rust 标识符、配置字段、协议名称和标准术语可以保留英文；普通叙述和章节标题统一使用中文。
 - 修改本仓库工程文档后检查本地链接；修改公开文档时在 `zerodenet/docs` 仓库运行 `pnpm check:build`。
+
+### Integration 聚合布局
+
+相关用例通过 `tests/suites/*.rs` 共享一个测试可执行文件，原用例文件与
+相对 fixture 路径保留。启用 `autotests = false` 的包必须显式注册 suite；
+新增 `tests/*.rs` 时应接入一个 suite，或按执行边界单独注册 `[[test]]`。
+外部互操作、特权操作、进程全局日志等边界保留独立目标。
+
+入口在运行 Cargo 测试前检查所有根用例文件恰好接入一次。手动检查及查询
+源文件对应目标、模块过滤前缀：
+
+```bash
+python3 scripts/check-test-layout.py
+python3 scripts/check-test-layout.py --json
+cargo test -p zero-proxy --all-features --test proxy_control core_capabilities::
+```
+
+原 `required-features` 保留在 suite 成员模块的显式 feature 条件中；用例自身
+条件不变。聚合记录见 [工作区测试聚合验收](workspace-test-aggregation-20260930.md)。

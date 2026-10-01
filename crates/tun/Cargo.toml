@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "zero-tun"
 version.workspace = true
 edition.workspace = true
@@ -29,3 +30,15 @@ zero-traits = { path = "../traits" }
 
 [dev-dependencies]
 tempfile.workspace = true
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "tun_device"
+path = "tests/suites/tun_device.rs"
+
+[[test]]
+name = "privileged_configuration"
+
+[[test]]
+name = "route_monitor_macos_e2e"

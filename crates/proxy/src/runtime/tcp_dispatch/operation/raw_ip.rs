@@ -64,6 +64,11 @@ impl PreparedTcpConnectOperation for RawIpTcpOperation {
                 )
                 .map_err(|error| failure("raw_ip_device", error))?;
             let local_ip = peer.local_ip;
+            if let Some(peer_id) = self.plan.peer_identity(peer.peer_index) {
+                services
+                    .engine()
+                    .bind_session_peer(session.id, &self.tag, true, &peer_id);
+            }
             let device = cell
                 .get()
                 .ok_or_else(|| failure("raw_ip_device", invalid("peer device not initialized")))?;

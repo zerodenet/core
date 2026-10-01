@@ -8,6 +8,7 @@ use super::contract::KernelPipe;
 
 /// Input for one UDP packet dispatch within an inbound UDP association.
 pub(crate) struct UdpPipeInput<'a> {
+    pub(crate) peer_identity: Option<std::sync::Arc<str>>,
     pub(crate) target: Address,
     pub(crate) route_target: Option<Address>,
     pub(crate) sniffed_original_target: Option<Address>,
@@ -58,6 +59,7 @@ impl<'a> UdpPipeInput<'a> {
         source_addr: Option<SocketAddr>,
     ) -> Self {
         Self {
+            peer_identity: dispatch.peer_identity().cloned(),
             target: dispatch.target().clone(),
             route_target: dispatch.route_target().cloned(),
             sniffed_original_target: dispatch.sniffed_original_target().cloned(),

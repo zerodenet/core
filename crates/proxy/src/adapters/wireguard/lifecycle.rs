@@ -37,6 +37,7 @@ struct PreparedWireguardDevices {
     next_linked: LinkedEndpointMap,
     linked_updates: Vec<inbound::LinkedEndpointUpdate>,
     pending: PendingEndpoints,
+    traffic: Vec<zero_engine::PreparedEndpointTraffic>,
 }
 
 struct PendingEndpoints(PendingEndpointMap);
@@ -64,7 +65,11 @@ impl PreparedOutboundDeviceState for PreparedWireguardDevices {
             next_linked,
             linked_updates,
             pending,
+            traffic,
         } = *self;
+        for prepared in traffic {
+            prepared.publish();
+        }
         let mut active = profiles.lock().unwrap_or_else(|error| error.into_inner());
         for update in linked_updates {
             update.publish();
@@ -94,6 +99,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
         let mut profiles = HashMap::new();
         let mut linked = HashMap::new();
         let mut linked_updates = Vec::new();
+        let mut traffic = Vec::new();
         let generation = upstream.egress_generation();
         for outbound in outbounds {
             if !matches!(outbound.protocol, OutboundProtocolConfig::Wireguard { .. }) {
@@ -131,6 +137,19 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                 .unwrap_or_else(|| {
                     WireguardRawIpPlan::from_protocol(&outbound.protocol).map(Arc::new)
                 })?;
+            let prepared_traffic = context
+                .endpoint_bindings
+                .iter()
+                .find(|b| b.canonical && b.outbound_tags.contains(&outbound.tag))
+                .and_then(|binding| {
+                    context
+                        .traffic
+                        .prepare_endpoint_traffic(binding, &plan.peer_ids())
+                });
+            let meters = prepared_traffic.as_ref().map(|p| (p.endpoint(), p.peers()));
+            if let Some(prepared) = prepared_traffic {
+                traffic.push(prepared);
+            }
             if let OutboundProtocolConfig::Wireguard {
                 inbound_tag: Some(inbound_tag),
                 ..
@@ -210,6 +229,20 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                 self.pool
                     .clear_endpoint_unresolved(&outbound.tag, peer_index, device_identity);
                 let tunnel = plan.build_tunnel(peer_index)?;
+                let meter = meters
+                    .as_ref()
+                    .map(|(endpoint, peers)| {
+                        crate::runtime::raw_ip::RawIpTraffic::new(
+                            endpoint.clone(),
+                            peers.get(peer_index).cloned(),
+                        )
+                    })
+                    .unwrap_or_default()
+                    .with_global(
+                        context
+                            .traffic
+                            .traffic_meter(&zero_api::TrafficScope::Global),
+                    );
                 let device = if let Some(proxy_tag) = outer_udp_proxy {
                     let operation = context.packet_paths.get(proxy_tag).ok_or_else(|| {
                         invalid(format!(
@@ -219,7 +252,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                     let path = operation
                         .build_carrier(context.packet_path_services.clone())
                         .await?;
-                    SharedRawIpDevice::start_with_carrier(
+                    SharedRawIpDevice::start_metered(
                         plan.local_addresses(),
                         plan.mtu(),
                         endpoint,
@@ -229,15 +262,17 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                             context.packet_path_services.clone(),
                         )),
                         tunnel,
+                        meter,
                     )
                 } else {
                     let socket = upstream.bind_datagram_socket(endpoint).await?;
-                    SharedRawIpDevice::start(
+                    SharedRawIpDevice::start_metered(
                         plan.local_addresses(),
                         plan.mtu(),
                         endpoint,
-                        socket,
+                        Arc::new(crate::runtime::raw_ip::DirectRawIpWireCarrier(socket)),
                         tunnel,
+                        meter,
                     )
                 }
                 .map_err(|error| invalid(format!("raw-IP device: {error:?}")))?;
@@ -278,6 +313,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
             linked: self.linked_endpoints.clone(),
             next_linked: linked,
             linked_updates,
+            traffic,
             pending: PendingEndpoints(self.pending_endpoints.clone()),
         }))
     }

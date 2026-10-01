@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "zero-dns"
 version.workspace = true
 edition.workspace = true
@@ -54,3 +55,17 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 rcgen = "0.14"
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "dns_resolution"
+path = "tests/suites/dns_resolution.rs"
+
+[[test]]
+name = "dns_state"
+path = "tests/suites/dns_state.rs"
+
+[[test]]
+name = "dns_wire"
+path = "tests/suites/dns_wire.rs"

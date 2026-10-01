@@ -61,6 +61,10 @@ impl zero_api::CommandService for ProxyHandle {
         >,
     > {
         Box::pin(async move {
+            if let zero_api::CommandRequest::StatsReset(_) = &command {
+                let _guard = self.proxy.reload_apply_lock.lock().await;
+                return self.inner.execute(command);
+            }
             if super::endpoint::is_endpoint_command(&command) {
                 // Once staged, complete or roll back even when the requesting
                 // HTTP/IPC connection drops its acknowledgement future.

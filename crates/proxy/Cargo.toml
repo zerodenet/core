@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "zero-proxy"
 version.workspace = true
 edition.workspace = true
@@ -135,3 +136,105 @@ tokio = { workspace = true, features = ["test-util"] }
 tokio-tungstenite = "0.23"
 tracing-subscriber.workspace = true
 wireguard = { path = "../../protocols/wireguard", default-features = false, features = ["runtime"] }
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "proxy_control"
+path = "tests/suites/proxy_control.rs"
+
+[[test]]
+name = "proxy_dispatch"
+path = "tests/suites/proxy_dispatch.rs"
+
+[[test]]
+name = "proxy_health"
+path = "tests/suites/proxy_health.rs"
+
+[[test]]
+name = "proxy_vless"
+path = "tests/suites/proxy_vless.rs"
+
+[[test]]
+name = "proxy_shadowsocks"
+path = "tests/suites/proxy_shadowsocks.rs"
+
+[[test]]
+name = "proxy_hysteria2"
+path = "tests/suites/proxy_hysteria2.rs"
+
+[[test]]
+name = "proxy_wireguard"
+path = "tests/suites/proxy_wireguard.rs"
+
+[[test]]
+name = "endpoint_contracts"
+
+[[test]]
+name = "hysteria2_official_interop"
+
+[[test]]
+name = "hysteria2_sing_box_interop"
+
+[[test]]
+name = "logging"
+
+[[test]]
+name = "mieru_official_interop"
+
+[[test]]
+name = "mieru_xray_interop"
+
+[[test]]
+name = "probe_outbound_diagnostics"
+
+[[test]]
+name = "runtime_boundary"
+
+[[test]]
+name = "shadowsocks_xray_interop"
+
+[[test]]
+name = "trojan_go_interop"
+
+[[test]]
+name = "trojan_xray_interop"
+
+[[test]]
+name = "vless_early_data"
+
+[[test]]
+name = "vless_encryption"
+
+[[test]]
+name = "vless_fallback_rules"
+
+[[test]]
+name = "vless_tls_vision"
+
+[[test]]
+name = "vless_xhttp_h3"
+
+[[test]]
+name = "vless_xhttp_modes"
+
+[[test]]
+name = "vless_xhttp_options"
+
+[[test]]
+name = "vless_xray_interop"
+
+[[test]]
+name = "vmess_xray_interop"
+
+[[test]]
+name = "wireguard_go_interop"
+
+[[test]]
+name = "wireguard_icmp_route"
+
+[[test]]
+name = "wireguard_inbound"
+
+[[test]]
+name = "wireguard_xray_interop"

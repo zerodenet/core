@@ -74,6 +74,7 @@ pub(super) async fn run(
         mtu,
         network_responses,
     } = config;
+    let _traffic_role = proxy.engine().register_inbound_traffic(&tag);
     let mut tasks = JoinSet::new();
     #[cfg(feature = "raw-ip-runtime")]
     let packet_route = crate::runtime::route_runtime::InboundRouteRuntimeFactory::new(
@@ -214,14 +215,23 @@ async fn feed_packets(
     let mut batch_size = 0;
     let mut fragments = zero_stack::FragmentReassembler::new();
     #[cfg(feature = "raw-ip-runtime")]
-    let mut packet_pins = crate::runtime::packet_route::PacketSessionPins::default();
+    let mut packet_pins = packet_route.packet_statistics_pins();
     #[cfg(feature = "raw-ip-runtime")]
     let echo = crate::runtime::inbound_operation::raw_ip::IcmpEchoRelay::new(
         network_responses.clone(),
         packet_route.clone(),
         packet_shutdown,
     );
-    while let Some(packet) = packets.recv().await {
+    let mut route_cleanup = tokio::time::interval(std::time::Duration::from_secs(30));
+    while let Some(packet) = loop {
+        tokio::select! {
+            packet = packets.recv() => break packet,
+            _ = route_cleanup.tick() => {
+                #[cfg(feature = "raw-ip-runtime")]
+                packet_pins.expire();
+            }
+        }
+    } {
         match fragments.process(&packet, std::time::Instant::now()) {
             zero_stack::FragmentOutcome::NotFragmented(packet) => {
                 #[cfg(feature = "raw-ip-runtime")]

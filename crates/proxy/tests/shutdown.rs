@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy as Engine;

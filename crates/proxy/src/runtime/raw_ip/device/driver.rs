@@ -9,12 +9,14 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{mpsc, watch};
+use zero_api::TrafficPlane;
 use zero_engine::EngineError;
 use zero_stack::{
     client_udp::ClientUdpStack, packet, ClientTcpStack, FragmentOutcome, FragmentReassembler,
 };
 
 pub(super) struct Device {
+    pub(super) traffic: super::super::RawIpTraffic,
     pub(super) endpoint: SocketAddr,
     pub(super) carrier: Arc<dyn RawIpWireCarrier>,
     pub(super) tunnel: Box<dyn RawIpTunnel>,
@@ -44,7 +46,10 @@ async fn run_device_inner(
     device: &mut Device,
     ready: &watch::Sender<Option<Result<(), String>>>,
 ) -> Result<(), EngineError> {
-    let actions = device.tunnel.initiate_handshake()?;
+    let actions = device
+        .tunnel
+        .initiate_handshake()
+        .inspect_err(|_| device.traffic.error(TrafficPlane::Outer, true))?;
     device.apply(actions).await?;
     device.refresh_handshake_health();
     ready.send_replace(Some(Ok(())));
@@ -62,7 +67,8 @@ async fn run_device_inner(
                     vec![packet]
                 };
                 for packet in packets {
-                    let actions = device.tunnel.send_ip_packet(&packet)?;
+                    let actions = device.tunnel.send_ip_packet(&packet).inspect_err(|_| { device.traffic.error(TrafficPlane::Inner, true); device.traffic.dropped(TrafficPlane::Inner, true); })?;
+                    device.traffic.tx(TrafficPlane::Inner, packet.len());
                     device.apply(actions).await?;
                     device.refresh_handshake_health();
                 }
@@ -70,20 +76,25 @@ async fn run_device_inner(
             packets = device.forwarded_packets.recv() => {
                 let Some(packets) = packets else { return Ok(()); };
                 for packet in packets {
-                    let actions = device.tunnel.send_ip_packet(&packet)?;
+                    let actions = device.tunnel.send_ip_packet(&packet).inspect_err(|_| { device.traffic.error(TrafficPlane::Inner, true); device.traffic.dropped(TrafficPlane::Inner, true); })?;
+                    device.traffic.tx(TrafficPlane::Inner, packet.len());
                     device.apply(actions).await?;
                     device.refresh_handshake_health();
                 }
             }
             received = device.carrier.recv(&mut wire) => {
-                let (size, sender) = received.map_err(EngineError::Io)?;
+                let (size, sender) = received.inspect_err(|_| device.traffic.error(TrafficPlane::Outer, false)).map_err(EngineError::Io)?;
+                device.traffic.rx(TrafficPlane::Outer, size, false);
                 let Ok((actions, authenticated)) = device.tunnel
                     .receive_datagram_with_authentication(sender, &wire[..size]) else {
+                    device.traffic.dropped(TrafficPlane::Outer, false);
                     continue;
                 };
+                if authenticated { device.traffic.peer_rx(TrafficPlane::Outer, size); }
                 if let Some(sender) = sender {
                     if sender != device.endpoint {
                         if !authenticated || sender.is_ipv4() != device.endpoint.is_ipv4() {
+                            device.traffic.dropped(TrafficPlane::Outer, authenticated);
                             continue;
                         }
                         tracing::debug!(old_endpoint = %device.endpoint, new_endpoint = %sender, "raw-IP peer endpoint roamed");
@@ -96,7 +107,7 @@ async fn run_device_inner(
             }
             _ = timer.tick() => {
                 device.returns.expire();
-                let actions = device.tunnel.tick()?;
+                let actions = device.tunnel.tick().inspect_err(|_| device.traffic.error(TrafficPlane::Outer, true))?;
                 device.apply(actions).await?;
                 device.refresh_handshake_health();
                 if Instant::now() >= next_tcp_sweep {
@@ -126,10 +137,16 @@ impl Device {
                     self.carrier
                         .send(&packet, self.endpoint)
                         .await
+                        .inspect_err(|_| {
+                            self.traffic.error(TrafficPlane::Outer, true);
+                            self.traffic.dropped(TrafficPlane::Outer, true);
+                        })
                         .map_err(EngineError::Io)?;
+                    self.traffic.tx(TrafficPlane::Outer, packet.len());
                 }
                 RawIpAction::ReceiveIp { packet, source } => {
                     if self.tunnel.allows_source(source) {
+                        self.traffic.rx(TrafficPlane::Inner, packet.len(), true);
                         self.health
                             .lock()
                             .unwrap_or_else(|error| error.into_inner())
@@ -137,7 +154,11 @@ impl Device {
                         let packet = match self.fragments.process(&packet, Instant::now()) {
                             FragmentOutcome::NotFragmented(packet) => packet.to_vec(),
                             FragmentOutcome::Reassembled(packet) => packet,
-                            FragmentOutcome::Pending | FragmentOutcome::Rejected(_) => continue,
+                            FragmentOutcome::Pending => continue,
+                            FragmentOutcome::Rejected(_) => {
+                                self.traffic.dropped(TrafficPlane::Inner, true);
+                                continue;
+                            }
                         };
                         match packet::ip_protocol(&packet) {
                             _ if self.returns.deliver(&packet) => {}
@@ -160,6 +181,8 @@ impl Device {
                             }
                             _ => {}
                         }
+                    } else {
+                        self.traffic.dropped(TrafficPlane::Inner, true);
                     }
                 }
             }

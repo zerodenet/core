@@ -1,5 +1,5 @@
 #![cfg(all(feature = "vless", feature = "socks5"))]
-mod support;
+use crate::support;
 use serde_json::json;
 use support::interop::{spawn_tcp_echo, TempMaterial};
 use support::{free_port, spawn_engine, wait_for, wait_for_listener};

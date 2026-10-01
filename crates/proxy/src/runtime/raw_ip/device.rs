@@ -24,10 +24,13 @@ use tokio::{
 };
 use zero_api::OutboundDeviceHealthSnapshot;
 use zero_engine::EngineError;
+#[cfg(test)]
 use zero_platform_tokio::TokioDatagramSocket;
 use zero_stack::{client_udp::ClientUdpStack, ClientTcpStack, FragmentReassembler, UserTcpStream};
 
-use super::{DirectRawIpWireCarrier, RawIpTunnel, RawIpWireCarrier};
+#[cfg(test)]
+use super::DirectRawIpWireCarrier;
+use super::{RawIpTunnel, RawIpWireCarrier};
 use driver::{run_device, Device};
 pub(crate) use endpoint::EndpointPacket;
 use health::DeviceHealth;
@@ -55,6 +58,7 @@ impl SharedRawIpDevice {
         !self.retired.load(Ordering::Acquire) && !self.is_closed()
     }
 
+    #[cfg(test)]
     pub(crate) fn start(
         local_addresses: Vec<IpAddr>,
         mtu: u16,
@@ -71,12 +75,31 @@ impl SharedRawIpDevice {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn start_with_carrier(
         local_addresses: Vec<IpAddr>,
         mtu: u16,
         endpoint: SocketAddr,
         carrier: Arc<dyn RawIpWireCarrier>,
         tunnel: Box<dyn RawIpTunnel>,
+    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+        Self::start_metered(
+            local_addresses,
+            mtu,
+            endpoint,
+            carrier,
+            tunnel,
+            Default::default(),
+        )
+    }
+
+    pub(crate) fn start_metered(
+        local_addresses: Vec<IpAddr>,
+        mtu: u16,
+        endpoint: SocketAddr,
+        carrier: Arc<dyn RawIpWireCarrier>,
+        tunnel: Box<dyn RawIpTunnel>,
+        traffic: super::RawIpTraffic,
     ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
         let (outbound, raw_packets) = mpsc::channel(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
@@ -92,6 +115,7 @@ impl SharedRawIpDevice {
         let (completed_tx, completed) = watch::channel(false);
         let completion = completion::Completion(completed_tx);
         let driver = Device {
+            traffic,
             endpoint,
             carrier,
             tunnel,

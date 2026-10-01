@@ -180,6 +180,7 @@ mod tests {
 
     fn datagram() -> TunDatagram {
         TunDatagram {
+            peer_identity: None,
             destination: SocketAddress::new(IpAddress::V4([203, 0, 113, 53]), 53),
             payload: vec![1],
         }

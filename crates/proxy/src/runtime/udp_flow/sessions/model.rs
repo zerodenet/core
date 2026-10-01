@@ -21,14 +21,20 @@ pub(crate) struct UdpFlowKey {
     /// When `None`, the existing
     /// `(target, port)` keying is preserved.
     client_session_id: Option<u64>,
+    peer_identity: Option<std::sync::Arc<str>>,
 }
 
 impl UdpFlowKey {
+    pub(crate) fn with_peer(mut self, peer: Option<std::sync::Arc<str>>) -> Self {
+        self.peer_identity = peer;
+        self
+    }
     pub(crate) fn new(target: &Address, port: u16, client_session_id: Option<u64>) -> Self {
         Self {
             target: target.clone(),
             port,
             client_session_id,
+            peer_identity: None,
         }
     }
 }

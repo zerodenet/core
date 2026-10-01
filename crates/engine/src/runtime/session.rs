@@ -65,6 +65,21 @@ impl Engine {
             device_registration,
             quota_registration,
         );
+        self.session_registry.bind_traffic(
+            session.id,
+            false,
+            self.traffic.meter(&zero_api::TrafficScope::Inbound {
+                tag: inbound_tag.into(),
+            }),
+        );
+        self.session_registry.bind_endpoint_traffic(
+            session.id,
+            false,
+            self.endpoint_role_meter(inbound_tag, false),
+        );
+        if let Some(peer) = &session.inbound_peer_identity {
+            self.bind_session_peer(session.id, inbound_tag, false, peer);
+        }
         self.stats.record_start();
         self.event_log
             .push_flow_started(&inserted.active, inserted.principal_observation.as_ref());
@@ -118,6 +133,21 @@ impl Engine {
         remote: Option<(&str, u16)>,
         relay_chain: Vec<(String, String)>,
     ) {
+        self.session_registry.bind_traffic(
+            session.id,
+            true,
+            self.traffic.meter(&zero_api::TrafficScope::Outbound {
+                tag: session.outbound_tag.as_deref().unwrap_or("direct").into(),
+            }),
+        );
+        self.session_registry.bind_endpoint_traffic(
+            session.id,
+            true,
+            session
+                .outbound_tag
+                .as_deref()
+                .and_then(|tag| self.endpoint_role_meter(tag, true)),
+        );
         let outbound_protocol = session
             .outbound_tag
             .as_deref()
@@ -234,6 +264,11 @@ impl Engine {
         failure: Option<FlowFailureObservation>,
     ) -> Option<CompletedSessionRecord> {
         let finished = self.session_registry.finish(id, outcome, reason, failure)?;
+        if outcome == SessionOutcome::Failed {
+            if let Some(meter) = self.traffic.meter(&zero_api::TrafficScope::Global) {
+                meter.error(zero_api::TrafficPlane::Flow);
+            }
+        }
         let principal_observation = finished.principal_observation;
         let record = finished.record;
         self.stats.record_live_traffic(

@@ -15,3 +15,6 @@ pub use outbound::{
     validate_outbound, OutboundInput, PeerInput, ValidatedOutbound, ValidatedPeer, ValidationError,
     DEFAULT_MTU, MAX_MTU, MIN_IPV4_MTU, MIN_IPV6_MTU,
 };
+
+#[cfg(feature = "runtime")]
+pub(crate) use key::validated_public_peer_id;

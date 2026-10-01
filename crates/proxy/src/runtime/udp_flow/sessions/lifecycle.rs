@@ -8,14 +8,19 @@ use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
 use super::model::{CompletedUdpFlow, UdpFlow, UdpFlowKey, UdpSessionFlows};
 
 impl UdpSessionFlows {
+    #[cfg(test)]
     pub(crate) fn snapshot(
         &self,
         target: &Address,
         port: u16,
         client_session_id: Option<u64>,
     ) -> Option<UdpFlowSnapshot> {
+        self.snapshot_key(&UdpFlowKey::new(target, port, client_session_id))
+    }
+
+    pub(crate) fn snapshot_key(&self, key: &UdpFlowKey) -> Option<UdpFlowSnapshot> {
         self.flows
-            .get_key_value(&UdpFlowKey::new(target, port, client_session_id))
+            .get_key_value(key)
             .map(|(key, flow)| flow.snapshot(key.clone()))
     }
 

@@ -12,6 +12,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 type TunPacketSender = tokio::sync::mpsc::Sender<Vec<u8>>;
 type TunPacketReceiver = tokio::sync::mpsc::Receiver<Vec<u8>>;
 
+mod channels;
 mod route;
 pub use route::{
     capture_route_prefixes, capture_route_prefixes_with_exclusions, split_default_route_prefixes,
@@ -102,49 +103,19 @@ pub trait TunDevice: AsyncRead + AsyncWrite + Send + Sync + Unpin {
     where
         Self: Sized + 'static,
     {
-        let (read_tx, read_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
-        let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
+        channels::bridge(self, None)
+    }
 
-        let (mut reader, mut writer) = tokio::io::split(self);
-        let (close_tx, mut close_rx) = tokio::sync::watch::channel(false);
-
-        // Reader: TUN → channel
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 65536];
-            loop {
-                let n = tokio::select! {
-                    read = tokio::io::AsyncReadExt::read(&mut reader, &mut buf) => read,
-                    changed = close_rx.changed() => {
-                        let _ = changed;
-                        break;
-                    }
-                };
-                match n {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if read_tx.send(buf[..n].to_vec()).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-
-        // Writer: channel → TUN
-        tokio::spawn(async move {
-            while let Some(pkt) = write_rx.recv().await {
-                if tokio::io::AsyncWriteExt::write_all(&mut writer, &pkt)
-                    .await
-                    .is_err()
-                {
-                    break;
-                }
-            }
-            let _ = close_tx.send(true);
-        });
-
-        Ok((write_tx, read_rx))
+    /// Attach a nonblocking observer at successful device read/write boundaries.
+    /// Specialized backends must observe their actual driver operations.
+    fn into_channels_observed(
+        self,
+        observer: std::sync::Arc<dyn zero_traits::IoObserver>,
+    ) -> io::Result<(TunPacketSender, TunPacketReceiver)>
+    where
+        Self: Sized + 'static,
+    {
+        channels::bridge(self, Some(observer))
     }
 }
 

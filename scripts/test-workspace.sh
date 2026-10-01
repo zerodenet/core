@@ -32,6 +32,7 @@ HELP
     esac
 done
 cd "$root"
+python3 "$root/scripts/check-test-layout.py"
 export RUST_MIN_STACK=16777216
 if [[ ${#tests[@]} -gt 0 ]]; then
     echo "TEST_SCOPE focused (integration targets only; not full qualification)"

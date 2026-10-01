@@ -66,7 +66,7 @@ The follow-up source passed `cargo fmt --all`, `cargo check --workspace`, and
 suite passed 27 tests with no failures or ignored cases:
 
 ```sh
-RUST_MIN_STACK=16777216 cargo test -p mieru --all-features --lib --test underlay --test udp_framing
+RUST_MIN_STACK=16777216 cargo test -p mieru --all-features --lib --test mieru_runtime --test mieru_crypto
 ```
 
 These cover the packet driver, receive-window calculation, UDP frame readers,

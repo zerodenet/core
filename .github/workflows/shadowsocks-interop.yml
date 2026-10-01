@@ -35,7 +35,7 @@ jobs:
       - name: Native plugin lifecycle and kernel carrier paths
         env:
           RUST_MIN_STACK: '16777216'
-        run: cargo test --locked -p zero-proxy --all-features --test shadowsocks_plugins --test shadowsocks_isolation
+        run: cargo test --locked -p zero-proxy --all-features --test proxy_shadowsocks
       - name: Bidirectional SIP023 and sustained UDP session
         env:
           SS_RUST_BIN_DIR: ${{ runner.temp }}/ss-reference

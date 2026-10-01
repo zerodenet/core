@@ -13,12 +13,19 @@ use crate::runtime::raw_ip::{RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawI
 
 pub(super) struct WireguardRawIpPlan {
     profile: Arc<PreparedOutbound>,
+    peer_identities: Vec<Arc<str>>,
 }
 
 impl WireguardRawIpPlan {
     #[cfg(test)]
     pub(super) fn profile_weak(&self) -> std::sync::Weak<PreparedOutbound> {
         Arc::downgrade(&self.profile)
+    }
+
+    pub(super) fn peer_ids(&self) -> Vec<String> {
+        (0..self.peer_count())
+            .filter_map(|i| self.profile.peer(i).map(|p| p.public_peer_id()))
+            .collect()
     }
 
     pub(super) fn peer_count(&self) -> usize {
@@ -74,13 +81,24 @@ impl WireguardRawIpPlan {
             peers: &peer_inputs,
         })
         .map_err(invalid)?;
+        let peer_identities = (0..profile.peer_count())
+            .filter_map(|i| {
+                profile
+                    .peer(i)
+                    .map(|p| Arc::<str>::from(p.public_peer_id()))
+            })
+            .collect();
         Ok(Self {
+            peer_identities,
             profile: Arc::new(profile),
         })
     }
 }
 
 impl RawIpOutboundPlan for WireguardRawIpPlan {
+    fn peer_identity(&self, peer: usize) -> Option<Arc<str>> {
+        self.peer_identities.get(peer).cloned()
+    }
     fn mtu(&self) -> u16 {
         self.profile.mtu()
     }

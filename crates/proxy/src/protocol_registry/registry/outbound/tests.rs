@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use super::{ClaimedOutboundLeaf, ClaimedTcpHooks, ClaimedUdpHooks};
 use crate::protocol_registry::{ClaimedPacketLeaf, OutboundLeafRuntime};
 use crate::runtime::network_graph::{NetworkGraph, Plane};
-use crate::runtime::packet_route::PreparedPacketRouteOperation;
+use crate::runtime::packet_route::{PacketForwardObservation, PreparedPacketRouteOperation};
 use crate::runtime::path::TcpPathCategory;
 
 struct PacketOnlyLeaf;
@@ -27,8 +27,8 @@ impl PreparedPacketRouteOperation for PacketOnlyOperation {
         _ingress_id: u64,
         _replies: mpsc::Sender<Vec<u8>>,
         _egress_generation: u64,
-    ) -> io::Result<Option<Vec<u8>>> {
-        Ok(None)
+    ) -> io::Result<PacketForwardObservation> {
+        Ok(PacketForwardObservation::forwarded(None))
     }
 }
 

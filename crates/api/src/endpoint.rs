@@ -154,6 +154,10 @@ pub struct EndpointSnapshot {
     pub observed_at_unix_ms: u64,
     pub started_at_unix_ms: Option<u64>,
     pub counters: EndpointCounters,
+    #[serde(default)]
+    pub stats_epoch: Option<String>,
+    #[serde(default)]
+    pub stats_epoch_started_at_unix_ms: Option<u64>,
     pub last_error: Option<ErrorDetail>,
 }
 

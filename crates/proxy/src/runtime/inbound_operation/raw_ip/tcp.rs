@@ -25,6 +25,7 @@ pub(super) async fn accept(
                 if connections.len() >= 4096 { continue; }
                 let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
                 let mut session = Session::new(0, socket_address_to_address(destination), destination.port, Network::Tcp, ProtocolType::UNKNOWN);
+                session.inbound_peer_identity = stream.peer_identity();
                 session.transparent_target = true;
                 let runtime = runtime_factory.for_connection(Some(source_addr));
                 connections.spawn(async move {

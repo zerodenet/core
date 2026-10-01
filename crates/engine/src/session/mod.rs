@@ -20,3 +20,5 @@ pub use registry::ActiveSession;
 
 pub(crate) use completed::CompletedSessionHistory;
 pub(crate) use registry::{PrincipalFlowObservation, SessionRegistry, SessionTrafficUpdate};
+
+mod accounting;

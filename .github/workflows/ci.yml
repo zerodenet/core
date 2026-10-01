@@ -59,6 +59,11 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
 
+      - name: Test entry and layout guards
+        run: |
+          python3 scripts/tests/test-test-layout.py
+          bash scripts/tests/test-workspace.sh
+
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
 
@@ -88,7 +93,7 @@ jobs:
       - name: Test (workspace, including connector webhook delivery)
         env:
           RUST_MIN_STACK: "16777216"
-        run: bash .github/scripts/test-workspace.sh cargo test --workspace --all-features --no-fail-fast
+        run: bash scripts/test-workspace.sh
 
       - name: Check representative minimal feature surfaces
         shell: bash

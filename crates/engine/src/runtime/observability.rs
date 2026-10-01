@@ -1,12 +1,10 @@
-use std::sync::mpsc::SyncSender;
-
 use zero_api::{EndpointListQuery, EventFilter, EventReplay, RawApiEvent};
 
 use super::Engine;
 use crate::{ActiveSession, CompletedSessionRecord};
 
 impl Engine {
-    pub(crate) fn subscribe_events(&self, subscriber: SyncSender<RawApiEvent>) {
+    pub(crate) fn subscribe_events(&self, subscriber: crate::observability::Subscriber) {
         self.event_log.subscribe(subscriber);
     }
 
@@ -56,6 +54,16 @@ impl Engine {
 
     pub fn push_stats_sampled(&self) {
         self.event_log.push_stats_sampled(&self.stats_snapshot());
+        self.push_traffic_stats_sampled();
+    }
+
+    pub fn push_endpoint_stats_sampled_page(&self, offset: usize) -> usize {
+        let page = self.endpoints_snapshot(&EndpointListQuery {
+            offset,
+            limit: Some(64),
+        });
+        self.event_log.push_endpoint_stats_sampled(&page.endpoints);
+        page.next_offset.unwrap_or(0)
     }
 
     pub fn push_endpoint_stats_sampled(&self) {

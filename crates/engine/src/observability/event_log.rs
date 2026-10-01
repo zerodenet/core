@@ -1,5 +1,7 @@
 //! Engine event history, replay, subscription, and event projection.
 
+mod budget;
+pub(crate) use budget::{QueuedEvent, Subscriber};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc::SyncSender, mpsc::TrySendError, Arc, Mutex};
@@ -28,8 +30,8 @@ pub struct EngineEventLog {
     core_instance_id: String,
     config_revision: Arc<AtomicU64>,
     next_sequence: AtomicU64,
-    inner: Mutex<VecDeque<RawApiEvent>>,
-    subscribers: Mutex<Vec<SyncSender<RawApiEvent>>>,
+    inner: Mutex<budget::History>,
+    subscribers: Mutex<Vec<Subscriber>>,
 }
 
 impl Default for EngineEventLog {
@@ -69,7 +71,7 @@ impl EngineEventLog {
             core_instance_id: format!("{event_epoch:032x}"),
             config_revision: Arc::new(AtomicU64::new(1)),
             next_sequence: AtomicU64::new(1),
-            inner: Mutex::new(VecDeque::with_capacity(capacity)),
+            inner: Mutex::new(budget::History::default()),
             subscribers: Mutex::new(Vec::new()),
         }
     }
@@ -87,10 +89,7 @@ impl EngineEventLog {
     pub(crate) fn set_capacity(&self, capacity: usize) {
         let mut events = self.inner.lock().unwrap_or_else(|error| error.into_inner());
         self.capacity.store(capacity, Ordering::Relaxed);
-        while events.len() > capacity {
-            events.pop_front();
-        }
-        events.shrink_to(capacity);
+        events.trim(capacity);
     }
 
     pub fn push_engine_started(&self, build_id: &str) {
@@ -277,6 +276,8 @@ impl EngineEventLog {
                     "generation": endpoint.generation,
                     "observed_at_unix_ms": endpoint.observed_at_unix_ms,
                     "counters": endpoint.counters,
+                    "stats_epoch": endpoint.stats_epoch,
+                    "epoch_started_at_unix_ms": endpoint.stats_epoch_started_at_unix_ms,
                 })
             })
             .collect::<Vec<_>>();
@@ -512,7 +513,11 @@ impl EngineEventLog {
         let retained_from = retained
             .front()
             .and_then(|event| event.sequence)
-            .unwrap_or(requested_next);
+            .unwrap_or_else(|| {
+                self.next_sequence
+                    .load(Ordering::Relaxed)
+                    .max(requested_next)
+            });
         let has_gap = retained_from > requested_next;
         let events: Vec<RawApiEvent> = retained
             .iter()
@@ -552,7 +557,7 @@ impl EngineEventLog {
             .unwrap_or(0)
     }
 
-    pub(crate) fn subscribe(&self, subscriber: SyncSender<RawApiEvent>) {
+    pub(crate) fn subscribe(&self, subscriber: Subscriber) {
         self.subscribers
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -576,32 +581,23 @@ impl EngineEventLog {
         }
     }
 
-    fn push_generated(&self, event: RawApiEvent) {
+    pub(crate) fn push_generated(&self, event: RawApiEvent) {
         self.push(self.qualify_generated(event));
     }
 
     fn push(&self, mut event: RawApiEvent) {
         self.qualify_metadata(&mut event);
+        let bytes = budget::size(&event);
+        let mut events = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let sequence = self.next_sequence.fetch_add(1, Ordering::Relaxed);
         event.sequence = Some(sequence);
-
-        {
-            let mut events = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-            events.push_back(event.clone());
-
-            let capacity = self.capacity.load(Ordering::Relaxed);
-            while events.len() > capacity {
-                events.pop_front();
-            }
-        }
-
+        events.push(event.clone(), bytes, self.capacity.load(Ordering::Relaxed));
+        // Preserve sequence order for live delivery as well as replay. All sends
+        // are nonblocking; only observation/control producers take this lock.
         self.subscribers
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .retain(|subscriber| match subscriber.try_send(event.clone()) {
-                Ok(()) | Err(TrySendError::Full(_)) => true,
-                Err(TrySendError::Disconnected(_)) => false,
-            });
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|subscriber| subscriber.send(&event, bytes));
     }
 }
 

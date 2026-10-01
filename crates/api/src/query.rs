@@ -17,6 +17,8 @@ pub enum QueryRequest {
     Config(ConfigQuery),
     Runtime(RuntimeQuery),
     Stats(StatsQuery),
+    TrafficStat(crate::TrafficGetQuery),
+    TrafficStats(crate::TrafficListQuery),
     PrincipalFlows(PrincipalFlowsQuery),
     ActiveFlows(FlowListQuery),
     RecentFlows(FlowListQuery),
@@ -41,6 +43,8 @@ impl Serialize for QueryRequest {
             Self::Config(_) => serde_json::json!({ "config": {} }),
             Self::Runtime(_) => serde_json::json!({ "runtime": {} }),
             Self::Stats(_) => serde_json::json!({ "stats": {} }),
+            Self::TrafficStat(v) => serde_json::json!({ "traffic_stat": v }),
+            Self::TrafficStats(v) => serde_json::json!({ "traffic_stats": v }),
             Self::PrincipalFlows(_) => serde_json::json!({ "principal_flows": {} }),
             Self::ActiveFlows(v) => serde_json::json!({ "active_flows": v }),
             Self::RecentFlows(v) => serde_json::json!({ "recent_flows": v }),
@@ -91,6 +95,12 @@ impl<'de> Deserialize<'de> for QueryRequest {
             "config" => Ok(Self::Config(ConfigQuery)),
             "runtime" => Ok(Self::Runtime(RuntimeQuery)),
             "stats" => Ok(Self::Stats(StatsQuery)),
+            "traffic_stat" => serde_json::from_value(inner.clone())
+                .map(Self::TrafficStat)
+                .map_err(D::Error::custom),
+            "traffic_stats" => serde_json::from_value(inner.clone())
+                .map(Self::TrafficStats)
+                .map_err(D::Error::custom),
             "principal_flows" => Ok(Self::PrincipalFlows(PrincipalFlowsQuery)),
             "active_flows" => serde_json::from_value(inner.clone())
                 .map(Self::ActiveFlows)
@@ -136,6 +146,8 @@ pub enum QueryResponse {
     Config(crate::ConfigSnapshot),
     Runtime(crate::RuntimeSnapshot),
     Stats(crate::StatsSnapshot),
+    TrafficStat(crate::TrafficSnapshot),
+    TrafficStats(crate::TrafficListSnapshot),
     PrincipalFlows(crate::PrincipalFlowsSnapshot),
     ActiveFlows(Vec<crate::FlowSnapshot>),
     RecentFlows(Vec<crate::CompletedFlowSnapshot>),
@@ -161,6 +173,8 @@ impl Serialize for QueryResponse {
             Self::Config(v) => serde_json::json!({ "config": v }),
             Self::Runtime(v) => serde_json::json!({ "runtime": v }),
             Self::Stats(v) => serde_json::json!({ "stats": v }),
+            Self::TrafficStat(v) => serde_json::json!({ "traffic_stat": v }),
+            Self::TrafficStats(v) => serde_json::json!({ "traffic_stats": v }),
             Self::PrincipalFlows(v) => serde_json::json!({ "principal_flows": v }),
             Self::ActiveFlows(v) => serde_json::json!({ "active_flows": v }),
             Self::RecentFlows(v) => serde_json::json!({ "recent_flows": v }),
@@ -202,6 +216,12 @@ impl<'de> Deserialize<'de> for QueryResponse {
                 .map_err(D::Error::custom),
             "runtime" => serde_json::from_value(inner.clone())
                 .map(Self::Runtime)
+                .map_err(D::Error::custom),
+            "traffic_stat" => serde_json::from_value(inner.clone())
+                .map(Self::TrafficStat)
+                .map_err(D::Error::custom),
+            "traffic_stats" => serde_json::from_value(inner.clone())
+                .map(Self::TrafficStats)
                 .map_err(D::Error::custom),
             "stats" => serde_json::from_value(inner.clone())
                 .map(Self::Stats)

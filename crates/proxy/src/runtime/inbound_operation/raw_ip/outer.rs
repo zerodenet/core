@@ -91,6 +91,7 @@ pub(super) async fn send_network_actions(
     carrier: Option<Arc<dyn RawIpWireCarrier>>,
     endpoint: SocketAddr,
     actions: &[RawIpInboundAction],
+    traffic: &crate::runtime::raw_ip::RawIpTraffic,
 ) {
     for action in actions {
         if let RawIpInboundAction::SendNetwork(packet) = action {
@@ -100,7 +101,11 @@ pub(super) async fn send_network_actions(
                 socket.send_to(packet, endpoint).await.map(|_| ())
             };
             if let Err(error) = result {
+                traffic.error(zero_api::TrafficPlane::Outer, true);
+                traffic.dropped(zero_api::TrafficPlane::Outer, true);
                 tracing::debug!(%error, %endpoint, "raw-IP outer datagram send failed");
+            } else {
+                traffic.tx(zero_api::TrafficPlane::Outer, packet.len());
             }
         }
     }

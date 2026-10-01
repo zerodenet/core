@@ -1,5 +1,4 @@
-#[path = "support/echo.rs"]
-mod echo;
+use crate::echo;
 use std::time::Instant;
 use zero_stack::{echo_translation::EchoTranslation, packet};
 

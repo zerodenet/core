@@ -1,4 +1,5 @@
 use alloc::string::String;
+use alloc::sync::Arc;
 
 use crate::address::Address;
 
@@ -92,6 +93,8 @@ impl SessionAuth {
 pub struct Session {
     pub id: u64,
     pub inbound_tag: Option<String>,
+    /// Device-supplied authenticated identity, opaque to common runtime.
+    pub inbound_peer_identity: Option<Arc<str>>,
     pub outbound_tag: Option<String>,
     pub target: Address,
     /// Optional hostname used for route evaluation while [`Self::target`]
@@ -153,6 +156,7 @@ impl Session {
         Self {
             id,
             inbound_tag: None,
+            inbound_peer_identity: None,
             outbound_tag: None,
             target,
             route_target: None,

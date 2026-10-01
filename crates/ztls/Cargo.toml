@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "ztls"
 version.workspace = true
 edition.workspace = true
@@ -33,3 +34,9 @@ flate2 = { version = "1", optional = true }
 [dev-dependencies]
 brotli = { version = "8.0.4", default-features = false, features = ["std"] }
 rcgen = "0.14"
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "ztls_contracts"
+path = "tests/suites/ztls_contracts.rs"

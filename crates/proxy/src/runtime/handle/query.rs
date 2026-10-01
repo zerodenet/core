@@ -29,6 +29,9 @@ impl zero_api::QueryService for ProxyHandle {
             let zero_api::QueryResponse::Capabilities(mut capabilities) = response else {
                 return Ok(response);
             };
+            if let Some(stats) = &mut capabilities.traffic_statistics {
+                stats.automatic_sampling = true;
+            }
             capabilities.protocols = self.proxy.protocols.protocol_capabilities();
             capabilities
                 .features
@@ -54,7 +57,6 @@ impl zero_api::QueryService for ProxyHandle {
                     .push("endpoint_runtime_lifecycle_commands_not_registered".to_owned());
             }
             capabilities.global_limitations.extend([
-                "endpoint_packet_and_byte_counters_unavailable".to_owned(),
                 "endpoint_transitional_lifecycle_facts_incomplete".to_owned(),
                 "endpoint_individual_packet_route_control_unavailable".to_owned(),
                 "canonical_wireguard_endpoint_requires_configured_peer_endpoints".to_owned(),

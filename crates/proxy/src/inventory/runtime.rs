@@ -190,6 +190,8 @@ impl ProtocolInventory {
         let (packet_paths, packet_path_identities) =
             self.prepare_device_packet_paths(config, &admission)?;
         let context = crate::protocol_registry::OutboundDevicePreparationContext {
+            traffic: services.engine().clone(),
+            endpoint_bindings: Arc::new(config.endpoint_bindings()),
             upstream: services.upstream(),
             packet_path_services:
                 crate::protocol_registry::PacketPathExecutionServices::from_tcp_execution(

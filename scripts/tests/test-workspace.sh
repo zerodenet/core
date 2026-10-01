@@ -3,9 +3,14 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/zero-test-entry.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
+export ZERO_TEST_REAL_PYTHON=$(command -v python3)
 mkdir "$scratch/bin"
 cat > "$scratch/bin/cargo" <<'MOCK'
 #!/usr/bin/env bash
+if [[ ${1:-} == metadata ]]; then
+    echo '{"packages":[],"workspace_members":[]}'
+    exit "${ZERO_TEST_METADATA_EXIT:-0}"
+fi
 printf '%s\n' "$@" > "$ZERO_TEST_ARGS"
 printf '%s\n' "$RUST_MIN_STACK" > "$ZERO_TEST_STACK"
 echo 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
@@ -22,8 +27,8 @@ cmp "$scratch/args" "$scratch/expected"
 rg -q '^TEST_SCOPE full ' "$scratch/full.log"
 rg -q '^TEST_START .*Z$' "$scratch/full.log"
 rg -q '^TEST_END .* exit=0 seconds=' "$scratch/full.log"
-bash "$entry" --jobs 2 --test endpoint_contracts --test core_capabilities > "$scratch/focused.log"
-printf '%s\n' test --workspace --all-features --no-fail-fast --jobs 2 --test endpoint_contracts --test core_capabilities > "$scratch/expected"
+bash "$entry" --jobs 2 --test endpoint_contracts --test proxy_control > "$scratch/focused.log"
+printf '%s\n' test --workspace --all-features --no-fail-fast --jobs 2 --test endpoint_contracts --test proxy_control > "$scratch/expected"
 cmp "$scratch/args" "$scratch/expected"
 rg -q '^TEST_SCOPE focused ' "$scratch/focused.log"
 set +e
@@ -32,8 +37,16 @@ status=$?
 set -e
 [[ "$status" == 7 ]]
 rg -q '^TEST_END .* exit=7 seconds=' "$scratch/failure.log"
+rm "$scratch/args"
+set +e
+ZERO_TEST_METADATA_EXIT=13 bash "$entry" > "$scratch/layout-failure.log" 2>&1
+status=$?
+set -e
+[[ "$status" != 0 && ! -e "$scratch/args" ]]
+! rg -q '^TEST_START ' "$scratch/layout-failure.log"
 cat > "$scratch/bin/python3" <<'MOCK'
 #!/usr/bin/env bash
+if [[ ${1:-} == */check-test-layout.py ]]; then exec "$ZERO_TEST_REAL_PYTHON" "$@"; fi
 exit 44
 MOCK
 chmod +x "$scratch/bin/python3"

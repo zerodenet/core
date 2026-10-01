@@ -114,3 +114,17 @@ fn fake_ip_udp_flow_keeps_its_inbound_lookup_identity() {
     assert!(flows.snapshot(&fake_ip, 443, None).is_some());
     assert!(flows.snapshot(&restored, 443, None).is_none());
 }
+
+#[test]
+fn traffic_peer_provenance_is_part_of_udp_flow_identity() {
+    use std::collections::HashSet;
+    let target = Address::Ipv4([198, 51, 100, 10]);
+    let a = UdpFlowKey::new(&target, 443, None).with_peer(Some("peer-a".into()));
+    let b = UdpFlowKey::new(&target, 443, None).with_peer(Some("peer-b".into()));
+    let anonymous = UdpFlowKey::new(&target, 443, None);
+    assert_eq!(HashSet::from([a.clone(), b, anonymous]).len(), 3);
+    assert_eq!(
+        a,
+        UdpFlowKey::new(&target, 443, None).with_peer(Some("peer-a".into()))
+    );
+}

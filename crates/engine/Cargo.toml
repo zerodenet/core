@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "zero-engine"
 version.workspace = true
 edition.workspace = true
@@ -29,3 +30,21 @@ rcgen = "0.14"
 serde_json.workspace = true
 tokio.workspace = true
 zero-rule = { path = "../rule" }
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "engine_routing"
+path = "tests/suites/engine_routing.rs"
+
+[[test]]
+name = "engine_endpoints"
+path = "tests/suites/engine_endpoints.rs"
+
+[[test]]
+name = "engine_policy"
+path = "tests/suites/engine_policy.rs"
+
+[[test]]
+name = "engine_observability"
+path = "tests/suites/engine_observability.rs"

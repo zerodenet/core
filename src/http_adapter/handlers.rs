@@ -39,6 +39,13 @@ pub fn runtime(handle: &ProxyHandle) -> io::Result<Vec<u8>> {
     serialize_query(resp)
 }
 
+/// Generic typed Zero query, with the same response/error envelope as GET views.
+pub fn typed_query(handle: &ProxyHandle, body: &[u8]) -> io::Result<Vec<u8>> {
+    let request = serde_json::from_slice::<QueryRequest>(body)
+        .map_err(|error| ApiError::new(ApiErrorCode::InvalidArgument, error.to_string()));
+    serialize_query(request.and_then(|query| handle.query(query)))
+}
+
 /// Handle GET /api/v1/stats.
 pub fn stats(handle: &ProxyHandle) -> io::Result<Vec<u8>> {
     let resp = handle.query(QueryRequest::Stats(Default::default()));
@@ -240,6 +247,8 @@ fn unwrap_query_response(resp: QueryResponse) -> serde_json::Value {
         QueryResponse::EndpointDetails(v) => serde_json::to_value(v),
         QueryResponse::Config(v) => serde_json::to_value(v),
         QueryResponse::Runtime(v) => serde_json::to_value(v),
+        QueryResponse::TrafficStat(v) => serde_json::to_value(v),
+        QueryResponse::TrafficStats(v) => serde_json::to_value(v),
         QueryResponse::Stats(v) => serde_json::to_value(v),
         QueryResponse::PrincipalFlows(v) => serde_json::to_value(v),
         QueryResponse::ActiveFlows(v) => serde_json::to_value(v),

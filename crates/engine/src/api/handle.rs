@@ -85,14 +85,14 @@ impl EventSource for EngineHandle {
 /// silently skipped.
 pub struct EventSubscriber {
     initial: Mutex<VecDeque<RawApiEvent>>,
-    rx: mpsc::Receiver<RawApiEvent>,
+    rx: mpsc::Receiver<crate::observability::QueuedEvent>,
     filter: EventFilter,
 }
 
 impl EventSubscriber {
     pub(crate) fn subscribe(engine: &Engine, filter: EventFilter) -> Self {
         let (tx, rx) = mpsc::sync_channel(1024);
-        engine.subscribe_events(tx);
+        engine.subscribe_events(crate::observability::Subscriber::new(tx, filter.clone()));
         let initial = if wants_flow_snapshot(&filter) {
             VecDeque::from([engine.flow_snapshot_event()])
         } else {
@@ -119,7 +119,7 @@ impl EventSubscriber {
             return Some(event);
         }
         loop {
-            let event = self.rx.recv().ok()?;
+            let event = self.rx.recv().ok()?.into_event();
             if matches_event(&event, &self.filter) {
                 return Some(event);
             }
@@ -137,7 +137,7 @@ impl EventSubscriber {
             return Some(event);
         }
         loop {
-            let event = self.rx.try_recv().ok()?;
+            let event = self.rx.try_recv().ok()?.into_event();
             if matches_event(&event, &self.filter) {
                 return Some(event);
             }
@@ -169,7 +169,11 @@ impl EventStream for EventSubscriber {
             if remaining.is_zero() {
                 return zero_api::EventStreamReceive::Timeout;
             }
-            match self.rx.recv_timeout(remaining) {
+            match self
+                .rx
+                .recv_timeout(remaining)
+                .map(|event| event.into_event())
+            {
                 Ok(event) if matches_event(&event, &self.filter) => {
                     return zero_api::EventStreamReceive::Event(Box::new(event))
                 }

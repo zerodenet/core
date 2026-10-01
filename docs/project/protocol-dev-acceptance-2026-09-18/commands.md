@@ -113,8 +113,7 @@ git ls-remote --tags https://github.com/enfein/mieru.git \
 
 ```bash
 cargo test -p zero-proxy --all-features \
-  --test http --test mixed --test socks5 --test socks5_udp \
-  --test socks5_udp_idle --test socks5_udp_reuse
+  --test proxy_dispatch
 ```
 
 ## Shadowsocks
@@ -146,7 +145,7 @@ TMPDIR=/private/tmp RUST_MIN_STACK=16777216 XRAY_BIN="$XRAY_BIN" \
   cargo test -p zero-proxy --all-features --test vless_xray_interop \
   xray -- --ignored --nocapture
 XRAY_BIN="$XRAY_BIN" \
-  cargo test -p zero-proxy --all-features --test vless_reality_extensions \
+  cargo test -p zero-proxy --all-features --test proxy_vless vless_reality_extensions:: \
   -- --ignored --nocapture
 XRAY_BIN="$XRAY_BIN" \
   cargo test -p zero-proxy --all-features --test vless_tls_vision \
@@ -186,7 +185,7 @@ HY2_BIN="$HY2_BIN" \
   cargo test -p zero-proxy --all-features --test hysteria2_official_interop \
   zero_to_official_salamander_ca_pin_and_actual_port_hopping \
   -- --ignored --nocapture --exact
-cargo test -p zero-proxy --all-features --test hysteria2_tls_policy \
+cargo test -p zero-proxy --all-features --test proxy_hysteria2 \
   -- --nocapture
 SING_BOX_BIN="$SING_BOX_BIN" \
   cargo test -p zero-proxy --all-features --test hysteria2_sing_box_interop \

@@ -11,6 +11,7 @@ async fn non_quic_udp_is_forwarded_without_sniff_delay() {
     let (sender, mut receiver) = mpsc::channel(1);
     sender
         .send(TunDatagram {
+            peer_identity: None,
             destination,
             payload: b"ordinary datagram".to_vec(),
         })

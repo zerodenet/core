@@ -72,6 +72,8 @@ impl Engine {
             .runtime_snapshot
             .write()
             .expect("runtime snapshot lock poisoned") = snapshot;
+        self.traffic
+            .reconcile(&self.config(), self.config_revision());
         self.passive_relay_health.clear();
         self.notify_reload();
         Ok(())
@@ -160,6 +162,8 @@ impl Engine {
         current
             .config_revision
             .store(revision, std::sync::atomic::Ordering::Release);
+        self.stats.reconcile_outbounds(&self.config());
+        self.traffic.reconcile(&self.config(), revision);
         self.event_log.push_config_changed(revision);
         revision
     }
@@ -184,6 +188,8 @@ impl Engine {
             bypass: current.bypass.clone(),
             outbound_group_state: current.outbound_group_state.clone(),
         });
+        self.stats.reconcile_outbounds(&self.config());
+        self.traffic.reconcile(&self.config(), revision);
         self.event_log.push_config_changed(revision);
         revision
     }

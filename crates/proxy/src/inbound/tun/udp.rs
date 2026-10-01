@@ -24,6 +24,7 @@ const ASSOCIATION_QUEUE_CAPACITY: usize = 128;
 const MAX_CONCURRENT_DNS_QUERIES: usize = 256;
 
 pub(super) struct TunDatagram {
+    pub(super) peer_identity: Option<Arc<str>>,
     pub(super) destination: SocketAddress,
     pub(super) payload: Vec<u8>,
 }
@@ -90,7 +91,8 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
             datagram.original_destination.port,
             datagram.payload,
             None,
-        );
+        )
+        .with_peer_identity(datagram.peer_identity);
         Ok(Some(match datagram.host_source {
             Some(source) => dispatch.with_transparent_domain(original_target, source),
             None => dispatch.with_transparent_target(),
@@ -152,8 +154,8 @@ pub(crate) async fn run_with_runtime(
 
     loop {
         tokio::select! {
-            received = stack.recv_from(&mut buffer) => {
-                let Some((size, source, destination)) = received else {
+            received = stack.recv_from_with_peer(&mut buffer) => {
+                let Some((size, source, destination, peer_identity)) = received else {
                     return Ok(());
                 };
                 if dns_hijack && destination.port == 53 {
@@ -183,6 +185,7 @@ pub(crate) async fn run_with_runtime(
                     continue;
                 }
                 let datagram = TunDatagram {
+                    peer_identity,
                     destination,
                     payload: buffer[..size].to_vec(),
                 };

@@ -2,6 +2,8 @@
 #![allow(async_fn_in_trait)]
 
 extern crate alloc;
+mod observation;
+pub use observation::IoObserver;
 mod fallback;
 mod packet_socket;
 pub use packet_socket::PacketSocketIo;

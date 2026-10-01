@@ -132,3 +132,73 @@ async fn endpoint_http_control_accepts_instance_condition_and_returns_conflict_w
         observed["result"]["intent_revision"]
     );
 }
+
+#[tokio::test]
+async fn statistics_http_query_and_reset_enforce_permissions_and_epoch_preconditions() {
+    let handle = handle();
+    async fn post(
+        handle: &ProxyHandle,
+        path: &str,
+        body: Value,
+        permission: Permission,
+    ) -> (String, Value) {
+        let result = route(
+            &HttpRequest {
+                method: "POST".into(),
+                path: path.into(),
+                headers: vec![],
+                body: serde_json::to_vec(&body).unwrap(),
+            },
+            handle,
+            &AuthContext {
+                subject: None,
+                permissions: vec![permission],
+            },
+        )
+        .await;
+        let RouteResult::Respond(status, body) = result else {
+            panic!("expected JSON")
+        };
+        (status, serde_json::from_slice(&body).unwrap())
+    }
+    let query = json!({"traffic_stat":{"scope":{"kind":"global"}}});
+    let (status, denied) = post(&handle, "/api/v1/query", query.clone(), Permission::Control).await;
+    assert!(status.contains("403"));
+    assert_eq!(denied["error"]["code"], "permission_denied");
+    let (_, before) = post(&handle, "/api/v1/query", query.clone(), Permission::Read).await;
+    assert!(before["result"]["planes"][0]["counters"]["rx_packets"].is_null());
+    let command = json!({"method":"stats.reset","params":{"expected_core_instance_id":before["result"]["core_instance_id"],"targets":[{"scope":{"kind":"global"},"expected_stats_epoch":before["result"]["stats_epoch"]}]}});
+    let (status, denied) = post(
+        &handle,
+        "/api/v1/commands",
+        command.clone(),
+        Permission::Read,
+    )
+    .await;
+    assert!(status.contains("403"));
+    assert_eq!(denied["error"]["code"], "permission_denied");
+    let (_, unchanged) = post(&handle, "/api/v1/query", query.clone(), Permission::Read).await;
+    assert_eq!(
+        unchanged["result"]["stats_epoch"],
+        before["result"]["stats_epoch"]
+    );
+    let (_, ack) = post(
+        &handle,
+        "/api/v1/commands",
+        command.clone(),
+        Permission::Admin,
+    )
+    .await;
+    assert_eq!(ack["ok"], true);
+    assert_ne!(
+        ack["result"]["result"]["snapshots"][0]["stats_epoch"],
+        before["result"]["stats_epoch"]
+    );
+    let (status, replayed) = post(&handle, "/api/v1/commands", command, Permission::Admin).await;
+    assert!(status.contains("409"));
+    assert_eq!(replayed["error"]["code"], "conflict");
+    assert_eq!(
+        replayed["error"]["field_path"],
+        "params.targets[0].expected_stats_epoch"
+    );
+}

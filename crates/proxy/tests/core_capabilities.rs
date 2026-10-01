@@ -29,6 +29,12 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
         "route_bypass_v1",
         "config_snapshot",
         "runtime_snapshot",
+        "traffic_observation_v1",
+        "traffic_period_reset_v1",
+        "traffic_scopes_sampling_v1",
+        "traffic_failed_flow_counters_v1",
+        "traffic_peer_flow_bindings_v1",
+        "traffic_packet_pin_activity_v1",
         "flow_snapshot",
         "policy_snapshot",
         "runtime_generation",
@@ -43,7 +49,6 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
     ];
     let mut expected_limitations = vec![
         "direct_udp_trusted_candidate_retarget_unsupported",
-        "endpoint_packet_and_byte_counters_unavailable",
         "endpoint_transitional_lifecycle_facts_incomplete",
         "endpoint_individual_packet_route_control_unavailable",
         "canonical_wireguard_endpoint_requires_configured_peer_endpoints",
@@ -66,6 +71,7 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     {
         expected_features.extend([
+            "traffic_host_tun_io_v1",
             "tun_dual_stack_ingress",
             "tun_family_aware_egress",
             "direct_tun_domain_family_fallback",

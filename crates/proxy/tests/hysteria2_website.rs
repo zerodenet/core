@@ -1,5 +1,5 @@
 #![cfg(feature = "hysteria2")]
-mod support;
+use crate::support;
 mod website_support;
 use std::time::Duration;
 use support::{free_port, wait_for_listener};
