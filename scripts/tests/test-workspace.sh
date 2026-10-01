@@ -24,26 +24,26 @@ bash "$entry" > "$scratch/full.log"
 printf '%s\n' test --workspace --all-features --no-fail-fast > "$scratch/expected"
 cmp "$scratch/args" "$scratch/expected"
 [[ $(cat "$scratch/stack") == 16777216 ]]
-rg -q '^TEST_SCOPE full ' "$scratch/full.log"
-rg -q '^TEST_START .*Z$' "$scratch/full.log"
-rg -q '^TEST_END .* exit=0 seconds=' "$scratch/full.log"
+grep -q '^TEST_SCOPE full ' "$scratch/full.log"
+grep -q '^TEST_START .*Z$' "$scratch/full.log"
+grep -q '^TEST_END .* exit=0 seconds=' "$scratch/full.log"
 bash "$entry" --jobs 2 --test endpoint_contracts --test proxy_control > "$scratch/focused.log"
 printf '%s\n' test --workspace --all-features --no-fail-fast --jobs 2 --test endpoint_contracts --test proxy_control > "$scratch/expected"
 cmp "$scratch/args" "$scratch/expected"
-rg -q '^TEST_SCOPE focused ' "$scratch/focused.log"
+grep -q '^TEST_SCOPE focused ' "$scratch/focused.log"
 set +e
 ZERO_TEST_EXIT=7 bash "$entry" > "$scratch/failure.log"
 status=$?
 set -e
 [[ "$status" == 7 ]]
-rg -q '^TEST_END .* exit=7 seconds=' "$scratch/failure.log"
+grep -q '^TEST_END .* exit=7 seconds=' "$scratch/failure.log"
 rm "$scratch/args"
 set +e
 ZERO_TEST_METADATA_EXIT=13 bash "$entry" > "$scratch/layout-failure.log" 2>&1
 status=$?
 set -e
 [[ "$status" != 0 && ! -e "$scratch/args" ]]
-! rg -q '^TEST_START ' "$scratch/layout-failure.log"
+! grep -q '^TEST_START ' "$scratch/layout-failure.log"
 cat > "$scratch/bin/python3" <<'MOCK'
 #!/usr/bin/env bash
 if [[ ${1:-} == */check-test-layout.py ]]; then exec "$ZERO_TEST_REAL_PYTHON" "$@"; fi
@@ -55,7 +55,7 @@ ZERO_TEST_EXIT=7 bash "$entry" > "$scratch/renderer-failure.log" 2>&1
 status=$?
 set -e
 [[ "$status" == 7 ]]
-rg -q 'failure summary unavailable; command exit=7' "$scratch/renderer-failure.log"
+grep -q 'failure summary unavailable; command exit=7' "$scratch/renderer-failure.log"
 cat > "$scratch/bin/tee" <<'MOCK'
 #!/usr/bin/env bash
 cat > /dev/null
@@ -67,7 +67,7 @@ bash "$entry" > "$scratch/log-failure.log" 2>&1
 status=$?
 set -e
 [[ "$status" == 9 ]]
-rg -q '^TEST_END .* exit=9 seconds=' "$scratch/log-failure.log"
+grep -q '^TEST_END .* exit=9 seconds=' "$scratch/log-failure.log"
 for option in '--jobs 0'  '--test' '--unknown'; do
     set +e
     # Intentional argument splitting for this fixed invalid-input fixture.
