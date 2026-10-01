@@ -109,3 +109,14 @@ also check carrier eligibility to handle concurrent state changes. Probe
 application filters carriers that failed later in the same probe cycle, and
 retired configuration results cannot change the current generation's selection
 or carrier observations.
+
+## Unresolvable branches in ordinary candidate groups
+
+Fallback and load-balance resolution retains executable configured siblings if
+another branch cannot be resolved. For example, a relay hop that resolves to a
+fallback candidate set cannot form a single relay chain. Such a branch is
+skipped, and recursive resolution always releases its stack entry. A group
+with no executable leaf candidates fails resolution rather than returning an
+empty candidate set. This is structural resolution failure, not carrier
+cooldown: a cooling URLTest still retains its configured candidate for a real
+connection attempt.

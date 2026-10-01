@@ -31,7 +31,8 @@ concurrency:
   group: tun-e2e-${{ github.ref }}
   cancel-in-progress: true
 
-# GitHub-hosted runners are the authoritative privileged validation environment.
+# GitHub-hosted runners provide privileged validation; fixture-dependent skips
+# are reported separately and are not evidence of network-switch coverage.
 # The matrix uses deterministic local peers for dual-stack and fallback behavior
 # so it does not depend on a runner having public native IPv6 connectivity.
 jobs:
@@ -61,6 +62,8 @@ jobs:
           cache-on-failure: true
       - name: Install build prerequisites
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler iproute2 nftables
+      - name: Test route-switch coverage reporting
+        run: node --test scripts/report-tun-route-reconcile.test.mjs
       - name: Run zero-tun tests
         run: cargo test -p zero-tun
       - name: Run native Linux route reconciliation E2E
@@ -116,7 +119,7 @@ jobs:
         env:
           CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
         run: cargo test --target x86_64-apple-darwin -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
-      - name: Repair lost routes without changing the physical interface
+      - name: Repair lost routes and PF rules without changing the physical interface
         env:
           CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
         run: cargo test --target x86_64-apple-darwin --test tun_route_reconcile_macos_e2e audit::same_interface_route_loss_recovers_automatically_and_on_manual_request -- --ignored --exact --nocapture
@@ -156,6 +159,8 @@ jobs:
     if: needs.scope.outputs.tun == 'true' && (github.event_name != 'workflow_dispatch' || inputs.target == 'hosted-all' || inputs.target == 'hosted-windows')
     runs-on: windows-2025
     timeout-minutes: 30
+    outputs:
+      route_switch: ${{ steps.route_switch.outputs.status }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -224,8 +229,26 @@ jobs:
         run: cargo test --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
       - name: Run disabled DNS with TUN system resolver E2E
         run: cargo test --test tun_privileged_e2e dns_disabled::privileged_tun_without_builtin_dns_preserves_system_resolution -- --ignored --exact --nocapture
-      - name: Run native Windows route reconciliation E2E
-        run: cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
+      - name: Attempt native Windows route switching and report fixture coverage
+        id: route_switch
+        shell: pwsh
+        env:
+          ZERO_TUN_ROUTE_RECONCILE_ALLOW_SKIP: "1"
+        run: |
+          $env:ZERO_TUN_ROUTE_RECONCILE_REPORT = Join-Path $env:RUNNER_TEMP "windows-route-switch.json"
+          Remove-Item $env:ZERO_TUN_ROUTE_RECONCILE_REPORT -ErrorAction SilentlyContinue
+          & cargo test --test tun_route_reconcile_e2e windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun -- --ignored --exact --nocapture
+          $testStatus = $LASTEXITCODE
+          & node scripts/report-tun-route-reconcile.mjs $env:ZERO_TUN_ROUTE_RECONCILE_REPORT $testStatus
+          exit $LASTEXITCODE
+      - name: Upload Windows route-switch coverage report
+        if: always() && steps.route_switch.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-route-switch-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/windows-route-switch.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Run IPv4-only trusted-domain fallback E2E
         if: always() && !cancelled() && steps.capture.outcome == 'success'
         run: cargo test --test tun_privileged_e2e privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains -- --ignored --exact --nocapture
@@ -253,5 +276,7 @@ jobs:
       - name: Require successful selected checks
         env:
           CHECK_RESULTS: ${{ toJSON(needs) }}
+          WINDOWS_ROUTE_SWITCH: ${{ needs.hosted-windows.outputs.route_switch }}
         run: |
+          echo "Windows route-switch scenario: ${WINDOWS_ROUTE_SWITCH:-not run}. A skipped fixture does not establish network-switch coverage." >> "$GITHUB_STEP_SUMMARY"
           node -e 'const checks = JSON.parse(process.env.CHECK_RESULTS); for (const [name, check] of Object.entries(checks)) { console.log(`${name}: ${check.result}`); if (!["success", "skipped"].includes(check.result)) process.exitCode = 1; }'

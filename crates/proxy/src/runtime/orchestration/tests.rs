@@ -120,3 +120,36 @@ async fn identical_config_snapshots_do_not_cross_acknowledge_reload_operations()
     proxy.complete_reload(&candidate, Ok(()));
     receiver.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn duplicate_reload_wakeup_preserves_dns_prepared_for_transaction_commit() {
+    let config = zero_config::RuntimeConfig::parse(
+        r#"{"inbounds":[],"route":{"rules":[],"final":{"type":"direct"}}}"#,
+    )
+    .unwrap();
+    let proxy = crate::runtime::Proxy::new(config).unwrap();
+    let mut state = super::state::OrchestrationState::new(&proxy).await.unwrap();
+    let snapshot = proxy.engine().runtime_snapshot();
+    proxy
+        .resolver
+        .prepare_reload_with_dispatch(
+            snapshot.config().runtime.dns.as_ref(),
+            snapshot.config().compile_dns_dispatch().unwrap(),
+        )
+        .unwrap();
+
+    // The previous reconcile has acknowledged this snapshot, but its caller
+    // has not yet committed DNS. Queued rollback/apply wakeups must be inert.
+    state.reconcile_reload(&proxy).await;
+    state.reconcile_reload(&proxy).await;
+
+    assert!(std::sync::Arc::ptr_eq(
+        &snapshot,
+        &proxy.engine().runtime_snapshot()
+    ));
+    assert_eq!(proxy.engine().config_revision(), 1);
+    proxy
+        .resolver
+        .commit_prepared_reload()
+        .expect("duplicate notifications must preserve the prepared DNS candidate");
+}

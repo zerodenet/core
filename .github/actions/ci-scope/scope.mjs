@@ -50,6 +50,7 @@ export function selectScope(paths) {
     'vendor/', 'crates/ztls/', 'protocols/', 'proto/', 'src/application/tun', 'tests/tun',
   ])) || relevant.includes('scripts/prepare-wintun.ps1')
     || relevant.includes('scripts/capture-tun-windows.ps1')
+    || relevant.some(path => path.startsWith('scripts/report-tun-route-reconcile'))
     || qualificationPolicyChanged;
   return selectedScope(true, compatibility, tun);
 }

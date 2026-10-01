@@ -70,7 +70,17 @@ where
             upstream = upstream_udp.recv_response(upstream_buf) => {
                 handle_upstream_response(context, handler, dispatch, last_activity, upstream).await?;
             }
-            _ = wait_for_upstream_idle(upstream_idle_deadline) => {}
+            _ = wait_for_upstream_idle(upstream_idle_deadline) => {
+                if let Some(closed) = dispatch.drop_idle_upstream_association() {
+                    crate::logging::log_udp_upstream_association_idle_timeout(
+                        context.inbound_tag,
+                        &closed.outbound_tag,
+                        &closed.server,
+                        closed.port,
+                        context.runtime.services().udp_upstream_idle_timeout(),
+                    );
+                }
+            }
             Some(chain_result) = chain_tasks.join_next() => {
                 handle_chain_result(context, handler, dispatch, last_activity, chain_result).await?;
             }
