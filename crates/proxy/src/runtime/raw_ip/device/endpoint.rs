@@ -12,12 +12,13 @@ use std::{
 use tokio::sync::{mpsc, watch};
 use zero_stack::{client_udp::ClientUdpStack, packet, ClientTcpStack};
 
-use super::{DeviceHealth, PacketReturns, SharedRawIpDevice};
+use super::{DeviceHealth, ForwardedPackets, PacketReturns, SharedRawIpDevice};
 
 /// An inner IP packet submitted to a bidirectional datagram endpoint.
 pub(crate) struct EndpointPacket {
     pub(crate) peer: usize,
     pub(crate) packet: Vec<u8>,
+    pub(crate) observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
 impl SharedRawIpDevice {
@@ -43,11 +44,12 @@ impl SharedRawIpDevice {
         peer: usize,
         endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
     ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
-        let (outbound, raw_packets) = mpsc::channel(128);
+        let (outbound, raw_packets) =
+            mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
-        let udp = ClientUdpStack::new(local_addresses.clone(), outbound.clone(), mtu)?;
+        let udp = ClientUdpStack::new_observed(local_addresses.clone(), outbound.clone(), mtu)?;
         let tcp = Arc::new(
-            ClientTcpStack::new(local_addresses, outbound, mtu)
+            ClientTcpStack::new_observed(local_addresses, outbound, mtu)
                 .map_err(|_| zero_stack::client_udp::ClientUdpStackError::InvalidMtu)?,
         );
         let returns = Arc::new(PacketReturns::default());
@@ -100,15 +102,18 @@ impl SharedRawIpDevice {
                 self.tcp.feed(packet).await;
                 true
             }
-            Some(packet::IPPROTO_UDP) if !allow_native => self.udp.feed_correlated(packet),
-            Some(packet::IPPROTO_UDP) => self.udp.feed(packet),
+            Some(packet::IPPROTO_UDP) => self.udp.feed_correlated(packet),
             Some(packet::IPPROTO_ICMP) | Some(packet::IPPROTO_ICMPV6) => {
                 let Some(error) = packet::parse_icmp_error(packet) else {
                     return false;
                 };
                 match error.quoted_protocol {
-                    packet::IPPROTO_TCP => self.tcp.feed_icmp_error(error).await,
-                    packet::IPPROTO_UDP => self.udp.feed(packet),
+                    packet::IPPROTO_TCP => {
+                        self.tcp
+                            .feed_icmp_error_observed(error, Some(packet.len()))
+                            .await
+                    }
+                    packet::IPPROTO_UDP => self.udp.feed_correlated(packet),
                     _ => false,
                 }
             }
@@ -121,8 +126,8 @@ struct EndpointStack {
     peer: usize,
     endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
     tcp: Arc<ClientTcpStack>,
-    raw_packets: mpsc::Receiver<Vec<u8>>,
-    forwarded_packets: mpsc::Receiver<Vec<Vec<u8>>>,
+    raw_packets: mpsc::Receiver<zero_stack::packet_output::ObservedPacket>,
+    forwarded_packets: mpsc::Receiver<ForwardedPackets>,
     closed: Arc<AtomicBool>,
     returns: Arc<PacketReturns>,
 }
@@ -142,21 +147,21 @@ async fn run_endpoint_stack(stack: EndpointStack) {
         tokio::select! {
             _ = sweep.tick() => returns.expire(),
             packet = raw_packets.recv() => {
-                let Some(packet) = packet else { break; };
+                let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { break; };
                 let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {
                     tcp.fragment_outbound_packet(&packet).await
                 } else { vec![packet] };
                 for packet in packets {
-                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet }).await {
+                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone() }).await {
                         closed.store(true, Ordering::Release);
                         return;
                     }
                 }
             }
             packets = forwarded_packets.recv() => {
-                let Some(packets) = packets else { break; };
+                let Some(ForwardedPackets { packets, observer }) = packets else { break; };
                 for packet in packets {
-                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet }).await {
+                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone() }).await {
                         closed.store(true, Ordering::Release);
                         return;
                     }

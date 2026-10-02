@@ -28,9 +28,15 @@ pub struct OutboundDatagramSocketFactory {
     resolver: Option<Arc<dyn OutboundHostResolver>>,
     relay: Option<RelayFactory>,
     hopping: Option<crate::datagram_hop::Profile>,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
 impl OutboundDatagramSocketFactory {
+    pub fn with_observer(mut self, observer: Option<Arc<dyn zero_traits::IoObserver>>) -> Self {
+        self.observer = observer;
+        self
+    }
+
     pub fn with_final_mask(mut self, profile: crate::finalmask::Profile) -> Self {
         self.final_mask = profile;
         self
@@ -46,6 +52,7 @@ impl OutboundDatagramSocketFactory {
             resolver: None,
             relay: None,
             hopping: None,
+            observer: None,
         }
     }
 
@@ -101,7 +108,9 @@ impl OutboundDatagramSocketFactory {
     pub async fn bind_tokio(&self, peer: SocketAddr) -> io::Result<TokioDatagramSocket> {
         self.require_direct()?;
         let interface = self.egress.try_current_for_peer(peer)?;
-        TokioDatagramSocket::bind_for_peer_on(peer, interface.as_ref()).await
+        TokioDatagramSocket::bind_for_peer_on(peer, interface.as_ref())
+            .await
+            .map(|socket| socket.with_observer(self.observer.clone()))
     }
 
     pub async fn bind_tokio_preserving_port(
@@ -113,6 +122,7 @@ impl OutboundDatagramSocketFactory {
         let interface = self.egress.try_current_for_peer(peer)?;
         TokioDatagramSocket::bind_for_peer_on_with_port(peer, interface.as_ref(), preferred_port)
             .await
+            .map(|socket| socket.with_observer(self.observer.clone()))
     }
 }
 
@@ -143,9 +153,20 @@ impl OutboundDatagramSocketFactory {
             return hopping.open(self.clone(), peer);
         }
         if let Some(relay) = &self.relay {
-            return crate::datagram_relay::socket((relay.0)(peer).await?, peer);
+            return crate::datagram_relay::socket_observed(
+                (relay.0)(peer).await?,
+                peer,
+                self.observer.clone(),
+            );
         }
+        self.open_native_socket(peer)
+    }
+    pub(crate) fn open_native_socket(
+        &self,
+        peer: SocketAddr,
+    ) -> io::Result<Arc<dyn quinn::AsyncUdpSocket>> {
         quinn::Runtime::wrap_udp_socket(&quinn::TokioRuntime, self.bind_std(peer)?)
+            .map(|socket| crate::observed_datagram::wrap(socket, self.observer.clone()))
     }
     fn require_direct(&self) -> io::Result<()> {
         if self.is_relay() {

@@ -8,7 +8,11 @@ fn packet_address_translation_stays_in_the_stack_and_uses_neutral_runtime_io() {
     let stack = proxy.parent().unwrap().join("stack/src");
     let adapter =
         fs::read_to_string(proxy.join("src/runtime/raw_ip/device/translation.rs")).unwrap();
-    assert!(adapter.contains("self.returns.translate("));
+    let compact: String = adapter
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    assert!(compact.contains("self.returns.translate("));
     for forbidden in [
         "wireguard::",
         "gotatun::",

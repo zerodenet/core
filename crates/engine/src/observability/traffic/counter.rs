@@ -5,37 +5,52 @@ use std::sync::{
 };
 use zero_api::{TrafficCounters, TrafficMetric, TrafficPlane, TrafficPlaneSnapshot};
 
-pub(super) const WIDTH: usize = 8;
-pub(super) type Values = [[u64; WIDTH]; 3];
+pub(super) const WIDTH: usize = 22;
+pub(super) const PLANES: usize = 4;
+pub(super) type Values = [[u64; WIDTH]; PLANES];
 
 #[derive(Debug)]
 pub(super) struct Plane {
-    values: [Arc<AtomicU64>; WIDTH],
-    available: AtomicU16,
-    basis: Mutex<Option<&'static str>>,
-    roles: AtomicU16,
+    pub(super) values: [AtomicU64; WIDTH],
+    mirrored_business: Option<(Arc<AtomicU64>, Arc<AtomicU64>)>,
+    pub(super) available: AtomicU16,
+    pub(super) unobservable: AtomicU16,
+    pub(super) basis: Mutex<Option<&'static str>>,
+    pub(super) roles: AtomicU16,
+    pub(super) reasons: AtomicU16,
 }
 impl Default for Plane {
     fn default() -> Self {
         Self {
-            values: std::array::from_fn(|_| Arc::new(AtomicU64::new(0))),
+            values: std::array::from_fn(|_| AtomicU64::new(0)),
+            mirrored_business: None,
             available: AtomicU16::new(0),
+            unobservable: AtomicU16::new(0),
             basis: Mutex::new(None),
             roles: AtomicU16::new(0),
+            reasons: AtomicU16::new(0),
         }
     }
 }
 impl Plane {
     pub fn flow_global(up: Arc<AtomicU64>, down: Arc<AtomicU64>) -> Self {
-        let mut plane = Self::default();
-        plane.values[0] = up;
-        plane.values[1] = down;
+        let plane = Self {
+            mirrored_business: Some((up, down)),
+            ..Self::default()
+        };
         plane.enable(&[
             TrafficMetric::BytesUp,
             TrafficMetric::BytesDown,
             TrafficMetric::Errors,
         ]);
         plane
+    }
+    fn slot(&self, i: usize) -> &AtomicU64 {
+        match (&self.mirrored_business, i) {
+            (Some((up, _)), 0) => up,
+            (Some((_, down)), 1) => down,
+            _ => &self.values[i],
+        }
     }
     pub fn enable(&self, metrics: &[TrafficMetric]) {
         let mask = metrics
@@ -45,15 +60,42 @@ impl Plane {
     }
     pub fn add(&self, metric: TrafficMetric, value: u64) {
         if value != 0 {
-            let _ = self.values[metric as usize].fetch_update(
+            let _ = self.slot(metric as usize).fetch_update(
                 Ordering::Relaxed,
                 Ordering::Relaxed,
                 |old| Some(old.saturating_add(value)),
             );
         }
     }
+    pub(super) fn dropped_reason(&self, reason: zero_api::TrafficDropReason, amount: u64) {
+        if amount == 0 {
+            return;
+        }
+        self.add(TrafficMetric::DroppedPackets, amount);
+        let _ = self.values[12 + reason as usize].fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |old| Some(old.saturating_add(amount)),
+        );
+        self.reasons
+            .fetch_or(1 << reason as usize, Ordering::Release);
+    }
+    pub(super) fn replace_host(&self, values: &[Option<u64>; 12], basis: &'static str) {
+        let mut mask = 0;
+        for (i, value) in values.iter().enumerate() {
+            if let Some(value) = value {
+                self.values[i].store(*value, Ordering::Relaxed);
+                mask |= 1 << i;
+            }
+        }
+        self.available.store(mask, Ordering::Release);
+        *self.basis.lock().unwrap_or_else(|e| e.into_inner()) = Some(basis);
+    }
+    pub(super) fn suspend_host(&self) {
+        self.available.store(0, Ordering::Release);
+    }
     pub fn capture(&self) -> [u64; WIDTH] {
-        std::array::from_fn(|i| self.values[i].load(Ordering::Relaxed))
+        std::array::from_fn(|i| self.slot(i).load(Ordering::Relaxed))
     }
     pub fn project(
         &self,
@@ -61,7 +103,8 @@ impl Plane {
         values: [u64; WIDTH],
         baseline: [u64; WIDTH],
     ) -> TrafficPlaneSnapshot {
-        let mask = self.available.load(Ordering::Acquire);
+        let mask =
+            self.available.load(Ordering::Acquire) & !self.unobservable.load(Ordering::Acquire);
         let get = |i: usize| (mask & (1 << i) != 0).then(|| values[i].saturating_sub(baseline[i]));
         let available = TrafficMetric::ALL
             .into_iter()
@@ -86,6 +129,7 @@ impl Plane {
                     TrafficPlane::Flow => "business_boundary_bytes",
                     TrafficPlane::Inner => "authenticated_ip_packets_before_reassembly",
                     TrafficPlane::Outer => "protocol_datagram_payload_excludes_host_ip_udp_headers",
+                    TrafficPlane::Host => "host_interface_provider",
                 })
                 .into(),
             counters: TrafficCounters {
@@ -97,7 +141,24 @@ impl Plane {
                 tx_packets: get(5),
                 dropped_packets: get(6),
                 errors: get(7),
+                rx_dropped_packets: get(8),
+                tx_dropped_packets: get(9),
+                rx_errors: get(10),
+                tx_errors: get(11),
             },
+            drop_reasons_resettable: self.reasons.load(Ordering::Acquire) != 0,
+            drop_reasons: zero_api::TrafficDropReason::ALL
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| self.reasons.load(Ordering::Acquire) & (1 << i) != 0)
+                .map(|(i, reason)| zero_api::TrafficDropCounter {
+                    reason,
+                    packets: values[12 + i].saturating_sub(baseline[12 + i]),
+                })
+                .collect(),
+            drop_coverage: (self.reasons.load(Ordering::Acquire) != 0
+                || mask & (1 << TrafficMetric::DroppedPackets as usize) != 0)
+                .then(|| "observed_local_boundary_discards_only".into()),
             resettable_metrics: available.clone(),
             available_metrics: available,
         }
@@ -112,7 +173,7 @@ pub(super) struct Period {
 #[derive(Debug)]
 pub(super) struct CounterSet {
     pub clock: std::time::Instant,
-    pub planes: [Plane; 3],
+    pub planes: [Plane; PLANES],
     pub period: Mutex<Period>,
     pub generation: Mutex<Option<u64>>,
     pub active_routes: AtomicU64,
@@ -120,6 +181,8 @@ pub(super) struct CounterSet {
     pub active_streams: AtomicU64,
     pub active_datagrams: AtomicU64,
     pub flows_available: AtomicU16,
+    pub source_sampled_at: AtomicU64,
+    pub source_sampled_monotonic: AtomicU64,
 }
 impl CounterSet {
     pub fn new(global: Option<(Arc<AtomicU64>, Arc<AtomicU64>)>) -> Self {
@@ -133,7 +196,7 @@ impl CounterSet {
             period: Mutex::new(Period {
                 epoch: epoch(),
                 started: now(),
-                baseline: [[0; WIDTH]; 3],
+                baseline: [[0; WIDTH]; PLANES],
             }),
             generation: Mutex::new(None),
             active_routes: AtomicU64::new(0),
@@ -141,6 +204,8 @@ impl CounterSet {
             active_streams: AtomicU64::new(0),
             active_datagrams: AtomicU64::new(0),
             flows_available: AtomicU16::new(0),
+            source_sampled_at: AtomicU64::new(0),
+            source_sampled_monotonic: AtomicU64::new(0),
         }
     }
     pub fn capture(&self) -> Values {
@@ -155,91 +220,4 @@ pub(super) fn now() -> u64 {
 }
 pub(super) fn epoch() -> String {
     format!("{:032x}", rand::random::<u128>())
-}
-
-/// Prepared counter references. No protocol parsing, label allocation or registry lock on writes.
-#[derive(Debug, Clone)]
-pub struct TrafficMeter(pub(super) Arc<CounterSet>);
-impl TrafficMeter {
-    pub(crate) fn observes_role(&self, plane: TrafficPlane, outbound: bool) {
-        self.0.planes[plane as usize]
-            .roles
-            .fetch_or(1 << outbound as usize, Ordering::Release);
-    }
-    /// Set by the owning source at preparation, never on individual I/O calls.
-    pub fn accounting_basis(&self, plane: TrafficPlane, basis: &'static str) {
-        *self.0.planes[plane as usize]
-            .basis
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(basis);
-    }
-    pub(crate) fn same_source(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-    pub fn enable(&self, plane: TrafficPlane, metrics: &[TrafficMetric]) {
-        self.0.planes[plane as usize].enable(metrics);
-    }
-    pub fn record(&self, plane: TrafficPlane, metric: TrafficMetric, amount: u64) {
-        self.0.planes[plane as usize].add(metric, amount);
-    }
-    pub fn received(&self, plane: TrafficPlane, bytes: usize) {
-        self.record(plane, TrafficMetric::RxBytes, bytes as u64);
-        self.record(plane, TrafficMetric::RxPackets, 1);
-    }
-    pub fn sent(&self, plane: TrafficPlane, bytes: usize) {
-        self.record(plane, TrafficMetric::TxBytes, bytes as u64);
-        self.record(plane, TrafficMetric::TxPackets, 1);
-    }
-    pub fn dropped(&self, plane: TrafficPlane) {
-        self.record(plane, TrafficMetric::DroppedPackets, 1);
-    }
-    pub fn error(&self, plane: TrafficPlane) {
-        self.record(plane, TrafficMetric::Errors, 1);
-    }
-    pub fn packet_route(&self) -> TrafficRouteLease {
-        self.0.routes_available.store(1, Ordering::Release);
-        self.0.active_routes.fetch_add(1, Ordering::Relaxed);
-        TrafficRouteLease(self.clone())
-    }
-    pub(crate) fn flow(&self, network: zero_core::Network) -> TrafficFlowLease {
-        self.0.flows_available.store(1, Ordering::Release);
-        match network {
-            zero_core::Network::Tcp => self.0.active_streams.fetch_add(1, Ordering::Relaxed),
-            zero_core::Network::Udp => self.0.active_datagrams.fetch_add(1, Ordering::Relaxed),
-        };
-        TrafficFlowLease {
-            meter: self.clone(),
-            network,
-        }
-    }
-}
-#[derive(Debug)]
-pub(crate) struct TrafficFlowLease {
-    meter: TrafficMeter,
-    network: zero_core::Network,
-}
-impl Drop for TrafficFlowLease {
-    fn drop(&mut self) {
-        match self.network {
-            zero_core::Network::Tcp => self.meter.0.active_streams.fetch_sub(1, Ordering::Relaxed),
-            zero_core::Network::Udp => self
-                .meter
-                .0
-                .active_datagrams
-                .fetch_sub(1, Ordering::Relaxed),
-        };
-    }
-}
-#[derive(Debug)]
-pub struct TrafficRouteLease(TrafficMeter);
-impl TrafficRouteLease {
-    /// Prepared handles refer to the same underlying observation source.
-    pub fn belongs_to(&self, meter: &TrafficMeter) -> bool {
-        self.0.same_source(meter)
-    }
-}
-impl Drop for TrafficRouteLease {
-    fn drop(&mut self) {
-        self.0 .0.active_routes.fetch_sub(1, Ordering::Relaxed);
-    }
 }

@@ -97,7 +97,7 @@ where
 
     let server_name_str = server_name.clone();
     if openssl::use_openssl_client(tls).map_err(RuntimeError::Io)? {
-        let stream = openssl::connect(socket.into_inner(), tls, base_dir, default_server_name)
+        let stream = openssl::connect(socket, tls, base_dir, default_server_name)
             .await
             .map_err(RuntimeError::Io)?;
         let control = stream.control();
@@ -123,7 +123,7 @@ where
     );
 
     let stream = connector
-        .connect(server_name, TlsRecordBoundary::new(socket.into_inner()))
+        .connect(server_name, TlsRecordBoundary::new(socket))
         .await
         .map_err(|e| {
             tracing::warn!(

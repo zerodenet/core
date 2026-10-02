@@ -206,6 +206,7 @@ async fn exercise_udp_device_shares_handshake(opaque: bool) {
             53,
             SocketAddr::new(IpAddr::V4(remote), 53),
             IpAddr::V4(local),
+            None,
         )
         .unwrap();
         let mut responses = flow.subscribe_responses();
@@ -228,6 +229,7 @@ async fn exercise_udp_device_shares_handshake(opaque: bool) {
             53,
             SocketAddr::new(IpAddr::V4(remote), 53),
             IpAddr::V4(local),
+            None,
         )
         .unwrap();
         let mut second_responses = second.subscribe_responses();
@@ -303,6 +305,7 @@ async fn wireguard_udp_flow_reports_authenticated_icmp_unreachable() {
             53,
             SocketAddr::new(IpAddr::V4(remote), 53),
             IpAddr::V4(local),
+            None,
         )
         .unwrap();
         flow.send(&target, 53, b"query").await.unwrap();

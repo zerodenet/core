@@ -406,7 +406,7 @@ impl TcpSendControl {
 
     pub(super) fn retransmit_due(
         &self,
-        outbound: &mpsc::Sender<Vec<u8>>,
+        outbound: &crate::packet_output::PacketSender,
         now: Instant,
     ) -> RetransmissionResult {
         let mut retransmission = self

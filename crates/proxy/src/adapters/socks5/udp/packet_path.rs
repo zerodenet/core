@@ -17,9 +17,13 @@ impl crate::runtime::udp_flow::packet_path::PacketPathCarrierDescriptorBuild
 pub(super) fn carrier_descriptor(
     plan: Socks5ManagedUdpPacketPathPlan,
 ) -> crate::runtime::udp_flow::packet_path::PacketPathCarrierDescriptor {
-    crate::runtime::udp_flow::packet_path::packet_path_carrier_descriptor_from_build(
-        plan.into_carrier_descriptor(),
-    )
+    let tag = plan.tag().to_owned();
+    let mut descriptor =
+        crate::runtime::udp_flow::packet_path::packet_path_carrier_descriptor_from_build(
+            plan.into_carrier_descriptor(),
+        );
+    descriptor.tag = Some(tag);
+    descriptor
 }
 
 pub(super) async fn build(

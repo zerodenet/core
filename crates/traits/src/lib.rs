@@ -3,7 +3,7 @@
 
 extern crate alloc;
 mod observation;
-pub use observation::IoObserver;
+pub use observation::{IoObserver, PacketDropReason};
 mod fallback;
 mod packet_socket;
 pub use packet_socket::PacketSocketIo;

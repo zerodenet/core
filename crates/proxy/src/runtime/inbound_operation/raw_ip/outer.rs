@@ -102,7 +102,11 @@ pub(super) async fn send_network_actions(
             };
             if let Err(error) = result {
                 traffic.error(zero_api::TrafficPlane::Outer, true);
-                traffic.dropped(zero_api::TrafficPlane::Outer, true);
+                traffic.dropped_reason(
+                    zero_api::TrafficPlane::Outer,
+                    true,
+                    zero_api::TrafficDropReason::IoFailure,
+                );
                 tracing::debug!(%error, %endpoint, "raw-IP outer datagram send failed");
             } else {
                 traffic.tx(zero_api::TrafficPlane::Outer, packet.len());

@@ -70,6 +70,7 @@ impl PreparedDatagramRelayCarrier {
         });
         Some(Self {
             descriptor: PacketPathCarrierDescriptor {
+                tag: next.tag.clone(),
                 cache_key: format!(
                     "associated|{}:{prefix_key}|{}:{}",
                     prefix_key.len(),
@@ -94,15 +95,20 @@ impl PreparedDatagramRelayCarrier {
             .expect("prepared datagram relay carrier has a build layer");
         let mut path = match &self.layers[start] {
             PreparedDatagramRelayLayer::Base(operation) => {
-                operation.build_carrier(services.clone()).await?
+                operation
+                    .build_carrier(observed_services(&services, operation.as_ref()))
+                    .await?
             }
             PreparedDatagramRelayLayer::Associated {
                 operation,
                 tcp_prefix,
             } => {
-                let carrier = services.prepare_lazy_tcp_relay_prefix(tcp_prefix.clone());
+                let observed = observed_services(&services, operation.as_ref());
+                let carrier = services
+                    .prepare_lazy_tcp_relay_prefix(tcp_prefix.clone())
+                    .with_observer(observed.tcp().upstream().observer());
                 operation
-                    .build_associated_relay_carrier(services.clone(), carrier)
+                    .build_associated_relay_carrier(observed, carrier)
                     .await?
             }
             PreparedDatagramRelayLayer::Codec(_) => unreachable!(),
@@ -111,6 +117,12 @@ impl PreparedDatagramRelayCarrier {
             let PreparedDatagramRelayLayer::Codec(source) = layer else {
                 unreachable!("last associated packet-path layer must be the build root")
             };
+            path = crate::runtime::udp_flow::packet_path_chain::carriers::observed::wrap(
+                path,
+                services
+                    .tcp()
+                    .outbound_io(&source.descriptor().tag, zero_api::TrafficPlane::Outer),
+            );
             path = crate::runtime::udp_flow::packet_path_chain::carriers::encoded::wrap(
                 path,
                 source.clone(),
@@ -181,6 +193,7 @@ fn chained_descriptor(
     next: &crate::runtime::udp_flow::packet_path::UdpDatagramDescriptor,
 ) -> PacketPathCarrierDescriptor {
     PacketPathCarrierDescriptor {
+        tag: Some(next.tag.clone()),
         cache_key: format!(
             "chain|{}:{}|{}:{}|{}:{}:{}|{}:{}",
             prefix.cache_key.len(),
@@ -243,4 +256,17 @@ fn unsupported(message: &'static str) -> EngineError {
         std::io::ErrorKind::Unsupported,
         message,
     ))
+}
+
+fn observed_services(
+    services: &PacketPathExecutionServices,
+    operation: &dyn PreparedUdpPacketPathOperation,
+) -> PacketPathExecutionServices {
+    match operation
+        .carrier_descriptor()
+        .and_then(|descriptor| descriptor.tag)
+    {
+        Some(tag) => services.clone().with_outbound_io(&tag),
+        None => services.clone(),
+    }
 }

@@ -44,16 +44,18 @@ where
             }
         };
         let identity = serde_json::to_string(&(&self.identity, source_dir)).ok()?;
-        Some(Box::new(Operation(::vless::udp::packet_path::Plan::new(
-            &leaf, &identity,
-        ))))
+        Some(Box::new(Operation(
+            ::vless::udp::packet_path::Plan::new(&leaf, &identity),
+            zero_traits::ProtocolOutboundLeaf::tag(&leaf).to_owned(),
+        )))
     }
 }
-struct Operation(::vless::udp::packet_path::Plan);
+struct Operation(::vless::udp::packet_path::Plan, String);
 impl PreparedUdpPacketPathOperation for Operation {
     fn carrier_descriptor(&self) -> Option<PacketPathCarrierDescriptor> {
         let (cache_key, server, port) = self.0.descriptor();
         Some(PacketPathCarrierDescriptor {
+            tag: Some(self.1.clone()),
             cache_key,
             server,
             port,

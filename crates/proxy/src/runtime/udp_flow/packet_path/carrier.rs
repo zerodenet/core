@@ -118,6 +118,7 @@ pub(crate) fn packet_path_payload_carrier(
 /// reuse it across packets; `server`/`port` are the endpoint for diagnostics.
 #[derive(Clone)]
 pub(crate) struct PacketPathCarrierDescriptor {
+    pub(crate) tag: Option<String>,
     pub(crate) cache_key: String,
     pub(crate) server: String,
     pub(crate) port: u16,
@@ -133,6 +134,7 @@ pub(crate) fn packet_path_carrier_descriptor(
     port: u16,
 ) -> PacketPathCarrierDescriptor {
     PacketPathCarrierDescriptor {
+        tag: None,
         cache_key,
         server: server.to_owned(),
         port,

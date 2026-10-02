@@ -108,6 +108,8 @@ pub struct InboundDispatch {
     /// The datagram was accepted by the selected peer's Noise state machine.
     pub authenticated: bool,
     pub actions: Vec<TunnelAction>,
+    /// Authenticated inner packets rejected by protocol-owned AllowedIPs validation.
+    pub source_rejected_packets: u64,
 }
 
 const MAX_TRACKED_INDICES: usize = 4096;
@@ -217,6 +219,7 @@ impl InboundDevice {
                 return Ok(InboundDispatch {
                     peer_index: None,
                     authenticated: false,
+                    source_rejected_packets: 0,
                     actions: vec![TunnelAction::SendNetwork(packet.as_ref().to_vec())],
                 });
             }
@@ -285,6 +288,7 @@ impl InboundDevice {
         let (peer_index, received) = selected.ok_or(last_error)?;
         self.register_indices(peer_index, &received.actions);
         let mut checked = Vec::with_capacity(received.actions.len());
+        let mut source_rejected_packets = 0_u64;
         for action in received.actions {
             if let TunnelAction::ReceiveIp { source, .. } = &action {
                 if !self
@@ -292,6 +296,7 @@ impl InboundDevice {
                     .routes
                     .allows_authenticated_source(peer_index, *source)
                 {
+                    source_rejected_packets += 1;
                     continue;
                 }
             }
@@ -307,6 +312,7 @@ impl InboundDevice {
             peer_index: Some(peer_index),
             authenticated: received.authenticated,
             actions: checked,
+            source_rejected_packets,
         })
     }
 

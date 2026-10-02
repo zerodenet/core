@@ -23,6 +23,13 @@ pub(crate) struct PacketPathExecutionServices {
 }
 
 impl PacketPathExecutionServices {
+    pub(crate) fn with_outbound_io(mut self, tag: &str) -> Self {
+        let observer = self.tcp.outbound_io(tag, zero_api::TrafficPlane::Outer);
+        self.network.upstream = self.network.upstream.with_observer(observer.clone());
+        self.tcp.upstream = self.tcp.upstream.with_observer(observer);
+        self
+    }
+
     pub(crate) fn from_tcp_execution(services: &TcpExecutionServices) -> Self {
         Self {
             tcp: services.clone(),
@@ -61,6 +68,25 @@ pub(crate) enum UdpAssociationCloseKind {
 }
 
 impl UdpRuntimeServices {
+    pub(crate) fn with_outbound_io(mut self, tag: &str) -> Self {
+        let observer = crate::runtime::traffic_io::outbound(
+            self.tcp.engine(),
+            tag,
+            zero_api::TrafficPlane::Outer,
+        );
+        self.tcp = self.tcp.with_io_observer(observer.clone());
+        self.network.upstream = self.network.upstream.with_observer(observer);
+        self
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn outbound_inner_io(
+        &self,
+        tag: &str,
+    ) -> Option<std::sync::Arc<dyn zero_traits::IoObserver>> {
+        crate::runtime::traffic_io::outbound(self.tcp.engine(), tag, zero_api::TrafficPlane::Inner)
+    }
+
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn bind_outbound_peer_flow(&self, session_id: u64, tag: &str, peer_id: &str) {
         self.tcp

@@ -7,6 +7,7 @@ use zero_api::{
 };
 
 mod packet;
+mod sampling;
 
 impl Engine {
     /// Bind a protocol-supplied stable peer identity, never an outer source address.
@@ -76,6 +77,10 @@ impl Engine {
         self.traffic.meter(&TrafficScope::Endpoint {
             endpoint_id: binding.endpoint_id,
         })
+    }
+    /// Runtime/platform facts only. None marks current host sources unavailable.
+    pub fn observe_host_interfaces(&self, samples: Option<&[crate::HostInterfaceSample]>) {
+        self.traffic.observe_host_interfaces(samples);
     }
     pub fn traffic_meter(&self, scope: &TrafficScope) -> Option<crate::TrafficMeter> {
         self.traffic.meter(scope)
@@ -150,37 +155,6 @@ impl Engine {
         )?;
         Ok(result)
     }
-    pub fn push_traffic_stats_sampled(&self) {
-        let offset = self
-            .traffic
-            .sample_offset
-            .load(std::sync::atomic::Ordering::Relaxed) as usize;
-        if let Ok(page) = self.traffic_snapshots(&TrafficListQuery {
-            offset,
-            limit: Some(64),
-            ..Default::default()
-        }) {
-            self.traffic.sample_offset.store(
-                page.next_offset.unwrap_or(0) as u64,
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            if !page.scopes.is_empty() {
-                let revision = page.config_revision;
-                let mut event = ApiEvent::new(
-                    format!(
-                        "traffic-{}-{offset}-{}",
-                        page.sampled_at_unix_ms,
-                        self.operation_id(None)
-                    ),
-                    zero_api::event_type::STATS_SCOPES_SAMPLED,
-                    page.sampled_at_unix_ms,
-                    serde_json::to_value(page).expect("statistics sample serialization"),
-                );
-                event.config_revision = Some(revision);
-                self.event_log.push_generated(event);
-            }
-        }
-    }
     pub(super) fn traffic_activity_index(&self) -> BTreeMap<TrafficScope, (u64, u64)> {
         // Index roles once, rather than scanning every flow for every resource.
         let mut counts: BTreeMap<TrafficScope, (u64, u64)> = BTreeMap::new();
@@ -235,7 +209,10 @@ impl Engine {
     pub(super) fn attach_traffic_activity(&self, snapshots: &mut [TrafficSnapshot]) {
         let counts = self.traffic_activity_index();
         for snapshot in snapshots {
-            if !matches!(snapshot.scope, TrafficScope::Peer { .. }) {
+            if !matches!(
+                snapshot.scope,
+                TrafficScope::Peer { .. } | TrafficScope::HostInterface { .. }
+            ) {
                 let (stream, datagram) = counts.get(&snapshot.scope).copied().unwrap_or_default();
                 snapshot.activity = TrafficActivity {
                     active_stream_flows: Some(stream),

@@ -14,6 +14,14 @@ pub(crate) struct TcpExecutionServices {
     pub(super) principal_rate_limits: PrincipalRateLimitRegistry,
 }
 impl TcpExecutionServices {
+    pub(crate) fn outbound_io(
+        &self,
+        tag: &str,
+        plane: zero_api::TrafficPlane,
+    ) -> Option<Arc<dyn zero_traits::IoObserver>> {
+        crate::runtime::traffic_io::outbound(&self.engine, tag, plane)
+    }
+
     pub(crate) fn engine(&self) -> &Engine {
         &self.engine
     }
@@ -30,6 +38,10 @@ impl TcpExecutionServices {
         self.upstream.resolver.as_ref()
     }
 
+    pub(crate) fn upstream_observed(&self, tag: &str) -> UpstreamConnectServices {
+        self.upstream()
+            .with_observer(self.outbound_io(tag, zero_api::TrafficPlane::Outer))
+    }
     pub(crate) fn upstream(&self) -> UpstreamConnectServices {
         self.upstream.clone()
     }

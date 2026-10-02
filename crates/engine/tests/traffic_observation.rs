@@ -341,3 +341,31 @@ fn reset_during_receive_preserves_monotonic_usage_and_quota_exhaustion() {
     assert_eq!(other.stats_snapshot().bytes_up, 10_000);
     assert_eq!(other.active_sessions()[0].bytes_up, 10_000);
 }
+
+#[test]
+fn incomplete_packet_metric_is_null_and_cannot_be_reenabled_by_another_source() {
+    let engine = engine();
+    let scope = TrafficScope::Outbound { tag: "out".into() };
+    let meter = engine.traffic_meter(&scope).unwrap();
+    meter.enable(
+        TrafficPlane::Outer,
+        &[TrafficMetric::TxBytes, TrafficMetric::TxPackets],
+    );
+    meter.sent(TrafficPlane::Outer, 100);
+    assert_eq!(
+        stat(&engine, scope.clone()).planes[2].counters.tx_packets,
+        Some(1)
+    );
+    meter.mark_unobservable(TrafficPlane::Outer, &[TrafficMetric::TxPackets]);
+    meter.enable(TrafficPlane::Outer, &[TrafficMetric::TxPackets]);
+    let before = stat(&engine, scope.clone());
+    assert_eq!(before.planes[2].counters.tx_packets, None);
+    assert!(!before.planes[2]
+        .resettable_metrics
+        .contains(&TrafficMetric::TxPackets));
+    engine.reset_traffic(&request(&before)).unwrap();
+    meter.sent(TrafficPlane::Outer, 9);
+    let after = stat(&engine, scope);
+    assert_eq!(after.planes[2].counters.tx_bytes, Some(9));
+    assert_eq!(after.planes[2].counters.tx_packets, None);
+}

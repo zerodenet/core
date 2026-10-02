@@ -1,6 +1,64 @@
 use super::{PacketPlane, PacketSessionPins};
 
 #[test]
+fn admitted_packet_paths_prepare_observers_once_and_release_them_on_expiry() {
+    use std::sync::Arc;
+    #[derive(Debug)]
+    struct Observer;
+    impl zero_traits::IoObserver for Observer {
+        fn received(&self, _: usize) {}
+        fn sent(&self, _: usize) {}
+        fn error(&self) {}
+        fn dropped(&self) {}
+    }
+    let packet = zero_stack::packet::build_udp(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.3".parse().unwrap(),
+        40000,
+        443,
+        b"packet",
+    );
+    let plane = PacketPlane::Packet("wg".into());
+    let peer: Option<Arc<str>> = Some("peer-1".into());
+    let observer: Arc<dyn zero_traits::IoObserver> = Arc::new(Observer);
+    let weak = Arc::downgrade(&observer);
+    let mut pins = PacketSessionPins::default();
+    let prepared = pins.inner_io(&packet, &plane, peer.clone(), || Some(observer.clone()));
+    assert!(pins.record_observed_peers(&packet, plane.clone(), peer.clone(), None, prepared));
+    drop(observer);
+    let reused = pins.inner_io(&packet, &plane, peer.clone(), || {
+        panic!("per-packet preparation")
+    });
+    assert!(Arc::ptr_eq(
+        reused.as_ref().unwrap(),
+        &weak.upgrade().unwrap()
+    ));
+    drop(reused);
+    // A measured-unavailable result is cached too. Different ingress peer
+    // identities retain their own path and never share an attribution handle.
+    let other = Some("peer-2".into());
+    assert!(pins.record_observed_peers(&packet, plane.clone(), other.clone(), None, None));
+    assert!(pins
+        .inner_io(&packet, &plane, other, || panic!(
+            "unavailable provider rebuilt"
+        ))
+        .is_none());
+    for pin in pins.entries.values_mut() {
+        pin.touched -= super::IDLE_TIMEOUT;
+    }
+    pins.expire();
+    assert!(weak.upgrade().is_none());
+    let mut prepared_again = false;
+    assert!(pins
+        .inner_io(&packet, &plane, peer, || {
+            prepared_again = true;
+            None
+        })
+        .is_none());
+    assert!(prepared_again);
+}
+
+#[test]
 fn new_tcp_connection_can_use_new_plane_while_existing_connection_stays_pinned() {
     let mut first = vec![0_u8; 40];
     first[0] = 0x45;

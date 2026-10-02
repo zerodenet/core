@@ -25,6 +25,7 @@ impl PreparedPacketRouteOperation for RawIpPacketOperation {
         ingress_id: u64,
         replies: mpsc::Sender<Vec<u8>>,
         egress_generation: u64,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<PacketForwardObservation> {
         let source = packet::ip_source(&packet).ok_or_else(invalid_packet)?;
         let destination = packet::ip_destination(&packet).ok_or_else(invalid_packet)?;
@@ -77,9 +78,10 @@ impl PreparedPacketRouteOperation for RawIpPacketOperation {
         let peer_identity = self.plan.peer_identity(peer.peer_index);
         if self.translate_source {
             return device
-                .forward_translated_packet(&packet, peer.local_ip, replies, mtu)
+                .forward_translated_packet(&packet, peer.local_ip, replies, mtu, observer)
                 .map(|()| PacketForwardObservation::forwarded(peer_identity));
         }
+        let conversation = packet::packet_conversation_key(&packet);
         let packets = if requires_fragmentation {
             let fragments = packet::fragment_forwarded_packet(&packet, mtu);
             if fragments.is_empty() {
@@ -89,7 +91,7 @@ impl PreparedPacketRouteOperation for RawIpPacketOperation {
         } else {
             vec![packet]
         };
-        device.forward_packets(packets, source, ingress_id, replies)?;
+        device.forward_packets(packets, source, ingress_id, replies, observer, conversation)?;
         Ok(PacketForwardObservation::forwarded(peer_identity))
     }
 }

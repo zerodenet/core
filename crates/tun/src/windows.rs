@@ -112,7 +112,7 @@ impl WindowsTun {
             let data = packet.bytes().to_vec();
             if read_tx.blocking_send(data).is_err() {
                 if let Some(observer) = reader_observer.get() {
-                    observer.dropped();
+                    observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed);
                 }
                 break;
             }
@@ -125,7 +125,7 @@ impl WindowsTun {
                 let Ok(len) = u16::try_from(data.len()) else {
                     if let Some(observer) = writer_observer.get() {
                         observer.error();
-                        observer.dropped();
+                        observer.dropped_reason(zero_traits::PacketDropReason::InvalidPacket);
                     }
                     tracing::warn!(bytes = data.len(), "oversized Wintun packet rejected");
                     continue;
@@ -141,7 +141,7 @@ impl WindowsTun {
                     Err(error) => {
                         if let Some(observer) = writer_observer.get() {
                             observer.error();
-                            observer.dropped();
+                            observer.dropped_reason(zero_traits::PacketDropReason::IoFailure);
                         }
                         tracing::warn!(%error, "Wintun packet allocation failed");
                         break;
@@ -151,7 +151,7 @@ impl WindowsTun {
             write_rx.close();
             while write_rx.blocking_recv().is_some() {
                 if let Some(observer) = writer_observer.get() {
-                    observer.dropped();
+                    observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed);
                 }
             }
             closing.store(true, Ordering::Release);

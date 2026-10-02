@@ -14,6 +14,11 @@ impl Sampler {
                 let endpoint_due = seconds.is_multiple_of(10);
                 seconds = seconds.wrapping_add(1);
                 let result = tokio::task::spawn_blocking(move || {
+                    #[cfg(feature = "host-network-stats")]
+                    {
+                        sample_host_interfaces(&engine);
+                        engine.push_host_traffic_stats_sampled();
+                    }
                     engine.push_stats_sampled();
                     engine.push_flow_updates();
                     if endpoint_due {
@@ -35,4 +40,41 @@ impl Drop for Sampler {
     fn drop(&mut self) {
         self.0.abort();
     }
+}
+
+#[cfg(feature = "host-network-stats")]
+fn sample_host_interfaces(engine: &zero_engine::Engine) {
+    let Ok(interfaces) = zero_platform_tokio::network_statistics::read() else {
+        engine.observe_host_interfaces(None);
+        return;
+    };
+    let sampled = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u64::MAX as u128) as u64;
+    let samples = interfaces
+        .into_iter()
+        .map(|s| zero_engine::HostInterfaceSample {
+            name: s.name,
+            index: s.index,
+            accounting_basis: s.accounting_basis,
+            sampled_at_unix_ms: sampled,
+            counters: [
+                None,
+                None,
+                Some(s.rx_bytes),
+                Some(s.tx_bytes),
+                Some(s.rx_packets),
+                Some(s.tx_packets),
+                None,
+                None,
+                s.rx_dropped_packets,
+                s.tx_dropped_packets,
+                s.rx_errors,
+                s.tx_errors,
+            ],
+        })
+        .collect::<Vec<_>>();
+    engine.observe_host_interfaces(Some(&samples));
 }

@@ -8,6 +8,7 @@ fn stats_size(event: &RawApiEvent) -> usize {
     if !matches!(
         event.event_type.as_str(),
         event_type::STATS_SCOPES_SAMPLED
+            | event_type::STATS_HOST_INTERFACES_SAMPLED
             | event_type::STATS_RESET
             | event_type::ENDPOINT_STATS_SAMPLED
     ) {

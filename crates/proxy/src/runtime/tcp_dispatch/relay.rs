@@ -44,7 +44,7 @@ pub(crate) async fn dispatch_prepared_tcp_relay_chain(
     let carrier = lazy_relay_carrier(services.clone(), prefix, intent, relay_identity, generation);
     let stream = final_hop
         .operation
-        .execute_lazy(services.upstream(), carrier, session)
+        .execute_lazy(services.upstream_observed(&final_hop.tag), carrier, session)
         .await
         .map_err(|error| TcpOutboundFailure {
             stage: "relay_last",
@@ -176,11 +176,11 @@ fn execute_relay_prefix_stream(
             let current = prepared.relay_hops.pop().unwrap();
             #[cfg(feature = "udp-runtime")]
             prepared.datagram_prefixes.pop();
+            let upstream = services.upstream_observed(&current.tag);
             prepared.final_tag = current.tag;
             prepared.final_protocol = current.protocol;
             prepared.final_server = current.server;
             prepared.final_port = current.port;
-            let upstream = services.upstream();
             let carrier = lazy_relay_carrier(services, prepared, intent, identity, generation);
             return current
                 .operation

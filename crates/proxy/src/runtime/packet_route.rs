@@ -39,6 +39,7 @@ pub(crate) trait PreparedPacketRouteOperation: Send + Sync {
         ingress_id: u64,
         replies: mpsc::Sender<Vec<u8>>,
         egress_generation: u64,
+        observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<PacketForwardObservation>;
 }
 
@@ -50,5 +51,6 @@ pub(crate) trait PreparedDatagramExchangeOperation: Send + Sync {
         endpoint: SocketAddr,
         payload: Vec<u8>,
         egress_generation: u64,
+        observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<Vec<u8>>;
 }

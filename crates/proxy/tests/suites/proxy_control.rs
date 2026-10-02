@@ -23,3 +23,6 @@ mod session_observability;
 mod shutdown;
 #[path = "../stats.rs"]
 mod stats;
+
+#[path = "../host_traffic.rs"]
+mod host_traffic;

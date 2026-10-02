@@ -81,6 +81,7 @@ impl Socks5TransportLeaf {
 
     pub fn udp_packet_path_plan(&self) -> Socks5ManagedUdpPacketPathPlan {
         Socks5ManagedUdpPacketPathPlan::new(
+            self.tag.clone(),
             self.packet_path_carrier_descriptor(),
             self.packet_path_carrier_build(),
         )

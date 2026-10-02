@@ -71,7 +71,7 @@ where
 {
     fn execute<'a>(
         &'a self,
-        _services: UpstreamConnectServices,
+        services: UpstreamConnectServices,
         stream: TcpRelayStream,
         session: &'a Session,
     ) -> Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>
@@ -80,7 +80,7 @@ where
     {
         Box::pin(async move {
             execute_socket_tcp_relay_hop_operation(
-                stream,
+                services.observe_stream(stream),
                 session,
                 PreparedSocketTcpOperation {
                     handshake: &self.handshake,
@@ -106,7 +106,7 @@ where
     let handshake = operation.handshake;
     let endpoint = (handshake.server().to_owned(), handshake.port());
     let (stream, traffic) = handshake
-        .open_tcp_stream(services.upstream(), session)
+        .open_tcp_stream(services.upstream_observed(handshake.tag()), session)
         .await
         .map_err(|error| TcpOutboundFailure {
             stage: handshake.connect_stage(),

@@ -19,7 +19,7 @@ pub use icmp::{
     parse_icmp_echo_reply, parse_icmp_echo_request, parse_icmp_error, restore_echo_response,
     translate_echo_request, IcmpEchoReply, IcmpEchoRequest, IcmpErrorKind, ParsedIcmpError,
 };
-pub use identity::{packet_conversation_key, PacketConversationKey};
+pub use identity::{packet_conversation_key, packet_return_key, PacketConversationKey};
 
 // ── Protocol numbers ──────────────────────────────────────────────────
 

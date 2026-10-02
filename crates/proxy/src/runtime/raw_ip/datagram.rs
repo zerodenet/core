@@ -25,6 +25,7 @@ impl PreparedDatagramExchangeOperation for RawIpDatagramOperation {
         endpoint: SocketAddr,
         payload: Vec<u8>,
         egress_generation: u64,
+        observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<Vec<u8>> {
         let peer = self
             .plan
@@ -47,7 +48,7 @@ impl PreparedDatagramExchangeOperation for RawIpDatagramOperation {
             return Err(io::Error::other("raw-IP peer device changed"));
         }
         let mut socket = device
-            .bind_udp(peer.local_ip)
+            .bind_udp_observed(peer.local_ip, observer)
             .map_err(|error| io::Error::other(format!("raw-IP UDP stack: {error:?}")))?;
         let target = Endpoint {
             ip: endpoint.ip(),

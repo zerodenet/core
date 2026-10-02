@@ -33,6 +33,10 @@ pub(super) async fn feed_inner_packet(
             return;
         }
         FragmentOutcome::Rejected(reason) => {
+            traffic.drop_inner(
+                peer_identity.as_deref(),
+                zero_api::TrafficDropReason::FragmentRejected,
+            );
             tracing::trace!(?reason, "raw-IP inbound fragment rejected");
             return;
         }
@@ -47,10 +51,18 @@ pub(super) async fn feed_inner_packet(
         usize::from(mtu)
     };
     if let Some(response) = packet::build_icmp_mtu_response(packet, effective_mtu) {
-        let _ = responses.try_send(response);
+        traffic.drop_inner(
+            peer_identity.as_deref(),
+            zero_api::TrafficDropReason::FragmentRejected,
+        );
+        traffic.send_response(responses, response, peer_identity.as_deref());
         return;
     }
     let Some(destination) = packet::ip_destination(packet) else {
+        traffic.drop_inner(
+            peer_identity.as_deref(),
+            zero_api::TrafficDropReason::InvalidPacket,
+        );
         return;
     };
     let protocol = packet::ip_protocol(packet);
@@ -66,26 +78,36 @@ pub(super) async fn feed_inner_packet(
             } => {
                 let generation = route.icmp_egress_generation();
                 let plane = if translated {
-                    PacketPlane::TranslatedPacket(tag)
+                    PacketPlane::TranslatedPacket(tag.clone())
                 } else {
-                    PacketPlane::Packet(tag)
+                    PacketPlane::Packet(tag.clone())
                 };
                 if !pins.permits_peer(packet, &plane, peer_identity.clone()) {
                     continue;
                 }
+                let observer = pins.inner_io(packet, &plane, peer_identity.clone(), || {
+                    route.outbound_inner_io(&tag)
+                });
                 match operation
-                    .forward(packet.to_vec(), ingress_id, responses.clone(), generation)
+                    .forward(
+                        packet.to_vec(),
+                        ingress_id,
+                        responses.clone(),
+                        generation,
+                        observer.clone(),
+                    )
                     .await
                 {
                     Ok(observed) => {
-                        pins.record_peers(
+                        pins.record_observed_peers(
                             packet,
                             plane,
                             peer_identity.clone(),
                             observed.peer_identity,
+                            observer,
                         );
                         if let Some(response) = observed.response {
-                            let _ = responses.try_send(response);
+                            traffic.send_response(responses, response, peer_identity.as_deref());
                         }
                         return;
                     }
@@ -121,11 +143,25 @@ pub(super) async fn feed_inner_packet(
                 }
                 break;
             }
-            PacketRouteTarget::Block | PacketRouteTarget::Unsupported => break,
+            PacketRouteTarget::Block => {
+                traffic.drop_inner(
+                    peer_identity.as_deref(),
+                    zero_api::TrafficDropReason::PolicyRejected,
+                );
+                if let Some(response) = packet::build_icmp_response(packet, effective_mtu) {
+                    traffic.send_response(responses, response, peer_identity.as_deref());
+                }
+                return;
+            }
+            PacketRouteTarget::Unsupported => break,
             PacketRouteTarget::Fallback(_) => unreachable!("fallback candidates are flat"),
         }
     }
+    traffic.drop_inner(
+        peer_identity.as_deref(),
+        zero_api::TrafficDropReason::NoRoute,
+    );
     if let Some(response) = packet::build_icmp_response(packet, effective_mtu) {
-        let _ = responses.try_send(response);
+        traffic.send_response(responses, response, peer_identity.as_deref());
     }
 }

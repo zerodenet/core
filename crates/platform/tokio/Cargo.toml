@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+[features]
+default = []
+host-network-stats = []
+
 [dependencies]
 socket2 = { version = "0.6", features = ["all"] }
 tokio.workspace = true

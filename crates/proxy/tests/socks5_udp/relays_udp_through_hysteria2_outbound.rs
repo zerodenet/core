@@ -174,6 +174,21 @@ async fn relays_udp_through_hysteria2_outbound() {
     })
     .await;
 
+    let statistics = outer_probe
+        .engine()
+        .traffic_snapshot(&zero_api::TrafficGetQuery {
+            scope: zero_api::TrafficScope::Outbound {
+                tag: "hysteria2-udp-chain".into(),
+            },
+        })
+        .unwrap();
+    // Physical QUIC datagrams include authentication, control, ACKs and encapsulation.
+    assert!(statistics.planes[2].counters.tx_bytes.unwrap() > 4);
+    assert!(statistics.planes[2].counters.rx_bytes.unwrap() > 4);
+    assert!(statistics.planes[2].counters.tx_packets.unwrap() > 0);
+    assert!(statistics.planes[2].counters.rx_packets.unwrap() > 0);
+    assert_eq!(statistics.planes[2].counters.dropped_packets, None);
+
     drop(control);
     wait_for("outer udp hysteria2 session to complete", || {
         outer_probe

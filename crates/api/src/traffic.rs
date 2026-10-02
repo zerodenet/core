@@ -18,6 +18,10 @@ pub enum TrafficScope {
         endpoint_id: String,
         peer_id: String,
     },
+    /// Host-wide interface facts; never attributed to an endpoint or business flow.
+    HostInterface {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -26,6 +30,7 @@ pub enum TrafficPlane {
     Flow,
     Inner,
     Outer,
+    Host,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -45,10 +50,14 @@ pub enum TrafficMetric {
     TxPackets,
     DroppedPackets,
     Errors,
+    RxDroppedPackets,
+    TxDroppedPackets,
+    RxErrors,
+    TxErrors,
 }
 
 impl TrafficMetric {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 12] = [
         Self::BytesUp,
         Self::BytesDown,
         Self::RxBytes,
@@ -57,6 +66,10 @@ impl TrafficMetric {
         Self::TxPackets,
         Self::DroppedPackets,
         Self::Errors,
+        Self::RxDroppedPackets,
+        Self::TxDroppedPackets,
+        Self::RxErrors,
+        Self::TxErrors,
     ];
 }
 
@@ -71,6 +84,48 @@ pub struct TrafficCounters {
     pub tx_packets: Option<u64>,
     pub dropped_packets: Option<u64>,
     pub errors: Option<u64>,
+    #[serde(default)]
+    pub rx_dropped_packets: Option<u64>,
+    #[serde(default)]
+    pub tx_dropped_packets: Option<u64>,
+    #[serde(default)]
+    pub rx_errors: Option<u64>,
+    #[serde(default)]
+    pub tx_errors: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrafficDropReason {
+    Unspecified,
+    QueueFull,
+    QueueClosed,
+    InvalidPacket,
+    SourceRejected,
+    FragmentRejected,
+    PolicyRejected,
+    IoFailure,
+    NoRoute,
+    HopLimit,
+}
+impl TrafficDropReason {
+    pub const ALL: [Self; 10] = [
+        Self::Unspecified,
+        Self::QueueFull,
+        Self::QueueClosed,
+        Self::InvalidPacket,
+        Self::SourceRejected,
+        Self::FragmentRejected,
+        Self::PolicyRejected,
+        Self::IoFailure,
+        Self::NoRoute,
+        Self::HopLimit,
+    ];
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrafficDropCounter {
+    pub reason: TrafficDropReason,
+    pub packets: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +138,14 @@ pub struct TrafficPlaneSnapshot {
     /// Explicit execution roles observed by this source; empty means not a role source.
     #[serde(default)]
     pub source_roles: Vec<TrafficRole>,
+    /// Sparse, observed local discard reasons. Missing reasons are not observed zeros.
+    /// These are reset with the containing scope; they are not additive to dropped_packets.
+    #[serde(default)]
+    pub drop_reasons: Vec<TrafficDropCounter>,
+    #[serde(default)]
+    pub drop_reasons_resettable: bool,
+    #[serde(default)]
+    pub drop_coverage: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +171,11 @@ pub struct TrafficSnapshot {
     pub activity: TrafficActivity,
     /// Reset changes all available cumulative metrics; instantaneous state is excluded.
     pub reset_policy: String,
+    /// Last authoritative provider read, distinct from query capture time.
+    #[serde(default)]
+    pub source_sampled_at_unix_ms: Option<u64>,
+    #[serde(default)]
+    pub source_sampled_at_monotonic_ns: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,7 +191,7 @@ pub struct TrafficListQuery {
     pub offset: usize,
     #[serde(default)]
     pub limit: Option<usize>,
-    /// Empty selects all current scopes; otherwise select these exact identities.
+    /// Empty selects the default inventory; host scopes require explicit opt-in.
     #[serde(default)]
     pub scopes: Vec<TrafficScope>,
     #[serde(default)]
@@ -132,6 +200,13 @@ pub struct TrafficListQuery {
     pub expected_config_revision: Option<u64>,
     #[serde(default)]
     pub expected_registry_revision: Option<u64>,
+    /// Preserve legacy default pages. New clients opt in after capability discovery.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub include_host_interfaces: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,10 +265,16 @@ pub struct TrafficStatisticsCapability {
     pub retry_policy: String,
     pub capture_consistency: String,
     pub sampling_strategy: String,
+    #[serde(default)]
+    pub local_drop_reasons: bool,
+    #[serde(default)]
+    pub host_interface_sampling: bool,
 }
 impl Default for TrafficStatisticsCapability {
     fn default() -> Self {
         Self {
+            local_drop_reasons: true,
+            host_interface_sampling: false,
             sampling_strategy: "round_robin_bounded_pages".into(),
             contract_version: 1,
             queries: vec!["traffic_stat".into(), "traffic_stats".into()],

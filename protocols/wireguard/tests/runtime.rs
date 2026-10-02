@@ -371,6 +371,7 @@ fn inbound_device_demultiplexes_handshake_and_checks_authenticated_inner_source(
         .receive_datagram(outer(IpAddr::V4(outer_ip)), &encrypted[0])
         .unwrap();
     assert!(dropped.actions.is_empty());
+    assert_eq!(dropped.source_rejected_packets, 1);
     assert_eq!(server.peer_for_destination(IpAddr::V4(client_ip)), Some(0));
     assert_eq!(server.peer_for_destination(IpAddr::V4(server_ip)), None);
 }

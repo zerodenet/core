@@ -237,6 +237,30 @@ async fn relays_udp_through_shadowsocks_to_shadowsocks_relay_chain() {
         )
         .await;
 
+        let statistics = |tag: &str| {
+            outer_probe
+                .engine()
+                .traffic_snapshot(&zero_api::TrafficGetQuery {
+                    scope: zero_api::TrafficScope::Outbound { tag: tag.into() },
+                })
+                .unwrap()
+        };
+        let first = statistics("first-ss");
+        let last = statistics("final-ss");
+        // The first hop also carries the final hop's address and ciphertext.
+        // Both are real encoded boundaries; neither copies final Flow bytes.
+        assert!(last.planes[2].counters.tx_bytes.unwrap() > 8);
+        assert!(
+            first.planes[2].counters.tx_bytes.unwrap() > last.planes[2].counters.tx_bytes.unwrap()
+        );
+        assert!(
+            first.planes[2].counters.rx_bytes.unwrap() > last.planes[2].counters.rx_bytes.unwrap()
+        );
+        assert_eq!(first.planes[2].counters.tx_packets, Some(2));
+        assert_eq!(last.planes[2].counters.rx_packets, Some(2));
+        assert_eq!(first.planes[0].counters.tx_bytes, Some(0));
+        assert!(last.planes[0].counters.tx_bytes.unwrap() >= 8);
+
         drop(control);
         wait_for(
             "outer udp shadowsocks relay chain session to complete",

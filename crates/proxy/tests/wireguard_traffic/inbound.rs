@@ -72,6 +72,17 @@ async fn bidirectional_resources_attribute_inbound_peer_flow_and_packet_roles() 
             "outbound replies must not count as inbound role"
         );
         assert_eq!(incoming.planes[1].counters.tx_packets, Some(1));
+        let outgoing = snapshot(proxy, TrafficScope::Outbound { tag: "wg".into() });
+        assert_eq!(outgoing.planes[1].counters.rx_packets, Some(1));
+        assert_eq!(outgoing.planes[1].counters.tx_packets, Some(1));
+        assert_eq!(outgoing.planes[1].source_roles, vec![TrafficRole::Outbound]);
+        assert_eq!(
+            snapshot(proxy, TrafficScope::Global).planes[1]
+                .counters
+                .rx_packets,
+            Some(2),
+            "shared resource device RX must count once across both roles"
+        );
     }
     // Keep a TCP business connection open while observing and resetting its peer.
     let listener = TcpListener::bind((host, 0)).await.unwrap();

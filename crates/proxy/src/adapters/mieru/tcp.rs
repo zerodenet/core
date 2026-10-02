@@ -79,7 +79,7 @@ impl MieruAdapter {
 impl PreparedTcpRelayOperation for PreparedMieruTcpRelay {
     fn execute<'a>(
         &'a self,
-        _services: crate::protocol_registry::UpstreamConnectServices,
+        services: crate::protocol_registry::UpstreamConnectServices,
         stream: crate::transport::TcpRelayStream,
         session: &'a zero_core::Session,
     ) -> std::pin::Pin<
@@ -95,7 +95,7 @@ impl PreparedTcpRelayOperation for PreparedMieruTcpRelay {
     {
         Box::pin(async move {
             self.leaf
-                .open_tcp_relay_hop(stream, session)
+                .open_tcp_relay_hop(services.observe_stream(stream), session)
                 .await
                 .map_err(Into::into)
         })
@@ -103,7 +103,7 @@ impl PreparedTcpRelayOperation for PreparedMieruTcpRelay {
 
     fn execute_lazy<'a>(
         &'a self,
-        _services: crate::protocol_registry::UpstreamConnectServices,
+        services: crate::protocol_registry::UpstreamConnectServices,
         carrier: LazyTcpRelayCarrier<'a>,
         session: &'a zero_core::Session,
     ) -> std::pin::Pin<
@@ -120,7 +120,7 @@ impl PreparedTcpRelayOperation for PreparedMieruTcpRelay {
         Box::pin(async move {
             let identity = carrier.identity().to_owned();
             let generation = carrier.generation();
-            let mut carrier = Some(carrier);
+            let mut carrier = Some(carrier.with_observer(services.observer()));
             self.leaf
                 .open_tcp_relay_hop_lazy(session, generation, &identity, move || {
                     let carrier = carrier.take();

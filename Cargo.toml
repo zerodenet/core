@@ -33,6 +33,7 @@ trojan = ["zero-proxy/trojan"]
 vmess = ["zero-proxy/vmess"]
 mieru = ["zero-proxy/mieru"]
 wireguard = ["zero-proxy/wireguard"]
+host-network-stats = ["zero-proxy/host-network-stats"]
 status-api = ["dep:percent-encoding"]
 event-dispatcher = [
     "dep:zero-connector",

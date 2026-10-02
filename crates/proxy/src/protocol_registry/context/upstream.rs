@@ -11,11 +11,12 @@ mod ech;
 use ech::RuntimeEchResolver;
 
 /// Narrow network service exposed to protocol-owned connect/handshake code.
-/// It deliberately carries no engine, configuration, health, or accounting
-/// access.
+/// It deliberately carries no engine, configuration, health, or accounting registry
+/// access. Optional prepared I/O observers only receive boundary facts.
 #[derive(Clone)]
 pub(crate) struct UpstreamConnectServices {
     pub(super) resolver: Arc<DnsSystem>,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
     pub(super) connector: DirectConnector,
     pub(super) egress_interface: zero_platform_tokio::EgressInterfaceControl,
     #[cfg(feature = "tls-ech-runtime")]
@@ -23,6 +24,28 @@ pub(crate) struct UpstreamConnectServices {
 }
 
 impl UpstreamConnectServices {
+    pub(crate) fn with_observer(
+        mut self,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Self {
+        self.observer = observer;
+        self
+    }
+    pub(crate) fn observe_stream(
+        &self,
+        stream: zero_transport::TcpRelayStream,
+    ) -> zero_transport::TcpRelayStream {
+        match &self.observer {
+            Some(observer) => zero_transport::TcpRelayStream::new(
+                zero_transport::observed::ObservedStream::new(stream, observer.clone()),
+            ),
+            None => stream,
+        }
+    }
+    pub(crate) fn observer(&self) -> Option<Arc<dyn zero_traits::IoObserver>> {
+        self.observer.clone()
+    }
+
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn egress_for_ip(
         &self,
@@ -43,6 +66,7 @@ impl UpstreamConnectServices {
         ));
         Self {
             resolver,
+            observer: None,
             connector,
             egress_interface,
             #[cfg(feature = "tls-ech-runtime")]
@@ -63,6 +87,12 @@ impl UpstreamConnectServices {
                 &self.egress_interface,
             )
             .await
+            .map(|socket| socket.with_observer(self.observer.clone()))
+            .inspect_err(|_| {
+                if let Some(observer) = &self.observer {
+                    observer.error();
+                }
+            })
     }
 
     pub(crate) async fn connect_upstream(
@@ -77,6 +107,7 @@ impl UpstreamConnectServices {
         &self,
     ) -> zero_transport::OutboundDatagramSocketFactory {
         zero_transport::OutboundDatagramSocketFactory::new(self.egress_interface.clone())
+            .with_observer(self.observer.clone())
             .with_host_resolver(Arc::new(NodeHostResolver {
                 resolver: self.resolver.clone(),
             }))

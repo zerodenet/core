@@ -69,7 +69,7 @@ where
     let handshake = operation.handshake;
     let endpoint = (handshake.server().to_owned(), handshake.port());
     let stream = handshake
-        .open_tcp_stream(services.upstream(), session)
+        .open_tcp_stream(services.upstream_observed(handshake.tag()), session)
         .await
         .map_err(|error| TcpOutboundFailure {
             stage: handshake.connect_stage(),

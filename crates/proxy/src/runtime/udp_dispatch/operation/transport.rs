@@ -144,6 +144,7 @@ async fn execute_relay_two_stream_udp_operation<TLeaf>(
 where
     TLeaf: ProxyRelayTwoStreamTransportLeaf,
 {
+    let services = services.with_outbound_io(prepared.endpoint().tag);
     let paired_stream = prepared
         .open_relay_two_stream_udp_transport(
             services.upstream(),
@@ -182,6 +183,7 @@ where
         PreparedTransportUdpOperation::Direct { prepared } => {
             let mut context = dispatch.flow_start_context();
             let endpoint = prepared.endpoint();
+            let services = services.with_outbound_io(endpoint.tag);
             start_direct_managed_stream_packet(
                 &mut context,
                 ManagedStreamPacketStartBridge::direct(
@@ -198,6 +200,11 @@ where
         PreparedTransportUdpOperation::RelayFinalHop { carrier, prepared } => {
             let mut context = dispatch.flow_start_context();
             let endpoint = prepared.endpoint();
+            let services = services.with_outbound_io(endpoint.tag);
+            let carrier = RelayCarrier {
+                stream: services.upstream().observe_stream(carrier.stream),
+                ..carrier
+            };
             prepared.validate_udp_relay_final_hop().map_err(|error| {
                 udp_flow_failure(
                     "udp_relay_final_transport",

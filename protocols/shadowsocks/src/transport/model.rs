@@ -211,6 +211,10 @@ impl ShadowsocksManagedUdpFlowPlan {
 }
 
 impl ShadowsocksManagedUdpPacketPathPlan {
+    pub fn tag(&self) -> &str {
+        &self.tag
+    }
+
     pub(super) fn new(
         server: impl Into<String>,
         port: u16,

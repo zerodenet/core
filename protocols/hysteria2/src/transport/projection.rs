@@ -173,6 +173,10 @@ impl Hysteria2ManagedUdpFlowPlan {
 }
 
 impl Hysteria2ManagedUdpPacketPathPlan {
+    pub fn tag(&self) -> &str {
+        &self.carrier_build.tag
+    }
+
     pub(super) fn new(
         carrier_descriptor: Hysteria2ManagedUdpPacketPathCarrierDescriptor,
         carrier_build: Hysteria2ManagedUdpPacketPathCarrierBuild,

@@ -4,7 +4,7 @@ use std::{io, net::IpAddr};
 use tokio::sync::mpsc;
 use zero_stack::packet;
 
-use super::SharedRawIpDevice;
+use super::{ForwardedPackets, SharedRawIpDevice};
 
 impl SharedRawIpDevice {
     pub(crate) fn forward_translated_packet(
@@ -13,6 +13,7 @@ impl SharedRawIpDevice {
         local: IpAddr,
         replies: mpsc::Sender<Vec<u8>>,
         mtu: usize,
+        observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<()> {
         if !self.is_usable() {
             return Err(io::Error::new(
@@ -24,7 +25,9 @@ impl SharedRawIpDevice {
             .forwarded_packets
             .try_reserve()
             .map_err(|error| io::Error::other(error.to_string()))?;
-        let translated = self.returns.translate(original, local, replies)?;
+        let translated = self
+            .returns
+            .translate(original, local, replies, observer.clone())?;
         let packets = if translated.len() > mtu {
             // Only IPv4 packets without DF reach this branch; the route
             // operation has already returned the appropriate ICMP MTU error.
@@ -39,7 +42,7 @@ impl SharedRawIpDevice {
         } else {
             vec![translated]
         };
-        permit.send(packets);
+        permit.send(ForwardedPackets { packets, observer });
         Ok(())
     }
 }

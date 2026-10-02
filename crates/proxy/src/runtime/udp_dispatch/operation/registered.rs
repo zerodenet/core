@@ -35,7 +35,7 @@ where
                 session,
                 payload,
                 PreparedRegisteredAssociationOperation {
-                    services: Some(ctx.runtime_services()),
+                    services: Some(ctx.runtime_services().with_outbound_io(&self.tag)),
                     tag: &self.tag,
                     server: &self.server,
                     port: self.port,

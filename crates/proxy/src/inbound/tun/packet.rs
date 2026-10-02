@@ -21,9 +21,13 @@ pub(super) async fn try_forward(
     echo: &IcmpEchoRelay,
     mtu: usize,
     dns_hijack: bool,
+    traffic: Option<&dyn zero_traits::IoObserver>,
 ) -> bool {
     if let Some(response) = packet::build_icmp_mtu_response(inner, mtu) {
-        let _ = responses.try_send(response);
+        if let Some(traffic) = traffic {
+            traffic.dropped_reason(zero_traits::PacketDropReason::FragmentRejected);
+        }
+        send_response(responses, response, traffic);
         return true;
     }
     if dns_hijack
@@ -47,21 +51,34 @@ pub(super) async fn try_forward(
             } => {
                 let generation = route.icmp_egress_generation();
                 let plane = if translated {
-                    PacketPlane::TranslatedPacket(tag)
+                    PacketPlane::TranslatedPacket(tag.clone())
                 } else {
-                    PacketPlane::Packet(tag)
+                    PacketPlane::Packet(tag.clone())
                 };
                 if !pins.permits(inner, &plane) {
                     continue;
                 }
+                let observer = pins.inner_io(inner, &plane, None, || route.outbound_inner_io(&tag));
                 match operation
-                    .forward(inner.to_vec(), ingress_id, responses.clone(), generation)
+                    .forward(
+                        inner.to_vec(),
+                        ingress_id,
+                        responses.clone(),
+                        generation,
+                        observer.clone(),
+                    )
                     .await
                 {
                     Ok(observed) => {
-                        pins.record_peers(inner, plane, None, observed.peer_identity);
+                        pins.record_observed_peers(
+                            inner,
+                            plane,
+                            None,
+                            observed.peer_identity,
+                            observer,
+                        );
                         if let Some(response) = observed.response {
-                            let _ = responses.try_send(response);
+                            send_response(responses, response, traffic);
                         }
                         return true;
                     }
@@ -88,12 +105,39 @@ pub(super) async fn try_forward(
                 }
                 break;
             }
-            PacketRouteTarget::Block | PacketRouteTarget::Unsupported => break,
+            PacketRouteTarget::Block => {
+                if let Some(traffic) = traffic {
+                    traffic.dropped_reason(zero_traits::PacketDropReason::PolicyRejected);
+                }
+                if let Some(response) = packet::build_icmp_response(inner, mtu) {
+                    send_response(responses, response, traffic);
+                }
+                return true;
+            }
+            PacketRouteTarget::Unsupported => break,
             PacketRouteTarget::Fallback(_) => unreachable!("fallback candidates are flat"),
         }
     }
+    if let Some(traffic) = traffic {
+        traffic.dropped_reason(zero_traits::PacketDropReason::NoRoute);
+    }
     if let Some(response) = packet::build_icmp_response(inner, mtu) {
-        let _ = responses.try_send(response);
+        send_response(responses, response, traffic);
     }
     true
+}
+
+fn send_response(
+    responses: &mpsc::Sender<Vec<u8>>,
+    response: Vec<u8>,
+    observer: Option<&dyn zero_traits::IoObserver>,
+) {
+    if let Err(error) = responses.try_send(response) {
+        if let Some(observer) = observer {
+            observer.dropped_reason(match error {
+                mpsc::error::TrySendError::Full(_) => zero_traits::PacketDropReason::QueueFull,
+                mpsc::error::TrySendError::Closed(_) => zero_traits::PacketDropReason::QueueClosed,
+            });
+        }
+    }
 }

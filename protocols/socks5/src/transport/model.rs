@@ -55,6 +55,7 @@ pub struct Socks5ManagedUdpFlowPlan {
 
 #[derive(Debug, Clone)]
 pub struct Socks5ManagedUdpPacketPathPlan {
+    pub(super) tag: String,
     pub(super) carrier_descriptor: Socks5ManagedUdpPacketPathCarrierDescriptor,
     pub(super) carrier_build: Socks5ManagedUdpPacketPathCarrierBuild,
 }
@@ -173,11 +174,17 @@ impl Socks5ManagedUdpFlowPlan {
 }
 
 impl Socks5ManagedUdpPacketPathPlan {
+    pub fn tag(&self) -> &str {
+        &self.tag
+    }
+
     pub(super) fn new(
+        tag: String,
         carrier_descriptor: Socks5ManagedUdpPacketPathCarrierDescriptor,
         carrier_build: Socks5ManagedUdpPacketPathCarrierBuild,
     ) -> Self {
         Self {
+            tag,
             carrier_descriptor,
             carrier_build,
         }

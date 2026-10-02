@@ -163,7 +163,16 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                 )
             })?;
             operation
-                .exchange(endpoint, query, connector.egress_interface.generation())
+                .exchange(
+                    endpoint,
+                    query,
+                    connector.egress_interface.generation(),
+                    crate::runtime::traffic_io::outbound(
+                        &connector.engine,
+                        claimed.runtime().tag.as_deref().unwrap_or(&outbound),
+                        zero_api::TrafficPlane::Inner,
+                    ),
+                )
                 .await
         })
     }

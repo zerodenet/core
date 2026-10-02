@@ -31,6 +31,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc, Mutex};
 use tracing::warn;
 
+use crate::packet_output::{PacketPermit, PacketSender, WeakPacketSender};
 use zero_traits::{SocketAddress, TcpStack};
 
 use crate::packet::{self, tcp_flags, Endpoint, ParsedTcp};
@@ -130,6 +131,7 @@ struct Conn {
     path_mtu: Option<usize>,
     connect_waiter: Option<tokio::sync::oneshot::Sender<UserTcpStream>>,
     peer_identity: Option<Arc<str>>,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
 impl Drop for Conn {
@@ -225,7 +227,7 @@ struct TcpRead {
 
 struct TcpWrite {
     /// Outbound packet channel (→ TUN writer task).
-    outbound: mpsc::Sender<Vec<u8>>,
+    outbound: PacketSender,
     control_packets: TcpControlPackets,
     /// Our IP (server side).
     src_ip: IpAddr,
@@ -245,13 +247,12 @@ struct TcpWrite {
     outbound_reservation: Option<OutboundReservation>,
 }
 
-type OutboundReservation = Pin<
-    Box<dyn Future<Output = Result<mpsc::OwnedPermit<Vec<u8>>, mpsc::error::SendError<()>>> + Send>,
->;
+type OutboundReservation =
+    Pin<Box<dyn Future<Output = Result<PacketPermit, mpsc::error::SendError<()>>> + Send>>;
 
 impl TcpWrite {
     fn new(
-        outbound: mpsc::Sender<Vec<u8>>,
+        outbound: PacketSender,
         control_packets: TcpControlPackets,
         conn_key: &ConnKey,
         conn: &Conn,
@@ -259,8 +260,8 @@ impl TcpWrite {
     ) -> Self {
         let rev = key_reversed(conn_key);
         let value = Self {
-            outbound,
-            control_packets,
+            outbound: outbound.with_observer(conn.observer.clone()),
+            control_packets: control_packets.with_observer(conn.observer.clone()),
             src_ip: rev.0,
             dst_ip: rev.2,
             sport: rev.1,
@@ -292,10 +293,7 @@ impl TcpWrite {
             ));
     }
 
-    fn poll_outbound_permit(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<mpsc::OwnedPermit<Vec<u8>>>> {
+    fn poll_outbound_permit(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<PacketPermit>> {
         if self.outbound_reservation.is_none() {
             self.outbound_reservation = Some(Box::pin(self.outbound.clone().reserve_owned()));
         }
@@ -545,13 +543,14 @@ pub struct UserTcpStack {
     connections: Arc<Mutex<HashMap<ConnKey, Conn>>>,
     accept_tx: mpsc::Sender<ReadyConn>,
     accept_queue: Mutex<TcpAcceptQueue>,
-    outbound: mpsc::Sender<Vec<u8>>,
+    outbound: PacketSender,
     control_packets: TcpControlPackets,
     mss: u16,
 }
 
 impl UserTcpStack {
     pub(crate) fn new(outbound: mpsc::Sender<Vec<u8>>, mss: u16) -> Self {
+        let outbound = PacketSender::from(outbound);
         let (tx, rx) = mpsc::channel::<ReadyConn>(64);
         let control_packets = TcpControlPackets::new(outbound.clone());
         Self {
@@ -590,7 +589,7 @@ async fn run_retransmission_worker(
     key: ConnKey,
     connection_id: u64,
     send_control: Arc<TcpSendControl>,
-    outbound: mpsc::WeakSender<Vec<u8>>,
+    outbound: WeakPacketSender,
 ) {
     loop {
         let notified = send_control.retransmission_notify.notified();
@@ -898,6 +897,7 @@ impl UserTcpStack {
                 path_mtu: None,
                 connect_waiter: None,
                 peer_identity,
+                observer: None,
             },
         );
         send_control.track_segment(iss.wrapping_add(1), syn_ack.clone());

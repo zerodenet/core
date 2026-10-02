@@ -2,7 +2,7 @@
 use zero_api::{TrafficMetric, TrafficPlane};
 use zero_engine::TrafficMeter;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct RawIpTraffic {
     endpoint: Option<TrafficMeter>,
     peer: Option<TrafficMeter>,
@@ -80,18 +80,32 @@ impl RawIpTraffic {
             meter.sent(plane, size);
         }
     }
-    pub(crate) fn dropped(&self, plane: TrafficPlane, identified: bool) {
+    pub(crate) fn dropped_reason(
+        &self,
+        plane: TrafficPlane,
+        identified: bool,
+        reason: zero_api::TrafficDropReason,
+    ) {
+        self.dropped_count(plane, identified, reason, 1);
+    }
+    pub(crate) fn dropped_count(
+        &self,
+        plane: TrafficPlane,
+        identified: bool,
+        reason: zero_api::TrafficDropReason,
+        amount: u64,
+    ) {
         if plane == TrafficPlane::Inner {
             if let Some(meter) = &self.global {
-                meter.dropped(plane);
+                meter.dropped_count(plane, reason, amount);
             }
         }
         if let Some(meter) = &self.endpoint {
-            meter.dropped(plane);
+            meter.dropped_count(plane, reason, amount);
         }
         if identified {
             if let Some(meter) = &self.peer {
-                meter.dropped(plane);
+                meter.dropped_count(plane, reason, amount);
             }
         }
     }
@@ -109,5 +123,27 @@ impl RawIpTraffic {
                 meter.error(plane);
             }
         }
+    }
+}
+
+impl zero_traits::IoObserver for RawIpTraffic {
+    fn received(&self, _bytes: usize) {}
+    fn sent(&self, _bytes: usize) {}
+    fn error(&self) {
+        self.error(TrafficPlane::Inner, true);
+    }
+    fn dropped(&self) {
+        self.dropped_reason(
+            TrafficPlane::Inner,
+            true,
+            zero_api::TrafficDropReason::Unspecified,
+        );
+    }
+    fn dropped_reason(&self, reason: zero_traits::PacketDropReason) {
+        self.dropped_reason(
+            TrafficPlane::Inner,
+            true,
+            crate::runtime::traffic_io::drop_reason(reason),
+        );
     }
 }

@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex};
 
 use super::{
     accept_client_segment, default_peer_mss, key_from_parsed, key_reversed, next_iss,
@@ -43,7 +43,7 @@ pub enum ClientTcpStackError {
 pub struct ClientTcpStack {
     local_addresses: Vec<IpAddr>,
     connections: Arc<Mutex<HashMap<ConnKey, Conn>>>,
-    outbound: mpsc::Sender<Vec<u8>>,
+    outbound: crate::packet_output::PacketSender,
     control_packets: TcpControlPackets,
     mss: u16,
     mtu: usize,
@@ -53,7 +53,21 @@ pub struct ClientTcpStack {
 impl ClientTcpStack {
     pub fn new(
         local_addresses: Vec<IpAddr>,
-        outbound: mpsc::Sender<Vec<u8>>,
+        outbound: tokio::sync::mpsc::Sender<Vec<u8>>,
+        mtu: u16,
+    ) -> Result<Self, ClientTcpStackError> {
+        Self::new_with_output(local_addresses, outbound.into(), mtu)
+    }
+    pub fn new_observed(
+        local_addresses: Vec<IpAddr>,
+        outbound: tokio::sync::mpsc::Sender<crate::packet_output::ObservedPacket>,
+        mtu: u16,
+    ) -> Result<Self, ClientTcpStackError> {
+        Self::new_with_output(local_addresses, outbound.into(), mtu)
+    }
+    fn new_with_output(
+        local_addresses: Vec<IpAddr>,
+        outbound: crate::packet_output::PacketSender,
         mtu: u16,
     ) -> Result<Self, ClientTcpStackError> {
         if local_addresses.is_empty() {
@@ -78,6 +92,15 @@ impl ClientTcpStack {
         &self,
         local_ip: IpAddr,
         remote: SocketAddr,
+    ) -> Result<UserTcpStream, ClientTcpStackError> {
+        self.connect_observed(local_ip, remote, None).await
+    }
+
+    pub async fn connect_observed(
+        &self,
+        local_ip: IpAddr,
+        remote: SocketAddr,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<UserTcpStream, ClientTcpStackError> {
         if !self.local_addresses.contains(&local_ip) {
             return Err(ClientTcpStackError::UnknownLocalAddress);
@@ -133,6 +156,7 @@ impl ClientTcpStack {
                 path_mtu: None,
                 connect_waiter: Some(waiter),
                 peer_identity: None,
+                observer: observer.clone(),
             },
         );
         drop(connections);
@@ -142,9 +166,17 @@ impl ClientTcpStack {
             key,
             connection_id,
             send_control.clone(),
-            self.outbound.downgrade(),
+            self.outbound
+                .clone()
+                .with_observer(observer.clone())
+                .downgrade(),
         ));
-        if !self.control_packets.try_send(syn) {
+        if !self
+            .control_packets
+            .clone()
+            .with_observer(observer)
+            .try_send(syn)
+        {
             self.connections.lock().await.remove(&key);
             return Err(ClientTcpStackError::OutboundClosed);
         }
@@ -176,6 +208,9 @@ impl ClientTcpStack {
         let Some(conn) = connections.get_mut(&key) else {
             return;
         };
+        if let Some(observer) = &conn.observer {
+            observer.received(raw_packet.len());
+        }
         conn.last_active = Instant::now();
         if tcp.rst {
             conn.send_control.observe_reset();
@@ -216,7 +251,10 @@ impl ClientTcpStack {
                     conn.receive_buffer.window(),
                     &[],
                 );
-                self.control_packets.try_send(ack);
+                self.control_packets
+                    .clone()
+                    .with_observer(conn.observer.clone())
+                    .try_send(ack);
                 if let Some(waiter) = conn.connect_waiter.take() {
                     let _ = waiter.send(stream);
                 }
@@ -265,6 +303,13 @@ impl ClientTcpStack {
     /// Apply Packet Too Big to the matching client connection. Hard errors
     /// fail only a matching half-open connection.
     pub async fn feed_icmp_error(&self, error: packet::ParsedIcmpError) -> bool {
+        self.feed_icmp_error_observed(error, None).await
+    }
+    pub async fn feed_icmp_error_observed(
+        &self,
+        error: packet::ParsedIcmpError,
+        bytes: Option<usize>,
+    ) -> bool {
         if error.quoted_protocol != packet::IPPROTO_TCP {
             return false;
         }
@@ -275,6 +320,12 @@ impl ClientTcpStack {
             error.quoted_source.port,
         );
         let mut connections = self.connections.lock().await;
+        let observed_match = bytes.is_some() && connections.contains_key(&key);
+        if let Some(connection) = connections.get(&key) {
+            if let (Some(observer), Some(bytes)) = (&connection.observer, bytes) {
+                observer.received(bytes);
+            }
+        }
         if let packet::IcmpErrorKind::PacketTooBig { mtu: Some(mtu) } = error.kind {
             let Some(connection) = connections.get_mut(&key) else {
                 return false;
@@ -297,13 +348,13 @@ impl ClientTcpStack {
             packet::IcmpErrorKind::DestinationUnreachable { .. }
                 | packet::IcmpErrorKind::ParameterProblem { .. }
         ) {
-            return false;
+            return observed_match;
         }
         if !connections
             .get(&key)
             .is_some_and(|connection| connection.state == TcpState::SynSent)
         {
-            return false;
+            return observed_match;
         }
         let connection = connections.remove(&key).expect("checked connection exists");
         connection.send_control.observe_unreachable();
@@ -329,17 +380,20 @@ impl ClientTcpStack {
     }
 
     fn send_ack(&self, conn: &Conn, rev: ConnKey) {
-        self.control_packets.try_send(packet::build_tcp_with_window(
-            rev.0,
-            rev.2,
-            rev.1,
-            rev.3,
-            conn.snd_nxt.load(Ordering::Acquire),
-            conn.rcv_nxt.load(Ordering::Acquire),
-            tcp_flags::ACK,
-            conn.receive_buffer.window(),
-            &[],
-        ));
+        self.control_packets
+            .clone()
+            .with_observer(conn.observer.clone())
+            .try_send(packet::build_tcp_with_window(
+                rev.0,
+                rev.2,
+                rev.1,
+                rev.3,
+                conn.snd_nxt.load(Ordering::Acquire),
+                conn.rcv_nxt.load(Ordering::Acquire),
+                tcp_flags::ACK,
+                conn.receive_buffer.window(),
+                &[],
+            ));
     }
 
     pub async fn cleanup_idle(&self, timeout: Duration) {

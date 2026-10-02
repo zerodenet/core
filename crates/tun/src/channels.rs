@@ -27,7 +27,7 @@ pub(crate) fn bridge<D: TunDevice + 'static>(
                     }
                     if read_tx.send(buf[..n].to_vec()).await.is_err() {
                         if let Some(observer) = &reads {
-                            observer.dropped();
+                            observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed);
                         }
                         break;
                     }
@@ -49,7 +49,7 @@ pub(crate) fn bridge<D: TunDevice + 'static>(
             {
                 if let Some(observer) = &observer {
                     observer.error();
-                    observer.dropped();
+                    observer.dropped_reason(zero_traits::PacketDropReason::IoFailure);
                 }
                 break;
             }
@@ -61,7 +61,7 @@ pub(crate) fn bridge<D: TunDevice + 'static>(
         write_rx.close();
         while write_rx.recv().await.is_some() {
             if let Some(observer) = &observer {
-                observer.dropped();
+                observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed);
             }
         }
         let _ = close_tx.send(true);

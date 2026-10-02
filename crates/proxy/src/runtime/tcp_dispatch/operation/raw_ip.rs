@@ -85,7 +85,11 @@ impl PreparedTcpConnectOperation for RawIpTcpOperation {
                 ));
             }
             let stream = device
-                .open_tcp(local_ip, target)
+                .open_tcp_observed(
+                    local_ip,
+                    target,
+                    services.outbound_io(&self.tag, zero_api::TrafficPlane::Inner),
+                )
                 .await
                 .map_err(|error| failure("raw_ip_tcp_connect", stack_error(error)))?;
             if !self.pool.is_current(

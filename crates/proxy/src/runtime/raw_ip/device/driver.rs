@@ -1,5 +1,5 @@
 use super::super::{RawIpAction, RawIpTunnel, RawIpWireCarrier};
-use super::{DeviceHealth, PacketReturns};
+use super::{DeviceHealth, ForwardedPackets, PacketReturns};
 use std::{
     net::SocketAddr,
     sync::{
@@ -24,8 +24,8 @@ pub(super) struct Device {
     pub(super) tcp: Arc<ClientTcpStack>,
     pub(super) returns: Arc<PacketReturns>,
     pub(super) fragments: FragmentReassembler,
-    pub(super) raw_packets: mpsc::Receiver<Vec<u8>>,
-    pub(super) forwarded_packets: mpsc::Receiver<Vec<Vec<u8>>>,
+    pub(super) raw_packets: mpsc::Receiver<zero_stack::packet_output::ObservedPacket>,
+    pub(super) forwarded_packets: mpsc::Receiver<ForwardedPackets>,
     pub(super) closed: Arc<AtomicBool>,
     pub(super) health: Arc<Mutex<DeviceHealth>>,
 }
@@ -59,7 +59,7 @@ async fn run_device_inner(
     loop {
         tokio::select! {
             packet = device.raw_packets.recv() => {
-                let Some(packet) = packet else { return Ok(()); };
+                let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { return Ok(()); };
                 tracing::trace!(ip_bytes = packet.len(), "raw-IP outbound stack packet");
                 let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {
                     device.tcp.fragment_outbound_packet(&packet).await
@@ -67,17 +67,19 @@ async fn run_device_inner(
                     vec![packet]
                 };
                 for packet in packets {
-                    let actions = device.tunnel.send_ip_packet(&packet).inspect_err(|_| { device.traffic.error(TrafficPlane::Inner, true); device.traffic.dropped(TrafficPlane::Inner, true); })?;
+                    let actions = device.tunnel.send_ip_packet(&packet).inspect_err(|_| { device.traffic.error(TrafficPlane::Inner, true); device.traffic.dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); if let Some(observer) = &observer { observer.dropped_reason(zero_traits::PacketDropReason::IoFailure); } })?;
                     device.traffic.tx(TrafficPlane::Inner, packet.len());
+                    if let Some(observer) = &observer { observer.sent(packet.len()); }
                     device.apply(actions).await?;
                     device.refresh_handshake_health();
                 }
             }
             packets = device.forwarded_packets.recv() => {
-                let Some(packets) = packets else { return Ok(()); };
+                let Some(ForwardedPackets { packets, observer }) = packets else { return Ok(()); };
                 for packet in packets {
-                    let actions = device.tunnel.send_ip_packet(&packet).inspect_err(|_| { device.traffic.error(TrafficPlane::Inner, true); device.traffic.dropped(TrafficPlane::Inner, true); })?;
+                    let actions = device.tunnel.send_ip_packet(&packet).inspect_err(|_| { device.traffic.error(TrafficPlane::Inner, true); device.traffic.dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); if let Some(observer) = &observer { observer.dropped_reason(zero_traits::PacketDropReason::IoFailure); } })?;
                     device.traffic.tx(TrafficPlane::Inner, packet.len());
+                    if let Some(observer) = &observer { observer.sent(packet.len()); }
                     device.apply(actions).await?;
                     device.refresh_handshake_health();
                 }
@@ -87,14 +89,14 @@ async fn run_device_inner(
                 device.traffic.rx(TrafficPlane::Outer, size, false);
                 let Ok((actions, authenticated)) = device.tunnel
                     .receive_datagram_with_authentication(sender, &wire[..size]) else {
-                    device.traffic.dropped(TrafficPlane::Outer, false);
+                    device.traffic.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket);
                     continue;
                 };
                 if authenticated { device.traffic.peer_rx(TrafficPlane::Outer, size); }
                 if let Some(sender) = sender {
                     if sender != device.endpoint {
                         if !authenticated || sender.is_ipv4() != device.endpoint.is_ipv4() {
-                            device.traffic.dropped(TrafficPlane::Outer, authenticated);
+                            device.traffic.dropped_reason(TrafficPlane::Outer, authenticated, zero_api::TrafficDropReason::SourceRejected);
                             continue;
                         }
                         tracing::debug!(old_endpoint = %device.endpoint, new_endpoint = %sender, "raw-IP peer endpoint roamed");
@@ -139,7 +141,11 @@ impl Device {
                         .await
                         .inspect_err(|_| {
                             self.traffic.error(TrafficPlane::Outer, true);
-                            self.traffic.dropped(TrafficPlane::Outer, true);
+                            self.traffic.dropped_reason(
+                                TrafficPlane::Outer,
+                                true,
+                                zero_api::TrafficDropReason::IoFailure,
+                            );
                         })
                         .map_err(EngineError::Io)?;
                     self.traffic.tx(TrafficPlane::Outer, packet.len());
@@ -156,7 +162,11 @@ impl Device {
                             FragmentOutcome::Reassembled(packet) => packet,
                             FragmentOutcome::Pending => continue,
                             FragmentOutcome::Rejected(_) => {
-                                self.traffic.dropped(TrafficPlane::Inner, true);
+                                self.traffic.dropped_reason(
+                                    TrafficPlane::Inner,
+                                    true,
+                                    zero_api::TrafficDropReason::FragmentRejected,
+                                );
                                 continue;
                             }
                         };
@@ -170,7 +180,9 @@ impl Device {
                                 if let Some(error) = packet::parse_icmp_error(&packet) {
                                     match error.quoted_protocol {
                                         packet::IPPROTO_TCP => {
-                                            self.tcp.feed_icmp_error(error).await;
+                                            self.tcp
+                                                .feed_icmp_error_observed(error, Some(packet.len()))
+                                                .await;
                                         }
                                         packet::IPPROTO_UDP => {
                                             self.udp.feed(&packet);
@@ -182,11 +194,45 @@ impl Device {
                             _ => {}
                         }
                     } else {
-                        self.traffic.dropped(TrafficPlane::Inner, true);
+                        self.traffic.dropped_reason(
+                            TrafficPlane::Inner,
+                            true,
+                            zero_api::TrafficDropReason::SourceRejected,
+                        );
                     }
                 }
             }
         }
         Ok(())
+    }
+}
+
+impl Drop for Device {
+    fn drop(&mut self) {
+        // These packets were admitted to Zero but never accepted by the device.
+        self.raw_packets.close();
+        self.forwarded_packets.close();
+        while let Ok(packet) = self.raw_packets.try_recv() {
+            self.traffic.dropped_reason(
+                TrafficPlane::Inner,
+                true,
+                zero_api::TrafficDropReason::QueueClosed,
+            );
+            if let Some(observer) = packet.observer {
+                observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed);
+            }
+        }
+        while let Ok(packets) = self.forwarded_packets.try_recv() {
+            for _ in packets.packets {
+                self.traffic.dropped_reason(
+                    TrafficPlane::Inner,
+                    true,
+                    zero_api::TrafficDropReason::QueueClosed,
+                );
+                if let Some(observer) = &packets.observer {
+                    observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed);
+                }
+            }
+        }
     }
 }

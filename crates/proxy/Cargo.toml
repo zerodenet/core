@@ -16,6 +16,7 @@ default = [
     "mixed",
     "vless",
 ]
+host-network-stats = ["zero-platform-tokio/host-network-stats"]
 udp-runtime = []
 udp-response-runtime = ["udp-runtime"]
 managed-udp-runtime = ["udp-runtime"]

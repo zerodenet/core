@@ -2,11 +2,33 @@ pub(super) fn extend(capabilities: &mut zero_api::ApiCapabilities) {
     capabilities.features.extend(
         [
             "direct_tcp_dial_attempt_observability_v1",
+            "traffic_outbound_carrier_io_v1",
+            "traffic_local_drop_reasons_v1",
             "direct_tcp_trusted_target_candidate_fallback",
         ]
         .into_iter()
         .map(str::to_owned),
     );
+    #[cfg(feature = "host-network-stats")]
+    if zero_platform_tokio::network_statistics::SUPPORTED {
+        capabilities
+            .features
+            .push("traffic_host_interface_statistics_v1".into());
+        if let Some(stats) = &mut capabilities.traffic_statistics {
+            stats.host_interface_sampling = true;
+            stats.resettable_scopes.push("host_interface".into());
+            stats
+                .events
+                .push(zero_api::event_type::STATS_HOST_INTERFACES_SAMPLED.into());
+        }
+    }
+    capabilities
+        .global_limitations
+        .push("traffic_network_loss_unobservable".into());
+    #[cfg(feature = "raw-ip-runtime")]
+    capabilities
+        .features
+        .push("traffic_outbound_inner_role_io_v1".to_owned());
     capabilities
         .global_limitations
         .push("direct_udp_trusted_candidate_retarget_unsupported".to_owned());

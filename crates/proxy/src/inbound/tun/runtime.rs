@@ -87,6 +87,8 @@ pub(super) async fn run(
     let packet_ingress_id = NEXT_PACKET_INGRESS_ID.fetch_add(1, Ordering::Relaxed);
     #[cfg(feature = "raw-ip-runtime")]
     let packet_shutdown = shutdown.clone();
+    let packet_traffic: Option<Arc<dyn zero_traits::IoObserver>> =
+        Some(super::statistics::TunTraffic::prepare(proxy.engine(), &tag));
     let packet_tcp = Arc::clone(&tcp);
     let packet_udp = Arc::clone(&udp);
     tasks.spawn(async move {
@@ -100,6 +102,7 @@ pub(super) async fn run(
                 mtu,
                 network_responses,
                 dns_hijack,
+                packet_traffic,
                 #[cfg(feature = "raw-ip-runtime")]
                 packet_route,
                 #[cfg(feature = "raw-ip-runtime")]
@@ -204,6 +207,7 @@ async fn feed_packets(
     mtu: usize,
     network_responses: mpsc::Sender<Vec<u8>>,
     dns_hijack: bool,
+    traffic: Option<Arc<dyn zero_traits::IoObserver>>,
     #[cfg(feature = "raw-ip-runtime")]
     packet_route: crate::runtime::route_runtime::InboundRouteRuntimeFactory,
     #[cfg(feature = "raw-ip-runtime")] packet_ingress_id: u64,
@@ -244,6 +248,7 @@ async fn feed_packets(
                     &echo,
                     mtu,
                     dns_hijack,
+                    traffic.as_deref(),
                 )
                 .await;
                 #[cfg(not(feature = "raw-ip-runtime"))]
@@ -272,6 +277,7 @@ async fn feed_packets(
                     &echo,
                     mtu.max(packet.len()),
                     dns_hijack,
+                    traffic.as_deref(),
                 )
                 .await;
                 #[cfg(not(feature = "raw-ip-runtime"))]
@@ -282,6 +288,9 @@ async fn feed_packets(
             }
             zero_stack::FragmentOutcome::Pending => continue,
             zero_stack::FragmentOutcome::Rejected(reason) => {
+                if let Some(traffic) = &traffic {
+                    traffic.dropped_reason(zero_traits::PacketDropReason::FragmentRejected);
+                }
                 tracing::warn!(?reason, "rejected fragmented TUN packet");
                 continue;
             }

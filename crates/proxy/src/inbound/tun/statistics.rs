@@ -64,8 +64,14 @@ impl IoObserver for TunTraffic {
         }
     }
     fn dropped(&self) {
+        self.dropped_reason(zero_traits::PacketDropReason::Unspecified);
+    }
+    fn dropped_reason(&self, reason: zero_traits::PacketDropReason) {
         for meter in [&self.role, &self.global] {
-            meter.dropped(TrafficPlane::Inner);
+            meter.dropped_reason(
+                TrafficPlane::Inner,
+                crate::runtime::traffic_io::drop_reason(reason),
+            );
         }
     }
 }

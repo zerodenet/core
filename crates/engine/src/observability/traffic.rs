@@ -1,5 +1,8 @@
 //! Current-scope registry and per-scope observation periods; quota state is separate.
 mod counter;
+mod host;
+mod meter;
+pub use host::HostInterfaceSample;
 mod reset;
 mod role;
 pub use role::InboundTrafficRegistration;
@@ -8,8 +11,8 @@ mod view;
 pub use source::PreparedEndpointTraffic;
 
 use counter::CounterSet;
-pub(crate) use counter::TrafficFlowLease;
-pub use counter::{TrafficMeter, TrafficRouteLease};
+pub(crate) use meter::TrafficFlowLease;
+pub use meter::{TrafficMeter, TrafficRouteLease};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -31,11 +34,15 @@ pub(crate) struct TrafficRegistry {
     source_versions: Mutex<BTreeMap<String, u64>>,
     next_source_version: AtomicU64,
     pub(crate) sample_offset: AtomicU64,
+    host_sources: Mutex<BTreeMap<String, HostInterfaceSample>>,
+    pub(crate) host_sample_offset: AtomicU64,
 }
 impl TrafficRegistry {
     pub fn new(up: Arc<AtomicU64>, down: Arc<AtomicU64>) -> Self {
         Self {
             pending: Default::default(),
+            host_sources: Default::default(),
+            host_sample_offset: AtomicU64::new(0),
             transient: Default::default(),
             declared: Default::default(),
             source_versions: Default::default(),
@@ -150,7 +157,7 @@ impl TrafficRegistry {
         }
         let mut entries = self.entries.write().unwrap_or_else(|e| e.into_inner());
         let before = entries.len();
-        entries.retain(|scope, _| current.contains(scope) || matches!(scope, TrafficScope::Peer { endpoint_id, .. } if current.contains(&TrafficScope::Endpoint { endpoint_id: endpoint_id.clone() })));
+        entries.retain(|scope, _| current.contains(scope) || matches!(scope, TrafficScope::HostInterface { .. }) || matches!(scope, TrafficScope::Peer { endpoint_id, .. } if current.contains(&TrafficScope::Endpoint { endpoint_id: endpoint_id.clone() })));
         self.pending
             .lock()
             .unwrap_or_else(|e| e.into_inner())

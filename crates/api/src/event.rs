@@ -17,6 +17,7 @@ pub mod event_type {
 
     pub const STATS_RESET: &str = "stats.reset";
     pub const STATS_SCOPES_SAMPLED: &str = "stats.scopes_sampled";
+    pub const STATS_HOST_INTERFACES_SAMPLED: &str = "stats.host_interfaces_sampled";
     pub const STATS_SAMPLED: &str = "stats.sampled";
     pub const ENDPOINT_STATE_CHANGED: &str = "endpoint.state_changed";
     pub const ENDPOINT_STATS_SAMPLED: &str = "endpoint.stats_sampled";
@@ -41,6 +42,7 @@ pub mod event_type {
         STATS_SAMPLED,
         STATS_RESET,
         STATS_SCOPES_SAMPLED,
+        STATS_HOST_INTERFACES_SAMPLED,
         ENDPOINT_STATE_CHANGED,
         ENDPOINT_STATS_SAMPLED,
         CONFIG_CHANGED,

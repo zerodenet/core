@@ -25,6 +25,7 @@ type MeterProvider = std::sync::Arc<
 
 struct RoutePin {
     _traffic: Vec<zero_engine::TrafficRouteLease>,
+    observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     plane: PacketPlane,
     outbound_peer: Option<std::sync::Arc<str>>,
     touched: Instant,
@@ -37,6 +38,40 @@ pub(crate) struct PacketSessionPins {
 }
 
 impl PacketSessionPins {
+    /// Reuse the observation handle for an admitted conversation. New paths
+    /// prepare once; ordinary packets do not visit the statistics registry.
+    pub(crate) fn inner_io(
+        &self,
+        packet: &[u8],
+        plane: &PacketPlane,
+        peer: Option<std::sync::Arc<str>>,
+        prepare: impl FnOnce() -> Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
+    ) -> Option<std::sync::Arc<dyn zero_traits::IoObserver>> {
+        if let Some(pin) = key(packet, peer).and_then(|key| self.entries.get(&key)) {
+            if &pin.plane == plane {
+                return pin.observer.clone();
+            }
+        }
+        prepare()
+    }
+
+    pub(crate) fn record_observed_peers(
+        &mut self,
+        packet: &[u8],
+        plane: PacketPlane,
+        inbound_peer: Option<std::sync::Arc<str>>,
+        outbound_peer: Option<std::sync::Arc<str>>,
+        observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
+    ) -> bool {
+        if !self.record_peers(packet, plane, inbound_peer.clone(), outbound_peer) {
+            return false;
+        }
+        if let Some(pin) = key(packet, inbound_peer).and_then(|key| self.entries.get_mut(&key)) {
+            pin.observer = observer;
+        }
+        true
+    }
+
     pub(crate) fn with_meters(meters: MeterProvider) -> Self {
         Self {
             entries: Default::default(),
@@ -113,6 +148,7 @@ impl PacketSessionPins {
                     Vec::new(),
                 ),
                 outbound_peer,
+                observer: None,
                 plane,
                 touched: Instant::now(),
             },

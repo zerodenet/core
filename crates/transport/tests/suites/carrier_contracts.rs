@@ -8,3 +8,6 @@ mod outbound_datagram;
 mod proxy_protocol;
 #[path = "../rate_limit.rs"]
 mod rate_limit;
+
+#[path = "../observed_carrier.rs"]
+mod observed_carrier;

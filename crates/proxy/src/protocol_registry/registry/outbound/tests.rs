@@ -27,6 +27,7 @@ impl PreparedPacketRouteOperation for PacketOnlyOperation {
         _ingress_id: u64,
         _replies: mpsc::Sender<Vec<u8>>,
         _egress_generation: u64,
+        _observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<PacketForwardObservation> {
         Ok(PacketForwardObservation::forwarded(None))
     }

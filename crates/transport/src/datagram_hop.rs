@@ -128,7 +128,7 @@ fn native(
     factory: &crate::OutboundDatagramSocketFactory,
     peer: SocketAddr,
 ) -> io::Result<Arc<dyn quinn::AsyncUdpSocket>> {
-    quinn::Runtime::wrap_udp_socket(&quinn::TokioRuntime, factory.bind_std(peer)?)
+    factory.open_native_socket(peer)
 }
 fn forward(
     sender: &tokio::sync::mpsc::Sender<Packet>,

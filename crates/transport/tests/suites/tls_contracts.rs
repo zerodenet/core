@@ -6,3 +6,6 @@ mod tls_ech;
 mod tls_handoff;
 #[path = "../tls_options.rs"]
 mod tls_options;
+
+#[path = "../observed_tls.rs"]
+mod observed_tls;

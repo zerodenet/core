@@ -48,5 +48,6 @@ pub use zero_api::{OutboundTrafficStats, UdpUpstreamStats};
 pub use zero_api::{PolicyProbeCompletedPayload, PolicyProbeMember};
 
 pub use observability::traffic::{
-    InboundTrafficRegistration, PreparedEndpointTraffic, TrafficMeter, TrafficRouteLease,
+    HostInterfaceSample, InboundTrafficRegistration, PreparedEndpointTraffic, TrafficMeter,
+    TrafficRouteLease,
 };

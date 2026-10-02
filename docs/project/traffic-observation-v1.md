@@ -11,7 +11,7 @@ billing or quota semantics.
 |---|---|---|---|
 | global | Existing EngineStats live monotonic upload/download claims; failed registered flows | Actual raw-IP device boundary totals; outer unavailable | TCP / UDP logical flows; observed Packet pins |
 | inbound tag | Existing observed RX/TX business boundary, while active and after completion; failed registered flows | TUN host IP I/O; admitted raw-IP ingress and its responses; outer unavailable | TCP / UDP logical flows; observed Packet pins |
-| outbound tag | Live final-executor Flow observations, while active and after completion; failed registered flows | Shared-device inner role split and per-hop carrier unavailable | TCP / UDP logical flows, including relay membership; observed Packet pins |
+| outbound tag | Live final-executor Flow observations, while active and after completion; failed registered flows | Correlated raw-IP outbound role; observed physical/logical carrier boundaries per hop | TCP / UDP logical flows, including relay membership; observed Packet pins |
 | explicit endpoint_id | Flow direction claims deduplicated across inbound/outbound use of the same resource | WireGuard neutral raw-IP device boundary | TCP / UDP flows deduplicated by ID; observed Packet pins |
 | stable peer_id | Protocol-supplied inbound/outbound Flow bindings with deduplicated business direction claims; failed registered flows | WireGuard identified inner packets and outer datagrams | Bound TCP / UDP flows; observed Packet pins |
 
@@ -56,6 +56,80 @@ bytes. It is observed at TUN/endpoint device boundaries. A shared
 endpoint is counted once per device-boundary observation, regardless of how many
 inbound/outbound aliases or business paths refer to it.
 
+### Outbound Inner and per-hop Outer providers
+
+`traffic_outbound_inner_role_io_v1` declares the neutral raw-IP role provider
+when raw-IP runtime support is compiled. `traffic_outbound_carrier_io_v1`
+declares prepared carrier observation. These are provider capabilities, not a
+promise that every configured tag already has every metric: inspect each
+snapshot's `available_metrics`, `source_roles` and `accounting_basis`.
+
+- Outbound Inner TX counts IP fragments accepted by the selected raw-IP device.
+  Packet queue admission alone does not count. Per-flow provenance follows TCP
+  SYN/ACK/FIN/RST, control packets, retries, UDP fragments, native Packet forwarding
+  and the opt-in Echo translation adapter.
+- Outbound Inner RX counts matched replies after reassembly at the local TCP/UDP
+  stack or native Packet return boundary. It includes matched TCP control/error
+  packets, UDP replies/errors and translated Echo replies. A fragment received
+  at the endpoint is already included in endpoint/peer Inner RX; the role's
+  post-reassembly packet count has a different boundary and need not sum to that
+  device count. Unmatched device traffic is not assigned to an arbitrary alias.
+- Native Packet return accounting uses the pure IP conversation key, not only
+  the source IP. The shared device retains at most 4096 observation associations,
+  expiring after 300 seconds idle. At observation capacity, forwarding continues
+  and the affected role RX metrics become unavailable for that counter-source
+  lifetime; a partial count is not reported as a complete total. Existing return
+  route admission limits remain independent. Closing the device clears associations. A rejected overlapping ingress cannot
+  replace an accepted conversation's observer. This is return correlation, not
+  a second statistics registry.
+- Endpoint/global Inner remains one observation per actual device boundary.
+  Inbound and outbound role snapshots are independent projections; do not sum
+  role aliases to reconstruct device totals. Outbound role Inner drops/errors
+  remain unavailable without a complete role-specific rejection source.
+- The first proxy hop's Outer observes actual socket I/O below transport and
+  protocol encapsulation. Later TCP hops observe their logical stream carrier
+  after the prefix has opened, before that hop's transport/protocol wrapping.
+  UDP codec hops observe encoded datagrams supplied to the preceding packet
+  carrier. Thus every hop records its own carrier bytes, including its framing,
+  instead of copying final-executor Flow bytes onto all hops. A logical hop is
+  not a second physical host socket and does not include preceding-hop headers.
+  Scope identity remains the outbound tag: reuse of a tag across paths or hop
+  occurrences aggregates its owned carrier observations. There is no additional
+  per-route-hop registry, and these totals are not unique host-wire usage.
+- Prepared protocol paths reuse the same observer in native TCP/UDP sockets,
+  QUIC/mKCP datagram factories, port rotation, connected datagram relay drivers,
+  stream relay connectors and protocol-owned pools. Pooled carriers count once
+  at their owner tag. Authentication, transport handshake, keepalive, protocol
+  retransmission and encapsulation are included when they traverse that observed
+  carrier; host IP/TCP/UDP headers and host TCP retransmission are excluded.
+- Stream Outer exposes bytes and surfaced read/write errors. Datagram Outer
+  additionally exposes actual datagram counts, including GSO/GRO normalization.
+  Pending/WouldBlock calls and queued relay admission are not successful sends.
+  If the same statistical tag also uses stream I/O (including SOCKS control
+  streams), its Outer packet metrics become unavailable for that counter-source
+  lifetime; a partial UDP count must not masquerade as a complete packet total.
+  Clearing statistics does not change this coverage limitation.
+- WireGuard device Outer remains in endpoint/peer scopes. Shared handshake,
+  keepalive and other unassigned device control traffic are not divided among
+  outbound aliases; WireGuard outbound-role Outer stays unavailable. A separate
+  outer proxy hop can expose its own observed carrier scope. Built-in direct
+  execution has no new synthetic protocol-carrier provider. Externally owned
+  browser transports and virtual reverse targets without an owned carrier do
+  not declare a physical socket measurement. Preparing an observer alone does
+  not enable Outer bytes; an observed carrier must actually attach.
+
+Native Packet paths retain their prepared role observer in the existing bounded
+conversation pin. Subsequent packets clone that handle without another statistics
+registry lookup or observer allocation. Expiry/ingress teardown releases it,
+including cached unavailable providers. New Flow/stream/datagram carriers prepare
+their handles at connection/carrier construction; hot writes only update atomics.
+
+The providers reuse `traffic_stat`, paginated `traffic_stats`, the `stats.reset`
+command, and `stats.scopes_sampled` / `stats.reset` events. Available role/counter planes
+participate in the existing independent baseline/epoch reset. Active flows,
+resource generations, global business totals, quotas and configuration remain
+unchanged. Connector delivery is optional and does not own these counters.
+
 ### Metric semantics
 
 - Bytes are bytes; packets are complete observations at the stated boundary.
@@ -68,10 +142,10 @@ inbound/outbound aliases or business paths refer to it.
 - Endpoint/peer Inner RX: authenticated, source-allowed plaintext IP packets before reassembly.
   Inner TX: packets accepted into the tunnel, after required fragmentation, before
   encryption. Queued packets awaiting handshake count at this boundary once.
-- Outer RX: UDP datagram payload received at the protocol carrier boundary,
+- Endpoint/peer Outer RX: UDP datagram payload received at the protocol carrier boundary,
   including rejected/unidentified datagrams at the endpoint. Peer RX requires
   authenticated identity. Peer RX therefore need not sum to endpoint RX.
-- Outer TX: successfully handed-off UDP payload, including handshake, rekey,
+- Endpoint/peer Outer TX: successfully handed-off UDP payload, including handshake, rekey,
   cookie responses where identifiable, keepalive and protocol retries. It excludes
   host IP/UDP headers and encapsulation performed by an outer proxy carrier.
 - `dropped_packets`: explicit runtime boundary rejections (decode/source/fragment
@@ -116,8 +190,7 @@ of the conversation key, and a changed target peer replaces its old memberships.
 Removing/expiring pins releases activity without altering cumulative bytes or
 observation epochs. Flow pins do not increment Packet activity. Direct Echo
 probe correlation is not included in this pin-provider count. Unregistered host
-L3 paths, per-hop carriers, shared outbound-role inner measurements, OS-wide
-loss, and TCP packet measurements remain unavailable.
+L3 paths, OS-wide loss, and TCP carrier packet measurements remain unavailable.
 
 ## Queries
 
@@ -430,7 +503,8 @@ resource ID. Inspect `available_metrics`, `accounting_basis`, and Flow
 providers through the existing Admin `stats.reset` CAS transaction. Global is
 an explicitly independent observation scope; it never cascades to its sources.
 
-Remaining **provider limitations**, rather than fabricated zeros: arbitrary
+At the end of the 2026-10-01 implementation, remaining **provider limitations**
+were: arbitrary
 protocol/hop carrier socket instrumentation, a correct per-alias inner split
 of shared outbound devices, and protocol-internal/OS-wide loss. TCP Flow packet
 counts have no defined packet boundary. Peer identities for protocols lacking a
@@ -457,13 +531,13 @@ were corrected; the complete affected targets were rerun:
   duplicated host helper into the shared suite module.
   Log: `/Volumes/tool/tmp/zero-traffic-followup-corrected-wireguard.log`.
 
-There was no second complete workspace run after these fixture corrections; the
+On 2026-10-01 there was no second complete workspace run after these fixture corrections; the
 first run must not be described as a single green gate. The only subsequent
 production-source edit removed a redundant `Default` struct update after all
 three activity fields had already been specified. A source digest check confirmed
 that restoring just that no-effect line reproduces the full run's runtime source.
 
-Current-source checks:
+Checks recorded on 2026-10-01:
 
 - Final `cargo fmt --all --check`, `git diff --check`, and integration layout:
   passed (270 source files, 88 registered targets, 0 layout errors).
@@ -486,3 +560,259 @@ shared-resource claims, native Packet pins, source retirement, reset isolation,
 concurrent reset preconditions, usage/quota preservation, and bounded slow-consumer
 recovery. Windows cross compilation is not native Wintun execution; privileged
 real TUN, external peers and sustained-operation acceptance remain separate.
+
+
+## Outbound carrier and shared-device role follow-up, 2026-10-02
+
+This follow-up implements the first two provider gaps recorded above. The source
+and metric sections define the boundaries and current exclusions. It adds no
+statistics transport, protocol-specific control command, Connector dependency or
+client-side authoritative accumulator.
+
+Clients may batch final Flow, shared-device role Inner and each carrier hop:
+
+```json
+{"traffic_stats":{"scopes":[
+  {"kind":"outbound","tag":"first-ss"},
+  {"kind":"outbound","tag":"final-socks"},
+  {"kind":"outbound","tag":"wg-a"},
+  {"kind":"endpoint","endpoint_id":"endpoint:wg-a"}
+],"offset":0,"limit":64}}
+```
+
+Use tags and IDs returned by the active inventory. `first-ss` and `final-socks`
+illustrate a configured relay, not mandatory protocol naming. Outer follows
+actual hop I/O while Flow keeps its existing final-executor semantics. The same
+`stats.reset` target/epoch CAS can independently clear an outbound's available
+Inner/Outer observations while its live connections and endpoint counters remain.
+
+New coverage regression includes real TCP/UDP relay hops, real QUIC datagrams,
+WireGuard active TCP/UDP and bidirectional role separation, raw-IP fragment and
+control-packet provenance, correlated UDP overflow, rejected overlapping ingress,
+bounded observation pressure, partial stream writes, connected relay queue
+admission, batched GSO/GRO and TLS handshake/ciphertext/raw-handoff observation.
+Verification results are recorded separately from implementation claims below.
+
+### Verification recorded on 2026-10-02
+
+- Final complete gate, `bash scripts/test-workspace.sh --jobs 2`: **146 harnesses,
+  2335 passed, 0 failed, 155 ignored**, exit 0, 3428 seconds. The script ran the
+  workspace/all-feature unit, integration and doctests with the required 16 MiB
+  test-thread stack. UTC start/end: `2026-10-01T16:59:07Z` / `17:56:15Z`.
+  Log: `/Volumes/tool/tmp/zero-stats-outbound-full-final-20261002.log`.
+- This final gate includes the admitted-path observer cache and its expiry,
+  unavailable-provider and ingress-peer isolation regression. Proxy unit tests:
+  **287 passed, 1 ignored**. WireGuard integration: **9 passed**.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`: passed,
+  105 seconds. Log: `/Volumes/tool/tmp/zero-stats-outbound-clippy-final-20261002.log`.
+- `cargo check --workspace`: passed, 121 seconds.
+  Log: `/Volumes/tool/tmp/zero-stats-outbound-check-final-20261002.log`.
+- Without Connector, `cargo check --no-default-features --features
+  status-api,wireguard,socks5`: passed, 76 seconds. The same graph's real HTTP
+  query/reset permission and stale-epoch test: **1 passed, 56 filtered**, exit 0;
+  test build/execution took 130 seconds. The cropped graph still emits 303
+  unused/dead-code warnings; they were not suppressed. Normal dependency-tree
+  inspection confirms `zero-connector` is absent.
+  Logs: `/Volumes/tool/tmp/zero-stats-outbound-no-connector-check-20261002.log`,
+  `/Volumes/tool/tmp/zero-stats-outbound-no-connector-http-20261002.log` and
+  `/Volumes/tool/tmp/zero-stats-outbound-no-connector-tree-20261002.log`.
+- `cargo fmt --all --check`, `git diff --check` and integration layout: passed
+  (274 source files, 88 registered targets, 0 layout errors).
+
+An earlier complete-gate attempt was intentionally interrupted during compilation
+to remove per-packet observer preparation (220 seconds, exit 130); it is not a
+successful gate. Log: `/Volumes/tool/tmp/zero-stats-outbound-full-20261002.log`.
+The final source gate above supersedes that attempt. Ignored official-binary,
+privileged-TUN and sustained/external-network qualification cases remain
+unexecuted. Loopback regression is not production acceptance. This follow-up
+does not install a kernel, change a client or publish a release.
+
+## Local discards and optional host interface observation
+
+The loss follow-up retains one Engine statistics registry, period baseline,
+Query/Command/Event envelope and bounded replay log. It does not redefine Flow
+usage or claim complete operating-system/remote-network loss.
+
+### Observed local discards
+
+`traffic_local_drop_reasons_v1` and
+`traffic_statistics.local_drop_reasons=true` declare reason-aware observation.
+Each plane adds `drop_reasons` (sparse `{reason, packets}` counters),
+`drop_reasons_resettable` and
+`drop_coverage="observed_local_boundary_discards_only"` where observed. Reasons
+are a fixed, allocation-free data-plane enum, mapped to API values at the proxy
+boundary:
+
+- `unspecified`: a legacy observer did not supply a narrower reason.
+- `queue_full` / `queue_closed`: an owner actually discarded a packet, not merely
+  returned backpressure or transferred the packet into a retry queue.
+- `invalid_packet`, `source_rejected`, `fragment_rejected`, `policy_rejected`:
+  explicit runtime/protocol boundary refusal. Protocol-private crypto/replay
+  details remain protocol-owned and are not guessed from an empty action list.
+- `io_failure`: a known packet could not be encoded/sent at its boundary.
+- `no_route` / `hop_limit`: a packet was consumed without a forwarding path,
+  or its forwarding hop limit was exhausted.
+
+Covered observations include raw-IP input/encode/carrier/source/fragment/policy
+rejections (including protocol-reported WireGuard AllowedIPs source rejects),
+native/translated Packet return queue refusal, TUN packet routing
+and bridge failure/drain, client UDP receive queue saturation/teardown, raw-IP
+queued-output teardown, and TCP control retry queue final discard/drain. A
+matched reply stays consumed even when its receive queue is full; it must not
+become a newly admitted inbound flow. Initial TCP output saturation followed by
+successful retry is not a discard. Output queue APIs returning ownership do not
+claim a drop; the consuming owner records a final discard. Attribution capacity
+pressure that preserves forwarding only marks coverage unavailable.
+
+Reasons are observations, not a promise that every internal queue or protocol
+state machine is instrumented. A missing reason is not an observed zero. A
+reason remains present with zero after `stats.reset`. Partial role coverage can
+have reason counters while `counters.dropped_packets` remains null. Do not sum
+reason counters with `dropped_packets`, or sum duplicate global/endpoint/role/peer
+projections. Per-counter captures are monotonic and individually atomic;
+concurrent writes can make aggregate/reason snapshots differ within the existing
+capture window. Reset captures each baseline under the existing period boundary,
+without clearing source counters, live flows, devices, usage or quota state.
+
+### Host interface scope and platform sources
+
+The optional Cargo feature `host-network-stats` (root and zero-proxy) enables a
+read-only provider independent of Connector. Default builds do not enable it.
+On supported platforms, Proxy advertises
+`traffic_host_interface_statistics_v1` and
+`traffic_statistics.host_interface_sampling=true`, adds `host_interface` to
+resettable scopes, and advertises `stats.host_interfaces_sampled`.
+The existing traffic statistics contract version remains 1; discovery is
+additive. Unsupported platforms do not advertise this provider.
+
+Host interface observations have scope `{"kind":"host_interface","name":"en0"}`
+(or a published Linux interface name), exactly one `plane="host"`, no execution
+roles, and null Flow/Packet activity. The Host plane is separate from Flow,
+Inner and Outer and includes all applications using that interface. It is not a
+WireGuard, endpoint, peer, per-hop, business-usage or system-wide total. Physical
+and virtual interfaces can observe the same packet at different boundaries;
+never sum them into one purported network-loss total.
+
+| Source | Observed fields | Unavailable / accounting qualification |
+|---|---|---|
+| Linux `/proc/net/dev` | RX/TX bytes, packets, receive/transmit errors and dropped packets | `rx_dropped_packets` is the procfs drop column, which folds `rx_missed_errors` into receive drops; current process network namespace |
+| macOS `NET_RT_IFLIST2` / `if_data64` | 64-bit RX/TX bytes/packets/errors; `ifi_iqdrops` as receive queue drops | TX drop packets null; receive queue drops do not claim all OS receive loss |
+| Other platforms | No provider advertised | Host counters are unavailable; no fabricated interface identities or zeros |
+
+The Host plane uses `rx_dropped_packets`, `tx_dropped_packets`, `rx_errors`,
+`tx_errors`; its legacy undirected `dropped_packets` and `errors` remain null.
+Each counter is an OS-published fact with its source-specific `accounting_basis`,
+not a harmonized estimate of remote loss. Sources:
+[Linux interface statistics](https://www.kernel.org/doc/html/latest/networking/statistics.html)
+and [Apple interface structures](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_var.h).
+
+The provider reads on the existing blocking sampling worker at one-second ticks;
+there is no data-path syscall, subprocess, disk write or per-packet JSON. Reads
+are bounded to 256 interfaces / 256 KiB, and macOS retries a changing inventory
+at most three times. An invalid/oversized/failed batch suspends current host
+metrics (null) rather than publishing partial totals or treating a missing page
+as resource deletion. A successful complete inventory retires removed labels.
+Interface index change, counter decrease/wrap or metric schema change creates a
+new observation generation and stats_epoch. Sub-second removal/recreation with
+indistinguishable OS identity/counters cannot be proven by a sampled provider.
+
+Initial capture establishes a raw-counter baseline, excluding traffic before
+Zero observed the source. Snapshots expose `source_sampled_at_unix_ms` and
+`source_sampled_at_monotonic_ns` alongside query capture timestamps. The monotonic
+source timestamp belongs to this observation generation; use it for Host rate
+deltas and ignore repeat snapshots with the same source timestamp. A failed read
+retains the last source timestamp and marks counters unavailable; a successful
+read restores availability. Recovery within one source generation retains its
+observation epoch and includes accumulated source deltas across the gap.
+
+### Client query, reset and event examples
+
+Legacy default pages and `stats.scopes_sampled` still exclude Host scopes, so old
+clients never receive unknown scope/plane variants through those paths. New
+clients can query one published name or opt into mixed paginated inventories:
+Typed default queries omit `include_host_interfaces=false` during serialization,
+so they remain accepted by older kernels with strict query field validation.
+Clients must discover support before sending the opt-in field or Host scope.
+
+```json
+{"traffic_stat":{"scope":{"kind":"host_interface","name":"en0"}}}
+```
+
+```json
+{"traffic_stats":{"include_host_interfaces":true,"offset":0,"limit":64}}
+```
+
+For selected interfaces, use the existing `scopes` array. Pagination identity
+checks (`expected_core_instance_id`, `expected_config_revision`,
+`expected_registry_revision`) remain applicable. Query does not synchronously
+poll the operating system; source timestamps make freshness explicit.
+
+Admin `stats.reset` accepts the queried host identity with its returned
+`expected_stats_epoch`, `expected_generation` and `expected_core_instance_id`.
+It returns the confirmed snapshot/new epoch and publishes the existing
+`stats.reset` event. It neither clears OS counters nor restarts an interface,
+endpoint or flow, nor cascades into any other scope. A host reset uses the last
+successfully ingested OS sample as its observation baseline, not a packet-exact
+wall-clock OS cut. The confirmed snapshot retains that source timestamp; the
+next sample reports deltas from that baseline. Unsupported/unavailable-only
+scopes reject reset. Stale/deleted targets use existing Conflict/NotFound errors;
+request retry retains the existing epoch-CAS semantics.
+
+`stats.host_interfaces_sampled` carries the existing `TrafficListSnapshot` page
+schema, with Host scopes only, at most 64 per tick and an independent round-robin
+cursor. Selected-identity pages use direct registry lookups, avoiding a scan of
+unrelated endpoint/peer labels on every host sampling tick. Thus 256 interfaces
+take up to four ticks to appear. It uses the existing
+bounded subscriber/history byte budgets, sequence numbers, replay and filters;
+slow consumers cannot block I/O. Connector's generic known-event filter accepts
+this event and delivers the existing `zero.event.v1` envelope. No protocol-
+specific command, delivery path or second statistics API is introduced.
+
+After restart/generation/epoch change, requery and establish a fresh curve
+baseline. After a subscription gap, query current snapshots; cumulative Host
+counts recover without replaying every sample. Counters remain unavailable for
+unobserved socket queues, driver-specific drops, protocol-private queues and
+remote loss. TX minus RX, retransmission, ping timeout or connect failure is
+never substituted for an exact dropped-packet count.
+
+### Loss follow-up validation (2026-10-02)
+
+The final runtime source passed the full workspace/all-feature gate. Earlier
+interrupted or failed attempts are not counted as qualification. Subsequent
+changes only clarified this document.
+
+| Check | Actual result |
+|---|---|
+| `bash scripts/test-workspace.sh --jobs 2` | Exit 0; 146 test programs, 2352 passed, 0 failed, 155 ignored; 3004 seconds, including compilation and doctests |
+| `cargo clippy --workspace --all-targets --all-features --jobs 2 -- -D warnings` | Exit 0; 9m 16s |
+| `cargo check --workspace --jobs 2` | Exit 0; 2m 46s |
+| Root check with `--no-default-features --features status-api,wireguard,socks5,host-network-stats` | Exit 0; dependency tree contains no `zero-connector` |
+| Same root feature set, `--bin zero statistics_http_query_and_reset_enforce_permissions_and_epoch_preconditions` | 1 passed; permissions and epoch preconditions enforced without Connector |
+| `zero-proxy --no-default-features --features socks5,wireguard,host-network-stats --test proxy_control host_traffic::` | 1 passed; real macOS source, sampling event, query and reset without Connector |
+| `zero-platform-tokio --features host-network-stats --target x86_64-unknown-linux-gnu` check | Exit 0; Linux cross-compilation, not Linux runtime acceptance |
+| Format, diff whitespace and test layout | Passed; 276 integration source files aggregated into 88 targets, 0 layout errors |
+
+Full gate timestamps: `2026-10-01T19:47:59Z` to
+`2026-10-01T20:38:03Z`. Local evidence logs are under `/Volumes/tool/tmp/`:
+`zero-loss-full-accepted-20261002.log`, `zero-loss-clippy-20261002.log`,
+`zero-loss-default-check-20261002.log`, `zero-loss-no-connector-check-20261002.log`,
+`zero-loss-no-connector-tree-20261002.log`,
+`zero-loss-no-connector-http-20261002.log`,
+`zero-loss-no-connector-host-20261002.log` and `zero-loss-linux-check-20261002.log`.
+These are local verification artifacts, not shipped API state.
+
+The focused no-Connector graph still emits unused/dead-code warnings (including
+303 from zero-proxy); its successful build is not a warning-free qualification.
+The strict Clippy result above applies to the complete all-feature graph.
+
+Covered regressions include live/reset Flow continuity and usage/quota isolation,
+scope isolation and stale/concurrent reset preconditions, host source failure and
+recovery, generation/epoch changes and label retirement, bounded inventory and
+event pagination, subscriber gaps, WireGuard source rejects, UDP queue refusal
+and teardown, and TCP retry versus final discard. The platform tests read real
+64-bit macOS counters and exercise the Linux procfs parser.
+
+Ignored external-reference/privileged/browser tests, actual Linux runtime,
+long-duration production behavior and unobservable network/driver/protocol loss
+remain outside this acceptance evidence. No client modification, commit, push,
+release or running-client installation was performed for this follow-up.

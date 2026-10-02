@@ -5,6 +5,8 @@ mod tcp;
 
 use crate::inbound::multiplex::stream::MieruLogicalStream;
 pub use datagram::ClientDatagramCarrier;
+#[cfg(feature = "runtime")]
+pub(crate) use datagram::ObservedClientDatagramCarrier;
 pub(crate) use datagram::UdpClientDatagramCarrier;
 pub use pool::{ClientPool, ClientPoolPolicy, ClientPoolSnapshot, PoolKey};
 use std::{

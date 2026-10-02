@@ -109,7 +109,10 @@ impl crate::runtime::udp_flow::packet_path::PacketPathCarrierDescriptorBuild
 fn packet_path_carrier_descriptor(
     plan: ShadowsocksManagedUdpPacketPathPlan,
 ) -> PacketPathCarrierDescriptor {
-    packet_path_carrier_descriptor_from_build(plan.into_carrier_descriptor())
+    let tag = plan.tag().to_owned();
+    let mut descriptor = packet_path_carrier_descriptor_from_build(plan.into_carrier_descriptor());
+    descriptor.tag = Some(tag);
+    descriptor
 }
 
 async fn build_packet_path(

@@ -37,3 +37,24 @@ pub fn packet_conversation_key(packet: &[u8]) -> Option<PacketConversationKey> {
         transport_identity,
     })
 }
+
+/// Correlate a reply (or an ICMP quote of the sent packet) to its outbound
+/// conversation. This is pure metadata; it does not choose an execution role.
+pub fn packet_return_key(packet: &[u8]) -> Option<PacketConversationKey> {
+    if let Some(error) = super::parse_icmp_error(packet) {
+        return Some(PacketConversationKey {
+            source: error.quoted_source.ip,
+            destination: error.quoted_destination.ip,
+            protocol: error.quoted_protocol,
+            transport_identity: Some((error.quoted_source.port, error.quoted_destination.port)),
+        });
+    }
+    let mut key = packet_conversation_key(packet)?;
+    std::mem::swap(&mut key.source, &mut key.destination);
+    if matches!(key.protocol, IPPROTO_TCP | IPPROTO_UDP) {
+        key.transport_identity = key
+            .transport_identity
+            .map(|(source, destination)| (destination, source));
+    }
+    Some(key)
+}

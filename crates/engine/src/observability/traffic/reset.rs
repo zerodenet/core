@@ -59,7 +59,7 @@ impl TrafficRegistry {
             if project(&target.scope, entry, &period, core, revision)
                 .planes
                 .iter()
-                .all(|p| p.resettable_metrics.is_empty())
+                .all(|p| p.resettable_metrics.is_empty() && p.drop_reasons.is_empty())
             {
                 return Err(ApiError::new(
                     ApiErrorCode::Unsupported,

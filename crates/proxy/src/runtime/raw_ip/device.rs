@@ -36,10 +36,15 @@ pub(crate) use endpoint::EndpointPacket;
 use health::DeviceHealth;
 use returns::PacketReturns;
 
+pub(super) struct ForwardedPackets {
+    packets: Vec<Vec<u8>>,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
+}
+
 pub(crate) struct SharedRawIpDevice {
     udp: ClientUdpStack,
     tcp: Arc<ClientTcpStack>,
-    forwarded_packets: mpsc::Sender<Vec<Vec<u8>>>,
+    forwarded_packets: mpsc::Sender<ForwardedPackets>,
     returns: Arc<PacketReturns>,
     closed: Arc<AtomicBool>,
     health: Arc<Mutex<DeviceHealth>>,
@@ -101,14 +106,22 @@ impl SharedRawIpDevice {
         tunnel: Box<dyn RawIpTunnel>,
         traffic: super::RawIpTraffic,
     ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
-        let (outbound, raw_packets) = mpsc::channel(128);
+        let (outbound, raw_packets) =
+            mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
-        let udp = ClientUdpStack::new(local_addresses.clone(), outbound.clone(), mtu)?;
+        let udp = ClientUdpStack::new_observed_with_drops(
+            local_addresses.clone(),
+            outbound.clone(),
+            mtu,
+            Some(Arc::new(traffic.clone())),
+        )?;
         let tcp = Arc::new(
-            ClientTcpStack::new(local_addresses, outbound.clone(), mtu)
+            ClientTcpStack::new_observed(local_addresses, outbound.clone(), mtu)
                 .map_err(|_| zero_stack::client_udp::ClientUdpStackError::InvalidMtu)?,
         );
-        let returns = Arc::new(PacketReturns::default());
+        let returns = Arc::new(PacketReturns::with_drop_observer(Some(Arc::new(
+            traffic.clone(),
+        ))));
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
         let (ready_tx, ready) = watch::channel(None);
@@ -209,6 +222,8 @@ impl SharedRawIpDevice {
         source: IpAddr,
         ingress_id: u64,
         replies: mpsc::Sender<Vec<u8>>,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+        conversation: Option<zero_stack::packet::PacketConversationKey>,
     ) -> std::io::Result<()> {
         if !self.is_usable() {
             return Err(std::io::Error::new(
@@ -220,11 +235,18 @@ impl SharedRawIpDevice {
             .forwarded_packets
             .try_reserve()
             .map_err(|error| std::io::Error::other(error.to_string()))?;
-        self.returns.register(source, ingress_id, replies)?;
-        permit.send(packets);
+        self.returns.register_observed(
+            source,
+            ingress_id,
+            replies,
+            observer.clone(),
+            conversation,
+        )?;
+        permit.send(ForwardedPackets { packets, observer });
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn bind_udp(
         &self,
         local_ip: IpAddr,
@@ -233,18 +255,32 @@ impl SharedRawIpDevice {
         if self.retired.load(Ordering::Acquire) || self.is_closed() {
             return Err(zero_stack::client_udp::ClientUdpStackError::OutboundClosed);
         }
-        self.udp.bind(local_ip)
+        self.bind_udp_observed(local_ip, None)
     }
 
-    pub(crate) async fn open_tcp(
+    pub(crate) fn bind_udp_observed(
+        &self,
+        local_ip: IpAddr,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Result<zero_stack::ClientUdpSocket, zero_stack::ClientUdpStackError> {
+        if !self.is_usable() {
+            return Err(zero_stack::ClientUdpStackError::OutboundClosed);
+        }
+        self.udp.bind_observed(local_ip, observer)
+    }
+
+    pub(crate) async fn open_tcp_observed(
         &self,
         local_ip: IpAddr,
         destination: SocketAddr,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<UserTcpStream, zero_stack::ClientTcpStackError> {
-        if self.retired.load(Ordering::Acquire) || self.is_closed() {
+        if !self.is_usable() {
             return Err(zero_stack::ClientTcpStackError::OutboundClosed);
         }
-        self.tcp.connect(local_ip, destination).await
+        self.tcp
+            .connect_observed(local_ip, destination, observer)
+            .await
     }
 }
 

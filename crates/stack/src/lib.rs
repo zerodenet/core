@@ -34,6 +34,7 @@ pub mod client_udp;
 pub mod echo_translation;
 pub mod fragment;
 pub mod packet;
+pub mod packet_output;
 pub mod system;
 pub mod tcp;
 pub mod udp;

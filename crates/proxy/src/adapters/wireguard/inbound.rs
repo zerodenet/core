@@ -315,6 +315,7 @@ impl RawIpInboundDevice for WireguardInboundDevice {
         Ok(RawIpInboundDispatch {
             peer_index: dispatch.peer_index,
             authenticated: dispatch.authenticated,
+            source_rejected_packets: dispatch.source_rejected_packets,
             actions: dispatch.actions.into_iter().map(map_action).collect(),
         })
     }

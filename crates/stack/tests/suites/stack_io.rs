@@ -8,3 +8,6 @@ mod tcp_accept_identity;
 mod tcp_receive_recovery;
 #[path = "../udp_queue.rs"]
 mod udp_queue;
+
+#[path = "../packet_observation.rs"]
+mod packet_observation;

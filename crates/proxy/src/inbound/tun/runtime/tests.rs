@@ -334,6 +334,7 @@ async fn tun_packet_loop_reassembles_fragmented_udp_before_dispatch() {
         576,
         network_responses,
         false,
+        None,
         #[cfg(feature = "raw-ip-runtime")]
         packet_route,
         #[cfg(feature = "raw-ip-runtime")]

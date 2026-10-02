@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::packet_output::{ObservedPacket, PacketSender};
 use tokio::sync::{mpsc, watch};
 use tracing::warn;
 
@@ -8,8 +9,8 @@ const TCP_CONTROL_QUEUE_CAPACITY: usize = 256;
 
 #[derive(Clone)]
 pub(super) struct TcpControlPackets {
-    sender: mpsc::Sender<Vec<u8>>,
-    outbound: mpsc::Sender<Vec<u8>>,
+    sender: mpsc::Sender<ObservedPacket>,
+    outbound: PacketSender,
     pending: Arc<AtomicUsize>,
     dropped: Arc<AtomicU64>,
     closed: Arc<AtomicBool>,
@@ -29,8 +30,8 @@ impl Drop for ControlLifetime {
 }
 
 struct ControlWorker {
-    receiver: mpsc::Receiver<Vec<u8>>,
-    outbound: mpsc::Sender<Vec<u8>>,
+    receiver: mpsc::Receiver<ObservedPacket>,
+    outbound: PacketSender,
     pending: Arc<AtomicUsize>,
     dropped: Arc<AtomicU64>,
     closed: Arc<AtomicBool>,
@@ -38,7 +39,7 @@ struct ControlWorker {
 }
 
 impl TcpControlPackets {
-    pub(super) fn new(outbound: mpsc::Sender<Vec<u8>>) -> Self {
+    pub(super) fn new(outbound: PacketSender) -> Self {
         let (sender, receiver) = mpsc::channel(TCP_CONTROL_QUEUE_CAPACITY);
         let pending = Arc::new(AtomicUsize::new(0));
         let dropped = Arc::new(AtomicU64::new(0));
@@ -63,6 +64,14 @@ impl TcpControlPackets {
         }
     }
 
+    pub(super) fn with_observer(
+        mut self,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Self {
+        self.outbound = self.outbound.with_observer(observer);
+        self
+    }
+
     pub(super) fn ensure_worker(&self) {
         let worker = self
             .worker
@@ -80,6 +89,7 @@ impl TcpControlPackets {
             .lock()
             .expect("TCP control send gate poisoned");
         if self.closed.load(Ordering::Acquire) {
+            self.discard(zero_traits::PacketDropReason::QueueClosed);
             return false;
         }
         if self.pending.load(Ordering::Acquire) == 0 {
@@ -89,6 +99,7 @@ impl TcpControlPackets {
                     return self.enqueue(packet);
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
+                    self.discard(zero_traits::PacketDropReason::QueueClosed);
                     self.report_closed("TCP control packet transport is closed");
                     return false;
                 }
@@ -99,9 +110,13 @@ impl TcpControlPackets {
 
     fn enqueue(&self, packet: Vec<u8>) -> bool {
         self.pending.fetch_add(1, Ordering::AcqRel);
-        match self.sender.try_send(packet) {
+        match self.sender.try_send(ObservedPacket {
+            packet,
+            observer: self.outbound.observer(),
+        }) {
             Ok(()) => true,
             Err(mpsc::error::TrySendError::Full(_)) => {
+                self.discard(zero_traits::PacketDropReason::QueueFull);
                 self.pending.fetch_sub(1, Ordering::AcqRel);
                 if self.dropped.fetch_add(1, Ordering::AcqRel) == 0 {
                     warn!(
@@ -112,6 +127,7 @@ impl TcpControlPackets {
                 false
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
+                self.discard(zero_traits::PacketDropReason::QueueClosed);
                 self.pending.fetch_sub(1, Ordering::AcqRel);
                 self.report_closed("TCP control packet retry queue is closed");
                 false
@@ -119,6 +135,11 @@ impl TcpControlPackets {
         }
     }
 
+    fn discard(&self, reason: zero_traits::PacketDropReason) {
+        if let Some(observer) = self.outbound.observer() {
+            observer.dropped_reason(reason);
+        }
+    }
     fn report_closed(&self, message: &'static str) {
         if !self.closed.swap(true, Ordering::AcqRel) {
             warn!(dropped = self.dropped.load(Ordering::Acquire), "{message}");
@@ -136,10 +157,11 @@ async fn run_control_worker(mut worker: ControlWorker) {
                 None => return,
             },
         };
+        let mut discard = PendingDiscard(packet.observer.clone());
         let send_result = tokio::select! {
             biased;
             _ = worker.shutdown.changed() => return,
-            result = worker.outbound.send(packet) => result,
+            result = worker.outbound.send_packet(packet) => result,
         };
         if send_result.is_err() {
             worker.receiver.close();
@@ -153,6 +175,7 @@ async fn run_control_worker(mut worker: ControlWorker) {
             }
             return;
         }
+        discard.0 = None;
         if worker.pending.fetch_sub(1, Ordering::AcqRel) == 1 {
             let dropped = worker.dropped.swap(0, Ordering::AcqRel);
             if dropped > 0 {
@@ -164,3 +187,26 @@ async fn run_control_worker(mut worker: ControlWorker) {
         }
     }
 }
+
+/// Only final discard counts. Initial queue saturation can be retried successfully.
+struct PendingDiscard(Option<Arc<dyn zero_traits::IoObserver>>);
+impl Drop for PendingDiscard {
+    fn drop(&mut self) {
+        if let Some(observer) = &self.0 {
+            observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed);
+        }
+    }
+}
+impl Drop for ControlWorker {
+    fn drop(&mut self) {
+        self.receiver.close();
+        while let Ok(packet) = self.receiver.try_recv() {
+            if let Some(observer) = packet.observer {
+                observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed);
+            }
+        }
+    }
+}
+#[cfg(test)]
+#[path = "../../tests/observation/tcp_control.rs"]
+mod tests;

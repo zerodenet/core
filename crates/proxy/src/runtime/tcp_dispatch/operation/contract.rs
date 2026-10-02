@@ -8,6 +8,7 @@ use crate::protocol_registry::TcpExecutionServices;
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure, TcpRelayStream};
 
 pub(crate) struct LazyTcpRelayCarrier<'a> {
+    observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     identity: String,
     generation: u64,
     connector: Option<zero_transport::relay_connector::RelayStreamConnector>,
@@ -21,6 +22,7 @@ impl<'a> LazyTcpRelayCarrier<'a> {
         open: Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>,
     ) -> Self {
         Self {
+            observer: None,
             identity,
             generation,
             connector: None,
@@ -28,6 +30,13 @@ impl<'a> LazyTcpRelayCarrier<'a> {
         }
     }
 
+    pub(crate) fn with_observer(
+        mut self,
+        observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
+    ) -> Self {
+        self.observer = observer;
+        self
+    }
     pub(crate) fn with_connector(
         mut self,
         connector: zero_transport::relay_connector::RelayStreamConnector,
@@ -38,7 +47,9 @@ impl<'a> LazyTcpRelayCarrier<'a> {
     pub(crate) fn connector(
         &self,
     ) -> Option<zero_transport::relay_connector::RelayStreamConnector> {
-        self.connector.clone()
+        self.connector
+            .clone()
+            .map(|connector| connector.with_observer(self.observer.clone()))
     }
 
     pub(crate) fn identity(&self) -> &str {
@@ -50,7 +61,13 @@ impl<'a> LazyTcpRelayCarrier<'a> {
     }
 
     pub(crate) async fn open(self) -> Result<TcpRelayStream, EngineError> {
-        self.open.await
+        let stream = self.open.await?;
+        Ok(match self.observer {
+            Some(observer) => zero_transport::TcpRelayStream::new(
+                zero_transport::observed::ObservedStream::new(stream, observer),
+            ),
+            None => stream,
+        })
     }
 }
 

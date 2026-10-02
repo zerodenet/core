@@ -80,6 +80,7 @@ impl PreparedUdpFlowOperation for RawIpUdpOperation {
                 session.port,
                 target,
                 local_ip,
+                services.outbound_inner_io(&self.tag),
             )
             .map_err(|error| failure("raw_ip_stack", invalid(format!("{error:?}"))))?;
             dispatch

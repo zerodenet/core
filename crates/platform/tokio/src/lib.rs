@@ -1,3 +1,5 @@
+#[cfg(feature = "host-network-stats")]
+pub mod network_statistics;
 use std::io;
 mod icmp;
 mod packet_socket;
@@ -34,6 +36,7 @@ pub struct TokioSocket {
     inner: TcpStream,
     effective_addresses: Option<(SocketAddr, SocketAddr)>,
     egress_interface: Option<EgressInterface>,
+    observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
 }
 
 #[derive(Debug)]
@@ -67,11 +70,23 @@ impl TcpConnectError {
 }
 
 impl TokioSocket {
+    pub fn with_observer(
+        mut self,
+        observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
+    ) -> Self {
+        if let Some(observer) = &observer {
+            observer.stream_boundary();
+        }
+        self.observer = observer;
+        self
+    }
+
     pub fn new(inner: TcpStream) -> Self {
         Self {
             inner,
             effective_addresses: None,
             egress_interface: None,
+            observer: None,
         }
     }
 
@@ -150,6 +165,7 @@ impl TokioSocket {
             inner: stream,
             effective_addresses: None,
             egress_interface: interface.cloned(),
+            observer: None,
         })
     }
 
@@ -186,15 +202,15 @@ impl AsyncSocket for TokioSocket {
     type Error = io::Error;
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.inner.read(buf).await
+        tokio::io::AsyncReadExt::read(self, buf).await
     }
 
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        self.inner.write_all(buf).await
+        tokio::io::AsyncWriteExt::write_all(self, buf).await
     }
 
     async fn shutdown(&mut self) -> Result<(), Self::Error> {
-        self.inner.shutdown().await
+        tokio::io::AsyncWriteExt::shutdown(self).await
     }
 }
 
@@ -204,7 +220,16 @@ impl AsyncRead for TokioSocket {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buf)
+        let before = buf.filled().len();
+        let result = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let Some(observer) = &self.observer {
+            match &result {
+                Poll::Ready(Ok(())) => observer.received(buf.filled().len() - before),
+                Poll::Ready(Err(_)) => observer.error(),
+                Poll::Pending => {}
+            }
+        }
+        result
     }
 }
 
@@ -214,7 +239,15 @@ impl AsyncWrite for TokioSocket {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
+        let result = Pin::new(&mut self.inner).poll_write(cx, buf);
+        if let Some(observer) = &self.observer {
+            match &result {
+                Poll::Ready(Ok(size)) => observer.sent(*size),
+                Poll::Ready(Err(_)) => observer.error(),
+                Poll::Pending => {}
+            }
+        }
+        result
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -404,13 +437,26 @@ pub async fn relay_bidirectional(left: TokioSocket, right: TokioSocket) -> io::R
 pub struct TokioDatagramSocket {
     inner: UdpSocket,
     egress_interface: Option<EgressInterface>,
+    observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
 }
 
 impl TokioDatagramSocket {
+    pub fn with_observer(
+        mut self,
+        observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
+    ) -> Self {
+        if let Some(observer) = &observer {
+            observer.datagram_boundary();
+        }
+        self.observer = observer;
+        self
+    }
+
     pub async fn bind(addr: &str) -> io::Result<Self> {
         UdpSocket::bind(addr).await.map(|inner| Self {
             inner,
             egress_interface: None,
+            observer: None,
         })
     }
 
@@ -418,6 +464,7 @@ impl TokioDatagramSocket {
         UdpSocket::bind(addr).await.map(|inner| Self {
             inner,
             egress_interface: None,
+            observer: None,
         })
     }
 
@@ -437,6 +484,7 @@ impl TokioDatagramSocket {
         UdpSocket::from_std(socket).map(|inner| Self {
             inner,
             egress_interface: Some(interface.clone()),
+            observer: None,
         })
     }
 
@@ -462,6 +510,7 @@ impl TokioDatagramSocket {
         UdpSocket::from_std(socket).map(|inner| Self {
             inner,
             egress_interface,
+            observer: None,
         })
     }
 
@@ -474,11 +523,25 @@ impl TokioDatagramSocket {
     }
 
     pub async fn recv_from_addr(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        self.inner.recv_from(buf).await
+        let result = self.inner.recv_from(buf).await;
+        if let Some(observer) = &self.observer {
+            match &result {
+                Ok((size, _)) => observer.received_datagram(*size),
+                Err(_) => observer.error(),
+            }
+        }
+        result
     }
 
     pub async fn send_to_addr(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
-        self.inner.send_to(buf, addr).await
+        let result = self.inner.send_to(buf, addr).await;
+        if let Some(observer) = &self.observer {
+            match &result {
+                Ok(size) => observer.sent_datagram(*size),
+                Err(_) => observer.error(),
+            }
+        }
+        result
     }
 }
 
@@ -517,13 +580,12 @@ impl DatagramSocketTrait for TokioDatagramSocket {
     type Error = io::Error;
 
     async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, IpAddress, u16), Self::Error> {
-        let (read, addr) = self.inner.recv_from(buf).await?;
+        let (read, addr) = self.recv_from_addr(buf).await?;
         Ok((read, ip_addr_to_ip(addr.ip()), addr.port()))
     }
 
     async fn send_to(&self, buf: &[u8], addr: IpAddress, port: u16) -> Result<(), Self::Error> {
-        self.inner
-            .send_to(buf, socket_addr_from_ip(addr, port))
+        self.send_to_addr(buf, socket_addr_from_ip(addr, port))
             .await
             .map(|_| ())
     }

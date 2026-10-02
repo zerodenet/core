@@ -21,3 +21,6 @@ mod urltest_traffic_health;
 mod traffic_lifecycle;
 #[path = "../traffic_roles.rs"]
 mod traffic_roles;
+
+#[path = "../traffic_loss.rs"]
+mod traffic_loss;

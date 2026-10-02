@@ -10,6 +10,8 @@ pub mod inbound_carrier;
 #[cfg(feature = "tls")]
 pub mod inbound_stack;
 pub mod metered;
+pub mod observed;
+mod observed_datagram;
 pub mod outbound_datagram;
 #[cfg(any(
     feature = "tls",

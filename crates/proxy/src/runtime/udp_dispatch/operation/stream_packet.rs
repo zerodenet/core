@@ -93,6 +93,12 @@ async fn execute_managed_stream_packet_operation<T>(
 where
     T: std::any::Any + Send + Sync + std::fmt::Debug,
 {
+    let tag = match &operation {
+        PreparedManagedStreamPacketOperation::Direct { plan }
+        | PreparedManagedStreamPacketOperation::RelayFinalHop { plan, .. }
+        | PreparedManagedStreamPacketOperation::LazyRelayFinalHop { plan, .. } => &plan.tag,
+    };
+    let services = services.map(|services| services.with_outbound_io(tag));
     let mut context = dispatch.flow_start_context();
     match operation {
         PreparedManagedStreamPacketOperation::Direct { plan } => {
@@ -114,6 +120,13 @@ where
         }
         PreparedManagedStreamPacketOperation::RelayFinalHop { plan, carrier } => {
             debug_assert!(plan.relay_chain);
+            let carrier = match &services {
+                Some(services) => RelayCarrier {
+                    stream: services.upstream().observe_stream(carrier.stream),
+                    ..carrier
+                },
+                None => carrier,
+            };
             start_relay_managed_stream_packet(
                 &mut context,
                 ManagedStreamPacketStartBridge::relay(

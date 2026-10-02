@@ -68,6 +68,38 @@ impl IngressTraffic {
     pub fn identity(&self, peer: Option<usize>) -> Option<std::sync::Arc<str>> {
         peer.and_then(|i| self.identities.get(i)).cloned().flatten()
     }
+    pub fn drop_inner(&self, identity: Option<&str>, reason: zero_api::TrafficDropReason) {
+        let peer = identity.and_then(|id| {
+            self.identities
+                .iter()
+                .position(|known| known.as_deref() == Some(id))
+        });
+        self.peer(peer)
+            .dropped_reason(zero_api::TrafficPlane::Inner, peer.is_some(), reason);
+        if let Some(role) = &self.role {
+            role.dropped_reason(zero_api::TrafficPlane::Inner, reason);
+        }
+    }
+    pub fn send_response(
+        &self,
+        responses: &tokio::sync::mpsc::Sender<Vec<u8>>,
+        packet: Vec<u8>,
+        identity: Option<&str>,
+    ) {
+        if let Err(error) = responses.try_send(packet) {
+            self.drop_inner(
+                identity,
+                match error {
+                    tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                        zero_api::TrafficDropReason::QueueFull
+                    }
+                    tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                        zero_api::TrafficDropReason::QueueClosed
+                    }
+                },
+            );
+        }
+    }
     pub fn admit_packet(&self, size: usize) {
         if let Some(meter) = &self.role {
             meter.received(zero_api::TrafficPlane::Inner, size);

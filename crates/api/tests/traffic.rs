@@ -51,3 +51,45 @@ fn traffic_queries_reset_and_null_metrics_have_stable_wire_contracts() {
     )
     .is_err());
 }
+
+#[test]
+fn host_scope_and_additive_discard_fields_preserve_legacy_deserialization() {
+    let host = QueryRequest::TrafficStat(TrafficGetQuery {
+        scope: TrafficScope::HostInterface { name: "en0".into() },
+    });
+    let value = serde_json::to_value(&host).unwrap();
+    assert_eq!(value["traffic_stat"]["scope"]["kind"], "host_interface");
+    assert_eq!(serde_json::from_value::<QueryRequest>(value).unwrap(), host);
+    let counters: TrafficCounters = serde_json::from_value(serde_json::json!({
+        "bytes_up":null,"bytes_down":null,"rx_bytes":0,"tx_bytes":null,
+        "rx_packets":null,"tx_packets":null,"dropped_packets":null,"errors":null
+    }))
+    .unwrap();
+    assert_eq!(counters.rx_dropped_packets, None);
+    let plane: TrafficPlaneSnapshot = serde_json::from_value(serde_json::json!({
+        "plane":"inner","accounting_basis":"legacy","counters":counters,
+        "available_metrics":["rx_bytes"],"resettable_metrics":["rx_bytes"]
+    }))
+    .unwrap();
+    assert!(plane.drop_reasons.is_empty());
+    assert_eq!(plane.drop_coverage, None);
+    let query: TrafficListQuery = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(!query.include_host_interfaces);
+    assert!(serde_json::to_value(&query)
+        .unwrap()
+        .get("include_host_interfaces")
+        .is_none());
+    let opted_in = TrafficListQuery {
+        include_host_interfaces: true,
+        ..query
+    };
+    let wire = serde_json::to_value(&opted_in).unwrap();
+    assert_eq!(wire["include_host_interfaces"], true);
+    assert_eq!(
+        serde_json::from_value::<TrafficListQuery>(wire).unwrap(),
+        opted_in
+    );
+    assert!(event_type::is_known(
+        event_type::STATS_HOST_INTERFACES_SAMPLED
+    ));
+}

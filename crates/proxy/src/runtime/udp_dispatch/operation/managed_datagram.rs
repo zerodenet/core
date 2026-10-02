@@ -48,7 +48,9 @@ where
         Self: 'a,
     {
         Box::pin(async move {
-            let services = self.needs_proxy.then(|| ctx.runtime_services());
+            let services = self
+                .needs_proxy
+                .then(|| ctx.runtime_services().with_outbound_io(&self.plan.tag));
             execute_managed_datagram_operation(dispatch, services, session, payload, self.plan)
                 .await
         })

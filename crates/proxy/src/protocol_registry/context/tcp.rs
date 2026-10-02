@@ -19,6 +19,15 @@ impl std::ops::Deref for TcpRuntimeServices {
     }
 }
 impl TcpRuntimeServices {
+    #[cfg(feature = "udp-runtime")]
+    pub(crate) fn with_io_observer(
+        mut self,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Self {
+        self.execution.upstream = self.execution.upstream.clone().with_observer(observer);
+        self
+    }
+
     pub(crate) fn execution(&self) -> TcpExecutionServices {
         self.execution.clone()
     }

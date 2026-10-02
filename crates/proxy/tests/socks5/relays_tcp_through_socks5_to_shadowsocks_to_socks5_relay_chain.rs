@@ -113,6 +113,7 @@ async fn relays_tcp_through_socks5_to_shadowsocks_to_socks5_relay_chain() {
     ))
     .expect("parse outer config");
     let outer_engine = Engine::new(outer_config).expect("build outer engine");
+    let outer_probe = outer_engine.clone();
     let outer_handle = spawn_engine(outer_engine);
 
     wait_for_listener(outer_port).await;
@@ -154,6 +155,26 @@ async fn relays_tcp_through_socks5_to_shadowsocks_to_socks5_relay_chain() {
     let mut echoed = [0_u8; 4];
     client.read_exact(&mut echoed).await.expect("read payload");
     assert_eq!(&echoed, b"sshp");
+
+    let statistics = |tag: &str| {
+        outer_probe
+            .engine()
+            .traffic_snapshot(&zero_api::TrafficGetQuery {
+                scope: zero_api::TrafficScope::Outbound { tag: tag.into() },
+            })
+            .unwrap()
+    };
+    let first = statistics("first-ss");
+    let last = statistics("final-socks");
+    // The final carrier includes SOCKS handshake; the first also includes
+    // Shadowsocks salt/tags/framing. They are distinct from final Flow bytes.
+    assert!(last.planes[2].counters.tx_bytes.unwrap() > 4);
+    assert!(first.planes[2].counters.tx_bytes.unwrap() > last.planes[2].counters.tx_bytes.unwrap());
+    assert!(first.planes[2].counters.rx_bytes.unwrap() > last.planes[2].counters.rx_bytes.unwrap());
+    assert_eq!(first.planes[2].counters.tx_packets, None);
+    assert_eq!(last.planes[2].counters.rx_packets, None);
+    assert_eq!(first.planes[0].counters.tx_bytes, Some(0));
+    assert!(last.planes[0].counters.tx_bytes.unwrap() >= 4);
 
     outer_handle
         .shutdown()

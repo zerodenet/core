@@ -55,14 +55,13 @@ impl MieruTransportLeaf {
                         .await?;
                     let mut last = std::io::Error::other("mieru endpoint unavailable");
                     for peer in addresses {
-                        match factory.bind_std(peer).and_then(|socket| {
-                            socket.set_nonblocking(true)?;
-                            tokio::net::UdpSocket::from_std(socket)
-                        }) {
+                        match factory.bind_tokio(peer).await {
                             Ok(socket) => {
-                                match ClientConnection::udp_with_options(
-                                    Arc::new(socket),
-                                    peer,
+                                match ClientConnection::datagram_with_options(
+                                    Arc::new(crate::client::ObservedClientDatagramCarrier::new(
+                                        socket, peer,
+                                    )),
+                                    peer.is_ipv6(),
                                     &self.username,
                                     &self.password,
                                     &self.options,

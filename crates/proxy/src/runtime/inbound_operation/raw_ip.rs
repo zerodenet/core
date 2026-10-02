@@ -37,6 +37,8 @@ pub(crate) struct RawIpInboundDispatch {
     pub(crate) peer_index: Option<usize>,
     pub(crate) authenticated: bool,
     pub(crate) actions: Vec<RawIpInboundAction>,
+    /// Opaque device fact; runtime does not reimplement protocol source validation.
+    pub(crate) source_rejected_packets: u64,
 }
 
 pub(crate) trait RawIpInboundDevice: Send {

@@ -44,8 +44,9 @@ impl RawIpUdpFlow {
         target_port: u16,
         destination: SocketAddr,
         local_ip: IpAddr,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<Self, zero_stack::client_udp::ClientUdpStackError> {
-        let client = device.bind_udp(local_ip)?;
+        let client = device.bind_udp_observed(local_ip, observer)?;
         let (commands, requests) = mpsc::channel(64);
         let (responses, _) = broadcast::channel(64);
         let closed = Arc::new(AtomicBool::new(false));

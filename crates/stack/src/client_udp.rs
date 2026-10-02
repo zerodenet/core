@@ -5,12 +5,14 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 use tokio::sync::mpsc;
 
+mod observation;
+mod receive;
 use crate::packet::{self, Endpoint};
-use crate::{FragmentOutcome, FragmentReassembler};
+use crate::FragmentReassembler;
+use observation::observe_discard;
 
 const FIRST_EPHEMERAL_PORT: u16 = 49_152;
 const EPHEMERAL_PORT_COUNT: usize = 16_384;
@@ -45,13 +47,15 @@ struct SocketEntry {
     sender: mpsc::Sender<ClientUdpEvent>,
     last_destination: Option<Endpoint>,
     path_mtu: Option<usize>,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
 struct Inner {
     local_addresses: Vec<IpAddr>,
-    outbound: mpsc::Sender<Vec<u8>>,
+    outbound: crate::packet_output::PacketSender,
     mtu: usize,
     next_fragment_id: AtomicU32,
+    drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
     sockets: Mutex<HashMap<Endpoint, SocketEntry>>,
     fragments: Mutex<FragmentReassembler>,
 }
@@ -66,8 +70,31 @@ pub struct ClientUdpStack {
 impl ClientUdpStack {
     pub fn new(
         local_addresses: Vec<IpAddr>,
-        outbound: mpsc::Sender<Vec<u8>>,
+        outbound: tokio::sync::mpsc::Sender<Vec<u8>>,
         mtu: u16,
+    ) -> Result<Self, ClientUdpStackError> {
+        Self::new_with_output(local_addresses, outbound.into(), mtu, None)
+    }
+    pub fn new_observed(
+        local_addresses: Vec<IpAddr>,
+        outbound: tokio::sync::mpsc::Sender<crate::packet_output::ObservedPacket>,
+        mtu: u16,
+    ) -> Result<Self, ClientUdpStackError> {
+        Self::new_with_output(local_addresses, outbound.into(), mtu, None)
+    }
+    pub fn new_observed_with_drops(
+        local_addresses: Vec<IpAddr>,
+        outbound: mpsc::Sender<crate::packet_output::ObservedPacket>,
+        mtu: u16,
+        drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Result<Self, ClientUdpStackError> {
+        Self::new_with_output(local_addresses, outbound.into(), mtu, drop_observer)
+    }
+    fn new_with_output(
+        local_addresses: Vec<IpAddr>,
+        outbound: crate::packet_output::PacketSender,
+        mtu: u16,
+        drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<Self, ClientUdpStackError> {
         if local_addresses.is_empty() {
             return Err(ClientUdpStackError::MissingLocalAddress);
@@ -88,6 +115,7 @@ impl ClientUdpStack {
                 outbound,
                 mtu: usize::from(mtu),
                 next_fragment_id: AtomicU32::new(1),
+                drop_observer,
                 sockets: Mutex::new(HashMap::new()),
                 fragments: Mutex::new(FragmentReassembler::new()),
             }),
@@ -96,6 +124,14 @@ impl ClientUdpStack {
 
     /// Allocate a bounded receive queue and a randomized ephemeral source port.
     pub fn bind(&self, local: IpAddr) -> Result<ClientUdpSocket, ClientUdpStackError> {
+        self.bind_observed(local, None)
+    }
+
+    pub fn bind_observed(
+        &self,
+        local: IpAddr,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Result<ClientUdpSocket, ClientUdpStackError> {
         if !self.inner.local_addresses.contains(&local) {
             return Err(ClientUdpStackError::UnknownLocalAddress);
         }
@@ -120,83 +156,17 @@ impl ClientUdpStack {
                     sender,
                     last_destination: None,
                     path_mtu: None,
+                    observer: observer.clone(),
                 },
             );
             return Ok(ClientUdpSocket {
                 inner: Arc::clone(&self.inner),
                 endpoint,
                 receiver,
+                observer,
             });
         }
         Err(ClientUdpStackError::SocketLimit)
-    }
-
-    /// Feed an authenticated, decrypted IP packet. The caller must check that
-    /// the packet source belongs to the authenticated tunnel peer first.
-    /// Fragment reassembly and socket queues are bounded; excess packets drop.
-    pub fn feed(&self, raw_packet: &[u8]) -> bool {
-        self.feed_inner(raw_packet, false)
-    }
-
-    /// Deliver only replies from the socket's last sent destination. The
-    /// caller selects this neutral correlation mode; the stack owns no
-    /// endpoint direction policy. ICMP errors already require a matching quote.
-    pub fn feed_correlated(&self, raw_packet: &[u8]) -> bool {
-        self.feed_inner(raw_packet, true)
-    }
-
-    fn feed_inner(&self, raw_packet: &[u8], correlated: bool) -> bool {
-        let packet = {
-            let mut fragments = self
-                .inner
-                .fragments
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            match fragments.process(raw_packet, Instant::now()) {
-                FragmentOutcome::NotFragmented(packet) => packet.to_vec(),
-                FragmentOutcome::Reassembled(packet) => packet,
-                FragmentOutcome::Pending | FragmentOutcome::Rejected(_) => return false,
-            }
-        };
-        let mut sockets = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(datagram) = packet::parse_udp(&packet) {
-            return sockets.get(&datagram.dst).is_some_and(|socket| {
-                if correlated && socket.last_destination != Some(datagram.src) {
-                    return false;
-                }
-                socket
-                    .sender
-                    .try_send(ClientUdpEvent::Datagram(ClientUdpDatagram {
-                        source: datagram.src,
-                        payload: datagram.payload.to_vec(),
-                    }))
-                    .is_ok()
-            });
-        }
-        let Some(error) = packet::parse_icmp_error(&packet) else {
-            return false;
-        };
-        if error.quoted_protocol != packet::IPPROTO_UDP {
-            return false;
-        }
-        sockets.get_mut(&error.quoted_source).is_some_and(|socket| {
-            if socket.last_destination != Some(error.quoted_destination) {
-                return false;
-            }
-            if let packet::IcmpErrorKind::PacketTooBig { mtu: Some(mtu) } = error.kind {
-                let minimum = if error.quoted_destination.ip.is_ipv6() {
-                    1_280
-                } else {
-                    68
-                };
-                let mtu = (mtu as usize).max(minimum).min(self.inner.mtu);
-                socket.path_mtu = Some(socket.path_mtu.unwrap_or(self.inner.mtu).min(mtu));
-            }
-            socket
-                .sender
-                .try_send(ClientUdpEvent::IcmpError(error))
-                .is_ok()
-        })
     }
 }
 
@@ -205,6 +175,7 @@ pub struct ClientUdpSocket {
     inner: Arc<Inner>,
     endpoint: Endpoint,
     receiver: mpsc::Receiver<ClientUdpEvent>,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
 impl ClientUdpSocket {
@@ -258,9 +229,18 @@ impl ClientUdpSocket {
         for fragment in fragments {
             self.inner
                 .outbound
+                .clone()
+                .with_observer(self.observer.clone())
                 .send(fragment)
                 .await
-                .map_err(|_| ClientUdpStackError::OutboundClosed)?;
+                .map_err(|_| {
+                    observe_discard(
+                        self.observer.as_ref(),
+                        self.inner.drop_observer.as_ref(),
+                        zero_traits::PacketDropReason::QueueClosed,
+                    );
+                    ClientUdpStackError::OutboundClosed
+                })?;
         }
         Ok(())
     }
@@ -288,5 +268,13 @@ impl Drop for ClientUdpSocket {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&self.endpoint);
+        self.receiver.close();
+        while self.receiver.try_recv().is_ok() {
+            observe_discard(
+                self.observer.as_ref(),
+                self.inner.drop_observer.as_ref(),
+                zero_traits::PacketDropReason::QueueClosed,
+            );
+        }
     }
 }

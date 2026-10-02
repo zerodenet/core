@@ -29,11 +29,19 @@ pub(super) async fn build_entry(
     candidate: EntryCandidate,
 ) -> Result<Entry, EngineError> {
     log_candidate(&candidate);
-    let path = build_operation
-        .build_carrier(ctx.packet_path_execution_services())
-        .await?;
+    let mut services = ctx.packet_path_execution_services();
+    if let Some(tag) = &candidate.carrier_desc.tag {
+        services = services.with_outbound_io(tag);
+    }
+    let path = build_operation.build_carrier(services.clone()).await?;
     let codec = candidate.datagram.codec.clone();
     let datagram_desc = candidate.datagram.descriptor();
+    let path = super::carriers::observed::wrap(
+        path,
+        services
+            .tcp()
+            .outbound_io(&datagram_desc.tag, zero_api::TrafficPlane::Outer),
+    );
     let waiters = Arc::new(Mutex::new(VecDeque::new()));
     tokio::spawn(recv_loop(path.clone(), waiters.clone(), codec.clone()));
 

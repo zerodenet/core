@@ -78,6 +78,24 @@ async fn factory_never_implicitly_uses_the_system_resolver() {
 async fn relay_socket_preserves_packets_and_cancels_its_only_reader_on_drop() {
     use std::io::{self, IoSliceMut};
     use zero_transport::datagram_relay::ConnectedDatagram;
+    #[derive(Debug, Default)]
+    struct Meter {
+        rx: std::sync::atomic::AtomicU64,
+        tx: std::sync::atomic::AtomicU64,
+    }
+    impl zero_traits::IoObserver for Meter {
+        fn received(&self, n: usize) {
+            self.rx
+                .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+        }
+        fn sent(&self, n: usize) {
+            self.tx
+                .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+        }
+        fn error(&self) {}
+        fn dropped(&self) {}
+    }
+    let meter = Arc::new(Meter::default());
     struct Carrier {
         sender: tokio::sync::mpsc::Sender<Vec<u8>>,
         receiver: tokio::sync::Mutex<tokio::sync::mpsc::Receiver<Vec<u8>>>,
@@ -121,8 +139,13 @@ async fn relay_socket_preserves_packets_and_cancels_its_only_reader_on_drop() {
         io::ErrorKind::Unsupported
     );
     assert!(factory.bind_tokio(peer).await.is_err());
-    let socket = factory.open_socket(peer).await.unwrap();
-    drop(factory);
+    let socket = factory
+        .with_observer(Some(meter.clone()))
+        .open_socket(peer)
+        .await
+        .unwrap();
+
+    let mut completed_bytes = 0;
     for payload in [b"one".as_slice(), &[0x57; 1600], b"last"] {
         socket
             .try_send(&quinn::udp::Transmit {
@@ -133,6 +156,12 @@ async fn relay_socket_preserves_packets_and_cancels_its_only_reader_on_drop() {
                 src_ip: None,
             })
             .unwrap();
+        // Current-thread worker cannot run before this await. Queue admission
+        // alone must not change the actual carrier TX observation.
+        assert_eq!(
+            meter.tx.load(std::sync::atomic::Ordering::Relaxed),
+            completed_bytes
+        );
         let mut bytes = [0; 2048];
         let mut meta = [quinn::udp::RecvMeta::default()];
         let count = tokio::time::timeout(
@@ -147,6 +176,15 @@ async fn relay_socket_preserves_packets_and_cancels_its_only_reader_on_drop() {
         assert_eq!(count, 1);
         assert_eq!(meta[0].addr, peer);
         assert_eq!(&bytes[..meta[0].len], payload);
+        completed_bytes += payload.len() as u64;
+        assert_eq!(
+            meter.tx.load(std::sync::atomic::Ordering::Relaxed),
+            completed_bytes
+        );
+        assert_eq!(
+            meter.rx.load(std::sync::atomic::Ordering::Relaxed),
+            completed_bytes
+        );
     }
     let bad = socket
         .try_send(&quinn::udp::Transmit {

@@ -68,13 +68,37 @@ impl TrafficRegistry {
             ));
         }
         let limit = query.limit.unwrap_or(64).clamp(1, 256);
-        let selected = entries
-            .iter()
-            .filter(|(scope, _)| query.scopes.is_empty() || query.scopes.contains(scope));
-        let total = selected.clone().count();
+        // Selected pages must not scan every endpoint/peer on each sampling tick.
+        // Sort/deduplicate identities to retain the registry's existing page order.
+        let (total, selected) = if query.scopes.is_empty() {
+            let candidates = entries.iter().filter(|(scope, _)| {
+                query.include_host_interfaces
+                    || !matches!(scope, TrafficScope::HostInterface { .. })
+            });
+            (
+                candidates.clone().count(),
+                candidates
+                    .skip(query.offset)
+                    .take(limit)
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            let identities = query
+                .scopes
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>();
+            (
+                identities.len(),
+                identities
+                    .into_iter()
+                    .skip(query.offset)
+                    .take(limit)
+                    .map(|scope| (scope, &entries[scope]))
+                    .collect::<Vec<_>>(),
+            )
+        };
         let scopes = selected
-            .skip(query.offset)
-            .take(limit)
+            .into_iter()
             .map(|(scope, entry)| {
                 let period = entry.period.lock().unwrap_or_else(|e| e.into_inner());
                 project(scope, entry, &period, core, revision)
@@ -101,8 +125,14 @@ pub(super) fn project(
 ) -> TrafficSnapshot {
     let started = now();
     let values = entry.capture();
-    let mut planes = [TrafficPlane::Flow, TrafficPlane::Inner, TrafficPlane::Outer]
-        .into_iter()
+    let plane_kinds: &[TrafficPlane] = if matches!(scope, TrafficScope::HostInterface { .. }) {
+        &[TrafficPlane::Host]
+    } else {
+        &[TrafficPlane::Flow, TrafficPlane::Inner, TrafficPlane::Outer]
+    };
+    let mut planes = plane_kinds
+        .iter()
+        .copied()
         .map(|plane| {
             entry.planes[plane as usize].project(
                 plane,
@@ -112,6 +142,7 @@ pub(super) fn project(
         })
         .collect::<Vec<_>>();
     planes[0].accounting_basis = match scope {
+        TrafficScope::HostInterface { .. } => planes[0].accounting_basis.as_str(),
         TrafficScope::Global => "business_direction_max_mirrored_boundaries",
         TrafficScope::Inbound { .. } => "inbound_business_boundary",
         TrafficScope::Outbound { .. } => "final_outbound_flow_observation_not_hop_carrier",
@@ -140,5 +171,14 @@ pub(super) fn project(
                 .then(|| entry.active_routes.load(Ordering::Relaxed)),
         },
         reset_policy: "all_available_cumulative_no_cascade".into(),
+        source_sampled_at_monotonic_ns: match entry.source_sampled_monotonic.load(Ordering::Relaxed)
+        {
+            0 => None,
+            value => Some(value),
+        },
+        source_sampled_at_unix_ms: match entry.source_sampled_at.load(Ordering::Relaxed) {
+            0 => None,
+            value => Some(value),
+        },
     }
 }

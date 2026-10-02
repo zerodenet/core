@@ -105,6 +105,12 @@ async fn wireguard_flow_inner_outer_peer_meters_survive_live_reset() {
         snapshot(&proxy, TrafficScope::Global).planes[1].counters,
         endpoint.planes[1].counters
     );
+    let role = snapshot(&proxy, TrafficScope::Outbound { tag: "wg".into() });
+    assert_eq!(role.planes[1].counters.tx_bytes, Some(32));
+    assert_eq!(role.planes[1].counters.rx_bytes, Some(32));
+    assert_eq!(role.planes[1].counters.tx_packets, Some(1));
+    assert_eq!(role.planes[1].counters.rx_packets, Some(1));
+    assert_eq!(role.planes[2].counters.tx_bytes, None);
     assert_eq!(endpoint.planes[0].counters.bytes_up, Some(4));
     assert_eq!(endpoint.planes[1].counters.tx_bytes, Some(32));
     assert_eq!(endpoint.planes[1].counters.rx_bytes, Some(32));
@@ -176,7 +182,19 @@ async fn wireguard_flow_inner_outer_peer_meters_survive_live_reset() {
             scope: TrafficScope::Outbound { tag: "wg".into() },
         })
         .unwrap();
+    let endpoint_before_role_reset = snapshot(&proxy, scope.clone());
+    assert!(before.planes[1].counters.tx_packets.unwrap() > 2);
     reset(&proxy, &before);
+    assert!(
+        snapshot(&proxy, scope.clone()).planes[1]
+            .counters
+            .tx_bytes
+            .unwrap()
+            >= endpoint_before_role_reset.planes[1]
+                .counters
+                .tx_bytes
+                .unwrap()
+    );
     tcp.write_all(b"post-rst").await.unwrap();
     timeout(Duration::from_secs(5), tcp.read_exact(&mut echoed))
         .await

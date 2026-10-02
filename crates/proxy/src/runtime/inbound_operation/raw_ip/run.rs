@@ -95,14 +95,15 @@ pub(super) async fn run(
                 traffic.refresh(operation.device.as_ref(), &packet_route);
                 let (size, source, proxied_peer, received_revision) = received.inspect_err(|_| traffic.aggregate.error(TrafficPlane::Outer, false)).map_err(EngineError::Io)?;
                 traffic.aggregate.rx(TrafficPlane::Outer, size, false);
-                if size > 65_535 || received_revision != peer_revision { traffic.aggregate.dropped(TrafficPlane::Outer, false); continue; }
+                if size > 65_535 || received_revision != peer_revision { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); continue; }
                 let dispatch = match operation.device.receive_datagram(source, &buffer[..size]) {
                     Ok(dispatch) => dispatch,
-                    Err(error) => { traffic.aggregate.dropped(TrafficPlane::Outer, false); tracing::debug!(%error, "raw-IP inbound rejected datagram"); continue; }
+                    Err(error) => { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); tracing::debug!(%error, "raw-IP inbound rejected datagram"); continue; }
                 };
                 if dispatch.authenticated { traffic.peer(dispatch.peer_index).peer_rx(TrafficPlane::Outer, size); }
+                traffic.peer(dispatch.peer_index).dropped_count(TrafficPlane::Inner, true, zero_api::TrafficDropReason::SourceRejected, dispatch.source_rejected_packets);
                 if proxied_peer.is_some_and(|expected| dispatch.peer_index.is_some_and(|actual| expected != actual)) {
-                    traffic.peer(dispatch.peer_index).dropped(TrafficPlane::Outer, dispatch.authenticated);
+                    traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Outer, dispatch.authenticated, zero_api::TrafficDropReason::SourceRejected);
                     tracing::debug!(expected_peer = ?proxied_peer, authenticated_peer = ?dispatch.peer_index, "raw-IP outer carrier peer mismatch");
                     continue;
                 }
@@ -133,14 +134,14 @@ pub(super) async fn run(
                                 FragmentOutcome::NotFragmented(packet) => packet.to_vec(),
                                 FragmentOutcome::Reassembled(packet) => packet,
                                 FragmentOutcome::Pending => continue,
-                                FragmentOutcome::Rejected(_) => { traffic.peer(dispatch.peer_index).dropped(TrafficPlane::Inner, true); continue; },
+                                FragmentOutcome::Rejected(_) => { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::FragmentRejected); continue; },
                             };
                             device.observe_authenticated_packet();
                             let inbound_allowed = packet_route.endpoint_inbound_allowed();
                             if device.deliver_decrypted(&packet, inbound_allowed).await { continue; }
                             // Established outbound replies are consumed before
                             // admitting any remote-initiated inner business.
-                            if !inbound_allowed { traffic.peer(dispatch.peer_index).dropped(TrafficPlane::Inner, true); continue; }
+                            if !inbound_allowed { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::PolicyRejected); continue; }
                             let mtu = if reassembled {
                                 operation.device.mtu().max(packet.len().min(u16::MAX as usize) as u16)
                             } else {
@@ -150,7 +151,7 @@ pub(super) async fn run(
                             continue;
                         }
                     }
-                    if !packet_route.endpoint_inbound_allowed() { traffic.peer(dispatch.peer_index).dropped(TrafficPlane::Inner, true); continue; }
+                    if !packet_route.endpoint_inbound_allowed() { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::PolicyRejected); continue; }
                     feed_inner_packet(&packet, &traffic, traffic.identity(dispatch.peer_index), operation.device.mtu(), &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
                 }
             }
@@ -165,8 +166,9 @@ pub(super) async fn run(
                 let packets = packet::fragment_ip_packet(&outgoing.packet, operation.device.mtu() as usize, fragment_id);
                 fragment_id = fragment_id.wrapping_add(1);
                 for packet in packets {
-                    let actions = operation.device.send_ip_packet(outgoing.peer, &packet).inspect_err(|_| { traffic.peer(Some(outgoing.peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(outgoing.peer)).dropped(TrafficPlane::Inner, true); })?;
+                    let actions = operation.device.send_ip_packet(outgoing.peer, &packet).inspect_err(|_| { traffic.peer(Some(outgoing.peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(outgoing.peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); })?;
                     traffic.peer(Some(outgoing.peer)).tx(TrafficPlane::Inner, packet.len());
+                    if let Some(observer) = &outgoing.observer { observer.sent(packet.len()); }
                     send_network_actions(&socket, carrier.clone(), address, &actions, traffic.peer(Some(outgoing.peer))).await;
                 }
             }
@@ -185,7 +187,7 @@ pub(super) async fn run(
                 for fragment in packets {
                     match operation.device.send_ip_packet(peer, &fragment) {
                         Ok(actions) => { traffic.respond_packet(fragment.len()); traffic.peer(Some(peer)).tx(TrafficPlane::Inner, fragment.len()); send_network_actions(&socket, carrier.clone(), endpoint, &actions, traffic.peer(Some(peer))).await; },
-                        Err(error) => { traffic.peer(Some(peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(peer)).dropped(TrafficPlane::Inner, true); tracing::debug!(%error, "raw-IP inbound response encode failed"); },
+                        Err(error) => { traffic.peer(Some(peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); tracing::debug!(%error, "raw-IP inbound response encode failed"); },
                     }
                 }
             }

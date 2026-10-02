@@ -32,10 +32,15 @@ where
         Self: 'a,
     {
         Box::pin(async move {
-            let services = ctx.runtime_services();
+            let services = ctx
+                .runtime_services()
+                .with_outbound_io(self.prepared.endpoint().tag);
             let stream = self
                 .prepared
-                .open_udp_relay_connector(services.upstream(), self.connector)
+                .open_udp_relay_connector(
+                    services.upstream(),
+                    self.connector.with_observer(services.upstream().observer()),
+                )
                 .await
                 .map_err(|error| FlowFailure {
                     stage: TLeaf::UDP_RELAY_CHAIN_STAGE,

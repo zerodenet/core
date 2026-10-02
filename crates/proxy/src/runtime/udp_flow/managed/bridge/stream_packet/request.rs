@@ -32,6 +32,7 @@ impl<'a, T> ManagedStreamPacketStartBridge<'a, T> {
         payload: &'a [u8],
     ) -> Self {
         let (server, port) = endpoint;
+        let services = services.with_outbound_io(tag);
         Self {
             services: Some(services),
             tag,
@@ -56,6 +57,7 @@ impl<'a, T> ManagedStreamPacketStartBridge<'a, T> {
         payload: &'a [u8],
     ) -> Self {
         let (server, port) = endpoint;
+        let services = services.map(|services| services.with_outbound_io(tag));
         Self {
             services,
             tag,
@@ -80,6 +82,11 @@ impl<'a, T> ManagedStreamPacketStartBridge<'a, T> {
         payload: &'a [u8],
     ) -> Self {
         let (server, port) = endpoint;
+        let services = services.map(|services| services.with_outbound_io(tag));
+        let carrier = match &services {
+            Some(services) => carrier.with_observer(services.upstream().observer()),
+            None => carrier,
+        };
         Self {
             services,
             tag,

@@ -176,6 +176,7 @@ where
         stream: TcpRelayStream,
         session: &Session,
     ) -> Result<TcpRelayStream, RuntimeError> {
+        let stream = services.observe_stream(stream);
         self.leaf
             .open_tcp_relay_hop(services, stream, session)
             .await
@@ -186,6 +187,7 @@ where
         carrier: crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'_>,
         session: &Session,
     ) -> Result<TcpRelayStream, zero_engine::EngineError> {
+        let carrier = carrier.with_observer(services.observer());
         self.leaf
             .open_tcp_relay_carrier(services, carrier, session)
             .await
@@ -232,7 +234,11 @@ where
         get_stream: TcpRelayStream,
     ) -> Result<TcpRelayStream, RuntimeError> {
         self.leaf
-            .open_relay_two_stream_udp_transport(services, post_stream, get_stream)
+            .open_relay_two_stream_udp_transport(
+                services.clone(),
+                services.observe_stream(post_stream),
+                services.observe_stream(get_stream),
+            )
             .await
     }
     pub(crate) fn udp_relay_uses_connector(&self) -> bool {

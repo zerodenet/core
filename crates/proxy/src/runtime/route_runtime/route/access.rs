@@ -78,6 +78,18 @@ impl InboundRouteRuntime {
 
 impl InboundRouteRuntimeFactory {
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn outbound_inner_io(
+        &self,
+        tag: &str,
+    ) -> Option<std::sync::Arc<dyn zero_traits::IoObserver>> {
+        crate::runtime::traffic_io::outbound(
+            self.shared.tcp_services().engine(),
+            tag,
+            zero_api::TrafficPlane::Inner,
+        )
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn global_packet_traffic(&self) -> Option<zero_engine::TrafficMeter> {
         self.shared
             .tcp_services()

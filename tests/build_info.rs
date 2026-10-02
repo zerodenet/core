@@ -77,6 +77,9 @@ fn expected_features() -> Vec<String> {
     if cfg!(feature = "grpc-api") {
         features.push("grpc-api".to_owned());
     }
+    if cfg!(feature = "host-network-stats") {
+        features.push("host-network-stats".to_owned());
+    }
     features.extend(zero_proxy::compiled_protocol_features());
     if cfg!(feature = "dns") {
         features.push("dns".to_owned());
