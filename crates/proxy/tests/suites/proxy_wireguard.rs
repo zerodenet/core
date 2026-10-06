@@ -15,5 +15,7 @@ mod wireguard_health;
 mod wireguard_network_recovery;
 #[path = "../wireguard_packet_non_echo.rs"]
 mod wireguard_packet_non_echo;
+#[path = "../wireguard_target_dns.rs"]
+mod wireguard_target_dns;
 #[path = "../wireguard_traffic.rs"]
 mod wireguard_traffic;

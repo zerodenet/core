@@ -77,19 +77,11 @@ impl TcpExecutionServices {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) async fn resolve_direct_targets(
+    pub(crate) async fn resolve_packet_targets(
         &self,
         session: &zero_core::Session,
-    ) -> Result<crate::transport::DirectTargetResolution, zero_engine::EngineError> {
-        self.upstream
-            .connector
-            .resolve_target_addrs(
-                session,
-                self.upstream.resolver.as_ref(),
-                &self.upstream.egress_interface,
-            )
-            .await
-            .map_err(Into::into)
+    ) -> Result<Vec<std::net::SocketAddr>, zero_engine::EngineError> {
+        crate::runtime::resolve_packet_targets(session, self.upstream.resolver.as_ref()).await
     }
 
     pub(crate) fn record_outbound_failure(&self, tag: &str) {

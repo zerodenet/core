@@ -155,6 +155,13 @@ outbounds:
 
 DNS 与 IP 目标路由独立。只有需要使用内网 DNS 的出站才在 `runtime.dns.servers` 定义带该出站 `detour` 的服务器，并在有序 `dispatch` 中用域名或域名规则集选择它；其它域名由 `default_server` 处理。本例只把 `192.168.1.180` 绑定到 `wg-a`，不从历史 `wg-b` 配置引入 `1.1.1.1`。需要把 `policy.node_server` 指向不经过该 WireGuard 出站的解析器，以避免 endpoint 解析递归；机密域名不能设置会回退到公共解析器的 fallback。带 detour 的普通 UDP DNS 优先使用出站提供的一次性 Datagram 能力；WireGuard 通过共享 Packet device 执行 UDP 53 查询。出站不支持该能力，或响应带截断标志时，才尝试原有 TCP 53 路径。固定 wireguard-go 对端的 A DNS 只监听 UDP 53，双出站测试已验证此路径。
 
+内层业务目标与外层 peer 地址使用不同的 DNS 角色。通用 Raw-IP 的派生 TCP/UDP
+出站通过 `resolve_real` 使用 Default 角色，遵循有序 `dispatch`、`default_server`
+和对应的 fallback，且不会分配 Fake-IP。`policy.direct_server` 只影响普通 Direct
+目标；`policy.node_server` 用于外层 peer/carrier 地址。显式 IP 目标不查询 DNS，
+恢复的逻辑业务域名不会沿用只适用于 Direct 的目标 IP 固定或宿主地址族回退。
+解析之后仍由协议拥有的 AllowedIPs 规则选择 peer，不扩大允许的目标网段。
+
 校验要求：
 
 - private/public/pre-shared key 解码后必须恰好 32 bytes；错误信息不得回显密钥。

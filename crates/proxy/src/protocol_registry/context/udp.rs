@@ -147,6 +147,14 @@ impl UdpRuntimeServices {
             .map_err(Into::into)
     }
 
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn resolve_packet_targets(
+        &self,
+        session: &zero_core::Session,
+    ) -> Result<Vec<std::net::SocketAddr>, zero_engine::EngineError> {
+        crate::runtime::resolve_packet_targets(session, self.tcp.upstream.resolver.as_ref()).await
+    }
+
     pub(crate) fn direct_udp_network_observation(
         &self,
         resolution: &crate::transport::DirectTargetResolution,

@@ -2,7 +2,7 @@
 #[path = "wireguard_traffic/inbound.rs"]
 mod inbound;
 #[path = "wireguard_traffic/peer.rs"]
-mod peer;
+pub(super) mod peer;
 use crate::support;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use tokio::{

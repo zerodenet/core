@@ -12,6 +12,12 @@ IPC/gRPC/Rust 采用同一请求信封，不新建配置 API 或协议专用管�
 端点命令要求 Admin 权限；同步 `CommandService::execute` 明确返回 unsupported，
 必须调用 `execute_acknowledged` 等待资源协调。
 
+IPC 命令分发统一使用服务的确认执行入口，端点控制与 `stats.reset` 均参与
+既有协调锁；同步命令由服务内部安排阻塞执行。出站探测仍使用已有异步探测
+入口和有界并发队列。客户端请求字段不变，不能把内部方法名写入请求。
+本地 IPC 通过操作系统访问控制授予管理员身份，请求中的身份或权限字段
+不能降低或提升权限；无管理员权限的远程控制请求由原鉴权入口拒绝。
+
 ```json
 {
   "method": "endpoints.set_state",

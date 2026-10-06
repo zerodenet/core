@@ -17,6 +17,16 @@ pub fn public(seed: u8) -> String {
     STANDARD.encode(PublicKey::from(&StaticSecret::from([seed; 32])).as_bytes())
 }
 pub async fn echo_peer() -> (SocketAddr, JoinHandle<()>) {
+    echo_peer_inner(None).await
+}
+
+pub async fn echo_peer_with_dns(answer: zero_traits::IpAddress) -> (SocketAddr, JoinHandle<()>) {
+    echo_peer_inner(Some(answer)).await
+}
+
+async fn echo_peer_inner(
+    dns_answer: Option<zero_traits::IpAddress>,
+) -> (SocketAddr, JoinHandle<()>) {
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
     let address = socket.local_addr().unwrap();
     let private = STANDARD.encode([122; 32]);
@@ -74,12 +84,16 @@ pub async fn echo_peer() -> (SocketAddr, JoinHandle<()>) {
                     }
                     TunnelAction::ReceiveIp { packet: inner, .. } => {
                         if let Some(udp) = packet::parse_udp(&inner) {
+                            let dns_reply =
+                                dns_answer.filter(|_| udp.dst.port == 53).map(|answer| {
+                                    zero_dns::udp::build_dns_response(udp.payload, &[answer])
+                                });
                             let reply = packet::build_udp(
                                 udp.dst.ip,
                                 udp.src.ip,
                                 udp.dst.port,
                                 udp.src.port,
-                                udp.payload,
+                                dns_reply.as_deref().unwrap_or(udp.payload),
                             );
                             for action in tunnel.send_ip_packet(&reply).unwrap() {
                                 if let TunnelAction::SendNetwork(bytes) = action {

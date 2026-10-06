@@ -96,10 +96,6 @@ pub(crate) async fn handle_ipc_connection<S>(stream: S, handle: ProxyHandle) -> 
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    let (reader, writer) = tokio::io::split(stream);
-    let mut reader = BufReader::new(reader);
-    let writer = Arc::new(TokioMutex::new(BufWriter::new(writer)));
-
     // IPC connections are protected by OS-level file permissions
     // (Unix socket 0o600).  All callers are trusted with admin.
     let auth_ctx = AuthContext {
@@ -111,6 +107,21 @@ where
             Permission::Admin,
         ],
     };
+
+    handle_ipc_connection_with_auth(stream, handle, auth_ctx).await
+}
+
+async fn handle_ipc_connection_with_auth<S>(
+    stream: S,
+    handle: ProxyHandle,
+    auth_ctx: AuthContext,
+) -> io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let (reader, writer) = tokio::io::split(stream);
+    let mut reader = BufReader::new(reader);
+    let writer = Arc::new(TokioMutex::new(BufWriter::new(writer)));
 
     let mut subscribed = false;
     let mut line = String::new();
@@ -343,19 +354,9 @@ async fn execute_ipc_command(
         }
         command => command,
     };
-    if matches!(
-        command,
-        CommandRequest::ConfigApply(_) | CommandRequest::ConfigApplyRuntime(_)
-    ) {
-        return command_handle.execute_acknowledged(command).await;
-    }
-    match tokio::task::spawn_blocking(move || command_handle.execute(command)).await {
-        Ok(result) => result,
-        Err(error) => Err(zero_api::ApiError::new(
-            zero_api::ApiErrorCode::Internal,
-            format!("IPC command task failed: {error}"),
-        )),
-    }
+    // The service owns coordination and blocking execution. In particular,
+    // endpoint controls and stats.reset must share config.apply's executor.
+    command_handle.execute_acknowledged(command).await
 }
 
 async fn write_command_result<W>(

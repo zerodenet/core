@@ -11,6 +11,9 @@ use zero_api::{
     ModeSetCommand, RawResponse,
 };
 
+#[cfg(all(unix, feature = "wireguard"))]
+mod endpoint;
+
 #[test]
 fn outbound_diagnostics_are_the_only_reordered_ipc_commands() {
     assert!(command_can_run_concurrently(

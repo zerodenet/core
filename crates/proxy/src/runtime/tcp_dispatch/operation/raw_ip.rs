@@ -32,13 +32,13 @@ impl PreparedTcpConnectOperation for RawIpTcpOperation {
         Self: 'a,
     {
         Box::pin(async move {
-            let resolution = services
-                .resolve_direct_targets(session)
+            let targets = services
+                .resolve_packet_targets(session)
                 .await
                 .map_err(|error| failure("raw_ip_resolve_target", error))?;
             let mut selected = None;
             let mut route_error = None;
-            for target in resolution.candidates {
+            for target in targets {
                 match self.plan.peer_for_target(target.ip()) {
                     Ok(peer) => {
                         selected = Some((target, peer));

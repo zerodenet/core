@@ -35,10 +35,9 @@ impl PreparedUdpFlowOperation for RawIpUdpOperation {
         Box::pin(async move {
             let services = ctx.runtime_services();
             let target = services
-                .resolve_direct_targets(session)
+                .resolve_packet_targets(session)
                 .await
                 .map_err(|error| failure("raw_ip_resolve_target", error))?
-                .udp_candidates()
                 .first()
                 .copied()
                 .ok_or_else(|| failure("raw_ip_resolve_target", invalid("no target IP")))?;
