@@ -60,7 +60,7 @@ impl Plane {
     }
     pub fn add(&self, metric: TrafficMetric, value: u64) {
         if value != 0 {
-            let _ = self.slot(metric as usize).fetch_update(
+            let _ = self.slot(metric as usize).try_update(
                 Ordering::Relaxed,
                 Ordering::Relaxed,
                 |old| Some(old.saturating_add(value)),
@@ -72,7 +72,7 @@ impl Plane {
             return;
         }
         self.add(TrafficMetric::DroppedPackets, amount);
-        let _ = self.values[12 + reason as usize].fetch_update(
+        let _ = self.values[12 + reason as usize].try_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
             |old| Some(old.saturating_add(amount)),

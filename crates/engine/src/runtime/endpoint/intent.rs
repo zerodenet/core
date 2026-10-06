@@ -113,7 +113,7 @@ impl EndpointIntents {
 
     pub fn allocate_revision(&mut self) -> Result<u64, ApiError> {
         self.revisions
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 value.checked_add(1)
             })
             .map(|previous| previous + 1)
