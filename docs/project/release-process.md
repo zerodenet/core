@@ -230,7 +230,7 @@ dev Release PR 合并到 `develop`；RC 与正式版 Release PR 合并到 `main`
 
 随后生成 Linux GNU、Linux musl、macOS Intel、macOS Apple Silicon 和 Windows 制品以及 SHA-256 校验文件。Windows x86_64 制品必须同时包含 `zero.exe`、匹配架构的 `wintun.dll` 和 Wintun 许可文件；工作流从官方固定版本下载分发包并验证固定 SHA-256，缺少 DLL 时发布构建直接失败。
 
-`dev` 制品显式编入可选的 `wireguard` feature，并在每个平台检查二进制的 `build-info`；普通 `full` 构建与 RC/正式版的 feature 集合不受此设置影响。WireGuard 的运行与安全验收状态仍以独立实现计划为准。
+`dev` 制品显式编入可选的 `wireguard` 和 `host-network-stats` feature，并在每个平台检查二进制的 `build-info`；普通 `full` 构建与 RC/正式版的 feature 集合不受此设置影响。系统接口统计仅在支持的平台声明运行能力。WireGuard 的运行与安全验收状态仍以独立实现计划为准。
 
 预发布版本创建 GitHub prerelease。正式版本创建 Draft Release，人工检查制品和发布说明后再公开并标记为 latest。
 

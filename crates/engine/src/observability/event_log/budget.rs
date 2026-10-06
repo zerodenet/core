@@ -92,7 +92,7 @@ impl Subscriber {
         }
         if self
             .budget
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
                 used.checked_add(bytes)
                     .filter(|next| *next <= SUBSCRIBER_STATS_BYTES)
             })
