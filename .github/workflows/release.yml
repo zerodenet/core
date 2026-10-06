@@ -126,7 +126,7 @@ jobs:
         run: |
           FEATURES=full,status-api,connector
           if [[ "$RELEASE_TAG" == *-dev.* ]]; then
-            FEATURES+=,wireguard
+            FEATURES+=,wireguard,host-network-stats
           fi
           cargo build --features "$FEATURES" --release --target ${{ matrix.target }}
 
@@ -136,13 +136,15 @@ jobs:
           RELEASE_BINARY: target/${{ matrix.target }}/release/zero${{ runner.os == 'Windows' && '.exe' || '' }}
         run: bash .github/scripts/check-release-binary.sh "$RELEASE_BINARY"
 
-      - name: Verify dev artifact includes WireGuard
+      - name: Verify dev artifact optional features
         if: contains(env.RELEASE_TAG, '-dev.')
         shell: bash
         env:
           RELEASE_BINARY: target/${{ matrix.target }}/release/zero${{ runner.os == 'Windows' && '.exe' || '' }}
         run: |
-          "$RELEASE_BINARY" build-info | grep -E '^features: .*wireguard(,|$)'
+          for FEATURE in wireguard host-network-stats; do
+            "$RELEASE_BINARY" build-info | grep -E "^features: .*$FEATURE(,|$)"
+          done
 
       - name: Verify musl static linkage
         if: matrix.target == 'x86_64-unknown-linux-musl'
