@@ -64,11 +64,6 @@ impl TcpExecutionServices {
             .await
     }
 
-    #[cfg(test)]
-    pub(crate) fn check_outbound_health(&self, tag: &str) -> Result<(), zero_engine::EngineError> {
-        self.engine.check_outbound_health(tag)
-    }
-
     pub(crate) fn record_outbound_failure(&self, tag: &str) {
         self.engine
             .record_outbound_failure_in_snapshot(&self.snapshot, tag);
