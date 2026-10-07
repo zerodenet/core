@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 const DNS_EXCLUSION: &str = "1.1.1.1/32";
 
 #[test]
-#[ignore = "requires Administrator privileges, wintun.dll, and an alternate connected interface"]
+#[ignore = "requires Administrator privileges, wintun.dll, and a suitable alternate connected interface"]
 fn windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun() {
     let binary = env!("CARGO_BIN_EXE_zero");
     let directory = tempfile::tempdir().expect("temporary E2E directory");
@@ -25,8 +25,13 @@ fn windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun() 
     let mut zero = ManagedZero::start(binary, &running_path, &stopped_path, &socket);
     let initial = wait_for_healthy_egress(binary, &socket, None);
     let Some(candidate) = alternate_interface(&initial) else {
-        eprintln!(
-            "skipping Windows route-reconcile E2E because no alternate connected physical interface is available"
+        let reason = "no suitable alternate connected interface with a lower metric and no default route is available";
+        zero.stop();
+        record_outcome("skipped", reason);
+        assert_eq!(
+            std::env::var("ZERO_TUN_ROUTE_RECONCILE_ALLOW_SKIP").as_deref(),
+            Ok("1"),
+            "Windows route-switch scenario was NOT executed: {reason}; set ZERO_TUN_ROUTE_RECONCILE_ALLOW_SKIP=1 only when an explicitly reported skip is acceptable"
         );
         return;
     };
@@ -50,6 +55,24 @@ fn windows_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun() 
     );
 
     zero.stop();
+    record_outcome(
+        "passed",
+        "egress switched and restored; DNS exclusion migrated; TUN process stayed alive",
+    );
+}
+
+fn record_outcome(status: &str, reason: &str) {
+    let report = serde_json::json!({
+        "scenario": "windows-route-switch",
+        "status": status,
+        "executed": status == "passed",
+        "reason": reason,
+    });
+    let encoded = serde_json::to_string(&report).unwrap();
+    eprintln!("ZERO_TUN_ROUTE_RECONCILE_RESULT={encoded}");
+    if let Some(path) = std::env::var_os("ZERO_TUN_ROUTE_RECONCILE_REPORT") {
+        std::fs::write(path, encoded).expect("write Windows route-switch coverage report");
+    }
 }
 
 struct AlternateInterface {

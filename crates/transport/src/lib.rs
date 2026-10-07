@@ -70,6 +70,7 @@ mod certificate_verifier;
 mod http_early_data;
 
 #[cfg(any(
+    feature = "http_client",
     feature = "grpc",
     feature = "split_http",
     feature = "ws",
