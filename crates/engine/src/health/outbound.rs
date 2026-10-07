@@ -1,4 +1,4 @@
-//! Shared outbound circuit breaker for traffic establishment.
+//! Carrier cooldown for automatic candidate selection; fixed traffic may dial.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -79,7 +79,7 @@ impl OutboundHealth {
     }
 
     /// Read-only eligibility check for policy member selection. The actual
-    /// traffic admission must use `begin` to reserve a half-open slot.
+    /// explicit attempt reservation may use `begin`; ordinary dialing is never gated.
     pub fn check(&self, tag: &str) -> Result<(), EngineError> {
         let state = self.inner.lock().unwrap_or_else(|error| error.into_inner());
         if state.unhealthy.get(tag).is_some_and(|quarantine| {
@@ -117,11 +117,11 @@ impl OutboundHealth {
         })
     }
 
-    pub fn record_failure(&self, tag: &str) {
-        self.record_failure_of_attempt(tag, None);
+    pub fn record_failure(&self, tag: &str) -> bool {
+        self.record_failure_of_attempt(tag, None)
     }
 
-    fn record_failure_of_attempt(&self, tag: &str, half_open_attempt: Option<u64>) {
+    fn record_failure_of_attempt(&self, tag: &str, half_open_attempt: Option<u64>) -> bool {
         let now = Instant::now();
         let mut state = self.inner.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(attempt_id) = half_open_attempt {
@@ -130,7 +130,7 @@ impl OutboundHealth {
                 .get(tag)
                 .is_some_and(|quarantine| quarantine.half_open_attempt == Some(attempt_id))
             {
-                return;
+                return false;
             }
             state.failures.remove(tag);
             state.unhealthy.insert(
@@ -140,7 +140,7 @@ impl OutboundHealth {
                     half_open_attempt: None,
                 },
             );
-            return;
+            return true;
         }
         // A failure from an older in-flight connection must not extend an
         // active quarantine or interfere with its half-open attempt.
@@ -148,7 +148,7 @@ impl OutboundHealth {
             now.duration_since(quarantine.since) < QUARANTINE_DURATION
                 || quarantine.half_open_attempt.is_some()
         }) {
-            return;
+            return false;
         }
         let window = state
             .failures
@@ -171,7 +171,9 @@ impl OutboundHealth {
                     half_open_attempt: None,
                 },
             );
+            return true;
         }
+        false
     }
 
     pub fn record_success(&self, tag: &str) {

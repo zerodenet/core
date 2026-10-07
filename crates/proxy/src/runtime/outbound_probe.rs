@@ -250,6 +250,14 @@ impl OutboundProbeRuntime {
                 )
                 .into());
             }
+            if intent == crate::runtime::tcp_dispatch::TcpDispatchIntent::PolicyProbe
+                && !result.is_direct
+            {
+                self.services.engine().record_outbound_success_in_snapshot(
+                    self.services.snapshot(),
+                    &result.outbound_tag,
+                );
+            }
             Ok(started_at.elapsed().as_millis() as u64)
         })
         .await

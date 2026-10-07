@@ -223,36 +223,7 @@ jobs:
         env:
           CURRENT_TAG: ${{ env.RELEASE_TAG }}
         run: |
-          PREVIOUS_TAG=$(git tag --sort=-version:refname \
-            | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(dev|alpha|beta|rc)\.[1-9][0-9]*)?$' \
-            | grep -vFx "$CURRENT_TAG" \
-            | head -n 1 || true)
-
-          if [ -n "$PREVIOUS_TAG" ]; then
-            RANGE="$PREVIOUS_TAG..$CURRENT_TAG"
-          else
-            RANGE="$CURRENT_TAG"
-          fi
-
-          {
-            echo "## Assets"
-            echo ""
-            echo "| Platform | Archive |"
-            echo "|---|---|"
-            echo '| Linux x86_64 (GNU/glibc) | `zero-linux-x86_64.tar.gz` |'
-            echo '| Linux x86_64 (musl) | `zero-linux-x86_64-musl.tar.gz` |'
-            echo '| macOS x86_64 | `zero-darwin-x86_64.tar.gz` |'
-            echo '| macOS aarch64 | `zero-darwin-aarch64.tar.gz` |'
-            echo '| Windows x86_64 | `zero-windows-x86_64.zip` |'
-            echo ""
-            echo "## Changes"
-            echo ""
-            git log "$RANGE" --no-merges --format='- %s' \
-              | grep -ivE '^- release([: ]|$)' || true
-            echo ""
-            echo "---"
-            echo "Generated from $RANGE by GitHub Actions."
-          } > /tmp/release-notes.md
+          python3 scripts/release-notes.py "$CURRENT_TAG" --output /tmp/release-notes.md
 
       - name: Classify release
         id: kind

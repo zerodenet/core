@@ -99,6 +99,29 @@ impl OutboundGroupStateStore {
             .or_else(|| self.selector_selected_target(group_id))
     }
 
+    /// Change selection without fabricating a probe or overwriting new results.
+    pub(crate) fn switch_urltest(
+        &self,
+        group_id: TargetId,
+        expected: &UrlTestGroupState,
+        selection: UrlTestSelection,
+    ) -> bool {
+        let mut states = self
+            .urltest
+            .lock()
+            .expect("urltest group state lock poisoned");
+        let Some(state) = states.get_mut(&group_id) else {
+            return false;
+        };
+        if state != expected {
+            return false;
+        }
+        state.selected = selection.selected;
+        state.latency_ms = selection.best_latency_ms;
+        state.selection = Some(selection);
+        true
+    }
+
     pub(crate) fn urltest_state(&self, group_id: TargetId) -> Option<UrlTestGroupState> {
         self.urltest
             .lock()

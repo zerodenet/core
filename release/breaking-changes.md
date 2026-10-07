@@ -26,6 +26,7 @@
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
 | `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.2-rc.202610070538` | URLTest、DNS 热更新、UDP 与 TUN 恢复 | 配置及控制面 V1 保持兼容；固定路径不再受候选冷却阻断 |
 | `0.0.2-rc.202609290540` | TCP 接收窗口、连接退出与诊断日志 | 配置和控制面 V1 保持兼容；窗口释放后持续更新，废弃流及时清理 |
 | `0.0.2-rc.202609271132` | - | No pending compatibility changes |
 | `0.0.2-rc.202609210616` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 |
@@ -50,6 +51,14 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.2-rc.202610070538
+
+- 固定出站与普通分组继续执行实际连接；载体失败冷却仅影响 URLTest 自动候选选择，达到阈值时即时切换并发布既有 `policy.selected` 事件。手动诊断仍不改动策略健康状态。
+- DNS 热应用的重复协调唤醒不再消费已确认事务尚未提交的解析准备状态。
+- UDP 上游空闲后释放关联及过期定时器，下次业务按原配置重新建立。
+- Linux/macOS TUN 防泄漏规则在协调时核对实际完整规则并恢复；宿主平台权限与既有部署边界不变。
+- 本 RC 保持 v0.0.2 的协议与 feature 范围，不引入 WireGuard、端点资源管理或 v0.0.3 统计契约。
 
 ## 0.0.2-rc.202609290540
 

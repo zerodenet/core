@@ -83,7 +83,6 @@ impl UrlTestRuntime {
                             error_code: None,
                             error: None,
                         },
-                        Some((member_id, latency_ms)),
                         false,
                     ),
                     Err(error) if error.is_environmental_failure() => {
@@ -114,10 +113,6 @@ impl UrlTestRuntime {
                                 error_code: Some("environment_unavailable".to_owned()),
                                 error: Some(error.message().to_owned()),
                             },
-                            healthy
-                                .then_some(latency_ms)
-                                .flatten()
-                                .map(|latency_ms| (member_id, latency_ms)),
                             true,
                         )
                     }
@@ -145,7 +140,6 @@ impl UrlTestRuntime {
                                 error_code: Some(policy_probe_error_code(error.code()).to_owned()),
                                 error: Some(error.message().to_owned()),
                             },
-                            None,
                             false,
                         )
                     }
@@ -156,41 +150,34 @@ impl UrlTestRuntime {
             .collect::<Vec<_>>()
             .await;
 
-        probe_results.sort_by_key(|(index, _, _, _, _)| *index);
+        probe_results.sort_by_key(|(index, _, _, _)| *index);
         let mut member_states = Vec::with_capacity(probe_results.len());
         let mut probe_members = Vec::with_capacity(probe_results.len());
-        let mut successful_members = Vec::with_capacity(probe_results.len());
         let mut inconclusive_members = 0_usize;
-        for (_, member_state, probe_member, success, inconclusive) in probe_results {
-            if let Some(success) = success {
-                successful_members.push(success);
-            }
+        for (_, member_state, probe_member, inconclusive) in probe_results {
             inconclusive_members += usize::from(inconclusive);
             member_states.push(member_state);
             probe_members.push(probe_member);
         }
 
-        let previous = self.urltest_selected_target(group_id);
-        let selection = urltest.select(previous, &successful_members);
-        let selected = selection.selected;
+        let healthy_members = member_states.iter().filter(|member| member.healthy).count();
+        let total_members = member_states.len();
+        let Some(state) = self.services.engine().apply_urltest_probe_result(
+            runtime_snapshot,
+            group_id,
+            member_states,
+        ) else {
+            return;
+        };
+        let selection = state.selection.expect("probe selection");
+        let selected = state.selected;
         let selected_tag = self
             .target_tag(selected)
             .unwrap_or_else(|| "<unknown>".to_owned());
-        let previous_tag = previous.and_then(|target| self.target_tag(target));
-        let latency_ms = successful_members
-            .iter()
-            .find(|(member_id, _)| *member_id == selected)
-            .map(|(_, latency_ms)| *latency_ms);
-
-        let healthy_members = member_states.iter().filter(|member| member.healthy).count();
-        let total_members = member_states.len();
-        self.update_urltest_state(
-            group_id,
-            selected,
-            latency_ms,
-            member_states,
-            selection.clone(),
-        );
+        let previous_tag = selection
+            .previous
+            .and_then(|target| self.target_tag(target));
+        let latency_ms = state.latency_ms;
 
         let completed_at_unix_ms = unix_timestamp_ms();
         let duration_ms = started_at.elapsed().as_millis() as u64;
@@ -282,25 +269,8 @@ impl UrlTestRuntime {
             .target_tag_in_snapshot(self.services.snapshot(), target_id)
     }
 
-    fn urltest_selected_target(&self, group_id: TargetId) -> Option<TargetId> {
-        self.services.snapshot().urltest_selected_target(group_id)
-    }
-
     fn urltest_state(&self, group_id: TargetId) -> Option<zero_engine::UrlTestGroupState> {
         self.services.snapshot().urltest_state(group_id)
-    }
-
-    fn update_urltest_state(
-        &self,
-        group_id: TargetId,
-        selected: TargetId,
-        latency_ms: Option<u64>,
-        members: Vec<UrlTestMemberState>,
-        selection: zero_engine::UrlTestSelection,
-    ) {
-        self.services
-            .snapshot()
-            .update_urltest_state(group_id, selected, latency_ms, members, selection);
     }
 }
 

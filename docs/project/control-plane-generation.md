@@ -33,6 +33,17 @@ Staged configurations may share a committed revision number while owning
 different plans. Revision equality is therefore not sufficient to identify
 the policy state to update.
 
+## Reload notification ownership
+
+Reload notifications are wakeups to reconcile the current runtime snapshot, not
+one transaction per queued notification. Once that exact snapshot has been
+applied, duplicate wakeups must not prepare, commit or discard DNS again while
+the acknowledged configuration caller is finishing its transaction. Explicit
+pending rollback requests still receive reconciliation and acknowledgement,
+even when they restore the already applied snapshot. Snapshot identity, rather
+than equal configuration content or revision, distinguishes a new staged apply
+from a duplicate notification.
+
 ## Events and cursors
 
 Every event retained by the engine carries `core_instance_id`,
@@ -83,9 +94,10 @@ runtime snapshot, returns `operation_kind: diagnostic_outbound`, and reports
 the enforced limit as `timeout_ms`. It shares only the bounded HTTP probe
 executor with URLTest. It does not run URLTest policy logic, change a group's
 selected member or member health, or emit `policy.probe.completed`. It also
-bypasses the shared outbound-health quarantine and does not record success or
-failure into the traffic circuit breaker. Both successful and failed results
-make this contract explicit with:
+ignores URLTest carrier cooldown and does not record success or failure into
+carrier observations. Cooldown is a URLTest selection input, not a global dial
+prohibition; the existing response flags remain compatible. Both successful and
+failed results make this contract explicit with:
 
 ```json
 {

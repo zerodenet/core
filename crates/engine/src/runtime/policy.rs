@@ -3,6 +3,9 @@ use tracing::info;
 use super::{Engine, EngineRuntimeSnapshot};
 use crate::{EngineError, TargetId, UrlTestGroupState, UrlTestMemberState};
 
+mod health;
+mod probe;
+
 impl Engine {
     pub fn push_policy_probe_completed(
         &self,

@@ -4,26 +4,20 @@
 /// cannot accidentally inherit data-plane health side effects.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum TcpDispatchIntent {
-    /// User/data-plane traffic participates in the shared outbound circuit
-    /// breaker.
+    /// Business traffic records carrier observations for URLTest selection.
     Traffic,
-    /// Policy-owned probes bypass stale traffic quarantine and apply their
-    /// result only through the explicit policy result path.
+    /// Policy-owned probes actively test candidates, including those in
+    /// cooldown. Recovery is recorded after the probe response, not dialing.
     PolicyProbe,
     /// Manual diagnostics actively test the outbound without consulting or
     /// mutating the shared traffic-health state.
     DiagnosticProbe,
-    /// DNS detours must remain able to recover an outbound whose ordinary
-    /// traffic is quarantined. Their outcome is transport evidence for the
-    /// DNS fallback chain, not data-plane circuit-breaker evidence.
+    /// DNS outcomes belong to the resolver's fallback chain and do not alter
+    /// business-traffic carrier observations.
     DnsDetour,
 }
 
 impl TcpDispatchIntent {
-    pub(super) const fn checks_outbound_health(self) -> bool {
-        matches!(self, Self::Traffic)
-    }
-
     pub(super) const fn records_outbound_health(self) -> bool {
         matches!(self, Self::Traffic)
     }

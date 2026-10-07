@@ -13,6 +13,7 @@ use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 const HEALTH_TAG: &str = "health-isolation-test";
 
+mod health_scope;
 mod local_failures;
 
 struct FailingConnectOperation;
@@ -58,6 +59,7 @@ async fn repeated_diagnostic_probe_failures_do_not_quarantine_traffic() {
     }
 
     services
+        .engine()
         .check_outbound_health(HEALTH_TAG)
         .expect("diagnostic failures must not quarantine real traffic");
 }
@@ -83,6 +85,7 @@ async fn diagnostic_probe_bypasses_quarantine_without_clearing_it() {
     }
 
     let error = services
+        .engine()
         .check_outbound_health(HEALTH_TAG)
         .expect_err("diagnostic success must not clear shared traffic health");
     assert_eq!(error.code(), "unhealthy_outbound");
@@ -109,6 +112,7 @@ async fn dns_detour_bypasses_quarantine_without_mutating_it() {
     }
 
     let error = services
+        .engine()
         .check_outbound_health(HEALTH_TAG)
         .expect_err("DNS detour success must not clear traffic quarantine");
     assert_eq!(error.code(), "unhealthy_outbound");
@@ -130,6 +134,7 @@ async fn dns_detour_failures_do_not_quarantine_traffic() {
     }
 
     services
+        .engine()
         .check_outbound_health(HEALTH_TAG)
         .expect("DNS transport failures must not quarantine user traffic");
 }
@@ -154,6 +159,7 @@ async fn traffic_failures_still_update_shared_outbound_health() {
     }
 
     let error = services
+        .engine()
         .check_outbound_health(HEALTH_TAG)
         .expect_err("five traffic failures must quarantine the outbound");
     assert_eq!(error.code(), "unhealthy_outbound");
@@ -179,33 +185,9 @@ async fn policy_probe_failures_do_not_mutate_shared_outbound_health() {
     }
 
     services
+        .engine()
         .check_outbound_health(HEALTH_TAG)
         .expect("policy probe results must be applied only through policy state");
-}
-
-#[tokio::test]
-async fn policy_probe_bypasses_stale_traffic_quarantine() {
-    let services = test_services();
-    let session = test_session();
-    quarantine(&services);
-
-    if let Err(failure) = dispatch_prepared_tcp_candidate(
-        services.clone(),
-        &session,
-        successful_candidate(),
-        TcpDispatchIntent::PolicyProbe,
-    )
-    .await
-    {
-        panic!("policy probe must reach the upstream: {}", failure.error);
-    }
-    assert_eq!(
-        services
-            .check_outbound_health(HEALTH_TAG)
-            .expect_err("policy probe does not change shared traffic health")
-            .code(),
-        "unhealthy_outbound"
-    );
 }
 
 fn test_services() -> TcpExecutionServices {
@@ -257,6 +239,7 @@ fn quarantine(services: &TcpExecutionServices) {
         services.record_outbound_failure(HEALTH_TAG);
     }
     services
+        .engine()
         .check_outbound_health(HEALTH_TAG)
         .expect_err("test setup must quarantine the outbound");
 }

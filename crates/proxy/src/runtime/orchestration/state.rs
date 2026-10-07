@@ -116,6 +116,15 @@ impl OrchestrationState {
     pub(super) async fn reconcile_reload(&mut self, proxy: &Proxy) {
         let new_snapshot = proxy.engine.runtime_snapshot();
         let new_config = new_snapshot.config().clone();
+        // Reload notifications are wakeups, not individual transactions. A
+        // rollback can leave another wakeup queued after the current snapshot
+        // was already reconciled. Do not consume or discard DNS preparation
+        // owned by the caller that is still committing its acknowledged apply.
+        if std::sync::Arc::ptr_eq(&new_snapshot, &self.applied_snapshot)
+            && !proxy.pending_reload_matches(&new_config)
+        {
+            return;
+        }
         let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),

@@ -20,6 +20,7 @@ test('every TUN-participating layer retains privileged coverage', () => {
     'crates/proxy/src/runtime/tcp_dispatch.rs', 'crates/platform/tokio/src/egress.rs',
     'crates/router/src/lib.rs', 'crates/stack/src/lib.rs', 'crates/traits/src/lib.rs',
     'protocols/vless/src/lib.rs', 'src/application/tun.rs',
+    'scripts/report-tun-route-reconcile.mjs', 'scripts/report-tun-route-reconcile.test.mjs',
   ]) assert.equal(selectScope([path]).tun, true, path);
 });
 
@@ -157,7 +158,8 @@ test('workflow contracts preserve coverage and avoid root-owned build artifacts'
   assert.match(ci, /cargo test --workspace --all-features/);
   assert.match(ci, /cargo clippy --workspace --all-targets --all-features/);
   assert.match(ci, /Check representative minimal feature surfaces/);
-  assert.equal(ci.match(/if: needs\.scope\.outputs\.exhaustive == 'true'/g)?.length, 2);
+  assert.equal(ci.match(/if: needs\.scope\.outputs\.exhaustive == 'true'/g)?.length, 1);
+  assert.match(ci, /proxy-feature-compat:[^]*?if: needs.scope.outputs.code == 'true'/);
   assert.doesNotMatch(ci, /cargo check --workspace --all-features/);
   assert.doesNotMatch(ci, /cargo test -p zero-proxy --test runtime_boundary/);
   assert.match(ci, /if: needs.scope.outputs.compatibility == 'true'\s+run: cargo test --test tun_privileged_e2e --no-run/);
@@ -250,4 +252,29 @@ test('release gate accepts only successful CI for its exact source commit', asyn
   await assert.rejects(run([[]]), /No successful CI/);
   await assert.rejects(run([[success]], { env: {} }), /invalid release commit identity/);
   await assert.rejects(run([[success]], { apiError: new Error('API unavailable') }), /API unavailable/);
+});
+
+
+test('minimal feature checks report every result after an earlier failure', () => {
+  const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+  const block = ci.match(/- name: Check every minimal proxy protocol feature\n[^]*?run: \|\n([^]*?)(?=\n      - name:)/)[1];
+  const script = block.split('\n').map(line => line.replace(/^          /, '')).join('\n');
+  for (const failedFeature of ['', 'hysteria2']) {
+    const child = spawnSync('bash', ['-e', '-c', `
+      cargo() {
+        echo "MOCK_CHECK $*"
+        [[ "$*" != *"--features $FAILED_FEATURE" ]] || [[ -z "$FAILED_FEATURE" ]]
+      }
+      ${script}
+    `], {
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_STEP_SUMMARY: '/dev/null', FAILED_FEATURE: failedFeature },
+    });
+    assert.equal(child.status, failedFeature ? 1 : 0, child.stderr);
+    const checks = child.stdout.split('\n').filter(line => line.startsWith('MOCK_CHECK '));
+    assert.equal(checks.length, 11);
+    for (const feature of ['hysteria2', 'trojan', 'vless', 'vmess', 'mieru', 'dns']) {
+      assert.ok(checks.some(line => line.endsWith(`--features ${feature}`)), feature);
+    }
+  }
 });
