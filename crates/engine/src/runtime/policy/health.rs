@@ -53,18 +53,6 @@ impl Engine {
         }
     }
 
-    pub(in crate::runtime) fn reconcile_urltest_health(&self) {
-        // Hold the generation while publishing its selection and event. A late
-        // connection result cannot reinterpret old target IDs after reload.
-        let snapshot = self
-            .runtime_snapshot
-            .read()
-            .expect("runtime snapshot lock poisoned");
-        for &group_id in snapshot.plan().urltest_groups() {
-            self.reconcile_urltest_group_health(&snapshot, group_id);
-        }
-    }
-
     pub(in crate::runtime) fn reconcile_urltest_group_health(
         &self,
         snapshot: &EngineRuntimeSnapshot,
