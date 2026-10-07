@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use zero_api::PassiveRelayHealthState;
-use zero_config::OutboundRuntimeKind;
 use zero_core::Address;
 
 use super::{Engine, EngineRuntimeSnapshot, RouteDecision};
@@ -9,7 +8,7 @@ use crate::health::PassiveRelayHealthTransition;
 use crate::plan::resolve_target_id_with_urltest_selector;
 use crate::{
     EngineError, EnginePlan, PassiveRelayHealthKey, PassiveRelayOutcome, PassiveRelaySelection,
-    ResolvedOutbound, TargetId, TargetKind,
+    ResolvedOutbound, TargetId,
 };
 
 type PassiveRelayResolution = (
@@ -106,9 +105,15 @@ impl Engine {
         let plan = snapshot.plan();
         let group = plan.target(group_id)?;
         let urltest = group.as_urltest()?;
+        let selected = if self.urltest_member_available(snapshot, selected) {
+            selected
+        } else {
+            self.reconcile_urltest_group_health(snapshot, group_id);
+            snapshot.urltest_selected_target(group_id).unwrap_or(selected)
+        };
         let member_allowed = |member_id: TargetId| {
             let member = plan.target(member_id)?;
-            if !self.urltest_member_globally_allowed(snapshot, member_id) {
+            if !self.urltest_member_available(snapshot, member_id) {
                 return None;
             }
             self.passive_relay_health
@@ -146,63 +151,6 @@ impl Engine {
             }
         }
         None
-    }
-
-    fn urltest_member_globally_allowed(
-        &self,
-        snapshot: &EngineRuntimeSnapshot,
-        member_id: TargetId,
-    ) -> bool {
-        self.target_globally_allowed(snapshot, member_id, &mut Vec::new())
-    }
-
-    fn target_globally_allowed(
-        &self,
-        snapshot: &EngineRuntimeSnapshot,
-        target_id: TargetId,
-        stack: &mut Vec<TargetId>,
-    ) -> bool {
-        if stack.contains(&target_id) {
-            return false;
-        }
-        let Some(target) = snapshot.plan().target(target_id) else {
-            return false;
-        };
-        stack.push(target_id);
-        let allowed = match target.kind() {
-            TargetKind::Outbound(outbound) => {
-                outbound.runtime_kind() != OutboundRuntimeKind::Proxy
-                    || self.outbound_health.check(target.tag()).is_ok()
-            }
-            TargetKind::Selector(selector) => {
-                let selected = snapshot
-                    .outbound_group_state
-                    .selector_selected_target(target_id)
-                    .unwrap_or_else(|| selector.initial_member());
-                self.target_globally_allowed(snapshot, selected, stack)
-            }
-            TargetKind::UrlTest(urltest) => {
-                let selected = snapshot
-                    .outbound_group_state
-                    .urltest_selected_target(target_id)
-                    .unwrap_or_else(|| urltest.initial_member());
-                self.target_globally_allowed(snapshot, selected, stack)
-            }
-            TargetKind::Fallback(fallback) => fallback
-                .members()
-                .iter()
-                .any(|member| self.target_globally_allowed(snapshot, *member, stack)),
-            TargetKind::LoadBalance(group) => group
-                .members()
-                .iter()
-                .any(|member| self.target_globally_allowed(snapshot, *member, stack)),
-            TargetKind::Relay(relay) => relay
-                .chain()
-                .iter()
-                .all(|member| self.target_globally_allowed(snapshot, *member, stack)),
-        };
-        stack.pop();
-        allowed
     }
 
     pub fn record_passive_relay_outcome(

@@ -83,9 +83,10 @@ runtime snapshot, returns `operation_kind: diagnostic_outbound`, and reports
 the enforced limit as `timeout_ms`. It shares only the bounded HTTP probe
 executor with URLTest. It does not run URLTest policy logic, change a group's
 selected member or member health, or emit `policy.probe.completed`. It also
-bypasses the shared outbound-health quarantine and does not record success or
-failure into the traffic circuit breaker. Both successful and failed results
-make this contract explicit with:
+ignores URLTest carrier cooldown and does not record success or failure into
+carrier observations. Cooldown is a URLTest selection input, not a global dial
+prohibition; the existing response flags remain compatible. Both successful and
+failed results make this contract explicit with:
 
 ```json
 {

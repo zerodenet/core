@@ -291,17 +291,9 @@ impl Engine {
     pub fn track_session(&self, id: u64) -> SessionHandle {
         SessionHandle::new(self.clone(), id)
     }
-    pub fn check_outbound_health(&self, tag: &str) -> Result<(), EngineError> {
-        self.outbound_health.check(tag)
-    }
+    /// Legacy explicit attempt reservation; ordinary dial execution never gates on it.
     pub fn begin_outbound_attempt(&self, tag: &str) -> Result<crate::OutboundAttempt, EngineError> {
         self.outbound_health.begin(tag)
-    }
-    pub fn record_outbound_failure(&self, tag: &str) {
-        self.outbound_health.record_failure(tag);
-    }
-    pub fn record_outbound_success(&self, tag: &str) {
-        self.outbound_health.record_success(tag);
     }
     pub fn probe_trigger_registry(&self) -> &crate::health::ProbeTriggerRegistry {
         &self.probe_trigger_registry

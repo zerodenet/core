@@ -19,7 +19,7 @@ fn shared_probe_identity_separates_policy_and_diagnostic_intents() {
     assert_ne!(
         key(TcpDispatchIntent::PolicyProbe),
         key(TcpDispatchIntent::DiagnosticProbe),
-        "a diagnostic probe must never join a policy probe that can be rejected by traffic quarantine"
+        "read-only diagnostics must not join a policy probe that can restore candidate eligibility"
     );
 }
 

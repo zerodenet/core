@@ -15,21 +15,6 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let health_tag = prepared.health_tag.clone();
-    let attempt = if intent.checks_outbound_health() {
-        health_tag
-            .as_deref()
-            .map(|tag| services.begin_outbound_attempt(tag))
-            .transpose()
-            .map_err(|error| TcpOutboundFailure {
-                stage: "health_check",
-                error,
-                upstream_endpoint: None,
-                network: None,
-            })?
-    } else {
-        None
-    };
-
     let result = match prepared.execution {
         PreparedTcpCandidateExecution::Block { tag } => Ok(EstablishedTcpOutbound::block(tag)),
         PreparedTcpCandidateExecution::Connect(operation) => {
@@ -38,18 +23,18 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
     };
 
     if intent.records_outbound_health() {
-        if let Some(attempt) = attempt {
+        if let Some(tag) = health_tag.as_deref() {
             match &result {
-                Ok(_) => attempt.succeeded(),
-                Err(failure)
+                Ok(_) => services.record_outbound_success(tag),
+                Err(failure) => {
                     if classify_outbound_establishment_failure(
                         &failure.error,
                         failure.network.as_deref(),
-                    ) == PassiveRelayOutcome::Failure =>
-                {
-                    attempt.failed();
+                    ) == PassiveRelayOutcome::Failure
+                    {
+                        services.record_outbound_failure(tag);
+                    }
                 }
-                Err(_) => attempt.neutral(),
             }
         }
     }
