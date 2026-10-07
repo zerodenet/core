@@ -30,17 +30,20 @@ async fn failed_first_bind_preserves_idle_runtime_for_retry() {
         .await
         .is_err());
     assert!(engine.config().inbounds.is_empty());
+    assert_eq!(engine.config_revision(), 1);
     drop(occupied);
     handle
         .apply_config_and_wait(with_listener(port), Duration::from_secs(5))
         .await
         .unwrap();
     assert!(TcpStream::connect(("127.0.0.1", port)).await.is_ok());
+    assert_eq!(engine.config_revision(), 2);
     handle
         .apply_config_and_wait(empty_config(), Duration::from_secs(5))
         .await
         .unwrap();
     assert!(TcpListener::bind(("127.0.0.1", port)).await.is_ok());
+    assert_eq!(engine.config_revision(), 3);
     tokio::time::timeout(Duration::from_secs(3), running.shutdown())
         .await
         .unwrap()
