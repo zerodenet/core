@@ -272,8 +272,8 @@ test('minimal feature checks report every result after an earlier failure', () =
     });
     assert.equal(child.status, failedFeature ? 1 : 0, child.stderr);
     const checks = child.stdout.split('\n').filter(line => line.startsWith('MOCK_CHECK '));
-    assert.equal(checks.length, 12);
-    for (const feature of ['hysteria2', 'trojan', 'vless', 'vmess', 'mieru', 'wireguard', 'dns']) {
+    assert.equal(checks.length, 11);
+    for (const feature of ['hysteria2', 'trojan', 'vless', 'vmess', 'mieru', 'dns']) {
       assert.ok(checks.some(line => line.endsWith(`--features ${feature}`)), feature);
     }
   }

@@ -109,7 +109,9 @@ impl Engine {
             selected
         } else {
             self.reconcile_urltest_group_health(snapshot, group_id);
-            snapshot.urltest_selected_target(group_id).unwrap_or(selected)
+            snapshot
+                .urltest_selected_target(group_id)
+                .unwrap_or(selected)
         };
         let member_allowed = |member_id: TargetId| {
             let member = plan.target(member_id)?;
