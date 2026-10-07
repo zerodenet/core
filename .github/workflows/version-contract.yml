@@ -10,6 +10,8 @@ on:
       - "scripts/release.ps1"
       - "scripts/release.sh"
       - "scripts/test-release-policy.sh"
+      - "scripts/release-notes.py"
+      - "scripts/test-release-notes.py"
       - "docs/project/release-process.md"
       - "docs/project/tooling.md"
       - ".github/workflows/prepare-release.yml"
@@ -26,6 +28,8 @@ on:
       - "scripts/release.ps1"
       - "scripts/release.sh"
       - "scripts/test-release-policy.sh"
+      - "scripts/release-notes.py"
+      - "scripts/test-release-notes.py"
       - "docs/project/release-process.md"
       - "docs/project/tooling.md"
       - ".github/workflows/prepare-release.yml"
@@ -53,6 +57,9 @@ jobs:
 
       - name: Release policy tests
         run: bash scripts/test-release-policy.sh
+
+      - name: Release notes channel and ancestry tests
+        run: python3 scripts/test-release-notes.py
 
       - name: Current version contract
         run: ./scripts/release.sh --check
