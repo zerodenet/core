@@ -106,14 +106,24 @@ fn urltest_health_checks_follow_a_selected_nested_selector_leaf() {
 }
 
 #[test]
-fn all_quarantined_members_keep_a_configured_proxy_instead_of_escaping_to_direct() {
+fn all_cooling_members_keep_selection_and_report_unavailable_until_actual_recovery() {
     let engine = engine(&["primary", "alternate"], vec![]);
     quarantine(&engine, "primary");
+    let snapshot = engine.runtime_snapshot();
+    let group = snapshot.plan().target_id("auto").unwrap();
+    let selected = snapshot.urltest_selected_target(group);
     quarantine(&engine, "alternate");
-    assert_eq!(single_index(resolve(&engine, "auto")), 1);
-    engine
-        .check_outbound_health("primary")
-        .expect_err("still isolated");
+    assert_eq!(snapshot.urltest_selected_target(group), selected);
+    let error = engine
+        .resolve_route_decision_for_flow(
+            RouteDecision::Route("auto".to_owned()),
+            &Address::Domain("application.example".to_owned()),
+            443,
+        )
+        .expect_err("retain main's explicit all-unavailable result, without inventing Direct");
+    assert_eq!(error.code(), "no_usable_urltest_member");
+    engine.record_outbound_success("primary");
+    assert_eq!(single_index(resolve(&engine, "auto")), 0);
 }
 
 #[test]

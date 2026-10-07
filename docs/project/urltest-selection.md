@@ -98,8 +98,10 @@ The availability check follows selected nested selector leaves, considers
 fallback/load-balance candidates without advancing rotation, and observes the
 first carrier hop of relay groups. It neither switches a pinned selector nor
 adds an unconfigured Direct path. If all configured members are unavailable,
-URLTest retains its current selection and still attempts the actual connection.
-A successful connection restores eligibility without forcing a switch back;
+URLTest retains its current selection and reports `no_usable_urltest_member`
+for new automatic flows. An explicitly configured outer fallback may continue
+with its next candidate; no Direct candidate is invented. A successful fixed
+business connection or policy probe restores eligibility without forcing a switch back;
 the next policy cycle uses the normal latency/tolerance decision.
 
 Destination-specific passive relay failures remain scoped to that destination
