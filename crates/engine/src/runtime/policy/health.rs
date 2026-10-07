@@ -65,7 +65,7 @@ impl Engine {
         }
     }
 
-    pub(super) fn reconcile_urltest_group_health(
+    pub(in crate::runtime) fn reconcile_urltest_group_health(
         &self,
         snapshot: &EngineRuntimeSnapshot,
         group_id: TargetId,
