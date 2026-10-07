@@ -2,6 +2,8 @@
 
 日期：2026-09-29。实现已接线并通过本地门禁，结果见
 [控制验证记录](network-endpoint-control-verification-20260929.md)。
+2026-10-06 的地址学习、运行中出站撤权及独立控制过渡事实见
+[本轮验证记录](network-endpoint-control-verification-20261006.md)。
 本契约补充 [端点目录](network-endpoint-catalog-v1.md)，实施范围遵循
 [管理规划](network-endpoint-management-plan.md)。当前注册执行协议为 WireGuard。
 
@@ -99,12 +101,21 @@ stop 阻止新准入、取消属于该资源的 Flow，终止监听和 raw-IP �
 共享协议监听和出站客户端栈继续运行，已关联出站回包仍被接收。配置 reload
 同样执行撤权；已准备失败的候选不提前取消原有 Flow。
 
-**运行中撤销出站方向仍不支持。** 共享客户端栈与 Packet 返回关联尚无独立
-撤权边界，当前明确返回 unsupported，要求先停用、修改方向、再启用；
-clear_overrides 和完整配置 reload 不能绕过该限制。
-能力限制为 endpoint_live_outbound_direction_contraction_requires_stop；资源
-set_directions 操作的 live_direction_contraction 为配置支持的 inbound 和 false
-outbound。旧的全方向限制标识不再发布。
+运行中撤销出站方向通过注册能力执行：共享端点保留入站 socket、协议会话和
+已认证 peer 地址，停止主动客户端栈并清除 Packet 返回关联，取消原出站 Flow。
+已排队的旧栈报文携带关闭令牌，恢复出站后也不能复活；TUN/raw-IP 会清理被
+撤权的 Packet 路径引用。共享端点重新授权时构造新的客户端栈，不重启其入站资源。
+没有监听角色的独立出站在撤权后释放设备/载体；enabled 意图保持不变，实际
+state 可为 stopped。重新授权时重建设备并产生新 generation。
+set_directions / clear_overrides 的 live_direction_contraction 按资源支持的角色
+声明；WireGuard 同时支持已配置的入站和出站收缩。新内核不再发布旧的出站
+requires_stop 限制。其他注册协议默认不声明该能力，必须自行实现确认撤权。
+
+独立启停和 restart 在配置/服务验证后发布 starting/stopping 状态事实，
+协调成功后发布 running/stopped；失败通过既有回滚恢复事实，并记录 last_error。
+过渡观察本身不增加 generation；确认停止后的重启才分配新代际。
+这不表示普通启动/reload/退出的完整过渡观察已经完成。
+
 旧配置中增加、移除或重新关联 inbound/outbound 角色属于配置拓扑变更，仍由
 已有监听/设备协调流程处理；它可能重建设备，与保留角色时修改方向权限不同。
 
@@ -135,3 +146,27 @@ EndpointControlCapability 单独注册控制支持，与观察、TCP/UDP/Packet 
 
 客户端请求、错误处理与观测边界见
 [对接说明](network-endpoint-client-integration-v1.md)。
+
+## Orchestration lifecycle observations
+
+`network_endpoint_orchestration_lifecycle_v1` extends the existing
+`endpoint.state_changed` event and endpoint queries; it introduces no new control
+command. Ordinary startup publishes `starting` then an observed `running`.
+Configuration enable/disable and deletion publish their transition followed by
+confirmed facts. Deletion emits a final `stopped` before forgetting the fact;
+subsequent queries return not found. Recreating the ID receives a fresh runtime
+generation. A rejected candidate restores observed previous resources and records
+the error for changed endpoints; unaffected endpoints keep their generation.
+
+Shutdown preserves configuration intent and statistics periods. `stopped` is
+published after listener/service owners and outbound device completion receipts
+finish. Startup/task failure follows the same cleanup path and publishes `failed`.
+A cancellation/panic guard reports `failed` with an explicit unconfirmed-cleanup
+error, rather than keeping a stale `running` fact. Grace expiry is also failure,
+with owners aborted/joined. OS process termination cannot emit an event; use
+`core_instance_id` and query recovery after restart.
+
+The broad `endpoint_transitional_lifecycle_facts_incomplete` limitation remains:
+protocol resource replacement under the same ID and network recovery still need
+complete generation/transition observation. The scoped feature above must not be
+interpreted as a promise covering every such replacement.

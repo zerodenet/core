@@ -134,7 +134,7 @@ fn resource_operations_publish_precise_persistence_and_live_contraction_limits()
         .live_direction_contraction
         .unwrap();
     assert!(live.inbound);
-    assert!(!live.outbound);
+    assert!(live.outbound);
     assert_eq!(
         capabilities["clear_overrides"].live_direction_contraction,
         Some(live)

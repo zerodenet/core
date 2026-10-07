@@ -3,7 +3,10 @@ use core::net::IpAddr;
 
 use crate::{
     routing::PeerRoutes,
-    validation::{validate_outbound, Key, OutboundInput, ValidationError},
+    validation::{
+        validate_listening_endpoint, validate_outbound, Key, OutboundInput, ValidatedOutbound,
+        ValidationError,
+    },
 };
 
 /// Validated, owned protocol state shared by all connections using one outbound.
@@ -19,8 +22,7 @@ pub struct PreparedOutbound {
 pub struct PreparedPeer {
     public_key: Key,
     pre_shared_key: Option<Key>,
-    endpoint_host: String,
-    endpoint_port: u16,
+    endpoint: Option<(String, u16)>,
     keepalive_secs: u16,
     reserved: Option<[u8; 3]>,
 }
@@ -28,8 +30,16 @@ pub struct PreparedPeer {
 impl PreparedOutbound {
     pub fn from_input(input: OutboundInput<'_>) -> Result<Self, ValidationError> {
         let validated = validate_outbound(input)?;
+        Ok(Self::from_validated(validated))
+    }
+
+    pub fn from_listening_input(input: OutboundInput<'_>) -> Result<Self, ValidationError> {
+        Ok(Self::from_validated(validate_listening_endpoint(input)?))
+    }
+
+    fn from_validated(validated: ValidatedOutbound<'_>) -> Self {
         let routes = PeerRoutes::from_validated(&validated);
-        Ok(Self {
+        Self {
             private_key: validated.private_key,
             addresses: validated
                 .addresses
@@ -43,14 +53,15 @@ impl PreparedOutbound {
                 .map(|peer| PreparedPeer {
                     public_key: peer.public_key,
                     pre_shared_key: peer.pre_shared_key,
-                    endpoint_host: peer.endpoint.host.into(),
-                    endpoint_port: peer.endpoint.port,
+                    endpoint: peer
+                        .endpoint
+                        .map(|endpoint| (endpoint.host.into(), endpoint.port)),
                     keepalive_secs: peer.keepalive_secs,
                     reserved: peer.reserved,
                 })
                 .collect(),
             routes,
-        })
+        }
     }
 
     pub fn peer_for_destination(&self, destination: IpAddr) -> Option<usize> {
@@ -93,12 +104,10 @@ impl PreparedPeer {
     pub fn public_peer_id(&self) -> String {
         crate::validation::validated_public_peer_id(&self.public_key)
     }
-    pub fn endpoint_host(&self) -> &str {
-        &self.endpoint_host
-    }
-
-    pub fn endpoint_port(&self) -> u16 {
-        self.endpoint_port
+    pub fn endpoint(&self) -> Option<(&str, u16)> {
+        self.endpoint
+            .as_ref()
+            .map(|(host, port)| (host.as_str(), *port))
     }
 
     pub(super) fn public_key(&self) -> &Key {

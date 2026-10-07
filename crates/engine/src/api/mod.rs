@@ -73,6 +73,12 @@ impl EventSource for Engine {
 
 fn query_engine(engine: &Engine, request: QueryRequest) -> zero_api::ApiResult<QueryResponse> {
     match request {
+        QueryRequest::PacketRoutes(query) => Ok(QueryResponse::PacketRoutes(
+            engine.packet_routes_snapshot(&query),
+        )),
+        QueryRequest::PacketRoute(query) => Ok(QueryResponse::PacketRoute(
+            engine.packet_route_snapshot(&query)?,
+        )),
         QueryRequest::Endpoints(query) => {
             Ok(QueryResponse::Endpoints(engine.endpoints_snapshot(&query)))
         }
@@ -254,6 +260,10 @@ fn execute_engine_command(
                 })),
             })
         }
+        CommandRequest::PacketRouteClose(_) => Err(ApiError::new(
+            ApiErrorCode::Unsupported,
+            "packet route control requires runtime acknowledgement",
+        )),
         CommandRequest::FlowClose(command) => match engine.close_flow(&command.flow_id) {
             Ok(()) => Ok(CommandResponse {
                 accepted: true,

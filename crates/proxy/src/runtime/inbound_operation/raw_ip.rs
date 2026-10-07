@@ -42,6 +42,10 @@ pub(crate) struct RawIpInboundDispatch {
 }
 
 pub(crate) trait RawIpInboundDevice: Send {
+    /// Protocol-owned assigned addresses, distinct from AllowedIPs prefixes.
+    fn is_local_address(&self, _address: IpAddr) -> bool {
+        false
+    }
     fn peer_identity(&self, _peer: usize) -> Option<String> {
         None
     }
@@ -81,7 +85,7 @@ pub(crate) struct RawIpInboundEndpoint {
 pub(crate) struct EndpointPeerState {
     pub(crate) revision: u64,
     pub(crate) devices: Vec<Arc<SharedRawIpDevice>>,
-    pub(crate) initial_endpoints: Vec<SocketAddr>,
+    pub(crate) initial_endpoints: Vec<Option<SocketAddr>>,
     pub(crate) carriers: Vec<Option<Arc<dyn RawIpWireCarrier>>>,
 }
 

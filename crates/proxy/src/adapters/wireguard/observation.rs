@@ -78,7 +78,7 @@ impl EndpointObservationCapability for WireguardAdapter {
                     peers.push(json!({
                         "peer_id": wireguard::validation::public_peer_id(&peer.public_key).ok(),
                         "peer_index": index, "public_key": peer.public_key,
-                        "allowed_ips": peer.allowed_ips, "configured_endpoint": peer.endpoint,
+                        "allowed_ips": peer.allowed_ips, "configured_endpoint": (!peer.endpoint.is_empty()).then_some(&peer.endpoint),
                         "authenticated_endpoint": source.and_then(|fact| fact.authenticated_endpoint).map(|address| address.to_string()),
                         "source_known": source.and_then(|fact| fact.source_known),
                         "last_authenticated_packet_age_ms": source.and_then(|fact| fact.last_authenticated_packet_age).map(|age| age.as_millis() as u64),
@@ -111,7 +111,33 @@ impl EndpointObservationCapability for WireguardAdapter {
                 }
             }
         }
+        // A linked endpoint owns one protocol/I/O incarnation. Derived client
+        // stacks are direction-scoped users, not a replacement of that endpoint.
+        let mut incarnations = if inbound_live {
+            Vec::new()
+        } else {
+            self.pool.incarnations(&binding.outbound_tags)
+        };
+        if let Some(device) = &inbound_device {
+            incarnations.push(device.incarnation());
+        }
+        if inbound_live {
+            let linked = self
+                .linked_endpoints
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            for tag in &binding.inbound_tags {
+                if let Some(link) = linked.get(tag) {
+                    incarnations.push(
+                        link.io_incarnation
+                            .load(std::sync::atomic::Ordering::Acquire),
+                    );
+                }
+            }
+        }
+        incarnations.sort_unstable();
         Some(EndpointObservation {
+            incarnations,
             supported: EndpointCapabilities {
                 directions: binding.supported_directions,
                 packet: true,
@@ -119,6 +145,7 @@ impl EndpointObservationCapability for WireguardAdapter {
                 datagram: !binding.outbound_tags.is_empty(),
                 derived_stream: !binding.outbound_tags.is_empty(),
                 derived_datagram: !binding.outbound_tags.is_empty(),
+                peer_address_learning: binding.supported_directions.inbound,
                 operations: vec!["list".into(), "get".into(), "details".into()],
                 operation_capabilities: Default::default(),
             },

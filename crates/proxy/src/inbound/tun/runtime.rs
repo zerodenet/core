@@ -20,9 +20,6 @@ use super::sniff::sniff_tcp_target;
 const TCP_STATE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 const TCP_STATE_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const MAX_CONCURRENT_DNS_CONNECTIONS: usize = 256;
-#[cfg(feature = "raw-ip-runtime")]
-static NEXT_PACKET_INGRESS_ID: AtomicU64 = AtomicU64::new(1);
-
 type TunTaskResult = (&'static str, Result<(), EngineError>);
 
 struct TunProtocol;
@@ -84,7 +81,7 @@ pub(super) async fn run(
         tag.clone(),
     );
     #[cfg(feature = "raw-ip-runtime")]
-    let packet_ingress_id = NEXT_PACKET_INGRESS_ID.fetch_add(1, Ordering::Relaxed);
+    let packet_ingress_id = crate::runtime::packet_route::next_ingress_id();
     #[cfg(feature = "raw-ip-runtime")]
     let packet_shutdown = shutdown.clone();
     let packet_traffic: Option<Arc<dyn zero_traits::IoObserver>> =
@@ -230,9 +227,18 @@ async fn feed_packets(
     while let Some(packet) = loop {
         tokio::select! {
             packet = packets.recv() => break packet,
-            _ = route_cleanup.tick() => {
+            _ = async {
+                #[cfg(feature = "raw-ip-runtime")]
+                packet_pins.management_changed().await;
+                #[cfg(not(feature = "raw-ip-runtime"))]
+                std::future::pending::<()>().await;
+            } => {
                 #[cfg(feature = "raw-ip-runtime")]
                 packet_pins.expire();
+            },
+            _ = route_cleanup.tick() => {
+                #[cfg(feature = "raw-ip-runtime")]
+                packet_route.retain_admitted_packet_pins(&mut packet_pins);
             }
         }
     } {

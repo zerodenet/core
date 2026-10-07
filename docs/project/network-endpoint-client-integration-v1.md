@@ -1,9 +1,10 @@
 # 通用网络端点客户端对接 V1
 
-日期：2026-09-30。范围：Zero 的已注册端点目录、确认控制及真实观测。
+日期：2026-09-30，更新：2026-10-06。范围：Zero 的已注册端点目录、确认控制及真实观测。
 这些接口适用于资源能力，当前执行协议为 WireGuard；不要求客户端解析其密钥、
 peer 身份或配置 ID，也不新增协议专用启停命令。
-当前门禁与场景边界见 [验证记录](network-endpoint-client-verification-20260930.md)。
+历史门禁见 [2026-09-30 验证记录](network-endpoint-client-verification-20260930.md)；
+本轮门禁与场景边界见 [2026-10-06 验证记录](network-endpoint-control-verification-20261006.md)。
 
 ## 能力发现与查询
 
@@ -38,6 +39,7 @@ supported.operation_capabilities 提供每个修改操作的具体条件。
     }
   },
   "supported": {
+    "peer_address_learning": true,
     "operation_capabilities": {
       "set_state": {
         "persistence": ["runtime_only", "source_file"],
@@ -46,14 +48,15 @@ supported.operation_capabilities 提供每个修改操作的具体条件。
       "set_directions": {
         "persistence": ["runtime_only", "source_file"],
         "preconditions": ["expected_core_instance_id", "expected_intent_revision"],
-        "live_direction_contraction": {"inbound": true, "outbound": false}
+        "live_direction_contraction": {"inbound": true, "outbound": true}
       }
     }
   }
 }
 ```
 
-以上只是响应片段，不是必须由客户端重建的模型。configuration.enabled/directions
+以上是具有监听绑定的 WireGuard 响应片段，不是必须由客户端重建的模型；
+其他资源仍以实际返回的能力为准。configuration.enabled/directions
 是当前基础配置值；allowed/enabled 是可能叠加运行时覆盖后的当前意图；
 supported.directions 是已配置可执行角色的范围；effective 是当前运行资源可以
 执行的方向。state_source 仅说明配置意图或运行时覆盖，不用于推断持久化来源。
@@ -101,12 +104,11 @@ result.result.reconciled 均为 true，result.result.endpoint 是确认后的快
 
 set_directions 传 directions={inbound,outbound}；只能授权已配置的执行角色。
 运行中撤销入站会结束已有入站 Flow、阻止远端新业务，保留共享监听、协议
-控制报文和出站回复。当前运行中撤销出站需先 set_state(false)，再修改方向，
-随后按需要启用。global_limitations 的精确标识为
-endpoint_live_outbound_direction_contraction_requires_stop。资源操作能力的
-live_direction_contraction 是该操作当前支持的范围，不能视为目标允许方向。
-clear_overrides 同样声明该范围，因为恢复配置方向也可能发生收缩；客户端
-根据 configuration 的基准值判断该操作是否涉及撤销出站，不能绕过限制。
+控制报文和出站回复。WireGuard 运行中撤销出站会独立关闭主动客户端栈和
+Packet 返回路径，保留已授权入站及协议会话。客户端按资源操作能力的
+live_direction_contraction 判断所需收缩是否可直接执行；它不是目标允许方向。
+clear_overrides 同样声明该范围，因为恢复配置方向也可能发生收缩。
+旧内核如果仍声明 requires_stop 限制，继续执行既有停用/修改/恢复流程。
 
 source_file 只有规范 canonical 配置且 Engine 有源路径时可用；legacy 配置或
 无路径资源只声明 runtime_only。以操作的 persistence 列表为准，不能解析 ID
@@ -125,27 +127,53 @@ intent_revision 和 last_error；一次操作失败不等于端点资源已经 f
 
 ## 观测、peer 与路径边界
 
+`counters.active_stream_flows` / `active_datagram_flows` 是活动业务连接数量，
+`active_packet_routes` 是原生/转换 Packet 转发会话数。连接空闲且没有路径时
+`0 / 0 / 0` 是真实状态；`null` 表示没有对应观测提供者，不能按零显示。
+已完成的业务字节仍在 inner/outer 或 Flow 周期累计计数中，三项活动数不替代流量。
+`traffic_packet_route_idle_observation_v1` 表示 Raw-IP 提供者已在准备时声明
+路径观测，未产生原生 Packet 会话的设备也可返回已知零。仅派生 TCP/UDP Flow
+业务不会增加 Packet 路由数。本机 Echo 也不是 Packet 转发路径。
+公共 `packet_routes` 查询与端点计数使用现有 Packet 生命周期；共享资源按 ID
+去重，关闭路径/停止入站/停用端点会释放对应活动数，`stats.reset` 不改变活动数。
+
 GET /api/v1/endpoints/{id}/details 返回 schema_id/schema_version/details，另含
 core_instance_id、config_revision、generation 和 observed_at_unix_ms。当前
 WireGuard schema 为 zero.endpoint.wireguard.v1，版本 1；详情中的 peer ID、
 公开密钥、AllowedIPs、配置 endpoint、认证 endpoint、来源已知状态和认证
 报文年龄由协议观察器提供。现有出站健康包括握手年龄；独立入站的完整 peer
 健康仍可为 null。不暴露私钥、PSK 或 payload。
+supported.peer_address_learning=true 的监听端点可省略 peer endpoint；
+configured_endpoint=null 与 authenticated_endpoint 分开显示，不能把未知地址
+显示为 0.0.0.0 或已连通。无监听的纯出站及 outer_udp_proxy 仍要求配置地址。
 
 通用快照已提供当前 Stream/Datagram Flow 数、已记录的运行代际、启动时间、
 状态和错误。running 表示本地资源存在，不保证 peer 或业务可达。代际不能
-替代实例和意图条件，完整 starting/stopping 过程观察仍未完成。
+替代实例和意图条件。具有 network_endpoint_orchestration_lifecycle_v1 的运行时
+已接入普通启动、配置启停/删除、正常退出、任务失败和协调任务中断的状态事实。
 
-Packet 路径数、内外层字节/报文数、丢包数未接入真实计数，保持 null；客户端
-不得转成 0。单独 PacketRoute 公共管理尚无操作能力，不提供模拟协议命令。
-当前全局限制明确公布：endpoint_packet_and_byte_counters_unavailable、
-endpoint_transitional_lifecycle_facts_incomplete 和
-endpoint_individual_packet_route_control_unavailable。
+显式端点的 Packet 路径数、内外层字节/报文数和本地已观察丢弃已有真实计量；
+缺少提供者或不可观测的指标仍为 null。查询、批量采样、stats_epoch 和重置按
+[流量观测 V1](traffic-observation-v1.md) 对接，客户端不能以 generation 代替统计周期。
+具有 `packet_route_management_v1` 的内核提供分页 `packet_routes`、单项
+`packet_route` 和管理员确认命令 `packet_routes.close`。只关闭实际持有的
+Packet 会话，不改变端点意图或 Flow 用量；独立 Flow/Echo 生命周期保持原接口。
+具体请求、错误和事件见 [Packet 路径与宿主 L3](packet-route-host-control-v1.md)。
+具有 `network_endpoint_device_incarnation_v1` 的内核按真实设备组件替换更新
+代际；相同 ID 的密钥更新/重建与物理出口替换也接入观测。策略或方向变化保留
+设备时不改变代际。`network_endpoint_network_recovery_v1` 在既有端点快照和
+事件的 `recovery` 中投影 preparing/retrying/recovered/superseded，恢复确认
+表示本地设备发布，不代表远端握手或业务可达。
+正常退出先发布 stopping，确认监听器和设备 I/O 任务结束后发布 stopped。
+启动/后台任务失败经同一清理路径发布 failed 和 last_error；运行协调任务被
+取消或 panic 的析构保护会报告未确认清理的 failed，不能据此断言资源已释放。
+进程被强制终止后无法向旧事件日志写入最后事件；消费者以新的
+core_instance_id 重建查询基线。
 
 复用 GET /api/v1/events/stream 和已有回放入口。endpoint.state_changed 是状态
 事实变更；endpoint.stats_sampled 每 10 秒按最多 64 个资源分页批量发出，
 samples 内含 endpoint_id、config_revision、generation、采样时间和 counters。
 使用事件信封的实例与序列恢复机制，缺失计数仍为 null。
 
-本说明不宣称完整统计、完整生命周期、独立路径管理、A/B 实网、长期运行或
-跨平台生产验收已完成；这些能力只有接入真实执行和观察后才能声明。
+本说明不宣称 A/B 实网、真实宿主转发、长期运行或跨平台生产验收已完成。
+新增路径控制和恢复观测的实现范围及实际门禁结果见上述接入文档。

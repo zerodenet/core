@@ -16,6 +16,9 @@ pub struct WireguardPeerConfig {
     pub public_key: String,
     #[serde(default)]
     pub pre_shared_key: Option<WireguardSecret>,
+    /// Omitted only for a peer attached to a listening endpoint. Protocol
+    /// validation rejects an absent address for a standalone outbound.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub endpoint: String,
     pub allowed_ips: Vec<String>,
     #[serde(default)]

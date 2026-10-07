@@ -59,11 +59,14 @@ pub(super) async fn try_forward(
                     continue;
                 }
                 let observer = pins.inner_io(inner, &plane, None, || route.outbound_inner_io(&tag));
+                let Some(replies) = pins.replies_for(inner, &plane, None, responses.clone()) else {
+                    continue;
+                };
                 match operation
                     .forward(
                         inner.to_vec(),
                         ingress_id,
-                        responses.clone(),
+                        replies,
                         generation,
                         observer.clone(),
                     )
@@ -82,7 +85,10 @@ pub(super) async fn try_forward(
                         }
                         return true;
                     }
-                    Err(error) => tracing::debug!(%error, "TUN packet route candidate unavailable"),
+                    Err(error) => {
+                        pins.reject_unaccepted(inner, None);
+                        tracing::debug!(%error, "TUN packet route candidate unavailable");
+                    }
                 }
             }
             PacketRouteTarget::Flow => {

@@ -18,7 +18,7 @@ pub(super) struct ProxiedWirePacket {
 pub(super) fn refresh_endpoint_peers(
     endpoint: Option<&mut RawIpInboundEndpoint>,
     revision: &mut u64,
-    initial_endpoints: &mut Vec<SocketAddr>,
+    initial_endpoints: &mut Vec<Option<SocketAddr>>,
     endpoints: &mut Vec<Option<SocketAddr>>,
     fragments: &mut FragmentReassembler,
     endpoint_fragments: &mut FragmentReassembler,
@@ -67,8 +67,21 @@ pub(super) fn refresh_endpoint_peers(
         });
     }
     *revision = peers.revision;
-    *initial_endpoints = peers.initial_endpoints.clone();
-    *endpoints = initial_endpoints.iter().copied().map(Some).collect();
+    // Preserve an authenticated learned address when the configured initial
+    // address is unchanged, including a listener-only peer with no address.
+    let previous = std::mem::replace(initial_endpoints, peers.initial_endpoints.clone());
+    *endpoints = peers
+        .initial_endpoints
+        .iter()
+        .enumerate()
+        .map(|(peer, initial)| {
+            if previous.get(peer) == Some(initial) {
+                endpoints.get(peer).copied().flatten().or(*initial)
+            } else {
+                *initial
+            }
+        })
+        .collect();
     *fragments = FragmentReassembler::new();
     *endpoint_fragments = FragmentReassembler::new();
 }

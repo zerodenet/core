@@ -208,45 +208,114 @@ async fn ipc_endpoint_and_statistics_commands_reject_non_admin_before_execution(
 }
 
 #[tokio::test]
-async fn ipc_outbound_contraction_requires_stop_and_supports_the_existing_client_sequence() {
+async fn ipc_live_outbound_contraction_preserves_resource_and_checks_stale_intent() {
     let fixture = Fixture::new().await;
     let mut ipc = Ipc::new(fixture.handle.clone());
     let original = ipc.endpoint().await;
     let directions =
         json!({"endpoint_id":"endpoint:ipc-test","directions":{"inbound":true,"outbound":false}});
-    let rejected = ipc
-        .command(
-            "endpoints.set_directions",
-            conditional(&original, directions.clone()),
-        )
-        .await;
-    assert!(!rejected.ok);
-    assert_eq!(rejected.error.unwrap().code, "unsupported");
     assert_eq!(
-        ipc.endpoint().await["intent_revision"],
-        original["intent_revision"]
-    );
-    let stopped = applied(
-        ipc.command("endpoints.set_state", conditional(&original, state(false)))
-            .await,
+        original["supported"]["operation_capabilities"]["set_directions"]
+            ["live_direction_contraction"]["outbound"],
+        true
     );
     let narrowed = applied(
         ipc.command(
             "endpoints.set_directions",
-            conditional(&stopped, directions),
+            conditional(&original, directions.clone()),
         )
         .await,
     );
-    assert_eq!(narrowed["state"], "stopped");
+    assert_eq!(narrowed["state"], "running");
+    assert_eq!(narrowed["generation"], original["generation"]);
+    assert_eq!(
+        narrowed["started_at_unix_ms"],
+        original["started_at_unix_ms"]
+    );
+    assert_eq!(
+        narrowed["effective"],
+        json!({"inbound":true,"outbound":false})
+    );
+    let stale = ipc
+        .command(
+            "endpoints.set_directions",
+            conditional(&original, directions),
+        )
+        .await;
+    assert!(!stale.ok);
+    assert_eq!(stale.error.unwrap().code, "conflict");
+    assert_eq!(
+        ipc.endpoint().await["intent_revision"],
+        narrowed["intent_revision"]
+    );
     let resumed = applied(
-        ipc.command("endpoints.set_state", conditional(&narrowed, state(true)))
-            .await,
+        ipc.command(
+            "endpoints.set_directions",
+            conditional(&narrowed, json!({"endpoint_id":"endpoint:ipc-test","directions":{"inbound":true,"outbound":true}})),
+        )
+        .await,
     );
     assert_eq!(
         resumed["effective"],
-        json!({"inbound":true,"outbound":false})
+        json!({"inbound":true,"outbound":true})
     );
     assert_eq!(resumed["state"], "running");
+    assert_eq!(resumed["generation"], original["generation"]);
+    ipc.close().await;
+    fixture.running.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn ipc_queries_and_confirms_a_packet_route_close_without_changing_endpoint_intent() {
+    let fixture = Fixture::new().await;
+    let engine = fixture.handle.engine_handle().inner().clone();
+    let lease = engine
+        .register_packet_route(zero_api::PacketRouteSnapshot {
+            route_id: String::new(),
+            core_instance_id: String::new(),
+            config_revision: 0,
+            inbound_tag: "endpoint/ipc-test".into(),
+            outbound_tag: "ipc-test".into(),
+            endpoints: vec![],
+            source: "10.0.0.2".into(),
+            destination: "10.0.0.3".into(),
+            ip_protocol: 17,
+            translated: false,
+            started_at_unix_ms: 0,
+            state: zero_api::PacketRouteState::Active,
+        })
+        .unwrap();
+    let mut ipc = Ipc::new(fixture.handle.clone());
+    let before = ipc.endpoint().await;
+    let page = ipc
+        .query(json!({"packet_routes":{"offset":0,"limit":100}}))
+        .await;
+    let id = page["packet_routes"]["routes"][0]["route_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let control = lease.control();
+    let owner = tokio::spawn(async move {
+        control.cancelled().await;
+        drop(lease);
+    });
+    let ack = ipc
+        .command(
+            "packet_routes.close",
+            json!({"route_id":id,"expected_core_instance_id":engine.core_instance_id()}),
+        )
+        .await;
+    assert!(ack.ok, "{:?}", ack.error);
+    assert_eq!(ack.result.unwrap()["result"]["closed"], true);
+    owner.await.unwrap();
+    assert_eq!(
+        ipc.endpoint().await["intent_revision"],
+        before["intent_revision"]
+    );
+    assert_eq!(
+        ipc.query(json!({"packet_routes":{}})).await["packet_routes"]["total"],
+        0
+    );
     ipc.close().await;
     fixture.running.shutdown().await.unwrap();
 }

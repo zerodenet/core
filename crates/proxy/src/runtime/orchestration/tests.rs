@@ -153,3 +153,5 @@ async fn duplicate_reload_wakeup_preserves_dns_prepared_for_transaction_commit()
         .commit_prepared_reload()
         .expect("duplicate notifications must preserve the prepared DNS candidate");
 }
+
+mod lifecycle;

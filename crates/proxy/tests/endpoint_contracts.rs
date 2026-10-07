@@ -22,3 +22,9 @@ mod persistence;
 mod preconditions;
 #[path = "endpoint_contracts/recovery.rs"]
 mod recovery;
+
+#[path = "endpoint_contracts/listening.rs"]
+mod listening;
+
+#[path = "endpoint_contracts/lifecycle.rs"]
+mod lifecycle;

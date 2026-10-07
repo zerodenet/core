@@ -16,6 +16,13 @@ impl ProtocolInventory {
         self.registry.endpoint_control_supported(binding)
     }
 
+    pub(crate) fn endpoint_live_direction_contraction(
+        &self,
+        binding: &zero_config::EndpointBindingConfig,
+    ) -> EndpointDirections {
+        self.registry.endpoint_live_direction_contraction(binding)
+    }
+
     pub(crate) fn observe_endpoint(
         &self,
         config: &RuntimeConfig,
@@ -50,10 +57,7 @@ impl ProtocolInventory {
                             operation,
                             "set_directions" | "clear_overrides"
                         )
-                        .then_some(EndpointDirections {
-                            inbound: binding.supported_directions.inbound,
-                            outbound: false,
-                        }),
+                        .then_some(self.endpoint_live_direction_contraction(&binding)),
                     },
                 );
             }

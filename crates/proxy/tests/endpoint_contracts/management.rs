@@ -80,7 +80,22 @@ async fn stop_releases_one_listener_reload_retains_override_and_clear_restarts_i
                 && event.payload["endpoint_id"] == "endpoint:a"
         })
         .collect::<Vec<_>>();
-    assert!(transitions.len() >= 3);
+    let states = transitions
+        .iter()
+        .map(|event| event.payload["state"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        states
+            .windows(2)
+            .any(|pair| pair == ["stopping", "stopped"]),
+        "{states:?}"
+    );
+    assert!(
+        states
+            .windows(2)
+            .any(|pair| pair == ["starting", "running"]),
+        "{states:?}"
+    );
     assert_eq!(transitions.last().unwrap().payload["state"], "running");
     assert_eq!(
         endpoint(&handle, "a").state_source,
@@ -154,7 +169,7 @@ async fn config_apply_can_contract_inbound_without_restarting_endpoint() {
 }
 
 #[tokio::test]
-async fn restart_is_explicit_conditional_and_outbound_contraction_requires_stop() {
+async fn restart_is_conditional_and_outbound_contraction_preserves_the_listener() {
     let (a, b) = (free_udp_port(), free_udp_port());
     let proxy = Proxy::new(config(a, b)).unwrap();
     let handle = handle(&proxy);
@@ -191,32 +206,22 @@ async fn restart_is_explicit_conditional_and_outbound_contraction_requires_stop(
         expected_intent_revision: None,
         expected_core_instance_id: None,
     });
-    assert_eq!(
-        handle
-            .execute_acknowledged(directions.clone())
-            .await
-            .unwrap_err()
-            .code,
-        ApiErrorCode::Unsupported
-    );
-    assert!(endpoint(&handle, "a").allowed.outbound);
+    handle
+        .execute_acknowledged(directions.clone())
+        .await
+        .unwrap();
+    assert!(!endpoint(&handle, "a").allowed.outbound);
+    assert_eq!(endpoint(&handle, "a").state, EndpointRuntimeState::Running);
     let mut contraction = config(a, b);
     contraction.endpoints[0].directions = EndpointDirections {
         inbound: true,
         outbound: false,
     };
-    let error = handle
+    handle
         .apply_runtime_config_and_wait(contraction, Duration::from_secs(5))
         .await
-        .unwrap_err();
-    assert!(
-        error.contains("live outbound direction contraction"),
-        "{error}"
-    );
-    assert!(
-        endpoint(&handle, "a").allowed.outbound,
-        "config.apply cannot bypass direction-scope cancellation"
-    );
+        .unwrap();
+    assert!(!endpoint(&handle, "a").allowed.outbound);
     assert_eq!(endpoint(&handle, "b").state, EndpointRuntimeState::Running);
     handle
         .execute_acknowledged(set_state("a", false))

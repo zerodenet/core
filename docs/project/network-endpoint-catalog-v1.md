@@ -2,7 +2,7 @@
 
 目录提供内核配置和只读观测。独立启停、重启、临时意图与回滚已在后续
 [控制 V1 切片](network-endpoint-control-v1.md) 接线；运行中入站收缩已实现，
-出站收缩仍需停用。
+运行中出站收缩通过独立客户端栈/Packet 返回路径撤权接线。
 完整实施范围见 [管理规划](network-endpoint-management-plan.md)。
 本地门禁与仍待验收的场景见 [验证记录](network-endpoint-catalog-verification-20260929.md)。
 
@@ -30,9 +30,13 @@ ID 对同一配置资源的重新加载、密钥调整和 peer 重排保持稳�
 不透明字符串；旧配置迁移到规范资源是一次显式身份迁移。
 
 [示例](../../examples/v0.0.3/wireguard-endpoint.json) 默认停用，使用公开的虚构测试
-密钥；实际部署必须替换密钥、地址和 peer。当前规范 WireGuard 资源需要本地
-addresses 和配置的 peer endpoint；仅监听并学习远端地址的服务端继续使用既有
-WireGuard inbound 配置，该配置同样进入目录。这一配置形状的统一尚待开发。
+密钥；实际部署必须替换密钥、地址和 peer。规范 WireGuard 资源需要本地
+addresses；配置 listen 时 peer 可以省略 endpoint，由认证握手学习远端地址。
+未配置 listen 的纯出站及 outer_udp_proxy 仍要求每个 peer 的配置地址。
+省略地址的 peer 在握手前无法主动发送；详情 configured_endpoint=null。
+资源 supported.peer_address_learning=true 表示该监听绑定支持认证地址学习；
+无监听绑定时为 false。客户端按此能力决定是否允许省略地址。
+旧 WireGuard inbound 配置继续进入同一目录。
 
 ## 准入与执行分层
 
@@ -78,7 +82,15 @@ WireGuard 详情为 `schema_id=zero.endpoint.wireguard.v1`、schema_version=1；
 running 仅说明观察到本地资源，不证明远端握手或业务可达。握手和认证报文的健康
 事实沿用旧 `HealthSnapshot.outbound_devices`；并非业务可达探测。
 已应用资源提供 generation、启动时间、错误与状态事件；现有 Stream/Datagram
-Flow 数和低频 endpoint.stats_sampled 事件可用。Packet/字节计数仍使用 null。
+Flow 数和低频 endpoint.stats_sampled 事件可用。显式端点的内外层字节/包数、
+本地已观察丢弃和活动 Packet 路径已有真实来源；缺少提供者时仍返回 null。
+Raw-IP 设备的 Packet 路径观测在准备完成时声明，空闲时返回 `0`，无需先发
+一个包才能区分零和不可用。这里的 Stream/Datagram 是当前活动业务 Flow，
+不是累计连接数；Packet 是已执行的原生/转换 Packet 转发会话，派生 Flow
+产生的 IP 包以及本机 Echo 应答不伪装成转发路径。共享端点在两个角色中只计一次。
+统计口径、分页查询、采样和 stats.reset 见 [流量观测契约](traffic-observation-v1.md)。
+统计周期 stats_epoch 与设备 generation 独立，inner/outer 不相加。
+
 已有注册设备提供认证远端地址、来源已知状态和认证报文年龄；没有可用事实
 时返回 null。入站独立设备的逐 peer 完整健康尚未接入该详情视图。
 intent_revision 已生成并支持条件更新；state_source 反映 config/runtime_override。
@@ -87,10 +99,24 @@ intent_revision 已生成并支持条件更新；state_source 反映 config/runt
 configuration 公布来源、基准方向和源文件条件；操作级支持见控制契约及
 [客户端对接说明](network-endpoint-client-integration-v1.md)。
 
+## 本机 Packet 地址
+
+规范端点的 `protocol.addresses` 同时投影到入站，协议验证并提供精确的本机 IP
+事实。中性 Raw-IP 监听运行时在认证、AllowedIPs 源检查和入站方向准入之后，
+为这些 IP 处理 IPv4/IPv6 Echo Request，并通过原协议设备返回 Echo Reply。
+不会为同一 CIDR 中的其他地址应答，不新增 ICMP Flow，不执行宿主地址/路由配置。
+本机 Echo 属于本地交付，不执行转发路由规则；内层/外层照常计量，业务用量不增加。
+关闭入站角色后新的本机 Echo 不再被接受，已建立出站的相关回包仍走原返回边界。
+`raw_ip_local_echo_v1` 声明此运行时能力；它不代表自动开放宿主 TCP/UDP 服务。
+legacy 独立 WireGuard 入站可选填 `addresses`，省略时保持原来的转发语义；
+显式关联的 legacy 入站若声明地址，必须与同一出站的地址一致，否则配置验证
+拒绝。省略地址仍保持转发语义，不从出站或 peer AllowedIPs 推测本机地址。
+
 ## 未完成开发
 
-- 运行中出站收缩的独立撤权、完整依赖停止协调。
-- 完整生命周期过渡和 Packet/内外层流量计数。
-- 规范配置中的仅监听 peer；独立入站 peer 的完整健康。
+- 通用宿主 Direct PacketSink、仅出站的安全原生 Packet 回程分类、完整依赖停止协调及独立 PacketRoute 公共管理。
+- 完整生命周期过渡；独立控制已发布 starting/stopping，启动、普通 reload、
+  进程退出及意外失败的全流程仍待补齐。
+- 独立入站 peer 的完整健康。
 - 控制载体完整验收、运行时 schema 导出和端点诊断能力。
 - A/B 实网及长时运行验收。目录完成不会自动关闭 WireGuard 生产门禁。

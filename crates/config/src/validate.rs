@@ -63,6 +63,7 @@ impl RuntimeConfig {
         for outbound in &self.outbounds {
             let crate::OutboundProtocolConfig::Wireguard {
                 private_key,
+                addresses,
                 mtu,
                 peers,
                 inbound_tag: Some(inbound_tag),
@@ -88,8 +89,10 @@ impl RuntimeConfig {
                 })?;
             let crate::InboundProtocolConfig::Wireguard {
                 private_key: inbound_key,
+                addresses: inbound_addresses,
                 mtu: inbound_mtu,
                 peers: inbound_peers,
+                ..
             } = &inbound.protocol
             else {
                 return Err(ConfigError::InvalidOutbound(format!(
@@ -98,6 +101,7 @@ impl RuntimeConfig {
                 )));
             };
             if private_key != inbound_key
+                || (!inbound_addresses.is_empty() && addresses != inbound_addresses)
                 || mtu != inbound_mtu
                 || peers.len() != inbound_peers.len()
                 || peers.iter().zip(inbound_peers).any(|(a, b)| {
@@ -109,7 +113,7 @@ impl RuntimeConfig {
                 })
             {
                 return Err(ConfigError::InvalidOutbound(format!(
-                    "wireguard outbound `{}` must use the linked inbound's key, MTU and ordered peers",
+                    "wireguard outbound `{}` must use the linked inbound's key, addresses, MTU and ordered peers",
                     outbound.tag
                 )));
             }
@@ -363,6 +367,36 @@ fn validate_runtime(
         validate_latency_test_url("`runtime.latency_test_url`", url)?;
     }
 
+    if let Some(device) = &runtime.network.direct_packet_device {
+        if device.fd < 3
+            || device.interface.is_empty()
+            || device.interface.len() > 15
+            || device.interface.contains('\0')
+            || device.router_addresses.is_empty()
+            || device.router_addresses.len() > 2
+            || device
+                .router_addresses
+                .iter()
+                .any(|ip| ip.is_unspecified() || ip.is_multicast())
+            || device
+                .router_addresses
+                .windows(2)
+                .any(|ips| ips[0].is_ipv4() == ips[1].is_ipv4())
+        {
+            return Err(ConfigError::InvalidRuntime(
+                "Direct packet device requires fd >= 3, a valid interface name and one unicast router address per supplied family".into(),
+            ));
+        }
+        if runtime
+            .tun
+            .as_ref()
+            .is_some_and(|tun| tun.name.as_ref() == Some(&device.interface))
+        {
+            return Err(ConfigError::InvalidRuntime(
+                "Direct packet device must be separate from the ingress TUN".into(),
+            ));
+        }
+    }
     if runtime.network.mtu < 576 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.network.mtu` must be at least 576".to_owned(),

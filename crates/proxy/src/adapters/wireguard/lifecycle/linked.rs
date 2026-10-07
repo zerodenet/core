@@ -36,6 +36,11 @@ impl WireguardAdapter {
         EngineError,
     > {
         let upstream = &context.upstream;
+        let client_peer_count = if context.disabled_outbounds.contains(&outbound.tag) {
+            0
+        } else {
+            plan.peer_count()
+        };
         let inbound_identity = inbound_protocol_identity(&inbound.protocol)
             .ok_or_else(|| invalid("cannot identify WireGuard inbound"))?;
         let outer_udp_proxy = match &outbound.protocol {
@@ -53,7 +58,9 @@ impl WireguardAdapter {
             .cloned();
         let reusable = existing.as_ref().and_then(|link| {
             let state = link.state.lock().unwrap_or_else(|error| error.into_inner());
-            (state.identity == identity && state.generation == generation)
+            (state.identity == identity
+                && state.generation == generation
+                && state.devices.len() == client_peer_count)
                 .then(|| state.devices.clone())
         });
         if let (Some(link), Some(devices)) = (&existing, reusable) {
@@ -106,20 +113,9 @@ impl WireguardAdapter {
             (sender_watch, Some(packets))
         };
         let sender_rx = sender_watch.subscribe();
-        let mut endpoints = Vec::with_capacity(plan.peer_count());
+        let endpoints = resolve_endpoints(plan, upstream).await?;
         let mut devices = Vec::with_capacity(plan.peer_count());
-        for peer_index in 0..plan.peer_count() {
-            let (host, port) = plan
-                .peer_endpoint(peer_index)
-                .ok_or_else(|| invalid("unknown WireGuard peer"))?;
-            let address = match host.parse::<IpAddr>() {
-                Ok(IpAddr::V4(ip)) => Address::Ipv4(ip.octets()),
-                Ok(IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
-                Err(_) => Address::Domain(host.to_owned()),
-            };
-            let endpoint = upstream
-                .resolve_node_address(&address, port, "WireGuard peer endpoint")
-                .await?;
+        for peer_index in 0..client_peer_count {
             let device = SharedRawIpDevice::start_on_endpoint(
                 plan.local_addresses(),
                 plan.mtu(),
@@ -138,7 +134,6 @@ impl WireguardAdapter {
                 cell,
                 true,
             )?;
-            endpoints.push(endpoint);
             devices.push(device);
         }
         let carriers = prepare_carriers(outer_udp_proxy, context, &endpoints).await?;
@@ -186,11 +181,16 @@ impl WireguardAdapter {
 async fn prepare_carriers(
     proxy_tag: Option<&str>,
     context: &OutboundDevicePreparationContext,
-    endpoints: &[std::net::SocketAddr],
+    endpoints: &[Option<std::net::SocketAddr>],
 ) -> Result<Vec<Option<Arc<dyn RawIpWireCarrier>>>, EngineError> {
     let Some(proxy_tag) = proxy_tag else {
         return Ok(vec![None; endpoints.len()]);
     };
+    if endpoints.iter().any(Option::is_none) {
+        return Err(invalid(
+            "outer_udp_proxy requires a configured address for every peer",
+        ));
+    }
     let operation = context.packet_paths.get(proxy_tag).ok_or_else(|| {
         invalid(format!(
         "WireGuard outer_udp_proxy `{proxy_tag}` has no persistent bidirectional UDP packet path"
@@ -213,22 +213,23 @@ async fn prepare_carriers(
 async fn resolve_endpoints(
     plan: &WireguardRawIpPlan,
     upstream: &UpstreamConnectServices,
-) -> Result<Vec<std::net::SocketAddr>, EngineError> {
+) -> Result<Vec<Option<std::net::SocketAddr>>, EngineError> {
     let mut endpoints = Vec::with_capacity(plan.peer_count());
     for peer_index in 0..plan.peer_count() {
-        let (host, port) = plan
-            .peer_endpoint(peer_index)
-            .ok_or_else(|| invalid("unknown WireGuard peer"))?;
+        let Some((host, port)) = plan.peer_endpoint(peer_index) else {
+            endpoints.push(None);
+            continue;
+        };
         let address = match host.parse::<IpAddr>() {
             Ok(IpAddr::V4(ip)) => Address::Ipv4(ip.octets()),
             Ok(IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
             Err(_) => Address::Domain(host.to_owned()),
         };
-        endpoints.push(
+        endpoints.push(Some(
             upstream
                 .resolve_node_address(&address, port, "WireGuard peer endpoint")
                 .await?,
-        );
+        ));
     }
     Ok(endpoints)
 }

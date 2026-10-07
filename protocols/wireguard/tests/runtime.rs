@@ -301,7 +301,10 @@ fn prepared_profile_owns_peer_route_and_keys_after_input_is_dropped() {
         Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 7)))
     );
     assert!(profile.allows_authenticated_source(0, remote));
-    assert_eq!(profile.peer(0).unwrap().endpoint_host(), "127.0.0.1");
+    assert_eq!(
+        profile.peer(0).unwrap().endpoint(),
+        Some(("127.0.0.1", 51820))
+    );
     assert!(!network_packets(
         PeerTunnel::from_prepared(&profile, 0)
             .unwrap()
@@ -327,6 +330,7 @@ fn inbound_device_demultiplexes_handshake_and_checks_authenticated_inner_source(
         reserved: &[],
     }];
     let mut server = PreparedInbound::from_input(InboundInput {
+        addresses: &[],
         private_key: &server_private,
         mtu: 1420,
         peers: &inbound_peer,
@@ -388,6 +392,7 @@ fn inbound_device_rejects_unknown_peer_handshake() {
         reserved: &[],
     }];
     let mut server = PreparedInbound::from_input(InboundInput {
+        addresses: &[],
         private_key: &server_private,
         mtu: 1420,
         peers: &inbound_peer,
@@ -415,6 +420,7 @@ fn inbound_handshake_rate_limit_resets_after_one_second() {
         reserved: &[],
     }];
     let mut server = PreparedInbound::from_input(InboundInput {
+        addresses: &[],
         private_key: &server_private,
         mtu: 1420,
         peers: &peers,
@@ -453,6 +459,7 @@ fn opaque_outer_carrier_rejects_handshakes_at_cookie_threshold() {
         reserved: &[],
     }];
     let mut server = PreparedInbound::from_input(InboundInput {
+        addresses: &[],
         private_key: &server_private,
         mtu: 1420,
         peers: &peers,
@@ -510,6 +517,7 @@ fn inbound_device_routes_transport_packets_to_each_authenticated_peer() {
         },
     ];
     let mut server = PreparedInbound::from_input(InboundInput {
+        addresses: &[],
         private_key: &server_private,
         mtu: 1420,
         peers: &peers,

@@ -33,9 +33,7 @@ impl WireguardRawIpPlan {
     }
 
     pub(super) fn peer_endpoint(&self, index: usize) -> Option<(&str, u16)> {
-        self.profile
-            .peer(index)
-            .map(|peer| (peer.endpoint_host(), peer.endpoint_port()))
+        self.profile.peer(index).and_then(|peer| peer.endpoint())
     }
 
     pub(super) fn local_addresses(&self) -> Vec<IpAddr> {
@@ -52,6 +50,7 @@ impl WireguardRawIpPlan {
             addresses,
             mtu,
             peers,
+            inbound_tag,
             ..
         } = protocol
         else {
@@ -74,12 +73,17 @@ impl WireguardRawIpPlan {
                 reserved: &peer.reserved,
             })
             .collect();
-        let profile = PreparedOutbound::from_input(OutboundInput {
+        let input = OutboundInput {
             private_key: private_key.as_str(),
             addresses: &address_refs,
             mtu: *mtu,
             peers: &peer_inputs,
-        })
+        };
+        let profile = if inbound_tag.is_some() {
+            PreparedOutbound::from_listening_input(input)
+        } else {
+            PreparedOutbound::from_input(input)
+        }
         .map_err(invalid)?;
         let peer_identities = (0..profile.peer_count())
             .filter_map(|i| {

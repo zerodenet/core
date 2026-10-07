@@ -11,6 +11,7 @@ pub(crate) struct RawIpTraffic {
 impl RawIpTraffic {
     pub(crate) fn new(endpoint: TrafficMeter, peer: Option<TrafficMeter>) -> Self {
         for meter in std::iter::once(&endpoint).chain(peer.as_ref()) {
+            meter.observe_packet_routes();
             for plane in [TrafficPlane::Inner, TrafficPlane::Outer] {
                 meter.enable(
                     plane,
@@ -33,6 +34,7 @@ impl RawIpTraffic {
     }
     pub(crate) fn with_global(mut self, global: Option<TrafficMeter>) -> Self {
         if let Some(meter) = &global {
+            meter.observe_packet_routes();
             meter.enable(
                 TrafficPlane::Inner,
                 &[

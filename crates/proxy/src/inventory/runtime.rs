@@ -191,7 +191,17 @@ impl ProtocolInventory {
             self.prepare_device_packet_paths(config, &admission)?;
         let context = crate::protocol_registry::OutboundDevicePreparationContext {
             traffic: services.engine().clone(),
+            direct_packet_device: config.runtime.network.direct_packet_device.clone(),
+            mtu: config.runtime.network.mtu,
             endpoint_bindings: Arc::new(config.endpoint_bindings()),
+            disabled_outbounds: Arc::new(
+                config
+                    .outbounds
+                    .iter()
+                    .filter(|outbound| admission.outbound_denial(&outbound.tag).is_some())
+                    .map(|outbound| outbound.tag.clone())
+                    .collect(),
+            ),
             upstream: services.upstream(),
             packet_path_services:
                 crate::protocol_registry::PacketPathExecutionServices::from_tcp_execution(
@@ -206,8 +216,10 @@ impl ProtocolInventory {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn shutdown_outbound_devices(&self) {
-        self.registry.shutdown_outbound_devices();
+    pub(crate) fn shutdown_outbound_devices(
+        &self,
+    ) -> Vec<crate::protocol_registry::OutboundDeviceCompletion> {
+        self.registry.shutdown_outbound_devices()
     }
 
     #[cfg(feature = "managed-stream-runtime")]

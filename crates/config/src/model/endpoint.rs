@@ -97,6 +97,7 @@ impl EndpointConfig {
         match &self.protocol {
             EndpointProtocolConfig::Wireguard {
                 private_key,
+                addresses,
                 mtu,
                 peers,
                 ..
@@ -105,6 +106,7 @@ impl EndpointConfig {
                 listen,
                 protocol: InboundProtocolConfig::Wireguard {
                     private_key: private_key.clone(),
+                    addresses: addresses.clone(),
                     mtu: *mtu,
                     peers: peers
                         .iter()

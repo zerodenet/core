@@ -48,9 +48,17 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
         "traffic_local_drop_reasons_v1",
         "direct_tcp_trusted_target_candidate_fallback",
         "network_endpoint_catalog_v1",
+        "network_endpoint_orchestration_lifecycle_v1",
     ];
     #[cfg(feature = "raw-ip-runtime")]
-    expected_features.push("traffic_outbound_inner_role_io_v1");
+    expected_features.extend([
+        "traffic_outbound_inner_role_io_v1",
+        "network_endpoint_device_incarnation_v1",
+        "network_endpoint_network_recovery_v1",
+        "packet_route_management_v1",
+        "raw_ip_local_echo_v1",
+        "traffic_packet_route_idle_observation_v1",
+    ]);
     #[cfg(all(
         feature = "host-network-stats",
         any(target_os = "linux", target_os = "macos")
@@ -59,10 +67,17 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
     let mut expected_limitations = vec![
         "traffic_network_loss_unobservable",
         "direct_udp_trusted_candidate_retarget_unsupported",
-        "endpoint_transitional_lifecycle_facts_incomplete",
-        "endpoint_individual_packet_route_control_unavailable",
-        "canonical_wireguard_endpoint_requires_configured_peer_endpoints",
     ];
+    #[cfg(all(
+        feature = "raw-ip-runtime",
+        any(target_os = "linux", target_os = "macos")
+    ))]
+    expected_features.push("direct_packet_host_descriptor_v1");
+    #[cfg(not(all(
+        feature = "raw-ip-runtime",
+        any(target_os = "linux", target_os = "macos")
+    )))]
+    expected_limitations.push("direct_packet_host_descriptor_unavailable");
     #[cfg(feature = "wireguard")]
     {
         expected_features.push("network_endpoint_control_v1");
@@ -70,10 +85,7 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
             "network_endpoint_control_preconditions_v1",
             "network_endpoint_operation_capabilities_v1",
         ]);
-        expected_limitations.extend([
-            "endpoint_live_outbound_direction_contraction_requires_stop",
-            "legacy_endpoint_source_file_control_unsupported",
-        ]);
+        expected_limitations.extend(["legacy_endpoint_source_file_control_unsupported"]);
     }
     #[cfg(not(feature = "wireguard"))]
     expected_limitations.push("endpoint_runtime_lifecycle_commands_not_registered");

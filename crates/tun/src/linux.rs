@@ -24,6 +24,42 @@ pub struct LinuxTun {
 }
 
 impl LinuxTun {
+    pub(crate) fn adopt(fd: std::os::fd::OwnedFd, expected: &str) -> io::Result<Self> {
+        let file = File::from(fd);
+        let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
+        // SAFETY: TUNGETIFF writes into the initialized ifreq and validates the descriptor.
+        if unsafe { libc::ioctl(file.as_raw_fd(), libc::TUNGETIFF, &mut ifr) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let name = ifr
+            .ifr_name
+            .iter()
+            .take_while(|&&c| c != 0)
+            .map(|&c| c as u8 as char)
+            .collect::<String>();
+        let flags = unsafe { ifr.ifr_ifru.ifru_flags } as libc::c_int;
+        if name != expected
+            || flags & (IFF_TUN | IFF_NO_PI) != (IFF_TUN | IFF_NO_PI)
+            || flags & libc::IFF_VNET_HDR != 0
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "host descriptor is not the requested raw-IP TUN device",
+            ));
+        }
+        let current = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+        if current < 0 || current & libc::O_NONBLOCK == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "host packet descriptor must already be nonblocking",
+            ));
+        }
+        Ok(Self {
+            name,
+            fd: AsyncFd::new(file)?,
+        })
+    }
+
     /// Create a new TUN device.  `name` is the desired interface name
     /// (e.g. `"tun%d"`); the kernel may assign a different index.
     pub fn create(name: Option<&str>) -> io::Result<Self> {

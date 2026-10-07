@@ -34,6 +34,77 @@ fn peer<'a>(public_key: &'a str, allowed_ips: &'a [&'a str]) -> PeerInput<'a> {
 }
 
 #[test]
+fn only_listening_profiles_allow_learning_a_peer_address() {
+    let allowed = ["10.0.0.2/32"];
+    let public = key(2);
+    let private = key(1);
+    let mut peer = peer(&public, &allowed);
+    peer.endpoint = "";
+    let peers = [peer];
+    let addresses = ["10.0.0.1/32"];
+    let input = OutboundInput {
+        private_key: &private,
+        addresses: &addresses,
+        mtu: DEFAULT_MTU,
+        peers: &peers,
+    };
+    assert!(validate_outbound(input).is_err());
+    assert!(wireguard::validation::validate_listening_endpoint(input)
+        .unwrap()
+        .peers[0]
+        .endpoint
+        .is_none());
+}
+
+#[test]
+fn inbound_assigned_addresses_reuse_interface_validation_and_remain_optional() {
+    let private = key(31);
+    let public = key(32);
+    let peers = [InboundPeerInput {
+        public_key: &public,
+        pre_shared_key: None,
+        allowed_ips: &["10.0.0.2/32"],
+        keepalive_secs: 0,
+        reserved: &[],
+    }];
+    let mut input = InboundInput {
+        private_key: &private,
+        addresses: &[],
+        mtu: 1420,
+        peers: &peers,
+    };
+    assert!(validate_inbound(input).unwrap().addresses.is_empty());
+    input.addresses = &["10.0.0.11/24", "fd00::11/64"];
+    let validated = validate_inbound(input).unwrap();
+    assert_eq!(
+        validated.addresses[0].address(),
+        "10.0.0.11".parse::<IpAddr>().unwrap()
+    );
+    input.mtu = 1200;
+    assert!(matches!(
+        validate_inbound(input),
+        Err(InboundValidationError::Address(
+            ValidationError::Ipv6MtuTooSmall { .. }
+        ))
+    ));
+    input.mtu = 1420;
+    input.addresses = &["not-an-address"];
+    assert!(matches!(
+        validate_inbound(input),
+        Err(InboundValidationError::Address(
+            ValidationError::Address { .. }
+        ))
+    ));
+    input.addresses = &["10.0.0.1/32", "10.0.0.1/32"];
+    assert!(matches!(
+        validate_inbound(input),
+        Err(InboundValidationError::Address(
+            ValidationError::DuplicateAddress { .. }
+        ))
+    ));
+}
+
+#[test]
 fn validates_inbound_peers_and_rejects_ambiguous_source_ownership() {
     let private = key(51);
     let peer_a = key(52);
@@ -58,6 +129,7 @@ fn validates_inbound_peers_and_rejects_ambiguous_source_ownership() {
     ];
     assert_eq!(
         validate_inbound(InboundInput {
+            addresses: &[],
             private_key: &private,
             mtu: DEFAULT_MTU,
             peers: &peers,
@@ -77,6 +149,7 @@ fn validates_inbound_peers_and_rejects_ambiguous_source_ownership() {
     ];
     assert_eq!(
         validate_inbound(InboundInput {
+            addresses: &[],
             private_key: &private,
             mtu: DEFAULT_MTU,
             peers: &conflicting,
@@ -104,6 +177,7 @@ fn inbound_peer_table_is_bounded_before_allocating_peer_state() {
     ];
     assert_eq!(
         validate_inbound(InboundInput {
+            addresses: &[],
             private_key: &private,
             mtu: DEFAULT_MTU,
             peers: &peers,
@@ -195,7 +269,7 @@ fn validates_a_dual_stack_outbound_profile() {
 
     assert_eq!(profile.addresses.len(), 2);
     assert_eq!(profile.peers.len(), 1);
-    assert_eq!(profile.peers[0].endpoint.port, 51820);
+    assert_eq!(profile.peers[0].endpoint.unwrap().port, 51820);
 }
 
 #[test]

@@ -180,12 +180,16 @@ async fn linked_wireguard_endpoints_share_socket_and_peer_state_in_both_directio
 
     let occupied = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let mut failed_bind = a_config.clone();
-    failed_bind.inbounds[0].listen.port = free_udp_port();
+    let reserved_port = free_udp_port();
+    failed_bind.inbounds[0].listen.port = reserved_port;
     failed_bind.inbounds[1].listen.port = occupied.local_addr().unwrap().port();
     assert!(a_handle
         .apply_config_and_wait(failed_bind, Duration::from_secs(5))
         .await
         .is_err());
+    UdpSocket::bind(("127.0.0.1", reserved_port))
+        .await
+        .expect("failed candidate releases its reserved socket before acknowledgement");
     let echo = UdpSocket::bind((host_ip, 0)).await.unwrap();
     let port = echo.local_addr().unwrap().port();
     let echo_task = tokio::spawn(async move {

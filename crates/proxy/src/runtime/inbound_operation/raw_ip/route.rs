@@ -11,6 +11,7 @@ use crate::runtime::packet_route::{PacketPlane, PacketSessionPins};
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn feed_inner_packet(
     packet: &[u8],
+    local_destination: bool,
     traffic: &super::statistics::IngressTraffic,
     peer_identity: Option<std::sync::Arc<str>>,
     mtu: u16,
@@ -66,6 +67,17 @@ pub(super) async fn feed_inner_packet(
         return;
     };
     let protocol = packet::ip_protocol(packet);
+    if local_destination && packet::parse_icmp_echo_request(packet).is_some() {
+        if let Some(response) = packet::build_local_icmp_echo_reply(packet, effective_mtu) {
+            traffic.send_response(responses, response, peer_identity.as_deref());
+        } else {
+            traffic.drop_inner(
+                peer_identity.as_deref(),
+                zero_api::TrafficDropReason::InvalidPacket,
+            );
+        }
+        return;
+    }
     let candidates = route
         .packet_route_target(destination, protocol)
         .into_candidates();
@@ -88,11 +100,16 @@ pub(super) async fn feed_inner_packet(
                 let observer = pins.inner_io(packet, &plane, peer_identity.clone(), || {
                     route.outbound_inner_io(&tag)
                 });
+                let Some(replies) =
+                    pins.replies_for(packet, &plane, peer_identity.clone(), responses.clone())
+                else {
+                    continue;
+                };
                 match operation
                     .forward(
                         packet.to_vec(),
                         ingress_id,
-                        responses.clone(),
+                        replies,
                         generation,
                         observer.clone(),
                     )
@@ -111,7 +128,10 @@ pub(super) async fn feed_inner_packet(
                         }
                         return;
                     }
-                    Err(error) => tracing::debug!(%error, "packet route candidate unavailable"),
+                    Err(error) => {
+                        pins.reject_unaccepted(packet, peer_identity.clone());
+                        tracing::debug!(%error, "packet route candidate unavailable");
+                    }
                 }
             }
             PacketRouteTarget::Flow => {

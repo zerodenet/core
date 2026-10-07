@@ -10,12 +10,12 @@ pub use error::ConfigError;
 pub use mieru_config::{MieruTrafficPatternConfig, MieruTransportOptions};
 pub use model::{
     ApiConfig, BrowserDialerConfig, ClientTlsConfig, ControlApiConfig, ControlGrpcConfig,
-    ControlGrpcTlsConfig, DnsAddressFamilyPolicy, DnsAnswerConfig, DnsCacheConfig, DnsConfig,
-    DnsDispatchRuleConfig, DnsPolicyConfig, DnsReverseMappingConfig, DnsServerConfig,
-    EndpointBindingConfig, EndpointConfig, EndpointProtocolConfig, EventDispatcherConfig,
-    EventSinkConfig, ExhaustedDeliveryPolicy, FakeIpConfigRef, FallbackConfig,
-    FallbackDestinationConfig, FallbackRuleConfig, FinalMaskConfig, GrpcConfig, H2Config,
-    HookConfig, HttpUpgradeConfig, Hysteria2CongestionConfig, Hysteria2MasqueradeConfig,
+    ControlGrpcTlsConfig, DirectPacketDeviceConfig, DnsAddressFamilyPolicy, DnsAnswerConfig,
+    DnsCacheConfig, DnsConfig, DnsDispatchRuleConfig, DnsPolicyConfig, DnsReverseMappingConfig,
+    DnsServerConfig, EndpointBindingConfig, EndpointConfig, EndpointProtocolConfig,
+    EventDispatcherConfig, EventSinkConfig, ExhaustedDeliveryPolicy, FakeIpConfigRef,
+    FallbackConfig, FallbackDestinationConfig, FallbackRuleConfig, FinalMaskConfig, GrpcConfig,
+    H2Config, HookConfig, HttpUpgradeConfig, Hysteria2CongestionConfig, Hysteria2MasqueradeConfig,
     Hysteria2MasqueradeResponseConfig, Hysteria2ObfsConfig, Hysteria2QuicConfig,
     Hysteria2TransportConfig, Hysteria2UserConfig, HysteriaCarrierMasqueradeConfig,
     HysteriaTransportConfig, InboundConfig, InboundProtocolConfig, InboundRealityConfig,

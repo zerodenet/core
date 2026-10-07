@@ -34,14 +34,16 @@ use super::{RawIpTunnel, RawIpWireCarrier};
 use driver::{run_device, Device};
 pub(crate) use endpoint::EndpointPacket;
 use health::DeviceHealth;
-use returns::PacketReturns;
+pub(crate) use returns::PacketReturns;
 
 pub(super) struct ForwardedPackets {
+    return_channel: mpsc::Sender<Vec<u8>>,
     packets: Vec<Vec<u8>>,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
 pub(crate) struct SharedRawIpDevice {
+    pub(crate) incarnation: u64,
     udp: ClientUdpStack,
     tcp: Arc<ClientTcpStack>,
     forwarded_packets: mpsc::Sender<ForwardedPackets>,
@@ -147,6 +149,7 @@ impl SharedRawIpDevice {
         })
         .abort_handle();
         Ok(Arc::new(Self {
+            incarnation: super::next_incarnation(),
             udp,
             tcp,
             forwarded_packets,
@@ -235,6 +238,7 @@ impl SharedRawIpDevice {
             .forwarded_packets
             .try_reserve()
             .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let return_channel = replies.clone();
         self.returns.register_observed(
             source,
             ingress_id,
@@ -242,7 +246,11 @@ impl SharedRawIpDevice {
             observer.clone(),
             conversation,
         )?;
-        permit.send(ForwardedPackets { packets, observer });
+        permit.send(ForwardedPackets {
+            packets,
+            observer,
+            return_channel,
+        });
         Ok(())
     }
 

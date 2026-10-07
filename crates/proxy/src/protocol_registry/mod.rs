@@ -31,7 +31,8 @@ pub(crate) use capability::ManagedUdpHandlerProvider;
 pub(crate) use capability::UpstreamUdpHandlerProvider;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use capability::{
-    ClaimedPacketLeaf, OutboundDeviceLifecycleCapability, PreparedOutboundDeviceState,
+    ClaimedPacketLeaf, OutboundDeviceCompletion, OutboundDeviceLifecycleCapability,
+    PreparedOutboundDeviceState,
 };
 pub(crate) use capability::{
     ClaimedTcpOutboundLeaf, InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput,

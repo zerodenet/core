@@ -5,6 +5,35 @@ use std::net::IpAddr;
 use super::icmpv6_checksum;
 use crate::packet::{checksum, ip_source, IPPROTO_ICMP, IPPROTO_ICMPV6};
 
+/// Local path-MTU error with an explicitly supplied router address. The
+/// original quote is unchanged; only the outer source/checksums are rebuilt.
+pub fn build_icmp_mtu_error_response(
+    original: &[u8],
+    router_source: IpAddr,
+    mtu: usize,
+) -> Option<Vec<u8>> {
+    if original.len() <= mtu || crate::packet::ipv4_fragmentation_allowed(original) {
+        return None;
+    }
+    let mut response = super::build_icmp_response(original, mtu)?;
+    match (router_source, ip_source(original)?) {
+        (IpAddr::V4(source), IpAddr::V4(_)) => {
+            response[12..16].copy_from_slice(&source.octets());
+            response[10..12].fill(0);
+            let sum = checksum(&response[..20]);
+            response[10..12].copy_from_slice(&sum.to_be_bytes());
+        }
+        (IpAddr::V6(source), IpAddr::V6(destination)) => {
+            response[8..24].copy_from_slice(&source.octets());
+            response[42..44].fill(0);
+            let sum = icmpv6_checksum(source, destination, &response[40..]);
+            response[42..44].copy_from_slice(&sum.to_be_bytes());
+        }
+        _ => return None,
+    }
+    Some(response)
+}
+
 pub fn build_icmp_time_exceeded_response(
     original: &[u8],
     router_source: IpAddr,

@@ -103,3 +103,52 @@ fn source_writability_is_unknown_until_actual_persistence_and_recovers_after_io_
     assert!(saved.writable_observed_at_unix_ms.is_some());
     assert!(RuntimeConfig::load_from_path(path).is_ok());
 }
+
+#[test]
+fn transitional_observation_preserves_the_existing_resource_generation() {
+    use zero_api::EndpointRuntimeState;
+    let engine = Engine::new(config()).unwrap();
+    let mut observed = engine.endpoint_snapshot(&query()).unwrap();
+    observed.state = EndpointRuntimeState::Starting;
+    engine.record_endpoint_runtime_state(&observed);
+    assert!(engine
+        .endpoint_snapshot(&query())
+        .unwrap()
+        .generation
+        .is_none());
+    observed.state = EndpointRuntimeState::Running;
+    observed.observed_at_unix_ms = 100;
+    engine.record_endpoint_runtime_state(&observed);
+    let running = engine.endpoint_snapshot(&query()).unwrap();
+    observed.state = EndpointRuntimeState::Stopping;
+    engine.record_endpoint_runtime_state(&observed);
+    // A rolled-back stop resumes the same live resource.
+    observed.state = EndpointRuntimeState::Running;
+    observed.observed_at_unix_ms = 200;
+    engine.record_endpoint_runtime_state(&observed);
+    let restored = engine.endpoint_snapshot(&query()).unwrap();
+    assert_eq!(restored.generation, running.generation);
+    assert_eq!(restored.started_at_unix_ms, running.started_at_unix_ms);
+    // Confirmed stop followed by start creates a new generation.
+    observed.state = EndpointRuntimeState::Stopped;
+    engine.record_endpoint_runtime_state(&observed);
+    observed.state = EndpointRuntimeState::Starting;
+    engine.record_endpoint_runtime_state(&observed);
+    observed.state = EndpointRuntimeState::Running;
+    engine.record_endpoint_runtime_state(&observed);
+    let restarted = engine.endpoint_snapshot(&query()).unwrap();
+    assert!(restarted.generation > running.generation);
+    assert_eq!(restarted.started_at_unix_ms, Some(200));
+    let events = engine.events_snapshot(&zero_api::EventFilter::default());
+    let ids = events
+        .iter()
+        .filter(|event| event.event_type == zero_api::event_type::ENDPOINT_STATE_CHANGED)
+        .map(|event| &event.event_id)
+        .collect::<Vec<_>>();
+    assert!(ids.len() >= 6);
+    assert_eq!(
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        ids.len(),
+        "rapid transitions need distinct delivery identities"
+    );
+}

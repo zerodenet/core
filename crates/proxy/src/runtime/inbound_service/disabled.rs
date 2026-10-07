@@ -1,6 +1,8 @@
 #[derive(Default)]
 pub(crate) struct InboundServices;
 impl InboundServices {
+    pub(crate) async fn shutdown(&mut self) {}
+
     pub(crate) fn is_empty(&self) -> bool {
         true
     }

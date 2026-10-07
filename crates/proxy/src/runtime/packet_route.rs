@@ -6,6 +6,13 @@ use std::net::SocketAddr;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+/// Execution ownership is shared across TUN and protocol raw-IP inbounds.
+pub(crate) fn next_ingress_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) mod host;
 mod session;
 pub(crate) use session::{PacketPlane, PacketSessionPins};
 

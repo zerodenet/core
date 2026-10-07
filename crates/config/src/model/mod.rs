@@ -165,6 +165,9 @@ impl RuntimeOptionsConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkOptionsConfig {
+    /// Dedicated, inherited TUN descriptor. The host owns its addresses/routes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_packet_device: Option<DirectPacketDeviceConfig>,
     /// MTU requested from the TUN backend and used by its user-space stack.
     #[serde(default = "default_network_mtu")]
     pub mtu: u16,
@@ -173,9 +176,19 @@ pub struct NetworkOptionsConfig {
 impl Default for NetworkOptionsConfig {
     fn default() -> Self {
         Self {
+            direct_packet_device: None,
             mtu: default_network_mtu(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DirectPacketDeviceConfig {
+    pub fd: i32,
+    pub interface: String,
+    /// Host-owned interface addresses used as sources for local ICMP errors.
+    pub router_addresses: Vec<std::net::IpAddr>,
 }
 
 const fn default_network_mtu() -> u16 {

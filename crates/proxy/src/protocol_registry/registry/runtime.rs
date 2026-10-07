@@ -24,6 +24,17 @@ impl ProtocolRegistry {
             .find_map(|observer| observer.observe_endpoint(binding, config))
     }
 
+    pub(crate) fn endpoint_live_direction_contraction(
+        &self,
+        binding: &zero_config::EndpointBindingConfig,
+    ) -> zero_api::EndpointDirections {
+        self.endpoint_controllers
+            .iter()
+            .find(|capability| capability.supports_endpoint_control(binding))
+            .map(|capability| capability.live_direction_contraction(binding))
+            .unwrap_or_default()
+    }
+
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn outbound_device_health(
         &self,
@@ -72,10 +83,13 @@ impl ProtocolRegistry {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn shutdown_outbound_devices(&self) {
-        for capability in &self.outbound_devices {
-            capability.shutdown_outbound_devices();
-        }
+    pub(crate) fn shutdown_outbound_devices(
+        &self,
+    ) -> Vec<crate::protocol_registry::OutboundDeviceCompletion> {
+        self.outbound_devices
+            .iter()
+            .map(|capability| capability.shutdown_outbound_devices())
+            .collect()
     }
 
     pub(crate) fn on_config_reloaded(&self, config: &RuntimeConfig) {

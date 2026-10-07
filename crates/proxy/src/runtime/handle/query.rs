@@ -47,19 +47,22 @@ impl zero_api::QueryService for ProxyHandle {
                     "network_endpoint_control_preconditions_v1".to_owned(),
                     "network_endpoint_operation_capabilities_v1".to_owned(),
                 ]);
-                capabilities.global_limitations.extend([
-                    "endpoint_live_outbound_direction_contraction_requires_stop".to_owned(),
-                    "legacy_endpoint_source_file_control_unsupported".to_owned(),
-                ]);
+                capabilities
+                    .global_limitations
+                    .extend(["legacy_endpoint_source_file_control_unsupported".to_owned()]);
             } else {
                 capabilities
                     .global_limitations
                     .push("endpoint_runtime_lifecycle_commands_not_registered".to_owned());
             }
-            capabilities.global_limitations.extend([
-                "endpoint_transitional_lifecycle_facts_incomplete".to_owned(),
-                "endpoint_individual_packet_route_control_unavailable".to_owned(),
-                "canonical_wireguard_endpoint_requires_configured_peer_endpoints".to_owned(),
+            capabilities
+                .features
+                .push("network_endpoint_orchestration_lifecycle_v1".to_owned());
+            #[cfg(feature = "raw-ip-runtime")]
+            capabilities.features.extend([
+                "network_endpoint_device_incarnation_v1".into(),
+                "network_endpoint_network_recovery_v1".into(),
+                "packet_route_management_v1".into(),
             ]);
             capabilities::extend(&mut capabilities);
             return Ok(zero_api::QueryResponse::Capabilities(capabilities));

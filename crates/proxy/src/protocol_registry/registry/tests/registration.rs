@@ -8,18 +8,18 @@ use crate::protocol_registry::ProtocolRegistry;
 fn duplicate_protocol_registration_is_rejected_at_the_registry_boundary() {
     let mut registry = ProtocolRegistry::default();
     registry.register_capability(
-        Arc::new(DirectAdapter),
+        Arc::new(DirectAdapter::default()),
         DirectAdapter::claim_outbound_leaf_impl,
     );
     registry.register_capability(
-        Arc::new(DirectAdapter),
+        Arc::new(DirectAdapter::default()),
         DirectAdapter::claim_outbound_leaf_impl,
     );
 }
 
 #[test]
 fn focused_capability_views_share_one_adapter_instance() {
-    let adapter = Arc::new(DirectAdapter);
+    let adapter = Arc::new(DirectAdapter::default());
     let expected = Arc::as_ptr(&adapter) as *const ();
     let mut registry = ProtocolRegistry::default();
     registry.register_capability(adapter, DirectAdapter::claim_outbound_leaf_impl);

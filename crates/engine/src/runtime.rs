@@ -28,8 +28,10 @@ mod configuration;
 mod diagnostics;
 mod endpoint;
 mod observability;
+mod packet_route;
 mod passive_health;
 mod policy;
+pub use packet_route::{PacketRouteControl, PacketRouteLease};
 mod route;
 mod session;
 mod snapshot;
@@ -47,6 +49,7 @@ pub struct Engine {
     next_session_id: Arc<AtomicU64>,
     session_registry: Arc<SessionRegistry>,
     endpoint_facts: Arc<endpoint::EndpointFacts>,
+    packet_routes: Arc<packet_route::PacketRoutes>,
     principal_cancellations: Arc<PrincipalCancellationRegistry>,
     principal_devices: Arc<PrincipalDeviceRegistry>,
     principal_policies: Arc<PrincipalPolicyRegistry>,
@@ -180,6 +183,7 @@ impl Engine {
             next_session_id: Arc::new(AtomicU64::new(1)),
             session_registry: SessionRegistry::shared(),
             endpoint_facts: Arc::new(endpoint::EndpointFacts::default()),
+            packet_routes: Arc::new(packet_route::PacketRoutes::default()),
             principal_cancellations: Arc::new(PrincipalCancellationRegistry::default()),
             principal_devices: Arc::new(PrincipalDeviceRegistry::default()),
             principal_policies,

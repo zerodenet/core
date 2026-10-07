@@ -205,7 +205,25 @@ impl Engine {
     /// Proxy reports an applied resource fact only after listener/device
     /// reconciliation has completed. The engine owns its generation and event.
     pub fn record_endpoint_runtime_state(&self, endpoint: &EndpointSnapshot) {
-        let changed = self.endpoint_facts.record(endpoint);
+        self.publish_endpoint_fact(endpoint, self.endpoint_facts.record(endpoint));
+    }
+    pub fn record_endpoint_device_state(
+        &self,
+        endpoint: &EndpointSnapshot,
+        incarnations: Vec<u64>,
+    ) {
+        self.publish_endpoint_fact(
+            endpoint,
+            self.endpoint_facts
+                .record_device(endpoint, Some(incarnations)),
+        );
+    }
+    pub fn record_endpoint_recovery(&self, id: &str, recovery: zero_api::EndpointRecovery) {
+        if let Some(fact) = self.endpoint_facts.record_recovery(id, recovery) {
+            self.event_log.push_endpoint_state_changed(&fact);
+        }
+    }
+    fn publish_endpoint_fact(&self, endpoint: &EndpointSnapshot, changed: Option<Fact>) {
         let mut applied = endpoint.clone();
         self.endpoint_facts.project(&mut applied);
         if let Some(generation) = applied.generation {
@@ -215,6 +233,11 @@ impl Engine {
         if let Some(changed) = changed {
             self.event_log.push_endpoint_state_changed(&changed);
         }
+    }
+
+    /// Forget a deleted resource after orchestration confirms its final stopped fact.
+    pub fn forget_endpoint_runtime_state(&self, id: &str) {
+        self.endpoint_facts.remove(id);
     }
 
     pub fn record_endpoint_runtime_error(&self, id: &str, message: &str, failed: bool) {

@@ -10,6 +10,10 @@ pub(crate) struct InboundServices {
     tasks: JoinSet<Result<(), EngineError>>,
 }
 impl InboundServices {
+    pub(crate) async fn shutdown(&mut self) {
+        self.tasks.shutdown().await;
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.tasks.is_empty()
     }

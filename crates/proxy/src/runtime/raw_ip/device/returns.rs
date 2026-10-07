@@ -16,15 +16,21 @@ const MAX_OBSERVATIONS: usize = 4_096;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Default)]
-pub(super) struct PacketReturns {
+pub(crate) struct PacketReturns {
+    receive_incomplete: std::sync::atomic::AtomicBool,
     routes: Mutex<HashMap<IpAddr, ReturnRoute>>,
     drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
     observations: Mutex<HashMap<packet::PacketConversationKey, ReturnObservation>>,
+    conversations: Mutex<HashMap<packet::PacketConversationKey, ReturnConversation>>,
     translated: Mutex<zero_stack::echo_translation::EchoTranslation<TranslatedReturn>>,
 }
 
+struct ReturnConversation {
+    replies: mpsc::Sender<Vec<u8>>,
+    touched: Instant,
+}
 struct ReturnObservation {
-    observer: Arc<dyn zero_traits::IoObserver>,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
     touched: Instant,
 }
 struct TranslatedReturn {
@@ -39,7 +45,26 @@ struct ReturnRoute {
 }
 
 impl PacketReturns {
-    pub(super) fn with_drop_observer(
+    /// Preserve forwarding when the correlated boundary cannot account for
+    /// every received fragment. Never publish a partial count as complete.
+    pub(crate) fn lose_receive_coverage(&self) {
+        if !self
+            .receive_incomplete
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            for observation in self
+                .observations
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .values()
+            {
+                if let Some(observer) = &observation.observer {
+                    observer.receive_coverage_lost();
+                }
+            }
+        }
+    }
+    pub(crate) fn with_drop_observer(
         drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Self {
         Self {
@@ -78,7 +103,7 @@ impl PacketReturns {
         }
     }
     #[cfg(test)]
-    pub(super) fn register(
+    pub(crate) fn register(
         &self,
         source: IpAddr,
         ingress_id: u64,
@@ -86,7 +111,7 @@ impl PacketReturns {
     ) -> io::Result<()> {
         self.register_observed(source, ingress_id, replies, None, None)
     }
-    pub(super) fn register_observed(
+    pub(crate) fn register_observed(
         &self,
         source: IpAddr,
         ingress_id: u64,
@@ -121,15 +146,42 @@ impl PacketReturns {
                 ));
             }
         }
+        // Return channel ownership is mandatory execution state, with its own
+        // bounded capacity. It is distinct from optional metric observations.
+        let mut conversations = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(key) = conversation {
+            if !conversations.contains_key(&key) && conversations.len() >= 8192 {
+                conversations.retain(|_, c| c.touched.elapsed() < Duration::from_secs(600));
+                if conversations.len() >= 8192 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "packet return conversation limit",
+                    ));
+                }
+            }
+            conversations.insert(
+                key,
+                ReturnConversation {
+                    replies: replies.clone(),
+                    touched: now,
+                },
+            );
+        }
         let mut observations = self.observations.lock().unwrap_or_else(|e| e.into_inner());
         if let (Some(observer), Some(key)) = (observer, conversation) {
+            if self
+                .receive_incomplete
+                .load(std::sync::atomic::Ordering::Acquire)
+            {
+                observer.receive_coverage_lost();
+            }
             if !observations.contains_key(&key) && observations.len() >= MAX_OBSERVATIONS {
                 observer.receive_coverage_lost();
             } else {
                 observations.insert(
                     key,
                     ReturnObservation {
-                        observer,
+                        observer: Some(observer),
                         touched: now,
                     },
                 );
@@ -146,14 +198,14 @@ impl PacketReturns {
         Ok(())
     }
 
-    pub(super) fn deliver(&self, packet: &[u8]) -> bool {
+    pub(crate) fn deliver(&self, packet: &[u8]) -> bool {
         if self.deliver_correlated(packet) {
             return true;
         }
         self.deliver_native(packet)
     }
 
-    pub(super) fn deliver_correlated(&self, packet: &[u8]) -> bool {
+    pub(crate) fn deliver_correlated(&self, packet: &[u8]) -> bool {
         if let Some((TranslatedReturn { replies, observer }, mut restored)) = self
             .translated
             .lock()
@@ -187,14 +239,34 @@ impl PacketReturns {
         let Some(replies) = replies else {
             return false;
         };
-        let observer = packet::packet_return_key(packet).and_then(|key| {
+        let observation = packet::packet_return_key(packet).and_then(|key| {
             self.observations
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&key)
                 .filter(|observation| observation.touched.elapsed() < IDLE_TIMEOUT)
-                .map(|observation| observation.observer.clone())
+                .and_then(|observation| observation.observer.clone())
         });
+        let observer = observation;
+        let replies = packet::packet_return_key(packet)
+            .and_then(|key| {
+                self.conversations
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(&key)
+                    .map(|c| c.replies.clone())
+            })
+            .unwrap_or(replies);
+        if replies.is_closed() {
+            if let Some(observer) = &observer {
+                observer.received(packet.len());
+            }
+            self.discard(
+                observer.as_deref(),
+                zero_traits::PacketDropReason::QueueClosed,
+            );
+            return true;
+        }
         if let Some(observer) = &observer {
             observer.received(packet.len());
         }
@@ -207,7 +279,11 @@ impl PacketReturns {
         true
     }
 
-    pub(super) fn clear(&self) {
+    pub(crate) fn clear(&self) {
+        self.conversations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         self.observations
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -222,7 +298,7 @@ impl PacketReturns {
             .clear();
     }
 
-    pub(super) fn translate(
+    pub(crate) fn translate(
         &self,
         packet: &[u8],
         local: IpAddr,
@@ -240,7 +316,11 @@ impl PacketReturns {
             )
     }
 
-    pub(super) fn expire(&self) {
+    pub(crate) fn expire(&self) {
+        self.conversations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, c| c.touched.elapsed() < Duration::from_secs(600));
         self.observations
             .lock()
             .unwrap_or_else(|e| e.into_inner())

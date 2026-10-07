@@ -40,6 +40,7 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     configs.push(InboundProtocolConfig::Socks5 { users: Vec::new() });
     #[cfg(feature = "wireguard")]
     configs.push(InboundProtocolConfig::Wireguard {
+        addresses: Vec::new(),
         private_key: serde_json::from_str("\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=\"").unwrap(),
         mtu: 1_420,
         peers: vec![zero_config::WireguardInboundPeerConfig {

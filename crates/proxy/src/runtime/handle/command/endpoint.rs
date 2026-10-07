@@ -8,6 +8,8 @@ use zero_api::{
 };
 use zero_engine::{EndpointChange, EngineRuntimeSnapshot};
 
+mod transition;
+
 const TIMEOUT: Duration = Duration::from_secs(15);
 
 pub(super) fn is_endpoint_command(command: &CommandRequest) -> bool {
@@ -106,16 +108,17 @@ impl ProxyHandle {
         {
             return self.endpoint_command_response(&id, persist);
         }
-        // Existing inbound sessions can be cancelled by their inbound tag;
-        // the raw-IP listener admits each new business packet through the
-        // current engine snapshot while preserving correlated outbound replies.
-        // Outbound Packet returns and client stacks still lack an independent
-        // cancellation scope, so keep that contraction explicit.
+        // A registered capability must confirm independent role cancellation.
         if old.state == EndpointRuntimeState::Running
             && old.enabled
             && next.enabled
             && old.allowed.outbound
             && !next.allowed.outbound
+            && !self
+                .proxy
+                .protocols
+                .endpoint_live_direction_contraction(&binding)
+                .outbound
         {
             return Err(ApiError::new(ApiErrorCode::Unsupported,
                 "live outbound direction contraction requires packet-path cancellation; disable the endpoint before changing directions"));
@@ -211,6 +214,7 @@ impl ProxyHandle {
         snapshot: Arc<EngineRuntimeSnapshot>,
         persist: bool,
     ) -> zero_api::ApiResult<()> {
+        self.publish_endpoint_control_transitions(&snapshot);
         self.apply_proxy_config_under_guard(
             (**snapshot.config()).clone(),
             TIMEOUT,
@@ -250,6 +254,7 @@ impl ProxyHandle {
                     .engine
                     .endpoint_flow_ids(binding, directions)
                     .is_empty()
+                    && !self.endpoint_packet_roles_active(binding, directions)
                 {
                     return;
                 }

@@ -1,4 +1,18 @@
 pub(super) fn extend(capabilities: &mut zero_api::ApiCapabilities) {
+    #[cfg(all(
+        feature = "raw-ip-runtime",
+        any(target_os = "linux", target_os = "macos")
+    ))]
+    capabilities
+        .features
+        .push("direct_packet_host_descriptor_v1".into());
+    #[cfg(not(all(
+        feature = "raw-ip-runtime",
+        any(target_os = "linux", target_os = "macos")
+    )))]
+    capabilities
+        .global_limitations
+        .push("direct_packet_host_descriptor_unavailable".into());
     capabilities.features.extend(
         [
             "direct_tcp_dial_attempt_observability_v1",
@@ -26,9 +40,11 @@ pub(super) fn extend(capabilities: &mut zero_api::ApiCapabilities) {
         .global_limitations
         .push("traffic_network_loss_unobservable".into());
     #[cfg(feature = "raw-ip-runtime")]
-    capabilities
-        .features
-        .push("traffic_outbound_inner_role_io_v1".to_owned());
+    capabilities.features.extend([
+        "traffic_outbound_inner_role_io_v1".to_owned(),
+        "raw_ip_local_echo_v1".to_owned(),
+        "traffic_packet_route_idle_observation_v1".to_owned(),
+    ]);
     capabilities
         .global_limitations
         .push("direct_udp_trusted_candidate_retarget_unsupported".to_owned());

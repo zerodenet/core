@@ -226,3 +226,200 @@ fn traffic_native_packet_pins_count_roles_global_and_peers_once_and_retire_on_dr
     assert_eq!(stat(peer("peer-1")).activity.active_packet_routes, Some(0));
     assert_eq!(stat(endpoint).activity.active_packet_routes, Some(0));
 }
+
+#[test]
+fn role_revocation_releases_only_the_denied_packet_pins() {
+    let first = zero_stack::packet::build_udp(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.3".parse().unwrap(),
+        40000,
+        443,
+        b"first",
+    );
+    let second = zero_stack::packet::build_udp(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.4".parse().unwrap(),
+        40000,
+        443,
+        b"second",
+    );
+    let mut pins = PacketSessionPins::default();
+    assert!(pins.record(&first, PacketPlane::Packet("company".into())));
+    assert!(pins.record(&second, PacketPlane::Packet("personal".into())));
+    pins.retain_admitted(|plane| plane != &PacketPlane::Packet("company".into()));
+    assert_eq!(pins.entries.len(), 1);
+    assert!(pins.permits(&first, &PacketPlane::Flow));
+    assert!(!pins.permits(&second, &PacketPlane::Flow));
+}
+
+#[tokio::test]
+async fn closing_one_managed_packet_lease_cancels_its_response_queue_and_preserves_another() {
+    use tokio::{
+        sync::mpsc,
+        time::{timeout, Duration},
+    };
+    let engine = zero_engine::Engine::new(
+        zero_config::RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#)
+            .unwrap(),
+    )
+    .unwrap();
+    let mut pins = PacketSessionPins::default().managed(engine.clone(), "tun".into());
+    let (responses, mut received) = mpsc::channel(8);
+    let a = zero_stack::packet::build_udp(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.3".parse().unwrap(),
+        40000,
+        443,
+        b"a",
+    );
+    let b = zero_stack::packet::build_udp(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.3".parse().unwrap(),
+        40001,
+        443,
+        b"b",
+    );
+    let plane = PacketPlane::Packet("wg".into());
+    let first = pins
+        .replies_for(&a, &plane, None, responses.clone())
+        .unwrap();
+    pins.record_observed_peers(&a, plane.clone(), None, None, None);
+    let second = pins.replies_for(&b, &plane, None, responses).unwrap();
+    pins.record_observed_peers(&b, plane.clone(), None, None, None);
+    first.send(a.clone()).await.unwrap();
+    assert_eq!(
+        timeout(Duration::from_secs(1), received.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        a
+    );
+    let list = engine.packet_routes_snapshot(&zero_api::PacketRouteListQuery::default());
+    assert_eq!(list.total, 2);
+    let (_, close) = engine
+        .begin_close_packet_route(&zero_api::PacketRouteCloseCommand {
+            route_id: list.routes[0].route_id.clone(),
+            expected_core_instance_id: engine.core_instance_id().into(),
+            expected_config_revision: None,
+        })
+        .unwrap();
+    timeout(Duration::from_secs(1), pins.management_changed())
+        .await
+        .unwrap();
+    pins.expire();
+    timeout(Duration::from_secs(1), close.wait_released())
+        .await
+        .unwrap();
+    assert!(first.is_closed());
+    assert!(!second.is_closed());
+    assert!(!pins.permits(&a, &plane));
+    assert!(pins.permits(&b, &plane));
+    second.send(b.clone()).await.unwrap();
+    assert_eq!(
+        timeout(Duration::from_secs(1), received.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        b
+    );
+    assert_eq!(
+        engine
+            .packet_routes_snapshot(&zero_api::PacketRouteListQuery::default())
+            .total,
+        1
+    );
+    drop(pins);
+    timeout(Duration::from_secs(1), second.closed())
+        .await
+        .unwrap();
+}
+#[tokio::test]
+async fn rejected_provisional_packet_path_releases_its_fact_and_permits_fallback() {
+    let engine = zero_engine::Engine::new(
+        zero_config::RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#)
+            .unwrap(),
+    )
+    .unwrap();
+    let mut pins = PacketSessionPins::default().managed(engine.clone(), "tun".into());
+    let (responses, _) = tokio::sync::mpsc::channel(1);
+    let packet = zero_stack::packet::build_udp(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.3".parse().unwrap(),
+        40000,
+        443,
+        b"a",
+    );
+    pins.replies_for(&packet, &PacketPlane::Packet("wg".into()), None, responses)
+        .unwrap();
+    let control = pins
+        .entries
+        .values()
+        .next()
+        .unwrap()
+        .control
+        .as_ref()
+        .unwrap()
+        .clone();
+    pins.reject_unaccepted(&packet, None);
+    tokio::time::timeout(std::time::Duration::from_secs(1), control.wait_released())
+        .await
+        .unwrap();
+    assert_eq!(
+        engine
+            .packet_routes_snapshot(&zero_api::PacketRouteListQuery::default())
+            .total,
+        0
+    );
+    assert!(pins.permits(&packet, &PacketPlane::Flow));
+}
+
+#[tokio::test]
+async fn close_wakes_idle_owner_even_when_the_response_consumer_is_blocked() {
+    let engine = zero_engine::Engine::new(
+        zero_config::RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#)
+            .unwrap(),
+    )
+    .unwrap();
+    let mut pins = PacketSessionPins::default().managed(engine.clone(), "tun".into());
+    let packet = zero_stack::packet::build_udp(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.3".parse().unwrap(),
+        40000,
+        443,
+        b"payload",
+    );
+    let plane = PacketPlane::Packet("wg".into());
+    let (destination, _consumer) = tokio::sync::mpsc::channel(1);
+    destination.send(vec![0]).await.unwrap();
+    let replies = pins
+        .replies_for(&packet, &plane, None, destination)
+        .unwrap();
+    pins.record(&packet, plane);
+    replies.send(packet.clone()).await.unwrap();
+    tokio::task::yield_now().await;
+    let route = engine
+        .packet_routes_snapshot(&zero_api::PacketRouteListQuery::default())
+        .routes
+        .remove(0);
+    let (_, control) = engine
+        .begin_close_packet_route(&zero_api::PacketRouteCloseCommand {
+            route_id: route.route_id,
+            expected_core_instance_id: engine.core_instance_id().into(),
+            expected_config_revision: None,
+        })
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(1), pins.management_changed())
+        .await
+        .unwrap();
+    pins.expire();
+    tokio::time::timeout(std::time::Duration::from_secs(1), control.wait_released())
+        .await
+        .unwrap();
+    assert!(replies.is_closed());
+    assert_eq!(
+        engine
+            .packet_routes_snapshot(&zero_api::PacketRouteListQuery::default())
+            .total,
+        0
+    );
+}

@@ -213,6 +213,23 @@ fn ipv4_echo_request() -> Vec<u8> {
     packet
 }
 
+#[test]
+fn local_echo_replies_preserve_identity_payload_and_valid_checksums_for_both_families() {
+    for request in [ipv4_echo_request(), ipv6_echo_request()] {
+        let reply = packet::build_local_icmp_echo_reply(&request, 1500).unwrap();
+        let incoming = packet::parse_icmp_echo_request(&request).unwrap();
+        let outgoing = packet::parse_icmp_echo_reply(&reply).unwrap();
+        assert_eq!(outgoing.source, incoming.destination);
+        assert_eq!(outgoing.destination, incoming.source);
+        assert_eq!(&outgoing.message[4..], &incoming.message[4..]);
+        assert!(packet::build_local_icmp_echo_reply(&request, 20).is_none());
+        let mut corrupt = request.clone();
+        *corrupt.last_mut().unwrap() ^= 1;
+        assert!(packet::build_local_icmp_echo_reply(&corrupt, 1500).is_none());
+        assert!(packet::build_local_icmp_echo_reply(&reply, 1500).is_none());
+    }
+}
+
 fn ipv6_echo_request() -> Vec<u8> {
     let mut packet = vec![0_u8; 48];
     packet[0] = 0x60;

@@ -29,6 +29,7 @@ pub use principal::{
     PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
 };
 pub use runtime::{EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot};
+pub use runtime::{PacketRouteControl, PacketRouteLease};
 pub use runtime::{RouteDecision, RouteEvaluation, RouteTrace};
 pub use session::{
     ActiveSession, BlockReason, CompletedSessionRecord, FlowAddressFamilyFallbackObservation,

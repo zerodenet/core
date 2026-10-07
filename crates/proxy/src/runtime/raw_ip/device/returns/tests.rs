@@ -10,8 +10,10 @@ fn packet_returns_reject_overlapping_ingress_sources() {
     let source = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
     let (first, _first_rx) = mpsc::channel(1);
     let (second, _second_rx) = mpsc::channel(1);
-    routes.register(source, 1, first).unwrap();
-    let error = routes.register(source, 2, second).unwrap_err();
+    let first_id = crate::runtime::packet_route::next_ingress_id();
+    let second_id = crate::runtime::packet_route::next_ingress_id();
+    routes.register(source, first_id, first).unwrap();
+    let error = routes.register(source, second_id, second).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse);
 }
 

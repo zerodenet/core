@@ -19,8 +19,17 @@ mod tcp;
 mod udp;
 
 // Direct inbound is always available (no feature gate).
-#[derive(Debug)]
-pub(crate) struct DirectAdapter;
+#[derive(Default)]
+pub(crate) struct DirectAdapter {
+    #[cfg(feature = "raw-ip-runtime")]
+    packet: std::sync::Arc<
+        std::sync::Mutex<
+            Option<std::sync::Arc<crate::runtime::packet_route::host::HostPacketDevice>>,
+        >,
+    >,
+}
+#[cfg(feature = "raw-ip-runtime")]
+mod packet;
 
 impl NamedProtocolAdapter for DirectAdapter {
     const PROTOCOL_NAME: &'static str = "direct";
@@ -57,7 +66,16 @@ impl DirectAdapter {
             udp: Some(self.claim_udp_flow_leaf_impl(tag)),
             #[cfg(feature = "udp-runtime")]
             #[cfg(feature = "raw-ip-runtime")]
-            packet: None,
+            packet: self
+                .packet
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .filter(|d| d.usable())
+                .map(|d| {
+                    Box::new(packet::PacketLeaf(d.clone()))
+                        as Box<dyn crate::protocol_registry::ClaimedPacketLeaf>
+                }),
             #[cfg(feature = "udp-runtime")]
             packet_path: None,
         })

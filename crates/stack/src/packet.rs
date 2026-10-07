@@ -14,10 +14,11 @@ pub use fragment::{
 };
 pub use icmp::{
     build_icmp_echo_probe, build_icmp_echo_reply, build_icmp_echo_tunnel_probe,
-    build_icmp_echo_unreachable_response, build_icmp_mtu_response, build_icmp_response,
-    build_icmp_time_exceeded_response, build_udp_unreachable_response, echo_response_key,
-    parse_icmp_echo_reply, parse_icmp_echo_request, parse_icmp_error, restore_echo_response,
-    translate_echo_request, IcmpEchoReply, IcmpEchoRequest, IcmpErrorKind, ParsedIcmpError,
+    build_icmp_echo_unreachable_response, build_icmp_mtu_error_response, build_icmp_mtu_response,
+    build_icmp_response, build_icmp_time_exceeded_response, build_local_icmp_echo_reply,
+    build_udp_unreachable_response, echo_response_key, parse_icmp_echo_reply,
+    parse_icmp_echo_request, parse_icmp_error, restore_echo_response, translate_echo_request,
+    IcmpEchoReply, IcmpEchoRequest, IcmpErrorKind, ParsedIcmpError,
 };
 pub use identity::{packet_conversation_key, packet_return_key, PacketConversationKey};
 

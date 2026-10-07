@@ -109,11 +109,36 @@ impl InboundRouteRuntimeFactory {
     pub(crate) fn packet_statistics_pins(&self) -> crate::runtime::packet_route::PacketSessionPins {
         let engine = self.shared.tcp_services().engine().clone();
         let inbound = self.inbound_tag.clone();
+        let owner = engine.clone();
+        let owner_inbound = inbound.clone();
         crate::runtime::packet_route::PacketSessionPins::with_meters(std::sync::Arc::new(
             move |tag, inbound_peer, outbound_peer| {
                 engine.packet_route_traffic_meters(&inbound, tag, inbound_peer, outbound_peer)
             },
         ))
+        .managed(owner, owner_inbound)
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn retain_admitted_packet_pins(
+        &self,
+        pins: &mut crate::runtime::packet_route::PacketSessionPins,
+    ) {
+        use crate::runtime::packet_route::PacketPlane;
+        let (inbound, outbound) = self
+            .shared
+            .tcp_services()
+            .engine()
+            .confirmed_endpoint_packet_revocations();
+        pins.retain_admitted(|plane| {
+            !inbound.contains(&self.inbound_tag)
+                && match plane {
+                    PacketPlane::Packet(tag) | PacketPlane::TranslatedPacket(tag) => {
+                        !outbound.contains(tag)
+                    }
+                    _ => true,
+                }
+        });
     }
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn endpoint_traffic(

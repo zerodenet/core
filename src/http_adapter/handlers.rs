@@ -242,6 +242,8 @@ fn unwrap_query_response(resp: QueryResponse) -> serde_json::Value {
     match resp {
         QueryResponse::Capabilities(v) => serde_json::to_value(v),
         QueryResponse::Health(v) => serde_json::to_value(v),
+        QueryResponse::PacketRoutes(v) => serde_json::to_value(v),
+        QueryResponse::PacketRoute(v) => serde_json::to_value(v),
         QueryResponse::Endpoints(v) => serde_json::to_value(v),
         QueryResponse::Endpoint(v) => serde_json::to_value(v),
         QueryResponse::EndpointDetails(v) => serde_json::to_value(v),

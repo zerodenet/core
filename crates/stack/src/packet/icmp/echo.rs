@@ -1,6 +1,30 @@
 use super::{checksum, icmpv6_checksum, IcmpEchoRequest, IPPROTO_ICMP, IPPROTO_ICMPV6};
 use std::net::IpAddr;
 
+/// Answer a validated Echo request at an explicitly assigned local IP.
+/// Admission and address ownership are checked by the caller.
+pub fn build_local_icmp_echo_reply(packet: &[u8], mtu: usize) -> Option<Vec<u8>> {
+    let request = super::parse_icmp_echo_request(packet)?;
+    let unicast = |ip: IpAddr| match ip {
+        IpAddr::V4(ip) => !ip.is_unspecified() && !ip.is_multicast() && !ip.is_broadcast(),
+        IpAddr::V6(ip) => !ip.is_unspecified() && !ip.is_multicast(),
+    };
+    if !unicast(request.source) || !unicast(request.destination) {
+        return None;
+    }
+    let mut message = request.message.to_vec();
+    message[0] = if request.source.is_ipv4() { 0 } else { 129 };
+    message[2..4].fill(0);
+    let sum = match (request.destination, request.source) {
+        (IpAddr::V4(_), IpAddr::V4(_)) => checksum(&message),
+        (IpAddr::V6(src), IpAddr::V6(dst)) => icmpv6_checksum(src, dst, &message),
+        _ => return None,
+    };
+    message[2..4].copy_from_slice(&sum.to_be_bytes());
+    let id = u16::from_be_bytes(request.message[4..6].try_into().ok()?);
+    build_icmp_echo_reply(&request, id, &message, request.source, mtu)
+}
+
 pub fn build_icmp_echo_probe(
     request: &IcmpEchoRequest<'_>,
     probe_id: u16,

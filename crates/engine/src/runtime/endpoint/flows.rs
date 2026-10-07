@@ -57,6 +57,31 @@ impl crate::EngineRuntimeSnapshot {
 }
 
 impl Engine {
+    /// Cleanup follows confirmed resource publication. A staged candidate may
+    /// deny new admission, but must not erase established pins before rollback
+    /// is no longer needed for fallible device/listener preparation.
+    pub fn confirmed_endpoint_packet_revocations(
+        &self,
+    ) -> (
+        std::collections::BTreeSet<String>,
+        std::collections::BTreeSet<String>,
+    ) {
+        let snapshot = self.runtime_snapshot();
+        let mut inbound = std::collections::BTreeSet::new();
+        let mut outbound = std::collections::BTreeSet::new();
+        for (id, intent) in &snapshot.endpoint_intents.entries {
+            if !self.endpoint_facts.confirms(id, intent.revision) {
+                continue;
+            }
+            if !intent.enabled() || !intent.directions().inbound {
+                inbound.extend(intent.binding.inbound_tags.iter().cloned());
+            }
+            if !intent.enabled() || !intent.directions().outbound {
+                outbound.extend(intent.binding.outbound_tags.iter().cloned());
+            }
+        }
+        (inbound, outbound)
+    }
     /// Includes concrete relay hops, so revoking a resource also closes flows
     /// whose final outbound tag names another hop.
     pub fn endpoint_flow_ids(

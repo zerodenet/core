@@ -3,14 +3,10 @@ use super::outer::{peer_carrier, refresh_endpoint_peers, send_network_actions, P
 use super::route::feed_inner_packet;
 use super::statistics::IngressTraffic;
 use super::*;
-use std::{
-    sync::atomic::{AtomicU64, Ordering},
-    time::Instant,
-};
+use std::time::Instant;
 use tokio::task::JoinSet;
 use zero_api::TrafficPlane;
 use zero_stack::{packet, FragmentOutcome, FragmentReassembler, UserNetworkStack};
-static NEXT_PACKET_INGRESS_ID: AtomicU64 = AtomicU64::new(1);
 pub(super) async fn run(
     mut operation: RawIpInboundListenerOperation,
     runtime: InboundListenerRuntime,
@@ -39,7 +35,7 @@ pub(super) async fn run(
     let mut peer_revision = u64::MAX;
     let mut initial_endpoints = initial_endpoints;
     let mut endpoints = (0..operation.device.peer_count())
-        .map(|peer| initial_endpoints.get(peer).copied())
+        .map(|peer| initial_endpoints.get(peer).copied().flatten())
         .collect::<Vec<_>>();
     let mut generation = operation.device.generation();
     let (proxied_tx, mut proxied_rx) = mpsc::channel::<ProxiedWirePacket>(256);
@@ -53,7 +49,7 @@ pub(super) async fn run(
         runtime.route_factory(),
         shutdown.clone(),
     );
-    let ingress_id = NEXT_PACKET_INGRESS_ID.fetch_add(1, Ordering::Relaxed);
+    let ingress_id = crate::runtime::packet_route::next_ingress_id();
     let packet_route = runtime.route_factory();
     let mut packet_pins = packet_route.packet_statistics_pins();
     let mut tick = tokio::time::interval(Duration::from_millis(250));
@@ -95,7 +91,10 @@ pub(super) async fn run(
                 traffic.refresh(operation.device.as_ref(), &packet_route);
                 let (size, source, proxied_peer, received_revision) = received.inspect_err(|_| traffic.aggregate.error(TrafficPlane::Outer, false)).map_err(EngineError::Io)?;
                 traffic.aggregate.rx(TrafficPlane::Outer, size, false);
-                if size > 65_535 || received_revision != peer_revision { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); continue; }
+                // Revision stamps belong to queued proxy carriers. A direct
+                // socket receive is handled by the current authenticated device;
+                // a peer-watch refresh must not discard its first live datagram.
+                if size > 65_535 || proxied_peer.is_some() && received_revision != peer_revision { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); continue; }
                 let dispatch = match operation.device.receive_datagram(source, &buffer[..size]) {
                     Ok(dispatch) => dispatch,
                     Err(error) => { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); tracing::debug!(%error, "raw-IP inbound rejected datagram"); continue; }
@@ -138,7 +137,8 @@ pub(super) async fn run(
                             };
                             device.observe_authenticated_packet();
                             let inbound_allowed = packet_route.endpoint_inbound_allowed();
-                            if device.deliver_decrypted(&packet, inbound_allowed).await { continue; }
+                            let local_echo = packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip)) && packet::parse_icmp_echo_request(&packet).is_some();
+                            if !local_echo && device.deliver_decrypted(&packet, inbound_allowed).await { continue; }
                             // Established outbound replies are consumed before
                             // admitting any remote-initiated inner business.
                             if !inbound_allowed { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::PolicyRejected); continue; }
@@ -147,21 +147,27 @@ pub(super) async fn run(
                             } else {
                                 operation.device.mtu()
                             };
-                            feed_inner_packet(&packet, &traffic, traffic.identity(dispatch.peer_index), mtu, &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
+                            feed_inner_packet(&packet, packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip)), &traffic, traffic.identity(dispatch.peer_index), mtu, &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
                             continue;
                         }
                     }
                     if !packet_route.endpoint_inbound_allowed() { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::PolicyRejected); continue; }
-                    feed_inner_packet(&packet, &traffic, traffic.identity(dispatch.peer_index), operation.device.mtu(), &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
+                    feed_inner_packet(&packet, packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip)), &traffic, traffic.identity(dispatch.peer_index), operation.device.mtu(), &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
                 }
             }
             outgoing = receive_endpoint_packet(&mut operation.endpoint) => {
                 refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy);
+                refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
                 let Some(outgoing) = outgoing else {
                     operation.endpoint = None;
                     continue;
                 };
-                let Some(address) = endpoints.get(outgoing.peer).and_then(|value| *value) else { continue; };
+                if outgoing.closed.load(std::sync::atomic::Ordering::Acquire) || outgoing.return_channel.as_ref().is_some_and(|channel| channel.is_closed()) { traffic.peer(Some(outgoing.peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::QueueClosed); if let Some(observer) = &outgoing.observer { observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed); } continue; }
+                let Some(address) = endpoints.get(outgoing.peer).and_then(|value| *value) else {
+                    traffic.peer(Some(outgoing.peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::NoRoute);
+                    if let Some(observer) = &outgoing.observer { observer.dropped_reason(zero_traits::PacketDropReason::NoRoute); }
+                    continue;
+                };
                 let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, outgoing.peer)).flatten();
                 let packets = packet::fragment_ip_packet(&outgoing.packet, operation.device.mtu() as usize, fragment_id);
                 fragment_id = fragment_id.wrapping_add(1);
@@ -191,8 +197,9 @@ pub(super) async fn run(
                     }
                 }
             }
+            _ = packet_pins.management_changed() => packet_pins.expire(),
             _ = tick.tick() => {
-                packet_pins.expire();
+                packet_route.retain_admitted_packet_pins(&mut packet_pins);
                 traffic.refresh(operation.device.as_ref(), &packet_route);
                 refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy);
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
@@ -238,13 +245,13 @@ fn refresh_device_generation(
     endpoints: &mut Vec<Option<SocketAddr>>,
     fragments: &mut FragmentReassembler,
     endpoint_fragments: &mut FragmentReassembler,
-    initial_endpoints: &[SocketAddr],
+    initial_endpoints: &[Option<SocketAddr>],
 ) {
     let current = device.generation();
     if *generation != current {
         *generation = current;
         *endpoints = (0..device.peer_count())
-            .map(|peer| initial_endpoints.get(peer).copied())
+            .map(|peer| initial_endpoints.get(peer).copied().flatten())
             .collect();
         *fragments = FragmentReassembler::new();
         *endpoint_fragments = FragmentReassembler::new();

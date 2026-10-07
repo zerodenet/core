@@ -169,6 +169,19 @@ async fn wireguard_flow_inner_outer_peer_meters_survive_live_reset() {
     let peer_live = snapshot(&proxy, peer_scope.clone());
     assert_eq!(peer_live.activity.active_stream_flows, Some(1));
     assert_eq!(peer_live.activity.active_datagram_flows, Some(1));
+    let live = proxy
+        .engine()
+        .endpoint_snapshot(&EndpointGetQuery {
+            endpoint_id: "endpoint:wg".into(),
+        })
+        .unwrap();
+    assert_eq!(live.counters.active_stream_flows, Some(1));
+    assert_eq!(live.counters.active_datagram_flows, Some(1));
+    assert_eq!(
+        live.counters.active_packet_routes,
+        Some(0),
+        "derived Flow IP packets are not native Packet forwarding routes"
+    );
     assert_eq!(peer_live.planes[0].counters.bytes_up, Some(16));
     let peer_cleared = reset(&proxy, &peer_live);
     assert_eq!(peer_cleared.snapshots[0].activity, peer_live.activity);

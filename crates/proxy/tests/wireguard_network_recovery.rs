@@ -70,6 +70,8 @@ async fn wireguard_tcp_udp_recover_after_network_changes_without_config_reload()
     }).to_string()).unwrap();
     let proxy = Proxy::new(config).unwrap();
     let egress = proxy.egress_interface_control();
+    let engine = proxy.engine().clone();
+    let revision = engine.config_revision();
     let client = spawn_engine(proxy);
     wait_for_listener(socks_port).await;
 
@@ -94,6 +96,7 @@ async fn wireguard_tcp_udp_recover_after_network_changes_without_config_reload()
         }
     });
 
+    let mut previous_generation = None;
     for round in 0..3 {
         if round > 0 {
             // Command-driven TUN activation and route recovery change this
@@ -125,6 +128,31 @@ async fn wireguard_tcp_udp_recover_after_network_changes_without_config_reload()
             &payload,
         )
         .await;
+        let query = zero_api::EndpointGetQuery {
+            endpoint_id: "legacy:outbound:wg".into(),
+        };
+        let endpoint = timeout(Duration::from_secs(5), async {
+            loop {
+                let endpoint = engine.endpoint_snapshot(&query).unwrap();
+                if endpoint.generation.is_some()
+                    && (round == 0
+                        || endpoint.recovery.as_ref().is_some_and(|r| {
+                            r.phase == zero_api::EndpointRecoveryPhase::Recovered
+                                && r.network_generation == egress.generation()
+                        }))
+                {
+                    break endpoint;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        if round > 0 {
+            assert!(endpoint.generation > previous_generation);
+        }
+        previous_generation = endpoint.generation;
+        assert_eq!(engine.config_revision(), revision);
     }
     tcp_echo.abort();
     udp_echo.abort();

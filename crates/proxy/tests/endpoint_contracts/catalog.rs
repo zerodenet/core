@@ -36,6 +36,7 @@ fn shared_wireguard_endpoint_catalog_is_one_resource_and_never_leaks_keys() {
     assert!(!endpoint.effective.outbound);
     assert!(endpoint.supported.packet);
     assert!(endpoint.supported.directions.inbound);
+    assert!(endpoint.supported.peer_address_learning);
     assert!(endpoint.generation.is_none());
     assert!(endpoint.supported.operations.contains(&"set_state".into()));
     let QueryResponse::EndpointDetails(details) = handle
@@ -75,6 +76,7 @@ fn outbound_only_catalog_declares_no_unbound_inbound_permission() {
         panic!("wrong response");
     };
     assert!(!endpoint.supported.directions.inbound);
+    assert!(!endpoint.supported.peer_address_learning);
     assert!(endpoint.supported.directions.outbound);
     assert!(endpoint.inbound_tags.is_empty());
 }

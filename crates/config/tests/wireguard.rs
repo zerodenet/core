@@ -53,6 +53,19 @@ fn linked_wireguard_endpoint_requires_one_matching_inbound() {
     });
     assert!(RuntimeConfig::parse(&input.to_string()).is_ok());
 
+    input["inbounds"][0]["protocol"]["addresses"] =
+        input["outbounds"][0]["protocol"]["addresses"].clone();
+    assert!(RuntimeConfig::parse(&input.to_string()).is_ok());
+    input["inbounds"][0]["protocol"]["addresses"] = json!(["172.16.0.3/32"]);
+    assert!(RuntimeConfig::parse(&input.to_string())
+        .unwrap_err()
+        .to_string()
+        .contains("key, addresses, MTU and ordered peers"));
+    input["inbounds"][0]["protocol"]
+        .as_object_mut()
+        .unwrap()
+        .remove("addresses");
+
     input["outbounds"].as_array_mut().unwrap().push(json!({
         "tag": "outer", "protocol": {"type": "socks5", "server": "127.0.0.1", "port": 1080}
     }));
@@ -63,7 +76,7 @@ fn linked_wireguard_endpoint_requires_one_matching_inbound() {
     assert!(RuntimeConfig::parse(&input.to_string())
         .unwrap_err()
         .to_string()
-        .contains("must use the linked inbound's key, MTU and ordered peers"));
+        .contains("must use the linked inbound's key, addresses, MTU and ordered peers"));
 
     input["inbounds"] = json!([]);
     assert!(RuntimeConfig::parse(&input.to_string())

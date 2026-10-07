@@ -54,6 +54,7 @@ fn malformed_data_from_one_peer_does_not_break_another_authenticated_peer() {
         },
     ];
     let mut server = PreparedInbound::from_input(InboundInput {
+        addresses: &[],
         private_key: &server_private,
         mtu: 1_420,
         peers: &peers,

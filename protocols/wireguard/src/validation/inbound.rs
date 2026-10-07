@@ -19,6 +19,7 @@ pub struct InboundPeerInput<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct InboundInput<'a> {
     pub private_key: &'a str,
+    pub addresses: &'a [&'a str],
     pub mtu: u16,
     pub peers: &'a [InboundPeerInput<'a>],
 }
@@ -35,12 +36,14 @@ pub struct ValidatedInboundPeer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidatedInbound {
     pub private_key: Key,
+    pub addresses: Vec<IpNetwork>,
     pub mtu: u16,
     pub peers: Vec<ValidatedInboundPeer>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InboundValidationError {
+    Address(super::ValidationError),
     Key {
         peer: Option<usize>,
         source: KeyError,
@@ -81,6 +84,7 @@ pub enum InboundValidationError {
 impl core::fmt::Display for InboundValidationError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::Address(source) => write!(formatter, "interface {source}"),
             Self::Key { peer: None, source } => {
                 write!(formatter, "private key is invalid: {source:?}")
             }
@@ -142,6 +146,14 @@ pub fn validate_inbound(
     if !(MIN_IPV4_MTU..=MAX_MTU).contains(&input.mtu) {
         return Err(InboundValidationError::InvalidMtu);
     }
+    // Legacy forwarding-only listeners need no assigned address. Declared
+    // addresses use the same protocol validation as an outbound interface.
+    let addresses = if input.addresses.is_empty() {
+        Vec::new()
+    } else {
+        super::outbound::validate_addresses(input.addresses, input.mtu)
+            .map_err(InboundValidationError::Address)?
+    };
     if input.peers.is_empty() {
         return Err(InboundValidationError::MissingPeers);
     }
@@ -225,6 +237,7 @@ pub fn validate_inbound(
     }
     Ok(ValidatedInbound {
         private_key,
+        addresses,
         mtu: input.mtu,
         peers,
     })

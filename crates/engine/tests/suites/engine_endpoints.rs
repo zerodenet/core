@@ -6,3 +6,6 @@ mod endpoint_control;
 mod endpoint_metadata;
 #[path = "../endpoints.rs"]
 mod endpoints;
+
+#[path = "../packet_routes.rs"]
+mod packet_routes;

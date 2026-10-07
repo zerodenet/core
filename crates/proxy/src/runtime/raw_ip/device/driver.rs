@@ -75,8 +75,9 @@ async fn run_device_inner(
                 }
             }
             packets = device.forwarded_packets.recv() => {
-                let Some(ForwardedPackets { packets, observer }) = packets else { return Ok(()); };
+                let Some(ForwardedPackets { packets, observer, return_channel }) = packets else { return Ok(()); };
                 for packet in packets {
+                    if return_channel.is_closed() { device.traffic.dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::QueueClosed); if let Some(observer) = &observer { observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed); } continue; }
                     let actions = device.tunnel.send_ip_packet(&packet).inspect_err(|_| { device.traffic.error(TrafficPlane::Inner, true); device.traffic.dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); if let Some(observer) = &observer { observer.dropped_reason(zero_traits::PacketDropReason::IoFailure); } })?;
                     device.traffic.tx(TrafficPlane::Inner, packet.len());
                     if let Some(observer) = &observer { observer.sent(packet.len()); }

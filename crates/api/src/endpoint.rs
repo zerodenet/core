@@ -41,6 +41,10 @@ pub struct EndpointCapabilities {
     pub derived_stream: bool,
     #[serde(default)]
     pub derived_datagram: bool,
+    /// The resource can authenticate and learn a peer address without a
+    /// configured initial address. Requires an existing listening binding.
+    #[serde(default)]
+    pub peer_address_learning: bool,
     #[serde(default)]
     pub operations: Vec<String>,
     #[serde(default)]
@@ -158,6 +162,8 @@ pub struct EndpointSnapshot {
     pub stats_epoch: Option<String>,
     #[serde(default)]
     pub stats_epoch_started_at_unix_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<EndpointRecovery>,
     pub last_error: Option<ErrorDetail>,
 }
 
@@ -240,4 +246,22 @@ pub struct EndpointOperationCommand {
     pub expected_intent_revision: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_core_instance_id: Option<String>,
+}
+
+/// Reconciliation progress; successful recovery does not imply peer reachability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointRecovery {
+    pub network_generation: u64,
+    pub phase: EndpointRecoveryPhase,
+    pub observed_at_unix_ms: u64,
+    pub retry_after_ms: Option<u64>,
+    pub error: Option<String>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointRecoveryPhase {
+    Preparing,
+    Retrying,
+    Recovered,
+    Superseded,
 }

@@ -11,6 +11,8 @@ mod packet_translation_boundary;
 mod wireguard_echo_translation;
 #[path = "../wireguard_health.rs"]
 mod wireguard_health;
+#[path = "../wireguard_local_delivery.rs"]
+mod wireguard_local_delivery;
 #[path = "../wireguard_network_recovery.rs"]
 mod wireguard_network_recovery;
 #[path = "../wireguard_packet_non_echo.rs"]

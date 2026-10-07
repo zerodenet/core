@@ -229,3 +229,68 @@ fn discarded_candidate_revision_is_not_reused_after_rollback() {
             > discarded
     );
 }
+
+#[test]
+fn packet_pin_cleanup_waits_for_confirmed_role_revocation() {
+    use zero_api::EndpointRuntimeState;
+    let engine = Engine::new(config()).unwrap();
+    let mut observed = engine.endpoint_snapshot(&query()).unwrap();
+    observed.state = EndpointRuntimeState::Running;
+    engine.record_endpoint_runtime_state(&observed);
+    let candidate = engine
+        .prepare_endpoint_change(
+            &engine.runtime_snapshot(),
+            "endpoint:a",
+            EndpointChange::Directions(zero_api::EndpointDirections::default()),
+            false,
+            None,
+        )
+        .unwrap();
+    engine.restore_staged_snapshot(candidate, false).unwrap();
+    assert!(
+        engine.confirmed_endpoint_packet_revocations().1.is_empty(),
+        "staged candidate must not retire pins"
+    );
+    observed = engine.endpoint_snapshot(&query()).unwrap();
+    observed.state = EndpointRuntimeState::Running;
+    engine.record_endpoint_runtime_state(&observed);
+    assert!(engine
+        .confirmed_endpoint_packet_revocations()
+        .1
+        .contains("a"));
+}
+
+#[test]
+fn actual_component_replacement_advances_generation_while_recovery_and_policy_do_not() {
+    let engine = Engine::new(config()).unwrap();
+    let query = EndpointGetQuery {
+        endpoint_id: "endpoint:a".into(),
+    };
+    let mut endpoint = engine.endpoint_snapshot(&query).unwrap();
+    endpoint.state = zero_api::EndpointRuntimeState::Running;
+    engine.record_endpoint_device_state(&endpoint, vec![1, 2]);
+    let first = engine.endpoint_snapshot(&query).unwrap();
+    engine.record_endpoint_device_state(&endpoint, vec![1, 2]);
+    assert_eq!(
+        engine.endpoint_snapshot(&query).unwrap().generation,
+        first.generation
+    );
+    engine.record_endpoint_recovery(
+        &query.endpoint_id,
+        zero_api::EndpointRecovery {
+            network_generation: 7,
+            phase: zero_api::EndpointRecoveryPhase::Retrying,
+            observed_at_unix_ms: 1,
+            retry_after_ms: Some(1000),
+            error: Some("offline".into()),
+        },
+    );
+    let retry = engine.endpoint_snapshot(&query).unwrap();
+    assert_eq!(retry.generation, first.generation);
+    assert_eq!(
+        retry.recovery.unwrap().phase,
+        zero_api::EndpointRecoveryPhase::Retrying
+    );
+    engine.record_endpoint_device_state(&endpoint, vec![1, 3]);
+    assert!(engine.endpoint_snapshot(&query).unwrap().generation > first.generation);
+}

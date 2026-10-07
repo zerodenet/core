@@ -84,16 +84,16 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
     #[cfg(feature = "udp-runtime")]
     {
         use crate::adapters::direct::DirectAdapter;
-        registry.register_capability(
-            Arc::new(DirectAdapter),
-            DirectAdapter::claim_outbound_leaf_impl,
-        );
+        let adapter = Arc::new(DirectAdapter::default());
+        #[cfg(feature = "raw-ip-runtime")]
+        registry.register_outbound_device_lifecycle(adapter.clone());
+        registry.register_capability(adapter, DirectAdapter::claim_outbound_leaf_impl);
     }
     #[cfg(not(feature = "udp-runtime"))]
     {
         use crate::adapters::direct::DirectAdapter;
         registry.register_core_capability(
-            Arc::new(DirectAdapter),
+            Arc::new(DirectAdapter::default()),
             Some(DirectAdapter::claim_outbound_leaf_impl),
         );
     }

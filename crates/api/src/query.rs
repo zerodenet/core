@@ -28,6 +28,8 @@ pub enum QueryRequest {
     Diagnostics(DiagnosticsQuery),
     Sinks(SinksQuery),
     TunStatus(TunStatusQuery),
+    PacketRoutes(crate::PacketRouteListQuery),
+    PacketRoute(crate::PacketRouteGetQuery),
     Endpoints(crate::EndpointListQuery),
     Endpoint(crate::EndpointGetQuery),
     EndpointDetails(crate::EndpointGetQuery),
@@ -54,6 +56,8 @@ impl Serialize for QueryRequest {
             Self::Diagnostics(_) => serde_json::json!({ "diagnostics": {} }),
             Self::Sinks(_) => serde_json::json!({ "sinks": {} }),
             Self::TunStatus(_) => serde_json::json!({ "tun_status": {} }),
+            Self::PacketRoutes(v) => serde_json::json!({ "packet_routes": v }),
+            Self::PacketRoute(v) => serde_json::json!({ "packet_route": v }),
             Self::Endpoints(v) => serde_json::json!({ "endpoints": v }),
             Self::Endpoint(v) => serde_json::json!({ "endpoint": v }),
             Self::EndpointDetails(v) => serde_json::json!({ "endpoint_details": v }),
@@ -118,6 +122,12 @@ impl<'de> Deserialize<'de> for QueryRequest {
             "diagnostics" => Ok(Self::Diagnostics(DiagnosticsQuery)),
             "sinks" => Ok(Self::Sinks(SinksQuery)),
             "tun_status" => Ok(Self::TunStatus(TunStatusQuery)),
+            "packet_routes" => serde_json::from_value(inner.clone())
+                .map(Self::PacketRoutes)
+                .map_err(D::Error::custom),
+            "packet_route" => serde_json::from_value(inner.clone())
+                .map(Self::PacketRoute)
+                .map_err(D::Error::custom),
             "endpoints" => serde_json::from_value(inner.clone())
                 .map(Self::Endpoints)
                 .map_err(D::Error::custom),
@@ -157,6 +167,8 @@ pub enum QueryResponse {
     Diagnostics(serde_json::Value),
     Sinks(SinkStatusSnapshot),
     TunStatus(TunStatusSnapshot),
+    PacketRoutes(crate::PacketRouteListSnapshot),
+    PacketRoute(crate::PacketRouteSnapshot),
     Endpoints(crate::EndpointListSnapshot),
     Endpoint(crate::EndpointSnapshot),
     EndpointDetails(crate::EndpointDetailsSnapshot),
@@ -184,6 +196,8 @@ impl Serialize for QueryResponse {
             Self::Diagnostics(v) => serde_json::json!({ "diagnostics": v }),
             Self::Sinks(v) => serde_json::json!({ "sinks": v }),
             Self::TunStatus(v) => serde_json::json!({ "tun_status": v }),
+            Self::PacketRoutes(v) => serde_json::json!({ "packet_routes": v }),
+            Self::PacketRoute(v) => serde_json::json!({ "packet_route": v }),
             Self::Endpoints(v) => serde_json::json!({ "endpoints": v }),
             Self::Endpoint(v) => serde_json::json!({ "endpoint": v }),
             Self::EndpointDetails(v) => serde_json::json!({ "endpoint_details": v }),
@@ -252,6 +266,12 @@ impl<'de> Deserialize<'de> for QueryResponse {
                 .map_err(D::Error::custom),
             "tun_status" => serde_json::from_value(inner.clone())
                 .map(Self::TunStatus)
+                .map_err(D::Error::custom),
+            "packet_routes" => serde_json::from_value(inner.clone())
+                .map(Self::PacketRoutes)
+                .map_err(D::Error::custom),
+            "packet_route" => serde_json::from_value(inner.clone())
+                .map(Self::PacketRoute)
                 .map_err(D::Error::custom),
             "endpoints" => serde_json::from_value(inner.clone())
                 .map(Self::Endpoints)

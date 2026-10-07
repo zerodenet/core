@@ -29,13 +29,21 @@ struct RoutePin {
     plane: PacketPlane,
     outbound_peer: Option<std::sync::Arc<str>>,
     touched: Instant,
+    accepted: bool,
+    managed: Option<zero_engine::PacketRouteLease>,
+    control: Option<zero_engine::PacketRouteControl>,
+    replies: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
 }
 
 #[derive(Default)]
 pub(crate) struct PacketSessionPins {
     entries: HashMap<RouteKey, RoutePin>,
     meters: Option<MeterProvider>,
+    management: Option<(zero_engine::Engine, String)>,
+    management_changed: std::sync::Arc<tokio::sync::Notify>,
 }
+
+mod management;
 
 impl PacketSessionPins {
     /// Reuse the observation handle for an admitted conversation. New paths
@@ -76,12 +84,20 @@ impl PacketSessionPins {
         Self {
             entries: Default::default(),
             meters: Some(meters),
+            management: None,
+            management_changed: Default::default(),
         }
     }
     pub(crate) fn expire(&mut self) {
+        self.retire_closed();
         let now = Instant::now();
         self.entries
             .retain(|_, pin| now.duration_since(pin.touched) < IDLE_TIMEOUT);
+    }
+
+    pub(crate) fn retain_admitted(&mut self, mut admitted: impl FnMut(&PacketPlane) -> bool) {
+        self.entries.retain(|_, pin| admitted(&pin.plane));
+        self.expire();
     }
     pub(crate) fn permits(&mut self, packet: &[u8], plane: &PacketPlane) -> bool {
         self.permits_peer(packet, plane, None)
@@ -99,7 +115,9 @@ impl PacketSessionPins {
         self.entries
             .retain(|_, pin| now.duration_since(pin.touched) < IDLE_TIMEOUT);
         match self.entries.get(&key) {
-            Some(pin) => &pin.plane == plane,
+            Some(pin) => {
+                &pin.plane == plane && !pin.control.as_ref().is_some_and(|c| c.is_closed())
+            }
             None => self.entries.len() < MAX_PINNED_ROUTES,
         }
     }
@@ -131,6 +149,7 @@ impl PacketSessionPins {
                 );
                 pin.outbound_peer = outbound_peer;
             }
+            pin.accepted = true;
             pin.touched = Instant::now();
             return true;
         }
@@ -151,6 +170,10 @@ impl PacketSessionPins {
                 observer: None,
                 plane,
                 touched: Instant::now(),
+                accepted: true,
+                managed: None,
+                control: None,
+                replies: None,
             },
         );
         true

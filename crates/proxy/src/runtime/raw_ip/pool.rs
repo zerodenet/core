@@ -40,6 +40,20 @@ pub(crate) struct StagedRawIpDevices {
 }
 
 impl RawIpDevicePool {
+    pub(crate) fn incarnations(&self, tags: &[String]) -> Vec<u64> {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ids: Vec<_> = state
+            .entries
+            .iter()
+            .filter(|((tag, _), _)| tags.contains(tag))
+            .filter_map(|(_, entry)| entry.cell.get())
+            .filter(|device| device.is_usable())
+            .map(|device| device.incarnation)
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
     pub(crate) fn health_snapshot(
         &self,
         tag: &str,
@@ -228,20 +242,24 @@ impl RawIpDevicePool {
         stopped
     }
 
-    pub(crate) fn shutdown(&self) {
+    pub(crate) fn shutdown(&self) -> Vec<Arc<SharedRawIpDevice>> {
+        let mut stopped = Vec::new();
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state.shutdown = true;
         for entry in state.entries.values() {
             if let Some(device) = entry.cell.get() {
                 device.close_now();
+                stopped.push(device.clone());
             }
         }
         for (_, device) in state.retiring.drain(..) {
             if let Some(device) = device.upgrade() {
                 device.close_now();
+                stopped.push(device);
             }
         }
         state.entries.clear();
+        stopped
     }
 }
 

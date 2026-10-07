@@ -4,7 +4,11 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn ipc_statistics_reset_waits_for_config_and_endpoint_reconciliation() {
-    for method in ["config.apply_runtime", "endpoints.restart"] {
+    for (method, rebuild) in [
+        ("config.apply_runtime", true),
+        ("endpoints.restart", true),
+        ("config.apply_runtime", false),
+    ] {
         let fixture = Fixture::new().await;
         let reconciler = Arc::new(PausedReconciler::default());
         let controlled = fixture
@@ -22,10 +26,15 @@ async fn ipc_statistics_reset_waits_for_config_and_endpoint_reconciliation() {
             .clone();
         let original_endpoint = reset.endpoint().await;
         let mut candidate = fixture.config.clone();
-        let replacement = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        candidate["endpoints"][0]["listen"]["port"] =
-            replacement.local_addr().unwrap().port().into();
-        drop(replacement);
+        if rebuild {
+            let replacement = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            candidate["endpoints"][0]["listen"]["port"] =
+                replacement.local_addr().unwrap().port().into();
+            drop(replacement);
+        } else {
+            // A route-only edit retains the physical endpoint components.
+            candidate["route"]["final"] = json!({"type":"reject"});
+        }
         let params = if method == "config.apply_runtime" {
             json!({"config":candidate})
         } else {
@@ -65,7 +74,7 @@ async fn ipc_statistics_reset_waits_for_config_and_endpoint_reconciliation() {
             .await["traffic_stat"]
             .clone();
         let endpoint = reset.endpoint().await;
-        if method == "endpoints.restart" {
+        if rebuild {
             assert!(!resource_response.ok);
             let error = resource_response.error.unwrap();
             assert_eq!(error.code, "conflict");
@@ -78,21 +87,24 @@ async fn ipc_statistics_reset_waits_for_config_and_endpoint_reconciliation() {
                 current["generation"].as_u64().unwrap() > resource["generation"].as_u64().unwrap()
             );
         } else {
-            // A configuration edit does not necessarily begin a new endpoint
-            // lifecycle. Its reset must still report the committed revision.
+            // Policy edits preserve generation; reset reports the committed
+            // revision while opening only the requested statistics period.
             assert!(resource_response.ok, "{:?}", resource_response.error);
             let confirmed = resource_response.result.unwrap()["result"]["snapshots"][0].clone();
             assert_eq!(confirmed["config_revision"], current["config_revision"]);
             assert_eq!(confirmed["generation"], current["generation"]);
+            assert_eq!(current["generation"], resource["generation"]);
             assert_eq!(confirmed["stats_epoch"], current["stats_epoch"]);
             assert_ne!(current["stats_epoch"], resource["stats_epoch"]);
         }
         assert_eq!(endpoint["state"], "running");
-        if method == "endpoints.restart" {
+        if rebuild {
             assert!(
                 endpoint["generation"].as_u64().unwrap()
                     > original_endpoint["generation"].as_u64().unwrap()
             );
+        } else {
+            assert_eq!(endpoint["generation"], original_endpoint["generation"]);
         }
         operation.close().await;
         reset.close().await;

@@ -146,6 +146,10 @@ pub(crate) trait ProtocolSupportCapability: ProtocolMetadata + Send + Sync {
 }
 
 #[cfg(feature = "raw-ip-runtime")]
+pub(crate) type OutboundDeviceCompletion =
+    std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+#[cfg(feature = "raw-ip-runtime")]
 #[async_trait]
 pub(crate) trait OutboundDeviceLifecycleCapability: ProtocolSupportCapability {
     async fn prepare_outbound_devices(
@@ -155,7 +159,8 @@ pub(crate) trait OutboundDeviceLifecycleCapability: ProtocolSupportCapability {
         context: crate::protocol_registry::OutboundDevicePreparationContext,
     ) -> Result<Box<dyn PreparedOutboundDeviceState>, EngineError>;
 
-    fn shutdown_outbound_devices(&self);
+    /// Request shutdown synchronously; awaiting the receipt confirms I/O owners ended.
+    fn shutdown_outbound_devices(&self) -> OutboundDeviceCompletion;
 
     fn outbound_device_health(
         &self,

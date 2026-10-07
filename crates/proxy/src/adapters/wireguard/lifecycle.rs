@@ -46,6 +46,13 @@ impl crate::protocol_registry::EndpointControlCapability for WireguardAdapter {
     fn supports_endpoint_control(&self, binding: &zero_config::EndpointBindingConfig) -> bool {
         binding.protocol == "wireguard"
     }
+
+    fn live_direction_contraction(
+        &self,
+        binding: &zero_config::EndpointBindingConfig,
+    ) -> zero_api::EndpointDirections {
+        binding.supported_directions
+    }
 }
 
 impl Drop for PendingEndpoints {
@@ -184,6 +191,11 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                 );
                 continue;
             }
+            // A standalone device has no retained listener role. Revocation
+            // removes its stacks/carrier through normal pool publication.
+            if context.disabled_outbounds.contains(&outbound.tag) {
+                continue;
+            }
             for peer_index in 0..plan.peer_count() {
                 if staged.len() >= crate::runtime::raw_ip::MAX_RAW_IP_DEVICES {
                     return Err(invalid("raw-IP device limit exceeded"));
@@ -318,8 +330,8 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
         }))
     }
 
-    fn shutdown_outbound_devices(&self) {
-        self.pool.shutdown();
+    fn shutdown_outbound_devices(&self) -> crate::protocol_registry::OutboundDeviceCompletion {
+        let stopped = self.pool.shutdown();
         self.profiles
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -328,6 +340,11 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clear();
+        Box::pin(async move {
+            for device in stopped {
+                device.wait_stopped().await;
+            }
+        })
     }
 
     fn outbound_device_health(

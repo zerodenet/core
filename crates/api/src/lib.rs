@@ -5,6 +5,8 @@ pub mod endpoint;
 pub mod error;
 pub mod event;
 pub mod flow;
+pub mod packet_route;
+pub use packet_route::*;
 pub mod query;
 pub mod response;
 pub mod sink;
@@ -29,8 +31,9 @@ pub use endpoint::{
     EndpointCapabilities, EndpointConfiguration, EndpointConfigurationOrigin, EndpointCounters,
     EndpointDetailsSnapshot, EndpointDirections, EndpointGetQuery, EndpointHealthState,
     EndpointListQuery, EndpointListSnapshot, EndpointOperationCapability, EndpointOperationCommand,
-    EndpointPersistence, EndpointRuntimeState, EndpointSetDirectionsCommand,
-    EndpointSetStateCommand, EndpointSnapshot, EndpointSourceFileCapability, EndpointStateSource,
+    EndpointPersistence, EndpointRecovery, EndpointRecoveryPhase, EndpointRuntimeState,
+    EndpointSetDirectionsCommand, EndpointSetStateCommand, EndpointSnapshot,
+    EndpointSourceFileCapability, EndpointStateSource,
 };
 pub use error::{ApiError, ApiErrorCode, ErrorDetail};
 pub use event::{

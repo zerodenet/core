@@ -32,7 +32,7 @@ pub struct OutboundInput<'a> {
 pub struct ValidatedPeer<'a> {
     pub public_key: Key,
     pub pre_shared_key: Option<Key>,
-    pub endpoint: Endpoint<'a>,
+    pub endpoint: Option<Endpoint<'a>>,
     pub allowed_ips: Vec<IpNetwork>,
     pub keepalive_secs: u16,
     pub reserved: Option<[u8; 3]>,
@@ -171,6 +171,21 @@ impl core::fmt::Display for ValidationError {
 pub fn validate_outbound(
     input: OutboundInput<'_>,
 ) -> Result<ValidatedOutbound<'_>, ValidationError> {
+    validate_profile(input, false)
+}
+
+/// A listening device can learn a peer address from an authenticated handshake.
+/// All cryptographic, address and AllowedIPs checks remain protocol-owned.
+pub fn validate_listening_endpoint(
+    input: OutboundInput<'_>,
+) -> Result<ValidatedOutbound<'_>, ValidationError> {
+    validate_profile(input, true)
+}
+
+fn validate_profile(
+    input: OutboundInput<'_>,
+    listening: bool,
+) -> Result<ValidatedOutbound<'_>, ValidationError> {
     let private_key = parse_key(input.private_key)
         .map_err(|source| ValidationError::Key { peer: None, source })?;
     let addresses = validate_addresses(input.addresses, input.mtu)?;
@@ -201,11 +216,16 @@ pub fn validate_outbound(
                 peer: Some(peer_index),
                 source,
             })?;
-        let endpoint =
-            parse_endpoint(peer.endpoint).map_err(|source| ValidationError::Endpoint {
-                peer: peer_index,
-                source,
-            })?;
+        let endpoint = if listening && peer.endpoint.is_empty() {
+            None
+        } else {
+            Some(
+                parse_endpoint(peer.endpoint).map_err(|source| ValidationError::Endpoint {
+                    peer: peer_index,
+                    source,
+                })?,
+            )
+        };
         let allowed_ips = validate_allowed_ips(peer_index, peer.allowed_ips, &peers)?;
         let reserved = match peer.reserved {
             [] => None,
@@ -233,7 +253,10 @@ pub fn validate_outbound(
     })
 }
 
-fn validate_addresses(values: &[&str], mtu: u16) -> Result<Vec<IpNetwork>, ValidationError> {
+pub(super) fn validate_addresses(
+    values: &[&str],
+    mtu: u16,
+) -> Result<Vec<IpNetwork>, ValidationError> {
     if values.is_empty() {
         return Err(ValidationError::MissingAddresses);
     }

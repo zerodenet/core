@@ -173,6 +173,22 @@ async fn authenticated_non_echo_icmp_keeps_packet_plane_through_wireguard() {
         Some(request.len() as u64)
     );
     assert_eq!(egress.activity.active_packet_routes, Some(1));
+    for id in ["endpoint:wg-in", "endpoint:wg-out"] {
+        let endpoint = proxy
+            .engine()
+            .endpoint_snapshot(&zero_api::EndpointGetQuery {
+                endpoint_id: id.into(),
+            })
+            .unwrap();
+        assert_eq!(endpoint.counters.active_packet_routes, Some(1));
+        assert_eq!(endpoint.counters.active_stream_flows, Some(0));
+        assert_eq!(endpoint.counters.active_datagram_flows, Some(0));
+    }
+    let paths = proxy
+        .engine()
+        .packet_routes_snapshot(&zero_api::PacketRouteListQuery::default());
+    assert_eq!(paths.total, 1);
+    assert_eq!(paths.routes[0].endpoints.len(), 2);
     assert_eq!(
         proxy.stats_snapshot().bytes_up,
         0,
@@ -195,6 +211,15 @@ async fn authenticated_non_echo_icmp_keeps_packet_plane_through_wireguard() {
         .unwrap();
     assert_eq!(peer.planes[2].counters.dropped_packets, Some(0));
     zero.shutdown().await.unwrap();
+    for id in ["endpoint:wg-in", "endpoint:wg-out"] {
+        let endpoint = proxy
+            .engine()
+            .endpoint_snapshot(&zero_api::EndpointGetQuery {
+                endpoint_id: id.into(),
+            })
+            .unwrap();
+        assert_eq!(endpoint.counters.active_packet_routes, Some(0));
+    }
 }
 
 #[tokio::test]
@@ -253,7 +278,8 @@ async fn linked_endpoint_forwards_packet_between_peers_on_one_socket() {
         .to_string(),
     )
     .unwrap();
-    let zero = spawn_engine(Proxy::new(config).unwrap());
+    let proxy = Proxy::new(config).unwrap();
+    let zero = spawn_engine(proxy.clone());
     sleep(Duration::from_millis(100)).await;
     let mut client = peer_tunnel(92, &zero_public, "10.0.0.2/32", "198.51.100.1/32");
     let request = timestamp_request(source, destination);
@@ -288,5 +314,30 @@ async fn linked_endpoint_forwards_packet_between_peers_on_one_socket() {
     );
     assert_eq!(forwarded[8], 63);
     assert_eq!(&forwarded[20..], &request[20..]);
+    let paths = proxy
+        .engine()
+        .packet_routes_snapshot(&zero_api::PacketRouteListQuery::default());
+    assert_eq!(paths.total, 1);
+    assert_eq!(
+        paths.routes[0].endpoints.len(),
+        1,
+        "one resource used in both roles is deduplicated"
+    );
+    let id = paths.routes[0].endpoints[0].endpoint_id.clone();
+    let actual = proxy
+        .engine()
+        .endpoint_snapshot(&zero_api::EndpointGetQuery { endpoint_id: id })
+        .unwrap();
+    assert_eq!(
+        actual.counters.active_packet_routes, None,
+        "legacy roles have no explicit endpoint traffic meter"
+    );
+    let global = proxy
+        .engine()
+        .traffic_snapshot(&zero_api::TrafficGetQuery {
+            scope: zero_api::TrafficScope::Global,
+        })
+        .unwrap();
+    assert_eq!(global.activity.active_packet_routes, Some(1));
     zero.shutdown().await.unwrap();
 }

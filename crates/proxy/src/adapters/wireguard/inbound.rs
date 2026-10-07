@@ -16,16 +16,19 @@ use wireguard::{
 use zero_config::{InboundConfig, InboundProtocolConfig, WireguardSecret};
 use zero_engine::EngineError;
 
+mod device;
 use super::inbound_protocol_identity;
 use crate::runtime::inbound_operation::{
     EndpointPeerState, PreparedInboundListenerOperation, RawIpInboundAction, RawIpInboundDevice,
     RawIpInboundDispatch, RawIpInboundEndpoint, RawIpInboundListenerOperation,
 };
 use crate::runtime::raw_ip::{EndpointPacket, RawIpWireCarrier, SharedRawIpDevice};
+pub(super) use device::LiveInboundDevice;
 
 pub(super) struct LinkedEndpoint {
     pub(super) listen: zero_config::ListenConfig,
     pub(super) live: Arc<LiveInboundDevice>,
+    pub(super) io_incarnation: AtomicU64,
     pub(super) state: Mutex<LinkedEndpointState>,
     pub(super) sender: watch::Sender<mpsc::Sender<EndpointPacket>>,
     peers: watch::Sender<Arc<EndpointPeerState>>,
@@ -46,7 +49,7 @@ pub(super) struct LinkedEndpointUpdate {
     pub(super) device: InboundDevice,
     pub(super) inbound_identity: [u8; 32],
     pub(super) devices: Vec<Arc<SharedRawIpDevice>>,
-    pub(super) endpoints: Vec<SocketAddr>,
+    pub(super) endpoints: Vec<Option<SocketAddr>>,
     pub(super) carriers: Vec<Option<Arc<dyn RawIpWireCarrier>>>,
 }
 
@@ -65,6 +68,12 @@ impl LinkedEndpointUpdate {
             initial_endpoints: self.endpoints,
             carriers: self.carriers.clone(),
         }));
+        if state.identity != self.identity || state.generation != self.generation {
+            self.link.io_incarnation.store(
+                crate::runtime::raw_ip::next_incarnation(),
+                Ordering::Release,
+            );
+        }
         state.identity = self.identity;
         state.generation = self.generation;
         state.devices = self.devices;
@@ -79,7 +88,7 @@ impl LinkedEndpoint {
         listen: zero_config::ListenConfig,
         live: Arc<LiveInboundDevice>,
         devices: Vec<Arc<SharedRawIpDevice>>,
-        endpoints: Vec<SocketAddr>,
+        endpoints: Vec<Option<SocketAddr>>,
         carriers: Vec<Option<Arc<dyn RawIpWireCarrier>>>,
         sender: watch::Sender<mpsc::Sender<EndpointPacket>>,
         packets: mpsc::Receiver<EndpointPacket>,
@@ -93,6 +102,7 @@ impl LinkedEndpoint {
         Self {
             listen,
             live,
+            io_incarnation: AtomicU64::new(crate::runtime::raw_ip::next_incarnation()),
             state: Mutex::new(LinkedEndpointState {
                 identity,
                 generation,
@@ -129,54 +139,6 @@ impl LinkedEndpoint {
                 lease: self.active.clone(),
             }),
         }))
-    }
-}
-
-pub(super) struct LiveInboundDevice {
-    device: Mutex<InboundDevice>,
-    generation: AtomicU64,
-    identity: Mutex<[u8; 32]>,
-}
-
-impl LiveInboundDevice {
-    pub(super) fn peer_source(
-        &self,
-        peer_index: usize,
-    ) -> Option<wireguard::runtime::PeerSourceObservation> {
-        self.device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .peer_source(peer_index)
-    }
-
-    pub(super) fn new(device: InboundDevice, identity: [u8; 32]) -> Self {
-        Self {
-            device: Mutex::new(device),
-            generation: AtomicU64::new(0),
-            identity: Mutex::new(identity),
-        }
-    }
-
-    pub(super) fn matches_identity(&self, identity: [u8; 32]) -> bool {
-        *self
-            .identity
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            == identity
-    }
-
-    pub(super) fn replace(&self, device: InboundDevice, identity: [u8; 32]) {
-        let mut current = self
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if !current.replace_preserving_peers(device) {
-            self.generation.fetch_add(1, Ordering::Release);
-        }
-        *self
-            .identity
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = identity;
     }
 }
 
@@ -226,6 +188,7 @@ pub(super) fn prepare_linked(
 pub(super) fn prepare_device(inbound: &InboundConfig) -> Result<InboundDevice, EngineError> {
     let InboundProtocolConfig::Wireguard {
         private_key,
+        addresses,
         mtu,
         peers,
     } = &inbound.protocol
@@ -254,6 +217,7 @@ pub(super) fn prepare_device(inbound: &InboundConfig) -> Result<InboundDevice, E
         .collect::<Vec<_>>();
     let profile = PreparedInbound::from_input(InboundInput {
         private_key: private_key.as_str(),
+        addresses: &addresses.iter().map(String::as_str).collect::<Vec<_>>(),
         mtu: *mtu,
         peers: &peers,
     })
@@ -264,6 +228,13 @@ pub(super) fn prepare_device(inbound: &InboundConfig) -> Result<InboundDevice, E
 struct WireguardInboundDevice(Arc<LiveInboundDevice>);
 
 impl RawIpInboundDevice for WireguardInboundDevice {
+    fn is_local_address(&self, address: IpAddr) -> bool {
+        self.0
+            .device
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_local_address(address)
+    }
     fn peer_identity(&self, peer: usize) -> Option<String> {
         self.0
             .device

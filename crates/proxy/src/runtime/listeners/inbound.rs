@@ -7,6 +7,7 @@ use tracing::{error, info, warn};
 use zero_config::{InboundConfig, RuntimeConfig};
 use zero_engine::EngineError;
 
+use super::reservation::{bind_inbound_with_retry, reserve_candidates};
 use crate::inventory::ProtocolInventory;
 use crate::runtime::route_runtime::InboundListenerRuntimeFactory;
 
@@ -127,6 +128,17 @@ pub(in crate::runtime) async fn reconcile_inbounds(
     new_config: &RuntimeConfig,
     state: InboundReconcileState<'_>,
 ) -> Result<(), EngineError> {
+    // Reserve every independently bindable candidate before replacing any
+    // live listener. A later bind failure must not expose an earlier candidate
+    // protocol session or require re-creating its original socket on rollback.
+    let mut reserved = reserve_candidates(
+        protocols,
+        runtime_factory,
+        source_dir,
+        new_config,
+        state.active_inbounds,
+    )
+    .await?;
     let new_tags: Vec<&str> = new_config
         .inbounds
         .iter()
@@ -194,17 +206,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
             continue;
         }
 
-        // When the listen port changes, reserve the candidate before
-        // stopping the old listener. A failed bind then leaves its socket and
-        // protocol session state untouched (not merely re-created on rollback).
-        let prebound = if previous
-            .as_ref()
-            .is_some_and(|current| current.listen.port != inbound.listen.port)
-        {
-            Some(bind_inbound_with_retry(protocols, runtime_factory, source_dir, inbound).await?)
-        } else {
-            None
-        };
+        let prebound = reserved.remove(&inbound.tag);
 
         if let Some(shutdown) = state.listener_stops.remove(&inbound.tag) {
             let _ = shutdown.send(true);
@@ -334,25 +336,6 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         return Err(error);
     }
     Ok(())
-}
-
-async fn bind_inbound_with_retry(
-    protocols: &ProtocolInventory,
-    runtime_factory: &InboundListenerRuntimeFactory,
-    source_dir: Option<&Path>,
-    inbound: &InboundConfig,
-) -> Result<crate::protocol_registry::BoundInbound, EngineError> {
-    let mut last_error = None;
-    for attempt in 0..50 {
-        match bind_inbound_listener(protocols, runtime_factory, source_dir, inbound).await {
-            Ok(bound) => return Ok(bound),
-            Err(error) => last_error = Some(error),
-        }
-        if attempt < 49 {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    }
-    Err(last_error.expect("bind retry loop always attempts at least once"))
 }
 
 async fn wait_listener_stopped(shutdown: &watch::Sender<bool>) -> Result<(), EngineError> {

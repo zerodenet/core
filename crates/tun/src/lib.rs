@@ -12,7 +12,11 @@ use tokio::io::{AsyncRead, AsyncWrite};
 type TunPacketSender = tokio::sync::mpsc::Sender<Vec<u8>>;
 type TunPacketReceiver = tokio::sync::mpsc::Receiver<Vec<u8>>;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod adopt;
 mod channels;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub use adopt::adopt;
 mod route;
 pub use route::{
     capture_route_prefixes, capture_route_prefixes_with_exclusions, split_default_route_prefixes,

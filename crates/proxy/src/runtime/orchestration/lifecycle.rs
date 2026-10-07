@@ -17,16 +17,22 @@ where
     // through the same reconciled configuration transaction used on reload.
     let mut state = OrchestrationState::new(proxy).await?;
     let _sampler = super::statistics::Sampler::start(proxy.engine.clone());
+    let result = run_loop(proxy, &mut state, shutdown).await;
+    let result = state.finish(proxy, result).await;
+    log_stopped(proxy);
+    result
+}
+
+pub(super) async fn run_loop<F>(
+    proxy: &Proxy,
+    state: &mut OrchestrationState,
+    shutdown: F,
+) -> Result<(), EngineError>
+where
+    F: Future<Output = ()> + Send,
+{
     tokio::pin!(shutdown);
-    let mut shutting_down = false;
-    let mut shutdown_error = None;
-
     loop {
-        if shutting_down && state.is_idle() {
-            log_stopped(proxy);
-            return shutdown_error.map_or(Ok(()), Err);
-        }
-
         #[cfg(feature = "raw-ip-runtime")]
         let network_change = {
             let retry_at = state.device_retry_at;
@@ -48,30 +54,16 @@ where
         let network_change = std::future::pending::<()>();
 
         tokio::select! {
-            _ = &mut shutdown, if !shutting_down => {
-                shutting_down = true;
+            _ = &mut shutdown => {
                 info!(
                     core_instance_id = proxy.core_instance_id(),
                     config_revision = proxy.config_revision(),
                     reason = "shutdown_signal",
                     "proxy orchestration shutdown requested"
                 );
-                state.propagate_shutdown();
-                if let Err(error) = proxy.stop_tun_if_running().await {
-                    error!(
-                        core_instance_id = proxy.core_instance_id(),
-                        config_revision = proxy.config_revision(),
-                        reason = "tun_shutdown_error",
-                        error = %error,
-                        "failed to stop TUN during proxy shutdown"
-                    );
-                    shutdown_error = Some(error);
-                }
+                return Ok(());
             }
             Some(()) = state.reload_async_rx.recv() => {
-                if shutting_down {
-                    continue;
-                }
                 info!(
                     core_instance_id = proxy.core_instance_id(),
                     config_revision = proxy.config_revision(),
@@ -80,14 +72,14 @@ where
                 );
                 state.reconcile_reload(proxy).await;
             }
-            _ = network_change, if !shutting_down => {
+            _ = network_change => {
                 #[cfg(feature = "raw-ip-runtime")]
                 state.reconcile_outbound_network(proxy).await;
             }
             result = state.listeners.join_next(), if !state.listeners.is_empty() => {
                 if let Err(listener_error) = handle_listener_result(
                     result,
-                    shutting_down,
+                    false,
                     &mut state.expected_listener_exits,
                 ) {
                     error!(
@@ -103,7 +95,7 @@ where
                 }
             }
             result = state.urltests.join_next(), if !state.urltests.is_empty() => {
-                if let Err(urltest_error) = handle_urltest_result(result, shutting_down) {
+                if let Err(urltest_error) = handle_urltest_result(result, false) {
                     error!(
                         core_instance_id = proxy.core_instance_id(),
                         config_revision = proxy.config_revision(),
@@ -118,13 +110,12 @@ where
             }
             result = state.services.join_next(), if !state.services.is_empty() => {
                 match result {
-                    Some(Ok(Ok(()))) if shutting_down => {},
                     Some(Ok(Err(error))) => return Err(error),
                     Some(Err(error)) => return Err(io::Error::other(error).into()),
                     _ => return Err(io::Error::other("background ingress service exited unexpectedly").into()),
                 }
             }
-            failure = state.configured_tun_failures.recv(), if !shutting_down => {
+            failure = state.configured_tun_failures.recv() => {
                 if let Err(error) = handle_configured_tun_failure(failure) {
                     error!(
                         core_instance_id = proxy.core_instance_id(),

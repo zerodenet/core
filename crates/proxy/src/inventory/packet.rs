@@ -107,7 +107,7 @@ impl ProtocolInventory {
         if mode == RouteMode::Translate && matches!(protocol, Some(IPPROTO_ICMP | IPPROTO_ICMPV6)) {
             return match claimed.prepare_translated_packet_route() {
                 Some(operation) => PacketRouteTarget::Packet {
-                    tag: runtime.tag.unwrap_or_default(),
+                    tag: runtime.tag.unwrap_or_else(|| "direct".into()),
                     translated: true,
                     operation,
                 },
@@ -158,7 +158,7 @@ impl ProtocolInventory {
                     return PacketRouteTarget::Unsupported;
                 };
                 PacketRouteTarget::Packet {
-                    tag: runtime.tag.unwrap_or_default(),
+                    tag: runtime.tag.unwrap_or_else(|| "direct".into()),
                     translated: false,
                     operation,
                 }

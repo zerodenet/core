@@ -56,6 +56,7 @@ async fn roundtrip(v6: bool) {
         reserved: &[],
     }];
     let mut remote_device = PreparedInbound::from_input(InboundInput {
+        addresses: &[],
         private_key: &remote_private,
         mtu: 1420,
         peers: &inbound_peers,

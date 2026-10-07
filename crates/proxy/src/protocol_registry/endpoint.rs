@@ -9,6 +9,8 @@ pub(crate) struct EndpointObservation {
     pub state: EndpointRuntimeState,
     pub health: EndpointHealthState,
     pub generation: Option<u64>,
+    /// Opaque identities of actual device components, never protocol keys.
+    pub incarnations: Vec<u64>,
     pub details: Option<(String, u32, serde_json::Value)>,
 }
 
@@ -24,4 +26,11 @@ pub(crate) trait EndpointObservationCapability: Send + Sync {
 /// owning listener and device capabilities must confirm revoked tasks ended.
 pub(crate) trait EndpointControlCapability: Send + Sync {
     fn supports_endpoint_control(&self, binding: &EndpointBindingConfig) -> bool;
+
+    fn live_direction_contraction(
+        &self,
+        _binding: &EndpointBindingConfig,
+    ) -> zero_api::EndpointDirections {
+        zero_api::EndpointDirections::default()
+    }
 }

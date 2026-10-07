@@ -20,6 +20,7 @@ pub(super) fn validate_inbound_protocol(
         InboundProtocolConfig::HttpConnect => Ok(()),
         InboundProtocolConfig::Wireguard {
             private_key,
+            addresses,
             mtu,
             peers,
         } => {
@@ -47,6 +48,7 @@ pub(super) fn validate_inbound_protocol(
                 .collect::<Vec<_>>();
             wireguard::validation::validate_inbound(wireguard::validation::InboundInput {
                 private_key: private_key.as_str(),
+                addresses: &addresses.iter().map(String::as_str).collect::<Vec<_>>(),
                 mtu: *mtu,
                 peers: &peers,
             })
@@ -896,6 +898,12 @@ pub(super) fn validate_outbound_protocol(
                     "`wireguard` outer_udp_proxy must be a non-empty outbound tag".to_owned(),
                 ));
             }
+            if outer_udp_proxy.is_some() && peers.iter().any(|peer| peer.endpoint.is_empty()) {
+                return Err(ConfigError::InvalidOutbound(
+                    "`wireguard` outer_udp_proxy requires a configured address for every peer"
+                        .to_owned(),
+                ));
+            }
             let addresses = addresses.iter().map(String::as_str).collect::<Vec<_>>();
             let allowed_ips = peers
                 .iter()
@@ -918,12 +926,17 @@ pub(super) fn validate_outbound_protocol(
                     reserved: &peer.reserved,
                 })
                 .collect::<Vec<_>>();
-            wireguard::validation::validate_outbound(wireguard::validation::OutboundInput {
+            let input = wireguard::validation::OutboundInput {
                 private_key: private_key.as_str(),
                 addresses: &addresses,
                 mtu: *mtu,
                 peers: &peers,
-            })
+            };
+            if inbound_tag.is_some() {
+                wireguard::validation::validate_listening_endpoint(input)
+            } else {
+                wireguard::validation::validate_outbound(input)
+            }
             .map_err(|error| {
                 ConfigError::InvalidOutbound(format!("`wireguard` outbound {error}"))
             })?;

@@ -34,6 +34,35 @@ pub struct Utun {
 }
 
 impl Utun {
+    pub(crate) fn adopt(fd: std::os::fd::OwnedFd, expected: &str) -> io::Result<Self> {
+        use std::os::fd::IntoRawFd;
+        let name = interface_name(fd.as_raw_fd())?;
+        if name != expected {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "host descriptor interface mismatch",
+            ));
+        }
+        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+        if flags < 0 || flags & libc::O_NONBLOCK == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "host packet descriptor must already be nonblocking",
+            ));
+        }
+        let sock = fd.into_raw_fd();
+        let fd = AsyncFd::new(sock).inspect_err(|_| unsafe {
+            libc::close(sock);
+        })?;
+        Ok(Self {
+            name,
+            fd,
+            read_buffer: vec![0; 65_540],
+            read_start: 0,
+            read_end: 0,
+        })
+    }
+
     /// Create a new utun device. When a name such as `utun8` is supplied,
     /// request that unit; otherwise let the kernel choose an available unit.
     pub fn create(name: Option<&str>) -> io::Result<Self> {

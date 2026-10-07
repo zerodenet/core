@@ -65,8 +65,13 @@ impl TrafficMeter {
     pub fn error(&self, plane: TrafficPlane) {
         self.record(plane, TrafficMetric::Errors, 1);
     }
-    pub fn packet_route(&self) -> TrafficRouteLease {
+    /// The owning Packet runtime declares complete conversation observation
+    /// during preparation, including an observed idle count of zero.
+    pub fn observe_packet_routes(&self) {
         self.0.routes_available.store(1, Ordering::Release);
+    }
+    pub fn packet_route(&self) -> TrafficRouteLease {
+        self.observe_packet_routes();
         self.0.active_routes.fetch_add(1, Ordering::Relaxed);
         TrafficRouteLease(self.clone())
     }

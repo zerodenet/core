@@ -13,6 +13,8 @@ pub enum CommandRequest {
     ConfigApply(ConfigApplyCommand),
     #[serde(rename = "config.apply_runtime")]
     ConfigApplyRuntime(ConfigApplyCommand),
+    #[serde(rename = "packet_routes.close")]
+    PacketRouteClose(crate::PacketRouteCloseCommand),
     #[serde(rename = "flows.close")]
     FlowClose(FlowCloseCommand),
     #[serde(rename = "policies.select")]
@@ -60,7 +62,8 @@ impl CommandRequest {
             Self::FlowClose(_) | Self::PolicySelect(_) | Self::PolicyProbe(_) => {
                 Permission::Control
             }
-            Self::StatsReset(_)
+            Self::PacketRouteClose(_)
+            | Self::StatsReset(_)
             | Self::DiagnosticsProbeTarget(_)
             | Self::DiagnosticsProbeOutbound(_)
             | Self::DiagnosticsDnsLookup(_)

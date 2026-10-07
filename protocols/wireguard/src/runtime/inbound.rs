@@ -115,6 +115,14 @@ pub struct InboundDispatch {
 const MAX_TRACKED_INDICES: usize = 4096;
 
 impl InboundDevice {
+    /// Only exact assigned IPs are local, never their enclosing CIDR prefix.
+    pub fn is_local_address(&self, address: IpAddr) -> bool {
+        self.profile
+            .profile
+            .addresses
+            .iter()
+            .any(|a| a.address() == address)
+    }
     pub fn public_peer_id(&self, peer: usize) -> Option<alloc::string::String> {
         self.profile
             .profile

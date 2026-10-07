@@ -179,6 +179,9 @@ pub enum InboundProtocolConfig {
     #[serde(rename = "wireguard")]
     Wireguard {
         private_key: WireguardSecret,
+        /// Assigned interface addresses; omitted legacy listeners only forward.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        addresses: Vec<String>,
         #[serde(default = "default_wireguard_inbound_mtu")]
         mtu: u16,
         peers: Vec<WireguardInboundPeerConfig>,

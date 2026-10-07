@@ -25,6 +25,7 @@ impl SharedRawIpDevice {
             .forwarded_packets
             .try_reserve()
             .map_err(|error| io::Error::other(error.to_string()))?;
+        let return_channel = replies.clone();
         let translated = self
             .returns
             .translate(original, local, replies, observer.clone())?;
@@ -42,7 +43,11 @@ impl SharedRawIpDevice {
         } else {
             vec![translated]
         };
-        permit.send(ForwardedPackets { packets, observer });
+        permit.send(ForwardedPackets {
+            packets,
+            observer,
+            return_channel,
+        });
         Ok(())
     }
 }

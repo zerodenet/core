@@ -3,12 +3,15 @@ use std::net::{IpAddr, Ipv6Addr};
 use super::{checksum, transport_header, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TCP, IPPROTO_UDP};
 
 mod echo;
-pub use echo::{build_icmp_echo_probe, build_icmp_echo_reply, build_icmp_echo_tunnel_probe};
+pub use echo::{
+    build_icmp_echo_probe, build_icmp_echo_reply, build_icmp_echo_tunnel_probe,
+    build_local_icmp_echo_reply,
+};
 mod error;
 mod forward;
 mod translation;
 pub use error::{parse_icmp_error, IcmpErrorKind, ParsedIcmpError};
-pub use forward::build_icmp_time_exceeded_response;
+pub use forward::{build_icmp_mtu_error_response, build_icmp_time_exceeded_response};
 pub use translation::{echo_response_key, restore_echo_response, translate_echo_request};
 
 pub struct IcmpEchoRequest<'a> {

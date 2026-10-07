@@ -19,6 +19,9 @@ pub(crate) struct EndpointPacket {
     pub(crate) peer: usize,
     pub(crate) packet: Vec<u8>,
     pub(crate) observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    /// Already queued packets must not survive stack revocation or re-enable.
+    pub(crate) closed: Arc<AtomicBool>,
+    pub(crate) return_channel: Option<mpsc::Sender<Vec<u8>>>,
 }
 
 impl SharedRawIpDevice {
@@ -73,6 +76,7 @@ impl SharedRawIpDevice {
         })
         .abort_handle();
         Ok(Arc::new(Self {
+            incarnation: super::super::next_incarnation(),
             udp,
             tcp,
             forwarded_packets,
@@ -152,16 +156,17 @@ async fn run_endpoint_stack(stack: EndpointStack) {
                     tcp.fragment_outbound_packet(&packet).await
                 } else { vec![packet] };
                 for packet in packets {
-                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone() }).await {
+                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone(), closed: closed.clone(), return_channel: None }).await {
                         closed.store(true, Ordering::Release);
                         return;
                     }
                 }
             }
             packets = forwarded_packets.recv() => {
-                let Some(ForwardedPackets { packets, observer }) = packets else { break; };
+                let Some(ForwardedPackets { packets, observer, return_channel }) = packets else { break; };
                 for packet in packets {
-                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone() }).await {
+                    if return_channel.is_closed() { if let Some(observer) = &observer { observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed); } continue; }
+                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone(), closed: closed.clone(), return_channel: Some(return_channel.clone()) }).await {
                         closed.store(true, Ordering::Release);
                         return;
                     }

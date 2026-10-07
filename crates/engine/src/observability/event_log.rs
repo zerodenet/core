@@ -47,17 +47,22 @@ impl EngineEventLog {
             .unwrap_or_default()
             .as_millis() as u64;
         let event = ApiEvent::new(
-            format!("endpoint-{}-{now_ms}", fact.endpoint_id),
+            format!(
+                "endpoint-{}-{now_ms}-{:032x}",
+                fact.endpoint_id,
+                rand::random::<u128>()
+            ),
             event_type::ENDPOINT_STATE_CHANGED,
             now_ms,
             json!({
                 "endpoint_id": fact.endpoint_id,
                 "state": fact.state,
-                "generation": fact.generation,
+                "generation": (fact.generation > 0).then_some(fact.generation),
                 "intent_revision": fact.intent_revision,
                 "enabled": fact.enabled,
                 "started_at_unix_ms": fact.started_at_unix_ms,
                 "last_error": fact.last_error,
+                "recovery": fact.recovery,
             }),
         );
         self.push_generated(event);
