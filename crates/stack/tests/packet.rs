@@ -11,6 +11,37 @@ use zero_stack::packet::{
 };
 
 #[test]
+fn hop_rollback_restores_ipv4_options_and_ipv6_packet_in_place() {
+    for (source, destination) in [("10.0.0.2", "10.0.0.1"), ("fd00::2", "fd00::1")] {
+        let mut packet = build_udp(
+            source.parse().unwrap(),
+            destination.parse().unwrap(),
+            40000,
+            53,
+            b"unchanged",
+        );
+        if packet[0] >> 4 == 4 {
+            packet.splice(20..20, [1, 1, 1, 0]);
+            packet[0] = 0x46;
+            let len = packet.len() as u16;
+            packet[2..4].copy_from_slice(&len.to_be_bytes());
+            packet[10..12].fill(0);
+            let sum = checksum(&packet[..24]);
+            packet[10..12].copy_from_slice(&sum.to_be_bytes());
+        }
+        let original = packet.clone();
+        let pointer = packet.as_ptr();
+        let hop = zero_stack::packet::ip_hop_limit(&packet).unwrap();
+        assert!(zero_stack::packet::advance_ip_hop(&mut packet));
+        assert_eq!(zero_stack::packet::ip_hop_limit(&packet), Some(hop - 1));
+        assert!(zero_stack::packet::restore_ip_hop(&mut packet, hop));
+        assert_eq!(packet.as_ptr(), pointer);
+        assert_eq!(packet, original);
+    }
+    assert!(!zero_stack::packet::restore_ip_hop(&mut [], 64));
+}
+
+#[test]
 fn parse_tcp_roundtrip_v4() {
     let p = build_tcp(
         IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),

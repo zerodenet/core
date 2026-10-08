@@ -23,7 +23,7 @@ struct PacketOnlyOperation;
 impl PreparedPacketRouteOperation for PacketOnlyOperation {
     async fn forward(
         &self,
-        _packet: Vec<u8>,
+        _packet: &mut Vec<u8>,
         _ingress_id: u64,
         _replies: mpsc::Sender<Vec<u8>>,
         _egress_generation: u64,

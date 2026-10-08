@@ -40,7 +40,9 @@ pub mod tcp;
 pub mod udp;
 
 pub use client_udp::{ClientUdpDatagram, ClientUdpSocket, ClientUdpStack, ClientUdpStackError};
-pub use fragment::{FragmentOutcome, FragmentReassembler, FragmentRejectReason};
+pub use fragment::{
+    FragmentOutcome, FragmentReassembler, FragmentRejectReason, OwnedFragmentOutcome,
+};
 pub use system::{SystemTcpStack, SystemUdpStack};
 pub use tcp::client::{ClientTcpStack, ClientTcpStackError};
 pub use tcp::{UserTcpStack, UserTcpStream};

@@ -18,16 +18,21 @@ impl ProtocolInventory {
     }
 
     pub fn validate_config(&self, config: &RuntimeConfig) -> Result<(), EngineError> {
-        if config.runtime.network.direct_packet_device.is_some()
-            && !cfg!(all(
-                feature = "raw-ip-runtime",
-                any(target_os = "linux", target_os = "macos")
-            ))
-        {
-            return Err(EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "Direct PacketSink requires raw-ip-runtime and a supported host descriptor backend",
-            )));
+        if let Some(device) = &config.runtime.network.direct_packet_device {
+            let supported = cfg!(feature = "raw-ip-runtime")
+                && match device.backend {
+                    zero_config::DirectPacketDeviceBackend::Descriptor => {
+                        cfg!(any(target_os = "linux", target_os = "macos"))
+                    }
+                    zero_config::DirectPacketDeviceBackend::Wintun => cfg!(target_os = "windows"),
+                };
+            if !supported {
+                let message = "Direct PacketSink requires raw-ip-runtime and a host binding backend supported on this platform";
+                return Err(EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    message,
+                )));
+            }
         }
         let inbounds: Vec<_> = config
             .inbounds

@@ -90,8 +90,16 @@ impl PacketSessionPins {
         pin.replies = Some(tx.clone());
         Some(tx)
     }
+    #[cfg(test)]
     pub(crate) fn reject_unaccepted(&mut self, packet: &[u8], peer: Option<std::sync::Arc<str>>) {
-        if let Some(key) = key(packet, peer) {
+        self.reject_unaccepted_key(packet::packet_conversation_key(packet), peer);
+    }
+    pub(crate) fn reject_unaccepted_key(
+        &mut self,
+        packet_key: Option<packet::PacketConversationKey>,
+        peer: Option<std::sync::Arc<str>>,
+    ) {
+        if let Some(key) = packet_key.map(|key| (key, peer)) {
             if self.entries.get(&key).is_some_and(|p| !p.accepted) {
                 self.entries.remove(&key);
             }

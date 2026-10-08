@@ -499,3 +499,109 @@ hashes matched the test-start manifest. No commit, push, release or installed-co
 was performed. See [control contract](network-endpoint-control-v1.md),
 [verification record](network-endpoint-control-verification-20260929.md) and
 [management plan](network-endpoint-management-plan.md) for precise scope and remaining work.
+
+### 2026-10-08: original Packet/Flow plan reconciliation and host backend extension
+
+The implemented Packet/Stream/Datagram graph chooses the minimum executable
+conversion cost inside the outbound selected by Engine. Native Packet routes
+retain source addresses; opt-in `translate` uses public stack adapters without
+adding an ICMP Flow plane. Packet-to-Flow and Flow-to-Packet TCP/UDP conversions
+execute common raw-IP operations; authentication, peers and keys remain protocol-owned.
+Endpoint lifecycle, device incarnation/recovery facts, counters and independent
+PacketRoute list/get/close are implemented supplements to the original plan.
+Historical P2/September audit gap lists must not be read as the current inventory.
+
+The user confirmed on 2026-10-08 that an external device can ping the running
+personal endpoint at `16.10.68.1`; the earlier failure was caused by its Windows
+environment. This is local-address Echo acceptance, not proof of arbitrary host
+service binding, host forwarding, long-running recovery or all peer topologies.
+
+Direct already consumes explicit dedicated Linux/macOS TUN descriptors. The
+Windows extension selects `backend=wintun` to open a host-created adapter by
+alias, without creating/configuring it or changing host forwarding/NAT/firewall.
+Legacy descriptor configs retain their serialized shape. Capabilities separately
+advertise descriptor and existing-Wintun backends; WireGuard no longer carries
+the stale unconditional `direct_packet_sink_unavailable` limitation. Windows
+privileged tests are separate from cross-compilation and the default test suite.
+See [host binding and acceptance](packet-route-host-control-v1.md).
+
+Future Tailscale/other L3 protocol integration, arbitrary-protocol address NAT,
+mobile host PacketSink bindings and kernel/crypto boundary zero-copy remain
+separate development. They are not silently advertised by the existing graph.
+Production security/performance and prolonged external recovery are separate
+qualification from implementation and the user's local Echo acceptance.
+
+### 2026-10-08: owned Packet buffers through neutral execution
+
+The neutral Packet pipeline reuses its existing owned `Vec<u8>` buffers. It does
+not introduce a WireGuard-specific buffer type, a new Flow plane, or an external
+management API. The new `FragmentReassembler::process_owned` delegates the existing
+bounded reassembly algorithm, moving ordinary packets unchanged. Owned MTU helpers
+use the same fragmentation logic and learned TCP path MTU while retaining buffers
+when no fragmentation is needed.
+
+Raw-IP ingress passes owned packets into prepared Packet operations and native
+return channels. Packet session identity is captured before handoff, so leases,
+peer attribution and close operations remain attached to the accepted path even
+when the caller's buffer has been moved. OS TUN ingress also transfers the buffer
+already owned by its input queue directly into a Packet candidate; fallback candidates
+reuse rejected buffers. Host writes move the packet through the bounded writer queue and
+return it in the write acknowledgement rather than cloning it.
+
+Prepared Packet operations accept `&mut Vec<u8>`. Success may consume the buffer.
+Admission failure preserves/reclaims the original buffer and restores TTL/Hop Limit
+and IPv4 header checksum before fallback. Host shutdown and route cancellation
+return queued buffers with failure acknowledgements. If an unexpected writer task
+abort loses the acknowledgement, an empty error buffer explicitly stops fallback;
+resubmitting an ambiguously accepted packet would risk duplicate delivery. Existing
+fragmented partial-write behavior remains unchanged: fragmentation allocates new
+packets and is not covered by the unfragmented ownership guarantee.
+
+Pointer-identity regression tests cover stack reassembly/MTU pass-through, native
+return delivery, device queue transfer and host write acknowledgement. Rejection,
+queue saturation, cancelled writes, IPv4 options/IPv6 hop rollback, PMTU feedback
+and saved PacketRoute identity have behavior regressions. A manually invoked ignored
+stack microbenchmark compares the previous two-copy boundary with the owned path;
+it excludes preparation, crypto, OS I/O and routing and is not a WireGuard throughput
+or production-performance acceptance test.
+
+Local debug microbenchmark: 20,000 packets of 1,428 bytes, five rounds; median
+borrowed boundary 28.042 ms versus owned boundary 16.940 ms, with 57,120,000 bytes
+of payload copies removed per round. Command: existing `stack_packet` test executable,
+`fragment_reassembly::measure_owned_unfragmented_stack_boundary --exact --ignored --nocapture`.
+This measures only the two stack boundaries and includes their allocation/free costs.
+It is not an estimate of production end-to-end latency or throughput.
+
+Remaining copies are explicit: GoTATun pooled crypto output to the public protocol
+action buffer, reusable host read buffers, packet reconstruction for fragments,
+translation and ICMP quotes, and TCP/UDP payload conversion. Full end-to-end zero-copy
+requires safe pool lifetime transfer and platform-specific I/O work and is not claimed
+by these changes. No client configuration or public query/command contract changes.
+
+Verification: the complete workspace/all-feature/no-fail-fast test gate ran from
+2026-10-08T06:42:56Z to 2026-10-08T07:07:18Z (1,462 seconds), exited 101,
+and completed 146 test-result targets: 2,404 passed, seven failed, 156 ignored.
+The nine new behavior regressions passed, as did the updated TUN/TCP-PMTU cases,
+the 13-case WireGuard aggregate and 188 runtime-boundary cases. The ignored
+microbenchmark was separately invoked and passed; other ignored privileged/external
+cases were not implicitly qualified.
+
+Six existing proxy tests failed with the active TUN: four localhost resolved-IP
+route assertions, one trusted IPv4 fallback assertion (actual `198.18.0.44` versus
+expected `127.0.0.1`), and one IPv6-to-trusted-IPv4 fallback reporting
+`tun_ipv4_egress_unavailable`. A fresh system lookup returned localhost
+`198.18.0.44`. The previously failing transport HTTP/2 localhost test again
+reported `ConnectionReset`; its exact environmental cause remains unisolated.
+None of these seven failures is reported as a passing gate.
+
+The temporary APFS test runner copies/signs existing test executables and preserves
+arguments, working directory and environment. Tests used the observed physical
+IPv4 address `192.168.0.101` through `ZERO_TEST_HOST_IPV4`; the current TUN, routes,
+firewall and system DNS were retained. Logs: `/Volumes/tool/tmp/zero-packet-ownership-20261008/`.
+
+Final workspace check and all-target/all-feature Clippy with `-D warnings` passed.
+Two slice-based pin helpers, now used only by existing unit tests, were restricted
+to `cfg(test)` after test compilation began to remove unused-production-code lints;
+their bodies and all data-plane execution code were unchanged. Clippy checked the
+final source and test targets. Formatting, integration layout and diff checks passed.
+The optimization is local source work; the installed kernel was not replaced.

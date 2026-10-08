@@ -63,6 +63,7 @@ impl PacketSessionPins {
         prepare()
     }
 
+    #[cfg(test)]
     pub(crate) fn record_observed_peers(
         &mut self,
         packet: &[u8],
@@ -71,10 +72,30 @@ impl PacketSessionPins {
         outbound_peer: Option<std::sync::Arc<str>>,
         observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> bool {
-        if !self.record_peers(packet, plane, inbound_peer.clone(), outbound_peer) {
+        self.record_observed_key(
+            packet::packet_conversation_key(packet),
+            plane,
+            inbound_peer,
+            outbound_peer,
+            observer,
+        )
+    }
+
+    pub(crate) fn record_observed_key(
+        &mut self,
+        packet_key: Option<packet::PacketConversationKey>,
+        plane: PacketPlane,
+        inbound_peer: Option<std::sync::Arc<str>>,
+        outbound_peer: Option<std::sync::Arc<str>>,
+        observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
+    ) -> bool {
+        if !self.record_peers_key(packet_key, plane, inbound_peer.clone(), outbound_peer) {
             return false;
         }
-        if let Some(pin) = key(packet, inbound_peer).and_then(|key| self.entries.get_mut(&key)) {
+        if let Some(pin) = packet_key
+            .map(|key| (key, inbound_peer))
+            .and_then(|key| self.entries.get_mut(&key))
+        {
             pin.observer = observer;
         }
         true
@@ -132,7 +153,22 @@ impl PacketSessionPins {
         inbound_peer: Option<std::sync::Arc<str>>,
         outbound_peer: Option<std::sync::Arc<str>>,
     ) -> bool {
-        let Some(key) = key(packet, inbound_peer.clone()) else {
+        self.record_peers_key(
+            packet::packet_conversation_key(packet),
+            plane,
+            inbound_peer,
+            outbound_peer,
+        )
+    }
+
+    fn record_peers_key(
+        &mut self,
+        packet_key: Option<packet::PacketConversationKey>,
+        plane: PacketPlane,
+        inbound_peer: Option<std::sync::Arc<str>>,
+        outbound_peer: Option<std::sync::Arc<str>>,
+    ) -> bool {
+        let Some(key) = packet_key.map(|key| (key, inbound_peer.clone())) else {
             return false;
         };
         if let Some(pin) = self.entries.get_mut(&key) {

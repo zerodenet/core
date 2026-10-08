@@ -309,7 +309,6 @@ impl ProtocolMetadata for WireguardAdapter {
                 "inbound_peer_identity_has_no_principal_mapping",
                 "outer_udp_proxy_requires_bidirectional_packet_path_or_concrete_relay_group",
                 "opaque_outer_carrier_has_no_observed_source_for_roaming",
-                "direct_packet_sink_unavailable",
             ],
         }
     }

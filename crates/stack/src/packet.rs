@@ -9,8 +9,9 @@ mod fragment;
 mod icmp;
 mod identity;
 pub use fragment::{
-    fragment_forwarded_packet, fragment_ip_packet, ipv4_fragmentation_allowed, parse_ip_fragment,
-    rebuild_fragmented_packet, FragmentKey, ParsedIpFragment,
+    fragment_forwarded_packet, fragment_ip_packet, fragment_ip_packet_owned,
+    ipv4_fragmentation_allowed, parse_ip_fragment, rebuild_fragmented_packet, FragmentKey,
+    ParsedIpFragment,
 };
 pub use icmp::{
     build_icmp_echo_probe, build_icmp_echo_reply, build_icmp_echo_tunnel_probe,
@@ -101,6 +102,28 @@ pub fn advance_ip_hop(packet: &mut [u8]) -> bool {
         }
         6 if packet[7] > 1 => {
             packet[7] -= 1;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Undo a successfully advanced hop after downstream admission failed.
+/// Only the hop field and IPv4 header checksum change; payload stays in place.
+pub fn restore_ip_hop(packet: &mut [u8], hop: u8) -> bool {
+    let Some((_, _, header_len, _)) = parse_ip(packet) else {
+        return false;
+    };
+    match packet[0] >> 4 {
+        4 => {
+            packet[8] = hop;
+            packet[10..12].fill(0);
+            let value = checksum(&packet[..header_len]);
+            packet[10..12].copy_from_slice(&value.to_be_bytes());
+            true
+        }
+        6 => {
+            packet[7] = hop;
             true
         }
         _ => false,

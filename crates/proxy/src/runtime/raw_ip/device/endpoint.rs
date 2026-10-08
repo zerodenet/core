@@ -92,24 +92,31 @@ impl SharedRawIpDevice {
 
     /// Consume decrypted packets belonging to an active outbound flow or
     /// explicitly registered Packet return route.
-    pub(crate) async fn deliver_decrypted(&self, packet: &[u8], allow_native: bool) -> bool {
-        let delivered = if allow_native {
-            self.returns.deliver(packet)
+    pub(crate) async fn deliver_decrypted_owned(
+        &self,
+        packet: Vec<u8>,
+        allow_native: bool,
+    ) -> Result<(), Vec<u8>> {
+        let packet = if allow_native {
+            match self.returns.deliver_owned(packet) {
+                Ok(()) => return Ok(()),
+                Err(packet) => packet,
+            }
         } else {
-            self.returns.deliver_correlated(packet)
+            if self.returns.deliver_correlated(&packet) {
+                return Ok(());
+            }
+            packet
         };
-        if delivered {
-            return true;
-        }
-        match packet::ip_protocol(packet) {
-            Some(packet::IPPROTO_TCP) if self.tcp.has_connection(packet).await => {
-                self.tcp.feed(packet).await;
+        let delivered = match packet::ip_protocol(&packet) {
+            Some(packet::IPPROTO_TCP) if self.tcp.has_connection(&packet).await => {
+                self.tcp.feed(&packet).await;
                 true
             }
-            Some(packet::IPPROTO_UDP) => self.udp.feed_correlated(packet),
+            Some(packet::IPPROTO_UDP) => self.udp.feed_correlated(&packet),
             Some(packet::IPPROTO_ICMP) | Some(packet::IPPROTO_ICMPV6) => {
-                let Some(error) = packet::parse_icmp_error(packet) else {
-                    return false;
+                let Some(error) = packet::parse_icmp_error(&packet) else {
+                    return Err(packet);
                 };
                 match error.quoted_protocol {
                     packet::IPPROTO_TCP => {
@@ -117,11 +124,16 @@ impl SharedRawIpDevice {
                             .feed_icmp_error_observed(error, Some(packet.len()))
                             .await
                     }
-                    packet::IPPROTO_UDP => self.udp.feed_correlated(packet),
+                    packet::IPPROTO_UDP => self.udp.feed_correlated(&packet),
                     _ => false,
                 }
             }
             _ => false,
+        };
+        if delivered {
+            Ok(())
+        } else {
+            Err(packet)
         }
     }
 }
@@ -153,7 +165,7 @@ async fn run_endpoint_stack(stack: EndpointStack) {
             packet = raw_packets.recv() => {
                 let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { break; };
                 let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {
-                    tcp.fragment_outbound_packet(&packet).await
+                    tcp.fragment_outbound_packet_owned(packet).await
                 } else { vec![packet] };
                 for packet in packets {
                     if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone(), closed: closed.clone(), return_channel: None }).await {

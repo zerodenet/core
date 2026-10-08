@@ -180,6 +180,10 @@ jobs:
         run: cargo test -p zero-tun
       - name: Run privileged Wintun address configuration E2E
         run: cargo test -p zero-tun --test privileged_configuration windows_configures_ipv4_and_ipv6_addresses_on_one_adapter -- --ignored --exact --nocapture
+      - name: Run existing host PacketSink Wintun qualification
+        run: cargo test -p zero-tun --lib windows::existing::tests:: -- --ignored --nocapture --test-threads=1
+      - name: Check Windows Packet runtime wiring
+        run: cargo check -p zero-proxy --no-default-features --features wireguard --lib
       - name: Capture Windows TUN test packet provenance
         id: capture
         shell: pwsh

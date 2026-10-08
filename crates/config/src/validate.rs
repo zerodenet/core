@@ -368,9 +368,19 @@ fn validate_runtime(
     }
 
     if let Some(device) = &runtime.network.direct_packet_device {
-        if device.fd < 3
+        let binding_valid = match device.backend {
+            crate::DirectPacketDeviceBackend::Descriptor => device.fd.is_some_and(|fd| fd >= 3),
+            crate::DirectPacketDeviceBackend::Wintun => device.fd.is_none(),
+        };
+        let name_valid = match device.backend {
+            crate::DirectPacketDeviceBackend::Descriptor => device.interface.len() <= 15,
+            crate::DirectPacketDeviceBackend::Wintun => {
+                device.interface.encode_utf16().count() <= 128
+            }
+        };
+        if !binding_valid
             || device.interface.is_empty()
-            || device.interface.len() > 15
+            || !name_valid
             || device.interface.contains('\0')
             || device.router_addresses.is_empty()
             || device.router_addresses.len() > 2
@@ -384,13 +394,22 @@ fn validate_runtime(
                 .any(|ips| ips[0].is_ipv4() == ips[1].is_ipv4())
         {
             return Err(ConfigError::InvalidRuntime(
-                "Direct packet device requires fd >= 3, a valid interface name and one unicast router address per supplied family".into(),
+                "Direct packet device requires descriptor fd >= 3 or wintun without fd, a valid interface name and one unicast router address per supplied family".into(),
             ));
         }
         if runtime
             .tun
             .as_ref()
-            .is_some_and(|tun| tun.name.as_ref() == Some(&device.interface))
+            .is_some_and(|tun| match device.backend {
+                crate::DirectPacketDeviceBackend::Descriptor => {
+                    tun.name.as_ref() == Some(&device.interface)
+                }
+                crate::DirectPacketDeviceBackend::Wintun => tun
+                    .name
+                    .as_deref()
+                    .unwrap_or("ZeroTun")
+                    .eq_ignore_ascii_case(&device.interface),
+            })
         {
             return Err(ConfigError::InvalidRuntime(
                 "Direct packet device must be separate from the ingress TUN".into(),

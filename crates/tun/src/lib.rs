@@ -142,7 +142,7 @@ pub use macos_privilege::run_utun_create_helper;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
-pub use windows::WindowsTun;
+pub use windows::{ExistingWindowsTun, WindowsTun};
 
 /// Create a new TUN device for the current platform.
 ///

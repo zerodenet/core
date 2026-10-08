@@ -1,4 +1,8 @@
 pub(super) fn extend(capabilities: &mut zero_api::ApiCapabilities) {
+    #[cfg(all(feature = "raw-ip-runtime", target_os = "windows"))]
+    capabilities
+        .features
+        .push("direct_packet_host_wintun_v1".into());
     #[cfg(all(
         feature = "raw-ip-runtime",
         any(target_os = "linux", target_os = "macos")

@@ -185,10 +185,30 @@ impl Default for NetworkOptionsConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DirectPacketDeviceConfig {
-    pub fd: i32,
+    #[serde(
+        default,
+        skip_serializing_if = "DirectPacketDeviceBackend::is_descriptor"
+    )]
+    pub backend: DirectPacketDeviceBackend,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fd: Option<i32>,
     pub interface: String,
     /// Host-owned interface addresses used as sources for local ICMP errors.
     pub router_addresses: Vec<std::net::IpAddr>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DirectPacketDeviceBackend {
+    #[default]
+    Descriptor,
+    Wintun,
+}
+
+impl DirectPacketDeviceBackend {
+    fn is_descriptor(&self) -> bool {
+        *self == Self::Descriptor
+    }
 }
 
 const fn default_network_mtu() -> u16 {

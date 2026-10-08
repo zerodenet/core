@@ -25,6 +25,13 @@ pub enum FragmentOutcome<'a> {
     Rejected(FragmentRejectReason),
 }
 
+/// Owned reassembly result. Ordinary packets keep their original allocation.
+pub enum OwnedFragmentOutcome {
+    Packet { packet: Vec<u8>, reassembled: bool },
+    Pending,
+    Rejected(FragmentRejectReason),
+}
+
 pub struct FragmentReassembler {
     assemblies: HashMap<FragmentKey, Assembly>,
     total_buffered: usize,
@@ -46,6 +53,22 @@ impl Default for FragmentReassembler {
 }
 
 impl FragmentReassembler {
+    /// Consume a device buffer. Reassembly retains the existing resource limits;
+    /// a nonfragmented packet moves through without copying its bytes.
+    pub fn process_owned(&mut self, packet: Vec<u8>, now: Instant) -> OwnedFragmentOutcome {
+        match self.process(&packet, now) {
+            FragmentOutcome::NotFragmented(_) => OwnedFragmentOutcome::Packet {
+                packet,
+                reassembled: false,
+            },
+            FragmentOutcome::Reassembled(packet) => OwnedFragmentOutcome::Packet {
+                packet,
+                reassembled: true,
+            },
+            FragmentOutcome::Pending => OwnedFragmentOutcome::Pending,
+            FragmentOutcome::Rejected(reason) => OwnedFragmentOutcome::Rejected(reason),
+        }
+    }
     pub fn new() -> Self {
         Self {
             assemblies: HashMap::new(),

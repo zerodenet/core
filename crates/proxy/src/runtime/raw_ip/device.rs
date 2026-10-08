@@ -221,7 +221,7 @@ impl SharedRawIpDevice {
 
     pub(crate) fn forward_packets(
         &self,
-        packets: Vec<Vec<u8>>,
+        packets: &mut Vec<Vec<u8>>,
         source: IpAddr,
         ingress_id: u64,
         replies: mpsc::Sender<Vec<u8>>,
@@ -247,7 +247,7 @@ impl SharedRawIpDevice {
             conversation,
         )?;
         permit.send(ForwardedPackets {
-            packets,
+            packets: std::mem::take(packets),
             observer,
             return_channel,
         });

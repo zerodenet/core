@@ -119,7 +119,10 @@ fn listening_endpoint_accepts_a_passive_peer_without_inventing_an_address() {
 fn direct_packet_host_binding_is_explicit_and_cannot_reuse_the_ingress_tun() {
     let valid = serde_json::json!({"runtime":{"network":{"direct_packet_device":{"fd":9,"interface":"host-l3","router_addresses":["10.64.0.1"]}}},"route":{"rules":[],"final":{"type":"direct"}}});
     let parsed = RuntimeConfig::parse(&valid.to_string()).unwrap();
-    assert_eq!(parsed.runtime.network.direct_packet_device.unwrap().fd, 9);
+    assert_eq!(
+        parsed.runtime.network.direct_packet_device.unwrap().fd,
+        Some(9)
+    );
     let mut invalid = valid.clone();
     invalid["runtime"]["network"]["direct_packet_device"]["fd"] = 0.into();
     assert!(RuntimeConfig::parse(&invalid.to_string()).is_err());
@@ -129,4 +132,47 @@ fn direct_packet_host_binding_is_explicit_and_cannot_reuse_the_ingress_tun() {
     invalid = valid;
     invalid["runtime"]["tun"] = serde_json::json!({"name":"host-l3","addr":"10.0.0.1"});
     assert!(RuntimeConfig::parse(&invalid.to_string()).is_err());
+}
+
+#[test]
+fn direct_packet_binding_backends_roundtrip_without_ambiguous_handles() {
+    let descriptor = serde_json::json!({"runtime":{"network":{"direct_packet_device":{"fd":9,"interface":"host-l3","router_addresses":["10.64.0.1"]}}},"route":{"rules":[],"final":{"type":"direct"}}});
+    let parsed = RuntimeConfig::parse(&descriptor.to_string()).unwrap();
+    let exported = serde_json::to_value(&parsed).unwrap();
+    let device = &exported["runtime"]["network"]["direct_packet_device"];
+    assert_eq!(device["fd"], 9);
+    assert!(
+        device.get("backend").is_none(),
+        "legacy descriptor shape remains compatible"
+    );
+    let mut wintun = descriptor;
+    let device = &mut wintun["runtime"]["network"]["direct_packet_device"];
+    device.as_object_mut().unwrap().remove("fd");
+    device["backend"] = "wintun".into();
+    device["interface"] = "Zero Dedicated Host Packet".into();
+    let parsed = RuntimeConfig::parse(&wintun.to_string()).unwrap();
+    let exported = serde_json::to_value(&parsed).unwrap();
+    assert_eq!(RuntimeConfig::parse(&exported.to_string()).unwrap(), parsed);
+    assert!(exported["runtime"]["network"]["direct_packet_device"]
+        .get("fd")
+        .is_none());
+    wintun["runtime"]["network"]["direct_packet_device"]["fd"] = 9.into();
+    assert!(RuntimeConfig::parse(&wintun.to_string()).is_err());
+}
+
+#[test]
+fn wintun_packet_sink_rejects_case_insensitive_and_implicit_ingress_aliases() {
+    let mut value = serde_json::json!({"runtime":{"network":{"direct_packet_device":{"backend":"wintun","interface":"zerotun","router_addresses":["10.64.0.1"]}},"tun":{"addr":"10.0.0.1","dns_hijack":false}},"route":{"rules":[],"final":{"type":"direct"}}});
+    let error = RuntimeConfig::parse(&value.to_string()).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Direct packet device must be separate from the ingress TUN"));
+    value["runtime"]["tun"]["name"] = "HostL3".into();
+    value["runtime"]["network"]["direct_packet_device"]["interface"] = "hostl3".into();
+    let error = RuntimeConfig::parse(&value.to_string()).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Direct packet device must be separate from the ingress TUN"));
+    value["runtime"]["network"]["direct_packet_device"]["interface"] = "Dedicated".into();
+    RuntimeConfig::parse(&value.to_string()).unwrap();
 }

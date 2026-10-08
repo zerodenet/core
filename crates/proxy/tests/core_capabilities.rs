@@ -4,6 +4,23 @@ use zero_engine::EngineHandle;
 use zero_proxy::{Proxy, ProxyHandle};
 
 #[test]
+fn direct_packet_binding_rejects_foreign_platform_backend_before_device_execution() {
+    let backend = if cfg!(target_os = "windows") {
+        serde_json::json!({"fd":9,"interface":"host-l3","router_addresses":["10.64.0.1"]})
+    } else {
+        serde_json::json!({"backend":"wintun","interface":"HostL3","router_addresses":["10.64.0.1"]})
+    };
+    let config = RuntimeConfig::parse(&serde_json::json!({"runtime":{"network":{"direct_packet_device":backend}},"route":{"rules":[],"final":{"type":"direct"}}}).to_string()).unwrap();
+    let error = match Proxy::new(config) {
+        Ok(_) => panic!("foreign host backend must fail before startup"),
+        Err(error) => error,
+    };
+    assert!(error
+        .to_string()
+        .contains("host binding backend supported on this platform"));
+}
+
+#[test]
 fn proxy_exports_network_facts_and_stable_global_limitations() {
     let config = RuntimeConfig::parse(
         r#"{
@@ -24,6 +41,18 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
     };
 
     assert!(capabilities.contracts.is_some());
+    #[cfg(feature = "wireguard")]
+    assert!(
+        !capabilities
+            .protocols
+            .iter()
+            .find(|p| p.protocol == "wireguard")
+            .unwrap()
+            .limitations
+            .iter()
+            .any(|limit| limit == "direct_packet_sink_unavailable"),
+        "host PacketSink availability is declared by the platform capability, not WireGuard"
+    );
     let mut expected_features = vec![
         "query",
         "route_bypass_v1",
@@ -78,6 +107,8 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
         any(target_os = "linux", target_os = "macos")
     )))]
     expected_limitations.push("direct_packet_host_descriptor_unavailable");
+    #[cfg(all(feature = "raw-ip-runtime", target_os = "windows"))]
+    expected_features.push("direct_packet_host_wintun_v1");
     #[cfg(feature = "wireguard")]
     {
         expected_features.push("network_endpoint_control_v1");

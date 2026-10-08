@@ -21,20 +21,42 @@ pub(crate) struct RawIpPacketOperation {
 impl PreparedPacketRouteOperation for RawIpPacketOperation {
     async fn forward(
         &self,
-        mut packet: Vec<u8>,
+        packet: &mut Vec<u8>,
         ingress_id: u64,
         replies: mpsc::Sender<Vec<u8>>,
         egress_generation: u64,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<PacketForwardObservation> {
-        let source = packet::ip_source(&packet).ok_or_else(invalid_packet)?;
-        let destination = packet::ip_destination(&packet).ok_or_else(invalid_packet)?;
+        let hop = packet::ip_hop_limit(packet);
+        let result = self
+            .forward_inner(packet, ingress_id, replies, egress_generation, observer)
+            .await;
+        if result.is_err() && packet::ip_hop_limit(packet) != hop {
+            if let Some(hop) = hop {
+                packet::restore_ip_hop(packet, hop);
+            }
+        }
+        result
+    }
+}
+
+impl RawIpPacketOperation {
+    async fn forward_inner(
+        &self,
+        packet: &mut Vec<u8>,
+        ingress_id: u64,
+        replies: mpsc::Sender<Vec<u8>>,
+        egress_generation: u64,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> io::Result<PacketForwardObservation> {
+        let source = packet::ip_source(packet).ok_or_else(invalid_packet)?;
+        let destination = packet::ip_destination(packet).ok_or_else(invalid_packet)?;
         let mtu = usize::from(self.plan.mtu());
         let requires_fragmentation = packet.len() > mtu;
-        let ipv4_may_fragment = packet::ipv4_fragmentation_allowed(&packet);
+        let ipv4_may_fragment = packet::ipv4_fragmentation_allowed(packet);
         if requires_fragmentation && !ipv4_may_fragment {
             return Ok(PacketForwardObservation::local(
-                packet::build_icmp_response(&packet, mtu),
+                packet::build_icmp_response(packet, mtu),
             ));
         }
         if !self.translate_source && self.plan.is_local_address(source) {
@@ -63,35 +85,47 @@ impl PreparedPacketRouteOperation for RawIpPacketOperation {
         ) {
             return Err(io::Error::other("raw-IP peer device changed"));
         }
-        if packet::ip_hop_limit(&packet).is_some_and(|limit| limit <= 1) {
+        if packet::ip_hop_limit(packet).is_some_and(|limit| limit <= 1) {
             return Ok(PacketForwardObservation::local(
                 packet::build_icmp_time_exceeded_response(
-                    &packet,
+                    packet,
                     peer.local_ip,
                     usize::from(self.plan.mtu()),
                 ),
             ));
         }
-        if !packet::advance_ip_hop(&mut packet) {
+        if !packet::advance_ip_hop(packet) {
             return Err(invalid_packet());
         }
         let peer_identity = self.plan.peer_identity(peer.peer_index);
         if self.translate_source {
             return device
-                .forward_translated_packet(&packet, peer.local_ip, replies, mtu, observer)
+                .forward_translated_packet(packet, peer.local_ip, replies, mtu, observer)
                 .map(|()| PacketForwardObservation::forwarded(peer_identity));
         }
-        let conversation = packet::packet_conversation_key(&packet);
-        let packets = if requires_fragmentation {
-            let fragments = packet::fragment_forwarded_packet(&packet, mtu);
+        let conversation = packet::packet_conversation_key(packet);
+        let mut packets = if requires_fragmentation {
+            let fragments = packet::fragment_forwarded_packet(packet, mtu);
             if fragments.is_empty() {
                 return Err(invalid_packet());
             }
             fragments
         } else {
-            vec![packet]
+            vec![std::mem::take(packet)]
         };
-        device.forward_packets(packets, source, ingress_id, replies, observer, conversation)?;
+        if let Err(error) = device.forward_packets(
+            &mut packets,
+            source,
+            ingress_id,
+            replies,
+            observer,
+            conversation,
+        ) {
+            if !requires_fragmentation {
+                *packet = packets.pop().expect("unaccepted packet retained");
+            }
+            return Err(error);
+        }
         Ok(PacketForwardObservation::forwarded(peer_identity))
     }
 }

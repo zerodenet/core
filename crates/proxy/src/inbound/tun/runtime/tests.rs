@@ -309,7 +309,7 @@ fn tun_keeps_unicast_udp_even_when_address_ends_in_255() {
 }
 
 #[tokio::test]
-async fn tun_packet_loop_reassembles_fragmented_udp_before_dispatch() {
+async fn tun_packet_loop_dispatches_owned_fragmented_and_unfragmented_udp() {
     let (network_responses, _responses) = mpsc::channel(32);
     let stack = UserNetworkStack::new(network_responses.clone(), 516);
     let (tcp, udp) = stack.into_parts();
@@ -362,6 +362,21 @@ async fn tun_packet_loop_reassembles_fragmented_udp_before_dispatch() {
         .expect("fragmented UDP dispatch timed out")
         .expect("UDP stack closed");
     assert_eq!(&received[..count], payload);
+    packets
+        .send(packet::build_udp(
+            CLIENT_IP,
+            "1.1.1.1".parse().unwrap(),
+            CLIENT_PORT,
+            443,
+            b"unfragmented",
+        ))
+        .await
+        .unwrap();
+    let (count, _, _) = tokio::time::timeout(Duration::from_secs(1), udp.recv_from(&mut received))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&received[..count], b"unfragmented");
     runtime.abort();
 }
 

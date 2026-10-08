@@ -242,17 +242,28 @@ async fn feed_packets(
             }
         }
     } {
-        match fragments.process(&packet, std::time::Instant::now()) {
-            zero_stack::FragmentOutcome::NotFragmented(packet) => {
+        match fragments.process_owned(packet, std::time::Instant::now()) {
+            zero_stack::OwnedFragmentOutcome::Packet {
+                packet,
+                reassembled,
+            } => {
+                #[cfg_attr(not(feature = "raw-ip-runtime"), allow(unused_mut))]
+                let mut packet = packet;
+                #[cfg(feature = "raw-ip-runtime")]
+                let effective_mtu = if reassembled {
+                    mtu.max(packet.len())
+                } else {
+                    mtu
+                };
                 #[cfg(feature = "raw-ip-runtime")]
                 let handled = super::packet::try_forward(
-                    packet,
+                    &mut packet,
                     &packet_route,
                     packet_ingress_id,
                     &mut packet_pins,
                     &network_responses,
                     &echo,
-                    mtu,
+                    effective_mtu,
                     dns_hijack,
                     traffic.as_deref(),
                 )
@@ -260,7 +271,10 @@ async fn feed_packets(
                 #[cfg(not(feature = "raw-ip-runtime"))]
                 let handled = false;
                 if !handled {
-                    if let Some(response) = zero_stack::packet::build_icmp_response(packet, mtu) {
+                    let response = (!reassembled)
+                        .then(|| zero_stack::packet::build_icmp_response(&packet, mtu))
+                        .flatten();
+                    if let Some(response) = response {
                         if network_responses.send(response).await.is_err() {
                             return Err(EngineError::Io(io::Error::new(
                                 io::ErrorKind::BrokenPipe,
@@ -268,32 +282,12 @@ async fn feed_packets(
                             )));
                         }
                     } else {
-                        feed_transport_packet(packet, &tcp, &udp, &addresses).await;
+                        feed_transport_packet(&packet, &tcp, &udp, &addresses).await;
                     }
                 }
             }
-            zero_stack::FragmentOutcome::Reassembled(packet) => {
-                #[cfg(feature = "raw-ip-runtime")]
-                let handled = super::packet::try_forward(
-                    &packet,
-                    &packet_route,
-                    packet_ingress_id,
-                    &mut packet_pins,
-                    &network_responses,
-                    &echo,
-                    mtu.max(packet.len()),
-                    dns_hijack,
-                    traffic.as_deref(),
-                )
-                .await;
-                #[cfg(not(feature = "raw-ip-runtime"))]
-                let handled = false;
-                if !handled {
-                    feed_transport_packet(&packet, &tcp, &udp, &addresses).await;
-                }
-            }
-            zero_stack::FragmentOutcome::Pending => continue,
-            zero_stack::FragmentOutcome::Rejected(reason) => {
+            zero_stack::OwnedFragmentOutcome::Pending => continue,
+            zero_stack::OwnedFragmentOutcome::Rejected(reason) => {
                 if let Some(traffic) = &traffic {
                     traffic.dropped_reason(zero_traits::PacketDropReason::FragmentRejected);
                 }

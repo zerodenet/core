@@ -44,7 +44,8 @@ async fn host_packet_sink_is_bidirectional_preserves_source_and_waits_for_device
     let device = HostPacketDevice::start(
         Device(io),
         zero_config::DirectPacketDeviceConfig {
-            fd: 9,
+            backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap()],
         },
@@ -61,7 +62,7 @@ async fn host_packet_sink_is_bidirectional_preserves_source_and_waits_for_device
     );
     let (replies, mut rx) = mpsc::channel(8);
     device
-        .forward(original.clone(), 1, replies, 0, None)
+        .forward(&mut original.clone(), 1, replies, 0, None)
         .await
         .unwrap();
     let mut outgoing = vec![0; original.len()];
@@ -96,7 +97,8 @@ async fn staged_host_device_does_not_read_before_publish_and_cancel_confirms_rel
     let device = HostPacketDevice::start(
         Device(io),
         zero_config::DirectPacketDeviceConfig {
-            fd: 9,
+            backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap()],
         },
@@ -116,7 +118,8 @@ async fn direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_addr
     let device = HostPacketDevice::start(
         Device(io),
         zero_config::DirectPacketDeviceConfig {
-            fd: 9,
+            backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap(), "fd64::1".parse().unwrap()],
         },
@@ -136,7 +139,7 @@ async fn direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_addr
     original[10..12].copy_from_slice(&sum.to_be_bytes());
     let (replies, _rx) = mpsc::channel(8);
     let observed = device
-        .forward(original.clone(), 1, replies.clone(), 0, None)
+        .forward(&mut original.clone(), 1, replies.clone(), 0, None)
         .await
         .unwrap();
     assert!(observed.response.is_none());
@@ -148,7 +151,7 @@ async fn direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_addr
     let sum = packet::checksum(&original[..20]);
     original[10..12].copy_from_slice(&sum.to_be_bytes());
     let response = device
-        .forward(original, 1, replies.clone(), 0, None)
+        .forward(&mut original.clone(), 1, replies.clone(), 0, None)
         .await
         .unwrap()
         .response
@@ -167,7 +170,7 @@ async fn direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_addr
         &vec![0; 1400],
     );
     let response = device
-        .forward(large, 1, replies, 0, None)
+        .forward(&mut large.clone(), 1, replies, 0, None)
         .await
         .unwrap()
         .response
@@ -187,7 +190,8 @@ async fn closing_a_blocked_host_write_preserves_the_shared_device_and_other_path
     let device = HostPacketDevice::start(
         Device(io),
         zero_config::DirectPacketDeviceConfig {
-            fd: 9,
+            backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap()],
         },
@@ -203,7 +207,7 @@ async fn closing_a_blocked_host_write_preserves_the_shared_device_and_other_path
         &vec![0; 8164],
     );
     device
-        .forward(first, 1, replies.clone(), 0, None)
+        .forward(&mut first.clone(), 1, replies.clone(), 0, None)
         .await
         .unwrap();
     let next = packet::build_udp(
@@ -214,20 +218,26 @@ async fn closing_a_blocked_host_write_preserves_the_shared_device_and_other_path
         b"next",
     );
     let sender = device.clone();
-    let request = next.clone();
-    let waiting = tokio::spawn(async move { sender.forward(request, 1, replies, 0, None).await });
+    let mut request = next.clone();
+    let pointer = request.as_ptr() as usize;
+    let waiting = tokio::spawn(async move {
+        let result = sender.forward(&mut request, 1, replies, 0, None).await;
+        (request, result)
+    });
     tokio::task::yield_now().await;
     rx.close();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+    let (restored, result) = tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(result.err().unwrap().kind(), io::ErrorKind::Interrupted);
+    assert_eq!(restored, next);
+    assert_eq!(restored.as_ptr() as usize, pointer);
     assert!(device.usable());
     host.read_exact(&mut vec![0; 8192]).await.unwrap();
     let (other, _other_rx) = mpsc::channel(8);
     device
-        .forward(next.clone(), 1, other, 0, None)
+        .forward(&mut next.clone(), 1, other, 0, None)
         .await
         .unwrap();
     host.read_exact(&mut vec![0; next.len()]).await.unwrap();
@@ -253,7 +263,8 @@ async fn fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_m
     let device = HostPacketDevice::start(
         Device(io),
         zero_config::DirectPacketDeviceConfig {
-            fd: 9,
+            backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap()],
         },
@@ -270,7 +281,7 @@ async fn fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_m
         b"q",
     );
     device
-        .forward(request.clone(), 1, replies, 0, Some(coverage.clone()))
+        .forward(&mut request.clone(), 1, replies, 0, Some(coverage.clone()))
         .await
         .unwrap();
     host.read_exact(&mut vec![0; request.len()]).await.unwrap();
@@ -304,3 +315,6 @@ async fn fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_m
     device.close();
     device.wait_stopped().await;
 }
+
+#[path = "tests/ownership.rs"]
+mod ownership;

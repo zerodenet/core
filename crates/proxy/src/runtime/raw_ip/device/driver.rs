@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, watch};
 use zero_api::TrafficPlane;
 use zero_engine::EngineError;
 use zero_stack::{
-    client_udp::ClientUdpStack, packet, ClientTcpStack, FragmentOutcome, FragmentReassembler,
+    client_udp::ClientUdpStack, packet, ClientTcpStack, FragmentReassembler, OwnedFragmentOutcome,
 };
 
 pub(super) struct Device {
@@ -62,7 +62,7 @@ async fn run_device_inner(
                 let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { return Ok(()); };
                 tracing::trace!(ip_bytes = packet.len(), "raw-IP outbound stack packet");
                 let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {
-                    device.tcp.fragment_outbound_packet(&packet).await
+                    device.tcp.fragment_outbound_packet_owned(packet).await
                 } else {
                     vec![packet]
                 };
@@ -158,11 +158,10 @@ impl Device {
                             .lock()
                             .unwrap_or_else(|error| error.into_inner())
                             .last_authenticated_packet = Some(Instant::now());
-                        let packet = match self.fragments.process(&packet, Instant::now()) {
-                            FragmentOutcome::NotFragmented(packet) => packet.to_vec(),
-                            FragmentOutcome::Reassembled(packet) => packet,
-                            FragmentOutcome::Pending => continue,
-                            FragmentOutcome::Rejected(_) => {
+                        let packet = match self.fragments.process_owned(packet, Instant::now()) {
+                            OwnedFragmentOutcome::Packet { packet, .. } => packet,
+                            OwnedFragmentOutcome::Pending => continue,
+                            OwnedFragmentOutcome::Rejected(_) => {
                                 self.traffic.dropped_reason(
                                     TrafficPlane::Inner,
                                     true,
@@ -171,8 +170,11 @@ impl Device {
                                 continue;
                             }
                         };
+                        let packet = match self.returns.deliver_owned(packet) {
+                            Ok(()) => continue,
+                            Err(packet) => packet,
+                        };
                         match packet::ip_protocol(&packet) {
-                            _ if self.returns.deliver(&packet) => {}
                             Some(6) => self.tcp.feed(&packet).await,
                             Some(17) => {
                                 self.udp.feed(&packet);

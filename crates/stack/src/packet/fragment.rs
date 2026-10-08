@@ -214,6 +214,15 @@ pub fn fragment_ip_packet(packet: &[u8], mtu: usize, identification: u32) -> Vec
     }
 }
 
+/// Transfer an already owned packet unchanged when fragmentation is unnecessary.
+pub fn fragment_ip_packet_owned(packet: Vec<u8>, mtu: usize, identification: u32) -> Vec<Vec<u8>> {
+    if packet.len() <= mtu {
+        vec![packet]
+    } else {
+        fragment_ip_packet(&packet, mtu, identification)
+    }
+}
+
 fn fragment_ipv4(packet: &[u8], mtu: usize, identification: u16) -> Vec<Vec<u8>> {
     if packet.len() < 20 {
         return Vec::new();

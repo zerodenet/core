@@ -1,5 +1,10 @@
 # WireGuard Packet/Flow 分层审查（2026-09-28）
 
+> 本文保留 2026-09-28 的历史审查结果。2026-10-08 核对：独立 PacketRoute
+> 查询/关闭、设备重建与网络恢复观测、Linux/macOS 专用宿主描述符 Direct
+> PacketSink 已落地；Windows 既有 Wintun 接入已接线，平台实机验收仍单独记录。当前接口与验收
+> 边界以 [Packet 路径与宿主 L3](packet-route-host-control-v1.md) 为准。
+
 ## 审查范围与依据
 
 依据用户提供的《Packet Plane + Flow Plane + Capability-based routing + Translation
@@ -23,6 +28,12 @@ Adapter》原文以及根 `AGENTS.md`，审查当前 develop 工作区的 WireGu
 | 物理网络变化后的设备更新 | `platform/tokio/egress.rs` + `proxy/runtime/orchestration/devices.rs` | neutral generation 通知，串行准备/发布，旧快照及失败重试 |
 
 ## ping 与原方案的关系
+
+2026-10-08 ownership update: unfragmented neutral Packet execution now transfers
+owned buffers across reassembly checks, prepared routes, device queues and native
+return delivery. See the [implementation plan](wireguard-implementation-plan.md#2026-10-08-owned-packet-buffers-through-neutral-execution)
+for admission/fallback semantics, test scope and remaining kernel/crypto copies.
+This narrows the original zero-copy gap; it does not claim end-to-end zero-copy.
 
 原生 Packet→Packet 不需要 Echo 状态。这条路径继续成立。普通主机 TUN 的源
 地址与远端允许的 WireGuard 分配地址不同，需要额外、显式的地址转换；这个适配

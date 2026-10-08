@@ -4,6 +4,32 @@ use tokio::sync::mpsc;
 
 use super::PacketReturns;
 
+#[tokio::test]
+async fn owned_native_return_moves_buffer_and_returns_misses_unchanged() {
+    use zero_stack::packet;
+    let routes = PacketReturns::default();
+    let local: IpAddr = "10.0.0.2".parse().unwrap();
+    let reply = packet::build_udp("192.0.2.1".parse().unwrap(), local, 53, 40000, b"reply");
+    let expected = reply.clone();
+    let pointer = reply.as_ptr();
+    let reply = routes.deliver_owned(reply).unwrap_err();
+    assert_eq!(reply.as_ptr(), pointer);
+    assert_eq!(reply, expected);
+    let (sender, mut receiver) = mpsc::channel(1);
+    routes.register(local, 1, sender).unwrap();
+    routes.deliver_owned(reply).unwrap();
+    let received = receiver.recv().await.unwrap();
+    assert_eq!(received.as_ptr(), pointer);
+    assert_eq!(packet::ip_hop_limit(&received), Some(63));
+    assert_eq!(packet::parse_udp(&received).unwrap().payload, b"reply");
+    assert!(routes.deliver_owned(expected.clone()).is_ok());
+    // A full queue still consumes and discards a native return. It must never
+    // be presented again as a remote-initiated business packet.
+    assert!(routes.deliver_owned(expected.clone()).is_ok());
+    drop(receiver);
+    assert!(routes.deliver_owned(expected).is_ok());
+}
+
 #[test]
 fn packet_returns_reject_overlapping_ingress_sources() {
     let routes = PacketReturns::default();

@@ -6,7 +6,7 @@ use super::*;
 use std::time::Instant;
 use tokio::task::JoinSet;
 use zero_api::TrafficPlane;
-use zero_stack::{packet, FragmentOutcome, FragmentReassembler, UserNetworkStack};
+use zero_stack::{packet, FragmentReassembler, OwnedFragmentOutcome, UserNetworkStack};
 pub(super) async fn run(
     mut operation: RawIpInboundListenerOperation,
     runtime: InboundListenerRuntime,
@@ -127,18 +127,17 @@ pub(super) async fn run(
                     tracing::trace!(ip_bytes = packet.len(), "raw-IP inbound inner packet");
                     if let Some(peer) = dispatch.peer_index {
                         if let Some(device) = operation.endpoint.as_ref().and_then(|endpoint| endpoint.peers.borrow().devices.get(peer).cloned()) {
-                            let processed = endpoint_fragments.process(&packet, Instant::now());
-                            let reassembled = matches!(processed, FragmentOutcome::Reassembled(_));
-                            let packet = match processed {
-                                FragmentOutcome::NotFragmented(packet) => packet.to_vec(),
-                                FragmentOutcome::Reassembled(packet) => packet,
-                                FragmentOutcome::Pending => continue,
-                                FragmentOutcome::Rejected(_) => { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::FragmentRejected); continue; },
+                            let (packet, reassembled) = match endpoint_fragments.process_owned(packet, Instant::now()) {
+                                OwnedFragmentOutcome::Packet { packet, reassembled } => (packet, reassembled),
+                                OwnedFragmentOutcome::Pending => continue,
+                                OwnedFragmentOutcome::Rejected(_) => { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::FragmentRejected); continue; },
                             };
                             device.observe_authenticated_packet();
                             let inbound_allowed = packet_route.endpoint_inbound_allowed();
                             let local_echo = packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip)) && packet::parse_icmp_echo_request(&packet).is_some();
-                            if !local_echo && device.deliver_decrypted(&packet, inbound_allowed).await { continue; }
+                            let packet = if local_echo { packet } else {
+                                match device.deliver_decrypted_owned(packet, inbound_allowed).await { Ok(()) => continue, Err(packet) => packet }
+                            };
                             // Established outbound replies are consumed before
                             // admitting any remote-initiated inner business.
                             if !inbound_allowed { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::PolicyRejected); continue; }
@@ -147,12 +146,14 @@ pub(super) async fn run(
                             } else {
                                 operation.device.mtu()
                             };
-                            feed_inner_packet(&packet, packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip)), &traffic, traffic.identity(dispatch.peer_index), mtu, &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
+                            let local_destination = packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip));
+                            feed_inner_packet(packet, local_destination, &traffic, traffic.identity(dispatch.peer_index), mtu, &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
                             continue;
                         }
                     }
                     if !packet_route.endpoint_inbound_allowed() { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::PolicyRejected); continue; }
-                    feed_inner_packet(&packet, packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip)), &traffic, traffic.identity(dispatch.peer_index), operation.device.mtu(), &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
+                    let local_destination = packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip));
+                    feed_inner_packet(packet, local_destination, &traffic, traffic.identity(dispatch.peer_index), operation.device.mtu(), &tcp, &udp, &response_tx, &echo, &packet_route, ingress_id, &mut packet_pins, &mut fragments).await;
                 }
             }
             outgoing = receive_endpoint_packet(&mut operation.endpoint) => {
@@ -169,7 +170,7 @@ pub(super) async fn run(
                     continue;
                 };
                 let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, outgoing.peer)).flatten();
-                let packets = packet::fragment_ip_packet(&outgoing.packet, operation.device.mtu() as usize, fragment_id);
+                let packets = packet::fragment_ip_packet_owned(outgoing.packet, operation.device.mtu() as usize, fragment_id);
                 fragment_id = fragment_id.wrapping_add(1);
                 for packet in packets {
                     let actions = operation.device.send_ip_packet(outgoing.peer, &packet).inspect_err(|_| { traffic.peer(Some(outgoing.peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(outgoing.peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); })?;
@@ -187,7 +188,7 @@ pub(super) async fn run(
                 let Some(peer) = operation.device.peer_for_destination(destination) else { continue; };
                 let Some(endpoint) = endpoints.get(peer).and_then(|value| *value) else { continue; };
                 let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
-                let packets = packet::fragment_ip_packet(&response, operation.device.mtu() as usize, fragment_id);
+                let packets = packet::fragment_ip_packet_owned(response, operation.device.mtu() as usize, fragment_id);
                 tracing::trace!(fragments = packets.len(), "raw-IP inbound response fragments");
                 fragment_id = fragment_id.wrapping_add(1);
                 for fragment in packets {

@@ -13,7 +13,7 @@ use zero_stack::packet;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn try_forward(
-    inner: &[u8],
+    inner: &mut Vec<u8>,
     route: &InboundRouteRuntimeFactory,
     ingress_id: u64,
     pins: &mut PacketSessionPins,
@@ -39,6 +39,7 @@ pub(super) async fn try_forward(
     let Some(destination) = packet::ip_destination(inner) else {
         return false;
     };
+    let packet_key = packet::packet_conversation_key(inner);
     for candidate in route
         .packet_route_target(destination, packet::ip_protocol(inner))
         .into_candidates()
@@ -63,18 +64,12 @@ pub(super) async fn try_forward(
                     continue;
                 };
                 match operation
-                    .forward(
-                        inner.to_vec(),
-                        ingress_id,
-                        replies,
-                        generation,
-                        observer.clone(),
-                    )
+                    .forward(inner, ingress_id, replies, generation, observer.clone())
                     .await
                 {
                     Ok(observed) => {
-                        pins.record_observed_peers(
-                            inner,
+                        pins.record_observed_key(
+                            packet_key,
                             plane,
                             None,
                             observed.peer_identity,
@@ -86,7 +81,10 @@ pub(super) async fn try_forward(
                         return true;
                     }
                     Err(error) => {
-                        pins.reject_unaccepted(inner, None);
+                        pins.reject_unaccepted_key(packet_key, None);
+                        if inner.is_empty() {
+                            break;
+                        }
                         tracing::debug!(%error, "TUN packet route candidate unavailable");
                     }
                 }

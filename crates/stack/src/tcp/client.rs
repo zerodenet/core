@@ -364,19 +364,33 @@ impl ClientTcpStack {
     /// Split an outbound TCP packet at the learned path MTU. This also covers
     /// retransmitted packets, which were built before Packet Too Big arrived.
     pub async fn fragment_outbound_packet(&self, raw_packet: &[u8]) -> Vec<Vec<u8>> {
-        let Some(tcp) = packet::parse_tcp(raw_packet) else {
+        let Some(mtu) = self.outbound_packet_mtu(raw_packet).await else {
             return Vec::new();
         };
-        let key = (tcp.dst.ip, tcp.dst.port, tcp.src.ip, tcp.src.port);
-        let mtu = self
-            .connections
-            .lock()
-            .await
-            .get(&key)
-            .and_then(|connection| connection.path_mtu)
-            .unwrap_or(self.mtu);
         let identification = self.next_fragment_id.fetch_add(1, Ordering::Relaxed);
         packet::fragment_ip_packet(raw_packet, mtu, identification)
+    }
+
+    /// Use the same learned path MTU while retaining an unfragmented buffer.
+    pub async fn fragment_outbound_packet_owned(&self, raw_packet: Vec<u8>) -> Vec<Vec<u8>> {
+        let Some(mtu) = self.outbound_packet_mtu(&raw_packet).await else {
+            return Vec::new();
+        };
+        let identification = self.next_fragment_id.fetch_add(1, Ordering::Relaxed);
+        packet::fragment_ip_packet_owned(raw_packet, mtu, identification)
+    }
+
+    async fn outbound_packet_mtu(&self, raw_packet: &[u8]) -> Option<usize> {
+        let tcp = packet::parse_tcp(raw_packet)?;
+        let key = (tcp.dst.ip, tcp.dst.port, tcp.src.ip, tcp.src.port);
+        Some(
+            self.connections
+                .lock()
+                .await
+                .get(&key)
+                .and_then(|connection| connection.path_mtu)
+                .unwrap_or(self.mtu),
+        )
     }
 
     fn send_ack(&self, conn: &Conn, rev: ConnKey) {

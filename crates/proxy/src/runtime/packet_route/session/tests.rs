@@ -1,6 +1,35 @@
 use super::{PacketPlane, PacketSessionPins};
 
 #[test]
+fn accepted_packet_pin_keeps_identity_after_buffer_handoff() {
+    let mut packet = zero_stack::packet::build_udp(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.3".parse().unwrap(),
+        40000,
+        443,
+        b"packet",
+    );
+    let key = zero_stack::packet::packet_conversation_key(&packet);
+    let peer: Option<std::sync::Arc<str>> = Some("inbound-peer".into());
+    let plane = PacketPlane::Packet("endpoint".into());
+    let mut pins = PacketSessionPins::default();
+    let _transferred = std::mem::take(&mut packet);
+    assert!(packet.is_empty());
+    assert!(pins.record_observed_key(
+        key,
+        plane.clone(),
+        peer.clone(),
+        Some("outbound-peer".into()),
+        None
+    ));
+    let pin = pins.entries.get(&(key.unwrap(), peer.clone())).unwrap();
+    assert!(pin.accepted);
+    assert_eq!(pin.outbound_peer.as_deref(), Some("outbound-peer"));
+    pins.reject_unaccepted_key(key, peer);
+    assert_eq!(pins.entries.len(), 1);
+}
+
+#[test]
 fn admitted_packet_paths_prepare_observers_once_and_release_them_on_expiry() {
     use std::sync::Arc;
     #[derive(Debug)]

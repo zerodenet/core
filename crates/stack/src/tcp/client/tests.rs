@@ -102,11 +102,16 @@ async fn packet_too_big_fragments_subsequent_client_tcp_packets() {
         &vec![0x42; 1_100],
     );
     assert_eq!(client.fragment_outbound_packet(&large).await.len(), 1);
+    let owned = large.clone();
+    let pointer = owned.as_ptr();
+    let outgoing = client.fragment_outbound_packet_owned(owned).await;
+    assert_eq!(outgoing.len(), 1);
+    assert_eq!(outgoing[0].as_ptr(), pointer);
 
     let error = packet::build_icmp_response(&large, 900).unwrap();
     let error = packet::parse_icmp_error(&error).unwrap();
     assert!(client.feed_icmp_error(error).await);
-    let fragments = client.fragment_outbound_packet(&large).await;
+    let fragments = client.fragment_outbound_packet_owned(large.clone()).await;
     assert!(fragments.len() > 1);
     assert!(fragments.iter().all(|fragment| fragment.len() <= 900));
     let mut reassembler = FragmentReassembler::new();

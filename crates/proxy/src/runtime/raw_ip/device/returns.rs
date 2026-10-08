@@ -1,6 +1,7 @@
 //! Bounded reverse delivery for packets forwarded through a shared device.
 
 use std::{
+    borrow::Cow,
     collections::HashMap,
     io,
     net::IpAddr,
@@ -202,7 +203,16 @@ impl PacketReturns {
         if self.deliver_correlated(packet) {
             return true;
         }
-        self.deliver_native(packet)
+        self.deliver_native(Cow::Borrowed(packet)).is_ok()
+    }
+
+    /// Move a native return into its bounded channel; misses return ownership.
+    pub(crate) fn deliver_owned(&self, packet: Vec<u8>) -> Result<(), Vec<u8>> {
+        if self.deliver_correlated(&packet) {
+            return Ok(());
+        }
+        self.deliver_native(Cow::Owned(packet))
+            .map_err(Cow::into_owned)
     }
 
     pub(crate) fn deliver_correlated(&self, packet: &[u8]) -> bool {
@@ -225,9 +235,9 @@ impl PacketReturns {
         false
     }
 
-    fn deliver_native(&self, packet: &[u8]) -> bool {
-        let Some(destination) = packet::ip_destination(packet) else {
-            return false;
+    fn deliver_native<'a>(&self, packet: Cow<'a, [u8]>) -> Result<(), Cow<'a, [u8]>> {
+        let Some(destination) = packet::ip_destination(&packet) else {
+            return Err(packet);
         };
         let replies = self
             .routes
@@ -237,9 +247,9 @@ impl PacketReturns {
             .filter(|route| route.touched.elapsed() < IDLE_TIMEOUT)
             .map(|route| route.replies.clone());
         let Some(replies) = replies else {
-            return false;
+            return Err(packet);
         };
-        let observation = packet::packet_return_key(packet).and_then(|key| {
+        let observation = packet::packet_return_key(&packet).and_then(|key| {
             self.observations
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -248,7 +258,7 @@ impl PacketReturns {
                 .and_then(|observation| observation.observer.clone())
         });
         let observer = observation;
-        let replies = packet::packet_return_key(packet)
+        let replies = packet::packet_return_key(&packet)
             .and_then(|key| {
                 self.conversations
                     .lock()
@@ -265,18 +275,18 @@ impl PacketReturns {
                 observer.as_deref(),
                 zero_traits::PacketDropReason::QueueClosed,
             );
-            return true;
+            return Ok(());
         }
         if let Some(observer) = &observer {
             observer.received(packet.len());
         }
-        let mut forwarded = packet.to_vec();
+        let mut forwarded = packet.into_owned();
         if packet::advance_ip_hop(&mut forwarded) {
             self.send_reply(&replies, forwarded, observer.as_deref());
         } else {
             self.discard(observer.as_deref(), zero_traits::PacketDropReason::HopLimit);
         }
-        true
+        Ok(())
     }
 
     pub(crate) fn clear(&self) {

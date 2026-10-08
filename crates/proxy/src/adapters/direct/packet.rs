@@ -78,22 +78,7 @@ impl OutboundDeviceLifecycleCapability for DirectAdapter {
             {
                 (Some(current), false)
             } else {
-                #[cfg(any(target_os = "linux", target_os = "macos"))]
-                {
-                    let device = zero_tun::adopt(config.fd, &config.interface)?;
-                    (
-                        Some(HostPacketDevice::start(device, config, context.mtu)),
-                        true,
-                    )
-                }
-                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-                {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Unsupported,
-                        "Direct PacketSink host backend unsupported on this platform",
-                    )
-                    .into());
-                }
+                (Some(prepare_host_device(config, context.mtu)?), true)
             }
         } else {
             (None, false)
@@ -116,4 +101,43 @@ impl OutboundDeviceLifecycleCapability for DirectAdapter {
             }
         })
     }
+}
+
+fn prepare_host_device(
+    config: zero_config::DirectPacketDeviceConfig,
+    mtu: u16,
+) -> Result<Arc<HostPacketDevice>, zero_engine::EngineError> {
+    match config.backend {
+        zero_config::DirectPacketDeviceBackend::Descriptor => {
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            {
+                let fd = config.fd.ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Direct packet descriptor is missing",
+                    )
+                })?;
+                let device = zero_tun::adopt(fd, &config.interface)?;
+                return Ok(HostPacketDevice::start(device, config, mtu));
+            }
+        }
+        zero_config::DirectPacketDeviceBackend::Wintun => {
+            #[cfg(target_os = "windows")]
+            {
+                let device = zero_tun::ExistingWindowsTun::open(
+                    &config.interface,
+                    &config.router_addresses,
+                    mtu,
+                )?;
+                return Ok(HostPacketDevice::start(device, config, mtu));
+            }
+        }
+    }
+    #[allow(unused_variables)]
+    let _ = (config, mtu);
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Direct PacketSink host binding backend unsupported on this platform",
+    )
+    .into())
 }

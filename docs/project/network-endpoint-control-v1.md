@@ -114,7 +114,8 @@ requires_stop 限制。其他注册协议默认不声明该能力，必须自行
 独立启停和 restart 在配置/服务验证后发布 starting/stopping 状态事实，
 协调成功后发布 running/stopped；失败通过既有回滚恢复事实，并记录 last_error。
 过渡观察本身不增加 generation；确认停止后的重启才分配新代际。
-这不表示普通启动/reload/退出的完整过渡观察已经完成。
+普通启动、reload、退出和失败的实际状态由已注册的生命周期能力发布；
+设备替换和网络恢复的精确范围见下文及 Packet 路径控制契约。
 
 旧配置中增加、移除或重新关联 inbound/outbound 角色属于配置拓扑变更，仍由
 已有监听/设备协调流程处理；它可能重建设备，与保留角色时修改方向权限不同。
@@ -129,20 +130,18 @@ EndpointControlCapability 单独注册控制支持，与观察、TCP/UDP/Packet 
 分开。Engine 管意图、条件版本、准入和 Flow 归属；Proxy 管协调、确认和任务；
 协议适配器投影配置并连接已有设备能力，WireGuard 协议内部状态仍由协议所有。
 
-本切片没有完成整个 P2/P3/P4/P5，剩余开发包括：
+后续切片已实现运行中双向撤权、确认停止与失败协调、普通生命周期、真实
+设备 generation/恢复事实、Flow/Inner/Outer 计量、规范仅监听 peer，以及
+独立 PacketRoute 查询/关闭。调用方按 capabilities 使用相应能力，不能依据
+本页的初始 P2 切片名称推断当前缺口。
 
-- 运行中出站方向的 Packet 返回关联和客户端栈撤权，保持入站业务连续。
-- 依赖资源的完整停止顺序与失败状态协调。
-- starting/stopping/failed 和失败恢复的完整生命周期事实；已应用资源已有
-  generation、last_error、启动时间和状态变更事件。
-- Packet/内外层计数、独立入站 peer 健康与完整统计；现有 Flow 数、低频批量
-  endpoint.stats_sampled 事件和已认证来源仍属部分实现。
-- 规范配置仅监听 peer、完整载体验收、schema 导出、端点诊断和第二种中性
-  测试端点的执行能力。
-- 单 PacketRoute 的独立公共管理 API（已有内部 Close 语义继续可用）。
+仍保留明确边界：协议未提供的独立入站完整 peer 健康返回不可用；完整系统
+丢包不能由本地边界计数推断；通用宿主 PacketSink 需要平台接入与部署条件；
+第二种真实 L3 协议、长期恢复和生产安全/性能验收不由本契约自动完成。
 
-真实 A/B、TUN、故障恢复、长期运行和跨平台属于后续验收，不由本地开关测试
-自动关闭 WireGuard 生产门禁。WireGuard 继续为 opt-in。
+既有 A/B、TUN 和外部 Echo 验证仅覆盖记录中的配置与操作；生产拓扑的
+故障恢复、长期运行和各平台能力仍需独立验收，本地开关测试不自动关闭
+WireGuard 生产门禁。WireGuard 继续为 opt-in。
 
 客户端请求、错误处理与观测边界见
 [对接说明](network-endpoint-client-integration-v1.md)。
@@ -166,7 +165,8 @@ error, rather than keeping a stale `running` fact. Grace expiry is also failure,
 with owners aborted/joined. OS process termination cannot emit an event; use
 `core_instance_id` and query recovery after restart.
 
-The broad `endpoint_transitional_lifecycle_facts_incomplete` limitation remains:
-protocol resource replacement under the same ID and network recovery still need
-complete generation/transition observation. The scoped feature above must not be
-interpreted as a promise covering every such replacement.
+`network_endpoint_device_incarnation_v1` covers actual observed component
+replacement under the same ID; `network_endpoint_network_recovery_v1` projects
+physical-egress preparation, retry, publication and supersession. Query the
+reported capabilities and facts rather than assuming every future protocol
+has implemented these operations. See [Packet route control](packet-route-host-control-v1.md).

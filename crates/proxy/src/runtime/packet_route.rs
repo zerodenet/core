@@ -17,6 +17,7 @@ mod session;
 pub(crate) use session::{PacketPlane, PacketSessionPins};
 
 /// Facts from the actual packet execution, with no protocol-private state.
+#[derive(Debug)]
 pub(crate) struct PacketForwardObservation {
     pub(crate) response: Option<Vec<u8>>,
     pub(crate) peer_identity: Option<std::sync::Arc<str>>,
@@ -40,9 +41,12 @@ impl PacketForwardObservation {
 pub(crate) trait PreparedPacketRouteOperation: Send + Sync {
     /// Forward one inner IP packet. A local L3 error may be returned for the
     /// ingress to emit; authenticated return packets use `replies`.
+    /// On success the operation may take the buffer. A failure before device
+    /// handoff retains the original packet for fallback. An empty error buffer
+    /// means handoff could not be recovered and must not be retried.
     async fn forward(
         &self,
-        packet: Vec<u8>,
+        packet: &mut Vec<u8>,
         ingress_id: u64,
         replies: mpsc::Sender<Vec<u8>>,
         egress_generation: u64,
