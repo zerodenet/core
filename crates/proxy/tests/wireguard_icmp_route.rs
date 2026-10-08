@@ -309,7 +309,7 @@ async fn receive_inner(client: &mut PeerTunnel, socket: &UdpSocket, source: IpAd
                 TunnelAction::SendNetwork(datagram) => {
                     socket.send(&datagram).await.unwrap();
                 }
-                TunnelAction::ReceiveIp { packet, .. } => return packet,
+                TunnelAction::ReceiveIp { packet, .. } => return packet.into_vec(),
             }
         }
     }

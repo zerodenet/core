@@ -15,9 +15,13 @@ pub(super) async fn run(
 ) -> Result<(), EngineError> {
     let mut traffic = IngressTraffic::bind(operation.device.as_ref(), &runtime.route_factory());
     let mtu = operation.device.mtu();
-    let (response_tx, mut responses) = mpsc::channel::<Vec<u8>>(256);
-    let (tcp, udp) =
-        UserNetworkStack::new(response_tx.clone(), zero_stack::tcp_mss_for_mtu(mtu)).into_parts();
+    let (response_tx, mut responses) = mpsc::channel::<zero_traits::PacketBuffer>(256);
+    let response_tx: zero_stack::packet_output::PacketSender = response_tx.into();
+    let (tcp, udp) = UserNetworkStack::new_with_packet_output(
+        response_tx.clone(),
+        zero_stack::tcp_mss_for_mtu(mtu),
+    )
+    .into_parts();
     let mut tasks = JoinSet::new();
     tasks.spawn(tcp::accept(tcp.clone(), runtime.route_factory()));
     tasks.spawn(crate::inbound::tun::udp::run_with_runtime(
@@ -127,7 +131,7 @@ pub(super) async fn run(
                     tracing::trace!(ip_bytes = packet.len(), "raw-IP inbound inner packet");
                     if let Some(peer) = dispatch.peer_index {
                         if let Some(device) = operation.endpoint.as_ref().and_then(|endpoint| endpoint.peers.borrow().devices.get(peer).cloned()) {
-                            let (packet, reassembled) = match endpoint_fragments.process_owned(packet, Instant::now()) {
+                            let (packet, reassembled) = match endpoint_fragments.process_buffer(packet, Instant::now()) {
                                 OwnedFragmentOutcome::Packet { packet, reassembled } => (packet, reassembled),
                                 OwnedFragmentOutcome::Pending => continue,
                                 OwnedFragmentOutcome::Rejected(_) => { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::FragmentRejected); continue; },
@@ -170,7 +174,7 @@ pub(super) async fn run(
                     continue;
                 };
                 let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, outgoing.peer)).flatten();
-                let packets = packet::fragment_ip_packet_owned(outgoing.packet, operation.device.mtu() as usize, fragment_id);
+                let packets = packet::fragment_ip_packet_buffer(outgoing.packet, operation.device.mtu() as usize, fragment_id);
                 fragment_id = fragment_id.wrapping_add(1);
                 for packet in packets {
                     let actions = operation.device.send_ip_packet(outgoing.peer, &packet).inspect_err(|_| { traffic.peer(Some(outgoing.peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(outgoing.peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); })?;
@@ -188,7 +192,7 @@ pub(super) async fn run(
                 let Some(peer) = operation.device.peer_for_destination(destination) else { continue; };
                 let Some(endpoint) = endpoints.get(peer).and_then(|value| *value) else { continue; };
                 let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
-                let packets = packet::fragment_ip_packet_owned(response, operation.device.mtu() as usize, fragment_id);
+                let packets = packet::fragment_ip_packet_buffer(response, operation.device.mtu() as usize, fragment_id);
                 tracing::trace!(fragments = packets.len(), "raw-IP inbound response fragments");
                 fragment_id = fragment_id.wrapping_add(1);
                 for fragment in packets {

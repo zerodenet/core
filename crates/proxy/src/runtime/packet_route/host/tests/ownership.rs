@@ -61,15 +61,17 @@ async fn native_host_write_transfers_and_acknowledges_the_same_buffer() {
         1500,
     );
     device.activate();
-    let mut buffer = packet::build_udp(
+    let buffer = packet::build_udp(
         "10.0.0.2".parse().unwrap(),
         "192.0.2.1".parse().unwrap(),
         40000,
         443,
         b"owned",
     );
+    let mut buffer = zero_traits::PacketBuffer::from_owner(buffer);
     let pointer = buffer.as_ptr() as usize;
-    let (replies, _receiver) = mpsc::channel(1);
+    let (replies, _receiver) = mpsc::channel::<Vec<u8>>(1);
+    let replies: zero_stack::packet_output::PacketSender = replies.into();
     device
         .forward(&mut buffer, 1, replies, 0, None)
         .await
@@ -79,8 +81,9 @@ async fn native_host_write_transfers_and_acknowledges_the_same_buffer() {
     assert_eq!(packet::ip_hop_limit(&buffer), Some(63));
     assert_eq!(packet::parse_udp(&buffer).unwrap().payload, b"owned");
     // Rejected admission restores the valid original packet for fallback.
-    let original = buffer.clone();
-    let (conflicting, _receiver) = mpsc::channel(1);
+    let original = buffer.to_vec();
+    let (conflicting, _receiver) = mpsc::channel::<Vec<u8>>(1);
+    let conflicting: zero_stack::packet_output::PacketSender = conflicting.into();
     assert_eq!(
         device
             .forward(&mut buffer, 2, conflicting, 0, None)
@@ -120,7 +123,9 @@ async fn rejected_invalid_header_is_not_repaired_by_rollback() {
     );
     packet[10] ^= 1;
     let expected = packet.clone();
-    let (replies, _receiver) = mpsc::channel(1);
+    let mut packet: zero_traits::PacketBuffer = packet.into();
+    let (replies, _receiver) = mpsc::channel::<Vec<u8>>(1);
+    let replies: zero_stack::packet_output::PacketSender = replies.into();
     assert_eq!(
         device
             .forward(&mut packet, 1, replies, 0, None)
@@ -158,9 +163,10 @@ async fn host_shutdown_returns_an_unaccepted_buffer_for_fallback() {
         443,
         b"not accepted",
     );
-    let mut buffer = original.clone();
+    let mut buffer: zero_traits::PacketBuffer = original.clone().into();
     let pointer = buffer.as_ptr() as usize;
-    let (replies, _receiver) = mpsc::channel(1);
+    let (replies, _receiver) = mpsc::channel::<Vec<u8>>(1);
+    let replies: zero_stack::packet_output::PacketSender = replies.into();
     let sender = device.clone();
     let forwarding = tokio::spawn(async move {
         let result = sender.forward(&mut buffer, 1, replies, 0, None).await;

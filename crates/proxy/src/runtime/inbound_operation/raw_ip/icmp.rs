@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use tokio::sync::{mpsc, watch, Semaphore};
+use tokio::sync::{watch, Semaphore};
 use zero_platform_tokio::{EgressInterface, IcmpSocket};
 use zero_stack::packet;
 
@@ -20,7 +20,7 @@ const ECHO_TIMEOUT: Duration = Duration::from_secs(3);
 static NEXT_PROBE_ID: AtomicU16 = AtomicU16::new(1);
 
 pub(crate) struct IcmpEchoRelay {
-    responses: mpsc::Sender<Vec<u8>>,
+    responses: zero_stack::packet_output::PacketSender,
     route: InboundRouteRuntimeFactory,
     slots: Arc<Semaphore>,
     shutdown: watch::Receiver<bool>,
@@ -32,7 +32,7 @@ impl IcmpEchoRelay {
     }
 
     pub(crate) fn new(
-        responses: mpsc::Sender<Vec<u8>>,
+        responses: zero_stack::packet_output::PacketSender,
         route: InboundRouteRuntimeFactory,
         shutdown: watch::Receiver<bool>,
     ) -> Self {
@@ -131,7 +131,7 @@ async fn probe(
     }
 }
 
-fn reject(responses: &mpsc::Sender<Vec<u8>>, packet: &[u8], mtu: u16) {
+fn reject(responses: &zero_stack::packet_output::PacketSender, packet: &[u8], mtu: u16) {
     if let Some(response) = packet::build_icmp_echo_unreachable_response(packet, usize::from(mtu)) {
         let _ = responses.try_send(response);
     }

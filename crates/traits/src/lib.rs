@@ -2,6 +2,8 @@
 #![allow(async_fn_in_trait)]
 
 extern crate alloc;
+mod packet_buffer;
+pub use packet_buffer::{PacketBuffer, PacketStorage};
 mod observation;
 pub use observation::{IoObserver, PacketDropReason};
 mod fallback;

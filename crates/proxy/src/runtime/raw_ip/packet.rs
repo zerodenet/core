@@ -3,7 +3,6 @@
 use std::{io, sync::Arc};
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 use zero_stack::packet;
 
 use super::{RawIpDevicePool, RawIpOutboundPlan};
@@ -21,9 +20,9 @@ pub(crate) struct RawIpPacketOperation {
 impl PreparedPacketRouteOperation for RawIpPacketOperation {
     async fn forward(
         &self,
-        packet: &mut Vec<u8>,
+        packet: &mut zero_traits::PacketBuffer,
         ingress_id: u64,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
         egress_generation: u64,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<PacketForwardObservation> {
@@ -43,9 +42,9 @@ impl PreparedPacketRouteOperation for RawIpPacketOperation {
 impl RawIpPacketOperation {
     async fn forward_inner(
         &self,
-        packet: &mut Vec<u8>,
+        packet: &mut zero_traits::PacketBuffer,
         ingress_id: u64,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
         egress_generation: u64,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<PacketForwardObservation> {
@@ -105,7 +104,10 @@ impl RawIpPacketOperation {
         }
         let conversation = packet::packet_conversation_key(packet);
         let mut packets = if requires_fragmentation {
-            let fragments = packet::fragment_forwarded_packet(packet, mtu);
+            let fragments = packet::fragment_forwarded_packet(packet, mtu)
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<zero_traits::PacketBuffer>>();
             if fragments.is_empty() {
                 return Err(invalid_packet());
             }

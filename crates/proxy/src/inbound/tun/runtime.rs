@@ -218,8 +218,11 @@ async fn feed_packets(
     #[cfg(feature = "raw-ip-runtime")]
     let mut packet_pins = packet_route.packet_statistics_pins();
     #[cfg(feature = "raw-ip-runtime")]
+    let packet_responses: zero_stack::packet_output::PacketSender =
+        network_responses.clone().into();
+    #[cfg(feature = "raw-ip-runtime")]
     let echo = crate::runtime::inbound_operation::raw_ip::IcmpEchoRelay::new(
-        network_responses.clone(),
+        packet_responses.clone(),
         packet_route.clone(),
         packet_shutdown,
     );
@@ -248,7 +251,7 @@ async fn feed_packets(
                 reassembled,
             } => {
                 #[cfg_attr(not(feature = "raw-ip-runtime"), allow(unused_mut))]
-                let mut packet = packet;
+                let mut packet: zero_traits::PacketBuffer = packet.into();
                 #[cfg(feature = "raw-ip-runtime")]
                 let effective_mtu = if reassembled {
                     mtu.max(packet.len())
@@ -261,7 +264,7 @@ async fn feed_packets(
                     &packet_route,
                     packet_ingress_id,
                     &mut packet_pins,
-                    &network_responses,
+                    &packet_responses,
                     &echo,
                     effective_mtu,
                     dns_hijack,

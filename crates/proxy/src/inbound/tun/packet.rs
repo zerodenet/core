@@ -13,11 +13,11 @@ use zero_stack::packet;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn try_forward(
-    inner: &mut Vec<u8>,
+    inner: &mut zero_traits::PacketBuffer,
     route: &InboundRouteRuntimeFactory,
     ingress_id: u64,
     pins: &mut PacketSessionPins,
-    responses: &mpsc::Sender<Vec<u8>>,
+    responses: &zero_stack::packet_output::PacketSender,
     echo: &IcmpEchoRelay,
     mtu: usize,
     dns_hijack: bool,
@@ -132,7 +132,7 @@ pub(super) async fn try_forward(
 }
 
 fn send_response(
-    responses: &mpsc::Sender<Vec<u8>>,
+    responses: &zero_stack::packet_output::PacketSender,
     response: Vec<u8>,
     observer: Option<&dyn zero_traits::IoObserver>,
 ) {

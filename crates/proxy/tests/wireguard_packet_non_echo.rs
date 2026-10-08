@@ -89,7 +89,7 @@ async fn authenticated_non_echo_icmp_keeps_packet_plane_through_wireguard() {
                     TunnelAction::SendNetwork(datagram) => {
                         remote_socket.send_to(&datagram, sender).await.unwrap();
                     }
-                    TunnelAction::ReceiveIp { packet, .. } => return packet,
+                    TunnelAction::ReceiveIp { packet, .. } => return packet.into_vec(),
                 }
             }
         }
@@ -251,7 +251,7 @@ async fn linked_endpoint_forwards_packet_between_peers_on_one_socket() {
                     TunnelAction::SendNetwork(datagram) => {
                         remote_socket.send_to(&datagram, sender).await.unwrap();
                     }
-                    TunnelAction::ReceiveIp { packet, .. } => return packet,
+                    TunnelAction::ReceiveIp { packet, .. } => return packet.into_vec(),
                 }
             }
         }

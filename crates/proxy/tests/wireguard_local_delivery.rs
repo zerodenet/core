@@ -95,7 +95,7 @@ impl LocalEndpoint {
                     TunnelAction::SendNetwork(bytes) => {
                         self.socket.send(&bytes).await.unwrap();
                     }
-                    TunnelAction::ReceiveIp { packet, .. } => return packet,
+                    TunnelAction::ReceiveIp { packet, .. } => return packet.into_vec(),
                 }
             }
         }

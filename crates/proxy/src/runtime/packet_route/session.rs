@@ -32,7 +32,7 @@ struct RoutePin {
     accepted: bool,
     managed: Option<zero_engine::PacketRouteLease>,
     control: Option<zero_engine::PacketRouteControl>,
-    replies: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
+    replies: Option<zero_stack::packet_output::PacketSender>,
 }
 
 #[derive(Default)]

@@ -60,9 +60,10 @@ async fn host_packet_sink_is_bidirectional_preserves_source_and_waits_for_device
         443,
         b"hello",
     );
-    let (replies, mut rx) = mpsc::channel(8);
+    let (replies, mut rx) = mpsc::channel::<Vec<u8>>(8);
+    let replies: zero_stack::packet_output::PacketSender = replies.into();
     device
-        .forward(&mut original.clone(), 1, replies, 0, None)
+        .forward(&mut original.clone().into(), 1, replies, 0, None)
         .await
         .unwrap();
     let mut outgoing = vec![0; original.len()];
@@ -137,9 +138,10 @@ async fn direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_addr
     original[10..12].fill(0);
     let sum = packet::checksum(&original[..20]);
     original[10..12].copy_from_slice(&sum.to_be_bytes());
-    let (replies, _rx) = mpsc::channel(8);
+    let (replies, _rx) = mpsc::channel::<Vec<u8>>(8);
+    let replies: zero_stack::packet_output::PacketSender = replies.into();
     let observed = device
-        .forward(&mut original.clone(), 1, replies.clone(), 0, None)
+        .forward(&mut original.clone().into(), 1, replies.clone(), 0, None)
         .await
         .unwrap();
     assert!(observed.response.is_none());
@@ -151,7 +153,7 @@ async fn direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_addr
     let sum = packet::checksum(&original[..20]);
     original[10..12].copy_from_slice(&sum.to_be_bytes());
     let response = device
-        .forward(&mut original.clone(), 1, replies.clone(), 0, None)
+        .forward(&mut original.clone().into(), 1, replies.clone(), 0, None)
         .await
         .unwrap()
         .response
@@ -170,7 +172,7 @@ async fn direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_addr
         &vec![0; 1400],
     );
     let response = device
-        .forward(&mut large.clone(), 1, replies, 0, None)
+        .forward(&mut large.clone().into(), 1, replies, 0, None)
         .await
         .unwrap()
         .response
@@ -198,7 +200,8 @@ async fn closing_a_blocked_host_write_preserves_the_shared_device_and_other_path
         9000,
     );
     device.activate();
-    let (replies, mut rx) = mpsc::channel(8);
+    let (replies, mut rx) = mpsc::channel::<Vec<u8>>(8);
+    let replies: zero_stack::packet_output::PacketSender = replies.into();
     let first = packet::build_udp(
         "10.0.0.2".parse().unwrap(),
         "192.0.2.1".parse().unwrap(),
@@ -207,7 +210,7 @@ async fn closing_a_blocked_host_write_preserves_the_shared_device_and_other_path
         &vec![0; 8164],
     );
     device
-        .forward(&mut first.clone(), 1, replies.clone(), 0, None)
+        .forward(&mut first.clone().into(), 1, replies.clone(), 0, None)
         .await
         .unwrap();
     let next = packet::build_udp(
@@ -218,7 +221,7 @@ async fn closing_a_blocked_host_write_preserves_the_shared_device_and_other_path
         b"next",
     );
     let sender = device.clone();
-    let mut request = next.clone();
+    let mut request: zero_traits::PacketBuffer = next.clone().into();
     let pointer = request.as_ptr() as usize;
     let waiting = tokio::spawn(async move {
         let result = sender.forward(&mut request, 1, replies, 0, None).await;
@@ -235,9 +238,10 @@ async fn closing_a_blocked_host_write_preserves_the_shared_device_and_other_path
     assert_eq!(restored.as_ptr() as usize, pointer);
     assert!(device.usable());
     host.read_exact(&mut vec![0; 8192]).await.unwrap();
-    let (other, _other_rx) = mpsc::channel(8);
+    let (other, _other_rx) = mpsc::channel::<Vec<u8>>(8);
+    let other: zero_stack::packet_output::PacketSender = other.into();
     device
-        .forward(&mut next.clone(), 1, other, 0, None)
+        .forward(&mut next.clone().into(), 1, other, 0, None)
         .await
         .unwrap();
     host.read_exact(&mut vec![0; next.len()]).await.unwrap();
@@ -272,7 +276,8 @@ async fn fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_m
     );
     device.activate();
     let coverage = Arc::new(Coverage::default());
-    let (replies, mut received) = mpsc::channel(8);
+    let (replies, mut received) = mpsc::channel::<Vec<u8>>(8);
+    let replies: zero_stack::packet_output::PacketSender = replies.into();
     let request = packet::build_udp(
         "10.0.0.2".parse().unwrap(),
         "192.0.2.1".parse().unwrap(),
@@ -281,7 +286,13 @@ async fn fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_m
         b"q",
     );
     device
-        .forward(&mut request.clone(), 1, replies, 0, Some(coverage.clone()))
+        .forward(
+            &mut request.clone().into(),
+            1,
+            replies,
+            0,
+            Some(coverage.clone()),
+        )
         .await
         .unwrap();
     host.read_exact(&mut vec![0; request.len()]).await.unwrap();

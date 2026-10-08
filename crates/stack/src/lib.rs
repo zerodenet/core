@@ -87,6 +87,15 @@ impl UserNetworkStack {
         }
     }
 
+    /// Use a bounded owned-buffer output without a response-copy bridge task.
+    pub fn new_with_packet_output(outbound: packet_output::PacketSender, mss: u16) -> Self {
+        let mtu = usize::from(mss).saturating_add(60);
+        Self {
+            tcp: Arc::new(UserTcpStack::new_output(outbound.clone(), mss)),
+            udp: Arc::new(UserUdpStack::new_output(outbound, mtu)),
+        }
+    }
+
     /// Split into individual stack references.
     pub fn into_parts(self) -> (Arc<UserTcpStack>, Arc<UserUdpStack>) {
         (self.tcp, self.udp)

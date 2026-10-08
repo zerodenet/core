@@ -82,7 +82,7 @@ impl IngressTraffic {
     }
     pub fn send_response(
         &self,
-        responses: &tokio::sync::mpsc::Sender<Vec<u8>>,
+        responses: &zero_stack::packet_output::PacketSender,
         packet: Vec<u8>,
         identity: Option<&str>,
     ) {

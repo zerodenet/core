@@ -4,7 +4,6 @@ use std::io;
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 
 /// Execution ownership is shared across TUN and protocol raw-IP inbounds.
 pub(crate) fn next_ingress_id() -> u64 {
@@ -46,9 +45,9 @@ pub(crate) trait PreparedPacketRouteOperation: Send + Sync {
     /// means handoff could not be recovered and must not be retried.
     async fn forward(
         &self,
-        packet: &mut Vec<u8>,
+        packet: &mut zero_traits::PacketBuffer,
         ingress_id: u64,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
         egress_generation: u64,
         observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<PacketForwardObservation>;

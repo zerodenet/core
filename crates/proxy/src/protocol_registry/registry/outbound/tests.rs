@@ -1,8 +1,6 @@
 use std::io;
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
-
 use super::{ClaimedOutboundLeaf, ClaimedTcpHooks, ClaimedUdpHooks};
 use crate::protocol_registry::{ClaimedPacketLeaf, OutboundLeafRuntime};
 use crate::runtime::network_graph::{NetworkGraph, Plane};
@@ -23,9 +21,9 @@ struct PacketOnlyOperation;
 impl PreparedPacketRouteOperation for PacketOnlyOperation {
     async fn forward(
         &self,
-        _packet: &mut Vec<u8>,
+        _packet: &mut zero_traits::PacketBuffer,
         _ingress_id: u64,
-        _replies: mpsc::Sender<Vec<u8>>,
+        _replies: zero_stack::packet_output::PacketSender,
         _egress_generation: u64,
         _observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<PacketForwardObservation> {

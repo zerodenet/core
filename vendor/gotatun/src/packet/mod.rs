@@ -262,6 +262,18 @@ impl Default for Packet<[u8]> {
 }
 
 impl Packet<[u8]> {
+    /// Move an unpooled buffer without copying its bytes or changing its slice.
+    /// A packet carrying a return guard is returned intact, so consumers must
+    /// retain that guard until they finish with the backing allocation.
+    #[inline]
+    pub fn try_into_unpooled_buffer(self) -> Result<BytesMut, Self> {
+        if self.inner._return_to_pool.is_some() {
+            Err(self)
+        } else {
+            Ok(self.inner.buf)
+        }
+    }
+
     /// Create a new packet from a pool, with automatic return-to-pool on drop.
     ///
     /// This is used internally by [`PacketBufPool`] to create packets that are

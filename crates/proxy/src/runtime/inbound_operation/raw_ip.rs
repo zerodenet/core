@@ -29,8 +29,8 @@ use crate::{protocol_registry::BoundInbound, runtime::route_runtime::InboundList
 pub(crate) use icmp::IcmpEchoRelay;
 
 pub(crate) enum RawIpInboundAction {
-    SendNetwork(Vec<u8>),
-    ReceiveIp(Vec<u8>),
+    SendNetwork(zero_traits::PacketBuffer),
+    ReceiveIp(zero_traits::PacketBuffer),
 }
 
 pub(crate) struct RawIpInboundDispatch {

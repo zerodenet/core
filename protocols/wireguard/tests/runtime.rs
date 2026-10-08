@@ -80,7 +80,7 @@ fn network_packets(actions: Vec<TunnelAction>) -> Vec<Vec<u8>> {
     actions
         .into_iter()
         .filter_map(|action| match action {
-            TunnelAction::SendNetwork(packet) => Some(packet),
+            TunnelAction::SendNetwork(packet) => Some(packet.into_vec()),
             TunnelAction::ReceiveIp { .. } => None,
         })
         .collect()
@@ -558,3 +558,6 @@ fn inbound_device_routes_transport_packets_to_each_authenticated_peer() {
 
 #[path = "runtime/multi_peer.rs"]
 mod multi_peer;
+
+#[path = "runtime/buffer.rs"]
+mod buffer;

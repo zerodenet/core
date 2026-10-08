@@ -25,6 +25,15 @@ Debug output. Tests in `src/crypto/tests.rs` and
 `src/noise/handshake/tests_zero.rs` cover the selected backend and redaction;
 Zero's protocol and pinned external peer tests cover wire compatibility.
 
+Zero additionally exposes `Packet::try_into_unpooled_buffer`, a safe ownership
+operation on the existing packet storage. It moves an unpooled BytesMut with its
+original slice offset and returns pooled packets intact. The protocol adapter
+can therefore avoid a payload copy and an owner Box for ordinary engine output,
+while keeping a pool return guard alive until its consumer finishes. This helper
+does not parse packets, modify cryptography, alter pooling policy, or change the
+pinned upstream implementation version. Zero's buffer lifetime tests cover the
+direct-storage and retained-pool-guard paths.
+
 This patch gives stored session keys an explicit drop-time erasure path. It does
 not prove that every transient stack copy, crypto dependency internal state,
 allocator page, or crash dump is erased. It is not a complete security audit

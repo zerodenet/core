@@ -1,7 +1,6 @@
 //! Routing for decrypted raw IP packets.
 
 use std::time::Instant;
-use tokio::sync::mpsc;
 use zero_stack::{packet, FragmentReassembler, OwnedFragmentOutcome, UserTcpStack, UserUdpStack};
 
 use super::IcmpEchoRelay;
@@ -10,21 +9,21 @@ use crate::runtime::packet_route::{PacketPlane, PacketSessionPins};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn feed_inner_packet(
-    packet: Vec<u8>,
+    packet: zero_traits::PacketBuffer,
     local_destination: bool,
     traffic: &super::statistics::IngressTraffic,
     peer_identity: Option<std::sync::Arc<str>>,
     mtu: u16,
     tcp: &UserTcpStack,
     udp: &UserUdpStack,
-    responses: &mpsc::Sender<Vec<u8>>,
+    responses: &zero_stack::packet_output::PacketSender,
     echo: &IcmpEchoRelay,
     route: &crate::runtime::route_runtime::InboundRouteRuntimeFactory,
     ingress_id: u64,
     pins: &mut PacketSessionPins,
     fragments: &mut FragmentReassembler,
 ) {
-    let (mut packet, reassembled) = match fragments.process_owned(packet, Instant::now()) {
+    let (mut packet, reassembled) = match fragments.process_buffer(packet, Instant::now()) {
         OwnedFragmentOutcome::Packet {
             packet,
             reassembled,

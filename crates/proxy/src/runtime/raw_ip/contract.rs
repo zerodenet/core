@@ -4,8 +4,11 @@ use std::time::Duration;
 use zero_engine::EngineError;
 
 pub(crate) enum RawIpAction {
-    SendNetwork(Vec<u8>),
-    ReceiveIp { packet: Vec<u8>, source: IpAddr },
+    SendNetwork(zero_traits::PacketBuffer),
+    ReceiveIp {
+        packet: zero_traits::PacketBuffer,
+        source: IpAddr,
+    },
 }
 
 pub(crate) trait RawIpTunnel: Send {

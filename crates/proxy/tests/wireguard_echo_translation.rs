@@ -84,7 +84,7 @@ async fn roundtrip(v6: bool) {
                         );
                         let request = packet::parse_icmp_echo_request(&packet).unwrap();
                         let sequence = u16::from_be_bytes([request.message[6], request.message[7]]);
-                        observed.send(packet.clone()).await.unwrap();
+                        observed.send(packet.to_vec()).await.unwrap();
                         let reply = if sequence == 3 {
                             packet::build_icmp_time_exceeded_response(&packet, target, 1420)
                                 .unwrap()
@@ -193,7 +193,7 @@ async fn receive_inner(client: &mut PeerTunnel, socket: &UdpSocket) -> Vec<u8> {
                 TunnelAction::SendNetwork(wire) => {
                     socket.send(&wire).await.unwrap();
                 }
-                TunnelAction::ReceiveIp { packet, .. } => return packet,
+                TunnelAction::ReceiveIp { packet, .. } => return packet.into_vec(),
             }
         }
     }

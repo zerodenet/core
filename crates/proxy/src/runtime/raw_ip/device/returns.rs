@@ -1,7 +1,6 @@
 //! Bounded reverse delivery for packets forwarded through a shared device.
 
 use std::{
-    borrow::Cow,
     collections::HashMap,
     io,
     net::IpAddr,
@@ -27,7 +26,7 @@ pub(crate) struct PacketReturns {
 }
 
 struct ReturnConversation {
-    replies: mpsc::Sender<Vec<u8>>,
+    replies: zero_stack::packet_output::PacketSender,
     touched: Instant,
 }
 struct ReturnObservation {
@@ -35,14 +34,36 @@ struct ReturnObservation {
     touched: Instant,
 }
 struct TranslatedReturn {
-    replies: mpsc::Sender<Vec<u8>>,
+    replies: zero_stack::packet_output::PacketSender,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
 struct ReturnRoute {
     ingress_id: u64,
-    replies: mpsc::Sender<Vec<u8>>,
+    replies: zero_stack::packet_output::PacketSender,
     touched: Instant,
+}
+
+// Borrowed host reads allocate only after a native return route is found.
+enum NativePacket<'a> {
+    Borrowed(&'a [u8]),
+    Owned(zero_traits::PacketBuffer),
+}
+impl AsRef<[u8]> for NativePacket<'_> {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Borrowed(bytes) => bytes,
+            Self::Owned(bytes) => bytes,
+        }
+    }
+}
+impl NativePacket<'_> {
+    fn into_owned(self) -> zero_traits::PacketBuffer {
+        match self {
+            Self::Borrowed(bytes) => bytes.to_vec().into(),
+            Self::Owned(bytes) => bytes,
+        }
+    }
 }
 
 impl PacketReturns {
@@ -87,11 +108,11 @@ impl PacketReturns {
     }
     fn send_reply(
         &self,
-        replies: &mpsc::Sender<Vec<u8>>,
-        packet: Vec<u8>,
+        replies: &zero_stack::packet_output::PacketSender,
+        packet: zero_traits::PacketBuffer,
         observer: Option<&dyn zero_traits::IoObserver>,
     ) {
-        if let Err(error) = replies.try_send(packet) {
+        if let Err(error) = replies.try_send_buffer(packet) {
             self.discard(
                 observer,
                 match error {
@@ -103,12 +124,13 @@ impl PacketReturns {
             );
         }
     }
+
     #[cfg(test)]
     pub(crate) fn register(
         &self,
         source: IpAddr,
         ingress_id: u64,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
     ) -> io::Result<()> {
         self.register_observed(source, ingress_id, replies, None, None)
     }
@@ -116,7 +138,7 @@ impl PacketReturns {
         &self,
         source: IpAddr,
         ingress_id: u64,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
         conversation: Option<packet::PacketConversationKey>,
     ) -> io::Result<()> {
@@ -203,16 +225,19 @@ impl PacketReturns {
         if self.deliver_correlated(packet) {
             return true;
         }
-        self.deliver_native(Cow::Borrowed(packet)).is_ok()
+        self.deliver_native(NativePacket::Borrowed(packet)).is_ok()
     }
 
     /// Move a native return into its bounded channel; misses return ownership.
-    pub(crate) fn deliver_owned(&self, packet: Vec<u8>) -> Result<(), Vec<u8>> {
+    pub(crate) fn deliver_owned(
+        &self,
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<(), zero_traits::PacketBuffer> {
         if self.deliver_correlated(&packet) {
             return Ok(());
         }
-        self.deliver_native(Cow::Owned(packet))
-            .map_err(Cow::into_owned)
+        self.deliver_native(NativePacket::Owned(packet))
+            .map_err(NativePacket::into_owned)
     }
 
     pub(crate) fn deliver_correlated(&self, packet: &[u8]) -> bool {
@@ -226,7 +251,7 @@ impl PacketReturns {
                 observer.received(packet.len());
             }
             if packet::advance_ip_hop(&mut restored) {
-                self.send_reply(&replies, restored, observer.as_deref());
+                self.send_reply(&replies, restored.into(), observer.as_deref());
             } else {
                 self.discard(observer.as_deref(), zero_traits::PacketDropReason::HopLimit);
             }
@@ -235,8 +260,8 @@ impl PacketReturns {
         false
     }
 
-    fn deliver_native<'a>(&self, packet: Cow<'a, [u8]>) -> Result<(), Cow<'a, [u8]>> {
-        let Some(destination) = packet::ip_destination(&packet) else {
+    fn deliver_native<'a>(&self, packet: NativePacket<'a>) -> Result<(), NativePacket<'a>> {
+        let Some(destination) = packet::ip_destination(packet.as_ref()) else {
             return Err(packet);
         };
         let replies = self
@@ -249,7 +274,7 @@ impl PacketReturns {
         let Some(replies) = replies else {
             return Err(packet);
         };
-        let observation = packet::packet_return_key(&packet).and_then(|key| {
+        let observation = packet::packet_return_key(packet.as_ref()).and_then(|key| {
             self.observations
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -258,7 +283,7 @@ impl PacketReturns {
                 .and_then(|observation| observation.observer.clone())
         });
         let observer = observation;
-        let replies = packet::packet_return_key(&packet)
+        let replies = packet::packet_return_key(packet.as_ref())
             .and_then(|key| {
                 self.conversations
                     .lock()
@@ -269,7 +294,7 @@ impl PacketReturns {
             .unwrap_or(replies);
         if replies.is_closed() {
             if let Some(observer) = &observer {
-                observer.received(packet.len());
+                observer.received(packet.as_ref().len());
             }
             self.discard(
                 observer.as_deref(),
@@ -278,7 +303,7 @@ impl PacketReturns {
             return Ok(());
         }
         if let Some(observer) = &observer {
-            observer.received(packet.len());
+            observer.received(packet.as_ref().len());
         }
         let mut forwarded = packet.into_owned();
         if packet::advance_ip_hop(&mut forwarded) {
@@ -312,7 +337,7 @@ impl PacketReturns {
         &self,
         packet: &[u8],
         local: IpAddr,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<Vec<u8>> {
         self.translated

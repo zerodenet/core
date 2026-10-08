@@ -605,3 +605,196 @@ to `cfg(test)` after test compilation began to remove unused-production-code lin
 their bodies and all data-plane execution code were unchanged. Clippy checked the
 final source and test targets. Formatting, integration layout and diff checks passed.
 The optimization is local source work; the installed kernel was not replaced.
+
+### 2026-10-08: protocol-owned buffers across the Packet boundary
+
+`zero-traits::PacketBuffer` carries the existing Vec, a standard BytesMut, or an
+exclusive opaque storage owner. It is runtime-neutral and no_std, has no implicit
+clone, and does not expose pool, protocol, peer or crypto state. Vec and BytesMut
+move without an owner allocation or a storage clone. Standard mutable byte storage
+uses `bytes` with default features disabled. An external owner uses one small Box
+and dynamic slice access. The storage owner
+remains alive until delivery completes, rejection returns it, or cancellation drops
+it. Pool return behavior belongs to the original owner, never to the router/runtime.
+Retaining external storage can retain its spare capacity and delay pool reuse until
+the bounded queue consumes it. Pool exhaustion may allocate upstream fallback
+storage. This trades copy bandwidth for owner lifetime; queue bounds remain in force,
+and a buffer-boundary timing result alone does not prove lower peak memory or power.
+
+The WireGuard adapter moves unpooled GoTATun 0.9.2 engine storage directly into the
+standard byte-buffer variant for network and decrypted IP output. A small safe
+`Packet::try_into_unpooled_buffer` helper in the existing vendored packet module
+performs this extraction; packets with pool return guards remain intact in the
+protocol-private owner. No output payload is copied at the action boundary,
+including cookie responses, and ordinary engine output avoids a Box and dynamic
+slice calls. Encrypted output is borrowed directly by the
+existing UDP carrier. Decrypted ordinary packets retain the owner through source
+checks, fragment inspection, flow-stack consumption, native route queues and host
+write acknowledgements. Endpoint forwarding retains external storage below MTU;
+actual fragmentation creates fresh buffers through zero-stack's existing helpers.
+The prepared Packet operation's rejection/ambiguous-handoff contract is unchanged.
+
+Encryption staging now reserves the padded capacity directly in the engine Packet,
+copies the caller's immutable IP bytes once and initializes only the padding tail.
+The temporary padded Zeroizing Vec and its second copy are removed. Padding lengths,
+MTU/message ceilings, handshake queue semantics and crypto implementation remain
+unchanged. Long-lived cryptographic secrets retain their existing zeroize protection.
+The upstream reference/version and crypto implementation remain unchanged. The
+existing vendor patch manifest records the storage helper separately from the
+reviewed cryptographic extensions.
+
+This is zero-copy ownership transfer at the protocol output boundary, not end-to-end
+zero-copy WireGuard. The borrowed UDP receive API still copies into the engine;
+GoTATun's encryption builds a wire buffer and copies its plaintext. In this first
+output-boundary change, native returns still converted an external owner to a Vec
+for the reply channel (after queue reservation); the follow-up below extends ownership
+through native reply queues. The protocol owner delegates to BytesMut's safe Vec conversion: unique
+storage transfers its allocation (an advanced slice can require an in-allocation
+move); shared/pool-backed storage copies while retaining the pool guard. No allocation
+is stolen from a pool. A full/closed reply queue drops the owner without conversion.
+Fragments, source translation, ICMP reconstruction, and Flow payload/state storage
+keep their required reconstruction/copy boundaries. No new performance tuning,
+client command/config fields, sampling frequency, routes or security policy changes.
+
+Regression coverage includes exact pool allocation retention/reuse, exclusive
+mutation, bounded-channel rejection/cancellation, unfragmented owner preservation,
+fragment reconstruction, native-return miss/delivery/drop, actual encrypted and
+plaintext actions surviving subsequent crypto operations and tunnel destruction,
+padding around 16-byte/MTU boundaries, and existing forwarding/ACK/rollback tests.
+A manual ignored microbenchmark measures owner wrapping including its Box allocation
+and pool get/drop, or direct unpooled-buffer transfer, versus the old Vec copy,
+independently of crypto/OS/route costs. It includes 32, 148 and 1428-byte packets.
+
+Validation of the final source on macOS x86_64:
+
+- `RUST_MIN_STACK=16777216 cargo test --workspace --all-features` via the
+  repository `scripts/test-workspace.sh --jobs 4`: 2420 passed, zero failed,
+  157 ignored, including documentation tests. The final gate took 1099 seconds
+  (18 minutes 19 seconds, including incremental compilation).
+- New regressions exercise pool reuse, disjoint storage slices/offsets, owner
+  retention across tunnel destruction, padding, queue cancellation, fragmentation
+  and native-return delivery. Existing Packet/Flow accounting, source validation
+  and endpoint lifecycle regressions passed in the same workspace gate.
+- An earlier full run failed with localhost resolving to Fake-IP, a host IPv4
+  change invalidating WireGuard fixtures, and a Connector test deadline. Corrected
+  fixture runs passed; the final full gate above has no failures. No host DNS,
+  client/TUN or routing settings were changed for this work. The final fixture
+  host address was `192.168.50.138`, and localhost resolved to `127.0.0.1`.
+- On this ExFAT workspace, local test/compiler wrappers relocated the same
+  proc-macro and test images to APFS and applied local ad-hoc signing to avoid
+  image-loading stalls. They did not filter tests or modify source/network state.
+  Raw final gate output: `/Volumes/tool/tmp/zero-wg-buffer-final-workspace-tests.log`.
+- Ignored live/privileged/external-network cases are not claimed as acceptance.
+  This implementation has not been installed into the running client/kernel;
+  real-device throughput, memory peaks and power remain separate acceptance work.
+- `cargo fmt --all -- --check`, integration layout validation (281 sources,
+  88 targets, zero errors), and `git diff --check` passed.
+- Strict `cargo clippy --workspace --all-targets --all-features --jobs 4 --
+  -D warnings` passed. Raw output:
+  `/Volumes/tool/tmp/zero-wg-buffer-final-clippy.log`.
+- The final workspace-test source digest was rechecked after static analysis:
+  `87dee70509aff72729c3262591bedd400ce578428f9bff7d1ffec2234d215114`
+  (sorted repository Rust/Cargo.toml paths and contents; documentation excluded).
+- Default `cargo check --workspace --jobs 4` passed (195 seconds);
+  `cargo check -p zero-traits --no-default-features` passed (13 seconds), with
+  `bytes` default features disabled. Logs:
+  `/Volumes/tool/tmp/zero-wg-buffer-final-default-check.log` and
+  `/Volumes/tool/tmp/zero-wg-buffer-final-no-std-check.log`.
+
+Final isolated buffer-boundary timing (20,000 operations per row):
+
+| Storage | Packet bytes | Old copy, median ms | Owned transfer, median ms | Time change |
+| --- | ---: | ---: | ---: | ---: |
+| Unpooled direct | 32 | 7.518 | 4.078 | -45.8% |
+| Unpooled direct | 148 | 7.449 | 3.967 | -46.7% |
+| Unpooled direct | 1428 | 7.253 | 4.149 | -42.8% |
+| Pooled owner | 32 | 7.757 | 7.260 | -6.4% |
+| Pooled owner | 148 | 7.107 | 7.178 | +1.0% |
+| Pooled owner | 1428 | 6.598 | 6.690 | +1.4% |
+
+The harness includes the unchanged production PacketBuffer/engine-owner sources
+and original manual benchmark. It compiles the local boundary with `rustc -C
+opt-level=3`, while linking existing test-profile GoTATun/bytes dependencies. This
+is not a full release kernel or an optimized full protocol benchmark. Each row
+runs six alternating-order rounds, discards warm-up and reports the median of
+five; common packet construction/pool acquisition and drop are included.
+Compilation had finished before timing. The test excludes encryption, routing,
+OS I/O, peak-memory and power costs. Raw output:
+`/Volumes/tool/tmp/zero-wg-buffer-optimized-final-benchmark.log`.
+
+Ordinary direct ownership reduces this boundary's measured time by 43-47% and
+eliminates one payload copy. Pooled-owner timing is close to the old copy in this
+final run, with small packets faster and larger packets about 1% slower; it is
+not a uniform speedup. The initial boxed-only design measured slower even for
+ordinary engine output, so the final implementation uses direct byte storage for
+that path. Pooled owners retain the small allocation and virtual access costs,
+and delayed reuse can affect memory/throughput outside this microbenchmark.
+No end-to-end throughput, power or real-device performance improvement is claimed.
+
+### 2026-10-08: owned native reply channels
+
+The existing zero-stack `packet_output::PacketSender` now also accepts a bounded
+`PacketBuffer` channel. Its legacy Vec and observed-provenance channels retain their
+existing semantics. Native buffer send/reservation moves the owner; compatibility
+send reserves capacity before converting to Vec. Rejected/full/closed channels
+return the unchanged buffer, and cancelled pending sends drop it once. Plain owned
+output has the same provenance semantics as plain Vec output; per-flow observation
+continues to use the existing ObservedPacket channel and runtime boundary meters.
+
+Raw-IP return correlation, host PacketSink requests, shared endpoint forwarding
+and PacketRoute response pumps consume this output abstraction. Managed native
+responses retain their external owner through both bounded queues and cancellation.
+The existing response pump/task and queue capacities are reused; no additional
+per-packet task, bridging queue, event or statistics subsystem is introduced.
+
+Raw-IP ingress uses an owned response queue and the existing UserNetworkStack's
+new `new_with_packet_output` constructor. TCP/UDP builders move their existing Vec
+allocations into this queue, while native responses keep engine storage/offsets.
+Below-MTU reply fragmentation preserves the owner until protocol encoding.
+Actual fragmentation/reconstruction still creates new buffers. TUN keeps its current
+Vec-based device interface: conversion is confined to this compatibility sink,
+after capacity is available. It is not claimed as an owned-buffer TUN driver.
+
+Protocol cryptography, AllowedIPs checks, authenticated peer identity, routing,
+route-close acknowledgement, role/endpoint accounting, and configuration are
+unchanged. Socket receive into reusable borrowed storage and GoTATun's plaintext
+staging/encryption still have copy boundaries. A new allocation per UDP datagram
+would not establish a low-power improvement, so that API is not changed here.
+
+New regression cases cover pointer/guard retention across output and managed route
+queues, conversion-free rejection/cancellation, compatibility observation metadata,
+weak-sender lifecycle, route closure while the destination is blocked, and actual
+TCP SYN-ACK/UDP output through the same stack. Acceptance results follow below.
+
+Final workspace acceptance on macOS x86_64:
+
+- `RUST_MIN_STACK=16777216 cargo test --workspace --all-features` through
+  `bash scripts/test-workspace.sh --jobs 4`: **2426 passed, zero failed,
+  157 ignored**, across 146 result targets including documentation tests.
+  Six new owned-output/managed-reply cases passed in the same gate.
+  Final gate elapsed time was 955 seconds (15 minutes 55 seconds).
+- Actual regressions include native WireGuard/Packet forwarding, allowed-IP source
+  rejection, Packet/Flow accounting and lifecycle, host write ownership/rollback,
+  native-return owner retention, and ordinary TCP/UDP output compatibility.
+- The first compile attempt exposed two new test-fixture API errors (missing
+  IoObserver::dropped and a nonexistent parsed TCP flags field). Both were fixed
+  before the final full gate. It is not counted as a successful test run.
+- Fixtures used `ZERO_TEST_HOST_IPV4=192.168.50.138` and localhost resolved to
+  `127.0.0.1`. Existing client/TUN/host network settings were kept. The same
+  APFS image-relocation/signing wrappers described above were used; test content
+  and filtering were unchanged. Final raw output:
+  `/Volumes/tool/tmp/zero-owned-reply-final-workspace-tests.log`.
+- Source was frozen for the final gate; the Rust/Cargo.toml content digest is
+  `1303e05ae2e8410cce705353fdd9ebbab820e8830db6e22937f7c62d98c6456e`.
+- Pointer/guard/conversion tests establish elimination of the native reply
+  compatibility copy. This phase has no end-to-end throughput, memory-peak or
+  power measurements, and ignored external/privileged cases remain separate
+  acceptance. The running kernel/client has not been replaced.
+- Strict `cargo clippy --workspace --all-targets --all-features --jobs 4 --
+  -D warnings` passed (255 seconds); default `cargo check --workspace --jobs 4`
+  passed (81 seconds); `cargo fmt --all -- --check` passed.
+  Logs: `/Volumes/tool/tmp/zero-owned-reply-final-clippy.log`,
+  `/Volumes/tool/tmp/zero-owned-reply-final-default-check.log`, and
+  `/Volumes/tool/tmp/zero-owned-reply-final-fmt.log`.
+- Final integration layout remains 88 targets covering 282 source files, with
+  zero layout errors. No additional integration executable was introduced.

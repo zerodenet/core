@@ -550,7 +550,9 @@ pub struct UserTcpStack {
 
 impl UserTcpStack {
     pub(crate) fn new(outbound: mpsc::Sender<Vec<u8>>, mss: u16) -> Self {
-        let outbound = PacketSender::from(outbound);
+        Self::new_output(outbound.into(), mss)
+    }
+    pub(crate) fn new_output(outbound: PacketSender, mss: u16) -> Self {
         let (tx, rx) = mpsc::channel::<ReadyConn>(64);
         let control_packets = TcpControlPackets::new(outbound.clone());
         Self {

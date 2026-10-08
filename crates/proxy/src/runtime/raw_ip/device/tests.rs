@@ -14,9 +14,10 @@ async fn owned_packet_handoff_moves_buffers_and_rejects_full_queue_without_consu
         SharedRawIpDevice::start_on_endpoint(vec!["10.0.0.1".parse().unwrap()], 1420, 3, endpoint)
             .unwrap();
     let source = "10.0.0.2".parse().unwrap();
-    let (replies, _receiver) = mpsc::channel(1);
+    let (replies, _receiver) = mpsc::channel::<Vec<u8>>(1);
+    let replies: zero_stack::packet_output::PacketSender = replies.into();
     let original = packet::build_udp(source, "192.0.2.1".parse().unwrap(), 40000, 443, b"owned");
-    let mut outgoing = vec![original.clone()];
+    let mut outgoing = vec![zero_traits::PacketBuffer::from_owner(original.clone())];
     let pointer = outgoing[0].as_ptr() as usize;
     device
         .forward_packets(
@@ -33,7 +34,7 @@ async fn owned_packet_handoff_moves_buffers_and_rejects_full_queue_without_consu
     for _ in 1..128 {
         device
             .forward_packets(
-                &mut vec![original.clone()],
+                &mut vec![original.clone().into()],
                 source,
                 1,
                 replies.clone(),
@@ -42,7 +43,7 @@ async fn owned_packet_handoff_moves_buffers_and_rejects_full_queue_without_consu
             )
             .unwrap();
     }
-    let mut refused = vec![original.clone()];
+    let mut refused = vec![zero_traits::PacketBuffer::from_owner(original.clone())];
     let refused_pointer = refused[0].as_ptr();
     assert!(device
         .forward_packets(&mut refused, source, 1, replies.clone(), None, None)

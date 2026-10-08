@@ -9,9 +9,9 @@ mod fragment;
 mod icmp;
 mod identity;
 pub use fragment::{
-    fragment_forwarded_packet, fragment_ip_packet, fragment_ip_packet_owned,
-    ipv4_fragmentation_allowed, parse_ip_fragment, rebuild_fragmented_packet, FragmentKey,
-    ParsedIpFragment,
+    fragment_forwarded_packet, fragment_ip_packet, fragment_ip_packet_buffer,
+    fragment_ip_packet_owned, ipv4_fragmentation_allowed, parse_ip_fragment,
+    rebuild_fragmented_packet, FragmentKey, ParsedIpFragment,
 };
 pub use icmp::{
     build_icmp_echo_probe, build_icmp_echo_reply, build_icmp_echo_tunnel_probe,

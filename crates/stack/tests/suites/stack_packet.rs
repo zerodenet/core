@@ -19,3 +19,6 @@ mod mtu;
 mod packet;
 #[path = "../packet_checksums.rs"]
 mod packet_checksums;
+
+#[path = "../packet_buffer.rs"]
+mod packet_buffer;

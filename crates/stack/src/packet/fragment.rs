@@ -223,6 +223,22 @@ pub fn fragment_ip_packet_owned(packet: Vec<u8>, mtu: usize, identification: u32
     }
 }
 
+/// Keep external storage when MTU permits; reconstruct only actual fragments.
+pub fn fragment_ip_packet_buffer(
+    packet: zero_traits::PacketBuffer,
+    mtu: usize,
+    identification: u32,
+) -> Vec<zero_traits::PacketBuffer> {
+    if packet.len() <= mtu {
+        vec![packet]
+    } else {
+        fragment_ip_packet(&packet, mtu, identification)
+            .into_iter()
+            .map(Into::into)
+            .collect()
+    }
+}
+
 fn fragment_ipv4(packet: &[u8], mtu: usize, identification: u16) -> Vec<Vec<u8>> {
     if packet.len() < 20 {
         return Vec::new();

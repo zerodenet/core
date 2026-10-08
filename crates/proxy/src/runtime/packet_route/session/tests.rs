@@ -293,7 +293,8 @@ async fn closing_one_managed_packet_lease_cancels_its_response_queue_and_preserv
     )
     .unwrap();
     let mut pins = PacketSessionPins::default().managed(engine.clone(), "tun".into());
-    let (responses, mut received) = mpsc::channel(8);
+    let (responses, mut received) = mpsc::channel::<Vec<u8>>(8);
+    let responses: zero_stack::packet_output::PacketSender = responses.into();
     let a = zero_stack::packet::build_udp(
         "10.0.0.2".parse().unwrap(),
         "10.0.0.3".parse().unwrap(),
@@ -370,7 +371,8 @@ async fn rejected_provisional_packet_path_releases_its_fact_and_permits_fallback
     )
     .unwrap();
     let mut pins = PacketSessionPins::default().managed(engine.clone(), "tun".into());
-    let (responses, _) = tokio::sync::mpsc::channel(1);
+    let (responses, _) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+    let responses: zero_stack::packet_output::PacketSender = responses.into();
     let packet = zero_stack::packet::build_udp(
         "10.0.0.2".parse().unwrap(),
         "10.0.0.3".parse().unwrap(),
@@ -418,7 +420,8 @@ async fn close_wakes_idle_owner_even_when_the_response_consumer_is_blocked() {
         b"payload",
     );
     let plane = PacketPlane::Packet("wg".into());
-    let (destination, _consumer) = tokio::sync::mpsc::channel(1);
+    let (destination, _consumer) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+    let destination: zero_stack::packet_output::PacketSender = destination.into();
     destination.send(vec![0]).await.unwrap();
     let replies = pins
         .replies_for(&packet, &plane, None, destination)
@@ -452,3 +455,6 @@ async fn close_wakes_idle_owner_even_when_the_response_consumer_is_blocked() {
         0
     );
 }
+
+#[path = "tests/ownership.rs"]
+mod ownership;

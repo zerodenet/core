@@ -17,11 +17,11 @@ use super::{DeviceHealth, ForwardedPackets, PacketReturns, SharedRawIpDevice};
 /// An inner IP packet submitted to a bidirectional datagram endpoint.
 pub(crate) struct EndpointPacket {
     pub(crate) peer: usize,
-    pub(crate) packet: Vec<u8>,
+    pub(crate) packet: zero_traits::PacketBuffer,
     pub(crate) observer: Option<Arc<dyn zero_traits::IoObserver>>,
     /// Already queued packets must not survive stack revocation or re-enable.
     pub(crate) closed: Arc<AtomicBool>,
-    pub(crate) return_channel: Option<mpsc::Sender<Vec<u8>>>,
+    pub(crate) return_channel: Option<zero_stack::packet_output::PacketSender>,
 }
 
 impl SharedRawIpDevice {
@@ -94,9 +94,9 @@ impl SharedRawIpDevice {
     /// explicitly registered Packet return route.
     pub(crate) async fn deliver_decrypted_owned(
         &self,
-        packet: Vec<u8>,
+        packet: zero_traits::PacketBuffer,
         allow_native: bool,
-    ) -> Result<(), Vec<u8>> {
+    ) -> Result<(), zero_traits::PacketBuffer> {
         let packet = if allow_native {
             match self.returns.deliver_owned(packet) {
                 Ok(()) => return Ok(()),
@@ -168,7 +168,7 @@ async fn run_endpoint_stack(stack: EndpointStack) {
                     tcp.fragment_outbound_packet_owned(packet).await
                 } else { vec![packet] };
                 for packet in packets {
-                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone(), closed: closed.clone(), return_channel: None }).await {
+                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet: packet.into(), observer: observer.clone(), closed: closed.clone(), return_channel: None }).await {
                         closed.store(true, Ordering::Release);
                         return;
                     }

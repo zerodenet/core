@@ -9,10 +9,10 @@ use tokio::{
 use zero_stack::{packet, FragmentReassembler};
 use zero_traits::IoObserver;
 struct Write {
-    return_channel: mpsc::Sender<Vec<u8>>,
-    packet: Vec<u8>,
+    return_channel: zero_stack::packet_output::PacketSender,
+    packet: zero_traits::PacketBuffer,
     observer: Option<Arc<dyn IoObserver>>,
-    ack: oneshot::Sender<(Vec<u8>, io::Result<()>)>,
+    ack: oneshot::Sender<(zero_traits::PacketBuffer, io::Result<()>)>,
 }
 impl Write {
     fn discarded(&self) {
@@ -65,7 +65,7 @@ impl HostPacketDevice {
                         Ok(0) | Err(_) => break,
                         Ok(n) => match fragments.process(&buffer[..n], Instant::now()) {
                             zero_stack::FragmentOutcome::NotFragmented(packet) => { packets.deliver(packet); },
-                            zero_stack::FragmentOutcome::Reassembled(packet) => { let _ = packets.deliver_owned(packet); },
+                            zero_stack::FragmentOutcome::Reassembled(packet) => { let _ = packets.deliver_owned(packet.into()); },
                             zero_stack::FragmentOutcome::Pending | zero_stack::FragmentOutcome::Rejected(_) => packets.lose_receive_coverage(),
                         },
                     },
@@ -139,9 +139,9 @@ impl Drop for HostPacketDevice {
 impl PreparedPacketRouteOperation for Arc<HostPacketDevice> {
     async fn forward(
         &self,
-        packet: &mut Vec<u8>,
+        packet: &mut zero_traits::PacketBuffer,
         ingress_id: u64,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
         _: u64,
         observer: Option<Arc<dyn IoObserver>>,
     ) -> io::Result<PacketForwardObservation> {
@@ -160,9 +160,9 @@ impl PreparedPacketRouteOperation for Arc<HostPacketDevice> {
 impl HostPacketDevice {
     async fn forward_inner(
         &self,
-        packet: &mut Vec<u8>,
+        packet: &mut zero_traits::PacketBuffer,
         ingress_id: u64,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
         observer: Option<Arc<dyn IoObserver>>,
     ) -> io::Result<PacketForwardObservation> {
         if !self.usable() {
@@ -198,6 +198,9 @@ impl HostPacketDevice {
         let fragmented = packet.len() > self.mtu;
         let mut fragments = if fragmented {
             packet::fragment_forwarded_packet(packet, self.mtu)
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<zero_traits::PacketBuffer>>()
         } else {
             Vec::new()
         };

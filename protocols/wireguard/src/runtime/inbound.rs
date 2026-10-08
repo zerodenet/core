@@ -228,7 +228,7 @@ impl InboundDevice {
                     peer_index: None,
                     authenticated: false,
                     source_rejected_packets: 0,
-                    actions: vec![TunnelAction::SendNetwork(packet.as_ref().to_vec())],
+                    actions: vec![TunnelAction::SendNetwork(super::owned_packet(packet))],
                 });
             }
             Err(_) => return Err(TunnelError::InvalidWirePacket),

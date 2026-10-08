@@ -158,7 +158,7 @@ impl Device {
                             .lock()
                             .unwrap_or_else(|error| error.into_inner())
                             .last_authenticated_packet = Some(Instant::now());
-                        let packet = match self.fragments.process_owned(packet, Instant::now()) {
+                        let packet = match self.fragments.process_buffer(packet, Instant::now()) {
                             OwnedFragmentOutcome::Packet { packet, .. } => packet,
                             OwnedFragmentOutcome::Pending => continue,
                             OwnedFragmentOutcome::Rejected(_) => {

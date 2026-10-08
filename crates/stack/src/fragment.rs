@@ -26,8 +26,8 @@ pub enum FragmentOutcome<'a> {
 }
 
 /// Owned reassembly result. Ordinary packets keep their original allocation.
-pub enum OwnedFragmentOutcome {
-    Packet { packet: Vec<u8>, reassembled: bool },
+pub enum OwnedFragmentOutcome<P = Vec<u8>> {
+    Packet { packet: P, reassembled: bool },
     Pending,
     Rejected(FragmentRejectReason),
 }
@@ -53,6 +53,25 @@ impl Default for FragmentReassembler {
 }
 
 impl FragmentReassembler {
+    /// Preserve exclusive protocol storage for an ordinary unfragmented packet.
+    pub fn process_buffer(
+        &mut self,
+        packet: zero_traits::PacketBuffer,
+        now: Instant,
+    ) -> OwnedFragmentOutcome<zero_traits::PacketBuffer> {
+        match self.process(&packet, now) {
+            FragmentOutcome::NotFragmented(_) => OwnedFragmentOutcome::Packet {
+                packet,
+                reassembled: false,
+            },
+            FragmentOutcome::Reassembled(packet) => OwnedFragmentOutcome::Packet {
+                packet: packet.into(),
+                reassembled: true,
+            },
+            FragmentOutcome::Pending => OwnedFragmentOutcome::Pending,
+            FragmentOutcome::Rejected(reason) => OwnedFragmentOutcome::Rejected(reason),
+        }
+    }
     /// Consume a device buffer. Reassembly retains the existing resource limits;
     /// a nonfragmented packet moves through without copying its bytes.
     pub fn process_owned(&mut self, packet: Vec<u8>, now: Instant) -> OwnedFragmentOutcome {

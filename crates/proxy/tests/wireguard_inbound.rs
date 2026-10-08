@@ -762,7 +762,7 @@ async fn authenticated_wireguard_peer_roams_to_new_udp_source_port() {
                         TunnelAction::SendNetwork(datagram) => {
                             socket.send(&datagram).await.unwrap();
                         }
-                        TunnelAction::ReceiveIp { packet, .. } => return packet,
+                        TunnelAction::ReceiveIp { packet, .. } => return packet.into_vec(),
                     }
                 }
             }

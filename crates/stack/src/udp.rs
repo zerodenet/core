@@ -56,13 +56,16 @@ fn sockaddr_to_ipaddr(sa: &SocketAddress) -> std::net::IpAddr {
 pub struct UserUdpStack {
     datagrams: Mutex<VecDeque<Datagram>>,
     available: Notify,
-    outbound: mpsc::Sender<Vec<u8>>,
+    outbound: crate::packet_output::PacketSender,
     mtu: usize,
     next_fragment_id: AtomicU32,
 }
 
 impl UserUdpStack {
     pub(crate) fn new(outbound: mpsc::Sender<Vec<u8>>, mtu: usize) -> Self {
+        Self::new_output(outbound.into(), mtu)
+    }
+    pub(crate) fn new_output(outbound: crate::packet_output::PacketSender, mtu: usize) -> Self {
         Self {
             datagrams: Mutex::new(VecDeque::new()),
             available: Notify::new(),

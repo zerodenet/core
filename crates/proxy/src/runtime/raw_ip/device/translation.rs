@@ -1,7 +1,6 @@
 //! Packet adapter I/O; address/checksum/correlation semantics stay in zero-stack.
 
 use std::{io, net::IpAddr};
-use tokio::sync::mpsc;
 use zero_stack::packet;
 
 use super::{ForwardedPackets, SharedRawIpDevice};
@@ -11,7 +10,7 @@ impl SharedRawIpDevice {
         &self,
         original: &[u8],
         local: IpAddr,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
         mtu: usize,
         observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<()> {
@@ -39,9 +38,9 @@ impl SharedRawIpDevice {
                     "invalid translated IP fragment",
                 ));
             }
-            packets
+            packets.into_iter().map(Into::into).collect()
         } else {
-            vec![translated]
+            vec![translated.into()]
         };
         permit.send(ForwardedPackets {
             packets,

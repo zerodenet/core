@@ -37,8 +37,8 @@ use health::DeviceHealth;
 pub(crate) use returns::PacketReturns;
 
 pub(super) struct ForwardedPackets {
-    return_channel: mpsc::Sender<Vec<u8>>,
-    packets: Vec<Vec<u8>>,
+    return_channel: zero_stack::packet_output::PacketSender,
+    packets: Vec<zero_traits::PacketBuffer>,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
@@ -221,10 +221,10 @@ impl SharedRawIpDevice {
 
     pub(crate) fn forward_packets(
         &self,
-        packets: &mut Vec<Vec<u8>>,
+        packets: &mut Vec<zero_traits::PacketBuffer>,
         source: IpAddr,
         ingress_id: u64,
-        replies: mpsc::Sender<Vec<u8>>,
+        replies: zero_stack::packet_output::PacketSender,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
         conversation: Option<zero_stack::packet::PacketConversationKey>,
     ) -> std::io::Result<()> {

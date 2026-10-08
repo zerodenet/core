@@ -12,12 +12,15 @@ use gotatun::noise::{Tunn, TunnResult};
 use gotatun::packet::{Packet, WgKind};
 use gotatun::tun::MtuWatcher;
 use gotatun::x25519::{PublicKey, StaticSecret};
+use zero_traits::PacketBuffer;
 use zeroize::Zeroizing;
 
 use crate::validation::ValidatedOutbound;
 
+mod buffer;
 mod inbound;
 mod profile;
+use buffer::owned_packet;
 
 pub use inbound::{InboundDevice, InboundDispatch, PeerSourceObservation, PreparedInbound};
 pub use profile::{PreparedOutbound, PreparedPeer};
@@ -58,10 +61,13 @@ pub enum TunnelError {
     DrainLimit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TunnelAction {
-    SendNetwork(Vec<u8>),
-    ReceiveIp { packet: Vec<u8>, source: IpAddr },
+    SendNetwork(PacketBuffer),
+    ReceiveIp {
+        packet: PacketBuffer,
+        source: IpAddr,
+    },
 }
 
 pub struct ReceivedDatagram {
@@ -235,11 +241,11 @@ impl PeerTunnel {
             return Err(TunnelError::MessageLimit);
         }
         let padded_len = packet.len().div_ceil(16) * 16;
-        let mut padded = Zeroizing::new(vec![0_u8; padded_len]);
-        padded[..packet.len()].copy_from_slice(packet);
-        let result = self
-            .engine
-            .handle_outgoing_packet(Packet::copy_from(&padded[..]), None);
+        let mut padded = Packet::default();
+        padded.buf_mut().reserve(padded_len);
+        padded.buf_mut().extend_from_slice(packet);
+        padded.buf_mut().resize(padded_len, 0);
+        let result = self.engine.handle_outgoing_packet(padded, None);
         result
             .map(|packet| self.collect_result(TunnResult::WriteToNetwork(packet)))
             .unwrap_or_else(|| Ok(Vec::new()))
@@ -342,7 +348,7 @@ impl PeerTunnel {
                     self.emitted_data_messages += 1;
                 }
                 let packet: Packet = packet.into();
-                Ok(vec![TunnelAction::SendNetwork(packet.as_ref().to_vec())])
+                Ok(vec![TunnelAction::SendNetwork(owned_packet(packet))])
             }
             TunnResult::WriteToTunnel(packet) if packet.is_empty() => Ok(Vec::new()),
             TunnResult::WriteToTunnel(packet) => {
@@ -354,8 +360,8 @@ impl PeerTunnel {
                     .try_into_ipvx()
                     .map_err(|_| TunnelError::InvalidWirePacket)?
                     .either(
-                        |packet| packet.into_bytes().as_ref().to_vec(),
-                        |packet| packet.into_bytes().as_ref().to_vec(),
+                        |packet| owned_packet(packet.into_bytes()),
+                        |packet| owned_packet(packet.into_bytes()),
                     );
                 Ok(vec![TunnelAction::ReceiveIp { packet, source }])
             }

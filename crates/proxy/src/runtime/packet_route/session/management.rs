@@ -12,8 +12,8 @@ impl PacketSessionPins {
         packet: &[u8],
         plane: &PacketPlane,
         peer: Option<std::sync::Arc<str>>,
-        destination: tokio::sync::mpsc::Sender<Vec<u8>>,
-    ) -> Option<tokio::sync::mpsc::Sender<Vec<u8>>> {
+        destination: zero_stack::packet_output::PacketSender,
+    ) -> Option<zero_stack::packet_output::PacketSender> {
         if self.management.is_none() {
             return Some(destination);
         }
@@ -47,7 +47,7 @@ impl PacketSessionPins {
         let control = lease.control();
         control.responses_started();
         let cancelled = control.clone();
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<zero_traits::PacketBuffer>(1);
         let response_control = control.clone();
         struct Receipt(
             zero_engine::PacketRouteControl,
@@ -74,7 +74,7 @@ impl PacketSessionPins {
                         // remains nonblocking and records any queue discard upstream.
                         tokio::select! { biased;
                             _ = cancelled.cancelled() => break,
-                            sent = destination.send(response) => if sent.is_err() { break; },
+                            sent = destination.send_buffer(response) => if sent.is_err() { break; },
                         }
                     }
                 }
@@ -87,8 +87,8 @@ impl PacketSessionPins {
         pin.accepted = false;
         pin.managed = Some(lease);
         pin.control = Some(control);
-        pin.replies = Some(tx.clone());
-        Some(tx)
+        pin.replies = Some(tx.clone().into());
+        Some(tx.into())
     }
     #[cfg(test)]
     pub(crate) fn reject_unaccepted(&mut self, packet: &[u8], peer: Option<std::sync::Arc<str>>) {

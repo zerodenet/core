@@ -8,3 +8,4 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+bytes = { version = "1", default-features = false }
