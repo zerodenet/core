@@ -2,12 +2,6 @@
 use super::*;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 
-#[derive(Clone, Copy)]
-pub(crate) struct DirectUdpResponseSource {
-    pub(crate) sender: SocketAddr,
-    pub(crate) session_id: Option<u64>,
-}
-
 impl DirectUdpSockets {
     pub(crate) fn isolate_association(&mut self, session_id: u64, association_id: u64) {
         self.isolated_sessions.insert(session_id, association_id);
@@ -15,7 +9,7 @@ impl DirectUdpSockets {
 
     pub(crate) fn retire_session(&mut self, session_id: u64) {
         for ((socket_id, peer), owner) in &self.response_flows {
-            if *owner == session_id {
+            if owner.session_id == session_id {
                 if let Some(socket) = self
                     .sockets
                     .iter_mut()
@@ -25,7 +19,8 @@ impl DirectUdpSockets {
                 }
             }
         }
-        self.response_flows.retain(|_, id| *id != session_id);
+        self.response_flows
+            .retain(|_, flow| flow.session_id != session_id);
         self.isolated_sessions.remove(&session_id);
         // Retain every unaffected live mapping, but do not keep tombstones or
         // socket descriptors once there is nobody left to receive a reply.
@@ -90,7 +85,16 @@ impl DirectUdpSockets {
         if self.services.direct_policy_is_current(policy)
             && entry.binding.egress_generation == self.services.egress_generation()
         {
-            self.response_flows.insert((entry.id, target), session_id);
+            self.response_flows
+                .entry((entry.id, target))
+                .or_insert_with(|| {
+                    DirectUdpResponseFlow::new(
+                        session_id,
+                        self.services.clone(),
+                        policy.clone(),
+                        entry.binding.egress_generation,
+                    )
+                });
         }
         sent
     }
@@ -123,7 +127,11 @@ impl DirectUdpSockets {
         // may resolve to the same peer, so never overwrite its reply owner.
         if let Some(index) = self.sockets.iter().position(|socket| {
             matches_binding(socket)
-                && self.response_flows.get(&(socket.id, target)) == Some(&session_id)
+                && self
+                    .response_flows
+                    .get(&(socket.id, target))
+                    .map(|flow| flow.session_id)
+                    == Some(session_id)
         }) {
             return Ok(index);
         }
@@ -144,7 +152,17 @@ impl DirectUdpSockets {
             return Ok(index);
         }
         let socket = self
-            .bind_fresh_socket(target, scope, policy, &selection)
+            .services
+            .bind_direct_datagram_socket(
+                target,
+                if scope.is_some() {
+                    None
+                } else {
+                    self.preferred_port
+                },
+                &policy.dial_policy,
+                &selection,
+            )
             .await?;
         // An old bind completion must never populate a new policy or topology.
         self.services.ensure_direct_policy_current(policy)?;
@@ -171,40 +189,6 @@ impl DirectUdpSockets {
             retired_peers: HashSet::new(),
         });
         Ok(self.sockets.len() - 1)
-    }
-
-    async fn bind_fresh_socket(
-        &mut self,
-        target: SocketAddr,
-        scope: Option<u64>,
-        policy: &DirectUdpPolicy,
-        selection: &zero_platform_tokio::EgressSelection,
-    ) -> Result<TokioDatagramSocket, EngineError> {
-        let mut preferred_port = if scope.is_some() {
-            None
-        } else {
-            self.preferred_port
-                .filter(|port| !self.port_was_used(target.is_ipv6(), *port))
-        };
-        for _ in 0..32 {
-            self.services.ensure_direct_policy_current(policy)?;
-            let socket = self
-                .services
-                .bind_direct_datagram_socket(target, preferred_port, &policy.dial_policy, selection)
-                .await?;
-            let local = socket.local_addr()?;
-            if self.reserve_local_port(local) {
-                return Ok(socket);
-            }
-            // The OS may choose a previously closed ephemeral port. Closing
-            // and retrying keeps every source/interface requirement intact.
-            drop(socket);
-            preferred_port = None;
-        }
-        Err(EngineError::Io(std::io::Error::new(
-            std::io::ErrorKind::AddrNotAvailable,
-            "no fresh direct UDP source port available without reusing reply identity",
-        )))
     }
 
     pub(crate) async fn recv_from_addr(
@@ -242,7 +226,7 @@ impl DirectUdpSockets {
             let Ok(sender) = entry.binding.policy.dial_policy.normalize_peer(sender) else {
                 continue;
             };
-            let Some(session_id) = self.response_flows.get(&(entry.id, sender)).copied() else {
+            let Some(flow) = self.response_flows.get(&(entry.id, sender)) else {
                 continue;
             };
             let size = size.min(output.len());
@@ -251,7 +235,8 @@ impl DirectUdpSockets {
                 size,
                 DirectUdpResponseSource {
                     sender,
-                    session_id: Some(session_id),
+                    session_id: Some(flow.session_id),
+                    guard: Some(flow.guard.clone()),
                 },
             ));
         }

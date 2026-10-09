@@ -94,16 +94,28 @@ tombstone while its socket still serves other peers. Each socket admits at most
 limit preserves existing mappings and sends new peers through another socket.
 A socket closes when its last active reply owner retires.
 
-Closing a socket does not make its wire identity safe to reuse. Each dispatcher
-retains a per-family local-port history for its entire lifetime, including policy
-reloads, egress refreshes and final-flow retirement. Two fixed 65,536-bit maps
-consume 16 KiB. The first bind may preserve the preferred source port; subsequent
-binds cannot reuse any port already bound by that dispatcher in the same family.
-If the OS chooses a previously used ephemeral port, the socket is closed and
-binding retries with the same source/interface constraints. After 32 unsuccessful
-fresh-port attempts, or exhaustion of the finite port space, new socket creation
-fails closed. Existing live mappings remain usable. This history is scoped to the
-dispatcher lifetime, not a process-global or persistent port reservation.
+Socket retirement is bounded by live flow ownership, not dispatcher lifetime.
+There is no permanent used-port bitmap or retired socket registry. Once the last
+owner retires, the socket and its queued receive data are dropped; a subsequent
+socket may preserve the preferred source port or use the OS's normal ephemeral
+allocation. This applies to default `auto` as well as constrained Direct policies,
+so repeated retire/rebind cycles do not accumulate a lifetime port-exhaustion limit.
+
+Each exact response owner also has a revocable token for replies already read by
+the process. Removing that owner or its socket revokes the token; policy/egress
+generation changes invalidate it even before cache cleanup. Reusing the same
+local port cannot revive an old token. Direct response delivery checks validity
+before download shaping and again after the wait, immediately before starting the
+response writer. Bytes already handed to an in-flight writer cannot be retracted.
+
+These checks isolate known process-owned state: stale asynchronous work, queued
+old-socket replies and replies already read under an old owner. Generic UDP carries
+no socket ID or configuration epoch on the wire. An arbitrarily delayed network
+packet that arrives only after the same local/remote tuple has been reused cannot
+be distinguished from a current reply by this layer. Generation checks do not
+claim that stronger guarantee. It would require application-level correlation or
+an explicit, bounded packet-lifetime/quarantine contract; indefinitely retiring
+ports would violate normal long-lived UDP reuse and eventually fail closed.
 
 A completed UDP send remains successful even if its policy becomes stale during
 completion. Staleness can suppress reply registration, but must not turn an

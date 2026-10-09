@@ -15,6 +15,7 @@ pub(crate) struct UdpDirectResponseParts<'payload> {
     pub(crate) port: u16,
     pub(crate) payload: &'payload [u8],
     pub(crate) accounting: UdpInboundResponseAccounting,
+    pub(crate) guard: Option<crate::runtime::udp_socket::DirectUdpResponseGuard>,
 }
 
 pub(crate) struct UdpChainResponseParts {
@@ -22,4 +23,10 @@ pub(crate) struct UdpChainResponseParts {
     pub(crate) port: u16,
     pub(crate) payload: Vec<u8>,
     pub(crate) accounting: UdpInboundResponseAccounting,
+}
+
+impl UdpDirectResponseParts<'_> {
+    pub(crate) fn is_current(&self) -> bool {
+        self.guard.as_ref().is_none_or(|guard| guard.is_current())
+    }
 }

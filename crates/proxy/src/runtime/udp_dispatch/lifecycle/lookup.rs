@@ -30,9 +30,9 @@ impl UdpDispatch {
     /// Look up the session ID for a direct response sender.
     pub(crate) fn direct_response_session_id(
         &self,
-        sender: DirectUdpResponseSource,
+        sender: &DirectUdpResponseSource,
     ) -> Option<u64> {
-        sender.session_id
+        sender.is_current().then_some(sender.session_id).flatten()
     }
 
     /// Look up a session ID by target+port only, regardless of outbound type.
