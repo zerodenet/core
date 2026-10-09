@@ -125,7 +125,8 @@ jobs:
       - name: Test native Direct dial policy and socket binding
         env:
           RUST_MIN_STACK: "16777216"
-        run: cargo test -p zero-platform-tokio --all-features --test platform_contracts dial_policy::
+        run: |
+          cargo test -p zero-platform-tokio --all-features --test platform_contracts dial_policy::
 
       - name: Check opt-in WireGuard endpoint on this platform
         run: cargo check -p zero-proxy --no-default-features --features wireguard
