@@ -53,7 +53,12 @@ async fn two_inbounds_keep_independent_direct_families_and_old_tcp_survives_relo
     let first = free_port();
     let second = free_port();
     let mut configuration = config(first, second, target);
-    let handle = spawn_engine(Proxy::new(configuration.clone()).unwrap());
+    let proxy = Proxy::new(configuration.clone()).unwrap();
+    let handle = zero_proxy::ProxyHandle::new(
+        zero_engine::EngineHandle::new(proxy.engine().clone()),
+        proxy.clone(),
+    );
+    let running = spawn_engine(proxy);
     wait_for_listener(first).await;
     wait_for_listener(second).await;
     let mut v4 = TcpStream::connect(("127.0.0.1", first)).await.unwrap();
@@ -68,7 +73,7 @@ async fn two_inbounds_keep_independent_direct_families_and_old_tcp_survives_relo
     exchange(&mut v4, b"kept", 4).await;
     let mut changed = TcpStream::connect(("127.0.0.1", first)).await.unwrap();
     exchange(&mut changed, b"new!", 6).await;
-    handle.shutdown().await.unwrap();
+    running.shutdown().await.unwrap();
     v4_server.abort();
     v6_server.abort();
 }

@@ -86,6 +86,29 @@ configuration. Same-policy endpoint-independent mapping and exact-remote respons
 filtering must remain intact. Observability must report actual local/interface
 facts rather than rerunning route selection after socket creation.
 
+Direct UDP sockets open only on demand. Distinct peers normally share the same
+policy/association mapping; simultaneous logical flows to the same peer need
+separate sockets so a reply has exactly one owner. Retiring a peer leaves a
+tombstone while its socket still serves other peers. Each socket admits at most
+256 distinct peers over its lifetime, including retired peers; reaching this
+limit preserves existing mappings and sends new peers through another socket.
+A socket closes when its last active reply owner retires.
+
+Closing a socket does not make its wire identity safe to reuse. Each dispatcher
+retains a per-family local-port history for its entire lifetime, including policy
+reloads, egress refreshes and final-flow retirement. Two fixed 65,536-bit maps
+consume 16 KiB. The first bind may preserve the preferred source port; subsequent
+binds cannot reuse any port already bound by that dispatcher in the same family.
+If the OS chooses a previously used ephemeral port, the socket is closed and
+binding retries with the same source/interface constraints. After 32 unsuccessful
+fresh-port attempts, or exhaustion of the finite port space, new socket creation
+fails closed. Existing live mappings remain usable. This history is scoped to the
+dispatcher lifetime, not a process-global or persistent port reservation.
+
+A completed UDP send remains successful even if its policy becomes stale during
+completion. Staleness can suppress reply registration, but must not turn an
+already transmitted packet into an error that triggers outbound fallback replay.
+
 Non-default Direct dial policy does not imply support in native raw-packet or
 ICMP forwarding. Those paths must reject a policy they cannot enforce. Auto
 TCP/UDP selection may use the policy-capable Flow path; local ingress echo replies

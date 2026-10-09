@@ -126,6 +126,7 @@ rustls.workspace = true
 ureq = { version = "2", default-features = false, features = ["tls"] }
 zero-api = { path = "crates/api" }
 zero-config = { path = "crates/config" }
+zero-core = { path = "crates/core" }
 zero-engine = { path = "crates/engine", default-features = false }
 zero-logging = { path = "crates/logging" }
 zero-platform-tokio = { path = "crates/platform/tokio", optional = true }
@@ -139,7 +140,6 @@ zero-tun = { path = "crates/tun" }
 [dev-dependencies]
 socket2 = "0.6"
 tempfile.workspace = true
-zero-core = { path = "crates/core" }
 zero-platform-tokio = { path = "crates/platform/tokio" }
 
 [patch.crates-io]

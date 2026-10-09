@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::info;
@@ -15,8 +15,8 @@ use super::health::{OutboundHealth, PassiveRelayHealth, ProbeTriggerRegistry};
 use super::observability::EngineEventLog;
 use super::observability::EngineStats;
 use super::plan::{
-    EnginePlan, ResolvedLeafOutbound, ResolvedOutbound, TargetId, resolve_target_chains,
-    resolve_target_id,
+    resolve_target_chains, resolve_target_id, EnginePlan, ResolvedLeafOutbound, ResolvedOutbound,
+    TargetId,
 };
 use super::principal::{
     PrincipalCancellationRegistry, PrincipalDeviceRegistry, PrincipalPolicyRegistry,

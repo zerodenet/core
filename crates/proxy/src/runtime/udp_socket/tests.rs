@@ -6,6 +6,7 @@ use super::{select_stable_udp_target, DirectUdpPolicy, DirectUdpSockets};
 use zero_traits::{AddressFamily, DialPolicy};
 
 mod policy;
+mod ports;
 mod replies;
 
 #[test]

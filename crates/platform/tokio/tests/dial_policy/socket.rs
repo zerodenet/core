@@ -95,6 +95,11 @@ async fn wrong_selection_cannot_silently_drop_explicit_policy() {
     .await
     .unwrap_err();
     assert_eq!(error.stage(), "validate_dial_policy");
+    assert_eq!(error.error().kind(), std::io::ErrorKind::InvalidInput);
+    assert!(error
+        .error()
+        .to_string()
+        .contains("was not prepared for this dial policy"));
 }
 #[tokio::test]
 async fn tcp_binds_real_ipv6_loopback_source_when_available() {

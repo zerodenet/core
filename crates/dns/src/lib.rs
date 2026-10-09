@@ -854,8 +854,7 @@ impl DnsSystem {
         let domain = domain.to_owned();
         self.query_coordinator
             .resolve(key, async move {
-                let addresses = resolver.resolve_type(&domain, query_type).await?;
-                family::filter_addresses(&domain, addresses, family)
+                resolver.resolve_type(&domain, query_type, family).await
             })
             .await
     }
@@ -1391,6 +1390,7 @@ async fn exchange_snapshot(
                 query,
                 server.detour.as_deref(),
                 snapshot.outbound_connector.as_deref(),
+                snapshot.family,
             ),
         )
         .await

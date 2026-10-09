@@ -89,5 +89,8 @@ async fn only_ipv6_rejects_ipv4_mapped_aaaa_candidates() {
             .kind(),
         io::ErrorKind::NotFound
     );
-    assert_eq!(dns.resolve_direct("mapped.test").await.unwrap(), vec![V4]);
+    assert_eq!(
+        dns.resolve_direct("mapped.test").await.unwrap(),
+        vec![mapped]
+    );
 }

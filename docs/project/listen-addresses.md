@@ -52,3 +52,16 @@ sent to `127.0.0.1`; a second `0.0.0.0` bind to the same port failed with
 `EADDRINUSE` for both transports. Separate TCP loopback connections to `::1` and
 `127.0.0.1` succeeded. This records the host's default behavior, not a portable
 promise and not a substitute for running the Rust application regression tests.
+
+### Rust regression run (2026-10-09)
+
+The restored checkout passed these focused Cargo test runs:
+
+- `cargo test -p zero-core --test listen_address`: 3 passed.
+- `cargo test -p zero-config --test config_contracts listener_addresses`: 3 passed.
+- `cargo test -p zero-proxy --all-features --lib protocol_registry::registry::tests::listener -- --nocapture`:
+  8 passed, 0 ignored. This includes real HY2/VLESS QUIC handshakes and TCP/UDP
+  listener traffic over IPv6, with no IPv6 availability skips. The runtime
+  wildcard probes observed IPv4 acceptance for both TCP and UDP on this host.
+- `cargo test -p zero --all-features --bin zero control_api_formats_bare_and_bracketed_ipv6_listeners`:
+  1 passed, covering normalized HTTP control and companion gRPC endpoints.

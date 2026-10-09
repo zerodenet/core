@@ -144,17 +144,7 @@ impl DirectUdpSockets {
             return Ok(index);
         }
         let socket = self
-            .services
-            .bind_direct_datagram_socket(
-                target,
-                if scope.is_some() {
-                    None
-                } else {
-                    self.preferred_port
-                },
-                &policy.dial_policy,
-                &selection,
-            )
+            .bind_fresh_socket(target, scope, policy, &selection)
             .await?;
         // An old bind completion must never populate a new policy or topology.
         self.services.ensure_direct_policy_current(policy)?;
@@ -181,6 +171,40 @@ impl DirectUdpSockets {
             retired_peers: HashSet::new(),
         });
         Ok(self.sockets.len() - 1)
+    }
+
+    async fn bind_fresh_socket(
+        &mut self,
+        target: SocketAddr,
+        scope: Option<u64>,
+        policy: &DirectUdpPolicy,
+        selection: &zero_platform_tokio::EgressSelection,
+    ) -> Result<TokioDatagramSocket, EngineError> {
+        let mut preferred_port = if scope.is_some() {
+            None
+        } else {
+            self.preferred_port
+                .filter(|port| !self.port_was_used(target.is_ipv6(), *port))
+        };
+        for _ in 0..32 {
+            self.services.ensure_direct_policy_current(policy)?;
+            let socket = self
+                .services
+                .bind_direct_datagram_socket(target, preferred_port, &policy.dial_policy, selection)
+                .await?;
+            let local = socket.local_addr()?;
+            if self.reserve_local_port(local) {
+                return Ok(socket);
+            }
+            // The OS may choose a previously closed ephemeral port. Closing
+            // and retrying keeps every source/interface requirement intact.
+            drop(socket);
+            preferred_port = None;
+        }
+        Err(EngineError::Io(std::io::Error::new(
+            std::io::ErrorKind::AddrNotAvailable,
+            "no fresh direct UDP source port available without reusing reply identity",
+        )))
     }
 
     pub(crate) async fn recv_from_addr(

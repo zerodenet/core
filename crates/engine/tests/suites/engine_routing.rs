@@ -9,7 +9,7 @@ mod router;
 #[path = "../runtime_snapshot.rs"]
 mod runtime_snapshot;
 
-#[path = "../resolve_branches.rs"]
-mod resolve_branches;
 #[path = "../direct_dial.rs"]
 mod direct_dial;
+#[path = "../resolve_branches.rs"]
+mod resolve_branches;

@@ -186,7 +186,11 @@ async fn udp_policy_reload_rebuilds_existing_client_flow_and_preserves_other_tag
     let first_port = free_port();
     let second_port = free_port();
     let proxy = Proxy::new(dial_reload_config(first_port, second_port, target, false)).unwrap();
-    let handle = spawn_engine(proxy.clone());
+    let handle = zero_proxy::ProxyHandle::new(
+        zero_engine::EngineHandle::new(proxy.engine().clone()),
+        proxy.clone(),
+    );
+    let running = spawn_engine(proxy.clone());
     wait_for_listener(first_port).await;
     wait_for_listener(second_port).await;
     let first_client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -241,5 +245,5 @@ async fn udp_policy_reload_rebuilds_existing_client_flow_and_preserves_other_tag
     )
     .await
     .is_err());
-    handle.shutdown().await.unwrap();
+    running.shutdown().await.unwrap();
 }

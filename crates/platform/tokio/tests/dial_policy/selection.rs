@@ -100,6 +100,9 @@ fn explicit_interface_conflicting_with_strict_route_fails_closed() {
         .select_for_peer_with_policy("127.0.0.1:80".parse().unwrap(), &loopback_policy())
         .unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert!(error
+        .to_string()
+        .contains("conflicts with strict-route egress"));
 }
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]

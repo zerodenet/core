@@ -8,7 +8,9 @@ server selection and fallback chain. The override never allocates Fake-IP.
 
 An OS/System resolver still uses `lookup_host`; the family setting filters its
 returned candidates and does not claim to control the OS resolver's wire queries.
-IPv4-mapped IPv6 candidates are normalized to IPv4 before family filtering.
+Strict-policy IPv4-mapped IPv6 candidates are normalized to IPv4 before family
+filtering. Automatic DNS results retain their original RR representation; the
+socket dialing boundary canonicalizes addresses independently.
 
 Success caches, negative results, and in-flight coalescing isolate the per-call
 family constraint as well as role, committed DNS configuration generation, and

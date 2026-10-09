@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use zero_config::RuntimeConfig;
 use zero_engine::{
     Engine, EngineRuntimeSnapshot, ResolvedLeafOutbound, ResolvedOutbound, RouteDecision,

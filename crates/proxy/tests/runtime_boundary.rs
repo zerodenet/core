@@ -547,7 +547,10 @@ fn production_protocol_registry_is_assembled_only_in_register() {
 fn engine_resolved_proxy_leaf_carries_only_opaque_identity() {
     let resolve = read(&workspace_root().join("crates/engine/src/plan/resolve.rs"));
     let plan = read(&workspace_root().join("crates/engine/src/plan/mod.rs"));
-    assert!(resolve.contains("Proxy { identity: OutboundIdentity }"));
+    assert!(resolve
+        .split_whitespace()
+        .collect::<String>()
+        .contains("Proxy{identity:OutboundIdentity,}"));
     assert!(!resolve.contains("pub fn protocol_name(&self)"));
     assert!(!resolve.contains("pub fn proxy_endpoint(&self)"));
     assert!(!resolve.contains("outbound_index: usize,"));
@@ -4804,7 +4807,13 @@ fn claimed_outbound_leaf_owns_capability_preparation() {
     assert!(!capability.contains("trait OutboundLeafClaimCapability"));
     assert!(registry_mod.contains("trait OutboundLeafClaimer"));
     assert!(build.contains("type OutboundLeafClaimFn"));
-    assert!(outbound.contains("entry.outbound.claim_outbound_leaf(input)"));
+    assert!(outbound.contains("entry.outbound.claim_outbound_leaf(input.clone())"));
+    assert_eq!(
+        outbound
+            .matches("entry.outbound.claim_outbound_leaf(")
+            .count(),
+        1
+    );
     assert!(outbound.contains("fn claim_outbound_hooks<'a>("));
     assert!(!outbound.contains("claim_tcp_outbound_leaf(leaf.clone())"));
     assert!(!outbound.contains("claim_udp_flow_leaf(leaf.clone())"));

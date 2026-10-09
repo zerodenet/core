@@ -26,7 +26,6 @@ fn prepare(
     selection: &EgressSelection,
 ) -> io::Result<PreparedDial> {
     let peer = policy.normalize_peer(peer).map_err(invalid_policy)?;
-    let interfaces = inventory_for(policy)?;
     selection.ensure_connectable()?;
     if selection.dial_policy.as_ref() != Some(policy) {
         return Err(io::Error::new(
@@ -34,6 +33,7 @@ fn prepare(
             "egress selection was not prepared for this dial policy",
         ));
     }
+    let interfaces = inventory_for(policy)?;
     let interface = selection.interface().cloned();
     if let Some(name) = &policy.interface {
         let local = interfaces

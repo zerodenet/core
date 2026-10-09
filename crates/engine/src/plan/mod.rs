@@ -3,10 +3,10 @@
 mod dial;
 mod resolve;
 
-pub use resolve::{OutboundIdentity, ResolvedLeafOutbound, ResolvedOutbound};
 pub(crate) use resolve::{
     resolve_target_chains, resolve_target_id, resolve_target_id_with_urltest_selector,
 };
+pub use resolve::{OutboundIdentity, ResolvedLeafOutbound, ResolvedOutbound};
 
 use std::collections::HashMap;
 use std::time::Duration;

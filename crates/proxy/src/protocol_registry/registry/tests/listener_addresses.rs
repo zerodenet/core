@@ -192,16 +192,17 @@ async fn registered_tcp_adapters_bind_ipv6_literals() {
             continue;
         }
         for address in ["::1", "[::1]", "::", "[::]"] {
-            let inbound = zero_config::InboundConfig {
+            let mut inbound = zero_config::InboundConfig {
                 tag: "tcp-ipv6".to_owned(),
                 listen: zero_config::ListenConfig {
                     address: address.to_owned(),
                     port: 0,
                 },
                 protocol: protocol.clone(),
-                udp: zero_config::UdpPolicyConfig { enabled: false },
+                udp: Default::default(),
                 idle_timeout_secs: None,
             };
+            inbound.udp.enabled = false;
             let listener = registry
                 .bind_inbound(&inbound, None)
                 .await

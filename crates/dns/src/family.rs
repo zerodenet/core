@@ -78,6 +78,11 @@ pub(crate) fn filter_addresses(
     addresses: Vec<IpAddress>,
     family: AddressFamily,
 ) -> io::Result<Vec<IpAddress>> {
+    // Automatic resolution preserves the resolver's original RR representation;
+    // socket-level dialing canonicalizes candidates independently.
+    if family == AddressFamily::Auto {
+        return Ok(addresses);
+    }
     let addresses: Vec<_> = addresses
         .into_iter()
         .map(
@@ -88,7 +93,7 @@ pub(crate) fn filter_addresses(
         )
         .filter(|address| family.allows(crate::ip_address_to_std(*address)))
         .collect();
-    if addresses.is_empty() && family != AddressFamily::Auto {
+    if addresses.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!("DNS name `{domain}` has no addresses allowed by {family:?}"),

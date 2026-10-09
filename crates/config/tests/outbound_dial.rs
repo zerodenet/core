@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use zero_config::{OutboundAddressFamily, OutboundDialConfig, RuntimeConfig};
 use zero_traits::AddressFamily;
 

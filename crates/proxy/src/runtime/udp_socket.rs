@@ -37,6 +37,9 @@ pub(crate) struct DirectUdpSockets {
     preferred_port: Option<u16>,
     generation: u64,
     next_socket_id: u64,
+    // Wire identity must never be recycled within a dispatcher, even after a
+    // socket closes. A per-family bitmap bounds retention to 16 KiB.
+    used_ports: Box<[u64; 2048]>,
     isolated_sessions: HashMap<u64, u64>,
     // Socket identity includes the policy and association, unlike a remote
     // endpoint alone. Even unscoped sockets require an exact registered peer.
@@ -85,9 +88,26 @@ impl DirectUdpSockets {
             sockets: Vec::new(),
             preferred_port,
             next_socket_id: 0,
+            used_ports: Box::new([0; 2048]),
             isolated_sessions: HashMap::new(),
             response_flows: HashMap::new(),
         }
+    }
+
+    fn port_was_used(&self, ipv6: bool, port: u16) -> bool {
+        let bit = usize::from(port) + if ipv6 { 65_536 } else { 0 };
+        self.used_ports[bit / 64] & (1_u64 << (bit % 64)) != 0
+    }
+
+    fn reserve_local_port(&mut self, local: SocketAddr) -> bool {
+        let bit = usize::from(local.port()) + if local.is_ipv6() { 65_536 } else { 0 };
+        let mask = 1_u64 << (bit % 64);
+        let word = &mut self.used_ports[bit / 64];
+        if *word & mask != 0 {
+            return false;
+        }
+        *word |= mask;
+        true
     }
 
     pub(crate) fn refresh_if_stale(&mut self) {

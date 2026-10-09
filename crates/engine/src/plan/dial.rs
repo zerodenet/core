@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use zero_config::OutboundRuntimeKind;
 
 use super::{EnginePlan, TargetKind, TargetNode};
@@ -9,7 +11,7 @@ impl EnginePlan {
     pub(crate) fn reconcile_direct_dial_generations(
         &mut self,
         previous: Option<&Self>,
-        next: &std::sync::atomic::AtomicU64,
+        next: &AtomicU64,
     ) {
         for target in self.targets.iter_mut() {
             let TargetKind::Outbound(outbound) = &mut target.kind else {
@@ -26,14 +28,25 @@ impl EnginePlan {
                         && old.dial_policy == outbound.dial_policy
                 })
                 .map(|old| old.dial_generation);
-            outbound.dial_generation = retained.unwrap_or_else(|| {
-                next.fetch_update(
-                    std::sync::atomic::Ordering::Relaxed,
-                    std::sync::atomic::Ordering::Relaxed,
-                    |value| value.checked_add(1),
-                )
-                .expect("direct dial generation exhausted")
-            });
+            outbound.dial_generation = retained.unwrap_or_else(|| allocate_generation(next));
+        }
+    }
+}
+
+fn allocate_generation(next: &AtomicU64) -> u64 {
+    let mut generation = next.load(Ordering::Relaxed);
+    loop {
+        let incremented = generation
+            .checked_add(1)
+            .expect("direct dial generation exhausted");
+        match next.compare_exchange_weak(
+            generation,
+            incremented,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(allocated) => return allocated,
+            Err(current) => generation = current,
         }
     }
 }

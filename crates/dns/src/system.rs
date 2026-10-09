@@ -4,7 +4,7 @@ use std::io;
 use std::net::IpAddr;
 
 use tokio::net::lookup_host;
-use zero_traits::{DnsResolver, IpAddress};
+use zero_traits::{AddressFamily, DnsResolver, IpAddress};
 
 /// Thin wrapper around tokio's `lookup_host` — the OS resolver.
 #[derive(Debug, Clone, Copy)]
@@ -27,8 +27,10 @@ impl TokioSystemResolver {
         self,
         domain: &str,
         query_type: u16,
+        family: AddressFamily,
     ) -> io::Result<Vec<IpAddress>> {
         let addresses = self.resolve(domain).await?;
+        let addresses = crate::family::filter_addresses(domain, addresses, family)?;
         Ok(addresses
             .into_iter()
             .filter(|address| {
@@ -43,8 +45,11 @@ impl TokioSystemResolver {
 }
 
 fn ip_addr_to_ip(addr: IpAddr) -> IpAddress {
-    match zero_traits::canonicalize_ip(addr) {
+    match addr {
         IpAddr::V4(v4) => IpAddress::V4(v4.octets()),
         IpAddr::V6(v6) => IpAddress::V6(v6.octets()),
     }
 }
+
+#[cfg(test)]
+mod tests;
