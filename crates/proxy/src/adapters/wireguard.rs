@@ -254,10 +254,12 @@ impl InboundListenerCapability for WireguardAdapter {
         inbound: &InboundConfig,
         _source_dir: Option<&std::path::Path>,
     ) -> Result<crate::protocol_registry::BoundInbound, EngineError> {
-        let address = crate::protocol_registry::inbound_listen_addr(inbound);
-        let socket = tokio::net::UdpSocket::bind(&address)
-            .await
-            .map_err(EngineError::Io)?;
+        let socket = crate::protocol_registry::bind_datagram_listener(
+            &inbound.listen.address,
+            inbound.listen.port,
+        )
+        .await
+        .map_err(EngineError::Io)?;
         Ok(crate::protocol_registry::BoundInbound::Datagram(
             std::sync::Arc::new(socket).into(),
         ))

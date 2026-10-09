@@ -364,7 +364,9 @@ pub struct TokioListener {
 
 impl TokioListener {
     pub async fn bind_addr(addr: SocketAddr) -> io::Result<Self> {
-        TokioTcpListener::bind(addr).await.map(|inner| Self { inner })
+        TokioTcpListener::bind(addr)
+            .await
+            .map(|inner| Self { inner })
     }
 
     pub async fn bind(addr: &str) -> io::Result<Self> {

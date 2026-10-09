@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use zero_core::Address;
 
 use crate::runtime::udp_flow::outbound::UdpFlowOutbound;
@@ -7,13 +5,6 @@ use crate::runtime::udp_flow::outbound::UdpFlowOutbound;
 use super::model::{UdpFlowKey, UdpSessionFlows, UdpUpstreamResponseKey};
 
 impl UdpSessionFlows {
-    pub(crate) fn direct_response_session_id(&self, sender: SocketAddr) -> Option<u64> {
-        self.direct_by_sender
-            .get(&sender)
-            .and_then(|key| self.flows.get(key))
-            .map(|flow| flow.session.id)
-    }
-
     #[cfg(feature = "upstream-association-runtime")]
     pub(crate) fn upstream_response_session_id(
         &self,
@@ -35,10 +26,6 @@ impl UdpSessionFlows {
         outbound: &UdpFlowOutbound,
     ) {
         let index_keys = outbound.index_keys();
-        if let Some(sender) = index_keys.direct_sender {
-            self.direct_by_sender.insert(sender, key.clone());
-        }
-
         if let Some(tag) = index_keys.upstream_response_tag {
             self.upstream_by_response.insert(
                 UdpUpstreamResponseKey::new(tag, response_target, key.port),
@@ -54,12 +41,6 @@ impl UdpSessionFlows {
         outbound: &UdpFlowOutbound,
     ) {
         let index_keys = outbound.index_keys();
-        if let Some(sender) = index_keys.direct_sender {
-            if self.direct_by_sender.get(&sender) == Some(key) {
-                self.direct_by_sender.remove(&sender);
-            }
-        }
-
         if let Some(tag) = index_keys.upstream_response_tag {
             let response_key = UdpUpstreamResponseKey::new(tag, response_target, key.port);
             if self.upstream_by_response.get(&response_key) == Some(key) {

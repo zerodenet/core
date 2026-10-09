@@ -47,10 +47,10 @@ impl DirectAdapter {
         )?;
         #[cfg(feature = "managed-datagram-runtime")]
         let wants_udp = inbound.udp.enabled;
-        let tcp = zero_platform_tokio::TokioListener::bind(&format!(
-            "{}:{}",
-            inbound.listen.address, inbound.listen.port
-        ))
+        let tcp = crate::protocol_registry::bind_tcp_listener(
+            &inbound.listen.address,
+            inbound.listen.port,
+        )
         .await
         .map_err(EngineError::Io)?;
         #[cfg(feature = "managed-datagram-runtime")]

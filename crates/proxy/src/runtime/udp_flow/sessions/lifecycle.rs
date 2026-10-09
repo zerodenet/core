@@ -115,7 +115,6 @@ impl UdpSessionFlows {
     }
 
     pub(crate) fn finish_all(&mut self) -> Vec<CompletedUdpFlow> {
-        self.direct_by_sender.clear();
         self.upstream_by_response.clear();
 
         self.flows

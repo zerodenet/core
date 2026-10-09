@@ -46,6 +46,15 @@
 
 ## Unreleased
 
+### Direct dial 与 IPv6 监听（v0.0.3）
+
+- `OutboundConfig.dial` 新增可选 `address_family`（`auto` / `only_ipv4` / `only_ipv6`）、`interface` 和 `source_ip`。省略与默认值保持旧行为；非默认策略首期仅用于 Direct TCP/UDP。接口与源地址必须存在且归属相符，启动/重载准备与实际拨号均校验；失败不能撤销约束重试。
+- `direct_outbound_dial_policy_v1` 表示此能力。原始 PacketSink 与 ICMP 不支持非默认 dial；`auto` 的 TCP/UDP 转为受限 Flow。既有 TCP 保留旧策略，仅策略变更的 Direct UDP 失效重建，期间允许短暂丢包。
+- 业务 DNS 的严格族覆盖仅作用于所选 Direct 解析，不改变全局 DNS 上游 socket、Node 或控制面默认值。System resolver 只保证候选过滤与实际拨号族。
+- 监听 IP 使用结构化端点；合法裸/括号 IPv6 归一化。`::` 是否接受 IPv4 保留 OS 默认，不保证跨平台 dual-stack，也不保证双 wildcard 同端口共存。
+- 进程内 Rust 集成：`OutboundConfig` 字面量添加 `dial: Default::default()`；`ResolvedLeafOutbound::Direct` 添加 `dial_policy` 与 `dial_generation`，只匹配 tag 的模式使用 `..`。wire API/event V1 标识不变。
+- 内部边界与测试契约见 `docs/project/direct-dial-policy.md` 和 `docs/project/listen-addresses.md`。
+
 <!-- Record implemented but unsealed compatibility changes here. -->
 
 - VMess `cipher: zero` 现采用 Xray 标准的 NONE（0x05）、无 ChunkStream body 语义。此前使用 Zero 私有 0x06 格式的节点必须将配置显式改为 `cipher: zero-plus`，并协调两端升级；不保留含糊别名。标准 `zero` 与私有 `zero-plus` 不可互换。

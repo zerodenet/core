@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 
 use zero_core::{Address, Session};
@@ -67,7 +66,6 @@ pub(crate) struct CompletedUdpFlow {
 #[derive(Debug, Default)]
 pub(crate) struct UdpSessionFlows {
     pub(super) flows: HashMap<UdpFlowKey, UdpFlow>,
-    pub(super) direct_by_sender: HashMap<SocketAddr, UdpFlowKey>,
     pub(super) upstream_by_response: HashMap<UdpUpstreamResponseKey, UdpFlowKey>,
 }
 

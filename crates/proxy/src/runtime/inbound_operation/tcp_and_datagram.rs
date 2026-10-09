@@ -63,7 +63,8 @@ where
                 )
             } else {
                 let socket =
-                    tokio::net::UdpSocket::bind(format!("{listen_address}:{listen_port}")).await?;
+                    crate::protocol_registry::bind_datagram_listener(&listen_address, listen_port)
+                        .await?;
                 (
                     bound,
                     Some(std::sync::Arc::new(socket)),

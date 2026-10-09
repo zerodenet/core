@@ -197,14 +197,11 @@ fn validate_control_grpc(
         .listen
         .as_ref()
         .expect("control listen was validated before gRPC policy");
-    let listen_ip = listen
-        .address
-        .parse::<std::net::IpAddr>()
-        .map_err(|error| {
-            ConfigError::InvalidApi(format!(
-                "`api.control.listen.address` must be an IP address: {error}"
-            ))
-        })?;
+    let listen_ip = zero_core::address::parse_ip_literal(&listen.address)
+        .ok_or_else(|| {
+            ConfigError::InvalidApi("`api.control.listen.address` must be an IP address".to_owned())
+        })?
+        .to_canonical();
     if grpc.tls.is_none() && !listen_ip.is_loopback() && !grpc.allow_insecure_remote {
         return Err(ConfigError::InvalidApi(
             "plaintext gRPC on a non-loopback control listener requires `api.control.grpc.allow_insecure_remote: true` or native TLS"

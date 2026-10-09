@@ -48,6 +48,23 @@ impl ProtocolInventory {
         Ok(())
     }
 
+    pub(crate) fn validate_dial_environment(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Result<(), EngineError> {
+        for outbound in &config.outbounds {
+            zero_platform_tokio::validate_dial_policy(&outbound.dial.to_policy()).map_err(
+                |error| {
+                    EngineError::Io(std::io::Error::new(
+                        error.kind(),
+                        format!("outbound `{}` dial validation: {error}", outbound.tag),
+                    ))
+                },
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn supports_inbound_protocol(&self, protocol: &InboundProtocolConfig) -> bool {
         self.registry.supports_inbound(protocol)
     }

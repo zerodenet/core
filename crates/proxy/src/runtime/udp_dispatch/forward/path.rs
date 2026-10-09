@@ -33,7 +33,14 @@ impl UdpDispatch {
                     unreachable!("Direct category maps to Direct variant only");
                 };
                 match self
-                    .send_direct_packet(flow.session.id, target_addr, payload)
+                    .send_direct_packet(
+                        flow.session.id,
+                        target_addr,
+                        flow.outbound
+                            .direct_policy()
+                            .expect("Direct flow has a dial policy"),
+                        payload,
+                    )
                     .await
                 {
                     Ok(sent) => {
@@ -41,6 +48,11 @@ impl UdpDispatch {
                     }
                     Err(error) => {
                         self.fail_flow(flow, started_at, "udp_direct_send", &error);
+                        if flow.outbound.direct_policy().is_some_and(|policy| {
+                            !services.network().direct_policy_is_current(policy)
+                        }) {
+                            self.flow_start_backoff.clear(&flow.key);
+                        }
                         return Err(error);
                     }
                 }

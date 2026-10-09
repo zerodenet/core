@@ -42,14 +42,8 @@ pub(super) async fn bind(
     let endpoint = plan.bind(&inbound_listen_addr(inbound)).await?;
     let mut listeners = vec![BoundInbound::Quic(endpoint)];
     for listen in masquerade.http.iter().chain(masquerade.https.iter()) {
-        let address = listen.address.trim_matches(['[', ']']);
-        let address = if address.contains(':') {
-            format!("[{address}]:{}", listen.port)
-        } else {
-            format!("{address}:{}", listen.port)
-        };
         listeners.push(BoundInbound::Tcp(
-            zero_platform_tokio::TokioListener::bind(&address).await?,
+            crate::protocol_registry::bind_tcp_listener(&listen.address, listen.port).await?,
         ));
     }
     if listeners.len() == 1 {

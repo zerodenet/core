@@ -49,8 +49,11 @@ pub(super) async fn refresh_recovered_ipv4_candidates(
     resolver: &DnsSystem,
     port: u16,
     mut candidates: Vec<SocketAddr>,
+    family: zero_traits::AddressFamily,
 ) -> std::io::Result<Vec<SocketAddr>> {
-    let resolved = resolver.resolve_direct(&refresh.domain).await?;
+    let resolved = resolver
+        .resolve_direct_with_family(&refresh.domain, family)
+        .await?;
     append_unique_resolved_candidates(&mut candidates, resolved, port);
     Ok(candidates)
 }

@@ -41,11 +41,7 @@ pub(super) struct QueryKey {
 }
 
 impl QueryKey {
-    pub(super) fn new(
-        domain: &str,
-        query_type: u16,
-        scope: QueryScope,
-    ) -> Self {
+    pub(super) fn new(domain: &str, query_type: u16, scope: QueryScope) -> Self {
         Self {
             domain: domain.to_owned(),
             query_type,
@@ -122,7 +118,10 @@ where
         let now = Instant::now();
         let (flight, leader) = {
             let mut state = self.state.lock().await;
-            if state.observed_egress_generation.is_some_and(|observed| key.scope.egress_generation < observed) {
+            if state
+                .observed_egress_generation
+                .is_some_and(|observed| key.scope.egress_generation < observed)
+            {
                 return Err(io::Error::new(
                     io::ErrorKind::NotConnected,
                     "DNS query belongs to an obsolete TUN egress generation",

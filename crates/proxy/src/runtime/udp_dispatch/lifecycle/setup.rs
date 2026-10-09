@@ -8,15 +8,14 @@ use crate::runtime::udp_flow::state::UdpFlowState;
 use crate::runtime::udp_socket::DirectUdpSockets;
 
 impl UdpDispatch {
-    /// Create a new dispatcher with an ephemeral direct socket.
+    /// Create a dispatcher; Direct sockets are opened only when needed.
     pub(crate) async fn new(
         runtime: crate::runtime::udp_ingress::UdpIngressRuntime,
         inbound_tag: &str,
         protocols: &crate::inventory::ProtocolInventory,
     ) -> Result<Self, EngineError> {
         let preferred_port = runtime.source_addr().map(|source| source.port());
-        let direct_socket =
-            DirectUdpSockets::bind(&runtime.services().network(), preferred_port).await?;
+        let direct_socket = DirectUdpSockets::new(runtime.services().network(), preferred_port);
         let (cancel_tx, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(Self {
             runtime,
@@ -39,12 +38,11 @@ impl UdpDispatch {
         &mut self,
         session_id: u64,
         target_addr: SocketAddr,
+        policy: &crate::runtime::udp_socket::DirectUdpPolicy,
         payload: &[u8],
     ) -> Result<usize, EngineError> {
-        self.refresh_direct_sockets().await?;
-        let network = self.runtime.services().network();
         self.direct_socket
-            .send_to_addr(&network, payload, target_addr, session_id)
+            .send_to_addr(payload, target_addr, session_id, policy)
             .await
     }
 
@@ -53,32 +51,19 @@ impl UdpDispatch {
         session_id: u64,
         logical_target: &zero_core::Address,
         candidates: &[SocketAddr],
+        policy: &crate::runtime::udp_socket::DirectUdpPolicy,
         payload: &[u8],
-    ) -> Result<(usize, SocketAddr), EngineError> {
-        self.refresh_direct_sockets().await?;
-        let target_addr = self
-            .direct_socket
-            .select_target(logical_target, candidates)?;
+    ) -> Result<crate::runtime::udp_socket::DirectUdpSentPacket, EngineError> {
         let sent = self
             .direct_socket
-            .send_to_addr(
-                &self.runtime.services().network(),
-                payload,
-                target_addr,
-                session_id,
-            )
+            .send_new_packet(logical_target, candidates, payload, session_id, policy)
             .await?;
         tracing::debug!(
-            target = %target_addr,
+            target = %sent.target,
             egress_generation = self.direct_socket.generation(),
             candidate_count = candidates.len(),
             "selected direct UDP target"
         );
-        Ok((sent, target_addr))
-    }
-
-    async fn refresh_direct_sockets(&mut self) -> Result<(), EngineError> {
-        let network = self.runtime.services().network();
-        self.direct_socket.refresh_if_stale(&network).await
+        Ok(sent)
     }
 }

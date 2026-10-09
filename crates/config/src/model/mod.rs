@@ -272,6 +272,7 @@ impl ModeConfig {
 }
 
 mod api;
+mod dial;
 mod dns;
 mod endpoint;
 mod inbound;
@@ -286,6 +287,7 @@ pub use mkcp::MkcpConfig;
 mod tun;
 
 pub use api::*;
+pub use dial::*;
 pub use dns::*;
 pub use endpoint::*;
 pub use inbound::*;

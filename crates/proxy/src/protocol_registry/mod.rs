@@ -56,7 +56,9 @@ pub(crate) use context::{
     PacketPathExecutionServices, UdpAdapterContext, UdpAssociationCloseKind, UdpNetworkServices,
     UdpRuntimeServices,
 };
-pub(crate) use defaults::{bind_tcp_inbound, inbound_listen_addr};
+#[cfg(feature = "udp-runtime")]
+pub(crate) use defaults::bind_datagram_listener;
+pub(crate) use defaults::{bind_tcp_inbound, bind_tcp_listener, inbound_listen_addr};
 pub(crate) use model::{BoundInbound, OutboundLeafRuntime};
 pub(crate) use registry::ClaimedOutboundLeaf;
 pub(crate) use registry::ProtocolRegistry;

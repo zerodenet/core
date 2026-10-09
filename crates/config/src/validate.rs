@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::{ConfigError, EventSinkConfig, ModeConfig, RuntimeConfig, RuntimeOptionsConfig};
 
 mod api;
+mod dial;
 mod dns;
 mod fallback;
 mod group;
@@ -31,7 +32,7 @@ impl RuntimeConfig {
         for (i, inbound) in self.inbounds.iter().enumerate() {
             validate_tag("inbound", &inbound.tag, &mut inbound_tags)
                 .map_err(|e| ConfigError::InvalidInbound(format!("inbounds[{i}]: {e}")))?;
-            validate_inbound_listen(
+            listeners::validate_inbound_listen(
                 &mut inbound_listens,
                 &inbound.listen.address,
                 inbound.listen.port,
@@ -52,6 +53,9 @@ impl RuntimeConfig {
             validate_tag("outbound", &outbound.tag, &mut outbound_tags)
                 .map_err(|e| ConfigError::InvalidOutbound(format!("outbounds[{i}]: {e}")))?;
             validate_outbound_protocol(&outbound.protocol).map_err(|e| {
+                ConfigError::InvalidOutbound(format!("outbounds[{i}] `{}`: {e}", outbound.tag))
+            })?;
+            dial::validate_outbound_dial(outbound).map_err(|e| {
                 ConfigError::InvalidOutbound(format!("outbounds[{i}] `{}`: {e}", outbound.tag))
             })?;
             validate_route_target_tag(outbound.tag(), &mut route_target_tags)?;
@@ -615,22 +619,5 @@ pub(crate) fn validate_latency_test_url(scope: &str, url: &str) -> Result<(), Co
             "{scope} currently only supports `http://` URLs"
         )));
     }
-    Ok(())
-}
-
-fn validate_inbound_listen(
-    seen: &mut HashSet<(String, u16)>,
-    address: &str,
-    port: u16,
-) -> Result<(), ConfigError> {
-    let key = (address.to_owned(), port);
-
-    if !seen.insert(key.clone()) {
-        return Err(ConfigError::DuplicateInboundListen {
-            address: key.0,
-            port: key.1,
-        });
-    }
-
     Ok(())
 }

@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use zero_config::RuntimeConfig;
 use zero_router::RuleSet;
@@ -34,5 +34,22 @@ impl EngineRuntimeSnapshot {
 
     pub fn plan(&self) -> &Arc<EnginePlan> {
         &self.plan
+    }
+
+    /// Immutable Direct policy identity for a concrete outbound. `None`
+    /// identifies the implicit route action, independent of a tag named direct.
+    pub fn direct_dial_policy(&self, tag: Option<&str>) -> Option<(zero_traits::DialPolicy, u64)> {
+        let Some(tag) = tag else {
+            return Some((zero_traits::DialPolicy::default(), 0));
+        };
+        let outbound = self.plan.target(self.plan.target_id(tag)?)?.as_outbound()?;
+        (outbound.runtime_kind() == zero_config::OutboundRuntimeKind::Direct)
+            .then(|| (outbound.dial_policy().clone(), outbound.dial_generation()))
+    }
+}
+
+impl super::Engine {
+    pub fn direct_dial_policy(&self, tag: Option<&str>) -> Option<(zero_traits::DialPolicy, u64)> {
+        self.runtime_snapshot().direct_dial_policy(tag)
     }
 }

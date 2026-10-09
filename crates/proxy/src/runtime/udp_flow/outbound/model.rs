@@ -20,6 +20,7 @@ pub(crate) enum UdpFlowOutbound {
     Direct {
         tag: String,
         target_addr: SocketAddr,
+        policy: crate::runtime::udp_socket::DirectUdpPolicy,
     },
     #[cfg(any(
         feature = "upstream-association-runtime",
@@ -61,7 +62,6 @@ pub(crate) enum UdpFlowOutbound {
 
 #[cfg(feature = "udp-runtime")]
 pub(in crate::runtime::udp_flow) struct UdpFlowIndexKeys<'a> {
-    pub(in crate::runtime::udp_flow) direct_sender: Option<SocketAddr>,
     pub(in crate::runtime::udp_flow) upstream_response_tag: Option<&'a str>,
 }
 

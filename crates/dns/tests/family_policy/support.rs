@@ -53,7 +53,14 @@ impl Fixture {
                 }
             })
         };
-        Self { port, addresses, queries, received, permits, task }
+        Self {
+            port,
+            addresses,
+            queries,
+            received,
+            permits,
+            task,
+        }
     }
 
     pub(super) fn server(&self) -> DnsServerConfig {
@@ -72,7 +79,10 @@ impl Fixture {
             dispatch: Vec::new(),
             reverse_mapping: None,
             answer: zero_config::DnsAnswerConfig::Real,
-            cache: Some(DnsCacheConfig { max_entries: 32, max_ttl_seconds: None }),
+            cache: Some(DnsCacheConfig {
+                max_entries: 32,
+                max_ttl_seconds: None,
+            }),
             policy: zero_config::DnsPolicyConfig {
                 address_family: family,
                 timeout_ms: 1500,
@@ -94,7 +104,9 @@ impl Fixture {
             while self.queries.lock().unwrap().len() < count {
                 self.received.notified().await;
             }
-        }).await.expect("DNS fixture did not receive the expected independent queries");
+        })
+        .await
+        .expect("DNS fixture did not receive the expected independent queries");
     }
 
     pub(super) fn release(&self) {
@@ -103,5 +115,7 @@ impl Fixture {
 }
 
 impl Drop for Fixture {
-    fn drop(&mut self) { self.task.abort(); }
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }

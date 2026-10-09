@@ -189,6 +189,7 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
         ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
             Ok(Box::new(
                 crate::runtime::tcp_dispatch::operation::DirectTcpConnectOperation {
+                    dial_policy: Default::default(),
                     tag: "claimed".to_owned(),
                 },
             ))
@@ -210,6 +211,9 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
             _source_dir: Option<&std::path::Path>,
         ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
             Ok(Box::new(DirectUdpFlowOperation {
+                dial_policy: Default::default(),
+                policy_tag: None,
+                dial_generation: 0,
                 tag: "claimed".to_owned(),
             }))
         }
@@ -376,6 +380,7 @@ fn registry_executes_adapter_claimed_udp_leaf_operations() {
             _source_dir: Option<&std::path::Path>,
         ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
             Ok(Box::new(DirectTcpConnectOperation {
+                dial_policy: Default::default(),
                 tag: "fake-claimed-udp".to_owned(),
             }))
         }
@@ -530,6 +535,7 @@ fn registry_executes_adapter_claimed_udp_packet_path_operations() {
             _source_dir: Option<&std::path::Path>,
         ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
             Ok(Box::new(DirectTcpConnectOperation {
+                dial_policy: Default::default(),
                 tag: "fake-claimed-udp-packet-path".to_owned(),
             }))
         }

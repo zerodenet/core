@@ -22,9 +22,17 @@ impl OutboundIdentity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedLeafOutbound<'a> {
-    Direct { tag: Option<&'a str> },
-    Block { tag: Option<&'a str> },
-    Proxy { identity: OutboundIdentity },
+    Direct {
+        tag: Option<&'a str>,
+        dial_policy: zero_traits::DialPolicy,
+        dial_generation: u64,
+    },
+    Block {
+        tag: Option<&'a str>,
+    },
+    Proxy {
+        identity: OutboundIdentity,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,7 +225,11 @@ fn resolve_leaf_outbound<'a>(
     outbound: &'a OutboundTarget,
 ) -> ResolvedLeafOutbound<'a> {
     match outbound.runtime_kind() {
-        OutboundRuntimeKind::Direct => ResolvedLeafOutbound::Direct { tag: Some(tag) },
+        OutboundRuntimeKind::Direct => ResolvedLeafOutbound::Direct {
+            tag: Some(tag),
+            dial_policy: outbound.dial_policy().clone(),
+            dial_generation: outbound.dial_generation(),
+        },
         OutboundRuntimeKind::Block => ResolvedLeafOutbound::Block { tag: Some(tag) },
         OutboundRuntimeKind::Proxy => ResolvedLeafOutbound::Proxy {
             identity: OutboundIdentity::from_config_index(outbound.outbound_index()),

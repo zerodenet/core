@@ -37,7 +37,11 @@ async fn separates_a_and_aaaa_entries() {
     ));
     assert!(matches!(
         cache
-            .get(QueryScope::new(DnsQueryRole::Default, 0), "EXAMPLE.COM.", 28)
+            .get(
+                QueryScope::new(DnsQueryRole::Default, 0),
+                "EXAMPLE.COM.",
+                28
+            )
             .await
             .as_deref(),
         Some([IpAddress::V6(_)])
@@ -48,14 +52,34 @@ async fn separates_a_and_aaaa_entries() {
 async fn evicts_least_recently_used_entry() {
     let cache = cache(2);
     cache
-        .put(QueryScope::new(DnsQueryRole::Default, 0), "one.test", 1, vec![], 60)
+        .put(
+            QueryScope::new(DnsQueryRole::Default, 0),
+            "one.test",
+            1,
+            vec![],
+            60,
+        )
         .await;
     cache
-        .put(QueryScope::new(DnsQueryRole::Default, 0), "two.test", 1, vec![], 60)
+        .put(
+            QueryScope::new(DnsQueryRole::Default, 0),
+            "two.test",
+            1,
+            vec![],
+            60,
+        )
         .await;
-    let _ = cache.get(QueryScope::new(DnsQueryRole::Default, 0), "one.test", 1).await;
+    let _ = cache
+        .get(QueryScope::new(DnsQueryRole::Default, 0), "one.test", 1)
+        .await;
     cache
-        .put(QueryScope::new(DnsQueryRole::Default, 0), "three.test", 1, vec![], 60)
+        .put(
+            QueryScope::new(DnsQueryRole::Default, 0),
+            "three.test",
+            1,
+            vec![],
+            60,
+        )
         .await;
     assert!(cache
         .get(QueryScope::new(DnsQueryRole::Default, 0), "one.test", 1)

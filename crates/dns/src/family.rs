@@ -80,10 +80,12 @@ pub(crate) fn filter_addresses(
 ) -> io::Result<Vec<IpAddress>> {
     let addresses: Vec<_> = addresses
         .into_iter()
-        .map(|address| match canonicalize_ip(crate::ip_address_to_std(address)) {
-            IpAddr::V4(ip) => IpAddress::V4(ip.octets()),
-            IpAddr::V6(ip) => IpAddress::V6(ip.octets()),
-        })
+        .map(
+            |address| match canonicalize_ip(crate::ip_address_to_std(address)) {
+                IpAddr::V4(ip) => IpAddress::V4(ip.octets()),
+                IpAddr::V6(ip) => IpAddress::V6(ip.octets()),
+            },
+        )
         .filter(|address| family.allows(crate::ip_address_to_std(*address)))
         .collect();
     if addresses.is_empty() && family != AddressFamily::Auto {

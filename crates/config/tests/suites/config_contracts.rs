@@ -10,3 +10,8 @@ mod connector_webhook;
 mod endpoints;
 #[path = "../schema_version.rs"]
 mod schema_version;
+
+#[path = "../listener_addresses.rs"]
+mod listener_addresses;
+#[path = "../outbound_dial.rs"]
+mod outbound_dial;

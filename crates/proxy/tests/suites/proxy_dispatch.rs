@@ -7,6 +7,8 @@ mod support;
 mod direct;
 #[path = "../direct_datagram.rs"]
 mod direct_datagram;
+#[path = "../direct_dial.rs"]
+mod direct_dial;
 #[path = "../direct_udp_policy.rs"]
 mod direct_udp_policy;
 #[path = "../http.rs"]

@@ -1,6 +1,7 @@
 //! Auxiliary TCP claims share the authoritative inbound conflict check.
 use crate::{ConfigError, InboundProtocolConfig, OutboundProtocolConfig, RuntimeConfig};
 use std::collections::HashSet;
+use zero_core::address::listen_hosts_overlap;
 
 #[derive(Clone)]
 struct Claim {
@@ -82,7 +83,7 @@ pub(super) fn validate_auxiliary_listeners(config: &RuntimeConfig) -> Result<(),
         for other in &claims[..i] {
             if (claim.auxiliary || other.auxiliary)
                 && claim.port == other.port
-                && overlaps(&claim.address, &other.address)
+                && listen_hosts_overlap(&claim.address, &other.address)
             {
                 if claim.browser.is_some()
                     && claim.browser == other.browser
@@ -99,22 +100,21 @@ pub(super) fn validate_auxiliary_listeners(config: &RuntimeConfig) -> Result<(),
     }
     Ok(())
 }
-fn overlaps(a: &str, b: &str) -> bool {
-    let a = a.trim_matches(['[', ']']);
-    let b = b.trim_matches(['[', ']']);
-    if a.eq_ignore_ascii_case(b) {
-        return true;
+/// The same canonical/wildcard policy applies to primary and auxiliary listeners.
+pub(super) fn validate_inbound_listen(
+    seen: &mut HashSet<(String, u16)>,
+    address: &str,
+    port: u16,
+) -> Result<(), ConfigError> {
+    if seen
+        .iter()
+        .any(|(other, other_port)| port == *other_port && listen_hosts_overlap(address, other))
+    {
+        return Err(ConfigError::DuplicateInboundListen {
+            address: address.to_owned(),
+            port,
+        });
     }
-    match (a.parse::<std::net::IpAddr>(), b.parse::<std::net::IpAddr>()) {
-        (Ok(a), Ok(b)) => {
-            let a = a.to_canonical();
-            let b = b.to_canonical();
-            // IPv6 wildcard sockets can also claim IPv4; reject the portable conflict.
-            a == b
-                || ((a.is_unspecified() || b.is_unspecified()) && a.is_ipv4() == b.is_ipv4())
-                || (a.is_ipv6() && a.is_unspecified())
-                || (b.is_ipv6() && b.is_unspecified())
-        }
-        _ => false,
-    }
+    seen.insert((address.to_owned(), port));
+    Ok(())
 }

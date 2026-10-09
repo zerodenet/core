@@ -32,9 +32,7 @@ impl UdpDispatch {
         &self,
         sender: DirectUdpResponseSource,
     ) -> Option<u64> {
-        sender
-            .session_id
-            .or_else(|| self.flows.direct_response_session_id(sender.sender))
+        sender.session_id
     }
 
     /// Look up a session ID by target+port only, regardless of outbound type.

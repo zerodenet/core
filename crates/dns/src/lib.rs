@@ -686,8 +686,13 @@ impl DnsSystem {
                     .await
             }
             None => {
-                self.resolve_system_type_coordinated(&domain, message::TYPE_A, DnsQueryRole::Direct, config_generation)
-                    .await
+                self.resolve_system_type_coordinated(
+                    &domain,
+                    message::TYPE_A,
+                    DnsQueryRole::Direct,
+                    config_generation,
+                )
+                .await
             }
         }
     }
@@ -718,8 +723,18 @@ impl DnsSystem {
             Some(snapshot) => resolve_snapshot(&domain, role, snapshot).await,
             None => {
                 let (ipv4, ipv6) = tokio::join!(
-                    self.resolve_system_type_coordinated(&domain, message::TYPE_A, role, config_generation),
-                    self.resolve_system_type_coordinated(&domain, message::TYPE_AAAA, role, config_generation),
+                    self.resolve_system_type_coordinated(
+                        &domain,
+                        message::TYPE_A,
+                        role,
+                        config_generation
+                    ),
+                    self.resolve_system_type_coordinated(
+                        &domain,
+                        message::TYPE_AAAA,
+                        role,
+                        config_generation
+                    ),
                 );
                 combine_address_families(ipv4, ipv6)
             }
@@ -745,8 +760,13 @@ impl DnsSystem {
                 resolve_snapshot_type(&domain, query_type, DnsQueryRole::Default, snapshot).await
             }
             None => {
-                self.resolve_system_type_coordinated(&domain, query_type, DnsQueryRole::Default, config_generation)
-                    .await
+                self.resolve_system_type_coordinated(
+                    &domain,
+                    query_type,
+                    DnsQueryRole::Default,
+                    config_generation,
+                )
+                .await
             }
         }
     }
@@ -801,8 +821,14 @@ impl DnsSystem {
         role: DnsQueryRole,
         config_generation: u64,
     ) -> io::Result<Vec<IpAddress>> {
-        self.resolve_system_type_with_family_coordinated(domain, query_type, role, AddressFamily::Auto, config_generation)
-            .await
+        self.resolve_system_type_with_family_coordinated(
+            domain,
+            query_type,
+            role,
+            AddressFamily::Auto,
+            config_generation,
+        )
+        .await
     }
 
     async fn resolve_system_type_with_family_coordinated(
@@ -921,7 +947,10 @@ impl DnsSystem {
         {
             if let Some(cached) = cache
                 .get_response(
-                    snapshot.as_ref().expect("configured cache").query_scope(DnsQueryRole::Default),
+                    snapshot
+                        .as_ref()
+                        .expect("configured cache")
+                        .query_scope(DnsQueryRole::Default),
                     &question.domain,
                     question.query_type,
                     query,
@@ -1037,7 +1066,10 @@ impl DnsSystem {
                         {
                             cache
                                 .put_response(
-                                    snapshot.as_ref().expect("configured cache").query_scope(DnsQueryRole::Default),
+                                    snapshot
+                                        .as_ref()
+                                        .expect("configured cache")
+                                        .query_scope(DnsQueryRole::Default),
                                     &question.domain,
                                     question.query_type,
                                     DnsWireCacheValue {
@@ -1209,7 +1241,10 @@ async fn resolve_snapshot_type(
 ) -> io::Result<Vec<IpAddress>> {
     // 1. Check cache.
     if let Some(ref cache) = snapshot.cache {
-        if let Some(ips) = cache.get(snapshot.query_scope(role), domain, query_type).await {
+        if let Some(ips) = cache
+            .get(snapshot.query_scope(role), domain, query_type)
+            .await
+        {
             return Ok(ips);
         }
     }
@@ -1237,7 +1272,8 @@ async fn resolve_snapshot_type_uncached(
         .await
         .and_then(|(_, mut parsed)| {
             if parsed.response_code == message::RCODE_NOERROR {
-                parsed.addresses = family::filter_addresses(domain, parsed.addresses, snapshot.family)?;
+                parsed.addresses =
+                    family::filter_addresses(domain, parsed.addresses, snapshot.family)?;
             }
             match parsed.response_code {
                 message::RCODE_NOERROR if parsed.addresses.is_empty() => Err(io::Error::new(

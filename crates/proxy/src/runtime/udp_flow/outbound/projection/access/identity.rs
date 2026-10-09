@@ -41,6 +41,13 @@ impl UdpFlowOutbound {
         }
     }
 
+    pub(crate) fn direct_policy(&self) -> Option<&crate::runtime::udp_socket::DirectUdpPolicy> {
+        match self {
+            Self::Direct { policy, .. } => Some(policy),
+            _ => None,
+        }
+    }
+
     pub(crate) fn direct_target_addr(&self) -> Option<std::net::SocketAddr> {
         match self {
             Self::Direct { target_addr, .. } => Some(*target_addr),

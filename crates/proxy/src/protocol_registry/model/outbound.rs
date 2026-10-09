@@ -10,6 +10,7 @@ pub(crate) struct OutboundLeafRuntime {
     pub(crate) tag: Option<String>,
     pub(crate) protocol: String,
     pub(crate) tcp_path: TcpPathCategory,
+    pub(crate) dial_policy: zero_traits::DialPolicy,
     #[cfg(feature = "udp-runtime")]
     pub(crate) health_tag: Option<String>,
     pub(crate) endpoint: Option<OutboundEndpoint>,
@@ -24,6 +25,7 @@ impl OutboundLeafRuntime {
             tag: Some(tag.to_owned()),
             protocol: protocol.to_owned(),
             tcp_path,
+            dial_policy: Default::default(),
             #[cfg(feature = "udp-runtime")]
             // An endpoint-free pool reports availability on each admission.
             // Dial health cooldowns would hide newly registered workers.
@@ -46,6 +48,7 @@ impl OutboundLeafRuntime {
             tag: Some(tag.to_owned()),
             protocol: protocol.to_owned(),
             tcp_path,
+            dial_policy: Default::default(),
             #[cfg(feature = "udp-runtime")]
             health_tag: Some(tag.to_owned()),
             endpoint: Some(OutboundEndpoint {
@@ -60,11 +63,12 @@ impl OutboundLeafRuntime {
 }
 
 impl OutboundLeafRuntime {
-    pub(crate) fn direct(tag: Option<&str>) -> Self {
+    pub(crate) fn direct(tag: Option<&str>, dial_policy: zero_traits::DialPolicy) -> Self {
         Self {
             tag: tag.map(str::to_owned),
             protocol: "direct".to_owned(),
             tcp_path: TcpPathCategory::Direct,
+            dial_policy,
             #[cfg(feature = "udp-runtime")]
             health_tag: None,
             endpoint: None,
@@ -79,6 +83,7 @@ impl OutboundLeafRuntime {
             tag: tag.map(str::to_owned),
             protocol: "block".to_owned(),
             tcp_path: TcpPathCategory::Block,
+            dial_policy: Default::default(),
             #[cfg(feature = "udp-runtime")]
             health_tag: None,
             endpoint: None,

@@ -3,7 +3,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use super::*;
 
 fn key(generation: u64) -> QueryKey {
-    QueryKey::new("storm.example", 1, QueryScope::new(DnsQueryRole::Direct, generation))
+    QueryKey::new(
+        "storm.example",
+        1,
+        QueryScope::new(DnsQueryRole::Direct, generation),
+    )
 }
 
 #[tokio::test]
@@ -102,18 +106,26 @@ async fn old_egress_snapshot_cannot_cancel_a_newer_flight() {
     let current = {
         let coordinator = coordinator.clone();
         tokio::spawn(async move {
-            coordinator.resolve(key(8), async move {
-                let _ = entered.send(());
-                let _ = released.await;
-                Ok(vec![IpAddress::V4([203, 0, 113, 8])])
-            }).await
+            coordinator
+                .resolve(key(8), async move {
+                    let _ = entered.send(());
+                    let _ = released.await;
+                    Ok(vec![IpAddress::V4([203, 0, 113, 8])])
+                })
+                .await
         })
     };
     received.await.unwrap();
-    let stale = coordinator.resolve(key(7), async { Ok(Vec::new()) }).await.unwrap_err();
+    let stale = coordinator
+        .resolve(key(7), async { Ok(Vec::new()) })
+        .await
+        .unwrap_err();
     assert_eq!(stale.kind(), io::ErrorKind::NotConnected);
     let _ = release.send(());
-    assert_eq!(current.await.unwrap().unwrap(), vec![IpAddress::V4([203, 0, 113, 8])]);
+    assert_eq!(
+        current.await.unwrap().unwrap(),
+        vec![IpAddress::V4([203, 0, 113, 8])]
+    );
 }
 
 #[tokio::test]
@@ -121,14 +133,34 @@ async fn negative_results_are_scoped_by_family_and_config_generation() {
     let coordinator = QueryCoordinator::<Vec<IpAddress>>::default();
     let mut old_key = key(7);
     old_key.scope.family = AddressFamily::OnlyIpv4;
-    coordinator.resolve(old_key.clone(), async {
-        Err(io::Error::new(io::ErrorKind::NotFound, "old policy failure"))
-    }).await.unwrap_err();
+    coordinator
+        .resolve(old_key.clone(), async {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "old policy failure",
+            ))
+        })
+        .await
+        .unwrap_err();
 
     let mut auto_key = old_key.clone();
     auto_key.scope.family = AddressFamily::Auto;
-    assert_eq!(coordinator.resolve(auto_key, async { Ok(vec![IpAddress::V4([192, 0, 2, 1])]) }).await.unwrap(), vec![IpAddress::V4([192, 0, 2, 1])]);
+    assert_eq!(
+        coordinator
+            .resolve(auto_key, async { Ok(vec![IpAddress::V4([192, 0, 2, 1])]) })
+            .await
+            .unwrap(),
+        vec![IpAddress::V4([192, 0, 2, 1])]
+    );
     let mut current_key = old_key;
     current_key.scope.config_generation += 1;
-    assert_eq!(coordinator.resolve(current_key, async { Ok(vec![IpAddress::V4([192, 0, 2, 2])]) }).await.unwrap(), vec![IpAddress::V4([192, 0, 2, 2])]);
+    assert_eq!(
+        coordinator
+            .resolve(current_key, async {
+                Ok(vec![IpAddress::V4([192, 0, 2, 2])])
+            })
+            .await
+            .unwrap(),
+        vec![IpAddress::V4([192, 0, 2, 2])]
+    );
 }

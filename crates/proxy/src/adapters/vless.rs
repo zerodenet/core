@@ -483,7 +483,12 @@ impl InboundListenerCapability for VlessAdapter {
         if mkcp.is_some() {
             return Ok(BoundInbound::Datagram(
                 zero_transport::finalmask::packet_socket::wrap(
-                    std::net::UdpSocket::bind(inbound_listen_addr(inbound))?,
+                    crate::protocol_registry::bind_datagram_listener(
+                        &inbound.listen.address,
+                        inbound.listen.port,
+                    )
+                    .await?
+                    .into_std()?,
                     &final_mask
                         .as_deref()
                         .map(finalmask::udp)

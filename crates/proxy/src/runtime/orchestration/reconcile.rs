@@ -21,6 +21,14 @@ impl OrchestrationState {
                 .await;
             return;
         }
+        if let Err(error) = proxy
+            .protocols
+            .validate_dial_environment(new_snapshot.config())
+        {
+            self.reject_reload(proxy, &new_snapshot, error.to_string())
+                .await;
+            return;
+        }
         self.publish_reload_transitions(proxy, &new_snapshot);
         let new_config = new_snapshot.config().clone();
         let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());

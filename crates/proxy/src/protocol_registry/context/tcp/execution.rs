@@ -64,14 +64,16 @@ impl TcpExecutionServices {
     pub(crate) async fn connect_direct(
         &self,
         session: &zero_core::Session,
+        dial_policy: &zero_traits::DialPolicy,
     ) -> Result<crate::transport::DirectTcpConnection, crate::transport::DirectTcpConnectFailure>
     {
         self.upstream
             .connector
-            .connect(
+            .connect_with_policy(
                 session,
                 &self.upstream.resolver,
                 &self.upstream.egress_interface,
+                dial_policy,
             )
             .await
     }

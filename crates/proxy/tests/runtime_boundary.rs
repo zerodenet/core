@@ -3678,13 +3678,22 @@ fn udp_flow_sessions_root_stays_facade_only() {
         "pub(crate) struct UdpSessionFlows",
         "pub(crate) struct CompletedUdpFlow",
         "pub(crate) fn finish_all(&mut self)",
-        "pub(crate) fn direct_response_session_id(&self, sender: SocketAddr)",
     ] {
         assert!(
             sessions.contains(expected),
             "udp_flow sessions module tree must still provide `{expected}`"
         );
     }
+}
+
+#[test]
+fn direct_udp_replies_are_owned_by_socket_policy_identity() {
+    let sessions = read_module(&proxy_src().join("runtime/udp_flow/sessions.rs"));
+    assert!(!sessions.contains("fn direct_response_session_id("));
+    let sockets = read_module(&proxy_src().join("runtime/udp_socket.rs"));
+    assert!(sockets.contains("struct DirectUdpPolicy"));
+    assert!(sockets.contains("response_flows.get(&(entry.id, sender))"));
+    assert!(sockets.contains("direct_policy_is_current"));
 }
 
 #[test]

@@ -96,7 +96,10 @@ pub(super) async fn try_forward(
                 pins.record(inner, PacketPlane::Flow);
                 return false;
             }
-            PacketRouteTarget::DirectEcho => {
+            PacketRouteTarget::DirectEcho { dial_policy } => {
+                if dial_policy != zero_traits::DialPolicy::default() {
+                    break;
+                }
                 if !IcmpEchoRelay::accepts_direct_echo(inner) {
                     break;
                 }

@@ -54,16 +54,30 @@ impl DirectAdapter {
         &self,
         input: OutboundLeafInput<'a>,
     ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Direct { tag } = input else {
+        let OutboundLeafInput::Direct {
+            tag,
+            dial_policy,
+            dial_generation,
+        } = input
+        else {
             return None;
         };
+        #[cfg(feature = "udp-runtime")]
+        let policy_tag = tag.map(str::to_owned);
+        #[cfg(not(feature = "udp-runtime"))]
+        let _ = dial_generation;
         let tag = tag.unwrap_or("direct").to_owned();
-        let tcp = self.claim_tcp_outbound_leaf_impl(tag.clone());
+        let tcp = self.claim_tcp_outbound_leaf_impl(tag.clone(), dial_policy.clone());
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Direct,
             tcp: Some(tcp),
             #[cfg(feature = "udp-runtime")]
-            udp: Some(self.claim_udp_flow_leaf_impl(tag)),
+            udp: Some(self.claim_udp_flow_leaf_impl(
+                tag,
+                policy_tag,
+                dial_policy.clone(),
+                dial_generation,
+            )),
             #[cfg(feature = "udp-runtime")]
             #[cfg(feature = "raw-ip-runtime")]
             packet: self
@@ -71,9 +85,9 @@ impl DirectAdapter {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
-                .filter(|d| d.usable())
+                .filter(|d| dial_policy == zero_traits::DialPolicy::default() && d.usable())
                 .map(|d| {
-                    Box::new(packet::PacketLeaf(d.clone()))
+                    Box::new(packet::PacketLeaf(d.clone(), dial_policy.clone()))
                         as Box<dyn crate::protocol_registry::ClaimedPacketLeaf>
                 }),
             #[cfg(feature = "udp-runtime")]
@@ -133,7 +147,7 @@ impl ProtocolMetadata for DirectAdapter {
             ),
             transports: &["tcp", "udp"],
             mux: ProtocolCapabilityState::not_applicable(),
-            limitations: &[],
+            limitations: &["nondefault_dial_tcp_udp_only"],
         }
     }
 }

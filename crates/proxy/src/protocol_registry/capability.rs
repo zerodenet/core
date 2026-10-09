@@ -116,10 +116,12 @@ pub(crate) struct OutboundLeafClaim<'a> {
     pub(crate) packet: Option<Box<dyn ClaimedPacketLeaf>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) enum OutboundLeafInput<'a> {
     Direct {
         tag: Option<&'a str>,
+        dial_policy: zero_traits::DialPolicy,
+        dial_generation: u64,
     },
     Proxy {
         outbound: &'a OutboundConfig,

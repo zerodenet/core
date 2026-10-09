@@ -11,3 +11,5 @@ mod runtime_snapshot;
 
 #[path = "../resolve_branches.rs"]
 mod resolve_branches;
+#[path = "../direct_dial.rs"]
+mod direct_dial;

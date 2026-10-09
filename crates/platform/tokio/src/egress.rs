@@ -723,7 +723,10 @@ pub(crate) fn bind_tcp_to_interface(
     // connect(2) fails with WSAEHOSTUNREACH for otherwise reachable peers.
     // Resolve and bind the source owned by the selected physical interface
     // before constraining the unicast interface.
-    if !socket.local_addr().is_ok_and(|address| !address.ip().is_unspecified()) {
+    if !socket
+        .local_addr()
+        .is_ok_and(|address| !address.ip().is_unspecified())
+    {
         socket.bind(windows_source_address(peer, interface.index())?)?;
     }
     bind_socket_to_index(socket.as_raw_socket(), peer.is_ipv6(), interface.index())
