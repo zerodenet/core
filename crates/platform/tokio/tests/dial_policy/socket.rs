@@ -219,7 +219,9 @@ async fn windows_explicit_loopback_interface_binds_tcp_and_udp() {
         "read actual Windows TCP interface binding"
     );
     assert_eq!(length as usize, std::mem::size_of::<u32>());
-    assert_eq!(u32::from_be(index), expected_interface.index());
+    // IP_UNICAST_IF is asymmetric: SET takes network order, GET returns host order.
+    // https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options
+    assert_eq!(index, expected_interface.index());
 
     let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let peer = receiver.local_addr().unwrap();
