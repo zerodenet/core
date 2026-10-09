@@ -8,13 +8,15 @@ use tokio::sync::Mutex;
 use zero_config::DnsCacheConfig;
 use zero_traits::IpAddress;
 
+use crate::coordinator::QueryScope;
 use crate::message;
 use crate::message::normalize_domain;
+#[cfg(test)]
 use crate::DnsQueryRole;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct CacheKey {
-    role: DnsQueryRole,
+    scope: QueryScope,
     domain: String,
     query_type: u16,
 }
@@ -65,13 +67,13 @@ impl DnsCache {
 
     pub(crate) async fn get(
         &self,
-        role: DnsQueryRole,
+        scope: QueryScope,
         domain: &str,
         query_type: u16,
     ) -> Option<Vec<IpAddress>> {
         let domain = normalize_domain(domain).ok()?;
         let key = CacheKey {
-            role,
+            scope,
             domain,
             query_type,
         };
@@ -94,14 +96,14 @@ impl DnsCache {
 
     pub(crate) async fn get_response(
         &self,
-        role: DnsQueryRole,
+        scope: QueryScope,
         domain: &str,
         query_type: u16,
         query: &[u8],
     ) -> Option<Vec<u8>> {
         let domain = normalize_domain(domain).ok()?;
         let key = CacheKey {
-            role,
+            scope,
             domain,
             query_type,
         };
@@ -193,7 +195,7 @@ impl DnsCache {
 
     pub(crate) async fn put(
         &self,
-        role: DnsQueryRole,
+        scope: QueryScope,
         domain: &str,
         query_type: u16,
         addresses: Vec<IpAddress>,
@@ -212,7 +214,7 @@ impl DnsCache {
         }
         self.put_entry(
             CacheKey {
-                role,
+                scope,
                 domain,
                 query_type,
             },
@@ -226,7 +228,7 @@ impl DnsCache {
 
     pub(crate) async fn put_response(
         &self,
-        role: DnsQueryRole,
+        scope: QueryScope,
         domain: &str,
         query_type: u16,
         value: DnsWireCacheValue,
@@ -244,7 +246,7 @@ impl DnsCache {
         }
         self.put_entry(
             CacheKey {
-                role,
+                scope,
                 domain,
                 query_type,
             },
@@ -309,96 +311,4 @@ fn duration_seconds_ceiling(duration: Duration) -> u32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn cache(max_entries: usize) -> DnsCache {
-        DnsCache::new(&DnsCacheConfig {
-            max_entries,
-            max_ttl_seconds: None,
-        })
-    }
-
-    #[tokio::test]
-    async fn separates_a_and_aaaa_entries() {
-        let cache = cache(4);
-        cache
-            .put(
-                DnsQueryRole::Default,
-                "Example.COM.",
-                1,
-                vec![IpAddress::V4([192, 0, 2, 1])],
-                60,
-            )
-            .await;
-        cache
-            .put(
-                DnsQueryRole::Default,
-                "example.com",
-                28,
-                vec![IpAddress::V6([1; 16])],
-                60,
-            )
-            .await;
-        assert!(matches!(
-            cache
-                .get(DnsQueryRole::Default, "example.com", 1)
-                .await
-                .as_deref(),
-            Some([IpAddress::V4(_)])
-        ));
-        assert!(matches!(
-            cache
-                .get(DnsQueryRole::Default, "EXAMPLE.COM.", 28)
-                .await
-                .as_deref(),
-            Some([IpAddress::V6(_)])
-        ));
-    }
-
-    #[tokio::test]
-    async fn evicts_least_recently_used_entry() {
-        let cache = cache(2);
-        cache
-            .put(DnsQueryRole::Default, "one.test", 1, vec![], 60)
-            .await;
-        cache
-            .put(DnsQueryRole::Default, "two.test", 1, vec![], 60)
-            .await;
-        let _ = cache.get(DnsQueryRole::Default, "one.test", 1).await;
-        cache
-            .put(DnsQueryRole::Default, "three.test", 1, vec![], 60)
-            .await;
-        assert!(cache
-            .get(DnsQueryRole::Default, "one.test", 1)
-            .await
-            .is_some());
-        assert!(cache
-            .get(DnsQueryRole::Default, "two.test", 1)
-            .await
-            .is_none());
-        assert!(cache
-            .get(DnsQueryRole::Default, "three.test", 1)
-            .await
-            .is_some());
-    }
-
-    #[tokio::test]
-    async fn isolates_entries_by_query_role() {
-        let cache = cache(4);
-        cache
-            .put(
-                DnsQueryRole::Node,
-                "shared.test",
-                1,
-                vec![IpAddress::V4([192, 0, 2, 1])],
-                60,
-            )
-            .await;
-
-        assert!(cache
-            .get(DnsQueryRole::Direct, "shared.test", 1)
-            .await
-            .is_none());
-    }
-}
+mod tests;

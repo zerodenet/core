@@ -8,3 +8,6 @@ mod listener_latency;
 mod process_lookup;
 #[path = "../tcp_nodelay.rs"]
 mod tcp_nodelay;
+
+#[path = "../dial_policy.rs"]
+mod dial_policy;

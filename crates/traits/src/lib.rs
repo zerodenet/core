@@ -2,6 +2,8 @@
 #![allow(async_fn_in_trait)]
 
 extern crate alloc;
+mod dial;
+pub use dial::{canonicalize_ip, AddressFamily, DialPolicy, DialPolicyError};
 mod packet_buffer;
 pub use packet_buffer::{PacketBuffer, PacketStorage};
 mod observation;

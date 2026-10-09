@@ -43,7 +43,7 @@ impl TokioSystemResolver {
 }
 
 fn ip_addr_to_ip(addr: IpAddr) -> IpAddress {
-    match addr {
+    match zero_traits::canonicalize_ip(addr) {
         IpAddr::V4(v4) => IpAddress::V4(v4.octets()),
         IpAddr::V6(v6) => IpAddress::V6(v6.octets()),
     }

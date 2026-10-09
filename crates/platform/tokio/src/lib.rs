@@ -17,6 +17,9 @@ use zero_traits::{
     TcpListener as TcpListenerTrait, TransportBypassControl,
 };
 
+mod dial;
+pub use dial::validate_dial_policy;
+
 mod cpu;
 pub use cpu::{cpu_topology, CpuTopology};
 
@@ -360,6 +363,10 @@ pub struct TokioListener {
 }
 
 impl TokioListener {
+    pub async fn bind_addr(addr: SocketAddr) -> io::Result<Self> {
+        TokioTcpListener::bind(addr).await.map(|inner| Self { inner })
+    }
+
     pub async fn bind(addr: &str) -> io::Result<Self> {
         TokioTcpListener::bind(addr)
             .await

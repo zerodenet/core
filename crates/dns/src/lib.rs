@@ -9,6 +9,7 @@ mod cache;
 mod coordinator;
 mod ech;
 mod fake_ip;
+mod family;
 mod message;
 mod reverse;
 mod router;
@@ -22,14 +23,15 @@ use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use zero_config::{DnsAddressFamilyPolicy, DnsConfig, DnsPolicyConfig};
-use zero_traits::{DnsResolver, IpAddress};
+use zero_traits::{AddressFamily, DnsResolver, IpAddress};
 
 use backends::ResolverBackend;
 use cache::{DnsCache, DnsWireCacheValue};
-use coordinator::{QueryCoordinator, QueryKey};
+use coordinator::{QueryCoordinator, QueryKey, QueryScope};
 pub use ech::EchDnsRecord;
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
@@ -111,6 +113,7 @@ impl DnsQueryRole {
 pub struct DnsSystem {
     inner: std::sync::RwLock<DnsSystemInner>,
     prepared_reload: std::sync::Mutex<Option<PreparedDnsReload>>,
+    config_generation: Arc<AtomicU64>,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     fake_ip_state_path: Option<PathBuf>,
     fake_ip_state_lease: std::sync::Mutex<Option<Arc<fake_ip::StateLease>>>,
@@ -174,6 +177,9 @@ struct ResolveSnapshot {
     wire_query_coordinator: QueryCoordinator<Vec<u8>>,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     egress_generation: u64,
+    config_generation: u64,
+    current_config_generation: Arc<AtomicU64>,
+    family: AddressFamily,
 }
 
 impl DnsSystem {
@@ -233,6 +239,7 @@ impl DnsSystem {
         Ok(Self {
             inner: std::sync::RwLock::new(inner),
             prepared_reload: std::sync::Mutex::new(None),
+            config_generation: Arc::new(AtomicU64::new(0)),
             egress_interface,
             fake_ip_state_path,
             fake_ip_state_lease: std::sync::Mutex::new(fake_ip_state_lease),
@@ -419,7 +426,13 @@ impl DnsSystem {
             previous_reverse_mapping,
             fake_ip_state_lease,
         )?;
-        *self.inner.write().expect("dns system lock poisoned") = new_inner;
+        {
+            let mut inner = self.inner.write().expect("dns system lock poisoned");
+            *inner = new_inner;
+            // Read under the same inner lock when taking a snapshot, so an
+            // old resolver can never carry the new configuration identity.
+            self.config_generation.fetch_add(1, Ordering::AcqRel);
+        }
         self.discard_prepared_reload();
         Ok(())
     }
@@ -583,8 +596,13 @@ impl DnsSystem {
 
     /// Take a snapshot of the current inner state for an async resolve.
     fn snapshot(&self) -> Option<ResolveSnapshot> {
+        self.snapshot_with_generation().0
+    }
+
+    fn snapshot_with_generation(&self) -> (Option<ResolveSnapshot>, u64) {
         let guard = self.inner.read().expect("dns system lock poisoned");
-        match &*guard {
+        let config_generation = self.config_generation.load(Ordering::Acquire);
+        let snapshot = match &*guard {
             DnsSystemInner::System(_) => None,
             DnsSystemInner::Configured {
                 servers,
@@ -605,13 +623,17 @@ impl DnsSystem {
                 wire_query_coordinator: self.wire_query_coordinator.clone(),
                 egress_interface: self.egress_interface.clone(),
                 egress_generation: self.egress_interface.generation(),
+                config_generation,
+                current_config_generation: self.config_generation.clone(),
+                family: AddressFamily::Auto,
                 outbound_connector: self
                     .outbound_connector
                     .read()
                     .expect("DNS outbound connector lock poisoned")
                     .clone(),
             }),
-        }
+        };
+        (snapshot, config_generation)
     }
 
     /// Return the newest backend attempts for one normalized query role.
@@ -657,13 +679,14 @@ impl DnsSystem {
     /// second AAAA attempt before the IPv4 retry.
     pub async fn resolve_direct_ipv4(&self, domain: &str) -> io::Result<Vec<IpAddress>> {
         let domain = message::normalize_domain(domain)?;
-        match self.snapshot() {
+        let (snapshot, config_generation) = self.snapshot_with_generation();
+        match snapshot {
             Some(snapshot) => {
                 resolve_snapshot_type(&domain, message::TYPE_A, DnsQueryRole::Direct, snapshot)
                     .await
             }
             None => {
-                self.resolve_system_type_coordinated(&domain, message::TYPE_A, DnsQueryRole::Direct)
+                self.resolve_system_type_coordinated(&domain, message::TYPE_A, DnsQueryRole::Direct, config_generation)
                     .await
             }
         }
@@ -690,12 +713,13 @@ impl DnsSystem {
         role: DnsQueryRole,
     ) -> io::Result<Vec<IpAddress>> {
         let domain = message::normalize_domain(domain)?;
-        match self.snapshot() {
+        let (snapshot, config_generation) = self.snapshot_with_generation();
+        match snapshot {
             Some(snapshot) => resolve_snapshot(&domain, role, snapshot).await,
             None => {
                 let (ipv4, ipv6) = tokio::join!(
-                    self.resolve_system_type_coordinated(&domain, message::TYPE_A, role),
-                    self.resolve_system_type_coordinated(&domain, message::TYPE_AAAA, role),
+                    self.resolve_system_type_coordinated(&domain, message::TYPE_A, role, config_generation),
+                    self.resolve_system_type_coordinated(&domain, message::TYPE_AAAA, role, config_generation),
                 );
                 combine_address_families(ipv4, ipv6)
             }
@@ -715,12 +739,13 @@ impl DnsSystem {
             ));
         }
         let domain = message::normalize_domain(domain)?;
-        match self.snapshot() {
+        let (snapshot, config_generation) = self.snapshot_with_generation();
+        match snapshot {
             Some(snapshot) => {
                 resolve_snapshot_type(&domain, query_type, DnsQueryRole::Default, snapshot).await
             }
             None => {
-                self.resolve_system_type_coordinated(&domain, query_type, DnsQueryRole::Default)
+                self.resolve_system_type_coordinated(&domain, query_type, DnsQueryRole::Default, config_generation)
                     .await
             }
         }
@@ -750,6 +775,7 @@ impl DnsSystem {
         &self,
         domain: &str,
         role: DnsQueryRole,
+        config_generation: u64,
     ) -> io::Result<Vec<IpAddress>> {
         let sys_resolver = {
             let guard = self.inner.read().expect("dns system lock poisoned");
@@ -759,7 +785,9 @@ impl DnsSystem {
             }
         };
         let generation = self.egress_interface.generation();
-        let key = QueryKey::new(domain, 0, role, generation);
+        let mut scope = QueryScope::new(role, generation);
+        scope.config_generation = config_generation;
+        let key = QueryKey::new(domain, 0, scope);
         let domain = domain.to_owned();
         self.query_coordinator
             .resolve(key, async move { sys_resolver.resolve(&domain).await })
@@ -771,6 +799,19 @@ impl DnsSystem {
         domain: &str,
         query_type: u16,
         role: DnsQueryRole,
+        config_generation: u64,
+    ) -> io::Result<Vec<IpAddress>> {
+        self.resolve_system_type_with_family_coordinated(domain, query_type, role, AddressFamily::Auto, config_generation)
+            .await
+    }
+
+    async fn resolve_system_type_with_family_coordinated(
+        &self,
+        domain: &str,
+        query_type: u16,
+        role: DnsQueryRole,
+        family: AddressFamily,
+        config_generation: u64,
     ) -> io::Result<Vec<IpAddress>> {
         let resolver = {
             let guard = self.inner.read().expect("dns system lock poisoned");
@@ -780,11 +821,15 @@ impl DnsSystem {
             }
         };
         let generation = self.egress_interface.generation();
-        let key = QueryKey::new(domain, query_type, role, generation);
+        let mut scope = QueryScope::new(role, generation);
+        scope.config_generation = config_generation;
+        scope.family = family;
+        let key = QueryKey::new(domain, query_type, scope);
         let domain = domain.to_owned();
         self.query_coordinator
             .resolve(key, async move {
-                resolver.resolve_type(&domain, query_type).await
+                let addresses = resolver.resolve_type(&domain, query_type).await?;
+                family::filter_addresses(&domain, addresses, family)
             })
             .await
     }
@@ -794,7 +839,7 @@ impl DnsSystem {
             Ok(question) => question,
             Err(_) => return message::build_error_response(query, message::RCODE_FORMERR, false),
         };
-        let snapshot = self.snapshot();
+        let (snapshot, config_generation) = self.snapshot_with_generation();
         let address_policy = snapshot.as_ref().map(|snapshot| {
             response_address_policy(
                 snapshot.policy.address_family,
@@ -876,7 +921,7 @@ impl DnsSystem {
         {
             if let Some(cached) = cache
                 .get_response(
-                    DnsQueryRole::Default,
+                    snapshot.as_ref().expect("configured cache").query_scope(DnsQueryRole::Default),
                     &question.domain,
                     question.query_type,
                     query,
@@ -893,8 +938,7 @@ impl DnsSystem {
                 let key = QueryKey::new(
                     &question.domain,
                     question.query_type,
-                    DnsQueryRole::Default,
-                    snapshot.egress_generation,
+                    snapshot.query_scope(DnsQueryRole::Default),
                 )
                 .with_wire_query(query);
                 let query_id = [query[0], query[1]];
@@ -927,6 +971,7 @@ impl DnsSystem {
                     &question.domain,
                     question.query_type,
                     DnsQueryRole::Default,
+                    config_generation,
                 )
                 .await
                 .map(|addresses| {
@@ -964,9 +1009,7 @@ impl DnsSystem {
             Ok((response, parsed))
         }) {
             Ok((response, parsed)) => {
-                let topology_is_current = snapshot.as_ref().is_none_or(|snapshot| {
-                    snapshot.egress_interface.generation() == snapshot.egress_generation
-                });
+                let topology_is_current = snapshot.as_ref().is_none_or(ResolveSnapshot::is_current);
                 if !topology_is_current {
                     tracing::debug!(
                         domain = %question.domain,
@@ -994,7 +1037,7 @@ impl DnsSystem {
                         {
                             cache
                                 .put_response(
-                                    DnsQueryRole::Default,
+                                    snapshot.as_ref().expect("configured cache").query_scope(DnsQueryRole::Default),
                                     &question.domain,
                                     question.query_type,
                                     DnsWireCacheValue {
@@ -1033,11 +1076,12 @@ impl DnsResolver for DnsSystem {
     type Error = io::Error;
 
     async fn resolve(&self, domain: &str) -> Result<Vec<IpAddress>, Self::Error> {
-        let snapshot = match self.snapshot() {
+        let (snapshot, config_generation) = self.snapshot_with_generation();
+        let snapshot = match snapshot {
             Some(s) => s,
             None => {
                 return self
-                    .resolve_system_coordinated(domain, DnsQueryRole::Default)
+                    .resolve_system_coordinated(domain, DnsQueryRole::Default, config_generation)
                     .await
             }
         };
@@ -1165,13 +1209,13 @@ async fn resolve_snapshot_type(
 ) -> io::Result<Vec<IpAddress>> {
     // 1. Check cache.
     if let Some(ref cache) = snapshot.cache {
-        if let Some(ips) = cache.get(role, domain, query_type).await {
+        if let Some(ips) = cache.get(snapshot.query_scope(role), domain, query_type).await {
             return Ok(ips);
         }
     }
 
     let coordinator = snapshot.query_coordinator.clone();
-    let key = QueryKey::new(domain, query_type, role, snapshot.egress_generation);
+    let key = QueryKey::new(domain, query_type, snapshot.query_scope(role));
     let domain = domain.to_owned();
     coordinator
         .resolve(key, async move {
@@ -1191,37 +1235,41 @@ async fn resolve_snapshot_type_uncached(
     let query = message::build_query(domain, query_type)?;
     let result = exchange_snapshot(&query, domain, role, &snapshot)
         .await
-        .and_then(|(_, parsed)| match parsed.response_code {
-            message::RCODE_NOERROR if parsed.addresses.is_empty() => Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!(
-                    "DNS name `{domain}` has no {} records",
-                    if query_type == message::TYPE_A {
-                        "A"
-                    } else {
-                        "AAAA"
-                    }
-                ),
-            )),
-            message::RCODE_NOERROR => Ok(backends::ResolvedAddresses {
-                addresses: parsed.addresses,
-                ttl_seconds: parsed
-                    .min_ttl_seconds
-                    .unwrap_or(message::DEFAULT_NEGATIVE_TTL_SECONDS),
-            }),
-            message::RCODE_NXDOMAIN => Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("DNS name `{domain}` does not exist"),
-            )),
-            code => Err(io::Error::other(format!(
-                "DNS server returned response code {code} for `{domain}`"
-            ))),
+        .and_then(|(_, mut parsed)| {
+            if parsed.response_code == message::RCODE_NOERROR {
+                parsed.addresses = family::filter_addresses(domain, parsed.addresses, snapshot.family)?;
+            }
+            match parsed.response_code {
+                message::RCODE_NOERROR if parsed.addresses.is_empty() => Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!(
+                        "DNS name `{domain}` has no {} records",
+                        if query_type == message::TYPE_A {
+                            "A"
+                        } else {
+                            "AAAA"
+                        }
+                    ),
+                )),
+                message::RCODE_NOERROR => Ok(backends::ResolvedAddresses {
+                    addresses: parsed.addresses,
+                    ttl_seconds: parsed
+                        .min_ttl_seconds
+                        .unwrap_or(message::DEFAULT_NEGATIVE_TTL_SECONDS),
+                }),
+                message::RCODE_NXDOMAIN => Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("DNS name `{domain}` does not exist"),
+                )),
+                code => Err(io::Error::other(format!(
+                    "DNS server returned response code {code} for `{domain}`"
+                ))),
+            }
         });
 
     // 3. Cache on success using the upstream record TTL.
     if let Ok(resolved) = &result {
-        let topology_is_current =
-            snapshot.egress_interface.generation() == snapshot.egress_generation;
+        let topology_is_current = snapshot.is_current();
         if !topology_is_current {
             tracing::debug!(
                 domain,
@@ -1243,7 +1291,7 @@ async fn resolve_snapshot_type_uncached(
             if let Some(cache) = &snapshot.cache {
                 cache
                     .put(
-                        role,
+                        snapshot.query_scope(role),
                         domain,
                         query_type,
                         resolved.addresses.clone(),
