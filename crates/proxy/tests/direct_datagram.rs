@@ -164,7 +164,7 @@ async fn dial_exchange(
     let mut buffer = [0; 64];
     let (len, peer) = tokio::time::timeout(Duration::from_secs(3), target.recv_from(&mut buffer))
         .await
-        .unwrap()
+        .unwrap_or_else(|error| panic!("target did not receive {payload:?}: {error}"))
         .unwrap();
     assert_eq!(&buffer[..len], payload);
     target.send_to(payload, peer).await.unwrap();
@@ -178,6 +178,15 @@ async fn dial_exchange(
 
 #[tokio::test]
 async fn udp_policy_reload_rebuilds_existing_client_flow_and_preserves_other_tag_mapping() {
+    exercise_dual_family_udp_reload(true).await;
+}
+
+#[tokio::test]
+async fn family_only_udp_reload_rebuilds_existing_flow_and_preserves_other_tag_mapping() {
+    exercise_dual_family_udp_reload(false).await;
+}
+
+async fn exercise_dual_family_udp_reload(bind_source: bool) {
     let ipv4 = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let target = ipv4.local_addr().unwrap().port();
     let ipv6 = UdpSocket::bind(("::1", target))
@@ -185,7 +194,18 @@ async fn udp_policy_reload_rebuilds_existing_client_flow_and_preserves_other_tag
         .expect("IPv6 loopback is required for the dual-family reload test");
     let first_port = free_port();
     let second_port = free_port();
-    let proxy = Proxy::new(dial_reload_config(first_port, second_port, target, false)).unwrap();
+    let mut initial = dial_reload_config(first_port, second_port, target, false);
+    let mut updated = dial_reload_config(first_port, second_port, target, true);
+    if !bind_source {
+        for outbound in initial
+            .outbounds
+            .iter_mut()
+            .chain(updated.outbounds.iter_mut())
+        {
+            outbound.dial.source_ip = None;
+        }
+    }
+    let proxy = Proxy::new(initial).unwrap();
     let handle = zero_proxy::ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),
         proxy.clone(),
@@ -203,10 +223,7 @@ async fn udp_policy_reload_rebuilds_existing_client_flow_and_preserves_other_tag
     );
     assert_ne!(changing_before, stable_before);
     handle
-        .apply_config_and_wait(
-            dial_reload_config(first_port, second_port, target, true),
-            Duration::from_secs(5),
-        )
+        .apply_config_and_wait(updated, Duration::from_secs(5))
         .await
         .unwrap();
     // The first datagram from the same client/target tuple must use the new
@@ -224,7 +241,11 @@ async fn udp_policy_reload_rebuilds_existing_client_flow_and_preserves_other_tag
         .expect("reloaded Direct UDP flow is observable");
     let network = active.path.network.expect("Direct UDP network observation");
     let local = network.local_address.expect("bound socket local address");
-    assert_eq!(local.host, "::1");
+    if bind_source {
+        assert_eq!(local.host, "::1");
+    } else {
+        assert!(local.host.parse::<std::net::IpAddr>().unwrap().is_ipv6());
+    }
     assert_eq!(local.port, changing_after.port());
     let remote = network.remote_address.expect("selected remote address");
     assert_eq!(remote.host, "::1");

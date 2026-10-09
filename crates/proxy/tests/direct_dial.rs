@@ -43,6 +43,15 @@ async fn exchange(stream: &mut TcpStream, value: &[u8; 4], family: u8) {
 }
 #[tokio::test]
 async fn two_inbounds_keep_independent_direct_families_and_old_tcp_survives_reload() {
+    exercise_dual_family_tcp_reload(true).await;
+}
+
+#[tokio::test]
+async fn family_only_two_inbounds_keep_old_tcp_and_apply_reloaded_family() {
+    exercise_dual_family_tcp_reload(false).await;
+}
+
+async fn exercise_dual_family_tcp_reload(bind_source: bool) {
     let ipv4 = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let target = ipv4.local_addr().unwrap().port();
     let ipv6 = TcpListener::bind(("::1", target))
@@ -53,6 +62,11 @@ async fn two_inbounds_keep_independent_direct_families_and_old_tcp_survives_relo
     let first = free_port();
     let second = free_port();
     let mut configuration = config(first, second, target);
+    if !bind_source {
+        for outbound in &mut configuration.outbounds {
+            outbound.dial.source_ip = None;
+        }
+    }
     let proxy = Proxy::new(configuration.clone()).unwrap();
     let handle = zero_proxy::ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),

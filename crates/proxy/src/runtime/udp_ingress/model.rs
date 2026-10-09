@@ -19,6 +19,18 @@ impl UdpIngressRuntime {
         }
     }
 
+    /// A long-lived UDP association starts each new flow from one current
+    /// snapshot. Established flows keep their captured policy and mappings.
+    pub(crate) fn with_current_snapshot(&self) -> Self {
+        let tcp_services = self.tcp_services.with_current_snapshot();
+        Self {
+            services: UdpRuntimeServices::new(tcp_services.clone()),
+            tcp_services,
+            local_addr: self.local_addr,
+            source_addr: self.source_addr,
+        }
+    }
+
     pub(crate) fn with_source_addr(&self, source_addr: Option<std::net::SocketAddr>) -> Self {
         Self {
             tcp_services: self.tcp_services.clone(),

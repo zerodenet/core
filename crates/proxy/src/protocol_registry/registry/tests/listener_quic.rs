@@ -52,7 +52,8 @@ async fn quic_adapters_bind_bare_and_bracketed_ipv6() {
             let mut client =
                 quinn::Endpoint::client(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0)).unwrap();
             client.set_default_client_config(
-                zero_transport::quic::client_config(true, None, &[alpn.clone()], None).unwrap(),
+                zero_transport::quic::client_config(true, None, std::slice::from_ref(&alpn), None)
+                    .unwrap(),
             );
             let connecting = client.connect(target, "localhost").unwrap();
             let (accepted, connected) = tokio::time::timeout(Duration::from_secs(5), async {
