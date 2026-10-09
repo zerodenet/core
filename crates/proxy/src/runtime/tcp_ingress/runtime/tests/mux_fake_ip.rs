@@ -8,9 +8,8 @@ use zero_core::{Address, FakeIpReverseStatus, Network, ProtocolType, Session, Ta
 use zero_traits::IpAddress;
 
 use super::{dns_a_query, TcpIngressRuntime};
-use crate::runtime::Proxy;
 
-fn fake_ip_proxy(dns_port: u16) -> Proxy {
+fn fake_ip_proxy(dns_port: u16) -> crate::runtime::Proxy {
     let config = RuntimeConfig::parse(&format!(r#"{{
         "runtime": {{"dns": {{
             "servers": {{"local": {{"type": "udp", "host": "127.0.0.1", "port": {dns_port}}}}},
@@ -25,7 +24,7 @@ fn fake_ip_proxy(dns_port: u16) -> Proxy {
             "final": {{"type": "route", "outbound": "strict-v6"}}
         }}
     }}"#)).expect("parse strict Direct Fake-IP config");
-    Proxy::new(config).expect("build strict Direct proxy")
+    crate::runtime::Proxy::new(config).expect("build strict Direct proxy")
 }
 
 #[tokio::test]
