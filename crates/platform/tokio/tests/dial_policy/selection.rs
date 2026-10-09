@@ -67,7 +67,6 @@ fn default_policy_retains_existing_loopback_route_behavior() {
     assert_eq!(selection.binding_reason(), EgressBindingReason::Loopback);
     assert_eq!(selection.dial_source_address(), None);
 }
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn explicit_interface_survives_loopback_and_preserves_strict_mark() {
     let control = EgressInterfaceControl::default();
@@ -86,7 +85,6 @@ fn explicit_interface_survives_loopback_and_preserves_strict_mark() {
     let selection = control.select_for_peer_with_policy(peer, &policy).unwrap();
     assert_eq!(selection.interface().unwrap().socket_mark(), Some(0x1122));
 }
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn explicit_interface_conflicting_with_strict_route_fails_closed() {
     let control = EgressInterfaceControl::default();
@@ -104,7 +102,6 @@ fn explicit_interface_conflicting_with_strict_route_fails_closed() {
         .to_string()
         .contains("conflicts with strict-route egress"));
 }
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn source_only_policy_keeps_strict_route_identity_or_rejects_conflict() {
     let control = EgressInterfaceControl::default();
@@ -158,7 +155,6 @@ fn local_source_must_belong_to_requested_interface() {
         std::io::ErrorKind::AddrNotAvailable
     );
 }
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn active_tun_pins_source_owner_instead_of_trusting_unbound_probe() {
     let control = EgressInterfaceControl::default();

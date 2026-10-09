@@ -65,9 +65,9 @@ async fn udp_port_collision_retains_source_constraint_on_ephemeral_retry() {
 }
 #[tokio::test]
 async fn ipv6_source_and_ipv6_only_udp_never_send_mapped_ipv4() {
-    let Ok(receiver) = UdpSocket::bind("[::1]:0").await else {
-        return;
-    };
+    let receiver = UdpSocket::bind("[::1]:0")
+        .await
+        .expect("native dial acceptance requires IPv6 UDP loopback");
     let peer = receiver.local_addr().unwrap();
     let policy = source_policy("::1");
     let control = EgressInterfaceControl::default();
@@ -102,10 +102,10 @@ async fn wrong_selection_cannot_silently_drop_explicit_policy() {
         .contains("was not prepared for this dial policy"));
 }
 #[tokio::test]
-async fn tcp_binds_real_ipv6_loopback_source_when_available() {
-    let Ok(listener) = TcpListener::bind("[::1]:0").await else {
-        return;
-    };
+async fn tcp_binds_real_ipv6_loopback_source() {
+    let listener = TcpListener::bind("[::1]:0")
+        .await
+        .expect("native dial acceptance requires IPv6 TCP loopback");
     let peer = listener.local_addr().unwrap();
     let policy = source_policy("::1");
     let control = EgressInterfaceControl::default();
@@ -149,7 +149,10 @@ async fn explicit_loopback_binding_is_applied_or_fails_without_unbound_retry() {
                     .iter()
                     .position(|byte| *byte == 0)
                     .unwrap_or(name.len());
-                assert_eq!(&name[..length], b"lo");
+                assert_eq!(
+                    &name[..length],
+                    policy.interface.as_ref().unwrap().as_bytes()
+                );
             }
         }
         Err(error) => {
@@ -162,4 +165,84 @@ async fn explicit_loopback_binding_is_applied_or_fails_without_unbound_retry() {
             );
         }
     }
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn windows_explicit_loopback_interface_binds_tcp_and_udp() {
+    use std::os::windows::io::AsRawSocket;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use windows_sys::Win32::Networking::WinSock::{
+        getsockopt, IPPROTO_IP, IP_UNICAST_IF, SOCKET_ERROR,
+    };
+
+    let policy = loopback_policy();
+    let control = EgressInterfaceControl::default();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let peer = listener.local_addr().unwrap();
+    let selected = control.select_for_peer_with_policy(peer, &policy).unwrap();
+    let expected_interface = selected.interface().expect("explicit interface retained");
+    let mut client = tokio::time::timeout(
+        Duration::from_secs(3),
+        TokioSocket::connect_addr_with_policy(peer, &policy, &selected),
+    )
+    .await
+    .expect("explicit Windows TCP connect must complete")
+    .expect("explicit Windows TCP interface binding must succeed");
+    assert_eq!(client.egress_interface(), Some(expected_interface));
+    let (mut server, sender) = listener.accept().await.unwrap();
+    assert_eq!(sender.ip(), policy.source_ip.unwrap());
+    client.write_all(b"tcp").await.unwrap();
+    let mut bytes = [0; 3];
+    tokio::time::timeout(Duration::from_secs(3), server.read_exact(&mut bytes))
+        .await
+        .expect("explicit Windows TCP socket must deliver bytes")
+        .unwrap();
+    assert_eq!(&bytes, b"tcp");
+
+    let inner = client.into_inner();
+    let mut index = 0u32;
+    let mut length = std::mem::size_of::<u32>() as i32;
+    // SAFETY: socket is live, index is a writable u32, and length matches it.
+    let result = unsafe {
+        getsockopt(
+            inner.as_raw_socket() as usize,
+            IPPROTO_IP,
+            IP_UNICAST_IF,
+            (&mut index as *mut u32).cast(),
+            &mut length,
+        )
+    };
+    assert_ne!(
+        result, SOCKET_ERROR,
+        "read actual Windows TCP interface binding"
+    );
+    assert_eq!(length as usize, std::mem::size_of::<u32>());
+    assert_eq!(u32::from_be(index), expected_interface.index());
+
+    let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let peer = receiver.local_addr().unwrap();
+    let selected = control.select_for_peer_with_policy(peer, &policy).unwrap();
+    let socket = TokioDatagramSocket::bind_for_peer_with_policy(peer, &policy, &selected)
+        .await
+        .expect("explicit Windows UDP interface binding must succeed");
+    assert_eq!(socket.egress_interface(), selected.interface());
+    socket.send_to_addr(b"udp", peer).await.unwrap();
+    let (size, sender) =
+        tokio::time::timeout(Duration::from_secs(3), receiver.recv_from(&mut bytes))
+            .await
+            .expect("explicit Windows UDP socket must deliver bytes")
+            .unwrap();
+    assert_eq!(&bytes[..size], b"udp");
+    assert_eq!(sender.ip(), policy.source_ip.unwrap());
+    assert_eq!(socket.local_addr().unwrap(), sender);
+    receiver.send_to(b"ack", sender).await.unwrap();
+    let (size, responder) =
+        tokio::time::timeout(Duration::from_secs(3), socket.recv_from_addr(&mut bytes))
+            .await
+            .expect("explicit Windows UDP socket must receive replies")
+            .unwrap();
+    assert_eq!(&bytes[..size], b"ack");
+    assert_eq!(responder, peer);
 }
