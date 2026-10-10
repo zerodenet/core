@@ -26,6 +26,7 @@
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
 | `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.2-rc.202610100620` | - | No pending compatibility changes |
 | `0.0.2-rc.202610070538` | URLTest、DNS 热更新、UDP 与 TUN 恢复 | 配置及控制面 V1 保持兼容；固定路径不再受候选冷却阻断 |
 | `0.0.2-rc.202609290540` | TCP 接收窗口、连接退出与诊断日志 | 配置和控制面 V1 保持兼容；窗口释放后持续更新，废弃流及时清理 |
 | `0.0.2-rc.202609271132` | - | No pending compatibility changes |
@@ -51,6 +52,10 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.2-rc.202610100620
+
+<!-- No compatibility changes in this release. -->
 
 ## 0.0.2-rc.202610070538
 
