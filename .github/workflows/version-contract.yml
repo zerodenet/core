@@ -12,6 +12,11 @@ on:
       - "scripts/test-release-policy.sh"
       - "scripts/release-notes.py"
       - "scripts/test-release-notes.py"
+      - "scripts/nightly-release.py"
+      - "scripts/tests/test-nightly-release.py"
+      - ".github/scripts/nightly-release.cjs"
+      - ".github/scripts/nightly-release.test.cjs"
+      - ".github/workflows/nightly-release.yml"
       - "docs/project/release-process.md"
       - "docs/project/tooling.md"
       - ".github/workflows/prepare-release.yml"
@@ -30,6 +35,11 @@ on:
       - "scripts/test-release-policy.sh"
       - "scripts/release-notes.py"
       - "scripts/test-release-notes.py"
+      - "scripts/nightly-release.py"
+      - "scripts/tests/test-nightly-release.py"
+      - ".github/scripts/nightly-release.cjs"
+      - ".github/scripts/nightly-release.test.cjs"
+      - ".github/workflows/nightly-release.yml"
       - "docs/project/release-process.md"
       - "docs/project/tooling.md"
       - ".github/workflows/prepare-release.yml"
@@ -50,6 +60,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Bash syntax
         run: |
           bash -n scripts/release.sh
@@ -60,6 +74,11 @@ jobs:
 
       - name: Release notes channel and ancestry tests
         run: python3 scripts/test-release-notes.py
+
+      - name: Nightly planning, retry and CI dispatch tests
+        run: |
+          python3 scripts/tests/test-nightly-release.py
+          node --test .github/scripts/nightly-release.test.cjs
 
       - name: Current version contract
         run: ./scripts/release.sh --check

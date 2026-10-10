@@ -350,6 +350,9 @@ workspace_version_at_ref() {
 
 strict_tag_versions() {
     git tag --list 'v*' 2>/dev/null | while IFS= read -r tag; do
+        # Parallel release lines must not constrain each other's versions.
+        # Only tags in this source commit's history are predecessors.
+        git merge-base --is-ancestor "refs/tags/$tag^{commit}" HEAD 2>/dev/null || continue
         local_version=${tag#v}
         if parse_version "$local_version"; then
             printf '%s\n' "$local_version"
@@ -384,6 +387,12 @@ latest_strict_version_before() {
 
 assert_history_transition() {
     local target=$1 latest
+    validate_version "$target" any
+    if [[ "$V_STAGE" == dev || "$V_STAGE" == rc ]]; then
+        if git rev-parse --verify "refs/tags/v$V_MAJOR.$V_MINOR.$V_PATCH^{commit}" >/dev/null 2>&1; then
+            fail "stable version '$V_MAJOR.$V_MINOR.$V_PATCH' already exists; its prerelease stages are closed"
+        fi
+    fi
     latest=$(latest_strict_version "$target")
     if [[ -n "$latest" && "$latest" != "$target" ]]; then
         assert_transition "$latest" "$target"

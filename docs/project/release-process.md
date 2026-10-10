@@ -11,7 +11,7 @@
 3. 版本号由发布工具根据当前版本和目标阶段计算，日常发布不手工拼写版本号。
 4. 版本只能向前演进，不能回退基础版本、阶段或 UTC 构建时间戳。
 5. `Cargo.toml`、兼容性台账、Git 标签和 GitHub Release 必须表示同一个版本。
-6. 标签不可移动、覆盖或复用；晋级成功后，同版本线已经被替代的预发布 Release 与标签会被删除。
+6. 标签不可移动或覆盖；同一提交的失败构建可以复用原标签重试。晋级成功后，同版本线已经被替代的预发布 Release 与标签会被删除。
 7. 发布线严格遵循 `dev → rc → stable`：首个 RC 必须存在同基础版本 dev，正式版本必须存在同基础版本 RC。
 
 ## 当前分支模型
@@ -23,6 +23,7 @@
 - 后续 RC 根据 `main` 当前 RC 生成新的 UTC 分钟时间戳；正式版自动使用 `main` 当前 RC 标签。`source_tag` 只用于显式覆盖来源。
 - `release/promotion-source` 记录晋级来源。创建标签前必须验证该来源是发布提交的祖先。
 - dev 标签必须属于 `develop`，RC 与正式标签必须属于 `main`。
+- 版本历史校验只采用当前源提交的祖先标签。并行的较高 develop 版本不会阻止 main 延续较低的 RC 发布线；同版本线已发布 stable 的关闭规则仍然有效。
 
 ## 版本格式
 
@@ -214,7 +215,7 @@ dev Release PR 合并到 `develop`；RC 与正式版 Release PR 合并到 `main`
 3. 验证远端不存在同名标签；
 4. 要求当前权威分支的精确提交已有成功的 `CI` push 运行；
 5. 所有检查通过后创建 annotated tag；
-6. 标签推送触发 `Release` 工作流，并在构建制品前执行一次最终格式、Clippy 和全 feature 测试。dev 在 `develop` 构建；RC/正式版在 `main` 构建。
+6. 工作流显式调用 `Release` 构建制品。GitHub 默认 `GITHUB_TOKEN` 创建的标签不会再次触发 push 工作流，因此不能只依赖标签推送。普通本地 Git 推送标签仍可触发 `Release`。dev 在 `develop` 构建；RC/正式版在 `main` 构建；公开制品前要求精确提交的权威 CI 成功。
 
 标签不能从本地开发分支直接推送作为标准发布方式。
 
@@ -235,6 +236,35 @@ dev Release PR 合并到 `develop`；RC 与正式版 Release PR 合并到 `main`
 预发布版本创建 GitHub prerelease。正式版本创建 Draft Release，人工检查制品和发布说明后再公开并标记为 latest。
 
 新阶段成功后，工作流进行同基础版本的定向清理：RC prerelease 及其所有平台制品创建成功后，删除全部 `X.Y.Z-dev.*` 以及更早的 `X.Y.Z-rc.*` Release 与标签；正式版 Draft 经人工确认并实际公开后，删除同版本线剩余的全部 dev/RC Release 与标签。清理不会跨基础版本，也不会删除 stable，也不会在构建、发布失败或正式版仍为 Draft 时运行。
+
+## 夜间自动预发布
+
+`Nightly Release` 每天北京时间 03:17（UTC 19:17）检查 main 和 develop。
+GitHub 定时任务可能延迟执行；它只从仓库默认分支读取工作流，因此这些发布治理文件必须合并到默认分支才能启用。
+也可以手动运行，选择 `both`、`main` 或 `develop`；手动运行同样跳过无更新且制品完整的版本。
+仅有 Git SSH 权限时，可将已部署的默认分支提交普通推送到 `codex/nightly-release-validation`，显式触发一次双分支验证。
+这个入口仍从默认分支读取控制脚本，分别从 main／develop 读取发布源码，不把验证分支作为制品来源；完整 CI、标签和发布门禁保持一致。
+例如默认分支为 develop 时：`git push github develop:refs/heads/codex/nightly-release-validation`。后续推送必须 fast-forward；没有新提交时 Git 不产生新的 push 事件。
+
+处理规则如下：
+
+1. 分别读取分支 Cargo 版本，寻找同基础版本、同阶段、当前提交祖先中的最新标签；例如 main 的 `v0.0.2-rc.*` 与 develop 的 `v0.0.3-dev.*` 分别计算。
+   这些版本号仅为示例，工作流没有固定基础版本。每次执行都会重新读取分支状态：main 发布 `v0.0.2` 后暂时跳过；当人工流程建立 `v0.0.3-rc.*` 发布线后，夜间任务自动继续 `v0.0.3-rc.<UTC时间戳>`。develop 进入新的 patch、minor 或 major dev 发布线时也自动跟进，无需修改工作流。
+2. 分支 HEAD 已发布且五个平台归档及 SHA-256 文件完整时跳过；没有新提交也不生成新的时间戳版本。
+3. HEAD 对应标签已创建但制品缺失时，复用该不可变标签重试；同标签已有构建正在运行时跳过，避免重复构建。API 错误不会被当作“没有发布”。
+4. 有新提交时，复用 `scripts/release.sh --next`、`--start-development`／`--seal-only` 更新 Cargo 和兼容性台账，写入 `release/promotion-source`，生成 `release: nightly v<version>` 提交，普通 fast-forward 推送到对应权威分支。
+5. 显式调用该分支的完整 `CI` 手动运行并等待精确 SHA 成功。普通 push 的裁剪 CI 不替代夜间完整门禁。CI 失败时不创建标签，下次复用未发布的夜间版本提交重试，避免只因自动版本提交而不断制造新版本。
+6. 标签创建前再次验证 Cargo／台账、提交归属和不可变标签。分支在准备推送时前进会产生普通 push 冲突；分支在 CI 启动前前进则停止本轮，下一轮重新检查。若 CI 已验证的候选仍是分支祖先，可以发布该固定提交，不以新的浮动 HEAD 替换它。
+7. 显式调用既有 `Release` workflow，继续使用相同平台、feature、SHA-256 文件和发布说明范围。调度成功只代表构建已启动，必须查看 `Release` 的最终结果才算发版成功。Release 按标签串行执行，失败重试不移动标签。
+
+自动任务只延续已建立的 dev／RC 发布线。首个 dev／RC 标签、新基础版本、阶段晋级及 stable 都通过人工发布流程准备；main 进入 stable 后夜间任务跳过它，不自动发布正式版或开始新的版本线。无对应祖先标签、方向错误或版本回退会明确失败。
+
+工作流使用仓库默认令牌的 `contents: write` 和 `actions: write`，不需要额外 PAT。
+仓库必须允许 Actions 写入权威分支；分支保护或 ruleset 拒绝机器人推送时任务会失败，不使用 force push、不自动修改保护规则，也不绕过审批。
+启用前需要确认这个工程治理权限与项目分支规则一致；若权威分支必须通过 PR 更新，应继续使用人工 Release PR，而不能把定时任务的失败当成已启用。
+
+部署只同步发布脚本、工作流、测试和发布治理文档到 main／develop，不能将 develop 的协议或运行时开发变更整体合并到 main。
+本任务不改变本地 GitLab 镜像；自动发布直接针对 GitHub 仓库。
 
 ## 兼容性台账规则
 
@@ -281,6 +311,9 @@ Draft 可以补充说明或重新上传同一标签对应的制品，但不能�
 - `scripts/release.sh`；
 - `scripts/release.ps1`；
 - `scripts/test-release-policy.sh`；
+- `scripts/nightly-release.py` 和 `scripts/tests/test-nightly-release.py`；
+- `.github/scripts/nightly-release.cjs` 和对应测试；
+- `.github/workflows/nightly-release.yml`；
 - `.github/workflows/version-contract.yml`；
 - `.github/workflows/prepare-release.yml`；
 - `.github/workflows/publish-release.yml`；
