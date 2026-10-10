@@ -1,3 +1,5 @@
+mod correlation;
+
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     time::Instant,

@@ -22,6 +22,7 @@ pub struct EchoTranslation<C> {
     pending: HashMap<Key, Pending<C>>,
     next_id: u16,
     bytes: usize,
+    next_expiration: Option<Instant>,
 }
 
 struct Pending<C> {
@@ -37,6 +38,7 @@ impl<C> Default for EchoTranslation<C> {
             pending: HashMap::new(),
             next_id: rand::random(),
             bytes: 0,
+            next_expiration: None,
         }
     }
 }
@@ -49,7 +51,7 @@ impl<C> EchoTranslation<C> {
         context: C,
         now: Instant,
     ) -> io::Result<Vec<u8>> {
-        self.expire(now, |_| false);
+        self.expire_due(now);
         let request = packet::parse_icmp_echo_request(packet).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -79,13 +81,18 @@ impl<C> EchoTranslation<C> {
             )
         })?;
         self.bytes += packet.len() + translated.len();
+        let expires = now + REQUEST_TIMEOUT;
+        self.next_expiration = Some(
+            self.next_expiration
+                .map_or(expires, |next| next.min(expires)),
+        );
         self.pending.insert(
             key,
             Pending {
                 original: packet.to_vec(),
                 translated: translated.clone(),
                 context,
-                expires: now + REQUEST_TIMEOUT,
+                expires,
             },
         );
         Ok(translated)
@@ -96,8 +103,13 @@ impl<C> EchoTranslation<C> {
             return None;
         }
         let key = packet::echo_response_key(packet)?;
-        self.expire(now, |_| false);
         let pending = self.pending.get(&key)?;
+        // Enforce the exact deadline at lookup without scanning other requests.
+        if now >= pending.expires {
+            let pending = self.pending.remove(&key)?;
+            self.bytes -= pending.original.len() + pending.translated.len();
+            return None;
+        }
         let restored =
             packet::restore_echo_response(packet, &pending.original, &pending.translated)?;
         let pending = self.pending.remove(&key)?;
@@ -105,19 +117,35 @@ impl<C> EchoTranslation<C> {
         Some((pending.context, restored))
     }
 
+    fn expire_due(&mut self, now: Instant) {
+        if self.next_expiration.is_some_and(|deadline| now >= deadline) {
+            self.expire(now, |_| false);
+        }
+    }
+
     pub fn expire(&mut self, now: Instant, closed: impl Fn(&C) -> bool) {
+        let mut next: Option<Instant> = None;
         self.pending.retain(|_, pending| {
             if now >= pending.expires || closed(&pending.context) {
                 self.bytes -= pending.original.len() + pending.translated.len();
                 false
             } else {
+                next = Some(next.map_or(pending.expires, |next| next.min(pending.expires)));
                 true
             }
         });
+        self.next_expiration = next;
+        if self.pending.capacity() > self.pending.len().saturating_mul(4).max(16) {
+            self.pending.shrink_to(self.pending.len());
+        }
     }
 
     pub fn clear(&mut self) {
-        self.pending.clear();
+        self.pending = HashMap::new();
         self.bytes = 0;
+        self.next_expiration = None;
     }
 }
+
+#[cfg(test)]
+mod tests;

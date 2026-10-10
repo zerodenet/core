@@ -1,3 +1,6 @@
+#[path = "tests/maintenance.rs"]
+mod maintenance;
+
 use std::net::{IpAddr, Ipv4Addr};
 
 use tokio::sync::mpsc;

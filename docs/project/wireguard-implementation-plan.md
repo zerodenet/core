@@ -899,3 +899,86 @@ under `/Users/higanbana/.codex/tmp/`. Those logical sizes do not represent
 physical bytes freed. Existing source, test binaries/libraries, installed core,
 client configuration and other repositories were retained. The index and HEAD
 are unchanged; this follow-up has not been committed, pushed or installed.
+
+### P1 reply dispatch and burst-memory reclamation (2026-10-10)
+
+The starting working tree contained 56 preserved paths after deadline commit
+`0ad0d447`. Their digests were saved before editing; existing PacketFlowAdapter,
+checksum, event-retention, TUN recovery, macOS privilege and P0 observation work
+is retained. This follow-up targets common stack/runtime overhead:
+
+- `ClientTcpStack::feed_correlated` classifies and feeds a reply using one TCP
+  parse and one connection-table lock. Shared endpoint delivery consumes the
+  boolean result instead of `has_connection` followed by `feed`, removing the
+  duplicated parse/lock and the classification-to-delivery race. A matching
+  tuple remains consumed when state rejects a segment or RST removes it;
+  unmatched packets remain available to the inbound path. Existing `feed` and
+  `has_connection` APIs remain compatible. The neutral stack owns TCP state;
+  no WireGuard authentication, peer or timer logic moves into runtime.
+- Echo translation caches a conservative earliest expiration. Request
+  admission scans only when this deadline is due; reply lookup verifies the
+  matched request's exact deadline without sweeping other entries. Periodic
+  maintenance still checks closed contexts even before the deadline. The
+  existing 30-second timeout, 1,024-request / 2-MiB budget, payload validation,
+  correlation, error restoration and address rewriting remain in zero-stack.
+- Packet return maintenance removes expired source routes as well as expired
+  conversations/observations. After a burst, tables whose capacity exceeds four
+  times their live size (with a 16-entry floor) shrink during maintenance,
+  never per packet. Echo maintenance uses the same hysteresis. Explicit table
+  clear releases buckets. Lookup expiry and each table's prior TTL remain
+  authoritative. Closed but unexpired native routes/conversations are retained
+  so late replies are consumed and actual discard accounting stays correct.
+- Native reply delivery reuses one parsed conversation key for both ownership
+  and observation lookup. Buffer ownership, hop-limit handling, queue limits,
+  statistics and direction restrictions remain unchanged.
+
+Regression coverage includes tuple misses, invalid handshake ACKs and matching
+RST retirement; exact Echo expiry without a sweep, full-table admission,
+closed-context cleanup and stale earliest-deadline repair; reclamation after
+512 native return registrations while preserving the live route/observer, and
+closed-route discard behavior. An ignored local debug-profile comparison
+reports request/reply cost with 512 outstanding Echo correlations against a
+forced per-request/per-reply sweep reference. This is a targeted algorithm
+comparison, not optimized-build throughput or whole-process CPU acceptance.
+
+The preservation audit confirms 54 original paths byte-for-byte unchanged.
+`device/endpoint.rs` and this plan are deliberately continued on top of their
+prior edits; no other original dirty path changed. HEAD and the empty index
+remain unchanged. Proofs are under
+`/Users/higanbana/.codex/tmp/zero-p1-next-20261010/`.
+
+Developer-host cache maintenance removed 130 stale, unused APFS test-image
+copies older than 24 hours whose current source fingerprints differed. The
+scope was only `zero-wg-buffer-tests/bin`, with each image checked against
+running commands and its current source. The logical total was 13.8 GiB;
+system-volume free space then measured about 18 GiB. This is compiler/test
+cache recovery, not a kernel-memory result. The path audit is
+`stale-apfs-cache-cleanup.json` in the proof directory.
+
+Verification completed:
+
+- `cargo fmt --all` / `cargo fmt --all -- --check`: passed.
+- `cargo check --workspace --jobs 2`: passed.
+- `cargo clippy --workspace --all-targets --all-features --jobs 2 -- -D warnings`:
+  passed.
+- `scripts/test-workspace.sh --jobs 2`: 146 completed targets, 2,469 passed,
+  0 failed, 159 ignored, exit 0; 865.25 seconds including 6m37s compilation.
+  All six new behavioral regression cases passed. External/privileged
+  qualification remains separately required; the gate does not claim those
+  ignored cases passed.
+- The ignored Echo comparison was executed explicitly: one benchmark case
+  passed. With 512 outstanding correlations and 10,000 request/reply pairs,
+  the forced-sweep reference took 629,154 us and this implementation 110,230 us
+  (about 5.71x). This debug-profile single local comparison demonstrates the
+  eliminated table scan cost; it is not a production throughput, whole-kernel
+  CPU, RSS or power improvement measurement.
+- The APFS harness ran the same test images/arguments. The retained-TUN host
+  fixture used assigned en0 address 192.168.50.138; `localhost` resolved to
+  127.0.0.1. Compiler concurrency was two; test concurrency stayed unchanged.
+- `validation.json`, `test-summary.json`, `workspace.log` and
+  `echo-comparison.log` in the proof directory record outcomes and timings.
+  Temporary compiler mirror readiness markers were removed at completion.
+
+No commit, push, release build, version update or installed-core replacement
+was performed. Whole-kernel before/after power, throughput, tail latency and
+resident-memory acceptance remains a device benchmark against a frozen build.
