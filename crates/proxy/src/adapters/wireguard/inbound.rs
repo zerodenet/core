@@ -322,6 +322,15 @@ impl RawIpInboundDevice for WireguardInboundDevice {
             .unwrap_or_else(|error| error.into_inner())
             .time_since_last_handshake(peer)
     }
+
+    fn timer_schedule(&self, peer: usize) -> crate::runtime::raw_ip::timer::TimerSchedule {
+        self.0
+            .device
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .next_timer_delay(peer)
+            .into()
+    }
 }
 
 fn map_action(action: TunnelAction) -> RawIpInboundAction {

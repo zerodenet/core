@@ -224,6 +224,7 @@ impl<R: RngCore + Send> Tunn<R> {
     /// Returns `Err(original_packet)` if there is no active session, or if the active session's
     /// sending counter has reached `REJECT_AFTER_MESSAGES`.
     pub fn encapsulate_with_session(&mut self, packet: Packet) -> Result<Packet<WgData>, Packet> {
+        self.refresh_expiration();
         let current = self.current;
         if let Some(ref session) = self.sessions[current % N_SESSIONS] {
             // Send the packet using an established session
@@ -244,6 +245,10 @@ impl<R: RngCore + Send> Tunn<R> {
     ///
     /// This dispatches to the appropriate handler based on packet type.
     pub fn handle_incoming_packet(&mut self, packet: WgKind) -> TunnResult {
+        // Data performs the same guard at the public decapsulation boundary.
+        if !matches!(&packet, WgKind::Data(_)) {
+            self.refresh_expiration();
+        }
         match packet {
             WgKind::HandshakeInit(p) => self.handle_handshake_init(p),
             WgKind::HandshakeResp(p) => self.handle_handshake_response(p),
@@ -370,6 +375,7 @@ impl<R: RngCore + Send> Tunn<R> {
         &mut self,
         packet: Packet<WgData>,
     ) -> Result<Packet, WireGuardError> {
+        self.refresh_expiration();
         let r_idx = packet.header.receiver_idx.get();
 
         // Search for the matching session. Almost always self.current, but older
@@ -403,6 +409,7 @@ impl<R: RngCore + Send> Tunn<R> {
         &mut self,
         force_resend: bool,
     ) -> Option<Packet<WgHandshakeInit>> {
+        self.refresh_expiration();
         if self.handshake.is_in_progress() && !force_resend {
             return None;
         }

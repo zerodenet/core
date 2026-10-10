@@ -798,3 +798,104 @@ Final workspace acceptance on macOS x86_64:
   `/Volumes/tool/tmp/zero-owned-reply-final-fmt.log`.
 - Final integration layout remains 88 targets covering 282 source files, with
   zero layout errors. No additional integration executable was introduced.
+
+### P1 exact deadlines and the bidirectional shared listener (2026-10-10)
+
+This change removes fixed protocol polling from the standalone device and shared listener.
+The pinned protocol engine now exposes a read-only `Tunn::next_timer_delay`:
+retry jitter, keepalive, silence-triggered handshakes, initiator rekey, cookie
+expiry, occupied-session key destruction and connection expiration are projected
+from their owning state machine. Packet-driven timer transitions now stamp the
+actual owner clock rather than the previous polling tick, so long idle periods
+cannot backdate newly authenticated sessions or keepalive resets. No wire
+behavior, timer constants or jitter sampling moves into Proxy. See `vendor/gotatun/ZERO-PATCH.md` for the patch and
+owner-level test command.
+
+Both standalone outbound devices and linked bidirectional listeners consume the
+neutral `TimerSchedule` contract. WireGuard reports a relative exact delay or
+parks after expiry. Other implementations retain an explicit polling fallback;
+busy I/O cannot postpone that fallback indefinitely. Receiving authentication or
+sending new demand recomputes the protocol deadline. Timers execute once per
+selection turn rather than replaying historical ticks after congestion.
+
+The shared listener retains one indexed min-heap entry per live peer, with
+O(log peers) updates, O(1) earliest-deadline lookup and no per-rearm allocation
+or stale heap entries. Configuration replacement/removal rebuilds the inventory;
+a substantial contraction releases peak heap/index capacity. The endpoint watch
+wakes the listener independently of timer and packet I/O, including a parked or
+long-idle listener. Existing generation/endpoint refresh, proxy-carrier revision
+checks, authenticated roaming, inner return demultiplexing, direction checks,
+accounting and shutdown are retained. Generation changes refresh traffic meters
+before executing new peer traffic. Unexpected owner timer errors retain a
+bounded 250 ms retry delay rather than a zero-delay error loop.
+
+Resource/statistics maintenance is independent, every five seconds with Skip
+semantics; TCP idle reclamation remains every thirty seconds. Maintenance also
+reconciles the protocol's suspend-aware clock with the executor clock. Awake
+protocol deadlines are not rounded to the former 250 ms cadence; after a system
+suspend, differing platform clocks can delay reconciliation by up to five
+executor seconds unless I/O/configuration wakes the task sooner. Crypto I/O
+checks owner expiration before using keys or handshake state, so this clock
+reconciliation window cannot authorize stale data keys or attempt responses.
+Executor timer
+resolution and congestion still apply. This is deadline-driven scheduling, not
+hard-real-time guarantees or elimination of all idle wakeups.
+
+Deterministic regression covers independent peer deadlines, heap reordering and
+removal, 10,000 rearms without retained history, fixed allocation during 5,000
+mixed updates, legacy polling under busy I/O, parked shutdown, exact 37 ms
+standalone scheduling and input revival. A real linked-listener test changes
+keepalive configuration without business I/O and requires a handshake before
+five-second maintenance. Existing bidirectional TCP/UDP, Packet, Echo, reload,
+network recovery and traffic suites are part of the full workspace gate.
+The protocol's separate mock-clock suite covers retry/attempt expiry, passive
+and persistent keepalive, rekey, cookie cleanup, strict key expiry, idle key
+wipe and authenticated revival; the WireGuard CI workflow runs that suite
+without enabling the mock clock in production or interop feature graphs.
+
+The installed core and client configuration are unchanged. Whole-kernel CPU,
+RSS, power and throughput improvements still require controlled device
+measurement. Validation results for this source snapshot follow below.
+
+Validation for this follow-up:
+
+- `cargo fmt --all -- --check` and `cargo check --workspace --jobs 2`: passed.
+- `cargo clippy --workspace --all-targets --all-features --jobs 2 -- -D warnings`:
+  passed.
+- The pinned engine's separate mock-clock suite: 69 passed, zero failed or
+  ignored. This includes rejecting stale session keys and late handshake
+  responses before delayed executor maintenance, plus delayed-I/O timestamping.
+- Final full workspace confirmation (`scripts/test-workspace.sh --jobs 2`,
+  workspace/all-features, 16 MiB test-thread stack, default test concurrency):
+  146 targets, 2,463 passed, zero failed, 158 ignored; exit zero in 530 seconds.
+  The ignored privileged/external-service cases are not device qualification.
+  The linked listener's no-business-I/O timer reload test passed in this gate.
+
+The first compilation attempt exhausted the build volume before executing
+tests. After freeing only old unused compiler incremental directories in this
+repository, the first completed workspace run had one process-level target
+failure: a control listener did not open within the existing startup timeout,
+then seven tests failed through the poisoned port mutex. No other target failed.
+The original failure passed when rerun alone; the full 18-test process target
+also passed, and the unchanged full workspace confirmation above passed. The
+initial startup timeout was not reproduced and its underlying cause is not
+established; retain the failure rather than classifying it as a proven protocol
+or platform defect.
+
+Evidence is in `/Volumes/tool/tmp/zero-p1-deadline-delivery-20261010.json`, with
+the final gate log at
+`/Volumes/tool/tmp/zero-p1-deadline-confirm-workspace-20261010.log` and the owner
+log at `/Volumes/tool/tmp/zero-p1-deadline-vendor-final-20261010.log`. Local
+macOS execution used the previously documented APFS executable-image harness;
+features, test bodies, arguments and working directory were retained. CI's
+new owner regression step is implemented but has not been run on GitHub here.
+
+The original 69-path dirty source baseline has 60 byte-identical paths and nine
+deliberately continued P1 paths; its preservation audit is
+`/Users/higanbana/.codex/tmp/zero-p1-deadline-preservation-20261010.json`.
+Compiler-cache cleanup selected 665 unused directories older than seven days,
+with path/cutoff records in `zero-p1-deadline-cache-cleanup{,2,3}-20261010.json`
+under `/Users/higanbana/.codex/tmp/`. Those logical sizes do not represent
+physical bytes freed. Existing source, test binaries/libraries, installed core,
+client configuration and other repositories were retained. The index and HEAD
+are unchanged; this follow-up has not been committed, pushed or installed.

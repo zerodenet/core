@@ -348,6 +348,10 @@ impl InboundDevice {
         Ok(actions)
     }
 
+    pub fn next_timer_delay(&self, peer_index: usize) -> Option<core::time::Duration> {
+        self.peers.get(peer_index)?.next_timer_delay()
+    }
+
     pub fn time_since_last_handshake(&self, peer_index: usize) -> Option<core::time::Duration> {
         self.peers.get(peer_index)?.time_since_last_handshake()
     }

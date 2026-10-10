@@ -289,6 +289,7 @@ impl PacketReturns {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .get(&key)
+                    .filter(|c| c.touched.elapsed() < Duration::from_secs(600))
                     .map(|c| c.replies.clone())
             })
             .unwrap_or(replies);

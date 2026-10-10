@@ -17,6 +17,9 @@ use crate::packet::WgKind;
 use std::ops::{Index, IndexMut, RangeInclusive};
 use std::time::Duration;
 
+mod deadline;
+mod expiration;
+
 use bytes::BytesMut;
 #[cfg(feature = "mock_instant")]
 use mock_instant::thread_local::Instant;
@@ -315,54 +318,19 @@ impl<R: rand::RngCore + Send> Tunn<R> {
 
         self.rate_limiter.try_reset_count();
 
-        // All the times are counted from tunnel initiation, for efficiency our timers are rounded
-        // to a second, as there is no real benefit to having highly accurate timers.
-        let now = self.timers.now();
-        self.timers[TimeCurrent] = now;
-
-        self.update_session_timers(now);
+        if self.refresh_expiration() {
+            return Err(WireGuardError::ConnectionExpired);
+        }
+        let now = self.timers[TimeCurrent];
 
         // Load timers only once:
         let session_established = self.timers[TimeSessionEstablished];
-        let handshake_started = self.timers[TimeLastHandshakeStarted];
         let data_packet_received = self.timers[TimeLastDataPacketReceived];
         let data_packet_sent = self.timers[TimeLastDataPacketSent];
         let persistent_keepalive = self.timers.persistent_keepalive;
 
         {
-            if self.handshake.is_expired() {
-                return Err(WireGuardError::ConnectionExpired);
-            }
-
-            // Clear cookie after COOKIE_EXPIRATION_TIME
-            if self.handshake.has_cookie()
-                && now - self.timers[TimeCookieReceived] >= COOKIE_EXPIRATION_TIME
-            {
-                self.handshake.clear_cookie();
-            }
-
-            // All ephemeral private keys and symmetric session keys are zeroed out after
-            // (REJECT_AFTER_TIME * 3) ms if no new keys have been exchanged.
-            if now - session_established >= REJECT_AFTER_TIME * 3 {
-                tracing::trace!("CONNECTION_EXPIRED(REJECT_AFTER_TIME * 3)");
-                self.handshake.set_expired();
-                self.clear_all();
-                return Err(WireGuardError::ConnectionExpired);
-            }
-
             if let Some(time_init_sent) = self.handshake.timer() {
-                // Handshake Initiation Retransmission
-                if now - handshake_started >= REKEY_ATTEMPT_TIME {
-                    // After REKEY_ATTEMPT_TIME ms of trying to initiate a new handshake,
-                    // the retries give up and cease, and clear all existing packets queued
-                    // up to be sent. If a packet is explicitly queued up to be sent, then
-                    // this timer is reset.
-                    tracing::debug!("CONNECTION_EXPIRED(REKEY_ATTEMPT_TIME)");
-                    self.handshake.set_expired();
-                    self.clear_all();
-                    return Err(WireGuardError::ConnectionExpired);
-                }
-
                 if time_init_sent.elapsed() >= self.timers.rekey_timeout {
                     // We avoid using `time` here, because it can be earlier than `time_init_sent`.
                     // Once `checked_duration_since` is stable we can use that.

@@ -20,6 +20,7 @@ use crate::validation::ValidatedOutbound;
 mod buffer;
 mod inbound;
 mod profile;
+mod timer;
 use buffer::owned_packet;
 
 pub use inbound::{InboundDevice, InboundDispatch, PeerSourceObservation, PreparedInbound};
@@ -322,14 +323,6 @@ impl PeerTunnel {
             actions,
             authenticated,
         })
-    }
-
-    pub fn tick(&mut self) -> Result<Vec<TunnelAction>, TunnelError> {
-        match self.engine.update_timers() {
-            Ok(Some(packet)) => self.collect_result(TunnResult::WriteToNetwork(packet)),
-            Ok(None) => Ok(Vec::new()),
-            Err(_) => Err(TunnelError::Engine),
-        }
     }
 
     pub fn time_since_last_handshake(&self) -> Option<Duration> {

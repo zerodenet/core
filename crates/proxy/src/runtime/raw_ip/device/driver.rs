@@ -53,10 +53,16 @@ async fn run_device_inner(
     device.apply(actions).await?;
     device.refresh_handshake_health();
     ready.send_replace(Some(Ok(())));
-    let mut timer = tokio::time::interval(Duration::from_millis(250));
+    let mut cleanup = tokio::time::interval(Duration::from_secs(5));
+    cleanup.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut returns_sweep = super::maintenance::ReturnMaintenance::new(Instant::now());
     let mut next_tcp_sweep = Instant::now() + Duration::from_secs(60);
     let mut wire = vec![0_u8; 65_535];
+    let mut deadline = None;
     loop {
+        // Re-evaluate the owner's clock after I/O and maintenance. In particular,
+        // an authenticated receive can revive a previously parked protocol.
+        deadline = device.tunnel.timer_schedule().deadline(deadline);
         tokio::select! {
             packet = device.raw_packets.recv() => {
                 let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { return Ok(()); };
@@ -108,11 +114,14 @@ async fn run_device_inner(
                 device.apply(actions).await?;
                 device.refresh_handshake_health();
             }
-            _ = timer.tick() => {
-                device.returns.expire();
+            _ = super::super::timer::wait(deadline) => {
+                deadline = None;
                 let actions = device.tunnel.tick().inspect_err(|_| device.traffic.error(TrafficPlane::Outer, true))?;
                 device.apply(actions).await?;
                 device.refresh_handshake_health();
+            }
+            _ = cleanup.tick() => {
+                if returns_sweep.due(Instant::now()) { device.returns.expire(); }
                 if Instant::now() >= next_tcp_sweep {
                     device.tcp.cleanup_idle(Duration::from_secs(600)).await;
                     next_tcp_sweep = Instant::now() + Duration::from_secs(60);

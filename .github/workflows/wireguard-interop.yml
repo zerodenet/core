@@ -3,10 +3,10 @@ name: WireGuard Reference Interop
 on:
   push:
     branches: [develop]
-    paths: ['protocols/wireguard/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
+    paths: ['protocols/wireguard/**', 'vendor/gotatun/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
   pull_request:
     branches: [develop]
-    paths: ['protocols/wireguard/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
+    paths: ['protocols/wireguard/**', 'vendor/gotatun/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
   workflow_dispatch:
 
 permissions:
@@ -31,6 +31,10 @@ jobs:
         with:
           go-version-file: tests/reference/wireguard_go/go.mod
           cache-dependency-path: tests/reference/wireguard_go/go.sum
+      - name: Protocol timer deadlines and pinned engine regression
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --manifest-path vendor/gotatun/Cargo.toml --target-dir target --no-default-features --features zeroized-rustcrypto,mock_instant --lib
       - name: Prepare fixed official Xray reference
         run: |
           cargo generate-lockfile

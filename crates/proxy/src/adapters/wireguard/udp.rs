@@ -183,6 +183,14 @@ impl RawIpTunnel for WireguardRawIpTunnel {
         self.tunnel.tick().map(convert).map_err(tunnel_error)
     }
 
+    fn timer_enabled(&self) -> bool {
+        self.tunnel.timer_enabled()
+    }
+
+    fn timer_schedule(&self) -> crate::runtime::raw_ip::timer::TimerSchedule {
+        self.tunnel.next_timer_delay().into()
+    }
+
     fn allows_source(&self, source: IpAddr) -> bool {
         self.profile
             .allows_authenticated_source(self.peer_index, source)

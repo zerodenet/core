@@ -2,6 +2,7 @@
 //! packet codecs; this module owns socket, stack, route, and task lifetime.
 
 mod icmp;
+mod lifecycle;
 mod outer;
 mod route;
 mod run;
@@ -66,6 +67,9 @@ pub(crate) trait RawIpInboundDevice: Send {
         packet: &[u8],
     ) -> Result<Vec<RawIpInboundAction>, EngineError>;
     fn tick_peer(&mut self, peer: usize) -> Result<Vec<RawIpInboundAction>, EngineError>;
+    fn timer_schedule(&self, _peer: usize) -> crate::runtime::raw_ip::timer::TimerSchedule {
+        crate::runtime::raw_ip::timer::TimerSchedule::Polling
+    }
     fn handshake_age(&self, _peer: usize) -> Option<Duration> {
         None
     }

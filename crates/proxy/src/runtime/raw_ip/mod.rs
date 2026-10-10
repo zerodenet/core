@@ -19,3 +19,4 @@ pub(crate) use pool::{RawIpDevicePool, StagedRawIpDevices, MAX_RAW_IP_DEVICES};
 
 mod statistics;
 pub(crate) use statistics::RawIpTraffic;
+pub(crate) mod timer;

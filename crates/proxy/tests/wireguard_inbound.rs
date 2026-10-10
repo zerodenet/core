@@ -1,5 +1,7 @@
 #![cfg(all(feature = "wireguard", feature = "socks5"))]
 
+#[path = "wireguard_inbound/deadline.rs"]
+mod deadline;
 #[path = "support/host.rs"]
 mod host;
 mod support;

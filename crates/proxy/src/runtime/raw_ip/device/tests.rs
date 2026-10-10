@@ -219,3 +219,4 @@ fn authenticated_data_and_stale_handshake_have_distinct_states() {
         OutboundDeviceHealthState::RecentlyHandshaken
     );
 }
+mod timer;

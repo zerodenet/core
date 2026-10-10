@@ -1,8 +1,10 @@
 //! Neutral listener execution and its socket/stack task lifecycle.
+use super::lifecycle::{peers_changed, receive_endpoint_packet, refresh_device_generation};
 use super::outer::{peer_carrier, refresh_endpoint_peers, send_network_actions, ProxiedWirePacket};
 use super::route::feed_inner_packet;
 use super::statistics::IngressTraffic;
 use super::*;
+use crate::runtime::raw_ip::timer::{self, PeerTimers};
 use std::time::Instant;
 use tokio::task::JoinSet;
 use zero_api::TrafficPlane;
@@ -56,8 +58,8 @@ pub(super) async fn run(
     let ingress_id = crate::runtime::packet_route::next_ingress_id();
     let packet_route = runtime.route_factory();
     let mut packet_pins = packet_route.packet_statistics_pins();
-    let mut tick = tokio::time::interval(Duration::from_millis(250));
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut maintenance = tokio::time::interval(Duration::from_secs(5));
+    maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut tcp_cleanup = tokio::time::interval(Duration::from_secs(30));
     tcp_cleanup.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut fragment_id = 1_u32;
@@ -72,10 +74,45 @@ pub(super) async fn run(
         &proxied_tx,
         &mut peer_uses_proxy,
     );
+    let mut peer_changes = operation
+        .endpoint
+        .as_ref()
+        .map(|endpoint| endpoint.peers.clone());
+    let mut timers = PeerTimers::default();
+    let mut timer_revision = None;
     let outcome = loop {
+        refresh_endpoint_peers(
+            operation.endpoint.as_mut(),
+            &mut peer_revision,
+            &mut initial_endpoints,
+            &mut endpoints,
+            &mut fragments,
+            &mut endpoint_fragments,
+            &mut proxied_tasks,
+            &proxied_tx,
+            &mut peer_uses_proxy,
+        );
+        refresh_device_generation(
+            operation.device.as_ref(),
+            &mut generation,
+            &mut endpoints,
+            &mut fragments,
+            &mut endpoint_fragments,
+            &initial_endpoints,
+        );
+        if timer_revision != Some((peer_revision, generation)) {
+            traffic.refresh(operation.device.as_ref(), &packet_route);
+            timers.rebuild(operation.device.peer_count(), |peer| {
+                operation.device.timer_schedule(peer)
+            });
+            timer_revision = Some((peer_revision, generation));
+        }
         tokio::select! {
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() { break Ok(()); }
+            }
+            changed = peers_changed(&mut peer_changes) => {
+                if changed.is_err() { peer_changes = None; }
             }
             received = async {
                 tokio::select! {
@@ -103,6 +140,7 @@ pub(super) async fn run(
                     Ok(dispatch) => dispatch,
                     Err(error) => { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); tracing::debug!(%error, "raw-IP inbound rejected datagram"); continue; }
                 };
+                if let Some(peer) = dispatch.peer_index { timers.update(peer, operation.device.timer_schedule(peer)); }
                 if dispatch.authenticated { traffic.peer(dispatch.peer_index).peer_rx(TrafficPlane::Outer, size); }
                 traffic.peer(dispatch.peer_index).dropped_count(TrafficPlane::Inner, true, zero_api::TrafficDropReason::SourceRejected, dispatch.source_rejected_packets);
                 if proxied_peer.is_some_and(|expected| dispatch.peer_index.is_some_and(|actual| expected != actual)) {
@@ -163,8 +201,10 @@ pub(super) async fn run(
             outgoing = receive_endpoint_packet(&mut operation.endpoint) => {
                 refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy);
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
+                traffic.refresh(operation.device.as_ref(), &packet_route);
                 let Some(outgoing) = outgoing else {
                     operation.endpoint = None;
+                    peer_changes = None;
                     continue;
                 };
                 if outgoing.closed.load(std::sync::atomic::Ordering::Acquire) || outgoing.return_channel.as_ref().is_some_and(|channel| channel.is_closed()) { traffic.peer(Some(outgoing.peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::QueueClosed); if let Some(observer) = &outgoing.observer { observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed); } continue; }
@@ -178,6 +218,7 @@ pub(super) async fn run(
                 fragment_id = fragment_id.wrapping_add(1);
                 for packet in packets {
                     let actions = operation.device.send_ip_packet(outgoing.peer, &packet).inspect_err(|_| { traffic.peer(Some(outgoing.peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(outgoing.peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); })?;
+                    timers.update(outgoing.peer, operation.device.timer_schedule(outgoing.peer));
                     traffic.peer(Some(outgoing.peer)).tx(TrafficPlane::Inner, packet.len());
                     if let Some(observer) = &outgoing.observer { observer.sent(packet.len()); }
                     send_network_actions(&socket, carrier.clone(), address, &actions, traffic.peer(Some(outgoing.peer))).await;
@@ -186,6 +227,7 @@ pub(super) async fn run(
             response = responses.recv() => {
                 refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy);
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
+                traffic.refresh(operation.device.as_ref(), &packet_route);
                 let Some(response) = response else { break Err(EngineError::Io(std::io::Error::other("raw-IP response channel closed"))); };
                 tracing::trace!(ip_bytes = response.len(), "raw-IP inbound stack response");
                 let Some(destination) = packet::ip_destination(&response) else { continue; };
@@ -200,21 +242,44 @@ pub(super) async fn run(
                         Ok(actions) => { traffic.respond_packet(fragment.len()); traffic.peer(Some(peer)).tx(TrafficPlane::Inner, fragment.len()); send_network_actions(&socket, carrier.clone(), endpoint, &actions, traffic.peer(Some(peer))).await; },
                         Err(error) => { traffic.peer(Some(peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); tracing::debug!(%error, "raw-IP inbound response encode failed"); },
                     }
+                    timers.update(peer, operation.device.timer_schedule(peer));
                 }
             }
-            _ = packet_pins.management_changed() => packet_pins.expire(),
-            _ = tick.tick() => {
+            _ = packet_pins.management_changed() => {
                 packet_route.retain_admitted_packet_pins(&mut packet_pins);
-                traffic.refresh(operation.device.as_ref(), &packet_route);
-                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy);
-                refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
-                for (peer, endpoint) in endpoints.iter().enumerate() {
-                    let Some(endpoint) = endpoint else { continue; };
-                    let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
-                    match operation.device.tick_peer(peer) {
-                        Ok(actions) => send_network_actions(&socket, carrier, *endpoint, &actions, traffic.peer(Some(peer))).await,
+                packet_pins.expire();
+            },
+            _ = timer::wait(timers.deadline()) => {
+                // A timer and a replacement notification may become ready in
+                // the same select. Refresh the inventory before using old indices.
+                if operation.device.generation() != generation || operation.endpoint.as_ref().is_some_and(|endpoint| endpoint.peers.borrow().revision != peer_revision) { continue; }
+                // One peer per select turn keeps I/O, control and shutdown fair.
+                if let Some(peer) = timers.pop_due() {
+                    let result = operation.device.tick_peer(peer);
+                    let schedule = if result.is_err() {
+                        // A failed owner transition must not spin on an overdue
+                        // deadline. I/O/config changes can still wake this peer.
+                        timer::TimerSchedule::After(Duration::from_millis(250))
+                    } else { operation.device.timer_schedule(peer) };
+                    timers.update(peer, schedule);
+                    match result {
+                        Ok(actions) => if let Some(endpoint) = endpoints.get(peer).copied().flatten() {
+                            let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
+                            send_network_actions(&socket, carrier, endpoint, &actions, traffic.peer(Some(peer))).await;
+                        } else {
+                            for action in actions { if matches!(action, RawIpInboundAction::SendNetwork(_)) { traffic.peer(Some(peer)).dropped_reason(TrafficPlane::Outer, true, zero_api::TrafficDropReason::NoRoute); } }
+                        },
                         Err(error) => { traffic.peer(Some(peer)).error(TrafficPlane::Outer, true); tracing::debug!(%error, peer, "raw-IP inbound timer failed"); },
                     }
+                }
+            }
+            _ = maintenance.tick() => {
+                packet_route.retain_admitted_packet_pins(&mut packet_pins);
+                traffic.refresh(operation.device.as_ref(), &packet_route);
+                // Protocol clocks can include system suspend while the executor's
+                // clock may not. Reconcile those clocks without running early ticks.
+                for peer in 0..operation.device.peer_count() {
+                    timers.update(peer, operation.device.timer_schedule(peer));
                 }
             }
             _ = tcp_cleanup.tick() => {
@@ -233,32 +298,4 @@ pub(super) async fn run(
     tasks.shutdown().await;
     proxied_tasks.shutdown().await;
     outcome
-}
-
-async fn receive_endpoint_packet(
-    endpoint: &mut Option<RawIpInboundEndpoint>,
-) -> Option<EndpointPacket> {
-    match endpoint {
-        Some(endpoint) => endpoint.packets.recv().await,
-        None => std::future::pending().await,
-    }
-}
-
-fn refresh_device_generation(
-    device: &dyn RawIpInboundDevice,
-    generation: &mut u64,
-    endpoints: &mut Vec<Option<SocketAddr>>,
-    fragments: &mut FragmentReassembler,
-    endpoint_fragments: &mut FragmentReassembler,
-    initial_endpoints: &[Option<SocketAddr>],
-) {
-    let current = device.generation();
-    if *generation != current {
-        *generation = current;
-        *endpoints = (0..device.peer_count())
-            .map(|peer| initial_endpoints.get(peer).copied().flatten())
-            .collect();
-        *fragments = FragmentReassembler::new();
-        *endpoint_fragments = FragmentReassembler::new();
-    }
 }

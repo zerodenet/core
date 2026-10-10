@@ -296,3 +296,31 @@ async fn native_return_retains_external_owner_on_miss_and_through_delivery() {
     drop(reply);
     assert_eq!(drops.load(Ordering::Relaxed), 1);
 }
+
+#[tokio::test]
+async fn expired_conversation_cannot_override_the_current_return_route_between_sweeps() {
+    use std::time::{Duration, Instant};
+    use zero_stack::packet;
+    let routes = PacketReturns::default();
+    let local: IpAddr = "10.0.0.1".parse().unwrap();
+    let remote: IpAddr = "10.0.0.2".parse().unwrap();
+    let request = packet::build_udp(local, remote, 40000, 53, b"request");
+    let key = packet::packet_conversation_key(&request).unwrap();
+    let (old, mut old_packets) = mpsc::channel::<Vec<u8>>(1);
+    routes
+        .register_observed(local, 1, old.into(), None, Some(key))
+        .unwrap();
+    let (current, mut current_packets) = mpsc::channel::<Vec<u8>>(1);
+    routes.register(local, 1, current.into()).unwrap();
+    routes
+        .conversations
+        .lock()
+        .unwrap()
+        .get_mut(&key)
+        .unwrap()
+        .touched = Instant::now() - Duration::from_secs(601);
+    let reply = packet::build_udp(remote, local, 53, 40000, b"reply");
+    assert!(routes.deliver_owned(reply.into()).is_ok());
+    assert!(current_packets.try_recv().is_ok());
+    assert!(old_packets.try_recv().is_err());
+}

@@ -43,3 +43,35 @@ reports lower throughput for the RustCrypto backend than for `ring` in its
 benchmark; Zero must measure
 the impact in its own Packet/Flow workloads before treating this as a default
 backend choice.
+
+Zero also exposes `Tunn::next_timer_delay` in `noise/timers/deadline.rs`.
+This read-only projection uses the same clock, sampled jitter, pending flags,
+occupied session slots and predicates as `update_timers`. It schedules cookie
+expiry, session-key destruction, connection expiration, handshake retries,
+rekey, reactive keepalive and persistent keepalive without resampling or changing
+wire behavior. Expired tunnels return `None` until I/O revives their state.
+The strict session-expiry boundary adds one nanosecond to prevent a zero-delay
+loop at equality; an executor may still round sleeps to its timer resolution.
+Rate-limit counters are reset on packet receive, so they do not require an
+independent idle wake. The adapter owns no duplicate WireGuard timer constants.
+
+`tests/timer_deadline.rs` is an owner-level mock-clock regression suite; run:
+`cargo test --manifest-path vendor/gotatun/Cargo.toml --target-dir target --no-default-features --features zeroized-rustcrypto,mock_instant --lib`.
+The WireGuard interoperability workflow runs it separately so the thread-local
+mock clock is never enabled in Zero's production or network-interoperability
+feature graph. Updating the upstream timer state machine requires updating this
+projection and its boundary tests together. The pinned engine version and the
+existing cryptographic patches remain unchanged.
+
+`noise/timers/expiration.rs` shares expiration checks between timer execution
+and public crypto I/O boundaries. It stamps `TimeCurrent` at actual I/O time;
+`timer_tick` then records packet-driven transitions against that timestamp.
+Upstream's periodic device loop refreshes this time frequently; after a long
+exact-deadline sleep, reusing the previous tick would backdate session keys,
+cookies and keepalive resets. Encapsulation, decapsulation, handshake generation
+and inbound handshake handling also expire old keys/attempts before use, so
+executor/protocol clock differences after suspend cannot admit an expired data
+packet or late handshake response. This helper only expires state; it never
+emits and loses a pending retry/rekey packet. Timer execution uses the same
+helper, so expiration rules are not independently implemented twice. The
+mock-clock suite covers delayed I/O, rejected stale keys/responses and revival.

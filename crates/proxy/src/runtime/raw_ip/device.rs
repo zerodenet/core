@@ -4,6 +4,7 @@ mod completion;
 mod driver;
 mod endpoint;
 mod health;
+mod maintenance;
 mod returns;
 #[cfg(test)]
 mod tests;

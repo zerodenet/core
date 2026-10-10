@@ -28,6 +28,21 @@ pub(crate) trait RawIpTunnel: Send {
             .map(|actions| (actions, false))
     }
     fn tick(&mut self) -> Result<Vec<RawIpAction>, EngineError>;
+    /// A protocol may park its timer when only I/O can revive its state.
+    /// This must not suppress pending keepalive, retry or key-expiry work.
+    fn timer_enabled(&self) -> bool {
+        true
+    }
+    /// Parking affects the protocol timer, not I/O or resource maintenance.
+    /// Legacy implementations retain their polling cadence until they provide
+    /// their own deadline. Recompute after every protocol state transition.
+    fn timer_schedule(&self) -> super::timer::TimerSchedule {
+        if self.timer_enabled() {
+            super::timer::TimerSchedule::Polling
+        } else {
+            super::timer::TimerSchedule::Parked
+        }
+    }
     fn allows_source(&self, source: IpAddr) -> bool;
     fn time_since_last_handshake(&self) -> Option<Duration> {
         None
