@@ -47,6 +47,7 @@ pub struct Engine {
     runtime_snapshot: Arc<std::sync::RwLock<Arc<EngineRuntimeSnapshot>>>,
     mode: Arc<std::sync::Mutex<ModeConfig>>,
     next_session_id: Arc<AtomicU64>,
+    next_dial_generation: Arc<AtomicU64>,
     session_registry: Arc<SessionRegistry>,
     endpoint_facts: Arc<endpoint::EndpointFacts>,
     packet_routes: Arc<packet_route::PacketRoutes>,
@@ -129,7 +130,10 @@ impl Engine {
         config.materialize_endpoints()?;
         let router = Arc::new(config.compile_route()?);
         let bypass = Arc::new(config.compile_route_bypass()?);
-        let plan = Arc::new(EnginePlan::build(&config)?);
+        let next_dial_generation = Arc::new(AtomicU64::new(1));
+        let mut plan = EnginePlan::build(&config)?;
+        plan.reconcile_direct_dial_generations(None, &next_dial_generation);
+        let plan = Arc::new(plan);
         let udp_upstream_idle_timeout =
             Duration::from_secs(config.runtime.udp_upstream_idle_timeout_seconds);
         let outbound_group_state = OutboundGroupStateStore::for_plan(&plan, None);
@@ -181,6 +185,7 @@ impl Engine {
             }))),
             mode,
             next_session_id: Arc::new(AtomicU64::new(1)),
+            next_dial_generation,
             session_registry: SessionRegistry::shared(),
             endpoint_facts: Arc::new(endpoint::EndpointFacts::default()),
             packet_routes: Arc::new(packet_route::PacketRoutes::default()),
@@ -424,7 +429,11 @@ impl Engine {
     ) -> Result<(ResolvedOutbound<'static>, Option<Arc<EnginePlan>>), EngineError> {
         match action {
             RouteDecision::Direct => Ok((
-                ResolvedOutbound::Single(ResolvedLeafOutbound::Direct { tag: None }),
+                ResolvedOutbound::Single(ResolvedLeafOutbound::Direct {
+                    tag: None,
+                    dial_policy: zero_traits::DialPolicy::default(),
+                    dial_generation: 0,
+                }),
                 None,
             )),
             RouteDecision::Reject => Ok((

@@ -16,7 +16,9 @@ pub(crate) enum PacketRouteTarget {
         operation: Box<dyn PreparedPacketRouteOperation>,
     },
     Flow,
-    DirectEcho,
+    DirectEcho {
+        dial_policy: zero_traits::DialPolicy,
+    },
     Block,
     Unsupported,
     Fallback(Vec<PacketRouteTarget>),
@@ -166,10 +168,13 @@ impl ProtocolInventory {
             Some(Plane::Stream | Plane::Datagram) => PacketRouteTarget::Flow,
             None if mode == RouteMode::Auto
                 && matches!(runtime.tcp_path, TcpPathCategory::Direct)
+                && runtime.dial_policy == zero_traits::DialPolicy::default()
                 && matches!(protocol, Some(IPPROTO_ICMP | IPPROTO_ICMPV6)) =>
             {
                 // Direct echo is a legacy host-socket operation, not a PacketSink.
-                PacketRouteTarget::DirectEcho
+                PacketRouteTarget::DirectEcho {
+                    dial_policy: runtime.dial_policy,
+                }
             }
             _ => PacketRouteTarget::Unsupported,
         }

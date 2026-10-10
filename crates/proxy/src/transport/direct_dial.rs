@@ -50,10 +50,19 @@ pub(super) async fn dial_tcp_candidates(
     candidates: Vec<SocketAddr>,
     egress: &EgressInterfaceControl,
 ) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
+    dial_tcp_candidates_with_policy(candidates, egress, &zero_traits::DialPolicy::default()).await
+}
+
+pub(super) async fn dial_tcp_candidates_with_policy(
+    candidates: Vec<SocketAddr>,
+    egress: &EgressInterfaceControl,
+    policy: &zero_traits::DialPolicy,
+) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
     let resolved_candidates = interleave_address_families(candidates);
     dial_tcp_candidates_with_history(
         resolved_candidates.clone(),
         egress,
+        policy,
         0,
         resolved_candidates,
         Vec::new(),
@@ -68,6 +77,7 @@ pub(super) async fn dial_tcp_fallback_candidates(
     previous: Box<TcpDialFailure>,
     candidates: Vec<SocketAddr>,
     egress: &EgressInterfaceControl,
+    policy: &zero_traits::DialPolicy,
 ) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
     let mut resolved_candidates = previous.resolved_candidates.clone();
     let fallback_candidates = interleave_address_families(candidates)
@@ -83,6 +93,7 @@ pub(super) async fn dial_tcp_fallback_candidates(
     dial_tcp_candidates_with_history(
         fallback_candidates,
         egress,
+        policy,
         candidate_index_offset,
         resolved_candidates,
         previous.attempts,
@@ -93,6 +104,7 @@ pub(super) async fn dial_tcp_fallback_candidates(
 async fn dial_tcp_candidates_with_history(
     candidates: Vec<SocketAddr>,
     egress: &EgressInterfaceControl,
+    policy: &zero_traits::DialPolicy,
     candidate_index_offset: usize,
     resolved_candidates: Vec<SocketAddr>,
     mut completed_attempts: Vec<TcpDialAttempt>,
@@ -106,7 +118,12 @@ async fn dial_tcp_candidates_with_history(
         .next()
         .expect("dial candidates are non-empty");
     let mut attempts = FuturesUnordered::new();
-    attempts.push(dial_tcp_candidate(first_index, first, egress.clone()));
+    attempts.push(dial_tcp_candidate(
+        first_index,
+        first,
+        egress.clone(),
+        policy.clone(),
+    ));
     let mut last_failure = None;
 
     loop {
@@ -128,6 +145,7 @@ async fn dial_tcp_candidates_with_history(
                                 candidate_index,
                                 candidate,
                                 egress.clone(),
+                                policy.clone(),
                             ));
                         }
                     }
@@ -137,6 +155,7 @@ async fn dial_tcp_candidates_with_history(
                         candidate_index,
                         candidate,
                         egress.clone(),
+                        policy.clone(),
                     ));
                 }
             }
@@ -169,14 +188,22 @@ async fn dial_tcp_candidate(
     candidate_index: usize,
     remote: SocketAddr,
     egress: EgressInterfaceControl,
+    policy: zero_traits::DialPolicy,
 ) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
-    let selection = egress.select_for_peer(remote);
-    if let Err(error) = selection.ensure_connectable() {
+    let (selection, selection_error) = match egress.select_for_peer_with_policy(remote, &policy) {
+        Ok(selection) => (selection, None),
+        Err(error) => (egress.select_for_peer(remote), Some(error)),
+    };
+    if let Some(error) = selection_error.or_else(|| selection.ensure_connectable().err()) {
         return Err(Box::new(TcpDialFailure {
             remote,
             resolved_candidates: Vec::new(),
             selection,
-            stage: "select_egress",
+            stage: if policy == zero_traits::DialPolicy::default() {
+                "select_egress"
+            } else {
+                "select_dial_policy"
+            },
             interface_bound: false,
             local_addr: None,
             error,
@@ -187,7 +214,7 @@ async fn dial_tcp_candidate(
 
     match tokio::time::timeout(
         CANDIDATE_TIMEOUT,
-        TokioSocket::connect_addr_on_observed(remote, selection.interface()),
+        TokioSocket::connect_addr_with_policy_observed(remote, &policy, &selection),
     )
     .await
     {

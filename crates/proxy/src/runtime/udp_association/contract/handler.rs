@@ -83,6 +83,7 @@ where
                         DirectUdpResponseSource {
                             sender: sender_socket_addr,
                             session_id: None,
+                            guard: None,
                         },
                         &payload,
                     );

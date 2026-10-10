@@ -29,7 +29,7 @@ pub(crate) struct UdpDispatch {
     pub(super) inbound_tag: String,
     pub(super) flows: UdpSessionFlows,
     pub(super) flow_start_backoff: UdpFlowStartBackoff,
-    /// Ephemeral UDP socket for direct outbound (sends to target, receives responses).
+    /// Lazy policy-isolated native Direct sockets and exact response bindings.
     pub(super) direct_socket: DirectUdpSockets,
     /// Managed protocol, packet-path, and chain response state for this UDP session.
     pub(super) flow_state: UdpFlowState,

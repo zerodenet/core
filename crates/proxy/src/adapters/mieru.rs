@@ -110,7 +110,6 @@ impl InboundListenerCapability for MieruAdapter {
         inbound: &InboundConfig,
         _source_dir: Option<&std::path::Path>,
     ) -> Result<crate::protocol_registry::BoundInbound, EngineError> {
-        let address = crate::protocol_registry::inbound_listen_addr(inbound);
         if matches!(
             inbound.protocol,
             InboundProtocolConfig::Mieru {
@@ -119,11 +118,22 @@ impl InboundListenerCapability for MieruAdapter {
             }
         ) {
             return Ok(crate::protocol_registry::BoundInbound::Datagram(
-                std::sync::Arc::new(tokio::net::UdpSocket::bind(&address).await?).into(),
+                std::sync::Arc::new(
+                    crate::protocol_registry::bind_datagram_listener(
+                        &inbound.listen.address,
+                        inbound.listen.port,
+                    )
+                    .await?,
+                )
+                .into(),
             ));
         }
         Ok(crate::protocol_registry::BoundInbound::Tcp(
-            zero_platform_tokio::TokioListener::bind(&address).await?,
+            crate::protocol_registry::bind_tcp_listener(
+                &inbound.listen.address,
+                inbound.listen.port,
+            )
+            .await?,
         ))
     }
 

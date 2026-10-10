@@ -20,6 +20,7 @@ pub(super) fn extend(capabilities: &mut zero_api::ApiCapabilities) {
     capabilities.features.extend(
         [
             "direct_tcp_dial_attempt_observability_v1",
+            "direct_outbound_dial_policy_v1",
             "traffic_outbound_carrier_io_v1",
             "traffic_local_drop_reasons_v1",
             "direct_tcp_trusted_target_candidate_fallback",
@@ -49,9 +50,12 @@ pub(super) fn extend(capabilities: &mut zero_api::ApiCapabilities) {
         "raw_ip_local_echo_v1".to_owned(),
         "traffic_packet_route_idle_observation_v1".to_owned(),
     ]);
-    capabilities
-        .global_limitations
-        .push("direct_udp_trusted_candidate_retarget_unsupported".to_owned());
+    capabilities.global_limitations.extend([
+        "direct_udp_trusted_candidate_retarget_unsupported".to_owned(),
+        "nondefault_dial_direct_tcp_udp_only".to_owned(),
+        "nondefault_dial_native_packet_icmp_unsupported".to_owned(),
+        "ipv6_wildcard_dual_stack_platform_dependent".to_owned(),
+    ]);
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     {

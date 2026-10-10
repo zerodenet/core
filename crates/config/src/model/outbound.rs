@@ -8,6 +8,9 @@ pub struct OutboundConfig {
     pub protocol: OutboundProtocolConfig,
     #[serde(default)]
     pub udp: UdpPolicyConfig,
+    /// Socket dial constraints. Non-default constraints currently require Direct.
+    #[serde(default, skip_serializing_if = "OutboundDialConfig::is_default")]
+    pub dial: OutboundDialConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

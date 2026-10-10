@@ -18,6 +18,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 zeroize = "1"
 zero-api = { path = "../api" }
+zero-core = { path = "../core" }
 zero-router = { path = "../router" }
 zero-rule = { path = "../rule" }
 zero-traits = { path = "../traits" }
@@ -32,7 +33,6 @@ ztls = { path = "../ztls", default-features = false, features = ["validation"] }
 
 [dev-dependencies]
 base64 = "0.22"
-zero-core = { path = "../core" }
 
 # Integration suites are explicit; scripts/check-test-layout.py guards coverage.
 

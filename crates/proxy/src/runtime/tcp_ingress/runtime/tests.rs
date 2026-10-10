@@ -355,3 +355,7 @@ fn dns_a_query(domain: &str) -> Vec<u8> {
     query.extend_from_slice(&1_u16.to_be_bytes());
     query
 }
+
+#[cfg(all(feature = "managed-stream-runtime", feature = "dns"))]
+#[path = "tests/mux_fake_ip.rs"]
+mod mux_fake_ip;

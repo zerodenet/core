@@ -150,7 +150,10 @@ pub(super) async fn feed_inner_packet(
                 }
                 return;
             }
-            PacketRouteTarget::DirectEcho => {
+            PacketRouteTarget::DirectEcho { dial_policy } => {
+                if dial_policy != zero_traits::DialPolicy::default() {
+                    break;
+                }
                 if !IcmpEchoRelay::accepts_direct_echo(&packet) {
                     break;
                 }

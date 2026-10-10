@@ -14,7 +14,8 @@ use zero_platform_tokio::{
 use zero_traits::IpAddress;
 
 use super::direct_dial::{
-    dial_tcp_candidates, dial_tcp_fallback_candidates, TcpDialAttempt, TcpDialFailure,
+    dial_tcp_candidates, dial_tcp_candidates_with_policy, dial_tcp_fallback_candidates,
+    TcpDialAttempt, TcpDialFailure,
 };
 use candidates::{
     literal_direct_target, recovered_ipv4_candidate_refresh, refresh_recovered_ipv4_candidates,
@@ -23,6 +24,7 @@ use candidates::{
 
 pub(super) mod candidates;
 mod host;
+mod policy;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DirectConnector;
@@ -45,6 +47,7 @@ pub(crate) struct DirectTargetResolution {
     udp_original_candidate: Option<SocketAddr>,
     recovered_candidate_refresh: Option<RecoveredDirectCandidateRefresh>,
     address_family_policy: &'static str,
+    dial_policy: zero_traits::DialPolicy,
     fallback: Option<DirectAddressFamilyFallback>,
 }
 
@@ -81,14 +84,31 @@ impl DirectConnector {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) async fn connect(
         &self,
         session: &Session,
         resolver: &Arc<DnsSystem>,
         egress: &EgressInterfaceControl,
     ) -> Result<DirectTcpConnection, DirectTcpConnectFailure> {
+        self.connect_with_policy(
+            session,
+            resolver,
+            egress,
+            &zero_traits::DialPolicy::default(),
+        )
+        .await
+    }
+
+    pub(crate) async fn connect_with_policy(
+        &self,
+        session: &Session,
+        resolver: &Arc<DnsSystem>,
+        egress: &EgressInterfaceControl,
+        policy: &zero_traits::DialPolicy,
+    ) -> Result<DirectTcpConnection, DirectTcpConnectFailure> {
         let resolution = match self
-            .resolve_target_addrs(session, resolver.as_ref(), egress)
+            .resolve_target_addrs_with_policy(session, resolver.as_ref(), egress, policy)
             .await
         {
             Ok(resolution) => resolution,
@@ -96,26 +116,30 @@ impl DirectConnector {
                 return Err(DirectTcpConnectFailure {
                     stage: "resolve_direct_target",
                     error,
-                    network: Box::new(
-                        self.resolution_failure_observation(session, resolver, egress),
-                    ),
+                    network: Box::new(self.resolution_failure_observation_with_policy(
+                        session, resolver, egress, policy,
+                    )),
                 });
             }
         };
 
-        let dial = match dial_tcp_candidates(resolution.candidates.clone(), egress).await {
-            Ok(success) => Ok(success),
-            Err(failure) => {
-                Box::pin(self.retry_recovered_candidates(
-                    session,
-                    resolver,
-                    egress,
-                    &resolution,
-                    failure,
-                ))
+        let dial =
+            match dial_tcp_candidates_with_policy(resolution.candidates.clone(), egress, policy)
                 .await
-            }
-        };
+            {
+                Ok(success) => Ok(success),
+                Err(failure) => {
+                    Box::pin(self.retry_recovered_candidates(
+                        session,
+                        resolver,
+                        egress,
+                        &resolution,
+                        failure,
+                        policy,
+                    ))
+                    .await
+                }
+            };
 
         match dial {
             Ok(success) => {
@@ -185,18 +209,38 @@ impl DirectConnector {
         }
     }
 
+    #[cfg(test)]
     pub(crate) async fn resolve_target_addrs(
         &self,
         session: &Session,
         resolver: &DnsSystem,
         egress: &EgressInterfaceControl,
     ) -> Result<DirectTargetResolution, Error> {
+        self.resolve_target_addrs_with_policy(
+            session,
+            resolver,
+            egress,
+            &zero_traits::DialPolicy::default(),
+        )
+        .await
+    }
+
+    pub(crate) async fn resolve_target_addrs_with_policy(
+        &self,
+        session: &Session,
+        resolver: &DnsSystem,
+        egress: &EgressInterfaceControl,
+        policy: &zero_traits::DialPolicy,
+    ) -> Result<DirectTargetResolution, Error> {
+        policy
+            .validate()
+            .map_err(|_| Error::Config("invalid outbound dial policy"))?;
         self.validate(session)?;
 
         for attempt in 0..2 {
             let generation = egress.generation();
             let result = self
-                .resolve_target_addrs_at_generation(session, resolver, egress)
+                .resolve_target_addrs_at_generation(session, resolver, egress, policy)
                 .await;
             let current_generation = egress.generation();
             if current_generation == generation {
@@ -220,8 +264,16 @@ impl DirectConnector {
         session: &Session,
         resolver: &DnsSystem,
         egress: &EgressInterfaceControl,
+        policy: &zero_traits::DialPolicy,
     ) -> Result<DirectTargetResolution, Error> {
-        let (target, fallback) = direct_resolution_target(session, egress);
+        let family = policy
+            .effective_family()
+            .map_err(|_| Error::Config("invalid outbound dial family"))?;
+        let (target, fallback) = if family == zero_traits::AddressFamily::OnlyIpv6 {
+            (session.effective_direct_target(), None)
+        } else {
+            direct_resolution_target(session, egress)
+        };
         if let Some(fallback) = fallback.as_ref() {
             tracing::info!(
                 event_type = "address_family_fallback_started",
@@ -290,22 +342,20 @@ impl DirectConnector {
                 ipv4_candidates
             }
         } else {
-            self.resolve_addresses(
-                target,
-                session.port,
-                resolver,
-                "failed to resolve direct target",
-            )
-            .await?
+            self.resolve_addresses_with_policy(target, session.port, resolver, policy)
+                .await?
         };
+        let candidates = policy::filter_candidates(candidates, policy)?;
         let recovered_candidate_refresh = recovered_ipv4_candidate_refresh(session, &candidates);
-        let udp_original_candidate =
-            literal_direct_target(session).filter(|original| candidates.contains(original));
+        let udp_original_candidate = literal_direct_target(session)
+            .and_then(|peer| policy.normalize_peer(peer).ok())
+            .filter(|original| candidates.contains(original));
         Ok(DirectTargetResolution {
             candidates,
             udp_original_candidate,
             recovered_candidate_refresh,
-            address_family_policy: resolver.address_family_policy().as_str(),
+            address_family_policy: policy::family_name(policy, resolver),
+            dial_policy: policy.clone(),
             fallback,
         })
     }
@@ -317,6 +367,7 @@ impl DirectConnector {
         egress: &EgressInterfaceControl,
         resolution: &DirectTargetResolution,
         failure: Box<TcpDialFailure>,
+        policy: &zero_traits::DialPolicy,
     ) -> Result<super::direct_dial::TcpDialSuccess, Box<TcpDialFailure>> {
         let Some(refresh) = resolution.recovered_candidate_refresh.as_ref() else {
             return Err(failure);
@@ -331,9 +382,18 @@ impl DirectConnector {
             let resolver = Arc::clone(resolver);
             let port = session.port;
             let candidates = resolution.candidates.clone();
+            let family = policy
+                .effective_family()
+                .unwrap_or(zero_traits::AddressFamily::Auto);
             refresh_tasks.spawn(async move {
-                refresh_recovered_ipv4_candidates(&refresh, resolver.as_ref(), port, candidates)
-                    .await
+                refresh_recovered_ipv4_candidates(
+                    &refresh,
+                    resolver.as_ref(),
+                    port,
+                    candidates,
+                    family,
+                )
+                .await
             });
         }
         let candidates = match refresh_tasks
@@ -364,6 +424,7 @@ impl DirectConnector {
         let additional_candidates = candidates
             .into_iter()
             .skip(resolution.candidates.len())
+            .filter_map(|candidate| policy.normalize_peer(candidate).ok())
             .collect::<Vec<_>>();
         if additional_candidates.is_empty() {
             tracing::debug!(
@@ -379,9 +440,10 @@ impl DirectConnector {
             candidate_count = resolution.candidates.len() + additional_candidates.len(),
             "original direct endpoint failed; retrying trusted DNS candidates"
         );
-        dial_tcp_fallback_candidates(failure, additional_candidates, egress).await
+        dial_tcp_fallback_candidates(failure, additional_candidates, egress, policy).await
     }
 
+    #[cfg(test)]
     pub(crate) fn udp_network_observation(
         &self,
         resolution: &DirectTargetResolution,
@@ -594,10 +656,14 @@ fn direct_network_observation(
             error: selection.route_lookup_error().map(ToOwned::to_owned),
         }),
         socket_binding: Some(FlowSocketBindingObservation {
-            mode: if selection.interface().is_some() {
-                "interface"
-            } else {
-                "system"
+            mode: match (
+                selection.interface().is_some(),
+                resolution.dial_policy.source_ip.is_some(),
+            ) {
+                (true, true) => "interface_and_source",
+                (true, false) => "interface",
+                (false, true) => "source",
+                (false, false) => "system",
             }
             .to_owned(),
             reason: selection.binding_reason().as_str().to_owned(),
@@ -625,7 +691,9 @@ fn direct_resolution_target<'a>(
         },
         Address::Ipv4(_) => None,
     };
-    let Some(original_ipv6) = original_ipv6 else {
+    let Some(original_ipv6) =
+        original_ipv6.filter(|octets| Ipv6Addr::from(*octets).to_ipv4_mapped().is_none())
+    else {
         return (direct_target, None);
     };
     let peer = SocketAddr::new(IpAddr::V6(Ipv6Addr::from(original_ipv6)), session.port);
@@ -727,16 +795,19 @@ async fn resolve_direct_ipv4_host_addresses(
     resolver: &DnsSystem,
     error_message: &'static str,
 ) -> Result<Vec<SocketAddr>, Error> {
-    let resolved = resolver.resolve_direct_ipv4(host).await.map_err(|error| {
-        tracing::debug!(
-            domain = host,
-            role = "direct",
-            address_family = "ipv4",
-            error = %error,
-            "real DNS IPv4 fallback resolution failed"
-        );
-        Error::Io(error_message)
-    })?;
+    let resolved = resolver
+        .resolve_direct_with_family(host, zero_traits::AddressFamily::OnlyIpv4)
+        .await
+        .map_err(|error| {
+            tracing::debug!(
+                domain = host,
+                role = "direct",
+                address_family = "ipv4",
+                error = %error,
+                "real DNS IPv4 fallback resolution failed"
+            );
+            Error::Io(error_message)
+        })?;
     resolved_socket_addresses(resolved, port)
 }
 

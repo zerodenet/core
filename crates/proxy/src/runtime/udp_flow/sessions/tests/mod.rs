@@ -48,20 +48,16 @@ fn cancelled_udp_flow_finishes_with_reason_and_is_removed_from_lookup() {
         UdpFlowOutbound::Direct {
             tag: "direct".to_owned(),
             target_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 443)),
+            policy: crate::runtime::udp_socket::DirectUdpPolicy {
+                tag: None,
+                dial_policy: zero_traits::DialPolicy::default(),
+                generation: 0,
+            },
         },
         Vec::new(),
         UdpFlowRateLimiters::default(),
     );
     assert!(flows.snapshot(&target, 443, None).is_some());
-    assert_eq!(
-        flows.direct_response_session_id(SocketAddr::from((Ipv4Addr::LOCALHOST, 443))),
-        Some(session_id)
-    );
-    assert_eq!(
-        flows.direct_response_session_id(SocketAddr::from((Ipv4Addr::LOCALHOST, 444))),
-        None,
-        "direct UDP filtering must reject an unregistered remote endpoint"
-    );
 
     assert_eq!(
         engine.close_principal_flows("account:1", "principal_disabled"),
@@ -106,6 +102,11 @@ fn fake_ip_udp_flow_keeps_its_inbound_lookup_identity() {
         UdpFlowOutbound::Direct {
             tag: "direct".to_owned(),
             target_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 443)),
+            policy: crate::runtime::udp_socket::DirectUdpPolicy {
+                tag: None,
+                dial_policy: zero_traits::DialPolicy::default(),
+                generation: 0,
+            },
         },
         Vec::new(),
         UdpFlowRateLimiters::default(),

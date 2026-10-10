@@ -21,8 +21,26 @@ impl UdpDispatch {
         let key = UdpFlowKey::new(&input.target, input.port, input.client_session_id)
             .with_peer(input.peer_identity.clone());
         if let Some(flow) = self.flows.snapshot_key(&key) {
-            self.forward_existing(&flow, input.payload).await?;
-            return Ok(flow.session.id);
+            let stale_direct = flow.outbound.direct_policy().is_some_and(|policy| {
+                !self
+                    .runtime
+                    .services()
+                    .network()
+                    .direct_policy_is_current(policy)
+            });
+            if stale_direct {
+                // Re-route the same datagram after a policy reload. Keep other
+                // tags' flow/socket mappings, and do not impose failure backoff.
+                let error = EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "direct UDP dial policy changed; rebuilding flow",
+                ));
+                self.fail_flow(&flow, Instant::now(), "udp_direct_policy_changed", &error);
+                self.flow_start_backoff.clear(&key);
+            } else {
+                self.forward_existing(&flow, input.payload).await?;
+                return Ok(flow.session.id);
+            }
         }
 
         if let Some(retry_after) = self.flow_start_backoff.retry_after(&key, Instant::now()) {
@@ -47,7 +65,7 @@ impl UdpDispatch {
     }
 
     async fn start_new_routed_flow(&mut self, input: UdpPipeInput<'_>) -> Result<u64, EngineError> {
-        let runtime = self.runtime.clone();
+        let runtime = self.runtime.with_current_snapshot();
         let ingress_key = UdpFlowKey::new(&input.target, input.port, input.client_session_id)
             .with_peer(input.peer_identity.clone());
         let mut session = Session::new(0, input.target, input.port, Network::Udp, input.protocol);

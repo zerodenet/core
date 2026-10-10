@@ -5,6 +5,11 @@ protocol support, the engine target plan, file-backed routing resources, DNS
 routing, and DNS backend/address-pool construction. Relative files are resolved
 from the original configuration directory.
 
+Direct outbound `dial` validation checks supported protocol scope, address-family
+values, interface-name syntax, concrete unicast source addresses and family
+consistency. It does not enumerate interfaces, verify local address ownership,
+bind sockets or check binding privileges; those are platform execution checks.
+
 Validation does not construct an engine, acquire a Fake-IP persistence lease,
 read or repair principal quota state, bind a listener, or start TUN. It can run
 while the production kernel owns those resources. Success establishes that the

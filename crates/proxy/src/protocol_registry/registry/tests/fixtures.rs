@@ -164,6 +164,8 @@ pub(super) fn compiled_in_outbound_leaves(
             minimal(),
             ResolvedLeafOutbound::Direct {
                 tag: Some("direct"),
+                dial_policy: Default::default(),
+                dial_generation: 0,
             },
             1,
         ),

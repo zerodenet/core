@@ -14,3 +14,6 @@ pub(crate) use parts::{UdpChainResponseParts, UdpDirectResponseParts};
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) use response::record_upstream_udp_response_received;
 pub(crate) use response::{record_chain_udp_response_parts, record_direct_udp_response_parts};
+
+#[cfg(test)]
+mod tests;

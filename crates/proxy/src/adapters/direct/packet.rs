@@ -8,10 +8,18 @@ use crate::{
     runtime::packet_route::{host::HostPacketDevice, PreparedPacketRouteOperation},
 };
 use std::sync::Arc;
-pub(super) struct PacketLeaf(pub(super) Arc<HostPacketDevice>);
+pub(super) struct PacketLeaf(
+    pub(super) Arc<HostPacketDevice>,
+    pub(super) zero_traits::DialPolicy,
+);
 impl ClaimedPacketLeaf for PacketLeaf {
     fn prepare_packet_route(&self) -> Box<dyn PreparedPacketRouteOperation> {
-        Box::new(self.0.clone())
+        Box::new(
+            crate::runtime::packet_route::host::PreparedHostPacketOperation {
+                device: self.0.clone(),
+                dial_policy: self.1.clone(),
+            },
+        )
     }
 }
 struct Prepared {

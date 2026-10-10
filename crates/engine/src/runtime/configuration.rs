@@ -96,7 +96,7 @@ impl Engine {
         }
         let new_router = Arc::new(new_config.compile_route()?);
         let bypass = Arc::new(new_config.compile_route_bypass()?);
-        let new_plan = Arc::new(EnginePlan::build(&new_config)?);
+        let mut new_plan = EnginePlan::build(&new_config)?;
         let endpoint_intents = Arc::new(
             super::endpoint::EndpointIntents::for_config(
                 &new_config,
@@ -120,6 +120,8 @@ impl Engine {
             .runtime_snapshot
             .write()
             .expect("runtime snapshot lock poisoned");
+        new_plan.reconcile_direct_dial_generations(Some(&current.plan), &self.next_dial_generation);
+        let new_plan = Arc::new(new_plan);
         let outbound_group_state = crate::groups::OutboundGroupStateStore::for_plan(
             &new_plan,
             Some((&current.plan, &current.outbound_group_state)),

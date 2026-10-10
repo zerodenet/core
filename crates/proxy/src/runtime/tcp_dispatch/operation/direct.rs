@@ -9,6 +9,7 @@ use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 pub(crate) struct DirectTcpConnectOperation {
     pub(crate) tag: String,
+    pub(crate) dial_policy: zero_traits::DialPolicy,
 }
 
 impl PreparedTcpConnectOperation for DirectTcpConnectOperation {
@@ -24,7 +25,10 @@ impl PreparedTcpConnectOperation for DirectTcpConnectOperation {
             execute_direct_tcp_operation(
                 services,
                 session,
-                PreparedTcpOperation::Direct { tag: &self.tag },
+                PreparedTcpOperation::Direct {
+                    tag: &self.tag,
+                    dial_policy: &self.dial_policy,
+                },
             )
             .await
         })
@@ -32,7 +36,10 @@ impl PreparedTcpConnectOperation for DirectTcpConnectOperation {
 }
 
 enum PreparedTcpOperation<'a> {
-    Direct { tag: &'a str },
+    Direct {
+        tag: &'a str,
+        dial_policy: &'a zero_traits::DialPolicy,
+    },
 }
 
 async fn execute_direct_tcp_operation(
@@ -40,8 +47,8 @@ async fn execute_direct_tcp_operation(
     session: &Session,
     operation: PreparedTcpOperation<'_>,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
-    let PreparedTcpOperation::Direct { tag } = operation;
-    match services.connect_direct(session).await {
+    let PreparedTcpOperation::Direct { tag, dial_policy } = operation;
+    match services.connect_direct(session, dial_policy).await {
         Ok(connection) => Ok(EstablishedTcpOutbound::direct(
             tag,
             (connection.remote.ip().to_string(), connection.remote.port()),

@@ -23,6 +23,7 @@ zero-config = { path = "../config" }
 zero-core = { path = "../core" }
 zero-error = { path = "../error" }
 zero-router = { path = "../router" }
+zero-traits = { path = "../traits" }
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

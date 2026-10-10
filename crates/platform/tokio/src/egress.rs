@@ -3,6 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, RwLock};
 
 use tokio::net::TcpSocket;
+mod dial;
 
 /// Stable identity of the physical interface that must bypass an active TUN
 /// default route. Both fields are retained because Linux binds by name while
@@ -33,6 +34,7 @@ impl EgressRouteLookupStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EgressBindingReason {
+    ExplicitDialPolicy,
     Loopback,
     NoConfiguredInterface,
     TunEgressUnavailable,
@@ -45,6 +47,7 @@ pub enum EgressBindingReason {
 impl EgressBindingReason {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::ExplicitDialPolicy => "explicit_dial_policy",
             Self::Loopback => "loopback",
             Self::NoConfiguredInterface => "no_configured_interface",
             Self::TunEgressUnavailable => "tun_egress_unavailable",
@@ -61,6 +64,8 @@ impl EgressBindingReason {
 /// to successful and failed flow records.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EgressSelection {
+    pub(crate) dial_policy: Option<zero_traits::DialPolicy>,
+    pub(crate) dial_source_address: Option<SocketAddr>,
     interface: Option<EgressInterface>,
     configured_interface: Option<EgressInterface>,
     generation: u64,
@@ -73,6 +78,12 @@ pub struct EgressSelection {
 }
 
 impl EgressSelection {
+    /// Concrete port-zero bind source, including destination-dependent Windows
+    /// selection. Socket pools must retain it in their binding identity.
+    pub fn dial_source_address(&self) -> Option<SocketAddr> {
+        self.dial_source_address
+    }
+
     pub fn interface(&self) -> Option<&EgressInterface> {
         self.interface.as_ref()
     }
@@ -220,6 +231,8 @@ impl EgressSelection {
         binding_reason: EgressBindingReason,
     ) -> Self {
         Self {
+            dial_policy: None,
+            dial_source_address: None,
             interface,
             configured_interface: snapshot.configured_interface.clone(),
             generation: snapshot.generation,
@@ -710,7 +723,12 @@ pub(crate) fn bind_tcp_to_interface(
     // connect(2) fails with WSAEHOSTUNREACH for otherwise reachable peers.
     // Resolve and bind the source owned by the selected physical interface
     // before constraining the unicast interface.
-    socket.bind(windows_source_address(peer, interface.index())?)?;
+    if !socket
+        .local_addr()
+        .is_ok_and(|address| !address.ip().is_unspecified())
+    {
+        socket.bind(windows_source_address(peer, interface.index())?)?;
+    }
     bind_socket_to_index(socket.as_raw_socket(), peer.is_ipv6(), interface.index())
 }
 

@@ -4,7 +4,7 @@ use std::io;
 use std::net::SocketAddr;
 
 use zero_config::DnsServerConfig;
-use zero_traits::IpAddress;
+use zero_traits::{AddressFamily, IpAddress};
 
 use crate::message::{
     build_address_response, build_error_response, parse_question, parse_response,
@@ -108,9 +108,10 @@ impl ResolverBackend {
         query: &[u8],
         detour: Option<&str>,
         connector: Option<&dyn DnsOutboundConnector>,
+        family: AddressFamily,
     ) -> io::Result<Vec<u8>> {
         match self {
-            Self::System(resolver) => system_exchange(*resolver, query).await,
+            Self::System(resolver) => system_exchange(*resolver, query, family).await,
             #[cfg(feature = "udp")]
             Self::Udp {
                 resolver,
@@ -211,13 +212,17 @@ pub(crate) struct ResolvedAddresses {
     pub(crate) ttl_seconds: u32,
 }
 
-async fn system_exchange(resolver: TokioSystemResolver, query: &[u8]) -> io::Result<Vec<u8>> {
+async fn system_exchange(
+    resolver: TokioSystemResolver,
+    query: &[u8],
+    family: AddressFamily,
+) -> io::Result<Vec<u8>> {
     let question = parse_question(query)?;
     if !matches!(question.query_type, TYPE_A | TYPE_AAAA) {
         return Ok(build_error_response(query, RCODE_NOTIMP, false));
     }
     match resolver
-        .resolve_type(&question.domain, question.query_type)
+        .resolve_type(&question.domain, question.query_type, family)
         .await
     {
         Ok(addresses) => Ok(build_address_response(

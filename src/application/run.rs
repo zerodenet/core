@@ -216,7 +216,7 @@ fn status_server_spec(
     #[cfg(feature = "grpc-api")]
     let grpc_security = grpc_server_security(control, engine.config().source_dir())?;
 
-    let control_listen = format!("{}:{}", listen.address, listen.port);
+    let control_listen = zero_core::address::format_socket_addr(&listen.address, listen.port);
     Ok(Some(StatusServerSpec {
         #[cfg(feature = "status-api")]
         listen: control_listen.clone(),

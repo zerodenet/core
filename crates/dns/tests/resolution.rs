@@ -97,3 +97,32 @@ fn is_loopback(address: &IpAddress) -> bool {
         _ => false,
     }
 }
+
+#[tokio::test]
+async fn system_direct_family_filters_candidates_and_overrides_global() {
+    let config = DnsConfig {
+        servers: BTreeMap::from([("system".to_owned(), DnsServerConfig::System)]),
+        default_server: "system".to_owned(),
+        dispatch: Vec::new(),
+        cache: None,
+        reverse_mapping: None,
+        answer: DnsAnswerConfig::Real,
+        policy: zero_config::DnsPolicyConfig {
+            address_family: zero_config::DnsAddressFamilyPolicy::Ipv6Only,
+            ..Default::default()
+        },
+    };
+    for config in [None, Some(&config)] {
+        let dns = DnsSystem::build(config).unwrap();
+        let addresses = dns
+            .resolve_direct_with_family("127.0.0.1", zero_traits::AddressFamily::OnlyIpv4)
+            .await
+            .unwrap();
+        assert_eq!(addresses, vec![IpAddress::V4([127, 0, 0, 1])]);
+        let error = dns
+            .resolve_direct_with_family("127.0.0.1", zero_traits::AddressFamily::OnlyIpv6)
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+}

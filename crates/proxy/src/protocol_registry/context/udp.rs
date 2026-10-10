@@ -134,14 +134,16 @@ impl UdpRuntimeServices {
     pub(crate) async fn resolve_direct_targets(
         &self,
         session: &zero_core::Session,
+        policy: &zero_traits::DialPolicy,
     ) -> Result<crate::transport::DirectTargetResolution, zero_engine::EngineError> {
         self.tcp
             .upstream
             .connector
-            .resolve_target_addrs(
+            .resolve_target_addrs_with_policy(
                 session,
                 self.tcp.upstream.resolver.as_ref(),
                 &self.tcp.upstream.egress_interface,
+                policy,
             )
             .await
             .map_err(Into::into)
@@ -159,23 +161,29 @@ impl UdpRuntimeServices {
         &self,
         resolution: &crate::transport::DirectTargetResolution,
         remote: std::net::SocketAddr,
+        local: Option<std::net::SocketAddr>,
+        selection: &zero_platform_tokio::EgressSelection,
     ) -> zero_engine::FlowNetworkObservation {
-        self.tcp.upstream.connector.udp_network_observation(
-            resolution,
-            remote,
-            &self.tcp.upstream.egress_interface,
-        )
+        self.tcp
+            .upstream
+            .connector
+            .udp_network_observation_with_policy(resolution, remote, local, selection)
     }
 
     pub(crate) fn direct_resolution_failure_observation(
         &self,
         session: &zero_core::Session,
+        policy: &zero_traits::DialPolicy,
     ) -> zero_engine::FlowNetworkObservation {
-        self.tcp.upstream.connector.resolution_failure_observation(
-            session,
-            self.tcp.upstream.resolver.as_ref(),
-            &self.tcp.upstream.egress_interface,
-        )
+        self.tcp
+            .upstream
+            .connector
+            .resolution_failure_observation_with_policy(
+                session,
+                self.tcp.upstream.resolver.as_ref(),
+                &self.tcp.upstream.egress_interface,
+                policy,
+            )
     }
 
     pub(crate) fn record_session_network(
@@ -298,11 +306,40 @@ impl UdpNetworkServices {
         self.outbound_datagram_socket_factory().egress_generation()
     }
 
-    pub(crate) fn direct_datagram_egress(
+    pub(crate) fn direct_policy_is_current(
+        &self,
+        policy: &crate::runtime::udp_socket::DirectUdpPolicy,
+    ) -> bool {
+        self.engine
+            .direct_dial_policy(policy.tag.as_deref())
+            .is_some_and(|(current, generation)| {
+                current == policy.dial_policy && generation == policy.generation
+            })
+    }
+
+    pub(crate) fn ensure_direct_policy_current(
+        &self,
+        policy: &crate::runtime::udp_socket::DirectUdpPolicy,
+    ) -> Result<(), zero_engine::EngineError> {
+        if self.direct_policy_is_current(policy) {
+            Ok(())
+        } else {
+            Err(zero_engine::EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "direct UDP dial policy changed while this flow was active",
+            )))
+        }
+    }
+
+    pub(crate) fn direct_datagram_selection(
         &self,
         peer: std::net::SocketAddr,
-    ) -> Option<zero_platform_tokio::EgressInterface> {
-        self.outbound_datagram_socket_factory().egress_for(peer)
+        policy: &zero_traits::DialPolicy,
+    ) -> Result<zero_platform_tokio::EgressSelection, zero_engine::EngineError> {
+        self.upstream
+            .egress_interface
+            .select_for_peer_with_policy(peer, policy)
+            .map_err(Into::into)
     }
 
     pub(crate) async fn connect_upstream(
@@ -346,11 +383,18 @@ impl UdpNetworkServices {
         &self,
         peer: std::net::SocketAddr,
         preferred_port: Option<u16>,
+        policy: &zero_traits::DialPolicy,
+        selection: &zero_platform_tokio::EgressSelection,
     ) -> Result<zero_platform_tokio::TokioDatagramSocket, zero_engine::EngineError> {
-        self.outbound_datagram_socket_factory()
-            .bind_tokio_preserving_port(peer, preferred_port)
-            .await
-            .map_err(Into::into)
+        zero_platform_tokio::TokioDatagramSocket::bind_for_peer_with_policy_preserving_port(
+            peer,
+            preferred_port,
+            policy,
+            selection,
+        )
+        .await
+        .map(|socket| socket.with_observer(self.upstream.observer()))
+        .map_err(Into::into)
     }
 
     pub(crate) async fn resolve_node_address(

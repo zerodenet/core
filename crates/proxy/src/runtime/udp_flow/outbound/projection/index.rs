@@ -4,7 +4,6 @@ use super::super::model::{UdpFlowIndexKeys, UdpFlowOutbound};
 impl UdpFlowOutbound {
     pub(in crate::runtime::udp_flow) fn index_keys(&self) -> UdpFlowIndexKeys<'_> {
         UdpFlowIndexKeys {
-            direct_sender: self.direct_target_addr(),
             upstream_response_tag: self.upstream_response_tag(),
         }
     }

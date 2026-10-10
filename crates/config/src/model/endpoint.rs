@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use zero_api::EndpointDirections;
 
 use super::{
-    InboundConfig, InboundProtocolConfig, ListenConfig, OutboundConfig, OutboundProtocolConfig,
-    RuntimeConfig, UdpPolicyConfig, WireguardInboundPeerConfig, WireguardPeerConfig,
-    WireguardSecret,
+    InboundConfig, InboundProtocolConfig, ListenConfig, OutboundConfig, OutboundDialConfig,
+    OutboundProtocolConfig, RuntimeConfig, UdpPolicyConfig, WireguardInboundPeerConfig,
+    WireguardPeerConfig, WireguardSecret,
 };
 use crate::ConfigError;
 
@@ -88,6 +88,7 @@ impl EndpointConfig {
                     outer_udp_proxy: outer_udp_proxy.clone(),
                 },
                 udp: UdpPolicyConfig::default(),
+                dial: OutboundDialConfig::default(),
             },
         }
     }
@@ -201,7 +202,7 @@ impl RuntimeConfig {
                 .find(|current| current.tag == outbound.tag)
             {
                 Some(current) if current != &outbound => {
-                    return Err(ConfigError::DuplicateRouteTargetTag { tag: outbound.tag })
+                    return Err(ConfigError::DuplicateRouteTargetTag { tag: outbound.tag });
                 }
                 Some(_) => {}
                 None => self.outbounds.push(outbound),
@@ -216,7 +217,7 @@ impl RuntimeConfig {
                         return Err(ConfigError::DuplicateTag {
                             scope: "inbound",
                             tag: inbound.tag,
-                        })
+                        });
                     }
                     Some(_) => {}
                     None => self.inbounds.push(inbound),

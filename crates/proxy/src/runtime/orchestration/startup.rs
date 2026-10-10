@@ -64,6 +64,7 @@ impl OrchestrationState {
     }
 
     async fn start(&mut self, proxy: &Proxy) -> Result<(), EngineError> {
+        proxy.protocols.validate_dial_environment(&proxy.config)?;
         #[cfg(feature = "managed-stream-runtime")]
         let prepared_services = proxy.protocols.prepare_inbound_services(&proxy.config)?;
         proxy

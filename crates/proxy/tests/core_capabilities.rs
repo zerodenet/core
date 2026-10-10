@@ -73,6 +73,7 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
         "urltest_tolerance",
         "diagnostic_probe_health_isolation_v1",
         "direct_tcp_dial_attempt_observability_v1",
+        "direct_outbound_dial_policy_v1",
         "traffic_outbound_carrier_io_v1",
         "traffic_local_drop_reasons_v1",
         "direct_tcp_trusted_target_candidate_fallback",
@@ -96,6 +97,9 @@ fn proxy_exports_network_facts_and_stable_global_limitations() {
     let mut expected_limitations = vec![
         "traffic_network_loss_unobservable",
         "direct_udp_trusted_candidate_retarget_unsupported",
+        "nondefault_dial_direct_tcp_udp_only",
+        "nondefault_dial_native_packet_icmp_unsupported",
+        "ipv6_wildcard_dual_stack_platform_dependent",
     ];
     #[cfg(all(
         feature = "raw-ip-runtime",

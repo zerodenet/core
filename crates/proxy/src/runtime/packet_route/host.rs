@@ -1,6 +1,8 @@
 //! Bidirectional host L3 I/O. The host supplies a dedicated configured device.
+mod policy;
 use super::{PacketForwardObservation, PreparedPacketRouteOperation};
 use crate::runtime::raw_ip::PacketReturns;
+pub(crate) use policy::PreparedHostPacketOperation;
 use std::{io, sync::Arc, time::Instant};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

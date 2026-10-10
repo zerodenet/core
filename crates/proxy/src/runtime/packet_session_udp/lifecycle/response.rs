@@ -33,7 +33,7 @@ pub(super) async fn handle_direct_response<H>(
 where
     H: PacketSessionUdpHandler,
 {
-    if dispatch.direct_response_session_id(sender).is_none() {
+    if dispatch.direct_response_session_id(&sender).is_none() {
         return Ok(());
     }
     *last_activity = TokioInstant::now();

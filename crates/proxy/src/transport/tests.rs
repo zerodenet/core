@@ -181,9 +181,14 @@ async fn tcp_fallback_candidates_do_not_redial_completed_endpoints() {
     let initial = dial_tcp_candidates(vec![first], &egress)
         .await
         .expect_err("initial endpoint must fail");
-    let failure = dial_tcp_fallback_candidates(initial, vec![first, second], &egress)
-        .await
-        .expect_err("fallback endpoint must fail");
+    let failure = dial_tcp_fallback_candidates(
+        initial,
+        vec![first, second],
+        &egress,
+        &zero_traits::DialPolicy::default(),
+    )
+    .await
+    .expect_err("fallback endpoint must fail");
 
     assert_eq!(failure.resolved_candidates, vec![first, second]);
     assert_eq!(failure.attempts.len(), 2);

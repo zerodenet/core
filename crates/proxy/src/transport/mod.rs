@@ -5,6 +5,8 @@
 //! normalization, relay-chain handoff, metering, and rate-limited relay glue.
 //! Concrete carrier implementations remain in the `zero-transport` crate.
 
+#[cfg(test)]
+mod dial_policy_tests;
 mod direct;
 mod direct_dial;
 mod failure;

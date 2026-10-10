@@ -222,7 +222,7 @@ fn claim_outbound_hooks<'a>(
         packet_path,
         #[cfg(feature = "raw-ip-runtime")]
         packet,
-    }) = entry.outbound.claim_outbound_leaf(input)
+    }) = entry.outbound.claim_outbound_leaf(input.clone())
     else {
         return Err(missing_claimed_outbound_leaf(entry.support.name()));
     };
@@ -241,7 +241,9 @@ fn claim_outbound_hooks<'a>(
         OutboundLeafInput::Virtual { outbound } => {
             OutboundLeafRuntime::virtual_outbound(outbound.tag(), entry.support.name(), tcp_path)
         }
-        OutboundLeafInput::Direct { tag } => OutboundLeafRuntime::direct(tag),
+        OutboundLeafInput::Direct {
+            tag, dial_policy, ..
+        } => OutboundLeafRuntime::direct(tag, dial_policy),
         OutboundLeafInput::Proxy {
             outbound,
             endpoint: (server, port),
@@ -297,11 +299,22 @@ impl ProtocolRegistry {
                     None,
                 ))
             }
-            ResolvedLeafOutbound::Direct { tag } => {
+            ResolvedLeafOutbound::Direct {
+                tag,
+                dial_policy,
+                dial_generation,
+            } => {
                 let entry = self
                     .outbound_protocol_entry("direct")
                     .ok_or_else(|| unsupported_outbound_leaf("direct"))?;
-                claim_outbound_hooks(entry, OutboundLeafInput::Direct { tag })
+                claim_outbound_hooks(
+                    entry,
+                    OutboundLeafInput::Direct {
+                        tag,
+                        dial_policy,
+                        dial_generation,
+                    },
+                )
             }
             ResolvedLeafOutbound::Proxy { identity } => {
                 let outbound_index = identity.config_index();

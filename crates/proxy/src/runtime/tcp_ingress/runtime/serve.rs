@@ -70,7 +70,24 @@ impl TcpIngressRuntime {
         &self,
         session: &mut Session,
     ) -> Result<TcpRouteResult, EngineError> {
+        let started_at = std::time::Instant::now();
+        let target_resolution = self.resolve_fake_ip_target(session).await;
+        if target_resolution.is_ok() {
+            self.apply_url_rewrite(session);
+        }
         self.prepare_session(session).await?;
+        if let Err(error) = target_resolution {
+            // MUX callers only close their protocol stream on open failure;
+            // they do not own a session handle to finish this recovery error.
+            let mut handle = self.track_session(session.id);
+            crate::runtime::target::finish_target_recovery_failure(
+                &mut handle,
+                session,
+                started_at,
+                &error,
+            );
+            return Err(error);
+        }
         TcpPipe::new(self).dispatch(TcpPipeInput { session }).await
     }
 }

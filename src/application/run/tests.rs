@@ -38,3 +38,20 @@ fn managed_parent_lifetime_waits_until_pipe_eof() {
 
     drain_parent_lifetime(input).expect("parent lifetime pipe should close cleanly at EOF");
 }
+
+#[cfg(any(feature = "status-api", feature = "grpc-api"))]
+#[test]
+fn control_api_formats_bare_and_bracketed_ipv6_listeners() {
+    for host in ["::1", "[::1]", "0:0:0:0:0:0:0:1"] {
+        let config = RuntimeConfig::parse(&serde_json::json!({
+            "api":{"control":{"enabled":true,"listen":{"address":host,"port":9090},"api_key":"test"}},
+            "route":{"final":{"type":"direct"}}
+        }).to_string()).unwrap();
+        let engine = zero_engine::Engine::new(config).unwrap();
+        let status = super::status_server_spec(&engine, None).unwrap().unwrap();
+        #[cfg(feature = "status-api")]
+        assert_eq!(status.listen, "[::1]:9090");
+        #[cfg(feature = "grpc-api")]
+        assert_eq!(status.grpc_listen, "[::1]:9091");
+    }
+}

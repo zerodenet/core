@@ -15,10 +15,12 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<usize, E>>,
 {
-    if !response
-        .accounting
-        .throttle_download(response.payload.len())
-        .await
+    if !response.is_current()
+        || !response
+            .accounting
+            .throttle_download(response.payload.len())
+            .await
+        || !response.is_current()
     {
         return Ok(0);
     }
@@ -35,10 +37,12 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Option<usize>, E>>,
 {
-    if !response
-        .accounting
-        .throttle_download(response.payload.len())
-        .await
+    if !response.is_current()
+        || !response
+            .accounting
+            .throttle_download(response.payload.len())
+            .await
+        || !response.is_current()
     {
         return Ok(None);
     }

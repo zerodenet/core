@@ -4,7 +4,7 @@
 use std::net::SocketAddr;
 
 #[cfg(feature = "udp-runtime")]
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 #[cfg(feature = "udp-runtime")]
 use zero_core::Address;
 #[cfg(feature = "udp-runtime")]
@@ -12,168 +12,126 @@ use zero_engine::EngineError;
 #[cfg(feature = "udp-runtime")]
 use zero_platform_tokio::TokioDatagramSocket;
 
+/// Immutable route-time policy identity. A tag can return to the same policy
+/// after a reload, so its monotonic revision is part of the identity as well.
+#[cfg(feature = "udp-runtime")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct DirectUdpPolicy {
+    pub(crate) tag: Option<String>,
+    pub(crate) dial_policy: zero_traits::DialPolicy,
+    pub(crate) generation: u64,
+}
+
+#[cfg(feature = "udp-runtime")]
+pub(crate) struct DirectUdpSentPacket {
+    pub(crate) sent: usize,
+    pub(crate) target: SocketAddr,
+    pub(crate) local: Option<SocketAddr>,
+    pub(crate) selection: zero_platform_tokio::EgressSelection,
+}
+
 #[cfg(feature = "udp-runtime")]
 pub(crate) struct DirectUdpSockets {
     sockets: Vec<DirectUdpSocket>,
+    services: crate::protocol_registry::UdpNetworkServices,
     preferred_port: Option<u16>,
     generation: u64,
+    next_socket_id: u64,
     isolated_sessions: HashMap<u64, u64>,
-    response_flows: HashMap<(u64, SocketAddr), u64>,
+    // Socket identity includes the policy and association, unlike a remote
+    // endpoint alone. Even unscoped sockets require an exact registered peer.
+    response_flows: HashMap<(u64, SocketAddr), DirectUdpResponseFlow>,
 }
 
 #[cfg(feature = "udp-runtime")]
 struct DirectUdpSocket {
+    id: u64,
     socket: TokioDatagramSocket,
     binding: DirectUdpSocketBinding,
+    selection: zero_platform_tokio::EgressSelection,
     receive_buffer: tokio::sync::Mutex<Vec<u8>>,
-    session_id: Option<u64>,
+    association_id: Option<u64>,
+    // A peer's old packets must never acquire a new owner on this socket.
+    retired_peers: HashSet<SocketAddr>,
 }
+
+// Do not expire tombstones on a live socket: arbitrary delayed packets could
+// then be misattributed. Bound lifetime peer admission instead, and close each
+// socket when its last active mapping is retired.
+#[cfg(feature = "udp-runtime")]
+const MAX_DIRECT_UDP_PEERS_PER_SOCKET: usize = 256;
 
 #[cfg(feature = "udp-runtime")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DirectUdpSocketBinding {
+    policy: DirectUdpPolicy,
     ipv6: bool,
+    egress_generation: u64,
+    source: Option<SocketAddr>,
     egress: Option<zero_platform_tokio::EgressInterface>,
 }
 
 #[cfg(feature = "udp-runtime")]
-impl DirectUdpSocket {
-    fn new(socket: TokioDatagramSocket, ipv6: bool) -> Self {
-        let binding = DirectUdpSocketBinding {
-            ipv6,
-            egress: socket.egress_interface().cloned(),
-        };
-        Self {
-            socket,
-            binding,
-            receive_buffer: tokio::sync::Mutex::new(vec![0_u8; 65_535]),
-            session_id: None,
-        }
-    }
-}
-#[cfg(feature = "udp-runtime")]
 impl DirectUdpSockets {
-    pub(crate) async fn bind(
-        services: &crate::protocol_registry::UdpNetworkServices,
+    /// A dispatcher need not use Direct or either native address family.
+    /// Defer every socket bind until a policy-checked destination is known.
+    pub(crate) fn new(
+        services: crate::protocol_registry::UdpNetworkServices,
         preferred_port: Option<u16>,
-    ) -> Result<Self, EngineError> {
-        let generation = services.egress_generation();
-        Self::bind_with(generation, preferred_port, |peer, preferred_port| {
-            services.bind_direct_datagram_socket(peer, preferred_port)
-        })
-        .await
-    }
-
-    async fn bind_with<F, Fut>(
-        generation: u64,
-        preferred_port: Option<u16>,
-        mut bind: F,
-    ) -> Result<Self, EngineError>
-    where
-        F: FnMut(SocketAddr, Option<u16>) -> Fut,
-        Fut: std::future::Future<Output = Result<TokioDatagramSocket, EngineError>>,
-    {
-        let ipv4 = bind(
-            "0.0.0.0:0".parse().expect("valid IPv4 wildcard"),
+    ) -> Self {
+        Self {
+            generation: services.egress_generation(),
+            services,
+            sockets: Vec::new(),
             preferred_port,
-        )
-        .await;
-        let ipv6 = bind(
-            "[::]:0".parse().expect("valid IPv6 wildcard"),
-            preferred_port,
-        )
-        .await;
-        let outcomes = collect_family_bind_outcomes(ipv4, ipv6);
-        if outcomes.available.is_empty() {
-            let failures = outcomes
-                .failures
-                .iter()
-                .map(|(ipv6, error)| format!("{}: {error}", family_name(*ipv6)))
-                .collect::<Vec<_>>()
-                .join("; ");
-            return Err(EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::AddrNotAvailable,
-                format!("no direct UDP address family is available ({failures})"),
-            )));
-        }
-        for (ipv6, error) in &outcomes.failures {
-            tracing::debug!(
-                address_family = family_name(*ipv6),
-                error = %error,
-                "direct UDP socket family is unavailable"
-            );
-        }
-        let sockets = outcomes
-            .available
-            .into_iter()
-            .map(|(ipv6, socket)| {
-                log_direct_socket(family_name(ipv6), &socket);
-                DirectUdpSocket::new(socket, ipv6)
-            })
-            .collect();
-        Ok(Self {
-            sockets,
-            preferred_port,
-            generation,
+            next_socket_id: 0,
             isolated_sessions: HashMap::new(),
             response_flows: HashMap::new(),
-        })
+        }
     }
 
-    pub(crate) async fn refresh_if_stale(
-        &mut self,
-        services: &crate::protocol_registry::UdpNetworkServices,
-    ) -> Result<(), EngineError> {
-        let current_generation = services.egress_generation();
-        if self.generation == current_generation {
-            return Ok(());
+    pub(crate) fn refresh_if_stale(&mut self) {
+        let generation = self.services.egress_generation();
+        if self.generation != generation {
+            self.sockets.clear();
+            self.response_flows.clear();
+            self.generation = generation;
+        } else {
+            self.sockets.retain(|socket| {
+                self.services
+                    .direct_policy_is_current(&socket.binding.policy)
+            });
+            self.response_flows.retain(|(socket_id, _), _| {
+                self.sockets.iter().any(|socket| socket.id == *socket_id)
+            });
         }
-
-        let previous_generation = self.generation;
-        let mut replacement = Self::bind(services, self.preferred_port).await?;
-        for _ in 0..2 {
-            if replacement.generation == services.egress_generation() {
-                break;
-            }
-            replacement = Self::bind(services, self.preferred_port).await?;
-        }
-        if replacement.generation != services.egress_generation() {
-            return Err(EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "egress topology changed repeatedly while rebuilding direct UDP sockets",
-            )));
-        }
-        let replacement_generation = replacement.generation;
-        replacement.isolated_sessions = std::mem::take(&mut self.isolated_sessions);
-        replacement.response_flows = std::mem::take(&mut self.response_flows);
-        *self = replacement;
-        tracing::info!(
-            previous_generation,
-            generation = replacement_generation,
-            "rebuilt direct UDP sockets after egress topology change"
-        );
-        Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn select_target(
-        &self,
         logical_target: &Address,
         candidates: &[SocketAddr],
+        policy: &zero_traits::DialPolicy,
     ) -> Result<SocketAddr, EngineError> {
-        let ipv4_available = self.sockets.iter().any(|socket| !socket.binding.ipv6);
-        let ipv6_available = self.sockets.iter().any(|socket| socket.binding.ipv6);
-        select_stable_udp_target(logical_target, candidates, ipv4_available, ipv6_available)
-            .ok_or_else(|| {
-                EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::AddrNotAvailable,
-                    "no usable direct UDP target address",
-                ))
-            })
+        let candidates = policy
+            .filter_candidates(candidates.iter().copied())
+            .map_err(invalid_policy)?;
+        select_stable_udp_target(logical_target, &candidates, true, true).ok_or_else(|| {
+            EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::AddrNotAvailable,
+                "no direct UDP target satisfies the dial policy",
+            ))
+        })
     }
 
     pub(crate) fn generation(&self) -> u64 {
         self.generation
     }
+}
+
+#[cfg(feature = "udp-runtime")]
+fn invalid_policy(error: zero_traits::DialPolicyError) -> EngineError {
+    EngineError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, error))
 }
 
 /// Select one candidate without pinning every logical target to the first DNS
@@ -202,30 +160,6 @@ fn select_stable_udp_target(
         })
         .filter(|candidate| candidate.is_ipv6() == preferred_ipv6)
         .max_by_key(|candidate| udp_candidate_score(logical_target, *candidate))
-}
-
-#[cfg(feature = "udp-runtime")]
-struct FamilyBindOutcomes<T, E> {
-    available: Vec<(bool, T)>,
-    failures: Vec<(bool, E)>,
-}
-
-#[cfg(feature = "udp-runtime")]
-fn collect_family_bind_outcomes<T, E>(
-    ipv4: Result<T, E>,
-    ipv6: Result<T, E>,
-) -> FamilyBindOutcomes<T, E> {
-    let mut outcomes = FamilyBindOutcomes {
-        available: Vec::with_capacity(2),
-        failures: Vec::with_capacity(2),
-    };
-    for (ipv6, result) in [(false, ipv4), (true, ipv6)] {
-        match result {
-            Ok(value) => outcomes.available.push((ipv6, value)),
-            Err(error) => outcomes.failures.push((ipv6, error)),
-        }
-    }
-    outcomes
 }
 
 #[cfg(feature = "udp-runtime")]
@@ -297,10 +231,17 @@ pub(crate) async fn send_direct_udp_packet(
         .map_err(Into::into)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "udp-runtime"))]
 mod tests;
 
 #[cfg(feature = "udp-runtime")]
 mod io;
 #[cfg(feature = "udp-runtime")]
-pub(crate) use io::DirectUdpResponseSource;
+use response::DirectUdpResponseFlow;
+#[cfg(feature = "udp-runtime")]
+pub(crate) use response::{DirectUdpResponseGuard, DirectUdpResponseSource};
+#[cfg(feature = "udp-runtime")]
+mod response;
+
+#[cfg(feature = "udp-runtime")]
+mod select;

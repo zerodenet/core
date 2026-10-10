@@ -132,6 +132,14 @@ UUID、密码、cipher、密钥材料和协议身份等私有格式由协议 cra
 
 `direct` 和 `block` 是引擎可解析的内置目标语义。真正的 socket 直连或阻断响应由 `zero-proxy` 执行。
 
+Direct 的 `dial` 约束由 `zero-config` 负责 ADT 与结构校验，转换为
+`zero-traits::DialPolicy` 后随引擎叶子解析结果一起传给代理执行。显式 tag 的
+策略和单调 `dial_generation` 归属于不可变 EnginePlan；无关重载保留身份，
+策略变更、删除后重建和 A→B→A 不能复用旧身份，stage 回滚也不能回退分配器。
+隐式 `direct` 动作保持默认策略，不能继承同名配置出站。平台层只消费中性约束，
+负责接口、源地址所有权和 socket 绑定，不依赖配置 crate。完整边界见
+[Direct dial policy](direct-dial-policy.md)。
+
 引擎运行时根模块保持为门面：
 
 - `runtime/configuration.rs`：配置持久化、重载和订阅通知；

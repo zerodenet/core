@@ -1,5 +1,6 @@
 //! Engine target plan and outbound resolution.
 
+mod dial;
 mod resolve;
 
 pub(crate) use resolve::{
@@ -44,6 +45,8 @@ impl EnginePlan {
             let kind = TargetKind::Outbound(OutboundTarget {
                 outbound_index,
                 runtime_kind: outbound.protocol.runtime_kind(),
+                dial_policy: outbound.dial.to_policy(),
+                dial_generation: 0,
             });
 
             targets.push(TargetNode {
@@ -256,6 +259,8 @@ pub enum TargetKind {
 pub struct OutboundTarget {
     outbound_index: usize,
     runtime_kind: OutboundRuntimeKind,
+    dial_policy: zero_traits::DialPolicy,
+    dial_generation: u64,
 }
 
 impl OutboundTarget {
@@ -265,6 +270,14 @@ impl OutboundTarget {
 
     pub fn runtime_kind(&self) -> OutboundRuntimeKind {
         self.runtime_kind
+    }
+
+    pub fn dial_policy(&self) -> &zero_traits::DialPolicy {
+        &self.dial_policy
+    }
+
+    pub fn dial_generation(&self) -> u64 {
+        self.dial_generation
     }
 }
 
