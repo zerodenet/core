@@ -1,4 +1,5 @@
 name: Release
+run-name: Release ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 on:
   push:
@@ -16,6 +17,10 @@ env:
 permissions:
   actions: read
   contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   guard:

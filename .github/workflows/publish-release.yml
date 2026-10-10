@@ -15,7 +15,7 @@ on:
         default: false
 
 permissions:
-  actions: read
+  actions: write
   contents: write
 
 concurrency:
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Verify main and create tag
+    name: Verify authoritative branch and create tag
     if: inputs.confirm == true
     runs-on: ubuntu-22.04
     steps:
@@ -106,12 +106,14 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_BRANCH: ${{ inputs.stage == 'dev' && 'develop' || 'main' }}
         run: |
+          SOURCE_SHA=$(git rev-parse HEAD)
           COUNT=$(gh api \
-            "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=completed&per_page=20" \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&branch=$SOURCE_BRANCH&event=push&status=completed&per_page=20" \
             --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')
           if [ "$COUNT" -lt 1 ]; then
-            echo "::error::No successful main CI run exists for $GITHUB_SHA"
+            echo "::error::No successful branch CI run exists for $SOURCE_SHA"
             exit 1
           fi
 
@@ -124,6 +126,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "release: $TAG"
           git push origin "$TAG"
+
+      - name: Dispatch Release explicitly for GITHUB_TOKEN-created tag
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({...context.repo,
+              workflow_id: 'release.yml', ref: context.payload.repository.default_branch,
+              inputs: {tag: '${{ steps.version.outputs.tag }}'}});
 
       - name: Job summary
         shell: bash

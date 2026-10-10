@@ -1,0 +1,137 @@
+name: Nightly Release
+
+on:
+  push:
+    # Explicit SSH/Git entry point for operators without an API login.
+    branches: [codex/nightly-release-validation]
+  schedule:
+    # 03:17 Asia/Shanghai; UTC avoids daylight-saving ambiguity.
+    - cron: '17 19 * * *'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branches to check (unchanged published commits are skipped)
+        type: choice
+        default: both
+        options: [both, main, develop]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  # Serialize tag creation with the manual publisher.
+  group: publish-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Nightly (${{ matrix.branch }})
+    if: github.repository == 'zerodenet/core'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [main, develop]
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name != 'workflow_dispatch' || inputs.branch == 'both' || inputs.branch == matrix.branch
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: control
+
+      - uses: actions/checkout@v4
+        if: github.event_name != 'workflow_dispatch' || inputs.branch == 'both' || inputs.branch == matrix.branch
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
+          path: source
+
+      - uses: actions/setup-python@v5
+        if: github.event_name != 'workflow_dispatch' || inputs.branch == 'both' || inputs.branch == matrix.branch
+        with:
+          python-version: '3.12'
+
+      - name: Plan from branch version and ancestral tags
+        id: plan
+        if: github.event_name != 'workflow_dispatch' || inputs.branch == 'both' || inputs.branch == matrix.branch
+        working-directory: source
+        env:
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          python3 ../control/scripts/nightly-release.py plan --branch "$BRANCH" > ../plan.json
+          cat ../plan.json
+
+      - name: Skip unchanged published releases
+        id: decision
+        if: steps.plan.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const plan = JSON.parse(fs.readFileSync('plan.json', 'utf8'));
+            const {shouldBuild} = require('./control/.github/scripts/nightly-release.cjs');
+            core.setOutput('build', await shouldBuild({github, context, core}, plan));
+            await core.summary.addHeading(`Nightly: ${plan.branch}`)
+              .addRaw(`${plan.mode}: ${plan.reason}\n`).write();
+
+      - name: Prepare and push authoritative version commit
+        if: steps.decision.outputs.build == 'true'
+        working-directory: source
+        env:
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          SOURCE_SHA=$(python3 -c 'import json; print(json.load(open("../plan.json"))["sha"])')
+          python3 ../control/scripts/nightly-release.py prepare --branch "$BRANCH" \
+            --expected-sha "$SOURCE_SHA" > ../candidate.json
+          cat ../candidate.json
+          if python3 -c 'import json,sys; sys.exit(not json.load(open("../candidate.json"))["pushed_candidate"])'; then
+            # Ordinary fast-forward only; protection failures are not bypassed.
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
+
+      - name: Explicitly dispatch and require full CI for this commit
+        if: steps.decision.outputs.build == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const candidate = JSON.parse(fs.readFileSync('candidate.json', 'utf8'));
+            const {requireCI} = require('./control/.github/scripts/nightly-release.cjs');
+            await requireCI({github, context, core}, candidate);
+
+      - name: Verify candidate and publish immutable tag
+        if: steps.decision.outputs.build == 'true'
+        working-directory: source
+        env:
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          TAG=$(python3 -c 'import json; print(json.load(open("../candidate.json"))["tag"])')
+          SHA=$(python3 -c 'import json; print(json.load(open("../candidate.json"))["sha"])')
+          git fetch origin "$BRANCH" --tags
+          test "$(git rev-parse HEAD)" = "$SHA"
+          git merge-base --is-ancestor "$SHA" "origin/$BRANCH"
+          ./scripts/release.sh --check
+          ./scripts/release.sh --verify-tag "$TAG"
+          if git rev-parse --verify "refs/tags/$TAG^{commit}" >/dev/null 2>&1; then
+            test "$(git rev-parse "$TAG^{commit}")" = "$SHA"
+          else
+            git tag -a "$TAG" -m "release: $TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Explicitly start existing five-platform Release workflow
+        if: steps.decision.outputs.build == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const {tag, branch, sha} = JSON.parse(fs.readFileSync('candidate.json', 'utf8'));
+            await github.rest.actions.createWorkflowDispatch({...context.repo,
+              workflow_id: 'release.yml', ref: context.payload.repository.default_branch,
+              inputs: {tag}});
+            await core.summary.addHeading('Release build dispatched')
+              .addRaw(`${branch}@${sha}: ${tag}\n\nPublication is complete only when Release succeeds.\n`).write();
