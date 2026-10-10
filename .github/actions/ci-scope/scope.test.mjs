@@ -187,8 +187,11 @@ test('workflow contracts preserve coverage and avoid root-owned build artifacts'
 test('tag and artifact publishing reuse CI for the same commit', () => {
   const publish = readFileSync('.github/workflows/publish-release.yml', 'utf8');
   const release = readFileSync('.github/workflows/release.yml', 'utf8');
-  assert.match(publish, /actions: read/);
-  assert.match(publish, /workflows\/ci\.yml\/runs\?head_sha=\$GITHUB_SHA/);
+  assert.match(publish, /actions: write/);
+  assert.match(publish, /SOURCE_SHA=\$\(git rev-parse HEAD\)/);
+  assert.match(publish, /workflows\/ci\.yml\/runs\?head_sha=\$SOURCE_SHA&branch=\$SOURCE_BRANCH/);
+  assert.match(publish, /createWorkflowDispatch[^]*?workflow_id: 'release.yml'/);
+  assert.ok(publish.indexOf('Create annotated tag') < publish.indexOf('Dispatch Release explicitly'));
   assert.doesNotMatch(publish, /cargo (fmt|clippy|test)/);
   assert.match(release, /actions: read/);
   assert.doesNotMatch(release, /cargo (fmt|clippy|test)/);
