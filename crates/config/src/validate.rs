@@ -367,6 +367,8 @@ fn validate_runtime(
         ));
     }
 
+    runtime.network.udp_receive_queue.validate()?;
+
     if let Some(url) = &runtime.latency_test_url {
         validate_latency_test_url("`runtime.latency_test_url`", url)?;
     }

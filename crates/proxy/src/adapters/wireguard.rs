@@ -154,6 +154,12 @@ impl WireguardAdapter {
             udp: None,
             packet: Some(Box::new(packet::WireguardPacketLeaf {
                 tag: outbound.tag.clone(),
+                flow: crate::runtime::raw_ip::RawIpFlowSource::adapter(
+                    outbound.tag.clone(),
+                    device_identity,
+                    plan.clone(),
+                    self.pool.clone(),
+                ),
                 plan,
                 identity: device_identity,
                 pool: self.pool.clone(),

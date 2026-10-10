@@ -19,7 +19,7 @@ use zero_stack::packet;
 
 use crate::runtime::{
     raw_ip::{RawIpAction, RawIpDevicePool, RawIpTunnel, RawIpWireCarrier, SharedRawIpDevice},
-    udp_flow::managed::{raw_ip::RawIpUdpFlow, ManagedTupleUdpFlowConnection},
+    udp_flow::managed::{packet::PacketUdpFlow, ManagedTupleUdpFlowConnection},
 };
 
 struct TestTunnel {
@@ -200,7 +200,7 @@ async fn exercise_udp_device_shares_handshake(opaque: bool) {
             )
         }
         .unwrap();
-        let flow = RawIpUdpFlow::open(
+        let flow = PacketUdpFlow::open(
             device.clone(),
             target.clone(),
             53,
@@ -223,7 +223,7 @@ async fn exercise_udp_device_shares_handshake(opaque: bool) {
             device.health_snapshot("wg".to_owned(), 0).state,
             zero_api::OutboundDeviceHealthState::Reachable,
         );
-        let second = RawIpUdpFlow::open(
+        let second = PacketUdpFlow::open(
             device.clone(),
             target.clone(),
             53,
@@ -299,7 +299,7 @@ async fn wireguard_udp_flow_reports_authenticated_icmp_unreachable() {
             }),
         )
         .unwrap();
-        let flow = RawIpUdpFlow::open(
+        let flow = PacketUdpFlow::open(
             device.clone(),
             target.clone(),
             53,

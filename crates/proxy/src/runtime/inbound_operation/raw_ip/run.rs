@@ -274,6 +274,9 @@ pub(super) async fn run(
                 }
             }
             _ = maintenance.tick() => {
+                let now = Instant::now();
+                fragments.cleanup_expired(now);
+                endpoint_fragments.cleanup_expired(now);
                 packet_route.retain_admitted_packet_pins(&mut packet_pins);
                 traffic.refresh(operation.device.as_ref(), &packet_route);
                 // Protocol clocks can include system suspend while the executor's

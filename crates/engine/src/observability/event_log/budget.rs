@@ -30,18 +30,18 @@ fn stats_size(event: &RawApiEvent) -> usize {
 }
 #[derive(Debug, Default)]
 pub(super) struct History {
-    events: VecDeque<RawApiEvent>,
+    events: VecDeque<Arc<RawApiEvent>>,
     sizes: VecDeque<usize>,
     stats_bytes: usize,
 }
 impl Deref for History {
-    type Target = VecDeque<RawApiEvent>;
+    type Target = VecDeque<Arc<RawApiEvent>>;
     fn deref(&self) -> &Self::Target {
         &self.events
     }
 }
 impl History {
-    pub(super) fn push(&mut self, event: RawApiEvent, bytes: usize, capacity: usize) {
+    pub(super) fn push(&mut self, event: Arc<RawApiEvent>, bytes: usize, capacity: usize) {
         self.events.push_back(event);
         self.sizes.push_back(bytes);
         self.stats_bytes = self.stats_bytes.saturating_add(bytes);
@@ -56,18 +56,21 @@ impl History {
 }
 /// The queued value releases its reservation on consumption or receiver drop.
 pub(crate) struct QueuedEvent {
-    pub(crate) event: RawApiEvent,
+    pub(crate) event: Arc<RawApiEvent>,
+    _reservation: Reservation,
+}
+struct Reservation {
     bytes: usize,
     budget: Arc<AtomicUsize>,
 }
 impl QueuedEvent {
-    pub(crate) fn into_event(mut self) -> RawApiEvent {
-        self.budget.fetch_sub(self.bytes, Ordering::Relaxed);
-        self.bytes = 0;
-        self.event.clone()
+    pub(crate) fn into_event(self) -> RawApiEvent {
+        // Queues and history share immutable storage. The owned API clones only
+        // when another owner remains; an evicted, uniquely held event moves out.
+        Arc::unwrap_or_clone(self.event)
     }
 }
-impl Drop for QueuedEvent {
+impl Drop for Reservation {
     fn drop(&mut self) {
         self.budget.fetch_sub(self.bytes, Ordering::Relaxed);
     }
@@ -86,7 +89,7 @@ impl Subscriber {
             budget: Arc::new(AtomicUsize::new(0)),
         }
     }
-    pub(super) fn send(&self, event: &RawApiEvent, bytes: usize) -> bool {
+    pub(super) fn send(&self, event: &Arc<RawApiEvent>, bytes: usize) -> bool {
         if !matches_filter(event, &self.filter) {
             return true;
         }
@@ -102,8 +105,10 @@ impl Subscriber {
         }
         let queued = QueuedEvent {
             event: event.clone(),
-            bytes,
-            budget: self.budget.clone(),
+            _reservation: Reservation {
+                bytes,
+                budget: self.budget.clone(),
+            },
         };
         match self.tx.try_send(queued) {
             Ok(()) | Err(TrySendError::Full(_)) => true,
@@ -114,3 +119,6 @@ impl Subscriber {
 pub(super) fn size(event: &RawApiEvent) -> usize {
     stats_size(event)
 }
+
+#[cfg(test)]
+mod tests;

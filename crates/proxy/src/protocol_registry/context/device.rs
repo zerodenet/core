@@ -14,6 +14,7 @@ pub(crate) struct OutboundDevicePreparationContext {
     pub(crate) traffic: zero_engine::Engine,
     pub(crate) direct_packet_device: Option<zero_config::DirectPacketDeviceConfig>,
     pub(crate) mtu: u16,
+    pub(crate) stack_options: crate::runtime::raw_ip::RawIpStackOptions,
     pub(crate) endpoint_bindings: Arc<Vec<zero_config::EndpointBindingConfig>>,
     /// Business role admission is separate from physical device lifetime.
     pub(crate) disabled_outbounds: Arc<HashSet<String>>,

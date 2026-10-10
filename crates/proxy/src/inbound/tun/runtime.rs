@@ -227,6 +227,7 @@ async fn feed_packets(
         packet_shutdown,
     );
     let mut route_cleanup = tokio::time::interval(std::time::Duration::from_secs(30));
+    route_cleanup.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     while let Some(packet) = loop {
         tokio::select! {
             packet = packets.recv() => break packet,
@@ -240,6 +241,7 @@ async fn feed_packets(
                 packet_pins.expire();
             },
             _ = route_cleanup.tick() => {
+                fragments.cleanup_expired(std::time::Instant::now());
                 #[cfg(feature = "raw-ip-runtime")]
                 packet_route.retain_admitted_packet_pins(&mut packet_pins);
             }

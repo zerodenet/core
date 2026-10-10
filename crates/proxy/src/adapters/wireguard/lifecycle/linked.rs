@@ -28,6 +28,7 @@ impl WireguardAdapter {
         staged: &mut StagedRawIpDevices,
         identity: [u8; 32],
         generation: u64,
+        meters: Option<&(zero_engine::TrafficMeter, Vec<zero_engine::TrafficMeter>)>,
     ) -> Result<
         (
             Arc<inbound::LinkedEndpoint>,
@@ -116,11 +117,25 @@ impl WireguardAdapter {
         let endpoints = resolve_endpoints(plan, upstream).await?;
         let mut devices = Vec::with_capacity(plan.peer_count());
         for peer_index in 0..client_peer_count {
-            let device = SharedRawIpDevice::start_on_endpoint(
+            let traffic = meters
+                .map(|(endpoint, peers)| {
+                    crate::runtime::raw_ip::RawIpTraffic::new(
+                        endpoint.clone(),
+                        peers.get(peer_index).cloned(),
+                    )
+                })
+                .unwrap_or_default()
+                .with_global(
+                    context
+                        .traffic
+                        .traffic_meter(&zero_api::TrafficScope::Global),
+                );
+            let device = SharedRawIpDevice::start_on_endpoint_with_options(
                 plan.local_addresses(),
                 plan.mtu(),
                 peer_index,
                 sender_rx.clone(),
+                context.stack_options.clone().with_traffic(traffic),
             )
             .map_err(|error| invalid(format!("raw-IP endpoint stack: {error:?}")))?;
             let cell = Arc::new(OnceCell::new());

@@ -15,3 +15,5 @@ mod schema_version;
 mod listener_addresses;
 #[path = "../outbound_dial.rs"]
 mod outbound_dial;
+#[path = "../udp_receive_queue.rs"]
+mod udp_receive_queue;

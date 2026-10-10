@@ -210,13 +210,7 @@ fn build_ipv6_response(packet: &[u8], mtu: usize, reject_udp: bool) -> Option<Ve
 }
 
 fn icmpv6_checksum(source: Ipv6Addr, destination: Ipv6Addr, icmp: &[u8]) -> u16 {
-    let mut pseudo = Vec::with_capacity(40 + icmp.len());
-    pseudo.extend_from_slice(&source.octets());
-    pseudo.extend_from_slice(&destination.octets());
-    pseudo.extend_from_slice(&(icmp.len() as u32).to_be_bytes());
-    pseudo.extend_from_slice(&[0, 0, 0, IPPROTO_ICMPV6]);
-    pseudo.extend_from_slice(icmp);
-    checksum(&pseudo)
+    super::checksums::transport_checksum_v6(&source, &destination, IPPROTO_ICMPV6, icmp)
 }
 
 #[cfg(test)]

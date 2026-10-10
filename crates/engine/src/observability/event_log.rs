@@ -498,13 +498,16 @@ impl EngineEventLog {
     }
 
     pub fn snapshot(&self, filter: &EventFilter) -> Vec<RawApiEvent> {
-        self.inner
+        let events: Vec<_> = self
+            .inner
             .lock()
             .expect("engine event log lock poisoned")
             .iter()
             .filter(|event| matches_filter(event, filter))
             .cloned()
-            .collect()
+            .collect();
+        // The owned public contract is materialized after releasing history.
+        events.into_iter().map(Arc::unwrap_or_clone).collect()
     }
 
     /// Return events with `sequence > since` that match the filter, along with
@@ -524,7 +527,7 @@ impl EngineEventLog {
                     .max(requested_next)
             });
         let has_gap = retained_from > requested_next;
-        let events: Vec<RawApiEvent> = retained
+        let events: Vec<_> = retained
             .iter()
             .filter(|event| {
                 event.sequence.map(|s| s > since).unwrap_or(false) && matches_filter(event, filter)
@@ -532,6 +535,8 @@ impl EngineEventLog {
             .take(limit)
             .cloned()
             .collect();
+        drop(retained);
+        let events: Vec<_> = events.into_iter().map(Arc::unwrap_or_clone).collect();
 
         let replay_start = if has_gap {
             retained_from
@@ -596,6 +601,7 @@ impl EngineEventLog {
         let mut events = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let sequence = self.next_sequence.fetch_add(1, Ordering::Relaxed);
         event.sequence = Some(sequence);
+        let event = Arc::new(event);
         events.push(event.clone(), bytes, self.capacity.load(Ordering::Relaxed));
         // Preserve sequence order for live delivery as well as replay. All sends
         // are nonblocking; only observation/control producers take this lock.

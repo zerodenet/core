@@ -259,3 +259,38 @@ fn expires_incomplete_fragment_state() {
     assert_eq!(reassembler.pending_datagrams(), 0);
     assert_eq!(reassembler.buffered_bytes(), 0);
 }
+
+#[test]
+fn completed_fragment_join_does_not_allocate_an_extra_first_fragment_image() {
+    for (local, remote) in [("10.0.0.1", "10.0.0.2"), ("fd00::1", "fd00::2")] {
+        let original = packet::build_udp(
+            local.parse().unwrap(),
+            remote.parse().unwrap(),
+            40000,
+            53,
+            &[0x42; 4096],
+        );
+        let fragments = packet::fragment_ip_packet(&original, 1500, 1);
+        assert!(fragments.len() > 1);
+        let now = Instant::now();
+        let mut reassembler = FragmentReassembler::new();
+        for fragment in &fragments[..fragments.len() - 1] {
+            assert!(matches!(
+                reassembler.process(fragment, now),
+                FragmentOutcome::Pending
+            ));
+        }
+        let (outcome, allocations) = super::allocation::measure(1400, || {
+            reassembler.process(fragments.last().unwrap(), now)
+        });
+        let FragmentOutcome::Reassembled(complete) = outcome else {
+            panic!("expected complete packet");
+        };
+        // One joined transport payload and one rebuilt IP packet remain. The
+        // retained first-fragment image moves out rather than being copied.
+        assert_eq!(allocations.large_allocations, 2, "{allocations:?}");
+        assert_eq!(packet::parse_udp(&complete).unwrap().payload, &[0x42; 4096]);
+        assert_eq!(reassembler.buffered_bytes(), 0);
+        assert_eq!(reassembler.pending_datagrams(), 0);
+    }
+}

@@ -220,3 +220,9 @@ fn authenticated_data_and_stale_handshake_have_distinct_states() {
     );
 }
 mod timer;
+
+#[path = "tests/udp_queue.rs"]
+mod udp_queue;
+
+#[path = "tests/configuration.rs"]
+mod configuration;

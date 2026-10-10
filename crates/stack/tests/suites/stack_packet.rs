@@ -1,5 +1,8 @@
 //! Related integration cases share one executable; feature gates stay on cases.
 
+#[path = "../support/allocation.rs"]
+mod allocation;
+
 #[path = "../support/echo.rs"]
 mod echo;
 

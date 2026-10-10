@@ -1,7 +1,9 @@
 //! Authenticated IP reply delivery; correlation and bounded receive queues.
 use super::observation::observe_queue_drop;
-use super::{ClientUdpDatagram, ClientUdpEvent, ClientUdpStack};
+use super::queue::{enqueue_datagram, QueuedEvent};
+use super::{ClientUdpEvent, ClientUdpStack};
 use crate::{packet, FragmentOutcome};
+use std::borrow::Cow;
 use std::time::Instant;
 impl ClientUdpStack {
     /// Feed an authenticated, decrypted IP packet. The caller must check that
@@ -28,8 +30,8 @@ impl ClientUdpStack {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             match fragments.process(raw_packet, Instant::now()) {
-                FragmentOutcome::NotFragmented(packet) => packet.to_vec(),
-                FragmentOutcome::Reassembled(packet) => packet,
+                FragmentOutcome::NotFragmented(packet) => Cow::Borrowed(packet),
+                FragmentOutcome::Reassembled(packet) => Cow::Owned(packet),
                 FragmentOutcome::Pending | FragmentOutcome::Rejected(_) => return false,
             }
         };
@@ -42,21 +44,23 @@ impl ClientUdpStack {
                 if let Some(observer) = &socket.observer {
                     observer.received(packet.len());
                 }
-                socket
-                    .sender
-                    .try_send(ClientUdpEvent::Datagram(ClientUdpDatagram {
-                        source: datagram.src,
-                        payload: datagram.payload.to_vec(),
-                    }))
-                    .inspect_err(|error| {
+                match enqueue_datagram(
+                    &socket.sender,
+                    &socket.budget,
+                    datagram.src,
+                    datagram.payload.len(),
+                    || datagram.payload.to_vec(),
+                ) {
+                    Ok(()) => true,
+                    Err(error) => {
                         observe_queue_drop(
                             socket.observer.as_ref(),
                             self.inner.drop_observer.as_ref(),
-                            error,
+                            &error,
                         );
-                    })
-                    .is_ok()
-                    || correlated
+                        correlated
+                    }
+                }
             });
         }
         let Some(error) = packet::parse_icmp_error(&packet) else {
@@ -83,7 +87,7 @@ impl ClientUdpStack {
             }
             socket
                 .sender
-                .try_send(ClientUdpEvent::IcmpError(error))
+                .try_send(QueuedEvent::control(ClientUdpEvent::IcmpError(error)))
                 .inspect_err(|error| {
                     observe_queue_drop(
                         socket.observer.as_ref(),

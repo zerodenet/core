@@ -799,9 +799,403 @@ Final workspace acceptance on macOS x86_64:
 - Final integration layout remains 88 targets covering 282 source files, with
   zero layout errors. No additional integration executable was introduced.
 
+## 2026-10-09 P1 common Flow to Packet execution
+
+The candidate-local graph now consumes one optional `PacketFlowAdapter` from a
+Packet leaf, rather than asking the leaf to prepare separate TCP/UDP converters.
+Only the chosen graph edge allocates a prepared operation. A Packet-only leaf
+without local addressing and a bidirectional stack still cannot accept Flow
+traffic. Auto preserves native Flow priority; Packet forces the opt-in converter.
+
+Internal contracts live in `proxy/runtime/packet_flow/{contract,tcp,udp}.rs`:
+
+- The owning source selects a validated local address and optional stable peer
+  identity. Unsupported resolved destinations may advance within the chosen
+  outbound; a generation/admission/runtime failure terminates that attempt.
+- The endpoint retains the already prepared shared TCP/UDP IP stack, its MTU,
+  bounded channels, fragmentation, correlated replies and ICMP handling. The
+  converter neither constructs protocol framing nor creates an OS socket per flow.
+- Admission is generation-fenced, with another check after TCP handshake or UDP
+  bind. Executors also recheck the live network generation while a device pool
+  replacement may still be pending. Retirement rejects new flows while existing
+  ones retain the established drain semantics; terminal resource closure is
+  distinct from retirement.
+- Closing a UDP Flow cancels its own receiver/send task even under packet queue
+  backpressure, and never shuts down the shared endpoint. PacketRoute leases
+  remain a separate lifecycle. The existing PacketBuffer admission/ownership
+  contract remains unchanged.
+
+`raw_ip/flow.rs` bridges validated raw-IP plans/pools to these contracts.
+WireGuard keeps its existing authenticated device and protocol-owned peer plan;
+no second stack, transport, crypto engine, statistics registry or public plugin
+SPI is introduced. UDP now considers supported resolved addresses through the
+same selection path as TCP instead of rejecting on an unsupported first address.
+
+The ordinary UDP stack hands its newly built IP packet to the existing owned
+fragmentation helper. When MTU permits, this removes one full-packet allocation
+and copy. Actual fragmentation remains unchanged. Protocol ticks stay at 250 ms,
+with Skip handling after runtime stalls; bounded return-table reclamation runs
+once per 5 seconds, with expiry enforced on access/admission. This reduces periodic
+return-table scans from 240 to 12 per minute without changing protocol deadlines.
+
+Regression scope includes an independent unencrypted Packet endpoint performing
+real TCP handshake/echo, UDP fragmentation/reply, managed UDP operation startup,
+queue-pressure cancellation, generation fencing, graph modes/native priority and
+return expiry between cleanup sweeps. Gate and measurement results are recorded
+after execution; this section alone is not acceptance or end-to-end power proof.
+
+A bounded allocation-only harness exercised the unchanged old/owned fragmentation
+APIs with IPv4 MTU 1420 (2 trials of 1000 packets per case). Payload sizes
+64/512/1280 bytes reduced total boundary allocations from 4 to 3 per packet and
+removed 92/540/1308 allocated bytes per packet respectively. Fragmented 4096-byte
+payloads remained at 6 allocations and 12476 allocated bytes. This counts builder
+and fragment container allocations, not the entire application/network path.
+Timing samples are excluded because dependencies used the test profile and other
+builds were running. No power/throughput claim follows from these counts. Sources
+and raw counts: `/Users/higanbana/.codex/tmp/zero-p1/packet-copy.rs` and
+`/Volumes/tool/tmp/zero-p1-copy-allocations.jsonl` and
+`/Volumes/tool/tmp/zero-p1-copy-allocations-summary.json`.
+
+
+P1 verification on macOS x86_64 (source frozen after the test-fixture repair):
+
+- All 14 added regression cases passed: nine pure Packet converter cases, two
+  graph selection cases, two maintenance cases and one return expiry case.
+  Existing WireGuard model (19), proxy WireGuard (13), endpoint contracts (25)
+  and runtime architecture boundary (188) suites passed.
+- The completed full workspace/all-features gate reported **2396 passed,
+  32 failed, 157 ignored**, with 145 result blocks, and exit 101 after 1083
+  seconds. This is not a green full gate. Raw output:
+  `/Volumes/tool/tmp/zero-p1-final-validation.log`.
+- An older run overlapped this gate during local harness execution. The APFS
+  runner initially copied/signed the same destination without a lock. The older
+  run was stopped, and the external runner now locks publication and uses an
+  atomic replacement. No product source or test filtering was changed for this
+  correction. The full run's health target did not emit a result block and is
+  not counted as accepted from that run.
+- After the full gate finished, isolated rechecks passed proxy dispatch
+  **83/83** and health **12/12**. Connector delivery passed 28 cases but its
+  600-event compaction case exceeded its file-content wait budget. A subsequent
+  exact-case run passed that compaction/restart/no-redelivery case (12.36 seconds).
+  The failed isolated file was still progressing, with 531 records rather than
+  an invented success. Logs:
+  `/Volumes/tool/tmp/zero-p1-isolated-recheck.log` and
+  `/Volumes/tool/tmp/zero-p1-outbox-isolated.log`.
+- Seven existing cases remain failed under the retained TUN environment:
+  `domain_trace_rechecks_resolved_ip_rules`,
+  `resolved_ip_bypass_overrides_an_already_matched_domain_rule`, the TCP and UDP
+  `unmatched_domain_is_rechecked_against_resolved_ip_rules` cases,
+  `recovered_ipv4_target_uses_trusted_dns_candidates_after_original_fails`,
+  `unreachable_native_ipv6_candidate_races_one_trusted_ipv4_fallback`, and
+  `https_origin_negotiates_http2_and_streams_response`. These fixtures use system
+  resolution of localhost; current resolution is **198.18.0.44**, while fixtures
+  expect loopback. Errors include the wrong resolved route/address, a missing
+  physical egress and the HTTPS fixture connection reset. The TUN, DNS and
+  installed kernel/client were not changed. This remains an environment-limited
+  acceptance gap, not a claimed clean full test result.
+- Default workspace check and strict workspace/all-targets/all-features Clippy
+  passed. Clippy preceded only the correction of two new test fixtures from an
+  empty JSON object to the required minimal direct route config; product Rust
+  source was already final. Final formatting and diff whitespace checks passed.
+  Logs: `/Volumes/tool/tmp/zero-p1-final-default-check.log` and
+  `/Volumes/tool/tmp/zero-p1-final-clippy.log`.
+- Layout remains 88 integration executables covering 282 source files, zero
+  layout errors. No release artifact was built or installed, and no commit,
+  push or tag was made in this phase. Changed Rust content digest:
+  `d5933a15cccbfed1486a6c9a9aceb51d0f561bdeb56765e9da4bc69233c6ade2`.
+
+Remaining performance work is explicitly separate: protocol-owned next-deadline
+hints / removal of fixed idle timer wakeups, remaining socket/crypto/TUN copy
+boundaries, and comparable throughput/power measurements. This phase completes
+the common converter and the measured UDP copy / bounded maintenance changes;
+it does not claim end-to-end zero-copy or measured power savings.
+
+### Timer-state accounting and TUN recovery diagnostics (2026-10-09)
+
+A read-only 10-minute observation of the installed
+`0.0.3-dev.202610070952` kernel found 6960 additional outer errors on the idle
+personal endpoint: 2320 per peer, exactly one increment per 250 ms timer tick.
+GoTATun 0.9.2 returns `ConnectionExpired` repeatedly after expiration until a
+new handshake; its own device timer loop ignores that result. Zero previously
+mapped every timer error to an engine failure. The inbound runtime therefore
+counted persistent expiration as repeated failed carrier operations, and the
+outbound-only driver could terminate on the same timer state.
+
+The protocol-owned timer adapter now maps only timer `ConnectionExpired` to
+an empty action list. Unexpected timer errors, authentication/decryption errors
+and real carrier I/O failures still propagate. No peer health or handshake fact
+is fabricated, and no historical monotonic counter is rewritten or reset.
+Regression tests inject repeated expired timer results, then perform a real
+authenticated handshake and encrypted IP exchange; they also verify unexpected
+errors and malformed wire packets remain rejected. This validates result
+classification, not a wall-clock 90/540-second expiration or remote outage test.
+
+The current macOS route monitor already filters route-query feedback, neighbor
+cache churn and failed route operations, then coalesces notifications. Route
+reconciliation debounces platform events and retains its bounded retry policy.
+A successful platform notification still invalidates reusable network state
+even when the interface identity and reconciliation result are unchanged: a
+lost/rebuilt route can retain the same identity. Logs alone do not establish that
+those notifications are redundant, so this change does not weaken invalidation.
+
+`tun_network_generation_changed` now includes optional boolean
+`reconciliation_changed`: `true` means route or leak-protection reconciliation
+changed policy; `false` means neither did. This is not a physical-link health
+claim. The field is absent when no reconciliation result exists, such as address
+publication or TUN stop. Generation, previous generation and cause retain their
+existing meaning. A regression verifies both boolean values, absence, and that
+logging an unchanged generation emits no event or mutation. The installed client,
+kernel, TUN and RustDesk configuration remain untouched during this work.
+
+Verification of the frozen Rust source for this correction:
+
+- Both new timer regressions and the new TUN JSON logging regression passed in
+  the full gate. All 188 runtime architecture boundary checks, the 25 endpoint
+  contract cases and the existing P1 converter/maintenance regressions passed.
+- Default workspace check, strict workspace/all-targets/all-features Clippy,
+  formatting and diff whitespace checks passed. Integration layout remains
+  282 source files / 88 targets / zero errors.
+- The full workspace/all-features gate completed with **2427 passed, 16 failed,
+  157 ignored**, 146 result blocks, exit 101, in 1683.7 seconds. Counts include
+  actual result lines only, excluding repeated CI error annotations. This is
+  not a green full gate. Log:
+  `/Volumes/tool/tmp/zero-expiry-workspace-tests.log`.
+- Seven failures are the same retained-TUN localhost fixtures listed in the P1
+  record above; a fresh system query still returned `198.18.0.44`. No host DNS
+  or TUN setting was changed to remove those failures.
+- The existing source-less carrier cookie-threshold case failed in the full
+  gate; it processes 100 handshakes per device against a real one-second rate
+  window. The unchanged protocol runtime target passed **15/15** in a subsequent
+  isolated run, including that case. This remains a load-sensitive fixture
+  observation, not a change to handshake admission or the security threshold.
+- `kernel_process` reported one port-startup timeout and seven poisoned-lock
+  failures in the full gate and parallel isolated recheck. The unchanged target
+  then passed **18/18** with `--test-threads=1` (93.60 seconds). A separate minimal
+  start of the same built executable returned HTTP 200 in 0.253 seconds using
+  its default control socket and 0.071 seconds with an explicit temporary socket.
+  The exact parallel interference is not established. Do not attribute these
+  failures solely to ExFAT or mark the parallel gate accepted from serial results.
+  Recheck logs: `/Volumes/tool/tmp/zero-expiry-isolated-recheck.log`,
+  `/Volumes/tool/tmp/zero-expiry-kernel-serial.log` and
+  `/Volumes/tool/tmp/zero-expiry-startup-probe.json`.
+- The local compiler wrapper now relocates executable transitive proc macros
+  through a signed APFS dependency mirror; metadata/archive links still refer
+  to the workspace artifacts. Two earlier Clippy attempts were interrupted
+  while repairing that host harness and are not accepted runs. Final strict
+  Clippy passed. This wrapper is outside the repository and changes no system
+  security policy. Tests retain their original assertions and product source.
+- No release artifact was built or installed. No commit, push or tag was made.
+  The unchanged Rust content digest across check/full gate/rechecks is
+  `02cc9fbfa689628294013b166c700849dbbe15cd80f2d0ac8109c9095069fefb`.
+  Source manifest: `/Volumes/tool/tmp/zero-expiry-final-source.json`.
+
+Existing installed counters retain their historical values, including previous
+false timer increments. The fix and the added diagnostic field require a future
+kernel artifact update before they affect the running client.
+
+
+### P1 power and allocation follow-up (2026-10-09)
+
+The P0/P1 plan remains incremental; existing source/tests are not a production
+performance qualification. Current status against the agreed plan:
+
+| Priority / scope | Implementation status | Acceptance still required |
+| --- | --- | --- |
+| P0 comparable baseline | Observation tooling and bounded local samples exist | Freeze an installed candidate and measure idle wakeups, throughput, latency, peak memory and per-packet allocations under comparable load |
+| P1 neutral contracts | Packet ownership/admission, route lifetime, generation fences, common replies and MTU contracts are wired | New-protocol and real-device acceptance; no public protocol plugin SPI is implied |
+| P1 PacketFlowAdapter | Common opt-in TCP/UDP executor and an independent Packet-only test endpoint are implemented | Real-device load and cancellation/recovery acceptance |
+| P1 data-path optimization | Owned UDP fragmentation and engine PacketBuffer transfer exist; this follow-up removes checksum scratch copies and subscriber dequeue clones | Remaining crypto/socket/TUN boundaries; end-to-end throughput and power comparison |
+| P1 idle scheduling | Return-table sweeps are reduced to 5 seconds with access-time expiry; this follow-up shortens the macOS authorizer lifetime | Protocol-owned deadline hints and replacement of fixed 250 ms protocol ticks |
+| P2 expansion | Capability/conversion boundaries allow future implementations | Tailscale, additional carrier nodes and mobile Direct adapters are not implemented by this phase |
+
+Live read-only sampling of the existing installed kernel found approximately
+2.1--2.8% main-process CPU, 84.5 MiB physical footprint (272.8 MiB peak), and
+12.6--24.3% CPU in its separate, long-lived osascript authorizer. These are short
+samples on an active machine, not an idle or throughput baseline. The authorizer
+stack repeatedly checks UI cancellation while waiting for its privileged command.
+The actual TUN helper remained nearly idle. Captures:
+`/Volumes/tool/tmp/zero-cpu-20261009.sample.txt` and
+`/Volumes/tool/tmp/zero-helper-cpu-20261009.sample.txt`.
+
+The platform-owned authorization launcher now quotes every argument as before,
+launches the helper with detached standard descriptors, and allows osascript to
+exit while the existing private root-checked control socket owns helper lifetime.
+Successful authorizer exit is no longer mistaken for startup failure; helper
+connection is bounded after authorization completes. Denial, wrong UID, blocking
+socket restoration, descriptor transfer and repeated requests retain their rules.
+An unprivileged AppleScript/FIFO fixture checks actual launcher exit without admin
+prompts or host route/TUN changes. A real privileged TUN lifecycle and post-update
+CPU comparison still require local acceptance.
+
+Pure checksum computation remains under zero-stack::packet. IPv4/IPv6 TCP and UDP
+and ICMPv6 use fixed stack pseudo-headers plus the borrowed transport bytes instead
+of allocating/copying one contiguous scratch buffer. Odd padding, carry folding,
+network byte order and UDP computed-zero encoding are preserved. A source-backed
+optimized allocation harness tested 64/512/1280/65000-byte transports, 1000 packets
+per combination: all 20 combinations went from 1000 scratch allocations to zero.
+The scratch-byte saving per call is transport length + 12 (IPv4) or + 40 (IPv6).
+This measures only the checksum boundary; packet construction/crypto/queues still
+have their own allocations. Harness/results:
+`/Users/higanbana/.codex/tmp/zero-power/checksum-allocation.rs` and
+`/Volumes/tool/tmp/zero-power-checksum-allocation.jsonl`.
+
+Engine subscriber dequeue now moves the owned event instead of deep-cloning its
+JSON. A separate RAII reservation releases the existing byte budget exactly once
+on consumption, queue rejection or receiver drop. History/replay/event identities,
+filters and byte limits are unchanged; this is not a second statistics system.
+The existing 8 MiB history / 1 MiB subscriber statistics budgets measure serialized
+payload sizes, not the allocator's physical footprint. Neither allocation results
+nor the ownership regression prove a whole-process RSS or power reduction.
+
+Focused checks passed: zero-tun/zero-stack reported 213 passed / 2 ignored;
+zero-engine unit tests reported 17 passed. Default workspace check, strict
+workspace/all-targets/all-features Clippy, formatting and whitespace checks passed.
+The full workspace/all-features gate completed in **2041.39 seconds** with
+**2437 passed / 17 failed / 157 ignored**, 146 result blocks, exit 101. All eleven
+new optimization/lifetime regressions passed in that gate. This is not a green
+full gate. Log: `/Volumes/tool/tmp/zero-power-workspace.log`; summaries:
+`/Volumes/tool/tmp/zero-power-validation.json` and
+`/Volumes/tool/tmp/zero-power-test-summary.json`.
+
+Seven failures are the retained-TUN localhost fixtures: the system resolver still
+returns `198.18.0.44`, while the fixtures expect loopback listeners. The HTTPS
+HTTP/2 fixture failed with connection reset while using a localhost URL with its
+server bound to `127.0.0.1`. No DNS or TUN setting was changed for acceptance.
+
+Nine endpoint/WireGuard failures occurred with the default test host fixture
+selecting the active utun address `10.0.0.1`. That address overlaps fixture tunnel
+addresses; one configuration was explicitly rejected for duplicate AllowedIPs.
+The same built test images were rechecked with the existing
+`ZERO_TEST_HOST_IPV4=192.168.34.33` fixture override (assigned to en5), preserving
+their assertions and default parallel execution. Endpoint contracts passed
+**25/25**, WireGuard business/recovery passed **13/13**, and WireGuard inbound
+passed **5/5**, with one existing live-ICMP test ignored. Logs:
+`/Volumes/tool/tmp/zero-power-recheck-endpoints.log`,
+`/Volumes/tool/tmp/zero-power-recheck-wireguard.log` and
+`/Volumes/tool/tmp/zero-power-recheck-wireguard-inbound.log`.
+These isolated results do not replace the failed full-gate result.
+
+The existing Connector compaction fixture also failed in isolation: its bounded
+wait did not observe event 600. The failed full-run output contained 580 delivered
+lines; isolated output contained 468; both persistent journals contained event
+600. Its event source is a test-local static source and does not use the changed
+Engine subscriber dequeue. The precise reason for delivery missing the wait
+deadline remains unresolved; this is not accepted compaction/restart evidence.
+Log: `/Volumes/tool/tmp/zero-power-recheck-connector.log`; recheck summary:
+`/Volumes/tool/tmp/zero-power-rechecks.json`.
+
+The host-only compiler/test harness mirrors executable proc macros and signed
+test images onto APFS. Existing archives were reused after the full-feature
+library graph completed, avoiding repeated external-volume directory scans;
+the temporary archive freeze was removed when the gate ended. Test arguments,
+assertions and product build settings were retained. Two files received only
+rustfmt/use-order formatting after validation started; no logic changed.
+
+An additional timing probe compared the actual previous TCP checksum source with
+the current borrowed implementation across four payload sizes and both address
+families. It ran on this active machine while compilation was in progress; timing
+varied between rounds and the large IPv6 case did not uniformly improve. These
+results do not establish an end-to-end throughput claim or justify a published
+performance percentage. The deterministic allocation result and ownership tests
+are the accepted evidence for this change. Timing artifacts:
+`/Users/higanbana/.codex/tmp/zero-power/checksum-timing.rs` and
+`/Volumes/tool/tmp/zero-power-checksum-timing.jsonl`.
+
+The installed kernel/client/TUN remain unchanged; no commit, push or release is
+included in this optimization request. The earlier P0 collector output directory
+was removed at the user's request; its previous historical conclusions are retained
+above, but its raw sample files are no longer available.
+
+
+### P1 CPU and event-retention follow-up (2026-10-10)
+
+The preserved uncommitted P1 changes were audited before this follow-up: generic
+PacketFlowAdapter wiring, checksum scratch-allocation removal, owned packet and
+subscriber dequeue boundaries, five-second return-table reclamation, and the
+macOS one-shot authorization launcher remain in place. Unrelated P0 collector,
+TUN recovery and nightly-release work is retained.
+
+Two bounded optimizations extend those changes:
+
+- Engine history and subscriber queues retain `Arc<RawApiEvent>` internally.
+  Publication shares one immutable payload instead of deep-copying JSON into
+  history and each subscriber. Snapshot/replay collect references under the
+  history lock and materialize the existing owned public contract afterwards.
+  Dequeue moves a uniquely held event; while history/other owners remain, it
+  clones at the owned API boundary. Event schema, filtering, sequence/gap
+  semantics, capacities and conservative per-queue byte budgets are unchanged.
+  RAII reservations still release exactly once on delivery, overflow or drop.
+- `RawIpTunnel::timer_enabled()` is a neutral protocol-owned hint, defaulting to
+  true. The WireGuard adapter forwards the pinned GoTATun engine's actual
+  expiration state. Only an already-expired standalone outbound device parks
+  its 250 ms protocol tick; the independent five-second reclamation tick,
+  receive/send and shutdown remain available. Authentication or outgoing
+  demand revives the engine and re-enables ticking. Skip semantics prevent
+  accumulated retry bursts after a pause. Active handshake, keepalive, rekey
+  and expiration timing have not been stretched.
+
+Deterministic checks cover shared storage across history and eight slow queues,
+consumer mutation isolation, queued lifetime after history eviction, reservation
+release and the real neutral-device scheduler's park/revival/cadence. A separate
+ignored-by-default protocol test uses the engine's real 90-second expiration
+clock; it is run explicitly for this change rather than adding that wait to
+every edit-time/full-workspace run.
+
+These local results must not be presented as a whole-kernel CPU/RSS improvement.
+The installed binary has not been replaced. Its read-only short sample was
+approximately 4% CPU, 71.5 MiB physical footprint and 90.7 MiB peak footprint;
+that is neither a controlled idle baseline nor evidence of a memory leak.
+Remaining work includes exact protocol deadline hints, the associated inbound
+multi-peer listener's fixed 250 ms poll, and controlled before/after power,
+throughput and memory measurement. Crypto-buffer/queue copying is not globally
+eliminated. No new protocol-private state lives in the neutral runtime and no
+public control/Connector contract changes are required.
+
+Validation results are recorded below after the required gates complete.
+
+
+Validation completed for this follow-up:
+
+- `cargo fmt --all` and `cargo fmt --all -- --check`: passed.
+- `cargo check --workspace --jobs 2`: passed.
+- `cargo clippy --workspace --all-targets --all-features --jobs 2 -- -D warnings`:
+  passed.
+- Engine queue/history budget regressions: 5 passed; neutral-device scheduler
+  regression: 1 passed; explicit real-engine expiration/revival test: 1 passed
+  in 91.01 seconds.
+- `scripts/test-workspace.sh --jobs 2` (workspace/all-features, no-fail-fast,
+  default test concurrency, 16 MiB test-thread stack): 146 completed targets,
+  2,457 passed, 0 failed, 158 ignored, exit 0, 2,108.83 seconds including
+  27m31s test compilation. The ignored real-clock test above was separately
+  executed; remaining external/privileged qualification is not inferred from
+  this gate.
+- The existing APFS executable/proc-macro mirror harness used the same test
+  images and arguments. Installed proxy/TUN configuration was unchanged.
+  `localhost` resolved to 127.0.0.1; the host-network fixture explicitly used
+  the active en0 address 192.168.50.138 instead of a tunnel address. This full
+  successful run supersedes the earlier environment-affected failed gate for
+  the current source snapshot; it does not erase that earlier evidence.
+
+Local proof files: `/Volumes/tool/tmp/zero-p1-validation-20261010.json`,
+`/Volumes/tool/tmp/zero-p1-test-summary-20261010.json`,
+`/Volumes/tool/tmp/zero-p1-workspace-20261010.log`, and the focused
+`zero-p1-share-engine.log`, `zero-p1-scheduler.log`,
+`zero-p1-engine-expiration.log` in the same temporary directory.
+
+Build-volume pressure required removing 87 unused old Engine/Proxy incremental
+compiler-cache directories. The initial cutoff was seven days, later 48 hours
+and 24 hours as compilation consumed space; each selected directory was
+checked against running command lines. Source, existing test binaries and
+libraries, other repositories, and the installed kernel were retained. The
+path/size/cutoff audit is
+`/Users/higanbana/.codex/tmp/zero-p1-cache-cleanup-20261010.json`; logical cache
+sizes must not be mistaken for physical bytes freed. The original 64-path
+source digest baseline remains intact except for six deliberately continued
+P1 files. No commit, push or installation was performed in this follow-up.
+
 ### P1 exact deadlines and the bidirectional shared listener (2026-10-10)
 
-This change removes fixed protocol polling from the standalone device and shared listener.
+This follow-up supersedes the fixed-polling limitation in the previous P1 entry.
 The pinned protocol engine now exposes a read-only `Tunn::next_timer_delay`:
 retry jitter, keepalive, silence-triggered handshakes, initiator rekey, cookie
 expiry, occupied-session key destruction and connection expiration are projected
@@ -900,6 +1294,7 @@ physical bytes freed. Existing source, test binaries/libraries, installed core,
 client configuration and other repositories were retained. The index and HEAD
 are unchanged; this follow-up has not been committed, pushed or installed.
 
+
 ### P1 reply dispatch and burst-memory reclamation (2026-10-10)
 
 The starting working tree contained 56 preserved paths after deadline commit
@@ -982,3 +1377,237 @@ Verification completed:
 No commit, push, release build, version update or installed-core replacement
 was performed. Whole-kernel before/after power, throughput, tail latency and
 resident-memory acceptance remains a device benchmark against a frozen build.
+
+### P1 UDP admission and fragment storage maintenance (2026-10-11)
+
+The starting index was empty at `c85ad72a`; all 56 preserved dirty paths were
+fingerprinted before editing. Existing PacketFlowAdapter, checksum, event
+storage, TUN recovery, platform authorization and P0 observation changes are
+retained. This follow-up keeps protocol crypto/peer/timer state in its owner and
+changes only common stack storage and existing neutral runtime maintenance:
+
+- Client UDP reception borrows ordinary complete IP packets rather than cloning
+  the whole packet before parsing. Reassembled packets retain owned storage.
+  Payload delivery reserves queue capacity before copying; a refused correlated
+  reply remains consumed, RX still counts at the matched boundary and the actual
+  discard retains its classified reason. Unconnected delivery still reports
+  refusal. ICMP error matching and learned path MTU remain unchanged.
+- A completed fragment assembly moves its retained first-fragment image out;
+  it does not clone that image before removal. Stored fragment pieces are freed
+  during joining before allocating the rebuilt packet. The joined payload and
+  rebuilt IP packet still allocate/copy; this is not full zero-copy reassembly.
+- Fragment expiry removes entries in place, without allocating a list of keys.
+  Maintenance shrinks burst capacity only above four times live size with a
+  16-entry floor. It preserves refreshed/live assemblies, the existing
+  30-second expiry, 256-assembly/4-MiB payload budget, overlap rejection,
+  duplicate handling and IPv4/IPv6 reconstruction semantics.
+- `ClientUdpStack::cleanup_expired` is caller-driven: it expires incomplete
+  fragments and shrinks spare port-table capacity without removing live
+  sockets, replies, destination correlation or learned MTU. The stack creates
+  no timer or task. Standalone raw-IP devices and linked endpoint stacks use
+  existing five-second maintenance. The shared listener clears both of its
+  fragment tables during its existing five-second maintenance; TUN reception
+  uses its existing 30-second route-maintenance tick with Skip semantics.
+  With a running executor, expired fragment storage is reclaimed on the next
+  such tick, including when new traffic stops; congestion/suspend can delay it.
+
+Regression covers borrowed IPv4/IPv6 UDP admission, full-queue correlation and
+exact discard accounting, invalid/unmatched packets, reassembly byte equality,
+expiry capacity/byte reclamation while a refreshed assembly remains live,
+and UDP port-table reclamation while an existing socket continues sending and
+receiving. A thread-local allocation probe exists only in the stack integration
+test executables; it does not change production allocation or counting. It
+checks payload-sized allocations separately from channel bookkeeping and
+checks all allocations when proving a refused/unmatched packet allocates none.
+
+The source/test/config behavior does not change protocol capabilities, routing,
+statistics epochs, business usage or peer policy. Whole-kernel CPU, physical
+footprint, wakeups and throughput acceptance remain controlled device work
+against a frozen candidate. No release build, version change or installed-core
+replacement is part of this follow-up.
+
+Proofs and validation records are under
+`/Users/higanbana/.codex/tmp/zero-p1-udp-reassembly-20261011/`.
+Developer cache cleanup selected only unused directories older than three days
+under this repository's `target/debug/incremental`, with no running Cargo/rustc
+process. The path/cutoff/size audit is `incremental-cleanup.json`; 377 directories
+reported 13,259,284,480 allocated bytes. Volume free space increased from about
+1.8 GiB to 10 GiB. These are development-cache figures, not kernel RSS savings.
+
+The APFS test-image cache was also inspected when its volume reached about
+3.3 GiB free. Only copied test images whose source artifact fingerprint had
+changed were eligible; current images and running processes were excluded.
+101 obsolete images reported 8,620,503,040 allocated bytes before removal;
+`stale-apfs-image-cleanup.json` records each path and fingerprint. Source
+artifacts, current test images, installed binaries and proof logs were retained.
+
+Validation and remaining qualification:
+
+- `cargo fmt --all -- --check`, `git diff --check`, workspace check and
+  workspace/all-targets/all-features Clippy with `-D warnings` passed. The
+  integration layout check reports 283 sources, 88 targets and zero errors.
+- Focused `stack_io`/`stack_packet` regression passed 109 tests, with one
+  opt-in benchmark ignored. Seven new regression cases are included across
+  unit and integration tests. Ordinary IPv4/IPv6 4-KiB UDP reception has one
+  payload-sized allocation; saturated admission and ordinary invalid/unmatched
+  packets allocate nothing in steady state. Reassembly completion has two
+  large allocations (joined payload and rebuilt packet), without another
+  retained-first-fragment clone.
+- The initial unmatched-packet allocation probe included macOS mutex cold
+  initialization. A standalone System-allocator probe reproduced one 64-byte
+  allocation on the first lock and zero on the next lock. The regression now
+  initializes the mutex before its explicitly steady-state measurement; the
+  cold/warm evidence is retained in `mutex-initialization.log`.
+- Full `scripts/test-workspace.sh --jobs 2` ran workspace unit, integration and
+  doctests with all features, unchanged default test concurrency and 16-MiB
+  test stacks. The first run completed 146 targets: 2,475 passed, one failed,
+  159 ignored (895.96 s, exit 101). Its two-second listener-reload reachability
+  timeout passed on the same compiled image in an isolated rerun and in the
+  entire 35-case `proxy_control` target. No timeout was increased.
+- A frozen-source full confirmation completed 146 targets: 2,466 passed,
+  ten failed, 159 ignored (623.54 s, exit 101). The listener-reload case passed;
+  this run instead had process-startup timeouts in `kernel_process` and
+  poisoned test-port-lock cascades. The entire same-image 18-case process
+  target passed on rerun with unchanged concurrency. A known orphan from the
+  failed test was stopped after verifying its PID, former test parent and
+  build-artifact executable path. No installed core was stopped or replaced.
+- The process sample captured an inspect/build-info child hashing its own
+  executable in SHA-256, rather than a Packet forwarding loop. This does not
+  establish the cause of the startup or listener timeout. Both raw failed
+  full-run logs and successful target reruns are retained; there is no clean
+  full-gate result for this follow-up. Startup/timing stability remains an
+  explicit qualification gap, rather than an attributed environment failure.
+- The local APFS executable-image/proc-macro harness ran compiled test images
+  with their original arguments. TUN stayed enabled, the assigned host fixture
+  was 192.168.50.138, and localhost resolved to 127.0.0.1. Compiler mirror
+  readiness markers were removed after both full runs. No test-thread or
+  assertion relaxation, production allocator change, release build or version
+  update was made to obtain the rerun results.
+
+The source was fingerprinted before both full runs and remained unchanged.
+Of 56 pre-existing dirty paths, 53 remain byte-for-byte unchanged; only
+`client_udp.rs`, the linked endpoint bridge and this plan were extended while
+retaining their previous changes. HEAD and the empty index remain unchanged.
+`test-summary.json`, `preservation-audit.json`, `validation.json`,
+`confirmation.json` and the corresponding logs retain the evidence. Whole-core
+CPU, RSS, power and throughput improvements are not established by allocation
+or storage-reclamation tests; those still require controlled device comparison.
+
+### P1 configurable UDP reply admission (2026-10-11)
+
+Scope: the neutral `ClientUdpStack` receive queues used by Packet-to-Flow
+outbound associations, including standalone and shared-listener WireGuard.
+This does not resize native PacketRoute queues, wire-carrier queues, TUN
+inbound queues, managed-flow command/broadcast queues, or OS socket buffers.
+
+Config, supplied by inventory as neutral stack options:
+
+```json
+{
+  "runtime": {
+    "network": {
+      "udp_receive_queue": {
+        "capacity": 128,
+        "max_payload_bytes": 8388608,
+        "max_stack_payload_bytes": 67108864
+      }
+    }
+  }
+}
+```
+
+- `capacity`: events per UDP socket (UDP datagrams and correlated ICMP errors);
+  valid range 1..65536, default **64**, unchanged from previous admission.
+- `max_payload_bytes`: optional queued UDP payload bytes per socket.
+- `max_stack_payload_bytes`: optional queued UDP payload bytes across sockets
+  sharing **one ClientUdpStack**. For WireGuard this is one peer client device,
+  not an endpoint-wide or process-wide limit. Other stack instances are isolated.
+- Both byte bounds default to absent/null. Default receive capacity remains
+  bounded by slots and the existing non-jumbo UDP packet length limits; no new
+  byte ceiling reduces default admission. Each explicit byte bound must be at
+  least 65527, so one maximum supported IPv6 UDP payload can fit by itself.
+- Byte bounds count payload length only, including completed reassembly output;
+  they do not count IP headers, channel metadata, allocator overhead, fragment
+  assembly storage, or application-owned payloads already dequeued. ICMP control
+  events consume a slot but do not consume UDP payload bytes. This is queue
+  storage admission, not traffic accounting, quotas, rate limiting, or OS tuning.
+
+Stack owns bounded admission and RAII byte reservation/release. Config owns
+structural validation; Proxy supplies options and the existing device lifecycle.
+Protocol code continues to own authentication, peers and wire encoding.
+Default admission does not add per-packet budget atomics or budget allocations.
+When budgets are enabled, atomic reservations enforce both limits; partial
+reservation failure, receive, queue destruction and unwinding release charges.
+No per-packet JSON, events, disk I/O, extra timer, or asynchronous send task is
+introduced. The internal queued event carries a small reservation guard; this
+bookkeeping is not a claim that every individual allocation becomes smaller.
+
+Ordinary delivery reserves a slot before copying only the payload. If the first
+slot check reports Full, one payload is materialized and admission is retried,
+retaining the earlier copy-then-send opportunity for a concurrently draining
+consumer. Stable saturation may therefore allocate one payload before refusal.
+This deliberately relaxes the preceding "zero allocations on Full" optimization
+in favor of delivery opportunity. An explicit exhausted byte budget rejects
+admission; operators must choose it using workload measurements. There is no
+busy loop or wait in shared receive, which would block other peers/flows.
+No finite UDP queue guarantees lossless delivery under sustained overload.
+
+Final refusal uses the existing `queue_full` reason (slot OR byte pressure),
+`queue_closed` for shutdown. Successful retry produces no discard. Correlated
+refused replies remain consumed and cannot become inbound sessions. Role and
+boundary observers retain existing deduplication. Shared-listener client UDP
+queues now also report actual discards to existing endpoint/peer/global Inner
+meters; boundary RX/TX counts remain at their existing device boundary and are
+not recounted here. Query remains `traffic_stats`/`traffic_get` and events use
+existing sampling. Queue-specific occupancy/high-water labels are not added;
+these scope/plane reason counts alone cannot identify every individual queue.
+
+Changing this policy participates in existing staged device identity and
+publication. Unchanged policies reuse devices; a failed preparation keeps the
+active policy. A committed policy change replaces client stacks through normal
+retirement and may affect existing associations according to that lifecycle.
+It is not an in-place resize of a live Tokio queue. It does not change endpoint
+permissions, peer allowed IPs or business accounting. Measure and plan a reload
+rather than assuming existing associations keep their old device indefinitely.
+
+Read-only live sampling before deployment: PID 82721, same core instance and
+config revision 2 over 362.281 seconds. Company and personal had Inner RX/TX
+packets 0/0, no active datagram flows, zero observed Inner discards and no
+`queue_full` reason. This is an idle-path observation, **not** loaded acceptance
+or proof that the default capacity is adequate. Sparse reason absence is not a
+new unavailable-to-zero conversion. No installed core/config/TUN was changed.
+
+Verification on the corrected source snapshot:
+
+- Workspace check, rustfmt, test-layout checks and strict workspace/all-targets/
+  all-features Clippy passed. Focused stack/config targets passed 183 tests;
+  workspace library tests passed 837, with 5 existing ignored cases.
+- All 188 runtime boundary checks passed. The real inventory reuse/abandoned
+  preparation/published-policy replacement test passed in the runtime-owned
+  test directory. The first full run caught its initial adapter-directory
+  placement; the test was relocated without weakening the boundary checks.
+- The required workspace/all-features gate completed, including integration
+  and documentation tests: **2489 passed, 1 failed, 159 ignored, 146 targets**.
+  It is **not a passing full gate**. The remaining failure is
+  `event_dispatcher::dispatcher_compacts_a_large_outbox_and_restarts_without_redelivery`
+  in `zero-connector` (`event-compact-600` not delivered within its existing
+  deadline). Re-running the same full-gate binary in isolation reproduced it.
+  The first failed run had delivered IDs 1..589 once each and retained 590..600
+  in the outbox. This establishes pending delivery, not loss, and does not
+  establish why the deadline was exceeded. That StaticEventSource/JSONL path
+  does not execute the UDP client stack; Connector and its timeouts were not
+  modified. No full-gate retry was used to hide the remaining failure.
+- An attempted package-only Connector Cargo diagnostic could not link its
+  alternative feature graph through the local HFS artifact workaround; it did
+  not execute tests. The isolation result above used the original executable,
+  and the corrected full gate used the required workspace feature graph.
+- The same test images were executed through the existing APFS loader helper;
+  TUN remained enabled. No product/release build, install, tag, commit or push
+  was performed. Original unrelated work remained intact. Evidence and source
+  hashes: `/Users/higanbana/.codex/tmp/zero-p1-udp-budget-20261011/`.
+
+Loaded real-device UDP admission, throughput/power/RSS comparisons and queue
+occupancy/high-water telemetry remain unverified or unimplemented respectively.
+Start tuning by retaining null byte bounds and increasing slots if measured
+`queue_full` justifies it; enable byte bounds using observed concurrency and
+payload sizes. The example bounds are illustrative, not workload acceptance.

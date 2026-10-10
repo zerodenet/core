@@ -1,6 +1,6 @@
-//! Active TCP connects over the same authenticated raw-IP device as UDP.
+//! Active TCP connects through the common Flow -> Packet adapter.
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin};
 
 use zero_core::Session;
 use zero_engine::EngineError;
@@ -9,20 +9,14 @@ use zero_stack::ClientTcpStackError;
 use crate::{
     protocol_registry::TcpExecutionServices,
     runtime::{
-        raw_ip::{RawIpDevicePool, RawIpOutboundPlan},
-        tcp_dispatch::operation::PreparedTcpConnectOperation,
+        packet_flow::PacketFlowAdapter, tcp_dispatch::operation::PreparedTcpConnectOperation,
     },
     transport::{EstablishedTcpOutbound, TcpOutboundFailure, TcpRelayStream},
 };
 
-pub(crate) struct RawIpTcpOperation {
-    pub(crate) tag: String,
-    pub(crate) identity: [u8; 32],
-    pub(crate) plan: Arc<dyn RawIpOutboundPlan>,
-    pub(crate) pool: Arc<RawIpDevicePool>,
-}
+pub(super) struct PacketTcpOperation(pub(super) PacketFlowAdapter);
 
-impl PreparedTcpConnectOperation for RawIpTcpOperation {
+impl PreparedTcpConnectOperation for PacketTcpOperation {
     fn execute<'a>(
         &'a self,
         services: TcpExecutionServices,
@@ -36,76 +30,40 @@ impl PreparedTcpConnectOperation for RawIpTcpOperation {
                 .resolve_packet_targets(session)
                 .await
                 .map_err(|error| failure("raw_ip_resolve_target", error))?;
-            let mut selected = None;
-            let mut route_error = None;
-            for target in targets {
-                match self.plan.peer_for_target(target.ip()) {
-                    Ok(peer) => {
-                        selected = Some((target, peer));
-                        break;
-                    }
-                    Err(error) => route_error = Some(error),
-                }
-            }
-            let (target, peer) = selected.ok_or_else(|| {
-                failure(
-                    "raw_ip_peer",
-                    route_error.unwrap_or_else(|| invalid("no target IP")),
-                )
-            })?;
-            let upstream = services.upstream();
-            let cell = self
-                .pool
-                .cell_for(
-                    &self.tag,
-                    peer.peer_index,
-                    self.identity,
-                    upstream.egress_generation(),
-                )
-                .map_err(|error| failure("raw_ip_device", error))?;
-            let local_ip = peer.local_ip;
-            if let Some(peer_id) = self.plan.peer_identity(peer.peer_index) {
+            let network = services.upstream();
+            let generation = network.egress_generation();
+            let (target, binding) = self
+                .0
+                .select(&targets, generation)
+                .map_err(|error| failure("raw_ip_peer", error))?;
+            if let Some(peer_id) = &binding.peer_id {
                 services
                     .engine()
-                    .bind_session_peer(session.id, &self.tag, true, &peer_id);
+                    .bind_session_peer(session.id, &self.0.tag, true, peer_id);
             }
-            let device = cell
-                .get()
-                .ok_or_else(|| failure("raw_ip_device", invalid("peer device not initialized")))?;
-            if !self.pool.is_current(
-                &self.tag,
-                peer.peer_index,
-                self.identity,
-                upstream.egress_generation(),
-                device,
-            ) {
+            let device = &binding.endpoint;
+            if network.egress_generation() != generation {
                 return Err(failure(
                     "raw_ip_device",
-                    invalid("peer device changed during connect"),
+                    invalid("network changed during connect admission"),
                 ));
             }
             let stream = device
-                .open_tcp_observed(
-                    local_ip,
+                .open_tcp(
+                    binding.local_ip,
                     target,
-                    services.outbound_io(&self.tag, zero_api::TrafficPlane::Inner),
+                    services.outbound_io(&self.0.tag, zero_api::TrafficPlane::Inner),
                 )
                 .await
                 .map_err(|error| failure("raw_ip_tcp_connect", stack_error(error)))?;
-            if !self.pool.is_current(
-                &self.tag,
-                peer.peer_index,
-                self.identity,
-                upstream.egress_generation(),
-                device,
-            ) {
+            if network.egress_generation() != generation || !device.is_current() {
                 return Err(failure(
                     "raw_ip_device",
                     invalid("peer device changed during connect"),
                 ));
             }
             Ok(EstablishedTcpOutbound::relay(
-                &self.tag,
+                self.0.tag.as_ref(),
                 None,
                 Vec::new(),
                 TcpRelayStream::new(stream),

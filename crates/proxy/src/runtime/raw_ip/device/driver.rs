@@ -121,6 +121,9 @@ async fn run_device_inner(
                 device.refresh_handshake_health();
             }
             _ = cleanup.tick() => {
+                let now = Instant::now();
+                device.fragments.cleanup_expired(now);
+                device.udp.cleanup_expired(now);
                 if returns_sweep.due(Instant::now()) { device.returns.expire(); }
                 if Instant::now() >= next_tcp_sweep {
                     device.tcp.cleanup_idle(Duration::from_secs(600)).await;

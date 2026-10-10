@@ -169,7 +169,9 @@ macOS 特权测试由普通用户运行 Cargo 编译，通过
 1. GitHub Actions `Prepare Release` 根据所选阶段自动计算完整版本号；dev 创建目标为 `develop` 的 Draft PR，RC/正式版创建目标为 `main` 的 PR，通常不填写 `source_tag`；
 2. PR 通过版本契约和仓库质量检查后合并；
 3. GitHub Actions `Publish Release Tag` 从阶段对应的权威分支重新验证来源，要求该精确提交已有成功的权威 CI，并创建标签；
-4. 标签触发 `Release` workflow 构建制品和 GitHub Release；RC 成功后清理同版本 dev 和旧 RC，正式版 Draft 实际公开后清理同版本剩余的 dev/RC。
+4. `Publish Release Tag` 显式调用 `Release` workflow 构建制品和 GitHub Release（默认令牌的标签 push 不会触发第二条工作流）；RC 成功后清理同版本 dev 和旧 RC，正式版 Draft 实际公开后清理同版本剩余的 dev/RC。
+
+`Nightly Release` 每天北京时间 03:17 独立检查 main／develop；只延续已有的 RC／dev 系列，有未发布的新提交才准备新版本。完整 CI 通过后创建标签，再调用同一个 `Release` 构建五平台制品。失败重试保留原候选或标签；无新提交且制品完整时跳过；stable 保留人工流程。定时工作流必须位于默认分支，Actions 必须获准普通推送版本提交到权威分支，不能绕过分支保护。详细边界见[夜间自动预发布](./release-process.md#夜间自动预发布)。
 
 命令语义：
 
@@ -220,6 +222,65 @@ X.Y.Z
 `zero-proxy` 还有面向内部接线的 transport feature。外部构建者应使用根 package feature，不应依赖内部 crate 当前的 feature 组合。
 
 配置引用未编译的协议时，程序必须在启动早期返回清晰错误。
+
+## P0 性能观测
+
+`scripts/p0-observe.py` 是独立的开发采集工具，使用 Python 3.11 标准库，
+支持 Linux 和 macOS。它只观察已经运行的进程，通过已有 Unix IPC Query
+读取统计，不启动内核、不改变配置、路由或统计周期，也不依赖 Connector。
+
+```bash
+python3 -B scripts/p0-observe.py capture \
+  --pid 12345 --socket /absolute/path/control.sock \
+  --output-dir /absolute/path/new-observation-run \
+  --interval 20 --duration 600 --phase mixed
+python3 -B scripts/p0-observe.py report /absolute/path/new-observation-run/samples.jsonl
+```
+
+PID 和 socket 必须明确提供；socket 的操作系统 peer PID 必须匹配。
+不提供 `--socket` 时仅记录进程事实。运行中检测到 PID 复用、内核实例变化
+或进程退出即停止，重新启动采集应使用新的目录。配置变化时丢弃跨版本的
+查询结果，并从统计首页恢复。能力发现不支持 `traffic_stats` 时保留旧版
+`stats`，细粒度统计标为不可用。每次至多查询一页 64 个统计范围，后续采样
+继续分页；范围很多时，完整一轮的间隔相应增加。
+
+默认采样间隔 20 秒、持续 600 秒、日志上限 16 MiB。间隔可设为 10–300 秒，
+持续时间最多 24 小时，上限可设为 64 KiB–64 MiB。错过周期不追赶查询。
+每个控制查询最多等待 2 秒；慢服务下结束时间可能超过期限一个采集批次。
+收到 SIGINT/SIGTERM、到期或达到日志上限时写结束记录和 `summary.json`。
+输出目录必须不存在，目录权限 0700，文件权限 0600；不覆盖旧验收结果。
+日志最多占指定上限，摘要独立有界，最多保留 256 个范围与平面组合。
+
+`samples.jsonl` 保存阶段、时间、进程身份、CPU 累计时间、RSS、内核运行版本、
+实例、配置版本和统计周期；统计字段按白名单投影，不查询配置、密钥、业务
+目标或连接详情。`--source-commit` 只接受手工核对的运行二进制完整 SHA，
+不默认使用工作区 HEAD。`--phase` 为人工声明的 `idle/load/recovery/mixed`；
+工具不制造负载或执行网络故障、reload。摘要可以重复离线生成。
+
+CPU 百分比来自进程累计 CPU 时间与单调时钟差，单核 100%，多核可超过 100%。
+Linux 使用 `/proc`，macOS 使用 `ps` 的累计时间；RSS 为字节。Linux 的线程数、
+上下文切换为原始 OS 事实，macOS 未采集的值为 null；上下文切换不等于唤醒。
+流量速率使用同一实例、配置版本、generation、stats_epoch 和计量口径内的
+累计计数差与内核单调时间差，单位为对应指标每秒；Inner/Outer/Flow 和不同
+统计范围分别保留、不相加。不可用指标保持 null；周期改变或计数下降不生成
+负速率。摘要中的速率是最近一个可比较窗口平均值，峰值只代表被采到的峰值。
+
+工具同时记录自身和采集子进程的 CPU 时间、自身峰值内存与采集耗时，用于
+衡量观测开销，不从目标指标中擅自扣除。唤醒次数、能耗、每包分配和端到端
+延迟明确不可用，应通过独立、限时的专项分析获得；日常混合负载记录不等同
+于可复现的性能基准。P0 完整验收仍需固定版本、工作负载及空闲/负载对照，
+并单独检查 Packet、派生 Flow、DNS、reload 和网络恢复。分析模型按批次读取
+摘要即可，无须常驻轮询。
+
+工具测试使用本地模拟 IPC，不启动 Zero 或修改宿主网络：
+
+```bash
+python3 -B scripts/tests/test-p0-observe.py
+python3 -B scripts/tests/test-p0-observe-ipc.py
+```
+
+GitHub Actions 的 `P0 observation tools` 独立在 Linux/macOS 运行这些测试。
+采集工具使用独立的脚本测试；运行时行为变更仍遵守仓库的完整测试要求。
 
 ## 代码边界
 

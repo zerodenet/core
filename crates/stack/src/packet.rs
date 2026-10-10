@@ -5,6 +5,9 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+mod checksums;
+pub use checksums::checksum;
+use checksums::{tcp_checksum_v4, tcp_checksum_v6, udp_checksum_v4, udp_checksum_v6};
 mod fragment;
 mod icmp;
 mod identity;
@@ -730,89 +733,3 @@ fn build_udp_v6(src: Ipv6Addr, dst: Ipv6Addr, sport: u16, dport: u16, payload: &
 
     p
 }
-
-// ── Checksums ─────────────────────────────────────────────────────────
-
-/// RFC 1071 ones' complement checksum over a byte slice.
-/// Returns the checksum as a host `u16`; callers serialize it with
-/// `u16::to_be_bytes` (or equivalent high/low-byte writes).
-pub fn checksum(data: &[u8]) -> u16 {
-    let mut sum: u32 = 0;
-    let len = data.len();
-    let words = len / 2;
-    for i in 0..words {
-        sum += u16::from_be_bytes([data[i * 2], data[i * 2 + 1]]) as u32;
-    }
-    if !len.is_multiple_of(2) {
-        sum += (data[len - 1] as u32) << 8;
-    }
-    while sum >> 16 != 0 {
-        sum = (sum & 0xffff) + (sum >> 16);
-    }
-    !(sum as u16)
-}
-
-/// TCP checksum with IPv4 pseudo-header.
-fn tcp_checksum_v4(src: &Ipv4Addr, dst: &Ipv4Addr, tcp: &[u8]) -> u16 {
-    let tcp_len = tcp.len() as u32;
-    let mut pseudo = Vec::with_capacity(12 + tcp.len());
-    pseudo.extend_from_slice(&src.octets());
-    pseudo.extend_from_slice(&dst.octets());
-    pseudo.push(0); // reserved
-    pseudo.push(IPPROTO_TCP);
-    pseudo.extend_from_slice(&(tcp_len as u16).to_be_bytes());
-    pseudo.extend_from_slice(tcp);
-    checksum(&pseudo)
-}
-
-/// TCP checksum with IPv6 pseudo-header.
-fn tcp_checksum_v6(src: &Ipv6Addr, dst: &Ipv6Addr, tcp: &[u8]) -> u16 {
-    let tcp_len = tcp.len() as u32;
-    let mut pseudo = Vec::with_capacity(40 + tcp.len());
-    pseudo.extend_from_slice(&src.octets());
-    pseudo.extend_from_slice(&dst.octets());
-    pseudo.extend_from_slice(&tcp_len.to_be_bytes());
-    pseudo.extend_from_slice(&[0, 0, 0]);
-    pseudo.push(IPPROTO_TCP);
-    pseudo.extend_from_slice(tcp);
-    checksum(&pseudo)
-}
-
-/// UDP checksum with IPv4 pseudo-header.
-/// Returns 0xFFFF when the computed checksum is zero (RFC 768).
-fn udp_checksum_v4(src: &Ipv4Addr, dst: &Ipv4Addr, udp: &[u8]) -> u16 {
-    let udp_len = udp.len() as u32;
-    let mut pseudo = Vec::with_capacity(12 + udp.len());
-    pseudo.extend_from_slice(&src.octets());
-    pseudo.extend_from_slice(&dst.octets());
-    pseudo.push(0);
-    pseudo.push(IPPROTO_UDP);
-    pseudo.extend_from_slice(&(udp_len as u16).to_be_bytes());
-    pseudo.extend_from_slice(udp);
-    let c = checksum(&pseudo);
-    if c == 0 {
-        0xFFFF
-    } else {
-        c
-    }
-}
-
-/// UDP checksum with IPv6 pseudo-header.
-fn udp_checksum_v6(src: &Ipv6Addr, dst: &Ipv6Addr, udp: &[u8]) -> u16 {
-    let udp_len = udp.len() as u32;
-    let mut pseudo = Vec::with_capacity(40 + udp.len());
-    pseudo.extend_from_slice(&src.octets());
-    pseudo.extend_from_slice(&dst.octets());
-    pseudo.extend_from_slice(&udp_len.to_be_bytes());
-    pseudo.extend_from_slice(&[0, 0, 0]);
-    pseudo.push(IPPROTO_UDP);
-    pseudo.extend_from_slice(udp);
-    let c = checksum(&pseudo);
-    if c == 0 {
-        0xFFFF
-    } else {
-        c
-    }
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────

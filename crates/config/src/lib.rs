@@ -8,6 +8,7 @@ mod validate;
 pub use auth::AuthRequirement;
 pub use error::ConfigError;
 pub use mieru_config::{MieruTrafficPatternConfig, MieruTransportOptions};
+pub use model::UdpReceiveQueueConfig;
 pub use model::{
     ApiConfig, BrowserDialerConfig, ClientTlsConfig, ControlApiConfig, ControlGrpcConfig,
     ControlGrpcTlsConfig, DirectPacketDeviceBackend, DirectPacketDeviceConfig,

@@ -94,3 +94,57 @@ async fn explicit_stop_interrupts_recovery_without_waiting_for_its_timeout() {
     assert!(recovery.await.unwrap().is_err());
     assert!(proxy.tun_control.lock().unwrap().is_none());
 }
+
+#[test]
+fn generation_logs_distinguish_notifications_from_changed_route_policy() {
+    use std::sync::{Arc, Mutex};
+    let buffer = Arc::new(Mutex::new(Vec::new()));
+    let output = buffer.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .json()
+        .with_writer(move || LogWriter(output.clone()))
+        .finish();
+    let control = zero_platform_tokio::EgressInterfaceControl::default();
+    tracing::subscriber::with_default(subscriber, || {
+        for (cause, changed) in [
+            ("network_event", Some(false)),
+            ("route_repair", Some(true)),
+            ("tun_addresses_published", None),
+        ] {
+            let before = control.generation();
+            control.invalidate_network();
+            super::super::log_tun_generation_change(&control, before, cause, changed);
+        }
+        let unchanged = control.generation();
+        super::super::log_tun_generation_change(&control, unchanged, "network_event", Some(false));
+        assert_eq!(control.generation(), unchanged);
+    });
+    let bytes = buffer.lock().unwrap().clone();
+    let text = String::from_utf8(bytes).unwrap();
+    let events = text
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0]["fields"]["reconciliation_changed"], false);
+    assert_eq!(events[1]["fields"]["reconciliation_changed"], true);
+    assert!(events[2]["fields"].get("reconciliation_changed").is_none());
+    for event in events {
+        assert_eq!(
+            event["fields"]["event_type"],
+            "tun_network_generation_changed"
+        );
+    }
+}
+
+struct LogWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+impl std::io::Write for LogWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}

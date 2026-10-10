@@ -171,6 +171,9 @@ pub struct NetworkOptionsConfig {
     /// MTU requested from the TUN backend and used by its user-space stack.
     #[serde(default = "default_network_mtu")]
     pub mtu: u16,
+    /// Neutral UDP reply admission for Packet-to-Flow client stacks.
+    #[serde(default)]
+    pub udp_receive_queue: UdpReceiveQueueConfig,
 }
 
 impl Default for NetworkOptionsConfig {
@@ -178,6 +181,7 @@ impl Default for NetworkOptionsConfig {
         Self {
             direct_packet_device: None,
             mtu: default_network_mtu(),
+            udp_receive_queue: UdpReceiveQueueConfig::default(),
         }
     }
 }
@@ -284,6 +288,8 @@ mod serialization;
 mod transport;
 mod wireguard;
 pub use mkcp::MkcpConfig;
+mod udp_queue;
+pub use udp_queue::UdpReceiveQueueConfig;
 mod tun;
 
 pub use api::*;

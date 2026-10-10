@@ -81,14 +81,9 @@ pub(crate) trait ClaimedPacketLeaf: Send + Sync {
         None
     }
 
-    /// A PacketSink may expose a shared user-space stack for L4 callers.
-    /// The adapter owns local addressing; generic routing only selects this edge.
-    fn prepare_tcp_flow(&self) -> Option<Box<dyn PreparedTcpConnectOperation>> {
-        None
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    fn prepare_udp_flow(&self) -> Option<Box<dyn PreparedUdpFlowOperation>> {
+    /// Opt-in shared stack conversion. Packet support alone never implies
+    /// usable local addressing, MTU or a correlated bidirectional return path.
+    fn packet_flow_adapter(&self) -> Option<&crate::runtime::packet_flow::PacketFlowAdapter> {
         None
     }
 }

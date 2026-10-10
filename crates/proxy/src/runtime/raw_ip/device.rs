@@ -107,16 +107,18 @@ impl SharedRawIpDevice {
         endpoint: SocketAddr,
         carrier: Arc<dyn RawIpWireCarrier>,
         tunnel: Box<dyn RawIpTunnel>,
-        traffic: super::RawIpTraffic,
+        options: super::RawIpStackOptions,
     ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+        let traffic = options.traffic;
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
-        let udp = ClientUdpStack::new_observed_with_drops(
+        let udp = ClientUdpStack::new_with_queue(
             local_addresses.clone(),
-            outbound.clone(),
+            outbound.clone().into(),
             mtu,
             Some(Arc::new(traffic.clone())),
+            options.udp_receive_queue,
         )?;
         let tcp = Arc::new(
             ClientTcpStack::new_observed(local_addresses, outbound.clone(), mtu)

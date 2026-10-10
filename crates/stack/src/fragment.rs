@@ -180,9 +180,9 @@ impl FragmentReassembler {
         let Some(final_length) = entry.final_length else {
             return FragmentOutcome::Pending;
         };
-        let Some(first_fragment) = entry.first_fragment.as_ref() else {
+        if entry.first_fragment.is_none() {
             return FragmentOutcome::Pending;
-        };
+        }
         let mut cursor = 0;
         for (&offset, payload) in &entry.fragments {
             if offset != cursor {
@@ -194,12 +194,16 @@ impl FragmentReassembler {
             return FragmentOutcome::Pending;
         }
 
+        // Take the completed assembly, including its first fragment, rather
+        // than copying a second header/payload image. Release each stored
+        // fragment while joining, before allocating the complete IP packet.
+        let assembly = self.assemblies.remove(&fragment.key).unwrap();
+        self.total_buffered = self.total_buffered.saturating_sub(assembly.buffered);
+        let first_fragment = assembly.first_fragment.unwrap();
         let mut payload = vec![0_u8; final_length];
-        for (&offset, fragment) in &entry.fragments {
-            payload[offset..offset + fragment.len()].copy_from_slice(fragment);
+        for (offset, fragment) in assembly.fragments {
+            payload[offset..offset + fragment.len()].copy_from_slice(&fragment);
         }
-        let first_fragment = first_fragment.clone();
-        self.remove(&fragment.key);
         match rebuild_fragmented_packet(&first_fragment, &payload) {
             Some(packet) => FragmentOutcome::Reassembled(packet),
             None => FragmentOutcome::Rejected(FragmentRejectReason::MissingFirstFragment),
@@ -207,17 +211,20 @@ impl FragmentReassembler {
     }
 
     pub fn cleanup_expired(&mut self, now: Instant) -> usize {
-        let expired = self
-            .assemblies
-            .iter()
-            .filter_map(|(key, assembly)| {
-                (now.saturating_duration_since(assembly.updated_at) >= FRAGMENT_EXPIRY)
-                    .then_some(key.clone())
-            })
-            .collect::<Vec<_>>();
-        let count = expired.len();
-        for key in expired {
-            self.remove(&key);
+        let before = self.assemblies.len();
+        self.assemblies.retain(|_, assembly| {
+            if now.saturating_duration_since(assembly.updated_at) >= FRAGMENT_EXPIRY {
+                self.total_buffered = self.total_buffered.saturating_sub(assembly.buffered);
+                false
+            } else {
+                true
+            }
+        });
+        let count = before - self.assemblies.len();
+        // Maintenance only; leave ordinary churn room without retaining a
+        // peak table forever after a fragment burst.
+        if self.assemblies.capacity() > self.assemblies.len().saturating_mul(4).max(16) {
+            self.assemblies.shrink_to(self.assemblies.len());
         }
         self.last_cleanup = now;
         count
@@ -265,3 +272,7 @@ fn ranges_overlap(
 ) -> bool {
     left_start < right_end && right_start < left_end
 }
+
+#[cfg(test)]
+#[path = "../tests/fragment/maintenance.rs"]
+mod tests;

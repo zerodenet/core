@@ -8,22 +8,27 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
 
+mod construction;
+mod maintenance;
 mod observation;
+mod queue;
 mod receive;
 use crate::packet::{self, Endpoint};
 use crate::FragmentReassembler;
 use observation::observe_discard;
+pub use queue::ClientUdpReceiveQueueConfig;
+use queue::{ByteBudget, QueueBudget, QueuedEvent};
 
 const FIRST_EPHEMERAL_PORT: u16 = 49_152;
 const EPHEMERAL_PORT_COUNT: usize = 16_384;
 const MAX_SOCKETS: usize = 1_024;
-const RECEIVE_QUEUE_CAPACITY: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientUdpStackError {
     MissingLocalAddress,
     DuplicateLocalAddress,
     InvalidMtu,
+    InvalidReceiveQueue,
     UnknownLocalAddress,
     SocketLimit,
     AddressFamilyMismatch,
@@ -44,7 +49,8 @@ pub enum ClientUdpEvent {
 }
 
 struct SocketEntry {
-    sender: mpsc::Sender<ClientUdpEvent>,
+    sender: mpsc::Sender<QueuedEvent>,
+    budget: QueueBudget,
     last_destination: Option<Endpoint>,
     path_mtu: Option<usize>,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
@@ -56,6 +62,8 @@ struct Inner {
     mtu: usize,
     next_fragment_id: AtomicU32,
     drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    receive_queue: ClientUdpReceiveQueueConfig,
+    receive_budget: Option<Arc<ByteBudget>>,
     sockets: Mutex<HashMap<Endpoint, SocketEntry>>,
     fragments: Mutex<FragmentReassembler>,
 }
@@ -67,114 +75,11 @@ pub struct ClientUdpStack {
     inner: Arc<Inner>,
 }
 
-impl ClientUdpStack {
-    pub fn new(
-        local_addresses: Vec<IpAddr>,
-        outbound: tokio::sync::mpsc::Sender<Vec<u8>>,
-        mtu: u16,
-    ) -> Result<Self, ClientUdpStackError> {
-        Self::new_with_output(local_addresses, outbound.into(), mtu, None)
-    }
-    pub fn new_observed(
-        local_addresses: Vec<IpAddr>,
-        outbound: tokio::sync::mpsc::Sender<crate::packet_output::ObservedPacket>,
-        mtu: u16,
-    ) -> Result<Self, ClientUdpStackError> {
-        Self::new_with_output(local_addresses, outbound.into(), mtu, None)
-    }
-    pub fn new_observed_with_drops(
-        local_addresses: Vec<IpAddr>,
-        outbound: mpsc::Sender<crate::packet_output::ObservedPacket>,
-        mtu: u16,
-        drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    ) -> Result<Self, ClientUdpStackError> {
-        Self::new_with_output(local_addresses, outbound.into(), mtu, drop_observer)
-    }
-    fn new_with_output(
-        local_addresses: Vec<IpAddr>,
-        outbound: crate::packet_output::PacketSender,
-        mtu: u16,
-        drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    ) -> Result<Self, ClientUdpStackError> {
-        if local_addresses.is_empty() {
-            return Err(ClientUdpStackError::MissingLocalAddress);
-        }
-        if local_addresses
-            .iter()
-            .enumerate()
-            .any(|(index, address)| local_addresses[..index].contains(address))
-        {
-            return Err(ClientUdpStackError::DuplicateLocalAddress);
-        }
-        if mtu < 68 || (local_addresses.iter().any(IpAddr::is_ipv6) && mtu < 1_280) {
-            return Err(ClientUdpStackError::InvalidMtu);
-        }
-        Ok(Self {
-            inner: Arc::new(Inner {
-                local_addresses,
-                outbound,
-                mtu: usize::from(mtu),
-                next_fragment_id: AtomicU32::new(1),
-                drop_observer,
-                sockets: Mutex::new(HashMap::new()),
-                fragments: Mutex::new(FragmentReassembler::new()),
-            }),
-        })
-    }
-
-    /// Allocate a bounded receive queue and a randomized ephemeral source port.
-    pub fn bind(&self, local: IpAddr) -> Result<ClientUdpSocket, ClientUdpStackError> {
-        self.bind_observed(local, None)
-    }
-
-    pub fn bind_observed(
-        &self,
-        local: IpAddr,
-        observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    ) -> Result<ClientUdpSocket, ClientUdpStackError> {
-        if !self.inner.local_addresses.contains(&local) {
-            return Err(ClientUdpStackError::UnknownLocalAddress);
-        }
-        let mut sockets = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
-        if sockets.len() >= MAX_SOCKETS {
-            return Err(ClientUdpStackError::SocketLimit);
-        }
-        let start = usize::from(rand::random_range(0..EPHEMERAL_PORT_COUNT as u16));
-        for offset in 0..EPHEMERAL_PORT_COUNT {
-            let index = (start + offset) % EPHEMERAL_PORT_COUNT;
-            let endpoint = Endpoint {
-                ip: local,
-                port: FIRST_EPHEMERAL_PORT + index as u16,
-            };
-            if sockets.contains_key(&endpoint) {
-                continue;
-            }
-            let (sender, receiver) = mpsc::channel(RECEIVE_QUEUE_CAPACITY);
-            sockets.insert(
-                endpoint,
-                SocketEntry {
-                    sender,
-                    last_destination: None,
-                    path_mtu: None,
-                    observer: observer.clone(),
-                },
-            );
-            return Ok(ClientUdpSocket {
-                inner: Arc::clone(&self.inner),
-                endpoint,
-                receiver,
-                observer,
-            });
-        }
-        Err(ClientUdpStackError::SocketLimit)
-    }
-}
-
 /// A local UDP association. Dropping it immediately releases its port.
 pub struct ClientUdpSocket {
     inner: Arc<Inner>,
     endpoint: Endpoint,
-    receiver: mpsc::Receiver<ClientUdpEvent>,
+    receiver: mpsc::Receiver<QueuedEvent>,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
@@ -222,7 +127,7 @@ impl ClientUdpSocket {
             payload,
         );
         let identification = self.inner.next_fragment_id.fetch_add(1, Ordering::Relaxed);
-        let fragments = packet::fragment_ip_packet(&packet, mtu, identification);
+        let fragments = packet::fragment_ip_packet_owned(packet, mtu, identification);
         if fragments.is_empty() {
             return Err(ClientUdpStackError::InvalidMtu);
         }
@@ -246,7 +151,7 @@ impl ClientUdpSocket {
     }
 
     pub async fn recv_event(&mut self) -> Option<ClientUdpEvent> {
-        self.receiver.recv().await
+        self.receiver.recv().await.map(QueuedEvent::into_event)
     }
 
     /// Receive only payloads; callers that need network errors use

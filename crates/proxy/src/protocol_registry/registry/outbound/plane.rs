@@ -23,7 +23,7 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             let converted = self
                 .packet
                 .as_ref()
-                .and_then(|leaf| leaf.prepare_tcp_flow());
+                .and_then(|leaf| leaf.packet_flow_adapter());
             let mut sinks = PlaneSet::empty();
             if self.tcp.capability.is_some() {
                 sinks.insert(Plane::Stream);
@@ -41,7 +41,9 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             let path =
                 NetworkGraph::flow_ingress().shortest_path(Plane::Stream, sinks, Some(IPPROTO_TCP));
             match path.as_ref().and_then(|path| path.planes.last()) {
-                Some(Plane::Packet) => Ok(converted.expect("packet conversion was advertised")),
+                Some(Plane::Packet) => Ok(converted
+                    .expect("packet conversion was advertised")
+                    .prepare_tcp()),
                 Some(Plane::Stream) => self.prepare_tcp_connect(source_dir),
                 _ => Err(missing_tcp_route_capability(mode)),
             }
@@ -70,7 +72,7 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             let converted = self
                 .packet
                 .as_ref()
-                .and_then(|leaf| leaf.prepare_udp_flow());
+                .and_then(|leaf| leaf.packet_flow_adapter());
             let mut sinks = PlaneSet::empty();
             if self.udp.capability.is_some() {
                 sinks.insert(Plane::Datagram);
@@ -89,7 +91,9 @@ impl<'a> ClaimedOutboundLeaf<'a> {
                 Some(IPPROTO_UDP),
             );
             match path.as_ref().and_then(|path| path.planes.last()) {
-                Some(Plane::Packet) => Ok(converted.expect("packet conversion was advertised")),
+                Some(Plane::Packet) => Ok(converted
+                    .expect("packet conversion was advertised")
+                    .prepare_udp()),
                 Some(Plane::Datagram) => self.prepare_udp_flow(source_dir),
                 _ => Err(missing_udp_route_capability(mode)),
             }

@@ -57,7 +57,7 @@ pub(crate) use flow::{ManagedUdpFlowKind, ManagedUdpFlowRequest};
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use model::ManagedDatagramFlowHandler;
 #[cfg(feature = "raw-ip-runtime")]
-pub(crate) mod raw_ip;
+pub(crate) mod packet;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) use model::ManagedStreamHandlerPair;
 #[cfg(any(

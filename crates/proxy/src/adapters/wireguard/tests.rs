@@ -85,8 +85,7 @@ fn wireguard_advertises_packet_with_shared_flow_converters() {
     assert!(claim.tcp.is_none());
     assert!(claim.udp.is_none());
     let packet = claim.packet.expect("native PacketSink");
-    assert!(packet.prepare_tcp_flow().is_some());
-    assert!(packet.prepare_udp_flow().is_some());
+    assert!(packet.packet_flow_adapter().is_some());
 }
 
 #[test]

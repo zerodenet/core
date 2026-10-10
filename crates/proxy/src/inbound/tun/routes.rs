@@ -504,6 +504,7 @@ async fn run(
                         } else {
                             "route_repair"
                         },
+                        Some(changed),
                     );
                 }
                 if let Err(error) = publish_state(&proxy, &spec, &guards, Some(exclusions), None) {

@@ -4,6 +4,9 @@
 > 查询/关闭、设备重建与网络恢复观测、Linux/macOS 专用宿主描述符 Direct
 > PacketSink 已落地；Windows 既有 Wintun 接入已接线，平台实机验收仍单独记录。当前接口与验收
 > 边界以 [Packet 路径与宿主 L3](packet-route-host-control-v1.md) 为准。
+> 2026-10-09 P1：Flow 到 Packet 执行已收敛为内部 `PacketFlowAdapter`，
+> 共享栈由已准备的双向 IP 端点提供；WireGuard 仅绑定设备与目标选择。
+> 当前实现和验证边界见 [实施记录](wireguard-implementation-plan.md#2026-10-09-p1-common-flow-to-packet-execution)。
 
 ## 审查范围与依据
 

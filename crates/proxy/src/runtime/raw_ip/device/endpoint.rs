@@ -41,16 +41,39 @@ impl SharedRawIpDevice {
             .last_authenticated_packet = Some(Instant::now());
     }
 
+    #[cfg(test)]
     pub(crate) fn start_on_endpoint(
         local_addresses: Vec<IpAddr>,
         mtu: u16,
         peer: usize,
         endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
     ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+        Self::start_on_endpoint_with_options(
+            local_addresses,
+            mtu,
+            peer,
+            endpoint,
+            Default::default(),
+        )
+    }
+
+    pub(crate) fn start_on_endpoint_with_options(
+        local_addresses: Vec<IpAddr>,
+        mtu: u16,
+        peer: usize,
+        endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
+        options: super::super::RawIpStackOptions,
+    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
-        let udp = ClientUdpStack::new_observed(local_addresses.clone(), outbound.clone(), mtu)?;
+        let udp = ClientUdpStack::new_with_queue(
+            local_addresses.clone(),
+            outbound.clone().into(),
+            mtu,
+            Some(Arc::new(options.traffic)),
+            options.udp_receive_queue,
+        )?;
         let tcp = Arc::new(
             ClientTcpStack::new_observed(local_addresses, outbound, mtu)
                 .map_err(|_| zero_stack::client_udp::ClientUdpStackError::InvalidMtu)?,
@@ -65,6 +88,7 @@ impl SharedRawIpDevice {
             peer,
             endpoint,
             tcp: tcp.clone(),
+            udp: udp.clone(),
             raw_packets,
             forwarded_packets: forwarded_rx,
             closed: closed.clone(),
@@ -139,6 +163,7 @@ struct EndpointStack {
     peer: usize,
     endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
     tcp: Arc<ClientTcpStack>,
+    udp: ClientUdpStack,
     raw_packets: mpsc::Receiver<zero_stack::packet_output::ObservedPacket>,
     forwarded_packets: mpsc::Receiver<ForwardedPackets>,
     closed: Arc<AtomicBool>,
@@ -150,15 +175,20 @@ async fn run_endpoint_stack(stack: EndpointStack) {
         peer,
         mut endpoint,
         tcp,
+        udp,
         mut raw_packets,
         mut forwarded_packets,
         closed,
         returns,
     } = stack;
     let mut sweep = tokio::time::interval(Duration::from_secs(5));
+    sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
-            _ = sweep.tick() => returns.expire(),
+            _ = sweep.tick() => {
+                returns.expire();
+                udp.cleanup_expired(std::time::Instant::now());
+            },
             packet = raw_packets.recv() => {
                 let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { break; };
                 let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {

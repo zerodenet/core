@@ -38,6 +38,8 @@ pub(crate) mod network_graph;
 pub(crate) mod orchestration;
 pub(crate) mod outbound_probe;
 #[cfg(feature = "raw-ip-runtime")]
+pub(crate) mod packet_flow;
+#[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod packet_route;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod packet_session_udp;

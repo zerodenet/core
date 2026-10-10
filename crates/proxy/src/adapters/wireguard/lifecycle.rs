@@ -133,6 +133,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
             } else {
                 identity
             };
+            let device_identity = context.stack_options.identity(device_identity);
             let plan = self
                 .profiles
                 .lock()
@@ -175,6 +176,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                         &mut staged,
                         device_identity,
                         generation,
+                        meters.as_ref(),
                     )
                     .await?;
                 if let Some(update) = update {
@@ -274,7 +276,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                             context.packet_path_services.clone(),
                         )),
                         tunnel,
-                        meter,
+                        context.stack_options.clone().with_traffic(meter),
                     )
                 } else {
                     let socket = upstream.bind_datagram_socket(endpoint).await?;
@@ -284,7 +286,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                         endpoint,
                         Arc::new(crate::runtime::raw_ip::DirectRawIpWireCarrier(socket)),
                         tunnel,
-                        meter,
+                        context.stack_options.clone().with_traffic(meter),
                     )
                 }
                 .map_err(|error| invalid(format!("raw-IP device: {error:?}")))?;

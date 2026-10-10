@@ -193,6 +193,9 @@ impl ProtocolInventory {
             traffic: services.engine().clone(),
             direct_packet_device: config.runtime.network.direct_packet_device.clone(),
             mtu: config.runtime.network.mtu,
+            stack_options: crate::runtime::raw_ip::RawIpStackOptions::from_config(
+                &config.runtime.network.udp_receive_queue,
+            ),
             endpoint_bindings: Arc::new(config.endpoint_bindings()),
             disabled_outbounds: Arc::new(
                 config

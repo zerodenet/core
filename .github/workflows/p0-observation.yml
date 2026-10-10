@@ -1,0 +1,38 @@
+name: P0 observation tools
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'scripts/p0-observe.py'
+      - 'scripts/p0_observe/**'
+      - 'scripts/tests/test-p0-observe*.py'
+      - '.github/workflows/p0-observation.yml'
+  pull_request:
+    paths:
+      - 'scripts/p0-observe.py'
+      - 'scripts/p0_observe/**'
+      - 'scripts/tests/test-p0-observe*.py'
+      - '.github/workflows/p0-observation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Offline observation tests
+        run: |
+          python3 -B scripts/tests/test-p0-observe.py
+          python3 -B scripts/tests/test-p0-observe-ipc.py

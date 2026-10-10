@@ -3,6 +3,8 @@
 mod carrier;
 mod contract;
 mod datagram;
+mod flow;
+pub(crate) use flow::RawIpFlowSource;
 mod device;
 mod incarnation;
 mod packet;
@@ -17,6 +19,8 @@ pub(crate) use device::{EndpointPacket, SharedRawIpDevice};
 pub(crate) use packet::RawIpPacketOperation;
 pub(crate) use pool::{RawIpDevicePool, StagedRawIpDevices, MAX_RAW_IP_DEVICES};
 
+mod options;
+pub(crate) use options::RawIpStackOptions;
 mod statistics;
 pub(crate) use statistics::RawIpTraffic;
 pub(crate) mod timer;

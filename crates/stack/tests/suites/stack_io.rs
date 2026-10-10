@@ -14,3 +14,11 @@ mod packet_observation;
 
 #[path = "../packet_reply.rs"]
 mod packet_reply;
+
+#[path = "../support/allocation.rs"]
+mod allocation;
+#[path = "../udp_receive_allocations.rs"]
+mod udp_receive_allocations;
+
+#[path = "../udp_receive_budget.rs"]
+mod udp_receive_budget;

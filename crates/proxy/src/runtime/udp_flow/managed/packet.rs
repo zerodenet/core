@@ -1,4 +1,4 @@
-//! Per-session UDP socket over a shared raw-IP device.
+//! Per-session UDP socket over a shared Packet endpoint.
 
 use std::{
     net::{IpAddr, SocketAddr},
@@ -17,7 +17,8 @@ use zero_stack::{
 };
 
 use crate::{
-    runtime::raw_ip::SharedRawIpDevice, runtime::udp_flow::managed::ManagedTupleUdpFlowConnection,
+    runtime::packet_flow::PacketFlowEndpoint,
+    runtime::udp_flow::managed::ManagedTupleUdpFlowConnection,
 };
 
 type Response = (Address, u16, Vec<u8>);
@@ -27,31 +28,38 @@ struct SendRequest {
     done: oneshot::Sender<Result<(), zero_stack::client_udp::ClientUdpStackError>>,
 }
 
-pub(crate) struct RawIpUdpFlow {
+pub(crate) struct PacketUdpFlow {
     target: Address,
     target_port: u16,
     commands: mpsc::Sender<SendRequest>,
     responses: broadcast::Sender<Response>,
     closed: Arc<AtomicBool>,
     failure: Arc<Mutex<Option<IcmpErrorKind>>>,
-    device: Arc<SharedRawIpDevice>,
+    device: Arc<dyn PacketFlowEndpoint>,
+    task: tokio::task::AbortHandle,
 }
 
-impl RawIpUdpFlow {
+impl PacketUdpFlow {
     pub(crate) fn open(
-        device: Arc<SharedRawIpDevice>,
+        device: Arc<dyn PacketFlowEndpoint>,
         target: Address,
         target_port: u16,
         destination: SocketAddr,
         local_ip: IpAddr,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<Self, zero_stack::client_udp::ClientUdpStackError> {
-        let client = device.bind_udp_observed(local_ip, observer)?;
+        if !device.is_current() {
+            return Err(zero_stack::ClientUdpStackError::OutboundClosed);
+        }
+        let client = device.bind_udp(local_ip, observer)?;
+        if !device.is_current() {
+            return Err(zero_stack::ClientUdpStackError::OutboundClosed);
+        }
         let (commands, requests) = mpsc::channel(64);
         let (responses, _) = broadcast::channel(64);
         let closed = Arc::new(AtomicBool::new(false));
         let failure = Arc::new(Mutex::new(None));
-        tokio::spawn(run_flow(
+        let task = tokio::spawn(run_flow(
             client,
             Endpoint {
                 ip: destination.ip(),
@@ -61,7 +69,8 @@ impl RawIpUdpFlow {
             responses.clone(),
             closed.clone(),
             failure.clone(),
-        ));
+        ))
+        .abort_handle();
         Ok(Self {
             target,
             target_port,
@@ -70,12 +79,20 @@ impl RawIpUdpFlow {
             closed,
             failure,
             device,
+            task,
         })
     }
 }
 
+impl Drop for PacketUdpFlow {
+    fn drop(&mut self) {
+        // A blocked packet queue must not retain an orphaned socket/worker.
+        self.task.abort();
+    }
+}
+
 #[async_trait::async_trait]
-impl ManagedTupleUdpFlowConnection for RawIpUdpFlow {
+impl ManagedTupleUdpFlowConnection for PacketUdpFlow {
     fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire) || self.device.is_closed()
     }

@@ -351,6 +351,7 @@ impl Proxy {
             &self.egress_interface,
             previous_generation,
             "tun_addresses_published",
+            None,
         );
         let route_monitor = if auto_route {
             match zero_tun::RouteChangeMonitor::new() {
@@ -720,19 +721,24 @@ fn clear_egress_control(
 ) {
     let previous_generation = control.generation();
     control.clear();
-    log_tun_generation_change(control, previous_generation, cause);
+    log_tun_generation_change(control, previous_generation, cause, None);
 }
 
 fn log_tun_generation_change(
     control: &zero_platform_tokio::EgressInterfaceControl,
     previous_generation: u64,
     cause: &'static str,
+    reconciliation_changed: Option<bool>,
 ) {
     let generation = control.generation();
     if generation != previous_generation {
         info!(
             event_type = "tun_network_generation_changed",
-            previous_generation, generation, cause, "TUN network generation changed"
+            previous_generation,
+            generation,
+            cause,
+            reconciliation_changed,
+            "TUN network generation changed"
         );
     }
 }
