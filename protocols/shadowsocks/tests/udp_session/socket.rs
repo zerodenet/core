@@ -12,18 +12,19 @@ async fn large_response_is_complete_and_drop_releases_idle_socket() {
             .unwrap(),
     );
     let local = SocketAddr::new(endpoint.ip(), socket.local_addr().unwrap().port());
+    let socket_lifetime = Arc::downgrade(&socket);
     let codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>> = Arc::new(
         ShadowsocksDatagramCodec::new(CipherKind::Aes128Gcm, b"secret"),
     );
     let (recv_tx, mut received) = broadcast::channel(32);
-    let receiver = tokio::spawn(recv_loop(
+    let receiver_task = tokio::spawn(recv_loop(
         socket.clone(),
         endpoint,
         codec.clone(),
         recv_tx.clone(),
         None,
-    ))
-    .abort_handle();
+    ));
+    let receiver = receiver_task.abort_handle();
     let flow = ShadowsocksUdpSocketFlow {
         plugin: None,
         socket,
@@ -51,9 +52,14 @@ async fn large_response_is_complete_and_drop_releases_idle_socket() {
         .unwrap();
     assert_eq!(response.2, payload);
     drop(flow);
-    tokio::task::yield_now().await;
+    let cancelled = tokio::time::timeout(std::time::Duration::from_secs(2), receiver_task)
+        .await
+        .expect("idle receiver cancellation must finish")
+        .expect_err("dropping the owner must cancel its receiver");
+    assert!(cancelled.is_cancelled());
     assert!(receiver.is_finished());
     // Keep the subscription alive: cancellation is tied to the flow owner.
-    let rebound = tokio::net::UdpSocket::bind(local).await.unwrap();
-    drop(rebound);
+    // Observe the owned socket directly. Another parallel test can claim the
+    // released ephemeral port before a rebind, even when cleanup succeeded.
+    assert!(socket_lifetime.upgrade().is_none());
 }
