@@ -3,6 +3,10 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+#[cfg(feature = "dns")]
+#[path = "../support/dual_stack_dns.rs"]
+mod dual_stack_dns;
+
 #[path = "../direct.rs"]
 mod direct;
 #[path = "../direct_datagram.rs"]

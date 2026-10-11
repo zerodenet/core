@@ -137,3 +137,10 @@ group, reload, A→B→A and staged-rollback regressions live in
 `crates/engine/tests/direct_dial.rs`. Runtime socket, DNS and platform tests must
 add execution evidence beyond these structural tests. Cross-platform acceptance
 requires the workspace checks and full test suite documented in `AGENTS.md`.
+
+The TCP/UDP dual-family reload integration cases use the DNS feature and a local
+UDP fixture that returns `127.0.0.1` for A and `::1` for AAAA. They must not assume
+the host resolves `localhost` to both families: system resolvers and an active
+TUN can return only IPv4 or IPv4-mapped candidates. Native literal-address and
+binding validation tests remain independent of this fixture. The fixture is
+compiled only into `proxy_dispatch`, preserving other test targets' cache inputs.

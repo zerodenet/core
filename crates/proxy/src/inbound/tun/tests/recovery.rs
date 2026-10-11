@@ -97,6 +97,28 @@ async fn explicit_stop_interrupts_recovery_without_waiting_for_its_timeout() {
 
 #[test]
 fn generation_logs_distinguish_notifications_from_changed_route_policy() {
+    // Tracing callsite interest is process-wide. Preserve all assertions in an
+    // isolated copy of this test instead of depending on parallel subscribers.
+    const CHILD: &str = "ZERO_TEST_TUN_GENERATION_LOG_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "inbound::tun::tests::recovery::generation_logs_distinguish_notifications_from_changed_route_policy",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed; 0 failed"),
+            "isolated logging assertions failed:\n{}\n{}",
+            stdout,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     use std::sync::{Arc, Mutex};
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let output = buffer.clone();

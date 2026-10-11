@@ -132,6 +132,7 @@ async fn udp_policy_reload_rebinds_and_rolls_back_on_conflict() {
     }
 }
 
+#[cfg(feature = "dns")]
 fn dial_reload_config(first: u16, second: u16, target: u16, use_ipv6: bool) -> RuntimeConfig {
     let dial = if use_ipv6 {
         serde_json::json!({"address_family":"only_ipv6","source_ip":"::1"})
@@ -154,6 +155,7 @@ fn dial_reload_config(first: u16, second: u16, target: u16, use_ipv6: bool) -> R
     }).to_string()).unwrap()
 }
 
+#[cfg(feature = "dns")]
 async fn dial_exchange(
     client: &UdpSocket,
     entry: u16,
@@ -177,15 +179,18 @@ async fn dial_exchange(
 }
 
 #[tokio::test]
+#[cfg(feature = "dns")]
 async fn udp_policy_reload_rebuilds_existing_client_flow_and_preserves_other_tag_mapping() {
     exercise_dual_family_udp_reload(true).await;
 }
 
 #[tokio::test]
+#[cfg(feature = "dns")]
 async fn family_only_udp_reload_rebuilds_existing_flow_and_preserves_other_tag_mapping() {
     exercise_dual_family_udp_reload(false).await;
 }
 
+#[cfg(feature = "dns")]
 async fn exercise_dual_family_udp_reload(bind_source: bool) {
     let ipv4 = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let target = ipv4.local_addr().unwrap().port();
@@ -196,6 +201,9 @@ async fn exercise_dual_family_udp_reload(bind_source: bool) {
     let second_port = free_port();
     let mut initial = dial_reload_config(first_port, second_port, target, false);
     let mut updated = dial_reload_config(first_port, second_port, target, true);
+    let dns = crate::dual_stack_dns::DualStackDns::start().await;
+    dns.configure(&mut initial);
+    dns.configure(&mut updated);
     if !bind_source {
         for outbound in initial
             .outbounds

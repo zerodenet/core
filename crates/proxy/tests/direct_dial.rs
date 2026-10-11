@@ -1,12 +1,16 @@
 //! Independent ingress routes retain the selected Direct socket requirements.
+#[cfg(feature = "dns")]
 use crate::support::{free_port, spawn_engine, wait_for_listener};
+#[cfg(feature = "dns")]
 use std::{net::IpAddr, time::Duration};
+#[cfg(feature = "dns")]
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy;
+#[cfg(feature = "dns")]
 fn config(first: u16, second: u16, target: u16) -> RuntimeConfig {
     RuntimeConfig::parse(&serde_json::json!({
         "runtime":{"udp":{"enabled":false}},
@@ -18,6 +22,7 @@ fn config(first: u16, second: u16, target: u16) -> RuntimeConfig {
         {"condition":{"type":"inbound","values":["v6-entry"]},"action":{"type":"route","outbound":"v6-exit"}}],"final":{"type":"reject"}}
     }).to_string()).unwrap()
 }
+#[cfg(feature = "dns")]
 async fn echo(listener: TcpListener, expected: IpAddr) {
     loop {
         let (mut stream, peer) = listener.accept().await.unwrap();
@@ -31,6 +36,7 @@ async fn echo(listener: TcpListener, expected: IpAddr) {
         });
     }
 }
+#[cfg(feature = "dns")]
 async fn exchange(stream: &mut TcpStream, value: &[u8; 4], family: u8) {
     stream.write_all(value).await.unwrap();
     let mut response = [0; 4];
@@ -42,15 +48,18 @@ async fn exchange(stream: &mut TcpStream, value: &[u8; 4], family: u8) {
     assert_eq!(&response[1..], &value[1..]);
 }
 #[tokio::test]
+#[cfg(feature = "dns")]
 async fn two_inbounds_keep_independent_direct_families_and_old_tcp_survives_reload() {
     exercise_dual_family_tcp_reload(true).await;
 }
 
 #[tokio::test]
+#[cfg(feature = "dns")]
 async fn family_only_two_inbounds_keep_old_tcp_and_apply_reloaded_family() {
     exercise_dual_family_tcp_reload(false).await;
 }
 
+#[cfg(feature = "dns")]
 async fn exercise_dual_family_tcp_reload(bind_source: bool) {
     let ipv4 = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let target = ipv4.local_addr().unwrap().port();
@@ -62,6 +71,8 @@ async fn exercise_dual_family_tcp_reload(bind_source: bool) {
     let first = free_port();
     let second = free_port();
     let mut configuration = config(first, second, target);
+    let dns = crate::dual_stack_dns::DualStackDns::start().await;
+    dns.configure(&mut configuration);
     if !bind_source {
         for outbound in &mut configuration.outbounds {
             outbound.dial.source_ip = None;
