@@ -25,6 +25,15 @@ fn prepare(
     policy: &DialPolicy,
     selection: &EgressSelection,
 ) -> io::Result<PreparedDial> {
+    let interfaces = inventory_for(policy)?;
+    prepare_with_inventory(peer, policy, selection, &interfaces)
+}
+fn prepare_with_inventory(
+    peer: SocketAddr,
+    policy: &DialPolicy,
+    selection: &EgressSelection,
+    interfaces: &[interfaces::LocalInterface],
+) -> io::Result<PreparedDial> {
     let peer = policy.normalize_peer(peer).map_err(invalid_policy)?;
     selection.ensure_connectable()?;
     if selection.dial_policy.as_ref() != Some(policy) {
@@ -33,7 +42,6 @@ fn prepare(
             "egress selection was not prepared for this dial policy",
         ));
     }
-    let interfaces = inventory_for(policy)?;
     let interface = selection.interface().cloned();
     if let Some(name) = &policy.interface {
         let local = interfaces
@@ -110,8 +118,11 @@ pub(crate) fn capture_source(
     peer: SocketAddr,
     policy: &DialPolicy,
     selection: &EgressSelection,
+    interfaces: &[interfaces::LocalInterface],
 ) -> io::Result<Option<SocketAddr>> {
-    let dial = prepare(peer, policy, selection)?;
+    // This is a synchronous continuation of the same live inventory read by
+    // selection. Socket opening still re-reads inventory in prepare().
+    let dial = prepare_with_inventory(peer, policy, selection, interfaces)?;
     if dial.source.is_some() {
         return Ok(dial.source);
     }

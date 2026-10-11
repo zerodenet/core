@@ -16,7 +16,8 @@ impl EgressInterfaceControl {
         selection.ensure_connectable()?;
         selection.dial_policy = Some(policy.clone());
         if policy.interface.is_none() && policy.source_ip.is_none() {
-            selection.dial_source_address = crate::dial::capture_source(peer, policy, &selection)?;
+            selection.dial_source_address =
+                crate::dial::capture_source(peer, policy, &selection, &interfaces)?;
             return Ok(selection);
         }
         let topology = self.0.read().expect("egress interface lock poisoned");
@@ -120,7 +121,8 @@ impl EgressInterfaceControl {
             }
         }
         selection.binding_reason = EgressBindingReason::ExplicitDialPolicy;
-        selection.dial_source_address = crate::dial::capture_source(peer, policy, &selection)?;
+        selection.dial_source_address =
+            crate::dial::capture_source(peer, policy, &selection, &interfaces)?;
         Ok(selection)
     }
 }

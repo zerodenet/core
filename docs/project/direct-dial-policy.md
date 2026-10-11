@@ -94,6 +94,47 @@ tombstone while its socket still serves other peers. Each socket admits at most
 limit preserves existing mappings and sends new peers through another socket.
 A socket closes when its last active reply owner retires.
 
+### Fresh route checks with reusable probe storage
+
+Every Direct UDP send still obtains a fresh OS route/source selection before
+matching a reusable business socket. Egress generations fence published network
+changes, but are not a complete observation of all OS route changes; there is no
+TTL or generation-only cache of a route, source address or interface decision.
+
+`zero-platform-tokio::egress::route_probe` reuses only native probe descriptors
+on Linux/macOS, with at most one per family per calling OS thread. No payload is
+sent, receive storage is bounded by a small socket buffer request, and there are
+no per-destination entries, background tasks, timer wakeups or shared pool lock.
+Each successful query clears the chosen source/peer and native route cache
+before retaining its descriptor. Linux uses AF_UNSPEC disconnect; macOS uses
+checked `disconnectx` followed by interface scope NONE, which releases the route
+cache. A failed query drops the descriptor; a failed reset retains the current
+query result but drops storage so the next call starts fresh. Mapped IPv4 and
+other platforms retain the original one-shot path.
+
+The native reset behavior was checked against the [pinned Darwin UDP implementation](https://github.com/apple-oss-distributions/xnu/blob/xnu-8796.141.3/bsd/netinet/udp_usrreq.c),
+its [interface-scope route invalidation](https://github.com/apple-oss-distributions/xnu/blob/xnu-8796.141.3/bsd/netinet/in_pcb.c),
+and [Linux UDP disconnect](https://github.com/torvalds/linux/blob/v6.12/net/ipv4/udp.c).
+The probe never receives business policy, protocol or configuration ownership.
+
+Explicit source/interface ownership is still enumerated on every selection.
+Source capture reuses that same synchronous inventory snapshot instead of
+enumerating twice; native socket opening independently revalidates live inventory.
+Proxy compares borrowed policy/source/interface identity on a warm send, creating
+an owned binding only for a newly opened socket. Family checks, strict-route mark,
+TUN-source rejection, config/egress fences, exact reply ownership and post-wait
+response revocation remain unchanged. This reduces query/storage work, not the
+strength of route or ownership checks; it does not claim end-to-end CPU savings.
+
+The ignored `compare_fresh_and_reused_route_probe_cost` test compares the original
+one-shot probe with reused storage on Linux/macOS: five alternating-order rounds
+of 4,000 queries per mode, using loopback and documentation-only IPv4 destinations.
+It sends no payload and changes no host routes. Run it with the workspace feature
+graph (`cargo test --workspace --all-features compare_fresh_and_reused_route_probe_cost
+-- --ignored --nocapture`); compare medians within one run and record the build
+profile and host load. This is a probe-stage microbenchmark, not a throughput,
+whole-process CPU, power or CI pass/fail threshold.
+
 Socket retirement is bounded by live flow ownership, not dispatcher lifetime.
 There is no permanent used-port bitmap or retired socket registry. Once the last
 owner retires, the socket and its queued receive data are dropped; a subsequent

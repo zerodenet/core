@@ -4,6 +4,8 @@ use std::sync::{Arc, RwLock};
 
 use tokio::net::TcpSocket;
 mod dial;
+mod route_probe;
+use route_probe::route_source_for;
 
 /// Stable identity of the physical interface that must bypass an active TUN
 /// default route. Both fields are retained because Linux binds by name while
@@ -588,17 +590,6 @@ fn bump_generation(interfaces: &mut EgressInterfaces) {
     if let Some(updates) = &interfaces.generation_updates {
         updates.send_replace(interfaces.generation);
     }
-}
-
-fn route_source_for(peer: SocketAddr) -> io::Result<IpAddr> {
-    let wildcard = if peer.is_ipv6() {
-        "[::]:0"
-    } else {
-        "0.0.0.0:0"
-    };
-    let socket = std::net::UdpSocket::bind(wildcard)?;
-    socket.connect(peer)?;
-    socket.local_addr().map(|address| address.ip())
 }
 
 #[cfg(target_os = "linux")]

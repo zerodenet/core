@@ -114,15 +114,16 @@ impl DirectUdpSockets {
             self.response_flows.clear();
             self.generation = selection.generation();
         }
-        let binding = DirectUdpSocketBinding {
-            policy: policy.clone(),
-            ipv6: target.is_ipv6(),
-            egress_generation: selection.generation(),
-            source: selection.dial_source_address(),
-            egress: selection.interface().cloned(),
+        // Compare borrowed identities before materializing a new binding. A
+        // warm send must not clone the tag/policy/interface just to reuse it.
+        let matches_binding = |socket: &DirectUdpSocket| {
+            socket.binding.policy == *policy
+                && socket.binding.ipv6 == target.is_ipv6()
+                && socket.binding.egress_generation == selection.generation()
+                && socket.binding.source == selection.dial_source_address()
+                && socket.binding.egress.as_ref() == selection.interface()
+                && socket.association_id == scope
         };
-        let matches_binding =
-            |socket: &DirectUdpSocket| socket.binding == binding && socket.association_id == scope;
         // Preserve an existing flow's socket first. Different logical flows
         // may resolve to the same peer, so never overwrite its reply owner.
         if let Some(index) = self.sockets.iter().position(|socket| {
@@ -182,7 +183,13 @@ impl DirectUdpSockets {
         self.sockets.push(DirectUdpSocket {
             id,
             socket,
-            binding,
+            binding: DirectUdpSocketBinding {
+                policy: policy.clone(),
+                ipv6: target.is_ipv6(),
+                egress_generation: selection.generation(),
+                source: selection.dial_source_address(),
+                egress: selection.interface().cloned(),
+            },
             selection,
             receive_buffer: tokio::sync::Mutex::new(vec![0_u8; 65_535]),
             association_id: scope,
