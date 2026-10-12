@@ -4,7 +4,7 @@
 use std::net::SocketAddr;
 
 #[cfg(feature = "udp-runtime")]
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 #[cfg(feature = "udp-runtime")]
 use zero_core::Address;
 #[cfg(feature = "udp-runtime")]
@@ -38,9 +38,6 @@ pub(crate) struct DirectUdpSockets {
     generation: u64,
     next_socket_id: u64,
     isolated_sessions: HashMap<u64, u64>,
-    // Socket identity includes the policy and association, unlike a remote
-    // endpoint alone. Even unscoped sockets require an exact registered peer.
-    response_flows: HashMap<(u64, SocketAddr), DirectUdpResponseFlow>,
     receive: tokio::sync::Mutex<receive::DirectUdpReceiver>,
 }
 
@@ -51,8 +48,8 @@ struct DirectUdpSocket {
     binding: DirectUdpSocketBinding,
     selection: zero_platform_tokio::EgressSelection,
     association_id: Option<u64>,
-    // A peer's old packets must never acquire a new owner on this socket.
-    retired_peers: HashSet<SocketAddr>,
+    // Socket-local ownership cannot outlive or migrate to another descriptor.
+    replies: ownership::DirectUdpReplies,
 }
 
 // Do not expire tombstones on a live socket: arbitrary delayed packets could
@@ -86,27 +83,8 @@ impl DirectUdpSockets {
             preferred_port,
             next_socket_id: 0,
             isolated_sessions: HashMap::new(),
-            response_flows: HashMap::new(),
             receive: tokio::sync::Mutex::new(receive::DirectUdpReceiver::default()),
         }
-    }
-
-    pub(crate) fn refresh_if_stale(&mut self) {
-        let generation = self.services.egress_generation();
-        if self.generation != generation {
-            self.sockets.clear();
-            self.response_flows.clear();
-            self.generation = generation;
-        } else {
-            self.sockets.retain(|socket| {
-                self.services
-                    .direct_policy_is_current(&socket.binding.policy)
-            });
-            self.response_flows.retain(|(socket_id, _), _| {
-                self.sockets.iter().any(|socket| socket.id == *socket_id)
-            });
-        }
-        self.reset_receiver_if_empty();
     }
 
     #[cfg(test)]
@@ -199,10 +177,11 @@ fn udp_candidate_score(logical_target: &Address, candidate: SocketAddr) -> u64 {
 }
 
 #[cfg(feature = "udp-runtime")]
-fn log_direct_socket(family: &str, socket: &TokioDatagramSocket) {
+fn log_direct_socket(id: u64, family: &str, socket: &TokioDatagramSocket) {
     let local = socket.local_addr().ok();
     let egress = socket.egress_interface();
     tracing::debug!(
+        socket_id = id,
         family,
         ?local,
         egress_name = egress.map(zero_platform_tokio::EgressInterface::name),
@@ -238,6 +217,8 @@ mod tests;
 
 #[cfg(feature = "udp-runtime")]
 mod io;
+#[cfg(feature = "udp-runtime")]
+mod ownership;
 #[cfg(feature = "udp-runtime")]
 mod receive;
 #[cfg(feature = "udp-runtime")]

@@ -23,7 +23,10 @@ async fn default_auto_reuses_preferred_port_through_repeated_final_flow_retireme
         assert_eq!(local.port(), preferred);
         sockets.retire_session(session);
         assert!(sockets.sockets.is_empty());
-        assert!(sockets.response_flows.is_empty());
+        assert!(sockets
+            .sockets
+            .iter()
+            .all(|socket| socket.replies.is_empty()));
     }
 }
 

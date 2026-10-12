@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn pf_host_loopback_exemption_does_not_create_tcp_state() {
+    let rules = policy_rules("utun8", &["0.0.0.0/0".parse().unwrap()], &[]);
+    assert_eq!(
+        rules.lines().next(),
+        Some("pass out quick on lo0 all no state")
+    );
+    // The exception is scoped to output on the host loopback interface;
+    // remote traffic still goes through the original exceptions and blocks.
+    assert_eq!(rules.matches("no state").count(), 1);
+    assert!(rules.contains("pass out quick on utun8 all\n"));
+    assert!(
+        rules.contains(&format!("pass out quick all user {}\n", unsafe {
+            libc::geteuid()
+        }))
+    );
+    assert!(rules.contains("block drop out quick to "));
+    assert!(!rules.contains("set skip"));
+    assert!(!rules.contains("pass in"));
+}
+
+#[test]
 fn pf_policy_ends_in_a_quick_block() {
     let rules = policy_rules(
         "utun8",

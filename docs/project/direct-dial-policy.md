@@ -180,6 +180,39 @@ Engine snapshot. The owning Engine retains implicit/tagged Direct semantics;
 owned policy projection still serves preparation callers. Neither optimization
 caches decisions across reloads or weakens a fence.
 
+### Socket-local Direct UDP response ownership
+
+Each native socket owns one peer-to-flow response table and its retired-peer
+tombstones. The physical owning socket supplies the identity previously repeated
+in every `(socket_id, peer)` global key. A peer is accepted only through the table
+of the actual receiving socket. Repeated successful sends retain the original
+owner/token, and registration still follows successful I/O and live policy/egress
+checks. A completed stale send stays successful without creating reply ownership.
+
+Refresh checks each socket's live policy/generation and drops stale socket-owned
+tables; it does not sweep every flow to search a survivor socket vector. Reuse
+admission reads local live/retired counts directly, retaining the same combined
+256-peer lifetime limit. Existing same-peer flows retain their own socket even
+when its admission budget is full. Session retirement traverses each bounded
+socket table once, adds exact retired tuples and drops the corresponding guards;
+unaffected owners survive. HashMap retirement traverses allocated bucket capacity,
+not just live entries. Empty sockets release tables, tombstones and receive state.
+
+No reverse global index, cached policy revision, ownership counter or background
+task is added. Socket search/receive polling still scale with the socket count;
+this change removes cross-products of socket/flow scans. Local hash tables add
+per-socket metadata and can cost more than a flat table for sparse many-socket
+workloads. They remove the redundant per-peer socket ID and release storage with
+its socket. This is not a universal RSS-reduction claim.
+
+The ignored `compare_direct_udp_admission_lookup_cost` comparison uses 64 synthetic
+socket tables, 128 owners each and 1,000 queries in five alternating-order rounds.
+It compares the original flat-table peer counting with local table admission;
+it does not send traffic or benchmark socket selection, crypto, runtime fences,
+throughput or power. Run with the workspace feature graph:
+`cargo test --workspace --all-features --lib compare_direct_udp_admission_lookup_cost
+-- --ignored --nocapture`.
+
 Each exact response owner also has a revocable token for replies already read by
 the process. Removing that owner or its socket revokes the token; policy/egress
 generation changes invalidate it even before cache cleanup. Reusing the same
@@ -223,3 +256,28 @@ the host resolves `localhost` to both families: system resolvers and an active
 TUN can return only IPv4 or IPv4-mapped candidates. Native literal-address and
 binding validation tests remain independent of this fixture. The fixture is
 compiled only into `proxy_dispatch`, preserving other test targets' cache inputs.
+
+## macOS strict-route host-local TCP
+
+The native kill-switch policy belongs to `zero-tun`, independently of Direct
+socket selection and protocol execution. Its existing `lo0` output exemption is
+`pass out quick on lo0 all no state`. Host-local traffic traverses loopback on
+both output and input; default PF TCP state tracking can prevent a self-connection
+using the same physical IPv4 address at both ends from reaching its listener.
+This affects ordinary native sockets as well as TCP forwarded from a Packet
+endpoint. A loopback-source bind can hide the failure, so it is not a substitute
+for fixing the guard.
+
+Only the already-allowed host loopback path is stateless. TUN/UID/upstream
+exceptions retain ordinary state tracking, and protected-route blocks remain
+unchanged. No global `set skip`, inbound allow rule, PF disable/state flush,
+destination rewriting or dial-policy/source/interface fallback is introduced.
+Explicit source/interface constraints and TUN loop checks remain authoritative.
+
+On a host running an older kernel, compiling this correction does not update
+its installed PF policy. Live acceptance must explicitly apply the corrected
+private-anchor policy with native parsing/readback and retain a rollback copy;
+tests must record that condition separately from the installed core version.
+The old kernel may reapply its original policy during network reconciliation.
+WireGuard host fixtures under an active TUN must also use a real non-overlapping
+`ZERO_TEST_HOST_IPV4`; the default route probe can select the TUN's own address.

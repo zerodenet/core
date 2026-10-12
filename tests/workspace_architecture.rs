@@ -180,11 +180,16 @@ fn udp_egress_generation_stays_in_platform_and_proxy_orchestration() {
     let platform = read(&workspace_root().join("crates/platform/tokio/src/egress.rs"));
     let transport = read(&workspace_root().join("crates/transport/src/outbound_datagram.rs"));
     let proxy = read(&workspace_root().join("crates/proxy/src/runtime/udp_socket.rs"));
+    let proxy_lifecycle =
+        read(&workspace_root().join("crates/proxy/src/runtime/udp_socket/ownership.rs"));
     let stack = read(&workspace_root().join("crates/stack/src/udp.rs"));
 
     assert!(platform.contains("pub fn generation"));
     assert!(transport.contains("egress_generation"));
-    assert!(proxy.contains("refresh_if_stale"));
+    assert!(proxy.contains("mod ownership;"));
+    assert!(proxy_lifecycle.contains("fn refresh_if_stale"));
+    assert!(proxy_lifecycle.contains("egress_generation()"));
+    assert!(proxy_lifecycle.contains("direct_policy_is_current"));
     assert!(!stack.contains("egress_generation"));
 }
 

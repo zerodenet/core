@@ -161,5 +161,8 @@ async fn completed_send_stays_successful_after_reload_without_registering_stale_
     // Model a successful kernel send whose completion arrives after reload.
     // Its result must remain success, or outbound fallback would replay data.
     assert_eq!(sockets.record_sent_packet(index, target, 1, &before, 7), 7);
-    assert!(sockets.response_flows.is_empty());
+    assert!(sockets
+        .sockets
+        .iter()
+        .all(|socket| socket.replies.is_empty()));
 }

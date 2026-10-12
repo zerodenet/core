@@ -723,7 +723,7 @@ async fn dispatcher_compacts_a_large_outbox_and_restarts_without_redelivery() {
     )
     .expect("spawn compaction dispatcher")
     .expect("compaction dispatcher handle");
-    wait_for_file_contains(&events_path, "event-compact-600").await;
+    wait_for_bulk_file_contains(&events_path, "event-compact-600").await;
     first.shutdown().await;
 
     let first_delivery = fs::read_to_string(&events_path).expect("compacted sink output");
@@ -764,6 +764,30 @@ async fn wait_for_file_contains(path: &std::path::Path, needle: &str) -> String 
     }
 
     panic!("file did not contain `{needle}`");
+}
+
+async fn wait_for_bulk_file_contains(path: &std::path::Path, needle: &str) -> String {
+    // This case verifies 600 durable deliveries and compaction/restart, not
+    // a ten-second fsync throughput floor on the developer's system volume.
+    // Poll less often while retaining a bounded deadline and all data checks.
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let mut observed_len = None;
+        loop {
+            if let Ok(metadata) = fs::metadata(path) {
+                if observed_len != Some(metadata.len()) {
+                    if let Ok(content) = fs::read_to_string(path) {
+                        observed_len = Some(metadata.len());
+                        if content.contains(needle) {
+                            return content;
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("bulk delivery file did not contain `{needle}` within 60 seconds"))
 }
 
 async fn wait_for_outbox_write_block(

@@ -54,7 +54,7 @@ impl DirectUdpSockets {
             let entry = &self.sockets[index];
             if self.receive_is_current(entry) {
                 if let Ok(sender) = entry.binding.policy.dial_policy.normalize_peer(sender) {
-                    if let Some(flow) = self.response_flows.get(&(entry.id, sender)) {
+                    if let Some(flow) = entry.replies.flow(&sender) {
                         let size = size.min(output.len());
                         if needs_scratch {
                             output[..size].copy_from_slice(&receiver.scratch[..size]);

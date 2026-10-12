@@ -1678,3 +1678,158 @@ Validation completed:
   build, install, tag, commit or push is part of this optimization request.
 
 Evidence: `/Users/higanbana/.codex/tmp/zero-p1-receive-20261012/`.
+
+### P1 Direct UDP response-table locality (2026-10-12)
+
+The starting checkout was clean at `339bd240`. This follow-up targets the global
+response-table scans in refresh, reuse admission and session retirement. The
+public control/configuration contracts, protocol crates, live source/interface
+selection, receive queues and current installed core are unchanged.
+
+- Each native socket owns its peer-to-flow table and existing retired-peer set.
+  Physical socket containment supplies exact response identity; no global lookup
+  index or duplicate ownership counter is introduced. Stable diagnostic socket
+  IDs remain monotonic and are included in the existing cold-bind debug message.
+- Every refresh still checks live egress/policy state. Dropping stale sockets
+  drops their owners/guards directly, eliminating the per-flow survivor-socket
+  search. Admission uses local live/retired lengths, preserving the 256-peer
+  combined lifetime budget and existing-flow priority on a full socket.
+- Cancellation traverses bounded socket-local tables once, marks exact retired
+  peers, revokes their read tokens and closes only empty sockets. Other sessions
+  keep their descriptors and tokens. HashMap retention visits bucket capacity;
+  socket lookup and receive polling remain linear in the socket count.
+- Successful I/O still precedes ownership registration. Repeated sends keep the
+  original guard; stale successful completion remains success without registering
+  a reply owner. Pre/post-wait response cancellation, ABA policy fences, mapped
+  addresses, association isolation and TUN loop protection remain unchanged.
+
+Local tables add per-socket header/bucket overhead, especially with one owner per
+socket. They remove repeated socket IDs from dense peer keys and release all table
+storage with the descriptor; total RSS improvement is workload-dependent. No
+capacity reduction or new final-discard rule is part of this change.
+
+New regression cases cover stable repeated registration, combined live/retired
+admission, one session spanning two sockets while another keeps a shared socket
+alive, selective reload across sixteen same-peer sockets and topology-wide token
+revocation. Existing port-reuse, delayed-peer, stale-send, source/interface and
+receive-cancellation cases remain in the same test suite. An ignored synthetic
+admission-only comparison records local vs original global peer-count lookups;
+it does not stand in for packet throughput, CPU/RSS, power or external acceptance.
+
+The local ignored Cargo.lock initially retained pre-nightly workspace versions.
+It was synchronized to the already-published workspace version; external package
+versions/checksums were verified unchanged. No new product version was assigned.
+Validation and remaining qualification:
+
+- Workspace/all-features check and all-target Clippy (`-D warnings`) passed;
+  formatting and whitespace checks passed.
+- Direct UDP regression: **31 passed, zero failures, one ignored manual
+  benchmark**. The manual benchmark was then executed separately and passed.
+- Synthetic admission comparison, debug profile, 64 sockets / 8192 owners /
+  1000 queries x 5 alternating rounds: old global-count query median **378426 ns**,
+  socket-local query median **561 ns**. Other builds were running concurrently;
+  these timings qualify only this lookup step, not whole-kernel CPU, RSS or power.
+- First full gate: **2588 passed, 11 failures, 161 ignored, 148 targets**.
+  Two source-boundary assertions still named the former root method/global map;
+  they now assert the neutral lifecycle module, socket-owned response table and
+  live policy/egress fences. Nine WireGuard host-fixture cases failed while the
+  default host probe selected the active TUN's `10.0.0.1`, overlapping their
+  virtual endpoint addresses (one rejected a duplicate AllowedIPs prefix).
+  The unchanged runtime was requalified using the existing
+  `ZERO_TEST_HOST_IPV4=192.168.0.102` fixture; this address is assigned to the
+  physical interface and has a local route. TUN and host routes are unchanged.
+  The first failure log is retained.
+- Second full gate with the explicit physical-host fixture: **2591 passed,
+  8 failures, 161 ignored, 148 targets**, exit 101. Both architecture checks and
+  the previous UDP/source-roaming/duplicate-prefix failures passed; the remaining
+  cases fail during TCP connect/data return. Logs include Direct TCP connection
+  timeouts to the local physical address. Final formatting and all-target Clippy
+  passed after updating the architecture assertions.
+- The prior gate's already-built APFS test images were executed under exactly
+  the same current host fixture and TUN condition. `endpoint_contracts` reproduced
+  the same three failures, `proxy_wireguard` the same two and `wireguard_inbound`
+  the same three. The complete eight-case failure sets match, without compiling
+  or installing another core. This isolates the remaining qualification problem
+  from this response-table change; it does not establish whether its root cause
+  is host configuration or existing Direct TCP behavior.
+- **At this response-table checkpoint, full qualification was not passed.**
+  The subsequent macOS PF correction below resolves the TUN/local-host Direct TCP
+  condition. Production code and the Direct UDP
+  regression sources were unchanged between both gates and the earlier passing
+  focused run. No release build, installed-core switch, commit or push occurred.
+
+Evidence:
+`/Users/higanbana/.codex/tmp/zero-p1-udp-ownership-20261012/`.
+
+### macOS strict-route host TCP correction (2026-10-12)
+
+The response-table changes and all other dirty work were preserved. The eight
+remaining full-gate failures were reproduced by the prior passing test images;
+they shared host-local TCP establishment/data return under the installed TUN's
+strict-route policy. Plain native sockets reproduced the same failure using
+each of en0/en5/en8's physical IPv4 addresses, without Zero or WireGuard. Binding
+the client to `127.0.0.1` masked it. Packet capture showed repeated self-addressed
+SYNs without SYN-ACK, while the masked connection completed.
+
+A controlled one-line change in Zero's own PF anchor changed its existing
+`lo0` output exemption from default `keep state` to explicit `no state`.
+Native TCP then succeeded on all three interfaces with the original physical
+source addresses. Restoring the original anchor reproduced the native failure.
+Applying the same correction to the existing three test images yielded:
+
+| Target | Passed | Failed | Ignored |
+| --- | ---: | ---: | ---: |
+| endpoint_contracts | 25 | 0 | 0 |
+| proxy_wireguard | 13 | 0 | 0 |
+| wireguard_inbound | 6 | 0 | 1 |
+
+All eight formerly failing cases passed without changing those executables.
+The ignored case still requires live ICMP privileges. Native PF syntax checking,
+private-anchor readback, exact original-policy checks and restoration were
+recorded; no global PF rules, state table or host route was changed.
+
+The source fix is limited to `zero-tun::route::leak::macos::policy_rules` and its
+sibling regression test. Direct TCP selection, explicit bindings, WireGuard,
+Packet/Flow conversion and the optimized UDP ownership tables remain unchanged.
+The new test locks stateless output-only loopback behavior and preserves the
+remaining exceptions and protected-route blocks. No global PF skip or inbound
+exception is added. Current kernel installation remains unchanged; temporary
+live policy experiments restore its original rules.
+
+Final qualification:
+
+- Workspace/all-features check, all-target Clippy (`-D warnings`), formatting,
+  whitespace checks and complete test-artifact compilation passed. The five
+  macOS PF policy tests, including the new regression, passed.
+- The installed old core's normal PF coordinator restored an initial temporary
+  edit of its own anchor. Drift detection caught it; that eight-target attempt
+  failed and is retained as non-acceptance evidence. Final live acceptance used
+  a separate, scoped `com.apple/zero_0_tcp_regression` validation anchor containing
+  only the equivalent `pass out quick on lo0 all no state` rule. This left the
+  old coordinator and its original anchor unchanged. The fixture remained
+  `ZERO_TEST_HOST_IPV4=192.168.0.102`, with the current TUN active.
+- A first complete parallel gate passed 2599 tests with one Connector bulk-file
+  waiting failure. Its 600 events remained in the durable outbox while only 507
+  reached the sink within the short polling budget; a serial repeat similarly
+  reached 450 and was interrupted after the known failure. Neither is acceptance.
+  An unchanged single-case replay passed, and identified a host-filesystem
+  throughput assumption in this 600-record test rather than a documented SLO.
+  Only that bulk case now uses a bounded 60-second wait, 50 ms polling and skips
+  rereading an unchanged file length. Its 600-record, journal-compaction and
+  no-redelivery-after-restart assertions, other test waits and production
+  Connector behavior remain unchanged. The complete Connector target then
+  passed all 29 cases.
+- The final **default-parallel workspace/all-features gate passed 2600 tests,
+  zero failures, 161 ignored, 148 targets**, exit 0, in 663 seconds. All eight
+  previously failing cases passed in this complete gate. Ignored external and
+  privileged qualifications remain distinct.
+- Validation-anchor readback stayed correct throughout the gate; it was removed
+  afterward. The same installed core instance remained active, its original
+  anchor and PF main-rules hashes were unchanged, and no host route was edited.
+  The existing UDP optimization and other dirty source files were preserved.
+  No release build, installed-core switch, commit or push occurred. The current
+  installed old core retains its old PF policy; permanent runtime adoption
+  requires subsequently running a core containing this source correction.
+
+Evidence:
+`/Users/higanbana/.codex/tmp/zero-tun-direct-tcp-20261012/`.

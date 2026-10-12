@@ -210,10 +210,15 @@ async fn retired_peer_tombstones_have_bounded_admission_without_expiring_live_ow
         .unwrap();
     let (_, anchor_local) = anchor.recv_from(&mut buffer).await.unwrap();
     for port in 1..super::super::MAX_DIRECT_UDP_PEERS_PER_SOCKET {
+        let services = sockets.services.clone();
+        let generation = sockets.generation;
         sockets.sockets[0]
-            .retired_peers
-            .insert(SocketAddr::from(([192, 0, 2, 1], port as u16)));
+            .replies
+            .register(SocketAddr::from(([192, 0, 2, 1], port as u16)), || {
+                super::super::DirectUdpResponseFlow::new(900, services, policy.clone(), generation)
+            });
     }
+    sockets.sockets[0].replies.retire_session(900);
     let original_id = sockets.sockets[0].id;
     sockets
         .send_to_addr(b"new peer", newcomer.local_addr().unwrap(), 2, &policy)

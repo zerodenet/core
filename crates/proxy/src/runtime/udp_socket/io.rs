@@ -6,28 +6,6 @@ impl DirectUdpSockets {
         self.isolated_sessions.insert(session_id, association_id);
     }
 
-    pub(crate) fn retire_session(&mut self, session_id: u64) {
-        for ((socket_id, peer), owner) in &self.response_flows {
-            if owner.session_id == session_id {
-                if let Some(socket) = self
-                    .sockets
-                    .iter_mut()
-                    .find(|socket| socket.id == *socket_id)
-                {
-                    socket.retired_peers.insert(*peer);
-                }
-            }
-        }
-        self.response_flows
-            .retain(|_, flow| flow.session_id != session_id);
-        self.isolated_sessions.remove(&session_id);
-        // Retain every unaffected live mapping, but do not keep tombstones or
-        // socket descriptors once there is nobody left to receive a reply.
-        self.sockets
-            .retain(|socket| self.response_flows.keys().any(|(id, _)| *id == socket.id));
-        self.reset_receiver_if_empty();
-    }
-
     pub(crate) async fn send_to_addr(
         &mut self,
         payload: &[u8],
@@ -81,20 +59,19 @@ impl DirectUdpSockets {
     ) -> usize {
         // Successful UDP transmission is irreversible. A concurrent reload
         // must not report failure and make the outbound fallback resend data.
-        let entry = &self.sockets[index];
+        let entry = &mut self.sockets[index];
         if self.services.direct_policy_is_current(policy)
             && entry.binding.egress_generation == self.services.egress_generation()
         {
-            self.response_flows
-                .entry((entry.id, target))
-                .or_insert_with(|| {
-                    DirectUdpResponseFlow::new(
-                        session_id,
-                        self.services.clone(),
-                        policy.clone(),
-                        entry.binding.egress_generation,
-                    )
-                });
+            let generation = entry.binding.egress_generation;
+            entry.replies.register(target, || {
+                DirectUdpResponseFlow::new(
+                    session_id,
+                    self.services.clone(),
+                    policy.clone(),
+                    generation,
+                )
+            });
         }
         sent
     }
@@ -111,7 +88,6 @@ impl DirectUdpSockets {
             .direct_datagram_selection(target, &policy.dial_policy)?;
         if self.generation != selection.generation() {
             self.sockets.clear();
-            self.response_flows.clear();
             self.generation = selection.generation();
         }
         // Compare borrowed identities before materializing a new binding. A
@@ -128,28 +104,17 @@ impl DirectUdpSockets {
         // may resolve to the same peer, so never overwrite its reply owner.
         if let Some(index) = self.sockets.iter().position(|socket| {
             matches_binding(socket)
-                && self
-                    .response_flows
-                    .get(&(socket.id, target))
-                    .map(|flow| flow.session_id)
-                    == Some(session_id)
+                && socket.replies.flow(&target).map(|flow| flow.session_id) == Some(session_id)
         }) {
             return Ok(index);
         }
         // Endpoint-independent reuse remains the normal case for distinct
         // peers. A same-peer collision needs another socket to stay unambiguous.
-        if let Some(index) = self.sockets.iter().position(|socket| {
-            matches_binding(socket)
-                && !socket.retired_peers.contains(&target)
-                && !self.response_flows.contains_key(&(socket.id, target))
-                && socket.retired_peers.len()
-                    + self
-                        .response_flows
-                        .keys()
-                        .filter(|(id, _)| *id == socket.id)
-                        .count()
-                    < MAX_DIRECT_UDP_PEERS_PER_SOCKET
-        }) {
+        if let Some(index) = self
+            .sockets
+            .iter()
+            .position(|socket| matches_binding(socket) && socket.replies.can_admit(&target))
+        {
             return Ok(index);
         }
         let socket = self
@@ -173,7 +138,6 @@ impl DirectUdpSockets {
                 "egress topology changed while binding direct UDP socket",
             )));
         }
-        log_direct_socket(family_name(target.is_ipv6()), &socket);
         let id = self.next_socket_id;
         self.next_socket_id = self.next_socket_id.checked_add(1).ok_or_else(|| {
             EngineError::Io(std::io::Error::other(
@@ -192,8 +156,10 @@ impl DirectUdpSockets {
             },
             selection,
             association_id: scope,
-            retired_peers: HashSet::new(),
+            replies: ownership::DirectUdpReplies::default(),
         });
+        let entry = self.sockets.last().expect("just inserted socket");
+        log_direct_socket(entry.id, family_name(target.is_ipv6()), &entry.socket);
         Ok(self.sockets.len() - 1)
     }
 }

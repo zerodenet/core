@@ -242,8 +242,13 @@ fn policy_rules(tun_name: &str, protected: &[IpNet], excluded: &[IpAddr]) -> Str
     // replace it with endpoint-only rules: arbitrary direct destinations are
     // supported. A narrower identity requires a separate platform mechanism.
     let uid = unsafe { libc::geteuid() };
+    // Host-local traffic crosses lo0 on both output and input. Stateful PF
+    // processing can consume the SYN when both endpoints use the same local
+    // non-loopback address. Keep this existing local exemption stateless;
+    // other exceptions retain normal state tracking and protected-route blocks
+    // remain unchanged.
     let mut rules = format!(
-        "pass out quick on lo0 all\n\
+        "pass out quick on lo0 all no state\n\
          pass out quick to 127.0.0.0/8\n\
          pass out quick to ::1/128\n\
          pass out quick on {tun_name} all\n\
