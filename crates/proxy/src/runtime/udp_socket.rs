@@ -41,6 +41,7 @@ pub(crate) struct DirectUdpSockets {
     // Socket identity includes the policy and association, unlike a remote
     // endpoint alone. Even unscoped sockets require an exact registered peer.
     response_flows: HashMap<(u64, SocketAddr), DirectUdpResponseFlow>,
+    receive: tokio::sync::Mutex<receive::DirectUdpReceiver>,
 }
 
 #[cfg(feature = "udp-runtime")]
@@ -49,7 +50,6 @@ struct DirectUdpSocket {
     socket: TokioDatagramSocket,
     binding: DirectUdpSocketBinding,
     selection: zero_platform_tokio::EgressSelection,
-    receive_buffer: tokio::sync::Mutex<Vec<u8>>,
     association_id: Option<u64>,
     // A peer's old packets must never acquire a new owner on this socket.
     retired_peers: HashSet<SocketAddr>,
@@ -87,6 +87,7 @@ impl DirectUdpSockets {
             next_socket_id: 0,
             isolated_sessions: HashMap::new(),
             response_flows: HashMap::new(),
+            receive: tokio::sync::Mutex::new(receive::DirectUdpReceiver::default()),
         }
     }
 
@@ -105,6 +106,7 @@ impl DirectUdpSockets {
                 self.sockets.iter().any(|socket| socket.id == *socket_id)
             });
         }
+        self.reset_receiver_if_empty();
     }
 
     #[cfg(test)]
@@ -236,6 +238,8 @@ mod tests;
 
 #[cfg(feature = "udp-runtime")]
 mod io;
+#[cfg(feature = "udp-runtime")]
+mod receive;
 #[cfg(feature = "udp-runtime")]
 use response::DirectUdpResponseFlow;
 #[cfg(feature = "udp-runtime")]

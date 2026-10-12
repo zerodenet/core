@@ -1,6 +1,5 @@
 //! Direct reply identity follows the socket and its immutable dial policy.
 use super::*;
-use futures_util::{stream::FuturesUnordered, StreamExt};
 
 impl DirectUdpSockets {
     pub(crate) fn isolate_association(&mut self, session_id: u64, association_id: u64) {
@@ -26,6 +25,7 @@ impl DirectUdpSockets {
         // socket descriptors once there is nobody left to receive a reply.
         self.sockets
             .retain(|socket| self.response_flows.keys().any(|(id, _)| *id == socket.id));
+        self.reset_receiver_if_empty();
     }
 
     pub(crate) async fn send_to_addr(
@@ -191,61 +191,9 @@ impl DirectUdpSockets {
                 egress: selection.interface().cloned(),
             },
             selection,
-            receive_buffer: tokio::sync::Mutex::new(vec![0_u8; 65_535]),
             association_id: scope,
             retired_peers: HashSet::new(),
         });
         Ok(self.sockets.len() - 1)
-    }
-
-    pub(crate) async fn recv_from_addr(
-        &self,
-        output: &mut [u8],
-    ) -> Result<(usize, DirectUdpResponseSource), std::io::Error> {
-        loop {
-            let mut receives = FuturesUnordered::new();
-            for entry in &self.sockets {
-                if self.generation != self.services.egress_generation()
-                    || !self
-                        .services
-                        .direct_policy_is_current(&entry.binding.policy)
-                {
-                    continue;
-                }
-                receives.push(async move {
-                    let mut buffer = entry.receive_buffer.lock().await;
-                    let result = entry.socket.recv_from_addr(&mut buffer).await;
-                    (result, buffer, entry)
-                });
-            }
-            let Some((result, buffer, entry)) = receives.next().await else {
-                // Empty is normal until the first Direct send, or after reload.
-                return std::future::pending().await;
-            };
-            let (size, sender) = result?;
-            if self.generation != self.services.egress_generation()
-                || !self
-                    .services
-                    .direct_policy_is_current(&entry.binding.policy)
-            {
-                continue;
-            }
-            let Ok(sender) = entry.binding.policy.dial_policy.normalize_peer(sender) else {
-                continue;
-            };
-            let Some(flow) = self.response_flows.get(&(entry.id, sender)) else {
-                continue;
-            };
-            let size = size.min(output.len());
-            output[..size].copy_from_slice(&buffer[..size]);
-            return Ok((
-                size,
-                DirectUdpResponseSource {
-                    sender,
-                    session_id: Some(flow.session_id),
-                    guard: Some(flow.guard.clone()),
-                },
-            ));
-        }
     }
 }

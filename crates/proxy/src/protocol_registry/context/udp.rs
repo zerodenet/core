@@ -303,18 +303,18 @@ impl UdpNetworkServices {
     }
 
     pub(crate) fn egress_generation(&self) -> u64 {
-        self.outbound_datagram_socket_factory().egress_generation()
+        self.upstream.egress_interface.generation()
     }
 
     pub(crate) fn direct_policy_is_current(
         &self,
         policy: &crate::runtime::udp_socket::DirectUdpPolicy,
     ) -> bool {
-        self.engine
-            .direct_dial_policy(policy.tag.as_deref())
-            .is_some_and(|(current, generation)| {
-                current == policy.dial_policy && generation == policy.generation
-            })
+        self.engine.runtime_snapshot().direct_dial_policy_matches(
+            policy.tag.as_deref(),
+            &policy.dial_policy,
+            policy.generation,
+        )
     }
 
     pub(crate) fn ensure_direct_policy_current(

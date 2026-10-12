@@ -42,9 +42,30 @@ impl EngineRuntimeSnapshot {
         let Some(tag) = tag else {
             return Some((zero_traits::DialPolicy::default(), 0));
         };
+        self.tagged_direct_dial_policy(tag)
+            .map(|(policy, generation)| (policy.clone(), generation))
+    }
+
+    /// Compare a prepared identity against this live snapshot without cloning
+    /// policy strings. Values alone cannot revive a retired policy generation.
+    pub fn direct_dial_policy_matches(
+        &self,
+        tag: Option<&str>,
+        policy: &zero_traits::DialPolicy,
+        generation: u64,
+    ) -> bool {
+        match tag {
+            None => generation == 0 && *policy == zero_traits::DialPolicy::default(),
+            Some(tag) => self
+                .tagged_direct_dial_policy(tag)
+                .is_some_and(|(current, revision)| current == policy && revision == generation),
+        }
+    }
+
+    fn tagged_direct_dial_policy(&self, tag: &str) -> Option<(&zero_traits::DialPolicy, u64)> {
         let outbound = self.plan.target(self.plan.target_id(tag)?)?.as_outbound()?;
         (outbound.runtime_kind() == zero_config::OutboundRuntimeKind::Direct)
-            .then(|| (outbound.dial_policy().clone(), outbound.dial_generation()))
+            .then(|| (outbound.dial_policy(), outbound.dial_generation()))
     }
 }
 

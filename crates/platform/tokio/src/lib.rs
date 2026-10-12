@@ -17,6 +17,7 @@ use zero_traits::{
     TcpListener as TcpListenerTrait, TransportBypassControl,
 };
 
+mod datagram;
 mod dial;
 pub use dial::validate_dial_policy;
 

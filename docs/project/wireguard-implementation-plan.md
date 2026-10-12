@@ -1611,3 +1611,70 @@ occupancy/high-water telemetry remain unverified or unimplemented respectively.
 Start tuning by retaining null byte bounds and increasing slots if measured
 `queue_full` justifies it; enable byte bounds using observed concurrency and
 payload sizes. The example bounds are illustrative, not workload acceptance.
+
+### P1 Direct UDP receive storage and polling (2026-10-12)
+
+The starting checkout was clean at `7e0c4422`; the existing route-probe reuse,
+fresh source/interface validation, configurable UDP admission and PacketFlowAdapter
+remain intact. Read-only sampling of the installed PID 34463 reported 44.7 MiB
+physical footprint (120.5 MiB peak); a subsequent VM summary reported 46.4 MiB.
+Most sampled threads were parked. The stripped image did not provide enough
+named active frames to identify a dominant live CPU function. The VM summary
+reported 66.3 MiB allocated heap and 18.1 MiB allocator fragmentation; these are
+different measures from physical footprint and cannot establish a memory leak.
+The active kernel was not replaced, so none of these figures measures this patch.
+
+Code inspection identified two avoidable costs in Direct UDP response reception:
+one 65,535-byte scratch vector per native socket and reconstruction of a
+`FuturesUnordered` task set on each receive/rearm (including cancellation by
+unrelated branches of the normal association select loop).
+
+- The platform now supplies a native polling operation with completion-only
+  I/O observation. Protocol code, routing, authentication and accounting identity
+  remain outside the platform. The existing async socket API is retained.
+- The neutral proxy socket set has one cancellation-safe receive owner and a
+  persistent round-robin cursor. It registers native readiness without per-socket
+  future nodes. Rejected replies yield before retrying. Each poll is bounded by
+  the current socket count; it is not constant-time large-set dispatch.
+- Normal 64-KiB runtime output buffers receive directly. Short/empty buffers keep
+  the prior full-datagram native read and truncation contract using at most one
+  lazy scratch vector for the entire socket set. Last-socket retirement releases
+  it. No socket queue or configured admission budget is reduced.
+- Exact response ownership, tag/policy/egress generations, stale async fences,
+  retired-peer protection and response revocation remain authoritative. No new
+  packet/byte observation system or protocol-private runtime state is introduced.
+- The allocation regression initially found eight allocations per cancelled
+  two-socket poll: generation reads rebuilt a transport factory and node resolver.
+  Generation reads now query the live egress handle directly. Engine-owned
+  borrowed policy matching also avoids cloning configured interface strings at
+  every fence. Snapshot/generation checks remain live; there is no cached route
+  decision. Initial 60,000-byte fixtures were rejected by macOS UDP send limits
+  before reaching the receiver; tests use portable 8,192-byte payloads with the
+  same full-size output buffers and truncation/ownership assertions.
+
+Remaining candidate costs include Direct ownership-table scans during refresh,
+one-second statistics/event projection and detached MUX continuity cancellation
+polling. These are source-inspection candidates, not measured percentages from
+the stripped process sample. Optimizing them requires preserving generation
+fences, event sampling/replay contracts and cancellation responsiveness. The
+remaining payload copy into independently owned UDP receive queues preserves
+buffer lifetime/backpressure; it must not be removed by borrowing reused storage.
+
+Validation completed:
+
+- Workspace/all-features check and strict all-targets Clippy passed.
+- Direct UDP unit regressions passed 27/27; Engine routing passed 36/36 and
+  platform contracts passed 40/40. The allocation probe measured zero allocations
+  for 100 warmed two-socket cancelled polls (400 for the removed waiting-set
+  bookkeeping reference), and zero allocations while polling the actual reply.
+  This is a scoped Rust-allocation result, not a whole-kernel performance ratio.
+- The full workspace/all-features gate passed **2595 tests, zero failures,
+  160 ignored, 148 targets**, including runtime boundary and documentation tests.
+  Full-gate duration was 1204 seconds including compilation. The earlier failed
+  focused run is retained in the evidence directory; it is not used as acceptance.
+- Linux and Windows platform checks passed; these are cross-compilation checks,
+  not native runtime qualification.
+- The installed core/TUN/client configuration remained unchanged. No release
+  build, install, tag, commit or push is part of this optimization request.
+
+Evidence: `/Users/higanbana/.codex/tmp/zero-p1-receive-20261012/`.

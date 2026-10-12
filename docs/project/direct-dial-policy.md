@@ -142,6 +142,44 @@ socket may preserve the preferred source port or use the OS's normal ephemeral
 allocation. This applies to default `auto` as well as constrained Direct policies,
 so repeated retire/rebind cycles do not accumulate a lifetime port-exhaustion limit.
 
+### Direct UDP receive storage and scheduling
+
+The platform exposes native datagram polling with the same completion-only
+`IoObserver` accounting as async receives. Pending readiness is neither a packet
+nor an error. Its native one-waker contract requires one serialized receive owner
+per socket; the existing async receive API remains available to other callers.
+
+The proxy Direct socket set serializes receive callers, polling sockets in round
+robin order without rebuilding a heap-allocated future set. Cancellation releases
+the receive guard without reading ahead or spawning a response pump. Each poll
+visits at most the current socket count. Untrusted or stale replies advance the
+cursor and yield before retrying. The cursor survives cancelled waits and is
+normalized when the socket set changes. This is O(sockets) polling, not a claim of
+constant-cost readiness dispatch for arbitrarily large socket sets.
+
+Normal runtime callers provide at least 65,535 bytes and receive directly into
+their existing buffer. There is no additional payload buffer per native socket.
+Short/empty caller buffers use at most one lazy 65,535-byte scratch buffer per
+socket set: native I/O still consumes and observes a full datagram before the
+existing copy/truncation contract returns it. This also preserves platform error
+behavior for short caller buffers. Retiring the last socket releases scratch
+storage. Socket receive queue sizes, peer admission limits, exact response owners,
+retired-peer tombstones and pre/post-I/O policy/egress checks are unchanged.
+
+Regression tests cover large/empty datagrams, short-buffer draining, scratch
+release, cancelled and concurrent readers, unregistered peer pressure and
+completion-only observation. A warmed thread-local test allocation probe compares
+100 cancelled receive polls against the removed future-set bookkeeping. It uses
+the system allocator only in the proxy unit test executable; it does not replace
+the production allocator or measure whole-process CPU, RSS, power or throughput.
+
+Hot-path egress generation reads use the live control handle directly, without
+constructing a transport factory and node resolver just to read a number. Direct
+policy checks compare a borrowed policy and its generation inside the current
+Engine snapshot. The owning Engine retains implicit/tagged Direct semantics;
+owned policy projection still serves preparation callers. Neither optimization
+caches decisions across reloads or weakens a fence.
+
 Each exact response owner also has a revocable token for replies already read by
 the process. Removing that owner or its socket revokes the token; policy/egress
 generation changes invalidate it even before cache cleanup. Reusing the same

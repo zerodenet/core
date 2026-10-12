@@ -181,3 +181,34 @@ fn serialized_reload_keeps_dial_fields_and_mapped_source_canonicalization() {
     engine.reload_runtime_config(parsed).unwrap();
     assert_eq!(policy(&engine, Some("direct")), before);
 }
+
+#[test]
+fn borrowed_policy_match_preserves_implicit_role_and_live_generation_fences() {
+    let engine = Engine::new(config("only_ipv4")).unwrap();
+    let old = engine.runtime_snapshot();
+    let (first, generation) = policy(&engine, Some("direct"));
+    assert!(old.direct_dial_policy_matches(Some("direct"), &first, generation));
+    assert!(!old.direct_dial_policy_matches(Some("direct"), &first, generation + 1));
+    let mut changed = first.clone();
+    changed.interface = Some("another-interface".to_owned());
+    assert!(!old.direct_dial_policy_matches(Some("direct"), &changed, generation));
+    for tag in ["pick", "block", "missing"] {
+        assert!(!old.direct_dial_policy_matches(Some(tag), &first, generation));
+    }
+    assert!(old.direct_dial_policy_matches(None, &DialPolicy::default(), 0));
+    assert!(!old.direct_dial_policy_matches(None, &DialPolicy::default(), 1));
+    assert!(!old.direct_dial_policy_matches(None, &first, 0));
+
+    engine.reload_runtime_config(config("only_ipv6")).unwrap();
+    assert!(!engine.runtime_snapshot().direct_dial_policy_matches(
+        Some("direct"),
+        &first,
+        generation
+    ));
+    engine.reload_runtime_config(config("only_ipv4")).unwrap();
+    let latest = engine.runtime_snapshot();
+    assert!(!latest.direct_dial_policy_matches(Some("direct"), &first, generation));
+    assert!(old.direct_dial_policy_matches(Some("direct"), &first, generation));
+    let current = policy(&engine, Some("direct"));
+    assert!(latest.direct_dial_policy_matches(Some("direct"), &current.0, current.1));
+}

@@ -115,7 +115,7 @@ impl UpstreamConnectServices {
 
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn egress_generation(&self) -> u64 {
-        self.outbound_datagram_socket_factory().egress_generation()
+        self.egress_interface.generation()
     }
 
     #[cfg(feature = "raw-ip-runtime")]
