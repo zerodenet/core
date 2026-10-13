@@ -230,14 +230,21 @@ fn claim_outbound_hooks<'a>(
     let packet_tcp = packet
         .as_ref()
         .is_some_and(|leaf| leaf.packet_flow_adapter().is_some());
-    #[cfg(not(feature = "raw-ip-runtime"))]
-    let packet_tcp = false;
     let tcp_path = if tcp.is_some() {
         tcp_path
-    } else if packet_tcp {
-        TcpPathCategory::Session
     } else {
-        TcpPathCategory::Unavailable
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            if packet_tcp {
+                TcpPathCategory::Session
+            } else {
+                TcpPathCategory::Unavailable
+            }
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        {
+            TcpPathCategory::Unavailable
+        }
     };
     let runtime = match input {
         OutboundLeafInput::Virtual { outbound } => {
