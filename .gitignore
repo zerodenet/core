@@ -9,9 +9,9 @@ node_modules/
 __pycache__/
 *.py[cod]
 
-# Generated documentation artifacts from checkouts predating the standalone site.
-docs/.vitepress/cache/
-docs/.vitepress/dist/
+# Public documentation lives in the standalone documentation repository.
+# Retain optional local notes without tracking them in the kernel repository.
+/docs/
 
 # Logs / generated
 *.log

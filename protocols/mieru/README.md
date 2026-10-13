@@ -32,7 +32,7 @@ Mieru 是一种加密代理协议。它先与对端建立一条 XChaCha20-Poly13
 | 固定提交 | `48ddb69d5d343d76c9004c5054ee36609579ba13` |
 | 本实现 | `mieru` crate `3.33.0`，整体 `partial` |
 
-包版本标识唯一的实现对标版本。功能差距以该版本源码为准，额外版本互通不改变基线，也不代表功能已经完整对齐。基线检查入口为 `python3 scripts/prepare-mieru-interop.py --check-baseline`；详细对照见 [parity.md](../../docs/protocols/mieru/parity.md)。
+包版本标识唯一的实现对标版本。功能差距以该版本源码为准，额外版本互通不改变基线，也不代表功能已经完整对齐。基线检查入口为 `python3 scripts/prepare-mieru-interop.py --check-baseline`；实际能力以协议拥有的 [capability metadata](src/metadata.rs) 和固定版本互通测试为准。
 
 ## 功能对齐状态
 
@@ -69,4 +69,4 @@ src/session.rs   — 会话状态（seq/window/timestamp）
 
 - [mieru](https://github.com/enfein/mieru)
 
-当前整体能力为 `partial`。本批功能与可复现验收见 [多会话、共享连接池和 UDP 载体](../../docs/protocols/mieru/multiplex.md)。
+当前整体能力为 `partial`。多会话、共享连接池和 UDP 载体的回归入口见 [multiplex 测试](tests/multiplex.rs) 和 [underlay 测试](tests/underlay.rs)。

@@ -59,7 +59,7 @@
 - 业务 DNS 的严格族覆盖仅作用于所选 Direct 解析，不改变全局 DNS 上游 socket、Node 或控制面默认值。System resolver 只保证候选过滤与实际拨号族。
 - 监听 IP 使用结构化端点；合法裸/括号 IPv6 归一化。`::` 是否接受 IPv4 保留 OS 默认，不保证跨平台 dual-stack，也不保证双 wildcard 同端口共存。
 - 进程内 Rust 集成：`OutboundConfig` 字面量添加 `dial: Default::default()`；`ResolvedLeafOutbound::Direct` 添加 `dial_policy` 与 `dial_generation`，只匹配 tag 的模式使用 `..`。wire API/event V1 标识不变。
-- 内部边界与测试契约见 `docs/project/direct-dial-policy.md` 和 `docs/project/listen-addresses.md`。
+- 内部边界遵守 [工程约束](../AGENTS.md)，对应测试契约随源码维护。
 
 <!-- Record implemented but unsealed compatibility changes here. -->
 
@@ -82,7 +82,7 @@
 
 ## 0.0.16-rc.202609060636
 
-`zero validate CONFIG` 仅校验当前构建支持的配置和资源，不再实例化 Engine / Proxy、获取 Fake-IP 状态锁或读取配额状态。安装器可在旧内核运行时执行该命令。成功不代表运行端口可用、权限满足或持久化数据兼容；后者仍由运行启动和独立状态检查负责。CLI 输出保留 `config valid` 统计，移除校验阶段误报的 `engine started` 日志。详见 [校验隔离说明](../docs/project/config-validation-isolation.md)。
+`zero validate CONFIG` 仅校验当前构建支持的配置和资源，不再实例化 Engine / Proxy、获取 Fake-IP 状态锁或读取配额状态。安装器可在旧内核运行时执行该命令。成功不代表运行端口可用、权限满足或持久化数据兼容；后者仍由运行启动和独立状态检查负责。CLI 输出保留 `config valid` 统计，移除校验阶段误报的 `engine started` 日志。
 
 ## 0.0.16-rc.202609051609
 

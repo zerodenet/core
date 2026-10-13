@@ -68,4 +68,4 @@ src/udp.rs       - UDP packet encode/decode, UDP packet-session and UDP-over-str
 
 `zero` now means Xray's unchunked NONE body semantics. Existing Zero-private
 `zero` configurations must explicitly migrate to `zero-plus`; the private wire
-format remains unchanged. See [cipher semantics](../../docs/protocols/vmess/shared.md).
+format remains unchanged.

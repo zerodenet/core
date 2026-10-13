@@ -34,8 +34,9 @@ Protocol package versions track the explicitly selected upstream implementation 
 
 ### Key paths
 
-- `docs/project/` — long-term project notes and architecture rules.
-- `docs/protocols/` — per-protocol documentation.
+- `AGENTS.md` — versioned engineering guidelines and architecture boundaries.
+- `release/breaking-changes.md` — versioned release compatibility ledger.
+- `docs/` — optional local notes, ignored by Git; never a build or CI dependency.
 - `examples/` — example configs, versioned.
 - `tests/` — binary-level integration tests.
 - `crates/proxy/tests/` — proxy-level integration tests (protocol interop, session observability).
@@ -101,7 +102,7 @@ If you change protocol behavior, config parsing, routing, or runtime wiring, run
 - Protocol-private config fields (cert/key, cipher, identity/user IDs, etc.) are read from config by thin adapters or proxy transport bridges and parsed by protocol-owned constructors/helpers, never by the generic proxy runtime directly. Runtime code receives validated protocol values or opaque protocol/adapter-built keys, not raw protocol config strings.
 - Trojan outbound password/TLS identity parsing follows the same rule: `protocols/trojan` owns TCP connect config, UDP flow resume, borrowed/owned TLS profile builders, and relay-TLS override resolution; proxy adapters only unpack leaf variants while transport bridges open transport streams through `zero-traits::ClientTlsProfile` instead of rebuilding Trojan TLS config inline.
 - Port conflict detection is authoritative in config validation (`DuplicateInboundListen`); bind-time errors mean external port occupation only
-- Listen-address literal parsing, endpoint formatting and canonical/wildcard overlap live in `zero-core::address`; proxy bind helpers consume structured IP endpoints and preserve hostname support. Keep OS-default IPv6-only behavior: `::` is not a portable dual-stack guarantee, and IPv4/IPv6 wildcard pairs on one port are rejected conservatively. See `docs/project/listen-addresses.md`.
+- Listen-address literal parsing, endpoint formatting and canonical/wildcard overlap live in `zero-core::address`; proxy bind helpers consume structured IP endpoints and preserve hostname support. Keep OS-default IPv6-only behavior: `::` is not a portable dual-stack guarantee, and IPv4/IPv6 wildcard pairs on one port are rejected conservatively.
 - Mieru transport option ADTs and validation live in the protocol-owned `protocols/mieru/config` (`mieru-config`) crate. Config and Mieru both consume it; do not introduce a `zero-config -> mieru/runtime -> zero-transport -> zero-config` feature cycle. Its version follows the same pinned upstream target as Mieru.
 - Protocol-private validation is protocol-owned. Config may depend on validation-only protocol features and map their errors into `ConfigError`, but must not duplicate UUID/cipher/key/credential parsers or compile protocol data-plane modules for validation.
 - `zero-engine::runtime` keeps configuration persistence/reload, policy state, and observability projection in `runtime/{configuration,policy,observability}.rs`; do not move those domains back into the runtime root.
@@ -177,9 +178,13 @@ If you change protocol behavior, config parsing, routing, or runtime wiring, run
 
 ## Docs
 
-When changing config, protocol scope, or control surface, update matching docs in the same change:
-- `docs/project/` for long-term rules
-- `AGENTS.md` for structural and boundary changes
+Public user and integration documentation lives in the standalone documentation
+repository at https://docs.zerodenet.org/projects/core/. Keep relevant public
+documentation changes coordinated with config, protocol-scope and control-surface
+changes. Maintain versioned structural and boundary rules in `AGENTS.md`, concise
+crate/protocol descriptions in their READMEs, and compatibility changes in
+`release/breaking-changes.md`. Local `docs/` notes are optional and untracked;
+fresh checkouts, tests and CI must not require them.
 
 ## Adapter subdirectory rule
 
@@ -188,7 +193,7 @@ When changing config, protocol scope, or control surface, update matching docs i
 ## QUIC client security
 
 - Shared QUIC client TLS configuration and endpoint dialing live in `crates/transport/src/quic/client.rs`. Protocol profiles select trust policy; owning adapters must preserve it for TCP, UDP and packet-path. Insecure mode skips chain/name verification only, not handshake signature verification. Protocol-owned UDP cache identities must distinguish trust policy and fingerprint.
-- Hysteria2 HTTP/3 authentication header semantics and connection guards live in `protocols/hysteria2`; the generic proxy runtime must not parse these headers or choose protocol congestion policy. Official feature parity and qualification gaps are tracked in `docs/protocols/hysteria2/parity.md`.
+- Hysteria2 HTTP/3 authentication header semantics and connection guards live in `protocols/hysteria2`; the generic proxy runtime must not parse these headers or choose protocol congestion policy. Use the protocol-owned capability metadata and pinned interoperability tests to verify feature parity and qualification gaps.
 
 ## Hysteria2 transport policy
 

@@ -227,8 +227,12 @@ Route supports `mode` (`rule`/`global`/`direct`), `rules` array, and `final` act
 
 ## Key Documentation
 
-- `docs/project/architecture.md` — architecture layers and dependency rules
-- `docs/project/logging.md` — structured logging
+- `AGENTS.md` — engineering guidelines, architecture layers and dependency rules
+- `crates/logging/` — structured logging implementation
 - `https://docs.zerodenet.org/projects/core/` — public user and integration documentation
 - `release/breaking-changes.md` — release compatibility ledger
-- `docs/control-plane/README.md` — control plane design docs
+- `https://docs.zerodenet.org/projects/core/control-plane/` — control plane documentation
+
+The kernel repository ignores `docs/`; existing local notes may be retained, but
+fresh checkouts and CI must not depend on them. Public documentation is maintained
+in the standalone documentation repository.

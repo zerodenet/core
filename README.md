@@ -18,7 +18,7 @@ cargo run -- status --json examples/v0.0.1/basic.json
 - [Quick start](https://docs.zerodenet.org/projects/core/guides/quickstart)
 - [Configuration](https://docs.zerodenet.org/projects/core/configuration/)
 - [Control plane API](https://docs.zerodenet.org/projects/core/control-plane/)
-- [Internal architecture notes](docs/project/architecture.md)
+- [Engineering guidelines](AGENTS.md)
 - [Examples](examples/)
 
 ## License

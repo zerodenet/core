@@ -42,8 +42,8 @@ SIP003/SIP003u plugins support TCP-only, UDP-only and combined carrier modes.
 
 ## Validation and operations
 
-See [the implementation matrix](../../docs/protocols/shadowsocks/parity.md) and
-[native configuration](../../docs/protocols/shadowsocks/configuration.md).
+See [protocol configuration](https://docs.zerodenet.org/projects/core/protocols/configuration)
+in the standalone documentation site. The in-tree tests verify the pinned baseline:
 `reference_ciphers` compares all v1 methods with the exact pinned crypto
 backend; `reference_2022` covers optional ChaCha8. `reference_interop` exercises
 every method/alias included in the official release binary in both TCP and UDP

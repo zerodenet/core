@@ -16,4 +16,4 @@
 
 `EventSource::subscribe` 只表示实时订阅，可在实时增量前附带同步基线；历史检查使用 `latest`，按序号断点恢复使用 `since`。所有自定义 `EventSource` 实现必须返回实现 `EventStream` 的流，不能再用 `Vec<RawApiEvent>` 表示订阅。
 
-设计说明见 [docs/project/api.md](../../docs/project/api.md)。
+对接契约见独立文档站的 [API 契约](https://docs.zerodenet.org/projects/core/control-plane/contract)。
