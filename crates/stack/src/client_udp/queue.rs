@@ -48,7 +48,7 @@ impl ByteBudget {
     }
     fn acquire(&self, bytes: usize) -> Result<(), ()> {
         self.used
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
                 used.checked_add(bytes).filter(|sum| *sum <= self.maximum)
             })
             .map(|_| ())
