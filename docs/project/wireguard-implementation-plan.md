@@ -1821,6 +1821,12 @@ Evidence:
 
 ### macOS strict-route host TCP correction (2026-10-12)
 
+The [2026-10-13 eight-case audit](wireguard-network-test-audit.md) confirms that
+the retained pre-fix installed core still reproduces this host condition. The
+unchanged test images pass all eight cases with the equivalent source correction;
+the temporary validation rule is removed afterward. No new WireGuard defect was
+found in these cases, and focused replay does not replace full qualification.
+
 The response-table changes and all other dirty work were preserved. The eight
 remaining full-gate failures were reproduced by the prior passing test images;
 they shared host-local TCP establishment/data return under the installed TUN's
