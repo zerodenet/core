@@ -1,5 +1,5 @@
-use std::fs::OpenOptions;
-use std::io::Write;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -55,8 +55,12 @@ pub(super) fn quarantine_journal(path: &Path) -> ConnectorResult<PathBuf> {
     }
 }
 
-pub(super) fn preserve_bytes(path: &Path, kind: &str, bytes: &[u8]) -> ConnectorResult<PathBuf> {
-    let preserved_path = unique_preserved_path(path, kind)?;
+pub(super) fn preserve_journal(
+    path: &Path,
+    source_file: &mut File,
+    bytes: u64,
+) -> ConnectorResult<PathBuf> {
+    let preserved_path = unique_preserved_path(path, "partial-tail")?;
     let mut file = OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -65,8 +69,25 @@ pub(super) fn preserve_bytes(path: &Path, kind: &str, bytes: &[u8]) -> Connector
             path: preserved_path.display().to_string(),
             source,
         })?;
-    file.write_all(bytes)
-        .and_then(|_| file.sync_all())
+    source_file
+        .rewind()
+        .map_err(|source| ConnectorError::OpenOutbox {
+            path: path.display().to_string(),
+            source,
+        })?;
+    let copied = std::io::copy(&mut source_file.take(bytes), &mut file).map_err(|source| {
+        ConnectorError::OpenOutbox {
+            path: preserved_path.display().to_string(),
+            source,
+        }
+    })?;
+    if copied != bytes {
+        return Err(ConnectorError::OpenOutbox {
+            path: path.display().to_string(),
+            source: std::io::Error::other("partial-tail evidence copy is incomplete"),
+        });
+    }
+    file.sync_all()
         .map_err(|source| ConnectorError::OpenOutbox {
             path: preserved_path.display().to_string(),
             source,

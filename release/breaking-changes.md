@@ -46,6 +46,12 @@
 
 ## Unreleased
 
+### Connector 持久化预检与配置热更新
+
+- `zero connector state`、outbox 启动回放、dead-letter 和配额状态检查改为流式读取。预检只检查打开文件时的快照，不申请持久化写锁、不修复文件，也不改变运行中的内核；日志格式及 API/event V1 标识保持不变。
+- outbox 在 PUT、ACK 和启动时检查历史压缩阈值，保留每个未确认事件的最新完整记录、payload 和重试状态。真正未投递的事件不会因压缩被删除；空间不足时保留原日志并延迟压缩。
+- 配置热更新只重建实际变化的应用组件。仅修改代理设置时保留 dispatcher、状态监视器和未变化的 hook；需要重建 dispatcher 时取消已有 outbox 副本的在途请求，保留持久化事实供恢复，丢弃临时采样。没有 outbox 的生命周期事实仍须完成投递；接收端继续按既有事件身份幂等处理可能的重投。
+
 ### Direct dial 与 IPv6 监听（v0.0.3）
 
 - `OutboundConfig.dial` 新增可选 `address_family`（`auto` / `only_ipv4` / `only_ipv6`）、`interface` 和 `source_ip`。省略与默认值保持旧行为；非默认策略首期仅用于 Direct TCP/UDP。接口与源地址必须存在且归属相符，启动/重载准备与实际拨号均校验；失败不能撤销约束重试。

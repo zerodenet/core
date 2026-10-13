@@ -13,6 +13,8 @@ mod connector_state;
 mod live_status;
 #[path = "../management_lifecycle.rs"]
 mod management_lifecycle;
+#[path = "../management_reload.rs"]
+mod management_reload;
 #[path = "../parent_lifetime.rs"]
 mod parent_lifetime;
 #[path = "../phase1_port_conflict.rs"]

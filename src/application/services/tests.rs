@@ -56,6 +56,86 @@ fn count_event_type(path: &Path, event_type: &str) -> usize {
 }
 
 #[tokio::test]
+async fn inbound_apply_keeps_dispatcher_counters_and_status_monitor() {
+    let directory = tempfile::tempdir().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let path = directory.path().join("config.json");
+    let sink = directory.path().join("events.jsonl");
+    std::fs::write(&path, config_json("events.jsonl", port)).unwrap();
+    let config = RuntimeConfig::load_from_path(&path).unwrap();
+    let engine = Engine::new_with_config_path(config, &path).unwrap();
+    let proxy = Proxy::from_engine(engine.clone()).unwrap();
+    let services = ApplicationServices::start(engine.clone(), None)
+        .await
+        .unwrap();
+    let monitor = services
+        .state
+        .lock()
+        .await
+        .status_monitor
+        .as_ref()
+        .unwrap()
+        .id();
+    let handle = ProxyHandle::new(EngineHandle::new(engine.clone()), proxy.clone())
+        .with_config_apply_reconciler(services.clone());
+    let running = proxy.spawn();
+    engine.emit_warning("preserved-before", "preserved-before");
+    wait_for_file_text(&sink, "preserved-before").await;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let added_port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let mut candidate: serde_json::Value =
+        serde_json::from_str(&config_json("events.jsonl", port)).unwrap();
+    candidate["inbounds"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "tag":"added", "listen":{"address":"127.0.0.1","port":added_port},
+            "protocol":{"type":"direct"}
+        }));
+    let response = handle
+        .execute_acknowledged(CommandRequest::ConfigApply(ConfigApplyCommand {
+            config: candidate,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.result.unwrap()["application_components"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        services
+            .state
+            .lock()
+            .await
+            .status_monitor
+            .as_ref()
+            .unwrap()
+            .id(),
+        monitor
+    );
+    engine.emit_warning("preserved-after", "preserved-after");
+    wait_for_file_text(&sink, "preserved-after").await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let state = services.state.lock().await;
+            if state.dispatcher.as_ref().unwrap().sink_status()[0].total_delivered >= 2 {
+                break;
+            }
+            drop(state);
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("dispatcher counters reset across an inbound-only apply");
+    running.shutdown().await.unwrap();
+    services.shutdown_status_monitor().await;
+    services.shutdown_dispatcher().await;
+}
+
+#[tokio::test]
 async fn first_configured_dispatcher_delivers_engine_started_exactly_once() {
     let directory = tempfile::tempdir().unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

@@ -137,27 +137,36 @@ impl ApplicationServices {
 
         let previous = state.config.clone();
         let components = changed_components(previous.as_ref(), target.as_ref());
-
-        self.stop_active_services(state).await;
+        let rebuild_hooks = !state.installed || previous.api.hooks != target.api.hooks;
+        #[cfg(feature = "event-dispatcher")]
+        let rebuild_dispatcher = !state.installed
+            || dispatcher_changed(&previous, &target)
+            || !self.services_match_target(state, &target);
+        #[cfg(feature = "event-dispatcher")]
+        if rebuild_dispatcher {
+            self.stop_active_services(state).await;
+        }
         state.config = target.clone();
         state.installed = false;
 
-        let warning_handler = {
-            let engine = self.engine.clone();
-            Some(Arc::new(move |code: &str, message: &str| {
-                engine.emit_warning(code, message);
-            }) as Arc<dyn Fn(&str, &str) + Send + Sync>)
-        };
-        let hook_chain = hooks::build_hook_chain(
-            self.ipc_hook_socket.as_deref(),
-            &target.api,
-            warning_handler,
-        );
-        self.engine
-            .replace_flow_hook_chain((!hook_chain.is_empty()).then_some(hook_chain));
+        if rebuild_hooks {
+            let warning_handler = {
+                let engine = self.engine.clone();
+                Some(Arc::new(move |code: &str, message: &str| {
+                    engine.emit_warning(code, message);
+                }) as Arc<dyn Fn(&str, &str) + Send + Sync>)
+            };
+            let hook_chain = hooks::build_hook_chain(
+                self.ipc_hook_socket.as_deref(),
+                &target.api,
+                warning_handler,
+            );
+            self.engine
+                .replace_flow_hook_chain((!hook_chain.is_empty()).then_some(hook_chain));
+        }
 
         #[cfg(feature = "event-dispatcher")]
-        {
+        if rebuild_dispatcher {
             let has_delivery_sinks = !target.api.event_sinks.is_empty();
             let bootstrap_engine_started = has_delivery_sinks && !state.engine_started_bootstrapped;
             state.dispatcher = if bootstrap_engine_started {
@@ -181,10 +190,6 @@ impl ApplicationServices {
             if bootstrap_engine_started && state.dispatcher.is_some() {
                 state.engine_started_bootstrapped = true;
             }
-        }
-
-        #[cfg(feature = "event-dispatcher")]
-        {
             state.status_monitor = Some(spawn_status_monitor(
                 self.engine.clone(),
                 state.dispatcher.as_ref(),
@@ -207,6 +212,7 @@ impl ApplicationServices {
         true
     }
 
+    #[cfg(feature = "event-dispatcher")]
     async fn stop_active_services(&self, _state: &mut ApplicationServiceState) {
         #[cfg(feature = "event-dispatcher")]
         if let Some(monitor) = _state.status_monitor.take() {
@@ -258,14 +264,19 @@ fn changed_components(previous: &RuntimeConfig, target: &RuntimeConfig) -> Vec<S
     if previous.api.hooks != target.api.hooks {
         components.push("flow-hooks".to_owned());
     }
-    if previous.api.event_sinks != target.api.event_sinks
-        || previous.api.dead_letter_path != target.api.dead_letter_path
-        || previous.api.outbox_path != target.api.outbox_path
-        || previous.api.dispatcher != target.api.dispatcher
-    {
+    if dispatcher_changed(previous, target) {
         components.push("event-dispatcher".to_owned());
     }
     components
+}
+
+fn dispatcher_changed(previous: &RuntimeConfig, target: &RuntimeConfig) -> bool {
+    previous.api.event_sinks != target.api.event_sinks
+        || previous.api.dead_letter_path != target.api.dead_letter_path
+        || previous.api.outbox_path != target.api.outbox_path
+        || previous.api.dispatcher != target.api.dispatcher
+        || (previous.source_dir != target.source_dir
+            && (dispatcher_enabled(previous) || dispatcher_enabled(target)))
 }
 
 #[cfg(feature = "event-dispatcher")]

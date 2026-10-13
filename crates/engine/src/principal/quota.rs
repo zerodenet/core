@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions, TryLockError};
-use std::io::{self, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex, Weak};
@@ -407,12 +407,12 @@ fn snapshot_book(book: &Arc<Mutex<QuotaBook>>) -> PersistedQuotaBook {
 }
 
 fn read_book(path: &Path) -> io::Result<QuotaBook> {
-    let raw = match std::fs::read(path) {
-        Ok(raw) => raw,
+    let file = match File::open(path) {
+        Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(QuotaBook::default()),
         Err(error) => return Err(error),
     };
-    let persisted = decode_persisted_book(&raw)?;
+    let persisted = decode_persisted_book(BufReader::new(file))?;
     let mut book = QuotaBook::default();
     for balance in persisted.balances {
         book.current
@@ -443,8 +443,8 @@ pub fn inspect_principal_quota_state(
                 .join(path)
         }
     };
-    let raw = match std::fs::read(&path) {
-        Ok(raw) => raw,
+    let file = match File::open(&path) {
+        Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Some(PrincipalQuotaStateReport {
                 format: "zero.engine.principal-quota.v1",
@@ -466,12 +466,25 @@ pub fn inspect_principal_quota_state(
             });
         }
     };
-    match decode_persisted_book(&raw) {
+    let bytes = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(error) => {
+            return Some(PrincipalQuotaStateReport {
+                format: "zero.engine.principal-quota.v1",
+                path: path.display().to_string(),
+                status: PrincipalQuotaStateStatus::Incompatible,
+                bytes: 0,
+                balances: None,
+                error: Some(format!("read failed: {error}")),
+            })
+        }
+    };
+    match decode_persisted_book(BufReader::new(file.take(bytes))) {
         Ok(book) => Some(PrincipalQuotaStateReport {
             format: "zero.engine.principal-quota.v1",
             path: path.display().to_string(),
             status: PrincipalQuotaStateStatus::Ready,
-            bytes: raw.len() as u64,
+            bytes,
             balances: Some(book.balances.len() as u64),
             error: None,
         }),
@@ -479,15 +492,15 @@ pub fn inspect_principal_quota_state(
             format: "zero.engine.principal-quota.v1",
             path: path.display().to_string(),
             status: PrincipalQuotaStateStatus::Incompatible,
-            bytes: raw.len() as u64,
+            bytes,
             balances: None,
             error: Some(error.to_string()),
         }),
     }
 }
 
-fn decode_persisted_book(raw: &[u8]) -> io::Result<PersistedQuotaBook> {
-    let persisted = serde_json::from_slice::<PersistedQuotaBook>(raw)
+fn decode_persisted_book(reader: impl Read) -> io::Result<PersistedQuotaBook> {
+    let persisted = serde_json::from_reader::<_, PersistedQuotaBook>(reader)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     if persisted.version != 1 {
         return Err(io::Error::new(

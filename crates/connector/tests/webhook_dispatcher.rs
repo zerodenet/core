@@ -17,6 +17,9 @@ use zero_connector::{
     EventDispatcherOptions, EventSinkTcpConnectFuture, EventSinkTcpDialer, EventSinkTcpStream,
 };
 
+#[path = "webhook_dispatcher/shutdown.rs"]
+mod shutdown;
+
 #[derive(Clone)]
 struct StaticEventSource {
     events: Arc<Mutex<Vec<RawApiEvent>>>,
@@ -574,70 +577,6 @@ async fn retryable_webhook_failure_reports_the_scheduled_retry_deadline() {
 }
 
 #[tokio::test]
-async fn durable_stalled_webhook_is_cancelled_on_shutdown_and_recovered() {
-    let outbox_path = temp_path("zero-connector-cancelled-webhook-outbox.jsonl");
-    let _ = std::fs::remove_file(&outbox_path);
-    let (stalled_url, stalled_received, release_stalled, stalled_server) =
-        spawn_stalled_http_server();
-    let event = sequenced_event("event-cancelled-durable", event_type::FLOW_COMPLETED, 1);
-    let api = webhook_api(stalled_url, Some(outbox_path.clone()), 8);
-    let dispatcher = spawn_event_dispatcher(
-        StaticEventSource {
-            events: Arc::new(Mutex::new(vec![event])),
-        },
-        api.clone(),
-        None,
-        EventDispatcherOptions {
-            poll_interval: Duration::from_millis(10),
-            max_retry_attempts: 1,
-        },
-    )
-    .expect("spawn cancellable dispatcher")
-    .expect("cancellable dispatcher");
-    let status = dispatcher.status_handle();
-
-    stalled_received
-        .recv_timeout(Duration::from_secs(2))
-        .expect("stalled webhook received durable delivery");
-    let stalled = wait_for_sink_status(&status, "receiver", |sink| {
-        sink.delivery.in_flight && sink.delivery.durable_pending == 1
-    })
-    .await;
-    assert_eq!(stalled.pending, 1);
-    tokio::time::timeout(Duration::from_secs(1), dispatcher.shutdown())
-        .await
-        .expect("durable webhook shutdown must cancel the request");
-    release_stalled.send(()).expect("release cancelled server");
-    stalled_server
-        .join()
-        .expect("stalled server exits on cancel");
-
-    let (recovery_url, recovery_server) = spawn_http_server();
-    let mut recovery_api = api;
-    match &mut recovery_api.event_sinks[0] {
-        EventSinkConfig::Webhook { url, .. } => *url = recovery_url,
-        _ => unreachable!("webhook config"),
-    }
-    let recovered = spawn_event_dispatcher(
-        StaticEventSource {
-            events: Arc::new(Mutex::new(Vec::new())),
-        },
-        recovery_api,
-        None,
-        EventDispatcherOptions {
-            poll_interval: Duration::from_millis(10),
-            max_retry_attempts: 1,
-        },
-    )
-    .expect("spawn recovery dispatcher")
-    .expect("recovery dispatcher");
-    let request = recovery_server.join().expect("recovery request");
-    assert!(request_body(&request).contains("event-cancelled-durable"));
-    recovered.shutdown().await;
-    let _ = std::fs::remove_file(outbox_path);
-}
-
-#[tokio::test]
 async fn webhook_treats_non_retryable_http_status_as_final_rejection() {
     const BAD_REQUEST: &[u8] =
         b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
@@ -1117,11 +1056,29 @@ async fn transient_samples_are_delivered_best_effort_but_never_persisted() {
 }
 
 #[tokio::test]
-async fn full_memory_workset_replaces_samples_without_evicting_facts() {
+async fn full_memory_workset_preserves_facts_during_sample_delivery_races() {
     const SUCCESS: &[u8] =
         b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
 
-    let (url, server) = spawn_scripted_http_server(vec![SUCCESS, SUCCESS]);
+    // A sample already in flight cannot be replaced by a later sample.
+    // Keep receiving until the fact arrives rather than assuming that both
+    // samples were queued before the worker started its first delivery.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}/events", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let mut requests = Vec::new();
+        for _ in 0..3 {
+            let (request, mut stream) = accept_http_request(&listener);
+            let is_fact = request_body(&request).contains("fact-after-samples");
+            requests.push(request);
+            stream.write_all(SUCCESS).unwrap();
+            if is_fact {
+                break;
+            }
+        }
+        requests
+    });
     let events = vec![
         sequenced_event("sample-old", event_type::FLOW_UPDATED, 1),
         sequenced_event("sample-new", event_type::STATS_SAMPLED, 2),
@@ -1148,12 +1105,15 @@ async fn full_memory_workset_replaces_samples_without_evicting_facts() {
         .map(|request| request_body(request))
         .collect::<Vec<_>>();
 
-    assert_eq!(bodies.len(), 2);
-    assert!(bodies.iter().any(|body| body.contains("sample-new")));
-    assert!(bodies
-        .iter()
-        .any(|body| body.contains("fact-after-samples")));
-    assert!(!bodies.iter().any(|body| body.contains("sample-old")));
+    assert!((1..=3).contains(&bodies.len()));
+    assert_eq!(
+        bodies
+            .iter()
+            .filter(|body| body.contains("fact-after-samples"))
+            .count(),
+        1,
+        "the fact must be delivered once regardless of sample scheduling"
+    );
 }
 
 #[tokio::test]

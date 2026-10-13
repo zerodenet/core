@@ -534,7 +534,7 @@ async fn run_event_dispatcher<S>(
                 shutting_down = true;
                 source_cancelled.store(true, Ordering::Release);
                 for worker in &mut workers {
-                    worker.cancel_durable_in_flight();
+                    worker.cancel_shutdown_in_flight(outbox.is_some());
                 }
                 while drain_event_source(
                     &source,
@@ -549,6 +549,11 @@ async fn run_event_dispatcher<S>(
                     dispatcher_config,
                 ) {}
                 if let Some(blocked) = blocked_events.front() {
+                    // Storage backpressure prevents draining the bounded
+                    // bridge. Close it to release a source thread blocked in
+                    // blocking_send; leave the unpersisted cursor unchanged.
+                    source_rx.close();
+                    source_closed = true;
                     warn!(
                         event_id = %blocked.event.event_id,
                         deferred_events = blocked_events.len(),
@@ -955,6 +960,14 @@ fn submit_pending(
         let Some(delivery) = pending.pop_front() else {
             break;
         };
+
+        // Samples are best-effort and have no recovery obligation. A worker
+        // cancelled after a durable delivery cannot accept them again; trying
+        // to flush them would leave shutdown waiting on a permanently closed
+        // sender. Persisted lifecycle facts remain owned by the outbox.
+        if !allow_durable && !delivery.uses_outbox && is_discardable_sample(&delivery.event) {
+            continue;
+        }
 
         if delivery.uses_outbox && !allow_durable {
             pending.push_back(delivery);

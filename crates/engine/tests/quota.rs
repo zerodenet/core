@@ -1,5 +1,8 @@
 use zero_config::RuntimeConfig;
 use zero_core::{Address, Network, ProtocolType, Session, SessionAuth};
+#[path = "quota/streaming.rs"]
+mod streaming;
+
 use zero_engine::{
     inspect_principal_quota_state, Engine, EngineError, PrincipalQuotaStateStatus, SessionHandle,
     SessionOutcome,

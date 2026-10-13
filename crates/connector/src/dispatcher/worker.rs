@@ -3,7 +3,7 @@ use tokio::task::JoinHandle;
 
 use zero_api::RawApiEvent;
 
-use super::{outbox, PendingDelivery};
+use super::{is_discardable_sample, outbox, PendingDelivery};
 use crate::registry::ConfiguredEventSink;
 
 pub(super) type SinkPublishResult = Result<zero_api::PublishResult, zero_api::ApiError>;
@@ -110,15 +110,14 @@ impl SinkWorker {
         }
     }
 
-    /// Cancel an in-flight delivery only when the outbox already owns a
-    /// durable copy. Non-durable deliveries must be allowed to finish during
-    /// graceful shutdown.
-    pub(super) fn cancel_durable_in_flight(&mut self) {
+    /// Cancel durable deliveries and samples when lifecycle facts have an
+    /// outbox recovery path. Without an outbox, keep the worker alive so
+    /// queued non-durable lifecycle facts can still finish gracefully.
+    pub(super) fn cancel_shutdown_in_flight(&mut self, has_outbox: bool) {
         if !self.supports_cancellation
-            || !self
-                .in_flight
-                .as_ref()
-                .is_some_and(|delivery| delivery.uses_outbox)
+            || !self.in_flight.as_ref().is_some_and(|delivery| {
+                delivery.uses_outbox || (has_outbox && is_discardable_sample(&delivery.event))
+            })
         {
             return;
         }
