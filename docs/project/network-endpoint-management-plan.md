@@ -1,5 +1,17 @@
 # 通用网络端点管理实施规划
 
+当前实现已覆盖规范端点身份、共享双向设备、方向/启停控制、通用统计和
+事件，以及设备重建/网络恢复观测、独立 PacketRoute 查询/关闭。
+当前完成清单和非阻塞性能 TODO 统一见
+[实施进度](wireguard-implementation-plan.md#当前完成范围与可选-todo)。
+暂不扩大优化范围；平台、外部场景和生产资格继续按真实证据记录。
+移动 TODO 属于平台接入与交付，不计为核心架构缺口；系统隧道由宿主管理，
+接入后的 Packet/Flow 执行仍由内核负责。Tailscale 因暂无可提供的验证端点
+暂缓，待验证环境具备且明确恢复后再启动独立协议计划。
+本规划的端点管理 P0–P5 与性能计划 P0–P2 是不同阶段编号。
+
+## 历史阶段记录
+
 日期：2026-09-29。状态：P0/P1 第一阶段已实现；P2 独立启停切片此前通过
 本地工作区门禁。2026-09-30 的后续工作增加运行中入站撤权和部分 P3 事件，
 并通过单独的本地工作区门禁。当前统计查询/采样/重置已落地，见
@@ -8,7 +20,8 @@
 [2026-10-06 验证记录](network-endpoint-control-verification-20261006.md)。
 本轮普通运行生命周期接入范围及独立门禁见
 [生命周期验证记录](network-endpoint-lifecycle-verification-20261006.md)；
-同一 ID 的全部协议重建/网络恢复观测仍保留明确限制。
+该阶段的同 ID 重建/网络恢复观测限制已由后续实现补齐，当前边界见
+[Packet 路径与宿主 L3](packet-route-host-control-v1.md)。
 2026-09 的基线与既存 DNS/TCP 修改已提交至 develop / `f7681499`。客户端后续契约
 补全增加实例条件、精确方向限制、资源操作能力及配置来源；独立验证见
 [客户端对接说明](network-endpoint-client-integration-v1.md)。
@@ -18,7 +31,8 @@
 本地门禁与外部场景状态见 [验证记录](network-endpoint-catalog-verification-20260929.md)。
 后续独立控制范围见 [控制 V1](network-endpoint-control-v1.md)。
 本轮控制验证见 [P2 验证记录](network-endpoint-control-verification-20260929.md)。
-不宣称完整 P2 生命周期、独立路径管理或 P5 生产场景已完成。
+上述历史阶段当时未关闭完整 P2 生命周期和独立路径管理；后续完成范围以
+本文顶部链接为准。P5 生产场景仍逐项记录，不以代码完成代替生产资格。
 
 ## 1. 目标与原方案关系
 
@@ -57,7 +71,7 @@ API，不复制第三方接口，也不将 Tailscale 的登录/退出动作当�
 | 通用宿主 Direct PacketSink | 当前开发工作区已接入 Linux/macOS 显式描述符后端 | [契约与验收边界](packet-route-host-control-v1.md)，不隐式修改宿主网络 |
 | 任意外部 PacketEndpoint 数据平面 SPI | 当前为内部中性操作 | 不在本次承诺；未来协议通过注册能力接入 |
 | 跨任意拓扑、时延/MTU 的全局最优图 | 当前图只优化平面转换 | 独立扩展，不改变本次路由策略 |
-| Tailscale 实际协议、认证、出口选择、文件/SSH | 尚未由本规划实现 | 后续协议接入；本次验收通用扩展边界 |
+| Tailscale 实际协议、认证、出口选择、文件/SSH | 尚未实现，因暂无验证端点而暂缓 | 后续独立协议计划；不阻塞本次通用边界验收 |
 
 WireGuard 生产门禁继续沿用 wireguard-implementation-plan.md 的 M5，逐项核查
 引擎补丁、安全、真实 TUN、故障恢复、长期运行和跨平台证据；管理能力完成
@@ -290,8 +304,10 @@ cargo clippy --workspace --all-targets；cargo build --release。
 详情页：状态、允许方向、启停、peer 及业务统计；节点组展示出站投影并引用
 同一 endpoint_id。服务端可通过同一 API 管理，不要求桌面界面。
 本对话不修改 GUI/ZBoard，不实现 WireGuard conf 客户端自动转换、宿主 NAT/
-防火墙/路由表管理或第三方账户产品流程。真实 Tailscale 与 Direct PacketSink
-进入后续独立计划，不能算作本次已完成能力。
+防火墙/路由表管理或第三方账户产品流程。真实 Tailscale 属于暂缓的后续协议
+扩展。移动后端属于平台接入与交付，不要求另建核心数据平面。
+Direct PacketSink 已实现显式宿主设备后端，使用与平台验收边界见
+[Packet 路径与宿主 L3](packet-route-host-control-v1.md)。
 
 当前开发工作区另已接入实际设备重建代际、物理出口恢复观测和独立原生/转换
 PacketRoute 管理。能力、调用示例、容量与平台限制见

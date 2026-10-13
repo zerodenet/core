@@ -189,7 +189,14 @@ An adapter that cannot admit a new session is rejected during preparation;
 the committed device is retained. For such an adapter, first remove the binding
 and confirm its old session has stopped before applying a changed binding to
 the same adapter; seamless replacement on an exclusive session is not promised.
-Mobile host PacketSink adoption is not yet implemented.
+Mobile host PacketSink adoption is not yet implemented. This is a platform
+integration and delivery task, not an unfinished core Packet/Flow architecture.
+It includes build/dependency adaptation, host-supplied packet I/O, required socket
+egress/loop prevention and lifecycle integration. The OS and embedding application
+own system VPN permission and tunnel setup; Zero retains packet processing,
+routing, conversion, accounting and cancellation. Existing neutral contracts
+and the userspace stack are reused; mobile compilation and live qualification
+are not claimed. Any required additions stay at narrow platform boundaries.
 
 Direct preserves source IP, handles forwarding TTL/MTU/fragmentation through
 zero-stack and returns packets through the existing bounded ownership map.

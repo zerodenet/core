@@ -5,9 +5,56 @@
 端点身份、方向授权、独立启停和通用观测的补充实施范围见
 [通用网络端点管理规划](network-endpoint-management-plan.md)。该规划复用本文的数据
 平面与生产门禁。目录、独立控制、实例/意图条件、方向授权及流量观测/采样/重置
-已实现；完整生命周期、独立路径管理和生产门禁仍未全部关闭。
+已实现；设备重建/网络恢复观测及独立 PacketRoute 查询/关闭也已落地。
+平台、外部场景及生产资格仍按各自证据记录。
 当前进度以 [端点目录](network-endpoint-catalog-v1.md) 和
 [流量观测](traffic-observation-v1.md) 为准，后文日期条目保留当时的历史证据。
+
+## 当前完成范围与可选 TODO
+
+2026-10-12 范围确认：既定 Packet/Flow 架构与已承诺的 P1 主要实现已完成。
+当前源码基线为 `develop` 的 `ef2b275b`。以下完成范围与可选清单是当前进度
+口径；后文日期条目保留历史状态及当时的失败、修复和验证证据。
+
+| 已完成范围 | 实现边界 |
+| --- | --- |
+| Packet/Flow 双平面及能力图 | Packet/Stream/Datagram 最少可执行转换；在已选出站内部选择，保留规则和 fallback 顺序 |
+| 公共 PacketFlowAdapter | 双向 TCP/UDP 转换和独立纯 Packet 测试端点；不重复实现 WireGuard 专属 Flow 栈 |
+| 端点和路径生命周期 | 双向共享设备、方向/启停控制、计量观测、设备重建/网络恢复事实及 PacketRoute 查询/关闭 |
+| Direct PacketSink | Linux/macOS 专用宿主描述符、Windows 既有 Wintun 后端；平台部署及实机资格单独记录 |
+| Packet 所有权和存储 | owned 缓冲区交付、回包分发收敛、校验和临时分配消除、峰值表容量回收及可配置 UDP 队列预算 |
+| 空闲调度 | WireGuard 协议精确 deadline、共享监听器有界索引堆；保留必要维护和其他实现的轮询 fallback |
+| Direct UDP 与宿主 TCP | 路由探测存储复用、持久接收轮询、socket 本地归属表；macOS strict-route 的 lo0 无状态修复 |
+
+上述源码快照最近完整 workspace/all-features 门禁为 2600 passed、0 failed、
+161 ignored、148 targets；check、Clippy、格式检查通过。ignored 和平台/外部
+场景不计为通过；测试通过不证明整机性能优于其他内核，也不代替生产资格。
+
+下列事项均为**非阻塞、可选 TODO**，不作为当前架构/P1 完成或本地验收的前置条件：
+
+| 可选事项 | 当前事实及后续启动条件 |
+| --- | --- |
+| 完整性能基线/长期对照 | 独立工具、局部采样和分配回归已有；整机 CPU、唤醒、吞吐、延迟、峰值内存和功耗对照按需开展，未测量只限制收益声明 |
+| 大 socket 集合查找/轮询 | 仍随 socket 数量线性增长；只有测量确认实际瓶颈时再评估替换 |
+| 统计/事件投影及 MUX 取消轮询 | 候选热点，未证明为当前故障或显著开销；按实际测量决定是否优化 |
+| UDP 队列占用/高水位 | 尚未实现的观测增强；容量、字节预算和拒绝计数已实现，按调参需要再补充 |
+| 剩余 socket/TUN/加密复制 | 仍有保障生命周期和背压的复制；不以全部消除为完成标准，后续仅处理有证据的收益点 |
+| 移动平台接入与交付 | 复用中性 Packet/Flow、路由、协议及计量；编译/依赖适配、宿主 Packet 通道接线、外层 socket 出口、防回环和生命周期集成尚待平台项目落地，不计为核心架构未完成 |
+| Tailscale 协议接入 | 暂缓；当前没有可提供的验证端点，待具备验证环境并明确恢复开发后另行规划，不阻塞现有方案 |
+| 其他 P2 扩展 | 新平面节点、任意协议 NAT/拓扑优化尚未实现，需独立需求和计划 |
+
+移动平台的系统 VPN 权限、隧道创建、系统路由及应用生命周期由操作系统和
+宿主应用管理；平台接入层将设备/Packet 通道及必要的 socket 出口操作交给
+内核。内核继续负责 Packet 处理、分流、公共栈转换、协议执行、计量与取消。
+`zero-tun::TunDevice` 已有读写/通道边界，`zero-stack` 提供用户态网络栈；
+这不等于移动后端、编译产物或运行验证已经完成。接入时可能需要补充局部
+中性平台接口，但不预设重做核心架构或另建移动专属网络栈。
+
+暂不扩大优化范围，不自动启动采样、专项测量或新增优化开发。现有轻量分配
+回归随常规测试保留，独立计时微基准默认 ignored；工具自测与真机采样的区别见
+[工程工具说明](tooling.md#可选性能观测)。仅当发现可复现的错误、资源无界增长、
+明确性能退化或已承诺能力缺失时，将相应事项单独升级为必修。已识别的安全/
+正确性门禁不会因性能 TODO 非阻塞而被取消。文档同步不构建版本或切换运行内核。
 
 ## 1. 版本与基线
 
@@ -18,6 +65,12 @@
 - Rust 协议引擎候选：固定 GotaTun `0.9.2`（已替换 BoringTun `0.7.1`）。只允许精确固定版本或审计后的仓库内补丁；不得跟随 `master`。在完成消息上限、重放、cookie、定时器、密钥擦除和畸形包审计前，不进入默认 `full` feature。
 - `protocols/wireguard` 的 package version 跟随最终选定并固定的 Rust 协议引擎版本；Zero 产品版本仍由 workspace version 管理。
 - WireGuard 的日常进度提交不自动生成新的 dev tag 或 Release；只有在目标进度完成并收到明确发布指令后，才执行版本晋级和打标。
+
+### 早期实现与审计记录（历史）
+
+以下进度段落保留早期阶段的表述；其中的“当前”“待完成”和引擎候选限制
+应按各日期记录理解。当前已完成范围以本文顶部清单为准，后续引擎迁移、
+端点/路径管理及 P1 实施记录保留各自验证证据。
 
 当前实现进度：M1 已建立独立 protocol crate、密钥/地址/endpoint/peer 校验、allowed-IP 最长前缀 peer 选择、按已认证 peer 反查源地址，以及 outbound/inbound 配置契约；配置中的 private/pre-shared key 在 Debug 中脱敏，配置对象销毁时擦除其 String 缓冲区。`runtime` feature 已接入固定 GotaTun `0.9.2`，实现握手、加解密、16 字节数据填充、定时器调用和保守消息上限。M2 的客户端 UDP 栈已有主动 IPv4/IPv6 UDP、临时端口、分片/重组与有界队列；客户端 TCP 栈已有主动握手、双向流、FIN、重传、闲置清理和独立跨网 RTO 策略。已认证的 ICMPv4/ICMPv6 错误现在可按引用的 TCP/UDP 四元组关联：UDP flow 收到不可达等错误后关闭；收到 Packet Too Big 后按该 socket 的目标地址降低后续 UDP 包的分片 MTU，并保持 flow 可用；半开 TCP 遇到硬不可达会提前失败。TCP 收到 Packet Too Big 后按连接降低后续新发 TCP 段的 MSS，之前已发包的重传仍按降低后的 IP MTU 分片。L3 入站在 auto 模式下按既有 Router 决策选择最少转换的数据路径：出站具备 PacketSink 时，IPv4/IPv6 内层包保留原始源/目标并经共享 WireGuard 设备转发，TTL/Hop Limit 减一，回包按原始源地址送回入站；auto 模式的 TCP/UDP 在没有可执行 PacketSink 或仅出站端点缺少安全原生回程分类时进入既有 Flow 转换；flow 模式先终止为 Flow，再通过出站可执行的转换发送。direct 的 ICMP echo 仍使用宿主 raw/ping datagram socket 真实探测；仅支持 TCP/UDP 的出站对 ICMP 明确拒绝。fallback 保留候选顺序，阻断与能力不兼容的候选不会暗中绕到 direct。出站 MTU 不足时，IPv4 DF=0 按出站 MTU 分片，IPv4 DF=1 与 IPv6 返回 Packet Too Big。direct 的本机 IPv4/IPv6 loopback 探测、单段 IPv4 往返，以及两段 WireGuard 的 IPv4/IPv6 原源地址 Echo、TCP、UDP 往返和 1280 MTU 下的大 UDP 分片重组已通过；真实 TUN、外部目标及故障恢复仍待验收。M3 的 opt-in `wireguard` 出站注册原生 PacketSink；通用 Flow→Packet 转换使同一 outbound/peer 的 TCP 连接和 UDP flow 共享握手、外层 socket 和 IP 栈。设备在启动、reload 或物理出口 generation 变化时按 peer 预备：保留身份及 egress 未变的设备，新设备构造和初始握手包发送成功后才发布；预备或后续 reload 阶段失败则关闭候选并保留旧状态。发布后的旧设备拒绝新 flow，最长 30 秒后强制终止任务；活动设备上限 128、退役队列上限 128。这里的“预备成功”不代表远端完成认证握手或业务可达，密钥材料也只能在最后一个持有者释放时擦除，不能宣称即时清除所有副本。M4 入站已实现 UDP bind、协议层握手公钥/receiver index peer 分发、allowed-IP 源验证、已认证 endpoint roaming，以及现有用户态 TCP/UDP 栈与通用路由接入；Zero ↔ Zero 的 TCP/UDP 双向 payload（含超 MTU 分片）和新端口绑定失败时旧会话继续可用，已通过本地集成测试。同地址同端口的 WireGuard 入站配置更新现在复用原 UDP socket；密钥与计时身份未变的同位置 peer 保留认证会话，改变身份的 peer 重新握手。Zero outbound 到 Xray `v26.3.27` inbound 的 TCP/UDP echo，以及 Xray outbound 到 Zero inbound 的 TCP/UDP echo，均已在 macOS 上通过。wireguard-go 的双向 payload、两个入站 peer、约 134 秒持续收发及本地端口 roaming已在旧引擎上通过，故障恢复场景、其余平台和生产安全审计尚未完成，不能将当前能力视为完整 WireGuard 或生产可用。
 
@@ -995,6 +1048,11 @@ kernel artifact update before they affect the running client.
 
 
 ### P1 power and allocation follow-up (2026-10-09)
+
+Historical checkpoint: the outstanding items in this table describe that date,
+not current blockers. The current completion boundary and non-blocking optional
+TODOs are listed at the start of this document; exact protocol deadlines and
+shared-listener scheduling were subsequently implemented on 2026-10-10.
 
 The P0/P1 plan remains incremental; existing source/tests are not a production
 performance qualification. Current status against the agreed plan:

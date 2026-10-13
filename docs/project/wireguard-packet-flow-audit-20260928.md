@@ -1,5 +1,12 @@
 # WireGuard Packet/Flow 分层审查（2026-09-28）
 
+> 当前范围确认：既定架构及已承诺的 P1 主要实现已完成。剩余整机测量、
+> 候选热点、队列高水位和进一步复制优化均为非阻塞的可选 TODO；暂不扩大
+> 优化范围。完成清单及后续启动条件见
+> [当前进度](wireguard-implementation-plan.md#当前完成范围与可选-todo)。
+> 移动平台后续工作归为编译/依赖适配、宿主通道和出口接线及运行交付，不计为
+> 核心架构未完成；Tailscale 因暂无可提供的验证端点暂缓。
+
 > 本文保留 2026-09-28 的历史审查结果。2026-10-08 核对：独立 PacketRoute
 > 查询/关闭、设备重建与网络恢复观测、Linux/macOS 专用宿主描述符 Direct
 > PacketSink 已落地；Windows 既有 Wintun 接入已接线，平台实机验收仍单独记录。当前接口与验收
@@ -64,19 +71,23 @@ Echo 使用选中 PacketSink 的可执行地址适配器。严格 `flow` 的语�
 - 原始 Packet 执行器曾直接读取 IPv4 分片标志/标识；现统一调用 stack 的纯
   `ipv4_fragmentation_allowed` / `fragment_forwarded_packet`，runtime 不持有 IP 字段偏移。
 
-## 与原文示意尚有距离的部分
+## 历史差距与当前范围
 
 不能据此宣称原文的全部扩展设想已经完成。
 
-1. 通用宿主 Direct PacketSink 尚未实现；已有 Direct Echo 是历史宿主 socket 操作，
-   明确不伪装为 PacketSink。本次 translate 对 Direct 不支持，避免形成隐式旁路。
+1. 历史 Direct PacketSink 缺口已补齐：Linux/macOS 专用宿主描述符和 Windows
+   既有 Wintun 接入已实现。平台资格和宿主部署前提见本文顶部链接；不能将
+   2026-09-28 的“尚未实现”作为当前进度。
 2. PacketSink/Endpoint 执行合同当前是 proxy 内部中性接口，尚未统一成原文示例中
    可供任意外部实现使用的完整公开 `PayloadSession`/`PacketEndpoint` API。增加新
-   注册协议可复用现有公共 raw-IP 操作，但不等于已具备全部公开扩展接口。
+   注册协议可复用现有公共 raw-IP 操作。任意外部数据平面 SPI 不在当前承诺
+   范围；内部接口与公共 PacketFlowAdapter 不以新增公开 SPI 为完成条件。
 3. 图当前计算数据平面转换路径，未实现跨任意网络拓扑、延迟/MTU/安全代价的
    综合最优化；实际适配能力由 prepare 操作确认，不能只看 metadata 声明。
+   综合拓扑优化属于可选扩展，不阻塞现有最少转换图的完成。
 4. translate 当前只覆盖 TCP/UDP 与单播 ICMP Echo 及其错误还原，不是 ESP、GRE 等
    任意协议的 NAT。它们可在符合远端源地址与回程要求时使用原生 Packet 路径。
+   任意协议 NAT 属于可选扩展，不作为当前转换器的完成条件。
 
 上述差距不需要把 WireGuard 密钥、握手或宿主 NAT 策略挪进 Proxy/Engine 来解决。
 未来 Packet 协议可通过同一 opt-in 能力提供地址适配，扩展转换器也应继续留在栈层。
