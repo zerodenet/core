@@ -1,6 +1,12 @@
+//! Optional node-side event delivery for panels and external controllers.
+//! Receivers use Zero's event envelope; business policy and control commands
+//! remain outside this delivery module.
+
 #[cfg(feature = "event-dispatcher")]
 mod dispatcher;
 mod error;
+#[cfg(feature = "event-dispatcher")]
+mod jsonl;
 #[cfg(feature = "event-dispatcher")]
 mod network;
 #[cfg(feature = "event-dispatcher")]

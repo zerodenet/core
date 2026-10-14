@@ -1,4 +1,5 @@
 use std::fs::{File, OpenOptions, TryLockError};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -163,8 +164,8 @@ fn inspect_json_lines(
     source_dir: Option<&Path>,
 ) -> ConnectorStateFile {
     let path = resolve_path(configured_path, source_dir);
-    let raw = match std::fs::read(&path) {
-        Ok(raw) => raw,
+    let file = match File::open(&path) {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return missing(kind, format, &path);
         }
@@ -172,18 +173,43 @@ fn inspect_json_lines(
             return incompatible(kind, format, &path, 0, format!("read failed: {error}"));
         }
     };
+    let bytes = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(error) => return incompatible(kind, format, &path, 0, format!("read failed: {error}")),
+    };
+    let mut reader = BufReader::with_capacity(
+        crate::jsonl::BUFFER_BYTES,
+        crate::jsonl::Snapshot::new(file, bytes),
+    );
+    let mut prefix = Vec::with_capacity(crate::jsonl::BUFFER_BYTES);
     let mut records = 0u64;
-    for (index, line) in raw.split(|byte| *byte == b'\n').enumerate() {
-        if line.is_empty() {
+    let mut index = 0u64;
+    loop {
+        let frame =
+            match crate::jsonl::read_record::<serde::de::IgnoredAny>(&mut reader, &mut prefix) {
+                Ok(Some(frame)) => frame,
+                Ok(None) => break,
+                Err(error) => {
+                    return incompatible(
+                        kind,
+                        format,
+                        &path,
+                        bytes,
+                        format!("read failed: {error}"),
+                    )
+                }
+            };
+        index += 1;
+        let Some(parsed) = frame.parsed else {
             continue;
-        }
-        if let Err(error) = serde_json::from_slice::<serde_json::Value>(line) {
+        };
+        if let Err(error) = parsed {
             return incompatible(
                 kind,
                 format,
                 &path,
-                raw.len() as u64,
-                format!("record {} is invalid JSON: {error}", index + 1),
+                bytes,
+                format!("record {index} is invalid JSON: {error}"),
             );
         }
         records += 1;
@@ -193,7 +219,7 @@ fn inspect_json_lines(
         format: format.to_owned(),
         path: path.display().to_string(),
         status: ConnectorStateStatus::Ready,
-        bytes: raw.len() as u64,
+        bytes,
         records: Some(records),
         pending: None,
         error: None,
