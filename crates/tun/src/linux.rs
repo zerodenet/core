@@ -76,7 +76,8 @@ impl LinuxTun {
 
         // Keep the `File` as the owning value so every construction failure
         // closes the descriptor automatically and the device owns it on success.
-        let async_fd = AsyncFd::new(file)?;
+        // SAFETY: AsyncFd owns this File, whose descriptor stays open and stable.
+        let async_fd = unsafe { AsyncFd::register(file) }?;
 
         Ok(Self {
             name: actual_name,

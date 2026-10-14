@@ -25,7 +25,7 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `Unreleased` | Connector 持久化状态恢复 | V1 配置、事件与 PUT/ACK 日志格式保持兼容；流式启动扫描与重试压缩降低历史积压的内存和磁盘开销 <!-- version-contract:unreleased-row --> |
 | `0.0.2-rc.202610100622` | - | No pending compatibility changes |
 | `0.0.2-rc.202610100620` | - | No pending compatibility changes |
 | `0.0.2-rc.202610070538` | URLTest、DNS 热更新、UDP 与 TUN 恢复 | 配置及控制面 V1 保持兼容；固定路径不再受候选冷却阻断 |
@@ -52,7 +52,13 @@
 
 ## Unreleased
 
-<!-- Record implemented but unsealed compatibility changes here. -->
+### Connector 流式启动与重试压缩
+
+- 回移 v0.0.3 的 outbox / dead-letter 预检、outbox 启动扫描和流式压缩；保持现有 V1 API、事件信封及 PUT/ACK 日志格式，不要求配置迁移。
+- 未确认投递保留原事件、重试次数和最新记录；连续重试也触发现有压缩门限，无需等待成功 ACK 或重启。压缩仍遵守磁盘维护保留空间，无法压缩时明确延后。
+- 启动扫描不再保存整份文件或待投递 payload，内存仍随真实待投递索引规模增长；实际投递沿用有界工作集，单个事件 payload 的加载语义不变。
+- 保留损坏日志隔离和不完整尾部取证；只读预检不会清理日志或改变投递状态。本次不改变投递确认、运行中重载或服务重启策略。
+- 同时适配Tokio 1.53.3 起的注册接口并声明对应最低依赖版本：Linux/macOS 的设备及路由监测描述符在注销之前保持有效，macOS utun 改由拥有型描述符负责关闭；不改变 TUN 配置、权限或路由语义。
 
 ## 0.0.2-rc.202610100622
 
