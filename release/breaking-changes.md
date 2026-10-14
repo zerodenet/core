@@ -25,7 +25,8 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | Connector 持久化状态恢复 | V1 配置、事件与 PUT/ACK 日志格式保持兼容；流式启动扫描与重试压缩降低历史积压的内存和磁盘开销 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.2-rc.202610142218` | Connector 持久化状态恢复 | V1 配置、事件与 PUT/ACK 日志格式保持兼容；流式启动扫描与重试压缩降低历史积压的内存和磁盘开销 |
 | `0.0.2-rc.202610100622` | - | No pending compatibility changes |
 | `0.0.2-rc.202610100620` | - | No pending compatibility changes |
 | `0.0.2-rc.202610070538` | URLTest、DNS 热更新、UDP 与 TUN 恢复 | 配置及控制面 V1 保持兼容；固定路径不再受候选冷却阻断 |
@@ -51,6 +52,10 @@
 | `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
 
 ## Unreleased
+
+<!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.2-rc.202610142218
 
 ### Connector 流式启动与重试压缩
 
