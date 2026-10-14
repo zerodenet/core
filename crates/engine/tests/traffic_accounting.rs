@@ -195,3 +195,51 @@ fn completed_flow_reaches_durable_sink_before_the_event_log() {
     assert!(persisted[0].sequence.is_none());
     assert!(retained[0].sequence.is_some());
 }
+
+#[test]
+fn dropped_subscription_records_and_evicted_samples_do_not_lose_cumulative_accounting() {
+    let engine = engine();
+    let subscriber = engine.subscribe(EventFilter::default()).unwrap();
+    let mut session = Session::new(
+        0,
+        Address::Ipv4([127, 0, 0, 1]),
+        80,
+        Network::Tcp,
+        ProtocolType::new("test"),
+    );
+    engine.prepare_session(&mut session, "test-in").unwrap();
+    let mut handle = engine.track_session(session.id);
+    let before = engine.latest_event_sequence();
+    for _ in 0..2048 {
+        engine.record_session_upload(session.id, 17);
+        engine.record_session_download(session.id, 23);
+        engine.push_stats_sampled();
+    }
+    assert!(
+        engine
+            .events_since(before, 1, &EventFilter::default())
+            .has_gap
+    );
+    let mut records = 0;
+    while subscriber.try_recv().is_some() {
+        records += 1;
+    }
+    assert!(
+        records < 2048,
+        "fixture must exercise dropped subscription records"
+    );
+    let live = engine.stats_snapshot();
+    assert_eq!(live.bytes_up, 2048 * 17);
+    assert_eq!(live.bytes_down, 2048 * 23);
+    let traffic = engine
+        .traffic_snapshot(&zero_api::TrafficGetQuery {
+            scope: zero_api::TrafficScope::Global,
+        })
+        .unwrap();
+    assert_eq!(traffic.planes[0].counters.bytes_up, Some(live.bytes_up));
+    assert_eq!(traffic.planes[0].counters.bytes_down, Some(live.bytes_down));
+    let completed = handle.finish(SessionOutcome::DirectRelayed).unwrap();
+    assert_eq!(completed.bytes_up, live.bytes_up);
+    assert_eq!(completed.bytes_down, live.bytes_down);
+    assert_eq!(engine.stats_snapshot().bytes_up, live.bytes_up);
+}

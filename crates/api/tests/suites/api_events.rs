@@ -2,5 +2,7 @@
 
 #[path = "../event_sink.rs"]
 mod event_sink;
+#[path = "../rotating_sink.rs"]
+mod rotating_sink;
 #[path = "../sink_status_contract.rs"]
 mod sink_status_contract;

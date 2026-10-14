@@ -1,6 +1,9 @@
 //! Engine event history, replay, subscription, and event projection.
 
 mod budget;
+#[cfg(test)]
+#[path = "../../tests/event_identity/mod.rs"]
+mod identity_tests;
 pub(crate) use budget::{QueuedEvent, Subscriber};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -30,6 +33,7 @@ pub struct EngineEventLog {
     core_instance_id: String,
     config_revision: Arc<AtomicU64>,
     next_sequence: AtomicU64,
+    next_identity: AtomicU64,
     inner: Mutex<budget::History>,
     subscribers: Mutex<Vec<Subscriber>>,
 }
@@ -76,6 +80,7 @@ impl EngineEventLog {
             core_instance_id: format!("{event_epoch:032x}"),
             config_revision: Arc::new(AtomicU64::new(1)),
             next_sequence: AtomicU64::new(1),
+            next_identity: AtomicU64::new(1),
             inner: Mutex::new(budget::History::default()),
             subscribers: Mutex::new(Vec::new()),
         }
@@ -579,7 +584,11 @@ impl EngineEventLog {
     }
 
     fn qualify_generated(&self, mut event: RawApiEvent) -> RawApiEvent {
-        event.event_id = format!("{:032x}:{}", self.event_epoch, event.event_id);
+        // Timestamps and projection-local identifiers can collide. Allocate
+        // identity independently of publication sequence: prepared durable
+        // facts and subscription snapshots must not create replay gaps.
+        let identity = self.next_identity.fetch_add(1, Ordering::Relaxed);
+        event.event_id = format!("{:032x}:{}:{identity}", self.event_epoch, event.event_id);
         self.qualify_metadata(&mut event);
         event
     }

@@ -6,6 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{ApiError, ApiErrorCode, ApiResult, EventSink, PublishResult, RawApiEvent};
 use serde::{Deserialize, Serialize};
 
+mod source_buffer;
+pub use source_buffer::SourceBufferStatus;
+
 pub struct CallbackEventSink<F> {
     name: String,
     callback: F,
@@ -186,6 +189,8 @@ pub struct SinkStatus {
     /// to the V1 status contract and is absent on older cores.
     #[serde(default, skip_serializing_if = "SinkDeliveryStatus::is_idle")]
     pub delivery: SinkDeliveryStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_buffer: Option<SourceBufferStatus>,
     pub total_delivered: u64,
     pub total_failed: u64,
     /// Number of detected event-sequence gaps. Unlike `last_error`, this
@@ -358,6 +363,7 @@ impl SinkManager {
                 name: managed.sink.name().to_owned(),
                 pending: 0,
                 delivery: SinkDeliveryStatus::default(),
+                source_buffer: None,
                 total_delivered: stat.delivered.load(Ordering::Relaxed),
                 total_failed: stat.failed.load(Ordering::Relaxed),
                 replay_gaps: 0,
@@ -489,6 +495,12 @@ impl RotatingFileSink {
     }
 
     fn rotate(&self, writer: &mut RotatingWriter) -> ApiResult<()> {
+        writer.file.flush().map_err(|e| {
+            ApiError::new(
+                ApiErrorCode::Internal,
+                format!("failed to flush rotating sink: {e}"),
+            )
+        })?;
         // Rename existing rotated files: .2 -> .3, .1 -> .2, current -> .1
         for i in (1..self.max_files).rev() {
             let src = if i == 1 {
@@ -498,14 +510,20 @@ impl RotatingFileSink {
             };
             let dst = self.path.with_extension(format!("{i}"));
             if src.exists() {
-                let _ = std::fs::rename(&src, &dst);
+                std::fs::rename(&src, &dst).map_err(|e| {
+                    ApiError::new(
+                        ApiErrorCode::Internal,
+                        format!("failed to rotate sink: {e}"),
+                    )
+                })?;
             }
         }
 
         // Open a fresh file.
         let file = std::fs::OpenOptions::new()
             .create(true)
-            .append(true)
+            .write(true)
+            .truncate(true)
             .open(&self.path)
             .map_err(|e| {
                 ApiError::new(
@@ -539,7 +557,9 @@ impl EventSink for RotatingFileSink {
         })?;
         let frame = [line.as_slice(), b"\n"].concat();
 
-        if writer.bytes_written + frame.len() as u64 > self.max_bytes {
+        if writer.bytes_written > 0
+            && writer.bytes_written.saturating_add(frame.len() as u64) > self.max_bytes
+        {
             self.rotate(&mut writer)?;
         }
 

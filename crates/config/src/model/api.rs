@@ -40,6 +40,12 @@ pub struct EventDispatcherConfig {
     pub max_in_memory_deliveries: usize,
     #[serde(default = "default_dispatcher_replay_batch_size")]
     pub replay_batch_size: usize,
+    /// Serialized-byte budget for the live source bridge, independent of the
+    /// delivery workset. One larger event reserves the whole budget and is
+    /// admitted alone, preserving existing event-size compatibility. Valid
+    /// values are 1..=256 MiB, including on 32-bit semaphore implementations.
+    #[serde(default = "default_source_queue_max_bytes")]
+    pub source_queue_max_bytes: u32,
     /// Maximum retries after the initial delivery attempt before
     /// `exhausted_delivery_policy` applies. `retry_forever` continues after
     /// this threshold.
@@ -69,6 +75,7 @@ impl Default for EventDispatcherConfig {
         Self {
             max_in_memory_deliveries: default_dispatcher_max_in_memory_deliveries(),
             replay_batch_size: default_dispatcher_replay_batch_size(),
+            source_queue_max_bytes: default_source_queue_max_bytes(),
             max_retry_attempts: default_dispatcher_max_retry_attempts(),
             retry_initial_delay_ms: default_dispatcher_retry_initial_delay_ms(),
             retry_max_delay_ms: default_dispatcher_retry_max_delay_ms(),
@@ -99,6 +106,10 @@ fn default_dispatcher_max_in_memory_deliveries() -> usize {
 
 fn default_dispatcher_replay_batch_size() -> usize {
     4_096
+}
+
+fn default_source_queue_max_bytes() -> u32 {
+    8 * 1024 * 1024
 }
 
 fn default_dispatcher_max_retry_attempts() -> u32 {

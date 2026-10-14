@@ -9,7 +9,7 @@ async fn dispatcher_replacement_recovers_facts_after_storage_backpressure() {
         "inbounds":[],"outbounds":[],"route":{"final":{"type":"direct"}},
         "api":{"event_sinks":[{"type":"jsonl","tag":"audit","path":events,"events":["engine.warning"]}],
             "outbox_path":dir.path().join("outbox.jsonl"),
-            "dispatcher":{"max_in_memory_deliveries":1,"replay_batch_size":1,"outbox_min_free_bytes":u64::MAX}}
+            "dispatcher":{"max_in_memory_deliveries":1,"replay_batch_size":1,"outbox_min_free_bytes":u64::MAX,"outbox_min_free_percent":1}}
     }).to_string()).unwrap();
     let engine = Engine::new(config.clone()).unwrap();
     let services = ApplicationServices::start(engine.clone(), None)
@@ -32,6 +32,8 @@ async fn dispatcher_replacement_recovers_facts_after_storage_backpressure() {
     .await
     .unwrap();
     config.api.dispatcher.outbox_min_free_bytes = 1;
+    // Keep a valid percentage reserve, but do not let the production 5%
+    // default mask recovery of this fixture's deliberately blocked PUTs.
     // A failed replacement must not consume the old continuation. The next
     // reconciliation uses it instead of adopting a fresh snapshot watermark.
     let mut failed = config.clone();

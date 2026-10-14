@@ -1,9 +1,34 @@
 use super::*;
 use crate::{inspect_persistent_state, ConnectorStateStatus};
+use std::collections::VecDeque;
 use zero_api::ApiEvent;
 
 mod large;
 mod validation;
+
+#[test]
+fn fresh_samples_do_not_evict_legacy_durable_ack_retries() {
+    use super::super::{enqueue_sample, PendingDelivery};
+    let mut legacy = delivery("legacy", 3);
+    legacy.event.event_type = zero_api::event_type::STATS_SCOPES_SAMPLED.into();
+    let mut queued = PendingDelivery::recovered(legacy);
+    queued.awaiting_ack = true;
+    let mut pending = VecDeque::from([queued]);
+    let new_sample = ApiEvent::new(
+        "new-sample",
+        zero_api::event_type::STATS_SCOPES_SAMPLED,
+        2,
+        serde_json::json!({"value":2}),
+    );
+    enqueue_sample(
+        &mut pending,
+        PendingDelivery::new("receiver".into(), new_sample, false),
+        1,
+    );
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].event.event_id, "legacy");
+    assert!(pending[0].uses_outbox && pending[0].awaiting_ack);
+}
 
 #[test]
 fn every_declared_sample_event_has_best_effort_delivery() {
@@ -201,7 +226,7 @@ fn compaction_never_discards_distinct_unacknowledged_events() {
 }
 
 #[test]
-fn replay_retires_old_persisted_samples_and_preserves_lifecycle_facts() {
+fn replay_preserves_old_persisted_samples_until_acknowledged() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("old-samples.jsonl");
     let kinds = [
@@ -227,12 +252,28 @@ fn replay_retires_old_persisted_samples_and_preserves_lifecycle_facts() {
         bytes.push(b'\n');
     }
     std::fs::write(&path, &bytes).unwrap();
-    assert_eq!(inspect_path(&path).unwrap().pending, 3);
+    assert_eq!(inspect_path(&path).unwrap().pending, kinds.len());
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
-    let outbox = DeliveryOutbox::open(path.to_str().unwrap(), None, 0, 0).unwrap();
+    let mut outbox = DeliveryOutbox::open(path.to_str().unwrap(), None, 0, 0).unwrap();
     let pending = outbox.load_pending_excluding(&HashSet::new(), 10).unwrap();
-    assert_eq!(pending.len(), 3);
-    for kind in &kinds[5..] {
+    assert_eq!(pending.len(), kinds.len());
+    for kind in &kinds {
         assert!(pending.iter().any(|value| value.event.event_type == *kind));
     }
+    for attempt in 0..1030 {
+        let mut sample = delivery(kinds[0], attempt);
+        sample.event.event_type = kinds[0].into();
+        outbox.put(&sample).unwrap();
+    }
+    assert!(outbox.journal_records < 1024);
+    assert_eq!(
+        outbox
+            .load_pending_excluding(&HashSet::new(), 10)
+            .unwrap()
+            .len(),
+        kinds.len()
+    );
+    outbox.ack("receiver", kinds[0]).unwrap();
+    drop(outbox);
+    assert_eq!(inspect_path(&path).unwrap().pending, kinds.len() - 1);
 }

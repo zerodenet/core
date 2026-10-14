@@ -5,6 +5,7 @@ pub(super) struct LiveSource {
     instance: String,
     history: Arc<Mutex<Vec<RawApiEvent>>>,
     subscribers: Arc<Mutex<Vec<mpsc::SyncSender<RawApiEvent>>>>,
+    received: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl LiveSource {
@@ -13,7 +14,11 @@ impl LiveSource {
             instance: instance.into(),
             history: Arc::new(Mutex::new(Vec::new())),
             subscribers: Arc::new(Mutex::new(Vec::new())),
+            received: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
+    }
+    pub(super) fn received(&self) -> usize {
+        self.received.load(std::sync::atomic::Ordering::Relaxed)
     }
     pub(super) fn emit(&self, mut event: RawApiEvent) {
         event.core_instance_id = Some(self.instance.clone());
@@ -34,6 +39,7 @@ impl LiveSource {
 pub(super) struct Stream {
     initial: Mutex<Option<RawApiEvent>>,
     rx: mpsc::Receiver<RawApiEvent>,
+    received: Arc<std::sync::atomic::AtomicUsize>,
 }
 impl EventStream for Stream {
     fn recv(&self) -> Option<RawApiEvent> {
@@ -44,18 +50,31 @@ impl EventStream for Stream {
             .or_else(|| self.rx.recv().ok())
     }
     fn try_recv(&self) -> Option<RawApiEvent> {
-        self.initial
+        let event = self
+            .initial
             .lock()
             .unwrap()
             .take()
-            .or_else(|| self.rx.try_recv().ok())
+            .or_else(|| self.rx.try_recv().ok());
+        if event
+            .as_ref()
+            .is_some_and(|e| e.event_type != event_type::FLOW_SNAPSHOT)
+        {
+            self.received
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        event
     }
     fn recv_timeout(&self, timeout: Duration) -> EventStreamReceive {
         if let Some(event) = self.initial.lock().unwrap().take() {
             return EventStreamReceive::Event(Box::new(event));
         }
         match self.rx.recv_timeout(timeout) {
-            Ok(event) => EventStreamReceive::Event(Box::new(event)),
+            Ok(event) => {
+                self.received
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                EventStreamReceive::Event(Box::new(event))
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => EventStreamReceive::Timeout,
             Err(mpsc::RecvTimeoutError::Disconnected) => EventStreamReceive::Closed,
         }
@@ -80,6 +99,7 @@ impl EventSource for LiveSource {
                 watermark,
             ))),
             rx,
+            received: self.received.clone(),
         })
     }
     fn latest(&self, limit: usize, _: EventFilter) -> zero_api::ApiResult<Vec<RawApiEvent>> {

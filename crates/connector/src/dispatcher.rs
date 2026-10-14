@@ -52,6 +52,7 @@ impl Default for EventDispatcherOptions {
 
 /// Per-sink delivery counters, updated by the dispatcher thread.
 struct PerSinkStats {
+    source_buffer: Mutex<Option<Arc<source::SourceBudget>>>,
     pending: AtomicU64,
     total_delivered: AtomicU64,
     total_failed: AtomicU64,
@@ -67,6 +68,7 @@ struct PerSinkStats {
 impl PerSinkStats {
     fn new() -> Self {
         Self {
+            source_buffer: Mutex::new(None),
             pending: AtomicU64::new(0),
             total_delivered: AtomicU64::new(0),
             total_failed: AtomicU64::new(0),
@@ -98,6 +100,12 @@ impl PerSinkStats {
 
     fn snapshot(&self, name: String) -> SinkStatus {
         SinkStatus {
+            source_buffer: self
+                .source_buffer
+                .lock()
+                .expect("sink stats")
+                .as_ref()
+                .map(|budget| budget.snapshot()),
             name,
             pending: self.pending.load(Ordering::Relaxed),
             delivery: *self.delivery.lock().expect("sink stats"),
@@ -469,30 +477,15 @@ where
         .collect::<Vec<_>>();
     drop(result_tx);
     let source_cancelled = Arc::new(AtomicBool::new(false));
-    let (source_tx, mut source_rx) =
-        tokio::sync::mpsc::channel(dispatcher_config.replay_batch_size.max(1));
-    let source_cancelled_for_thread = source_cancelled.clone();
-    let source_task = std::thread::Builder::new()
-        .name("zero-event-source".to_owned())
-        .spawn(move || {
-            while !source_cancelled_for_thread.load(Ordering::Acquire) {
-                match subscriber.recv_timeout(Duration::from_millis(250)) {
-                    EventStreamReceive::Event(event) => {
-                        if source_tx.blocking_send(*event).is_err() {
-                            break;
-                        }
-                    }
-                    EventStreamReceive::Timeout => {}
-                    EventStreamReceive::Closed => break,
-                }
-            }
-            while let Some(event) = subscriber.try_recv() {
-                if source_tx.blocking_send(event).is_err() {
-                    break;
-                }
-            }
-        })
-        .expect("event source bridge thread");
+    let (mut source_rx, source_budget, source_task) = source::spawn_bridge(
+        subscriber,
+        source_cancelled.clone(),
+        dispatcher_config.replay_batch_size,
+        dispatcher_config.source_queue_max_bytes,
+    );
+    for (_, sink) in stats.lock().expect("sink stats").iter() {
+        *sink.source_buffer.lock().expect("sink stats") = Some(source_budget.clone());
+    }
     let mut pending = recovered
         .into_iter()
         .map(PendingDelivery::recovered)
@@ -567,6 +560,9 @@ where
             );
         }
         refresh_pending_stats(stats, &pending, &workers, outbox.as_ref());
+        source_budget
+            .paused
+            .store(!blocked_events.is_empty(), Ordering::Relaxed);
 
         if shutting_down {
             let has_in_flight = workers.iter().any(|worker| worker.in_flight.is_some());
@@ -620,6 +616,7 @@ where
                     // bridge. Close it to release a source thread blocked in
                     // blocking_send; leave the unpersisted cursor unchanged.
                     source_rx.close();
+                    source_budget.close();
                     source_closed = true;
                     warn!(
                         event_id = ?blocked_events.front().map(|blocked| &blocked.event.event_id),
@@ -629,7 +626,9 @@ where
                 }
             }
             Some(result) = result_rx.recv() => completed_results.push_back(result),
-            event = source_rx.recv(), if !source_closed => match event {
+            // Never drain a bounded channel into unbounded staging while a
+            // preceding event is blocked on persistence or sink admission.
+            event = source_rx.recv(), if !source_closed && blocked_events.is_empty() && source_events.is_empty() => match event {
                 Some(event) => source_events.push_back(event),
                 None => source_closed = true,
             },
@@ -638,6 +637,8 @@ where
     }
 
     source_cancelled.store(true, Ordering::Release);
+    source_budget.close();
+    source_rx.close();
     for worker in &mut workers {
         worker.stop();
     }
@@ -879,10 +880,12 @@ fn enqueue_sample(
         return;
     }
 
-    // Prefer evicting the oldest sample. If the queue contains only
-    // lifecycle facts, drop the incoming sample instead.
+    // Only newly admitted volatile samples are replaceable. Legacy samples
+    // already in the journal keep their delivery/ACK working-set position.
     if let Some(index) = pending.iter().position(|queued| {
-        queued.sink_tag == delivery.sink_tag && is_discardable_sample(&queued.event)
+        !queued.uses_outbox
+            && queued.sink_tag == delivery.sink_tag
+            && is_discardable_sample(&queued.event)
     }) {
         pending.remove(index);
         pending.push_back(delivery);
@@ -1173,6 +1176,9 @@ struct PendingDelivery {
 
 struct BlockedEvent {
     event: RawApiEvent,
+    // Keep the bridge byte reservation until every matching sink has admitted
+    // this event. Retry and reload must not release it prematurely.
+    source_reservation: Option<source::SourceReservation>,
     persisted_sinks: HashSet<String>,
     reported_failures: HashSet<String>,
     persistence_attempts: u32,
@@ -1183,6 +1189,7 @@ impl BlockedEvent {
     fn new(event: RawApiEvent) -> Self {
         Self {
             event,
+            source_reservation: None,
             persisted_sinks: HashSet::new(),
             reported_failures: HashSet::new(),
             persistence_attempts: 0,

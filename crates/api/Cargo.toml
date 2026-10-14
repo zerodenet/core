@@ -13,6 +13,9 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 # Integration suites are explicit; scripts/check-test-layout.py guards coverage.
 
 [[test]]

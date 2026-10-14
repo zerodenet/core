@@ -5,6 +5,8 @@ use zero_connector::resume_event_dispatcher_with_network;
 #[path = "reload/source.rs"]
 mod source;
 use source::LiveSource;
+#[path = "reload/backpressure.rs"]
+mod backpressure;
 #[path = "reload/child.rs"]
 mod child;
 

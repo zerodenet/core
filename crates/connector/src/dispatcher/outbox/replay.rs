@@ -72,14 +72,10 @@ fn scan(path: &Path, file: &mut File) -> ConnectorResult<Replay> {
             records += 1;
             match record {
                 JournalRecord::Put { delivery } => {
-                    // Older versions persisted newer sample event types.
-                    // Samples have query-based recovery, not a durable fact
-                    // obligation. Retire them without dropping lifecycle facts.
-                    if super::super::is_discardable_sample(&delivery.event) {
-                        pending.remove(&delivery.key());
-                    } else {
-                        pending.insert(delivery.key(), offset);
-                    }
+                    // Admission policy applies to new samples only. A record
+                    // already accepted by the durable journal keeps its ACK
+                    // obligation across upgrades, regardless of event type.
+                    pending.insert(delivery.key(), offset);
                 }
                 JournalRecord::Ack { sink_tag, event_id } => {
                     pending.remove(&(sink_tag, event_id));

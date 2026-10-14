@@ -1,11 +1,16 @@
 //! Event ingestion and replay, independent of sink transport.
 use super::*;
 
+mod bridge;
+mod budget;
+pub(super) use bridge::{spawn as spawn_bridge, QueuedSourceEvent};
+pub(super) use budget::{SourceBudget, SourceReservation};
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn drain_event_source<S>(
     source: &S,
-    source_rx: &mut tokio::sync::mpsc::Receiver<RawApiEvent>,
-    source_events: &mut VecDeque<RawApiEvent>,
+    source_rx: &mut tokio::sync::mpsc::Receiver<QueuedSourceEvent>,
+    source_events: &mut VecDeque<QueuedSourceEvent>,
     workers: &[SinkWorker],
     stats: &SharedSinkStats,
     pending: &mut VecDeque<PendingDelivery>,
@@ -43,55 +48,52 @@ where
         progressed = true;
     }
 
-    let mut events = Vec::new();
-    while events.len() < dispatcher_config.replay_batch_size {
-        let Some(event) = source_events.pop_front() else {
-            break;
-        };
-        events.push(event);
-    }
-    while events.len() < dispatcher_config.replay_batch_size {
-        match source_rx.try_recv() {
-            Ok(event) => events.push(event),
-            Err(_) => break,
+    // The batch setting bounds work per pass, not a batch of owned payloads.
+    // Recover one event at a time so a large replay cannot inflate staging.
+    for _ in 0..dispatcher_config.replay_batch_size {
+        let mut blocked = source_events
+            .pop_front()
+            .or_else(|| source_rx.try_recv().ok())
+            .map(QueuedSourceEvent::into_blocked);
+        if blocked.as_ref().is_some_and(|event| {
+            last_sequence.is_some_and(|last| {
+                event
+                    .event
+                    .sequence
+                    .is_some_and(|next| next > last.saturating_add(1))
+            })
+        }) {
+            // Release the future live event's reservation before recovering
+            // its missing prefix. Its identity remains in the source history.
+            blocked = None;
         }
-    }
-
-    let replay_room = dispatcher_config
-        .replay_batch_size
-        .saturating_sub(events.len());
-    if let Some(sequence) = (*last_sequence).filter(|_| replay_room > 0) {
-        match source.since(sequence, replay_room, EventFilter::default()) {
-            Ok(replay) => {
-                if replay.has_gap {
-                    let message = format!(
-                        "event replay gap after sequence {}; retained events start at {}",
-                        replay.requested_after, replay.actual_from
-                    );
-                    record_dispatcher_replay_gap(stats, &message);
-                    warn!(
-                        requested_after = replay.requested_after,
-                        actual_from = replay.actual_from,
-                        "event dispatcher replay gap detected; older sink deliveries require reconciliation"
-                    );
-                    *last_sequence = Some(replay.actual_from.saturating_sub(1));
+        if blocked.is_none() {
+            let Some(sequence) = *last_sequence else {
+                break;
+            };
+            match source.since(sequence, 1, EventFilter::default()) {
+                Ok(mut replay) => {
+                    if replay.has_gap {
+                        let message = format!(
+                            "event replay gap after sequence {}; retained events start at {}",
+                            replay.requested_after, replay.actual_from
+                        );
+                        record_dispatcher_replay_gap(stats, &message);
+                        warn!(requested_after = replay.requested_after, actual_from = replay.actual_from,
+                            "event dispatcher replay gap detected; older sink deliveries require reconciliation");
+                        *last_sequence = Some(replay.actual_from.saturating_sub(1));
+                    }
+                    blocked = replay.events.pop().map(BlockedEvent::new);
                 }
-                events.extend(replay.events);
-            }
-            Err(error) => {
-                record_dispatcher_failure(stats, &error.to_string());
-                warn!(%error, "failed to replay dispatcher events");
+                Err(error) => {
+                    record_dispatcher_failure(stats, &error.to_string());
+                    warn!(%error, "failed to replay dispatcher events");
+                    break;
+                }
             }
         }
-    }
-
-    if events.is_empty() {
-        return progressed;
-    }
-    events.sort_by_key(|event| event.sequence.unwrap_or(u64::MAX));
-    let mut events = events.into_iter();
-    while let Some(event) = events.next() {
-        if let Some(sequence) = event.sequence {
+        let Some(mut blocked) = blocked else { break };
+        if let Some(sequence) = blocked.event.sequence {
             if last_sequence.is_some_and(|last| sequence <= last) {
                 continue;
             }
@@ -106,8 +108,7 @@ where
         // `flow.snapshot` is a synchronization baseline for live clients.
         // Persistent sinks consume lifecycle facts only and must not bill or
         // audit the same active flow again whenever a dispatcher starts.
-        if event.event_type != event_type::FLOW_SNAPSHOT {
-            let mut blocked = BlockedEvent::new(event);
+        if blocked.event.event_type != event_type::FLOW_SNAPSHOT {
             if !dispatch_event(
                 workers,
                 stats,
@@ -117,13 +118,12 @@ where
                 dispatcher_config,
             ) {
                 blocked_events.push_back(blocked);
-                blocked_events.extend(events.map(BlockedEvent::new));
                 return progressed;
             }
             if let Some(sequence) = blocked.event.sequence {
                 *last_sequence = Some(sequence);
             }
-        } else if let Some(sequence) = event.sequence {
+        } else if let Some(sequence) = blocked.event.sequence {
             *last_sequence = Some(sequence);
         }
         progressed = true;
