@@ -53,7 +53,7 @@ async fn direct_datagrams_keep_two_clients_isolated() {
 
 #[tokio::test]
 async fn direct_udp_occupied_port_fails_before_start() {
-    let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let occupied = occupy_udp_with_available_tcp_port().await;
     let port = occupied.local_addr().unwrap().port();
     let config = RuntimeConfig::parse(&serde_json::json!({"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":port},"protocol":{"type":"direct","target":"127.0.0.1","port":9}}],"route":{"final":{"type":"direct"}}}).to_string()).unwrap();
     let proxy = Proxy::new(config).unwrap();
@@ -69,13 +69,28 @@ async fn direct_udp_occupied_port_fails_before_start() {
 #[tokio::test]
 async fn disabled_udp_does_not_bind_even_when_port_is_occupied() {
     for global_disable in [true, false] {
-        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let occupied = occupy_udp_with_available_tcp_port().await;
         let port = occupied.local_addr().unwrap().port();
         let config = policy_config(port, !global_disable, global_disable);
         let handle = spawn_engine(Proxy::new(config).unwrap());
         wait_for_listener(port).await;
         handle.shutdown().await.unwrap();
     }
+}
+
+async fn occupy_udp_with_available_tcp_port() -> UdpSocket {
+    // A UDP ephemeral port can already belong to an unrelated TCP connection.
+    // These policy cases require TCP to be available and only UDP occupied.
+    // Use the suite's shared TCP allocator rather than the OS ephemeral pool.
+    for _ in 0..64 {
+        let port = free_port();
+        match UdpSocket::bind(("127.0.0.1", port)).await {
+            Ok(socket) => return socket,
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
+            Err(error) => panic!("failed to reserve UDP policy fixture: {error}"),
+        }
+    }
+    panic!("could not reserve an available TCP port with UDP occupied");
 }
 
 fn policy_config(port: u16, global: bool, inbound: bool) -> RuntimeConfig {
@@ -92,7 +107,7 @@ async fn udp_policy_reload_rebinds_and_rolls_back_on_conflict() {
     use zero_engine::EngineHandle;
     use zero_proxy::ProxyHandle;
     for global_toggle in [false, true] {
-        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let occupied = occupy_udp_with_available_tcp_port().await;
         let port = occupied.local_addr().unwrap().port();
         let disabled = policy_config(port, !global_toggle, global_toggle);
         let enabled = policy_config(port, true, true);
