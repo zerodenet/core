@@ -8,6 +8,11 @@ use zero_proxy::{ConfigApplyReconciler, ConfigReconcileResult};
 
 use crate::hooks;
 
+mod dispatcher;
+use dispatcher::{changed_components, dispatcher_enabled};
+#[cfg(feature = "event-dispatcher")]
+use dispatcher::{dispatcher_changed, spawn_status_monitor};
+
 #[cfg(feature = "event-dispatcher")]
 mod network;
 
@@ -27,6 +32,8 @@ struct ApplicationServiceState {
     installed: bool,
     #[cfg(feature = "event-dispatcher")]
     dispatcher: Option<zero_connector::EventDispatcherHandle>,
+    #[cfg(feature = "event-dispatcher")]
+    continuation: Option<zero_connector::EventDispatcherContinuation>,
     #[cfg(feature = "event-dispatcher")]
     status_monitor: Option<tokio::task::JoinHandle<()>>,
     #[cfg(feature = "event-dispatcher")]
@@ -84,6 +91,8 @@ impl ApplicationServices {
                 installed: false,
                 #[cfg(feature = "event-dispatcher")]
                 dispatcher: None,
+                #[cfg(feature = "event-dispatcher")]
+                continuation: None,
                 #[cfg(feature = "event-dispatcher")]
                 status_monitor: None,
                 #[cfg(feature = "event-dispatcher")]
@@ -144,7 +153,7 @@ impl ApplicationServices {
             || !self.services_match_target(state, &target);
         #[cfg(feature = "event-dispatcher")]
         if rebuild_dispatcher {
-            self.stop_active_services(state).await;
+            self.stop_active_services(state).await?;
         }
         state.config = target.clone();
         state.installed = false;
@@ -177,6 +186,15 @@ impl ApplicationServices {
                     zero_connector::EventDispatcherOptions::default(),
                     self.event_network.clone(),
                 )
+            } else if let Some(continuation) = &state.continuation {
+                zero_connector::resume_event_dispatcher_with_network(
+                    self.engine.clone(),
+                    target.api.clone(),
+                    target.source_dir.clone(),
+                    zero_connector::EventDispatcherOptions::default(),
+                    self.event_network.clone(),
+                    continuation.clone(),
+                )
             } else {
                 zero_connector::spawn_event_dispatcher_with_network(
                     self.engine.clone(),
@@ -187,6 +205,9 @@ impl ApplicationServices {
                 )
             }
             .map_err(|error| error.to_string())?;
+            if state.dispatcher.is_some() {
+                state.continuation = None;
+            }
             if bootstrap_engine_started && state.dispatcher.is_some() {
                 state.engine_started_bootstrapped = true;
             }
@@ -213,16 +234,26 @@ impl ApplicationServices {
     }
 
     #[cfg(feature = "event-dispatcher")]
-    async fn stop_active_services(&self, _state: &mut ApplicationServiceState) {
+    async fn stop_active_services(
+        &self,
+        _state: &mut ApplicationServiceState,
+    ) -> Result<(), String> {
         #[cfg(feature = "event-dispatcher")]
         if let Some(monitor) = _state.status_monitor.take() {
             monitor.abort();
         }
         #[cfg(feature = "event-dispatcher")]
         if let Some(dispatcher) = _state.dispatcher.take() {
-            dispatcher.shutdown().await;
+            _state.installed = false;
+            _state.continuation = Some(
+                dispatcher
+                    .shutdown_for_reload()
+                    .await
+                    .map_err(|error| error.to_string())?,
+            );
         }
         self.engine.update_sink_status(Vec::new());
+        Ok(())
     }
 }
 
@@ -251,52 +282,6 @@ impl ConfigApplyReconciler for ApplicationServices {
         let mut state = self.state.lock().await;
         self.install_target(&mut state, target).await
     }
-}
-
-fn dispatcher_enabled(config: &RuntimeConfig) -> bool {
-    !config.api.event_sinks.is_empty()
-        || config.api.dead_letter_path.is_some()
-        || config.api.outbox_path.is_some()
-}
-
-fn changed_components(previous: &RuntimeConfig, target: &RuntimeConfig) -> Vec<String> {
-    let mut components = Vec::new();
-    if previous.api.hooks != target.api.hooks {
-        components.push("flow-hooks".to_owned());
-    }
-    if dispatcher_changed(previous, target) {
-        components.push("event-dispatcher".to_owned());
-    }
-    components
-}
-
-fn dispatcher_changed(previous: &RuntimeConfig, target: &RuntimeConfig) -> bool {
-    previous.api.event_sinks != target.api.event_sinks
-        || previous.api.dead_letter_path != target.api.dead_letter_path
-        || previous.api.outbox_path != target.api.outbox_path
-        || previous.api.dispatcher != target.api.dispatcher
-        || (previous.source_dir != target.source_dir
-            && (dispatcher_enabled(previous) || dispatcher_enabled(target)))
-}
-
-#[cfg(feature = "event-dispatcher")]
-fn spawn_status_monitor(
-    engine: Engine,
-    dispatcher: Option<&zero_connector::EventDispatcherHandle>,
-) -> tokio::task::JoinHandle<()> {
-    let dispatcher = dispatcher.map(zero_connector::EventDispatcherHandle::status_handle);
-
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-        loop {
-            interval.tick().await;
-            let mut status = Vec::new();
-            if let Some(dispatcher) = &dispatcher {
-                status.extend(dispatcher.sink_status());
-            }
-            engine.update_sink_status(status);
-        }
-    })
 }
 
 #[cfg(all(test, feature = "sink-jsonl"))]

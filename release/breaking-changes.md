@@ -1,5 +1,10 @@
 # 控制面兼容性与破坏性变更
 
+## Unreleased: Connector reload recovery and sample delivery
+
+- In-process dispatcher replacement retains an instance-qualified replay cursor and its bounded volatile delivery state. Missing retained history is reported through existing replay-gap status. This is not crash recovery without an outbox; receivers still deduplicate at-least-once delivery.
+- `flow.updated`, `stats.sampled`, `stats.scopes_sampled`, `stats.host_interfaces_sampled`, and `endpoint.stats_sampled` are best-effort samples. Replay retires samples persisted by older versions. Lifecycle facts, `stats.reset`, business usage and quota state are preserved.
+
 本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
 
 ## 消费者如何判断兼容性

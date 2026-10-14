@@ -17,6 +17,8 @@ use zero_connector::{
     EventDispatcherOptions, EventSinkTcpConnectFuture, EventSinkTcpDialer, EventSinkTcpStream,
 };
 
+#[path = "webhook_dispatcher/reload.rs"]
+mod reload;
 #[path = "webhook_dispatcher/shutdown.rs"]
 mod shutdown;
 

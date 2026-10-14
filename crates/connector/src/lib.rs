@@ -18,9 +18,11 @@ mod webhook;
 
 #[cfg(feature = "event-dispatcher")]
 pub use dispatcher::{
-    spawn_event_dispatcher, spawn_event_dispatcher_with_engine_started,
+    resume_event_dispatcher_with_network, spawn_event_dispatcher,
+    spawn_event_dispatcher_with_engine_started,
     spawn_event_dispatcher_with_engine_started_and_network, spawn_event_dispatcher_with_network,
-    EventDispatcherHandle, EventDispatcherOptions, EventDispatcherStatusHandle,
+    EventDispatcherContinuation, EventDispatcherHandle, EventDispatcherOptions,
+    EventDispatcherStatusHandle,
 };
 pub use error::{ConnectorError, ConnectorResult};
 #[cfg(feature = "event-dispatcher")]

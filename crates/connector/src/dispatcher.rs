@@ -18,8 +18,13 @@ use crate::network::EventDispatcherNetwork;
 use crate::registry::{build_event_sinks, resolve_path, ConfiguredEventSink};
 use crate::{ConnectorError, ConnectorResult};
 
+mod continuation;
 pub(crate) mod outbox;
+mod source;
 mod worker;
+pub use continuation::{resume_event_dispatcher_with_network, EventDispatcherContinuation};
+use continuation::{ContinuationState, ShutdownMode};
+use source::drain_event_source;
 
 use outbox::{DeliveryOutbox, OutboxDelivery};
 use worker::{SinkPublishResult, SinkWorker, SinkWorkerResult};
@@ -109,8 +114,8 @@ impl PerSinkStats {
 }
 
 pub struct EventDispatcherHandle {
-    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
-    task: JoinHandle<()>,
+    shutdown: Option<tokio::sync::oneshot::Sender<ShutdownMode>>,
+    task: JoinHandle<Option<EventDispatcherContinuation>>,
     /// Per-sink delivery stats shared with the dispatcher thread.
     sink_stats: Arc<Vec<(String, Arc<PerSinkStats>)>>,
 }
@@ -123,7 +128,7 @@ pub struct EventDispatcherStatusHandle {
 impl EventDispatcherHandle {
     pub async fn shutdown(mut self) {
         if let Some(shutdown) = self.shutdown.take() {
-            let _ = shutdown.send(());
+            let _ = shutdown.send(ShutdownMode::Drain);
         }
 
         let _ = self.task.await;
@@ -167,6 +172,7 @@ where
         options,
         EventDispatcherNetwork::system(),
         false,
+        None,
     )
 }
 
@@ -185,7 +191,7 @@ pub fn spawn_event_dispatcher_with_network<S>(
 where
     S: EventSource + Send + Sync + 'static,
 {
-    spawn_event_dispatcher_inner(source, api, source_dir, options, network, false)
+    spawn_event_dispatcher_inner(source, api, source_dir, options, network, false, None)
 }
 
 /// Start an event dispatcher and bootstrap the retained `engine.started`
@@ -211,6 +217,7 @@ where
         options,
         EventDispatcherNetwork::system(),
         true,
+        None,
     )
 }
 
@@ -226,9 +233,10 @@ pub fn spawn_event_dispatcher_with_engine_started_and_network<S>(
 where
     S: EventSource + Send + Sync + 'static,
 {
-    spawn_event_dispatcher_inner(source, api, source_dir, options, network, true)
+    spawn_event_dispatcher_inner(source, api, source_dir, options, network, true, None)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_event_dispatcher_inner<S>(
     source: S,
     api: ApiConfig,
@@ -236,6 +244,7 @@ fn spawn_event_dispatcher_inner<S>(
     options: EventDispatcherOptions,
     network: EventDispatcherNetwork,
     bootstrap_engine_started: bool,
+    continuation: Option<EventDispatcherContinuation>,
 ) -> ConnectorResult<Option<EventDispatcherHandle>>
 where
     S: EventSource + Send + Sync + 'static,
@@ -254,17 +263,30 @@ where
     let stats_for_thread = sink_stats.clone();
 
     let task = tokio::task::spawn_blocking(move || {
+        let core_instance_id = match source.since(0, 0, EventFilter::default()) {
+            Ok(replay) => replay.core_instance_id,
+            Err(error) => {
+                let _ = init_tx.send(Err(ConnectorError::Api(error)));
+                return None;
+            }
+        };
+        if let Some(state) = &continuation {
+            if let Err(error) = state.validate(&core_instance_id) {
+                let _ = init_tx.send(Err(error));
+                return None;
+            }
+        }
         let sinks = match build_event_sinks(&api, source_dir.as_deref(), &network) {
             Ok(sinks) => sinks,
             Err(error) => {
                 let _ = init_tx.send(Err(error));
-                return;
+                return None;
             }
         };
 
         if sinks.is_empty() && dead_letter_path.is_none() {
             let _ = init_tx.send(Ok(false));
-            return;
+            return None;
         }
 
         // Initialise per-sink stats with the constructed tags.
@@ -282,14 +304,14 @@ where
                     Ok(lease) => lease,
                     Err(error) => {
                         let _ = init_tx.send(Err(error));
-                        return;
+                        return None;
                     }
                 };
                 let sink = match DeadLetterSink::new(&path) {
                     Ok(sink) => sink,
                     Err(error) => {
                         let _ = init_tx.send(Err(error.into()));
-                        return;
+                        return None;
                     }
                 };
                 debug!(path = %path.display(), "dead-letter sink enabled");
@@ -309,7 +331,7 @@ where
                 Ok(outbox) => Some(outbox),
                 Err(error) => {
                     let _ = init_tx.send(Err(error));
-                    return;
+                    return None;
                 }
             },
             None => None,
@@ -322,19 +344,29 @@ where
                 Ok(recovered) => recovered,
                 Err(error) => {
                     let _ = init_tx.send(Err(error));
-                    return;
+                    return None;
                 }
             },
             None => Vec::new(),
         };
 
+        // Fallback for replacement before the bridge consumes its initial
+        // snapshot. Capture the boundary before subscribing so concurrent
+        // facts are replayable, rather than adopting the new snapshot watermark.
+        let startup_sequence = match source.latest(1, EventFilter::default()) {
+            Ok(events) => events.first().and_then(|event| event.sequence).unwrap_or(0),
+            Err(error) => {
+                let _ = init_tx.send(Err(ConnectorError::Api(error)));
+                return None;
+            }
+        };
         let subscriber = match source.subscribe(EventFilter::default()) {
             Ok(subscriber) => subscriber,
             Err(error) => {
                 let _ = init_tx.send(Err(ConnectorError::Config(format!(
                     "event dispatcher failed to subscribe to source: {error}"
                 ))));
-                return;
+                return None;
             }
         };
         let bootstrap_events = if bootstrap_engine_started {
@@ -348,7 +380,7 @@ where
                 Ok(events) => events,
                 Err(error) => {
                     let _ = init_tx.send(Err(ConnectorError::Api(error)));
-                    return;
+                    return None;
                 }
             }
         } else {
@@ -363,11 +395,18 @@ where
                 let _ = init_tx.send(Err(ConnectorError::Config(format!(
                     "failed to build connector dispatcher runtime: {error}"
                 ))));
-                return;
+                return None;
+            }
+        };
+        let continuation = match continuation.map(|state| state.take()).transpose() {
+            Ok(state) => state,
+            Err(error) => {
+                let _ = init_tx.send(Err(error));
+                return None;
             }
         };
         let _ = init_tx.send(Ok(true));
-        runtime.block_on(run_event_dispatcher(
+        Some(runtime.block_on(run_event_dispatcher(
             source,
             subscriber,
             bootstrap_events,
@@ -379,7 +418,10 @@ where
             &mut outbox,
             recovered,
             dispatcher_config,
-        ));
+            core_instance_id,
+            startup_sequence,
+            continuation,
+        )))
     });
 
     let init_result = init_rx
@@ -408,12 +450,16 @@ async fn run_event_dispatcher<S>(
     sinks: Vec<ConfiguredEventSink>,
     stats: &SharedSinkStats,
     options: EventDispatcherOptions,
-    mut shutdown: tokio::sync::oneshot::Receiver<()>,
+    mut shutdown: tokio::sync::oneshot::Receiver<ShutdownMode>,
     dead_letter: Option<DeadLetterSink>,
     outbox: &mut Option<DeliveryOutbox>,
     recovered: Vec<OutboxDelivery>,
     dispatcher_config: EventDispatcherConfig,
-) where
+    core_instance_id: String,
+    startup_sequence: u64,
+    continuation: Option<ContinuationState>,
+) -> EventDispatcherContinuation
+where
     S: EventSource + Send + Sync + 'static,
 {
     let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -457,6 +503,14 @@ async fn run_event_dispatcher<S>(
         .into_iter()
         .map(BlockedEvent::new)
         .collect::<VecDeque<_>>();
+    if let Some(mut state) = continuation {
+        last_sequence = state.last_sequence;
+        pending.append(&mut state.deliveries);
+        if let Some(mut blocked) = state.blocked {
+            blocked.persistence_retry_due = None;
+            blocked_events.push_front(blocked);
+        }
+    }
     let mut source_events = VecDeque::new();
     let mut completed_results = VecDeque::new();
     let mut source_closed = false;
@@ -467,6 +521,7 @@ async fn run_event_dispatcher<S>(
     };
 
     let mut shutting_down = false;
+    let mut handing_off = false;
     loop {
         drain_worker_results(
             &mut workers,
@@ -488,27 +543,29 @@ async fn run_event_dispatcher<S>(
                 dispatcher_config.max_in_memory_deliveries,
             );
         }
-        drain_event_source(
-            &source,
-            &mut source_rx,
-            &mut source_events,
-            &workers,
-            stats,
-            &mut pending,
-            outbox,
-            &mut last_sequence,
-            &mut blocked_events,
-            dispatcher_config,
-        );
-        submit_pending(
-            &mut workers,
-            stats,
-            &mut pending,
-            dead_letter.as_ref(),
-            outbox,
-            dispatcher_config,
-            !shutting_down,
-        );
+        if !handing_off {
+            drain_event_source(
+                &source,
+                &mut source_rx,
+                &mut source_events,
+                &workers,
+                stats,
+                &mut pending,
+                outbox,
+                &mut last_sequence,
+                &mut blocked_events,
+                dispatcher_config,
+            );
+            submit_pending(
+                &mut workers,
+                stats,
+                &mut pending,
+                dead_letter.as_ref(),
+                outbox,
+                dispatcher_config,
+                !shutting_down,
+            );
+        }
         refresh_pending_stats(stats, &pending, &workers, outbox.as_ref());
 
         if shutting_down {
@@ -516,27 +573,37 @@ async fn run_event_dispatcher<S>(
             let has_ready = pending
                 .iter()
                 .any(|delivery| !delivery.uses_outbox && delivery.next_due <= Instant::now());
-            if source_closed && !has_in_flight && !has_ready {
+            if source_closed
+                && !has_in_flight
+                && (handing_off || (!has_ready && (outbox.is_some() || blocked_events.is_empty())))
+            {
                 break;
             }
         }
 
-        let wait_interval = next_wait_interval(
-            &pending,
-            &workers,
-            &blocked_events,
-            options.poll_interval,
-            !shutting_down,
-        );
+        let wait_interval = if handing_off {
+            options.poll_interval
+        } else {
+            next_wait_interval(
+                &pending,
+                &workers,
+                &blocked_events,
+                options.poll_interval,
+                !shutting_down,
+            )
+        };
         tokio::select! {
             biased;
-            _ = &mut shutdown, if !shutting_down => {
+            mode = &mut shutdown, if !shutting_down => {
                 shutting_down = true;
+                handing_off = matches!(mode, Ok(ShutdownMode::Handoff));
                 source_cancelled.store(true, Ordering::Release);
                 for worker in &mut workers {
-                    worker.cancel_shutdown_in_flight(outbox.is_some());
+                    if let Some(delivery) = worker.cancel_shutdown_in_flight(outbox.is_some(), handing_off) {
+                        pending.push_back(delivery);
+                    }
                 }
-                while drain_event_source(
+                while !handing_off && drain_event_source(
                     &source,
                     &mut source_rx,
                     &mut source_events,
@@ -548,14 +615,14 @@ async fn run_event_dispatcher<S>(
                     &mut blocked_events,
                     dispatcher_config,
                 ) {}
-                if let Some(blocked) = blocked_events.front() {
+                if handing_off || (outbox.is_some() && !blocked_events.is_empty()) {
                     // Storage backpressure prevents draining the bounded
                     // bridge. Close it to release a source thread blocked in
                     // blocking_send; leave the unpersisted cursor unchanged.
                     source_rx.close();
                     source_closed = true;
                     warn!(
-                        event_id = %blocked.event.event_id,
+                        event_id = ?blocked_events.front().map(|blocked| &blocked.event.event_id),
                         deferred_events = blocked_events.len(),
                         "event dispatcher stopped with events that could not be persisted; the event cursor was not advanced"
                     );
@@ -592,136 +659,16 @@ async fn run_event_dispatcher<S>(
     refresh_pending_stats(stats, &pending, &workers, outbox.as_ref());
 
     debug!("event dispatcher stopped");
-}
-
-#[allow(clippy::too_many_arguments)]
-fn drain_event_source<S>(
-    source: &S,
-    source_rx: &mut tokio::sync::mpsc::Receiver<RawApiEvent>,
-    source_events: &mut VecDeque<RawApiEvent>,
-    workers: &[SinkWorker],
-    stats: &SharedSinkStats,
-    pending: &mut VecDeque<PendingDelivery>,
-    outbox: &mut Option<DeliveryOutbox>,
-    last_sequence: &mut Option<u64>,
-    blocked_events: &mut VecDeque<BlockedEvent>,
-    dispatcher_config: EventDispatcherConfig,
-) -> bool
-where
-    S: EventSource,
-{
-    let mut progressed = false;
-    while let Some(blocked) = blocked_events.front_mut() {
-        if blocked
-            .persistence_retry_due
-            .is_some_and(|due| due > Instant::now())
-        {
-            return false;
-        }
-        if let Some(sequence) = blocked.event.sequence {
-            if last_sequence.is_some_and(|last| sequence <= last) {
-                blocked_events.pop_front();
-                continue;
-            }
-        }
-        if blocked.event.event_type != event_type::FLOW_SNAPSHOT
-            && !dispatch_event(workers, stats, pending, blocked, outbox, dispatcher_config)
-        {
-            return false;
-        }
-        if let Some(sequence) = blocked.event.sequence {
-            *last_sequence = Some(sequence);
-        }
-        blocked_events.pop_front();
-        progressed = true;
-    }
-
-    let mut events = Vec::new();
-    while events.len() < dispatcher_config.replay_batch_size {
-        let Some(event) = source_events.pop_front() else {
-            break;
-        };
-        events.push(event);
-    }
-    while events.len() < dispatcher_config.replay_batch_size {
-        match source_rx.try_recv() {
-            Ok(event) => events.push(event),
-            Err(_) => break,
-        }
-    }
-
-    let replay_room = dispatcher_config
-        .replay_batch_size
-        .saturating_sub(events.len());
-    if let Some(sequence) = (*last_sequence).filter(|_| replay_room > 0) {
-        match source.since(sequence, replay_room, EventFilter::default()) {
-            Ok(replay) => {
-                if replay.has_gap {
-                    let message = format!(
-                        "event replay gap after sequence {}; retained events start at {}",
-                        replay.requested_after, replay.actual_from
-                    );
-                    record_dispatcher_replay_gap(stats, &message);
-                    warn!(
-                        requested_after = replay.requested_after,
-                        actual_from = replay.actual_from,
-                        "event dispatcher replay gap detected; older sink deliveries require reconciliation"
-                    );
-                    *last_sequence = Some(replay.actual_from.saturating_sub(1));
-                }
-                events.extend(replay.events);
-            }
-            Err(error) => {
-                record_dispatcher_failure(stats, &error.to_string());
-                warn!(%error, "failed to replay dispatcher events");
-            }
-        }
-    }
-
-    if events.is_empty() {
-        return progressed;
-    }
-    events.sort_by_key(|event| event.sequence.unwrap_or(u64::MAX));
-    let mut events = events.into_iter();
-    while let Some(event) = events.next() {
-        if let Some(sequence) = event.sequence {
-            if last_sequence.is_some_and(|last| sequence <= last) {
-                continue;
-            }
-            if last_sequence.is_some_and(|last| sequence > last.saturating_add(1)) {
-                // Keep the cursor before the missing range. The popped live
-                // event remains in the engine log and will be replayed after
-                // the missing range on the next pass.
-                break;
-            }
-        }
-
-        // `flow.snapshot` is a synchronization baseline for live clients.
-        // Persistent sinks consume lifecycle facts only and must not bill or
-        // audit the same active flow again whenever a dispatcher starts.
-        if event.event_type != event_type::FLOW_SNAPSHOT {
-            let mut blocked = BlockedEvent::new(event);
-            if !dispatch_event(
-                workers,
-                stats,
-                pending,
-                &mut blocked,
-                outbox,
-                dispatcher_config,
-            ) {
-                blocked_events.push_back(blocked);
-                blocked_events.extend(events.map(BlockedEvent::new));
-                return progressed;
-            }
-            if let Some(sequence) = blocked.event.sequence {
-                *last_sequence = Some(sequence);
-            }
-        } else if let Some(sequence) = event.sequence {
-            *last_sequence = Some(sequence);
-        }
-        progressed = true;
-    }
-    progressed
+    EventDispatcherContinuation::new(ContinuationState {
+        core_instance_id,
+        last_sequence: last_sequence.or(Some(startup_sequence)),
+        blocked: blocked_events.pop_front(),
+        deliveries: pending
+            .into_iter()
+            .filter(|delivery| !delivery.uses_outbox)
+            .filter(|delivery| !is_discardable_sample(&delivery.event))
+            .collect(),
+    })
 }
 
 fn refresh_pending_stats(
@@ -908,10 +855,14 @@ fn dispatch_event(
     true
 }
 
-fn is_discardable_sample(event: &RawApiEvent) -> bool {
+fn is_discardable_sample<P>(event: &zero_api::ApiEvent<P>) -> bool {
     matches!(
         event.event_type.as_str(),
-        event_type::FLOW_UPDATED | event_type::STATS_SAMPLED
+        event_type::FLOW_UPDATED
+            | event_type::STATS_SAMPLED
+            | event_type::STATS_SCOPES_SAMPLED
+            | event_type::STATS_HOST_INTERFACES_SAMPLED
+            | event_type::ENDPOINT_STATS_SAMPLED
     )
 }
 

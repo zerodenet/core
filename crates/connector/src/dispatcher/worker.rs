@@ -110,21 +110,29 @@ impl SinkWorker {
         }
     }
 
-    /// Cancel durable deliveries and samples when lifecycle facts have an
-    /// outbox recovery path. Without an outbox, keep the worker alive so
-    /// queued non-durable lifecycle facts can still finish gracefully.
-    pub(super) fn cancel_shutdown_in_flight(&mut self, has_outbox: bool) {
+    /// Normal shutdown cancels recoverable deliveries and samples. Reload
+    /// also cancels volatile requests, returning their existing identity and
+    /// retry state to the bounded in-process continuation.
+    pub(super) fn cancel_shutdown_in_flight(
+        &mut self,
+        has_outbox: bool,
+        handing_off: bool,
+    ) -> Option<super::PendingDelivery> {
         if !self.supports_cancellation
             || !self.in_flight.as_ref().is_some_and(|delivery| {
-                delivery.uses_outbox || (has_outbox && is_discardable_sample(&delivery.event))
+                handing_off
+                    || delivery.uses_outbox
+                    || (has_outbox && is_discardable_sample(&delivery.event))
             })
         {
-            return;
+            return None;
         }
         self.sender.take();
         if let Some(task) = self.task.take() {
             task.abort();
         }
-        self.in_flight.take();
+        self.in_flight
+            .take()
+            .filter(|delivery| !delivery.uses_outbox && !is_discardable_sample(&delivery.event))
     }
 }

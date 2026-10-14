@@ -72,7 +72,14 @@ fn scan(path: &Path, file: &mut File) -> ConnectorResult<Replay> {
             records += 1;
             match record {
                 JournalRecord::Put { delivery } => {
-                    pending.insert(delivery.key(), offset);
+                    // Older versions persisted newer sample event types.
+                    // Samples have query-based recovery, not a durable fact
+                    // obligation. Retire them without dropping lifecycle facts.
+                    if super::super::is_discardable_sample(&delivery.event) {
+                        pending.remove(&delivery.key());
+                    } else {
+                        pending.insert(delivery.key(), offset);
+                    }
                 }
                 JournalRecord::Ack { sink_tag, event_id } => {
                     pending.remove(&(sink_tag, event_id));

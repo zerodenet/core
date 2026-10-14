@@ -5,6 +5,17 @@ use zero_api::ApiEvent;
 mod large;
 mod validation;
 
+#[test]
+fn every_declared_sample_event_has_best_effort_delivery() {
+    for kind in zero_api::event_type::ALL {
+        if kind.ends_with(".sampled") || kind.ends_with("_sampled") {
+            let mut value = delivery(kind, 0);
+            value.event.event_type = (*kind).into();
+            assert!(super::super::is_discardable_sample(&value.event), "{kind}");
+        }
+    }
+}
+
 fn delivery(id: &str, attempts: u32) -> OutboxDelivery {
     OutboxDelivery {
         sink_tag: "receiver".into(),
@@ -187,4 +198,41 @@ fn compaction_never_discards_distinct_unacknowledged_events() {
         1100
     );
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn replay_retires_old_persisted_samples_and_preserves_lifecycle_facts() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("old-samples.jsonl");
+    let kinds = [
+        zero_api::event_type::FLOW_UPDATED,
+        zero_api::event_type::STATS_SAMPLED,
+        zero_api::event_type::STATS_SCOPES_SAMPLED,
+        zero_api::event_type::STATS_HOST_INTERFACES_SAMPLED,
+        zero_api::event_type::ENDPOINT_STATS_SAMPLED,
+        zero_api::event_type::STATS_RESET,
+        zero_api::event_type::FLOW_COMPLETED,
+        zero_api::event_type::ENDPOINT_STATE_CHANGED,
+    ];
+    let mut bytes = Vec::new();
+    for kind in kinds {
+        let mut value = delivery(kind, 2);
+        value.event.event_type = kind.into();
+        bytes.extend(
+            serde_json::to_vec(&JournalRecord::Put {
+                delivery: Box::new(value),
+            })
+            .unwrap(),
+        );
+        bytes.push(b'\n');
+    }
+    std::fs::write(&path, &bytes).unwrap();
+    assert_eq!(inspect_path(&path).unwrap().pending, 3);
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    let outbox = DeliveryOutbox::open(path.to_str().unwrap(), None, 0, 0).unwrap();
+    let pending = outbox.load_pending_excluding(&HashSet::new(), 10).unwrap();
+    assert_eq!(pending.len(), 3);
+    for kind in &kinds[5..] {
+        assert!(pending.iter().any(|value| value.event.event_type == *kind));
+    }
 }
