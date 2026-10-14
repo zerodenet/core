@@ -7,7 +7,7 @@
 
 use std::io;
 use std::net::IpAddr;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -27,7 +27,7 @@ const UTUN_OPT_IFNAME: libc::c_int = 2;
 /// A macOS utun device backed by an `AsyncFd`.
 pub struct Utun {
     name: String,
-    fd: AsyncFd<RawFd>,
+    fd: AsyncFd<OwnedFd>,
     read_buffer: Vec<u8>,
     read_start: usize,
     read_end: usize,
@@ -46,9 +46,9 @@ impl Utun {
             crate::macos_privilege::request_utun(name)?
         };
 
-        let name = interface_name(sock).inspect_err(|_| unsafe {
-            libc::close(sock);
-        })?;
+        // SAFETY: create_raw_utun/request_utun transfers one owned descriptor.
+        let socket = unsafe { OwnedFd::from_raw_fd(sock) };
+        let name = interface_name(socket.as_raw_fd())?;
 
         // Set non-blocking
         unsafe {
@@ -58,10 +58,9 @@ impl Utun {
             }
         }
 
-        let fd = AsyncFd::new(sock).inspect_err(|_| {
-            // SAFETY: the raw socket has not yet been transferred into Utun.
-            unsafe { libc::close(sock) };
-        })?;
+        // SAFETY: OwnedFd keeps the descriptor stable and closes it only after
+        // AsyncFd deregisters it; construction errors also retain ownership.
+        let fd = unsafe { AsyncFd::register(socket) }?;
         Ok(Self {
             name,
             fd,
@@ -175,13 +174,7 @@ fn find_utun_control() -> io::Result<u32> {
 
 impl AsRawFd for Utun {
     fn as_raw_fd(&self) -> RawFd {
-        *self.fd.get_ref()
-    }
-}
-
-impl Drop for Utun {
-    fn drop(&mut self) {
-        unsafe { libc::close(*self.fd.get_ref()) };
+        self.fd.get_ref().as_raw_fd()
     }
 }
 
@@ -273,7 +266,7 @@ impl AsyncRead for Utun {
             match guard.try_io(|inner| {
                 let ret = unsafe {
                     libc::read(
-                        *inner.get_ref(),
+                        inner.get_ref().as_raw_fd(),
                         packet_ptr as *mut libc::c_void,
                         packet_capacity,
                     )
@@ -333,7 +326,7 @@ impl AsyncWrite for Utun {
             match guard.try_io(|inner| {
                 let ret = unsafe {
                     libc::write(
-                        *inner.get_ref(),
+                        inner.get_ref().as_raw_fd(),
                         framed.as_ptr() as *const libc::c_void,
                         framed.len(),
                     )
