@@ -41,7 +41,10 @@ impl RouteChangeMonitor {
         if result != 0 {
             return Err(io::Error::last_os_error());
         }
-        AsyncFd::new(socket).map(|socket| Self { socket })
+        // SAFETY: the owned File keeps its descriptor open until deregistration.
+        unsafe { AsyncFd::register(socket) }
+            .map(|socket| Self { socket })
+            .map_err(Into::into)
     }
 
     pub(super) async fn changed(&mut self) -> io::Result<()> {

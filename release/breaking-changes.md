@@ -2,6 +2,8 @@
 
 ## Unreleased: Connector reload recovery and sample delivery
 
+- Tokio 最低版本声明为 1.53.3，Unix TUN 与路由监测使用对应的注册接口，保持描述符直到注销后再关闭；macOS 接收宿主描述符时继续保留其拥有关系。V1 配置、控制面及 TUN 路由语义不变。
+
 - In-process dispatcher replacement retains an instance-qualified replay cursor and its bounded volatile delivery state. Missing retained history is reported through existing replay-gap status. This is not crash recovery without an outbox; receivers still deduplicate at-least-once delivery.
 - `flow.updated`, `stats.sampled`, `stats.scopes_sampled`, `stats.host_interfaces_sampled`, and `endpoint.stats_sampled` are best-effort samples. Replay retires samples persisted by older versions. Lifecycle facts, `stats.reset`, business usage and quota state are preserved.
 
