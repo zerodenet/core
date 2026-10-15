@@ -9,7 +9,7 @@ homepage.workspace = true
 
 [features]
 default = []
-event-dispatcher = []
+event-dispatcher = ["dep:rusqlite"]
 sink-jsonl = ["event-dispatcher"]
 webhook = [
     "event-dispatcher",
@@ -34,6 +34,7 @@ hyper = { version = "1", default-features = false, features = ["client", "http1"
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "ring", "tls12"], optional = true }
 hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "http1", "tokio"], optional = true }
 rustls = { workspace = true, optional = true }
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "cache"], optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

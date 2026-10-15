@@ -6,12 +6,12 @@ use serde::de::IgnoredAny;
 use zero_api::{OutboxRecoveryState, OutboxRecoveryStatus};
 
 use super::recovery::preserve_journal;
-use super::{JournalRecord, OutboxInspection, PendingDeliveries};
+use super::{JournalRecord, OutboxInspection, PendingIndex};
 use crate::jsonl::{has_complete_frame, read_record, Snapshot, BUFFER_BYTES};
 use crate::{ConnectorError, ConnectorResult};
 
 struct Replay {
-    pending: PendingDeliveries,
+    pending: PendingIndex,
     records: usize,
     bytes: u64,
     valid_bytes: u64,
@@ -33,7 +33,8 @@ fn scan(path: &Path, file: &mut File) -> ConnectorResult<Replay> {
     // Bound the view to the open inode's initial length. A live writer can
     // append or atomically compact without making inspection chase its tail.
     let mut reader = BufReader::with_capacity(BUFFER_BYTES, Snapshot::new(file, bytes));
-    let mut pending = PendingDeliveries::new();
+    let mut pending = PendingIndex::new(path)?;
+    pending.begin_batch()?;
     let mut records = 0;
     let mut offset = 0;
     let mut valid_bytes = 0;
@@ -72,15 +73,19 @@ fn scan(path: &Path, file: &mut File) -> ConnectorResult<Replay> {
             records += 1;
             match record {
                 JournalRecord::Put { delivery } => {
-                    pending.insert(delivery.key(), offset);
+                    // Admission policy applies to new samples only. A record
+                    // already accepted by the durable journal keeps its ACK
+                    // obligation across upgrades, regardless of event type.
+                    pending.insert(&delivery.sink_tag, &delivery.event.event_id, offset)?;
                 }
                 JournalRecord::Ack { sink_tag, event_id } => {
-                    pending.remove(&(sink_tag, event_id));
+                    pending.remove(&sink_tag, &event_id)?;
                 }
             }
         }
         offset = next_offset;
     }
+    pending.finish_batch()?;
     Ok(Replay {
         pending,
         records,
@@ -92,7 +97,7 @@ fn scan(path: &Path, file: &mut File) -> ConnectorResult<Replay> {
 pub(super) fn read_pending(
     path: &Path,
     file: &mut File,
-) -> ConnectorResult<(PendingDeliveries, usize, Option<OutboxRecoveryStatus>)> {
+) -> ConnectorResult<(PendingIndex, usize, Option<OutboxRecoveryStatus>)> {
     let replay = scan(path, file)?;
     let recovery = if replay.valid_bytes < replay.bytes {
         let preserved_path = preserve_journal(path, file, replay.bytes)?;

@@ -1,5 +1,9 @@
 //! Engine event history, replay, subscription, and event projection.
 
+#[cfg(test)]
+#[path = "../../tests/event_identity/mod.rs"]
+mod identity_tests;
+
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc::SyncSender, mpsc::TrySendError, Arc, Mutex};
@@ -28,6 +32,7 @@ pub struct EngineEventLog {
     core_instance_id: String,
     config_revision: Arc<AtomicU64>,
     next_sequence: AtomicU64,
+    next_identity: AtomicU64,
     inner: Mutex<VecDeque<RawApiEvent>>,
     subscribers: Mutex<Vec<SyncSender<RawApiEvent>>>,
 }
@@ -47,6 +52,7 @@ impl EngineEventLog {
             core_instance_id: format!("{event_epoch:032x}"),
             config_revision: Arc::new(AtomicU64::new(1)),
             next_sequence: AtomicU64::new(1),
+            next_identity: AtomicU64::new(1),
             inner: Mutex::new(VecDeque::with_capacity(capacity)),
             subscribers: Mutex::new(Vec::new()),
         }
@@ -511,7 +517,9 @@ impl EngineEventLog {
     }
 
     fn qualify_generated(&self, mut event: RawApiEvent) -> RawApiEvent {
-        event.event_id = format!("{:032x}:{}", self.event_epoch, event.event_id);
+        // Allocate opaque identity independently of the publication sequence.
+        let identity = self.next_identity.fetch_add(1, Ordering::Relaxed);
+        event.event_id = format!("{:032x}:{}:{identity}", self.event_epoch, event.event_id);
         self.qualify_metadata(&mut event);
         event
     }
