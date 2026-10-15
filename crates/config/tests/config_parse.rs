@@ -1255,6 +1255,8 @@ fn parses_api_event_sinks_and_control_config() {
                 "dispatcher": {
                     "max_in_memory_deliveries": 128,
                     "replay_batch_size": 256,
+                    "source_queue_max_bytes": 1048576,
+                    "max_in_memory_delivery_bytes": 2097152,
                     "max_retry_attempts": 5,
                     "retry_initial_delay_ms": 250,
                     "retry_max_delay_ms": 8000,
@@ -1296,6 +1298,8 @@ fn parses_api_event_sinks_and_control_config() {
     assert!(config.api.control.enabled);
     assert_eq!(config.api.dispatcher.max_in_memory_deliveries, 128);
     assert_eq!(config.api.dispatcher.replay_batch_size, 256);
+    assert_eq!(config.api.dispatcher.source_queue_max_bytes, 1048576);
+    assert_eq!(config.api.dispatcher.max_in_memory_delivery_bytes, 2097152);
     assert_eq!(config.api.dispatcher.max_retry_attempts, 5);
     assert_eq!(config.api.dispatcher.retry_initial_delay_ms, 250);
     assert_eq!(config.api.dispatcher.retry_max_delay_ms, 8_000);
@@ -1452,6 +1456,11 @@ fn native_grpc_tls_rejects_insecure_remote_override() {
 #[test]
 fn outbox_disk_reserve_requires_safe_non_zero_values() {
     for (field, value) in [
+        ("max_in_memory_delivery_bytes", serde_json::json!(0)),
+        ("max_in_memory_delivery_bytes", serde_json::json!(268435457)),
+        ("source_queue_max_bytes", serde_json::json!(0)),
+        ("source_queue_max_bytes", serde_json::json!(268435457)),
+        ("replay_batch_size", serde_json::json!(536870912)),
         ("outbox_min_free_bytes", serde_json::json!(0)),
         ("outbox_min_free_percent", serde_json::json!(0)),
         ("outbox_min_free_percent", serde_json::json!(51)),

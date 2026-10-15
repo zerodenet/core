@@ -104,7 +104,7 @@ impl WebhookEventSink {
     }
 
     fn request(&self, event: &RawApiEvent) -> Result<Request<Full<Bytes>>, String> {
-        let body = serde_json::to_vec(event)
+        let body = crate::encoding::to_vec(event)
             .map_err(|error| format!("serialize webhook event: {error}"))?;
         let mut request = Request::builder()
             .method(Method::POST)
@@ -119,7 +119,7 @@ impl WebhookEventSink {
 
 #[async_trait]
 impl AsyncDeliverySink for WebhookEventSink {
-    async fn publish(&self, event: RawApiEvent) -> ApiResult<PublishResult> {
+    async fn publish(&self, event: Arc<RawApiEvent>) -> ApiResult<PublishResult> {
         let request = match self.request(&event) {
             Ok(request) => request,
             Err(error) => return Ok(request_failure(error)),

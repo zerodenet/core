@@ -46,7 +46,7 @@ Dispatcher actor 在 Connector 自己的专用执行线程上独占事件游标�
 
 `sinks.get` 的每个 `SinkStatus` 保留兼容的总 `pending` 计数，并通过可选 `delivery` 对象公开调度器当前生命周期：`in_flight`、`retry_pending`、`ack_retry_pending`、`durable_pending` 和 `next_retry_at_unix_ms`。这些状态彼此独立；例如一个 sink 可以同时有一条在途请求和多条持久 backlog。磁盘保留空间阻塞继续由 `outbox_storage.write_blocked` 表达，历史恢复和事件缺口分别由 `outbox_recovery` 与 `replay_gaps` 表达。旧内核没有 `delivery` 时，消费者必须按未知状态处理，不能根据 `pending` 猜测是在途还是重试。
 
-`zero-api::EventSink` 保持同步、运行时中立，用于内核内的持久化钩子和通用文件 sink；Connector 在自身边界内把它适配到异步投递能力，不把 Tokio 或 HTTP 类型引入 Engine。配置重载或关闭时，已经写入 outbox 的在途 Webhook 可以取消并由下一次 Dispatcher 启动恢复；没有 outbox 的事实投递仍执行 graceful flush，不能以取消为由静默丢弃。
+`zero-api::EventSink` 保持同步、运行时中立，用于内核内的持久化钩子和通用文件 sink；Connector 在自身边界内把它适配到异步投递能力，不把 Tokio 或 HTTP 类型引入 Engine。正常关闭时，已写入 outbox 的在途 Webhook 可取消并由下一次 Dispatcher 恢复；没有 outbox 的事实投递执行 graceful flush。进程内重载使用实例校验的 continuation 交接既有游标和有界易失事实，允许取消后按原事件身份恢复；替换失败保留 continuation，不把它当作跨进程持久化。
 
 Webhook 的 TCP 建连通过 Connector 定义的窄网络边界执行，Zero application 注入与 Proxy、DNS 共用的物理出口权威。每次新连接都会按解析候选的地址族读取最新出口 generation；TUN 活跃但对应地址族没有可信物理出口时必须失败关闭，不能退回默认 socket 重新进入 TUN。独立嵌入 Connector 且不运行 Zero TUN 时可以显式选择系统网络。HTTPS 默认验证公开根证书信任集；`allow_insecure` 只作为显式关闭证书验证的部署选项。
 
@@ -79,3 +79,12 @@ Zero 不得在 Connector 中：
 ## 生产资格验证
 
 `.github/workflows/connector-qualification.yml` 在 Connector、API 或相关配置边界变化时运行两项 Linux 门禁：接收端离线后恢复并完整清空 10,000 条持久 backlog；25,000 条事件跨 5 次 Dispatcher 重启并持续至少 60 秒，验证没有丢失或已 ACK 事件重投。普通测试中的 stalled-webhook 用例使用可计数事件源约束调度器唤醒/回放次数，避免用 CI 主机瞬时 CPU 百分比作为唯一判据。事件规模按同步持久化路径的实测吞吐设置，确保每次相关 PR 都能执行而不是依赖偶发的超长人工任务。
+
+## 内存、积压与恢复边界（v0.0.2-rc 回移）
+
+- 接收桥同时受 `replay_batch_size` 和 `source_queue_max_bytes`（默认 8 MiB）限制；排队、重试、ACK 重试与在途投递共享 `max_in_memory_delivery_bytes`（默认 16 MiB）和既有条数限制。字节配置有效范围为 1..=256 MiB。超大单条可独占进入；降低重载预算不会删除已有事实。字节记账是序列化计费量，不是 RSS 上限。
+- `sinks.source_buffer` 与 `sinks.delivery_buffer` 是共享 Dispatcher 的可选观测，不能跨 sink 相加。事件本体以不可变共享所有权交接；不同 `source_id` 仍保留一个当前预备副本。JSONL 流式写入，显式 flush 失败不会报告成功。
+- JSONL 是唯一持久投递／ACK 依据，待确认身份、偏移和通道计数保存在可重建的私有磁盘索引。可选 event-dispatcher 功能引入 bundled SQLite，每连接目标页缓存 256 KiB、禁用 mmap、允许 spill；恢复与压缩每 128 条 journal 操作分批提交，不在堆上保留或复制全量索引。压缩逐条原样保留最新未确认记录。
+- 索引使用操作系统临时目录；内存敏感部署应将 TMPDIR 等临时目录放在磁盘文件系统上，tmpfs 仍计入系统／容器内存。真实积压、临时索引和压缩文件需要磁盘容量；正常关闭删除临时索引，异常退出遗留可按 OS 临时文件策略清理。预检也需要临时空间，但不修改被检查的 journal。
+- 索引失败与 JSONL 损坏分开报告；已落盘后索引更新失败会拒绝旧偏移及旧计数投影，下一次持久化／ACK 重试先重建。索引不会因错误而删除未确认事件，也不会伪造 ACK。压缩不能删除真实积压，启动扫描时间仍随历史增长。
+- 新采样不持久积压，旧版本已持久化采样仍保留至确认。生命周期事实、Engine 累计计量、用量和配额保持既有口径；回放窗口外的事件明细可能需要外部对账。至少一次投递要求接收端按不透明事件 ID 去重，不保证跨崩溃的计费持久化。main 不因此新增 WireGuard、端点控制或 develop 的统计查询 API。

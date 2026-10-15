@@ -20,11 +20,22 @@ pub(crate) struct ConfiguredEventSink {
 }
 
 impl ConfiguredEventSink {
+    #[cfg(test)]
+    pub(crate) fn for_test(sink: Arc<dyn AsyncDeliverySink>, source_id: Option<String>) -> Self {
+        Self {
+            tag: "receiver".into(),
+            event_types: Vec::new(),
+            source_id,
+            sink,
+            _persistent_lease: None,
+        }
+    }
+
     pub(crate) async fn publish_prepared(
         &self,
-        event: &zero_api::RawApiEvent,
+        event: Arc<zero_api::RawApiEvent>,
     ) -> zero_api::ApiResult<zero_api::PublishResult> {
-        self.sink.publish(event.clone()).await
+        self.sink.publish(event).await
     }
 
     pub(crate) fn supports_cancellation(&self) -> bool {
@@ -42,7 +53,7 @@ impl ConfiguredEventSink {
 pub(crate) trait AsyncDeliverySink: Send + Sync {
     async fn publish(
         &self,
-        event: zero_api::RawApiEvent,
+        event: Arc<zero_api::RawApiEvent>,
     ) -> zero_api::ApiResult<zero_api::PublishResult>;
 
     fn supports_cancellation(&self) -> bool {
@@ -60,7 +71,7 @@ struct BlockingEventSink {
 impl AsyncDeliverySink for BlockingEventSink {
     async fn publish(
         &self,
-        event: zero_api::RawApiEvent,
+        event: Arc<zero_api::RawApiEvent>,
     ) -> zero_api::ApiResult<zero_api::PublishResult> {
         let sink = self.sink.clone();
         tokio::task::spawn_blocking(move || sink.publish(&event))

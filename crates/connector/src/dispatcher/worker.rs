@@ -1,9 +1,10 @@
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use zero_api::RawApiEvent;
 
-use super::{outbox, PendingDelivery};
+use super::{is_discardable_sample, outbox, PendingDelivery};
 use crate::registry::ConfiguredEventSink;
 
 pub(super) type SinkPublishResult = Result<zero_api::PublishResult, zero_api::ApiError>;
@@ -18,7 +19,7 @@ pub(super) struct SinkWorker {
     pub(super) tag: String,
     event_types: Vec<String>,
     source_id: Option<String>,
-    sender: Option<mpsc::Sender<RawApiEvent>>,
+    sender: Option<mpsc::Sender<Arc<RawApiEvent>>>,
     task: Option<JoinHandle<()>>,
     supports_cancellation: bool,
     pub(super) in_flight: Option<PendingDelivery>,
@@ -34,11 +35,11 @@ impl SinkWorker {
         let source_id = sink.source_id.clone();
         let supports_cancellation = sink.supports_cancellation();
         let worker_tag = tag.clone();
-        let (sender, mut receiver) = mpsc::channel::<RawApiEvent>(1);
+        let (sender, mut receiver) = mpsc::channel::<Arc<RawApiEvent>>(1);
         let task = tokio::spawn(async move {
             while let Some(event) = receiver.recv().await {
                 let event_id = event.event_id.clone();
-                let result = sink.publish_prepared(&event).await;
+                let result = sink.publish_prepared(event).await;
                 if result_tx
                     .send(SinkWorkerResult {
                         sink_tag: worker_tag.clone(),
@@ -70,12 +71,15 @@ impl SinkWorker {
                 .any(|event_type| event_type == &event.event_type)
     }
 
-    pub(super) fn prepare_event(&self, event: &RawApiEvent) -> RawApiEvent {
-        let mut event = event.clone();
+    pub(super) fn prepare_event(&self, event: &Arc<RawApiEvent>) -> Arc<RawApiEvent> {
+        if self.source_id.is_none() || self.source_id == event.source_id {
+            return event.clone();
+        }
+        let mut event = (**event).clone();
         if let Some(source_id) = &self.source_id {
             event.source_id = Some(source_id.clone());
         }
-        event
+        Arc::new(event)
     }
 
     pub(super) fn try_submit(&mut self, delivery: PendingDelivery) -> Option<PendingDelivery> {
@@ -110,22 +114,29 @@ impl SinkWorker {
         }
     }
 
-    /// Cancel an in-flight delivery only when the outbox already owns a
-    /// durable copy. Non-durable deliveries must be allowed to finish during
-    /// graceful shutdown.
-    pub(super) fn cancel_durable_in_flight(&mut self) {
+    /// Normal shutdown cancels recoverable deliveries and samples. Reload
+    /// also cancels volatile requests, returning their existing identity and
+    /// retry state to the bounded in-process continuation.
+    pub(super) fn cancel_shutdown_in_flight(
+        &mut self,
+        has_outbox: bool,
+        handing_off: bool,
+    ) -> Option<super::PendingDelivery> {
         if !self.supports_cancellation
-            || !self
-                .in_flight
-                .as_ref()
-                .is_some_and(|delivery| delivery.uses_outbox)
+            || !self.in_flight.as_ref().is_some_and(|delivery| {
+                handing_off
+                    || delivery.uses_outbox
+                    || (has_outbox && is_discardable_sample(&delivery.event))
+            })
         {
-            return;
+            return None;
         }
         self.sender.take();
         if let Some(task) = self.task.take() {
             task.abort();
         }
-        self.in_flight.take();
+        self.in_flight
+            .take()
+            .filter(|delivery| !delivery.uses_outbox && !is_discardable_sample(&delivery.event))
     }
 }
