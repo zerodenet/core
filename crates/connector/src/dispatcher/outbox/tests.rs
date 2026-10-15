@@ -3,6 +3,7 @@ use crate::{inspect_persistent_state, ConnectorStateStatus};
 use std::collections::VecDeque;
 use zero_api::ApiEvent;
 
+mod index_recovery;
 mod large;
 mod paging;
 mod validation;
@@ -78,7 +79,7 @@ fn retries_compact_without_ack_or_restart_and_preserve_latest_pending_deliveries
         outbox.journal_records < 1024,
         "PUT-only retries must trigger compaction"
     );
-    assert_eq!(outbox.pending_counts()["receiver"], 2);
+    assert_eq!(outbox.pending_counts().unwrap()["receiver"], 2);
     let pending = outbox.load_pending_excluding(&HashSet::new(), 8).unwrap();
     assert_eq!(pending.len(), 2);
     assert_eq!(
@@ -112,7 +113,7 @@ fn retries_compact_without_ack_or_restart_and_preserve_latest_pending_deliveries
         2
     );
     reopened.ack("receiver", "retried").unwrap();
-    assert_eq!(reopened.pending_counts()["receiver"], 1);
+    assert_eq!(reopened.pending_counts().unwrap()["receiver"], 1);
 }
 
 #[test]
@@ -215,7 +216,7 @@ fn compaction_never_discards_distinct_unacknowledged_events() {
     }
     std::fs::write(&path, &bytes).unwrap();
     let outbox = DeliveryOutbox::open(path.to_str().unwrap(), None, 0, 0).unwrap();
-    assert_eq!(outbox.pending_counts()["receiver"], 1100);
+    assert_eq!(outbox.pending_counts().unwrap()["receiver"], 1100);
     assert_eq!(
         outbox
             .load_pending_excluding(&HashSet::new(), 1101)

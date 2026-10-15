@@ -96,7 +96,7 @@ fn verify(dir: &Path) {
         std::fs::metadata(recovery.preserved_path).unwrap().len(),
         length
     );
-    assert_eq!(outbox.pending_counts()["receiver"], 1);
+    assert_eq!(outbox.pending_counts().unwrap()["receiver"], 1);
     assert_eq!(outbox.journal_records, 1);
     // Compaction must retain the large unacknowledged payload, not shrink it
     // by dropping or replacing the event with its header.
@@ -125,8 +125,8 @@ fn verify(dir: &Path) {
             .parse::<usize>()
             .unwrap();
         assert!(
-            // The 350,000 genuine pending keys remain resident. Memory is
-            // bounded by their metadata, rather than the >512 MiB journal.
+            // Genuine pending keys spill to the derived disk index. Payloads
+            // and full in-memory key maps must not scale with the journal.
             peak_kib < 96 * 1024,
             "streaming scan peak RSS: {peak_kib} KiB"
         );

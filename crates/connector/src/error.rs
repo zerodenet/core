@@ -25,6 +25,8 @@ pub enum ConnectorError {
     },
     #[error("invalid delivery outbox journal at `{path}`: {message}")]
     InvalidOutbox { path: String, message: String },
+    #[error("delivery outbox index unavailable for `{path}`: {message}")]
+    OutboxIndex { path: String, message: String },
     #[error(
         "delivery outbox at `{path}` paused to preserve disk space: {available_bytes} bytes available, {reserve_bytes} bytes reserved, {attempted_write_bytes} bytes requested"
     )]

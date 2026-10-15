@@ -36,6 +36,7 @@ impl DeliveryOutbox {
         mut bytes: u64,
         allow_oversized: bool,
     ) -> ConnectorResult<PendingPage> {
+        self.check_index()?;
         if limit == 0 || (bytes == 0 && !allow_oversized) {
             return Ok(PendingPage {
                 deliveries: Vec::new(),
@@ -45,9 +46,9 @@ impl DeliveryOutbox {
         let mut reader = BufReader::new(open_reader(&self.path)?);
         let mut deliveries = Vec::new();
         let mut waiting_for_bytes = false;
-        for (&offset, key) in &self.pending_by_offset {
-            if excluded.contains(key) {
-                continue;
+        self.pending.visit(|offset, key| {
+            if excluded.contains(&key) {
+                return Ok(true);
             }
             let size = match self.frame_cache.get() {
                 Some((cached, size)) if cached == offset => size,
@@ -61,15 +62,16 @@ impl DeliveryOutbox {
             };
             if size > bytes && !(allow_oversized && deliveries.is_empty()) {
                 waiting_for_bytes = true;
-                break;
+                return Ok(false);
             }
             let delivery = read_delivery_at(&self.path, &mut reader, offset, size)?;
             deliveries.push((delivery, size));
             bytes = bytes.saturating_sub(size);
             if deliveries.len() == limit || bytes == 0 {
-                break;
+                return Ok(false);
             }
-        }
+            Ok(true)
+        })?;
         Ok(PendingPage {
             deliveries,
             waiting_for_bytes,

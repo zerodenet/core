@@ -699,7 +699,21 @@ fn refresh_pending_stats(
     // durable delivery was still awaiting its local ACK.
     let mut pending_counts = BTreeMap::<String, usize>::new();
     if let Some(outbox) = outbox {
-        pending_counts = outbox.pending_counts();
+        let tags = stats
+            .lock()
+            .expect("sink stats")
+            .iter()
+            .map(|(tag, _)| tag.clone())
+            .collect::<Vec<_>>();
+        match outbox.pending_counts_for(tags.iter().map(String::as_str)) {
+            Ok(counts) => pending_counts = counts,
+            Err(error) => {
+                for (_, stat) in stats.lock().expect("sink stats").iter() {
+                    stat.record_failed(Some(error.to_string()));
+                }
+                return;
+            }
+        }
     } else {
         for delivery in pending {
             *pending_counts.entry(delivery.sink_tag.clone()).or_default() += 1;
@@ -724,10 +738,10 @@ fn refresh_pending_stats(
                 Some(format!("failed to inspect outbox storage: {error}"));
         }
     }
-    if let Some(outbox) = outbox {
-        for (sink_tag, count) in outbox.pending_counts() {
-            if let Some((_, stat)) = shared.iter().find(|(tag, _)| tag == &sink_tag) {
-                stat.delivery.lock().expect("sink stats").durable_pending = count as u64;
+    if outbox.is_some() {
+        for (sink_tag, count) in &pending_counts {
+            if let Some((_, stat)) = shared.iter().find(|(tag, _)| tag == sink_tag) {
+                stat.delivery.lock().expect("sink stats").durable_pending = *count as u64;
             }
         }
     }

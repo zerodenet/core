@@ -11,6 +11,8 @@ use crate::state::PersistentStateLease;
 use crate::{ConnectorError, ConnectorResult};
 
 mod compaction;
+mod index;
+mod maintenance;
 mod paging;
 mod record;
 mod recovery;
@@ -23,7 +25,7 @@ pub(crate) use replay::inspect_path;
 use replay::read_pending;
 
 pub(crate) type DeliveryKey = (String, String);
-type PendingDeliveries = BTreeMap<DeliveryKey, u64>;
+use index::PendingIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct OutboxInspection {
@@ -46,12 +48,6 @@ pub(crate) struct PendingPage {
     pub(crate) waiting_for_bytes: bool,
 }
 
-impl<P> OutboxDelivery<P> {
-    pub(crate) fn key(&self) -> DeliveryKey {
-        (self.sink_tag.clone(), self.event.event_id.clone())
-    }
-}
-
 #[derive(Debug, Serialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum JournalRecord<P = serde_json::Value> {
@@ -67,12 +63,10 @@ pub(crate) struct DeliveryOutbox {
     frame_scans: std::cell::Cell<usize>,
     _lease: PersistentStateLease,
     file: Option<File>,
-    // Only durable keys and their latest journal offsets stay resident. Event
-    // payloads are paged from disk so a long receiver outage cannot duplicate the
-    // entire backlog in memory.
-    pending: PendingDeliveries,
-    pending_by_offset: BTreeMap<u64, DeliveryKey>,
-    pending_counts: BTreeMap<String, usize>,
+    pending: PendingIndex,
+    // An append can be durable even if its derived index update fails. Never
+    // page stale offsets; the next write rebuilds from the authoritative log.
+    index_valid: bool,
     journal_records: usize,
     min_free_bytes: u64,
     min_free_percent: u8,
@@ -110,7 +104,7 @@ impl DeliveryOutbox {
                 );
                 file = open_journal(&path, true)?;
                 (
-                    BTreeMap::new(),
+                    PendingIndex::new(&path)?,
                     0,
                     Some(OutboxRecoveryStatus {
                         state: OutboxRecoveryState::RecoveryRequired,
@@ -123,7 +117,6 @@ impl DeliveryOutbox {
             Err(error) => return Err(error),
         };
 
-        let (pending_by_offset, pending_counts) = build_pending_indexes(&pending);
         let mut outbox = Self {
             path,
             frame_cache: std::cell::Cell::new(None),
@@ -132,8 +125,7 @@ impl DeliveryOutbox {
             _lease: lease,
             file: Some(file),
             pending,
-            pending_by_offset,
-            pending_counts,
+            index_valid: true,
             journal_records,
             min_free_bytes,
             min_free_percent,
@@ -143,8 +135,18 @@ impl DeliveryOutbox {
         Ok(outbox)
     }
 
-    pub(crate) fn pending_counts(&self) -> BTreeMap<String, usize> {
-        self.pending_counts.clone()
+    #[cfg(test)]
+    pub(crate) fn pending_counts(&self) -> ConnectorResult<BTreeMap<String, usize>> {
+        self.check_index()?;
+        self.pending.counts()
+    }
+
+    pub(crate) fn pending_counts_for<'a>(
+        &self,
+        sinks: impl IntoIterator<Item = &'a str>,
+    ) -> ConnectorResult<BTreeMap<String, usize>> {
+        self.check_index()?;
+        self.pending.counts_for(sinks)
     }
 
     pub(crate) fn recovery_status(&self) -> Option<OutboxRecoveryStatus> {
@@ -189,17 +191,14 @@ impl DeliveryOutbox {
                 message,
             },
         };
+        self.ensure_index()?;
         let frame = self.serialize_record(&record)?;
         self.ensure_put_space(frame.len() as u64)?;
+        self.index_valid = false;
         let offset = self.append_frame(&frame)?;
         self.journal_records += 1;
-        let key = (sink_tag.to_owned(), event.event_id.clone());
-        if let Some(old_offset) = self.pending.insert(key.clone(), offset) {
-            self.pending_by_offset.remove(&old_offset);
-        } else {
-            *self.pending_counts.entry(sink_tag.to_owned()).or_insert(0) += 1;
-        }
-        self.pending_by_offset.insert(offset, key);
+        self.pending.insert(sink_tag, &event.event_id, offset)?;
+        self.index_valid = true;
         // Receiver outages still append PUTs when attempts/messages change.
         // Superseded PUTs must not wait for a successful ACK or a restart.
         self.compact_if_needed()?;
@@ -214,20 +213,14 @@ impl DeliveryOutbox {
             sink_tag: sink_tag.to_owned(),
             event_id: event_id.to_owned(),
         };
+        self.ensure_index()?;
         let frame = self.serialize_record(&record)?;
         self.ensure_maintenance_space(frame.len() as u64)?;
+        self.index_valid = false;
         self.append_frame(&frame)?;
         self.journal_records += 1;
-        let key = (sink_tag.to_owned(), event_id.to_owned());
-        if let Some(offset) = self.pending.remove(&key) {
-            self.pending_by_offset.remove(&offset);
-            if let Some(count) = self.pending_counts.get_mut(sink_tag) {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    self.pending_counts.remove(sink_tag);
-                }
-            }
-        }
+        self.pending.remove(sink_tag, event_id)?;
+        self.index_valid = true;
         self.compact_if_needed()?;
         Ok(())
     }
@@ -320,18 +313,6 @@ impl DeliveryOutbox {
             })?;
         Ok(offset)
     }
-}
-
-fn build_pending_indexes(
-    pending: &PendingDeliveries,
-) -> (BTreeMap<u64, DeliveryKey>, BTreeMap<String, usize>) {
-    let mut by_offset = BTreeMap::new();
-    let mut counts = BTreeMap::new();
-    for (key, offset) in pending {
-        by_offset.insert(*offset, key.clone());
-        *counts.entry(key.0.clone()).or_insert(0) += 1;
-    }
-    (by_offset, counts)
 }
 
 fn maintenance_reserve_bytes(reserve_bytes: u64) -> u64 {

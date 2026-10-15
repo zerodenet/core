@@ -1,3 +1,4 @@
+mod backlog;
 mod heap;
 use super::*;
 use crate::dispatcher::{outbox::DeliveryOutbox, PendingDelivery};
@@ -79,7 +80,7 @@ fn disk_paging_checks_frame_budget_before_deserialization_and_retains_all_ids() 
         .load_pending_with_budget(&HashSet::new(), 3, 1024, false)
         .unwrap()
         .is_empty());
-    assert_eq!(outbox.pending_counts()["receiver"], 3);
+    assert_eq!(outbox.pending_counts().unwrap()["receiver"], 3);
     let fit = outbox
         .load_pending_with_budget(&HashSet::new(), 3, first[0].1, false)
         .unwrap();
@@ -91,7 +92,7 @@ fn disk_paging_checks_frame_budget_before_deserialization_and_retains_all_ids() 
         .load_pending_with_budget(&HashSet::new(), 3, 1024, true)
         .unwrap();
     assert_eq!(remaining[0].0.event.event_id, "second");
-    assert_eq!(outbox.pending_counts()["receiver"], 2);
+    assert_eq!(outbox.pending_counts().unwrap()["receiver"], 2);
 }
 
 #[tokio::test]
@@ -177,7 +178,7 @@ fn escaped_large_record_restore_avoids_full_frame_copy_and_encoder_growth() {
         "handoff/encode extra heap: {encode_peak}"
     );
     eprintln!("4 MiB decoded / {} encoded bytes: restore extra heap {peak}; shared handoff/encode extra heap {encode_peak}; not RSS", encoded.len());
-    assert_eq!(outbox.pending_counts()["receiver"], 1);
+    assert_eq!(outbox.pending_counts().unwrap()["receiver"], 1);
 }
 
 #[test]

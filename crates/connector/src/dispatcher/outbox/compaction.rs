@@ -5,6 +5,7 @@ use std::io::{self, Read};
 
 impl DeliveryOutbox {
     pub(super) fn compact_if_needed(&mut self) -> ConnectorResult<()> {
+        self.check_index()?;
         const MIN_RECORDS_BEFORE_COMPACTION: usize = 1024;
         if self.journal_records < MIN_RECORDS_BEFORE_COMPACTION
             || self.journal_records <= self.pending.len().saturating_mul(4).saturating_add(64)
@@ -36,16 +37,18 @@ impl DeliveryOutbox {
                 source,
             }
         })?;
-        let mut compacted = BTreeMap::new();
+        let mut compacted = PendingIndex::new(&self.path)?;
+        compacted.begin_batch()?;
+        let mut deferred = false;
         {
             let mut reader = BufReader::new(open_reader(&self.path)?);
-            for (key, old_offset) in &self.pending {
-                reader
-                    .seek(SeekFrom::Start(*old_offset))
-                    .map_err(|source| ConnectorError::OpenOutbox {
+            self.pending.visit(|old_offset, key| {
+                reader.seek(SeekFrom::Start(old_offset)).map_err(|source| {
+                    ConnectorError::OpenOutbox {
                         path: self.path.display().to_string(),
                         source,
-                    })?;
+                    }
+                })?;
                 let new_offset = temporary
                     .as_file_mut()
                     .stream_position()
@@ -68,7 +71,8 @@ impl DeliveryOutbox {
                 let projected_bytes = new_offset.saturating_add(copied);
                 if projected_bytes > compaction_budget {
                     warn_compaction_deferred(&self.path, status, projected_bytes);
-                    return Ok(());
+                    deferred = true;
+                    return Ok(false);
                 }
                 if !frame.terminated {
                     return Err(ConnectorError::InvalidOutbox {
@@ -76,9 +80,14 @@ impl DeliveryOutbox {
                         message: "pending journal frame is incomplete during compaction".into(),
                     });
                 }
-                compacted.insert(key.clone(), new_offset);
-            }
+                compacted.insert(&key.0, &key.1, new_offset)?;
+                Ok(true)
+            })?;
         }
+        if deferred {
+            return Ok(());
+        }
+        compacted.finish_batch()?;
         temporary
             .as_file_mut()
             .sync_all()
@@ -100,6 +109,9 @@ impl DeliveryOutbox {
                 source: error.error,
             });
         }
+        // The rename committed a new journal layout. Until the file is open
+        // and the derived index installed, no old offset may be read.
+        self.index_valid = false;
         self.file = Some(
             OpenOptions::new()
                 .create(true)
@@ -114,7 +126,7 @@ impl DeliveryOutbox {
         );
         self.frame_cache.set(None);
         self.pending = compacted;
-        (self.pending_by_offset, self.pending_counts) = build_pending_indexes(&self.pending);
+        self.index_valid = true;
         self.journal_records = self.pending.len();
         Ok(())
     }

@@ -15,7 +15,7 @@ fn waiting_for_delivery_bytes_does_not_rescan_a_large_frame_each_poll() {
             .is_empty());
     }
     assert_eq!(outbox.frame_scans.get(), 1);
-    assert_eq!(outbox.pending_counts()["receiver"], 1);
+    assert_eq!(outbox.pending_counts().unwrap()["receiver"], 1);
     assert_eq!(
         outbox
             .load_pending_with_budget(&HashSet::new(), 4, 1024, true)
