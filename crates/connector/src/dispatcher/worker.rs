@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -18,7 +19,7 @@ pub(super) struct SinkWorker {
     pub(super) tag: String,
     event_types: Vec<String>,
     source_id: Option<String>,
-    sender: Option<mpsc::Sender<RawApiEvent>>,
+    sender: Option<mpsc::Sender<Arc<RawApiEvent>>>,
     task: Option<JoinHandle<()>>,
     supports_cancellation: bool,
     pub(super) in_flight: Option<PendingDelivery>,
@@ -34,11 +35,11 @@ impl SinkWorker {
         let source_id = sink.source_id.clone();
         let supports_cancellation = sink.supports_cancellation();
         let worker_tag = tag.clone();
-        let (sender, mut receiver) = mpsc::channel::<RawApiEvent>(1);
+        let (sender, mut receiver) = mpsc::channel::<Arc<RawApiEvent>>(1);
         let task = tokio::spawn(async move {
             while let Some(event) = receiver.recv().await {
                 let event_id = event.event_id.clone();
-                let result = sink.publish_prepared(&event).await;
+                let result = sink.publish_prepared(event).await;
                 if result_tx
                     .send(SinkWorkerResult {
                         sink_tag: worker_tag.clone(),
@@ -70,12 +71,15 @@ impl SinkWorker {
                 .any(|event_type| event_type == &event.event_type)
     }
 
-    pub(super) fn prepare_event(&self, event: &RawApiEvent) -> RawApiEvent {
-        let mut event = event.clone();
+    pub(super) fn prepare_event(&self, event: &Arc<RawApiEvent>) -> Arc<RawApiEvent> {
+        if self.source_id.is_none() || self.source_id == event.source_id {
+            return event.clone();
+        }
+        let mut event = (**event).clone();
         if let Some(source_id) = &self.source_id {
             event.source_id = Some(source_id.clone());
         }
-        event
+        Arc::new(event)
     }
 
     pub(super) fn try_submit(&mut self, delivery: PendingDelivery) -> Option<PendingDelivery> {

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use crate::state::PersistentStateLease;
 use crate::{ConnectorError, ConnectorResult};
 
 mod compaction;
+mod paging;
 mod record;
 mod recovery;
 mod replay;
@@ -40,6 +41,11 @@ pub(crate) struct OutboxDelivery<P = serde_json::Value> {
     pub(crate) message: Option<String>,
 }
 
+pub(crate) struct PendingPage {
+    pub(crate) deliveries: Vec<(OutboxDelivery, u64)>,
+    pub(crate) waiting_for_bytes: bool,
+}
+
 impl<P> OutboxDelivery<P> {
     pub(crate) fn key(&self) -> DeliveryKey {
         (self.sink_tag.clone(), self.event.event_id.clone())
@@ -55,6 +61,10 @@ enum JournalRecord<P = serde_json::Value> {
 
 pub(crate) struct DeliveryOutbox {
     path: std::path::PathBuf,
+    // Only the last candidate frame size is cached; never another backlog index.
+    frame_cache: std::cell::Cell<Option<(u64, u64)>>,
+    #[cfg(test)]
+    frame_scans: std::cell::Cell<usize>,
     _lease: PersistentStateLease,
     file: Option<File>,
     // Only durable keys and their latest journal offsets stay resident. Event
@@ -116,6 +126,9 @@ impl DeliveryOutbox {
         let (pending_by_offset, pending_counts) = build_pending_indexes(&pending);
         let mut outbox = Self {
             path,
+            frame_cache: std::cell::Cell::new(None),
+            #[cfg(test)]
+            frame_scans: std::cell::Cell::new(0),
             _lease: lease,
             file: Some(file),
             pending,
@@ -130,26 +143,6 @@ impl DeliveryOutbox {
         Ok(outbox)
     }
 
-    pub(crate) fn load_pending_excluding(
-        &self,
-        excluded: &HashSet<DeliveryKey>,
-        limit: usize,
-    ) -> ConnectorResult<Vec<OutboxDelivery>> {
-        if limit == 0 {
-            return Ok(Vec::new());
-        }
-        let selected = self
-            .pending_by_offset
-            .iter()
-            .filter(|(_, key)| !excluded.contains(*key))
-            .map(|(offset, _)| *offset);
-        let mut reader = open_reader(&self.path)?;
-        selected
-            .take(limit)
-            .map(|offset| read_delivery_at(&self.path, &mut reader, offset))
-            .collect()
-    }
-
     pub(crate) fn pending_counts(&self) -> BTreeMap<String, usize> {
         self.pending_counts.clone()
     }
@@ -158,22 +151,53 @@ impl DeliveryOutbox {
         self.recovery.clone()
     }
 
+    #[cfg(test)]
     pub(crate) fn put(&mut self, delivery: &OutboxDelivery) -> ConnectorResult<()> {
-        let record = JournalRecord::Put {
-            delivery: Box::new(delivery.clone()),
+        self.put_ref(
+            &delivery.sink_tag,
+            &delivery.event,
+            delivery.attempts,
+            delivery.message.as_deref(),
+        )
+    }
+
+    pub(crate) fn put_ref(
+        &mut self,
+        sink_tag: &str,
+        event: &zero_api::RawApiEvent,
+        attempts: u32,
+        message: Option<&str>,
+    ) -> ConnectorResult<()> {
+        #[derive(Serialize)]
+        struct BorrowedDelivery<'a> {
+            sink_tag: &'a str,
+            event: &'a zero_api::RawApiEvent,
+            attempts: u32,
+            message: Option<&'a str>,
+        }
+        #[derive(Serialize)]
+        struct Put<'a> {
+            op: &'static str,
+            delivery: BorrowedDelivery<'a>,
+        }
+        let record = Put {
+            op: "put",
+            delivery: BorrowedDelivery {
+                sink_tag,
+                event,
+                attempts,
+                message,
+            },
         };
         let frame = self.serialize_record(&record)?;
         self.ensure_put_space(frame.len() as u64)?;
         let offset = self.append_frame(&frame)?;
         self.journal_records += 1;
-        let key = delivery.key();
+        let key = (sink_tag.to_owned(), event.event_id.clone());
         if let Some(old_offset) = self.pending.insert(key.clone(), offset) {
             self.pending_by_offset.remove(&old_offset);
         } else {
-            *self
-                .pending_counts
-                .entry(delivery.sink_tag.clone())
-                .or_insert(0) += 1;
+            *self.pending_counts.entry(sink_tag.to_owned()).or_insert(0) += 1;
         }
         self.pending_by_offset.insert(offset, key);
         // Receiver outages still append PUTs when attempts/messages change.
@@ -186,7 +210,7 @@ impl DeliveryOutbox {
         // ACKs may use the normal PUT reserve so successfully delivered
         // entries can drain. They still retain an emergency maintenance floor
         // instead of being allowed to fill the filesystem without bound.
-        let record = JournalRecord::Ack {
+        let record: JournalRecord = JournalRecord::Ack {
             sink_tag: sink_tag.to_owned(),
             event_id: event_id.to_owned(),
         };
@@ -263,9 +287,9 @@ impl DeliveryOutbox {
         })
     }
 
-    fn serialize_record(&self, record: &JournalRecord) -> ConnectorResult<Vec<u8>> {
+    fn serialize_record<T: Serialize>(&self, record: &T) -> ConnectorResult<Vec<u8>> {
         let mut frame =
-            serde_json::to_vec(record).map_err(|error| ConnectorError::InvalidOutbox {
+            crate::encoding::to_vec(record).map_err(|error| ConnectorError::InvalidOutbox {
                 path: self.path.display().to_string(),
                 message: format!("serialize journal record: {error}"),
             })?;
@@ -356,39 +380,4 @@ fn open_journal(path: &Path, truncate: bool) -> ConnectorResult<File> {
             path: path.display().to_string(),
             source,
         })
-}
-
-fn read_delivery_at(
-    path: &Path,
-    reader: &mut File,
-    offset: u64,
-) -> ConnectorResult<OutboxDelivery> {
-    reader
-        .seek(SeekFrom::Start(offset))
-        .map_err(|source| ConnectorError::OpenOutbox {
-            path: path.display().to_string(),
-            source,
-        })?;
-    let mut frame = Vec::new();
-    BufReader::new(reader)
-        .read_until(b'\n', &mut frame)
-        .map_err(|source| ConnectorError::OpenOutbox {
-            path: path.display().to_string(),
-            source,
-        })?;
-    if frame.last() == Some(&b'\n') {
-        frame.pop();
-    }
-    match serde_json::from_slice::<JournalRecord>(&frame).map_err(|error| {
-        ConnectorError::InvalidOutbox {
-            path: path.display().to_string(),
-            message: format!("record at byte {offset}: {error}"),
-        }
-    })? {
-        JournalRecord::Put { delivery } => Ok(*delivery),
-        JournalRecord::Ack { .. } => Err(ConnectorError::InvalidOutbox {
-            path: path.display().to_string(),
-            message: format!("pending index at byte {offset} points to an ACK"),
-        }),
-    }
 }

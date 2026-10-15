@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use zero_api::ApiEvent;
 
 mod large;
+mod paging;
 mod validation;
 
 #[test]

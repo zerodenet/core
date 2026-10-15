@@ -34,3 +34,6 @@ pub use state::{
     inspect_persistent_state, ConnectorStateFile, ConnectorStateReport, ConnectorStateStatus,
     CONNECTOR_STATE_REPORT_SCHEMA,
 };
+
+#[cfg(feature = "event-dispatcher")]
+mod encoding;

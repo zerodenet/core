@@ -1,8 +1,8 @@
 //! Count and serialized-byte admission for the live event bridge. This is
 //! Connector memory control, not business accounting or an event journal.
+use super::super::memory::serialized_bytes;
 use super::super::*;
 use super::budget::{SourceBudget, SourceReservation};
-use std::io;
 use tokio::sync::Semaphore;
 
 pub(in crate::dispatcher) struct QueuedSourceEvent {
@@ -79,20 +79,4 @@ pub(in crate::dispatcher) fn spawn<S: EventStream + Send + 'static>(
         })
         .expect("event source bridge thread");
     (rx, budget, task)
-}
-
-fn serialized_bytes(event: &RawApiEvent) -> u64 {
-    struct Count(u64);
-    impl io::Write for Count {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0 = self.0.saturating_add(bytes.len() as u64);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut count = Count(0);
-    serde_json::to_writer(&mut count, event).expect("event serialization");
-    count.0
 }

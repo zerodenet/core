@@ -1,5 +1,6 @@
 use super::*;
 use crate::jsonl::Frame;
+use std::io::BufReader;
 use std::io::{self, Read};
 
 impl DeliveryOutbox {
@@ -111,6 +112,7 @@ impl DeliveryOutbox {
                     source,
                 })?,
         );
+        self.frame_cache.set(None);
         self.pending = compacted;
         (self.pending_by_offset, self.pending_counts) = build_pending_indexes(&self.pending);
         self.journal_records = self.pending.len();

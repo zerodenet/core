@@ -9,6 +9,8 @@ use source::LiveSource;
 mod backpressure;
 #[path = "reload/child.rs"]
 mod child;
+#[path = "reload/delivery_bytes.rs"]
+mod delivery_bytes;
 
 fn options() -> EventDispatcherOptions {
     EventDispatcherOptions {

@@ -18,6 +18,7 @@ pub(super) fn drain_event_source<S>(
     last_sequence: &mut Option<u64>,
     blocked_events: &mut VecDeque<BlockedEvent>,
     dispatcher_config: EventDispatcherConfig,
+    budget: &Arc<memory::DeliveryBudget>,
 ) -> bool
 where
     S: EventSource,
@@ -37,7 +38,15 @@ where
             }
         }
         if blocked.event.event_type != event_type::FLOW_SNAPSHOT
-            && !dispatch_event(workers, stats, pending, blocked, outbox, dispatcher_config)
+            && !dispatch_event(
+                workers,
+                stats,
+                pending,
+                blocked,
+                outbox,
+                dispatcher_config,
+                budget,
+            )
         {
             return false;
         }
@@ -116,6 +125,7 @@ where
                 &mut blocked,
                 outbox,
                 dispatcher_config,
+                budget,
             ) {
                 blocked_events.push_back(blocked);
                 return progressed;

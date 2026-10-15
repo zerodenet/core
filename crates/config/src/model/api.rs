@@ -38,6 +38,12 @@ pub struct ApiConfig {
 pub struct EventDispatcherConfig {
     #[serde(default = "default_dispatcher_max_in_memory_deliveries")]
     pub max_in_memory_deliveries: usize,
+    /// Serialized-byte charge for queued and in-flight deliveries combined.
+    /// Larger existing events are admitted alone, never deleted. This is not
+    /// an RSS limit; source events, journal indexes and encoded carrier bodies
+    /// are separate. Valid values are 1..=256 MiB.
+    #[serde(default = "default_delivery_max_bytes")]
+    pub max_in_memory_delivery_bytes: u32,
     #[serde(default = "default_dispatcher_replay_batch_size")]
     pub replay_batch_size: usize,
     /// Serialized-byte budget for the live source bridge, independent of the
@@ -74,6 +80,7 @@ impl Default for EventDispatcherConfig {
     fn default() -> Self {
         Self {
             max_in_memory_deliveries: default_dispatcher_max_in_memory_deliveries(),
+            max_in_memory_delivery_bytes: default_delivery_max_bytes(),
             replay_batch_size: default_dispatcher_replay_batch_size(),
             source_queue_max_bytes: default_source_queue_max_bytes(),
             max_retry_attempts: default_dispatcher_max_retry_attempts(),
@@ -263,4 +270,8 @@ fn default_hook_timeout_ms() -> u64 {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_delivery_max_bytes() -> u32 {
+    16 * 1024 * 1024
 }

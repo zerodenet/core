@@ -18,9 +18,11 @@ fn older_sink_status_without_delivery_state_remains_compatible() {
 
     assert_eq!(status.delivery, SinkDeliveryStatus::default());
     assert_eq!(status.source_buffer, None);
+    assert_eq!(status.delivery_buffer, None);
     let exported = serde_json::to_value(status).expect("serialize idle sink status");
     assert!(exported.get("delivery").is_none());
     assert!(exported.get("source_buffer").is_none());
+    assert!(exported.get("delivery_buffer").is_none());
 }
 
 #[test]

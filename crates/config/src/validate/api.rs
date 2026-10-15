@@ -8,6 +8,12 @@ use crate::{
 use super::validate_tag;
 
 pub(super) fn validate_api(api: &ApiConfig) -> Result<(), ConfigError> {
+    if !(1..=256 * 1024 * 1024).contains(&api.dispatcher.max_in_memory_delivery_bytes) {
+        return Err(ConfigError::InvalidApi(
+            "api.dispatcher.max_in_memory_delivery_bytes must be between 1 and 268435456"
+                .to_owned(),
+        ));
+    }
     if !(1..=256 * 1024 * 1024).contains(&api.dispatcher.source_queue_max_bytes) {
         return Err(ConfigError::InvalidApi(
             "api.dispatcher.source_queue_max_bytes must be between 1 and 268435456".to_owned(),
