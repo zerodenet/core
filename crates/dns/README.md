@@ -23,3 +23,19 @@ resolution, intercepted client DNS answers, or control-plane traffic. An explici
 DNS `detour` continues to enter the runtime's `DnsOutboundConnector` bridge. If the
 selected detour is itself a constrained Direct tag, that tag's dial policy applies
 to its own DNS transport socket in the proxy/platform layer.
+
+## DoH connection recovery
+
+HTTP/2 sessions are reused only within the same physical-egress generation and
+configured detour. A network change, including TUN activation or withdrawal,
+retires the previous pool identity even when the interface name stays the same.
+Connections prepared across a generation change cannot enter the current pool
+or carry a new DNS query. Native binding and route selection remain owned by
+`zero-platform-tokio`; explicit detours still enter the existing runtime bridge.
+
+A failed or cancelled exchange retires its own session. This includes cancellation
+by the enclosing configured backend deadline, so a blackholed HTTP/2 session is
+not reused indefinitely. Cancellation of an older session cannot invalidate its
+replacement. Healthy sessions retain multiplexing and reuse; this does not add
+automatic query replay, change backend deadlines or alter the configured DNS
+dispatch and fallback policy.

@@ -14,3 +14,6 @@ mod dial_policy;
 
 #[path = "../datagram_poll.rs"]
 mod datagram_poll;
+
+#[path = "../packet_socket_egress.rs"]
+mod packet_socket_egress;

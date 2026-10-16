@@ -19,12 +19,8 @@ pub(crate) struct DohDnsResolver {
     connect_lock: tokio::sync::Mutex<()>,
 }
 
-struct DohClient {
-    addr: SocketAddr,
-    underlay: Option<zero_platform_tokio::EgressInterface>,
-    detour: Option<String>,
-    sender: h2::client::SendRequest<Bytes>,
-}
+mod client;
+use client::DohClient;
 
 impl DohDnsResolver {
     pub(crate) fn new(
@@ -160,6 +156,7 @@ impl DohDnsResolver {
             .body(())
             .map_err(|error| io::Error::other(format!("DoH request build failed: {error}")))?;
         let (response, mut body) = client
+            .sender
             .send_request(request, false)
             .map_err(|error| io::Error::other(format!("DoH send request failed: {error}")))?;
         body.send_data(Bytes::copy_from_slice(query), true)
@@ -174,131 +171,9 @@ impl DohDnsResolver {
                 response.status()
             )));
         }
-        read_body(response.into_body()).await
-    }
-
-    async fn ready_client(
-        &self,
-        addr: SocketAddr,
-        detour: Option<&str>,
-        connector: Option<&dyn crate::DnsOutboundConnector>,
-    ) -> io::Result<h2::client::SendRequest<Bytes>> {
-        let underlay = if detour.is_some() {
-            None
-        } else {
-            self.egress.current_for(addr.is_ipv6())
-        };
-        if let Some(sender) = self.cached_client(addr, underlay.as_ref(), detour).await {
-            match sender.ready().await {
-                Ok(sender) => return Ok(sender),
-                Err(error) => {
-                    tracing::debug!(server = %addr, error = %error, "discarding stale DoH HTTP/2 connection");
-                }
-            }
-        }
-        let _connect = self.connect_lock.lock().await;
-        if let Some(sender) = self.cached_client(addr, underlay.as_ref(), detour).await {
-            match sender.ready().await {
-                Ok(sender) => return Ok(sender),
-                Err(error) => {
-                    tracing::debug!(server = %addr, error = %error, "replacing stale DoH HTTP/2 connection");
-                    self.evict_client(addr, underlay.as_ref(), detour).await;
-                }
-            }
-        }
-        self.connect_client(addr, underlay, detour, connector)
-            .await?
-            .ready()
-            .await
-            .map_err(|error| io::Error::other(format!("DoH HTTP/2 connection not ready: {error}")))
-    }
-
-    async fn cached_client(
-        &self,
-        addr: SocketAddr,
-        underlay: Option<&zero_platform_tokio::EgressInterface>,
-        detour: Option<&str>,
-    ) -> Option<h2::client::SendRequest<Bytes>> {
-        self.clients
-            .lock()
-            .await
-            .iter()
-            .find(|client| {
-                client.addr == addr
-                    && client.underlay.as_ref() == underlay
-                    && client.detour.as_deref() == detour
-            })
-            .map(|client| client.sender.clone())
-    }
-
-    async fn evict_client(
-        &self,
-        addr: SocketAddr,
-        underlay: Option<&zero_platform_tokio::EgressInterface>,
-        detour: Option<&str>,
-    ) {
-        self.clients.lock().await.retain(|client| {
-            !(client.addr == addr
-                && client.underlay.as_ref() == underlay
-                && client.detour.as_deref() == detour)
-        });
-    }
-
-    async fn connect_client(
-        &self,
-        addr: SocketAddr,
-        underlay: Option<zero_platform_tokio::EgressInterface>,
-        detour: Option<&str>,
-        connector: Option<&dyn crate::DnsOutboundConnector>,
-    ) -> io::Result<h2::client::SendRequest<Bytes>> {
-        let stream = super::connect_tcp(addr, &self.egress, detour, connector)
-            .await
-            .map_err(|error| {
-                io::Error::new(error.kind(), format!("DoH connect failed: {error}"))
-            })?;
-        if let Some(detour) = detour {
-            tracing::debug!(server = %addr, outbound = %detour, "DoH TCP detour connected");
-        } else {
-            let selection = self.egress.select_for_peer(addr);
-            tracing::debug!(
-                server = %addr,
-                egress_name = selection.interface().map(zero_platform_tokio::EgressInterface::name),
-                egress_index = selection.interface().map(zero_platform_tokio::EgressInterface::index),
-                binding_reason = selection.binding_reason().as_str(),
-                "DoH TCP socket connected"
-            );
-        }
-
-        let stream = if let Some(tls) = &self.tls {
-            let server_name = rustls::pki_types::ServerName::try_from(self.server_name.clone())
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-            let connector = tokio_rustls::TlsConnector::from(Arc::clone(tls));
-            let tls = connector
-                .connect(server_name, stream)
-                .await
-                .map_err(|error| io::Error::other(format!("DoH TLS failed: {error}")))?;
-            zero_platform_tokio::TcpRelayStream::new(tls)
-        } else {
-            stream
-        };
-        let (client, connection): (h2::client::SendRequest<Bytes>, _) =
-            h2::client::handshake(stream).await.map_err(|error| {
-                io::Error::other(format!("DoH HTTP/2 handshake failed: {error}"))
-            })?;
-        tokio::spawn(async move {
-            if let Err(error) = connection.await {
-                tracing::debug!(%error, "DoH HTTP/2 connection closed");
-            }
-        });
-        let mut clients = self.clients.lock().await;
-        clients.retain(|entry| entry.addr != addr);
-        clients.push(DohClient {
-            addr,
-            underlay,
-            detour: detour.map(ToOwned::to_owned),
-            sender: client.clone(),
-        });
-        Ok(client)
+        let response = read_body(response.into_body()).await?;
+        client.complete();
+        Ok(response)
     }
 
     fn uri(&self) -> String {
@@ -332,3 +207,7 @@ async fn read_body(mut body: h2::RecvStream) -> io::Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/doh_pool/mod.rs"]
+mod pool_tests;

@@ -114,6 +114,11 @@ impl UpstreamConnectServices {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn egress_control(&self) -> zero_platform_tokio::EgressInterfaceControl {
+        self.egress_interface.clone()
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn egress_generation(&self) -> u64 {
         self.egress_interface.generation()
     }

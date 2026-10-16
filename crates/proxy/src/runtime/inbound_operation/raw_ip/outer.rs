@@ -100,7 +100,7 @@ pub(super) fn peer_carrier(
 }
 
 pub(super) async fn send_network_actions(
-    socket: &zero_platform_tokio::PacketSocket,
+    socket: &mut zero_platform_tokio::PacketSocketSender,
     carrier: Option<Arc<dyn RawIpWireCarrier>>,
     endpoint: SocketAddr,
     actions: &[RawIpInboundAction],

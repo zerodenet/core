@@ -678,7 +678,7 @@ pub(crate) fn bind_udp_to_interface(
 }
 
 #[cfg(target_os = "macos")]
-fn bind_fd_to_index(fd: std::os::fd::RawFd, ipv6: bool, index: u32) -> io::Result<()> {
+pub(crate) fn bind_fd_to_index(fd: std::os::fd::RawFd, ipv6: bool, index: u32) -> io::Result<()> {
     let (level, option) = if ipv6 {
         (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF)
     } else {

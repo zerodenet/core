@@ -15,6 +15,8 @@ pub(super) async fn run(
     socket: zero_platform_tokio::PacketSocket,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), EngineError> {
+    let mut wire_sender =
+        zero_platform_tokio::PacketSocketSender::new(socket.clone(), runtime.datagram_egress());
     let mut traffic = IngressTraffic::bind(operation.device.as_ref(), &runtime.route_factory());
     let mtu = operation.device.mtu();
     let (response_tx, mut responses) = mpsc::channel::<zero_traits::PacketBuffer>(256);
@@ -161,7 +163,7 @@ pub(super) async fn run(
                 let carrier = proxied_peer.and_then(|peer| peer_carrier(&operation.endpoint, peer));
                 let response_target = source.or_else(|| proxied_peer.and_then(|peer| endpoints.get(peer).and_then(|value| *value)));
                 if let Some(response_target) = response_target {
-                    send_network_actions(&socket, carrier, response_target, &dispatch.actions, traffic.peer(dispatch.peer_index)).await;
+                    send_network_actions(&mut wire_sender, carrier, response_target, &dispatch.actions, traffic.peer(dispatch.peer_index)).await;
                 }
                 for action in dispatch.actions {
                     let RawIpInboundAction::ReceiveIp(packet) = action else { continue; };
@@ -221,7 +223,7 @@ pub(super) async fn run(
                     timers.update(outgoing.peer, operation.device.timer_schedule(outgoing.peer));
                     traffic.peer(Some(outgoing.peer)).tx(TrafficPlane::Inner, packet.len());
                     if let Some(observer) = &outgoing.observer { observer.sent(packet.len()); }
-                    send_network_actions(&socket, carrier.clone(), address, &actions, traffic.peer(Some(outgoing.peer))).await;
+                    send_network_actions(&mut wire_sender, carrier.clone(), address, &actions, traffic.peer(Some(outgoing.peer))).await;
                 }
             }
             response = responses.recv() => {
@@ -239,7 +241,7 @@ pub(super) async fn run(
                 fragment_id = fragment_id.wrapping_add(1);
                 for fragment in packets {
                     match operation.device.send_ip_packet(peer, &fragment) {
-                        Ok(actions) => { traffic.respond_packet(fragment.len()); traffic.peer(Some(peer)).tx(TrafficPlane::Inner, fragment.len()); send_network_actions(&socket, carrier.clone(), endpoint, &actions, traffic.peer(Some(peer))).await; },
+                        Ok(actions) => { traffic.respond_packet(fragment.len()); traffic.peer(Some(peer)).tx(TrafficPlane::Inner, fragment.len()); send_network_actions(&mut wire_sender, carrier.clone(), endpoint, &actions, traffic.peer(Some(peer))).await; },
                         Err(error) => { traffic.peer(Some(peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); tracing::debug!(%error, "raw-IP inbound response encode failed"); },
                     }
                     timers.update(peer, operation.device.timer_schedule(peer));
@@ -265,7 +267,7 @@ pub(super) async fn run(
                     match result {
                         Ok(actions) => if let Some(endpoint) = endpoints.get(peer).copied().flatten() {
                             let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
-                            send_network_actions(&socket, carrier, endpoint, &actions, traffic.peer(Some(peer))).await;
+                            send_network_actions(&mut wire_sender, carrier, endpoint, &actions, traffic.peer(Some(peer))).await;
                         } else {
                             for action in actions { if matches!(action, RawIpInboundAction::SendNetwork(_)) { traffic.peer(Some(peer)).dropped_reason(TrafficPlane::Outer, true, zero_api::TrafficDropReason::NoRoute); } }
                         },

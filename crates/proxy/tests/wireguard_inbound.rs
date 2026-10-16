@@ -2,6 +2,8 @@
 
 #[path = "wireguard_inbound/deadline.rs"]
 mod deadline;
+#[path = "wireguard_inbound/egress.rs"]
+mod egress;
 #[path = "support/host.rs"]
 mod host;
 mod support;

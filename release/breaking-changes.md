@@ -1,5 +1,15 @@
 # 控制面兼容性与破坏性变更
 
+## Unreleased: Shared raw-IP listener egress
+
+- Native shared raw-IP listeners apply the current physical-egress selection at the datagram send boundary. Their outer packets no longer rely on being recaptured and routed through TUN as business flows. Explicit outer proxy carriers keep their existing transport ownership.
+- Per-message interface hints preserve the listener's source port and receive binding. Route hints are bounded and expire after one second or immediately on egress generation changes; unavailable physical egress and failed interface hints do not fall back to an unbound send. Linux firewall marks accompany the individual datagram. No configuration or API fields change. On macOS, specifically addressed IPv4 listeners use a synchronous, checked temporary interface scope instead of IP_PKTINFO, preserving their configured receive address and restoring the previous interface scope before returning to the executor. Send or binding errors never trigger an unbound retry.
+
+## Unreleased: DoH connection recovery after network changes
+
+- DoH HTTP/2 pool identity now includes the existing physical-egress generation for native and detoured queries. Connections prepared before a network change cannot enter the current pool or send a new DNS request afterwards, even when the physical interface name remains unchanged.
+- Failed or cancelled exchanges, including cancellation by the configured backend deadline, retire only their own connection. A delayed cancellation cannot evict a replacement connection. Healthy connection reuse, native platform binding, explicit detours, DNS dispatch, fallback selection and query deadlines retain their existing contracts; this does not introduce automatic query replay or new configuration fields.
+
 ## Unreleased: Connector reload recovery and sample delivery
 
 - Tokio 最低版本声明为 1.53.3，Unix TUN 与路由监测使用对应的注册接口，保持描述符直到注销后再关闭；macOS 接收宿主描述符时继续保留其拥有关系。V1 配置、控制面及 TUN 路由语义不变。

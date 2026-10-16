@@ -4,7 +4,7 @@ use std::io;
 mod icmp;
 mod packet_socket;
 pub use icmp::IcmpSocket;
-pub use packet_socket::PacketSocket;
+pub use packet_socket::{PacketSocket, PacketSocketSender};
 
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;

@@ -20,6 +20,11 @@ impl InboundListenerRuntime {
         self.route_factory.inbound_tag()
     }
 
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn datagram_egress(&self) -> zero_platform_tokio::EgressInterfaceControl {
+        self.route_factory.datagram_egress()
+    }
+
     pub(crate) fn route_factory(&self) -> InboundRouteRuntimeFactory {
         self.route_factory.clone()
     }

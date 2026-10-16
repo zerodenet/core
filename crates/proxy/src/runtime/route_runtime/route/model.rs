@@ -95,6 +95,11 @@ impl InboundRouteRuntimeFactory {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn datagram_egress(&self) -> zero_platform_tokio::EgressInterfaceControl {
+        self.shared.tcp_services().upstream().egress_control()
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn icmp_egress_generation(&self) -> u64 {
         self.shared.tcp_services().upstream().egress_generation()
     }
