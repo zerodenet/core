@@ -1,7 +1,7 @@
 //! A host-owned Wintun adapter: no creation, addressing or route changes.
 use super::{
     dad_state_is_ready, interface_luid, load_wintun, require_elevated_process, socket_address,
-    win32_result,
+    wait_for_address_ready_with, win32_result,
 };
 use std::{
     future::Future,
@@ -24,7 +24,7 @@ use windows_sys::Win32::{
         GetIpInterfaceEntry, GetUnicastIpAddressEntry, InitializeIpInterfaceEntry,
         InitializeUnicastIpAddressEntry, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
     },
-    Networking::WinSock::{AF_INET, AF_INET6},
+    Networking::WinSock::{IpDadStateDeprecated, AF_INET, AF_INET6, NL_DAD_STATE},
 };
 
 /// Open an existing dedicated adapter. The host retains its adapter handle
@@ -58,10 +58,17 @@ impl ExistingWindowsTun {
                 format!("open existing host Wintun adapter: {error}"),
             )
         })?;
-        validate_addresses(name, addresses, mtu)?;
+        validate_host_configuration(name, addresses, mtu)?;
         let session = Arc::new(adapter.start_session(wintun::MAX_RING_CAPACITY).map_err(
             |error| io::Error::other(format!("start existing host Wintun session: {error}")),
         )?);
+        // A dormant Wintun has no active link until its packet session starts.
+        // Verify configuration first, then wait for the address to become usable
+        // on that link. Failure drops our session without changing host settings.
+        let luid = interface_luid(name)?;
+        for &address in addresses {
+            wait_for_address_ready_with(luid, address, activating_dad_state_is_ready)?;
+        }
         Ok(Self {
             name: name.into(),
             session,
@@ -95,7 +102,8 @@ impl ExistingWindowsTun {
     }
 }
 
-fn validate_addresses(name: &str, addresses: &[IpAddr], mtu: u16) -> io::Result<()> {
+// Read-only configuration preflight, including while the host link is dormant.
+fn validate_host_configuration(name: &str, addresses: &[IpAddr], mtu: u16) -> io::Result<()> {
     let luid = interface_luid(name)?;
     for &address in addresses {
         let mut row = MIB_UNICASTIPADDRESS_ROW::default();
@@ -105,12 +113,7 @@ fn validate_addresses(name: &str, addresses: &[IpAddr], mtu: u16) -> io::Result<
         win32_result("query host Wintun router address", unsafe {
             GetUnicastIpAddressEntry(&mut row)
         })?;
-        if !dad_state_is_ready(address, row.DadState)? {
-            return Err(io::Error::new(
-                io::ErrorKind::AddrNotAvailable,
-                "host Wintun router address is not ready",
-            ));
-        }
+        activating_dad_state_is_ready(address, row.DadState)?;
         let mut family = MIB_IPINTERFACE_ROW::default();
         unsafe { InitializeIpInterfaceEntry(&mut family) };
         family.InterfaceLuid = luid;
@@ -126,6 +129,16 @@ fn validate_addresses(name: &str, addresses: &[IpAddr], mtu: u16) -> io::Result<
         }
     }
     Ok(())
+}
+
+// Deprecated is transitional only during session activation; it never means
+// ready. Invalid/duplicate states still fail immediately and the wait is bounded.
+fn activating_dad_state_is_ready(address: IpAddr, state: NL_DAD_STATE) -> io::Result<bool> {
+    if state == IpDadStateDeprecated {
+        Ok(false)
+    } else {
+        dad_state_is_ready(address, state)
+    }
 }
 
 impl AsyncRead for ExistingWindowsTun {

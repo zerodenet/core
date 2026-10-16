@@ -45,7 +45,7 @@ async fn existing_host_wintun_is_read_only_staged_and_releases_its_reader() {
             .kind(),
         io::ErrorKind::PermissionDenied
     );
-    validate_addresses(name, &[address], 1400).unwrap();
+    validate_host_configuration(name, &[address], 1400).unwrap();
     let socket = std::net::UdpSocket::bind((address, 0)).unwrap();
     socket
         .send_to(b"host-packet-probe", "10.67.3.2:9000")
@@ -73,7 +73,7 @@ async fn existing_host_wintun_is_read_only_staged_and_releases_its_reader() {
     device.write_all(&packet[..size]).await.unwrap();
     assert!(device.write_all(&[0; 65536]).await.is_err());
     drop(device); // Wakes and joins the blocking reader, preserving host configuration.
-    validate_addresses(name, &[address], 1400).unwrap();
+    validate_host_configuration(name, &[address], 1400).unwrap();
     let reopened = ExistingWindowsTun::open(name, &[address], 1400).unwrap();
     drop(reopened);
     drop(host);
@@ -92,4 +92,21 @@ fn missing_existing_host_adapter_does_not_create_one() {
     );
     let driver = load_wintun().unwrap();
     assert!(wintun::Adapter::open(&driver, name).is_err());
+}
+
+#[test]
+fn dormant_host_address_must_become_preferred_after_activation() {
+    use windows_sys::Win32::Networking::WinSock::{
+        IpDadStateDuplicate, IpDadStateInvalid, IpDadStatePreferred, IpDadStateTentative,
+    };
+    let address = "10.67.3.1".parse().unwrap();
+    for state in [IpDadStateDeprecated, IpDadStateTentative] {
+        assert!(!activating_dad_state_is_ready(address, state).unwrap());
+    }
+    assert!(activating_dad_state_is_ready(address, IpDadStatePreferred).unwrap());
+    for state in [IpDadStateDuplicate, IpDadStateInvalid] {
+        assert!(activating_dad_state_is_ready(address, state).is_err());
+    }
+    // Owned/configured TUN readiness remains strict.
+    assert!(dad_state_is_ready(address, IpDadStateDeprecated).is_err());
 }

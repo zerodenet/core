@@ -2,6 +2,14 @@
 use super::*;
 use tokio::sync::OwnedSemaphorePermit;
 
+// HTTP/1 upload connection reuse can require reading the previous receipt
+// before the client sends the missing sequence. Receipt confirms bounded
+// ownership, not queue consumption or delivery to the business destination.
+enum Acknowledgement {
+    Received,
+    Queued,
+}
+
 pub(super) async fn upload<B>(
     request: http::Request<B>,
     profile: Profile,
@@ -57,9 +65,13 @@ where
         Err(_) => return Ok(status(408)),
     };
     // Once the complete packet has arrived, HTTP cancellation cannot undo it.
-    // Go's synchronous handler also finishes its queue Push after peer closure.
     // The task retains its request permit, queue/byte limits and deadline.
-    let admission = admit(session, sequence, data, permit, budget);
+    let acknowledgement = if http1 {
+        Acknowledgement::Received
+    } else {
+        Acknowledgement::Queued
+    };
+    let admission = admit(session, sequence, data, permit, budget, acknowledgement);
     match admission.await {
         Ok(()) => {
             let mut response = status(200);
@@ -86,6 +98,7 @@ async fn admit(
     data: Bytes,
     permit: OwnedSemaphorePermit,
     budget: OwnedSemaphorePermit,
+    acknowledgement: Acknowledgement,
 ) -> io::Result<()> {
     use std::{future::Future, task::Poll};
     let mut admission = Box::pin(async move {
@@ -123,9 +136,22 @@ async fn admit(
     .await;
     match ready {
         Some(result) => result,
-        None => tokio::spawn(admission).await.map_err(io::Error::other)?,
+        None => {
+            let task = tokio::spawn(admission);
+            match acknowledgement {
+                // The first poll registered and validated the complete packet.
+                // The bounded task retains both permits until queue admission,
+                // session cancellation or its deadline, even after HTTP success.
+                Acknowledgement::Received => Ok(()),
+                Acknowledgement::Queued => task.await.map_err(io::Error::other)?,
+            }
+        }
     }
 }
 #[cfg(test)]
 #[path = "../../../tests/xhttp_server/packet_admission.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../tests/xhttp_server/http1_ack.rs"]
+mod http1_ack_tests;

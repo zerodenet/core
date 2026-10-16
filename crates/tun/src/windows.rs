@@ -420,6 +420,14 @@ fn add_address(luid: NET_LUID_LH, address: IpAddr, prefix: u8) -> io::Result<()>
 }
 
 fn wait_for_address_ready(luid: NET_LUID_LH, address: IpAddr) -> io::Result<()> {
+    wait_for_address_ready_with(luid, address, dad_state_is_ready)
+}
+
+fn wait_for_address_ready_with(
+    luid: NET_LUID_LH,
+    address: IpAddr,
+    ready: fn(IpAddr, NL_DAD_STATE) -> io::Result<bool>,
+) -> io::Result<()> {
     let deadline = Instant::now() + ADDRESS_READY_TIMEOUT;
     loop {
         let mut row = MIB_UNICASTIPADDRESS_ROW::default();
@@ -428,7 +436,7 @@ fn wait_for_address_ready(luid: NET_LUID_LH, address: IpAddr) -> io::Result<()> 
         row.Address = socket_address(address);
         let status = unsafe { GetUnicastIpAddressEntry(&mut row) };
         if status == 0 {
-            if dad_state_is_ready(address, row.DadState)? {
+            if ready(address, row.DadState)? {
                 return Ok(());
             }
         } else if status != ERROR_NOT_FOUND {

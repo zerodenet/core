@@ -14,6 +14,7 @@ async fn fully_received_missing_packet_is_not_failed_behind_backpressured_http_w
             Bytes::from(sequence.to_be_bytes().to_vec()),
             permits.clone().try_acquire_owned().unwrap(),
             session.reserve_upload(8).unwrap(),
+            Acknowledgement::Queued,
         ));
         std::future::poll_fn(|cx| {
             if let Poll::Ready(result) = admission.as_mut().poll(cx) {
@@ -47,6 +48,7 @@ async fn completed_packet_survives_cancelled_http_waiter_under_backpressure() {
         Bytes::from_static(b"second"),
         permits.clone().acquire_owned().await.unwrap(),
         session.reserve_upload(6).unwrap(),
+        Acknowledgement::Queued,
     ));
     std::future::poll_fn(|cx| {
         use std::{future::Future, task::Poll};
@@ -88,6 +90,7 @@ async fn received_burst_keeps_fifo_position_when_http_waiters_are_dropped() {
             Bytes::from(sequence.to_be_bytes().to_vec()),
             permits.clone().acquire_owned().await.unwrap(),
             session.reserve_upload(8).unwrap(),
+            Acknowledgement::Queued,
         ));
         std::future::poll_fn(|cx| {
             if let Poll::Ready(result) = admission.as_mut().poll(cx) {
@@ -121,6 +124,7 @@ async fn received_packet_reserves_fifo_position_even_when_http_task_budget_is_ex
         Bytes::from_static(b"first"),
         permits.clone().try_acquire_owned().unwrap(),
         session.reserve_upload(5).unwrap(),
+        Acknowledgement::Queued,
     ));
     std::future::poll_fn(|cx| {
         while let Poll::Ready(budget) = tokio::task::coop::poll_proceed(cx) {

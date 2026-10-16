@@ -1,5 +1,10 @@
 # 控制面兼容性与破坏性变更
 
+## Unreleased: Host Wintun activation and XHTTP upload receipts
+
+- Existing host-owned Wintun adapters validate their configured addresses and MTU before opening an exclusive packet session, then wait for Preferred address state on the activated link. A dormant Deprecated address is not treated as ready; duplicate, invalid and expired addresses remain errors. Host addresses, routes and MTU are never modified.
+- XHTTP HTTP/1 packet uploads acknowledge completely received, validated and byte-budgeted ownership before waiting for ingress queue capacity. This allows a reused upload connection to deliver a missing sequence instead of waiting for a receipt that depends on that sequence. The admission task retains its request permit, payload reservation and deadline; receipt does not mean business delivery. Queue and listener budgets, duplicate rejection, cancellation and HTTP/2/3 admission backpressure remain enforced. No configuration or public API fields change.
+
 ## Unreleased: Shared raw-IP listener egress
 
 - Native shared raw-IP listeners apply the current physical-egress selection at the datagram send boundary. Their outer packets no longer rely on being recaptured and routed through TUN as business flows. Explicit outer proxy carriers keep their existing transport ownership.
