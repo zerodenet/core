@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible problem with Zero
+labels:
+  - bug
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Zero version
+      description: Provide the exact Zero version or commit.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS and architecture.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Runtime
+        - TUN
+        - DNS
+        - Routing
+        - Protocol
+        - API
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem description
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
