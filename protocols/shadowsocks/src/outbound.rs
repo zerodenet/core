@@ -35,15 +35,38 @@ impl ShadowsocksOutbound {
         cipher: super::shared::CipherKind,
         password: &[u8],
     ) -> Result<ShadowsocksOutboundSession, Error> {
+        self.send_request_to(
+            stream,
+            &session.target,
+            session.port,
+            cipher,
+            password,
+            None,
+        )
+        .await
+    }
+
+    #[cfg(feature = "crypto")]
+    pub(super) async fn send_request_to<S: AsyncSocket>(
+        &self,
+        stream: &mut S,
+        address: &zero_core::Address,
+        port: u16,
+        cipher: super::shared::CipherKind,
+        password: &[u8],
+        replay: Option<&crate::shared::legacy_replay::LegacyReplay>,
+    ) -> Result<ShadowsocksOutboundSession, Error> {
         if cipher.is_stream() {
-            return crate::shared::legacy::send_request(stream, session, cipher, password, None)
-                .await;
+            return crate::shared::legacy::send_request(
+                stream, address, port, cipher, password, replay,
+            )
+            .await;
         }
         if cipher.is_blake3() {
             #[cfg(feature = "blake3")]
             {
                 return self
-                    .send_request_2022(stream, session, cipher, password)
+                    .send_request_2022(stream, address, port, cipher, password)
                     .await;
             }
             #[cfg(not(feature = "blake3"))]
@@ -51,7 +74,7 @@ impl ShadowsocksOutbound {
                 "ss: 2022 tcp request requires `blake3` feature",
             ));
         }
-        self.send_request_legacy(stream, session, cipher, password, None)
+        self.send_request_legacy(stream, address, port, cipher, password, replay)
             .await
     }
 
@@ -61,7 +84,8 @@ impl ShadowsocksOutbound {
     pub(super) async fn send_request_legacy<S: AsyncSocket>(
         &self,
         stream: &mut S,
-        session: &Session,
+        address: &zero_core::Address,
+        port: u16,
         cipher: super::shared::CipherKind,
         password: &[u8],
         replay: Option<&crate::shared::legacy_replay::LegacyReplay>,
@@ -82,7 +106,7 @@ impl ShadowsocksOutbound {
         let key = derive_session_key(cipher, password, &salt)?;
 
         // Build target data
-        let target_data = build_target_data(&session.target, session.port, &[])?;
+        let target_data = build_target_data(address, port, &[])?;
 
         let mut nonce = 0;
         let encrypted = encrypt_tcp_chunk(cipher, &key, &mut nonce, &target_data)?;
@@ -110,7 +134,8 @@ impl ShadowsocksOutbound {
     async fn send_request_2022<S: AsyncSocket>(
         &self,
         stream: &mut S,
-        session: &Session,
+        address: &zero_core::Address,
+        port: u16,
         cipher: super::shared::CipherKind,
         password: &[u8],
     ) -> Result<ShadowsocksOutboundSession, Error> {
@@ -140,8 +165,7 @@ impl ShadowsocksOutbound {
         // No initial payload is available at request time (the relay has not
         // started), so per SIP022 3.1.3 we MUST include non-zero padding.
         let padding = random_2022_padding(true)?;
-        let var_header =
-            build_2022_request_var_header(&session.target, session.port, &padding, &[])?;
+        let var_header = build_2022_request_var_header(address, port, &padding, &[])?;
         let var_len = u16::try_from(var_header.len())
             .map_err(|_| Error::Protocol("ss: 2022 variable header too long"))?;
 

@@ -4,6 +4,7 @@ use super::{Engine, EngineRuntimeSnapshot};
 use crate::{EngineError, TargetId, UrlTestGroupState, UrlTestMemberState};
 
 mod health;
+pub use health::OutboundHealthObservation;
 mod probe;
 
 impl Engine {

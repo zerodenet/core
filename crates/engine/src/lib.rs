@@ -28,7 +28,9 @@ pub use principal::{
     inspect_principal_quota_state, PrincipalCancellationRegistration, PrincipalDeviceRegistration,
     PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
 };
-pub use runtime::{EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot};
+pub use runtime::{
+    EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot, OutboundHealthObservation,
+};
 pub use runtime::{PacketRouteControl, PacketRouteLease};
 pub use runtime::{RouteDecision, RouteEvaluation, RouteTrace};
 pub use session::{

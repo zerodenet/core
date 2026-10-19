@@ -131,7 +131,13 @@ pub(crate) fn component_registry(
 }
 
 pub(crate) fn protocol_registry() -> ProtocolRegistry {
-    compiled_registries().0
+    let (mut registry, components) = compiled_registries();
+    // Preserve the exact factory state assembled beside the legacy adapters.
+    // Reassembling later would create another protocol pool/resource owner.
+    registry.components = Arc::new(crate::component::catalog::ComponentCatalog::with_factories(
+        components,
+    ));
+    registry
 }
 
 pub(crate) fn compiled_protocol_features() -> Vec<String> {

@@ -96,6 +96,12 @@ impl std::fmt::Debug for ComponentCatalog {
     }
 }
 impl ComponentCatalog {
+    pub(crate) fn with_factories(factories: ComponentRegistry<OutboundConfig>) -> Self {
+        Self {
+            factories: OnceLock::from(factories),
+            ..Self::default()
+        }
+    }
     // ProtocolRegistry also owns a catalog. Initialize this cold factory table
     // only when preparing a plan, so assembling the two registries is state-only
     // and cannot recursively construct another compiled registry from Default.

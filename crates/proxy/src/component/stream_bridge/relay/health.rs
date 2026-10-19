@@ -1,31 +1,35 @@
-//! Snapshot-bound first-hop observations without retaining a component registry.
+//! Generation-bound first-hop health without retaining config or registries.
 use crate::runtime::classify_channel_establishment_failure;
 use std::sync::Arc;
-use zero_engine::{Engine, EngineRuntimeSnapshot, PassiveRelayOutcome};
+use zero_engine::{Engine, EngineRuntimeSnapshot, OutboundHealthObservation, PassiveRelayOutcome};
 use zero_platform_tokio::contract::{
     stream::{BoxStream, Connected},
     ChannelError,
 };
 
 pub(super) struct FirstHopHealth {
-    pub(super) engine: Engine,
-    pub(super) snapshot: Arc<EngineRuntimeSnapshot>,
-    pub(super) tag: String,
+    observation: OutboundHealthObservation,
 }
 impl FirstHopHealth {
+    pub(super) fn new(engine: &Engine, snapshot: &Arc<EngineRuntimeSnapshot>, tag: &str) -> Self {
+        Self {
+            observation: engine.bind_outbound_health(snapshot, tag),
+        }
+    }
     pub(super) fn observe(&self, attempt: &Result<Connected<BoxStream>, ChannelError>) {
         match attempt {
-            Ok(_) => self
-                .engine
-                .record_outbound_success_in_snapshot(&self.snapshot, &self.tag),
+            Ok(_) => self.observation.record_success(),
             Err(error)
                 if classify_channel_establishment_failure(error)
                     == PassiveRelayOutcome::Failure =>
             {
-                self.engine
-                    .record_outbound_failure_in_snapshot(&self.snapshot, &self.tag);
+                self.observation.record_failure();
             }
             Err(_) => {}
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/relay_health.rs"]
+mod tests;

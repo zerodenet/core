@@ -39,7 +39,8 @@ fn random_iv(cipher: CipherKind) -> Result<Vec<u8>, Error> {
 }
 pub(crate) async fn send_request<S: AsyncSocket>(
     stream: &mut S,
-    session: &Session,
+    address: &zero_core::Address,
+    port: u16,
     cipher: CipherKind,
     password: &[u8],
     replay: Option<&super::legacy_replay::LegacyReplay>,
@@ -49,7 +50,7 @@ pub(crate) async fn send_request<S: AsyncSocket>(
         None => random_iv(cipher)?,
     };
     let mut state = LegacyCipherState::new(cipher, password, &iv)?;
-    let mut address = super::build_target_data(&session.target, session.port, &[])?;
+    let mut address = super::build_target_data(address, port, &[])?;
     state.encrypt(&mut address);
     stream
         .write_all(&[iv.as_slice(), &address].concat())

@@ -4,6 +4,8 @@
 #[path = "../support/socket.rs"]
 mod socket;
 
+#[path = "../destination_tcp.rs"]
+mod destination_tcp;
 #[path = "../legacy_replay.rs"]
 mod legacy_replay;
 #[cfg(feature = "runtime")]

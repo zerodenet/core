@@ -32,6 +32,7 @@ mod packet_route;
 mod passive_health;
 mod policy;
 pub use packet_route::{PacketRouteControl, PacketRouteLease};
+pub use policy::OutboundHealthObservation;
 mod route;
 mod session;
 mod snapshot;

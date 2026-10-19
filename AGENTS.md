@@ -85,6 +85,7 @@ If you change protocol behavior, config parsing, routing, or runtime wiring, run
 ## Boundaries
 
 - Component factories declare their internal task limit explicitly; `None` grants no tasks. Install the resource owner before awaiting start, retain it when start is interrupted, and drive protocol cleanup together with scope cancellation and joins. Interrupted cleanup must retain collected task failures and their sources. Timeout, abort and Drop never prove resource closure.
+- Compiled component factories and remaining capability adapters share the state from one assembly. Bound carrier-health observations retain weak generation identities and kernel references; historical configuration snapshots and Engine ownership must not escape into retained upstream openers. Protocol request framing consumes destination facts; internal Service/prefix operations never invent a business SessionId.
 - Do not move protocol parsing into root binary
 - Do not construct control or TUN IPC requests in `src/main.rs`; command semantics belong to `src/application/{control,tun,inspect,run}.rs`.
 - Keep `crates/engine/src/runtime.rs` as the construction/mode/route facade. Configuration persistence, policy state, observability projection, diagnostics, and session lifecycle belong to `runtime/{configuration,policy,observability,diagnostics,session}.rs`.

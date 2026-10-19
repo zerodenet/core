@@ -92,3 +92,77 @@ async fn expired_caller_cannot_poison_an_unstarted_component() {
     assert!(slot.stream(deadline()).await.is_ok());
     assert!(slot.shutdown(deadline()).await.unwrap().is_complete());
 }
+
+#[tokio::test]
+async fn supplied_factory_state_builds_the_actual_cached_runtime_roles() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use zero_platform_tokio::contract::{
+        component::{BuildContext, ComponentFactory, ComponentInstance, ComponentSpec},
+        lifecycle::BuildError,
+    };
+    use zero_traits::ProtocolMetadata;
+
+    struct Factory(Arc<AtomicUsize>);
+    impl ComponentFactory for Factory {
+        type Options = crate::component::DirectOptions;
+        fn describe(&self, options: &Self::Options) -> ComponentSpec {
+            crate::component::DirectFactory.describe(options)
+        }
+        fn build(
+            &self,
+            options: Arc<Self::Options>,
+            context: BuildContext,
+        ) -> Result<ComponentInstance, BuildError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            crate::component::DirectFactory.build(options, context)
+        }
+    }
+    let builds = Arc::new(AtomicUsize::new(0));
+    let retained = Arc::downgrade(&builds);
+    let mut factories = crate::component::ComponentRegistry::default();
+    factories
+        .register(
+            crate::adapters::direct::DirectAdapter::default().descriptor(),
+            Factory(builds.clone()),
+            crate::adapters::direct::factory::decode,
+        )
+        .unwrap();
+    let catalog = ComponentCatalog::with_factories(factories);
+    let config = config();
+    let plan = catalog.prepare(config.clone()).unwrap();
+    assert_eq!(builds.load(Ordering::SeqCst), 0, "prepare must stay cold");
+    plan.start(deadline()).await.unwrap();
+    let role = plan
+        .direct(Some("selected"))
+        .unwrap()
+        .stream(deadline())
+        .await
+        .unwrap();
+    assert_eq!(
+        builds.load(Ordering::SeqCst),
+        2,
+        "builtin and selected use supplied factory"
+    );
+    let cached = catalog.prepare(config).unwrap();
+    cached.start(deadline()).await.unwrap();
+    assert!(Arc::ptr_eq(
+        &role,
+        &cached
+            .direct(Some("selected"))
+            .unwrap()
+            .stream(deadline())
+            .await
+            .unwrap()
+    ));
+    assert_eq!(builds.load(Ordering::SeqCst), 2);
+    catalog.shutdown(deadline()).await.unwrap();
+    drop(builds);
+    drop(catalog);
+    drop(plan);
+    drop(cached);
+    assert!(
+        retained.upgrade().is_none(),
+        "roles must not retain factory state"
+    );
+    drop(role);
+}

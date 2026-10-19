@@ -137,10 +137,8 @@ pub(crate) async fn connect(
                 ),
                 network: services.upstream(),
                 observer: services.outbound_io(&next.tag, zero_api::TrafficPlane::Outer),
-                health: (index == 0 && record_health).then(|| FirstHopHealth {
-                    engine: services.engine().clone(),
-                    snapshot: services.snapshot_handle(),
-                    tag: node.tag.clone(),
+                health: (index == 0 && record_health).then(|| {
+                    FirstHopHealth::new(services.engine(), &services.snapshot_handle(), &node.tag)
                 }),
             }),
         );
