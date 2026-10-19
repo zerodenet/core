@@ -1,3 +1,4 @@
+pub mod contract;
 #[cfg(feature = "host-network-stats")]
 pub mod network_statistics;
 use std::io;

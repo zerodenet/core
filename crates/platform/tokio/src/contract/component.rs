@@ -1,0 +1,122 @@
+use std::{path::PathBuf, sync::Arc};
+use tokio_util::sync::CancellationToken;
+use zero_core::{
+    component::{ComponentId, ComponentRoleIds, ResourceGeneration},
+    request::Destination,
+};
+use zero_traits::IoObserver;
+
+use super::{
+    datagram::DynDatagramOutbound,
+    inbound::DynInboundSource,
+    lifecycle::{BuildError, DynResourceLifecycle},
+    network::UpstreamTransport,
+    packet::{BoxPacketSession, DynPacketOutbound},
+    scope::TaskRegistrar,
+    stream::DynStreamOutbound,
+    BoxFuture,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoleKind {
+    Stream,
+    Datagram,
+    Packet,
+    Inbound,
+    Observation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceOwnership {
+    Owned,
+    Borrowed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResourceDeclaration {
+    TcpListener(Destination),
+    DatagramListener(Destination),
+    Device {
+        name: Arc<str>,
+        ownership: DeviceOwnership,
+    },
+    File {
+        path: PathBuf,
+        max_bytes: usize,
+    },
+    BackgroundCarrier,
+}
+
+/// A static ownership description, resolved to IDs by the host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResourceOwner {
+    Component,
+    Endpoint(Arc<str>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComponentSpec {
+    pub owner: ResourceOwner,
+    pub roles: Vec<RoleKind>,
+    pub dependencies: Vec<ComponentId>,
+    /// Protocol-owned, secret-free equality identity of validated static options.
+    pub static_identity: Arc<[u8]>,
+    pub resources: Vec<ResourceDeclaration>,
+}
+
+/// The host implements access only for resources declared by this component.
+/// Calls are deferred until ResourceLifecycle::start, after ownership is installed.
+pub trait ResourceAccess: Send + Sync {
+    fn read_file(
+        &self,
+        path: PathBuf,
+        max_bytes: usize,
+    ) -> BoxFuture<'_, Result<Vec<u8>, BuildError>>;
+    fn listen_tcp(
+        &self,
+        address: Destination,
+    ) -> BoxFuture<'_, Result<tokio::net::TcpListener, BuildError>>;
+    fn listen_datagram(
+        &self,
+        address: Destination,
+    ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, BuildError>>;
+    fn open_device(&self, name: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>>;
+}
+
+pub struct BuildContext {
+    pub component: ComponentId,
+    pub generation: ResourceGeneration,
+    pub roles: ComponentRoleIds,
+    pub resources: Arc<dyn ResourceAccess>,
+    pub tasks: TaskRegistrar,
+    pub cancel: CancellationToken,
+    /// Granted only when the descriptor declares a background control carrier.
+    pub background_carrier: Option<UpstreamTransport>,
+}
+
+#[derive(Default)]
+pub struct ComponentRoles {
+    pub stream: Option<Arc<dyn DynStreamOutbound>>,
+    pub datagram: Option<Arc<dyn DynDatagramOutbound>>,
+    pub packet: Option<Arc<dyn DynPacketOutbound>>,
+    pub inbound: Option<Box<dyn DynInboundSource>>,
+    pub observation: Option<Arc<dyn IoObserver>>,
+}
+
+/// There is exactly one resource owner; role handles never own device shutdown.
+pub struct ComponentInstance {
+    pub lifecycle: Box<dyn DynResourceLifecycle>,
+    pub roles: ComponentRoles,
+}
+
+pub trait ComponentFactory: Send + Sync + 'static {
+    type Options: Send + Sync + 'static;
+    /// Pure description, with no resource acquisition.
+    fn describe(&self, options: &Self::Options) -> ComponentSpec;
+    /// Synchronous state construction only. No bind, device or task start here.
+    fn build(
+        &self,
+        options: Arc<Self::Options>,
+        context: BuildContext,
+    ) -> Result<ComponentInstance, BuildError>;
+}

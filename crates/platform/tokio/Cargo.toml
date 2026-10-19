@@ -16,6 +16,9 @@ host-network-stats = []
 socket2 = { version = "0.6", features = ["all"] }
 tokio.workspace = true
 zero-traits = { path = "../../traits" }
+zero-core = { path = "../../core" }
+zero-error = { path = "../../error" }
+tokio-util = { version = "0.7", features = ["rt"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

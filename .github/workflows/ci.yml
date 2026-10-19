@@ -67,6 +67,12 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
 
+      - name: Runtime contract dependency and no_std boundaries
+        run: |
+          python3 scripts/check-runtime-contracts.py
+          rustup target add thumbv7em-none-eabi
+          cargo check --target thumbv7em-none-eabi -p zero-traits -p zero-core
+
   check-and-test:
     name: Check & Test (Linux)
     runs-on: ubuntu-22.04
