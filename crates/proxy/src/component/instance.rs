@@ -1,6 +1,10 @@
 //! Ownership of one cold recipe, installed before its first start.
 use super::ValidatedRecipe;
-use std::{path::PathBuf, sync::Arc};
+mod cleanup;
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+};
 use tokio::{
     sync::{Mutex, OnceCell},
     time::Instant,
@@ -42,12 +46,27 @@ pub(crate) struct ComponentSlot {
 }
 struct Live {
     stream: Option<Arc<dyn DynStreamOutbound>>,
-    start_error: Option<SharedError>,
+    started: OnceLock<Result<(), SharedError>>,
     owner: Mutex<Owner>,
 }
 struct Owner {
     instance: ComponentInstance,
     tasks: TaskScope,
+    pending_close: Option<Box<CloseReport>>,
+}
+
+// Cancels admission when the initiating future is dropped. The actual owner
+// remains installed for explicit, confirmed cleanup by the host.
+struct StartCancellation {
+    cancel: CancellationToken,
+    armed: bool,
+}
+impl Drop for StartCancellation {
+    fn drop(&mut self) {
+        if self.armed {
+            self.cancel.cancel();
+        }
+    }
 }
 
 impl ComponentSlot {
@@ -78,29 +97,56 @@ impl ComponentSlot {
         &self,
         deadline: Instant,
     ) -> Result<Arc<dyn DynStreamOutbound>, ChannelError> {
+        self.start(deadline).await?;
+        self.live
+            .get()
+            .and_then(|live| live.as_ref().ok())
+            .and_then(|live| live.stream.clone())
+            .ok_or_else(|| self.failure(Reason::Internal, "missing built Stream role"))
+    }
+    pub(crate) async fn start(&self, deadline: Instant) -> Result<(), ChannelError> {
         if self.cancel.is_cancelled() {
-            return Err(invalid(Reason::Revoked, "component was stopped"));
+            return Err(self.failure(Reason::Revoked, "component was stopped"));
         }
-        // A caller's exhausted budget must not fault or initialize the component.
         if Instant::now() >= deadline {
-            return Err(invalid(Reason::Timeout, "component start deadline elapsed"));
+            return Err(self.failure(Reason::Timeout, "component start deadline elapsed"));
         }
-        if let Some(live) = self.live.get() {
-            return stream(live);
+        if let Some(result) = self.live.get() {
+            match result {
+                Ok(live) if live.started.get().is_none() => {}
+                _ => return started(self.id, result),
+            }
         }
-        let _starting = self.start_gate.lock().await;
+        // An exhausted waiter cannot fault the initializer or acquire its I/O.
+        let _starting = tokio::time::timeout_at(deadline, self.start_gate.lock())
+            .await
+            .map_err(|_| self.failure(Reason::Timeout, "component start deadline elapsed"))?;
         if self.cancel.is_cancelled() {
-            return Err(invalid(Reason::Revoked, "component was stopped"));
+            return Err(self.failure(Reason::Revoked, "component was stopped"));
+        }
+        if Instant::now() >= deadline {
+            return Err(self.failure(Reason::Timeout, "component start deadline elapsed"));
         }
         let live = self
             .live
             .get_or_init(|| async {
-                let tasks = TaskScope::empty(tokio::runtime::Handle::current());
+                // No await or resource acquisition inside this initializer. The
+                // persistent slot owns Live before any start future can suspend.
+                let runtime = tokio::runtime::Handle::current();
+                let tasks = match self.recipe.spec().task_limit {
+                    Some(limit) => TaskScope::new(runtime, limit),
+                    None => TaskScope::empty(runtime),
+                };
                 let context = BuildContext {
                     component: self.id,
                     generation: self.generation,
                     roles: ComponentRoleIds {
-                        outbound: Some(OutboundId(self.id.0)),
+                        outbound: self
+                            .recipe
+                            .spec()
+                            .roles
+                            .contains(&zero_platform_tokio::contract::component::RoleKind::Stream)
+                            .then_some(OutboundId(self.id.0)),
                         ..Default::default()
                     },
                     resources: Arc::new(NoResources),
@@ -109,30 +155,58 @@ impl ComponentSlot {
                     background_carrier: None,
                 };
                 let instance = self.recipe.build(context).map_err(Arc::new)?;
-                // Preserve the unique owner before executing even the first start step.
-                let mut owner = Owner { instance, tasks };
-                let started = owner.instance.lifecycle.start(deadline).await;
-                let stream = owner.instance.roles.stream.clone();
-                // Failed starts retain their owner until the host confirms shutdown.
                 Ok(Live {
-                    stream,
-                    start_error: started.err().map(Arc::new),
-                    owner: Mutex::new(owner),
+                    stream: instance.roles.stream.clone(),
+                    started: OnceLock::new(),
+                    owner: Mutex::new(Owner {
+                        instance,
+                        tasks,
+                        pending_close: None,
+                    }),
                 })
             })
             .await;
-        stream(live)
+        if let Ok(live) = live {
+            if live.started.get().is_none() {
+                let mut owner = live.owner.lock().await;
+                let mut cancellation = StartCancellation {
+                    cancel: self.cancel.clone(),
+                    armed: true,
+                };
+                let started = tokio::select! {
+                    biased;
+                    _ = self.cancel.cancelled() => Err(self.failure(Reason::Revoked, "component was stopped")),
+                    result = tokio::time::timeout_at(deadline, owner.instance.lifecycle.start(deadline)) => result.unwrap_or_else(|_| Err(self.failure(Reason::Timeout, "component start deadline elapsed"))),
+                };
+                if started.is_err() {
+                    owner.instance.lifecycle.revoke(CloseReason::Shutdown);
+                }
+                live.started
+                    .set(started.map_err(Arc::new))
+                    .expect("component start is serialized");
+                cancellation.armed = false;
+            }
+        }
+        started(self.id, live)
+    }
+    fn failure(&self, reason: Reason, message: &'static str) -> ChannelError {
+        let mut error = invalid(reason, message);
+        error.component = Some(self.id);
+        error
     }
     pub(crate) async fn shutdown(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke();
-        let _starting = self.start_gate.lock().await;
+        let _starting = tokio::time::timeout_at(deadline, self.start_gate.lock())
+            .await
+            .map_err(|_| {
+                let mut error = self.failure(Reason::Timeout, "component cleanup deadline elapsed");
+                error.stage = Stage::Close;
+                error
+            })?;
         match self.live.get() {
             Some(Ok(live)) => {
                 let mut owner = live.owner.lock().await;
-                owner.instance.lifecycle.revoke(CloseReason::Shutdown);
-                let mut report = owner.instance.lifecycle.shutdown(deadline).await?;
-                report.append(owner.tasks.shutdown(deadline).await);
-                Ok(report)
+                owner.shutdown(self.id, deadline).await
             }
             Some(Err(_)) | None => Ok(CloseReport::default()),
         }
@@ -142,17 +216,19 @@ impl ComponentSlot {
     }
 }
 
-fn stream(live: &Result<Live, SharedError>) -> Result<Arc<dyn DynStreamOutbound>, ChannelError> {
-    match live {
-        Ok(live) => match &live.start_error {
-            Some(error) => Err(retained(error.clone())),
-            None => live
-                .stream
-                .clone()
-                .ok_or_else(|| invalid(Reason::Internal, "missing built Stream role")),
+fn started(component: ComponentId, live: &Result<Live, SharedError>) -> Result<(), ChannelError> {
+    let result = match live {
+        Ok(live) => match live.started.get() {
+            Some(Err(error)) => Err(retained(error.clone())),
+            Some(Ok(())) => Ok(()),
+            None => Err(invalid(Reason::Revoked, "component start is not complete")),
         },
         Err(error) => Err(retained(error.clone())),
-    }
+    };
+    result.map_err(|mut error| {
+        error.component.get_or_insert(component);
+        error
+    })
 }
 
 // This transitional slot is granted only the zero-resource Stream descriptors.

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{num::NonZeroUsize, path::PathBuf, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use zero_core::{
     component::{ComponentId, ComponentRoleIds, ResourceGeneration},
@@ -62,6 +62,9 @@ pub struct ComponentSpec {
     /// Protocol-owned, secret-free equality identity of validated static options.
     pub static_identity: Arc<[u8]>,
     pub resources: Vec<ResourceDeclaration>,
+    /// Maximum registered tasks, including undelivered completion records.
+    /// None grants no internal tasks; it never means unlimited capacity.
+    pub task_limit: Option<NonZeroUsize>,
 }
 
 /// The host implements access only for resources declared by this component.

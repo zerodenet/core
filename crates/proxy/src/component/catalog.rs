@@ -28,7 +28,7 @@ impl std::fmt::Debug for ComponentPlan {
 impl ComponentPlan {
     pub(crate) async fn start(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
         for slot in std::iter::once(&self.builtin).chain(self.outbounds.values()) {
-            slot.stream(deadline).await?;
+            slot.start(deadline).await?;
         }
         Ok(())
     }

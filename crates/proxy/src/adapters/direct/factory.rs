@@ -69,6 +69,7 @@ impl ComponentFactory for DirectFactory {
             // The neutral dial policy contains no credentials.
             static_identity: format!("{:?}", options.policy).into_bytes().into(),
             resources: vec![],
+            task_limit: None,
         }
     }
     fn build(

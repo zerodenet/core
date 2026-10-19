@@ -35,6 +35,7 @@ impl ComponentFactory for Factory {
             dependencies: vec![],
             static_identity: options.identity.clone(),
             resources: vec![],
+            task_limit: None,
         }
     }
     fn build(

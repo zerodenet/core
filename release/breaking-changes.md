@@ -2,6 +2,7 @@
 
 ## Unreleased: Native Stream component integration
 
+- Rust component factories now declare `ComponentSpec::task_limit: Option<NonZeroUsize>`; `None` grants no internal tasks. Interrupted start retains the installed owner, protocol cleanup and registered driver shutdown progress together, and interrupted task cleanup retains already collected exit IDs and original failures for retry. Direct/SOCKS5 still declare no internal tasks; this does not change public wire configuration or the FFI ABI.
 - Ordinary Direct and SOCKS5 business streams now use cold-built component roles while retaining V1 configuration, API/event envelopes and existing FFI ABI. SOCKS5 retains protocol-owned credential validation and framing; existing rejection messages, stages and endpoints are covered by direct comparison tests. Internal DNS/UDP and mixed legacy relay migrations remain in progress.
 - Rust runtime integrations must handle the explicit Service request identity and use `Some(existing_deadline)` for an existing absolute OpenContext/CarrierContext deadline. `None` retains native operation budgets; ordinary business connects retain existing DNS and per-candidate socket timers. Resource start/close/accept/handshake deadlines remain explicit.
 - Native SOCKS5 fallback proceeds only when no CONNECT request has been submitted on an empty root prefix. Partial submission, an executed prefix or an unconfirmed request stops replay. Local cancellation, revocation and stale local plans remain neutral to remote health.

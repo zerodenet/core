@@ -44,6 +44,7 @@ struct State {
     tasks: JoinSet<Result<(), ComponentError>>,
     records: HashMap<Id, (TaskId, TaskClass)>,
     completed: VecDeque<TaskExit>,
+    closing_report: Option<Box<CloseReport>>,
 }
 
 struct Shared {
@@ -108,6 +109,30 @@ impl State {
             self.completed.push_back(exit);
         }
     }
+
+    fn record_closed(&mut self, exit: TaskExit) {
+        let report = self.closing_report.get_or_insert_with(Box::default);
+        if let Err(error) = exit.result {
+            report.failed_tasks.push(TaskFailure {
+                id: exit.id,
+                class: exit.class,
+                error,
+            });
+        }
+        report.exited_tasks.push(exit.id);
+    }
+
+    fn take_close_report(&mut self) -> CloseReport {
+        let mut report = self
+            .closing_report
+            .take()
+            .map(|report| *report)
+            .unwrap_or_default();
+        report
+            .unfinished
+            .extend(self.records.values().map(|(id, _)| Unfinished::Task(*id)));
+        report
+    }
 }
 
 impl TaskScope {
@@ -129,6 +154,7 @@ impl TaskScope {
                 tasks: JoinSet::new(),
                 records: HashMap::new(),
                 completed: VecDeque::new(),
+                closing_report: None,
             }),
             changed: Notify::new(),
             cancel: CancellationToken::new(),
@@ -167,41 +193,34 @@ impl TaskScope {
         self.0.changed.notify_one();
     }
 
-    /// Timeout retains the task set and its owners for a later cleanup attempt.
+    /// Timeout retains task ownership; interruption also retains collected exits.
     /// This report proves task exit only; protocol I/O needs its owner's report.
     pub async fn shutdown(&mut self, deadline: Instant) -> CloseReport {
         self.begin_shutdown();
-        let mut report = CloseReport::default();
         loop {
             match timeout_at(deadline, self.next_exit()).await {
                 Ok(Some(exit)) => {
-                    if let Err(error) = exit.result {
-                        report.failed_tasks.push(TaskFailure {
-                            id: exit.id,
-                            class: exit.class,
-                            error,
-                        });
-                    }
-                    report.exited_tasks.push(exit.id);
+                    self.0
+                        .state
+                        .lock()
+                        .expect("scope state poisoned")
+                        .record_closed(exit);
                 }
-                Ok(None) => return report,
+                Ok(None) => {
+                    return self
+                        .0
+                        .state
+                        .lock()
+                        .expect("scope state poisoned")
+                        .take_close_report()
+                }
                 Err(_) => {
                     let mut state = self.0.state.lock().expect("scope state poisoned");
                     state.reap();
                     while let Some(exit) = state.completed.pop_front() {
-                        if let Err(error) = exit.result {
-                            report.failed_tasks.push(TaskFailure {
-                                id: exit.id,
-                                class: exit.class,
-                                error,
-                            });
-                        }
-                        report.exited_tasks.push(exit.id);
+                        state.record_closed(exit);
                     }
-                    report
-                        .unfinished
-                        .extend(state.records.values().map(|(id, _)| Unfinished::Task(*id)));
-                    return report;
+                    return state.take_close_report();
                 }
             }
         }

@@ -1,6 +1,5 @@
 use std::{
     net::SocketAddr,
-    num::NonZeroUsize,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -127,6 +126,7 @@ impl ComponentFactory for Factory {
     fn describe(&self, options: &Options) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
+            task_limit: None,
             roles: vec![RoleKind::Stream],
             dependencies: vec![],
             static_identity: options.address.to_string().into_bytes().into(),
@@ -161,7 +161,7 @@ async fn stream_only_factory_builds_without_binding_and_keeps_owner_after_start_
     let occupied = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = occupied.local_addr().unwrap();
     let binds = Arc::new(AtomicUsize::new(0));
-    let mut scope = TaskScope::new(Handle::current(), NonZeroUsize::new(1).unwrap());
+    let mut scope = TaskScope::empty(Handle::current());
     let factory = Factory;
     let options = Arc::new(Options { address });
     let spec = factory.describe(&options);

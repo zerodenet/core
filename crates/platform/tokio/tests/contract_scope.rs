@@ -16,6 +16,9 @@ use zero_platform_tokio::contract::{
     ChannelError, Impact, Reason, Stage,
 };
 
+#[path = "contract_scope/shutdown.rs"]
+mod shutdown;
+
 fn scope(limit: usize) -> TaskScope {
     TaskScope::new(Handle::current(), NonZeroUsize::new(limit).unwrap())
 }
