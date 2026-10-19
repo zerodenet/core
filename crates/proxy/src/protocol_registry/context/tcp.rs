@@ -133,6 +133,10 @@ impl TcpRuntimeServices {
             OutboundAdapterContext::new(self.config()),
             resolved,
             mode,
+            self.execution
+                .invocation
+                .as_ref()
+                .and(self.execution.components.as_deref().ok()),
         )
     }
 

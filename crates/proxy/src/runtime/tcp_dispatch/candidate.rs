@@ -15,8 +15,13 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let health_tag = prepared.health_tag.clone();
-    let result = match prepared.execution {
-        PreparedTcpCandidateExecution::Block { tag } => Ok(EstablishedTcpOutbound::block(tag)),
+    let result = match &prepared.execution {
+        PreparedTcpCandidateExecution::Native(slot) => {
+            crate::component::stream_bridge::connect(&services, session, slot, &prepared).await
+        }
+        PreparedTcpCandidateExecution::Block { tag } => {
+            Ok(EstablishedTcpOutbound::block(tag.clone()))
+        }
         PreparedTcpCandidateExecution::Connect(operation) => {
             operation.execute(services.clone(), session).await
         }

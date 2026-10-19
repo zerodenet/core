@@ -51,6 +51,19 @@ pub(crate) fn attributed_error(
 pub(crate) fn failure_origin(error: &(dyn Error + 'static)) -> Option<TransportFailureOrigin> {
     let mut current = Some(error);
     while let Some(error) = current {
+        if let Some(channel) = error.downcast_ref::<zero_platform_tokio::contract::ChannelError>() {
+            use zero_platform_tokio::contract::Reason;
+            if matches!(
+                channel.reason,
+                Reason::Cancelled
+                    | Reason::Revoked
+                    | Reason::StalePlan
+                    | Reason::InvalidConfig
+                    | Reason::Capacity
+            ) {
+                return Some(TransportFailureOrigin::LocalNetwork);
+            }
+        }
         if let Some(failure) = error.downcast_ref::<TransportFailure>() {
             return Some(failure.origin);
         }
@@ -76,6 +89,39 @@ pub(crate) fn failure_origin(error: &(dyn Error + 'static)) -> Option<TransportF
             if is_local_network_error(error) {
                 return Some(TransportFailureOrigin::LocalNetwork);
             }
+            if let Some(inner) = error.get_ref() {
+                current = Some(inner);
+                continue;
+            }
+        }
+        current = error.source();
+    }
+    None
+}
+
+/// Temporary legacy error normalization only; native channel users read these
+/// fields directly. Keep recovery of erased errors out of request dispatch.
+pub(crate) fn channel_failure<'a>(
+    error: &'a (dyn Error + 'static),
+) -> Option<&'a zero_platform_tokio::contract::ChannelError> {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if let Some(channel) = error.downcast_ref::<zero_platform_tokio::contract::ChannelError>() {
+            return Some(channel);
+        }
+        if let Some(zero_engine::EngineError::Io(inner)) =
+            error.downcast_ref::<zero_engine::EngineError>()
+        {
+            current = Some(inner);
+            continue;
+        }
+        if let Some(zero_transport::RuntimeError::Io(inner)) =
+            error.downcast_ref::<zero_transport::RuntimeError>()
+        {
+            current = Some(inner);
+            continue;
+        }
+        if let Some(error) = error.downcast_ref::<io::Error>() {
             if let Some(inner) = error.get_ref() {
                 current = Some(inner);
                 continue;

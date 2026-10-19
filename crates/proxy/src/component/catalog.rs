@@ -32,6 +32,9 @@ impl ComponentPlan {
         }
         Ok(())
     }
+    pub(crate) fn configured(&self, tag: &str) -> Option<Arc<ComponentSlot>> {
+        self.outbounds.get(tag).cloned()
+    }
     pub(crate) fn direct(&self, tag: Option<&str>) -> Result<Arc<ComponentSlot>, ChannelError> {
         match tag {
             None => Ok(self.builtin.clone()),
@@ -160,7 +163,7 @@ impl ComponentCatalog {
         };
         let mut outbounds = BTreeMap::new();
         for input in &config.outbounds {
-            if !matches!(input.protocol, OutboundProtocolConfig::Direct) {
+            if !self.factories.has_factory(input.protocol.protocol_name()) {
                 continue;
             }
             let old = previous.and_then(|(old, plan)| {
@@ -184,15 +187,18 @@ impl ComponentCatalog {
         input: &OutboundConfig,
         previous: Option<&ComponentSlot>,
     ) -> Result<Arc<ComponentSlot>, ChannelError> {
-        let recipe = self.factories.prepare("direct", input).map_err(|source| {
-            invalid(Reason::Internal, "component option validation failed").with_source(source)
-        })?;
+        let recipe = self
+            .factories
+            .prepare(input.protocol.protocol_name(), input)
+            .map_err(|source| {
+                invalid(Reason::Internal, "component option validation failed").with_source(source)
+            })?;
         if !recipe.spec().resources.is_empty()
             || recipe.spec().roles != [zero_platform_tokio::contract::component::RoleKind::Stream]
         {
             return Err(invalid(
                 Reason::Internal,
-                "migrated Direct must declare only its real zero-resource Stream role",
+                "migrated component must declare only its real zero-resource Stream role",
             ));
         }
         let (id, generation) = match previous {

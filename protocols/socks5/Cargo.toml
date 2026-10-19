@@ -13,11 +13,13 @@ validation = []
 runtime = [
     "validation",
     "dep:async-trait",
+    "dep:tokio",
     "dep:zero-platform-tokio",
     "dep:zero-transport",
 ]
 
 [dependencies]
+tokio = { workspace = true, optional = true }
 async-trait = { version = "0.1", optional = true }
 zero-core = { path = "../../crates/core" }
 zero-platform-tokio = { path = "../../crates/platform/tokio", optional = true }
@@ -29,4 +31,9 @@ tokio.workspace = true
 
 [[test]]
 name = "handshake"
+required-features = ["runtime"]
+
+[[test]]
+name = "socks_component"
+path = "tests/component.rs"
 required-features = ["runtime"]

@@ -65,7 +65,6 @@ impl EstablishedTcpOutbound {
         }
     }
 
-    #[cfg(feature = "udp-runtime")]
     pub(crate) fn proxied(
         tag: impl Into<String>,
         server: impl Into<String>,

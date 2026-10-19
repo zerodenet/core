@@ -6,6 +6,7 @@ pub(crate) mod instance;
 mod legacy_stream;
 mod registry;
 pub(crate) mod request;
+pub(crate) mod stream_bridge;
 
 pub use crate::adapters::direct::factory::{DirectFactory, DirectOptions};
 pub use registry::{ComponentRegistry, RegistrationError, ValidatedRecipe};

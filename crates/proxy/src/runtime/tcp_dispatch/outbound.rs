@@ -52,7 +52,14 @@ async fn execute_prepared_tcp_outbound(
                     .await
                 {
                     Ok(outbound) => return Ok(outbound),
-                    Err(failure) => last_failure = Some(failure),
+                    Err(failure) => {
+                        if crate::transport::channel_failure(&failure.error)
+                            .is_some_and(|error| !error.retry_permitted())
+                        {
+                            return Err(failure);
+                        }
+                        last_failure = Some(failure);
+                    }
                 }
             }
 

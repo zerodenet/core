@@ -1,22 +1,19 @@
 //! Direct's domain decision is made by engine; this role opens its bound carrier.
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-use tokio::time::Instant;
-use zero_core::component::{ComponentId, SessionId};
+use std::sync::Arc;
+use zero_core::component::SessionId;
 use zero_platform_tokio::contract::{
+    admission::{SessionAdmission, SessionOwner},
     component::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
         ResourceOwner, RoleKind,
     },
     context::{with_deadline, ConnectFact, OpenContext},
-    lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle},
+    lifecycle::{erase_lifecycle, BuildError},
     network::CarrierContext,
     stream::{
         erase_stream, BoxStream, ConnectRequest, Connected, PeerConfirmation, StreamOutbound,
     },
-    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
+    ChannelError, DeliveryState, Reason, Stage,
 };
 use zero_traits::DialPolicy;
 
@@ -48,43 +45,18 @@ pub(crate) fn decode(
         zero_config::ConfigError::InvalidOutbound(format!("outbound `{}` dial: {error}", input.tag))
     })
 }
-struct State {
-    ready: AtomicBool,
-    cancel: CancellationToken,
-    component: ComponentId,
-}
-struct Owner(Arc<State>);
-impl Drop for Owner {
-    fn drop(&mut self) {
-        // Emergency admission closure; this is never a shutdown acknowledgement.
-        self.0.ready.store(false, Ordering::Release);
-        self.0.cancel.cancel();
-    }
-}
 struct Outbound {
     options: Arc<DirectOptions>,
-    state: Arc<State>,
+    state: Arc<SessionAdmission>,
 }
-
-fn failure(
-    state: &State,
+fn during_open(
+    state: &SessionAdmission,
     session: Option<SessionId>,
-    stage: Stage,
     reason: Reason,
 ) -> ChannelError {
-    let mut error = ChannelError::new(stage, reason, Impact::Session);
-    error.component = Some(state.component);
-    error.session = session;
-    error.delivery = DeliveryState::NotSubmitted;
-    error
-}
-
-fn during_open(state: &State, session: Option<SessionId>, reason: Reason) -> ChannelError {
-    let mut error = failure(state, session, Stage::Dial, reason);
-    // A bound prefix can already have submitted a protocol request. Abandoning
-    // its future is not proof that nothing reached the selected upstream.
-    error.delivery = DeliveryState::Unknown;
-    error
+    // A prefix may already have submitted a request; cancellation is not proof
+    // that nothing reached the selected upstream.
+    state.error(session, Stage::Dial, reason, DeliveryState::Unknown)
 }
 
 impl ComponentFactory for DirectFactory {
@@ -104,45 +76,14 @@ impl ComponentFactory for DirectFactory {
         options: Arc<Self::Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        let state = Arc::new(State {
-            ready: AtomicBool::new(false),
-            cancel: context.cancel.child_token(),
-            component: context.component,
-        });
+        let (owner, state) = SessionOwner::new(context.component, &context.cancel);
         Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(Owner(state.clone())),
+            lifecycle: erase_lifecycle(owner),
             roles: ComponentRoles {
                 stream: Some(erase_stream(Outbound { options, state })),
                 ..Default::default()
             },
         })
-    }
-}
-
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
-        if self.0.cancel.is_cancelled() {
-            let mut error = failure(&self.0, None, Stage::Prepare, Reason::Revoked);
-            error.impact = Impact::Component;
-            return Err(error);
-        }
-        if Instant::now() >= deadline {
-            let mut error = failure(&self.0, None, Stage::Prepare, Reason::Timeout);
-            error.impact = Impact::Component;
-            return Err(error);
-        }
-        self.0.ready.store(true, Ordering::Release);
-        Ok(())
-    }
-    fn revoke(&self, _: CloseReason) {
-        self.0.ready.store(false, Ordering::Release);
-        self.0.cancel.cancel();
-    }
-    async fn shutdown(&mut self, _: Instant) -> Result<CloseReport, BuildError> {
-        self.revoke(CloseReason::Shutdown);
-        // Each connected stream is transferred to the caller's session scope.
-        // Direct owns no shared socket, device, pool or internal driver.
-        Ok(CloseReport::default())
     }
 }
 
@@ -153,27 +94,13 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<Self::Stream>, ChannelError> {
-        let session = context.session_identity()?;
-        if !self.state.ready.load(Ordering::Acquire) || self.state.cancel.is_cancelled() {
-            return Err(failure(&self.state, session, Stage::Dial, Reason::Revoked));
-        }
-        if context.cancel.is_cancelled() {
-            return Err(failure(
-                &self.state,
-                session,
-                Stage::Dial,
-                Reason::Cancelled,
-            ));
-        }
-        if context.deadline_elapsed() {
-            return Err(failure(&self.state, session, Stage::Dial, Reason::Timeout));
-        }
+        let session = self.state.check(&context)?;
         if context.upstream.binding().dial != self.options.policy {
-            return Err(failure(
-                &self.state,
+            return Err(self.state.error(
                 session,
                 Stage::Prepare,
                 Reason::StalePlan,
+                DeliveryState::NotSubmitted,
             ));
         }
         let carrier = CarrierContext {
@@ -184,17 +111,11 @@ impl StreamOutbound for Outbound {
         let open = context.upstream.open_stream(request.destination, carrier);
         let io = tokio::select! {
             biased;
-            _ = self.state.cancel.cancelled() => return Err(during_open(&self.state, session, Reason::Revoked)),
+            _ = self.state.cancelled() => return Err(during_open(&self.state, session, Reason::Revoked)),
             _ = context.cancel.cancelled() => return Err(during_open(&self.state, session, Reason::Cancelled)),
             result = with_deadline(context.deadline, open) => result.map_err(|source| during_open(&self.state, session, Reason::Timeout).with_source(source))?,
         };
-        let io = io.map_err(|mut error| {
-            error.component.get_or_insert(self.state.component);
-            if error.session.is_none() {
-                error.session = session;
-            }
-            error
-        })?;
+        let io = io.map_err(|error| self.state.attach(error, session))?;
         if let Some(observer) = &context.observer {
             observer.record(session, ConnectFact::CarrierReady);
             observer.record(session, ConnectFact::PeerConfirmed);

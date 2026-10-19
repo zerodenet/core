@@ -15,6 +15,20 @@ pub(crate) fn component_registry(
         )
         .expect("unique built-in Direct registration");
     registry
+        .declare("socks5", "socks5")
+        .expect("unique SOCKS5 declaration");
+    #[cfg(feature = "socks5")]
+    {
+        registry
+            .register(
+                ::socks5::Socks5Protocol.descriptor(),
+                ::socks5::component::Factory,
+                crate::adapters::socks5::component_options,
+            )
+            .expect("unique SOCKS5 component registration");
+        registry.set_legacy_connect_stage("socks5", crate::adapters::socks5::LEGACY_CONNECT_STAGE);
+    }
+    registry
 }
 #[cfg(any(
     feature = "managed-stream-runtime",

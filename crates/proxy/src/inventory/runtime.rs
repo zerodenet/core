@@ -1,5 +1,3 @@
-#[cfg(feature = "udp-runtime")]
-use std::iter;
 use std::path::Path;
 
 use zero_config::RuntimeConfig;
@@ -104,42 +102,47 @@ impl<'a> ClaimedInventoryLeaf<'a> {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct ClaimedRelayChain<'a> {
-    first: ClaimedInventoryLeaf<'a>,
-    relay_hops: Vec<ClaimedInventoryLeaf<'a>>,
-}
-
-impl<'a> ClaimedRelayChain<'a> {
-    pub(crate) fn new(
-        first: ClaimedInventoryLeaf<'a>,
-        relay_hops: Vec<ClaimedInventoryLeaf<'a>>,
-    ) -> Self {
-        Self { first, relay_hops }
-    }
-
-    pub(crate) fn first(&self) -> &ClaimedInventoryLeaf<'a> {
-        &self.first
-    }
-
-    pub(crate) fn relay_hops(&self) -> &[ClaimedInventoryLeaf<'a>] {
-        &self.relay_hops
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) fn final_hop(&self) -> &ClaimedInventoryLeaf<'a> {
-        self.relay_hops
-            .last()
-            .expect("relay chain must have at least 2 hops")
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) fn leaves(&self) -> impl Iterator<Item = &ClaimedInventoryLeaf<'a>> {
-        iter::once(&self.first).chain(self.relay_hops.iter())
-    }
-}
+mod relay;
+pub(crate) use relay::ClaimedRelayChain;
 
 impl ProtocolInventory {
+    pub(in crate::inventory) fn native_tcp_candidate(
+        &self,
+        ctx: crate::protocol_registry::OutboundAdapterContext<'_>,
+        leaf: &ResolvedLeafOutbound<'_>,
+        components: Option<&crate::component::catalog::ComponentPlan>,
+    ) -> Option<Result<super::PreparedTcpCandidate, crate::transport::TcpOutboundFailure>> {
+        let ResolvedLeafOutbound::Proxy { identity } = leaf else {
+            return None;
+        };
+        let outbound = ctx.config().outbounds.get(identity.config_index())?;
+        let slot = components?.configured(&outbound.tag)?;
+        let failure = |error| crate::transport::TcpOutboundFailure {
+            stage: "outbound_leaf_runtime",
+            error,
+            upstream_endpoint: None,
+            network: None,
+        };
+        if let Some((reason, endpoint)) =
+            zero_engine::EndpointAdmission::from_config(ctx.config()).outbound_denial(&outbound.tag)
+        {
+            return Some(Err(failure(EngineError::InvalidPlan {
+                message: format!("{reason}: {endpoint}"),
+            })));
+        }
+        let Some((server, port)) = outbound.protocol.endpoint() else {
+            return Some(Err(failure(EngineError::InvalidPlan {
+                message: "native network Stream is missing its declared endpoint".into(),
+            })));
+        };
+        Some(Ok(super::PreparedTcpCandidate {
+            health_tag: Some(outbound.tag.clone()),
+            tag: Some(outbound.tag.clone()),
+            protocol: slot.recipe.descriptor().protocol.into(),
+            endpoint: Some((server.into(), port)),
+            execution: super::PreparedTcpCandidateExecution::Native(slot),
+        }))
+    }
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) fn claim_config_outbound<'a>(
         &self,

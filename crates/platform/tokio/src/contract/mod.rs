@@ -1,4 +1,5 @@
 //! Public runtime collaboration contracts. No configuration or kernel dependency.
+pub mod admission;
 pub mod component;
 pub mod context;
 pub mod datagram;

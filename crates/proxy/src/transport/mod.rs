@@ -18,7 +18,9 @@ mod tests;
 pub(crate) use direct::{
     DirectConnector, DirectTargetResolution, DirectTcpConnectFailure, DirectTcpConnection,
 };
-pub(crate) use failure::{attributed_error, failure_origin, TransportFailureOrigin};
+pub(crate) use failure::{
+    attributed_error, channel_failure, failure_origin, TransportFailureOrigin,
+};
 pub(crate) use tcp_outbound::{
     extract_tcp_stream, is_block_error, EstablishedTcpOutbound, TcpOutboundFailure, TcpRouteResult,
 };

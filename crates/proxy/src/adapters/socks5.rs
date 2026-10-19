@@ -13,8 +13,10 @@ use crate::protocol_registry::{
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::udp_flow::registered::UpstreamAssociationHandler;
 
+mod component;
 #[cfg(feature = "socks5")]
 pub(super) mod inbound;
+pub(crate) use component::{component_options, LEGACY_CONNECT_STAGE};
 #[cfg(feature = "socks5")]
 mod tcp;
 #[cfg(feature = "socks5")]

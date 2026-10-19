@@ -152,7 +152,7 @@ fn stream(live: &Result<Live, SharedError>) -> Result<Arc<dyn DynStreamOutbound>
     }
 }
 
-// This transitional slot is granted only the zero-resource Direct descriptor.
+// This transitional slot is granted only the zero-resource Stream descriptors.
 // A protocol declaring resources must use a host granting its exact declarations.
 struct NoResources;
 impl ResourceAccess for NoResources {

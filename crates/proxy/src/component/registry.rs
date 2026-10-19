@@ -58,11 +58,15 @@ impl<F: ComponentFactory> BuildRecipe for Prepared<F> {
 
 #[derive(Clone)]
 pub struct ValidatedRecipe {
+    legacy_connect_stage: &'static str,
     descriptor: ProtocolCapabilityDescriptor,
     spec: Arc<ComponentSpec>,
     recipe: Arc<dyn BuildRecipe>,
 }
 impl ValidatedRecipe {
+    pub(crate) fn legacy_connect_stage(&self) -> &'static str {
+        self.legacy_connect_stage
+    }
     pub fn descriptor(&self) -> ProtocolCapabilityDescriptor {
         self.descriptor
     }
@@ -97,6 +101,7 @@ where
         let options = Arc::new((self.decode_validate)(input)?);
         let spec = Arc::new(self.factory.describe(&options));
         Ok(ValidatedRecipe {
+            legacy_connect_stage: "connect_component",
             descriptor: self.descriptor,
             spec,
             recipe: Arc::new(Prepared {
@@ -108,6 +113,7 @@ where
 }
 
 struct Entry<Input> {
+    legacy_connect_stage: &'static str,
     feature: &'static str,
     descriptor: Option<ProtocolCapabilityDescriptor>,
     registration: Option<Arc<dyn Registration<Input>>>,
@@ -116,6 +122,7 @@ struct Entry<Input> {
 impl<Input> Clone for Entry<Input> {
     fn clone(&self) -> Self {
         Self {
+            legacy_connect_stage: self.legacy_connect_stage,
             feature: self.feature,
             descriptor: self.descriptor,
             registration: self.registration.clone(),
@@ -152,6 +159,7 @@ impl<Input: 'static> ComponentRegistry<Input> {
         self.entries.insert(
             protocol,
             Entry {
+                legacy_connect_stage: "connect_component",
                 feature,
                 descriptor: None,
                 registration: None,
@@ -170,6 +178,7 @@ impl<Input: 'static> ComponentRegistry<Input> {
         Decode: Fn(&Input) -> Result<F::Options, ConfigError> + Send + Sync + 'static,
     {
         let entry = self.entries.entry(descriptor.protocol).or_insert(Entry {
+            legacy_connect_stage: "connect_component",
             feature: descriptor.feature,
             descriptor: None,
             registration: None,
@@ -187,6 +196,12 @@ impl<Input: 'static> ComponentRegistry<Input> {
             decode_validate,
         }));
         Ok(())
+    }
+    pub(crate) fn set_legacy_connect_stage(&mut self, protocol: &str, stage: &'static str) {
+        self.entries
+            .get_mut(protocol)
+            .expect("registered protocol")
+            .legacy_connect_stage = stage;
     }
     pub fn has_factory(&self, protocol: &str) -> bool {
         self.entries
@@ -215,6 +230,10 @@ impl<Input: 'static> ComponentRegistry<Input> {
                 })?;
         registration
             .prepare(input)
+            .map(|mut recipe| {
+                recipe.legacy_connect_stage = entry.legacy_connect_stage;
+                recipe
+            })
             .map_err(RegistrationError::Options)
     }
 }
