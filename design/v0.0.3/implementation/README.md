@@ -104,6 +104,18 @@ Browser Dialer 和 XHTTP 503 的根因、消融和新的参考客户端计数缺
 
 上一 head730d 的七项参考互通 workflow 成功，VLESS251/0/1；Linux workspace2715/1/159，失败为 SS 插件启动失败用例把预期退出码7的子进程判为启动成功。旧日志没有探针端点或实测子进程退出状态，原因尚未确定。真实 Linux socket 的独立实验已证明，无监听器时仍能连接到自身相同地址端口并回读数据；受控子进程随后确认退出7。这只是旧探针“连接成功即就绪”可能误判的实际输入，不倒推旧CI的精确原因。本代码提交尚未修改 process.rs，后续以实际 readiness 实现的决定性回归继续处理。67ee的XHTTP earlyEOF和此前参考客户端计数问题仍保留，不能由这次互通成功抹去。
 
+## PR04A 进行中：插件 TCP 启动探针
+
+代码提交 `a5efb02b807714208a77170cb7887011642f9b95`，冻结源码 tree `c7ddfbe06413e09fc852787f21c2936609e40579`。[验证及20项原始证据](pr04-plugin-probe-validation.json)保留旧实现失败、新实现通过及来源摘要。
+
+真实 Linux TcpSocket 自连接并未创建监听器，受控 sh 子进程由管道释放后确认退出7；实际旧 readiness 判据仍返回 Ok，负向回归在该断言失败。修复只在 TCP 成功探针后核对实际 local/peer 与预期端点，并在 Ready 前再次检查 child 状态；原十秒启动预算、十毫秒轮询和 SIP003u UDP 无握手行为不变，没有新增启动延时、重启子进程或直连 fallback。
+
+六项插件过滤通过；同一实际测试二进制在独立网络命名空间、只读挂载、1 CPU/1 GiB/no swap/user1000 中执行整个 SS 库，**24/0**。严格 Clippy 的完整源码 tree 与代码提交相同。提交后保持源码、HEAD 和锁文件不变，fmt、workspace check、完整 workspace **2723/0/159**（155条摘要，含晚期文档测试）、默认 release、实际 thumb no_std、最小 feature及实际依赖边界全部通过。实际默认 release git_hash=a5efb02b，SHA为 `2b37a795b7f0895c392d6149df49bd4faae0a3afe9f195f3377103068ec78fd1`；不包含可选 connector/grpc/WireGuard 的默认 release 资格。
+
+确定性反例证明一项真实误判机制；730d旧CI未记录探针端点及实际子进程退出状态，不能倒推其失败恰是该机制。730d七项协议 workflow成功、VLESS251/0/1，Linux2715/1/159；其余主CI检查成功，Optional跳过。Hosted TUN成功仍有三个smoke/macOS offline跳过，Windows原始报告明确executed=false。历史XHTTP earlyEOF及固定参考客户端计数资格问题继续保留。
+
+这不是完整插件所有权迁移：Child仍需在内部异步启动前持久安装，池/租借/驱动关闭确认与RuntimeHost单实例事务，以及其余17项继续实施。
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。

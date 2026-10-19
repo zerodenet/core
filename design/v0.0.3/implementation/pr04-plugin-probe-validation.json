@@ -1,0 +1,343 @@
+{
+  "base_commit": "a791bc00d2648f02c73e8548a11336ec292232ab",
+  "code_commit": "a5efb02b807714208a77170cb7887011642f9b95",
+  "tested_git_tree": "c7ddfbe06413e09fc852787f21c2936609e40579",
+  "resolved_lock_sha256": "a003359eb327bd299b675c330e9aeca721156df76d117dd3e55c9c47f711377c",
+  "counts": {
+    "passed": 2723,
+    "failed": 0,
+    "ignored": 159,
+    "libtest_summary_rows": 155
+  },
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 3.761664026998915,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-probe-final-fmt.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace"
+      ],
+      "exit": 0,
+      "seconds": 43.17283188700094,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-probe-final-check.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "test",
+      "argv": [
+        "bash",
+        "scripts/test-workspace.sh"
+      ],
+      "exit": 0,
+      "seconds": 387.4087189769998,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-probe-final-test.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "release",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release"
+      ],
+      "exit": 0,
+      "seconds": 240.68003159699947,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-probe-final-release.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "no-std",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--target",
+        "thumbv7em-none-eabi",
+        "-p",
+        "zero-traits",
+        "-p",
+        "zero-core"
+      ],
+      "exit": 0,
+      "seconds": 0.19512566199773573,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-probe-final-no-std.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "minimal",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "zero-proxy",
+        "--no-default-features"
+      ],
+      "exit": 0,
+      "seconds": 0.21674059699944337,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-probe-final-minimal.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "scripts/check-runtime-contracts.py"
+      ],
+      "exit": 0,
+      "seconds": 0.6127839239998139,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-probe-final-dependencies.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    }
+  ],
+  "strict": {
+    "exit": 0,
+    "tested_tree": "c7ddfbe06413e09fc852787f21c2936609e40579",
+    "stage": "Before commit on identical complete source tree; three file digests verified after all frozen checks."
+  },
+  "negative": {
+    "log": "pr04-plugin-probe-negative-1.txt",
+    "exit": 101,
+    "actual_assert": "self connection reported a failed, non-listening child as ready",
+    "controlled_child_exit": 7
+  },
+  "focused": {
+    "log": "pr04-plugin-probe-positive-1.txt",
+    "passed": 6,
+    "failed": 0
+  },
+  "constrained": {
+    "passed": 24,
+    "failed": 0,
+    "seconds": 4.133266175002063,
+    "binary_sha256": "d88f88408f5c5c63086614ef5be9f0385bc2255092b8715bb9950cd2f4910f31",
+    "argv": [
+      "docker",
+      "run",
+      "--rm",
+      "--cpus=1",
+      "--memory=1g",
+      "--memory-swap=1g",
+      "--network=none",
+      "--user=1000:1000",
+      "-e",
+      "RUST_MIN_STACK=16777216",
+      "-v",
+      "/workspace:/workspace:ro",
+      "-w",
+      "/workspace/core",
+      "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "/workspace/core-baseline-artifacts/pr04-plugin-probe-shadowsocks-lib",
+      "--test-threads=4",
+      "--nocapture"
+    ],
+    "scope": "Precommit exact source bytes; full24 shadowsocks lib tests in separate network namespace, read-only workspace,1CPU1GiB/no swap/user1000. This is not full resource/performance qualification."
+  },
+  "mechanism": "A real Linux socket connected to itself without a listener while a controlled shell child exited7. The unchanged old readiness predicate returned Ok; the old assertion failed. New endpoint validation rejects it; normal startup/failure/cache/UDP tests pass.",
+  "historical_ci_limit": "730d no probe endpoint/observed child-exit facts were captured; deterministic mechanism is not attributed as exact historical cause.",
+  "readiness_limit": "Reject self-connection and unexpected peer, then recheck child status before Ready. No extra startup delay, no ten-second timeout extension, no invented UDP readiness handshake. This is not complete process ownership/shutdown or M4 migration.",
+  "previous_head_ci": "730d Linux2715/1/159, all7 protocol workflows success, VLESS251/0/1. Main other jobs success, optional skipped, hosted TUN success with3 smoke/macOS offline skipped; actual Windows route-switch executed=false.",
+  "release": {
+    "git_hash": "a5efb02b",
+    "binary_sha256": "2b37a795b7f0895c392d6149df49bd4faae0a3afe9f195f3377103068ec78fd1",
+    "features": [
+      "status-api",
+      "http",
+      "hysteria2",
+      "mieru",
+      "mixed",
+      "shadowsocks",
+      "socks5",
+      "trojan",
+      "vless",
+      "vmess",
+      "dns"
+    ],
+    "scope": "Actual default release, no optional connector/grpc/WireGuard release qualification."
+  },
+  "artifacts": [
+    {
+      "source": "pr04-plugin-probe-final-fmt.txt",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "artifact": "evidence/plugin-pr04-plugin-probe-final-fmt.txt.gz",
+      "artifact_bytes": 20,
+      "artifact_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr04-plugin-probe-final-check.txt",
+      "source_bytes": 1228,
+      "source_sha256": "e23eb8f97716ef3a63ee2d4c28bd4ba260867883b333e11ee4da8e1c5db9f876",
+      "artifact": "evidence/plugin-pr04-plugin-probe-final-check.txt.gz",
+      "artifact_bytes": 466,
+      "artifact_sha256": "8819dba7c0e44841af7fffa644f22e372e238d36e81cb242737337f7a13f7546"
+    },
+    {
+      "source": "pr04-plugin-probe-final-test.txt",
+      "source_bytes": 293295,
+      "source_sha256": "debabcd4d1dbce64def75b8ca709d123358c6306a5d33614a582ecb2209f06bf",
+      "artifact": "evidence/plugin-pr04-plugin-probe-final-test.txt.gz",
+      "artifact_bytes": 64479,
+      "artifact_sha256": "6981e0e5a324596fe81e7a3b6a4217fefb5aaa2ae1c8116414cdf439d013920d"
+    },
+    {
+      "source": "pr04-plugin-probe-final-release.txt",
+      "source_bytes": 991,
+      "source_sha256": "56b1d3176385d79072f0787f65902d28c43a9a405dd1afbd1e6f16cbe14a167a",
+      "artifact": "evidence/plugin-pr04-plugin-probe-final-release.txt.gz",
+      "artifact_bytes": 431,
+      "artifact_sha256": "a5bb5118ec7b569a69a18b9fdd93ea2abf84da10b3ababa490de7200adc4c5e4"
+    },
+    {
+      "source": "pr04-plugin-probe-final-no-std.txt",
+      "source_bytes": 60,
+      "source_sha256": "40108eb5c2e432741fc7f36afdf5c793ec02b19e7b1ce5e51bdd2ba377bd26cb",
+      "artifact": "evidence/plugin-pr04-plugin-probe-final-no-std.txt.gz",
+      "artifact_bytes": 80,
+      "artifact_sha256": "ceff07c3c1711cc59e7b446f52716fc2dcd8f70dfa1979dbc6a22e58a920342a"
+    },
+    {
+      "source": "pr04-plugin-probe-final-minimal.txt",
+      "source_bytes": 30233,
+      "source_sha256": "8161f9f202071c34a9578b5a91f93365204871913784c06a99b9945af80b266d",
+      "artifact": "evidence/plugin-pr04-plugin-probe-final-minimal.txt.gz",
+      "artifact_bytes": 5896,
+      "artifact_sha256": "005cbd26afb02e59b72421f7d848b6fbe570a6d86a8ba631ae5c6b2aa221d7ee"
+    },
+    {
+      "source": "pr04-plugin-probe-final-dependencies.txt",
+      "source_bytes": 263,
+      "source_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "artifact": "evidence/plugin-pr04-plugin-probe-final-dependencies.txt.gz",
+      "artifact_bytes": 122,
+      "artifact_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc"
+    },
+    {
+      "source": "pr04-plugin-probe-final-validation.json",
+      "source_bytes": 2663,
+      "source_sha256": "8512936f9ced05bf4a08f36d92b11d23d2889ba197c2e49bbdbcbbe422b221a9",
+      "artifact": "evidence/plugin-pr04-plugin-probe-final-validation.json.gz",
+      "artifact_bytes": 639,
+      "artifact_sha256": "58d918b4ce04ba736a36907412109987a3fa9ab6638318f83ad38714064e8894"
+    },
+    {
+      "source": "pr04-plugin-probe-precommit-validation.json",
+      "source_bytes": 1187,
+      "source_sha256": "443284d202cc378230db44fbd188f438d4a1d03275ae8a124e82571bc58b51e3",
+      "artifact": "evidence/plugin-pr04-plugin-probe-precommit-validation.json.gz",
+      "artifact_bytes": 610,
+      "artifact_sha256": "eab0729be81ee987c4a880de8775221fc02f86d5895f9cabfa4c98f3866c339b"
+    },
+    {
+      "source": "pr04-plugin-probe-release-build-info.txt",
+      "source_bytes": 5799,
+      "source_sha256": "c61288d1a3c2f1cfb645cd6b7a5e0dae22ba674f2d4bf866cb2d4dcf4d79c263",
+      "artifact": "evidence/plugin-pr04-plugin-probe-release-build-info.txt.gz",
+      "artifact_bytes": 834,
+      "artifact_sha256": "12870cb6faa3e251b1f908f8ccca4cc7e0dd663a8ab9a829817fc8d12d60a718"
+    },
+    {
+      "source": "pr04-plugin-probe-negative-1.txt",
+      "source_bytes": 3350,
+      "source_sha256": "99aa2e10e20b69a25d9aedb276a1a93b12059666dfc90f67eee9b81e2a429d2c",
+      "artifact": "evidence/plugin-pr04-plugin-probe-negative-1.txt.gz",
+      "artifact_bytes": 1102,
+      "artifact_sha256": "18a07df2f90e96afad20cb0c1aeee717dd9ca5448e4882b7406c7d07b5ad0bd1"
+    },
+    {
+      "source": "pr04-plugin-probe-positive-1.txt",
+      "source_bytes": 7980,
+      "source_sha256": "9c5f9be568bdf478f67434c2834962375c4ea4248de7c24d1c5de1c230f5f2e6",
+      "artifact": "evidence/plugin-pr04-plugin-probe-positive-1.txt.gz",
+      "artifact_bytes": 1447,
+      "artifact_sha256": "78635a01b9f92d4e00a38cd66b4572c7cb3a0b272739910858af5a950aef8ff1"
+    },
+    {
+      "source": "pr04-plugin-probe-strict-1.txt",
+      "source_bytes": 1228,
+      "source_sha256": "1367b5deb7bc1c99e3ab91dfd732df415a36ed549edb7e3ad871695310c0b0e5",
+      "artifact": "evidence/plugin-pr04-plugin-probe-strict-1.txt.gz",
+      "artifact_bytes": 465,
+      "artifact_sha256": "6deb7f004e430590350531818f16827e5db5057ca4806c877954176c2d4dffcf"
+    },
+    {
+      "source": "pr04-plugin-probe-constrained-1.txt",
+      "source_bytes": 2574,
+      "source_sha256": "ed9657a478a4fdf111166fd05087216cdf46786c60e817cd43464bd71dc384ac",
+      "artifact": "evidence/plugin-pr04-plugin-probe-constrained-1.txt.gz",
+      "artifact_bytes": 941,
+      "artifact_sha256": "3dd9a3b4f2dd95dfc6fe03e76f97d02708b0cfc8367cceadbe0dfde03b8b22b9"
+    },
+    {
+      "source": "pr04-plugin-probe-constrained-1.json",
+      "source_bytes": 1256,
+      "source_sha256": "9e7a19ee41de1489814e781b13147324bf0ef91b37ed4c313601e3ac0030c193",
+      "artifact": "evidence/plugin-pr04-plugin-probe-constrained-1.json.gz",
+      "artifact_bytes": 737,
+      "artifact_sha256": "899f5b86c31c4b63db849da6f154204467ddea58b35fd19f3c4221a5b45464e1"
+    },
+    {
+      "source": "pr04-plugin-self-connect-kernel.json",
+      "source_bytes": 623,
+      "source_sha256": "219cb3d7c5b5317b9a501159dc90e681f01fc7260b71ba502ccf7a0ebe1577dc",
+      "artifact": "evidence/plugin-pr04-plugin-self-connect-kernel.json.gz",
+      "artifact_bytes": 390,
+      "artifact_sha256": "f7c42e87a058e534b9c6e52a0d51881b9e34260cd78998b8511e4e93ecc6363e"
+    },
+    {
+      "source": "ci-tun-windows-730d902e.raw.txt",
+      "source_bytes": 7019907,
+      "source_sha256": "1d1d8122c7b54cd27fb3ad5c155a7c6048a9748ab9101d0860d43f85f9386a7d",
+      "artifact": "evidence/plugin-ci-tun-windows-730d902e.raw.txt.gz",
+      "artifact_bytes": 380913,
+      "artifact_sha256": "9a2eb0a1022d6fb0f812d6ccc8bc7c9bbb418416072e7942f82412898f2a315b"
+    },
+    {
+      "source": "ci-evidence-730d902e-final.json",
+      "source_bytes": 7225,
+      "source_sha256": "e34bcb1f33b3caf3462b4fdc6dd278d31d849677a854046ac8c534cd113d23f5",
+      "artifact": "evidence/plugin-ci-evidence-730d902e-final.json.gz",
+      "artifact_bytes": 1478,
+      "artifact_sha256": "33efef466233db3b532956e0ed1f0d2dfdb26cf341628f8ca90c17d6fc60a691"
+    },
+    {
+      "source": "qualify-plugin-probe.py",
+      "source_bytes": 2040,
+      "source_sha256": "41cd3889d7bf83ab12e561c5b6af395257d5649c0b4f70d5fb15f215f3f09f3d",
+      "artifact": "evidence/plugin-qualify-plugin-probe.py.gz",
+      "artifact_bytes": 917,
+      "artifact_sha256": "9180f766a35635cf5d7855091fbc650bb685aa8ce147736cd8a354d9b6db20fc"
+    },
+    {
+      "source": "base.json",
+      "source_bytes": 363,
+      "source_sha256": "af607283fbdc163d8dbd7cb24c8d69d24556876ea1c8ce28c4181e24ce76fa88",
+      "artifact": "evidence/plugin-base.json.gz",
+      "artifact_bytes": 279,
+      "artifact_sha256": "cb6247a5b7286987cd9d4ad3548c483045bc287a5ba0ded674ae3eb64e43719b"
+    }
+  ],
+  "remaining": "Continue all17 on same branch/Draft124. Resourceful SS/pool/replay/plugin ownership, Datagram/inbound/Packet, RuntimeHost/M4, old bridge removal and final consumers/physical devices remain ongoing."
+}
