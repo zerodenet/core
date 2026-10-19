@@ -62,8 +62,18 @@ Browser Dialer 和 XHTTP 503 的根因、消融和新的参考客户端计数缺
 
 普通 SOCKS relay、其他协议、DNS/内部调用及 UDP 路径还有旧执行者；下一项是实际上游组合和链式 Stream，再迁移有真实池/驱动生命周期的协议。runtime 提取、单实例事务、DNS/Network/纯路由、Packet/Endpoint 所有权、旧桥清理及最终消费者/FFI/资源资格仍未完成。每个实际调用只选一个执行者，保持同一分支和 Draft PR124 继续整体实施。
 
+## PR04A 继续：原生 Stream 前缀与 HY2/QUIC 进度
+
+本次代码提交为 `acc5410a`、`bae5bfe7`、`6a1d8bcb`，最终冻结源码 tree 为 `a9ada0f1b7514175e65051df3b859ade3ddff715`。全原生网络节点链已进入相同 Stream.connect 入口；当前实际协议为 SOCKS5，两跳/三跳与旧执行者对照保持 wire、预读、半关闭、标签、物理 socket 元数据、逐层 Outer 和原有 relay Flow 计数。中间角色撤权在拨号前失败，错误保留实际组件与业务身份；执行过前缀后的取消/网络变化保持 Unknown。链路组装只消费中立候选，拨号策略在冷路径组件中保存，没有扩大 engine-leaf 守卫白名单。
+
+[本次精确验证](pr04-relay-validation.json)：fmt、workspace check、严格 workspace/all-target/all-feature Clippy、完整 workspace **2709 / 0 / 159**（155 条摘要）、Quinn **269 / 0 / 0**、默认 release、实际 thumb no_std、最小 proxy feature 和实际依赖边界全部通过。所有阶段保持 HEAD/源码冻结，包括晚期 rustdoc 和 release。实际 release build-info 为 `6a1d8bcb`，SHA-256 为 `947313e4622f3a7d6e231109045bbfa7ff5dc1ac749baf3c3442adb7647703c4`；可选 connector/grpc/WireGuard 不在默认 release 功能内。
+
+[独立根因与范围](pr04-relay-ci-root-causes.md)及[原始输出/SHA 清单](pr04-relay-ci-root-causes.json)保留首次完整测试唯一的架构失败及修正，也保留 HY2 的一个 MTU 窗口停滞、只改两个包仍失败、Quinn close-only 拥塞阻塞的真实对照。两项修正合用后，实际 carrier 13 项通过，1 CPU/1 GiB 中原/新用例各 20 次合计 40/0。原十秒、载荷、EOF/FIN 和 join 断言保持。旧 CI 未采集 RTT/cwnd，不倒推其精确状态；官方 Xray 字节计数资格失败仍见前一节。
+
+该检查点仍未完成整个 PR03/PR04A。接下来补齐被中止 start 的所有者保留、真实任务预算和驱动清理，再迁移资源协议。a0 的七项协议 workflow/hosted TUN 成功仅属于 a0：VLESS250/0/1，三个独立 smoke/macOS offline 跳过，Windows route-switch 明确 executed=false。新 head 的远端资格和最终真实设备/消费者资格分别记录。
+
 ## 尚未完成的生产迁移与资格
 
-普通 Direct/SOCKS5 已走实际角色；SOCKS relay、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
+普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
 
 继续全部任务卡。起点已有 transport 无 config/engine/具体协议依赖、中立 Engine Proxy identity、协议所属私有 plan，不重做已经消失的旧层。固定官方 reference 的已知计数缺陷资格、Hysteria 历史失败根因、Packet/协议专项资源、完整 CLI 任务归属、容量预算、完整 GUI/物理设备和 Windows 真实出口切换缺项分别保留；不得用 hosted job 成功、旧基线或模型对照代替最终提交资格。
