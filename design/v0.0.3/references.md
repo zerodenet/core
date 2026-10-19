@@ -87,7 +87,7 @@
 - 源题名：Zero v0.0.3 架构设计与云端 PR 实施方案。
 - 出处：[源 Page revision 7](https://chatgpt.com/space/page_b20205c79b6c8191b93cc373fd831fe4)，读取时 current_sequence/projection_through_sequence 均为 7，406 块、66,787 字符。
 - 原始全文及各保存分节的 SHA-256 见 [provenance.json](provenance.json)。25 个分节包含设计开篇及全部 24 个一级章节；所有正文、表格、签名和任务提示词均保存，不以摘要替代。
-- 只转换 Markdown 链接目标：Core 本机源路径转换为仓库相对文件及行号锚点；GUI/面板路径转换到本文件的消费者来源索引。正文历史陈述保持原样，实际 PR00 基线与执行状态由 README 和 validation 补充。
+- 只转换 Markdown 链接目标：Core 本机源路径转换为仓库相对文件及行号锚点；GUI/面板路径转换到本文件的消费者来源索引。PR00 提交保存的原文与摘要保持可追溯；之后按用户明确授权修订交付规则，修改记录及原始分节摘要见 provenance.json 的 amendments。实际执行状态由 README、delivery-policy 和验证记录说明。
 - sing-box/Xray 的固定观察提交保持原样，不能替代各协议固定的 immutable upstream。在线规范链接作为参考，本次不宣称逐页复核外部规范或版本。
 - 后续设计变更须显式评审并更新来源/摘要记录，不把目标签名改写为已验证实现。
 

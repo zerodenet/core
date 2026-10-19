@@ -22,7 +22,7 @@
 | 验收层 | 云端可做的工作 | 完成边界 |
 | --- | --- | --- |
 | 文档 PR00 | 链接、路径、目标和版本安排核对，git diff --check | 不把无代码变更包装成已经跑完 workspace |
-| 每个代码 PR | workspace 编译、fmt、clippy、全功能测试、相关契约和最小 feature | 运行结果与失败原因绑定实际 head SHA |
+| 每个实现检查点 | workspace 编译、fmt、clippy、全功能测试、相关契约和最小 feature | 运行结果与失败原因绑定实际 head SHA |
 | GitHub CI | 当前选择的 Linux、平台编译、musl、协议互通与特权 TUN 任务 | 被选择且成功的 job 才算该项证据 |
 | 最终完整资格 | 显式完整 CI、所有受影响互通、可用的平台 E2E | PR 默认跳过的 exhaustive 项不能算已通过 |
 | GUI 与面板 | 有源码权限时冻结提交、执行消费者测试和一次性内核组合 | 无访问权限时提交脱敏样本和待验证清单，不宣称兼容完成 |
@@ -197,7 +197,7 @@ git diff --name-only 2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a
 
 ## PR01 具体交接
 
-必须先确认 PR00 已合入，然后重新核对最新 develop，从该提交创建 `codex/v003-pr01-baseline`。读取全部方案及当前 AGENTS.md，不沿用 PR00 工作分支继续堆叠实现。
+核对 PR00 文档检查点已完成，沿用 codex/v003-pr00-plan 和 PR #124，从当前已记录提交开始 PR01 基线采集。读取全部方案及当前 AGENTS.md，不要求 PR00 先合入，不创建新的阶段分支或 PR。
 
 1. 登记实际内核 base/head、旧二进制来源/feature/摘要、依赖解析、工具与系统版本。消费者重新冻结可检出提交，不能复现的未提交工作区明确排除。
 2. 在 `design/v0.0.3/fixtures` 保存来自固定旧内核/消费者真实输入及输出的脱敏样本和来源清单；覆盖正文全部 V1、TX-BOUNDARY、RECOVERY、IDLE、GUI/PANEL 和 RUST-FFI 项，不手写猜测旧行为。
@@ -206,4 +206,4 @@ git diff --name-only 2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a
 5. 资源预算表逐项记录当前字段/默认值、实测量、建议保守值、配置入口、作用域、耗尽行为与兼容影响；相同负载冻结吞吐/延迟和 RSS 余量数字门禁。本 PR 没有预填阈值。
 6. 建立当前 CI scope/interop/TUN 过滤器覆盖清单及真实消费者组合计划，明确每项所需权限、captures 和平台。交付 PR01 的证据、实际 head、外部待验收及源码回退边界。
 
-PR01 完成后仍需评审合入，才开始 PR02；本次不会自动推进后续单元。
+PR01 的基线及必要验证完成后，在同一分支继续 PR02；全部 17 个检查点实现与验收完成前不合并 PR #124。

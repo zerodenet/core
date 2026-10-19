@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scope": "PR00 documentation snapshot; no implementation or runtime validation",
+  "scope": "Complete v0.0.3 design and implementation checkpoints in one branch and PR #124",
   "repository": "zerodenet/core",
   "integration_branch": "develop",
   "pr00_base_sha": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
@@ -27,15 +27,17 @@
       "id": "00",
       "title": "设计开篇",
       "file": "README.md",
-      "characters": 468,
-      "sha256": "fa328f1e3cdd35df0161938c970e54def61b777db53b1f7e42841fa520a265ce"
+      "characters": 486,
+      "sha256": "0e936a1425b2c8652a2c5d9522a7475e7084e01c409307d610c2b02a18401912",
+      "pr00_snapshot_sha256": "fa328f1e3cdd35df0161938c970e54def61b777db53b1f7e42841fa520a265ce"
     },
     {
       "id": "01",
       "title": "v0.0.3 目标与完成定义",
       "file": "README.md",
-      "characters": 1127,
-      "sha256": "71937750b692d1f039df265d71f2496716d4502a416216a1e5bdb87b284830ac"
+      "characters": 1148,
+      "sha256": "418ae1449564e39bd2b0ae7a3d2009f7d3ee3116eb5bc1123513d68f5fd4c7fc",
+      "pr00_snapshot_sha256": "71937750b692d1f039df265d71f2496716d4502a416216a1e5bdb87b284830ac"
     },
     {
       "id": "02",
@@ -146,29 +148,33 @@
       "id": "17",
       "title": "现有代码分阶段迁移",
       "file": "migration.md",
-      "characters": 7094,
-      "sha256": "7433ee7c0b263588ca4fe9106b0f7f27c5abebaa991af3a5ff4d801458870452"
+      "characters": 7169,
+      "sha256": "0a3aef48c6865dac519106841a6e6be52b77e7e4dac08ecef74b29aec3996be9",
+      "pr00_snapshot_sha256": "7433ee7c0b263588ca4fe9106b0f7f27c5abebaa991af3a5ff4d801458870452"
     },
     {
       "id": "18",
       "title": "云端 PR 执行计划",
       "file": "migration.md",
-      "characters": 3329,
-      "sha256": "5025f54dfd9fd7511a6b361e6be85bbc838ce8eb7417dece4ce54b801b29dd30"
+      "characters": 3482,
+      "sha256": "0678bf1bf6b6472857250e2333e4f8cd96ea9ccb7ebf4f1d48bc615dd561d99a",
+      "pr00_snapshot_sha256": "5025f54dfd9fd7511a6b361e6be85bbc838ce8eb7417dece4ce54b801b29dd30"
     },
     {
       "id": "19",
       "title": "云端环境与验收分工",
       "file": "validation.md",
       "characters": 2485,
-      "sha256": "09381f2986cfe41e902ae2120b1ca7484ace5a2d5070d8d01ff6389f62d14cbf"
+      "sha256": "96a3f23ddc9a799c915689d8dbd565f72dc3f89eb2e9d4451d824a47ceaf5660",
+      "pr00_snapshot_sha256": "09381f2986cfe41e902ae2120b1ca7484ace5a2d5070d8d01ff6389f62d14cbf"
     },
     {
       "id": "20",
       "title": "云端任务交接",
       "file": "README.md",
-      "characters": 1750,
-      "sha256": "691b7a05e81dd5f8d65a23e83b315fc513dc1d654207e04e8ccf036283271cb4"
+      "characters": 1267,
+      "sha256": "b04cc7bfcd2d212e4b908a43cdd87a4c5e8c593902b92add8136a3b2ae399414",
+      "pr00_snapshot_sha256": "691b7a05e81dd5f8d65a23e83b315fc513dc1d654207e04e8ccf036283271cb4"
     },
     {
       "id": "21",
@@ -229,5 +235,22 @@
     "EX01",
     "RS01",
     "MIG01"
+  ],
+  "pr00_snapshot_commit": "122eb04b806da6a31495345d79d3e4f591f027b3",
+  "amendments": [
+    {
+      "date": "2026-10-19",
+      "reason": "Explicit user authorization: complete the entire implementation in existing branch/PR; do not merge each step",
+      "sections": [
+        "00",
+        "01",
+        "17",
+        "18",
+        "19",
+        "20"
+      ],
+      "policy": "delivery-policy.md",
+      "technical_contracts": "unchanged; no scope reduction or validation downgrade"
+    }
   ]
 }
