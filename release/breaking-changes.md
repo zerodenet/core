@@ -2,6 +2,7 @@
 
 ## Unreleased: Native Stream component integration
 
+- SIP003 TCP startup probes verify the actual local/peer endpoint pair and recheck child status before reporting Ready. A Linux socket can connect to itself without a listener; that connection no longer confirms plugin readiness. The original ten-second startup budget and SIP003u UDP readiness behavior remain unchanged, and startup failure still returns an error without direct fallback.
 - Rust integrations can bind `OutboundHealthObservation` to a selected configuration generation without retaining its snapshot or Engine. Retired observations cannot change current health, while current failures preserve immediate URLTest selection and events. Compiled component factories retain the table assembled with their capability adapters so later protocol resource owners share one actual state.
 - Prepared Shadowsocks TCP settings expose `establish_tcp_to` for destination facts without a business Session. The existing Session API and destination API use the same protocol framing, crypto and replay guards; production Shadowsocks shared-resource migration remains pending.
 - Rust component factories now declare `ComponentSpec::task_limit: Option<NonZeroUsize>`; `None` grants no internal tasks. Interrupted start retains the installed owner, protocol cleanup and registered driver shutdown progress together, and interrupted task cleanup retains already collected exit IDs and original failures for retry. Direct/SOCKS5 still declare no internal tasks; this does not change public wire configuration or the FFI ABI.

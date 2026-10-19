@@ -72,19 +72,49 @@ pub(super) fn spawn(
     command(config, remote, local, server).spawn()
 }
 pub(super) async fn ready(child: &mut Child, endpoint: SocketAddr, tcp: bool) -> io::Result<()> {
+    ready_with_probe(child, endpoint, tcp, || {
+        tokio::net::TcpStream::connect(endpoint)
+    })
+    .await
+}
+
+async fn ready_with_probe<Probe, Pending>(
+    child: &mut Child,
+    endpoint: SocketAddr,
+    tcp: bool,
+    mut probe: Probe,
+) -> io::Result<()>
+where
+    Probe: FnMut() -> Pending,
+    Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>>,
+{
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         if child.try_wait()?.is_some() {
             return Err(io::Error::other("shadowsocks plugin exited during startup"));
         }
         let tcp_ready = !tcp
-            || tokio::time::timeout_at(deadline, tokio::net::TcpStream::connect(endpoint))
+            || tokio::time::timeout_at(deadline, probe())
                 .await
-                .is_ok_and(|value| value.is_ok());
+                .is_ok_and(|value| {
+                    value.is_ok_and(|stream| {
+                        match (stream.local_addr(), stream.peer_addr()) {
+                            (Ok(local), Ok(peer)) if local != peer && peer == endpoint => true,
+                            (Ok(local), Ok(peer)) => {
+                                tracing::debug!(%local, %peer, %endpoint, "plugin startup probe reached an unexpected socket");
+                                false
+                            }
+                            _ => false,
+                        }
+                    })
+                });
         // SIP003u has no UDP readiness handshake. Match the reference: only TCP
         // readiness is probed. Binding the child's UDP endpoint to test readiness
         // would race its own bind and can make a healthy plugin fail to start.
         if tcp_ready {
+            if child.try_wait()?.is_some() {
+                return Err(io::Error::other("shadowsocks plugin exited during startup"));
+            }
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
