@@ -1,5 +1,13 @@
 # 控制面兼容性与破坏性变更
 
+## Unreleased: Native Stream component integration
+
+- Ordinary Direct and SOCKS5 business streams now use cold-built component roles while retaining V1 configuration, API/event envelopes and existing FFI ABI. SOCKS5 retains protocol-owned credential validation and framing; existing rejection messages, stages and endpoints are covered by direct comparison tests. Internal DNS/UDP and mixed legacy relay migrations remain in progress.
+- Rust runtime integrations must handle the explicit Service request identity and use `Some(existing_deadline)` for an existing absolute OpenContext/CarrierContext deadline. `None` retains native operation budgets; ordinary business connects retain existing DNS and per-candidate socket timers. Resource start/close/accept/handshake deadlines remain explicit.
+- Native SOCKS5 fallback proceeds only when no CONNECT request has been submitted on an empty root prefix. Partial submission, an executed prefix or an unconfirmed request stops replay. Local cancellation, revocation and stale local plans remain neutral to remote health.
+- Browser Dialer retirement now reports `io::ErrorKind::ConnectionAborted` with the existing message. Permanent retirement must terminate byte I/O; returning `Interrupted` let retrying I/O helpers spin inside one poll. Existing lifecycle, reuse, peer-close and deadline checks remain.
+- HTTP/1 XHTTP packet upload ownership retains existing request, byte and queue budgets and deadlines, and yields after bounded admission handoff so the consumer can progress before the next pipelined request. The receipt remains bounded ownership acknowledgment. Captured negative/positive regressions and the separate pinned reference-client byte-count qualification issue are recorded under design/v0.0.3/implementation.
+
 ## Unreleased: Host Wintun activation and XHTTP upload receipts
 
 - Existing host-owned Wintun adapters validate their configured addresses and MTU before opening an exclusive packet session, then wait for Preferred address state on the activated link. A dormant Deprecated address is not treated as ready; duplicate, invalid and expired addresses remain errors. Host addresses, routes and MTU are never modified.

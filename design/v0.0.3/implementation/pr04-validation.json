@@ -1,0 +1,257 @@
+{
+  "base_commit": "c9c06b2a9872918296fa8d10fe233ca17eaa6d49",
+  "code_commit": "8785216503a7744c7b4340e9f4c3b3c05b02193f",
+  "tested_git_tree": "e282d3172361fe4c66163b29aec09511597e03d3",
+  "resolved_lock_sha256": "a003359eb327bd299b675c330e9aeca721156df76d117dd3e55c9c47f711377c",
+  "resolved_dependencies": "pr04-resolved-dependencies.toml",
+  "dependency_difference_from_previous_local_lock": {
+    "removed": [
+      [
+        "tokio",
+        "1.53.3"
+      ]
+    ],
+    "added": [
+      [
+        "tokio",
+        "1.54.0"
+      ]
+    ],
+    "reason": "Matches actual c9c CI resolution; no product/protocol reference version upgrade"
+  },
+  "toolchain": {
+    "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "1.99.1 (5f94df478 2026-08-27)",
+    "protoc": "35.0",
+    "ownership_probe_go": "1.26.8"
+  },
+  "test_environment": {
+    "RUST_MIN_STACK": 16777216,
+    "CARGO_BUILD_JOBS": 4,
+    "CARGO_INCREMENTAL": 0,
+    "dev_test_debug": 0
+  },
+  "counts": {
+    "passed": 2699,
+    "failed": 0,
+    "ignored": 159,
+    "libtest_summary_rows": 155
+  },
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 4.588646318999963,
+      "log": "evidence/pr04-fmt.txt.gz",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace"
+      ],
+      "exit": 0,
+      "seconds": 38.87225499399938,
+      "log": "evidence/pr04-check.txt.gz",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "reported_build_seconds": 56.37,
+      "log": "evidence/pr04-clippy.txt.gz",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "test",
+      "argv": [
+        "bash",
+        "scripts/test-workspace.sh"
+      ],
+      "exit": 0,
+      "seconds": 398.4401001949991,
+      "log": "evidence/pr04-test.txt.gz",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "release",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release"
+      ],
+      "exit": 0,
+      "seconds": 312.54233337299956,
+      "log": "evidence/pr04-release.txt.gz",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "no-std",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--target",
+        "thumbv7em-none-eabi",
+        "-p",
+        "zero-traits",
+        "-p",
+        "zero-core"
+      ],
+      "exit": 0,
+      "seconds": 0.287412403999042,
+      "log": "evidence/pr04-no-std.txt.gz",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "minimal",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "zero-proxy",
+        "--no-default-features"
+      ],
+      "exit": 0,
+      "seconds": 17.930392894999386,
+      "log": "evidence/pr04-minimal.txt.gz",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "scripts/check-runtime-contracts.py"
+      ],
+      "exit": 0,
+      "seconds": 0.5890152499996475,
+      "log": "evidence/pr04-dependencies.txt.gz",
+      "head_unchanged": true,
+      "source_clean": true
+    }
+  ],
+  "artifacts": {
+    "fmt": {
+      "path": "evidence/pr04-fmt.txt.gz",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_bytes": 0
+    },
+    "check": {
+      "path": "evidence/pr04-check.txt.gz",
+      "raw_sha256": "7ccecda2d39a18db1463fb0dc30b2f163f8d6dd0e9a92fdeac83f3530d99d57a",
+      "gzip_sha256": "f8afe36e97915d20b859671d7178830212af6bbb83dccb629bf403084281f3a9",
+      "raw_bytes": 673
+    },
+    "clippy": {
+      "path": "evidence/pr04-clippy.txt.gz",
+      "raw_sha256": "ee41cf5754d166aa3bfd28fb83ba055d111bf7cd8d77a321dd9d4224ee0442dc",
+      "gzip_sha256": "bb0bb96673b8e7ec29760ad18b74cdf4b81bb98954d6c8bc7d5fa356d8f8f1df",
+      "raw_bytes": 673
+    },
+    "test": {
+      "path": "evidence/pr04-test.txt.gz",
+      "raw_sha256": "41a3a57965e357a1078fc33d724923f477e401ddaeaf645a8d626f1b1d3820cc",
+      "gzip_sha256": "1a8eb8db3939f7d86776f2d5059f8706f23060ae5fb252996915acaecbcb6da0",
+      "raw_bytes": 289928
+    },
+    "release": {
+      "path": "evidence/pr04-release.txt.gz",
+      "raw_sha256": "1f48825ed016276fc5097a8ce9943ee777e14c39dc3787d60d52baa521292756",
+      "gzip_sha256": "e0932b9f4556d67e59655a655dfa411ffb2b42aa7b7c34df0ec8a849fe3bc840",
+      "raw_bytes": 2296
+    },
+    "no-std": {
+      "path": "evidence/pr04-no-std.txt.gz",
+      "raw_sha256": "968694eb2dcf057f0b793892b3309e93c43d784f6c9588d49e7b6eeeaad76702",
+      "gzip_sha256": "1aa38ca6bd1181de6c89d2d6a2a746189b6bc2956e9b82d3e33cd4cfbb6b343b",
+      "raw_bytes": 60
+    },
+    "minimal": {
+      "path": "evidence/pr04-minimal.txt.gz",
+      "raw_sha256": "cf7c71ee26cf7b48e56d0d061192bc10992983124a089b41dc913997f7fad1d4",
+      "gzip_sha256": "9d996b40f3f68dce20d2a22216d21b32429febb34c97fc413c4d1c3a4631c259",
+      "raw_bytes": 31918
+    },
+    "dependencies": {
+      "path": "evidence/pr04-dependencies.txt.gz",
+      "raw_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "gzip_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc",
+      "raw_bytes": 263
+    }
+  },
+  "release": {
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--release"
+    ],
+    "binary_sha256": "2472e9dd01606478252913127d3889eaba1bff39d935f5e43865304363b27736",
+    "build_info_git": "87852165",
+    "build_profile": "release",
+    "features": [
+      "status-api",
+      "http",
+      "hysteria2",
+      "mieru",
+      "mixed",
+      "shadowsocks",
+      "socks5",
+      "trojan",
+      "vless",
+      "vmess",
+      "dns"
+    ],
+    "build_info": {
+      "path": "evidence/pr04-release-build-info.txt.gz",
+      "raw_bytes": 5799,
+      "raw_sha256": "599ebf00166bd884ed93175ce69041adc593dfe006a47c37ad737ea70641d421",
+      "gzip_sha256": "be770c89b5d80556b960e7c03c33e8897717756af3664a2148ed6c84cee36eb1"
+    }
+  },
+  "minimal_warning_count": 68,
+  "prior_attempts": {
+    "6f1ae3b0_full": {
+      "passed": 2696,
+      "failed": 3,
+      "ignored": 159,
+      "summary_rows": 155,
+      "failure_scope": "architecture guards; annotation copies excluded from counts",
+      "release": "not executed after failed suite"
+    },
+    "dcb97f9c_focused": "joint registration caused recursive defaults; six actual business tests caught stack overflow before push. 87852165 deferred factory-table preparation; focused six cases and full suite then passed."
+  },
+  "root_cause_evidence": "pr04-ci-root-causes.json",
+  "qualification": "Local exact frozen code passed all listed checks. Official immutable Xray stress has separate retained failures: 6f20trials19pass1fail; diagnostic40trials39pass1fail. Duplicate request envelope and deterministic upstream byte-count counterexample retained, not silently tolerated or declared official reference passing. Current-head remote CI pending after push.",
+  "remaining": "Partial PR03/PR04A only: native Direct and SOCKS5 ordinary streams. Remaining relay/protocol/datagram/inbound/Packet/host transaction/DNS/network/routing/cleanup/consumer/resource work continues in same PR124; all17 and G0-G10 not complete."
+}
