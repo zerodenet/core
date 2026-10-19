@@ -72,6 +72,24 @@ Browser Dialer 和 XHTTP 503 的根因、消融和新的参考客户端计数缺
 
 该检查点仍未完成整个 PR03/PR04A。接下来补齐被中止 start 的所有者保留、真实任务预算和驱动清理，再迁移资源协议。a0 的七项协议 workflow/hosted TUN 成功仅属于 a0：VLESS250/0/1，三个独立 smoke/macOS offline 跳过，Windows route-switch 明确 executed=false。新 head 的远端资格和最终真实设备/消费者资格分别记录。
 
+## PR03 进行中：中断保留、显式任务预算和确认清理
+
+代码提交为 `0dd18de5f968ad91ce09c87733d361f0faa6fe48`，冻结源码 tree 为 `e6b47120c54aebf4330d4c2783d68d4754cdcd7e`。实际命令、原始日志压缩件和 SHA-256 见 [pr03-owner-validation.json](pr03-owner-validation.json)。本项为资源协议迁移的前置修正，整体及 PR03/PR04A 仍未完成。
+
+- 冷路径同步安装唯一 Live/Owner 后才等待 start。启动调用方被中止、启动总截止耗尽或正常失败时保留该所有者；后续调用不能重建或重新启动部分初始化实例。等待方使用自己的原绝对截止时间，短等待不会取消初始化者。没有分离的后台初始化任务。
+- `ComponentSpec::task_limit` 显式给出已登记任务及未消费完成记录的上限，None 为零。Direct/SOCKS5 保持零内部任务。生命周期启动与 Stream 句柄获取拆分，纯资源所有者不必伪装成 Stream，也不获得虚构角色 ID。
+- 关闭先撤销准入，再同时推进协议清理和 TaskScope 取消/等待退出。scope 已确认的退出及原始失败先存回资源所有者；协议清理失败后仍可重试。TaskScope 自身也在持有的状态中保留逐项收集结果，因此丢弃尚未完成的 shutdown future 不会丢失已经收到的 TaskId、关键/辅助分类或来源链。
+- 驱动回归通过真实授予的一项任务容量启动登记任务，使用 Tokio DuplexStream 和实际 peer EOF 验证 I/O 释放，覆盖关闭互等、容量拒绝、关闭后拒绝登记、超时保留 I/O/Join 所有权、协议失败后保留任务失败并完成重试。它不是生产插件、监听器或设备的专项验收。
+
+三项旧实现失败均保留：中止 start 后 owner 被直接丢弃；顺序清理在原两秒截止仍留下 I/O 与实际 TaskId；中断 scope shutdown 后重试只得到两项任务中的后一项。对应修复后的组件过滤为 27 项通过（含 26 项 proxy 及 1 项 transport），platform suite 为 72 项通过。初次驱动正向编译中的 TaskClass 导入错误也保留，未将编译失败算作行为负向证明。
+
+严格 workspace/all-target/all-feature Clippy 在提交前通过，随后逐文件摘要及完整 tree 与提交完全一致。提交后保持源码、HEAD 和锁文件不变，完成 fmt、workspace check、完整 workspace **2716 / 0 / 159**（155 条摘要，包含晚期文档测试）、默认 release、实际 thumb no_std、最小 proxy feature 和实际依赖边界验证。产品版本、固定协议 reference、既有协议认证与截止时间不变；默认 release 不表示可选 connector/grpc/WireGuard 的 release 资格。
+
+上一 head `67ee1737` 的远端结果单独保留：主 workspace2709/0/159，静态、musl、feature、三平台编译和 CI 汇总成功，Optional surface 跳过；六项协议 workflow 成功，VLESS 的扩展 metadata packet-up / zero_client=false 用例报 early EOF。新失败原因尚未确定，不能直接套用此前已证明的参考客户端字节计数缺陷。Windows route-switch 的原始报告明确 executed=false，缺少合适第二接口，独立 TUN smoke 和 macOS offline 仍跳过。这些结果不代替本提交的远端、物理设备或消费者资格。
+
+本提交完整测试二进制另在只读挂载、独立网络命名空间、1 CPU/1 GiB 中诊断同一扩展参数测试，20 轮20/0。对首组 header/cookie 参数的两种 runtime 重组抓取，共检查160条 TCP与40条 MUX/UDP，序号连续，实际字节数与载荷正确，无重复或缺口。全部日志、执行/分析程序、全部本地 raw capture 的摘要及完整代表抓取保留；其余 raw capture 留在云端工作区。这些通过未定位远端失败，不能将该失败改写为已修复或参考缺陷同源。
+
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。

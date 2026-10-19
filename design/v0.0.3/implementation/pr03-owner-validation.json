@@ -1,0 +1,583 @@
+{
+  "base_commit": "67ee173765c15b5ef83b44bf960e2732e9a56c34",
+  "code_commit": "0dd18de5f968ad91ce09c87733d361f0faa6fe48",
+  "tested_git_tree": "e6b47120c54aebf4330d4c2783d68d4754cdcd7e",
+  "counts": {
+    "passed": 2716,
+    "failed": 0,
+    "ignored": 159,
+    "libtest_summary_rows": 155
+  },
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 4.093493398002465,
+      "log": "/workspace/core-baseline-artifacts/pr03-owner-final-fmt.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace"
+      ],
+      "exit": 0,
+      "seconds": 52.15672689699932,
+      "log": "/workspace/core-baseline-artifacts/pr03-owner-final-check.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "test",
+      "argv": [
+        "bash",
+        "scripts/test-workspace.sh"
+      ],
+      "exit": 0,
+      "seconds": 473.006540315997,
+      "log": "/workspace/core-baseline-artifacts/pr03-owner-final-test.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "release",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release"
+      ],
+      "exit": 0,
+      "seconds": 286.41404900600173,
+      "log": "/workspace/core-baseline-artifacts/pr03-owner-final-release.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "no-std",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--target",
+        "thumbv7em-none-eabi",
+        "-p",
+        "zero-traits",
+        "-p",
+        "zero-core"
+      ],
+      "exit": 0,
+      "seconds": 0.2154164409985242,
+      "log": "/workspace/core-baseline-artifacts/pr03-owner-final-no-std.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "minimal",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "zero-proxy",
+        "--no-default-features"
+      ],
+      "exit": 0,
+      "seconds": 5.322232721999171,
+      "log": "/workspace/core-baseline-artifacts/pr03-owner-final-minimal.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "scripts/check-runtime-contracts.py"
+      ],
+      "exit": 0,
+      "seconds": 0.5641749429996707,
+      "log": "/workspace/core-baseline-artifacts/pr03-owner-final-dependencies.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    }
+  ],
+  "strict_clippy": {
+    "exit": 0,
+    "tested_tree": "e6b47120c54aebf4330d4c2783d68d4754cdcd7e",
+    "stage": "Before commit; identical exact source tree and file digests verified after all frozen checks."
+  },
+  "resolved_lock_sha256": "a003359eb327bd299b675c330e9aeca721156df76d117dd3e55c9c47f711377c",
+  "release": {
+    "binary_sha256": "eb9660b2c09af32f72aa3abab64ea602214ea99c56272291bd08fca701cc31e4",
+    "scope": "Actual default-feature release; optional connector/grpc/WireGuard not default-release qualified.",
+    "git_hash": "0dd18de5",
+    "features": [
+      "status-api",
+      "http",
+      "hysteria2",
+      "mieru",
+      "mixed",
+      "shadowsocks",
+      "socks5",
+      "trojan",
+      "vless",
+      "vmess",
+      "dns"
+    ],
+    "build_info": "evidence/owner-pr03-owner-release-build-info.txt.gz"
+  },
+  "negative_regressions": [
+    {
+      "log": "pr03-owner-abort-negative-1.txt",
+      "reason": "Aborting start dropped the only resource owner before cleanup."
+    },
+    {
+      "log": "pr03-scoped-shutdown-negative-1.txt",
+      "reason": "Sequential protocol cleanup blocked the driver awaiting scope cancellation, leaving both IO and task unfinished at the original 2s deadline."
+    },
+    {
+      "log": "pr03-scope-interrupted-negative-1.txt",
+      "reason": "Dropping shutdown after joining a failed task lost that task ID and original failure on retry."
+    }
+  ],
+  "initial_compile_failure": {
+    "log": "pr03-scoped-shutdown-positive-1.txt",
+    "reason": "Test-only TaskClass import used wrong module; corrected before positive run. Not a behavioral negative proof."
+  },
+  "xhttp_diagnostics": {
+    "trials": 20,
+    "failed": 0,
+    "decoded_first_metadata_case_sessions": 200,
+    "tcp": 160,
+    "mux_udp": 40,
+    "integrity_mismatches": 0,
+    "log_scope": "All 20 logs, runner, analyzer, aggregate, hashes of every local raw capture and a representative complete two-runtime wire capture are archived. Remaining raw captures stay in the cloud workspace.",
+    "limit": "Passing diagnostics do not resolve or erase the 67ee remote early-EOF failure; its root remains undetermined."
+  },
+  "artifacts": [
+    {
+      "source": "pr03-owner-final-fmt.txt",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "artifact": "evidence/owner-pr03-owner-final-fmt.txt.gz",
+      "artifact_bytes": 20,
+      "artifact_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr03-owner-final-check.txt",
+      "source_bytes": 1791,
+      "source_sha256": "f89bd746da8154d0ebeed23145abef5f71ad87b20b0f1a6ce6c06321353e2af2",
+      "artifact": "evidence/owner-pr03-owner-final-check.txt.gz",
+      "artifact_bytes": 578,
+      "artifact_sha256": "8a322f8c9e60085be8177e8e73af033a68c5eff28fb22c19526e87c8a476f637"
+    },
+    {
+      "source": "pr03-owner-final-test.txt",
+      "source_bytes": 293120,
+      "source_sha256": "6fceae56b71d7c68aaed03c727af5053434a0014260ae470daa94d25bf8788d7",
+      "artifact": "evidence/owner-pr03-owner-final-test.txt.gz",
+      "artifact_bytes": 64374,
+      "artifact_sha256": "2df6e94cdc059cc220c533d8f6bc8165ed8d5fd335d56cb2d8472691d3e09316"
+    },
+    {
+      "source": "pr03-owner-final-release.txt",
+      "source_bytes": 1554,
+      "source_sha256": "f2c09f8cea7b6168edd1e2b0d3a417be9eedcaae5a39eee30a0096e8bdbdc4cd",
+      "artifact": "evidence/owner-pr03-owner-final-release.txt.gz",
+      "artifact_bytes": 548,
+      "artifact_sha256": "5084810ff61bbf9b64a4bfb0801daa294190f47f79abf040b1d971c916d52ec3"
+    },
+    {
+      "source": "pr03-owner-final-no-std.txt",
+      "source_bytes": 60,
+      "source_sha256": "6a981e4e2a0c9af6dead9afee0224555ade213f42082f62ec9b38c4d1fc0dd36",
+      "artifact": "evidence/owner-pr03-owner-final-no-std.txt.gz",
+      "artifact_bytes": 80,
+      "artifact_sha256": "bd597cd3da91d0f595480b267ff8477f95924c37db855091f70a87891589a03c"
+    },
+    {
+      "source": "pr03-owner-final-minimal.txt",
+      "source_bytes": 30571,
+      "source_sha256": "3815b826f925ca84e8e86a9f7108578b199ca1b4c41591c32c2448aaf6f7b073",
+      "artifact": "evidence/owner-pr03-owner-final-minimal.txt.gz",
+      "artifact_bytes": 5987,
+      "artifact_sha256": "15c59004658c693d38fe12edc5b1fa26d6d1295f86ecdf1040869b8c988c2aaa"
+    },
+    {
+      "source": "pr03-owner-final-dependencies.txt",
+      "source_bytes": 263,
+      "source_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "artifact": "evidence/owner-pr03-owner-final-dependencies.txt.gz",
+      "artifact_bytes": 122,
+      "artifact_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc"
+    },
+    {
+      "source": "pr03-owner-abort-negative-1.txt",
+      "source_bytes": 5855,
+      "source_sha256": "59e3c19958b69169d1797289fb6f6280d1ca81eabfd280ff0a63ee6c014eabbc",
+      "artifact": "evidence/owner-pr03-owner-abort-negative-1.txt.gz",
+      "artifact_bytes": 1201,
+      "artifact_sha256": "ae98d934757c8f93a8daf60d96876a290614293240ec15ca297ee8bcd9fad6f7"
+    },
+    {
+      "source": "pr03-owner-retention-positive-1.txt",
+      "source_bytes": 9442,
+      "source_sha256": "a9cfed037f9883826048fc97b2ae42d3186328d27cdd920b9bd42269efdf2c6e",
+      "artifact": "evidence/owner-pr03-owner-retention-positive-1.txt.gz",
+      "artifact_bytes": 2020,
+      "artifact_sha256": "5e2bd7e5745fbf21693647d3e3088f6fd418513af2e26b76a7ea99ee38ecc298"
+    },
+    {
+      "source": "pr03-scoped-shutdown-negative-1.txt",
+      "source_bytes": 6934,
+      "source_sha256": "4470b74e83b7f8ed47dbd826547047a5d866f4ddfc49901bddb7528d3676276e",
+      "artifact": "evidence/owner-pr03-scoped-shutdown-negative-1.txt.gz",
+      "artifact_bytes": 1387,
+      "artifact_sha256": "fa9fc03a4a54f8cdcd0b3a02b77127921e09aacef9831f18b993f4e6c07cb242"
+    },
+    {
+      "source": "pr03-scoped-shutdown-positive-1.txt",
+      "source_bytes": 1041,
+      "source_sha256": "6a4bf2dfc5fceb74d0b4a23e985fe6c2c78664f2670447ea8540c98bda275dea",
+      "artifact": "evidence/owner-pr03-scoped-shutdown-positive-1.txt.gz",
+      "artifact_bytes": 546,
+      "artifact_sha256": "a9d79b824110c654e3021760c275725208c3c471b22494147b1b6cc9edb6c8fd"
+    },
+    {
+      "source": "pr03-scoped-shutdown-positive-2.txt",
+      "source_bytes": 10873,
+      "source_sha256": "2fb53aeec26cc3cc6ffd6cf1763650488b237a74493f8e01ba375652c5af5c39",
+      "artifact": "evidence/owner-pr03-scoped-shutdown-positive-2.txt.gz",
+      "artifact_bytes": 2295,
+      "artifact_sha256": "ce74e5aa2fe25bef0fa3c5e5db77fd58fc58544012cd56a41310729bbafa0c4e"
+    },
+    {
+      "source": "pr03-scope-interrupted-negative-1.txt",
+      "source_bytes": 1316,
+      "source_sha256": "f712e94cd2ea257359d95e9d7eafcf3770427ff68bf002996d7c5b3111dd1d98",
+      "artifact": "evidence/owner-pr03-scope-interrupted-negative-1.txt.gz",
+      "artifact_bytes": 595,
+      "artifact_sha256": "cba1abce5a2ec786da4fa80246ce066f03342e6b8f28d0e734ae6fee37cabdc5"
+    },
+    {
+      "source": "pr03-scope-interrupted-positive-1.txt",
+      "source_bytes": 7320,
+      "source_sha256": "6c6acc0b2e3848b0cc368529c13ccaf741a7592b564238befcba9dee92dccf7a",
+      "artifact": "evidence/owner-pr03-scope-interrupted-positive-1.txt.gz",
+      "artifact_bytes": 2356,
+      "artifact_sha256": "a7e29cb344045d67eda66d58bbb801b750ffdca01e2f7e21c788b79bbac32386"
+    },
+    {
+      "source": "pr03-owner-strict-1.txt",
+      "source_bytes": 1791,
+      "source_sha256": "c4ca5aed4fe65ab892fbc1311182379d33fc3e802a56a51c6fa0e2d31279654b",
+      "artifact": "evidence/owner-pr03-owner-strict-1.txt.gz",
+      "artifact_bytes": 579,
+      "artifact_sha256": "28547dd762ad2f6ddc6fba9489bd69a7837350bf9680506a5124882dc2d05f08"
+    },
+    {
+      "source": "pr03-owner-plan-1.txt",
+      "source_bytes": 375,
+      "source_sha256": "fcd9590988148f29db87ae43a55313f38d0e92568196d9f9865738ff0dc8ad6c",
+      "artifact": "evidence/owner-pr03-owner-plan-1.txt.gz",
+      "artifact_bytes": 284,
+      "artifact_sha256": "e5d44337f6bc54cc7cab28ac0d8908cc7edd9627eeb68924660bfb928f398097"
+    },
+    {
+      "source": "pr03-owner-precommit-validation.json",
+      "source_bytes": 2305,
+      "source_sha256": "feb960b33a28a3d570be2781aa6531cddb834e0bab39fff2b94544786cf6839c",
+      "artifact": "evidence/owner-pr03-owner-precommit-validation.json.gz",
+      "artifact_bytes": 1090,
+      "artifact_sha256": "7eba22b9a1911b057d0724a78048238aa8ade5a5d4136a67aa29f9df04f87a63"
+    },
+    {
+      "source": "pr03-owner-final-validation.json",
+      "source_bytes": 2610,
+      "source_sha256": "638b199a65797a1365f27862ee2ed0eccc7180c1ed1dd94dec82607a915f8ee9",
+      "artifact": "evidence/owner-pr03-owner-final-validation.json.gz",
+      "artifact_bytes": 632,
+      "artifact_sha256": "981e4d0724c929900c5bd6490c0a48dc37d6508331513e3f93ab41eead98e1a6"
+    },
+    {
+      "source": "ci-linux-67ee1737.raw.txt",
+      "source_bytes": 730723,
+      "source_sha256": "049b3ade27d2002fc74d46b59acc99844fb1c1c88dc027cb65541848d6dd6cdd",
+      "artifact": "evidence/owner-ci-linux-67ee1737.raw.txt.gz",
+      "artifact_bytes": 145082,
+      "artifact_sha256": "720125e8ddb128ae0a9ed54c414154a57c28ae2da5d4721a2bfab83cfdf06366"
+    },
+    {
+      "source": "ci-vless-67ee1737.raw.txt",
+      "source_bytes": 74743,
+      "source_sha256": "920424f9a9ee5d4fde4603ba1cecab4d3b34636ff5130c30c7d348cc61c81d4e",
+      "artifact": "evidence/owner-ci-vless-67ee1737.raw.txt.gz",
+      "artifact_bytes": 14550,
+      "artifact_sha256": "d1fd6aa4c2f9d0f98f02cf40bdba6d7ce8ecfe9360a72d94fd1d27dade5c6137"
+    },
+    {
+      "source": "ci-tun-windows-67ee1737.raw.txt",
+      "source_bytes": 7019670,
+      "source_sha256": "63fa07d88dc65a5bd28ef3b50273eb92026567a01a92a00460ffc85f9bcc9e76",
+      "artifact": "evidence/owner-ci-tun-windows-67ee1737.raw.txt.gz",
+      "artifact_bytes": 378341,
+      "artifact_sha256": "2d2cc1eec58f1eda27c994edb7e56e258f78ec6e4a4171ef4da67994ff27ef45"
+    },
+    {
+      "source": "ci-evidence-67ee1737-final.json",
+      "source_bytes": 9002,
+      "source_sha256": "4a3835ab4a10f4598565838b0c0f3cbe8221d67659110f753ca879bb8a9be6e2",
+      "artifact": "evidence/owner-ci-evidence-67ee1737-final.json.gz",
+      "artifact_bytes": 1708,
+      "artifact_sha256": "34cbf046c6d9e579edc88f5b42591b16ac0777bd20b84b46887a7ee2a5f8043d"
+    },
+    {
+      "source": "pr03-owner-release-build-info.txt",
+      "source_bytes": 5797,
+      "source_sha256": "08097bce216c2eb12c155a0b9f2e25a83bc8a758dedbb2403482123ebec26fec",
+      "artifact": "evidence/owner-pr03-owner-release-build-info.txt.gz",
+      "artifact_bytes": 829,
+      "artifact_sha256": "5ceca11afd5ebc144d356e488bb9a563d180ec02e57175b161c94998e73323d0"
+    },
+    {
+      "source": "qualify-owner.py",
+      "source_bytes": 2026,
+      "source_sha256": "df768157dfa5f9a1e44b780429dd47aa502c7db1f7da70a49f884ed050dc21f8",
+      "artifact": "evidence/owner-qualify-owner.py.gz",
+      "artifact_bytes": 913,
+      "artifact_sha256": "534d6d06418bfba6f410a628c0bdefa1d7617b65cb73fb2624e5ef373520ccbb"
+    },
+    {
+      "source": "pr03-owner-xhttp-trace.json",
+      "source_bytes": 3965,
+      "source_sha256": "10bada3bf60c23dfd441f4e5b53b48182e3aaf5f9ab14bc27a7dd05dc10570a5",
+      "artifact": "evidence/owner-pr03-owner-xhttp-trace.json.gz",
+      "artifact_bytes": 902,
+      "artifact_sha256": "3a5e3f3e2259d135f1692582566256c131654ff1f0f082bcd575abfba9b16177"
+    },
+    {
+      "source": "pr03-owner-xhttp-wire-analysis.json",
+      "source_bytes": 80592,
+      "source_sha256": "bba2d2b9932a3a119353e476bb2b3214f81180158112d6a3118107fbb6f2c4c2",
+      "artifact": "evidence/owner-pr03-owner-xhttp-wire-analysis.json.gz",
+      "artifact_bytes": 14405,
+      "artifact_sha256": "ce6635fbb3613fdff8fa9b64dc853e976ac690b158dd542d661bdfb47ca5d63e"
+    },
+    {
+      "source": "pr03-owner-xhttp-capture-manifest.json",
+      "source_bytes": 1452516,
+      "source_sha256": "0453194d4ff4f17650bf2ca100220830be0c181b348521987a60e03ed8375a58",
+      "artifact": "evidence/owner-pr03-owner-xhttp-capture-manifest.json.gz",
+      "artifact_bytes": 385762,
+      "artifact_sha256": "1f2d895739f04360b25ea6da17d67bab086b7afe093e2c6c43654770005c8b73"
+    },
+    {
+      "source": "pr03-owner-xhttp-trace-runner.txt",
+      "source_bytes": 2607,
+      "source_sha256": "7567a13969f38047f92c2155ec413f9eb31608acee79873f1a7bc196b9adff4f",
+      "artifact": "evidence/owner-pr03-owner-xhttp-trace-runner.txt.gz",
+      "artifact_bytes": 455,
+      "artifact_sha256": "5b888019b4d780ede82e99586d7712f551b0bfc67134529677cdef826503157e"
+    },
+    {
+      "source": "pr03-owner-xhttp-representative.tar.gz",
+      "source_bytes": 151322,
+      "source_sha256": "835d07ffea52a0291cb2bb39982a06d77ad7dd6251134a273c9985fb5fcbff3e",
+      "artifact": "evidence/owner-pr03-owner-xhttp-representative.tar.gz.gz",
+      "artifact_bytes": 147772,
+      "artifact_sha256": "107c29347bae27176e766af9d515f585ff221defce4114b4c59aeb6471ab758d"
+    },
+    {
+      "source": "trace-owner-xhttp.py",
+      "source_bytes": 2484,
+      "source_sha256": "9c094d31c63ed9a1c184b0275cc4c8e4201d974a48d44578cfdfeeff2739e9fa",
+      "artifact": "evidence/owner-trace-owner-xhttp.py.gz",
+      "artifact_bytes": 1250,
+      "artifact_sha256": "b91b06013c409637c5e7aba2288f0eecefac77874f6b6e88b6c4b46fa96a94bc"
+    },
+    {
+      "source": "analyze-owner-xhttp.py",
+      "source_bytes": 3037,
+      "source_sha256": "bdec52c099ea6647cd5de2090eb13af8692b2e207b9f6d9eeb0a97e81f009805",
+      "artifact": "evidence/owner-analyze-owner-xhttp.py.gz",
+      "artifact_bytes": 1314,
+      "artifact_sha256": "261b9b7795158c5fd29800d141b72f03c90f75bb55d2f441d098aef496712e80"
+    },
+    {
+      "source": "pr03-owner-xhttp-0/output.txt",
+      "source_bytes": 722811,
+      "source_sha256": "6824464ef9ca2d1f0d3238d7a28e93e3333d9f5d7ebbba2a32f6fe21fca9697e",
+      "artifact": "evidence/owner-pr03-owner-xhttp-0.txt.gz",
+      "artifact_bytes": 37832,
+      "artifact_sha256": "62727b662eb3b2cbe2d27baa0869f86e5499d3355f2849a03f25e86513d38c14"
+    },
+    {
+      "source": "pr03-owner-xhttp-1/output.txt",
+      "source_bytes": 722483,
+      "source_sha256": "454fc77279e68ab9ca7d64ee32c3bd893ef97fbc6104935f741b7b3e01fcf342",
+      "artifact": "evidence/owner-pr03-owner-xhttp-1.txt.gz",
+      "artifact_bytes": 38085,
+      "artifact_sha256": "689941476c765b0c3c7fd39e2550aae86a1faf757d2e3404db59711bd6ca5351"
+    },
+    {
+      "source": "pr03-owner-xhttp-10/output.txt",
+      "source_bytes": 724845,
+      "source_sha256": "934973b8f6f9046970aec0c35165e855cbbb87b6ac90aa8b8a9a9875a38525c8",
+      "artifact": "evidence/owner-pr03-owner-xhttp-10.txt.gz",
+      "artifact_bytes": 37110,
+      "artifact_sha256": "f05b37fa01ced8c58f36c652a1d087a23439cac5dd676dfb414ac2e0f1b4b21e"
+    },
+    {
+      "source": "pr03-owner-xhttp-11/output.txt",
+      "source_bytes": 726909,
+      "source_sha256": "ae058d415094a5fdf50013813d3ab0a880abf065cf0896e700a582ea7844a8e3",
+      "artifact": "evidence/owner-pr03-owner-xhttp-11.txt.gz",
+      "artifact_bytes": 37381,
+      "artifact_sha256": "0c222e0488e13c55dab8c0f0aa7af46f1c269324b5c0b6b0357a5c51c65caeb8"
+    },
+    {
+      "source": "pr03-owner-xhttp-12/output.txt",
+      "source_bytes": 727043,
+      "source_sha256": "b162bc07715196bbad36d12cd12014787311a7116d297f29c0343b43ca007f72",
+      "artifact": "evidence/owner-pr03-owner-xhttp-12.txt.gz",
+      "artifact_bytes": 37418,
+      "artifact_sha256": "44fbef439f6a84fbc1c861813d2b1606cdcbeee6bc75da51f6d1c5d37ec653ff"
+    },
+    {
+      "source": "pr03-owner-xhttp-13/output.txt",
+      "source_bytes": 728995,
+      "source_sha256": "0a47108cb9ab1da1478417fa6d1267b2ff40f3e92bb812afb9e40bd1079899ad",
+      "artifact": "evidence/owner-pr03-owner-xhttp-13.txt.gz",
+      "artifact_bytes": 37881,
+      "artifact_sha256": "8a8c15c5ee97f2d1f19f40fca3ba82af4fa18f4914d6917ca575074d0cbc6085"
+    },
+    {
+      "source": "pr03-owner-xhttp-14/output.txt",
+      "source_bytes": 717353,
+      "source_sha256": "8f008028b06f146ac97bfd3e57e77e577b7f8b2aa19445d32da648c3d66a3e82",
+      "artifact": "evidence/owner-pr03-owner-xhttp-14.txt.gz",
+      "artifact_bytes": 37451,
+      "artifact_sha256": "7f9584121b6396683463dfa34f55ba5a76a3324ef9b8a9b707dfcf295782c568"
+    },
+    {
+      "source": "pr03-owner-xhttp-15/output.txt",
+      "source_bytes": 716810,
+      "source_sha256": "0e9215013650ae66bdb19c40345b96d1dc7c6681e8451454ae354af7a8bd8a26",
+      "artifact": "evidence/owner-pr03-owner-xhttp-15.txt.gz",
+      "artifact_bytes": 38075,
+      "artifact_sha256": "0efeb7df11feb53e5db5c1d4201e4f0e446e0ecd5e6622d8829abb6277c6bdf1"
+    },
+    {
+      "source": "pr03-owner-xhttp-16/output.txt",
+      "source_bytes": 722059,
+      "source_sha256": "0fc9b53153746159d176633ae6b264bae6444ab78688a74e5a3bcecb9e9c52c4",
+      "artifact": "evidence/owner-pr03-owner-xhttp-16.txt.gz",
+      "artifact_bytes": 38206,
+      "artifact_sha256": "b885af4aac7100ad72f274bfe2849e74c11b145297431c458d790044882b3e77"
+    },
+    {
+      "source": "pr03-owner-xhttp-17/output.txt",
+      "source_bytes": 726068,
+      "source_sha256": "07618616b014a663b89b61d9cade1e611ccbdf5158b495736579dc5f917cdc1b",
+      "artifact": "evidence/owner-pr03-owner-xhttp-17.txt.gz",
+      "artifact_bytes": 38295,
+      "artifact_sha256": "3cc4ec29800c339e3073b5ec8e5830f76f416ad96546753744cb7df6bb356af9"
+    },
+    {
+      "source": "pr03-owner-xhttp-18/output.txt",
+      "source_bytes": 724846,
+      "source_sha256": "9b4b9ebaef9c268aa9822a3740914ba4bb3b6dd792da7de3ce8a0fe661e66f4f",
+      "artifact": "evidence/owner-pr03-owner-xhttp-18.txt.gz",
+      "artifact_bytes": 38186,
+      "artifact_sha256": "a2ee0c1b99833740855b63e7a861765dc8e9233f383ce704ce5535431cd24225"
+    },
+    {
+      "source": "pr03-owner-xhttp-19/output.txt",
+      "source_bytes": 725091,
+      "source_sha256": "2672915fdcd0d66407b69a12dfa635a121a5097ea0c3ec8caa2a5a93f26186a4",
+      "artifact": "evidence/owner-pr03-owner-xhttp-19.txt.gz",
+      "artifact_bytes": 37836,
+      "artifact_sha256": "18d67df38bb226e313d6a20429d28a95312d2131ecdc8db2282bb2d25b6f4345"
+    },
+    {
+      "source": "pr03-owner-xhttp-2/output.txt",
+      "source_bytes": 723326,
+      "source_sha256": "28ae70f4cf5abcdd9cdb90065f59021f92a04bdd5fce1a61446ae3641dd08c31",
+      "artifact": "evidence/owner-pr03-owner-xhttp-2.txt.gz",
+      "artifact_bytes": 37813,
+      "artifact_sha256": "8f3b28e632070527804c05f9b4775437b3e94cb9349fad6ae079822ef32fd035"
+    },
+    {
+      "source": "pr03-owner-xhttp-3/output.txt",
+      "source_bytes": 721428,
+      "source_sha256": "3290168e93c9f41867f51a416e448ff64703276b7e6060996cdce947a37b4146",
+      "artifact": "evidence/owner-pr03-owner-xhttp-3.txt.gz",
+      "artifact_bytes": 37883,
+      "artifact_sha256": "84c5102f4926615d782c40985ad57dd06efb78358ecd4b7be2a15049435806ee"
+    },
+    {
+      "source": "pr03-owner-xhttp-4/output.txt",
+      "source_bytes": 715210,
+      "source_sha256": "6fc433beac8dea12c66a812fb066cf2c94452213e215fc4c672d3e957ae87f39",
+      "artifact": "evidence/owner-pr03-owner-xhttp-4.txt.gz",
+      "artifact_bytes": 37804,
+      "artifact_sha256": "ee9ac35e854614dded2384fab2343b9361e8645ecec1e449739d5c0c96ab0dd5"
+    },
+    {
+      "source": "pr03-owner-xhttp-5/output.txt",
+      "source_bytes": 713691,
+      "source_sha256": "b977b116f73da35c7a591447dfd6befb9516548b64921108099571accbc5a562",
+      "artifact": "evidence/owner-pr03-owner-xhttp-5.txt.gz",
+      "artifact_bytes": 37817,
+      "artifact_sha256": "70d65a20a2e78aefadff72eba25c6e9a0caddd166dcf2014a10aeb2786361fb8"
+    },
+    {
+      "source": "pr03-owner-xhttp-6/output.txt",
+      "source_bytes": 725061,
+      "source_sha256": "df2e2419b8431786e9172e14c581a101152c5973341ec07aafd7dd5221b5a6f0",
+      "artifact": "evidence/owner-pr03-owner-xhttp-6.txt.gz",
+      "artifact_bytes": 37922,
+      "artifact_sha256": "857ee4cd501edc5846239bf1ba4dae090977aa8ea5a6abcf3d9a8b2b60270175"
+    },
+    {
+      "source": "pr03-owner-xhttp-7/output.txt",
+      "source_bytes": 722240,
+      "source_sha256": "1c36948df0c1c6e4fa2023cf6940cbddfb204fb1132c6b0bd9d5e750d781d064",
+      "artifact": "evidence/owner-pr03-owner-xhttp-7.txt.gz",
+      "artifact_bytes": 37332,
+      "artifact_sha256": "730a257e2ae00f480151464a5b792b3cf34fe028328187a19699ee2cf54f30f9"
+    },
+    {
+      "source": "pr03-owner-xhttp-8/output.txt",
+      "source_bytes": 727042,
+      "source_sha256": "b8ec5bbe76f299e1a884e80bd03709d470cf0d1fb3367423d278f5a85b1f2eea",
+      "artifact": "evidence/owner-pr03-owner-xhttp-8.txt.gz",
+      "artifact_bytes": 37643,
+      "artifact_sha256": "2791574caa928f4dd81a53a18dc119c42fffc87505d8df5948d1044a51c8362c"
+    },
+    {
+      "source": "pr03-owner-xhttp-9/output.txt",
+      "source_bytes": 727370,
+      "source_sha256": "7f68b073f9dbfc5dcb1a7f71a971a0277b9051ad5b178cd7709fb46bb3d5f94c",
+      "artifact": "evidence/owner-pr03-owner-xhttp-9.txt.gz",
+      "artifact_bytes": 37589,
+      "artifact_sha256": "a8abc056b4a26533311110061618d3c525ca5f3d7e6c941dd8e33ff2e0fa867e"
+    }
+  ],
+  "qualification_limits": [
+    "This checkpoint does not activate resourceful production factories or complete PR03/PR04A/all17.",
+    "67ee Linux2709/0/159 and main checks success belong to previous head, not this code commit.",
+    "67ee VLESS extended packet-up zero_client=false early EOF remains undetermined; not declared the same root as prior reference byte-count issue.",
+    "67ee Windows route-switch executed=false; TUN smoke/macOS offline skipped. No final physical device/GUI qualification."
+  ]
+}
