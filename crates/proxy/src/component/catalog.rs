@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
 };
 use zero_config::{OutboundConfig, OutboundProtocolConfig, RuntimeConfig};
@@ -77,14 +77,14 @@ struct Current {
     plan: Result<Arc<ComponentPlan>, SharedError>,
 }
 pub(crate) struct ComponentCatalog {
-    factories: ComponentRegistry<OutboundConfig>,
+    factories: OnceLock<ComponentRegistry<OutboundConfig>>,
     next_id: AtomicU64,
     current: Mutex<Option<Current>>,
 }
 impl Default for ComponentCatalog {
     fn default() -> Self {
         Self {
-            factories: crate::register::component_registry(),
+            factories: OnceLock::new(),
             next_id: AtomicU64::new(0),
             current: Mutex::new(None),
         }
@@ -96,6 +96,13 @@ impl std::fmt::Debug for ComponentCatalog {
     }
 }
 impl ComponentCatalog {
+    // ProtocolRegistry also owns a catalog. Initialize this cold factory table
+    // only when preparing a plan, so assembling the two registries is state-only
+    // and cannot recursively construct another compiled registry from Default.
+    fn factories(&self) -> &ComponentRegistry<OutboundConfig> {
+        self.factories
+            .get_or_init(crate::register::component_registry)
+    }
     pub(crate) async fn shutdown(
         &self,
         deadline: tokio::time::Instant,
@@ -163,7 +170,7 @@ impl ComponentCatalog {
         };
         let mut outbounds = BTreeMap::new();
         for input in &config.outbounds {
-            if !self.factories.has_factory(input.protocol.protocol_name()) {
+            if !self.factories().has_factory(input.protocol.protocol_name()) {
                 continue;
             }
             let old = previous.and_then(|(old, plan)| {
@@ -188,7 +195,7 @@ impl ComponentCatalog {
         previous: Option<&ComponentSlot>,
     ) -> Result<Arc<ComponentSlot>, ChannelError> {
         let recipe = self
-            .factories
+            .factories()
             .prepare(input.protocol.protocol_name(), input)
             .map_err(|source| {
                 invalid(Reason::Internal, "component option validation failed").with_source(source)
