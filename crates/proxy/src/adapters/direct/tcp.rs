@@ -7,6 +7,7 @@ use crate::transport::TcpOutboundFailure;
 
 struct ClaimedDirectTcpLeaf {
     tag: String,
+    configured_tag: Option<String>,
     dial_policy: zero_traits::DialPolicy,
 }
 
@@ -25,6 +26,7 @@ impl<'a> ClaimedTcpOutboundLeaf<'a> for ClaimedDirectTcpLeaf {
         })?;
         Ok(Box::new(DirectTcpConnectOperation {
             tag: self.tag.clone(),
+            configured_tag: self.configured_tag.clone(),
             dial_policy: self.dial_policy.clone(),
         }))
     }
@@ -34,8 +36,13 @@ impl DirectAdapter {
     pub(super) fn claim_tcp_outbound_leaf_impl<'a>(
         &self,
         tag: String,
+        configured_tag: Option<String>,
         dial_policy: zero_traits::DialPolicy,
     ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> {
-        Box::new(ClaimedDirectTcpLeaf { tag, dial_policy })
+        Box::new(ClaimedDirectTcpLeaf {
+            tag,
+            configured_tag,
+            dial_policy,
+        })
     }
 }

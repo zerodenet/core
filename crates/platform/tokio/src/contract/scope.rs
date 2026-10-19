@@ -40,7 +40,7 @@ pub struct TaskExit {
 
 struct State {
     closing: bool,
-    limit: NonZeroUsize,
+    limit: usize,
     tasks: JoinSet<Result<(), ComponentError>>,
     records: HashMap<Id, (TaskId, TaskClass)>,
     completed: VecDeque<TaskExit>,
@@ -112,6 +112,16 @@ impl State {
 
 impl TaskScope {
     pub fn new(runtime: Handle, limit: NonZeroUsize) -> Self {
+        Self::with_limit(runtime, limit.get())
+    }
+
+    /// A real owner for a component declaring no internal tasks. Any attempted
+    /// registration fails with Capacity rather than inventing a default budget.
+    pub fn empty(runtime: Handle) -> Self {
+        Self::with_limit(runtime, 0)
+    }
+
+    fn with_limit(runtime: Handle, limit: usize) -> Self {
         Self(Arc::new(Shared {
             state: Mutex::new(State {
                 closing: false,
@@ -214,7 +224,7 @@ impl TaskRegistrar {
         }
         state.reap();
         // Undelivered completion events count too: failures cannot accumulate or vanish.
-        if state.records.len() + state.completed.len() >= state.limit.get() {
+        if state.records.len() + state.completed.len() >= state.limit {
             return Err(SpawnError::Capacity);
         }
         let id = allocate_task_id()?;

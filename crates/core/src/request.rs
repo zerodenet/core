@@ -47,3 +47,25 @@ pub enum DatagramTargets {
     Fixed(Destination),
     Multiple,
 }
+
+/// Runtime service traffic is distinct from an admitted business session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceOrigin {
+    Runtime,
+    Component(RoleInstanceId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServicePurpose {
+    HealthProbe,
+    DiagnosticProbe,
+    DnsQuery,
+    Bootstrap,
+    BackgroundControl,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceRequestFacts {
+    pub origin: ServiceOrigin,
+    pub purpose: ServicePurpose,
+}

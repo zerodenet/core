@@ -1,5 +1,6 @@
 use crate::protocol_registry::ProtocolRegistry;
 
+mod component;
 #[cfg(feature = "raw-ip-runtime")]
 mod device;
 mod endpoint;

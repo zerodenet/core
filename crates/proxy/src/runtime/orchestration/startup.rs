@@ -65,6 +65,15 @@ impl OrchestrationState {
 
     async fn start(&mut self, proxy: &Proxy) -> Result<(), EngineError> {
         proxy.protocols.validate_dial_environment(&proxy.config)?;
+        // Reuse the existing orchestration grace period. The migrated Direct
+        // component starts no I/O or tasks; this is not a new admission budget.
+        proxy
+            .protocols
+            .start_components(
+                proxy.config.clone(),
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await?;
         #[cfg(feature = "managed-stream-runtime")]
         let prepared_services = proxy.protocols.prepare_inbound_services(&proxy.config)?;
         proxy

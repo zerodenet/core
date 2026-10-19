@@ -12,6 +12,11 @@ pub(crate) struct TcpExecutionServices {
     pub(super) snapshot: Arc<EngineRuntimeSnapshot>,
     pub(in crate::protocol_registry::context) upstream: UpstreamConnectServices,
     pub(super) principal_rate_limits: PrincipalRateLimitRegistry,
+    pub(crate) components: Result<
+        Arc<crate::component::catalog::ComponentPlan>,
+        crate::component::instance::SharedError,
+    >,
+    pub(crate) service_invocation: Option<crate::component::direct_bridge::ServiceInvocation>,
 }
 impl TcpExecutionServices {
     pub(crate) fn outbound_io(

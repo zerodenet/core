@@ -39,6 +39,7 @@ impl TcpRuntimeServices {
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
         principal_rate_limits: PrincipalRateLimitRegistry,
     ) -> Self {
+        let components = protocols.prepare_components(snapshot.config().clone());
         Self {
             execution: TcpExecutionServices {
                 engine,
@@ -49,6 +50,8 @@ impl TcpRuntimeServices {
                     egress_interface,
                 ),
                 principal_rate_limits,
+                components,
+                service_invocation: None,
             },
             protocols,
         }
@@ -57,7 +60,18 @@ impl TcpRuntimeServices {
     pub(crate) fn with_current_snapshot(&self) -> Self {
         let mut services = self.clone();
         services.execution.snapshot = services.engine.runtime_snapshot();
+        services.execution.components = services
+            .protocols
+            .prepare_components(services.execution.snapshot.config().clone());
         services
+    }
+
+    pub(crate) fn with_service_invocation(
+        mut self,
+        invocation: crate::component::direct_bridge::ServiceInvocation,
+    ) -> Self {
+        self.execution.service_invocation = Some(invocation);
+        self
     }
 
     #[cfg(feature = "udp-runtime")]

@@ -31,6 +31,18 @@ impl OrchestrationState {
         }
         self.publish_reload_transitions(proxy, &new_snapshot);
         let new_config = new_snapshot.config().clone();
+        if let Err(error) = proxy
+            .protocols
+            .start_components(
+                new_config.clone(),
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await
+        {
+            self.reject_reload(proxy, &new_snapshot, error.to_string())
+                .await;
+            return;
+        }
         let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),

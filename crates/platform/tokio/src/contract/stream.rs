@@ -51,7 +51,7 @@ impl<T: StreamOutbound> DynStreamOutbound for Erased<T> {
         context: OpenContext,
     ) -> BoxFuture<'_, Result<Connected<BoxStream>, ChannelError>> {
         Box::pin(async move {
-            context.business_facts()?;
+            context.session_identity()?;
             let connected = self.0.connect(request, context).await?;
             Ok(Connected {
                 io: Box::pin(connected.io) as BoxStream,

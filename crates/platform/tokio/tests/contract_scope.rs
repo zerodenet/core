@@ -21,6 +21,22 @@ fn scope(limit: usize) -> TaskScope {
 }
 
 #[tokio::test]
+async fn zero_task_component_cannot_silently_spawn_a_driver() {
+    let mut owner = TaskScope::empty(Handle::current());
+    assert_eq!(
+        owner
+            .registrar()
+            .spawn(TaskClass::Critical, async { Ok(()) }),
+        Err(SpawnError::Capacity)
+    );
+    let report = owner
+        .shutdown(Instant::now() + Duration::from_secs(1))
+        .await;
+    assert!(report.is_complete());
+    assert!(report.exited_tasks.is_empty());
+}
+
+#[tokio::test]
 async fn scope_bounds_live_tasks_and_undelivered_exits_then_reuses_capacity() {
     let mut owner = scope(1);
     let register = owner.registrar();

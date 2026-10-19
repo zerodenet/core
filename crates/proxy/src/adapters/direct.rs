@@ -13,6 +13,7 @@ use crate::protocol_registry::{
 use crate::protocol_registry::{UdpFlowCapability, UdpPacketPathCapability};
 use crate::runtime::path::TcpPathCategory;
 
+pub(crate) mod factory;
 mod inbound;
 mod tcp;
 #[cfg(feature = "udp-runtime")]
@@ -66,8 +67,10 @@ impl DirectAdapter {
         let policy_tag = tag.map(str::to_owned);
         #[cfg(not(feature = "udp-runtime"))]
         let _ = dial_generation;
+        let configured_tag = tag.map(str::to_owned);
         let tag = tag.unwrap_or("direct").to_owned();
-        let tcp = self.claim_tcp_outbound_leaf_impl(tag.clone(), dial_policy.clone());
+        let tcp =
+            self.claim_tcp_outbound_leaf_impl(tag.clone(), configured_tag, dial_policy.clone());
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Direct,
             tcp: Some(tcp),

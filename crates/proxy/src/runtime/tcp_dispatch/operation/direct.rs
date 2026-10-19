@@ -9,6 +9,7 @@ use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 pub(crate) struct DirectTcpConnectOperation {
     pub(crate) tag: String,
+    pub(crate) configured_tag: Option<String>,
     pub(crate) dial_policy: zero_traits::DialPolicy,
 }
 
@@ -22,6 +23,17 @@ impl PreparedTcpConnectOperation for DirectTcpConnectOperation {
         Self: 'a,
     {
         Box::pin(async move {
+            if let Some(invocation) = services.service_invocation {
+                return crate::component::direct_bridge::connect(
+                    &services,
+                    session,
+                    &self.tag,
+                    self.configured_tag.as_deref(),
+                    &self.dial_policy,
+                    invocation,
+                )
+                .await;
+            }
             execute_direct_tcp_operation(
                 services,
                 session,

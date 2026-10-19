@@ -182,6 +182,32 @@ async fn diagnostic_outbound_timeout_is_neutral_and_reports_limit() {
     server.abort();
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn direct_component_preserves_existing_refused_probe_code() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let (handle, _) = diagnostic_handle();
+    let response = tokio::task::block_in_place(|| {
+        handle.execute(CommandRequest::DiagnosticsProbeOutbound(
+            DiagnosticsProbeOutboundCommand {
+                target_tag: "direct".into(),
+                url: Some(format!("http://127.0.0.1:{port}/probe")),
+                operation_id: Some("direct-component-refused".into()),
+            },
+        ))
+    })
+    .unwrap();
+    let result = response.result.unwrap();
+    assert_eq!(result["error_code"], "connection_failed");
+    assert_eq!(result["terminal_status"], "failed");
+    assert_eq!(result["reachable"], false);
+    assert!(result["error"]
+        .as_str()
+        .unwrap()
+        .contains("failed to connect direct target"));
+}
+
 fn diagnostic_handle() -> (ProxyHandle, zero_engine::Engine) {
     let config = RuntimeConfig::parse(
         r#"{

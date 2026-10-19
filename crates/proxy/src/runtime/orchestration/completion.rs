@@ -63,6 +63,16 @@ impl OrchestrationState {
         self.listeners.shutdown().await;
         self.urltests.shutdown().await;
         self.services.shutdown().await;
+        if let Err(error) = proxy
+            .protocols
+            .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            cleanup_errors.push(format!("component shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(error);
+            }
+        }
         self.listener_stops.clear();
         self.active_inbounds.clear();
         #[cfg(feature = "raw-ip-runtime")]

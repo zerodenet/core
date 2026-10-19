@@ -224,7 +224,18 @@ impl OutboundProbeRuntime {
                 ProtocolType::UNKNOWN,
             );
             let outbound = crate::runtime::tcp_dispatch::dispatch_tcp_outbound(
-                self.services.clone(),
+                self.services.clone().with_service_invocation(
+                    crate::component::direct_bridge::ServiceInvocation {
+                        deadline: tokio::time::Instant::now() + Duration::from_millis(timeout_ms),
+                        purpose: if intent
+                            == crate::runtime::tcp_dispatch::TcpDispatchIntent::PolicyProbe
+                        {
+                            zero_core::request::ServicePurpose::HealthProbe
+                        } else {
+                            zero_core::request::ServicePurpose::DiagnosticProbe
+                        },
+                    },
+                ),
                 &session,
                 resolved,
                 zero_engine::RouteMode::Auto,

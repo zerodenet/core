@@ -24,6 +24,19 @@ pub(crate) struct UpstreamConnectServices {
 }
 
 impl UpstreamConnectServices {
+    pub(crate) fn network_generation(&self) -> u64 {
+        self.egress_interface.generation()
+    }
+    pub(crate) async fn connect_direct(
+        &self,
+        session: &zero_core::Session,
+        policy: &zero_traits::DialPolicy,
+    ) -> Result<crate::transport::DirectTcpConnection, crate::transport::DirectTcpConnectFailure>
+    {
+        self.connector
+            .connect_with_policy(session, &self.resolver, &self.egress_interface, policy)
+            .await
+    }
     pub(crate) fn with_observer(
         mut self,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,

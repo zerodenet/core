@@ -125,7 +125,7 @@ impl<T: DatagramOutbound> DynDatagramOutbound for Erased<T> {
         context: OpenContext,
     ) -> BoxFuture<'_, Result<BoxDatagramSession, ChannelError>> {
         Box::pin(async move {
-            context.business_facts()?;
+            context.session_identity()?;
             let session = self.0.open(request, context).await?;
             Ok(erase_session(session))
         })

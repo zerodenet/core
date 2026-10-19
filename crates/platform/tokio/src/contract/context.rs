@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 use zero_core::{
     component::{RoleInstanceId, SessionId},
     packet::PacketFacts,
-    request::RequestFacts,
+    request::{RequestFacts, ServiceRequestFacts},
 };
 
 use super::network::UpstreamTransport;
@@ -26,13 +26,14 @@ pub trait ConnectObserver: Send + Sync {
 pub enum RequestIdentity {
     Business(Arc<RequestFacts>),
     Packet(Arc<PacketFacts>),
+    Service(Arc<ServiceRequestFacts>),
 }
 
 impl RequestIdentity {
     pub fn session(&self) -> Option<SessionId> {
         match self {
             Self::Business(facts) => Some(facts.session),
-            Self::Packet(_) => None,
+            Self::Packet(_) | Self::Service(_) => None,
         }
     }
 }
@@ -47,16 +48,28 @@ pub struct OpenContext {
 }
 
 impl OpenContext {
+    /// Stream/Datagram service requests carry no synthetic business SessionId.
+    pub fn session_identity(&self) -> Result<Option<SessionId>, super::ChannelError> {
+        match &self.identity {
+            RequestIdentity::Business(facts) => Ok(Some(facts.session)),
+            RequestIdentity::Service(_) => Ok(None),
+            RequestIdentity::Packet(_) => Err(identity_error(super::Impact::Session)),
+        }
+    }
     pub fn business_facts(&self) -> Result<&RequestFacts, super::ChannelError> {
         match &self.identity {
             RequestIdentity::Business(facts) => Ok(facts),
-            RequestIdentity::Packet(_) => Err(identity_error(super::Impact::Session)),
+            RequestIdentity::Packet(_) | RequestIdentity::Service(_) => {
+                Err(identity_error(super::Impact::Session))
+            }
         }
     }
     pub fn packet_facts(&self) -> Result<&PacketFacts, super::ChannelError> {
         match &self.identity {
             RequestIdentity::Packet(facts) => Ok(facts),
-            RequestIdentity::Business(_) => Err(identity_error(super::Impact::Packet)),
+            RequestIdentity::Business(_) | RequestIdentity::Service(_) => {
+                Err(identity_error(super::Impact::Packet))
+            }
         }
     }
 }

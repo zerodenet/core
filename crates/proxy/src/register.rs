@@ -3,6 +3,19 @@
 use std::sync::Arc;
 
 use crate::protocol_registry::ProtocolRegistry;
+pub(crate) fn component_registry(
+) -> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
+    use zero_traits::ProtocolMetadata;
+    let mut registry = crate::component::ComponentRegistry::default();
+    registry
+        .register(
+            crate::adapters::direct::DirectAdapter::default().descriptor(),
+            crate::component::DirectFactory,
+            crate::adapters::direct::factory::decode,
+        )
+        .expect("unique built-in Direct registration");
+    registry
+}
 #[cfg(any(
     feature = "managed-stream-runtime",
     feature = "managed-datagram-runtime"

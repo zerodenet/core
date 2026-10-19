@@ -149,6 +149,10 @@ name = "proxy_dispatch"
 path = "tests/suites/proxy_dispatch.rs"
 
 [[test]]
+name = "component_contracts"
+path = "tests/component/mod.rs"
+
+[[test]]
 name = "proxy_health"
 path = "tests/suites/proxy_health.rs"
 

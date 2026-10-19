@@ -39,6 +39,9 @@ pub(crate) struct DirectTcpConnectFailure {
     pub(crate) stage: &'static str,
     pub(crate) error: Error,
     pub(crate) network: Box<FlowNetworkObservation>,
+    /// Preserve the native source for standard channels while the legacy
+    /// compatibility result retains its existing coarse Core error.
+    pub(crate) source: Option<std::io::Error>,
 }
 
 #[derive(Debug, Clone)]
@@ -116,6 +119,7 @@ impl DirectConnector {
                 return Err(DirectTcpConnectFailure {
                     stage: "resolve_direct_target",
                     error,
+                    source: None,
                     network: Box::new(self.resolution_failure_observation_with_policy(
                         session, resolver, egress, policy,
                     )),
@@ -204,6 +208,7 @@ impl DirectConnector {
                         &resolution,
                     )),
                     error,
+                    source: Some(failure.error),
                 })
             }
         }

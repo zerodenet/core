@@ -157,6 +157,7 @@ impl Proxy {
         let config = engine.config();
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
+        protocols.validate_components(config.clone())?;
         let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
         let dns_dispatch = config.compile_dns_dispatch()?;
         let fake_ip_state_path = config
