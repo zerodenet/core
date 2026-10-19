@@ -45,6 +45,11 @@ async fn changed_static_options_advance_generation_without_identity_reuse() {
     assert_eq!(old.id, new.id);
     assert_eq!(old.generation.checked_next(), Some(new.generation));
     assert!(!Arc::ptr_eq(&old, &new));
+    assert_eq!(old.dial.address_family, zero_traits::AddressFamily::Auto);
+    assert_eq!(
+        new.dial.address_family,
+        zero_traits::AddressFamily::OnlyIpv4
+    );
     let mut removed = original.as_ref().clone();
     removed.outbounds.clear();
     let removed = catalog.prepare(Arc::new(removed)).unwrap();

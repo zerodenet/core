@@ -39,8 +39,11 @@ impl ProtocolInventory {
                         network: None,
                     });
                 }
-                if let Some(prepared) = self.prepare_native_tcp_relay_chain(ctx, chain, components)
-                {
+                if let Some(prepared) = Self::prepare_native_tcp_relay_chain(
+                    chain
+                        .iter()
+                        .map(|leaf| self.native_tcp_candidate(ctx, leaf, components)),
+                ) {
                     return prepared.map(PreparedTcpOutbound::NativeRelay);
                 }
                 let claimed = self.claim_relay_chain(

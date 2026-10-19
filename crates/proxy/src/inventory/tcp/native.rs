@@ -1,13 +1,8 @@
-//! Materialize an already selected chain of real, built Stream components.
+//! Materialize a selected chain of already prepared, neutral Stream candidates.
 use super::super::ProtocolInventory;
-use super::PreparedTcpCandidateExecution;
-use crate::{
-    component::{catalog::ComponentPlan, instance::ComponentSlot},
-    protocol_registry::OutboundAdapterContext,
-    transport::TcpOutboundFailure,
-};
+use super::{PreparedTcpCandidate, PreparedTcpCandidateExecution};
+use crate::{component::instance::ComponentSlot, transport::TcpOutboundFailure};
 use std::sync::Arc;
-use zero_engine::ResolvedLeafOutbound;
 
 pub(crate) struct PreparedNativeTcpRelayChain {
     pub(crate) nodes: Vec<PreparedNativeTcpNode>,
@@ -21,15 +16,12 @@ pub(crate) struct PreparedNativeTcpNode {
 }
 impl ProtocolInventory {
     pub(in crate::inventory) fn prepare_native_tcp_relay_chain(
-        &self,
-        ctx: OutboundAdapterContext<'_>,
-        chain: &[ResolvedLeafOutbound<'_>],
-        components: Option<&ComponentPlan>,
+        candidates: impl IntoIterator<Item = Option<Result<PreparedTcpCandidate, TcpOutboundFailure>>>,
     ) -> Option<Result<PreparedNativeTcpRelayChain, TcpOutboundFailure>> {
-        let components = components?;
-        let mut nodes = Vec::with_capacity(chain.len());
-        for (index, leaf) in chain.iter().enumerate() {
-            let candidate = match self.native_tcp_candidate(ctx, leaf, Some(components))? {
+        let candidates = candidates.into_iter();
+        let mut nodes = Vec::with_capacity(candidates.size_hint().0);
+        for (index, candidate) in candidates.enumerate() {
+            let candidate = match candidate? {
                 Ok(candidate) => candidate,
                 Err(mut error) => {
                     if index > 0 {
@@ -41,18 +33,15 @@ impl ProtocolInventory {
             let PreparedTcpCandidateExecution::Native(slot) = candidate.execution else {
                 return None;
             };
-            let ResolvedLeafOutbound::Proxy { identity } = leaf else {
-                return None;
-            };
-            let outbound = ctx.config().outbounds.get(identity.config_index())?;
+            let dial = slot.dial.clone();
             nodes.push(PreparedNativeTcpNode {
                 slot,
-                tag: outbound.tag.clone(),
+                tag: candidate.tag.expect("native node has a configured tag"),
                 protocol: candidate.protocol,
                 endpoint: candidate
                     .endpoint
                     .expect("native node has a validated endpoint"),
-                dial: outbound.dial.to_policy(),
+                dial,
             });
         }
         Some(Ok(PreparedNativeTcpRelayChain { nodes }))

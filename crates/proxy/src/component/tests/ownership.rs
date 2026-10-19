@@ -115,6 +115,7 @@ fn slot(counts: Arc<Counts>, wait: bool) -> Arc<ComponentSlot> {
         ComponentId(8),
         ResourceGeneration(2),
         registry.prepare("direct", &()).unwrap(),
+        Default::default(),
     ))
 }
 fn deadline() -> Instant {

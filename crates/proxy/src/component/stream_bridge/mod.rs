@@ -71,7 +71,7 @@ pub(crate) async fn connect(
         upstream: UpstreamTransport::new(
             UpstreamBinding {
                 prefix: vec![],
-                dial: Default::default(),
+                dial: slot.dial.clone(),
                 network_generation: NetworkGeneration(opener.generation()),
             },
             opener.clone(),

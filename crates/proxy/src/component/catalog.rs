@@ -218,7 +218,12 @@ impl ComponentCatalog {
             ),
             None => (self.allocate_id()?, ResourceGeneration(1)),
         };
-        Ok(Arc::new(ComponentSlot::new(id, generation, recipe)))
+        Ok(Arc::new(ComponentSlot::new(
+            id,
+            generation,
+            recipe,
+            input.dial.to_policy(),
+        )))
     }
     pub(crate) fn allocate_id(&self) -> Result<ComponentId, ChannelError> {
         let mut current = self.next_id.load(Ordering::Relaxed);

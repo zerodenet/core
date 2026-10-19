@@ -35,6 +35,7 @@ pub(crate) struct ComponentSlot {
     pub(crate) id: ComponentId,
     pub(crate) generation: ResourceGeneration,
     pub(crate) recipe: ValidatedRecipe,
+    pub(crate) dial: zero_traits::DialPolicy,
     cancel: CancellationToken,
     live: OnceCell<Result<Live, SharedError>>,
     start_gate: Mutex<()>,
@@ -54,11 +55,13 @@ impl ComponentSlot {
         id: ComponentId,
         generation: ResourceGeneration,
         recipe: ValidatedRecipe,
+        dial: zero_traits::DialPolicy,
     ) -> Self {
         Self {
             id,
             generation,
             recipe,
+            dial,
             cancel: CancellationToken::new(),
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
