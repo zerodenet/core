@@ -116,6 +116,20 @@ Browser Dialer 和 XHTTP 503 的根因、消融和新的参考客户端计数缺
 
 这不是完整插件所有权迁移：Child仍需在内部异步启动前持久安装，池/租借/驱动关闭确认与RuntimeHost单实例事务，以及其余17项继续实施。
 
+## PR04A 进行中：共享 replay 维护资源的实际所有者
+
+代码提交 `9ac2eb8b532b5e984e120c1f5bf4435c37201e09`，冻结源码 tree `70ef18988e97da87b9b14140cb7a453b62c58793`。[验证及22份原始证据](pr04-replay-validation.json)保留实际运行输出和原文/gzip SHA-256。
+
+SS 的 roleless replay 工厂使用既有适配器按 `(ReplayPolicy, capacity)` 共享的真实 TCP2022 salt 池，不建立独立出站历史。describe/build 无运行 I/O，明确声明一个 critical task。旧维护 worker 改为保留 JoinHandle 和停止通知；新所有者在首次 await 前接管句柄，确认旧 worker 退出后才向实际 TaskScope 登记维护任务。新任务的租约随其 Future 保留到退出，协议清理钩子返回不能提前放行替换。任务退出 ID 和错误仍来自真实 Scope join，未虚构协议 I/O 关闭记录。有效 salt 历史、61秒窗口、30秒清理周期与满容量拒绝均保留；弱配方不延长已释放适配器状态寿命。
+
+六项新回归覆盖共享历史、容量错误来源、取消启动保留旧 JoinHandle、弱配方释放、空闲回收和实际任务退出前禁止替换。初版未提交候选在“协议钩子提前释放尚未退出任务的租约”断言真实失败，修复后通过；该负向结果属于本次初版候选，不冒充旧生产代码的回归。完整 SS 库30/0，同一不可变测试二进制在独立网络命名空间、只读挂载、1 CPU/1 GiB/no swap/user1000 中也为30/0。
+
+严格 workspace/all-target/all-feature Clippy 通过；检查期间仅 AGENTS/兼容账本 Markdown 改变，九个 Rust 文件摘要与提交一致。提交后冻结源码、HEAD 和锁文件，fmt、workspace check、完整 workspace **2729/0/159**（155条摘要，包含晚期文档测试）、默认 release、实际 thumb no_std、最小 feature 和实际依赖边界全部通过。实际默认 release git_hash=`9ac2eb8b`，SHA=`81dbd5250b50ef9261195f96006dc462de48ea3052052da10ff3f36a3033ce2b`；不代表可选 connector/grpc/WireGuard 的 release 资格或完整 RS01。
+
+上一 head1cac 的全部11个选中 workflow 成功，包含主 CI、七项协议参考互通、Connector Qualification、Version Contract 和 hosted TUN。原始 Linux workspace2723/0/159、VLESS251/0/1及日志摘要已保存。Optional surface跳过；TUN四个独立 smoke/macOS offline 步骤跳过，Windows原始报告仍为executed=false，缺少合适第二接口。这些结果仅属于1cac，不代替新head、真实用户设备或GUI资格，也不消除历史XHTTP earlyEOF和固定参考客户端计数资格问题。
+
+本工厂未加入现有仅覆盖零资源 Stream 的生产 catalog；共享资源图、确认替换和M4宿主事务尚待实现。插件内部 Child 的取消保留和显式确认清理，以及其余17项继续实施。
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
