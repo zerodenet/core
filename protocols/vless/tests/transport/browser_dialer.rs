@@ -323,7 +323,9 @@ async fn prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream()
         .await
         .expect("runtime retirement interrupts active Browser Dialer I/O")
         .unwrap_err();
-    assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+    // A retired channel is terminal. Interrupted is a retryable OS condition,
+    // and Tokio 1.54 read helpers correctly retry it within the same poll.
+    assert_eq!(error.kind(), std::io::ErrorKind::ConnectionAborted);
     // Cancellation invalidates I/O immediately. Releasing the invalidated
     // stream then closes the owned control WebSocket for the browser peer.
     checkpoint("drop retired stream");

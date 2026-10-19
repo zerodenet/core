@@ -233,11 +233,7 @@ async fn ccs_probe_injects_records_before_the_client_finished_flight() {
     )
     .unwrap();
     let (client, server_io) = tokio::io::duplex(64 * 1024);
-    let server_task = tokio::spawn(async move {
-        let _ = tokio_rustls::TlsAcceptor::from(Arc::new(server))
-            .accept(server_io)
-            .await;
-    });
+    let server_task = ccs_target::spawn(server_io, Arc::new(server));
     let writes = Arc::new(Mutex::new(Vec::new()));
     let tapped = WriteTap {
         inner: client,
@@ -249,12 +245,15 @@ async fn ccs_probe_injects_records_before_the_client_finished_flight() {
         ..Default::default()
     };
 
-    let _ = tokio::time::timeout(
+    let limit = tokio::time::timeout(
         std::time::Duration::from_secs(3),
         ccs::drive_ccs_probe(tapped, config),
     )
-    .await;
-    server_task.abort();
+    .await
+    .expect("the probe must complete within the original three-second deadline")
+    .expect("the scripted target must return a CCS limit");
+    assert_eq!(limit, 1);
+    server_task.await.unwrap();
     let expected = [ccs::CCS_RECORD, ccs::CCS_RECORD].concat();
     let writes = writes.lock().unwrap();
     let position = writes
@@ -266,3 +265,6 @@ async fn ccs_probe_injects_records_before_the_client_finished_flight() {
         Some(20 | 23)
     ));
 }
+
+#[path = "target_probe/ccs_target.rs"]
+mod ccs_target;
