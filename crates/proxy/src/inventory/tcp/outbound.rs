@@ -5,6 +5,7 @@ use crate::protocol_registry::OutboundAdapterContext;
 use crate::transport::TcpOutboundFailure;
 
 pub(crate) enum PreparedTcpOutbound {
+    NativeRelay(super::PreparedNativeTcpRelayChain),
     Relay(super::PreparedTcpRelayChain),
     Single(super::PreparedTcpCandidate),
     Fallback(Vec<super::PreparedTcpCandidate>),
@@ -37,6 +38,10 @@ impl ProtocolInventory {
                         upstream_endpoint: None,
                         network: None,
                     });
+                }
+                if let Some(prepared) = self.prepare_native_tcp_relay_chain(ctx, chain, components)
+                {
+                    return prepared.map(PreparedTcpOutbound::NativeRelay);
                 }
                 let claimed = self.claim_relay_chain(
                     ctx.config(),

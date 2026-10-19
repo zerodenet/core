@@ -67,7 +67,11 @@ pub(crate) async fn connect(
                 .unwrap_or_else(|| Instant::now() + std::time::Duration::from_secs(5)),
         )
         .await
-        .map_err(|error| failure("start_component", error))?;
+        .map_err(|mut error| {
+            error.component.get_or_insert(slot.id);
+            error.session = error.session.or(invocation.identity.session());
+            failure("start_component", error)
+        })?;
     let opener = Arc::new(network::DirectOpener::new(
         services.upstream(),
         session.clone(),

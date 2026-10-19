@@ -131,6 +131,12 @@ async fn revoked_socks_role_does_not_fall_back_to_a_per_request_legacy_claim() {
     };
     assert_eq!(failure.stage, "connect_upstream_socks5");
     assert_eq!(failure.error.code(), "io");
+    let channel = crate::transport::channel_failure(&failure.error).unwrap();
+    assert_eq!(channel.component, Some(slot.id));
+    assert_eq!(
+        channel.session,
+        Some(zero_core::component::SessionId(session.id))
+    );
     assert!(
         tokio::time::timeout(Duration::from_millis(30), listener.accept())
             .await

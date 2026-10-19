@@ -17,7 +17,9 @@ use zero_platform_tokio::contract::{
     CancellationToken, ChannelError, Reason,
 };
 mod network;
+mod relay;
 mod traffic;
+pub(crate) use relay::connect as connect_relay;
 
 pub(crate) async fn connect(
     services: &TcpExecutionServices,
@@ -44,7 +46,11 @@ pub(crate) async fn connect(
                 .unwrap_or_else(|| tokio::time::Instant::now() + std::time::Duration::from_secs(5)),
         )
         .await
-        .map_err(failure)?;
+        .map_err(|mut error| {
+            error.component.get_or_insert(slot.id);
+            error.session = error.session.or(invocation.identity.session());
+            failure(error)
+        })?;
     let upstream =
         services.upstream_observed(prepared.tag.as_deref().expect("native node has a tag"));
     let traffic = traffic::EstablishmentTraffic::new(upstream.observer());

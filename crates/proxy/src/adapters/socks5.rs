@@ -134,3 +134,7 @@ impl ProtocolMetadata for Socks5Adapter {
 #[cfg(test)]
 #[path = "../component/tests/socks.rs"]
 mod component_tests;
+
+#[cfg(test)]
+#[path = "../component/tests/relay.rs"]
+mod relay_tests;

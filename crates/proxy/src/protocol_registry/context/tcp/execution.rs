@@ -39,6 +39,9 @@ impl TcpExecutionServices {
     pub(crate) fn snapshot(&self) -> &EngineRuntimeSnapshot {
         self.snapshot.as_ref()
     }
+    pub(crate) fn snapshot_handle(&self) -> Arc<EngineRuntimeSnapshot> {
+        self.snapshot.clone()
+    }
 
     pub(crate) fn resolver(&self) -> &DnsSystem {
         self.upstream.resolver.as_ref()

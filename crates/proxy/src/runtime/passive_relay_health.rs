@@ -53,17 +53,63 @@ pub(crate) fn classify_outbound_establishment_failure(
     }
 
     let message = error.to_string().to_ascii_lowercase();
-    if message.contains("tun physical egress is unavailable")
+    if local_establishment_message(&message) {
+        PassiveRelayOutcome::Neutral
+    } else {
+        PassiveRelayOutcome::Failure
+    }
+}
+
+/// The native prefix retains its original channel error instead of converting
+/// it into an owned legacy error merely to observe first-hop health.
+pub(crate) fn classify_channel_establishment_failure(
+    error: &zero_platform_tokio::contract::ChannelError,
+) -> PassiveRelayOutcome {
+    use crate::transport::{failure_origin, TransportFailureOrigin};
+    use zero_platform_tokio::contract::{Reason, Stage};
+    if error.stage == Stage::Prepare
+        || error.reason == Reason::Internal
+        || matches!(
+            failure_origin(error),
+            Some(
+                TransportFailureOrigin::Client
+                    | TransportFailureOrigin::LocalNetwork
+                    | TransportFailureOrigin::NameResolution
+            )
+        )
+    {
+        return PassiveRelayOutcome::Neutral;
+    }
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(error) = source {
+        if matches!(
+            error.downcast_ref::<EngineError>(),
+            Some(EngineError::UnhealthyOutbound { .. })
+        ) {
+            return PassiveRelayOutcome::Neutral;
+        }
+        if local_establishment_message(&error.to_string().to_ascii_lowercase()) {
+            return PassiveRelayOutcome::Neutral;
+        }
+        if let Some(inner) = error
+            .downcast_ref::<std::io::Error>()
+            .and_then(std::io::Error::get_ref)
+        {
+            source = Some(inner);
+            continue;
+        }
+        source = error.source();
+    }
+    PassiveRelayOutcome::Failure
+}
+
+fn local_establishment_message(message: &str) -> bool {
+    message.contains("tun physical egress is unavailable")
         || message.contains("tun_ipv4_egress_unavailable")
         || message.contains("tun_ipv6_egress_unavailable")
         || message.contains("failed to resolve upstream target")
         || message.contains("failed to resolve proxy node")
         || message.contains("dns backend")
-    {
-        PassiveRelayOutcome::Neutral
-    } else {
-        PassiveRelayOutcome::Failure
-    }
 }
 
 fn is_early_transport_failure(error: &EngineError) -> bool {

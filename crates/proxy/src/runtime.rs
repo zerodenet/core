@@ -44,6 +44,7 @@ pub(crate) mod packet_route;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod packet_session_udp;
 mod passive_relay_health;
+pub(crate) use passive_relay_health::classify_channel_establishment_failure;
 pub(crate) mod path;
 pub(crate) mod pipe;
 pub(crate) mod principal_rate_limit;

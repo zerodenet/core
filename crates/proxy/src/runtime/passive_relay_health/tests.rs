@@ -1,4 +1,5 @@
 use std::io;
+mod channel;
 
 use zero_core::{Address, Network, ProtocolType};
 use zero_engine::SessionOutcome;

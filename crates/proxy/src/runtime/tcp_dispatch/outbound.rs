@@ -37,6 +37,15 @@ async fn execute_prepared_tcp_outbound(
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     match prepared {
+        PreparedTcpOutbound::NativeRelay(prepared) => {
+            crate::component::stream_bridge::connect_relay(
+                &services,
+                session,
+                prepared,
+                intent == TcpDispatchIntent::Traffic,
+            )
+            .await
+        }
         PreparedTcpOutbound::Relay(prepared) => {
             super::relay::dispatch_prepared_tcp_relay_chain(services, session, prepared, intent)
                 .await
