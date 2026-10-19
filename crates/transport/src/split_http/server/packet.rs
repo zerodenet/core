@@ -142,7 +142,17 @@ async fn admit(
                 // The first poll registered and validated the complete packet.
                 // The bounded task retains both permits until queue admission,
                 // session cancellation or its deadline, even after HTTP success.
-                Acknowledgement::Received => Ok(()),
+                Acknowledgement::Received => {
+                    // A pipelined HTTP/1 sender can have many complete uploads
+                    // buffered in this connection. Give the consumer and the
+                    // admitted writer a turn before parsing the next request;
+                    // otherwise this connection can exhaust the listener's
+                    // request permits with acknowledged, still-pending packets.
+                    // The missing sequence would then receive 503 even though
+                    // it arrived, leaving the active session unable to progress.
+                    tokio::task::yield_now().await;
+                    Ok(())
+                }
                 Acknowledgement::Queued => task.await.map_err(io::Error::other)?,
             }
         }
@@ -155,3 +165,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../tests/xhttp_server/http1_ack.rs"]
 mod http1_ack_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/xhttp_server/pipeline_capacity.rs"]
+mod pipeline_capacity;

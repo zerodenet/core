@@ -349,19 +349,26 @@ pub fn hex_lower(bytes: &[u8]) -> String {
 /// Spawn a single-shot TCP echo server: accepts one connection, reads
 /// `payload_len` bytes, writes the same bytes back.
 pub async fn spawn_tcp_echo(port: u16, payload_len: usize) -> tokio::task::JoinHandle<()> {
-    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-    let task = tokio::spawn(async move {
-        let listener = TcpListener::bind(("127.0.0.1", port))
-            .await
-            .expect("bind echo");
-        let _ = ready_tx.send(());
+    let listener = TcpListener::bind(("127.0.0.1", port))
+        .await
+        .expect("bind echo");
+    tcp_echo(listener, payload_len)
+}
+
+/// Keep the OS-assigned address reserved through task ownership transfer.
+pub async fn spawn_bound_tcp_echo(payload_len: usize) -> (u16, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind echo");
+    let port = listener.local_addr().expect("echo address").port();
+    (port, tcp_echo(listener, payload_len))
+}
+
+fn tcp_echo(listener: TcpListener, payload_len: usize) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.expect("accept echo");
         let mut buf = vec![0_u8; payload_len];
         stream.read_exact(&mut buf).await.expect("read echo");
         stream.write_all(&buf).await.expect("write echo");
-    });
-    ready_rx.await.expect("echo ready");
-    task
+    })
 }
 
 /// Spawn a single-shot UDP echo server: receives one datagram, sends the

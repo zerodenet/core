@@ -10,6 +10,9 @@ use tokio_tungstenite::{
 };
 use zero_transport::browser_dialer::{BrowserDialerOptions, BrowserDialerServer, BrowserStream};
 
+#[path = "browser_dialer/retirement.rs"]
+mod retirement;
+
 async fn server() -> BrowserDialerServer {
     BrowserDialerServer::bind(
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
