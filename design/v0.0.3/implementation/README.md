@@ -90,6 +90,20 @@ Browser Dialer 和 XHTTP 503 的根因、消融和新的参考客户端计数缺
 本提交完整测试二进制另在只读挂载、独立网络命名空间、1 CPU/1 GiB 中诊断同一扩展参数测试，20 轮20/0。对首组 header/cookie 参数的两种 runtime 重组抓取，共检查160条 TCP与40条 MUX/UDP，序号连续，实际字节数与载荷正确，无重复或缺口。全部日志、执行/分析程序、全部本地 raw capture 的摘要及完整代表抓取保留；其余 raw capture 留在云端工作区。这些通过未定位远端失败，不能将该失败改写为已修复或参考缺陷同源。
 
 
+## PR03 / PR04A 进行中：健康观察、同次注册和 SS 目标事实
+
+代码为 `de7c2f10fa9c0d6ec114dd425c3cfc43fbe6eea7`，冻结源码 tree 为 `fa7a5ab661085aa713f97d98c9ec5c724d7f8975`。[精确验证](pr04-bound-ss-validation.json)保存23项压缩原始证据及 SHA。
+
+- 实际前缀健康对象的旧实现保活退役配置，新增回归先在旧实现断言失败。Engine 的 OutboundHealthObservation 只持有配置代际、当前快照容器、健康状态和事件日志的弱引用及 tag；不会保活旧配置或停止后的 Engine。当前代际继续使用原有可用性计算、失败阈值、即时 URLTest 选择和事件；迟到失败及成功均不能改变新代际健康。没有新增观察任务、回调分发框架或运行时。
+- 运行注册表现在使用与旧能力适配器同次装配产生的实际组件工厂表，避免后续为资源协议重复装配池状态。实际 Direct 工厂状态回归验证冷准备、真实角色构建、缓存复用和关闭后的工厂状态释放。
+- Shadowsocks 的预备 TCP 配置提供只接收 Destination 的 establish_tcp_to；原 Session 入口与新入口共用同一私有 framing，目标地址/端口以借用传入。legacy stream、AEAD 和2022沿用原密码学、salt/replay状态和响应处理，不制造 SessionId。新的地址/分片/载荷测试与整套 runtime62项通过；SS 资源工厂与共享 replay/plugin 生产迁移仍未激活。
+
+组件过滤29项（28 proxy、1 transport）、实际 Engine 健康套件19项和 SS runtime62项通过。一次误选 engine_policy 的过滤运行实际为0项，已保留并改用真正的 engine_observability suite，不将空运行当资格。
+
+严格 workspace/all-target/all-feature Clippy 通过；之后只有 AGENTS 和兼容性账本 Markdown 改动，19个 Rust 文件摘要及完整 tree 差异已核对。提交后冻结源码、HEAD 和锁文件，fmt、workspace check、完整 workspace **2722 / 0 / 159**（155条摘要，含晚期文档测试）、默认 release、实际 thumb no_std、最小 feature 与实际依赖边界全部通过。实际 release 的 git_hash 为 de7c2f10，SHA为 `77404be733beb8949fbe312b7882f5b65d429ba543c590f4f76e763d40c022ac`；默认功能不代表可选 connector/grpc/WireGuard release 资格。
+
+上一 head730d 的七项参考互通 workflow 成功，VLESS251/0/1；Linux workspace2715/1/159，失败为 SS 插件启动失败用例把预期退出码7的子进程判为启动成功。旧日志没有探针端点或实测子进程退出状态，原因尚未确定。真实 Linux socket 的独立实验已证明，无监听器时仍能连接到自身相同地址端口并回读数据；受控子进程随后确认退出7。这只是旧探针“连接成功即就绪”可能误判的实际输入，不倒推旧CI的精确原因。本代码提交尚未修改 process.rs，后续以实际 readiness 实现的决定性回归继续处理。67ee的XHTTP earlyEOF和此前参考客户端计数问题仍保留，不能由这次互通成功抹去。
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。

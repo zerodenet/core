@@ -1,0 +1,361 @@
+{
+  "base_commit": "730d902ed3549a6f2cf87fe1b44674bc55a935b0",
+  "code_commit": "de7c2f10fa9c0d6ec114dd425c3cfc43fbe6eea7",
+  "tested_git_tree": "fa7a5ab661085aa713f97d98c9ec5c724d7f8975",
+  "counts": {
+    "passed": 2722,
+    "failed": 0,
+    "ignored": 159,
+    "libtest_summary_rows": 155
+  },
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 7.549667944000248,
+      "log": "/workspace/core-baseline-artifacts/pr04-bound-ss-final-fmt.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace"
+      ],
+      "exit": 0,
+      "seconds": 58.698017325001274,
+      "log": "/workspace/core-baseline-artifacts/pr04-bound-ss-final-check.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "test",
+      "argv": [
+        "bash",
+        "scripts/test-workspace.sh"
+      ],
+      "exit": 0,
+      "seconds": 455.0853881430012,
+      "log": "/workspace/core-baseline-artifacts/pr04-bound-ss-final-test.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "release",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release"
+      ],
+      "exit": 0,
+      "seconds": 237.5153115280009,
+      "log": "/workspace/core-baseline-artifacts/pr04-bound-ss-final-release.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "no-std",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--target",
+        "thumbv7em-none-eabi",
+        "-p",
+        "zero-traits",
+        "-p",
+        "zero-core"
+      ],
+      "exit": 0,
+      "seconds": 0.21241808100239723,
+      "log": "/workspace/core-baseline-artifacts/pr04-bound-ss-final-no-std.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "minimal",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "zero-proxy",
+        "--no-default-features"
+      ],
+      "exit": 0,
+      "seconds": 5.125731920001272,
+      "log": "/workspace/core-baseline-artifacts/pr04-bound-ss-final-minimal.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "scripts/check-runtime-contracts.py"
+      ],
+      "exit": 0,
+      "seconds": 0.5752049160000752,
+      "log": "/workspace/core-baseline-artifacts/pr04-bound-ss-final-dependencies.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    }
+  ],
+  "resolved_lock_sha256": "a003359eb327bd299b675c330e9aeca721156df76d117dd3e55c9c47f711377c",
+  "strict_clippy": {
+    "exit": 0,
+    "tested_tree": "9e6c07ba6313144619fcdeb3042e2b4e1f632b4a",
+    "postcheck_changes": [
+      "AGENTS.md",
+      "release/breaking-changes.md"
+    ],
+    "qualification": "Only AGENTS and compatibility-ledger Markdown changed after strict Clippy; all 19 checked Rust source file digests and the full tree difference were verified."
+  },
+  "focused": {
+    "component": 29,
+    "engine_health": 19,
+    "shadowsocks_runtime": 62
+  },
+  "empty_filter_run": {
+    "log": "pr03-bound-health-policy-positive-1.txt",
+    "tests": 0,
+    "qualification": false,
+    "corrected_suite": "engine_observability"
+  },
+  "negative_retention": {
+    "log": "pr03-bound-health-retention-negative-1.txt",
+    "exit": 101,
+    "reason": "Actual retained prefix health observer kept the retired configuration alive after reload and releasing the old snapshot."
+  },
+  "release": {
+    "git_hash": "de7c2f10",
+    "binary_sha256": "77404be733beb8949fbe312b7882f5b65d429ba543c590f4f76e763d40c022ac",
+    "features": [
+      "status-api",
+      "http",
+      "hysteria2",
+      "mieru",
+      "mixed",
+      "shadowsocks",
+      "socks5",
+      "trojan",
+      "vless",
+      "vmess",
+      "dns"
+    ],
+    "scope": "Actual default-feature release; optional connector/grpc/WireGuard not qualified by this default release."
+  },
+  "previous_head_ci": {
+    "head": "730d902ed3549a6f2cf87fe1b44674bc55a935b0",
+    "linux_counts": [
+      2715,
+      1,
+      159
+    ],
+    "linux_failure": "SS plugin_startup_failure_returns_an_error_without_direct_fallback accepted an expected-exit7 child as ready; no probe addresses or observed child status captured, root undetermined.",
+    "vless_counts": [
+      251,
+      0,
+      1
+    ],
+    "protocol_workflows": "All seven succeeded; this does not erase67ee extended-XHTTP earlyEOF failure or prior pinned-reference count bug qualification."
+  },
+  "plugin_investigation": "A real Linux socket connected to itself and echoed bytes without any listener while a controlled child subsequently exited7. This proves a possible false readiness input, not the exact historical CI cause. No plugin process implementation changed in this code commit.",
+  "remaining": "Production resourceful SS/pool/replay/plugin lifecycle, Datagram/inbound/Packet, RuntimeHost/M4 and the rest of all17 remain ongoing; no final consumer/physical-device qualification.",
+  "artifacts": [
+    {
+      "source": "pr04-bound-ss-final-fmt.txt",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_bytes": 0,
+      "artifact": "evidence/bound-pr04-bound-ss-final-fmt.txt.gz",
+      "artifact_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "artifact_bytes": 20
+    },
+    {
+      "source": "pr04-bound-ss-final-check.txt",
+      "source_sha256": "6927045960acdd27b07f20f90edf6ec326110ba8dc65d17e634712ce627c7a2d",
+      "source_bytes": 1228,
+      "artifact": "evidence/bound-pr04-bound-ss-final-check.txt.gz",
+      "artifact_sha256": "31192461937777512e78b5bf4c288b842ec861d5c3606a4e6f78e4e464a3145c",
+      "artifact_bytes": 466
+    },
+    {
+      "source": "pr04-bound-ss-final-test.txt",
+      "source_sha256": "2cc665c94e0be8a3aa807d8325c32f88d13bc61d0ab359a3e086ee4d535b3231",
+      "source_bytes": 293263,
+      "artifact": "evidence/bound-pr04-bound-ss-final-test.txt.gz",
+      "artifact_sha256": "b44485157c80eb7c10e75fb0e21084ec6c195a2d080e35f5e4e09ba73926d639",
+      "artifact_bytes": 64408
+    },
+    {
+      "source": "pr04-bound-ss-final-release.txt",
+      "source_sha256": "6beda24a7e927207cf77fa58835ad584a587e3f80199d9bc3950f7704945264a",
+      "source_bytes": 991,
+      "artifact": "evidence/bound-pr04-bound-ss-final-release.txt.gz",
+      "artifact_sha256": "e8a42a2323a53b71617a2944455edab4f27b8a2c1a5b3acf67b577a533a134b7",
+      "artifact_bytes": 432
+    },
+    {
+      "source": "pr04-bound-ss-final-no-std.txt",
+      "source_sha256": "1b06c206522a9ad6653edd56b1bb9e19254f4cd592480fbc8b10cbddc2b994e9",
+      "source_bytes": 60,
+      "artifact": "evidence/bound-pr04-bound-ss-final-no-std.txt.gz",
+      "artifact_sha256": "e18afd706e93f5bc52c749d561aae538c9d1309912b74766d6ec07e0058d32c4",
+      "artifact_bytes": 80
+    },
+    {
+      "source": "pr04-bound-ss-final-minimal.txt",
+      "source_sha256": "9316943166927049b478548e3da8a9472455f5c2fb99b9aff93d936cc537bc61",
+      "source_bytes": 30393,
+      "artifact": "evidence/bound-pr04-bound-ss-final-minimal.txt.gz",
+      "artifact_sha256": "9fe4fd0dee7c0e773d053c3b936e6f56100fd2d64de53f952d15c7c251ea0427",
+      "artifact_bytes": 5963
+    },
+    {
+      "source": "pr04-bound-ss-final-dependencies.txt",
+      "source_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "source_bytes": 263,
+      "artifact": "evidence/bound-pr04-bound-ss-final-dependencies.txt.gz",
+      "artifact_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc",
+      "artifact_bytes": 122
+    },
+    {
+      "source": "pr04-bound-ss-precommit-validation.json",
+      "source_sha256": "b74ace7e33b46eeed60cbd98c727fd956b4fe7ec3bf415b84486dcd439885402",
+      "source_bytes": 2980,
+      "artifact": "evidence/bound-pr04-bound-ss-precommit-validation.json.gz",
+      "artifact_sha256": "3cf1e4c160986c2c8d8c1a5021611dda017e099c63b52e8c89d8bb70d92751c4",
+      "artifact_bytes": 1395
+    },
+    {
+      "source": "pr04-bound-ss-final-validation.json",
+      "source_sha256": "f460719342956473c90c14a4229e0e2babb2ad5960aae562cf15f91987648274",
+      "source_bytes": 2633,
+      "artifact": "evidence/bound-pr04-bound-ss-final-validation.json.gz",
+      "artifact_sha256": "7179d1cd0562cd81e52de4df59617bc64f7af65ed30fe5386ca7667d539eb4da",
+      "artifact_bytes": 634
+    },
+    {
+      "source": "pr04-bound-ss-release-build-info.txt",
+      "source_sha256": "dee3e4868402e4bb11e66cade0981a4b61349cb7d3ff2801b9870926178f00b8",
+      "source_bytes": 5799,
+      "artifact": "evidence/bound-pr04-bound-ss-release-build-info.txt.gz",
+      "artifact_sha256": "43288d9c52e3e666193fa3d10186728dd16e4c55935e4bcd0dd2a2d0ef1c325e",
+      "artifact_bytes": 834
+    },
+    {
+      "source": "pr03-bound-health-retention-negative-1.txt",
+      "source_sha256": "0294937174ee197217a243fd21109751d238b4b20adacc2d5753465d7b146788",
+      "source_bytes": 5923,
+      "artifact": "evidence/bound-pr03-bound-health-retention-negative-1.txt.gz",
+      "artifact_sha256": "0700acb69ec62a1c4d8feec844d23a454033facfb5b5556875637a72ac54551d",
+      "artifact_bytes": 1212
+    },
+    {
+      "source": "pr03-bound-health-component-positive-1.txt",
+      "source_sha256": "e71eb86de3e859063c64c050f72d5a71e818f6de94473933b68278298e053b75",
+      "source_bytes": 10139,
+      "artifact": "evidence/bound-pr03-bound-health-component-positive-1.txt.gz",
+      "artifact_sha256": "e85ba4b04eb026ae751af7e39d55a47d12ad5276065351d3f8145bd6bfc1ba3a",
+      "artifact_bytes": 2192
+    },
+    {
+      "source": "pr03-bound-health-policy-positive-1.txt",
+      "source_sha256": "3e741f8d3dc783441ae1ec68dfc623b3d7b77dc8283f97afc0601d2d22f84cb5",
+      "source_bytes": 762,
+      "artifact": "evidence/bound-pr03-bound-health-policy-positive-1.txt.gz",
+      "artifact_sha256": "4d3ba11bd704f5dc644bdd81bda51dbd73c102c6277d34d133bfa1ff47df7e8d",
+      "artifact_bytes": 467
+    },
+    {
+      "source": "pr03-bound-health-observability-positive-1.txt",
+      "source_sha256": "a1a6c3a1d0c401dcf5bb8fd0baa2d929282fe7265a817cdd98703a535aeebc4e",
+      "source_bytes": 2882,
+      "artifact": "evidence/bound-pr03-bound-health-observability-positive-1.txt.gz",
+      "artifact_sha256": "7361aa3fb24b62d70b84d4f05adee451d868fa1d4294770cdcc13413d03277aa",
+      "artifact_bytes": 1112
+    },
+    {
+      "source": "pr04-ss-destination-positive-1.txt",
+      "source_sha256": "d85f628d6f4d12de1a87905aa27b42f238140c3aabee831815e607580ae22577",
+      "source_bytes": 5425,
+      "artifact": "evidence/bound-pr04-ss-destination-positive-1.txt.gz",
+      "artifact_sha256": "5cf85a8d8cd58a7b8e9f9f8aceba18039cf98d55dd9116fcaec3a99465fa11ec",
+      "artifact_bytes": 1750
+    },
+    {
+      "source": "pr03-bound-and-ss-strict-1.txt",
+      "source_sha256": "ac846acf88d19f1dc5613b25a1cacfe18e01bbdb488c07aa9c26b5a22c463af5",
+      "source_bytes": 1228,
+      "artifact": "evidence/bound-pr03-bound-and-ss-strict-1.txt.gz",
+      "artifact_sha256": "17e91529f9de00804ef57ad4cc1a4f75c4e971cf5c3e3ee97ceb4ba2d2dab721",
+      "artifact_bytes": 465
+    },
+    {
+      "source": "pr03-bound-and-ss-dependencies-1.txt",
+      "source_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "source_bytes": 263,
+      "artifact": "evidence/bound-pr03-bound-and-ss-dependencies-1.txt.gz",
+      "artifact_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc",
+      "artifact_bytes": 122
+    },
+    {
+      "source": "pr03-bound-and-ss-layout-1.txt",
+      "source_sha256": "e8255917d91cc89344b1943a323436625aa4377bc1e5b1aefa530cc3a2923768",
+      "source_bytes": 59,
+      "artifact": "evidence/bound-pr03-bound-and-ss-layout-1.txt.gz",
+      "artifact_sha256": "42c5080da16277c2cd5a386bb435dc6072fa46eefc5e3323937c9858b48d83d4",
+      "artifact_bytes": 77
+    },
+    {
+      "source": "ci-linux-730d902e.raw.txt",
+      "source_sha256": "4da6334cfbf9ecbbfb58301ea65c6ea857ba175d6f522e30d47b7d1eb2e6972b",
+      "source_bytes": 451335,
+      "artifact": "evidence/bound-ci-linux-730d902e.raw.txt.gz",
+      "artifact_sha256": "20ec54d82052057d918521f6eaeae85d6f8555520e77564d3cd343a4e86435e6",
+      "artifact_bytes": 99054
+    },
+    {
+      "source": "ci-vless-730d902e.raw.txt",
+      "source_sha256": "ae6b73722571cd118e01b31b5d40fc71614fbc29ed49f20077d42ae2c2c577e5",
+      "source_bytes": 271075,
+      "artifact": "evidence/bound-ci-vless-730d902e.raw.txt.gz",
+      "artifact_sha256": "c50a737e6437d43bdffa0f4c4f07c8a6969ca83c4cbd2821e860cbdcc454ef2c",
+      "artifact_bytes": 38792
+    },
+    {
+      "source": "ci-evidence-730d902e.json",
+      "source_sha256": "8945c72feaf44128501f9664775a24a03d617feabaf3fe50e0d420f05da6dd4a",
+      "source_bytes": 4557,
+      "artifact": "evidence/bound-ci-evidence-730d902e.json.gz",
+      "artifact_sha256": "548ab43db80b4000b246e016f546dbb8cf498ca1a572273430c32f2057179763",
+      "artifact_bytes": 1311
+    },
+    {
+      "source": "pr04-plugin-self-connect-kernel.json",
+      "source_sha256": "219cb3d7c5b5317b9a501159dc90e681f01fc7260b71ba502ccf7a0ebe1577dc",
+      "source_bytes": 623,
+      "artifact": "evidence/bound-pr04-plugin-self-connect-kernel.json.gz",
+      "artifact_sha256": "f7c42e87a058e534b9c6e52a0d51881b9e34260cd78998b8511e4e93ecc6363e",
+      "artifact_bytes": 390
+    },
+    {
+      "source": "qualify-bound-ss.py",
+      "source_sha256": "1ff482066ffeb82e70ac1af6f7348e1b7220927b6fef0a4192912e4857488124",
+      "source_bytes": 2032,
+      "artifact": "evidence/bound-qualify-bound-ss.py.gz",
+      "artifact_sha256": "2dc9b40182b4889e26811948e392f71d16b4527aa7a3ff6d72338cc5ee026fe2",
+      "artifact_bytes": 916
+    }
+  ]
+}
