@@ -601,7 +601,10 @@ impl Connection {
 
                 // Congestion control and pacing checks
                 // Tail loss probes must not be blocked by congestion, or a deadlock could arise
-                if ack_eliciting && self.spaces[space_id].loss_probes == 0 {
+                // The close path emits only ACK/CONNECTION_CLOSE, even if
+                // unsent application frames remain pending. RFC 9002 section
+                // 7.2 excludes such packets from congestion control.
+                if !close && ack_eliciting && self.spaces[space_id].loss_probes == 0 {
                     // Assume the current packet will get padded to fill the segment
                     let untracked_bytes = if let Some(builder) = &builder_storage {
                         buf_capacity - builder.partial_encode.start

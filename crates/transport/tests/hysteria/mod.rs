@@ -2,8 +2,19 @@ use super::*;
 use bytes::Bytes;
 use tokio::time::{timeout, Duration};
 mod masquerade;
+mod progress;
 mod proxy;
 fn endpoint() -> (quinn::Endpoint, Profile) {
+    let profile = Profile::from_options(OptionsRef {
+        auth: "secret",
+        uplink_bytes_per_sec: 1_000_000,
+        downlink_bytes_per_sec: 2_000_000,
+        ..Default::default()
+    })
+    .unwrap();
+    endpoint_with_profile(profile)
+}
+fn endpoint_with_profile(profile: Profile) -> (quinn::Endpoint, Profile) {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let mut tls = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
@@ -17,13 +28,6 @@ fn endpoint() -> (quinn::Endpoint, Profile) {
     )
     .unwrap();
     tls.alpn_protocols = vec![b"h3".to_vec()];
-    let profile = Profile::from_options(OptionsRef {
-        auth: "secret",
-        uplink_bytes_per_sec: 1_000_000,
-        downlink_bytes_per_sec: 2_000_000,
-        ..Default::default()
-    })
-    .unwrap();
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(
         quinn::crypto::rustls::QuicServerConfig::try_from(tls).unwrap(),
     ));

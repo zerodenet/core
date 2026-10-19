@@ -133,7 +133,10 @@ impl Parameters {
         .build(Arc::new(negotiated::Factory {
             adaptive,
             disable_loss_compensation: false,
-            minimum_packets: 1,
+            // Quinn reserves a full MTU before emitting an ack-eliciting
+            // packet and blocks when flight + reservation >= window. One
+            // packet at low BDP therefore blocks even with no bytes in flight.
+            minimum_packets: 2,
         }))
     }
 }

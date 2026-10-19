@@ -25,3 +25,11 @@ growth multiplier or protocol field lives in this carrier. Without a policy,
 the original fixed-window path remains active. Explicit connection-window overrides
 are synchronized to the policy. Run all dependency unit tests, including
 `receive_policy_grants_wire_credit_and_reclaims_closed_stream_state`.
+
+Close-only packets bypass the data congestion/pacing check even when application
+frames remain queued. The encoder emits only ACK/CONNECTION_CLOSE on this path;
+RFC 9002 section 7.2 excludes those packets from congestion control. Pending data
+must not prevent the peer from learning that the connection closed. Address
+validation, anti-amplification and close retransmission limits are unchanged.
+Run `application_close_is_emitted_with_pending_data_and_exhausted_congestion_window`
+and the full dependency suite when updating this correction.
