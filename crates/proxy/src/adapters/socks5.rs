@@ -130,3 +130,7 @@ impl ProtocolMetadata for Socks5Adapter {
         ::socks5::Socks5Protocol.descriptor()
     }
 }
+
+#[cfg(test)]
+#[path = "../component/tests/socks.rs"]
+mod component_tests;

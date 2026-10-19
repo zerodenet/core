@@ -3,33 +3,6 @@
 use std::sync::Arc;
 
 use crate::protocol_registry::ProtocolRegistry;
-pub(crate) fn component_registry(
-) -> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
-    use zero_traits::ProtocolMetadata;
-    let mut registry = crate::component::ComponentRegistry::default();
-    registry
-        .register(
-            crate::adapters::direct::DirectAdapter::default().descriptor(),
-            crate::component::DirectFactory,
-            crate::adapters::direct::factory::decode,
-        )
-        .expect("unique built-in Direct registration");
-    registry
-        .declare("socks5", "socks5")
-        .expect("unique SOCKS5 declaration");
-    #[cfg(feature = "socks5")]
-    {
-        registry
-            .register(
-                ::socks5::Socks5Protocol.descriptor(),
-                ::socks5::component::Factory,
-                crate::adapters::socks5::component_options,
-            )
-            .expect("unique SOCKS5 component registration");
-        registry.set_legacy_connect_stage("socks5", crate::adapters::socks5::LEGACY_CONNECT_STAGE);
-    }
-    registry
-}
 #[cfg(any(
     feature = "managed-stream-runtime",
     feature = "managed-datagram-runtime"
@@ -40,11 +13,36 @@ use crate::runtime::udp_flow::registered::RegisteredUdpHandlers;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::registered::UpstreamUdpHandlers;
 
-fn compiled_protocol_registry() -> ProtocolRegistry {
+fn compiled_registries() -> (
+    ProtocolRegistry,
+    crate::component::ComponentRegistry<zero_config::OutboundConfig>,
+) {
+    use zero_traits::ProtocolMetadata;
+    let mut components = crate::component::ComponentRegistry::default();
+    components
+        .register(
+            crate::adapters::direct::DirectAdapter::default().descriptor(),
+            crate::component::DirectFactory,
+            crate::adapters::direct::factory::decode,
+        )
+        .expect("unique built-in Direct registration");
+    components
+        .declare("socks5", "socks5")
+        .expect("unique SOCKS5 declaration");
     let mut registry = ProtocolRegistry::default();
     #[cfg(feature = "socks5")]
     {
         use crate::adapters::socks5::Socks5Adapter;
+        components
+            .register(
+                ::socks5::Socks5Protocol.descriptor(),
+                ::socks5::component::Factory,
+                crate::adapters::socks5::component_options,
+            )
+            .expect("unique SOCKS5 component registration");
+        components
+            .set_legacy_connect_stage("socks5", crate::adapters::socks5::LEGACY_CONNECT_STAGE);
+
         registry.register_upstream_capability(
             Arc::new(Socks5Adapter),
             Socks5Adapter::claim_outbound_leaf_impl,
@@ -124,15 +122,21 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
             Some(DirectAdapter::claim_outbound_leaf_impl),
         );
     }
-    registry
+    (registry, components)
+}
+
+pub(crate) fn component_registry(
+) -> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
+    compiled_registries().1
 }
 
 pub(crate) fn protocol_registry() -> ProtocolRegistry {
-    compiled_protocol_registry()
+    compiled_registries().0
 }
 
 pub(crate) fn compiled_protocol_features() -> Vec<String> {
-    compiled_protocol_registry()
+    compiled_registries()
+        .0
         .compiled_feature_names()
         .into_iter()
         .map(str::to_owned)

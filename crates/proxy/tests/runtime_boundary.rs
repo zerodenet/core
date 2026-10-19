@@ -4746,7 +4746,10 @@ fn outbound_execution_state_machines_live_in_runtime_dispatch() {
 fn inventory_runtime_delegates_leaf_claim_logic_to_registry() {
     let runtime = read(&proxy_src().join("inventory/runtime.rs"));
     assert!(runtime.contains("struct ClaimedInventoryLeaf"));
-    assert!(runtime.contains("struct ClaimedRelayChain"));
+    assert!(runtime.contains("mod relay;"));
+    assert!(runtime.contains("pub(crate) use relay::ClaimedRelayChain;"));
+    let relay = read(&proxy_src().join("inventory/runtime/relay.rs"));
+    assert!(relay.contains("struct ClaimedRelayChain"));
     assert!(runtime.contains("fn claim_relay_chain<'a, E, F, G>("));
     assert!(!runtime.contains("enum ClaimedResolvedOutbound"));
     assert!(!runtime.contains("fn claim_tcp_outbound"));
