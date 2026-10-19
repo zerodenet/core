@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest an improvement or new capability
+labels:
+  - feature
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: Background
+      description: Explain the problem or use case.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
