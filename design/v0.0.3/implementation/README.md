@@ -42,6 +42,8 @@ PR01 基线提交为 `f90f012689dce16cdbe4fa7616492b8fa8e5cc9e`，运行源码�
 
 Hysteria 原 10 秒认证测试增加阶段诊断，未提高截止时间。真实 1 CPU/1 GiB 中两路并发重复 200 次通过，transport 整套 144 通过/0 失败/1 忽略；VLESS Browser Dialer 两路并发重复 200 次也通过，两例在本地本提交完整测试中通过。两项历史远端问题的根因仍未确定，不称为已修复或以重跑抹去失败。诊断重复不是 RS01 性能或新提交的远端协议/设备资格。
 
+后续仅给现有 VLESS 测试增加直接 stderr 阶段记录，覆盖监听初始化、读写、同步 Drop、peer join 和测试正文结束；即使测试线程或 runtime teardown 卡住也能保留最后位置。没有改变运行实现、断言或原 5 秒测试截止时间。[诊断验证](pr03-vless-checkpoints.json)保存单例、VLESS 严格 Clippy 及 1 CPU/1 GiB 的整个 VLESS 库测试结果；该受限库运行 50 通过、0 失败，不冒充历史挂起已修复。
+
 ## 尚未完成的生产迁移与资格
 
 Direct 探测已使用真实 Factory/角色；普通业务 Stream、其他协议、Datagram/入站/Packet 尚未完成迁移。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归也未完成。PR03 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。

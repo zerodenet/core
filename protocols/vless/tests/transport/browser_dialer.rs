@@ -21,6 +21,13 @@ use zero_traits::{
 const USER_ID: &str = "11111111-2222-3333-4444-555555555555";
 const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 
+fn checkpoint(phase: &str) {
+    // Direct stderr also survives a blocked test thread or runtime drop. Normal
+    // libtest capture cannot flush its buffer if the 45-minute job is cancelled.
+    let line = format!("Browser Dialer lifecycle checkpoint: {phase}\n");
+    let _ = std::io::Write::write_all(&mut std::io::stderr().lock(), line.as_bytes());
+}
+
 struct WsProfile(BrowserDialerSettings);
 
 impl WebSocketTransportProfile for WsProfile {
@@ -205,6 +212,7 @@ fn forbidden_native_dial(
 
 #[tokio::test]
 async fn prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream() {
+    checkpoint("create runtime and options");
     let settings = BrowserDialerSettings {
         listen: "127.0.0.1:0".into(),
         idle_capacity: 8,
@@ -216,9 +224,11 @@ async fn prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream()
     let ws = WsProfile(settings.clone());
     let first_leaf = leaf(&runtime, &ws);
     let first_access = runtime.browser_dialer(settings.clone());
+    checkpoint("initialize first listener");
     let page_url = first_access.page_url().await.unwrap();
     drop(first_access);
 
+    checkpoint("register first browser");
     let mut agent = browser(&page_url).await;
     let peer = tokio::spawn(async move {
         tokio::time::timeout(TEST_TIMEOUT, async {
@@ -240,6 +250,7 @@ async fn prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream()
         .expect("first browser task handshake and relay complete within the test deadline");
     });
     let native_dials = Arc::new(AtomicUsize::new(0));
+    checkpoint("open first outbound stream");
     let opened = tokio::time::timeout(
         TEST_TIMEOUT,
         first_leaf.open_tcp_stream(
@@ -252,9 +263,11 @@ async fn prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream()
     .await
     .expect("first VLESS Browser Dialer handshake completes within the test deadline")
     .unwrap();
+    checkpoint("drop first prepared leaf");
     drop(first_leaf);
     let (mut stream, _, _) = opened.into_parts();
     let mut reply = [0; 5];
+    checkpoint("exchange first payload");
     tokio::time::timeout(TEST_TIMEOUT, async {
         stream.write_all(b"hello").await.unwrap();
         stream.flush().await.unwrap();
@@ -263,14 +276,18 @@ async fn prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream()
     .await
     .expect("first Browser Dialer payload round trip completes within the test deadline");
     assert_eq!(&reply, b"world");
+    checkpoint("join first browser peer");
     peer.await.unwrap();
+    checkpoint("drop first stream");
     drop(stream);
     assert_eq!(native_dials.load(Ordering::SeqCst), 0);
 
     let second_access = runtime.browser_dialer(settings.clone());
+    checkpoint("reuse existing listener");
     assert_eq!(second_access.page_url().await.unwrap(), page_url);
     drop(second_access);
     let second_leaf = leaf(&runtime, &ws);
+    checkpoint("register second browser");
     let mut agent = browser(&page_url).await;
     let closed = tokio::spawn(async move {
         tokio::time::timeout(TEST_TIMEOUT, async {
@@ -283,6 +300,7 @@ async fn prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream()
         .await
         .expect("retired Browser Dialer channel closes within the test deadline")
     });
+    checkpoint("open second outbound stream");
     let opened = tokio::time::timeout(
         TEST_TIMEOUT,
         second_leaf.open_tcp_stream(
@@ -295,9 +313,12 @@ async fn prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream()
     .await
     .expect("second VLESS Browser Dialer handshake completes within the test deadline")
     .unwrap();
+    checkpoint("drop second prepared leaf");
     drop(second_leaf);
     let (mut stream, _, _) = opened.into_parts();
+    checkpoint("drop runtime owner");
     drop(runtime);
+    checkpoint("read retired stream");
     let error = tokio::time::timeout(TEST_TIMEOUT, stream.read_u8())
         .await
         .expect("runtime retirement interrupts active Browser Dialer I/O")
@@ -305,7 +326,10 @@ async fn prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream()
     assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
     // Cancellation invalidates I/O immediately. Releasing the invalidated
     // stream then closes the owned control WebSocket for the browser peer.
+    checkpoint("drop retired stream");
     drop(stream);
+    checkpoint("join retired browser peer");
     let result = closed.await.unwrap();
     assert!(result.is_none() || result.unwrap().is_err());
+    checkpoint("test body complete; runtime teardown follows");
 }
