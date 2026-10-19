@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     io,
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 use tokio::process::Child;
 
@@ -32,6 +32,7 @@ impl PluginPool {
             .or_insert_with(|| PluginPlan {
                 key,
                 running: Default::default(),
+                cancel: Default::default(),
             })
             .clone()
     }
@@ -42,11 +43,38 @@ impl PluginPool {
 #[derive(Clone, Debug)]
 pub(crate) struct PluginPlan {
     key: Key,
-    running: Arc<tokio::sync::Mutex<Option<Arc<PluginLease>>>>,
+    pub(super) running: Arc<tokio::sync::Mutex<Option<Arc<PluginLease>>>>,
+    pub(super) cancel: zero_platform_tokio::contract::CancellationToken,
 }
 pub(crate) struct PluginLease {
-    child: Mutex<Child>,
+    pub(super) child: Mutex<Child>,
     endpoint: SocketAddr,
+    readiness: OnceLock<Result<(), Arc<io::Error>>>,
+}
+#[derive(Debug)]
+struct StartupFailure(Arc<io::Error>);
+impl std::fmt::Display for StartupFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.0.as_ref(), f)
+    }
+}
+impl std::error::Error for StartupFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
+struct StartupAttempt {
+    lease: Arc<PluginLease>,
+    armed: bool,
+}
+impl Drop for StartupAttempt {
+    fn drop(&mut self) {
+        if self.armed {
+            // Cancellation requests termination, while the persistent slot keeps
+            // the Child handle for actual wait/reaping. This is no close report.
+            let _ = self.lease.child.lock().unwrap().start_kill();
+        }
+    }
 }
 impl core::fmt::Debug for PluginLease {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -56,6 +84,18 @@ impl core::fmt::Debug for PluginLease {
     }
 }
 impl PluginLease {
+    fn ready(&self) -> io::Result<()> {
+        match self.readiness.get() {
+            Some(Ok(())) => Ok(()),
+            Some(Err(source)) => Err(io::Error::new(
+                source.kind(),
+                StartupFailure(source.clone()),
+            )),
+            None => Err(io::Error::other(
+                "shadowsocks outbound plugin startup was interrupted",
+            )),
+        }
+    }
     pub(crate) async fn exited(&self) {
         loop {
             if self.check().is_err() {
@@ -85,8 +125,15 @@ impl PluginPlan {
         if (tcp && !self.key.config.mode.tcp()) || (!tcp && !self.key.config.mode.udp()) {
             return Ok(None);
         }
-        let mut slot = self.running.lock().await;
+        let mut slot = tokio::select! { biased;
+            _ = self.cancel.cancelled() => return Err(revoked()),
+            slot = self.running.lock() => slot,
+        };
+        if self.cancel.is_cancelled() {
+            return Err(revoked());
+        }
         if let Some(running) = slot.as_ref() {
+            running.ready()?;
             running.check()?;
             return Ok(Some(running.clone()));
         }
@@ -100,18 +147,40 @@ impl PluginPlan {
         };
         drop(reservation);
         drop(udp_reservation);
-        let mut child = process::spawn(
+        if self.cancel.is_cancelled() {
+            return Err(revoked());
+        }
+        let child = process::spawn(
             &self.key.config,
             (&self.key.host, self.key.port),
             local,
             false,
         )?;
-        process::ready(&mut child, local, self.key.config.mode.tcp()).await?;
         let running = Arc::new(PluginLease {
             child: Mutex::new(child),
             endpoint: local,
+            readiness: OnceLock::new(),
         });
+        // Install the child before readiness can suspend. Aborting this caller
+        // leaves the unique owner in the plan; an incomplete attempt is terminal.
         *slot = Some(running.clone());
+        let mut attempt = StartupAttempt {
+            lease: running.clone(),
+            armed: true,
+        };
+        let readiness = process::ready_with_status(
+            || running.child.lock().unwrap().try_wait(),
+            local,
+            self.key.config.mode.tcp(),
+        );
+        let result = tokio::select! { biased;
+            _ = self.cancel.cancelled() => Err(revoked()),
+            result = readiness => result,
+        };
+        let succeeded = result.is_ok();
+        let _ = running.readiness.set(result.map_err(Arc::new));
+        attempt.armed = !succeeded;
+        running.ready()?;
         Ok(Some(running))
     }
     pub(crate) fn cache_identity(&self) -> String {
@@ -129,6 +198,13 @@ impl PluginPlan {
         parts.extend(self.key.config.args.iter().map(|arg| arg.as_bytes()));
         format!("plugin:{}", crate::shared::cache_identity(parts))
     }
+}
+
+fn revoked() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::ConnectionAborted,
+        "shadowsocks outbound plugin was revoked",
+    )
 }
 
 #[cfg(all(test, unix))]

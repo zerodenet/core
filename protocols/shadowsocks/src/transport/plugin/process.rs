@@ -72,25 +72,37 @@ pub(super) fn spawn(
     command(config, remote, local, server).spawn()
 }
 pub(super) async fn ready(child: &mut Child, endpoint: SocketAddr, tcp: bool) -> io::Result<()> {
-    ready_with_probe(child, endpoint, tcp, || {
+    ready_with_status(|| child.try_wait(), endpoint, tcp).await
+}
+
+pub(super) async fn ready_with_status<Status>(
+    status: Status,
+    endpoint: SocketAddr,
+    tcp: bool,
+) -> io::Result<()>
+where
+    Status: FnMut() -> io::Result<Option<std::process::ExitStatus>>,
+{
+    ready_with_probe(status, endpoint, tcp, || {
         tokio::net::TcpStream::connect(endpoint)
     })
     .await
 }
 
-async fn ready_with_probe<Probe, Pending>(
-    child: &mut Child,
+async fn ready_with_probe<Status, Probe, Pending>(
+    mut status: Status,
     endpoint: SocketAddr,
     tcp: bool,
     mut probe: Probe,
 ) -> io::Result<()>
 where
+    Status: FnMut() -> io::Result<Option<std::process::ExitStatus>>,
     Probe: FnMut() -> Pending,
     Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>>,
 {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
-        if child.try_wait()?.is_some() {
+        if status()?.is_some() {
             return Err(io::Error::other("shadowsocks plugin exited during startup"));
         }
         let tcp_ready = !tcp
@@ -112,7 +124,7 @@ where
         // readiness is probed. Binding the child's UDP endpoint to test readiness
         // would race its own bind and can make a healthy plugin fail to start.
         if tcp_ready {
-            if child.try_wait()?.is_some() {
+            if status()?.is_some() {
                 return Err(io::Error::other("shadowsocks plugin exited during startup"));
             }
             return Ok(());

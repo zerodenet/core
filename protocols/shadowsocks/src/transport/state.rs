@@ -9,6 +9,15 @@ pub struct ShadowsocksTransportState {
         std::sync::Mutex<std::collections::HashMap<(ReplayPolicy, Option<usize>), LegacyReplay>>,
 }
 impl ShadowsocksTransportState {
+    /// A resource handle sharing the plan used by `with_plugin` leaves.
+    pub fn plugin_resource(
+        &self,
+        host: &str,
+        port: u16,
+        config: crate::validation::PluginConfig,
+    ) -> super::plugin::ShadowsocksPluginResource {
+        super::plugin::ShadowsocksPluginResource::new(self.plugins.plan(host, port, config))
+    }
     pub fn clear_plugins(&self) {
         self.plugins.clear();
     }

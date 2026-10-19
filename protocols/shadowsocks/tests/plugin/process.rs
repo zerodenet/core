@@ -64,22 +64,27 @@ async fn a_self_connected_tcp_probe_cannot_confirm_plugin_readiness() {
     socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
     let endpoint = socket.local_addr().unwrap();
     let mut socket = Some(socket);
-    let result = ready_with_probe(&mut child, endpoint, true, || {
-        let socket = socket.take();
-        let input = input.take();
-        async move {
-            let Some(socket) = socket else {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionRefused,
-                    "no plugin listener",
-                ));
-            };
-            let stream = socket.connect(endpoint).await?;
-            assert_eq!(stream.local_addr()?, stream.peer_addr()?);
-            input.unwrap().write_all(b"exit\n").await?;
-            Ok(stream)
-        }
-    })
+    let result = ready_with_probe(
+        || child.try_wait(),
+        endpoint,
+        true,
+        || {
+            let socket = socket.take();
+            let input = input.take();
+            async move {
+                let Some(socket) = socket else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        "no plugin listener",
+                    ));
+                };
+                let stream = socket.connect(endpoint).await?;
+                assert_eq!(stream.local_addr()?, stream.peer_addr()?);
+                input.unwrap().write_all(b"exit\n").await?;
+                Ok(stream)
+            }
+        },
+    )
     .await;
     let status = tokio::time::timeout(Duration::from_secs(3), child.wait())
         .await

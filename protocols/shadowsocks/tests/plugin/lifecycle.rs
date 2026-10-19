@@ -1,11 +1,6 @@
 use super::*;
+use crate::transport::plugin::fixtures::{config, StartupMarker};
 use crate::validation::PluginMode;
-fn config() -> PluginConfig {
-    PluginConfig {
-        command: "python3".into(), options: None, mode: PluginMode::TcpOnly,
-        args: vec!["-c".into(), "import os,socket,time; s=socket.socket(); s.bind((os.environ['SS_LOCAL_HOST'],int(os.environ['SS_LOCAL_PORT']))); s.listen(); time.sleep(60)".into()],
-    }
-}
 #[tokio::test]
 async fn plugin_pool_reload_keeps_active_leases_and_exit_is_not_silently_restarted() {
     let pool = PluginPool::default();
@@ -90,4 +85,92 @@ fn plugin_cache_distinguishes_missing_options_from_an_explicit_empty_environment
     empty.options = Some(String::new());
     let empty = pool.plan("127.0.0.1", 9999, empty);
     assert_ne!(absent.cache_identity(), empty.cache_identity());
+}
+
+#[tokio::test]
+async fn interrupted_plugin_start_keeps_the_actual_child_owned_and_never_respawns_it() {
+    let marker = StartupMarker::new();
+    let pool = PluginPool::default();
+    let plan = pool.plan("127.0.0.1", 9999, marker.config("time.sleep(60)"));
+    let requesting = plan.clone();
+    let request = tokio::spawn(async move { requesting.acquire(true).await });
+    let pid = marker.pid().await;
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    let retained = plan.running.lock().await.clone();
+    assert!(
+        retained.is_some(),
+        "aborting readiness discarded the unique child owner"
+    );
+    let retained = retained.unwrap();
+    assert_eq!(retained.child.lock().unwrap().id(), Some(pid));
+    let next = tokio::time::timeout(std::time::Duration::from_secs(1), plan.acquire(true))
+        .await
+        .unwrap();
+    assert!(
+        next.is_err(),
+        "an interrupted startup cannot be retried in place"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&marker.0).unwrap().lines().count(),
+        1
+    );
+    {
+        let mut child = retained.child.lock().unwrap();
+        if child.try_wait().unwrap().is_none() {
+            child.start_kill().unwrap();
+        }
+    }
+    let status = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if let Some(status) = retained.child.lock().unwrap().try_wait().unwrap() {
+                break status;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!status.success());
+    assert_eq!(retained.child.lock().unwrap().id(), None);
+}
+
+#[tokio::test]
+async fn failed_plugin_start_keeps_its_original_error_and_does_not_spawn_again() {
+    let marker = StartupMarker::new();
+    let pool = PluginPool::default();
+    let plan = pool.plan("127.0.0.1", 9999, marker.config("raise SystemExit(7)"));
+    let original = plan.acquire(true).await.unwrap_err();
+    let repeated = plan.acquire(true).await.unwrap_err();
+    assert_eq!(original.kind(), repeated.kind());
+    assert_eq!(original.to_string(), repeated.to_string());
+    assert_eq!(
+        std::fs::read_to_string(&marker.0).unwrap().lines().count(),
+        1,
+        "a failed startup silently spawned the same plugin again"
+    );
+    let retained = plan
+        .running
+        .lock()
+        .await
+        .clone()
+        .expect("retained failed child");
+    assert_eq!(
+        retained
+            .child
+            .lock()
+            .unwrap()
+            .try_wait()
+            .unwrap()
+            .unwrap()
+            .code(),
+        Some(7)
+    );
+    assert!(
+        std::ptr::eq(
+            std::error::Error::source(&original).unwrap(),
+            std::error::Error::source(&repeated).unwrap()
+        ),
+        "repeated failure must retain the actual original error"
+    );
 }
