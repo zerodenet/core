@@ -28,13 +28,30 @@ pub(crate) struct ServiceInvocation {
     pub(crate) purpose: ServicePurpose,
 }
 
+#[derive(Clone)]
+pub(crate) struct Invocation {
+    pub(crate) identity: RequestIdentity,
+    pub(crate) deadline: Option<Instant>,
+}
+impl From<ServiceInvocation> for Invocation {
+    fn from(invocation: ServiceInvocation) -> Self {
+        Self {
+            identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
+                origin: ServiceOrigin::Runtime,
+                purpose: invocation.purpose,
+            })),
+            deadline: Some(invocation.deadline),
+        }
+    }
+}
+
 pub(crate) async fn connect(
     services: &TcpExecutionServices,
     session: &Session,
     tag: &str,
     configured_tag: Option<&str>,
     policy: &zero_traits::DialPolicy,
-    invocation: ServiceInvocation,
+    invocation: Invocation,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     let plan = services
         .components
@@ -44,7 +61,11 @@ pub(crate) async fn connect(
         .direct(configured_tag)
         .map_err(|error| failure("prepare_component", error))?;
     let role = slot
-        .stream(invocation.deadline)
+        .stream(
+            invocation
+                .deadline
+                .unwrap_or_else(|| Instant::now() + std::time::Duration::from_secs(5)),
+        )
         .await
         .map_err(|error| failure("start_component", error))?;
     let opener = Arc::new(network::DirectOpener::new(
@@ -57,10 +78,7 @@ pub(crate) async fn connect(
         network_generation: NetworkGeneration(opener.generation()),
     };
     let context = OpenContext {
-        identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-            origin: ServiceOrigin::Runtime,
-            purpose: invocation.purpose,
-        })),
+        identity: invocation.identity,
         deadline: invocation.deadline,
         cancel: CancellationToken::new(),
         observer: None,

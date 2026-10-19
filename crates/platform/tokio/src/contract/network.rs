@@ -24,7 +24,8 @@ pub struct UpstreamBinding {
 pub struct CarrierContext {
     /// None for an explicitly declared background control carrier.
     pub session: Option<SessionId>,
-    pub deadline: Instant,
+    /// An additional absolute caller bound. Native operation timers still apply.
+    pub deadline: Option<Instant>,
     pub cancel: CancellationToken,
 }
 

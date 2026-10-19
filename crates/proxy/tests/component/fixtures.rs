@@ -99,7 +99,7 @@ pub fn open_context(opener: Arc<dyn UpstreamOpener>, dial: DialPolicy) -> OpenCo
             sni: None,
             process: None,
         })),
-        deadline: deadline(),
+        deadline: Some(deadline()),
         cancel: CancellationToken::new(),
         observer: None,
         upstream: UpstreamTransport::new(

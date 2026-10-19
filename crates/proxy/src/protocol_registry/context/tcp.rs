@@ -51,7 +51,8 @@ impl TcpRuntimeServices {
                 ),
                 principal_rate_limits,
                 components,
-                service_invocation: None,
+                invocation: None,
+                ingress: None,
             },
             protocols,
         }
@@ -70,8 +71,52 @@ impl TcpRuntimeServices {
         mut self,
         invocation: crate::component::direct_bridge::ServiceInvocation,
     ) -> Self {
-        self.execution.service_invocation = Some(invocation);
+        self.execution.invocation = Some(invocation.into());
         self
+    }
+
+    pub(crate) fn for_inbound(mut self, tag: String) -> Self {
+        if self
+            .execution
+            .ingress
+            .as_ref()
+            .is_some_and(|identity| identity.tag == tag)
+        {
+            return self;
+        }
+        match self.protocols.ingress_identity(tag) {
+            Ok(identity) => self.execution.ingress = Some(identity),
+            Err(error) => {
+                self.execution.components = Err(error);
+                self.execution.ingress = None;
+            }
+        }
+        self
+    }
+
+    pub(crate) fn with_business_identity(
+        mut self,
+        session: &zero_core::Session,
+    ) -> Result<Self, zero_engine::EngineError> {
+        if let Err(error) = &self.execution.components {
+            return Err(zero_engine::EngineError::Io(std::io::Error::other(
+                crate::component::instance::retained(error.clone()),
+            )));
+        }
+        if self.execution.invocation.is_some() || session.id == 0 {
+            return Ok(self);
+        }
+        if let Some(ingress) = &self.execution.ingress {
+            self.execution.invocation = Some(crate::component::direct_bridge::Invocation {
+                identity: zero_platform_tokio::contract::context::RequestIdentity::Business(
+                    Arc::new(crate::component::request::facts(session, ingress)),
+                ),
+                // The existing business caller has per-operation timers, with
+                // no absolute total-connect timeout to silently shorten.
+                deadline: None,
+            });
+        }
+        Ok(self)
     }
 
     #[cfg(feature = "udp-runtime")]

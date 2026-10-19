@@ -18,6 +18,14 @@ pub(crate) struct SharedIngressRuntimeServices {
 }
 
 impl SharedIngressRuntimeServices {
+    pub(super) fn for_inbound(mut self, tag: String) -> Self {
+        self.tcp_services = self.tcp_services.for_inbound(tag);
+        #[cfg(feature = "udp-runtime")]
+        {
+            self.udp_runtime = UdpIngressRuntime::new(self.tcp_services.clone());
+        }
+        self
+    }
     pub(super) fn endpoint_admission(&self) -> zero_engine::EndpointAdmission<'_> {
         zero_engine::EndpointAdmission::from_snapshot(self.tcp_services.snapshot())
     }

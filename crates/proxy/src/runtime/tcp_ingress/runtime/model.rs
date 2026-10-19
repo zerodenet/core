@@ -18,7 +18,7 @@ impl TcpIngressRuntime {
         source_addr: Option<SocketAddr>,
     ) -> Self {
         Self {
-            services,
+            services: services.for_inbound(inbound_tag.clone()),
             inbound_tag,
             source_addr,
             local_addr: None,

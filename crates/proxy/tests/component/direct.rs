@@ -106,6 +106,8 @@ async fn real_stream_preserves_reverse_traffic_after_write_half_close() {
     let stream = instance.roles.stream.as_ref().unwrap();
     let observed = Arc::new(RecordedFacts::default());
     let mut context = open_context(opener.clone(), Default::default());
+    // The legacy caller has operation timers but no new total-connect timeout.
+    context.deadline = None;
     context.observer = Some(observed.clone());
     let connected = stream
         .connect(
@@ -189,7 +191,7 @@ async fn admission_deadline_policy_and_revocation_precede_any_io() {
         Reason::StalePlan
     );
     let mut expired = context();
-    expired.deadline = Instant::now();
+    expired.deadline = Some(Instant::now());
     assert_eq!(
         stream
             .connect(request(), expired)
@@ -248,10 +250,9 @@ async fn owner_revocation_cancels_inflight_carrier_without_a_driver_task() {
     opener.entered.notified().await;
     assert_eq!(opener.active.load(Ordering::Relaxed), 1);
     instance.lifecycle.revoke(CloseReason::Shutdown);
-    assert_eq!(
-        pending.await.unwrap().err().unwrap().reason,
-        Reason::Revoked
-    );
+    let error = pending.await.unwrap().err().unwrap();
+    assert_eq!(error.reason, Reason::Revoked);
+    assert_eq!(error.delivery, DeliveryState::Unknown);
     assert_eq!(opener.active.load(Ordering::Relaxed), 0);
     assert!(instance
         .lifecycle

@@ -23,7 +23,7 @@ impl PreparedTcpConnectOperation for DirectTcpConnectOperation {
         Self: 'a,
     {
         Box::pin(async move {
-            if let Some(invocation) = services.service_invocation {
+            if let Some(invocation) = services.invocation.clone() {
                 return crate::component::direct_bridge::connect(
                     &services,
                     session,

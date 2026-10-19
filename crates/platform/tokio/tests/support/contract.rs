@@ -82,7 +82,7 @@ pub fn packet_context() -> OpenContext {
 fn with_identity(identity: RequestIdentity) -> OpenContext {
     OpenContext {
         identity,
-        deadline: Instant::now() + std::time::Duration::from_secs(1),
+        deadline: Some(Instant::now() + std::time::Duration::from_secs(1)),
         cancel: CancellationToken::new(),
         observer: None,
         upstream: UpstreamTransport::new(

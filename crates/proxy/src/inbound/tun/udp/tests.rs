@@ -9,7 +9,9 @@ use zero_core::Address;
 use zero_stack::{packet, UserNetworkStack};
 use zero_traits::UdpStack;
 
-use super::run;
+#[path = "tests/fixtures.rs"]
+mod fixtures;
+use fixtures::run;
 
 #[tokio::test]
 async fn tun_udp_uses_kernel_direct_dispatch_and_writes_raw_response() {

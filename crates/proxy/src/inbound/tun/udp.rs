@@ -121,23 +121,6 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
     }
 }
 
-pub(super) async fn run(
-    proxy: crate::runtime::Proxy,
-    stack: Arc<UserUdpStack>,
-    inbound_tag: String,
-    dns_hijack: bool,
-    dns_hijacked_queries: Arc<AtomicU64>,
-) -> Result<(), EngineError> {
-    run_with_runtime(
-        UdpIngressRuntime::new(proxy.tcp_runtime_services()),
-        stack,
-        inbound_tag,
-        dns_hijack,
-        dns_hijacked_queries,
-    )
-    .await
-}
-
 pub(crate) async fn run_with_runtime(
     runtime: UdpIngressRuntime,
     stack: Arc<UserUdpStack>,

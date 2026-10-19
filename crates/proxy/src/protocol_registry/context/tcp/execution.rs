@@ -16,7 +16,8 @@ pub(crate) struct TcpExecutionServices {
         Arc<crate::component::catalog::ComponentPlan>,
         crate::component::instance::SharedError,
     >,
-    pub(crate) service_invocation: Option<crate::component::direct_bridge::ServiceInvocation>,
+    pub(crate) invocation: Option<crate::component::direct_bridge::Invocation>,
+    pub(crate) ingress: Option<crate::component::request::IngressIdentity>,
 }
 impl TcpExecutionServices {
     pub(crate) fn outbound_io(
@@ -41,6 +42,9 @@ impl TcpExecutionServices {
 
     pub(crate) fn resolver(&self) -> &DnsSystem {
         self.upstream.resolver.as_ref()
+    }
+    pub(crate) fn resolver_handle(&self) -> Arc<DnsSystem> {
+        self.upstream.resolver.clone()
     }
 
     pub(crate) fn upstream_observed(&self, tag: &str) -> UpstreamConnectServices {

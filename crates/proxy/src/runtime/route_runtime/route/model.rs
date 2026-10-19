@@ -47,7 +47,7 @@ pub(crate) struct InboundRouteRuntimeFactory {
 impl InboundRouteRuntimeFactory {
     pub(crate) fn new(shared: SharedIngressRuntimeServices, inbound_tag: String) -> Self {
         Self {
-            shared,
+            shared: shared.for_inbound(inbound_tag.clone()),
             inbound_tag,
         }
     }

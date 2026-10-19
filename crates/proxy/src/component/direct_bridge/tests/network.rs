@@ -32,7 +32,7 @@ async fn native_direct_dial_keeps_os_error_and_legacy_classification() {
             Destination::new(Address::Ipv4([127, 0, 0, 1]), port),
             CarrierContext {
                 session: None,
-                deadline: Instant::now() + Duration::from_secs(2),
+                deadline: Some(Instant::now() + Duration::from_secs(2)),
                 cancel: CancellationToken::new(),
             },
         )

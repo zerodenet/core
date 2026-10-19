@@ -273,7 +273,7 @@ async fn bound_upstream_retains_prefix_policy_and_generation_without_fallback() 
     let upstream = UpstreamTransport::new(binding.clone(), opener.clone());
     let context = CarrierContext {
         session: None,
-        deadline: Instant::now(),
+        deadline: Some(Instant::now()),
         cancel: Default::default(),
     };
     let error = upstream

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use zero_core::{
@@ -41,13 +41,19 @@ impl RequestIdentity {
 #[derive(Clone)]
 pub struct OpenContext {
     pub identity: RequestIdentity,
-    pub deadline: Instant,
+    /// A caller's absolute bound, when it has one. None preserves the existing
+    /// per-operation timers; it never disables the opener's own DNS/dial bounds.
+    pub deadline: Option<Instant>,
     pub cancel: CancellationToken,
     pub upstream: UpstreamTransport,
     pub observer: Option<Arc<dyn ConnectObserver>>,
 }
 
 impl OpenContext {
+    pub fn deadline_elapsed(&self) -> bool {
+        self.deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+    }
     /// Stream/Datagram service requests carry no synthetic business SessionId.
     pub fn session_identity(&self) -> Result<Option<SessionId>, super::ChannelError> {
         match &self.identity {
@@ -71,6 +77,16 @@ impl OpenContext {
                 Err(identity_error(super::Impact::Packet))
             }
         }
+    }
+}
+
+pub async fn with_deadline<T>(
+    deadline: Option<Instant>,
+    future: impl Future<Output = T>,
+) -> Result<T, tokio::time::error::Elapsed> {
+    match deadline {
+        Some(deadline) => tokio::time::timeout_at(deadline, future).await,
+        None => Ok(future.await),
     }
 }
 fn identity_error(impact: super::Impact) -> super::ChannelError {

@@ -3,14 +3,14 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tokio::time::{timeout_at, Instant};
+use tokio::time::Instant;
 use zero_core::component::{ComponentId, SessionId};
 use zero_platform_tokio::contract::{
     component::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
         ResourceOwner, RoleKind,
     },
-    context::{ConnectFact, OpenContext},
+    context::{with_deadline, ConnectFact, OpenContext},
     lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle},
     network::CarrierContext,
     stream::{
@@ -76,6 +76,14 @@ fn failure(
     error.component = Some(state.component);
     error.session = session;
     error.delivery = DeliveryState::NotSubmitted;
+    error
+}
+
+fn during_open(state: &State, session: Option<SessionId>, reason: Reason) -> ChannelError {
+    let mut error = failure(state, session, Stage::Dial, reason);
+    // A bound prefix can already have submitted a protocol request. Abandoning
+    // its future is not proof that nothing reached the selected upstream.
+    error.delivery = DeliveryState::Unknown;
     error
 }
 
@@ -157,7 +165,7 @@ impl StreamOutbound for Outbound {
                 Reason::Cancelled,
             ));
         }
-        if Instant::now() >= context.deadline {
+        if context.deadline_elapsed() {
             return Err(failure(&self.state, session, Stage::Dial, Reason::Timeout));
         }
         if context.upstream.binding().dial != self.options.policy {
@@ -176,9 +184,9 @@ impl StreamOutbound for Outbound {
         let open = context.upstream.open_stream(request.destination, carrier);
         let io = tokio::select! {
             biased;
-            _ = self.state.cancel.cancelled() => return Err(failure(&self.state, session, Stage::Dial, Reason::Revoked)),
-            _ = context.cancel.cancelled() => return Err(failure(&self.state, session, Stage::Dial, Reason::Cancelled)),
-            result = timeout_at(context.deadline, open) => result.map_err(|source| failure(&self.state, session, Stage::Dial, Reason::Timeout).with_source(source))?,
+            _ = self.state.cancel.cancelled() => return Err(during_open(&self.state, session, Reason::Revoked)),
+            _ = context.cancel.cancelled() => return Err(during_open(&self.state, session, Reason::Cancelled)),
+            result = with_deadline(context.deadline, open) => result.map_err(|source| during_open(&self.state, session, Reason::Timeout).with_source(source))?,
         };
         let io = io.map_err(|mut error| {
             error.component.get_or_insert(self.state.component);

@@ -399,7 +399,7 @@ async fn tun_tcp_uses_kernel_direct_route_and_records_traffic() {
     let proxy = crate::runtime::Proxy::new(config).expect("create proxy");
     let (tcp, mut outbound) = new_stack();
     let runtime = tokio::spawn(accept_tcp(
-        proxy.clone(),
+        proxy.tcp_runtime_services(),
         Arc::clone(&tcp),
         "tun-test".to_owned(),
         false,
@@ -456,7 +456,7 @@ async fn tun_tcp_block_route_never_opens_the_destination() {
     let proxy = crate::runtime::Proxy::new(config).expect("create proxy");
     let (tcp, mut outbound) = new_stack();
     let runtime = tokio::spawn(accept_tcp(
-        proxy.clone(),
+        proxy.tcp_runtime_services(),
         Arc::clone(&tcp),
         "tun-test".to_owned(),
         false,
