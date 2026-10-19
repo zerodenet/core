@@ -7,6 +7,10 @@ use std::{
 use tokio::time::Instant;
 use zero_core::Error;
 
+#[path = "replay/maintenance.rs"]
+mod maintenance;
+use maintenance::{LegacyWorker, Maintenance};
+
 #[derive(Default)]
 struct Entries {
     salts: HashMap<Vec<u8>, Instant>,
@@ -34,7 +38,7 @@ pub struct ReplaySaltPool {
     inner: Arc<Mutex<Entries>>,
     ttl: Duration,
     capacity: Option<usize>,
-    maintenance: Mutex<Option<tokio::task::AbortHandle>>,
+    maintenance: Mutex<Maintenance>,
 }
 impl ReplaySaltPool {
     // Includes an accepted timestamp 30 seconds ahead, plus the inclusive edge.
@@ -89,28 +93,34 @@ impl ReplaySaltPool {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
         };
-        let mut task = self.maintenance.lock().unwrap();
-        if task.as_ref().is_some_and(|task| !task.is_finished()) {
+        let mut state = self.maintenance.lock().unwrap();
+        if state.managed
+            || state
+                .legacy
+                .as_ref()
+                .is_some_and(|worker| !worker.task.is_finished())
+        {
             return;
         }
         let weak = Arc::downgrade(&self.inner);
         let ttl = self.ttl;
-        *task = Some(
-            runtime
-                .spawn(async move {
-                    loop {
-                        tokio::time::sleep(Duration::from_secs(30)).await;
-                        let Some(inner) = weak.upgrade() else {
-                            return;
-                        };
-                        let Ok(mut entries) = inner.lock() else {
-                            return;
-                        };
-                        entries.prune(ttl);
-                    }
-                })
-                .abort_handle(),
-        );
+        let (stop, mut stopped) = tokio::sync::oneshot::channel();
+        let task = runtime.spawn(async move {
+            loop {
+                tokio::select! { biased;
+                    _ = &mut stopped => return,
+                    _ = tokio::time::sleep(Duration::from_secs(30)) => {},
+                }
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                let Ok(mut entries) = inner.lock() else {
+                    return;
+                };
+                entries.prune(ttl);
+            }
+        });
+        state.legacy = Some(LegacyWorker { task, stop });
     }
 }
 impl Default for ReplaySaltPool {
@@ -120,8 +130,9 @@ impl Default for ReplaySaltPool {
 }
 impl Drop for ReplaySaltPool {
     fn drop(&mut self) {
-        if let Some(task) = self.maintenance.get_mut().unwrap().take() {
-            task.abort();
+        if let Some(worker) = self.maintenance.get_mut().unwrap().legacy.take() {
+            let _ = worker.stop.send(());
+            worker.task.abort();
         }
     }
 }

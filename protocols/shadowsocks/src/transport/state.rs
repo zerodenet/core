@@ -26,13 +26,28 @@ impl ShadowsocksTransportState {
         mut leaf: ShadowsocksTransportLeaf,
         policy: ReplayPolicy,
     ) -> ShadowsocksTransportLeaf {
-        let mut guards = self.guards.lock().unwrap();
-        leaf.replay = guards
-            .entry((policy, leaf.limits.tcp_replay_capacity))
-            .or_insert_with(|| {
-                LegacyReplay::new(policy, false).with_tcp_capacity(leaf.limits.tcp_replay_capacity)
-            })
-            .clone();
+        leaf.replay = self.replay_guard(policy, leaf.limits.tcp_replay_capacity);
         leaf
+    }
+    fn replay_guard(&self, policy: ReplayPolicy, capacity: Option<usize>) -> LegacyReplay {
+        self.guards
+            .lock()
+            .unwrap()
+            .entry((policy, capacity))
+            .or_insert_with(|| LegacyReplay::new(policy, false).with_tcp_capacity(capacity))
+            .clone()
+    }
+
+    #[cfg(feature = "blake3")]
+    pub fn replay_component_options(
+        &self,
+        policy: ReplayPolicy,
+        capacity: Option<usize>,
+    ) -> crate::component::ReplayOptions {
+        crate::component::ReplayOptions::new(
+            self.replay_guard(policy, capacity).modern_pool(),
+            policy,
+            capacity,
+        )
     }
 }

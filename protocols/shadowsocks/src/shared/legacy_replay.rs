@@ -96,6 +96,11 @@ impl LegacyReplay {
         self.modern.check_and_insert(salt)
     }
 
+    #[cfg(feature = "blake3")]
+    pub(crate) fn modern_pool(&self) -> Arc<crate::shared::ReplaySaltPool> {
+        self.modern.clone()
+    }
+
     pub(crate) fn policy(&self) -> ReplayPolicy {
         self.policy
     }

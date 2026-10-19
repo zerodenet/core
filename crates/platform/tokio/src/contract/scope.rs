@@ -30,6 +30,16 @@ pub enum SpawnError {
     Closing,
     IdentityExhausted,
 }
+impl std::fmt::Display for SpawnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Capacity => "task scope capacity exhausted",
+            Self::Closing => "task scope is closing",
+            Self::IdentityExhausted => "task identity space exhausted",
+        })
+    }
+}
+impl std::error::Error for SpawnError {}
 
 #[derive(Debug)]
 pub struct TaskExit {
