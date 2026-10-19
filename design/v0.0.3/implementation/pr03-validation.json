@@ -1,0 +1,261 @@
+{
+  "base_commit": "6cd36858201c0285c9e0a450118bab2827e12955",
+  "code_commit": "47cc1a137440a69b0775546acd7c2161864e32a7",
+  "tested_git_tree": "7496ca64973b22d78288a2d94f4c75d2c578a016",
+  "resolved_lock_sha256": "a6982c8ea08da137a5bff756a241b88dc258716a516ff9f3029672051cf4224e",
+  "counts": {
+    "passed": 2684,
+    "failed": 0,
+    "ignored": 159,
+    "libtest_summary_rows": 154
+  },
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--no-deps",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "test",
+      "argv": [
+        "bash",
+        "scripts/test-workspace.sh"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "release",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "no-std",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--target",
+        "thumbv7em-none-eabi",
+        "-p",
+        "zero-traits",
+        "-p",
+        "zero-core"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "minimal",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "zero-proxy",
+        "--no-default-features"
+      ],
+      "exit": 0
+    }
+  ],
+  "artifacts": {
+    "check": {
+      "path": "evidence/pr03-check.txt.gz",
+      "raw_sha256": "213d61c0d98c62881d6adf0bf389d569851441c957189d6c5f2c4461b4c4c7a7",
+      "gzip_sha256": "161d964c85603bc17d6d842bb697979f0aece552e0c84128dbf3e9c894797bb6",
+      "raw_bytes": 1940
+    },
+    "clippy": {
+      "path": "evidence/pr03-clippy.txt.gz",
+      "raw_sha256": "12f52302b0fcc027cb56295a200154456418abd9cfccb3910b3cb03aefefa15d",
+      "gzip_sha256": "2f74c2c89573d63b9d7b9e7b8091414e3dceff06e8ec77f9f77fb5219b8038b1",
+      "raw_bytes": 2208
+    },
+    "test": {
+      "path": "evidence/pr03-test.txt.gz",
+      "raw_sha256": "0e0a760282ced54b5bd96a2af6b70e06be4d3a65f95c25b8e41d91addd6ec13b",
+      "gzip_sha256": "2df72893cf7c1718b1af176d87548ee54f1cf45c058d74be6f4bf0c10f3d2ae8",
+      "raw_bytes": 288534
+    },
+    "release": {
+      "path": "evidence/pr03-release.txt.gz",
+      "raw_sha256": "e383cb08aab3a1589625c64aef8491351b94216ce64aedbae3a550fc408400ca",
+      "gzip_sha256": "9f96262043742acc18b7fe1eb00f0616208fc96e94d77538b4ce4f7d881f9dea",
+      "raw_bytes": 1917
+    },
+    "no-std": {
+      "path": "evidence/pr03-no-std.txt.gz",
+      "raw_sha256": "61cf1aa00d09b7d60f4c38041f8f7dbb0478ea5e331207e0dbadd713a1da98fa",
+      "gzip_sha256": "61b94ce96b32ee6ee97bdd2a025184dd8a18672766e8793e34cf9e232382a782",
+      "raw_bytes": 137
+    },
+    "minimal": {
+      "path": "evidence/pr03-minimal.txt.gz",
+      "raw_sha256": "c60bb0818a1b61f9f25187bbf4e1d94081c3430a975ef1d4fe118413bf444a6f",
+      "gzip_sha256": "a0f68a703440f96b818901d1a06f0822a67687e09ff9e532db1588fd621f63b6",
+      "raw_bytes": 31875
+    },
+    "dependencies": {
+      "path": "evidence/pr03-dependencies.txt.gz",
+      "raw_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "gzip_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc",
+      "raw_bytes": 263
+    },
+    "test-layout": {
+      "path": "evidence/pr03-test-layout.txt.gz",
+      "raw_sha256": "4663530aea28671deeceaf99e97a19e5d7dac2d9011fc4956218524d7e4a611d",
+      "gzip_sha256": "28abf043c8bb52d2ac0bdd7f6c32753f75741d98ae6c4b9233be220f0ad5b66b",
+      "raw_bytes": 59
+    },
+    "design": {
+      "path": "evidence/pr03-design.txt.gz",
+      "raw_sha256": "d7f4a2866d3fe964823379829b2f813ca6be4bd9ebc65c496afee53b0f56138b",
+      "gzip_sha256": "203582ec9263ec99c1467bfbf49847aa98945b3825b29da884a501eb2dc983ab",
+      "raw_bytes": 375
+    },
+    "hysteria-stress": {
+      "path": "evidence/pr03-hysteria-stress.txt.gz",
+      "raw_sha256": "60df0e0203aeefd1d9d3bf1af442b8bcda02b3890af8c079ab57c72a558094b1",
+      "gzip_sha256": "2a2ef21b48b72ad0e0a3377f9da08f89f10771473dcfd51e3db607a56c84a1e9",
+      "raw_bytes": 56256
+    },
+    "hysteria-stress-summary": {
+      "path": "evidence/pr03-hysteria-stress-summary.txt.gz",
+      "raw_sha256": "5e0076b5ba585e0a0a12620baf1e528eb44b1e700e247d562995010a318fa53e",
+      "gzip_sha256": "9f3b4a2345fede11b0dde3d5bd34fc0080b20f7e6314f09f0ef2840f4be74a18",
+      "raw_bytes": 87
+    },
+    "transport-constrained": {
+      "path": "evidence/pr03-transport-constrained.txt.gz",
+      "raw_sha256": "6587289c14edd487c13c02ddb6e9923ebefa387aff04678c72d484ff244e2db0",
+      "gzip_sha256": "6bbc87137c7c6617beedad3f1c7eb2aee87503373a50ebdbd02caac0fb2870dd",
+      "raw_bytes": 14869
+    },
+    "vless-browser-stress": {
+      "path": "evidence/pr03-vless-browser-stress.txt.gz",
+      "raw_sha256": "e0f87da9bba5cfffd054390d1d1a8d458ad6132968d4cc9a9b3e59c215474e1d",
+      "gzip_sha256": "f344ce7a80790be563bcf5ae5ee98feb64714b1437c9afa4b4f49f1c2b506915",
+      "raw_bytes": 63223
+    },
+    "vless-browser-stress-summary": {
+      "path": "evidence/pr03-vless-browser-stress-summary.txt.gz",
+      "raw_sha256": "5e0076b5ba585e0a0a12620baf1e528eb44b1e700e247d562995010a318fa53e",
+      "gzip_sha256": "9f3b4a2345fede11b0dde3d5bd34fc0080b20f7e6314f09f0ef2840f4be74a18",
+      "raw_bytes": 87
+    },
+    "ci-linux-6cd": {
+      "path": "evidence/pr03-ci-linux-6cd.txt.gz",
+      "raw_sha256": "a8d248421e2b6e0969ef516da0d49134f1e522093641d055f78a3a561fb19873",
+      "gzip_sha256": "5d7a88e15b2eec8fce74616f5baacc58e39ad3839f77be845dcfee004e0cbf31",
+      "raw_bytes": 99139
+    },
+    "hysteria-harness": {
+      "path": "evidence/pr03-hysteria-harness.py.gz",
+      "raw_sha256": "07cc8ede3dbccf5276d396e5dd0b26dae380751fdfb3aaab7ed3e3516012bee2",
+      "gzip_sha256": "81c5e46999ac98b63cb32f93aea08896466c59a341f1963db30d3e986a653b26",
+      "raw_bytes": 1543
+    },
+    "vless-browser-harness": {
+      "path": "evidence/pr03-vless-browser-harness.py.gz",
+      "raw_sha256": "162719ce61f516930316028860630434478df48b232665a49713dc9bbf89f6c9",
+      "gzip_sha256": "f3ddec0af2a9aed4c5835a9c94f212e51a55b4af1af09176d8070b024ceafc50",
+      "raw_bytes": 1582
+    }
+  },
+  "scope": {
+    "checkpoint": "PR03 partial, continue all17 in same branch/PR",
+    "real_native_path": "Direct diagnostic and policy probes use cold prepared native Stream roles. Ordinary business TCP, DNS and relays remain on the existing executor until the subsequent migration.",
+    "resource_owner": "Only zero-resource Stream instances are admitted to the transitional slot. No generic pool/driver/device lifecycle or single-instance config transaction is claimed.",
+    "typed_identity": "Service-origin probes have no business SessionId; packet identity remains separate.",
+    "completed_task": false,
+    "pr03_complete": false,
+    "new_capacity_defaults_selected": false
+  },
+  "qualifiers": [
+    "Strict Clippy completed on the exact code tree before its commit; all runtime full tests and release build ran after code commit47cc. Source remained clean through validation.",
+    "Minimal proxy check succeeds with existing feature-dependent warnings; no broad suppression added.",
+    "No fresh protocol interop, privileged hardware, consumer/FFI or final resource qualification is claimed for47cc.",
+    "Existing orchestration5sec grace is reused only for starting zero-I/O, zero-driver Direct instances; no new connect/admission or memory budget.",
+    "Native Direct dial retains original OS error. The remaining legacy probe facade preserves old V1 error code/message through its old result projection."
+  ],
+  "development_failure_fixed": "New synthetic probe test initially expected GET; actual existing probe sends HEAD. Fixture corrected without changing wire behavior.",
+  "ci": {
+    "head": "6cd36858201c0285c9e0a450118bab2827e12955",
+    "run_id": 39288829266,
+    "conclusion": "cancelled",
+    "job_id": 118189129089,
+    "stalled_test": "transport::runtime::browser_dialer::tests::prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream",
+    "over60sec_notice": "2026-10-19T17:15:37Z",
+    "cancelled_at": "2026-10-19T17:51:31Z",
+    "job_timeout_minutes": 45,
+    "runtime_changed_by_pr02": false,
+    "not_qualified": "Workspace stopped in VLESS; later packages not run. Representative minimal step and Optional surface skipped. This is not all-green or qualification of47cc.",
+    "test_start_approximate": "2026-10-19T17:14:37Z",
+    "test_start_basis": "Approximate, inferred from the over60sec notice; not an emitted per-test start timestamp.",
+    "cancellation_reason": "API reports cancelled; job configured45minutes and cancellation timing matches limit. No separate backend cause is available."
+  },
+  "investigations": {
+    "hysteria": {
+      "historical_failed_run": 39277867335,
+      "status": "rootcause unconfirmed; original10sec test deadline unchanged; added client/server phase diagnostics",
+      "constrained_trials": 200,
+      "parallel_trials": 2,
+      "failed_trials": 0,
+      "transport_constrained": {
+        "passed": 144,
+        "failed": 0,
+        "ignored": 1,
+        "test_threads": 4
+      },
+      "binary_sha256": "41c95353f2e4f05573ad5cad67aa19591e2fd06e6c5c81566383a12d866d6d2f"
+    },
+    "browser": {
+      "status": "rootcause unconfirmed; exacttest passed locally in full47cc suite and isolated repeats; no production fix claimed",
+      "constrained_trials": 200,
+      "parallel_trials": 2,
+      "failed_trials": 0,
+      "preexisting_vless_binary_sha256": "55d0d5e3849c58afa6e4a22965f10fd367655380143c28eb3c3559815eac4fa6"
+    },
+    "cgroup": {
+      "cpu_max": "100000 100000",
+      "memory_max": 1073741824,
+      "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "not_a_benchmark": "Diagnostic repetition is not RS01 throughput/RSS or protocol qualification."
+    }
+  },
+  "release_binary_sha256": "ea7329c902bdc7c713caa1a8849a5eb7b886f72fbb515022ce69f2c4e3f3bc02"
+}
