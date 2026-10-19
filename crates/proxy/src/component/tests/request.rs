@@ -115,14 +115,14 @@ async fn business_direct_uses_its_registered_role_and_cannot_fall_back_after_rev
         .await
         .unwrap();
     slot.revoke();
+    let (resolved, _plan) = proxy
+        .engine()
+        .resolve_route_decision(zero_engine::RouteDecision::Direct)
+        .unwrap();
     let result = dispatch_tcp_outbound(
         services,
         &session,
-        zero_engine::ResolvedOutbound::Single(zero_engine::ResolvedLeafOutbound::Direct {
-            tag: None,
-            dial_policy: Default::default(),
-            dial_generation: 0,
-        }),
+        resolved,
         zero_engine::RouteMode::Flow,
         TcpDispatchIntent::Traffic,
     )
