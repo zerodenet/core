@@ -1,0 +1,76 @@
+{
+  "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "workspace": {
+    "command": "RUST_MIN_STACK=16777216 bash scripts/test-workspace.sh",
+    "exit_code": 0,
+    "summaries": 151,
+    "passed": 2635,
+    "failed": 0,
+    "ignored": 159,
+    "log_sha256": "e62c004d5d87520b56531f853f1154d21657115d2100d5b04e44745959baaeb1"
+  },
+  "no_std": {
+    "target": "thumbv7em-none-eabi",
+    "packages": [
+      "zero-core",
+      "zero-traits"
+    ],
+    "command": "cargo check -p zero-traits -p zero-core --target thumbv7em-none-eabi --locked",
+    "exit_code": 0,
+    "log_sha256": "be78d5b4132d083d4d4873adc4b7db23174889f8c144cd7c4a82c3444dcaf6fc"
+  },
+  "consumers": {
+    "gui": {
+      "commit": "d6520b50df646f01d69f9e64eabffec26c1554c4",
+      "rust_pure_tests": {
+        "passed": 59,
+        "failed": 0,
+        "ignored": 0
+      },
+      "frontend_kernel_feature_tests": {
+        "passed": 2,
+        "failed": 0
+      },
+      "two_real_kernel_script": "passed; v0.0.2 official release and v0.0.3 old source debug executable",
+      "full_tauri_and_physical_device": "not run"
+    },
+    "zboard": {
+      "commit": "7c7283fb34840883fccaba1de6e0a98edb24dfb1",
+      "command": "go test -mod=readonly -p 2 ./internal/adapters/zero",
+      "go_version": "1.26.8",
+      "exit_code": 0
+    }
+  },
+  "build_environment": {
+    "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "1.99.1 (5f94df478 2026-08-27)",
+    "protoc": "35.0",
+    "cmake": "4.4.4",
+    "compilation_workers": 4,
+    "incremental": false,
+    "dev_debug_info": 0,
+    "test_debug_info": 0,
+    "release_profile": "unmodified repository release profile; all features",
+    "host_cgroup_cpu_max": "400000 100000",
+    "host_cgroup_memory_max": "17179869184"
+  },
+  "preparation_failures": [
+    {
+      "step": "Go automatic toolchain download",
+      "result": "storage redirect forbidden; official go.dev archive checksum verified, original panel tests subsequently passed"
+    },
+    {
+      "step": "initial capture identity assertion",
+      "result": "tool compared short and full SHA; fixed to verify full source SHA plus reported prefix"
+    },
+    {
+      "step": "initial persistence assertion",
+      "result": "tool assumed literal equality to input without defaults; real source normalizes document, request rules verified and output captured"
+    },
+    {
+      "step": "initial resource samples",
+      "result": "procfs VmRSS absent during process teardown; attempts invalid for threshold freezing, sampler now bounds retries and checks process exit"
+    }
+  ],
+  "qualification": "PR01 in progress; no completed architecture migration or final RS01 qualification"
+}

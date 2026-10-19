@@ -1,0 +1,40 @@
+{
+  "inbounds": [
+    {
+      "tag": "hysteria2-in",
+      "listen": { "address": "0.0.0.0", "port": 443 },
+      "protocol": {
+        "type": "hysteria2",
+        "password": "your-secret-password",
+        "cert_path": "certs/fullchain.pem",
+        "key_path": "certs/privkey.pem"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "hysteria2-out",
+      "protocol": {
+        "type": "hysteria2",
+        "server": "example.com",
+        "port": 443,
+        "password": "your-secret-password",
+        "insecure": true
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": { "type": "direct" }
+    }
+  ],
+  "mode": { "type": "rule" },
+  "route": {
+    "rules": [
+      {
+        "condition": { "type": "domain", "values": ["traffic-to-proxy.example.com"] },
+        "action": { "type": "route", "outbound": "hysteria2-out" }
+      }
+    ],
+    "final": { "type": "direct" }
+  }
+}

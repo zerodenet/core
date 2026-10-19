@@ -1,0 +1,31 @@
+{
+  "inbounds": [
+    {
+      "tag": "vless-tls-in",
+      "listen": {
+        "address": "0.0.0.0",
+        "port": 443
+      },
+      "protocol": {
+        "type": "vless",
+        "users": [
+          {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "principal_key": "user:edge"
+          }
+        ],
+        "tls": {
+          "cert_path": "certs/fullchain.pem",
+          "key_path": "certs/privkey.pem"
+        }
+      }
+    }
+  ],
+  "outbounds": [],
+  "route": {
+    "rules": [],
+    "final": {
+      "type": "direct"
+    }
+  }
+}

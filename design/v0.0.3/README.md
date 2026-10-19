@@ -33,6 +33,7 @@
 | [references.md](references.md) | 代码引用、不可变上游观察提交、消费者历史来源与可访问性限制 |
 | [provenance.json](provenance.json) | 来源元数据、全文原始摘要、各分节保存位置与内容摘要 |
 | [check-plan.py](check-plan.py) | 本目录只读的完整性及本地链接检查，不接入运行代码或 CI |
+| [baseline/README.md](baseline/README.md) | 固定旧内核、真实消费者/FFI、原始 wire 样本及限额资源证据；缺项按实际状态保留 |
 
 文档中的目标类型、签名和状态机是待实现标准，不是当前已导出的 API。源文中的“本轮”“当前”“尚未创建分支”描述源方案编写时的观察；本次执行状态以上表、任务卡和验证记录为准。代码围栏仍需 PR02 编译验证，资源和性能数字仍需 PR01 实测冻结。
 

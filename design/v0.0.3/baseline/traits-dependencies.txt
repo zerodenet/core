@@ -1,0 +1,2 @@
+zero-traits v0.0.3-dev.202610162206 (${SOURCE}/crates/traits)
+└── bytes v1.12.1

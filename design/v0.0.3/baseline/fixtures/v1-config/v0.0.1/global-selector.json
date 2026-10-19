@@ -1,0 +1,48 @@
+{
+  "inbounds": [
+    {
+      "tag": "mixed-in",
+      "listen": {
+        "address": "127.0.0.1",
+        "port": 7890
+      },
+      "protocol": {
+        "type": "mixed"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": {
+        "type": "direct"
+      }
+    },
+    {
+      "tag": "node-a",
+      "protocol": {
+        "type": "socks5",
+        "server": "127.0.0.1",
+        "port": 2080
+      }
+    }
+  ],
+  "outbound_groups": [
+    {
+      "tag": "proxy",
+      "type": "selector",
+      "outbounds": ["node-a", "direct"],
+      "selected": "node-a"
+    }
+  ],
+  "mode": {
+    "type": "global",
+    "outbound": "proxy"
+  },
+  "route": {
+    "rules": [],
+    "final": {
+      "type": "direct"
+    }
+  }
+}

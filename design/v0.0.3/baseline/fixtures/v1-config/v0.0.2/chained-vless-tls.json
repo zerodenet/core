@@ -1,0 +1,35 @@
+{
+  "inbounds": [
+    {
+      "tag": "mixed-in",
+      "listen": {
+        "address": "127.0.0.1",
+        "port": 7890
+      },
+      "protocol": {
+        "type": "mixed"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "remote-vless-tls",
+      "protocol": {
+        "type": "vless",
+        "server": "edge.example.com",
+        "port": 443,
+        "id": "11111111-2222-3333-4444-555555555555",
+        "tls": {
+          "server_name": "edge.example.com"
+        }
+      }
+    }
+  ],
+  "route": {
+    "rules": [],
+    "final": {
+      "type": "route",
+      "outbound": "remote-vless-tls"
+    }
+  }
+}

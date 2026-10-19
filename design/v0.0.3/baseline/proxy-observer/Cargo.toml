@@ -1,0 +1,25 @@
+[package]
+name = "zero-refactor-task-observer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+serde_json = "1"
+tokio = { version = "=1.53.3", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+rustls = { version = "=0.23.40", default-features = false, features = ["ring", "std"] }
+zero-config = { path = "../../../../crates/config" }
+zero-proxy = { path = "../../../../crates/proxy", default-features = false, features = ["socks5", "http", "mixed", "vless", "hysteria2", "shadowsocks", "trojan", "vmess", "mieru", "wireguard", "dns", "host-network-stats"] }
+
+# Match the owning source workspace's reviewed neutral carrier patches.
+[patch.crates-io]
+gotatun = { path = "../../../../vendor/gotatun" }
+h2 = { path = "../../../../vendor/h2" }
+hyper = { path = "../../../../vendor/hyper" }
+rustls = { path = "../../../../vendor/rustls" }
+openssl-sys = { path = "../../../../vendor/openssl-sys-0.9.117-openssl4" }
+blake3 = { path = "../../../../vendor/blake3" }
+quinn-proto = { path = "../../../../vendor/quinn-proto" }
+h3-quinn = { path = "../../../../vendor/h3-quinn" }

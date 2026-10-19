@@ -1,0 +1,240 @@
+{
+  "library_sha256": "66d5835f4ca6b909423ec0989667b195f0399796e703a33052687179a564a5c1",
+  "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "pointer_bytes": 8,
+  "calls": [
+    {
+      "query": {
+        "capabilities": {}
+      },
+      "response": {
+        "Ok": {
+          "capabilities": {
+            "adapters": [
+              {
+                "enabled": true,
+                "kind": "in_process"
+              }
+            ],
+            "api_id": "zero.api.v1",
+            "build_features": [],
+            "contracts": {
+              "capabilities": {
+                "current": 1,
+                "minimum_supported": 1
+              },
+              "config_schema": {
+                "current": 1,
+                "minimum_supported": 1
+              },
+              "control_api": {
+                "current": 1,
+                "minimum_supported": 1
+              },
+              "error_codes": {
+                "current": 1,
+                "minimum_supported": 1
+              }
+            },
+            "error_codes": [
+              "not_found",
+              "invalid_argument",
+              "permission_denied",
+              "insufficient_os_privilege",
+              "feature_disabled",
+              "conflict",
+              "unsupported",
+              "internal"
+            ],
+            "features": [
+              "traffic_observation_v1",
+              "traffic_failed_flow_counters_v1",
+              "traffic_peer_flow_bindings_v1",
+              "traffic_packet_pin_activity_v1",
+              "traffic_period_reset_v1",
+              "traffic_scopes_sampling_v1",
+              "query",
+              "config_snapshot",
+              "runtime_snapshot",
+              "flow_snapshot",
+              "policy_snapshot",
+              "runtime_generation",
+              "operation_correlation",
+              "event_recovery",
+              "principal_flow_observations_v1",
+              "urltest_tolerance",
+              "route_bypass_v1"
+            ],
+            "global_limitations": [],
+            "permissions": [
+              "read"
+            ],
+            "protocols": [],
+            "schema_id": "zero.event.v1",
+            "sinks": [
+              {
+                "enabled": false,
+                "kind": "none"
+              }
+            ],
+            "traffic_statistics": {
+              "automatic_sampling": false,
+              "capture_consistency": "atomic_per_counter_capture_window_serialized_period_boundary",
+              "contract_version": 1,
+              "events": [
+                "stats.scopes_sampled",
+                "stats.reset"
+              ],
+              "history": "bounded_event_replay_no_time_series",
+              "host_interface_sampling": false,
+              "local_drop_reasons": true,
+              "maximum_page_size": 256,
+              "maximum_reset_targets": 256,
+              "queries": [
+                "traffic_stat",
+                "traffic_stats"
+              ],
+              "reset_command": "stats.reset",
+              "reset_permission": "admin",
+              "reset_policy": "all_available_cumulative_no_cascade",
+              "resettable_scopes": [
+                "global",
+                "inbound",
+                "outbound",
+                "endpoint",
+                "peer"
+              ],
+              "retry_policy": "epoch_compare_and_swap_conflict_on_replay",
+              "sample_interval_ms": 1000,
+              "sample_page_size": 64,
+              "sampling_strategy": "round_robin_bounded_pages"
+            }
+          }
+        }
+      }
+    },
+    {
+      "query": {
+        "health": {}
+      },
+      "response": {
+        "Ok": {
+          "health": {
+            "config_revision": 1,
+            "core_instance_id": "223be9fb9af1ec6b15b60adb66d372ec",
+            "engine_build_id": "0.0.3-dev.202610162206",
+            "healthy": true,
+            "started_at_unix_ms": 1792421683154
+          }
+        }
+      }
+    },
+    {
+      "query": {
+        "runtime": {}
+      },
+      "response": {
+        "Ok": {
+          "runtime": {
+            "active_sessions": [],
+            "config_path": "/tmp/zero-ffi-baseline-v2j77qx6/config.json",
+            "config_revision": 1,
+            "core_instance_id": "223be9fb9af1ec6b15b60adb66d372ec",
+            "log_files": [],
+            "log_level": "info",
+            "pid": 60192,
+            "recent_completed_sessions": [],
+            "started_at_unix_ms": 1792421683154,
+            "stats": {
+              "active_sessions": 0,
+              "blocked_sessions": 0,
+              "bytes_down": 0,
+              "bytes_up": 0,
+              "chained_sessions": 0,
+              "completed_sessions": 0,
+              "direct_sessions": 0,
+              "failed_sessions": 0,
+              "per_outbound": [],
+              "total_started": 0,
+              "udp_upstream": {
+                "active_associations": 0,
+                "closed_associations": 0,
+                "created_associations": 0,
+                "dropped_associations": 0,
+                "failed_association_attempts": 0,
+                "idle_timeouts": 0,
+                "packets_received": 0,
+                "packets_sent": 0,
+                "recv_failures": 0,
+                "reused_associations": 0,
+                "send_failures": 0
+              }
+            },
+            "udp_enabled": true,
+            "udp_upstream_idle_timeout_seconds": 30
+          }
+        }
+      }
+    },
+    {
+      "query": {
+        "stats": {}
+      },
+      "response": {
+        "Ok": {
+          "stats": {
+            "active_sessions": 0,
+            "blocked_sessions": 0,
+            "bytes_down": 0,
+            "bytes_up": 0,
+            "chained_sessions": 0,
+            "completed_sessions": 0,
+            "direct_sessions": 0,
+            "failed_sessions": 0,
+            "per_outbound": [],
+            "total_started": 0,
+            "udp_upstream": {
+              "active_associations": 0,
+              "closed_associations": 0,
+              "created_associations": 0,
+              "dropped_associations": 0,
+              "failed_association_attempts": 0,
+              "idle_timeouts": 0,
+              "packets_received": 0,
+              "packets_sent": 0,
+              "recv_failures": 0,
+              "reused_associations": 0,
+              "send_failures": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "command": {
+        "method": "mode.set",
+        "params": {
+          "mode": "direct"
+        }
+      },
+      "response": {
+        "Ok": {
+          "accepted": true
+        }
+      }
+    }
+  ],
+  "exported_zero_symbols": [
+    "zero_execute",
+    "zero_free_string",
+    "zero_last_error",
+    "zero_query",
+    "zero_shutdown",
+    "zero_start"
+  ],
+  "zero_start_does_not_start_proxy_listener": true,
+  "invalid_utf8_error": "invalid UTF-8 in request: invalid utf-8 sequence of 1 bytes from index 0",
+  "last_error_is_consumed_and_freed": true,
+  "documented_null_shutdown_and_free_are_noops": true,
+  "error_from_other_thread_visible_on_caller_thread": "failed to load config: failed to read config `${TEMP}/missing.json`: No such file or directory (os error 2)"
+}

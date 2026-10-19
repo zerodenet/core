@@ -28,7 +28,8 @@ def main():
     directory = Path(__file__).resolve().parent
     repository = directory.parents[1]
     manifest = json.loads((directory / 'provenance.json').read_text())
-    documents = {p.name: p.read_text() for p in sorted(directory.glob('*.md'))}
+    documents = {str(p.relative_to(directory)): p.read_text()
+                 for p in sorted(directory.rglob('*.md'))}
     expected = {item['id']: item for item in manifest['sections']}
     found = {}
     local_links = 0
@@ -66,7 +67,8 @@ def main():
                 online_links += 1
                 continue
             require(not target.startswith('/'), f'{name}: absolute local link {target}')
-            path = (directory / unquote(uri.path)).resolve() if uri.path else directory / name
+            owner = directory / name
+            path = (owner.parent / unquote(uri.path)).resolve() if uri.path else owner
             require(path.is_relative_to(repository), f'{name}: link escapes repository {target}')
             require(path.is_file(), f'{name}: missing local link {target}')
             if uri.fragment:

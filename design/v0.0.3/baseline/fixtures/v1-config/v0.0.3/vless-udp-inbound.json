@@ -1,0 +1,26 @@
+{
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "listen": {
+        "address": "127.0.0.1",
+        "port": 10086
+      },
+      "protocol": {
+        "type": "vless",
+        "users": [
+          {
+            "id": "11111111-2222-3333-4444-555555555555"
+          }
+        ]
+      }
+    }
+  ],
+  "outbounds": [],
+  "route": {
+    "rules": [],
+    "final": {
+      "type": "direct"
+    }
+  }
+}

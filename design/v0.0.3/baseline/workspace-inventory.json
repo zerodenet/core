@@ -1,0 +1,5637 @@
+{
+  "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "workspace": [
+    {
+      "name": "http",
+      "version": "0.0.1",
+      "manifest": "protocols/http/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "inbound",
+          "path": "protocols/http/tests/inbound.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "hysteria2",
+      "version": "2.12.2",
+      "manifest": "protocols/hysteria2/Cargo.toml",
+      "features": {
+        "crypto": [
+          "dep:ring",
+          "dep:subtle"
+        ],
+        "default": [],
+        "runtime": [
+          "validation",
+          "dep:futures-util",
+          "crypto",
+          "tokio",
+          "dep:bytes",
+          "dep:quinn-proto",
+          "dep:h3",
+          "dep:h3-quinn",
+          "dep:http",
+          "dep:rustls",
+          "dep:tokio-rustls",
+          "dep:tracing",
+          "dep:zero-transport"
+        ],
+        "tokio": [
+          "dep:quinn",
+          "dep:tokio"
+        ],
+        "validation": [
+          "dep:url"
+        ]
+      },
+      "test_targets": [
+        {
+          "name": "hysteria2_contracts",
+          "path": "protocols/hysteria2/tests/suites/hysteria2_contracts.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "bytes",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "futures-util",
+          "requirement": "^0.3",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "h3",
+          "requirement": "^0.0.8",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "h3-quinn",
+          "requirement": "=0.0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "http",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "quinn",
+          "requirement": "=0.11.9",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "rustls-ring"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "quinn-proto",
+          "requirement": "=0.11.14",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "=0.23.40",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "aws_lc_rs",
+            "ring",
+            "std",
+            "tls12",
+            "logging",
+            "legacy-client"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "subtle",
+          "requirement": "^2.6",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio-rustls",
+          "requirement": "^0.26",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "url",
+          "requirement": "^2",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-transport",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "quic",
+            "http_client",
+            "http_server"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "mieru",
+      "version": "3.33.0",
+      "manifest": "protocols/mieru/Cargo.toml",
+      "features": {
+        "crypto": [
+          "dep:chacha20poly1305",
+          "dep:sha2",
+          "dep:ring",
+          "dep:rand",
+          "dep:tokio"
+        ],
+        "default": [],
+        "runtime": [
+          "crypto",
+          "dep:zero-platform-tokio",
+          "dep:zero-transport"
+        ]
+      },
+      "test_targets": [
+        {
+          "name": "mieru_crypto",
+          "path": "protocols/mieru/tests/suites/mieru_crypto.rs"
+        },
+        {
+          "name": "mieru_runtime",
+          "path": "protocols/mieru/tests/suites/mieru_runtime.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "chacha20poly1305",
+          "requirement": "^0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "mieru-config",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rand",
+          "requirement": "^0.8",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "sha2",
+          "requirement": "^0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-transport",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "chacha20poly1305",
+          "requirement": "^0.10",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "rand",
+          "requirement": "^0.8",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "sha2",
+          "requirement": "^0.10",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "test-util"
+          ],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "mieru-config",
+      "version": "3.33.0",
+      "manifest": "protocols/mieru/config/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "options",
+          "path": "protocols/mieru/config/tests/options.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "shadowsocks",
+      "version": "1.21.2",
+      "manifest": "protocols/shadowsocks/Cargo.toml",
+      "features": {
+        "blake3": [
+          "dep:base64",
+          "dep:blake3"
+        ],
+        "crypto": [
+          "validation",
+          "dep:aes",
+          "dep:shadowsocks-crypto",
+          "dep:aes-gcm",
+          "dep:aes-gcm-siv",
+          "dep:ccm",
+          "dep:sm4",
+          "dep:chacha20poly1305",
+          "dep:md-5",
+          "dep:ring",
+          "dep:tokio"
+        ],
+        "default": [],
+        "runtime": [
+          "crypto",
+          "dep:async-trait",
+          "dep:tracing",
+          "dep:bloomfilter",
+          "dep:zero-platform-tokio",
+          "dep:zero-transport"
+        ],
+        "validation": [
+          "dep:serde"
+        ]
+      },
+      "test_targets": [
+        {
+          "name": "external_sip023",
+          "path": "protocols/shadowsocks/tests/external_sip023.rs"
+        },
+        {
+          "name": "reference_interop",
+          "path": "protocols/shadowsocks/tests/reference_interop.rs"
+        },
+        {
+          "name": "shadowsocks_runtime",
+          "path": "protocols/shadowsocks/tests/suites/shadowsocks_runtime.rs"
+        },
+        {
+          "name": "validation",
+          "path": "protocols/shadowsocks/tests/validation.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "aes",
+          "requirement": "^0.8",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "aes-gcm",
+          "requirement": "=0.10.3",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "aes-gcm-siv",
+          "requirement": "=0.11.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "base64",
+          "requirement": "^0.22",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "blake3",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "bloomfilter",
+          "requirement": "=1.0.14",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ccm",
+          "requirement": "=0.5.0",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "chacha20poly1305",
+          "requirement": "^0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "reduced-round"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "md-5",
+          "requirement": "^0.10",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "shadowsocks-crypto",
+          "requirement": "=0.5.5",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "v1-aead",
+            "v1-aead-extra",
+            "v1-stream"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "sm4",
+          "requirement": "=0.5.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "process"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-transport",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "aes",
+          "requirement": "^0.8",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "chacha20poly1305",
+          "requirement": "^0.10",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "shadowsocks-crypto",
+          "requirement": "=0.5.5",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "v2-extra"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "test-util"
+          ],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "socks5",
+      "version": "0.0.1",
+      "manifest": "protocols/socks5/Cargo.toml",
+      "features": {
+        "default": [],
+        "runtime": [
+          "validation",
+          "dep:async-trait",
+          "dep:zero-platform-tokio",
+          "dep:zero-transport"
+        ],
+        "validation": []
+      },
+      "test_targets": [
+        {
+          "name": "handshake",
+          "path": "protocols/socks5/tests/handshake.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-transport",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "trojan",
+      "version": "0.10.6",
+      "manifest": "protocols/trojan/Cargo.toml",
+      "features": {
+        "crypto": [
+          "dep:ring",
+          "dep:sha2"
+        ],
+        "default": [
+          "tokio"
+        ],
+        "runtime": [
+          "crypto",
+          "tokio",
+          "dep:zero-platform-tokio",
+          "dep:zero-transport"
+        ],
+        "tokio": [
+          "dep:tokio"
+        ],
+        "validation": []
+      },
+      "test_targets": [
+        {
+          "name": "trojan_contracts",
+          "path": "protocols/trojan/tests/suites/trojan_contracts.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "sha2",
+          "requirement": "^0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-transport",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "tls"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "vless",
+      "version": "26.3.27",
+      "manifest": "protocols/vless/Cargo.toml",
+      "features": {
+        "default": [
+          "tokio",
+          "runtime"
+        ],
+        "reality": [
+          "ztls/runtime",
+          "runtime",
+          "tokio",
+          "dep:base64",
+          "dep:hex",
+          "dep:log",
+          "dep:rand",
+          "dep:rcgen",
+          "dep:ring",
+          "dep:subtle",
+          "dep:zeroize",
+          "dep:ml-dsa",
+          "dep:x25519-dalek",
+          "dep:x509-parser"
+        ],
+        "runtime": [
+          "ztls/validation",
+          "dep:zero-platform-tokio",
+          "dep:zero-transport",
+          "dep:base64",
+          "dep:ml-kem",
+          "dep:blake3",
+          "dep:aes",
+          "dep:aes-gcm",
+          "dep:chacha20poly1305",
+          "dep:ctr",
+          "dep:rand",
+          "dep:x25519-dalek",
+          "dep:prost"
+        ],
+        "tokio": [
+          "dep:tokio"
+        ],
+        "validation": [
+          "dep:base64",
+          "ztls/validation"
+        ]
+      },
+      "test_targets": [
+        {
+          "name": "vless_contracts",
+          "path": "protocols/vless/tests/suites/vless_contracts.rs"
+        },
+        {
+          "name": "vless_reality",
+          "path": "protocols/vless/tests/suites/vless_reality.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "aes",
+          "requirement": "^0.8",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "aes-gcm",
+          "requirement": "^0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "base64",
+          "requirement": "^0.22",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "blake3",
+          "requirement": "^1.8.5",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "chacha20poly1305",
+          "requirement": "^0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ctr",
+          "requirement": "^0.9",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hex",
+          "requirement": "^0.4",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "log",
+          "requirement": "^0.4",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ml-dsa",
+          "requirement": "=0.1.1",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "alloc",
+            "zeroize"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ml-kem",
+          "requirement": "^0.2.1",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "deterministic",
+            "zeroize"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "prost",
+          "requirement": "^0.13",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rand",
+          "requirement": "^0.9",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "sha1",
+          "requirement": "^0.10",
+          "optional": false,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "subtle",
+          "requirement": "^2.6",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "url",
+          "requirement": "^2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "x25519-dalek",
+          "requirement": "^2.0.1",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "static_secrets"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "x509-parser",
+          "requirement": "^0.18",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "verify"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-transport",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "hysteria",
+            "mkcp",
+            "grpc",
+            "h2",
+            "http_upgrade",
+            "split_http",
+            "quic",
+            "tls",
+            "ws"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zeroize",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ztls",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "bytes",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "futures-util",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "rand",
+          "requirement": "^0.9",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "=0.23.40",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "aws_lc_rs",
+            "ring",
+            "std",
+            "tls12",
+            "logging",
+            "legacy-client"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "test-util"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio-rustls",
+          "requirement": "^0.26",
+          "optional": false,
+          "default_features": false,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio-tungstenite",
+          "requirement": "^0.23",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "x25519-dalek",
+          "requirement": "^2.0.1",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "static_secrets"
+          ],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "vmess",
+      "version": "26.3.27",
+      "manifest": "protocols/vmess/Cargo.toml",
+      "features": {
+        "default": [
+          "runtime"
+        ],
+        "runtime": [
+          "validation",
+          "dep:async-trait",
+          "dep:rand",
+          "dep:ring",
+          "dep:md5",
+          "dep:crc32fast",
+          "dep:aes",
+          "dep:sha3",
+          "dep:tokio",
+          "dep:zero-platform-tokio",
+          "dep:zero-transport"
+        ],
+        "validation": []
+      },
+      "test_targets": [
+        {
+          "name": "vmess_contracts",
+          "path": "protocols/vmess/tests/suites/vmess_contracts.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "aes",
+          "requirement": "^0.8",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "crc32fast",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "md5",
+          "requirement": "^0.7",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rand",
+          "requirement": "^0.9",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "sha3",
+          "requirement": "^0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-transport",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "grpc",
+            "tls",
+            "ws"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "wireguard",
+      "version": "0.9.2",
+      "manifest": "protocols/wireguard/Cargo.toml",
+      "features": {
+        "default": [],
+        "routing": [
+          "validation"
+        ],
+        "runtime": [
+          "routing",
+          "dep:gotatun",
+          "dep:x25519-dalek"
+        ],
+        "validation": [
+          "dep:base64",
+          "dep:zeroize"
+        ]
+      },
+      "test_targets": [
+        {
+          "name": "runtime",
+          "path": "protocols/wireguard/tests/runtime.rs"
+        },
+        {
+          "name": "wireguard_model",
+          "path": "protocols/wireguard/tests/suites/wireguard_model.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "base64",
+          "requirement": "^0.22",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "alloc"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "gotatun",
+          "requirement": "=0.9.2",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "zeroized-rustcrypto"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "x25519-dalek",
+          "requirement": "^2.0.1",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "static_secrets",
+            "zeroize"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zeroize",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "Cargo.toml",
+      "features": {
+        "connector": [
+          "event-dispatcher",
+          "zero-connector/webhook"
+        ],
+        "default": [
+          "full",
+          "status-api"
+        ],
+        "dns": [
+          "zero-proxy/dns"
+        ],
+        "event-dispatcher": [
+          "dep:zero-connector",
+          "dep:zero-platform-tokio",
+          "zero-connector/event-dispatcher"
+        ],
+        "full": [
+          "socks5",
+          "http",
+          "mixed",
+          "vless",
+          "hysteria2",
+          "shadowsocks",
+          "trojan",
+          "vmess",
+          "mieru",
+          "dns"
+        ],
+        "grpc-api": [
+          "dep:zero-grpc"
+        ],
+        "host-network-stats": [
+          "zero-proxy/host-network-stats"
+        ],
+        "http": [
+          "zero-proxy/http"
+        ],
+        "hysteria2": [
+          "zero-proxy/hysteria2"
+        ],
+        "mieru": [
+          "zero-proxy/mieru"
+        ],
+        "mixed": [
+          "zero-proxy/mixed"
+        ],
+        "shadowsocks": [
+          "zero-proxy/shadowsocks"
+        ],
+        "sink-jsonl": [
+          "event-dispatcher",
+          "zero-connector/sink-jsonl"
+        ],
+        "socks5": [
+          "zero-proxy/socks5"
+        ],
+        "status-api": [
+          "dep:percent-encoding"
+        ],
+        "trojan": [
+          "zero-proxy/trojan"
+        ],
+        "vless": [
+          "zero-proxy/vless"
+        ],
+        "vmess": [
+          "zero-proxy/vmess"
+        ],
+        "wireguard": [
+          "zero-proxy/wireguard"
+        ]
+      },
+      "test_targets": [
+        {
+          "name": "kernel_process",
+          "path": "tests/suites/kernel_process.rs"
+        },
+        {
+          "name": "tun_privileged_e2e",
+          "path": "tests/tun_privileged_e2e.rs"
+        },
+        {
+          "name": "tun_route_reconcile_e2e",
+          "path": "tests/tun_route_reconcile_e2e.rs"
+        },
+        {
+          "name": "tun_route_reconcile_linux_e2e",
+          "path": "tests/tun_route_reconcile_linux_e2e.rs"
+        },
+        {
+          "name": "tun_route_reconcile_macos_e2e",
+          "path": "tests/tun_route_reconcile_macos_e2e.rs"
+        },
+        {
+          "name": "validate_isolation",
+          "path": "tests/validate_isolation.rs"
+        },
+        {
+          "name": "windows_release_artifact",
+          "path": "tests/windows_release_artifact.rs"
+        },
+        {
+          "name": "workspace_architecture",
+          "path": "tests/workspace_architecture.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "percent-encoding",
+          "requirement": "^2",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "=0.23.40",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "aws_lc_rs",
+            "ring",
+            "std",
+            "tls12",
+            "logging",
+            "legacy-client"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "sha2",
+          "requirement": "^0.10",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing-subscriber",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "env-filter",
+            "fmt",
+            "json"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ureq",
+          "requirement": "^2",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "tls"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-api",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-config",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-connector",
+          "requirement": "*",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-engine",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-grpc",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-logging",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-proxy",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "socket2",
+          "requirement": "^0.6",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "time",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "formatting",
+            "macros"
+          ],
+          "kind": "build",
+          "target": null
+        },
+        {
+          "name": "zero-tun",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": "cfg(target_os = \"macos\")"
+        }
+      ]
+    },
+    {
+      "name": "zero-api",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/api/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "api_contracts",
+          "path": "crates/api/tests/suites/api_contracts.rs"
+        },
+        {
+          "name": "api_events",
+          "path": "crates/api/tests/suites/api_events.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "thiserror",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-config",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/config/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "config_contracts",
+          "path": "crates/config/tests/suites/config_contracts.rs"
+        },
+        {
+          "name": "protocol_config",
+          "path": "crates/config/tests/suites/protocol_config.rs"
+        },
+        {
+          "name": "transport_config",
+          "path": "crates/config/tests/suites/transport_config.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "hysteria2",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "validation"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ipnet",
+          "requirement": "^2.11",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "serde"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "maxminddb",
+          "requirement": "^0.24",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "mieru-config",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "shadowsocks",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "validation",
+            "blake3"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "socks5",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "validation"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "thiserror",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "trojan",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "validation"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "vless",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "validation"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "vmess",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "validation"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "wireguard",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "validation"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-api",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-router",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-rule",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zeroize",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ztls",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "validation"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "base64",
+          "requirement": "^0.22",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-connector",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/connector/Cargo.toml",
+      "features": {
+        "default": [],
+        "event-dispatcher": [
+          "dep:rusqlite"
+        ],
+        "sink-jsonl": [
+          "event-dispatcher"
+        ],
+        "webhook": [
+          "event-dispatcher",
+          "dep:bytes",
+          "dep:http",
+          "dep:http-body-util",
+          "dep:hyper",
+          "dep:hyper-rustls",
+          "dep:hyper-util",
+          "dep:rustls",
+          "dep:tower-service",
+          "dep:webpki-roots"
+        ]
+      },
+      "test_targets": [
+        {
+          "name": "connector_delivery",
+          "path": "crates/connector/tests/suites/connector_delivery.rs"
+        },
+        {
+          "name": "qualification_outage",
+          "path": "crates/connector/tests/qualification_outage.rs"
+        },
+        {
+          "name": "qualification_soak",
+          "path": "crates/connector/tests/qualification_soak.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "bytes",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "fs2",
+          "requirement": "^0.4",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "http",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "http-body-util",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hyper",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "client",
+            "http1"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hyper-rustls",
+          "requirement": "^0.27",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "http1",
+            "ring",
+            "tls12"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hyper-util",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "client-legacy",
+            "http1",
+            "tokio"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rusqlite",
+          "requirement": "^0.40.2",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "bundled",
+            "cache"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "=0.23.40",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "aws_lc_rs",
+            "ring",
+            "std",
+            "tls12",
+            "logging",
+            "legacy-client"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "thiserror",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tower-service",
+          "requirement": "^0.3",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "webpki-roots",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-api",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-config",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio-rustls",
+          "requirement": "^0.26",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "ring",
+            "tls12"
+          ],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-core",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/core/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "listen_address",
+          "path": "crates/core/tests/listen_address.rs"
+        },
+        {
+          "name": "udp_continuity",
+          "path": "crates/core/tests/udp_continuity.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-dns",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/dns/Cargo.toml",
+      "features": {
+        "default": [],
+        "doh": [
+          "dep:bytes",
+          "dep:h2",
+          "dep:http",
+          "dep:tokio-rustls",
+          "dep:rustls",
+          "dep:webpki-roots"
+        ],
+        "doq": [
+          "dep:quinn",
+          "dep:rustls",
+          "dep:webpki-roots"
+        ],
+        "dot": [
+          "dep:tokio-rustls",
+          "dep:rustls",
+          "dep:webpki-roots"
+        ],
+        "udp": []
+      },
+      "test_targets": [
+        {
+          "name": "dns_resolution",
+          "path": "crates/dns/tests/suites/dns_resolution.rs"
+        },
+        {
+          "name": "dns_state",
+          "path": "crates/dns/tests/suites/dns_state.rs"
+        },
+        {
+          "name": "dns_wire",
+          "path": "crates/dns/tests/suites/dns_wire.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "bytes",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "fs2",
+          "requirement": "^0.4",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "h2",
+          "requirement": "^0.4",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "http",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "idna",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ipnet",
+          "requirement": "^2.11",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "serde"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "quinn",
+          "requirement": "=0.11.9",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "rustls-ring",
+            "runtime-tokio"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "^0.23",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "ring",
+            "std"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio-rustls",
+          "requirement": "^0.26",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "url",
+          "requirement": "^2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "webpki-roots",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-config",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-router",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "windows-sys",
+          "requirement": "^0.61",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "Win32_Storage_FileSystem"
+          ],
+          "kind": null,
+          "target": "cfg(windows)"
+        }
+      ]
+    },
+    {
+      "name": "zero-engine",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/engine/Cargo.toml",
+      "features": {
+        "default": []
+      },
+      "test_targets": [
+        {
+          "name": "engine_routing",
+          "path": "crates/engine/tests/suites/engine_routing.rs"
+        },
+        {
+          "name": "engine_endpoints",
+          "path": "crates/engine/tests/suites/engine_endpoints.rs"
+        },
+        {
+          "name": "engine_policy",
+          "path": "crates/engine/tests/suites/engine_policy.rs"
+        },
+        {
+          "name": "engine_observability",
+          "path": "crates/engine/tests/suites/engine_observability.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "rand",
+          "requirement": "^0.9",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "thiserror",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-api",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-config",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-error",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-router",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tracing-subscriber",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "env-filter",
+            "fmt",
+            "json"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "zero-rule",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-error",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/error/Cargo.toml",
+      "features": {},
+      "test_targets": [],
+      "dependencies": [
+        {
+          "name": "thiserror",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-ffi",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/ffi/Cargo.toml",
+      "features": {},
+      "test_targets": [],
+      "dependencies": [
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-api",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-config",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-engine",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-grpc",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/grpc/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "security",
+          "path": "crates/grpc/tests/security.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "futures-core",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "prost",
+          "requirement": "^0.13",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "=0.23.40",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "aws_lc_rs",
+            "ring",
+            "std",
+            "tls12",
+            "logging",
+            "legacy-client"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "sync",
+            "rt",
+            "net"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio-stream",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tonic",
+          "requirement": "^0.12",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "transport",
+            "tls"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-api",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-engine",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tonic",
+          "requirement": "^0.12",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "transport",
+            "channel",
+            "tls"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tonic-build",
+          "requirement": "^0.12",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "build",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-logging",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/logging/Cargo.toml",
+      "features": {},
+      "test_targets": [],
+      "dependencies": [
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing-appender",
+          "requirement": "^0.2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing-subscriber",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "env-filter",
+            "fmt",
+            "json"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-config",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-platform-tokio",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/platform/tokio/Cargo.toml",
+      "features": {
+        "default": [],
+        "host-network-stats": []
+      },
+      "test_targets": [
+        {
+          "name": "icmp_echo",
+          "path": "crates/platform/tokio/tests/icmp_echo.rs"
+        },
+        {
+          "name": "platform_contracts",
+          "path": "crates/platform/tokio/tests/suites/platform_contracts.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "socket2",
+          "requirement": "^0.6",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "all"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "libproc",
+          "requirement": "^0.14.11",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": "cfg(target_os = \"macos\")"
+        },
+        {
+          "name": "netstat2",
+          "requirement": "^0.11.2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": "cfg(target_os = \"macos\")"
+        },
+        {
+          "name": "libc",
+          "requirement": "^0.2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": "cfg(unix)"
+        },
+        {
+          "name": "windows-sys",
+          "requirement": "^0.61",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "Win32_Foundation",
+            "Win32_NetworkManagement_IpHelper",
+            "Win32_NetworkManagement_Ndis",
+            "Win32_Networking_WinSock",
+            "Win32_System_Threading"
+          ],
+          "kind": null,
+          "target": "cfg(windows)"
+        }
+      ]
+    },
+    {
+      "name": "zero-proxy",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/proxy/Cargo.toml",
+      "features": {
+        "authenticated-quic-inbound-runtime": [
+          "managed-datagram-runtime",
+          "quic_packet_path",
+          "transport_quic"
+        ],
+        "datagram-route-runtime": [
+          "managed-stream-runtime"
+        ],
+        "default": [
+          "managed-datagram-runtime",
+          "socks5",
+          "http",
+          "mixed",
+          "vless"
+        ],
+        "dns": [
+          "zero-dns/udp",
+          "zero-dns/doh",
+          "zero-dns/dot",
+          "zero-dns/doq"
+        ],
+        "host-network-stats": [
+          "zero-platform-tokio/host-network-stats"
+        ],
+        "http": [
+          "dep:http"
+        ],
+        "hysteria2": [
+          "inbound-listener-group-runtime",
+          "authenticated-quic-inbound-runtime",
+          "tcp-transport-session-runtime",
+          "dep:hysteria2",
+          "hysteria2/runtime"
+        ],
+        "inbound-listener-group-runtime": [],
+        "managed-datagram-runtime": [
+          "managed-udp-runtime"
+        ],
+        "managed-stream-runtime": [
+          "managed-udp-runtime",
+          "udp-response-runtime"
+        ],
+        "managed-udp-runtime": [
+          "udp-runtime"
+        ],
+        "mieru": [
+          "datagram-route-runtime",
+          "managed-datagram-runtime",
+          "managed-stream-runtime",
+          "tcp-session-runtime",
+          "dep:mieru",
+          "mieru/runtime"
+        ],
+        "mixed": [
+          "socks5",
+          "http"
+        ],
+        "quic_packet_path": [
+          "dep:quinn"
+        ],
+        "raw-ip-runtime": [
+          "managed-stream-runtime",
+          "tcp-session-runtime",
+          "dep:sha2"
+        ],
+        "rustls": [
+          "dep:rustls"
+        ],
+        "shadowsocks": [
+          "managed-datagram-runtime",
+          "tcp-session-runtime",
+          "dep:shadowsocks",
+          "shadowsocks/runtime",
+          "shadowsocks/blake3"
+        ],
+        "socks5": [
+          "udp-response-runtime",
+          "upstream-association-runtime",
+          "tcp-tunnel-runtime",
+          "dep:socks5",
+          "socks5/runtime"
+        ],
+        "tcp-session-runtime": [],
+        "tcp-transport-session-runtime": [],
+        "tcp-tunnel-runtime": [],
+        "tls-ech-runtime": [
+          "zero-transport/tls",
+          "zero-dns/udp",
+          "zero-dns/doh"
+        ],
+        "transport_quic": [
+          "zero-transport/quic",
+          "dep:quinn"
+        ],
+        "trojan": [
+          "managed-stream-runtime",
+          "tcp-tunnel-runtime",
+          "zero-transport/tls",
+          "dep:ring",
+          "dep:trojan",
+          "trojan/runtime",
+          "dep:tokio-rustls"
+        ],
+        "udp-response-runtime": [
+          "udp-runtime"
+        ],
+        "udp-runtime": [],
+        "upstream-association-runtime": [
+          "udp-runtime"
+        ],
+        "vless": [
+          "datagram-route-runtime",
+          "managed-stream-runtime",
+          "tcp-tunnel-runtime",
+          "transport_quic",
+          "tls-ech-runtime",
+          "dep:vless",
+          "vless/reality"
+        ],
+        "vmess": [
+          "managed-stream-runtime",
+          "tcp-session-runtime",
+          "dep:vmess",
+          "vmess/runtime"
+        ],
+        "wireguard": [
+          "raw-ip-runtime",
+          "datagram-route-runtime",
+          "dep:sha2",
+          "dep:wireguard",
+          "wireguard/runtime"
+        ]
+      },
+      "test_targets": [
+        {
+          "name": "endpoint_contracts",
+          "path": "crates/proxy/tests/endpoint_contracts.rs"
+        },
+        {
+          "name": "hysteria2_official_interop",
+          "path": "crates/proxy/tests/hysteria2_official_interop.rs"
+        },
+        {
+          "name": "hysteria2_sing_box_interop",
+          "path": "crates/proxy/tests/hysteria2_sing_box_interop.rs"
+        },
+        {
+          "name": "logging",
+          "path": "crates/proxy/tests/logging.rs"
+        },
+        {
+          "name": "mieru_official_interop",
+          "path": "crates/proxy/tests/mieru_official_interop.rs"
+        },
+        {
+          "name": "mieru_xray_interop",
+          "path": "crates/proxy/tests/mieru_xray_interop.rs"
+        },
+        {
+          "name": "probe_outbound_diagnostics",
+          "path": "crates/proxy/tests/probe_outbound_diagnostics.rs"
+        },
+        {
+          "name": "proxy_control",
+          "path": "crates/proxy/tests/suites/proxy_control.rs"
+        },
+        {
+          "name": "proxy_dispatch",
+          "path": "crates/proxy/tests/suites/proxy_dispatch.rs"
+        },
+        {
+          "name": "proxy_health",
+          "path": "crates/proxy/tests/suites/proxy_health.rs"
+        },
+        {
+          "name": "proxy_hysteria2",
+          "path": "crates/proxy/tests/suites/proxy_hysteria2.rs"
+        },
+        {
+          "name": "proxy_shadowsocks",
+          "path": "crates/proxy/tests/suites/proxy_shadowsocks.rs"
+        },
+        {
+          "name": "proxy_vless",
+          "path": "crates/proxy/tests/suites/proxy_vless.rs"
+        },
+        {
+          "name": "proxy_wireguard",
+          "path": "crates/proxy/tests/suites/proxy_wireguard.rs"
+        },
+        {
+          "name": "runtime_boundary",
+          "path": "crates/proxy/tests/runtime_boundary.rs"
+        },
+        {
+          "name": "shadowsocks_xray_interop",
+          "path": "crates/proxy/tests/shadowsocks_xray_interop.rs"
+        },
+        {
+          "name": "trojan_go_interop",
+          "path": "crates/proxy/tests/trojan_go_interop.rs"
+        },
+        {
+          "name": "trojan_xray_interop",
+          "path": "crates/proxy/tests/trojan_xray_interop.rs"
+        },
+        {
+          "name": "vless_early_data",
+          "path": "crates/proxy/tests/vless_early_data.rs"
+        },
+        {
+          "name": "vless_encryption",
+          "path": "crates/proxy/tests/vless_encryption.rs"
+        },
+        {
+          "name": "vless_fallback_rules",
+          "path": "crates/proxy/tests/vless_fallback_rules.rs"
+        },
+        {
+          "name": "vless_tls_vision",
+          "path": "crates/proxy/tests/vless_tls_vision.rs"
+        },
+        {
+          "name": "vless_xhttp_h3",
+          "path": "crates/proxy/tests/vless_xhttp_h3.rs"
+        },
+        {
+          "name": "vless_xhttp_modes",
+          "path": "crates/proxy/tests/vless_xhttp_modes.rs"
+        },
+        {
+          "name": "vless_xhttp_options",
+          "path": "crates/proxy/tests/vless_xhttp_options.rs"
+        },
+        {
+          "name": "vless_xray_interop",
+          "path": "crates/proxy/tests/vless_xray_interop.rs"
+        },
+        {
+          "name": "vmess_xray_interop",
+          "path": "crates/proxy/tests/vmess_xray_interop.rs"
+        },
+        {
+          "name": "wireguard_go_interop",
+          "path": "crates/proxy/tests/wireguard_go_interop.rs"
+        },
+        {
+          "name": "wireguard_icmp_route",
+          "path": "crates/proxy/tests/wireguard_icmp_route.rs"
+        },
+        {
+          "name": "wireguard_inbound",
+          "path": "crates/proxy/tests/wireguard_inbound.rs"
+        },
+        {
+          "name": "wireguard_xray_interop",
+          "path": "crates/proxy/tests/wireguard_xray_interop.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "futures-util",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "http",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hysteria2",
+          "requirement": "*",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ipnet",
+          "requirement": "^2.11",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "serde"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "mieru",
+          "requirement": "*",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "quinn",
+          "requirement": "=0.11.9",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "rustls-ring"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "regex",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "=0.23.40",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "aws_lc_rs",
+            "ring",
+            "std",
+            "tls12",
+            "logging",
+            "legacy-client"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "sha2",
+          "requirement": "^0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "shadowsocks",
+          "requirement": "*",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "socks5",
+          "requirement": "*",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio-rustls",
+          "requirement": "^0.26",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "trojan",
+          "requirement": "*",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "vless",
+          "requirement": "*",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "vmess",
+          "requirement": "*",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "wireguard",
+          "requirement": "*",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-api",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-config",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-dns",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-engine",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-stack",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-transport",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-tun",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "base64",
+          "requirement": "^0.22",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "gotatun",
+          "requirement": "=0.9.2",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "zeroized-rustcrypto"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "h2",
+          "requirement": "^0.4",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "http",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "quinn",
+          "requirement": "=0.11.9",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "rustls-ring",
+            "runtime-tokio"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "=0.23.40",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "aws_lc_rs",
+            "ring",
+            "std",
+            "tls12",
+            "logging",
+            "legacy-client"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "test-util"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio-rustls",
+          "requirement": "^0.26",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio-tungstenite",
+          "requirement": "^0.23",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tracing-subscriber",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "env-filter",
+            "fmt",
+            "json"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "wireguard",
+          "requirement": "*",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "runtime"
+          ],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-router",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/router/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "routing",
+          "path": "crates/router/tests/routing.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "ipnet",
+          "requirement": "^2.11",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "serde"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "maxminddb",
+          "requirement": "^0.24",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "regex",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-rule",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-rule",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/rule/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "rule_contracts",
+          "path": "crates/rule/tests/suites/rule_contracts.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "crc32fast",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "fst",
+          "requirement": "^0.4",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "idna",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ipnet",
+          "requirement": "^2.11",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "serde"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "memmap2",
+          "requirement": "^0.9",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "thiserror",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "sha2",
+          "requirement": "^0.10",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-stack",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/stack/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "stack_packet",
+          "path": "crates/stack/tests/suites/stack_packet.rs"
+        },
+        {
+          "name": "stack_io",
+          "path": "crates/stack/tests/suites/stack_io.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "rand",
+          "requirement": "^0.9",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-traits",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/traits/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "dial_policy",
+          "path": "crates/traits/tests/dial_policy.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "bytes",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        }
+      ]
+    },
+    {
+      "name": "zero-transport",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/transport/Cargo.toml",
+      "features": {
+        "default": [],
+        "grpc": [],
+        "h2": [],
+        "http_client": [
+          "dep:tower-service",
+          "dep:hyper",
+          "dep:hyper-util",
+          "dep:hyper-rustls",
+          "dep:http-body-util"
+        ],
+        "http_server": [
+          "http_client",
+          "tls",
+          "hyper/server",
+          "hyper/http2",
+          "hyper-util/server-auto"
+        ],
+        "http_upgrade": [],
+        "hysteria": [
+          "quic",
+          "http_server",
+          "dep:h3",
+          "dep:h3-quinn"
+        ],
+        "mkcp": [],
+        "quic": [
+          "tls"
+        ],
+        "split_http": [
+          "h2",
+          "ws",
+          "http_server",
+          "dep:h3",
+          "dep:h3-quinn"
+        ],
+        "tls": [
+          "dep:aws-lc-rs",
+          "dep:rcgen",
+          "http_client"
+        ],
+        "ws": []
+      },
+      "test_targets": [
+        {
+          "name": "browser_dialer_real",
+          "path": "crates/transport/tests/browser_dialer_real.rs"
+        },
+        {
+          "name": "carrier_contracts",
+          "path": "crates/transport/tests/suites/carrier_contracts.rs"
+        },
+        {
+          "name": "quic_contracts",
+          "path": "crates/transport/tests/suites/quic_contracts.rs"
+        },
+        {
+          "name": "tls_contracts",
+          "path": "crates/transport/tests/suites/tls_contracts.rs"
+        },
+        {
+          "name": "web_carriers",
+          "path": "crates/transport/tests/suites/web_carriers.rs"
+        },
+        {
+          "name": "xhttp_contracts",
+          "path": "crates/transport/tests/suites/xhttp_contracts.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "aes",
+          "requirement": "^0.8",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "async-trait",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "aws-lc-rs",
+          "requirement": "=1.16.3",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "non-fips",
+            "alloc"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "base64",
+          "requirement": "^0.22",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "blake2",
+          "requirement": "^0.10",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "bytes",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "data-encoding",
+          "requirement": "^2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "foreign-types",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "futures-util",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "h2",
+          "requirement": "=0.4.14",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "h3",
+          "requirement": "^0.0.8",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "h3-quinn",
+          "requirement": "=0.0.10",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hpke",
+          "requirement": "^0.14",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "alloc",
+            "getrandom",
+            "x25519",
+            "aes",
+            "chacha"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "http",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "http-body-util",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "httpdate",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hyper",
+          "requirement": "=1.9.0",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "client",
+            "http1"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hyper-rustls",
+          "requirement": "^0.27",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "http1",
+            "http2",
+            "ring",
+            "tls12"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hyper-util",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "client-legacy",
+            "http1",
+            "tokio"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "mime",
+          "requirement": "^0.3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "openssl",
+          "requirement": "=0.10.81",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "vendored"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "openssl-sys",
+          "requirement": "=0.9.117",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "percent-encoding",
+          "requirement": "^2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "quinn",
+          "requirement": "=0.11.9",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "rustls-ring",
+            "runtime-tokio"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "quinn-proto",
+          "requirement": "=0.11.14",
+          "optional": false,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rand",
+          "requirement": "^0.9",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "x509-parser"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "=0.23.40",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "aws_lc_rs",
+            "ring",
+            "std",
+            "tls12",
+            "logging",
+            "legacy-client"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rustls-pemfile",
+          "requirement": "^2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio-openssl",
+          "requirement": "=0.6.5",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio-rustls",
+          "requirement": "^0.26",
+          "optional": false,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio-tungstenite",
+          "requirement": "^0.23",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio-util",
+          "requirement": "^0.7",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "rt"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tower-service",
+          "requirement": "^0.3",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tungstenite",
+          "requirement": "^0.23",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "url",
+          "requirement": "^2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "webpki-root-certs",
+          "requirement": "=1.0.7",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "webpki-roots",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "x25519-dalek",
+          "requirement": "^2.0.1",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "static_secrets"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "x509-parser",
+          "requirement": "^0.18",
+          "optional": false,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-core",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-error",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-platform-tokio",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ztls",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "hyper",
+          "requirement": "=1.9.0",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "server",
+            "http1"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "test-util"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "winreg",
+          "requirement": "^0.55",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": "cfg(windows)"
+        }
+      ]
+    },
+    {
+      "name": "zero-tun",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/tun/Cargo.toml",
+      "features": {},
+      "test_targets": [
+        {
+          "name": "privileged_configuration",
+          "path": "crates/tun/tests/privileged_configuration.rs"
+        },
+        {
+          "name": "route_monitor_macos_e2e",
+          "path": "crates/tun/tests/route_monitor_macos_e2e.rs"
+        },
+        {
+          "name": "tun_device",
+          "path": "crates/tun/tests/suites/tun_device.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "fs2",
+          "requirement": "^0.4",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ipnet",
+          "requirement": "^2.11",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "serde"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "derive"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "serde_json",
+          "requirement": "^1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tempfile",
+          "requirement": "^3",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "libc",
+          "requirement": "^0.2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": "cfg(target_os = \"linux\")"
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "net",
+            "io-util"
+          ],
+          "kind": null,
+          "target": "cfg(target_os = \"linux\")"
+        },
+        {
+          "name": "libc",
+          "requirement": "^0.2",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": "cfg(target_os = \"macos\")"
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "net",
+            "io-util"
+          ],
+          "kind": null,
+          "target": "cfg(target_os = \"macos\")"
+        },
+        {
+          "name": "windows-sys",
+          "requirement": "^0.61",
+          "optional": false,
+          "default_features": true,
+          "features": [
+            "Win32_Foundation",
+            "Win32_NetworkManagement_IpHelper",
+            "Win32_NetworkManagement_Ndis",
+            "Win32_NetworkManagement_WindowsFilteringPlatform",
+            "Win32_Networking_WinSock",
+            "Win32_Security",
+            "Win32_System_Rpc",
+            "Win32_System_Threading"
+          ],
+          "kind": null,
+          "target": "cfg(target_os = \"windows\")"
+        },
+        {
+          "name": "wintun",
+          "requirement": "^0.4",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": "cfg(target_os = \"windows\")"
+        }
+      ]
+    },
+    {
+      "name": "ztls",
+      "version": "0.0.3-dev.202610162206",
+      "manifest": "crates/ztls/Cargo.toml",
+      "features": {
+        "default": [
+          "runtime"
+        ],
+        "runtime": [
+          "validation",
+          "dep:rand",
+          "dep:ring",
+          "dep:rustls",
+          "dep:subtle",
+          "dep:tokio",
+          "dep:tracing",
+          "dep:webpki-roots",
+          "dep:x25519-dalek",
+          "dep:zeroize",
+          "dep:brotli-decompressor",
+          "dep:zstd",
+          "dep:flate2"
+        ],
+        "validation": [
+          "dep:base64",
+          "dep:url"
+        ]
+      },
+      "test_targets": [
+        {
+          "name": "ztls_contracts",
+          "path": "crates/ztls/tests/suites/ztls_contracts.rs"
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "base64",
+          "requirement": "^0.22",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "brotli-decompressor",
+          "requirement": "^5.0.3",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "std"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "flate2",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rand",
+          "requirement": "^0.9",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "ring",
+          "requirement": "^0.17",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "rustls",
+          "requirement": "=0.23.40",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "aws_lc_rs",
+            "ring",
+            "std",
+            "tls12",
+            "logging",
+            "legacy-client"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "subtle",
+          "requirement": "^2.6",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tokio",
+          "requirement": "^1.53.3",
+          "optional": true,
+          "default_features": true,
+          "features": [
+            "fs",
+            "io-util",
+            "macros",
+            "net",
+            "rt-multi-thread",
+            "signal",
+            "sync",
+            "time",
+            "net",
+            "rt"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "tracing",
+          "requirement": "^0.1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "url",
+          "requirement": "^2",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "webpki-roots",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "x25519-dalek",
+          "requirement": "^2.0.1",
+          "optional": true,
+          "default_features": false,
+          "features": [
+            "static_secrets"
+          ],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zero-traits",
+          "requirement": "*",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zeroize",
+          "requirement": "^1",
+          "optional": true,
+          "default_features": true,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "zstd",
+          "requirement": "^0.13.3",
+          "optional": true,
+          "default_features": false,
+          "features": [],
+          "kind": null,
+          "target": null
+        },
+        {
+          "name": "brotli",
+          "requirement": "^8.0.4",
+          "optional": false,
+          "default_features": false,
+          "features": [
+            "std"
+          ],
+          "kind": "dev",
+          "target": null
+        },
+        {
+          "name": "rcgen",
+          "requirement": "^0.14",
+          "optional": false,
+          "default_features": true,
+          "features": [],
+          "kind": "dev",
+          "target": null
+        }
+      ]
+    }
+  ]
+}

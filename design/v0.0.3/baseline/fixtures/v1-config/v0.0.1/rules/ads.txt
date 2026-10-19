@@ -1,0 +1,4 @@
+# Domain suffixes or exact domains that should be rejected.
+doubleclick.net
+.googleadservices.com
+ads.example.com

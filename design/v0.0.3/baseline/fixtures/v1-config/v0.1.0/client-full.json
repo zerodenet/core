@@ -1,0 +1,220 @@
+{
+  "inbounds": [
+    {
+      "tag": "mixed-in",
+      "listen": { "address": "127.0.0.1", "port": 7890 },
+      "protocol": { "type": "mixed" }
+    }
+  ],
+
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": { "type": "direct" }
+    },
+    {
+      "tag": "block",
+      "protocol": { "type": "block" }
+    },
+    {
+      "tag": "relay-socks5",
+      "protocol": {
+        "type": "socks5",
+        "server": "socks5-proxy.example.com",
+        "port": 1080,
+        "username": "user",
+        "password": "pass"
+      }
+    },
+    {
+      "tag": "vless-tls",
+      "protocol": {
+        "type": "vless",
+        "server": "vless-tls.example.com",
+        "port": 443,
+        "id": "11111111-2222-3333-4444-555555555555",
+        "tls": {
+          "server_name": "vless-tls.example.com",
+          "insecure": false
+        }
+      }
+    },
+    {
+      "tag": "vless-reality",
+      "protocol": {
+        "type": "vless",
+        "server": "vless-reality.example.com",
+        "port": 443,
+        "id": "11111111-2222-3333-4444-555555555555",
+        "reality": {
+          "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "short_id": "0123456789abcdef",
+          "server_name": "www.microsoft.com",
+          "client_fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "tag": "vless-ws-tls",
+      "protocol": {
+        "type": "vless",
+        "server": "vless-ws.example.com",
+        "port": 443,
+        "id": "11111111-2222-3333-4444-555555555555",
+        "tls": {
+          "server_name": "vless-ws.example.com"
+        },
+        "ws": {
+          "path": "/vless",
+          "headers": {
+            "User-Agent": "zero-proxy"
+          }
+        }
+      }
+    },
+    {
+      "tag": "hysteria2-node",
+      "protocol": {
+        "type": "hysteria2",
+        "server": "hysteria2.example.com",
+        "port": 443,
+        "password": "your-secret-password",
+        "insecure": false
+      }
+    },
+    {
+      "tag": "shadowsocks-node",
+      "protocol": {
+        "type": "shadowsocks",
+        "server": "ss.example.com",
+        "port": 8388,
+        "password": "your-secret-password",
+        "cipher": "chacha20-ietf-poly1305"
+      }
+    },
+    {
+      "tag": "trojan-node",
+      "protocol": {
+        "type": "trojan",
+        "server": "trojan.example.com",
+        "port": 443,
+        "password": "your-secret-password",
+        "sni": "trojan.example.com",
+        "insecure": false
+      }
+    }
+  ],
+
+  "outbound_groups": [
+    {
+      "tag": "proxy",
+      "type": "selector",
+      "outbounds": [
+        "vless-tls",
+        "vless-reality",
+        "vless-ws-tls",
+        "hysteria2-node",
+        "shadowsocks-node",
+        "trojan-node",
+        "relay-socks5"
+      ],
+      "selected": "trojan-node"
+    },
+    {
+      "tag": "auto",
+      "type": "url_test",
+      "outbounds": [
+        "vless-tls",
+        "hysteria2-node",
+        "trojan-node"
+      ],
+      "url": "http://cp.cloudflare.com/",
+      "interval_seconds": 300,
+      "tolerance_ms": 50
+    },
+    {
+      "tag": "fallback-proxy",
+      "type": "fallback",
+      "outbounds": [
+        "trojan-node",
+        "vless-tls",
+        "shadowsocks-node",
+        "direct"
+      ]
+    }
+  ],
+
+  "mode": { "type": "rule" },
+
+  "route": {
+    "rule_sets": [
+      {
+        "tag": "private",
+        "type": "file",
+        "path": "rules/private.txt",
+        "format": "domain_list"
+      },
+      {
+        "tag": "lan",
+        "type": "file",
+        "path": "rules/lan.txt",
+        "format": "cidr_list"
+      }
+    ],
+    "rules": [
+      {
+        "condition": { "type": "rule_set", "tag": "private" },
+        "action": { "type": "direct" }
+      },
+      {
+        "condition": { "type": "rule_set", "tag": "lan" },
+        "action": { "type": "direct" }
+      },
+      {
+        "condition": { "type": "domain", "values": [
+          "ads.example.com", "tracker.example.net"
+        ] },
+        "action": { "type": "reject" }
+      },
+      {
+        "condition": { "type": "domain", "values": [
+          "geo-restricted.example.com", "streaming.example.net"
+        ] },
+        "action": { "type": "route", "outbound": "auto" }
+      },
+      {
+        "condition": {
+          "type": "and",
+          "items": [
+            { "type": "ip", "values": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] },
+            { "type": "domain", "values": ["internal-api.example.local"] }
+          ]
+        },
+        "action": { "type": "direct" }
+      }
+    ],
+    "final": { "type": "route", "outbound": "proxy" }
+  },
+
+  "runtime": {
+    "udp_upstream_idle_timeout_seconds": 30,
+    "latency_test_url": "http://www.gstatic.com/generate_204",
+    "network": { "mtu": 1500 }
+  },
+
+  "api": {
+    "control": {
+      "enabled": true,
+      "listen": { "address": "127.0.0.1", "port": 9090 },
+      "api_key_env": "ZERO_API_KEY"
+    },
+    "event_sinks": [
+      {
+        "type": "jsonl",
+        "tag": "local",
+        "path": "zero-events.jsonl",
+        "events": ["flow.completed", "engine.warning"]
+      }
+    ]
+  }
+}
