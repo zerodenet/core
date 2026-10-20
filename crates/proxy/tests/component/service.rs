@@ -34,12 +34,19 @@ async fn actual_manual_probe_uses_registered_role_and_keeps_business_registry_em
             }
         });
         let config = RuntimeConfig::parse(r#"{"outbounds":[{"tag":"selected","protocol":{"type":"direct"}},{"tag":"direct","protocol":{"type":"direct"}}],"route":{"final":{"type":"direct"}}}"#).unwrap();
-        let proxy = Proxy::new(config).unwrap();
+        let proxy = Proxy::new(config.clone()).unwrap();
+        let handle = zero_proxy::ProxyHandle::new(
+            zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone(),
+        );
+        let running = proxy.spawn();
+        handle.apply_runtime_config_and_wait(config, Duration::from_secs(1)).await
+            .expect("actual host startup and configuration acknowledgement");
         let url = format!("http://127.0.0.1:{port}/probe");
         proxy.probe_outbound_single("selected", &url).await.unwrap();
         // A named `direct` outbound must not alias the implicit kernel role.
         proxy.probe_outbound_single("direct", &url).await.unwrap();
         assert_eq!(proxy.engine().active_sessions().len(), 0);
         server.await.unwrap();
+        running.shutdown().await.unwrap();
     }).await.unwrap();
 }
