@@ -72,6 +72,23 @@ impl DirectUdpSockets {
             self.close.retire(entry);
         }
     }
+    pub(super) fn reserve_native_open(&mut self) -> Result<(), zero_engine::EngineError> {
+        if let Some(budget) = &mut self.native_budget {
+            if self.sockets.len().saturating_add(self.close.failures.len()) >= budget.sockets.get()
+                || budget.started >= budget.attempts.get()
+            {
+                use zero_platform_tokio::contract::{
+                    ChannelError, DeliveryState, Impact, Reason, Stage,
+                };
+                let mut failure =
+                    ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component);
+                failure.delivery = DeliveryState::NotSubmitted;
+                return Err(io::Error::other(failure).into());
+            }
+            budget.started += 1;
+        }
+        Ok(())
+    }
     pub(super) fn ensure_native_admission(&self) -> Result<(), zero_engine::EngineError> {
         if let Some((_id, source)) = self.native_close_failure() {
             use zero_platform_tokio::contract::{

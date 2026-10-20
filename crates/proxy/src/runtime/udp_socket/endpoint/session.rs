@@ -63,6 +63,10 @@ impl DirectEndpointTx {
             _ = self.shared.scope_cancel.cancelled() => return Err(legacy(error(Stage::Send, Reason::Revoked, DeliveryState::NotSubmitted))),
             permit = self.shared.commands.reserve() => permit.map_err(|source| legacy(error(Stage::Send, Reason::Revoked, DeliveryState::NotSubmitted).with_source(source)))?,
         };
+        let storage = self
+            .shared
+            .reserve_command_copy(target, candidates.len(), payload.len())
+            .map_err(legacy)?;
         let (receipt, response) = oneshot::channel();
         let mut pending = PendingSend {
             logical: &self.logical,
@@ -74,6 +78,7 @@ impl DirectEndpointTx {
             candidates: candidates.to_vec(),
             payload: payload.to_vec(),
             receipt,
+            _storage: storage,
         });
         let result = tokio::select! {
             _ = self.logical.cancel.cancelled() => return Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::Unknown))),

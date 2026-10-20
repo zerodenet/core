@@ -28,6 +28,7 @@ fn observed_owner(fixture: &Fixture, observation: Arc<BoundaryObserver>) -> Dire
         crate::protocol_registry::UdpRuntimeServices::new(services).network(),
         None,
         UdpReceiveQueueConfig::default(),
+        limits(),
         TaskScope::new(
             tokio::runtime::Handle::current(),
             NonZeroUsize::new(1).unwrap(),

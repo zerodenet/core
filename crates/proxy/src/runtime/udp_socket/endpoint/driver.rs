@@ -130,6 +130,11 @@ impl Shared {
             self.drop_queued(zero_traits::PacketDropReason::QueueFull);
             return;
         }
+        let Some(storage) = self.reserve_copy(bytes.len()) else {
+            logical.bytes.fetch_sub(bytes.len(), Ordering::AcqRel);
+            self.drop_queued(zero_traits::PacketDropReason::QueueFull);
+            return;
+        };
         source.guard = source
             .guard
             .map(|guard| guard.with_logical_cancel(logical.cancel.clone()));
@@ -137,6 +142,7 @@ impl Shared {
             payload: bytes.to_vec(),
             source,
             owner: logical.clone(),
+            _storage: storage,
         });
         logical.changed.notify_waiters();
     }
@@ -172,7 +178,7 @@ pub(super) async fn run(
                 let (size, source) = incoming.map_err(|source| error(Stage::Receive, Reason::Io, DeliveryState::Unknown).with_source(source))?;
                 shared.deliver(&bytes[..size], source);
             }
-            Some(command) = commands.recv() => {
+            Some(mut command) = commands.recv() => {
                 if command.logical.cancel.is_cancelled() {
                     let _ = command.receipt.send(Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::NotSubmitted))));
                     continue;
@@ -183,7 +189,7 @@ pub(super) async fn run(
                 let sent = tokio::select! {
                     _ = shared.scope_cancel.cancelled() => Err(legacy(error(Stage::Send, Reason::Revoked, DeliveryState::Unknown))),
                     _ = command.logical.cancel.cancelled() => Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::Unknown))),
-                    sent = sockets.send_new_packet(&command.target, &command.candidates, &command.payload, command.logical.session.0, &command.logical.policy) => sent.map_err(|source| legacy(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(source))),
+                    sent = sockets.send_owned_packet(&command.target, std::mem::take(&mut command.candidates), &command.payload, command.logical.session.0, &command.logical.policy) => sent.map_err(|source| legacy(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(source))),
                 };
                 if sent.is_err() { command.logical.cancel.cancel(); }
                 // Losing the receiver cannot turn an actual submission into a

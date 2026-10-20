@@ -120,6 +120,7 @@ impl DirectUdpSockets {
         // Existing healthy mappings above may keep running, but a new native
         // endpoint must not grow an unresolved original-descriptor ledger.
         self.ensure_native_admission()?;
+        self.reserve_native_open()?;
         let id = self.next_socket_id;
         self.next_socket_id = self.next_socket_id.checked_add(1).ok_or_else(|| {
             EngineError::Io(std::io::Error::other(

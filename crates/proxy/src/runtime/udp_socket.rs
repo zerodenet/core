@@ -40,6 +40,13 @@ pub(crate) struct DirectUdpSockets {
     isolated_sessions: HashMap<u64, u64>,
     receive: tokio::sync::Mutex<receive::DirectUdpReceiver>,
     close: close::NativeCloseLedger,
+    native_budget: Option<DirectNativeBudget>,
+}
+#[cfg(feature = "udp-runtime")]
+struct DirectNativeBudget {
+    sockets: std::num::NonZeroUsize,
+    attempts: std::num::NonZeroUsize,
+    started: usize,
 }
 
 #[cfg(feature = "udp-runtime")]
@@ -86,6 +93,7 @@ impl DirectUdpSockets {
             isolated_sessions: HashMap::new(),
             receive: tokio::sync::Mutex::new(receive::DirectUdpReceiver::default()),
             close: close::NativeCloseLedger::default(),
+            native_budget: None,
         }
     }
 

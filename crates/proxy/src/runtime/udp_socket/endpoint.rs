@@ -1,4 +1,5 @@
 //! Independent real shared Direct owner. Production graph activation is separate.
+mod budget;
 mod driver;
 mod lifecycle;
 mod session;
@@ -7,6 +8,8 @@ mod tests;
 
 use super::{DirectUdpPolicy, DirectUdpResponseSource, DirectUdpSentPacket, DirectUdpSockets};
 use crate::protocol_registry::UdpNetworkServices;
+use budget::CopyReservation;
+pub(crate) use budget::DirectEndpointLimits;
 pub(crate) use session::{DirectEndpointControl, DirectEndpointRx, DirectEndpointTx};
 use std::{
     collections::BTreeMap,
@@ -63,6 +66,8 @@ struct Shared {
     scope_cancel: CancellationToken,
     commands: mpsc::Sender<Command>,
     queue: UdpReceiveQueueConfig,
+    limits: DirectEndpointLimits,
+    pending_bytes: Arc<AtomicUsize>,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 #[derive(Default)]
@@ -92,6 +97,7 @@ struct Response {
     payload: Vec<u8>,
     source: DirectUdpResponseSource,
     owner: Arc<Logical>,
+    _storage: CopyReservation,
 }
 impl Logical {
     fn drain_receive_queue(&self) {
@@ -116,6 +122,7 @@ struct Command {
     candidates: Vec<std::net::SocketAddr>,
     payload: Vec<u8>,
     receipt: oneshot::Sender<Result<DirectUdpSentPacket, EngineError>>,
+    _storage: CopyReservation,
 }
 fn error(stage: Stage, reason: Reason, delivery: DeliveryState) -> ChannelError {
     let mut error = ChannelError::new(stage, reason, Impact::Session);
@@ -133,6 +140,7 @@ impl DirectEndpointOwner {
         services: UdpNetworkServices,
         preferred_port: Option<u16>,
         queue: UdpReceiveQueueConfig,
+        limits: DirectEndpointLimits,
         scope: TaskScope,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<Self, ChannelError> {
@@ -151,15 +159,23 @@ impl DirectEndpointOwner {
         }
         let (tx, commands) = mpsc::channel(queue.capacity);
         let scope_cancel = scope.registrar().cancellation();
+        let mut sockets = DirectUdpSockets::new(services, preferred_port);
+        sockets.native_budget = Some(super::DirectNativeBudget {
+            sockets: limits.native_sockets,
+            attempts: limits.native_open_attempts,
+            started: 0,
+        });
         Ok(Self {
             shared: Arc::new(Shared {
                 identity,
-                sockets: AsyncMutex::new(DirectUdpSockets::new(services, preferred_port)),
+                sockets: AsyncMutex::new(sockets),
                 state: Mutex::new(State::default()),
                 changed: Notify::new(),
                 scope_cancel,
                 commands: tx,
                 queue,
+                limits,
+                pending_bytes: Arc::new(AtomicUsize::new(0)),
                 observer,
             }),
             scope,
@@ -217,6 +233,13 @@ impl DirectEndpoint {
             return Err(error(
                 Stage::Prepare,
                 Reason::Revoked,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        if state.sessions.len() >= self.0.limits.logical.get() {
+            return Err(error(
+                Stage::Prepare,
+                Reason::Capacity,
                 DeliveryState::NotSubmitted,
             ));
         }

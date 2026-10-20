@@ -12,10 +12,48 @@ impl DirectUdpSockets {
     ) -> Result<DirectUdpSentPacket, EngineError> {
         self.refresh_if_stale();
         self.services.ensure_direct_policy_current(policy)?;
-        let mut candidates = policy
+        let candidates = policy
             .dial_policy
             .filter_candidates(candidates.iter().copied())
             .map_err(invalid_policy)?;
+        self.send_candidates(logical_target, candidates, payload, session_id, policy)
+            .await
+    }
+
+    /// Consume the already budgeted candidate allocation from the typed driver.
+    /// Filtering in place preserves the original normalization/order semantics.
+    pub(super) async fn send_owned_packet(
+        &mut self,
+        logical_target: &Address,
+        mut candidates: Vec<SocketAddr>,
+        payload: &[u8],
+        session_id: u64,
+        policy: &DirectUdpPolicy,
+    ) -> Result<DirectUdpSentPacket, EngineError> {
+        self.refresh_if_stale();
+        self.services.ensure_direct_policy_current(policy)?;
+        policy.dial_policy.validate().map_err(invalid_policy)?;
+        candidates.retain_mut(
+            |candidate| match policy.dial_policy.normalize_peer(*candidate) {
+                Ok(normalized) => {
+                    *candidate = normalized;
+                    true
+                }
+                Err(_) => false,
+            },
+        );
+        self.send_candidates(logical_target, candidates, payload, session_id, policy)
+            .await
+    }
+
+    async fn send_candidates(
+        &mut self,
+        logical_target: &Address,
+        mut candidates: Vec<SocketAddr>,
+        payload: &[u8],
+        session_id: u64,
+        policy: &DirectUdpPolicy,
+    ) -> Result<DirectUdpSentPacket, EngineError> {
         let mut last_error = None;
         while let Some(target) = select_stable_udp_target(logical_target, &candidates, true, true) {
             self.services.ensure_direct_policy_current(policy)?;

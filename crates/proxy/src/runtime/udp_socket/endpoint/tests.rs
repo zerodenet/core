@@ -14,6 +14,15 @@ use zero_platform_tokio::contract::{
     scope::TaskScope,
 };
 
+fn limits() -> DirectEndpointLimits {
+    DirectEndpointLimits {
+        logical: NonZeroUsize::new(4).unwrap(),
+        native_sockets: NonZeroUsize::new(4).unwrap(),
+        native_open_attempts: NonZeroUsize::new(16).unwrap(),
+        pending_bytes: NonZeroUsize::new(1_048_576).unwrap(),
+        candidates_per_job: NonZeroUsize::new(8).unwrap(),
+    }
+}
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(2)
 }
@@ -63,12 +72,22 @@ impl Fixture {
         queue: UdpReceiveQueueConfig,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> DirectEndpointOwner {
+        self.owner_with_limits(scope, queue, observer, limits())
+    }
+    fn owner_with_limits(
+        &self,
+        scope: TaskScope,
+        queue: UdpReceiveQueueConfig,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+        grants: DirectEndpointLimits,
+    ) -> DirectEndpointOwner {
         DirectEndpointOwner::new(
             self.identity,
             crate::protocol_registry::UdpRuntimeServices::new(self.proxy.tcp_runtime_services())
                 .network(),
             None,
             queue,
+            grants,
             scope,
             observer,
         )
@@ -97,6 +116,22 @@ impl Fixture {
         DirectEndpointRx,
         Box<dyn DynChannelControl>,
     ) {
+        self.try_open(endpoint, target, cancel, isolation).unwrap()
+    }
+    fn try_open(
+        &self,
+        endpoint: &DirectEndpoint,
+        target: SocketAddr,
+        cancel: CancellationToken,
+        isolation: Option<u64>,
+    ) -> Result<
+        (
+            DirectEndpointTx,
+            DirectEndpointRx,
+            Box<dyn DynChannelControl>,
+        ),
+        ChannelError,
+    > {
         let mut business = Session::new(
             0,
             Address::Ipv4([127, 0, 0, 1]),
@@ -109,20 +144,18 @@ impl Fixture {
             .prepare_session(&mut business, "fixture-udp")
             .unwrap();
         let reservation = self.retirement.reserve().unwrap();
-        let session = endpoint
-            .open_isolated(
-                SessionId(business.id),
-                reservation.association(),
-                super::super::tests::policy(&self.proxy, Some("first")),
-                cancel,
-                isolation,
-            )
-            .unwrap();
-        (
+        let session = endpoint.open_isolated(
+            SessionId(business.id),
+            reservation.association(),
+            super::super::tests::policy(&self.proxy, Some("first")),
+            cancel,
+            isolation,
+        )?;
+        Ok((
             session.tx,
             session.rx,
             reservation.adopt(erase_control(session.control)),
-        )
+        ))
     }
 }
 async fn send(tx: &mut DirectEndpointTx, peer: &tokio::net::UdpSocket, bytes: &[u8]) -> SocketAddr {
@@ -234,6 +267,7 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
     drop(fixture.catalog);
 }
 
+mod budget;
 mod isolation;
 mod lifecycle;
 mod observer;
