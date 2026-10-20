@@ -66,6 +66,12 @@ impl QuinnDriverOwner {
             callbacks,
         })
     }
+    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    pub(super) fn application_ledger(
+        &self,
+    ) -> &tracked::DriverOwner<OwnedDriverOrigin, DriverBody> {
+        &self.ledger
+    }
     pub fn revoke_registration(&self) {
         self.ledger.revoke_registration();
     }

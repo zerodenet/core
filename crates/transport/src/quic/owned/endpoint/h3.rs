@@ -13,6 +13,8 @@ use zero_platform_tokio::contract::ChannelError;
 mod bidi;
 mod connection;
 mod outcome;
+mod prepared;
+pub use prepared::{PendingHttp3, RequestSender};
 mod streams;
 pub use bidi::BidiStream;
 pub use connection::{Connection, OpenStreams};
