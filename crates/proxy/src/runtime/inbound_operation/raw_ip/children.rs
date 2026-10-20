@@ -28,7 +28,10 @@ impl RawIpChildren {
                 "raw-IP TCP retransmission and control workers joined",
                 zero_stack::UserTcpStack::BACKGROUND_TASK_LIMIT,
             ),
-            echoes: RetainedTasks::new("raw-IP ICMP probes joined", super::icmp::MAX_ECHO_PROBES),
+            echoes: RetainedTasks::new(
+                "raw-IP ICMP probes joined",
+                RawIpInboundListenerOperation::MAX_ICMP_PROBES,
+            ),
         }
     }
     pub(super) fn install(&mut self, context: &InboundInstallContext) -> Result<(), EngineError> {
