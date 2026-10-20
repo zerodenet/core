@@ -90,9 +90,16 @@ async fn actual_same_numeric_reservations_cannot_replay_another_original_view_re
 struct LastWaker {
     claim: Arc<MetadataViewClaim>,
     dropped: Arc<AtomicUsize>,
+    wakes: Arc<AtomicUsize>,
 }
 impl Wake for LastWaker {
-    fn wake(self: Arc<Self>) {}
+    fn wake(self: Arc<Self>) {
+        assert!(
+            self.claim.try_closed().is_none(),
+            "native wake cannot release the original RX view"
+        );
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
 }
 impl Drop for LastWaker {
     fn drop(&mut self) {
@@ -114,9 +121,11 @@ async fn actual_pending_rx_last_caller_waker_drop_precedes_view_receipt_even_aft
         .unwrap();
     let claim = Arc::new(claim);
     let dropped = Arc::new(AtomicUsize::new(0));
+    let wakes = Arc::new(AtomicUsize::new(0));
     let waker = Waker::from(Arc::new(LastWaker {
         claim: claim.clone(),
         dropped: dropped.clone(),
+        wakes: wakes.clone(),
     }));
     let mut bytes = [0; 1];
     let mut buffers = [IoSliceMut::new(&mut bytes)];
@@ -130,6 +139,7 @@ async fn actual_pending_rx_last_caller_waker_drop_precedes_view_receipt_even_aft
     // Explicit native close fences/wakes the original but does not free its
     // real outstanding caller-waker registration or turn it into a user ACK.
     grant.control.close().unwrap();
+    assert!(wakes.load(Ordering::SeqCst) > 0);
     assert!(claim.try_closed().is_none());
     drop(grant.rx);
     assert_eq!(dropped.load(Ordering::SeqCst), 1);
