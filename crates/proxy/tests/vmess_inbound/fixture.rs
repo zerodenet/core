@@ -75,8 +75,12 @@ pub(super) async fn vmess_client(
         zero_core::Network::Tcp,
         zero_core::ProtocolType::new("client"),
     );
-    let wire = ::vmess::outbound::VmessTcpConnectRequest::from_config(USER_ID, "chacha20-poly1305")
-        .unwrap();
+    let wire = ::vmess::outbound::PreparedVmessOutboundRequestBundle::from_config(
+        USER_ID,
+        "chacha20-poly1305",
+        None,
+    )
+    .unwrap();
     let (client, _) = wire
         .establish_tcp_outbound_stream(zero_platform_tokio::TcpRelayStream::new(tls), &request)
         .await
