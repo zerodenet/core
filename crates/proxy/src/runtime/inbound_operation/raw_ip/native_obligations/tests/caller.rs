@@ -71,6 +71,17 @@ async fn same_actual_caller_reaches_the_admitted_invocation_but_real_join_never_
     assert!(observed.same_slot(&registration));
     assert!(observed.check_open().is_ok());
     assert!(registration.caller_joined().is_none());
+    let witness = registration
+        .caller_witness()
+        .expect("same actual spawn_tracked witness");
+    assert!(!witness.is_joined());
+    let waiting = witness.wait();
+    tokio::pin!(waiting);
+    std::future::poll_fn(|cx| {
+        assert!(waiting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
     let other = native.reserve(ChildKind::Tcp).unwrap();
     assert!(!other.registration().same_slot(&registration));
     assert!(proxy
@@ -90,6 +101,21 @@ async fn same_actual_caller_reaches_the_admitted_invocation_but_real_join_never_
         zero_platform_tokio::contract::scope::TaskClass::Critical
     );
     assert!(joined.failure().is_none());
+    let actual = witness
+        .try_joined()
+        .expect("only actual Scope consumption completes this witness");
+    assert_eq!(actual.id(), joined.task());
+    assert_eq!(actual.class(), joined.class());
+    assert!(actual.result().is_ok());
+    assert_eq!(
+        registration
+            .caller_witness()
+            .unwrap()
+            .try_joined()
+            .unwrap()
+            .id(),
+        actual.id()
+    );
     assert!(Arc::ptr_eq(&joined, &registration.caller_joined().unwrap()));
     assert!(registration.check_open().is_err());
     assert!(invocation.cancellation().is_cancelled());

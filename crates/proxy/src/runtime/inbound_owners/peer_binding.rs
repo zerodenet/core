@@ -25,6 +25,7 @@ impl JoinedPeer {
 #[derive(Default)]
 struct State {
     task: Option<TaskId>,
+    witness: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     joined: Option<Arc<JoinedPeer>>,
     rejected: Option<SharedError>,
 }
@@ -53,13 +54,18 @@ impl HostPeerBinding {
             cancel: cancel.child_token(),
         }
     }
-    pub(super) fn bind(&self, task: TaskId) {
+    pub(super) fn bind(
+        &self,
+        task: TaskId,
+        witness: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) {
         let mut state = self.state.lock().expect("peer binding poisoned");
         assert!(
             state.task.is_none() && state.rejected.is_none(),
             "one actual scope registration"
         );
         state.task = Some(task);
+        state.witness = Some(witness);
         drop(state);
         self.changed.notify_waiters();
     }
@@ -93,6 +99,17 @@ impl HostPeerBinding {
             .lock()
             .expect("peer binding poisoned")
             .joined
+            .clone()
+    }
+    /// The exact witness returned by the same actual spawn_tracked call.
+    /// Observation neither consumes TaskExit nor confirms any native I/O.
+    pub(crate) fn join_witness(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.state
+            .lock()
+            .expect("peer binding poisoned")
+            .witness
             .clone()
     }
     /// Observation only: only the original containing Scope constructs this.

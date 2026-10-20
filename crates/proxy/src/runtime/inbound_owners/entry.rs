@@ -92,6 +92,24 @@ impl InboundTaskAccess {
         self.spawn_critical(work)
             .map_err(|source| std::io::Error::other(source).into())
     }
+    pub(super) fn spawn_critical_tracked(
+        &self,
+        work: impl Future<Output = Result<(), EngineError>> + Send + 'static,
+    ) -> Result<
+        (
+            TaskId,
+            zero_platform_tokio::contract::scope::TaskJoinWitness,
+        ),
+        zero_platform_tokio::contract::scope::SpawnError,
+    > {
+        self.registrar
+            .spawn_tracked(TaskClass::Critical, async move {
+                work.await.map_err(|source| {
+                    ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
+                        .with_source(source)
+                })
+            })
+    }
     pub(super) fn spawn_critical(
         &self,
         work: impl Future<Output = Result<(), EngineError>> + Send + 'static,

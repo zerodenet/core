@@ -164,9 +164,9 @@ impl InboundPeerTasks {
             drop(state);
             return Ok(false);
         }
-        let id = host.spawn_critical(task);
-        let id = match id {
-            Ok(id) => id,
+        let id = host.spawn_critical_tracked(task);
+        let (id, witness) = match id {
+            Ok(registered) => registered,
             Err(source) => {
                 use zero_platform_tokio::contract::{scope::SpawnError, Reason};
                 let reason = match source {
@@ -189,7 +189,7 @@ impl InboundPeerTasks {
             }
         };
         // Receipt dispatch takes this same lock, including exit-before-insert.
-        binding.bind(id);
+        binding.bind(id, witness);
         state.active.insert(id, binding);
         state.preparing -= 1;
         registration.accepted = true;
