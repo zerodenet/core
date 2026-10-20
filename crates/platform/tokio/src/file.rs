@@ -13,33 +13,33 @@ mod windows;
 /// the actual disk handle before reading. Ordinary symlinks follow kernel lookup;
 /// the supplied authority is never rewritten. File I/O may block on either OS.
 pub fn read_regular_file(path: &Path, max_bytes: usize) -> io::Result<Vec<u8>> {
-    let limit = max_bytes
-        .checked_add(1)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "file byte bound overflow"))?;
-    #[cfg(unix)]
-    {
-        use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open(path)?;
-        read_opened_file(file, max_bytes, limit)
+    let owner = PendingFileRead::new(path.to_path_buf(), max_bytes)?;
+    let result = owner.run();
+    drop(owner);
+    result.map_err(|source| {
+        Arc::try_unwrap(source)
+            .unwrap_or_else(|source| io::Error::new(source.kind(), RetainedIo(source)))
+    })
+}
+
+mod native;
+mod owner;
+pub use owner::{FileNativeEvidence, FileReadEvidence, PendingFileRead};
+use std::sync::Arc;
+#[derive(Debug)]
+struct RetainedIo(Arc<io::Error>);
+impl std::fmt::Display for RetainedIo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
-    #[cfg(windows)]
-    {
-        windows::read(path, max_bytes, limit)
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = (path, limit);
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "regular-file grants require a platform-specific nonblocking open policy",
-        ))
+}
+impl std::error::Error for RetainedIo {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
     }
 }
 
-fn read_opened_file(file: File, max_bytes: usize, limit: usize) -> io::Result<Vec<u8>> {
+fn read_opened_file(file: &mut File, max_bytes: usize, limit: usize) -> io::Result<Vec<u8>> {
     use std::io::Read;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
@@ -55,7 +55,7 @@ fn read_opened_file(file: File, max_bytes: usize, limit: usize) -> io::Result<Ve
         ));
     }
     let mut bytes = Vec::new();
-    file.take(limit as u64).read_to_end(&mut bytes)?;
+    (&mut *file).take(limit as u64).read_to_end(&mut bytes)?;
     if bytes.len() > max_bytes {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,

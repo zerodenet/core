@@ -10,7 +10,7 @@ use windows_sys::Win32::{
     Storage::FileSystem::{GetFileType, FILE_ATTRIBUTE_DEVICE, FILE_TYPE_DISK, FILE_TYPE_UNKNOWN},
 };
 
-pub(super) fn read(path: &Path, max_bytes: usize, limit: usize) -> io::Result<Vec<u8>> {
+pub(super) fn open(path: &Path) -> io::Result<File> {
     // Do not open explicit device/NT namespaces (including physical volumes and
     // local named pipes). A UNC pipe share is also not an ordinary file grant.
     // This validates syntax only; it does not canonicalize or grant a new path.
@@ -36,11 +36,10 @@ pub(super) fn read(path: &Path, max_bytes: usize, limit: usize) -> io::Result<Ve
     // std uses OPEN_EXISTING without WaitNamedPipe. In particular it never waits
     // or retries ERROR_PIPE_BUSY. A reparse target still needs the actual handle
     // check below before any metadata or read operation.
-    let file = OpenOptions::new().read(true).open(path)?;
-    read_opened_disk_file(file, max_bytes, limit)
+    OpenOptions::new().read(true).open(path)
 }
 
-fn read_opened_disk_file(file: File, max_bytes: usize, limit: usize) -> io::Result<Vec<u8>> {
+pub(super) fn validate(file: &File) -> io::Result<()> {
     // SAFETY: File owns a live handle for this call. GetFileType does not take
     // ownership. Clear last-error so a successful UNKNOWN is distinguishable.
     let kind = unsafe {
@@ -67,10 +66,17 @@ fn read_opened_disk_file(file: File, max_bytes: usize, limit: usize) -> io::Resu
     }
     // Handle metadata (never path metadata) excludes directories and rejects
     // disk-like handles without file metadata, before bounded ReadFile calls.
-    read_opened_file(file, max_bytes, limit)
+    Ok(())
 }
 
 #[cfg(test)]
 pub(super) fn test_read_opened(file: File) -> io::Result<Vec<u8>> {
-    read_opened_disk_file(file, 64, 65)
+    let owner = PendingFileRead::new(Path::new("already-opened").to_path_buf(), 64)?;
+    owner.adopt_for_test(file);
+    let result = owner.run_adopted_for_test();
+    drop(owner);
+    result.map_err(|source| {
+        Arc::try_unwrap(source)
+            .unwrap_or_else(|source| io::Error::new(source.kind(), RetainedIo(source)))
+    })
 }
