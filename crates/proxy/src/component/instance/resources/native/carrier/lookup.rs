@@ -90,3 +90,38 @@ impl HostResources {
         Ok(bound.clone())
     }
 }
+
+impl HostResources {
+    /// Private host-side minting only. ResourceAccess never returns this issuer;
+    /// actual Slot/Engine start, membership and demand validation remain required.
+    pub(in crate::component) fn registered_business_issuer(
+        &self,
+        instance: ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+        grant: &CarrierGrant,
+    ) -> Result<
+        (
+            CarrierOwnerBinding,
+            zero_platform_tokio::controlled_carrier::CarrierBusinessIssuer,
+        ),
+        ChannelError,
+    > {
+        let bound = self.registered_carrier(
+            instance,
+            endpoint,
+            binding,
+            ControlledStreamDemandClass::Business,
+            grant,
+        )?;
+        let host_cancel = self
+            .carriers
+            .host_cancel
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        // The original Arc is never exposed through the protocol resource trait
+        // or bound descriptor. A caller-created cancellation fence cannot match.
+        let issuer = bound.business_issuer(host_cancel, grant)?;
+        Ok((bound, issuer))
+    }
+}
