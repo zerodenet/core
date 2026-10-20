@@ -14,6 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 struct Frames {
     bytes: Mutex<Vec<u8>>,
     preface: AtomicBool,
+    last_read: Mutex<Option<tokio::time::Instant>>,
     ping: AtomicBool,
 }
 impl Frames {
@@ -52,7 +53,12 @@ impl AsyncRead for Observed {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.io).poll_read(cx, buf)
+        let before = buf.filled().len();
+        let result = Pin::new(&mut self.io).poll_read(cx, buf);
+        if buf.filled().len() > before {
+            *self.frames.last_read.lock().unwrap() = Some(tokio::time::Instant::now());
+        }
+        result
     }
 }
 impl AsyncWrite for Observed {
@@ -149,7 +155,11 @@ async fn run(configured: u32) {
     };
     let sender=timeout(Duration::from_secs(3),async {tokio::select!{result=ready=>result,_=driver.as_mut()=>panic!("original H2 driver exited before real headers")}}).await.unwrap();
     tokio::time::pause();
-    tokio::time::advance(Duration::from_secs(9)).await;
+    let last = frames.last_read.lock().unwrap().unwrap();
+    tokio::time::advance(
+        (last + Duration::from_secs(9)).saturating_duration_since(tokio::time::Instant::now()),
+    )
+    .await;
     std::future::poll_fn(|cx| {
         assert!(driver.as_mut().poll(cx).is_pending());
         Poll::Ready(())
@@ -169,6 +179,17 @@ async fn run(configured: u32) {
             Poll::Ready(())
         })
         .await;
+        if frames.ping.load(Ordering::Acquire) {
+            break;
+        }
+        // Any real late SETTINGS/ACK read restarts the original idle clock.
+        // Advance from that observed read, not an assumed packet-drain delay.
+        let last = frames.last_read.lock().unwrap().unwrap();
+        let remaining =
+            (last + Duration::from_secs(10)).saturating_duration_since(tokio::time::Instant::now());
+        if !remaining.is_zero() {
+            tokio::time::advance(remaining).await;
+        }
         tokio::task::yield_now().await;
     }
     assert!(
