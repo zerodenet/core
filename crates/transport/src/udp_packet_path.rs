@@ -4,6 +4,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::RuntimeError;
+mod owned;
+pub use owned::OwnedUdpSocketPacketPath;
 use zero_core::Address;
 use zero_traits::DatagramCodec;
 
