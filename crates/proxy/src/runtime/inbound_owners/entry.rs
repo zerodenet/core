@@ -15,7 +15,9 @@ use zero_platform_tokio::contract::{
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
 mod observation;
+mod readiness;
 pub(crate) use observation::consume_reported_error;
+pub(crate) use readiness::InboundReady;
 mod shutdown;
 mod terminal;
 pub(crate) use terminal::{ClosedInboundReceipt, InboundTerminal};
@@ -43,6 +45,7 @@ pub(crate) struct InboundOwner {
     task_failures: Mutex<std::collections::BTreeMap<TaskId, terminal::InboundTaskFailure>>,
     terminal: OnceLock<Arc<InboundTerminal>>,
     observation: Arc<observation::ObservationDisposition>,
+    ready: InboundReady,
     #[cfg(feature = "managed-datagram-runtime")]
     peers: Mutex<Vec<Arc<super::InboundPeerTasks>>>,
 }
@@ -106,6 +109,7 @@ impl InboundOwner {
             task_failures: Mutex::default(),
             terminal: OnceLock::new(),
             observation: Arc::new(observation::ObservationDisposition::new(identity)),
+            ready: InboundReady::new(),
             #[cfg(feature = "managed-datagram-runtime")]
             peers: Mutex::new(Vec::new()),
         }
@@ -225,6 +229,7 @@ impl InboundOwner {
     fn publish_driver(&self, task: TaskId) {
         let report = self.report.lock().expect("inbound close report poisoned");
         self.driver.set(task).expect("one actual listener driver");
+        self.ready.wake();
         // A concurrent shutdown may have already joined the real registered
         // task. Publish only that observed receipt, never an invented exit.
         if report.exited_tasks.contains(&task) {
@@ -232,6 +237,7 @@ impl InboundOwner {
         }
     }
     fn stop(&self) {
+        self.ready.wake();
         self.cancel.cancel();
         self.shutdown.send_replace(true);
         #[cfg(feature = "managed-datagram-runtime")]

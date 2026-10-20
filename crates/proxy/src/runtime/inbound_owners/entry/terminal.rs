@@ -101,8 +101,10 @@ impl InboundOwner {
         if !peer || failed {
             report.exited_tasks.push(exit.id);
         }
+        self.ready.wake();
         if self.driver.get() == Some(&exit.id) {
             self.driver_finished.store(true, Ordering::Release);
+            self.ready.wake();
         }
     }
     pub(crate) fn identity(&self) -> ComponentInstanceId {

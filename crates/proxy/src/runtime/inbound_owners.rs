@@ -8,7 +8,8 @@ mod recovery;
 mod released_fault;
 use crate::inventory::ProtocolInventory;
 pub(crate) use entry::{
-    consume_reported_error, ClosedInboundReceipt, InboundOwner, InboundTaskAccess, InboundTerminal,
+    consume_reported_error, ClosedInboundReceipt, InboundOwner, InboundReady, InboundTaskAccess,
+    InboundTerminal,
 };
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
