@@ -1,0 +1,43 @@
+# 并行集成进度与失败证据（未完成资格）
+
+所有工作继续同一 `codex/v003-pr00-plan` / Draft PR124，基线为 develop `2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a`。产品仍为 `0.0.3-dev.202610162206`，协议固定 reference 未升级。本文整理到代码提交 `9cc8bbeb005ccca7860a2ab83d7001a69c860517`，**不是 ALL17 完成报告或当前 head 资格**。
+
+最后已推送且完成本地资格的检查点仍为 `c0682292d3b32cf5b9f6748cc3bebae3fc68325d`。后续并行代码尚未推送，没有对应的当前 head 远端 CI。该旧 head 的 Windows route-switch 明确没有执行，不能把旧 workflow 成功当成全部场景通过。
+
+## 已接入及保留的边界
+
+- 受控 TCP/UDP/carrier 保存实际原生 owner；取消、超时、Drop 和任务退出都不等于原始 FD 已关闭。只有实际登记任务 join 与原生关闭分别确认后才释放相应容量，Unknown 保留 owner、许可和原错误来源。
+- Direct UDP 新库路径使用同一实际 peer task/driver、窄宿主授权和私有 binding namespace，支持实际关闭后循环使用预算。测试覆盖共享源端口、逻辑隔离和实际网络 generation 轮转；生产仍未激活，显式调用方测试预算不是默认值。跨地址族安全重试也仍有未迁移边界。
+- SOCKS CONNECT 已交付标准 AcceptedStream 并复用同一准入、路由、统计和 relay。HTTP CONNECT、forward 消息及 Trojan 普通 TCP 的代码也已接入该宿主身份路径；forward 保留原消息执行器，Trojan 保留无额外响应字节的 wire 行为。UDP/Mux 等剩余入口没有被假称全部迁移。
+- 宿主唯一签发 sealed SessionIdentity，认证 sidecar 保留真实 principal 可空时的完整策略。弱宿主源、静态依赖与实际 pool/role 退休检查分别承担职责，不能把静态选项相等当作资源许可。详细限制见 [retained DNS carrier 记录](pr05-retained-dns-carriers.md)。
+- Mieru 原生库使用实际同池、同任务及原 FD 关闭证据。gRPC 的生产原生资格已收紧，继续走实际旧共享 owner；准备返回原 H2 driver 和原 read/write future 的 seam 已实现，完整有限 owner 尚未完成。没有用新的独立池掩盖共享连接退化。
+- Listener 故障的实际 join/关闭及监督交付与候选接受分开；补偿、DNS prepared token 取消重入和启动代次一致性继续修正。真实 candidate Ready ACK、完整 RuntimeHost M4 和所有转交 I/O 闭环仍未完成。
+
+## 实际验证
+
+[完整清单及 247 个原始证据压缩件](pr05-parallel-progress-validation.json)保存逐文件 SHA-256、命令、冻结 head/tree/lock、失败和未执行项。多个过滤范围重叠，**不能相加成 workspace 通过数**。
+
+| 冻结范围 | 实际结果 | 限制 |
+|---|---|---|
+| root20 | fmt/check/no_std/依赖检查通过 | 测试链接 ENOSPC/LLVM 错误，未进入运行；release/minimal 也受空间耗尽影响。保留旧缓存清理清单。 |
+| root21 `12a68916` | fmt/check/release/no_std/minimal/依赖检查通过 | strict 和完整测试失败；Proxy lib 因确定性夹具挂起被 SIGTERM，中止记录独立保留。没有完整 workspace aggregate。 |
+| root22 | 无资格 | root 在 cherry-pick 冲突后误启动 runner；相关进程已中止，全部结果标为 INVALID_ABORTED。 |
+| root23 `29d6b8b1` | fmt/check；HTTP 协议组件 3/0、纯协议 10/0；Engine static 5/0；retained recipe 9/0 | 仅各自冻结范围，不代表后续新代码。 |
+| root23 SOCKS/peer/TCP | SOCKS component 6/0、relay 3/0；peer owner 12/0；TCP idle 1/0、TUN 正向 1/0 | HTTP/SOCKS integration target 因新增测试缺 EventSource import 编译失败，未执行；已另行修复。 |
+| root23 gRPC/诊断 | 原 gRPC 三路复用测试 1/0；公开诊断原四项 4/0；health 11/1 | 原先实际 3 条连接已恢复原测试要求；health 剩自动 URLTest 启动代次失败。 |
+| root23 新资源/恢复 | bound wrapper 1/0、弱关闭观察器 1/0 | endpoint 16/1、Source 1/1、UDP idle 0/2、恢复 0/1、冷取消 0/1，均保留原始失败。 |
+| root23 架构守卫 | runtime 186/3、workspace 24/2 | 已修正生产 feature gate、claim 投影及真实测试夹具的检查范围；后续 std-only 同源码守卫 189/0、26/0，仅证明静态边界。 |
+
+root21 runner 的原统计正则还匹配了 GitHub 错误注释中重复的摘要。manifest 保留其原值，但将 counts 置空；按整行摘要统计得到的 2484/23/157 仍遗漏被中止的 Proxy lib，明确不是完整测试总数。没有用重跑抹掉首次失败，也没有将编译错误、零测试过滤或平台跳过算作行为通过。
+
+root23 后已准备修复：真实命令回执先于取消唤醒、夹具真实 TCP EOF/retirement 协调、Source 配置枚举拼写、同一 DNS prepared token 及实际组件候选的取消重入、已物理关闭并交付故障后的有限补偿重入、启动全过程同一捕获 snapshot，以及冷取消断言的原始 io payload 检查。这些修复和新增 HTTP forward/Trojan/gRPC seam **仍待下一冻结树运行验证**。
+
+## 依赖与资源测量
+
+HTTP `runtime` 的可选依赖只给锁中的工作区 `http@0.0.1` 增加已有 `zero-platform-tokio`。全图 offline metadata 的锁摘要从 `a003359e…` 变为 `ffed93de…`；441 个包总数不变，所有 registry 版本、来源及 checksum 逐项相等。原始比对见清单中的 `pr05-parallel-http-lock-change.json.gz`。
+
+[Direct UDP 既有测量](direct-udp-budget/README.md)保留实际 steady/切换/突发缺包，没有凭外层 peer 上限或 RSS 推定内层预算。[观察器](direct-udp-budget/observer/README.md)补充真实 Tokio metrics 和默认 CLI 独立 old/new pair；本文截止时尚未产生新的运行测量。旧/新 Tokio 1.53.3/1.54.0 差异如实记录，业务 owner 队列字节无公开读口时保持 null。
+
+## 后续必要工作
+
+下一冻结树先验证上述失败和新生产入口，再运行完整 workspace、严格检查、最小 feature/no_std/依赖检查及默认 release。生产 Direct UDP 预算和启用、其余 shared protocol 实际 owner、mixed DNS 每次连接预算、全部入站/Packet/Control/Mux、Ready ACK/RuntimeHost M4、后续 runtime 提取及最终消费者/FFI/资源/平台资格仍需完成。当前没有合并、发布、部署或访问用户 Mac。

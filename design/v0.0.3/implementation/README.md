@@ -237,3 +237,7 @@ SS角色为空的 `PluginFactory` 使用原适配器同一PluginPlan；只有实
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
 
 继续全部任务卡。起点已有 transport 无 config/engine/具体协议依赖、中立 Engine Proxy identity、协议所属私有 plan，不重做已经消失的旧层。固定官方 reference 的已知计数缺陷资格、Hysteria 历史失败根因、Packet/协议专项资源、完整 CLI 任务归属、容量预算、完整 GUI/物理设备和 Windows 真实出口切换缺项分别保留；不得用 hosted job 成功、旧基线或模型对照代替最终提交资格。
+
+## ALL17 并行集成进行中：保留失败与实际所有权边界
+
+后续到 `9cc8bbeb` 的代码与 [逐阶段实际结果](pr05-parallel-progress.md)独立记录，包含 ENOSPC、无效 runner、真实架构/生命周期失败及修复。最后已推送资格仍为 `c0682292`；新代码未完成整体资格，未宣称 ALL17 完成。完整原始证据和逐文件摘要见 [parallel progress 清单](pr05-parallel-progress-validation.json)。
