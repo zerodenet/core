@@ -4,6 +4,7 @@ use bytes::Bytes;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::mpsc;
+type Driver = Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>;
 type Worker = Pin<Box<dyn Future<Output = ()> + Send>>;
 struct Work {
     read: Worker,
@@ -19,7 +20,7 @@ impl std::fmt::Display for WorkerAdmission {
 impl std::error::Error for WorkerAdmission {}
 struct Pump {
     physical: Arc<Physical>,
-    driver: Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>,
+    driver: Driver,
     receiver: mpsc::Receiver<Work>,
     workers: FuturesUnordered<Worker>,
 }
@@ -72,10 +73,7 @@ impl NativeClient {
         physical: Arc<Physical>,
         limit: usize,
         parent: &CancellationToken,
-    ) -> (
-        Arc<Self>,
-        Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>,
-    ) {
+    ) -> (Arc<Self>, Driver) {
         let (commands, receiver) = mpsc::channel::<Work>(limit);
         let PreparedConnection {
             sender,

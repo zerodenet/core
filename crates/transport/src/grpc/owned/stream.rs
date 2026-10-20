@@ -11,11 +11,12 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+type FailureWait = Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
 pub struct NativeGrpcStream {
     inner: GrpcStream,
     _lease: Lease,
     pub(super) life: Arc<Life>,
-    failure: Mutex<Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send>>>>,
+    failure: Mutex<Option<FailureWait>>,
 }
 #[derive(Debug)]
 pub(super) struct SharedFailure(pub(super) Arc<ChannelError>);
