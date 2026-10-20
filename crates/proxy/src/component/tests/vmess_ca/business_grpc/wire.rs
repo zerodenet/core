@@ -63,7 +63,7 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
                 assert!(invocation.deadline.is_none());
                 let demand=BusinessCarrierRequest::new(proxy.engine(),&slot,&invocation).unwrap();
                 let endpoint=Destination::new(Address::Ipv4([127,0,0,1]),peer.port());
-                let opener=Arc::new(NodeOpener::new(upstream.with_observer(Some(observations.clone())),endpoint).with_business(demand));
+                let opener=Arc::new(NodeOpener::new(upstream.clone().with_observer(Some(observations.clone())),endpoint).with_business(demand));
                 let mut connected=host.drive(role.connect(ConnectRequest {destination:destination()},OpenContext {
                     identity:invocation.identity.clone(),deadline:None,cancel:invocation.cancellation(),observer:Some(observations.clone()),upstream:UpstreamTransport::new(binding.clone(),opener.clone()),
                 })).await.unwrap();
