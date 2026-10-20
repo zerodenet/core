@@ -1,4 +1,5 @@
 //! Byte I/O and explicit native close share one original TCP descriptor.
+mod accepted;
 #[cfg(any(unix, windows))]
 pub(crate) mod connect;
 mod control;
@@ -111,17 +112,25 @@ pub struct ControlledTcpStream {
     write_waiter: Arc<WaitTarget>,
 }
 impl ControlledTcpStream {
-    pub fn new(mut socket: TokioSocket, parent: CancellationToken) -> (Self, ControlledTcpControl) {
+    pub fn new(socket: TokioSocket, parent: CancellationToken) -> (Self, ControlledTcpControl) {
+        let label = format!(
+            "native TCP {:?} -> {:?}",
+            socket.inner.local_addr().ok(),
+            socket.inner.peer_addr().ok()
+        );
+        Self::new_labeled(socket, parent, label)
+    }
+    fn new_labeled(
+        mut socket: TokioSocket,
+        parent: CancellationToken,
+        label: String,
+    ) -> (Self, ControlledTcpControl) {
         let observer = socket.observer.take();
         let observations = Arc::new(observation::Capture::default());
         socket.observer = Some(observations.clone());
         let cancel = parent.child_token();
         let shared = Arc::new(Shared {
-            label: format!(
-                "native TCP {:?} -> {:?}",
-                socket.inner.local_addr().ok(),
-                socket.inner.peer_addr().ok()
-            ),
+            label,
             state: Mutex::new(State {
                 socket: Some(Socket::Tokio(socket)),
                 closed: false,
