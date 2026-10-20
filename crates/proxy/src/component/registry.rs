@@ -73,12 +73,14 @@ where
     }
 }
 
+type InputAcceptance<Input> = Arc<dyn Fn(&Input) -> bool + Send + Sync>;
+
 struct Entry<Input> {
     legacy_connect_stage: &'static str,
     feature: &'static str,
     descriptor: Option<ProtocolCapabilityDescriptor>,
     registration: Option<Arc<dyn Registration<Input>>>,
-    accepts: Option<Arc<dyn Fn(&Input) -> bool + Send + Sync>>,
+    accepts: Option<InputAcceptance<Input>>,
 }
 
 impl<Input> Clone for Entry<Input> {
