@@ -2,6 +2,7 @@
 mod budget;
 pub(crate) mod dispatch;
 mod driver;
+mod failure;
 mod lifecycle;
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) mod peer;

@@ -241,10 +241,11 @@ pub(super) async fn run(
                 let sent = tokio::select! {
                     _ = shared.scope_cancel.cancelled() => Err(legacy(error(Stage::Send, Reason::Revoked, DeliveryState::Unknown))),
                     _ = command.logical.cancel.cancelled() => Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::Unknown))),
-                    sent = sockets.send_owned_packet(&command.target, std::mem::take(&mut command.candidates), &command.payload, command.logical.session.0, &command.logical.policy) => sent.map_err(|source| legacy(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(source))),
+                    sent = sockets.send_owned_packet(&command.target, std::mem::take(&mut command.candidates), &command.payload, command.logical.session.0, &command.logical.policy) => sent.map_err(|source| if shared.bound_mode { source } else { legacy(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(source)) }),
                 };
                 sockets.bound = None;
-                if sent.is_err() && shared.retain_native_until_peer_exit
+                let logical_rejection = shared.bound_mode && sent.as_ref().err().is_some_and(failure::logical_rejection);
+                if sent.is_err() && shared.retain_native_until_peer_exit && !logical_rejection
                     && !shared.scope_cancel.is_cancelled() && !command.logical.cancel.is_cancelled()
                 {
                     let source = Arc::new(sent.err().expect("checked actual failure"));
