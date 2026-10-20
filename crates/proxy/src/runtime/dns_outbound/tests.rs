@@ -15,6 +15,7 @@ fn dns_callback_does_not_keep_outbound_pools_alive_after_proxy_drop() {
         proxy.protocols.clone(),
         proxy.egress_interface.clone(),
         proxy.principal_rate_limits.clone(),
+        proxy.retired_datagrams.clone(),
     );
     assert!(callback.runtime_services().is_ok());
     drop(proxy);
