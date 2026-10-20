@@ -31,7 +31,7 @@ async fn original_endpoint_driver_and_two_tcp_workers_are_retained_until_actual_
     // The driver has really consumed and submitted SYN, and connect is still
     // waiting for an actual handshake. None of the three original task handles
     // is silently replaced by an abort-only or Drop completion witness.
-    assert_eq!(owner.tasks.lock().await.unwrap().len(), 3);
+    assert_eq!(owner.tasks.as_ref().unwrap().lock().await.unwrap().len(), 3);
     drop(connecting);
     device.close_now();
     device.wait_workers_stopped().await.unwrap();
@@ -82,7 +82,10 @@ async fn concurrent_original_worker_registration_is_not_rejected_as_transient_mu
     while let Some(result) = callers.join_next().await {
         assert!(result.unwrap());
     }
-    assert_eq!(owner.tasks.lock().await.unwrap().len(), 32);
+    assert_eq!(
+        owner.tasks.as_ref().unwrap().lock().await.unwrap().len(),
+        32
+    );
     owner.abort();
     let report = owner.join().await.unwrap();
     assert!(report.is_complete());

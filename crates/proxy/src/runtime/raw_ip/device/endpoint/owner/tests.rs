@@ -149,3 +149,78 @@ async fn original_panic_is_joined_even_when_its_source_remains_a_cleanup_failure
     assert!(original.is_panic());
     assert_eq!(original.id(), actual_id);
 }
+
+#[tokio::test]
+async fn original_driver_control_and_retransmission_are_three_real_host_critical_tasks() {
+    use zero_platform_tokio::contract::scope::{TaskClass, TaskScope};
+    let mut scope = TaskScope::suspended_hosted(
+        tokio::runtime::Handle::current(),
+        std::num::NonZeroUsize::new(3),
+    );
+    scope.enable_registration().unwrap();
+    let owner = EndpointStackOwner::suspended();
+    owner.bind_scope(scope.registrar().downgrade()).unwrap();
+    let (recipe, mut packets) = prepared_recipe();
+    let device = owner.start(recipe).unwrap();
+    let mut connecting = Box::pin(device.open_tcp_observed(
+        "10.0.0.1".parse().unwrap(),
+        "192.0.2.2:443".parse().unwrap(),
+        None,
+    ));
+    std::future::poll_fn(|cx| {
+        assert!(connecting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let syn = tokio::time::timeout_at(deadline(), packets.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(zero_stack::packet::parse_tcp(&syn.packet).unwrap().syn);
+    let (report, mut actual_ids) = tokio::join!(owner.stop(deadline()), async {
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            let exit = tokio::time::timeout_at(deadline(), scope.next_receipt())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(exit.class(), TaskClass::Critical);
+            assert!(exit.result().is_ok());
+            ids.push(exit.id());
+            scope.acknowledge(&exit).unwrap();
+        }
+        ids
+    });
+    let mut report = report.unwrap();
+    report.exited_tasks.sort_by_key(|id| id.0);
+    actual_ids.sort_by_key(|id| id.0);
+    assert_eq!(report.exited_tasks, actual_ids);
+    assert_eq!(actual_ids.len(), 3);
+    assert!(actual_ids.windows(2).all(|pair| pair[0] != pair[1]));
+    assert!(owner.is_drained());
+    assert!(report.closed_io.is_empty()); // no native socket belongs to this stack
+    assert!(connecting.await.is_err());
+    scope.begin_shutdown();
+    assert!(scope.next_receipt().await.is_none());
+    assert!(scope.is_drained());
+}
+#[tokio::test]
+async fn unbound_or_retired_scoped_candidates_never_fall_back_to_local_tokio_workers() {
+    use zero_platform_tokio::contract::scope::TaskScope;
+    let mut scope = TaskScope::suspended_hosted(
+        tokio::runtime::Handle::current(),
+        std::num::NonZeroUsize::new(3),
+    );
+    scope.enable_registration().unwrap();
+    let owner = EndpointStackOwner::suspended();
+    let (recipe, _packets) = prepared_recipe();
+    assert!(owner.start(recipe).is_err());
+    assert!(owner.bind_scope(scope.registrar().downgrade()).is_err());
+    assert!(owner.stop(deadline()).await.is_err()); // original admission failure retained
+    assert!(owner.is_drained());
+    let retired = EndpointStackOwner::suspended();
+    retired.revoke();
+    assert!(retired.bind_scope(scope.registrar().downgrade()).is_err());
+    scope.begin_shutdown();
+    assert!(scope.next_receipt().await.is_none());
+}
