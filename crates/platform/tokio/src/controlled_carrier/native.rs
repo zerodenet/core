@@ -179,7 +179,9 @@ impl NativeCarrierOpener {
                 ));
             }
             state.opening = true;
-            state.business_cancel = business_cancel;
+            if state.business_cancel.is_none() {
+                state.business_cancel = business_cancel;
+            }
             // A synchronous acquisition panic/error must not return capacity
             // based on implicit Drop of an already created native socket.
             state.unknown = Some(Arc::new(

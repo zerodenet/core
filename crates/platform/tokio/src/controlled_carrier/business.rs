@@ -154,8 +154,25 @@ impl CarrierBusinessGrant {
         self.binding.registration().clone()
     }
     pub(super) fn bind_caller(&self, slot: &Arc<Slot>) -> Result<(), ChannelError> {
+        // Trait callbacks can be arbitrary library code. Sample them before
+        // taking the original state lock and retain only the original token and
+        // weak allocation identity, never the demand/Engine/Slot itself.
+        let cancel = self.cancellation();
+        let identity = Arc::downgrade(&self.demand);
+        let mut state = slot.state();
+        if state
+            .business_identity
+            .as_ref()
+            .is_some_and(|actual| !Weak::ptr_eq(actual, &identity))
+        {
+            return Err(error(
+                slot.instance,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         if let Some(caller) = &self.caller {
-            let mut state = slot.state();
             if !state
                 .users
                 .as_mut()
@@ -169,6 +186,11 @@ impl CarrierBusinessGrant {
                 ));
             }
         }
+        if state.business_identity.is_none() {
+            state.business_identity = Some(identity);
+            state.business_cancel = Some(cancel);
+        }
+
         Ok(())
     }
     pub(super) fn binding(&self) -> &CarrierOwnerBinding {

@@ -53,6 +53,12 @@ impl CarrierAdoption {
         {
             return Err(failure(Reason::Revoked));
         }
+        let scope_cancel = registrar
+            .cancellation()
+            .ok_or_else(|| failure(Reason::Revoked))?;
+        let owner_cancel = owner.cancel.clone();
+        let host_cancel = bound.as_ref().unwrap().cancellation();
+        let business_cancel;
         {
             // Only reserve under the original close transaction. Actual scope
             // registration and refused-future destruction happen after unlock.
@@ -65,6 +71,7 @@ impl CarrierAdoption {
             if state.closed || state.auxiliary_attempted || state.spawning {
                 return Err(failure(Reason::InvalidConfig));
             }
+            business_cancel = state.business_cancel.clone();
             state.auxiliary_attempted = true;
             // If the actual synchronous registration unwinds without returning
             // an ID, retain this uncertain window instead of refunding the slot.
@@ -76,7 +83,21 @@ impl CarrierAdoption {
             if admitted.await.is_err() {
                 return Ok(());
             }
-            task.await
+            // Only original cancellation tokens cross into this future. It
+            // retains no Scope, owner, slot or demand/Engine strong reference.
+            tokio::select! {
+                biased;
+                result = task => result,
+                _ = scope_cancel.cancelled() => Ok(()),
+                _ = owner_cancel.cancelled() => Ok(()),
+                _ = host_cancel.cancelled() => Ok(()),
+                _ = async {
+                    match business_cancel {
+                        Some(cancel) => cancel.cancelled_owned().await,
+                        None => std::future::pending().await,
+                    }
+                } => Ok(()),
+            }
         });
         let mut state = self.slot.state();
         state.spawning = false;

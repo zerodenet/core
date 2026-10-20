@@ -96,6 +96,22 @@ async fn direct_resource_binds_no_fake_endpoint_and_each_ticket_keeps_its_origin
                 .unwrap()
                 .authorize_with_caller(demand.clone(), witness.clone())
                 .unwrap();
+            // Same immutable demand Arc is idempotent; the same actual caller
+            // and numeric SessionId cannot authorize a different demand on it.
+            let repeated = bound
+                .direct_business_issuer(&host, &grant, &endpoint, &upstream)
+                .unwrap()
+                .authorize_with_caller(demand.clone(), witness.clone())
+                .unwrap();
+            drop(repeated);
+            let foreign = bound
+                .direct_business_issuer(&host, &grant, &endpoint, &upstream)
+                .unwrap()
+                .authorize_with_caller(Arc::new(Demand(CancellationToken::new())), witness.clone())
+                .err()
+                .unwrap();
+            assert_eq!(foreign.reason, Reason::StalePlan);
+            assert_eq!(foreign.delivery, DeliveryState::NotSubmitted);
             let mut changed = endpoint.clone();
             changed.port = if changed.port == 65535 {
                 1
@@ -178,6 +194,107 @@ async fn direct_resource_binds_no_fake_endpoint_and_each_ticket_keeps_its_origin
         assert!(registration.closed().is_some());
         assert!(registration.users_closed().unwrap().matches(&registration));
         assert!(owner_scope.shutdown(deadline()).await.is_complete());
+        assert!(caller.shutdown(deadline()).await.is_complete());
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn original_demand_weak_identity_cannot_be_replaced_after_its_last_ticket_is_dropped() {
+    timeout(Duration::from_secs(4), async {
+        let mut fixture = Fixture::cold(1).await;
+        let mut scope = TaskScope::new(
+            tokio::runtime::Handle::current(),
+            NonZeroUsize::new(1).unwrap(),
+        );
+        let mut caller = TaskScope::new(
+            tokio::runtime::Handle::current(),
+            NonZeroUsize::new(1).unwrap(),
+        );
+        let host = Arc::new(CancellationToken::new());
+        let endpoint = fixture.destination.clone();
+        let upstream = fixture.transport.binding().clone();
+        let bound = fixture
+            .owner
+            .registration()
+            .bind_declared(
+                &ResourceDeclaration::ControlledDirectStream {
+                    dial: upstream.dial.clone(),
+                    max_sockets: NonZeroUsize::new(1).unwrap(),
+                },
+                &scope.registrar(),
+                &host,
+            )
+            .unwrap();
+        fixture.owner.start(deadline()).await.unwrap();
+        let mut grant = fixture.grants.reserve().unwrap();
+        let user = grant.claim_user_view().unwrap();
+        let adoption = grant.adoption();
+        let (finish, finished) = tokio::sync::oneshot::channel();
+        let (_, witness) = caller
+            .registrar()
+            .spawn_tracked(TaskClass::Auxiliary, async move {
+                finished.await.unwrap();
+                Ok(())
+            })
+            .unwrap();
+        let original_cancel = CancellationToken::new();
+        let demand = Arc::new(Demand(original_cancel.clone()));
+        let weak = Arc::downgrade(&demand);
+        let ticket = bound
+            .direct_business_issuer(&host, &grant, &endpoint, &upstream)
+            .unwrap()
+            .authorize_with_caller(demand.clone(), witness.clone())
+            .unwrap();
+        let (entered, suspended) = tokio::sync::oneshot::channel();
+        let (id, auxiliary) = adoption
+            .spawn_auxiliary_weak(&scope.registrar().downgrade(), async move {
+                entered.send(()).unwrap();
+                std::future::pending().await
+            })
+            .unwrap();
+        suspended.await.unwrap();
+        drop(ticket);
+        drop(demand);
+        assert!(
+            weak.upgrade().is_none(),
+            "original slot does not retain demand/Engine"
+        );
+        assert!(adoption
+            .slot
+            .state()
+            .business_identity
+            .as_ref()
+            .unwrap()
+            .upgrade()
+            .is_none());
+        let failure = bound
+            .direct_business_issuer(&host, &grant, &endpoint, &upstream)
+            .unwrap()
+            .authorize_with_caller(Arc::new(Demand(CancellationToken::new())), witness.clone())
+            .err()
+            .unwrap();
+        assert_eq!(failure.reason, Reason::StalePlan);
+        original_cancel.cancel();
+        let exit = scope.next_exit().await.unwrap();
+        assert_eq!(exit.id, id);
+        assert!(exit.result.is_ok());
+        assert!(auxiliary.try_joined().unwrap().result().is_ok());
+        assert!(adoption.closed().is_none());
+        drop(user);
+        drop(grant);
+        finish.send(()).unwrap();
+        caller.next_exit().await.unwrap();
+        assert!(adoption.retire(deadline()).await.unwrap().is_complete());
+        assert!(!adoption.closed().unwrap().had_native_acquisition());
+        assert!(fixture
+            .owner
+            .shutdown(deadline())
+            .await
+            .unwrap()
+            .is_complete());
+        assert!(scope.shutdown(deadline()).await.is_complete());
         assert!(caller.shutdown(deadline()).await.is_complete());
     })
     .await
