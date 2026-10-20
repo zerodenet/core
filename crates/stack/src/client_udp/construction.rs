@@ -2,6 +2,10 @@
 use super::*;
 
 impl ClientUdpStack {
+    /// Actual socket table ceiling; hosts use it to bound the original per-
+    /// socket workers, including retiring workers not yet actually joined.
+    pub const SOCKET_LIMIT: usize = MAX_SOCKETS;
+
     pub fn new(
         local_addresses: Vec<IpAddr>,
         outbound: tokio::sync::mpsc::Sender<Vec<u8>>,

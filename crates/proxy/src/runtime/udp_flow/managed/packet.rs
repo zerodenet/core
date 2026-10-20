@@ -36,7 +36,7 @@ pub(crate) struct PacketUdpFlow {
     closed: Arc<AtomicBool>,
     failure: Arc<Mutex<Option<IcmpErrorKind>>>,
     device: Arc<dyn PacketFlowEndpoint>,
-    task: tokio::task::AbortHandle,
+    cancel: zero_platform_tokio::contract::CancellationToken,
 }
 
 impl PacketUdpFlow {
@@ -47,19 +47,19 @@ impl PacketUdpFlow {
         destination: SocketAddr,
         local_ip: IpAddr,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    ) -> Result<Self, zero_stack::client_udp::ClientUdpStackError> {
+    ) -> Result<Self, EngineError> {
         if !device.is_current() {
-            return Err(zero_stack::ClientUdpStackError::OutboundClosed);
+            return Err(stack_error(zero_stack::ClientUdpStackError::OutboundClosed));
         }
-        let client = device.bind_udp(local_ip, observer)?;
+        let client = device.bind_udp(local_ip, observer).map_err(stack_error)?;
         if !device.is_current() {
-            return Err(zero_stack::ClientUdpStackError::OutboundClosed);
+            return Err(stack_error(zero_stack::ClientUdpStackError::OutboundClosed));
         }
         let (commands, requests) = mpsc::channel(64);
         let (responses, _) = broadcast::channel(64);
         let closed = Arc::new(AtomicBool::new(false));
         let failure = Arc::new(Mutex::new(None));
-        let task = tokio::spawn(run_flow(
+        let worker = run_flow(
             client,
             Endpoint {
                 ip: destination.ip(),
@@ -69,8 +69,15 @@ impl PacketUdpFlow {
             responses.clone(),
             closed.clone(),
             failure.clone(),
-        ))
-        .abort_handle();
+        );
+        let cancel = zero_platform_tokio::contract::CancellationToken::new();
+        let stop = cancel.clone();
+        // The endpoint already owns its actual finite worker owner before
+        // this registration/first poll. No detached helper or second consumer.
+        device.spawn_packet_worker(Box::pin(async move {
+            tokio::select! { biased; _ = worker => {}, _ = stop.cancelled() => {} }
+            Ok(())
+        }))?;
         Ok(Self {
             target,
             target_port,
@@ -79,7 +86,7 @@ impl PacketUdpFlow {
             closed,
             failure,
             device,
-            task,
+            cancel,
         })
     }
 }
@@ -87,7 +94,9 @@ impl PacketUdpFlow {
 impl Drop for PacketUdpFlow {
     fn drop(&mut self) {
         // A blocked packet queue must not retain an orphaned socket/worker.
-        self.task.abort();
+        // This only requests the original worker to exit. Its JoinHandle or
+        // Scope witness remains with the endpoint until actual consumption.
+        self.cancel.cancel();
     }
 }
 
@@ -179,4 +188,19 @@ async fn run_flow(
 
 fn io_error(message: impl ToString) -> EngineError {
     EngineError::Io(std::io::Error::other(message.to_string()))
+}
+
+#[derive(Debug)]
+struct StackFailure(zero_stack::ClientUdpStackError);
+impl std::fmt::Display for StackFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "raw-IP UDP stack: {:?}", self.0)
+    }
+}
+impl std::error::Error for StackFailure {}
+fn stack_error(source: zero_stack::ClientUdpStackError) -> EngineError {
+    EngineError::Io(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        StackFailure(source),
+    ))
 }

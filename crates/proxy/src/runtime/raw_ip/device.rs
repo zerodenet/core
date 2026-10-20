@@ -304,6 +304,14 @@ impl SharedRawIpDevice {
         self.open_tcp_for_flow(local_ip, destination, observer, None)
             .await
     }
+    pub(crate) fn spawn_packet_worker(
+        &self,
+        worker: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
+        >,
+    ) -> Result<(), EngineError> {
+        self.task.spawn_driver(worker)
+    }
     pub(crate) fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
         self.task.flow_users()
     }

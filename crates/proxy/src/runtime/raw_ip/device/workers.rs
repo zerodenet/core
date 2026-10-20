@@ -12,7 +12,11 @@ use zero_platform_tokio::contract::{
 
 use crate::runtime::raw_ip::tasks::RetainedTasks;
 
-pub(super) const WORKER_LIMIT: usize = zero_stack::ClientTcpStack::BACKGROUND_TASK_LIMIT + 1;
+// Exact per-peer ceilings: original TCP connection workers + control,
+// endpoint driver, and one original packet worker per client UDP socket.
+pub(super) const WORKER_LIMIT: usize = zero_stack::ClientTcpStack::BACKGROUND_TASK_LIMIT
+    + 1
+    + zero_stack::client_udp::ClientUdpStack::SOCKET_LIMIT;
 
 pub(super) struct DeviceWorkers {
     users: Option<Arc<crate::runtime::packet_flow::FlowUsers>>,
@@ -31,8 +35,8 @@ impl DeviceWorkers {
             users: None,
             registration: Mutex::new(()),
             scope: Mutex::new(ScopeBinding::default()),
-            // Existing client connection ceiling + its control worker + this
-            // exact endpoint/standalone driver. No speculative extra workers.
+            // Same configured stack ceilings also bound retiring original
+            // futures until their real JoinSet consumer releases capacity.
             tasks: Some(RetainedTasks::new(
                 "raw-IP client stack workers",
                 WORKER_LIMIT,

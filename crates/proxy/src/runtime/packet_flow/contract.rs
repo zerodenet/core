@@ -32,6 +32,14 @@ pub(crate) trait PacketFlowEndpoint: Send + Sync {
         }
         self.open_tcp(local_ip, target, observer).await
     }
+    /// The original socket worker belongs to the same persistent endpoint
+    /// task owner. Implementations may not detach it or borrow another Scope.
+    fn spawn_packet_worker(
+        &self,
+        worker: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
+        >,
+    ) -> Result<(), EngineError>;
     fn bind_udp(
         &self,
         local_ip: IpAddr,

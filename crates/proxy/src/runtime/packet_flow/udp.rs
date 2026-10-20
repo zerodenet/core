@@ -51,7 +51,7 @@ impl PreparedUdpFlowOperation for PacketUdpOperation {
                 binding.local_ip,
                 services.outbound_inner_io(&self.0.tag),
             )
-            .map_err(|error| failure("raw_ip_stack", invalid(format!("{error:?}"))))?;
+            .map_err(|error| failure("raw_ip_stack", error))?;
             if network.egress_generation() != generation {
                 return Err(failure(
                     "raw_ip_device",

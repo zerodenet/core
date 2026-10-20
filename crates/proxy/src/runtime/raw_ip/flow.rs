@@ -116,6 +116,14 @@ impl PacketFlowEndpoint for RawIpFlowEndpoint {
             .open_tcp_for_flow(local, target, observer, user)
             .await
     }
+    fn spawn_packet_worker(
+        &self,
+        worker: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
+        >,
+    ) -> Result<(), EngineError> {
+        self.device.spawn_packet_worker(worker)
+    }
     fn bind_udp(
         &self,
         local: IpAddr,
@@ -154,6 +162,14 @@ impl PacketFlowEndpoint for SharedRawIpDevice {
         user: Option<&crate::runtime::packet_flow::FlowUser>,
     ) -> Result<UserTcpStream, ClientTcpStackError> {
         self.open_tcp_for_flow(local, target, observer, user).await
+    }
+    fn spawn_packet_worker(
+        &self,
+        worker: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
+        >,
+    ) -> Result<(), EngineError> {
+        self.spawn_packet_worker(worker)
     }
     fn bind_udp(
         &self,
