@@ -1,5 +1,4 @@
 use super::failure::Failure;
-use hyper::body::Body as _;
 use std::{
     future::Future,
     pin::Pin,

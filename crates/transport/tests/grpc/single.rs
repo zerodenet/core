@@ -19,8 +19,8 @@ async fn single_client_keeps_original_framing_and_reverse_half_close_without_spa
                 let mut bytes = Vec::new();
                 io.read_to_end(&mut bytes).await.unwrap();
                 assert_eq!(bytes, vec![0x42; 196_613]);
-                io.write_all(&bytes).await.unwrap();
-                io.shutdown().await.unwrap();
+                AsyncWriteExt::write_all(&mut io, &bytes).await.unwrap();
+                AsyncWriteExt::shutdown(&mut io).await.unwrap();
                 finished.await.unwrap();
                 incoming.close();
             });
@@ -32,8 +32,10 @@ async fn single_client_keeps_original_framing_and_reverse_half_close_without_spa
             // No application byte progresses unless this returned real driver
             // is polled by the caller. This test makes no native-close claim.
             let app = async {
-                io.write_all(&vec![0x42; 196_613]).await.unwrap();
-                io.shutdown().await.unwrap();
+                AsyncWriteExt::write_all(&mut io, &vec![0x42; 196_613])
+                    .await
+                    .unwrap();
+                AsyncWriteExt::shutdown(&mut io).await.unwrap();
                 let mut bytes = Vec::new();
                 io.read_to_end(&mut bytes).await.unwrap();
                 assert_eq!(bytes, vec![0x42; 196_613]);
