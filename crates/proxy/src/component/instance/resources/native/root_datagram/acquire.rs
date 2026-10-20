@@ -100,6 +100,7 @@ impl HostResources {
                 .native
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            entry.attempted.store(true, Ordering::Release);
             match owner.acquire(entry.peer, None, &policy, &selection) {
                 Ok(socket) => {
                     let control =

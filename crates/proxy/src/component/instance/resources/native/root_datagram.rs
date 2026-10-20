@@ -37,6 +37,7 @@ struct RootContext {
     queries: Mutex<Vec<TaskJoinWitness>>,
 }
 struct Entry {
+    attempted: AtomicBool,
     peer: SocketAddr,
     generation: NetworkGeneration,
     native: Mutex<ControlledDatagramOwner>,
@@ -94,6 +95,7 @@ impl RootDeclarations {
             entries.insert(
                 ordinal,
                 Entry {
+                    attempted: AtomicBool::new(false),
                     peer: *peer,
                     generation: *network_generation,
                     native: Mutex::new(ControlledDatagramOwner::new(*max_sockets)),

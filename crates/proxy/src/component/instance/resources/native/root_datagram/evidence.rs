@@ -78,12 +78,16 @@ impl RootDeclarations {
                 } else {
                     native_confirmed = false;
                 }
+                // Explicit original-owner acquisition state, not empty query
+                // records. NeverAttempted and actual KnownNoNative differ from
+                // positive OS close receipts and remain separately published.
+                let known_no_acquisition = native_confirmed
+                    && ledger.total_closed == 0
+                    && (!entry.attempted.load(Ordering::Acquire) || ledger.known_no_native != 0);
                 RootDatagramEvidence {
                     ordinal: *ordinal,
-                    native_confirmed,
-                    known_no_acquisition: records.is_empty()
-                        && ledger.total_closed == 0
-                        && native_confirmed,
+                    native_confirmed: native_confirmed && ledger.total_closed != 0,
+                    known_no_acquisition,
                     users_returned,
                     queries_joined,
                     admission_closed: self.closed.load(Ordering::Acquire),
