@@ -27,6 +27,10 @@ async fn direct_registration_uses_original_ordinal_owner_fence_and_exact_per_dem
     fixture.owner.start(deadline()).await.unwrap();
     drop(access);
     let grant = fixture.owner.grants().reserve().unwrap();
+    let before_dns = resources
+        .registered_direct_owner(instance(), &Default::default(), &actual)
+        .unwrap();
+    assert!(before_dns.matches_registration(&actual));
     let binding = fixture.transport.binding().clone();
     let target = fixture.destination();
     assert!(resources
@@ -66,6 +70,9 @@ async fn direct_registration_uses_original_ordinal_owner_fence_and_exact_per_dem
     let mut wrong_dial = binding.clone();
     wrong_dial.dial.interface = Some("different-interface".into());
     assert!(resources
+        .registered_direct_owner(instance(), &wrong_dial.dial, &actual)
+        .is_err());
+    assert!(resources
         .registered_business_issuer(instance(), &target, &wrong_dial, &grant)
         .is_err());
     let mut relayed = binding.clone();
@@ -89,6 +96,9 @@ async fn direct_registration_uses_original_ordinal_owner_fence_and_exact_per_dem
     foreign.start(deadline()).await.unwrap();
     let foreign_grant = foreign.grants().reserve().unwrap();
     assert!(resources
+        .registered_direct_owner(instance(), &Default::default(), &foreign.registration())
+        .is_err());
+    assert!(resources
         .registered_business_issuer(instance(), &target, &binding, &foreign_grant)
         .is_err());
     drop(foreign_grant);
@@ -98,6 +108,9 @@ async fn direct_registration_uses_original_ordinal_owner_fence_and_exact_per_dem
     assert!(!resources.io_evidence().physical_confirmed());
     drop(grant);
     fixture.owner.shutdown(deadline()).await.unwrap();
+    assert!(resources
+        .registered_direct_owner(instance(), &Default::default(), &actual)
+        .is_err());
     let proof = resources.io_evidence();
     assert!(proof.physical_confirmed());
     assert_eq!(proof.declarations[0].kind, crate::component::instance::resources::native::coverage::DeclaredResourceKind::ControlledDirectStream);

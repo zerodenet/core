@@ -184,3 +184,7 @@ impl Entry {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "dns"))]
+#[path = "../../../tests/resource_root_dns.rs"]
+mod dns_tests;
