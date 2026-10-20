@@ -45,14 +45,14 @@ impl Shared {
         let NativeHandleState::Live(socket) = &*native else {
             return Poll::Ready(Err(super::super::io::unavailable(&native)));
         };
-        match poll_packet(socket, cx, bytes, peer, control) {
+        let observer = socket.observer.clone();
+        let (result, cancel) = match poll_packet(socket, cx, bytes, peer, control) {
             Poll::Ready(Err(error))
                 if error
                     .get_ref()
                     .is_some_and(|cause| cause.is::<PacketScopeRestoreFailure>()) =>
             {
-                // Persist before invoking external observation. A callback
-                // panic must not erase policy failure or release the native FD.
+                // Persist before dropping gates or invoking external code.
                 let source = Arc::new(error);
                 *self
                     .socket
@@ -60,16 +60,19 @@ impl Shared {
                     .packet_failure
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source.clone());
-                self.socket.entry.retired.cancel();
-                observe_error(socket, source.as_ref());
-                Poll::Ready(Err(std_io::Error::other(source)))
+                (Poll::Ready(Err(std_io::Error::other(source))), true)
             }
-            Poll::Ready(result) => {
-                observe(socket, &result);
-                Poll::Ready(result)
-            }
-            Poll::Pending => Poll::Pending,
+            result => (result, false),
+        };
+        drop(native);
+        drop(retired);
+        if cancel {
+            self.socket.entry.retired.cancel();
         }
+        if let Poll::Ready(result) = &result {
+            observe(observer, result);
+        }
+        result
     }
 }
 
@@ -120,18 +123,18 @@ fn poll_packet(
     };
     Poll::Ready(result)
 }
-fn observe(socket: &TokioDatagramSocket, result: &std_io::Result<usize>) {
+fn observe(observer: super::super::observation::Observer, result: &std_io::Result<usize>) {
     match result {
         Ok(size) => {
-            if let Some(observer) = &socket.observer {
+            if let Some(observer) = observer {
                 observer.sent_datagram(*size);
             }
         }
-        Err(error) => observe_error(socket, error),
+        Err(error) => observe_error(observer, error),
     }
 }
-fn observe_error(socket: &TokioDatagramSocket, error: &std_io::Error) {
-    if let Some(observer) = &socket.observer {
+fn observe_error(observer: super::super::observation::Observer, error: &std_io::Error) {
+    if let Some(observer) = observer {
         // Restoration can fail after an actual successful send. Count
         // submission once, independently of its persistent policy fault.
         if let Some(failure) = PacketScopeRestoreFailure::from_io(error) {

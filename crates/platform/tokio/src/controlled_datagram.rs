@@ -4,6 +4,7 @@ mod acquire;
 mod flags;
 mod io;
 pub mod listener;
+mod observation;
 #[cfg(test)]
 mod tests;
 use crate::{EgressInterface, TokioDatagramSocket};

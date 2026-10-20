@@ -228,4 +228,5 @@ async fn oversized_native_send_keeps_source_and_listener_healthy() {
     assert_eq!(owner.take_report().confirmed_closed, 1);
 }
 
+mod observers;
 mod reentry;

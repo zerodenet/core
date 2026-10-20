@@ -122,7 +122,10 @@ impl ControlledDatagramListenerRx {
                 if let Err(error) = shared.check(*retired) {
                     return std::task::Poll::Ready(Err(error));
                 }
-                shared.socket.poll_recv_from_addr(cx, bytes)
+                let (result, observer) = shared.socket.poll_recv_unobserved(cx, bytes);
+                drop(retired);
+                super::observation::receive(observer, &result);
+                result
             }) => result,
         }
     }
@@ -152,7 +155,10 @@ impl ControlledDatagramListenerTx {
                     if let Err(error) = shared.check(*retired) {
                         return std::task::Poll::Ready(Err(error));
                     }
-                    shared.socket.poll_send_to_addr(cx, bytes, peer)
+                    let (result, observer) = shared.socket.poll_send_unobserved(cx, bytes, peer);
+                    drop(retired);
+                    super::observation::send(observer, &result);
+                    result
                 }).await
             } => result,
         }
@@ -191,12 +197,9 @@ impl ControlledDatagramListenerControl {
     ) -> std_io::Result<()> {
         let retired = self.shared.lock();
         self.shared.check(*retired)?;
-        match &mut *self.shared.socket.entry.lock() {
-            NativeHandleState::Live(socket) => {
-                socket.set_observer(observer);
-                Ok(())
-            }
-            other => Err(super::io::unavailable(other)),
-        }
+        let old = self.shared.socket.replace_observer(observer.clone())?;
+        drop(retired);
+        super::observation::boundary(&observer, old);
+        Ok(())
     }
 }

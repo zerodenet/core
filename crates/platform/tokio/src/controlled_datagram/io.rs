@@ -24,10 +24,17 @@ impl ControlledDatagramSocket {
         &mut self,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> std_io::Result<()> {
+        let old = self.replace_observer(observer.clone())?;
+        super::observation::boundary(&observer, old);
+        Ok(())
+    }
+    pub(super) fn replace_observer(
+        &self,
+        observer: super::observation::Observer,
+    ) -> std_io::Result<super::observation::Observer> {
         match &mut *self.entry.lock() {
             NativeHandleState::Live(socket) => {
-                socket.set_observer(observer);
-                Ok(())
+                Ok(std::mem::replace(&mut socket.observer, observer))
             }
             other => Err(unavailable(other)),
         }
@@ -38,9 +45,22 @@ impl ControlledDatagramSocket {
         bytes: &[u8],
         peer: SocketAddr,
     ) -> Poll<std_io::Result<usize>> {
+        let (result, observer) = self.poll_send_unobserved(cx, bytes, peer);
+        super::observation::send(observer, &result);
+        result
+    }
+    pub(super) fn poll_send_unobserved(
+        &self,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+        peer: SocketAddr,
+    ) -> (Poll<std_io::Result<usize>>, super::observation::Observer) {
         match &*self.entry.lock() {
-            NativeHandleState::Live(socket) => socket.poll_send_to_addr(cx, bytes, peer),
-            other => Poll::Ready(Err(unavailable(other))),
+            NativeHandleState::Live(socket) => (
+                socket.inner.poll_send_to(cx, bytes, peer),
+                socket.observer.clone(),
+            ),
+            other => (Poll::Ready(Err(unavailable(other))), None),
         }
     }
     pub fn poll_recv_from_addr(
@@ -48,9 +68,28 @@ impl ControlledDatagramSocket {
         cx: &mut Context<'_>,
         bytes: &mut [u8],
     ) -> Poll<std_io::Result<(usize, SocketAddr)>> {
+        let (result, observer) = self.poll_recv_unobserved(cx, bytes);
+        super::observation::receive(observer, &result);
+        result
+    }
+    pub(super) fn poll_recv_unobserved(
+        &self,
+        cx: &mut Context<'_>,
+        bytes: &mut [u8],
+    ) -> (
+        super::observation::ReceivePoll,
+        super::observation::Observer,
+    ) {
         match &*self.entry.lock() {
-            NativeHandleState::Live(socket) => socket.poll_recv_from_addr(cx, bytes),
-            other => Poll::Ready(Err(unavailable(other))),
+            NativeHandleState::Live(socket) => {
+                let mut buffer = tokio::io::ReadBuf::new(bytes);
+                let result = socket
+                    .inner
+                    .poll_recv_from(cx, &mut buffer)
+                    .map(|result| result.map(|peer| (buffer.filled().len(), peer)));
+                (result, socket.observer.clone())
+            }
+            other => (Poll::Ready(Err(unavailable(other))), None),
         }
     }
     pub async fn send_to_addr(&self, bytes: &[u8], peer: SocketAddr) -> std_io::Result<usize> {
