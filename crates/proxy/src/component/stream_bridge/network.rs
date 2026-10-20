@@ -102,7 +102,12 @@ impl UpstreamOpener for NodeOpener {
     ) -> BoxFuture<'_, Result<BoxDatagramSession, ChannelError>> {
         #[cfg(feature = "udp-runtime")]
         {
-            Box::pin(self.services.open_node_datagram(binding, request, context))
+            let binding = binding.clone();
+            Box::pin(async move {
+                self.services
+                    .open_node_datagram(&binding, request, context)
+                    .await
+            })
         }
         #[cfg(not(feature = "udp-runtime"))]
         {
