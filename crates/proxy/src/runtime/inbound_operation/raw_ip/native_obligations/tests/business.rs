@@ -24,7 +24,7 @@ async fn real_refused_business_flow_retains_its_caller_source_without_stopping_t
     let host = installed.tasks();
     let owner = installed.owner();
     let native = NativeObligations::new(2, 0, 0);
-    installed.register(native.resource()).unwrap();
+    let native_identity = installed.register(native.resource()).unwrap();
     let (stop_parent, parent_stopped) = oneshot::channel();
     owner
         .spawn_driver(async move {
@@ -165,12 +165,30 @@ async fn real_refused_business_flow_retains_its_caller_source_without_stopping_t
             .as_ref()
             .unwrap()
     ));
+    assert!(
+        !monitor.is_finished(),
+        "ordinary business failures did not end the original listener driver"
+    );
     stop_parent.send(()).unwrap();
-    timeout(Duration::from_secs(2), monitor)
+    let stopped = timeout(Duration::from_secs(2), monitor)
         .await
         .unwrap()
         .unwrap()
+        .unwrap_err();
+    let zero_engine::EngineError::Io(stopped) = stopped else {
+        panic!("original resource cleanup boundary");
+    };
+    let cleanup = stopped
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<ChannelError>()
         .unwrap();
+    // The original driver now explicitly retires its registered resources.
+    // These two entered gateways remain deliberately Unaccounted: their actual
+    // incomplete native cleanup must be reported, not turned into driver Ok.
+    assert_eq!(cleanup.stage, Stage::Close);
+    assert_eq!(cleanup.reason, Reason::Timeout);
+    assert_eq!(cleanup.component, Some(native_identity.component));
     // Real task joins/ordinary result handling are not explicit native close.
     assert!(registry
         .confirm_shutdown("local-business", Instant::now() + Duration::from_secs(2))
