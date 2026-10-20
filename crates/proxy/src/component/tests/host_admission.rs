@@ -243,3 +243,59 @@ async fn exact_candidate_survives_cold_cache_replacement_and_cached_old_handles_
     assert_eq!(transferred.read_u8().await.unwrap(), b'x');
     catalog.shutdown(deadline()).await.unwrap();
 }
+
+#[tokio::test]
+async fn committing_current_cannot_discard_another_actual_started_candidate() {
+    use std::sync::atomic::AtomicBool;
+    let catalog = ComponentCatalog::default();
+    let current = config();
+    catalog.start(current.clone(), deadline()).await.unwrap();
+    catalog.commit(&current, || Ok(())).unwrap();
+    let old = catalog
+        .prepare(current.clone())
+        .unwrap()
+        .direct(Some("selected"))
+        .unwrap()
+        .stream(deadline())
+        .await
+        .unwrap();
+    let mut candidate = (*current).clone();
+    candidate.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv4;
+    let candidate = Arc::new(candidate);
+    catalog.start(candidate.clone(), deadline()).await.unwrap();
+    let role = catalog
+        .prepare(candidate.clone())
+        .unwrap()
+        .direct(Some("selected"))
+        .unwrap()
+        .stream(deadline())
+        .await
+        .unwrap();
+    let mutated = AtomicBool::new(false);
+    assert!(catalog
+        .commit(&current, || {
+            mutated.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+        .is_err());
+    assert!(
+        !mutated.load(Ordering::SeqCst),
+        "reject before any commit mutation"
+    );
+    let root = Arc::new(Root::default());
+    open_with_policy(&role, &root, false, candidate.outbounds[0].dial.to_policy())
+        .await
+        .unwrap();
+    open(&old, &root, true).await.unwrap();
+    // The actual recovery path must first confirm candidate retirement. Merely
+    // naming the previous current config cannot discard or replace its owner.
+    catalog.start(current.clone(), deadline()).await.unwrap();
+    assert!(
+        open_with_policy(&role, &root, false, candidate.outbounds[0].dial.to_policy())
+            .await
+            .is_err()
+    );
+    catalog.commit(&current, || Ok(())).unwrap();
+    open(&old, &root, true).await.unwrap();
+    catalog.shutdown(deadline()).await.unwrap();
+}

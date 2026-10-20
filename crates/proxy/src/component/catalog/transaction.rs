@@ -52,6 +52,15 @@ impl ComponentCatalog {
         commit: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
         let mut state = self.state.lock().expect("component catalog poisoned");
+        if state
+            .staged
+            .as_ref()
+            .is_some_and(|entry| !entry.matches(config))
+        {
+            return Err(
+                "another component candidate still requires confirmed retirement".to_owned(),
+            );
+        }
         let selected = state
             .staged
             .as_ref()
@@ -61,6 +70,14 @@ impl ComponentCatalog {
         let plan = selected.ready().clone();
         if !plan.started.load(Ordering::Acquire) {
             return Err("component plan has not confirmed start".to_owned());
+        }
+        if state.retired.is_some()
+            && state
+                .current
+                .as_ref()
+                .is_some_and(|entry| !Arc::ptr_eq(entry.ready(), &plan))
+        {
+            return Err("previous component retirement remains unconfirmed".to_owned());
         }
         let result = commit()?;
         if let Some(previous) = state.current.take() {
