@@ -36,10 +36,11 @@ pub use runtime::{
 pub use runtime::{PacketRouteControl, PacketRouteLease};
 pub use runtime::{RouteDecision, RouteEvaluation, RouteTrace};
 pub use session::{
-    ActiveSession, BlockReason, CompletedSessionRecord, FlowAddressFamilyFallbackObservation,
-    FlowConnectionAttemptObservation, FlowContext, FlowEgressObservation, FlowFailureObservation,
-    FlowHook, FlowHookChain, FlowNetworkInterfaceObservation, FlowNetworkObservation,
-    FlowPathObservation, FlowRemoteEndpoint, FlowRouteLookupObservation, FlowRouteObservation,
+    ActiveSession, AdmittedSession, BlockReason, CompletedSessionRecord,
+    FlowAddressFamilyFallbackObservation, FlowConnectionAttemptObservation, FlowContext,
+    FlowEgressObservation, FlowFailureObservation, FlowHook, FlowHookChain,
+    FlowNetworkInterfaceObservation, FlowNetworkObservation, FlowPathObservation,
+    FlowRemoteEndpoint, FlowRouteLookupObservation, FlowRouteObservation,
     FlowSocketBindingObservation, FlowTraffic, MatchedRouteRule, SessionHandle,
 };
 pub use zero_api::{

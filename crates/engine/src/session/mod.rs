@@ -1,5 +1,6 @@
 //! Session lifecycle, registry, observations, accounting, and hooks.
 
+mod admitted;
 mod completed;
 mod hook;
 mod lifecycle;
@@ -7,6 +8,8 @@ mod observation;
 mod registry;
 mod traffic;
 
+pub(crate) use admitted::AdmissionLife;
+pub use admitted::AdmittedSession;
 pub use completed::CompletedSessionRecord;
 pub use hook::{BlockReason, FlowContext, FlowHook, FlowHookChain, FlowTraffic};
 pub use lifecycle::SessionHandle;

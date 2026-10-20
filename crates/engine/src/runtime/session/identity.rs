@@ -62,6 +62,17 @@ impl Engine {
         session: &mut Session,
         inbound_tag: &str,
     ) -> Result<(), EngineError> {
+        self.prepare_session_with_identity_admitted(identity, session, inbound_tag)
+            .map(|_| ())
+    }
+
+    /// A successful admission receipt, never just a minted numeric identity.
+    pub fn prepare_session_with_identity_admitted(
+        &self,
+        identity: &SessionIdentity,
+        session: &mut Session,
+        inbound_tag: &str,
+    ) -> Result<crate::AdmittedSession, EngineError> {
         identity.claim(&self.next_session_id, SessionId(session.id))?;
         self.admit_session(session, inbound_tag)
     }

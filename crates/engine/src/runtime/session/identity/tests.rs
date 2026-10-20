@@ -1,6 +1,7 @@
 use super::*;
 use zero_api::{event_type, EventFilter};
 use zero_core::{Network, ProtocolType};
+mod admitted;
 mod policy;
 
 fn new_engine() -> Engine {

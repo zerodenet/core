@@ -10,15 +10,33 @@ impl Engine {
         session: &mut Session,
         inbound_tag: &str,
     ) -> Result<(), EngineError> {
+        self.prepare_session_admitted(session, inbound_tag)
+            .map(|_| ())
+    }
+
+    /// Same policy and registry operation, returning sealed successful authority.
+    pub fn prepare_session_admitted(
+        &self,
+        session: &mut Session,
+        inbound_tag: &str,
+    ) -> Result<crate::AdmittedSession, EngineError> {
         session.id = self.allocate_session_id()?.0;
         self.admit_session(session, inbound_tag)
+    }
+
+    pub fn check_admitted_session(
+        &self,
+        admitted: &crate::AdmittedSession,
+        id: zero_core::component::SessionId,
+    ) -> Result<(), EngineError> {
+        admitted.check_issuer(&self.next_session_id, id)
     }
 
     pub(super) fn admit_session(
         &self,
         session: &mut Session,
         inbound_tag: &str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<crate::AdmittedSession, EngineError> {
         session.inbound_tag = Some(inbound_tag.to_owned());
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -67,6 +85,9 @@ impl Engine {
         self.stats.record_start();
         self.event_log
             .push_flow_started(&inserted.active, inserted.principal_observation.as_ref());
-        Ok(())
+        Ok(inserted.admission.receipt(
+            zero_core::component::SessionId(session.id),
+            &self.next_session_id,
+        ))
     }
 }

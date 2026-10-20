@@ -2,10 +2,10 @@ use super::*;
 use crate::BlockReason;
 use std::sync::{atomic::AtomicUsize, Mutex};
 
-struct Hook {
-    calls: Arc<AtomicUsize>,
-    deny: Arc<AtomicBool>,
-    ids: Arc<Mutex<Vec<u64>>>,
+pub(super) struct Hook {
+    pub(super) calls: Arc<AtomicUsize>,
+    pub(super) deny: Arc<AtomicBool>,
+    pub(super) ids: Arc<Mutex<Vec<u64>>>,
 }
 impl FlowHook for Hook {
     fn on_flow_start(&self, context: &FlowContext) -> Result<(), BlockReason> {
@@ -75,7 +75,7 @@ fn hook_rejection_consumes_the_ticket_once_before_registration_and_retry_needs_a
         .unwrap();
 }
 
-fn principal(id: SessionId, source: u8) -> Session {
+pub(super) fn principal(id: SessionId, source: u8) -> Session {
     let mut business = session(id);
     business.source_ip = Some(Address::Ipv4([192, 0, 2, source]));
     let mut auth = SessionAuth::new("verified-fixture");
