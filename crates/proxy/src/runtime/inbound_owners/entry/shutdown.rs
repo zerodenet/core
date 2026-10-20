@@ -9,35 +9,43 @@ impl InboundOwner {
             .expect("inbound resources poisoned")
             .clone();
         let close_resources = async {
+            let mut failure = None;
             for resource in resources.into_iter().rev() {
                 if resource.stopped.load(Ordering::Acquire) {
                     continue;
                 }
                 let mut owner = resource.owner.lock().await;
                 owner.revoke(CloseReason::Shutdown);
-                let report = owner.shutdown(deadline).await.map_err(|mut error| {
-                    error.component.get_or_insert(resource.identity.component);
-                    let error = Arc::new(error);
-                    self.failure
-                        .lock()
-                        .expect("inbound failure poisoned")
-                        .get_or_insert(error.clone());
-                    std::io::Error::other(retained(error))
-                })?;
+                let report = match owner.shutdown(deadline).await {
+                    Ok(report) => report,
+                    Err(mut error) => {
+                        error.component.get_or_insert(resource.identity.component);
+                        let error = Arc::new(error);
+                        self.failure
+                            .lock()
+                            .expect("inbound failure poisoned")
+                            .get_or_insert(error.clone());
+                        failure.get_or_insert_with(|| std::io::Error::other(retained(error)));
+                        continue;
+                    }
+                };
                 let complete = report.is_complete();
                 self.report
                     .lock()
                     .expect("inbound close report poisoned")
                     .append(report);
-                if !complete {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "inbound carrier cleanup remains unconfirmed",
-                    ));
+                if complete {
+                    resource.stopped.store(true, Ordering::Release);
+                } else {
+                    failure.get_or_insert_with(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "inbound carrier cleanup remains unconfirmed",
+                        )
+                    });
                 }
-                resource.stopped.store(true, Ordering::Release);
             }
-            Ok::<(), std::io::Error>(())
+            failure.map_or(Ok::<(), std::io::Error>(()), Err)
         };
         let close_tasks = async {
             let mut scope = self.scope.lock().await;
@@ -62,14 +70,22 @@ impl InboundOwner {
             #[cfg(feature = "managed-datagram-runtime")]
             {
                 let groups = self.peers.lock().expect("peer owners poisoned").clone();
+                let mut failure = None;
                 for group in groups {
-                    group.wait_closed().await.map_err(std::io::Error::other)?;
+                    if let Err(error) = group.wait_closed().await {
+                        failure.get_or_insert_with(|| std::io::Error::other(error));
+                    }
+                }
+                if let Some(error) = failure {
+                    return Err(error);
                 }
             }
             Ok::<(), std::io::Error>(())
         };
         let result = timeout_at(deadline, async {
-            tokio::try_join!(close_resources, close_tasks, close_peers).map(|_| ())
+            let (resources, tasks, peers) = tokio::join!(close_resources, close_tasks, close_peers);
+            // A fault does not cancel a sibling's actual join/close operation.
+            resources.and(tasks).and(peers)
         })
         .await;
         match result {

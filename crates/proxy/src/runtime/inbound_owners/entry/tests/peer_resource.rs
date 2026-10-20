@@ -1,4 +1,6 @@
 use super::*;
+#[path = "peer_resource/failure.rs"]
+mod failure;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_platform_tokio::{
     contract::lifecycle::{erase_lifecycle, ResourceLifecycle},
@@ -10,6 +12,9 @@ struct SocketOwner {
     address: Option<tokio::sync::oneshot::Sender<std::net::SocketAddr>>,
     gate: tokio::net::TcpStream,
     pending: Arc<Notify>,
+    gate_done: bool,
+    recovery: Option<tokio::net::TcpStream>,
+    failed: Option<Arc<Notify>>,
 }
 impl ResourceLifecycle for SocketOwner {
     async fn start(&mut self, _: Instant) -> Result<(), ChannelError> {
@@ -26,18 +31,30 @@ impl ResourceLifecycle for SocketOwner {
         if self.socket.is_none() {
             return Ok(CloseReport::default());
         }
-        let mut byte = [0];
-        let read = self.gate.read_exact(&mut byte);
-        tokio::pin!(read);
-        std::future::poll_fn(|cx| {
-            let result = read.as_mut().poll(cx);
-            if result.is_pending() {
-                self.pending.notify_one();
+        if !self.gate_done {
+            let mut byte = [0];
+            let read = self.gate.read_exact(&mut byte);
+            tokio::pin!(read);
+            let result = std::future::poll_fn(|cx| {
+                let result = read.as_mut().poll(cx);
+                if result.is_pending() {
+                    self.pending.notify_one();
+                }
+                result
+            })
+            .await;
+            self.gate_done = true;
+            if let Err(error) = result {
+                if let Some(failed) = &self.failed {
+                    failed.notify_one();
+                }
+                return Err(io_error(error));
             }
-            result
-        })
-        .await
-        .map_err(io_error)?;
+        }
+        if let Some(recovery) = self.recovery.as_mut() {
+            recovery.read_u8().await.map_err(io_error)?;
+            self.recovery.take();
+        }
         // The actual platform syscall result supplies the native close receipt.
         self.socket.take().unwrap().close().map_err(io_error)?;
         Ok(CloseReport {
@@ -106,6 +123,9 @@ async fn actual_peer_resource_survives_cancelled_cleanup_after_real_join_until_n
                                         address: Some(address_tx),
                                         gate,
                                         pending,
+                                        gate_done: false,
+                                        recovery: None,
+                                        failed: None,
                                     }),
                                     identity,
                                 ))

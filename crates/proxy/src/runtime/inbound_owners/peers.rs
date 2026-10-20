@@ -215,15 +215,25 @@ impl InboundPeerTasks {
         self.begin_shutdown();
         loop {
             let notified = self.changed.notified();
-            self.retire_joined(Instant::now() + std::time::Duration::from_secs(5))
-                .await
-                .map_err(|error| std::io::Error::other(retained(Arc::new(error))))?;
+            let cleanup = self
+                .retire_joined(Instant::now() + std::time::Duration::from_secs(5))
+                .await;
             {
                 let state = self.state.lock().expect("peer task state poisoned");
-                if state.active.is_empty() && state.preparing == 0 {
-                    return state.failure.as_ref().map_or(Ok(()), |error| {
-                        Err(std::io::Error::other(retained(error.clone())).into())
-                    });
+                if state.preparing == 0
+                    && state
+                        .active
+                        .values()
+                        .all(|binding| binding.joined_receipt().is_some())
+                {
+                    // A joined Unknown resource remains owned, but must not
+                    // prevent dispatch of other peers' actual pending exits.
+                    cleanup.map_err(|error| std::io::Error::other(retained(Arc::new(error))))?;
+                    if state.active.is_empty() {
+                        return state.failure.as_ref().map_or(Ok(()), |error| {
+                            Err(std::io::Error::other(retained(error.clone())).into())
+                        });
+                    }
                 }
             }
             notified.await;
