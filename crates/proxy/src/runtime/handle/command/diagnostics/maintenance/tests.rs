@@ -9,17 +9,27 @@ use tokio::{
 use zero_platform_tokio::contract::{ChannelError, Reason};
 
 fn stale(error: &(dyn std::error::Error + 'static)) -> bool {
-    let mut current = Some(error);
-    while let Some(error) = current {
-        if error
-            .downcast_ref::<ChannelError>()
-            .is_some_and(|error| error.reason == Reason::StalePlan)
-        {
+    if let Some(channel) = error.downcast_ref::<ChannelError>() {
+        if channel.reason == Reason::StalePlan {
             return true;
         }
-        current = error.source();
     }
-    false
+    if let Some(zero_engine::EngineError::Io(native)) =
+        error.downcast_ref::<zero_engine::EngineError>()
+    {
+        return stale(native);
+    }
+    if let Some(native) = error.downcast_ref::<std::io::Error>() {
+        // std::io::Error::source may delegate through the payload's source,
+        // skipping the actual ChannelError itself. Inspect its real payload.
+        if let Some(payload) = native.get_ref() {
+            return stale(payload);
+        }
+    }
+    if let Some(shared) = error.downcast_ref::<std::sync::Arc<ChannelError>>() {
+        return stale(shared.as_ref());
+    }
+    error.source().is_some_and(stale)
 }
 #[tokio::test]
 async fn cancelled_cold_diagnostic_keeps_actual_service_owner_and_never_publishes_business() {
@@ -66,7 +76,10 @@ async fn cancelled_cold_diagnostic_keeps_actual_service_owner_and_never_publishe
         Ok(_) => panic!("cold Service maintenance published Business admission"),
         Err(error) => error,
     };
-    assert!(stale(&failed));
+    assert!(
+        stale(&failed),
+        "actual Business admission error: {failed:?}"
+    );
     proxy
         .engine()
         .track_session(session.id)
