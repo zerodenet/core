@@ -37,8 +37,15 @@ async fn same_slot_auxiliary_uses_original_scope_and_cleanup_accepts_the_real_fa
             Reason::Revoked
         );
         let (finish, finished) = tokio::sync::oneshot::channel();
+        let original_slot = Arc::downgrade(&adoption.slot);
         let (id, witness) = adoption
             .spawn_auxiliary(&actual.registrar(), async move {
+                let installed = original_slot.upgrade().unwrap();
+                assert!(
+                    installed.state().auxiliary.is_some(),
+                    "real work cannot poll before its original task witness is installed"
+                );
+                drop(installed);
                 finished.await.unwrap();
                 Err(error(
                     instance(),
