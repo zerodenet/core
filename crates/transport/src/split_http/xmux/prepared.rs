@@ -63,5 +63,5 @@ where
 }
 
 #[cfg(test)]
-#[path = "../../../tests/xhttp_prepared.rs"]
+#[path = "../../../tests/xhttp/prepared.rs"]
 mod tests;

@@ -195,5 +195,5 @@ fn failure(reason: Reason, message: &'static str) -> RuntimeError {
 }
 
 #[cfg(test)]
-#[path = "../tests/relay_connector.rs"]
+#[path = "../tests/relay_connector/mod.rs"]
 mod tests;
