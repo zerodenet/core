@@ -63,19 +63,19 @@ impl InboundOwner {
                         error: retained(error),
                     });
             }
-            if self
-                .driver
-                .get()
-                .is_some_and(|id| report.exited_tasks.contains(id))
+            // Publish receipts and inspect the driver ID under the same short
+            // lock as publish_driver, including the exit-before-ID race.
             {
-                self.driver_finished.store(true, Ordering::Release);
+                let mut stored = self.report.lock().expect("inbound close report poisoned");
+                stored.append(report);
+                if self
+                    .driver
+                    .get()
+                    .is_some_and(|id| stored.exited_tasks.contains(id))
+                {
+                    self.driver_finished.store(true, Ordering::Release);
+                }
             }
-            // Receipt lives in the persistent entry before this branch returns;
-            // cancellation while carrier shutdown is still pending cannot lose it.
-            self.report
-                .lock()
-                .expect("inbound close report poisoned")
-                .append(report);
             if complete {
                 Ok(())
             } else {

@@ -109,9 +109,12 @@ impl InboundOwner {
         self: &Arc<Self>,
         work: impl Future<Output = Result<(), EngineError>> + Send + 'static,
     ) -> Result<(), EngineError> {
+        if self.cancel.is_cancelled() || *self.shutdown.borrow() {
+            return Err(std::io::Error::other("inbound stopped before driver acceptance").into());
+        }
         self.scope
             .try_lock()
-            .expect("scope installed before driver registration")
+            .map_err(|_| std::io::Error::other("inbound owner is already joining its scope"))?
             .enable_registration()
             .map_err(std::io::Error::other)?;
         let identity = self.identity;
@@ -154,8 +157,17 @@ impl InboundOwner {
                 })
             })
             .map_err(std::io::Error::other)?;
-        self.driver.set(task).expect("one actual listener driver");
+        self.publish_driver(task);
         Ok(())
+    }
+    fn publish_driver(&self, task: TaskId) {
+        let report = self.report.lock().expect("inbound close report poisoned");
+        self.driver.set(task).expect("one actual listener driver");
+        // A concurrent shutdown may have already joined the real registered
+        // task. Publish only that observed receipt, never an invented exit.
+        if report.exited_tasks.contains(&task) {
+            self.driver_finished.store(true, Ordering::Release);
+        }
     }
     fn stop(&self) {
         self.cancel.cancel();
@@ -193,6 +205,9 @@ impl InboundOwner {
         }
     }
     pub(crate) async fn observe_driver(&self) -> Result<(), EngineError> {
+        if self.driver.get().is_none() {
+            return Err(std::io::Error::other("inbound driver was not accepted").into());
+        }
         let mut scope = self.scope.lock().await;
         while !self.driver_finished.load(Ordering::Acquire) {
             let exit = scope

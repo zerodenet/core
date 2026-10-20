@@ -124,3 +124,36 @@ async fn cancelled_observation_preserves_actual_task_failure_source_for_cleanup(
         "fault/source stay with the actual owner"
     );
 }
+
+#[tokio::test]
+async fn publishing_a_driver_id_after_its_real_scope_exit_preserves_the_join_receipt() {
+    let (stop, _) = watch::channel(false);
+    let owner = InboundOwner::new(
+        ComponentInstanceId {
+            component: zero_core::component::ComponentId(1),
+            generation: zero_core::component::ResourceGeneration(1),
+        },
+        NonZeroUsize::new(1).unwrap(),
+        stop,
+    );
+    owner.scope.lock().await.enable_registration().unwrap();
+    let actual = owner
+        .registrar
+        .spawn(TaskClass::Critical, async { Ok(()) })
+        .unwrap();
+    let exit = owner.scope.lock().await.next_exit().await.unwrap();
+    assert_eq!(exit.id, actual);
+    owner.record(exit);
+    assert!(!owner.driver_finished.load(Ordering::Acquire));
+    owner.publish_driver(actual);
+    assert!(owner.driver_finished.load(Ordering::Acquire));
+    timeout(Duration::from_secs(2), owner.observe_driver())
+        .await
+        .unwrap()
+        .unwrap();
+    owner
+        .shutdown(Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
+    assert_eq!(owner.report.lock().unwrap().exited_tasks, vec![actual]);
+}
