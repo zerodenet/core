@@ -3,7 +3,11 @@ use super::*;
 use zero_platform_tokio::contract::lifecycle::TaskFailure;
 
 #[derive(Debug)]
-pub(super) struct PlanTaskFailure(pub(super) TaskFailure);
+pub(super) struct PlanTaskFailure(
+    pub(super) TaskFailure,
+    pub(super) zero_core::component::ComponentInstanceId,
+    AtomicBool,
+);
 impl std::fmt::Display for PlanTaskFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -19,7 +23,21 @@ impl std::error::Error for PlanTaskFailure {
     }
 }
 impl PlanTaskFailure {
-    fn retained(self: &Arc<Self>) -> ChannelError {
+    pub(super) fn new(
+        failure: TaskFailure,
+        instance: zero_core::component::ComponentInstanceId,
+    ) -> Self {
+        Self(failure, instance, AtomicBool::new(false))
+    }
+    pub(super) fn reported(&self) -> bool {
+        self.2.load(Ordering::Acquire)
+    }
+    pub(super) fn confirm_reported(&self) {
+        let _ = self
+            .2
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire);
+    }
+    pub(super) fn retained(self: &Arc<Self>) -> ChannelError {
         let original = &self.0.error;
         let mut error = ChannelError::new(original.stage, original.reason, original.impact);
         error.component = original.component;
@@ -38,6 +56,10 @@ impl std::fmt::Debug for ComponentPlan {
     }
 }
 impl ComponentPlan {
+    pub(super) fn can_reuse(&self) -> bool {
+        self.order.iter().all(|slot| slot.can_reuse())
+    }
+
     pub(crate) async fn start(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
         for slot in &self.order {
             slot.start(deadline).await?;
@@ -70,42 +92,15 @@ impl ComponentPlan {
         deadline: tokio::time::Instant,
         keep: Option<&ComponentPlan>,
     ) -> Result<(), ChannelError> {
-        let retiring: Vec<_> = self
+        let retiring = self
             .order
             .iter()
-            .rev()
             .filter(|slot| {
                 !keep.is_some_and(|plan| plan.order.iter().any(|active| Arc::ptr_eq(slot, active)))
             })
+            .map(|slot| slot.instance_id())
             .collect();
-        for slot in &retiring {
-            slot.revoke();
-        }
-        let mut failure = None;
-        for slot in retiring {
-            let result = slot.shutdown(deadline).await.and_then(|mut report| {
-                // No await between taking the real report and retaining its
-                // original failures. A later owner's cleanup may suspend or
-                // lose its caller; neither can erase already joined failures.
-                let mut failures = self.failures.lock().expect("component failures poisoned");
-                for failure in report.failed_tasks.drain(..) {
-                    failures
-                        .entry(failure.id)
-                        .or_insert_with(|| Arc::new(PlanTaskFailure(failure)));
-                }
-                if report.is_complete() {
-                    Ok(())
-                } else {
-                    Err(invalid(
-                        Reason::Timeout,
-                        "component cleanup remains unfinished",
-                    ))
-                }
-            });
-            if let Err(error) = result {
-                failure.get_or_insert(error);
-            }
-        }
+        let declared = self.confirm_instances(&retiring, deadline).await;
         if let Some(failed) = self
             .failures
             .lock()
@@ -115,6 +110,6 @@ impl ComponentPlan {
         {
             return Err(failed.retained());
         }
-        failure.map_or(Ok(()), Err)
+        declared
     }
 }

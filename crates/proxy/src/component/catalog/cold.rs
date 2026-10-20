@@ -10,8 +10,9 @@ impl ComponentCatalog {
         &self,
         config: &RuntimeConfig,
         previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
+        issued: &BTreeMap<ComponentId, ResourceGeneration>,
     ) -> Result<ComponentPlan, ChannelError> {
-        let plan = self.compile_plan(config, previous)?;
+        let plan = self.compile_with_floor(config, previous, issued)?;
         // Keep this before returning a plan or binding any admission. A cold
         // shared graph is not stop-old confirmation, a native grant or Ready.
         for slot in &plan.order {
@@ -38,10 +39,11 @@ impl ComponentCatalog {
 
     /// Uses this catalog's real factories, state and monotonic allocator. This
     /// private cold result cannot enter current/staged or bypass prepare's gate.
-    fn compile_plan(
+    fn compile_with_floor(
         &self,
         config: &RuntimeConfig,
         previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
+        issued: &BTreeMap<ComponentId, ResourceGeneration>,
     ) -> Result<ComponentPlan, ChannelError> {
         let mut allocate = || self.allocate_id();
         let identities = previous
@@ -102,12 +104,14 @@ impl ComponentCatalog {
                 "resource_start",
             )));
         }
-        let order = super::super::generations::order_and_reuse(
-            nodes,
-            previous
-                .map(|(_, plan)| plan.order.as_slice())
-                .unwrap_or_default(),
-        )?;
+        let old = previous
+            .map(|(_, plan)| plan.order.as_slice())
+            .unwrap_or_default();
+        let order = if issued.is_empty() {
+            super::super::generations::order_and_reuse(nodes, old)?
+        } else {
+            super::super::generations::order_with_floor(nodes, old, issued)?
+        };
         let nodes: BTreeMap<_, _> = order.iter().map(|slot| (slot.id, slot.clone())).collect();
         let builtin = nodes[&builtin.id].clone();
         for slot in outbounds.values_mut() {
@@ -119,8 +123,20 @@ impl ComponentCatalog {
             order,
             started: AtomicBool::new(false),
             failures: Mutex::new(BTreeMap::new()),
+            confirmed_declared_close: Default::default(),
+            closing: Default::default(),
+            close_evidence: Default::default(),
             shared_identities,
         })
+    }
+
+    #[cfg(test)]
+    fn compile_plan(
+        &self,
+        config: &RuntimeConfig,
+        previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
+    ) -> Result<ComponentPlan, ChannelError> {
+        self.compile_with_floor(config, previous, &BTreeMap::new())
     }
 
     fn primary_slot(

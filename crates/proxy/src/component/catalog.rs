@@ -2,6 +2,8 @@
 mod cold;
 mod maintenance;
 mod plan;
+mod replacement;
+mod retirement;
 #[cfg(test)]
 #[path = "tests/plan.rs"]
 mod tests;
@@ -18,7 +20,7 @@ use std::{
     },
 };
 use zero_config::{OutboundConfig, RuntimeConfig};
-use zero_core::component::ComponentId;
+use zero_core::component::{ComponentId, ResourceGeneration};
 use zero_platform_tokio::contract::{ChannelError, Reason};
 
 pub(crate) struct ComponentPlan {
@@ -30,6 +32,17 @@ pub(crate) struct ComponentPlan {
     failures: Mutex<BTreeMap<zero_core::component::TaskId, Arc<plan::PlanTaskFailure>>>,
     // Canonical IDs from this exact assembly; no old recipes or runtime owners.
     shared_identities: super::SharedResourceIdentities,
+    // Only actual complete slot reports establish declared owner closure.
+    confirmed_declared_close:
+        Mutex<std::collections::BTreeSet<zero_core::component::ComponentInstanceId>>,
+    closing: tokio::sync::Mutex<()>,
+    // Retain real partial I/O/task receipts even when native proof is missing.
+    close_evidence: Mutex<
+        BTreeMap<
+            zero_core::component::ComponentInstanceId,
+            zero_platform_tokio::contract::lifecycle::CloseReport,
+        >,
+    >,
 }
 struct Current {
     config: Arc<RuntimeConfig>,
@@ -42,6 +55,28 @@ struct State {
     staged: Option<Current>,
     retired: Option<Arc<ComponentPlan>>,
     maintenance: bool,
+    replacement: Option<Arc<replacement::Replacement>>,
+    // One high-water generation per still-owned logical ID, not a history log.
+    issued: BTreeMap<ComponentId, ResourceGeneration>,
+}
+impl State {
+    fn prune_issued(&mut self) {
+        let mut owned = std::collections::BTreeSet::new();
+        for plan in self
+            .current
+            .iter()
+            .chain(self.cold.iter())
+            .chain(self.staged.iter())
+            .filter_map(|entry| entry.plan.as_ref().ok())
+            .chain(self.retired.iter())
+        {
+            owned.extend(plan.order.iter().map(|slot| slot.id));
+        }
+        if let Some(replacement) = &self.replacement {
+            owned.extend(replacement.owned_ids());
+        }
+        self.issued.retain(|id, _| owned.contains(id));
+    }
 }
 impl Current {
     fn matches(&self, config: &Arc<RuntimeConfig>) -> bool {
@@ -112,22 +147,41 @@ impl ComponentCatalog {
             .chain(state.staged.iter())
             .chain(state.cold.iter())
         {
-            if entry.matches(&config) {
+            if entry.matches(&config)
+                && match &entry.plan {
+                    Ok(plan) => plan.can_reuse(),
+                    Err(_) => true,
+                }
+            {
                 return entry.plan.clone();
             }
         }
         let previous = state
             .current
-            .as_ref()
-            .map(|entry| (&entry.config, entry.ready()));
+            .iter()
+            .chain(state.staged.iter())
+            .chain(state.cold.iter())
+            .find_map(|entry| entry.plan.as_ref().ok().map(|plan| (&entry.config, plan)));
         let plan = self
-            .prepare_plan(&config, previous)
+            .prepare_plan(&config, previous, &state.issued)
             .map(Arc::new)
             .map_err(Arc::new);
+        if let Ok(plan) = &plan {
+            for slot in &plan.order {
+                state
+                    .issued
+                    .entry(slot.id)
+                    .and_modify(|floor| {
+                        *floor = (*floor).max(slot.generation);
+                    })
+                    .or_insert(slot.generation);
+            }
+        }
         state.cold = Some(Current {
             config,
             plan: plan.clone(),
         });
+        state.prune_issued();
         plan
     }
     #[cfg(feature = "managed-datagram-runtime")]

@@ -142,3 +142,49 @@ fn exhausted_component_generation_cannot_wrap_or_publish_a_replacement() {
     assert_eq!(error.component, Some(id));
     assert_eq!(error.reason, Reason::Internal);
 }
+
+#[test]
+fn issued_floor_and_revocation_advance_transitive_dependencies_once_without_rebuilding_other_roles()
+{
+    use crate::component::generations::order_with_floor;
+    use std::collections::BTreeMap;
+    let ids = ComponentCatalog::default();
+    let root = ids.allocate_id().unwrap();
+    let middle = ids.allocate_id().unwrap();
+    let leaf = ids.allocate_id().unwrap();
+    let separate = ids.allocate_id().unwrap();
+    let old = order_and_reuse(
+        vec![
+            slot(root, 1, vec![], AddressFamily::Auto),
+            slot(middle, 1, vec![root], AddressFamily::Auto),
+            slot(leaf, 1, vec![middle], AddressFamily::Auto),
+            slot(separate, 1, vec![], AddressFamily::Auto),
+        ],
+        &[],
+    )
+    .unwrap();
+    old.iter().find(|slot| slot.id == root).unwrap().revoke();
+    // This is the generation algorithm's bounded input, not a user-close proof.
+    let issued = BTreeMap::from([
+        (root, ResourceGeneration(2)),
+        (middle, ResourceGeneration(2)),
+        (leaf, ResourceGeneration(2)),
+        (separate, ResourceGeneration(1)),
+    ]);
+    let next = order_with_floor(old.clone(), &old, &issued).unwrap();
+    for id in [root, middle, leaf] {
+        let owner = next.iter().find(|slot| slot.id == id).unwrap();
+        assert_eq!(owner.generation, ResourceGeneration(3));
+        for dependency in owner.dependency_instances() {
+            assert_eq!(dependency.generation, ResourceGeneration(3));
+        }
+    }
+    assert!(Arc::ptr_eq(
+        old.iter().find(|slot| slot.id == separate).unwrap(),
+        next.iter().find(|slot| slot.id == separate).unwrap()
+    ));
+    let repeated = order_with_floor(next.clone(), &next, &issued).unwrap();
+    for (before, after) in next.iter().zip(&repeated) {
+        assert!(Arc::ptr_eq(before, after));
+    }
+}

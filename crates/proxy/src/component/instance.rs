@@ -132,6 +132,16 @@ impl ComponentSlot {
             start_gate: Mutex::new(()),
         }
     }
+    /// Cold recipes remain reusable; revoked or failed runtime owners do not.
+    /// This observes the actual persistent initializer, not a synthetic health flag.
+    pub(in crate::component) fn can_reuse(&self) -> bool {
+        !self.cancel.is_cancelled()
+            && match self.live.get() {
+                None => true,
+                Some(Err(_)) => false,
+                Some(Ok(live)) => !matches!(live.started.get(), Some(Err(_))),
+            }
+    }
     pub(crate) fn instance_id(&self) -> ComponentInstanceId {
         ComponentInstanceId {
             component: self.id,

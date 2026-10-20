@@ -20,6 +20,9 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
         order: vec![blocking, panicking],
         started: AtomicBool::new(false),
         failures: Mutex::new(BTreeMap::new()),
+        confirmed_declared_close: Default::default(),
+        closing: Default::default(),
+        close_evidence: Default::default(),
         shared_identities: Default::default(),
     });
     plan.start(deadline()).await.unwrap();

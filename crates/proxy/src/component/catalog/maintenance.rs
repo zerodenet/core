@@ -22,6 +22,16 @@ impl ComponentCatalog {
         self.finish_maintenance(deadline).await?;
         let existing = {
             let state = self.state.lock().expect("component catalog poisoned");
+            if state
+                .replacement
+                .as_ref()
+                .is_some_and(|pending| !pending.released())
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "runtime replacement retirement remains owned",
+                ));
+            }
             state
                 .current
                 .iter()
@@ -102,6 +112,7 @@ impl ComponentCatalog {
         state.staged = None;
         state.cold = None;
         state.maintenance = false;
+        state.prune_issued();
         Ok(())
     }
 }
