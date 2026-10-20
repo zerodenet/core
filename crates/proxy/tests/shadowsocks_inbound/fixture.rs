@@ -39,6 +39,18 @@ pub(super) fn cases() -> [Case; 5] {
     ]
 }
 impl Case {
+    pub(super) fn managed_user(self) -> bool {
+        !self.method.starts_with("2022-") || self.identity.is_some()
+    }
+    pub(super) fn principal(self) -> &'static str {
+        if self.managed_user() {
+            "configured:ss"
+        } else {
+            // Fixed opaque identity for the single configured SIP022 PSK. The
+            // established SS compatibility API does not expose its raw secret.
+            "458d3c6797e13248925489f9f284ec2b8e3eb8ade2cdd9c5ebb999fab8c3be61"
+        }
+    }
     pub(super) fn authenticated(self) -> bool {
         self.method.contains("gcm")
     }
@@ -58,12 +70,30 @@ pub(super) struct Fixture {
 impl Fixture {
     pub(super) fn new(case: Case, blocked: bool) -> Self {
         let port = free_port();
-        let config=RuntimeConfig::parse(&serde_json::json!({
-            "inbounds":[{"tag":"ss-standard-in","listen":{"address":"127.0.0.1","port":port},
-                "protocol":{"type":"shadowsocks","cipher":case.method,"identity_password":case.identity,"replay_attack":"reject",
-                    "users":[{"password":case.user,"principal_key":"configured:ss","up_bps":65536,"down_bps":32768,"device_limit":2,"quota_remaining_bytes":4096,"policy_revision":7}]}}],
-            "route":{"rules":[],"final":{"type":if blocked {"reject"} else {"direct"}}}
-        }).to_string()).unwrap();
+        let mut protocol = serde_json::json!({
+            "type":"shadowsocks","cipher":case.method,"replay_attack":"reject"
+        });
+        if case.managed_user() {
+            protocol["identity_password"] = serde_json::json!(case.identity);
+            protocol["users"] = serde_json::json!([{
+                "password":case.user,"principal_key":"configured:ss","up_bps":65536,"down_bps":32768,
+                "device_limit":2,"quota_remaining_bytes":4096,"policy_revision":7
+            }]);
+        } else {
+            // A plain SIP022 listener uses one server PSK, not the managed EIH
+            // users grammar. EIH above retains its distinct identity PSK and
+            // the existing client iPSK:uPSK chain.
+            protocol["password"] = serde_json::json!(case.user);
+        }
+        let config = RuntimeConfig::parse(
+            &serde_json::json!({
+                "inbounds":[{"tag":"ss-standard-in","listen":{"address":"127.0.0.1","port":port},
+                    "protocol":protocol}],
+                "route":{"rules":[],"final":{"type":if blocked {"reject"} else {"direct"}}}
+            })
+            .to_string(),
+        )
+        .unwrap();
         let engine = Proxy::new(config).unwrap();
         let probe = engine.clone();
         let running = spawn_engine(engine);

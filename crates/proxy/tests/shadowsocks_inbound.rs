@@ -65,11 +65,20 @@ async fn standard_ss_tcp_keeps_actual_cipher_state_full_auth_one_identity_and_re
             assert_eq!((record.bytes_up, record.bytes_down), (16, 16));
             let auth = record.auth.as_ref().unwrap();
             assert_eq!(auth.scheme, "shadowsocks");
-            assert_eq!(auth.principal_key.as_deref(), Some("configured:ss"));
-            assert_eq!((auth.up_bps, auth.down_bps), (Some(65536), Some(32768)));
-            assert_eq!(auth.device_limit, Some(2));
-            assert_eq!(auth.quota_remaining_bytes, Some(4096));
-            assert_eq!(auth.policy_revision, Some(7));
+            assert_eq!(auth.principal_key.as_deref(), Some(case.principal()));
+            assert_eq!(
+                (auth.up_bps, auth.down_bps),
+                (
+                    case.managed_user().then_some(65536),
+                    case.managed_user().then_some(32768)
+                )
+            );
+            assert_eq!(auth.device_limit, case.managed_user().then_some(2));
+            assert_eq!(
+                auth.quota_remaining_bytes,
+                case.managed_user().then_some(4096)
+            );
+            assert_eq!(auth.policy_revision, case.managed_user().then_some(7));
             let events = fixture
                 .probe
                 .latest(
@@ -86,7 +95,7 @@ async fn standard_ss_tcp_keeps_actual_cipher_state_full_auth_one_identity_and_re
             assert_eq!(events.len(), 2);
             assert!(events
                 .iter()
-                .all(|event| event.principal_key.as_deref() == Some("configured:ss")));
+                .all(|event| event.principal_key.as_deref() == Some(case.principal())));
             fixture.running.shutdown().await.unwrap();
         }
     })
