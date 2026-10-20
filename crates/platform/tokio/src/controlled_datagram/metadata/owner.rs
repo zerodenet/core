@@ -160,6 +160,20 @@ impl MetadataOwner {
             .take()
             .unwrap_or_else(|| self.probes.owner.take_report())
     }
+    /// None leaves all prior receipts/sources owned; an actual native gate or
+    /// close lease is busy. No blocking second lookup follows a try-check.
+    pub fn try_take_main_report(&mut self) -> Option<DatagramOwnerReport> {
+        match self.pending_main.take() {
+            Some(report) => Some(report),
+            None => self.main.try_take_report(),
+        }
+    }
+    pub fn try_take_probe_report(&mut self) -> Option<DatagramOwnerReport> {
+        match self.pending_probes.take() {
+            Some(report) => Some(report),
+            None => self.probes.owner.try_take_report(),
+        }
+    }
     /// Main and probe native receipts are independent. Callers using these
     /// separate methods persist each result before the next operation.
     pub fn close_main(&mut self) -> DatagramOwnerReport {
@@ -226,5 +240,5 @@ fn try_close_owner(owner: &mut ControlledDatagramOwner) -> Option<DatagramOwnerR
     for entry in owner.entries.values() {
         let _result = entry.try_close()?;
     }
-    Some(owner.take_report())
+    owner.try_take_report()
 }

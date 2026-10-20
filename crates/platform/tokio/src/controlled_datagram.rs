@@ -7,6 +7,7 @@ mod io;
 pub mod listener;
 pub mod metadata;
 mod observation;
+mod report;
 #[cfg(test)]
 mod tests;
 mod wake_relay;
