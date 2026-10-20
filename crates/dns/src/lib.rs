@@ -17,6 +17,8 @@ mod router;
 mod service;
 mod system;
 mod transport_owners;
+#[cfg(feature = "test-support")]
+pub mod test_support;
 pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
 
 use std::collections::{BTreeMap, VecDeque};

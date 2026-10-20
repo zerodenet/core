@@ -6,6 +6,9 @@ impl DohDnsResolver {
         key: &ConnectionKey,
         connector: Option<&dyn crate::DnsOutboundConnector>,
     ) -> io::Result<ReadyClient> {
+        #[cfg(feature = "test-support")]
+        self.test_io_started
+            .store(true, std::sync::atomic::Ordering::Release);
         let carrier = crate::backends::connect_tcp_carrier(
             key.addr,
             &self.egress,

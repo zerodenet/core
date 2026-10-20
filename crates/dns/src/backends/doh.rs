@@ -18,6 +18,8 @@ pub(crate) struct DohDnsResolver {
     clients: Arc<tokio::sync::Mutex<Vec<DohClient>>>,
     pub(crate) owner: Arc<owner::DriverOwner>,
     connect_lock: Arc<tokio::sync::Mutex<()>>,
+    #[cfg(feature = "test-support")]
+    test_io_started: std::sync::atomic::AtomicBool,
 }
 
 mod client;
@@ -96,7 +98,38 @@ impl DohDnsResolver {
             clients,
             owner,
             connect_lock,
+            #[cfg(feature = "test-support")]
+            test_io_started: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    #[cfg(feature = "test-support")]
+    pub(crate) fn install_test_ca(
+        &mut self,
+        certificate: rustls::pki_types::CertificateDer<'static>,
+    ) -> io::Result<()> {
+        if self
+            .test_io_started
+            .load(std::sync::atomic::Ordering::Acquire)
+            || !self.owner.resource_admission_open()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "fixture CA installation requires an unused cold DoH backend",
+            ));
+        }
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(certificate).map_err(io::Error::other)?;
+        let mut tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(io::Error::other)?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        tls.alpn_protocols = vec![b"h2".to_vec()];
+        self.tls = Some(Arc::new(tls));
+        Ok(())
     }
 
     pub(crate) async fn exchange(

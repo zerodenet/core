@@ -94,6 +94,20 @@ impl DriverOwner {
             }),
         }
     }
+    #[cfg(feature = "test-support")]
+    pub(crate) fn test_witness(&self) -> crate::test_support::DohPoolWitness {
+        let state = self.state.lock().expect("DoH driver owner poisoned");
+        crate::test_support::DohPoolWitness {
+            registered_driver_tasks: state.tasks.len(),
+            active_leases: state
+                .records
+                .values()
+                .chain(state.users.iter())
+                .map(|client| client.leases.load(std::sync::atomic::Ordering::Acquire))
+                .sum(),
+            closing: state.closing,
+        }
+    }
     pub(crate) fn resource_admission_open(&self) -> bool {
         !self
             .state

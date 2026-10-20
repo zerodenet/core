@@ -122,6 +122,7 @@ zero-stack = { path = "../stack" }
 zero-transport = { path = "../transport" }
 
 [dev-dependencies]
+zero-dns = { path = "../dns", features = ["test-support"] }
 base64 = "0.22"
 gotatun = { version = "=0.9.2", default-features = false, features = ["zeroized-rustcrypto"] }
 ring = "0.17"
