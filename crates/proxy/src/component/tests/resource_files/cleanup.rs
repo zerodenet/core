@@ -61,6 +61,7 @@ async fn interrupted_protocol_cleanup_retains_actual_file_join_and_scope_receipt
             Ok(())
         })
         .unwrap();
+    let tasks = Arc::new(tokio::sync::Mutex::new(scope));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let entered = Arc::new(Notify::new());
@@ -75,17 +76,17 @@ async fn interrupted_protocol_cleanup_retains_actual_file_join_and_scope_receipt
             }),
             roles: ComponentRoles::default(),
         },
-        tasks: scope,
         pending_close: None,
         protocol_closed: false,
     }));
     let closing = owner.clone();
     let resources = grants.clone();
+    let closing_tasks = tasks.clone();
     let attempt = tokio::spawn(async move {
         closing
             .lock()
             .await
-            .shutdown(ComponentId(201), deadline(), &resources)
+            .shutdown(ComponentId(201), deadline(), &resources, &closing_tasks)
             .await
     });
     tokio::time::timeout_at(deadline(), entered.notified())
@@ -128,7 +129,7 @@ async fn interrupted_protocol_cleanup_retains_actual_file_join_and_scope_receipt
     let report = owner
         .lock()
         .await
-        .shutdown(ComponentId(201), deadline(), &grants)
+        .shutdown(ComponentId(201), deadline(), &grants, &tasks)
         .await
         .unwrap();
     assert!(report.is_complete());
@@ -170,6 +171,9 @@ async fn a_confirmed_protocol_close_is_not_repeated_when_file_join_was_interrupt
     let release = Arc::new(Notify::new());
     release.notify_one();
     let calls = Arc::new(AtomicUsize::new(0));
+    let tasks = Arc::new(tokio::sync::Mutex::new(TaskScope::empty(
+        tokio::runtime::Handle::current(),
+    )));
     let owner = Arc::new(tokio::sync::Mutex::new(Owner {
         instance: ComponentInstance {
             lifecycle: erase_lifecycle(Protocol {
@@ -180,17 +184,17 @@ async fn a_confirmed_protocol_close_is_not_repeated_when_file_join_was_interrupt
             }),
             roles: ComponentRoles::default(),
         },
-        tasks: TaskScope::empty(tokio::runtime::Handle::current()),
         pending_close: None,
         protocol_closed: false,
     }));
     let closing = owner.clone();
     let resources = grants.clone();
+    let closing_tasks = tasks.clone();
     let attempt = tokio::spawn(async move {
         closing
             .lock()
             .await
-            .shutdown(ComponentId(201), deadline(), &resources)
+            .shutdown(ComponentId(201), deadline(), &resources, &closing_tasks)
             .await
     });
     tokio::time::timeout_at(deadline(), entered.notified())
@@ -218,7 +222,7 @@ async fn a_confirmed_protocol_close_is_not_repeated_when_file_join_was_interrupt
     let report = owner
         .lock()
         .await
-        .shutdown(ComponentId(201), deadline(), &grants)
+        .shutdown(ComponentId(201), deadline(), &grants, &tasks)
         .await
         .unwrap();
     assert!(report.is_complete());
