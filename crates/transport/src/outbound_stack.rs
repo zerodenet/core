@@ -100,7 +100,9 @@ where
     connect_layered_transport_stack(carrier, stack, server, port, invalid_message).await
 }
 
-async fn connect_layered_transport_stack<TTls, TWs, TGrpc, TH2, THttp>(
+/// Apply upper carrier layers to an already prepared TLS/plain carrier.
+/// The retained TLS profile supplies authority only; this function never opens its CA path.
+pub async fn connect_layered_transport_stack<TTls, TWs, TGrpc, TH2, THttp>(
     carrier: TcpRelayStream,
     stack: StreamTransportStack<'_, TTls, TWs, TGrpc, TH2, THttp>,
     _server: &str,
