@@ -1,5 +1,5 @@
 //! Passive same-crypto behavior; the host checks the exact old terminal first.
-use super::super::{inbound_state::private_identity, PendingEndpointMap};
+use super::super::PendingEndpointMap;
 use super::{
     cold::{Binding, ColdListener},
     *,
@@ -9,7 +9,6 @@ use crate::protocol_registry::{InboundRecovery, PreparedInboundBind};
 pub(super) struct Recovery {
     tag: String,
     listen: zero_config::ListenConfig,
-    identity: [u8; 32],
     live: Arc<LiveInboundDevice>,
     original: Binding,
     pending: PendingEndpointMap,
@@ -21,14 +20,27 @@ impl Recovery {
         original: Binding,
         pending: PendingEndpointMap,
     ) -> Result<Self, EngineError> {
-        Ok(Self {
+        let state = Self {
             tag: inbound.tag.clone(),
             listen: inbound.listen.clone(),
-            identity: private_identity(inbound)?,
             live,
             original,
             pending,
-        })
+        };
+        if !state.matches_private_identity(inbound)? {
+            return Err(invalid(
+                "WireGuard capsule differs from the actual current private identity",
+            ));
+        }
+        Ok(state)
+    }
+    fn matches_private_identity(&self, inbound: &InboundConfig) -> Result<bool, EngineError> {
+        let InboundProtocolConfig::Wireguard { private_key, .. } = &inbound.protocol else {
+            return Ok(false);
+        };
+        let key = wireguard::validation::parse_key(private_key.as_str())
+            .map_err(|_| invalid("invalid WireGuard recovery private identity"))?;
+        Ok(self.live.matches_private_key(&key))
     }
     fn select(&self, inbound: &InboundConfig, restore: bool) -> Result<Binding, EngineError> {
         let pending = self
@@ -99,7 +111,7 @@ impl InboundRecovery for Recovery {
     ) -> Result<PreparedInboundBind, EngineError> {
         if inbound.tag != self.tag
             || inbound.listen != self.listen
-            || private_identity(&inbound)? != self.identity
+            || !self.matches_private_identity(&inbound)?
         {
             return Err(invalid(
                 "WireGuard recovery differs from the original private identity or listener",
@@ -112,7 +124,7 @@ impl InboundRecovery for Recovery {
         inbound: InboundConfig,
         _: Option<&std::path::Path>,
     ) -> Result<Option<PreparedInboundBind>, EngineError> {
-        if inbound.tag != self.tag || private_identity(&inbound)? != self.identity {
+        if inbound.tag != self.tag || !self.matches_private_identity(&inbound)? {
             return Ok(None);
         }
         self.prepare(&inbound, false).map(Some)

@@ -252,3 +252,40 @@ async fn original_udp_pending_join_and_publication_precede_same_crypto_restore()
         .await
         .unwrap();
 }
+
+#[test]
+fn capsule_uses_current_actual_private_identity_after_an_accepted_hot_update() {
+    let adapter = super::super::super::WireguardAdapter::default();
+    let inbound = config();
+    let live = adapter.passive_inbound_live(&inbound).unwrap();
+    let capsule = Recovery::new(
+        &inbound,
+        live.clone(),
+        Binding::Standalone,
+        adapter.pending_endpoints.clone(),
+    )
+    .unwrap();
+    let mut accepted = inbound.clone();
+    let InboundProtocolConfig::Wireguard { private_key, .. } = &mut accepted.protocol else {
+        unreachable!()
+    };
+    *private_key = serde_json::from_value(serde_json::json!(STANDARD.encode([93; 32]))).unwrap();
+    // Same operation used by the actual accepted same-port hot update. The
+    // retained capsule cannot authorize the old private identity afterward.
+    live.replace(
+        prepare_device(&accepted).unwrap(),
+        inbound_protocol_identity(&accepted.protocol).unwrap(),
+    );
+    adapter.cache_inbound_live(&accepted, &live).unwrap();
+    assert!(capsule.prepare_restore(inbound.clone(), None).is_err());
+    assert!(capsule
+        .prepare_replacement(inbound, None)
+        .unwrap()
+        .is_none());
+    assert!(capsule.prepare_restore(accepted.clone(), None).is_ok());
+    assert!(Arc::ptr_eq(
+        &adapter.passive_inbound_live(&accepted).unwrap(),
+        &live
+    ));
+    assert_eq!(adapter.inbound_devices.lock().unwrap().len(), 1);
+}

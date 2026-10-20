@@ -48,6 +48,16 @@ impl LiveInboundDevice {
         }
     }
 
+    pub(in crate::adapters::wireguard) fn matches_private_key(
+        &self,
+        key: &wireguard::validation::Key,
+    ) -> bool {
+        self.device
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .matches_private_key(key)
+    }
+
     pub(in crate::adapters::wireguard) fn matches_identity(&self, identity: [u8; 32]) -> bool {
         *self
             .identity

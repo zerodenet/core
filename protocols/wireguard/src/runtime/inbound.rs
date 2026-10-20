@@ -115,6 +115,12 @@ pub struct InboundDispatch {
 const MAX_TRACKED_INDICES: usize = 4096;
 
 impl InboundDevice {
+    /// Compare the actual current private identity without exporting key bytes
+    /// or reconstructing Noise state. Text encodings are validated by the caller.
+    pub fn matches_private_key(&self, key: &crate::validation::Key) -> bool {
+        self.profile.profile.private_key == *key
+    }
+
     /// Only exact assigned IPs are local, never their enclosing CIDR prefix.
     pub fn is_local_address(&self, address: IpAddr) -> bool {
         self.profile
