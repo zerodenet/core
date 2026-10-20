@@ -46,6 +46,7 @@ impl OrchestrationState {
         let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),
+            proxy.inbound_owners.clone(),
         );
         let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services.clone());
         #[cfg(feature = "managed-stream-runtime")]

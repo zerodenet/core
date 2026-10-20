@@ -54,3 +54,7 @@ FFI 目前直接使用 EngineHandle。其旧功能边界与错误处理需要先
 `TaskScope::new` 与 `empty` 的直接登记语义保持，`None` 任务预算在开放后仍为零。此变化不增加 V1 配置字段、IPC 方法或 FFI 符号。新增回归覆盖 build future 未被轮询、实际 start 的 TaskId/退出确认，以及关闭后无法重开。该批尚待父任务的集成编译与资格检查；不代表完整 RuntimeHost 或 M4 用户/I/O 关闭确认。
 
 Datagram 关闭确认持有者由 Proxy 构造并在所有执行服务中共享同一 `Arc`；DNS 回调仅持 `Weak`。本阶段独立宿主策略 `RETIRED_DATAGRAM_LIMIT = 4096` 限制原生 active 与 retiring 控制器总数，它不是旧 UDP packet queue 的容量或既有 session 预算，不驱逐未确认关闭的会话。实际新 open 必须先预留该持有者的容量，旧调用方不能保留失败 Control 时不接入生产。运行时在消费者结束后、组件退役前调用真实 `wait_closed`，超时与失败保留未完成控制器，不伪装为关闭成功。该批接线尚待关联实现的集成验证。
+
+入站 listener 的实际 driver 与 carrier 生命周期登记在 Proxy 构造的持久 `InboundOwnerRegistry`，不放在可取消的 run/activate future 内；角色为空的实际 carrier 使用同一组件分配器的真实 `ComponentInstanceId`。作用域预算由实际外层 driver 一个任务加已准备操作声明的内部 driver 数量组成，TCP+datagram 为两个；group 递归登记，不增加无上限重启。原监听 JoinSet 仅观察真实 Scope，退出 ID 与原始错误先写回持久 owner。停止等待不再使用 watch 接收端消失作为确认，候选退役未确认时保留 owner 并拒绝替代。
+
+该批确认范围是实际 listener/UDP driver task 的退出及协议 owner 报告的直接 Child 回收；它不证明旧 UDP dispatch 的所有逻辑 association、DoH 等连接池、进程后代或所有 transferred I/O 已关闭。旧 inbound process spawn 仍未统一到新的 native ProcessRequest grant，不以同状态生命周期 handle 冒充授权迁移完成。新增真实 socket pending/observer 取消/TaskId 回归尚待父任务集成运行。

@@ -5,14 +5,27 @@ use super::{InboundRouteRuntimeFactory, SharedIngressRuntimeServices};
 
 #[derive(Clone)]
 pub(crate) struct InboundListenerRuntime {
+    host: Option<crate::runtime::inbound_owners::InboundTaskAccess>,
     route_factory: InboundRouteRuntimeFactory,
 }
 
 impl InboundListenerRuntime {
-    pub(crate) fn new(shared: SharedIngressRuntimeServices, inbound_tag: String) -> Self {
+    pub(crate) fn new(
+        shared: SharedIngressRuntimeServices,
+        inbound_tag: String,
+        host: Option<crate::runtime::inbound_owners::InboundTaskAccess>,
+    ) -> Self {
         Self {
+            host,
             route_factory: InboundRouteRuntimeFactory::new(shared, inbound_tag),
         }
+    }
+
+    #[cfg(feature = "inbound-listener-group-runtime")]
+    pub(crate) fn host_control(
+        &self,
+    ) -> Option<&crate::runtime::inbound_owners::InboundTaskAccess> {
+        self.host.as_ref()
     }
 
     #[cfg(feature = "managed-datagram-runtime")]
@@ -37,15 +50,24 @@ impl InboundListenerRuntime {
 
 #[derive(Clone)]
 pub(crate) struct InboundListenerRuntimeFactory {
+    owners: std::sync::Arc<crate::runtime::inbound_owners::InboundOwnerRegistry>,
     shared: SharedIngressRuntimeServices,
 }
 
 impl InboundListenerRuntimeFactory {
+    pub(crate) fn owners(
+        &self,
+    ) -> &std::sync::Arc<crate::runtime::inbound_owners::InboundOwnerRegistry> {
+        &self.owners
+    }
     pub(crate) fn endpoint_admission(&self) -> zero_engine::EndpointAdmission<'_> {
         self.shared.endpoint_admission()
     }
-    pub(crate) fn new(shared: SharedIngressRuntimeServices) -> Self {
-        Self { shared }
+    pub(crate) fn new(
+        shared: SharedIngressRuntimeServices,
+        owners: std::sync::Arc<crate::runtime::inbound_owners::InboundOwnerRegistry>,
+    ) -> Self {
+        Self { shared, owners }
     }
 
     pub(crate) fn listener_config(
@@ -58,6 +80,10 @@ impl InboundListenerRuntimeFactory {
     }
 
     pub(crate) fn for_inbound(&self, inbound_tag: String) -> InboundListenerRuntime {
-        InboundListenerRuntime::new(self.shared.clone(), inbound_tag)
+        let host = self
+            .owners
+            .owner(&inbound_tag)
+            .map(|owner| owner.task_access());
+        InboundListenerRuntime::new(self.shared.clone(), inbound_tag, host)
     }
 }

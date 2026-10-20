@@ -5,6 +5,20 @@ use crate::component::{
 use std::sync::Arc;
 use zero_config::RuntimeConfig;
 impl super::ProtocolInventory {
+    pub(crate) fn allocate_resource_identity(
+        &self,
+    ) -> Result<zero_core::component::ComponentInstanceId, zero_engine::EngineError> {
+        let component = self
+            .registry
+            .components
+            .allocate_id()
+            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))?;
+        Ok(zero_core::component::ComponentInstanceId {
+            component,
+            generation: zero_core::component::ResourceGeneration(1),
+        })
+    }
+
     pub(crate) fn ingress_identity(
         &self,
         tag: String,

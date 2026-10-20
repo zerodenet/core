@@ -19,6 +19,7 @@ mod dns_outbound;
 mod handle;
 pub(crate) mod http_redirect;
 pub(crate) mod inbound_fallback;
+pub(crate) mod inbound_owners;
 pub(crate) use inbound_fallback::{
     prepare_inbound_route_accept, InboundFallbackTarget, PreparedInboundFallback,
     PreparedInboundRouteAccept,
@@ -101,6 +102,7 @@ pub struct Proxy {
     reload_ack: Arc<std::sync::Mutex<Option<PendingReloadAck>>>,
     reload_apply_lock: Arc<tokio::sync::Mutex<()>>,
     apply_owner: Arc<apply_owner::ApplyOwner>,
+    inbound_owners: Arc<inbound_owners::InboundOwnerRegistry>,
     retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry,
 }
@@ -201,6 +203,7 @@ impl Proxy {
             reload_ack: Arc::new(std::sync::Mutex::new(None)),
             reload_apply_lock: Arc::new(tokio::sync::Mutex::new(())),
             apply_owner: Arc::new(apply_owner::ApplyOwner::default()),
+            inbound_owners: Arc::default(),
             retired_datagrams: retired_datagrams.clone(),
             principal_rate_limits: principal_rate_limits.clone(),
         };

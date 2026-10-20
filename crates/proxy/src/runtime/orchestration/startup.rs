@@ -15,8 +15,10 @@ impl OrchestrationState {
         let source_dir = proxy.config.source_dir().map(|path| path.to_path_buf());
         let tcp_services = proxy.tcp_runtime_services();
         let urltest_runtime = UrlTestRuntime::new(tcp_services.clone());
-        let inbound_runtime_factory =
-            InboundListenerRuntimeFactory::new(SharedIngressRuntimeServices::new(tcp_services));
+        let inbound_runtime_factory = InboundListenerRuntimeFactory::new(
+            SharedIngressRuntimeServices::new(tcp_services),
+            proxy.inbound_owners.clone(),
+        );
         let mut state = Self {
             #[cfg(feature = "raw-ip-runtime")]
             egress_updates: proxy.egress_interface.subscribe_generation(),
@@ -128,8 +130,8 @@ impl OrchestrationState {
             {
                 continue;
             }
-            let (tx, rx) = watch::channel(false);
-            self.listener_stops.insert(inbound.tag.clone(), tx);
+            let (tx, _) = watch::channel(false);
+            self.listener_stops.insert(inbound.tag.clone(), tx.clone());
             let bound = listeners::bind_inbound_listener(
                 &proxy.protocols,
                 &self.inbound_runtime_factory,
@@ -143,7 +145,7 @@ impl OrchestrationState {
                 &self.inbound_runtime_factory,
                 inbound,
                 bound,
-                rx,
+                tx,
                 &mut self.listeners,
             )?;
         }

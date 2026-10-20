@@ -16,6 +16,7 @@ pub(super) fn prepare(
     let carrier = bindings.take_carrier_plan();
     let (acceptor, udp_relay) = bindings.into_parts();
     Box::new(TcpAndDatagramInboundListenerOperation {
+        host: None,
         carrier,
         protocol_name: "shadowsocks",
         error_protocol_name: "shadowsocks",

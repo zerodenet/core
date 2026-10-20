@@ -72,6 +72,16 @@ impl OrchestrationState {
         self.listeners.shutdown().await;
         self.urltests.shutdown().await;
         self.services.shutdown().await;
+        if let Err(error) = proxy
+            .inbound_owners
+            .shutdown_all(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            cleanup_errors.push(format!("inbound owner shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(error);
+            }
+        }
         // Accepted configuration compensation and its consumers have drained.
         // Confirm the actual DNS query/wire workers before retiring components;
         // this does not claim resolver pools or FakeIP persistence are closed.

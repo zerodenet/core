@@ -35,7 +35,7 @@ pub(in crate::runtime) fn spawn_inbound_listener(
     runtime_factory: &InboundListenerRuntimeFactory,
     inbound: &InboundConfig,
     bound: crate::protocol_registry::BoundInbound,
-    shutdown_rx: watch::Receiver<bool>,
+    shutdown_tx: watch::Sender<bool>,
     listeners: &mut JoinSet<Result<(), EngineError>>,
 ) -> Result<(), EngineError> {
     spawn_inbound_listener_with_state(
@@ -44,7 +44,7 @@ pub(in crate::runtime) fn spawn_inbound_listener(
         runtime_factory,
         inbound,
         bound,
-        shutdown_rx,
+        shutdown_tx,
         listeners,
         false,
     )
@@ -57,12 +57,12 @@ fn spawn_inbound_listener_with_state(
     runtime_factory: &InboundListenerRuntimeFactory,
     inbound: &InboundConfig,
     bound: crate::protocol_registry::BoundInbound,
-    shutdown_rx: watch::Receiver<bool>,
+    shutdown_tx: watch::Sender<bool>,
     listeners: &mut JoinSet<Result<(), EngineError>>,
     rollback: bool,
 ) -> Result<(), EngineError> {
     let listener_config = runtime_factory.listener_config(inbound);
-    let operation = (if rollback {
+    let mut operation = (if rollback {
         protocols.prepare_rollback_inbound_listener(listener_config, source_dir)
     } else {
         protocols.prepare_inbound_listener(listener_config, source_dir)
@@ -79,13 +79,24 @@ fn spawn_inbound_listener_with_state(
         );
         error
     })?;
+    // Persistent host ownership is installed synchronously before registration
+    // or any activation await. The observer below never owns the actual driver.
+    let installed = runtime_factory.owners().install(
+        &inbound.tag,
+        protocols,
+        operation.internal_tasks(),
+        shutdown_tx.clone(),
+    )?;
+    operation.install_resources(&installed)?;
+    let owner = installed.owner();
     let inbound_tag = inbound.tag.clone();
     let protocol = inbound.protocol.protocol_name();
     let listen_address = inbound.listen.address.clone();
     let listen_port = inbound.listen.port;
     let listener_runtime = runtime_factory.for_inbound(inbound_tag.clone());
 
-    listeners.spawn(async move {
+    let shutdown_rx = shutdown_tx.subscribe();
+    owner.spawn_driver(async move {
         info!(
             inbound_tag = %inbound_tag,
             protocol = protocol,
@@ -116,7 +127,8 @@ fn spawn_inbound_listener_with_state(
             ),
         }
         result
-    });
+    })?;
+    listeners.spawn(async move { owner.observe_driver().await });
     Ok(())
 }
 
@@ -150,23 +162,21 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         .map(|item| item.tag.as_str())
         .collect();
 
-    let mut removed = Vec::new();
-    state.listener_stops.retain(|tag, shutdown| {
-        if new_tags.contains(&tag.as_str()) {
-            true
-        } else {
-            let _ = shutdown.send(true);
-            removed.push(shutdown.clone());
-            *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
-            info!(%tag, reason = "config_removed", "signalled shutdown for removed inbound listener");
-            false
-        }
-    });
-    state
+    let removed = state
         .active_inbounds
-        .retain(|tag, _| new_tags.contains(&tag.as_str()));
-    for shutdown in removed {
-        wait_listener_stopped(&shutdown).await?;
+        .keys()
+        .filter(|tag| !new_tags.contains(&tag.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    for tag in removed {
+        if let Some(shutdown) = state.listener_stops.get(&tag) {
+            shutdown.send_replace(true);
+        }
+        wait_listener_stopped(runtime_factory, &tag).await?;
+        state.listener_stops.remove(&tag);
+        state.active_inbounds.remove(&tag);
+        *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
+        info!(%tag, reason = "config_removed", "confirmed removed inbound owner shutdown");
     }
 
     for inbound in &new_config.inbounds {
@@ -208,21 +218,17 @@ pub(in crate::runtime) async fn reconcile_inbounds(
 
         let prebound = reserved.remove(&inbound.tag);
 
-        if let Some(shutdown) = state.listener_stops.remove(&inbound.tag) {
-            let _ = shutdown.send(true);
-            wait_listener_stopped(&shutdown).await?;
+        if runtime_factory.owners().owner(&inbound.tag).is_some() {
+            if let Some(shutdown) = state.listener_stops.get(&inbound.tag) {
+                shutdown.send_replace(true);
+            }
+            wait_listener_stopped(runtime_factory, &inbound.tag).await?;
+            state.listener_stops.remove(&inbound.tag);
             *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
-            info!(
-                inbound_tag = %inbound.tag,
-                protocol = inbound.protocol.protocol_name(),
-                listen_address = %inbound.listen.address,
-                listen_port = inbound.listen.port,
-                reason = "config_changed",
-                "signalled shutdown for changed inbound listener"
-            );
+            info!(inbound_tag = %inbound.tag, reason = "config_changed", "confirmed changed inbound owner shutdown");
         }
 
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (shutdown_tx, _) = watch::channel(false);
         let bound = match prebound {
             Some(bound) => Ok(bound),
             None => bind_inbound_with_retry(protocols, runtime_factory, source_dir, inbound).await,
@@ -234,7 +240,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
                 runtime_factory,
                 inbound,
                 bound,
-                shutdown_rx,
+                shutdown_tx.clone(),
                 state.listeners,
             ) {
                 Ok(()) => {
@@ -280,8 +286,13 @@ pub(in crate::runtime) async fn reconcile_inbounds(
                 error
             }
         };
+        // Preparation may have installed a concrete carrier owner before its
+        // driver failed. Confirm that candidate before binding any recovery.
+        if runtime_factory.owners().owner(&inbound.tag).is_some() {
+            wait_listener_stopped(runtime_factory, &inbound.tag).await?;
+        }
         if let Some(previous) = previous {
-            let (rollback_tx, rollback_rx) = watch::channel(false);
+            let (rollback_tx, _) = watch::channel(false);
             match bind_inbound_with_retry(
                 protocols,
                 rollback_runtime_factory,
@@ -296,7 +307,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
                     rollback_runtime_factory,
                     &previous,
                     bound,
-                    rollback_rx,
+                    rollback_tx.clone(),
                     state.listeners,
                     true,
                 ) {
@@ -338,15 +349,17 @@ pub(in crate::runtime) async fn reconcile_inbounds(
     Ok(())
 }
 
-async fn wait_listener_stopped(shutdown: &watch::Sender<bool>) -> Result<(), EngineError> {
-    tokio::time::timeout(std::time::Duration::from_secs(5), shutdown.closed())
+async fn wait_listener_stopped(
+    runtime_factory: &InboundListenerRuntimeFactory,
+    tag: &str,
+) -> Result<(), EngineError> {
+    runtime_factory
+        .owners()
+        .shutdown(
+            tag,
+            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+        )
         .await
-        .map_err(|_| {
-            EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "listener shutdown was not confirmed",
-            ))
-        })
 }
 
 fn requires_listener_restart(current: &InboundConfig, next: &InboundConfig) -> bool {
