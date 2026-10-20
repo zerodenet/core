@@ -140,12 +140,23 @@ fn demand() -> CarrierContext {
     }
 }
 fn channel_reason(error: &RuntimeError) -> Option<Reason> {
-    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    let RuntimeError::Io(error) = error else {
+        return None;
+    };
+    let mut current: Option<&(dyn std::error::Error + 'static)> = error
+        .get_ref()
+        .map(|error| error as &(dyn std::error::Error + 'static));
     while let Some(error) = current {
         if let Some(error) = error.downcast_ref::<zero_platform_tokio::contract::ChannelError>() {
             return Some(error.reason);
         }
-        current = error.source();
+        current = if let Some(error) = error.downcast_ref::<io::Error>() {
+            error
+                .get_ref()
+                .map(|error| error as &(dyn std::error::Error + 'static))
+        } else {
+            error.source()
+        };
     }
     None
 }
