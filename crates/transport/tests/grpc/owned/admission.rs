@@ -96,11 +96,15 @@ fn explicit_limits_and_unowned_material_are_never_silently_replaced() {
     let settings = NativePoolSettings {
         server: "127.0.0.1".into(),
         port: 443,
-        grpc: Default::default(),
+        grpc: crate::profile::OwnedGrpcProfile {
+            service_names: vec!["owned".into()],
+            ..Default::default()
+        },
         tls: None,
         dial: Default::default(),
     };
     let cap = NonZeroUsize::new(1).unwrap();
+    assert!(NativePoolOptions::from_pool(&pool, settings.clone(), cap, cap).is_ok());
     let mut invalid = settings.clone();
     invalid.server = "needs-dns.example".into();
     assert!(NativePoolOptions::from_pool(&pool, invalid, cap, cap).is_err());
