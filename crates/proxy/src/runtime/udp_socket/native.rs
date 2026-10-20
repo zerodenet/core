@@ -11,11 +11,29 @@ use zero_platform_tokio::{
 pub(super) enum DirectDatagramIo {
     Raw(TokioDatagramSocket),
     Controlled(ControlledDatagramSocket),
+    Bound(zero_platform_tokio::contract::component::BoundDatagramSocket),
 }
 impl DirectDatagramIo {
+    pub(super) fn bound_guard(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::component::DatagramBindingGuard> {
+        match self {
+            Self::Bound(socket) => Some(socket.guard()),
+            _ => None,
+        }
+    }
+    pub(super) fn bound_id(
+        &self,
+    ) -> Option<&zero_platform_tokio::contract::component::DatagramBindingId> {
+        match self {
+            Self::Bound(socket) => Some(socket.binding()),
+            _ => None,
+        }
+    }
     pub(super) fn local_addr(&self) -> io::Result<SocketAddr> {
         match self {
             Self::Raw(socket) => socket.local_addr(),
+            Self::Bound(socket) => socket.local_addr(),
             Self::Controlled(socket) => socket.local_addr(),
         }
     }
@@ -23,6 +41,7 @@ impl DirectDatagramIo {
         match self {
             Self::Raw(socket) => socket.egress_interface(),
             Self::Controlled(socket) => socket.egress_interface(),
+            Self::Bound(socket) => socket.egress_interface(),
         }
     }
     pub(super) fn set_observer(
@@ -35,12 +54,14 @@ impl DirectDatagramIo {
                 Ok(())
             }
             Self::Controlled(socket) => socket.set_observer(observer),
+            Self::Bound(socket) => socket.set_observer(observer),
         }
     }
     pub(super) async fn send_to_addr(&self, bytes: &[u8], peer: SocketAddr) -> io::Result<usize> {
         match self {
             Self::Raw(socket) => socket.send_to_addr(bytes, peer).await,
             Self::Controlled(socket) => socket.send_to_addr(bytes, peer).await,
+            Self::Bound(socket) => socket.send_to_addr(bytes, peer).await,
         }
     }
     pub(super) fn poll_recv_from_addr(
@@ -51,6 +72,7 @@ impl DirectDatagramIo {
         match self {
             Self::Raw(socket) => socket.poll_recv_from_addr(cx, bytes),
             Self::Controlled(socket) => socket.poll_recv_from_addr(cx, bytes),
+            Self::Bound(socket) => socket.poll_recv_from_addr(cx, bytes),
         }
     }
 }

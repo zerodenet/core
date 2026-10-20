@@ -9,6 +9,7 @@ mod session;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use super::bound::DirectEndpointBinding;
 use super::{DirectUdpPolicy, DirectUdpResponseSource, DirectUdpSentPacket, DirectUdpSockets};
 use crate::protocol_registry::UdpNetworkServices;
 use budget::CopyReservation;
@@ -71,6 +72,7 @@ struct Shared {
     scope_cancel: CancellationToken,
     retain_native_until_peer_exit: bool,
     fixed_peer: Option<std::net::SocketAddr>,
+    bound_mode: bool,
     commands: mpsc::Sender<Command>,
     queue: UdpReceiveQueueConfig,
     limits: DirectEndpointLimits,
@@ -93,6 +95,7 @@ struct Logical {
     session: SessionId,
     association: AssociationId,
     policy: DirectUdpPolicy,
+    binding: Option<DirectEndpointBinding>,
     isolation: Option<u64>,
     cancel: CancellationToken,
     closed: AtomicBool,
@@ -195,6 +198,7 @@ fn shared(
             DeliveryState::NotSubmitted,
         ));
     }
+    let bound_mode = sockets.services.is_none();
     let fixed_peer = sockets.outbound_grant.as_ref().map(|grant| grant.peer);
     let retain_native_until_peer_exit = sockets.defer_native_close;
     let (tx, commands) = mpsc::channel(queue.capacity);
@@ -207,6 +211,7 @@ fn shared(
             scope_cancel,
             retain_native_until_peer_exit,
             fixed_peer,
+            bound_mode,
             commands: tx,
             queue,
             limits,
@@ -241,6 +246,51 @@ impl DirectEndpoint {
         cancel: CancellationToken,
         isolation: Option<u64>,
     ) -> Result<DirectEndpointSession, ChannelError> {
+        self.open_internal(session, association, policy, cancel, isolation, None)
+    }
+    /// The host passes the actual current operation's scoped binding. Protocols
+    /// cannot choose a dial policy or turn this into an unrestricted opener.
+    pub(crate) fn open_bound(
+        &self,
+        session: SessionId,
+        association: AssociationId,
+        binding: DirectEndpointBinding,
+        cancel: CancellationToken,
+        isolation: Option<u64>,
+    ) -> Result<DirectEndpointSession, ChannelError> {
+        if binding.id.owner() != self.0.identity.resource {
+            return Err(error(
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        binding.check_current()?;
+        self.open_internal(
+            session,
+            association,
+            binding.policy.clone(),
+            cancel,
+            isolation,
+            Some(binding),
+        )
+    }
+    fn open_internal(
+        &self,
+        session: SessionId,
+        association: AssociationId,
+        policy: DirectUdpPolicy,
+        cancel: CancellationToken,
+        isolation: Option<u64>,
+        binding: Option<DirectEndpointBinding>,
+    ) -> Result<DirectEndpointSession, ChannelError> {
+        if self.0.bound_mode != binding.is_some() {
+            return Err(error(
+                Stage::Prepare,
+                Reason::Unsupported,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         let mut state = self
             .0
             .state
@@ -296,6 +346,7 @@ impl DirectEndpoint {
             session,
             association,
             policy,
+            binding,
             isolation,
             cancel,
             closed: AtomicBool::new(false),

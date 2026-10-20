@@ -31,7 +31,10 @@ pub(crate) struct DirectUdpSentPacket {
 #[cfg(feature = "udp-runtime")]
 pub(crate) struct DirectUdpSockets {
     sockets: Vec<DirectUdpSocket>,
-    services: crate::protocol_registry::UdpNetworkServices,
+    services: Option<crate::protocol_registry::UdpNetworkServices>,
+    bound: Option<bound::DirectEndpointBinding>,
+    bound_observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
+    bound_native_limit: Option<std::num::NonZeroUsize>,
     preferred_port: Option<u16>,
     generation: u64,
     next_socket_id: u64,
@@ -81,7 +84,10 @@ impl DirectUdpSockets {
     ) -> Self {
         Self {
             generation: services.egress_generation(),
-            services,
+            services: Some(services),
+            bound: None,
+            bound_observer: None,
+            bound_native_limit: None,
             sockets: Vec::new(),
             preferred_port,
             next_socket_id: 0,
@@ -249,3 +255,6 @@ mod grant;
 
 #[cfg(feature = "udp-runtime")]
 mod native;
+
+#[cfg(feature = "udp-runtime")]
+mod bound;

@@ -27,7 +27,13 @@ impl DirectUdpSockets {
         if target != grant.peer || policy.dial_policy != zero_traits::DialPolicy::default() {
             return Err(denied(Reason::Unsupported));
         }
-        if self.services.egress_generation() != grant.generation.0 {
+        if self
+            .services
+            .as_ref()
+            .expect("exact legacy grant")
+            .egress_generation()
+            != grant.generation.0
+        {
             return Err(denied(Reason::StalePlan));
         }
         let isolation = self.isolated_sessions.get(&session).copied();
@@ -52,7 +58,11 @@ impl DirectUdpSockets {
         self.sockets
             .try_reserve(1)
             .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
-        let observer = self.services.direct_datagram_observer();
+        let observer = self
+            .services
+            .as_ref()
+            .expect("exact legacy grant")
+            .direct_datagram_observer();
         let binding = DirectUdpSocketBinding {
             policy: policy.clone(),
             ipv6: target.is_ipv6(),
@@ -79,10 +89,19 @@ impl DirectUdpSockets {
         entry.binding.source = entry.selection.dial_source_address();
         entry.binding.egress = entry.selection.interface().cloned();
         entry.socket.set_observer(observer)?;
-        let current = self.services.ensure_direct_policy_current(policy);
+        let current = self
+            .services
+            .as_ref()
+            .expect("exact legacy grant")
+            .ensure_direct_policy_current(policy);
         let valid_generation = entry.selection.generation()
             == request.expected_network_generation.0
-            && self.services.egress_generation() == request.expected_network_generation.0;
+            && self
+                .services
+                .as_ref()
+                .expect("exact legacy grant")
+                .egress_generation()
+                == request.expected_network_generation.0;
         if current.is_err() || !valid_generation {
             self.retire_sockets(|entry| entry.id == id);
             current?;

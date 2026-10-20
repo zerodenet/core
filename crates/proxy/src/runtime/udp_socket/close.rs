@@ -12,8 +12,20 @@ pub(super) struct NativeCloseLedger {
     // error alone can retain its original, documented still-open SOCKET.
     failures: BTreeMap<u64, Arc<io::Error>>,
     controlled: BTreeMap<u64, Arc<io::Error>>,
+    // The provider alone aggregates native receipts. Retain an unsuccessful
+    // unique view until the same persistent original confirms closure.
+    bound: BTreeMap<
+        u64,
+        (
+            zero_platform_tokio::contract::component::BoundDatagramSocket,
+            Arc<io::Error>,
+        ),
+    >,
 }
 impl NativeCloseLedger {
+    pub(super) fn bound_occupied(&self) -> usize {
+        self.bound.len()
+    }
     pub(super) fn retire(&mut self, entry: DirectUdpSocket) {
         let DirectUdpSocket {
             id,
@@ -24,6 +36,11 @@ impl NativeCloseLedger {
         // Revoke every already-read response token before descriptor retirement.
         drop(replies);
         match socket {
+            super::native::DirectDatagramIo::Bound(socket) => {
+                if let Err(source) = socket.close() {
+                    self.bound.insert(id, (socket, source));
+                }
+            }
             super::native::DirectDatagramIo::Controlled(socket) => {
                 // Its persistent owner retains both the original and outcome.
                 // Only collect_controlled consumes its actual receipt below.
@@ -52,6 +69,14 @@ impl NativeCloseLedger {
             .collect();
     }
     fn retry_known_open(&mut self) {
+        self.bound
+            .retain(|_, (socket, source)| match socket.close() {
+                Ok(_) => false,
+                Err(actual) => {
+                    *source = actual;
+                    true
+                }
+            });
         self.failures.retain(|_id, source| {
             if !TokioDatagramSocket::close_is_retryable(source) {
                 return true;
@@ -80,6 +105,11 @@ impl NativeCloseLedger {
         for id in self.failures.keys() {
             report.unfinished.push(Unfinished::Io(format!(
                 "unconfirmed original Direct UDP socket {id}"
+            )));
+        }
+        for id in self.bound.keys() {
+            report.unfinished.push(Unfinished::Io(format!(
+                "unconfirmed host-bound original Direct UDP socket {id}"
             )));
         }
         for id in self.controlled.keys() {
@@ -157,6 +187,9 @@ impl DirectUdpSockets {
         self.close.take_report()
     }
     pub(crate) fn native_close_failure(&self) -> Option<(u64, Arc<io::Error>)> {
+        if let Some((id, (_, source))) = self.close.bound.first_key_value() {
+            return Some((*id, source.clone()));
+        }
         self.close
             .failures
             .first_key_value()

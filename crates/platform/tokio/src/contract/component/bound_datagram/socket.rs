@@ -9,6 +9,17 @@ use std::{
     io,
     task::{Context, Poll},
 };
+/// A narrow current-source fence. It neither owns the provider nor exposes an opener.
+#[derive(Clone)]
+pub struct DatagramBindingGuard {
+    authorization: Arc<dyn DatagramBindingAuthorization>,
+    generation: NetworkGeneration,
+}
+impl DatagramBindingGuard {
+    pub fn check_current(&self) -> Result<(), ChannelError> {
+        self.authorization.check_current(self.generation)
+    }
+}
 /// A unique I/O view. Neither the raw socket nor a global opener can be recovered.
 pub struct BoundDatagramSocket {
     socket: ControlledDatagramSocket,
@@ -41,6 +52,12 @@ impl BoundDatagramSocket {
             binding,
             selection,
             authorization,
+        }
+    }
+    pub fn guard(&self) -> DatagramBindingGuard {
+        DatagramBindingGuard {
+            authorization: self.authorization.clone(),
+            generation: NetworkGeneration(self.selection.generation()),
         }
     }
     pub fn binding(&self) -> &DatagramBindingId {

@@ -210,7 +210,7 @@ async fn retired_peer_tombstones_have_bounded_admission_without_expiring_live_ow
         .unwrap();
     let (_, anchor_local) = anchor.recv_from(&mut buffer).await.unwrap();
     for port in 1..super::super::MAX_DIRECT_UDP_PEERS_PER_SOCKET {
-        let services = sockets.services.clone();
+        let services = sockets.services.clone().unwrap();
         let generation = sockets.generation;
         sockets.sockets[0]
             .replies

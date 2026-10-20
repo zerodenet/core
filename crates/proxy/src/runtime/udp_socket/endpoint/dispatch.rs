@@ -90,6 +90,26 @@ impl DirectDispatchEndpoint {
         isolation: Option<u64>,
         cancel: CancellationToken,
     ) -> Result<(), ChannelError> {
+        self.admit_with(session, |endpoint, association| {
+            endpoint.open_isolated(session, association, policy, cancel, isolation)
+        })
+    }
+    pub(crate) fn admit_bound(
+        &mut self,
+        session: SessionId,
+        binding: DirectEndpointBinding,
+        isolation: Option<u64>,
+        cancel: CancellationToken,
+    ) -> Result<(), ChannelError> {
+        self.admit_with(session, |endpoint, association| {
+            endpoint.open_bound(session, association, binding, cancel, isolation)
+        })
+    }
+    fn admit_with(
+        &mut self,
+        session: SessionId,
+        open: impl FnOnce(&DirectEndpoint, AssociationId) -> Result<DirectEndpointSession, ChannelError>,
+    ) -> Result<(), ChannelError> {
         // The bridge's metadata shares the actual endpoint grant, including
         // externally cancelled flows not yet removed by their consumer.
         if self.slots.len() >= self.endpoint.0.limits.logical.get() {
@@ -121,13 +141,7 @@ impl DirectDispatchEndpoint {
         // Reserve before the actual logical open. Adopt its exact controller
         // before exposing Tx/Rx; dropping this bridge never fabricates Closed.
         let reservation = self.retirement.reserve()?;
-        let channel = self.endpoint.open_isolated(
-            session,
-            reservation.association(),
-            policy,
-            cancel,
-            isolation,
-        )?;
+        let channel = open(&self.endpoint, reservation.association())?;
         let control = reservation.adopt(erase_control(channel.control));
         self.slots.insert(
             session,

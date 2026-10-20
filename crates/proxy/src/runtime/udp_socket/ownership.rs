@@ -52,14 +52,25 @@ impl DirectUdpReplies {
 
 impl DirectUdpSockets {
     pub(crate) fn refresh_if_stale(&mut self) {
-        let generation = self.services.egress_generation();
+        let Some(services) = self.services.clone() else {
+            // Each original carries the precise host binding which authorized it.
+            // Do not retire unrelated healthy bindings when one logical changes.
+            self.close_rotated_sockets(|entry| {
+                entry
+                    .socket
+                    .bound_guard()
+                    .is_none_or(|guard| guard.check_current().is_err())
+            });
+            self.reset_receiver_if_empty();
+            return;
+        };
+        let generation = services.egress_generation();
         if self.generation != generation {
             self.close_rotated_sockets(|_| true);
             self.generation = generation;
         } else {
             // Keep the policy fence live on every refresh. Socket-owned tables
             // drop their guards without a second global flow-table sweep.
-            let services = self.services.clone();
             self.close_rotated_sockets(|socket| {
                 !services.direct_policy_is_current(&socket.binding.policy)
             });

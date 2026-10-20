@@ -23,6 +23,13 @@ pub(crate) struct DirectPeerOptions {
     pub(crate) limits: DirectEndpointLimits,
     pub(crate) resources: Arc<dyn ResourceAccess>,
 }
+/// Explicit caller grants only. The host provider owns the actual native cap.
+pub(crate) struct DirectBoundPeerOptions {
+    pub(crate) identity: DirectEndpointIdentity,
+    pub(crate) task: TaskId,
+    pub(crate) queue: UdpReceiveQueueConfig,
+    pub(crate) limits: DirectEndpointLimits,
+}
 pub(super) struct PeerOwner {
     pub(super) binding: Arc<HostPeerBinding>,
     task: TaskId,
@@ -84,6 +91,31 @@ impl DirectEndpointOwner {
             peer: target,
             generation: network_generation,
         });
+        Self::build_peer(identity, task, sockets, queue, limits, binding, observer)
+    }
+    pub(crate) fn for_bound_peer(
+        options: DirectBoundPeerOptions,
+        binding: Arc<HostPeerBinding>,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Result<(Self, DirectPeerDriver), ChannelError> {
+        let DirectBoundPeerOptions {
+            identity,
+            task,
+            queue,
+            limits,
+        } = options;
+        let sockets = DirectUdpSockets::new_bound(observer.clone(), limits.native_sockets);
+        Self::build_peer(identity, task, sockets, queue, limits, binding, observer)
+    }
+    fn build_peer(
+        identity: DirectEndpointIdentity,
+        task: TaskId,
+        sockets: DirectUdpSockets,
+        queue: UdpReceiveQueueConfig,
+        limits: DirectEndpointLimits,
+        binding: Arc<HostPeerBinding>,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Result<(Self, DirectPeerDriver), ChannelError> {
         let (shared, commands) = shared(
             identity,
             sockets,

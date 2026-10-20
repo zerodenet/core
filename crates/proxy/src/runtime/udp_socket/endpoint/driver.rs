@@ -82,7 +82,13 @@ impl Shared {
             .sessions
             .extract_if(.., |_, entry| entry.logical.cancel.is_cancelled())
         {
-            if self.retain_native_until_peer_exit {
+            if self.bound_mode {
+                sockets.retire_reply_mappings(session.0);
+                // The sole I/O guard has canceled native polls and removed all
+                // mappings from these originals. Real physical close releases
+                // provider leases; it is not the peer task's terminal receipt.
+                sockets.close_rotated_sockets(|entry| entry.replies.is_empty());
+            } else if self.retain_native_until_peer_exit {
                 sockets.retire_reply_mappings(session.0);
             } else {
                 sockets.retire_session(session.0);
@@ -231,11 +237,13 @@ pub(super) async fn run(
                 if let Some(isolation) = command.logical.isolation {
                     sockets.isolate_association(command.logical.session.0, isolation);
                 }
+                sockets.bound = command.logical.binding.clone();
                 let sent = tokio::select! {
                     _ = shared.scope_cancel.cancelled() => Err(legacy(error(Stage::Send, Reason::Revoked, DeliveryState::Unknown))),
                     _ = command.logical.cancel.cancelled() => Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::Unknown))),
                     sent = sockets.send_owned_packet(&command.target, std::mem::take(&mut command.candidates), &command.payload, command.logical.session.0, &command.logical.policy) => sent.map_err(|source| legacy(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(source))),
                 };
+                sockets.bound = None;
                 if sent.is_err() && shared.retain_native_until_peer_exit
                     && !shared.scope_cancel.is_cancelled() && !command.logical.cancel.is_cancelled()
                 {

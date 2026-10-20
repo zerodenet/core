@@ -11,7 +11,7 @@ impl DirectUdpSockets {
         policy: &DirectUdpPolicy,
     ) -> Result<DirectUdpSentPacket, EngineError> {
         self.refresh_if_stale();
-        self.services.ensure_direct_policy_current(policy)?;
+        self.ensure_policy_current(policy)?;
         let candidates = policy
             .dial_policy
             .filter_candidates(candidates.iter().copied())
@@ -31,7 +31,7 @@ impl DirectUdpSockets {
         policy: &DirectUdpPolicy,
     ) -> Result<DirectUdpSentPacket, EngineError> {
         self.refresh_if_stale();
-        self.services.ensure_direct_policy_current(policy)?;
+        self.ensure_policy_current(policy)?;
         policy.dial_policy.validate().map_err(invalid_policy)?;
         candidates.retain_mut(
             |candidate| match policy.dial_policy.normalize_peer(*candidate) {
@@ -56,7 +56,7 @@ impl DirectUdpSockets {
     ) -> Result<DirectUdpSentPacket, EngineError> {
         let mut last_error = None;
         while let Some(target) = select_stable_udp_target(logical_target, &candidates, true, true) {
-            self.services.ensure_direct_policy_current(policy)?;
+            self.ensure_policy_current(policy)?;
             match self.socket_for(target, session_id, policy).await {
                 Ok(index) => {
                     let sent = self

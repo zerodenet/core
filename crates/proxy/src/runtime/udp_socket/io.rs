@@ -19,7 +19,7 @@ impl DirectUdpSockets {
             .normalize_peer(target)
             .map_err(invalid_policy)?;
         self.refresh_if_stale();
-        self.services.ensure_direct_policy_current(policy)?;
+        self.ensure_policy_current(policy)?;
         let index = self.socket_for(target, session_id, policy).await?;
         self.send_on_socket(index, payload, target, session_id, policy)
             .await
@@ -33,13 +33,13 @@ impl DirectUdpSockets {
         session_id: u64,
         policy: &DirectUdpPolicy,
     ) -> Result<usize, EngineError> {
-        self.services.ensure_direct_policy_current(policy)?;
+        self.ensure_policy_current(policy)?;
         let target = policy
             .dial_policy
             .normalize_peer(target)
             .map_err(invalid_policy)?;
         let entry = &self.sockets[index];
-        if entry.binding.egress_generation != self.services.egress_generation() {
+        if !self.policy_is_current(policy, entry.binding.egress_generation) {
             return Err(EngineError::Io(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
                 "egress topology changed before sending direct UDP packet",
@@ -59,19 +59,26 @@ impl DirectUdpSockets {
     ) -> usize {
         // Successful UDP transmission is irreversible. A concurrent reload
         // must not report failure and make the outbound fallback resend data.
-        let entry = &mut self.sockets[index];
-        if self.services.direct_policy_is_current(policy)
-            && entry.binding.egress_generation == self.services.egress_generation()
-        {
-            let generation = entry.binding.egress_generation;
-            entry.replies.register(target, || {
-                DirectUdpResponseFlow::new(
-                    session_id,
-                    self.services.clone(),
-                    policy.clone(),
-                    generation,
-                )
-            });
+        let generation = self.sockets[index].binding.egress_generation;
+        let current = if let Some(guard) = self.sockets[index].socket.bound_guard() {
+            guard.check_current().is_ok()
+        } else {
+            self.policy_is_current(policy, generation)
+        };
+        if current {
+            let services = self.services.clone();
+            let guard = self.sockets[index].socket.bound_guard();
+            self.sockets[index]
+                .replies
+                .register(target, || match guard {
+                    Some(guard) => DirectUdpResponseFlow::bound(session_id, guard),
+                    None => DirectUdpResponseFlow::new(
+                        session_id,
+                        services.expect("legacy original"),
+                        policy.clone(),
+                        generation,
+                    ),
+                });
         }
         sent
     }
@@ -82,12 +89,17 @@ impl DirectUdpSockets {
         session_id: u64,
         policy: &DirectUdpPolicy,
     ) -> Result<usize, EngineError> {
+        if self.services.is_none() {
+            return self.bound_socket_for(target, session_id, policy);
+        }
         if self.outbound_grant.is_some() {
             return self.granted_socket_for(target, session_id, policy);
         }
         let scope = self.isolated_sessions.get(&session_id).copied();
         let selection = self
             .services
+            .as_ref()
+            .expect("legacy mode")
             .direct_datagram_selection(target, &policy.dial_policy)?;
         if self.generation != selection.generation() {
             self.close_rotated_sockets(|_| true);
@@ -136,7 +148,11 @@ impl DirectUdpSockets {
         self.sockets
             .try_reserve(1)
             .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
-        let observer = self.services.direct_datagram_observer();
+        let observer = self
+            .services
+            .as_ref()
+            .expect("legacy mode")
+            .direct_datagram_observer();
         let binding = DirectUdpSocketBinding {
             policy: policy.clone(),
             ipv6: target.is_ipv6(),
@@ -159,6 +175,8 @@ impl DirectUdpSockets {
         } else {
             native::DirectDatagramIo::Raw(
                 self.services
+                    .as_ref()
+                    .expect("legacy mode")
                     .bind_direct_datagram_socket(target, preferred, &policy.dial_policy, &selection)
                     .await?,
             )
@@ -181,7 +199,7 @@ impl DirectUdpSockets {
             .set_observer(observer)?;
         // A stale completion still owns a real original socket. Retire it into
         // this same ledger before returning the original admission error.
-        if let Err(error) = self.services.ensure_direct_policy_current(policy) {
+        if let Err(error) = self.ensure_policy_current(policy) {
             self.close_rotated_sockets(|socket| socket.id == id);
             return Err(error);
         }
@@ -191,7 +209,11 @@ impl DirectUdpSockets {
             .expect("just installed socket")
             .binding
             .egress_generation
-            != self.services.egress_generation()
+            != self
+                .services
+                .as_ref()
+                .expect("legacy mode")
+                .egress_generation()
         {
             self.close_rotated_sockets(|socket| socket.id == id);
             return Err(EngineError::Io(std::io::Error::new(

@@ -2,7 +2,7 @@
 mod socket;
 use super::super::ChannelError;
 use crate::{controlled_datagram::ControlledDatagramSocket, EgressSelection};
-pub use socket::BoundDatagramSocket;
+pub use socket::{BoundDatagramSocket, DatagramBindingGuard};
 use std::{fmt, net::SocketAddr, sync::Arc};
 use zero_core::component::{ComponentInstanceId, NetworkGeneration};
 use zero_traits::DialPolicy;

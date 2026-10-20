@@ -31,19 +31,36 @@ pub(crate) struct DirectUdpResponseGuard {
 
 struct DirectUdpResponseState {
     active: AtomicBool,
-    services: UdpNetworkServices,
-    policy: DirectUdpPolicy,
-    egress_generation: u64,
+    current: Current,
+}
+enum Current {
+    Legacy {
+        services: UdpNetworkServices,
+        policy: DirectUdpPolicy,
+        egress_generation: u64,
+    },
+    Bound(zero_platform_tokio::contract::component::DatagramBindingGuard),
+}
+impl Current {
+    fn is_current(&self) -> bool {
+        match self {
+            Self::Legacy {
+                services,
+                policy,
+                egress_generation,
+            } => {
+                services.direct_policy_is_current(policy)
+                    && *egress_generation == services.egress_generation()
+            }
+            Self::Bound(guard) => guard.check_current().is_ok(),
+        }
+    }
 }
 
 impl DirectUdpResponseGuard {
     pub(crate) fn is_current(&self) -> bool {
         self.state.active.load(Ordering::Acquire)
-            && self
-                .state
-                .services
-                .direct_policy_is_current(&self.state.policy)
-            && self.state.egress_generation == self.state.services.egress_generation()
+            && self.state.current.is_current()
             && !self
                 .logical_cancel
                 .as_ref()
@@ -66,6 +83,21 @@ pub(super) struct DirectUdpResponseFlow {
 }
 
 impl DirectUdpResponseFlow {
+    pub(super) fn bound(
+        session_id: u64,
+        guard: zero_platform_tokio::contract::component::DatagramBindingGuard,
+    ) -> Self {
+        Self {
+            session_id,
+            guard: DirectUdpResponseGuard {
+                state: Arc::new(DirectUdpResponseState {
+                    active: AtomicBool::new(true),
+                    current: Current::Bound(guard),
+                }),
+                logical_cancel: None,
+            },
+        }
+    }
     pub(super) fn new(
         session_id: u64,
         services: UdpNetworkServices,
@@ -77,9 +109,11 @@ impl DirectUdpResponseFlow {
             guard: DirectUdpResponseGuard {
                 state: Arc::new(DirectUdpResponseState {
                     active: AtomicBool::new(true),
-                    services,
-                    policy,
-                    egress_generation,
+                    current: Current::Legacy {
+                        services,
+                        policy,
+                        egress_generation,
+                    },
                 }),
                 logical_cancel: None,
             },
