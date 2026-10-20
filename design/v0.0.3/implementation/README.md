@@ -144,6 +144,24 @@ SS 的 roleless replay 工厂使用既有适配器按 `(ReplayPolicy, capacity)`
 
 本次出站协议资源入口未替代旧pool.clear/活跃租借语义，没有激活原生进程授权、资源工厂或RuntimeHost单实例事务；入站carrier激活仍需持久所有者。共享资源图、宿主替换与其余17项继续实施。
 
+## PR03 进行中：依赖顺序与实际 CI Echo 夹具修复
+
+依赖实现提交 `94c69d4d6a6f2483c08cbdbbe09e89db9a22facb`，夹具/规范提交 `5a8342c6ac10e39625b7d291909e0700ed175b45`，冻结 tree `006a83f56465786993b8dcda6a717b1bc0193b87`。[本批验证及35份原始证据](pr04-dependencies-echo-validation.json)保留实际命令及原文/gzip摘要，两项可独立回退。
+
+冷路径使用宿主实际分配的 ComponentId 校验未知依赖、重复身份/依赖及自环/间接环；迭代拓扑排序避免递归栈，六项新测试包含一万节点链。现有零资源 Stream catalog 在任何 build/start 前完成校验，按依赖启动、逆依赖调用协议清理。Proxy组件过滤28/0。排序本身不证明已转交会话或共享I/O关闭，没有激活资源工厂或完成M4。
+
+8fb最终Linux日志实际为2722/7/159（155条摘要）：kernel_process先在Echo bind报AddrInUse，其后六个测试因共享port lock中毒失败；历史占用者没有记录。整体workflow后来取消，不能抹去此前Linux失败。七项参考互通、Connector/VersionContract成功，Windows平台及Windows TUN被新推送的并发策略取消；该次真实出口切换报告未取得。较早已归档的pending快照保留原状，最终结果另存。
+
+旧free_port/drop/稍后在线程bind的策略抽取后，真实竞争listener绑定成功，端点持有断言0/1失败；这证明资源持有缺口，不倒推历史CI占用者。修复令两个live_status及四个proxy_smoke夹具从选端口到线程接管持续持有同一个TcpListener，保留SOCKS/status/gRPC伴随端口排除、载荷/统计/原截止及锁中毒断言，没有以重试或恢复poison掩盖失败。完整kernel_process21/0。
+
+首轮只读受限环境实际11/10失败：默认IPC socket位于可执行文件同目录，独立子进程stderr确认EROFS；原日志和诊断保留。只增加私有可写IPC目录overlay，仓库与两个固定摘要二进制仍只读，1 CPU/1 GiB/no swap/user1000/独立网络命名空间中同一21项连续五轮105/0，原截止及断言不变，没有修改HOME或安全设置。这是限定回归，不是完整RS01。记录保留每轮完整argv；独立重放脚本明确标记为等价重放，未冒充原始inline执行程序。
+
+严格workspace/all-target/all-feature Clippy通过，完整tree与冻结提交相同；11个Rust文件摘要一致。提交后源码、HEAD、锁文件全程不变，七项检查全部通过：fmt、workspace check、完整workspace **2742/0/159**（155条摘要，含晚期文档测试）、默认release、实际thumb no_std、最小proxy feature和依赖边界。实际默认release git_hash=`5a8342c6`，SHA=`247c6aa629c6ec34279be52347833f12905bd939168c5f6a1ee43eebf9ce965d`；不代表可选connector/grpc/WireGuard release资格。
+
+33d的全部11个选中workflow已成功，实际Linux2735/0/159、VLESS251/0/1及原始日志均归档。Optional surface跳过；四个独立smoke/macOS offline步骤跳过，Windows原始报告仍executed=false。33d成功不消除8fb的7个实际失败、历史XHTTP earlyEOF或固定参考客户端计数资格，也不代替本批新head与真实用户设备验收。
+
+继续全部17项：类型化规范共享资源准备及代际传播、原生进程授权与使用者/资源确认替换、其余通道/入站/Packet、RuntimeHost/M4、旧桥清除及最终消费者和物理设备资格。
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
