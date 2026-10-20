@@ -13,7 +13,7 @@ use zero_platform_tokio::contract::component::ResourceDeclaration;
 mod datagram;
 mod retirement;
 
-pub(super) fn proxy() -> Proxy {
+pub(in crate::runtime::inbound_owners) fn proxy() -> Proxy {
     Proxy::new(
         RuntimeConfig::parse(
             r#"{
@@ -29,7 +29,11 @@ pub(super) fn proxy() -> Proxy {
     )
     .unwrap()
 }
-pub(super) fn lease(proxy: &Proxy, config: &Arc<RuntimeConfig>, index: usize) -> InboundBindLease {
+pub(in crate::runtime::inbound_owners) fn lease(
+    proxy: &Proxy,
+    config: &Arc<RuntimeConfig>,
+    index: usize,
+) -> InboundBindLease {
     let inbound = &config.inbounds[index];
     // This tests the generic host with an actual cold operation. It does not
     // opt Direct into the production capability's still-unmigrated UDP path.
