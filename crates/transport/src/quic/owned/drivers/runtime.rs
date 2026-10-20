@@ -1,11 +1,11 @@
 use super::*;
-use quinn::{DriverExit, DriverFuture};
+use quinn::{DriverExit, DriverFuture, DriverOrigin};
 use std::{fmt, future::Future, pin::Pin};
 use tracing::Instrument;
 use zero_platform_tokio::contract::{scope::TaskClass, Impact, Reason, Stage};
 
 pub(super) struct OwnedRuntime {
-    pub(super) owner: tracked::WeakDrivers<DriverOrigin, DriverBody>,
+    pub(super) owner: tracked::WeakDrivers<OwnedDriverOrigin, DriverBody>,
     pub(super) callbacks: Arc<super::super::callbacks::Broker>,
 }
 impl fmt::Debug for OwnedRuntime {
@@ -41,7 +41,7 @@ impl quinn::Runtime for OwnedRuntime {
             return;
         };
         if self.callbacks.failed() {
-            owner.reject(Some(origin), DriverRegistrationReason::ObserverFault);
+            owner.reject(Some(origin.into()), DriverRegistrationReason::ObserverFault);
             return;
         }
         let future = super::super::callbacks::Boundary::new(future, self.callbacks.clone());
@@ -51,22 +51,26 @@ impl quinn::Runtime for OwnedRuntime {
         };
         // Owner admission is reserved first, but no owner lock crosses actual
         // scope registration, its external wakeups or destruction of a refusal.
-        let _registration = owner.spawn(origin, class, |slot| {
+        let _registration = owner.spawn(origin.into(), class, |slot| {
             async move {
                 let exit = future.await;
                 let body = match exit {
                     DriverExit::Endpoint(result) => DriverBody {
-                        origin: DriverOrigin::Endpoint,
+                        origin: OwnedDriverOrigin::Quinn(DriverOrigin::Endpoint),
                         io_error: result.err().map(Arc::new),
                         close_reason: None,
+                        #[cfg(any(feature = "split_http", feature = "hysteria"))]
+                        http3: None,
                     },
                     DriverExit::Connection {
                         result,
                         close_reason,
                     } => DriverBody {
-                        origin: DriverOrigin::Connection,
+                        origin: OwnedDriverOrigin::Quinn(DriverOrigin::Connection),
                         io_error: result.err().map(Arc::new),
                         close_reason,
+                        #[cfg(any(feature = "split_http", feature = "hysteria"))]
+                        http3: None,
                     },
                 };
                 let body = slot.record(body);

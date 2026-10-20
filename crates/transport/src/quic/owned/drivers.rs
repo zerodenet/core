@@ -1,6 +1,5 @@
 //! Quinn-specific driver output. The original task/receipt ledger lives once
 //! in neutral platform tracking and is shared by every runtime and user lease.
-use quinn::DriverOrigin;
 use std::{io, num::NonZeroUsize, sync::Arc};
 use zero_core::component::TaskId;
 use zero_platform_tokio::{
@@ -12,25 +11,41 @@ use zero_platform_tokio::{
 };
 mod runtime;
 
-pub type DriverExitReceiver = tracked::DriverExitReceiver<DriverOrigin, DriverBody>;
+/// Actual lifecycle origin; H3 is never labelled as a Quinn endpoint or
+/// connection driver. Every variant uses the same original host task ledger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnedDriverOrigin {
+    Quinn(quinn::DriverOrigin),
+    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    Http3,
+}
+impl From<quinn::DriverOrigin> for OwnedDriverOrigin {
+    fn from(origin: quinn::DriverOrigin) -> Self {
+        Self::Quinn(origin)
+    }
+}
+
+pub type DriverExitReceiver = tracked::DriverExitReceiver<OwnedDriverOrigin, DriverBody>;
 pub type DriverDelivery = tracked::DriverDelivery<DriverBody>;
-pub type DriverTaskStatus = tracked::DriverTaskStatus<DriverOrigin>;
-pub type DriverRegistrationFailure = tracked::DriverRegistrationFailure<DriverOrigin>;
+pub type DriverTaskStatus = tracked::DriverTaskStatus<OwnedDriverOrigin>;
+pub type DriverRegistrationFailure = tracked::DriverRegistrationFailure<OwnedDriverOrigin>;
 pub use tracked::DriverRegistrationReason;
-pub(super) type Admission = tracked::Admission<DriverOrigin, DriverBody>;
+pub(super) type Admission = tracked::Admission<OwnedDriverOrigin, DriverBody>;
 /// Original driver output, independent of real native task consumption.
 #[derive(Debug)]
 pub struct DriverBody {
-    pub origin: DriverOrigin,
+    pub origin: OwnedDriverOrigin,
     pub io_error: Option<Arc<io::Error>>,
     pub close_reason: Option<quinn::ConnectionError>,
+    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    pub http3: Option<Arc<super::h3::Http3DriverExit>>,
 }
 
 pub struct QuinnDriverOwner {
-    ledger: tracked::DriverOwner<DriverOrigin, DriverBody>,
+    ledger: tracked::DriverOwner<OwnedDriverOrigin, DriverBody>,
 }
 impl QuinnDriverOwner {
-    pub(super) fn from_ledger(ledger: tracked::DriverOwner<DriverOrigin, DriverBody>) -> Self {
+    pub(super) fn from_ledger(ledger: tracked::DriverOwner<OwnedDriverOrigin, DriverBody>) -> Self {
         Self { ledger }
     }
 

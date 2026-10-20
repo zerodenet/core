@@ -14,7 +14,7 @@ pub use endpoint::{
 mod socket;
 pub use drivers::{
     DriverBody, DriverDelivery, DriverExitReceiver, DriverRegistrationFailure,
-    DriverRegistrationReason, DriverTaskStatus, QuinnDriverOwner,
+    DriverRegistrationReason, DriverTaskStatus, OwnedDriverOrigin, QuinnDriverOwner,
 };
 pub use socket::{
     HostedMetadataSocket, MetadataSocketOwner, NativeSendDrops, RejectedHostedMetadataSocket,

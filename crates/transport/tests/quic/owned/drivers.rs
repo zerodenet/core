@@ -117,7 +117,10 @@ async fn actual_quinn_handshake_drivers_have_real_classes_joins_and_original_typ
                     assert_eq!(error.reason.as_ref(), b"actual owning caller");
                     peer += 1;
                 }
-                None => assert_eq!(body.origin, quinn::DriverOrigin::Endpoint),
+                None => assert_eq!(
+                    body.origin,
+                    OwnedDriverOrigin::Quinn(quinn::DriverOrigin::Endpoint)
+                ),
                 other => panic!("unexpected original close reason: {other:?}"),
             }
         }
@@ -149,7 +152,10 @@ async fn rejected_actual_endpoint_driver_preserves_scope_rejection_without_inven
     assert_eq!(status.pending_registration, 0);
     assert_eq!(status.retained, 0);
     let failure = status.rejection.unwrap();
-    assert_eq!(failure.origin, Some(quinn::DriverOrigin::Endpoint));
+    assert_eq!(
+        failure.origin,
+        Some(OwnedDriverOrigin::Quinn(quinn::DriverOrigin::Endpoint))
+    );
     assert_eq!(
         failure.reason,
         DriverRegistrationReason::Scope(

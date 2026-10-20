@@ -5,8 +5,10 @@ use zero_platform_tokio::controlled_datagram::metadata::{
     MetadataViewClaim,
 };
 
-pub(super) type MetadataGraph = MetadataUserGraph<quinn::DriverOrigin, super::super::DriverBody>;
-pub type MetadataUsersCompletion = Completion<quinn::DriverOrigin, super::super::DriverBody>;
+pub(super) type MetadataGraph =
+    MetadataUserGraph<super::super::OwnedDriverOrigin, super::super::DriverBody>;
+pub type MetadataUsersCompletion =
+    Completion<super::super::OwnedDriverOrigin, super::super::DriverBody>;
 /// Refusal returns the exact unconsumed claim and original hosted views.
 /// No native original or accepted task is dropped or reconstructed here.
 pub struct RejectedClaimedEndpoint {

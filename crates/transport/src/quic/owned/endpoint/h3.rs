@@ -12,9 +12,11 @@ use std::{
 use zero_platform_tokio::contract::ChannelError;
 mod bidi;
 mod connection;
+mod outcome;
 mod streams;
 pub use bidi::BidiStream;
 pub use connection::{Connection, OpenStreams};
+pub use outcome::{Http3DriverExit, Http3DriverFailure};
 pub use streams::{RecvStream, SendStream};
 
 type Pending<T> = Pin<Box<dyn Future<Output = Result<T, ChannelError>> + Send + Sync>>;
