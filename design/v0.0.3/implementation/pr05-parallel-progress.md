@@ -51,3 +51,15 @@ root25 的 peer 14/1 是 panic 检查依赖 Display 文本；后续断言改查�
 当前代码还集入 Ready 前停机的同一事务补偿、有限 gRPC owner 库、Service relay 每次需求与 Direct UDP 副本/字节一致计费，以及 VLESS 普通 TCP 及原始 SNI 接线，均须分别运行验证。原 listener Bound 尚未完整交给持久原生关闭控制图；Scope 退出、空 report 或 Drop 不证明原 FD 关闭。资源生产启用和整个 RuntimeHost M4 尚未完成。
 
 [旧源 library 实测](direct-udp-budget/old-library-results.md)已保存 policy 与 network 各三轮；20–21 是 runtime-owned async task 峰值，排除 blocking pool，不是全部工作或关闭证明。全部缺包及非原子 proc 限制保留，当前源与 17 个实际 feature 匹配的 CLI 配对仍待冻结构建。
+
+## root27–31 后续冻结结果
+
+最新完整 Proxy 库冻结点为 `9e3f3ed33024e32f61685b0bff5bb4611f365109`，609 成功、0 失败、2 忽略；全 workspace、all-features/all-targets 类型检查与格式检查通过。SS 新收流入口 3/0 保留五种真实 wire 子案例，静态 runtime 边界 189/0、架构 26/0。过滤目标互有重叠，不能相加为总测试数。
+
+root30 Proxy 的真实停止补偿故障已修复：被接受事务在停止时仍驱动同一旧快照恢复 ACK 和 DNS fake-IP 应用 hook，保留全局 closing 状态。VMess CA 原 raw TLS/WS 测试继续走真实 File grant 并证明 connect 不重读，原未注册 gRPC owner 明确在读取/拨号前返回 Unsupported；这不等于新 native gRPC owner 已完成。旧实际 CA+gRPC 互通在 root30 的 dispatch 97/0 中通过。
+
+root27 VLESS 新夹具错误地给匿名主体设置 device limit；日志捕获真实拒绝原因后，另行修正为合法完整认证以及匿名 rates-only 案例。root30 真实入口 3/0，通过过程未改 Engine 准入或弱化超时/原认证断言。root30 SS 的三项失败同为配置语法不合法，root31 分别使用 SIP022 单 PSK 与 SIP023/EIH identity_password 及托管用户后全部通过，保留原加密/重放/响应语义。
+
+严格 Clippy 仍失败：root31 记录 lib 109 项和 lib-test 17 项诊断，涉及尚未接入生产的私有实现、枚举大小、类型复杂度与同步测试锁的词法作用域。不能以编译/局部运行替代严格门禁或全套资格。新的 pre-native TCP owner、同句柄视图及预绑定 lease 接线仍在隔离树实施和审查，尚无运行资格。提前准备 VMess/Trojan 会修改活跃认证 profile 的问题已发现，正改为安装阶段提交；原配置重载后的在线凭据更新仍须保留。
+
+原始失败、编译阻塞、后续修复及独立诊断全部收入验证 JSON 和压缩证据；Windows 只有交叉编译，未伪称原生运行。当前仍不合并、不发版、不部署，未访问用户 Mac。
