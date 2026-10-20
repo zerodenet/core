@@ -83,7 +83,12 @@ impl zero_api::CommandService for ProxyHandle {
                 // Once staged, complete or roll back even when the requesting
                 // HTTP/IPC connection drops its acknowledgement future.
                 let handle = self.clone();
-                return tokio::spawn(async move { handle.execute_endpoint(command).await })
+                return self
+                    .proxy
+                    .apply_owner
+                    .run(self.proxy.reload_apply_lock.clone(), async move {
+                        Ok(handle.execute_endpoint(command).await)
+                    })
                     .await
                     .map_err(|error| {
                         zero_api::ApiError::new(

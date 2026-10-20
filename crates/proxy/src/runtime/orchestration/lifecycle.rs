@@ -61,7 +61,7 @@ where
                     reason = "shutdown_signal",
                     "proxy orchestration shutdown requested"
                 );
-                return Ok(());
+                return state.drain_configuration(proxy).await;
             }
             Some(()) = state.reload_async_rx.recv() => {
                 info!(
@@ -71,6 +71,9 @@ where
                     "proxy orchestration reload requested"
                 );
                 state.reconcile_reload(proxy).await;
+            }
+            failure = proxy.apply_owner.observe_failure() => {
+                return Err(io::Error::other(failure).into());
             }
             _ = network_change => {
                 #[cfg(feature = "raw-ip-runtime")]

@@ -82,6 +82,7 @@ pub(crate) mod udp_ingress;
 pub(crate) mod udp_socket;
 
 pub use handle::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
+mod apply_owner;
 pub use running::RunningProxy;
 
 #[derive(Debug, Clone)]
@@ -99,6 +100,7 @@ pub struct Proxy {
     orchestration_ready: tokio::sync::watch::Sender<bool>,
     reload_ack: Arc<std::sync::Mutex<Option<PendingReloadAck>>>,
     reload_apply_lock: Arc<tokio::sync::Mutex<()>>,
+    apply_owner: Arc<apply_owner::ApplyOwner>,
     principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry,
 }
 
@@ -189,6 +191,7 @@ impl Proxy {
             orchestration_ready,
             reload_ack: Arc::new(std::sync::Mutex::new(None)),
             reload_apply_lock: Arc::new(tokio::sync::Mutex::new(())),
+            apply_owner: Arc::new(apply_owner::ApplyOwner::default()),
             principal_rate_limits: principal_rate_limits.clone(),
         };
         resolver.set_outbound_connector(Arc::new(dns_outbound::ProxyDnsOutboundConnector::new(

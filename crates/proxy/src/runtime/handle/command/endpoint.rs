@@ -65,7 +65,8 @@ impl ProxyHandle {
         };
         // The same lock serializes config.apply, runtime overlays, restart and
         // resource control. Admission and revision checks happen under it.
-        let _guard = self.proxy.reload_apply_lock.lock().await;
+        // The persistent apply owner already holds the shared serialization
+        // guard; waiting HTTP/IPC futures do not own this transaction.
         let previous = self.proxy.engine.runtime_snapshot();
         let previous_source_write = self.proxy.engine.config_source_write_generation();
         self.proxy.engine.check_endpoint_preconditions(
@@ -164,6 +165,15 @@ impl ProxyHandle {
             if revoked.inbound || revoked.outbound {
                 self.wait_endpoint_flows_ended(&binding, revoked).await?;
             }
+            self.proxy
+                .apply_owner
+                .commit(|| {
+                    if persist {
+                        self.proxy.engine.commit_config_change();
+                    }
+                    Ok(())
+                })
+                .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
             Ok::<(), ApiError>(())
         }
         .await;
@@ -202,9 +212,6 @@ impl ProxyHandle {
                     ),
                 },
             ));
-        }
-        if persist {
-            self.proxy.engine.commit_config_change();
         }
         self.endpoint_command_response(&id, persist)
     }

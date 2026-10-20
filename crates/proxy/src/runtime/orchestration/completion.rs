@@ -14,6 +14,15 @@ impl OrchestrationState {
         mut result: Result<(), EngineError>,
     ) -> Result<(), EngineError> {
         let mut cleanup_errors = Vec::new();
+        // Error/startup paths reach this method without the normal drain arm.
+        // Stop admission, retain and join the accepted transaction while its
+        // real reconciliation/rollback notifications can still be serviced.
+        if let Err(error) = self.drain_configuration(proxy).await {
+            cleanup_errors.push(error.to_string());
+            if result.is_ok() {
+                result = Err(error);
+            }
+        }
         self.publish_stopping();
         self.propagate_shutdown();
         if let Err(error) = proxy.stop_tun_if_running().await {

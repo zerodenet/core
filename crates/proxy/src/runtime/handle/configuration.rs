@@ -52,10 +52,30 @@ impl ProxyHandle {
 
     pub(super) async fn apply_config_transaction_and_wait_if_current(
         &self,
-        mut candidate: RuntimeConfig,
+        candidate: RuntimeConfig,
         expected_current: Option<&RuntimeConfig>,
         timeout: Duration,
         persist: bool,
+    ) -> Result<Option<ConfigReconcileResult>, String> {
+        self.apply_config_transaction_with_impact(
+            candidate,
+            expected_current.cloned(),
+            timeout,
+            persist,
+            vec![],
+            vec![],
+        )
+        .await
+    }
+
+    pub(super) async fn apply_config_transaction_with_impact(
+        &self,
+        mut candidate: RuntimeConfig,
+        expected_current: Option<RuntimeConfig>,
+        timeout: Duration,
+        persist: bool,
+        disabled_principals: Vec<String>,
+        changed_principals: Vec<String>,
     ) -> Result<Option<ConfigReconcileResult>, String> {
         // Typed callers may supply an unprojected canonical resource. The
         // acknowledgement and application services must see the same candidate
@@ -63,7 +83,33 @@ impl ProxyHandle {
         candidate
             .materialize_endpoints()
             .map_err(|error| error.to_string())?;
-        let _apply_guard = self.proxy.reload_apply_lock.lock().await;
+        let handle = self.clone();
+        self.proxy
+            .apply_owner
+            .run(self.proxy.reload_apply_lock.clone(), async move {
+                let result = handle
+                    .apply_config_under_owned_guard(
+                        candidate,
+                        expected_current.as_ref(),
+                        timeout,
+                        persist,
+                    )
+                    .await?;
+                if result.is_some() {
+                    handle.enforce_principal_impact(&disabled_principals, &changed_principals);
+                }
+                Ok(result)
+            })
+            .await
+    }
+
+    async fn apply_config_under_owned_guard(
+        &self,
+        candidate: RuntimeConfig,
+        expected_current: Option<&RuntimeConfig>,
+        timeout: Duration,
+        persist: bool,
+    ) -> Result<Option<ConfigReconcileResult>, String> {
         let previous = self.proxy.engine.runtime_snapshot();
         if expected_current.is_some_and(|expected| expected != previous.config().as_ref()) {
             return Ok(None);
@@ -72,15 +118,19 @@ impl ProxyHandle {
             reconciler.validate(previous.config().as_ref(), &candidate)?;
         }
 
+        if self.proxy.apply_owner.is_closing() {
+            return Err("proxy stopped before accepting configuration changes".to_owned());
+        }
+
         self.apply_proxy_config_under_guard(candidate.clone(), timeout, persist, None)
             .await?;
 
         let Some(reconciler) = &self.config_reconciler else {
-            if let Err(error) = self.proxy.resolver.commit_prepared_reload() {
+            if let Err(error) = self.commit_configuration() {
                 let rollback = self
                     .rollback_proxy_dns_under_guard(previous, timeout, persist)
                     .await;
-                let mut message = format!("DNS config commit failed: {error}");
+                let mut message = error;
                 if let Err(error) = rollback {
                     message.push_str(&format!("; proxy rollback failed: {error}"));
                 } else {
@@ -88,13 +138,12 @@ impl ProxyHandle {
                 }
                 return Err(message);
             }
-            self.proxy.engine.commit_config_change();
             return Ok(Some(ConfigReconcileResult::default()));
         };
         let candidate = Arc::new(candidate);
         match reconciler.reconcile(candidate).await {
             Ok(result) => {
-                if let Err(error) = self.proxy.resolver.commit_prepared_reload() {
+                if let Err(error) = self.commit_configuration() {
                     let proxy_rollback = self
                         .rollback_proxy_dns_under_guard(previous.clone(), timeout, persist)
                         .await;
@@ -103,7 +152,7 @@ impl ProxyHandle {
                     } else {
                         Err("application rollback skipped because proxy rollback failed".to_owned())
                     };
-                    let mut message = format!("DNS config commit failed: {error}");
+                    let mut message = error;
                     if let Err(error) = proxy_rollback {
                         message.push_str(&format!("; proxy rollback failed: {error}"));
                     }
@@ -114,7 +163,6 @@ impl ProxyHandle {
                     }
                     return Err(message);
                 }
-                self.proxy.engine.commit_config_change();
                 Ok(Some(result))
             }
             Err(apply_error) => {
@@ -139,6 +187,17 @@ impl ProxyHandle {
                 Err(message)
             }
         }
+    }
+
+    fn commit_configuration(&self) -> Result<(), String> {
+        self.proxy.apply_owner.commit(|| {
+            self.proxy
+                .resolver
+                .commit_prepared_reload()
+                .map_err(|error| format!("DNS config commit failed: {error}"))?;
+            self.proxy.engine.commit_config_change();
+            Ok(())
+        })
     }
 
     async fn rollback_proxy_dns_under_guard(

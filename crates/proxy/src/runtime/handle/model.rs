@@ -116,9 +116,15 @@ impl ProxyHandle {
         changed_principals: Vec<String>,
         timeout: std::time::Duration,
     ) -> Result<(), String> {
-        self.apply_config_transaction_and_wait(config, timeout, false)
-            .await?;
-        self.enforce_principal_impact(&disabled_principals, &changed_principals);
+        self.apply_config_transaction_with_impact(
+            config,
+            None,
+            timeout,
+            false,
+            disabled_principals,
+            changed_principals,
+        )
+        .await?;
         Ok(())
     }
 
@@ -138,21 +144,22 @@ impl ProxyHandle {
         timeout: std::time::Duration,
     ) -> Result<bool, String> {
         let result = self
-            .apply_config_transaction_and_wait_if_current(
+            .apply_config_transaction_with_impact(
                 config,
-                Some(expected_current),
+                Some(expected_current.clone()),
                 timeout,
                 false,
+                disabled_principals,
+                changed_principals,
             )
             .await?;
         if result.is_none() {
             return Ok(false);
         }
-        self.enforce_principal_impact(&disabled_principals, &changed_principals);
         Ok(true)
     }
 
-    fn enforce_principal_impact(
+    pub(super) fn enforce_principal_impact(
         &self,
         disabled_principals: &[String],
         changed_principals: &[String],
