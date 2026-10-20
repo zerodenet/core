@@ -138,7 +138,7 @@ impl ProtocolInventory {
         Some(Ok(super::PreparedTcpCandidate {
             health_tag: Some(outbound.tag.clone()),
             tag: Some(outbound.tag.clone()),
-            protocol: slot.recipe.descriptor().protocol.into(),
+            protocol: outbound.protocol.protocol_name().into(),
             endpoint: Some((server.into(), port)),
             execution: super::PreparedTcpCandidateExecution::Native(slot),
         }))

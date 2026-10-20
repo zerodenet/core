@@ -1,5 +1,5 @@
 //! Ownership of one cold recipe, installed before its first start.
-use super::ValidatedRecipe;
+use super::{ComponentRecipe, ValidatedRecipe};
 mod cleanup;
 use std::{
     path::PathBuf,
@@ -38,7 +38,8 @@ pub(crate) fn retained(error: SharedError) -> ChannelError {
 pub(crate) struct ComponentSlot {
     pub(crate) id: ComponentId,
     pub(crate) generation: ResourceGeneration,
-    pub(crate) recipe: ValidatedRecipe,
+    pub(crate) recipe: ComponentRecipe,
+    legacy_connect_stage: &'static str,
     pub(crate) dial: zero_traits::DialPolicy,
     cancel: CancellationToken,
     live: OnceCell<Result<Live, SharedError>>,
@@ -76,15 +77,34 @@ impl ComponentSlot {
         recipe: ValidatedRecipe,
         dial: zero_traits::DialPolicy,
     ) -> Self {
+        Self::from_recipe(
+            id,
+            generation,
+            recipe.component_recipe(),
+            dial,
+            recipe.legacy_connect_stage(),
+        )
+    }
+    pub(crate) fn from_recipe(
+        id: ComponentId,
+        generation: ResourceGeneration,
+        recipe: ComponentRecipe,
+        dial: zero_traits::DialPolicy,
+        legacy_connect_stage: &'static str,
+    ) -> Self {
         Self {
             id,
             generation,
             recipe,
+            legacy_connect_stage,
             dial,
             cancel: CancellationToken::new(),
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
         }
+    }
+    pub(crate) fn legacy_connect_stage(&self) -> &'static str {
+        self.legacy_connect_stage
     }
     pub(crate) fn role_id(&self) -> RoleInstanceId {
         RoleInstanceId {
@@ -231,9 +251,10 @@ fn started(component: ComponentId, live: &Result<Live, SharedError>) -> Result<(
     })
 }
 
-// This transitional slot is granted only the zero-resource Stream descriptors.
-// A protocol declaring resources must use a host granting its exact declarations.
-struct NoResources;
+// This transitional slot grants no I/O. Production catalog activation admits
+// only zero-resource Stream descriptors; roleless maintenance can use its actual
+// registered task budget. Declared I/O requires a host granting that exact access.
+pub(super) struct NoResources;
 impl ResourceAccess for NoResources {
     fn read_file(&self, _: PathBuf, _: usize) -> BoxFuture<'_, Result<Vec<u8>, ChannelError>> {
         Box::pin(async { Err(invalid(Reason::Internal, "undeclared file access")) })

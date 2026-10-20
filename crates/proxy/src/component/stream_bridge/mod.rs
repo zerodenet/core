@@ -31,7 +31,7 @@ pub(crate) async fn connect(
         .endpoint
         .clone()
         .expect("native node candidate has an endpoint");
-    let stage = slot.recipe.legacy_connect_stage();
+    let stage = slot.legacy_connect_stage();
     let failure = |error| failure(stage, error, &endpoint);
     let invocation = services.invocation.clone().ok_or_else(|| {
         failure(invalid(

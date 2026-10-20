@@ -1,9 +1,11 @@
 //! Typed cold-path registration. No input documents survive preparation.
+use super::{instance::invalid, recipe::ComponentRecipe, ResourcePreparation};
 use std::{collections::BTreeMap, error::Error, fmt, sync::Arc};
 use zero_config::ConfigError;
 use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentFactory, ComponentInstance, ComponentSpec},
     lifecycle::BuildError,
+    Reason,
 };
 use zero_traits::ProtocolCapabilityDescriptor;
 
@@ -17,6 +19,7 @@ pub enum RegistrationError {
     },
     FeatureMismatch(&'static str),
     Options(ConfigError),
+    Planning(BuildError),
 }
 impl fmt::Display for RegistrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -31,6 +34,7 @@ impl fmt::Display for RegistrationError {
                 write!(f, "protocol `{kind}` has inconsistent feature metadata")
             }
             Self::Options(error) => error.fmt(f),
+            Self::Planning(error) => error.fmt(f),
         }
     }
 }
@@ -38,21 +42,19 @@ impl Error for RegistrationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Options(error) => Some(error),
+            Self::Planning(error) => Some(error),
             _ => None,
         }
     }
 }
-
-trait BuildRecipe: Send + Sync {
-    fn build(&self, context: BuildContext) -> Result<ComponentInstance, BuildError>;
+impl From<ConfigError> for RegistrationError {
+    fn from(error: ConfigError) -> Self {
+        Self::Options(error)
+    }
 }
-struct Prepared<F: ComponentFactory> {
-    factory: Arc<F>,
-    options: Arc<F::Options>,
-}
-impl<F: ComponentFactory> BuildRecipe for Prepared<F> {
-    fn build(&self, context: BuildContext) -> Result<ComponentInstance, BuildError> {
-        self.factory.build(self.options.clone(), context)
+impl From<BuildError> for RegistrationError {
+    fn from(error: BuildError) -> Self {
+        Self::Planning(error)
     }
 }
 
@@ -60,10 +62,12 @@ impl<F: ComponentFactory> BuildRecipe for Prepared<F> {
 pub struct ValidatedRecipe {
     legacy_connect_stage: &'static str,
     descriptor: ProtocolCapabilityDescriptor,
-    spec: Arc<ComponentSpec>,
-    recipe: Arc<dyn BuildRecipe>,
+    recipe: ComponentRecipe,
 }
 impl ValidatedRecipe {
+    pub(crate) fn component_recipe(&self) -> ComponentRecipe {
+        self.recipe.clone()
+    }
     pub(crate) fn legacy_connect_stage(&self) -> &'static str {
         self.legacy_connect_stage
     }
@@ -71,21 +75,21 @@ impl ValidatedRecipe {
         self.descriptor
     }
     pub fn spec(&self) -> &ComponentSpec {
-        &self.spec
+        self.recipe.spec()
     }
     /// The caller owns the stop-old/build-new ordering and installs the returned
     /// lifecycle owner before calling start. This method never starts resources.
     pub fn build(&self, context: BuildContext) -> Result<ComponentInstance, BuildError> {
-        super::bindings::validate_ids(&self.spec, &context)?;
-        let instance = self.recipe.build(context)?;
-        // build is state-only, so no I/O has started if shape validation fails.
-        super::bindings::validate_roles(&self.spec, &instance.roles)?;
-        Ok(instance)
+        self.recipe.build(context)
     }
 }
 
 trait Registration<Input>: Send + Sync {
-    fn prepare(&self, input: &Input) -> Result<ValidatedRecipe, ConfigError>;
+    fn prepare(
+        &self,
+        input: &Input,
+        resources: &mut ResourcePreparation<'_>,
+    ) -> Result<ValidatedRecipe, RegistrationError>;
 }
 struct TypedRegistration<F, Decode> {
     descriptor: ProtocolCapabilityDescriptor,
@@ -95,19 +99,21 @@ struct TypedRegistration<F, Decode> {
 impl<Input, F, Decode> Registration<Input> for TypedRegistration<F, Decode>
 where
     F: ComponentFactory,
-    Decode: Fn(&Input) -> Result<F::Options, ConfigError> + Send + Sync,
+    Decode: Fn(&Input, &mut ResourcePreparation<'_>) -> Result<F::Options, RegistrationError>
+        + Send
+        + Sync,
 {
-    fn prepare(&self, input: &Input) -> Result<ValidatedRecipe, ConfigError> {
-        let options = Arc::new((self.decode_validate)(input)?);
-        let spec = Arc::new(self.factory.describe(&options));
+    fn prepare(
+        &self,
+        input: &Input,
+        resources: &mut ResourcePreparation<'_>,
+    ) -> Result<ValidatedRecipe, RegistrationError> {
+        let options = Arc::new((self.decode_validate)(input, resources)?);
+        let recipe = ComponentRecipe::from_validated(self.factory.clone(), options);
         Ok(ValidatedRecipe {
             legacy_connect_stage: "connect_component",
             descriptor: self.descriptor,
-            spec,
-            recipe: Arc::new(Prepared {
-                factory: self.factory.clone(),
-                options,
-            }),
+            recipe,
         })
     }
 }
@@ -177,6 +183,28 @@ impl<Input: 'static> ComponentRegistry<Input> {
         F: ComponentFactory,
         Decode: Fn(&Input) -> Result<F::Options, ConfigError> + Send + Sync + 'static,
     {
+        self.register_with_resources(
+            descriptor,
+            factory,
+            move |input: &Input, _: &mut ResourcePreparation<'_>| {
+                decode_validate(input).map_err(RegistrationError::Options)
+            },
+        )
+    }
+
+    pub fn register_with_resources<F, Decode>(
+        &mut self,
+        descriptor: ProtocolCapabilityDescriptor,
+        factory: F,
+        decode_validate: Decode,
+    ) -> Result<(), RegistrationError>
+    where
+        F: ComponentFactory,
+        Decode: Fn(&Input, &mut ResourcePreparation<'_>) -> Result<F::Options, RegistrationError>
+            + Send
+            + Sync
+            + 'static,
+    {
         let entry = self.entries.entry(descriptor.protocol).or_insert(Entry {
             legacy_connect_stage: "connect_component",
             feature: descriptor.feature,
@@ -216,6 +244,36 @@ impl<Input: 'static> ComponentRegistry<Input> {
         protocol: &str,
         input: &Input,
     ) -> Result<ValidatedRecipe, RegistrationError> {
+        let mut unavailable = || {
+            Err(invalid(
+                Reason::InvalidConfig,
+                "shared resources require a host ComponentId allocator",
+            ))
+        };
+        let mut resources = ResourcePreparation::new(&mut unavailable);
+        self.prepare_with_resources(protocol, input, &mut resources)
+    }
+
+    pub fn prepare_with_resources(
+        &self,
+        protocol: &str,
+        input: &Input,
+        resources: &mut ResourcePreparation<'_>,
+    ) -> Result<ValidatedRecipe, RegistrationError> {
+        let result = self.prepare_entry(protocol, input, resources);
+        if result.is_err() {
+            resources.invalidate();
+        }
+        result
+    }
+
+    fn prepare_entry(
+        &self,
+        protocol: &str,
+        input: &Input,
+        resources: &mut ResourcePreparation<'_>,
+    ) -> Result<ValidatedRecipe, RegistrationError> {
+        resources.ensure_valid()?;
         let (name, entry) = self
             .entries
             .get_key_value(protocol)
@@ -228,12 +286,9 @@ impl<Input: 'static> ComponentRegistry<Input> {
                     protocol: name,
                     feature: entry.feature,
                 })?;
-        registration
-            .prepare(input)
-            .map(|mut recipe| {
-                recipe.legacy_connect_stage = entry.legacy_connect_stage;
-                recipe
-            })
-            .map_err(RegistrationError::Options)
+        registration.prepare(input, resources).map(|mut recipe| {
+            recipe.legacy_connect_stage = entry.legacy_connect_stage;
+            recipe
+        })
     }
 }
