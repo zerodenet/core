@@ -137,7 +137,7 @@ impl OwnedEndpointOwner {
             }
         };
         if let Err(failure) = self.shared.admission.check().and_then(|()| {
-            if self.shared.users.cancel.is_cancelled() {
+            if self.shared.users.cancellation().is_cancelled() {
                 Err(error(Stage::Prepare, Reason::Revoked))
             } else {
                 Ok(())
@@ -169,7 +169,7 @@ impl OwnedEndpointOwner {
     }
     pub fn begin_shutdown(&self) {
         self.shared.phase.store(3, Ordering::Release);
-        self.shared.users.cancel.cancel();
+        self.shared.users.cancellation().cancel();
         self.drivers.revoke_registration();
         let endpoint = self.shared.endpoint.lock().unwrap().take();
         if let Some(endpoint) = endpoint {
@@ -268,7 +268,7 @@ impl Drop for OwnedEndpointOwner {
 }
 impl Shared {
     fn check(&self) -> Result<(), ChannelError> {
-        if self.phase.load(Ordering::Acquire) != 2 || self.users.cancel.is_cancelled() {
+        if self.phase.load(Ordering::Acquire) != 2 || self.users.cancellation().is_cancelled() {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
         self.admission.check()?;

@@ -22,7 +22,7 @@ pub struct OwnedRecvStream {
 }
 impl OwnedSendStream {
     pub(super) fn new(stream: quinn::SendStream, permit: Permit) -> Self {
-        let cancelled = Box::pin(permit.0.cancel.clone().cancelled_owned());
+        let cancelled = Box::pin(permit.users().cancellation().clone().cancelled_owned());
         Self {
             stream,
             permit,
@@ -39,12 +39,12 @@ impl OwnedSendStream {
         self.stream.id()
     }
     pub fn user_count(&self) -> usize {
-        self.permit.0.active()
+        self.permit.users().active()
     }
 }
 impl OwnedRecvStream {
     pub(super) fn new(stream: quinn::RecvStream, permit: Permit) -> Self {
-        let cancelled = Box::pin(permit.0.cancel.clone().cancelled_owned());
+        let cancelled = Box::pin(permit.users().cancellation().clone().cancelled_owned());
         Self {
             stream,
             permit,
@@ -58,7 +58,7 @@ impl OwnedRecvStream {
         self.stream.id()
     }
     pub fn user_count(&self) -> usize {
-        self.permit.0.active()
+        self.permit.users().active()
     }
 }
 fn cancelled(future: &mut Pin<Box<WaitForCancellationFutureOwned>>, cx: &mut Context<'_>) -> bool {

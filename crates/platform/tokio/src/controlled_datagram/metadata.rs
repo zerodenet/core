@@ -8,6 +8,7 @@ mod probes;
 #[cfg(test)]
 mod tests;
 mod types;
+pub mod users;
 mod views;
 use super::*;
 pub use poller::DatagramWritePoller;

@@ -47,7 +47,7 @@ impl OwnedEndpointHandle {
         // rejection it drops here, with the original owner/FD ledger retained.
         state.admission.check()?;
         let result = tokio::select! { biased;
-            _ = state.users.cancel.cancelled() => Err(error(Stage::Handshake, Reason::Cancelled)),
+            _ = state.users.cancellation().cancelled() => Err(error(Stage::Handshake, Reason::Cancelled)),
             result = connecting => result.map_err(|source| protocol(Stage::Handshake, source)),
         };
         let connection = result?;
@@ -62,7 +62,7 @@ impl OwnedEndpointHandle {
     pub async fn accept(&self) -> Result<OwnedConnection, ChannelError> {
         let (state, pending) = self.pending()?;
         let incoming = tokio::select! { biased;
-            _ = state.users.cancel.cancelled() => return Err(error(Stage::Prepare, Reason::Cancelled)),
+            _ = state.users.cancellation().cancelled() => return Err(error(Stage::Prepare, Reason::Cancelled)),
             incoming = pending.endpoint.accept() => incoming.ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?,
         };
         let callbacks = state
@@ -74,7 +74,7 @@ impl OwnedEndpointHandle {
             .map_err(|source| protocol(Stage::Handshake, source))?;
         state.admission.check()?;
         let result = tokio::select! { biased;
-            _ = state.users.cancel.cancelled() => Err(error(Stage::Handshake, Reason::Cancelled)),
+            _ = state.users.cancellation().cancelled() => Err(error(Stage::Handshake, Reason::Cancelled)),
             result = connecting => result.map_err(|source| protocol(Stage::Handshake, source)),
         };
         let connection = result?;
