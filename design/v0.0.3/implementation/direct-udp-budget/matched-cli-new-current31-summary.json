@@ -1,0 +1,320 @@
+{
+  "launcher": {
+    "source_commit": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+    "binary_sha256": "b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd",
+    "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+    "command": [
+      "docker",
+      "run",
+      "--rm",
+      "--pull=never",
+      "--network=none",
+      "--cpus=1",
+      "--memory=1073741824",
+      "--memory-swap=1073741824",
+      "--mount",
+      "type=bind,src=/workspace/core-next/direct-udp-budget/matched-cli-pair-current31-b649836f/new/kernel,dst=/kernel,readonly",
+      "--mount",
+      "type=bind,src=/workspace/core-parallel/resources/design/v0.0.3/implementation/direct-udp-budget,dst=/probe,readonly",
+      "--mount",
+      "type=bind,src=/workspace/core-next/direct-udp-budget/matched-cli-pair-current31-b649836f/new,dst=/results",
+      "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "python3",
+      "/probe/fanin.py",
+      "--binary",
+      "/kernel",
+      "--output",
+      "/results/data",
+      "--payload-bytes",
+      "1024",
+      "--trials",
+      "3"
+    ],
+    "scripts_sha256": {
+      "fanin.py": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+      "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+      "library_worker.py": "88f33e207ff5871d77286c245237b4815af7c51e3813fc4cf8999a24fb111be1",
+      "observer_kernel.py": "042d456c3c96880567f3eb440d03630d861d24dc17052d126b0f538485f0f45f",
+      "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+      "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+      "run.py": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+      "run_default_pair.py": "7b6afd9d32ecbcc8788163b0a4d739f7bc577b2531a338df8b16577c66f1813c",
+      "run_fanin.py": "d70e35ea4bb2cbf5e1c46d00508c684ab12ef93f8b5c6f7242e7a4b59ebec1c6",
+      "run_library.py": "0e26bc5a0e7b74b9b149526f44a07e7dd5bbac66dd226a1b71f8437ade9f24aa",
+      "summarize.py": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+      "summarize_fanin.py": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69",
+      "summarize_library.py": "55b6708b86b8682e35f94a4e813e2c1f3ceecc22cebc4838faa2e2895407fbc2",
+      "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+    },
+    "compile_processes": "excluded; none started by harness",
+    "reference_processes": "Python echo/DNS/harness share container; accounted separately from kernel PID",
+    "host_context": {
+      "load_average": [
+        0.89599609375,
+        1.55517578125,
+        1.82421875
+      ],
+      "cpu.max": "400000 100000",
+      "memory.max": "17179869184",
+      "concurrent_validation": "parent is validating main; sizing observations only, not isolated RS01 throughput qualification"
+    },
+    "exit_code": 0
+  },
+  "limits_before": {
+    "cpu.max": "100000 100000",
+    "memory.max": "1073741824",
+    "memory.swap.max": "0",
+    "memory.peak": "16023552",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.stat": "usage_usec 240394\nuser_usec 220273\nsystem_usec 20121\nnice_usec 0\nnr_periods 2\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+  },
+  "limits_after": {
+    "cpu.max": "100000 100000",
+    "memory.max": "1073741824",
+    "memory.swap.max": "0",
+    "memory.peak": "331354112",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.stat": "usage_usec 25133043\nuser_usec 8742378\nsystem_usec 16390664\nnice_usec 0\nnr_periods 636\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+  },
+  "source_provenance_correction": null,
+  "scope": "old Direct Combined; sixteen source peers, one fixed domain, actual overlapping policy reload traffic",
+  "caveats": [
+    "sampled FD peaks are lower bounds, not close receipts",
+    "kernel UDP bytes are not user queue bytes",
+    "no numeric default inferred; only generation0 observed",
+    "steady, overlapping reload and burst missing payloads reported separately"
+  ],
+  "trials": [
+    {
+      "trial": 0,
+      "payload_bytes": 1024,
+      "actual_source_peer_count": 16,
+      "steady": {
+        "sent": 816,
+        "unique_received": 816,
+        "not_observed": 0
+      },
+      "overlapping_reload": {
+        "sent": 1472,
+        "unique_received": 1280,
+        "not_observed": 192,
+        "actual_sends_within_apply_interval": 64,
+        "echo_receives_within_apply_interval": 227
+      },
+      "apply_failures": [],
+      "packet_errors": [],
+      "bursts": {
+        "31": {
+          "sent": 496,
+          "unique_received": 193,
+          "not_observed": 303,
+          "duplicates": 0
+        },
+        "32": {
+          "sent": 512,
+          "unique_received": 196,
+          "not_observed": 316,
+          "duplicates": 0
+        },
+        "33": {
+          "sent": 528,
+          "unique_received": 404,
+          "not_observed": 124,
+          "duplicates": 0
+        }
+      },
+      "burst_errors": [],
+      "active_business_flows_peak_observed": 16,
+      "distinct_business_flow_ids_observed": 272,
+      "echo_correlated_direct_fd_peak_sampled": 16,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 272,
+      "process_fd_peak_sampled": 29,
+      "process_udp_fd_peak_sampled": 17,
+      "kernel_vmhwm_max_observed_bytes": 69578752,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 398592,
+      "ingress_inode_observed_in_all_samples_with_udp": true,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          59807
+        ],
+        [
+          "127.0.0.2",
+          59807
+        ],
+        [
+          "::1",
+          59807
+        ]
+      ],
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "sample_count": 1377,
+      "errors": [],
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 114016964
+      }
+    },
+    {
+      "trial": 1,
+      "payload_bytes": 1024,
+      "actual_source_peer_count": 16,
+      "steady": {
+        "sent": 816,
+        "unique_received": 816,
+        "not_observed": 0
+      },
+      "overlapping_reload": {
+        "sent": 1392,
+        "unique_received": 1250,
+        "not_observed": 142,
+        "actual_sends_within_apply_interval": 32,
+        "echo_receives_within_apply_interval": 165
+      },
+      "apply_failures": [],
+      "packet_errors": [],
+      "bursts": {
+        "31": {
+          "sent": 496,
+          "unique_received": 129,
+          "not_observed": 367,
+          "duplicates": 0
+        },
+        "32": {
+          "sent": 512,
+          "unique_received": 398,
+          "not_observed": 114,
+          "duplicates": 0
+        },
+        "33": {
+          "sent": 528,
+          "unique_received": 172,
+          "not_observed": 356,
+          "duplicates": 0
+        }
+      },
+      "burst_errors": [],
+      "active_business_flows_peak_observed": 16,
+      "distinct_business_flow_ids_observed": 272,
+      "echo_correlated_direct_fd_peak_sampled": 16,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 272,
+      "process_fd_peak_sampled": 29,
+      "process_udp_fd_peak_sampled": 17,
+      "kernel_vmhwm_max_observed_bytes": 68898816,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 186624,
+      "ingress_inode_observed_in_all_samples_with_udp": true,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          48606
+        ],
+        [
+          "127.0.0.2",
+          48606
+        ],
+        [
+          "::1",
+          48606
+        ]
+      ],
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "sample_count": 1278,
+      "errors": [],
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 164115745
+      }
+    },
+    {
+      "trial": 2,
+      "payload_bytes": 1024,
+      "actual_source_peer_count": 16,
+      "steady": {
+        "sent": 816,
+        "unique_received": 816,
+        "not_observed": 0
+      },
+      "overlapping_reload": {
+        "sent": 1424,
+        "unique_received": 1239,
+        "not_observed": 185,
+        "actual_sends_within_apply_interval": 34,
+        "echo_receives_within_apply_interval": 199
+      },
+      "apply_failures": [],
+      "packet_errors": [],
+      "bursts": {
+        "31": {
+          "sent": 496,
+          "unique_received": 185,
+          "not_observed": 311,
+          "duplicates": 0
+        },
+        "32": {
+          "sent": 512,
+          "unique_received": 203,
+          "not_observed": 309,
+          "duplicates": 0
+        },
+        "33": {
+          "sent": 528,
+          "unique_received": 155,
+          "not_observed": 373,
+          "duplicates": 0
+        }
+      },
+      "burst_errors": [],
+      "active_business_flows_peak_observed": 16,
+      "distinct_business_flow_ids_observed": 272,
+      "echo_correlated_direct_fd_peak_sampled": 16,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 272,
+      "process_fd_peak_sampled": 29,
+      "process_udp_fd_peak_sampled": 17,
+      "kernel_vmhwm_max_observed_bytes": 69578752,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 36864,
+      "ingress_inode_observed_in_all_samples_with_udp": true,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          43578
+        ],
+        [
+          "127.0.0.2",
+          43578
+        ],
+        [
+          "::1",
+          43578
+        ]
+      ],
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "sample_count": 1289,
+      "errors": [],
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 214488139
+      }
+    }
+  ]
+}

@@ -1,0 +1,199 @@
+{
+  "archive": "evidence/current31-build-9e3f3ed3.tar.gz",
+  "sha256": "d13730773436de991dce07b0fc3c2fde65ed6ac458704b1f0f8467e649f5001d",
+  "tar_sha256": "9afee334a559971eb429382c05d1505580e104a964714097c64462377b6311fb",
+  "bytes": 240873,
+  "files": [
+    {
+      "path": "collect_current31.py",
+      "sha256": "b679f069c85610203496f0aa0dd34cec54a1e15de83bfa0629a5f69da0017751",
+      "bytes": 7344
+    },
+    {
+      "path": "current31-cli-pair-plan-b649836f.json",
+      "sha256": "89f165a9a80d47cf3d4884088517c6f63c74b86f78368b2bc4248c4d5c215c8b",
+      "bytes": 1411
+    },
+    {
+      "path": "current31-run-plans-5ddbf5ac.json",
+      "sha256": "1e7a2d15e9d9578dbe93b5b94e398f4fd3e7ac11ace1982dcefe8f9f0e158731",
+      "bytes": 6787
+    },
+    {
+      "path": "harness/Cargo.lock",
+      "sha256": "33ba651da2fd9d53db89ccd84912046723459fd771dc91d61b9702d20024833a",
+      "bytes": 94593
+    },
+    {
+      "path": "harness/Cargo.toml",
+      "sha256": "73726e275d9c3a2d0c269a9f5ce2d50aedaa41106903ec981fe320d6b4c41f60",
+      "bytes": 1234
+    },
+    {
+      "path": "harness/prepared-verify.json",
+      "sha256": "f02f214a5856df68b188aea183e941d88a29ed9167ce8d1ae53e8de2f09bf63c",
+      "bytes": 834
+    },
+    {
+      "path": "harness/sole-owner-plan.json",
+      "sha256": "0a5b331446381037b46e1373124d41ebf6e1863f53aab9842a03abf3f5bd1c11",
+      "bytes": 4312
+    },
+    {
+      "path": "harness/source.json",
+      "sha256": "29a6ae8bc33d41f7d1f69c24e992a1f7b10271913f2e7368aa6ab0964400551f",
+      "bytes": 1028
+    },
+    {
+      "path": "harness/src/driver.rs",
+      "sha256": "feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178",
+      "bytes": 3458
+    },
+    {
+      "path": "harness/src/main.rs",
+      "sha256": "49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36",
+      "bytes": 4201
+    },
+    {
+      "path": "harness/src/metrics.rs",
+      "sha256": "d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583",
+      "bytes": 2808
+    },
+    {
+      "path": "measurement-window.json",
+      "sha256": "7fc7ae503deaab581a5590aac4308291f22d72515f4107bf7d368cbb593ac30b",
+      "bytes": 963
+    },
+    {
+      "path": "pr05-matched-cli-current31-build-0.txt",
+      "sha256": "8466cb382608595851b8125dca68c733138c38237b6c08f9f6e740944126f161",
+      "bytes": 35050
+    },
+    {
+      "path": "pr05-matched-cli-current31-build-info.txt",
+      "sha256": "e110388c5f7ee7ffd3756accdf7d53f3dd3196abf2d5653c5ea41e30eeaa1f7c",
+      "bytes": 6648
+    },
+    {
+      "path": "pr05-matched-cli-current31-build.json",
+      "sha256": "39a3d3dc521c8e82d9deed33272298e359de28af5dd2db8f88f5167450f77d8b",
+      "bytes": 1491
+    },
+    {
+      "path": "pr05-udp-observer-current31-Cargo.lock",
+      "sha256": "33ba651da2fd9d53db89ccd84912046723459fd771dc91d61b9702d20024833a",
+      "bytes": 94593
+    },
+    {
+      "path": "pr05-udp-observer-current31-build-0.txt",
+      "sha256": "f02f214a5856df68b188aea183e941d88a29ed9167ce8d1ae53e8de2f09bf63c",
+      "bytes": 834
+    },
+    {
+      "path": "pr05-udp-observer-current31-build-1.txt",
+      "sha256": "0b71cf2642c7b6f8eebf53b0c27014b434bf9b907011f6f330517efbe4a8d9d7",
+      "bytes": 1841668
+    },
+    {
+      "path": "pr05-udp-observer-current31-build-2.txt",
+      "sha256": "8aa5fc6817b61bdce1eb20ba50ee919b0d70941aa51d781ead9af43a4ad02246",
+      "bytes": 834
+    },
+    {
+      "path": "pr05-udp-observer-current31-build-3.txt",
+      "sha256": "bf426b110755368efb25555403bc91ec5bc7a031ea89363130638521d9ff689a",
+      "bytes": 37110
+    },
+    {
+      "path": "pr05-udp-observer-current31-build-4.txt",
+      "sha256": "8aa5fc6817b61bdce1eb20ba50ee919b0d70941aa51d781ead9af43a4ad02246",
+      "bytes": 834
+    },
+    {
+      "path": "pr05-udp-observer-current31-build.json",
+      "sha256": "c74104ae946ea41fbc4557b9ee493bd402d214a8292d3c5c78b1e015146da222",
+      "bytes": 2903
+    },
+    {
+      "path": "pr05-udp-observer-current31-source.json",
+      "sha256": "29a6ae8bc33d41f7d1f69c24e992a1f7b10271913f2e7368aa6ab0964400551f",
+      "bytes": 1028
+    },
+    {
+      "path": "probe/collect_current31.py",
+      "sha256": "b679f069c85610203496f0aa0dd34cec54a1e15de83bfa0629a5f69da0017751",
+      "bytes": 7344
+    },
+    {
+      "path": "probe/fanin.py",
+      "sha256": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+      "bytes": 9493
+    },
+    {
+      "path": "probe/kernel.py",
+      "sha256": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+      "bytes": 3679
+    },
+    {
+      "path": "probe/library_worker.py",
+      "sha256": "88f33e207ff5871d77286c245237b4815af7c51e3813fc4cf8999a24fb111be1",
+      "bytes": 2783
+    },
+    {
+      "path": "probe/observer_kernel.py",
+      "sha256": "042d456c3c96880567f3eb440d03630d861d24dc17052d126b0f538485f0f45f",
+      "bytes": 5046
+    },
+    {
+      "path": "probe/peers.py",
+      "sha256": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+      "bytes": 4045
+    },
+    {
+      "path": "probe/proc_sample.py",
+      "sha256": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+      "bytes": 3244
+    },
+    {
+      "path": "probe/run.py",
+      "sha256": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+      "bytes": 2978
+    },
+    {
+      "path": "probe/run_default_pair.py",
+      "sha256": "7b6afd9d32ecbcc8788163b0a4d739f7bc577b2531a338df8b16577c66f1813c",
+      "bytes": 2799
+    },
+    {
+      "path": "probe/run_fanin.py",
+      "sha256": "d70e35ea4bb2cbf5e1c46d00508c684ab12ef93f8b5c6f7242e7a4b59ebec1c6",
+      "bytes": 2991
+    },
+    {
+      "path": "probe/run_library.py",
+      "sha256": "0e26bc5a0e7b74b9b149526f44a07e7dd5bbac66dd226a1b71f8437ade9f24aa",
+      "bytes": 3565
+    },
+    {
+      "path": "probe/summarize.py",
+      "sha256": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+      "bytes": 4455
+    },
+    {
+      "path": "probe/summarize_fanin.py",
+      "sha256": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69",
+      "bytes": 5409
+    },
+    {
+      "path": "probe/summarize_library.py",
+      "sha256": "55b6708b86b8682e35f94a4e813e2c1f3ceecc22cebc4838faa2e2895407fbc2",
+      "bytes": 2804
+    },
+    {
+      "path": "probe/worker.py",
+      "sha256": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7",
+      "bytes": 8304
+    }
+  ],
+  "excluded_binary_copies": []
+}
