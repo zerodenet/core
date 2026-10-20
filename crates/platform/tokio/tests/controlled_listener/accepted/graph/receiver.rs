@@ -175,3 +175,50 @@ async fn joined_caller_is_rejected_before_graph_receiver_reaps_its_node() {
     assert!(owner.wait_closed(deadline()).await.unwrap().is_complete());
     assert!(scope.shutdown(deadline()).await.is_complete());
 }
+
+#[tokio::test]
+async fn owned_listener_facade_uses_cached_original_graph_without_a_strong_scope_cycle() {
+    let (mut scope, mut owner, view, address) = graph_bound(1);
+    let listener = crate::TokioListener::from_controlled(view).unwrap();
+    let receiver = listener.accepted_task_receiver().unwrap();
+    {
+        let mut pending = Box::pin(listener.accept_owned());
+        assert!(pending
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending());
+        assert!(listener.accepted_task_receiver().is_some());
+        assert_eq!(owner.accepted_evidence().unwrap().retained, 1);
+    }
+    assert_eq!(owner.accepted_evidence().unwrap().retained, 0);
+    let (peer, accepted) = tokio::join!(TcpStream::connect(address), listener.accept_owned());
+    let mut peer = peer.unwrap();
+    let (accepted, _) = accepted.unwrap();
+    let claim = accepted.claim();
+    let (id, witness) = accepted
+        .spawn_handler_bound(TaskClass::Auxiliary, |mut socket, tasks| async move {
+            tasks.caller()?.check_open()?;
+            let mut byte = [0];
+            socket.read_exact(&mut byte).await.map_err(io_error)?;
+            socket.write_all(&byte).await.map_err(io_error)?;
+            Ok(())
+        })
+        .unwrap();
+    peer.write_all(b"q").await.unwrap();
+    let mut byte = [0];
+    peer.read_exact(&mut byte).await.unwrap();
+    assert_eq!(byte, [b'q']);
+    assert_eq!(scope.next_exit().await.unwrap().id, id);
+    assert!(witness.is_joined());
+    assert!(receiver.observe_joined(id).unwrap().result().is_ok());
+    assert!(receiver
+        .close(&claim, deadline())
+        .await
+        .unwrap()
+        .unwrap()
+        .matches(&claim));
+    assert_eq!(peer.read(&mut byte).await.unwrap(), 0);
+    assert!(owner.wait_closed(deadline()).await.unwrap().is_complete());
+    assert!(owner.accepted_evidence().unwrap().provider_confirmed());
+    assert!(scope.shutdown(deadline()).await.is_complete());
+}

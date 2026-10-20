@@ -13,6 +13,7 @@ enum Inner {
     Controlled {
         listener: Mutex<ControlledTcpListener>,
         address: SocketAddr,
+        accepted: Option<crate::AcceptedTcpTaskReceiver>,
     },
 }
 
@@ -61,10 +62,12 @@ impl TokioListener {
         listener: ControlledTcpListener,
     ) -> Result<Self, crate::contract::ChannelError> {
         let address = listener.activation_address()?;
+        let accepted = listener.accepted_task_receiver();
         Ok(Self {
             inner: Inner::Controlled {
                 listener: Mutex::new(listener),
                 address,
+                accepted,
             },
         })
     }
@@ -73,6 +76,34 @@ impl TokioListener {
         <Self as TcpListenerTrait>::accept(self).await
     }
 
+    /// Same-entry task graph identity, cached before handing out this view.
+    /// None does not grant unlimited accepted children or closure proof.
+    pub fn accepted_task_receiver(&self) -> Option<crate::AcceptedTcpTaskReceiver> {
+        match &self.inner {
+            Inner::Native(_) => None,
+            Inner::Controlled { accepted, .. } => accepted.clone(),
+        }
+    }
+    /// Owned accept cannot fall back to a bare native socket or second owner.
+    pub async fn accept_owned(
+        &self,
+    ) -> Result<(crate::AcceptedTcp, Option<SocketAddress>), crate::contract::ChannelError> {
+        match &self.inner {
+            Inner::Controlled {
+                listener,
+                accepted: Some(_),
+                ..
+            } => {
+                let (io, address) = listener.lock().await.accept_owned().await?;
+                Ok((io, Some(socket_addr_to_socket_address(address))))
+            }
+            _ => Err(crate::contract::ChannelError::new(
+                crate::contract::Stage::Prepare,
+                crate::contract::Reason::Unsupported,
+                crate::contract::Impact::Component,
+            )),
+        }
+    }
     /// Return the original bound address. For a controlled view this remains
     /// available while an accept is pending; it is not a native-close probe.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {

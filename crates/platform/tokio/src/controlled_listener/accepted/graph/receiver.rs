@@ -13,6 +13,22 @@ impl AcceptedTcpTaskReceiver {
     /// Call from the actual Scope exit consumer, outside all host locks. The ID
     /// selects an existing entry's witness; only that witness's actual joined
     /// receipt can be returned. A body exit or an arbitrary ID is insufficient.
+    /// Drive the same persistent entry after the actual host Scope consumes its
+    /// exits. Losing this wait never discards the entry/control or refunds cap.
+    pub async fn close(
+        &self,
+        claim: &AcceptedTcpClaim,
+        deadline: Instant,
+    ) -> Result<Option<AcceptedTcpClosed>, ChannelError> {
+        let pool = self.0.upgrade().ok_or_else(|| {
+            failure(
+                Stage::Close,
+                Reason::Revoked,
+                "accepted owner disappeared without closure proof",
+            )
+        })?;
+        pool.close_graph(claim, deadline).await
+    }
     pub fn observe_joined(&self, id: TaskId) -> Option<TaskJoined> {
         let pool = self.0.upgrade()?;
         let users: Vec<_> = pool

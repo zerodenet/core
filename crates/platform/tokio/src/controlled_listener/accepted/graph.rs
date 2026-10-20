@@ -196,6 +196,28 @@ impl AcceptedTcp {
                 "accepted handler belongs to another actual scope",
             ));
         }
+        AcceptedTcp { io, claim }.spawn_handler_bound(class, make)
+    }
+    /// Register through the actual weak Scope authority frozen in this entry.
+    /// The host installed that authority before bind; no caller-supplied Scope
+    /// or strong Registrar is retained by the listener task future.
+    pub fn spawn_handler_bound<F, Fut>(
+        self,
+        class: crate::contract::lifecycle::TaskClass,
+        make: F,
+    ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
+    where
+        F: FnOnce(crate::TokioSocket, AcceptedTcpTasks) -> Fut,
+        Fut: Future<Output = Result<(), ChannelError>> + Send + 'static,
+    {
+        let AcceptedTcp { io, claim } = self;
+        let users = claim.entry.users.clone().ok_or_else(|| {
+            failure(
+                Stage::Prepare,
+                Reason::Unsupported,
+                "accepted task graph was not declared",
+            )
+        })?;
         users.spawn(class, true, move |tasks| {
             make(crate::TokioSocket::from_accepted(io), tasks)
         })

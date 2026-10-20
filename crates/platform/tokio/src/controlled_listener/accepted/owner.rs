@@ -138,3 +138,13 @@ impl ControlledTcpListenerOwner {
         Ok(report)
     }
 }
+
+impl ControlledTcpListener {
+    /// Weak identity of the already installed graph; independent of pending
+    /// accept and with no new task, native handle or close owner.
+    pub fn accepted_task_receiver(&self) -> Option<AcceptedTcpTaskReceiver> {
+        let pool = self.shared.accepted.as_ref()?;
+        pool.graph.as_ref()?;
+        Some(AcceptedTcpTaskReceiver::new(pool))
+    }
+}
