@@ -1,6 +1,7 @@
 //! Cold component assembly. Data channels stay in platform-tokio::contract.
 mod bindings;
 pub(crate) mod catalog;
+mod dependencies;
 pub(crate) mod direct_bridge;
 pub(crate) mod instance;
 mod legacy_stream;

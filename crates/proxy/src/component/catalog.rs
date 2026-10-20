@@ -17,6 +17,7 @@ use zero_platform_tokio::contract::{ChannelError, Reason};
 pub(crate) struct ComponentPlan {
     builtin: Arc<ComponentSlot>,
     outbounds: BTreeMap<String, Arc<ComponentSlot>>,
+    order: Vec<Arc<ComponentSlot>>,
 }
 impl std::fmt::Debug for ComponentPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -27,7 +28,7 @@ impl std::fmt::Debug for ComponentPlan {
 }
 impl ComponentPlan {
     pub(crate) async fn start(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
-        for slot in std::iter::once(&self.builtin).chain(self.outbounds.values()) {
+        for slot in &self.order {
             slot.start(deadline).await?;
         }
         Ok(())
@@ -50,11 +51,11 @@ impl ComponentPlan {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<(), ChannelError> {
-        for slot in std::iter::once(&self.builtin).chain(self.outbounds.values()) {
+        for slot in self.order.iter().rev() {
             slot.revoke();
         }
         let mut failure = None;
-        for slot in std::iter::once(&self.builtin).chain(self.outbounds.values()) {
+        for slot in self.order.iter().rev() {
             let result = slot.shutdown(deadline).await.and_then(|report| {
                 if report.is_complete() {
                     Ok(())
@@ -193,7 +194,18 @@ impl ComponentCatalog {
             };
             outbounds.insert(input.tag.clone(), slot);
         }
-        Ok(ComponentPlan { builtin, outbounds })
+        let nodes: Vec<_> = std::iter::once(builtin.clone())
+            .chain(outbounds.values().cloned())
+            .collect();
+        let order =
+            super::dependencies::order(nodes.iter().map(|slot| (slot.id, slot.recipe.spec())))?;
+        let nodes: BTreeMap<_, _> = nodes.into_iter().map(|slot| (slot.id, slot)).collect();
+        let order = order.into_iter().map(|id| nodes[&id].clone()).collect();
+        Ok(ComponentPlan {
+            builtin,
+            outbounds,
+            order,
+        })
     }
     fn slot(
         &self,
