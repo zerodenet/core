@@ -154,3 +154,36 @@ async fn actual_native_bind_failure_needs_the_same_reaped_owner_before_receipt()
     ));
     assert!(failed.into_parts().1.unwrap().matches(&request));
 }
+
+#[test]
+fn external_diagnostic_outcomes_and_sources_never_mint_same_owner_retry_evidence() {
+    let issuer = issuer();
+    let request = request(&issuer);
+    let mut actual = owner();
+    let selected = EgressInterfaceControl::default()
+        .select_for_peer_with_policy(request.peer, &DialPolicy::default())
+        .unwrap();
+    let invalid = DialPolicy {
+        source_ip: Some("192.0.2.197".parse().unwrap()),
+        ..Default::default()
+    };
+    let original = actual
+        .acquire(request.peer, None, &invalid, &selected)
+        .unwrap_err();
+    assert!(actual.confirms_settled_acquisition(&original));
+    let source = original.source.clone();
+    let diagnostic = crate::controlled_datagram::DatagramAcquisitionError::unverified(
+        original.reservation,
+        original.outcome,
+        source.clone(),
+    );
+    assert_eq!(diagnostic.reservation, original.reservation);
+    assert_eq!(diagnostic.outcome, original.outcome);
+    assert!(Arc::ptr_eq(&diagnostic.source, &source));
+    assert!(!actual.confirms_settled_acquisition(&diagnostic));
+    let failure = issuer.acquisition_failure(&request, error(), diagnostic, &actual);
+    assert!(failure.into_parts().1.is_none());
+    // The genuine same-owner evidence remains valid; adding a diagnostic path
+    // must neither grant nor revoke the original native acquisition result.
+    assert!(actual.confirms_settled_acquisition(&original));
+}

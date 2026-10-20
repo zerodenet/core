@@ -9,6 +9,23 @@ pub(super) struct AcquisitionEvidence {
     outcome: AcquisitionOutcome,
     source: Arc<std_io::Error>,
 }
+impl DatagramAcquisitionError {
+    /// Preserve an external caller's diagnostic outcome and original source.
+    /// This constructor carries no same-owner acquisition evidence, even when
+    /// the diagnostic describes a close. It never permits a native retry.
+    pub fn unverified(
+        reservation: Option<DatagramReservationId>,
+        outcome: AcquisitionOutcome,
+        source: Arc<std_io::Error>,
+    ) -> Self {
+        Self {
+            reservation,
+            outcome,
+            source,
+            evidence: None,
+        }
+    }
+}
 impl ControlledDatagramOwner {
     pub(super) fn acquisition_error(
         &self,
@@ -19,19 +36,21 @@ impl ControlledDatagramOwner {
         DatagramAcquisitionError {
             reservation,
             outcome,
-            evidence: AcquisitionEvidence {
+            evidence: Some(AcquisitionEvidence {
                 owner: Arc::downgrade(&self.identity),
                 reservation,
                 outcome,
                 source: source.clone(),
-            },
+            }),
             source,
         }
     }
     /// Does not close anything or upgrade an Unknown. Public diagnostic fields
     /// and equal numeric reservation IDs from another owner cannot forge this.
     pub fn confirms_settled_acquisition(&self, failure: &DatagramAcquisitionError) -> bool {
-        let evidence = &failure.evidence;
+        let Some(evidence) = &failure.evidence else {
+            return false;
+        };
         if !evidence.owner.ptr_eq(&Arc::downgrade(&self.identity))
             || evidence.reservation != failure.reservation
             || evidence.outcome != failure.outcome

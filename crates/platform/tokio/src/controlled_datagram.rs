@@ -49,7 +49,7 @@ pub struct DatagramAcquisitionError {
     pub reservation: Option<DatagramReservationId>,
     pub outcome: AcquisitionOutcome,
     pub source: Arc<std_io::Error>,
-    evidence: evidence::AcquisitionEvidence,
+    evidence: Option<evidence::AcquisitionEvidence>,
 }
 impl fmt::Display for DatagramAcquisitionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
