@@ -23,6 +23,12 @@ struct Observed {
 }
 #[async_trait::async_trait]
 impl PacketPathCarrier for Observed {
+    fn native_owner(
+        &self,
+    ) -> Option<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>> {
+        self.path.native_owner()
+    }
+
     async fn send_to(
         &self,
         target: &Address,

@@ -65,3 +65,21 @@ fn same_listen_with_different_actual_crypto_history_cannot_be_installed() {
     assert!(pending.install(link).is_err());
     assert!(pending.ready().is_none());
 }
+
+#[test]
+fn cold_candidate_declares_exact_peer_slots_without_runtime_or_native_acquisition() {
+    assert!(tokio::runtime::Handle::try_current().is_err());
+    let (config, live) = candidate();
+    let pending = PendingLinkedEndpoint::with_peer_slots(config.listen, live, 2).unwrap();
+    let first = pending.peer_carrier(0).unwrap();
+    let second = pending.peer_carrier(1).unwrap();
+    assert!(!Arc::ptr_eq(&first, &second));
+    assert!(Arc::ptr_eq(&first, &pending.peer_carrier(0).unwrap()));
+    assert!(pending.peer_carrier(2).is_none());
+    assert!(pending.ready().is_none());
+    let report = first.close_native();
+    assert!(report.is_complete());
+    assert_eq!(report.native.confirmed_closed, 0);
+    assert_eq!(report.native.known_no_native, 0);
+    assert!(second.close_native().is_complete());
+}

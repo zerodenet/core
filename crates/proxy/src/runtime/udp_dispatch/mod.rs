@@ -74,5 +74,6 @@ pub(crate) use managed::UpstreamTrackedStart;
 pub(crate) use model::UdpDispatch;
 pub(crate) use outbound::start_udp_resolved_outbound;
 pub(crate) mod operation;
+pub(crate) mod packet_owner;
 pub(crate) mod packet_path_operation;
 pub(crate) mod relay;
