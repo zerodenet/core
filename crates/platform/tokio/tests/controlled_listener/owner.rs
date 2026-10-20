@@ -10,6 +10,7 @@ fn declaration(address: SocketAddr, attempts: usize) -> ResourceDeclaration {
         std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
     };
     ResourceDeclaration::TcpListener {
+        accepted: None,
         destination: Destination::new(ip, address.port()),
         max_bind_attempts: std::num::NonZeroUsize::new(attempts).unwrap(),
     }
@@ -161,6 +162,7 @@ fn domain_and_non_tcp_declarations_are_rejected_without_native_work() {
     let parent = CancellationToken::new();
     let cap = NonZeroUsize::new(1).unwrap();
     let domain = ResourceDeclaration::TcpListener {
+        accepted: None,
         destination: Destination::new(Address::Domain("localhost".into()), 0),
         max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
     };

@@ -23,6 +23,7 @@ fn deadline() -> Instant {
 }
 fn declaration() -> ResourceDeclaration {
     ResourceDeclaration::TcpListener {
+        accepted: None,
         destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
         max_bind_attempts: one(),
     }

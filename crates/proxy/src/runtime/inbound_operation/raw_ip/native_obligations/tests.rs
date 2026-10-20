@@ -92,6 +92,7 @@ async fn actual_child_udp_drop_and_true_scope_join_cannot_complete_its_host_term
     let prepared = PreparedInboundBind::new(
         operation,
         Arc::from([ResourceDeclaration::TcpListener {
+            accepted: None,
             destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
             max_bind_attempts: NonZeroUsize::new(1).unwrap(),
         }]),

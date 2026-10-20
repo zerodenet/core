@@ -19,6 +19,7 @@ pub(crate) fn prepare_tcp_inbound_bind(
         return Ok(None);
     };
     let declaration = ResourceDeclaration::TcpListener {
+        accepted: None,
         destination: Destination::new(
             match address.ip() {
                 std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),

@@ -137,6 +137,7 @@ impl ComponentFactory for Factory {
             dependencies: vec![],
             static_identity: options.address.to_string().into_bytes().into(),
             resources: vec![ResourceDeclaration::TcpListener {
+                accepted: None,
                 destination: destination(options.address),
                 max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
             }],
@@ -176,6 +177,7 @@ async fn stream_only_factory_builds_without_binding_and_keeps_owner_after_start_
         native: tokio::sync::Mutex::new(
             zero_platform_tokio::ControlledTcpListenerOwner::new(
                 &ResourceDeclaration::TcpListener {
+                    accepted: None,
                     destination: destination(address),
                     max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
                 },

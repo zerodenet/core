@@ -90,6 +90,7 @@ async fn canonical_file_tcp_udp_entries_follow_original_ordinals_and_real_closur
             max_bytes: 4,
         },
         ResourceDeclaration::TcpListener {
+            accepted: None,
             destination: endpoint(),
             max_bind_attempts: one(),
         },

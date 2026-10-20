@@ -30,6 +30,7 @@ async fn real_listener_grants_enforce_start_phase_protocol_endpoint_and_lifetime
         ComponentId(101),
         &[
             ResourceDeclaration::TcpListener {
+                accepted: None,
                 destination: address.clone(),
                 max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
             },
@@ -153,6 +154,7 @@ async fn native_bind_failure_keeps_the_real_os_source_and_the_unused_grant() {
     let grants = HostResources::new(
         ComponentId(102),
         &[ResourceDeclaration::TcpListener {
+            accepted: None,
             destination: address.clone(),
             max_bind_attempts: std::num::NonZeroUsize::new(3).unwrap(),
         }],
@@ -183,17 +185,19 @@ async fn native_bind_failure_keeps_the_real_os_source_and_the_unused_grant() {
 async fn listener_declarations_do_not_imply_dns_and_expired_unpolled_grants_cannot_bind() {
     let hostname = Destination::new(Address::Domain("localhost".into()), 0);
     assert!(
-        matches!(HostResources::new(ComponentId(103),&[ResourceDeclaration::TcpListener { destination: hostname, max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap() }],CancellationToken::new()),Err(error) if error.reason==Reason::Unsupported)
+        matches!(HostResources::new(ComponentId(103),&[ResourceDeclaration::TcpListener { accepted: None, destination: hostname, max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap() }],CancellationToken::new()),Err(error) if error.reason==Reason::Unsupported)
     );
     let address = endpoint("127.0.0.1:0".parse().unwrap());
     assert!(HostResources::new(
         ComponentId(103),
         &[
             ResourceDeclaration::TcpListener {
+                accepted: None,
                 destination: address.clone(),
                 max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap()
             },
             ResourceDeclaration::TcpListener {
+                accepted: None,
                 destination: address.clone(),
                 max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap()
             }

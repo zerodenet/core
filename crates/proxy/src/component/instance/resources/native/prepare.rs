@@ -58,7 +58,12 @@ impl HostResources {
                 ResourceDeclaration::TcpListener {
                     destination,
                     max_bind_attempts,
+                    accepted,
                 } => {
+                    if accepted.is_some() {
+                        return Err(error(component, Reason::Unsupported,
+                            "accepted TCP authority requires the actual host handler Scope provider"));
+                    }
                     let address = sockets::literal(component, destination)?;
                     let owner = sockets::TcpGrant {
                         native: zero_platform_tokio::ControlledTcpListenerOwner::new(

@@ -46,6 +46,7 @@ impl ComponentFactory for Factory {
             .map(|address| {
                 vec![
                     zero_platform_tokio::contract::component::ResourceDeclaration::TcpListener {
+                        accepted: None,
                         destination: zero_core::request::Destination::new(
                             zero_core::Address::Ipv4([127, 0, 0, 1]),
                             address.port(),

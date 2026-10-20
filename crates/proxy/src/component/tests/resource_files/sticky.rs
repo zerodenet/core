@@ -8,6 +8,7 @@ async fn real_native_close_does_not_delete_an_already_published_original_fault()
     let grants = HostResources::new(
         ComponentId(244),
         &[ResourceDeclaration::TcpListener {
+            accepted: None,
             destination: destination.clone(),
             max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
         }],

@@ -150,6 +150,7 @@ async fn invalid_udp_sender_capacity_is_rejected_cold_and_tcp_failed_attempts_ar
     let grants = HostResources::new(
         ComponentId(106),
         &[ResourceDeclaration::TcpListener {
+            accepted: None,
             destination: destination.clone(),
             max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
         }],

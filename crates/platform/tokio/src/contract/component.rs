@@ -1,3 +1,5 @@
+mod accepted_tcp;
+pub use accepted_tcp::AcceptedTcpLimits;
 mod bound_attempt;
 mod bound_datagram;
 pub use bound_attempt::{BoundDatagramAttemptFailure, BoundDatagramRetryReceipt};
@@ -78,6 +80,8 @@ pub enum ResourceDeclaration {
     },
     TcpListener {
         destination: Destination,
+        /// None supplies no bounded accepted-child task/native authority.
+        accepted: Option<AcceptedTcpLimits>,
         /// Actual native creations, including failed attempts. One successful
         /// listener per declaration; Unknown originals never grant replacement.
         max_bind_attempts: NonZeroUsize,

@@ -36,6 +36,7 @@ impl InboundRecovery for State {
         PreparedInboundBind::new(
             Box::new(Cold),
             Arc::from([ResourceDeclaration::TcpListener {
+                accepted: None,
                 destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
                 max_bind_attempts: NonZeroUsize::new(1).unwrap(),
             }]),

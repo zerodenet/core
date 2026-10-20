@@ -34,6 +34,7 @@ impl ControlledTcpListenerOwner {
         let ResourceDeclaration::TcpListener {
             destination,
             max_bind_attempts: ceiling,
+            ..
         } = declaration
         else {
             return Err(denied(

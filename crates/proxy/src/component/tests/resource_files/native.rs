@@ -8,6 +8,7 @@ use zero_core::{request::Destination, Address};
 
 fn tcp() -> ResourceDeclaration {
     ResourceDeclaration::TcpListener {
+        accepted: None,
         destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
         max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
     }

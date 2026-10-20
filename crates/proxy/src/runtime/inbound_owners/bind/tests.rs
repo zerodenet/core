@@ -50,6 +50,7 @@ pub(in crate::runtime::inbound_owners) fn lease(
     let prepared = PreparedInboundBind::new(
         operation,
         Arc::from([ResourceDeclaration::TcpListener {
+            accepted: None,
             destination: Destination::new(Address::Ipv4(address), 0),
             max_bind_attempts: std::num::NonZeroUsize::new(50).unwrap(),
         }]),
@@ -171,6 +172,7 @@ async fn dropped_partial_reservations_hold_native_fds_until_explicit_batch_clean
     let prepared = PreparedInboundBind::new(
         operation,
         Arc::from([ResourceDeclaration::TcpListener {
+            accepted: None,
             destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
             max_bind_attempts: std::num::NonZeroUsize::new(50).unwrap(),
         }]),
