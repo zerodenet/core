@@ -1,3 +1,8 @@
+mod bound_datagram;
+pub use bound_datagram::{
+    BoundDatagramRequest, BoundDatagramSocket, DatagramBindingAuthorization, DatagramBindingId,
+    DatagramBindingIssuer, GrantedBoundDatagram,
+};
 use std::{num::NonZeroUsize, path::PathBuf, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use zero_core::{
@@ -39,6 +44,10 @@ pub enum DeviceOwnership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceDeclaration {
+    BoundOutboundDatagram {
+        max_sockets: NonZeroUsize,
+        max_bindings: NonZeroUsize,
+    },
     TcpListener(Destination),
     DatagramListener(Destination),
     /// A literal outbound peer on the actual host network generation. The
@@ -113,6 +122,31 @@ pub trait ResourceAccess: Send + Sync {
         )
         .with_source(std::io::Error::other("undeclared native process")))
     }
+    fn select_bound_outbound_datagram(
+        &self,
+        _request: BoundDatagramRequest,
+    ) -> Result<crate::EgressSelection, BuildError> {
+        let mut failure = super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        failure.delivery = super::DeliveryState::NotSubmitted;
+        Err(failure)
+    }
+    fn open_bound_outbound_datagram(
+        &self,
+        _request: BoundDatagramRequest,
+    ) -> Result<GrantedBoundDatagram, BuildError> {
+        let mut failure = super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        failure.delivery = super::DeliveryState::NotSubmitted;
+        Err(failure)
+    }
+
     fn read_file(
         &self,
         path: PathBuf,
