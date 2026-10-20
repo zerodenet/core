@@ -2,6 +2,7 @@
 //! One persistent caller owner holds every original control before connect await;
 //! the admitted protocol driver is joined before native close releases capacity.
 mod adoption;
+mod auxiliary;
 mod binding;
 mod business;
 mod endpoints;
@@ -71,3 +72,11 @@ fn connect_error(
 #[cfg(test)]
 #[path = "../tests/controlled_carrier/mod.rs"]
 mod tests;
+
+/// Read-only metadata from the preserved original native error object. This
+/// neither reconstructs its OS source nor grants acquisition/closure authority.
+pub fn original_connect_error(error: &ChannelError) -> Option<&crate::TcpConnectError> {
+    std::error::Error::source(error)
+        .and_then(|source| source.downcast_ref::<ConnectSource>())
+        .map(|source| source.0.as_ref())
+}

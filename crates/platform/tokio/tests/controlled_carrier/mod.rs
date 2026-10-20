@@ -123,3 +123,5 @@ mod binding;
 mod endpoints;
 
 mod users;
+
+mod auxiliary;

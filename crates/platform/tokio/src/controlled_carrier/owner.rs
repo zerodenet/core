@@ -178,6 +178,27 @@ pub(super) async fn close_slot(
                 state.closed,
             )
         };
+        // Cleanup is the persistent local receiver even when the original
+        // request was cancelled before observing its auxiliary result.
+        match timeout_at(
+            deadline,
+            super::CarrierAdoption { slot: slot.clone() }.accept_auxiliary(),
+        )
+        .await
+        {
+            Ok(result) => {
+                result?;
+            }
+            Err(_) => {
+                return Ok(CloseReport {
+                    unfinished: vec![Unfinished::Resource(format!(
+                        "{} auxiliary join",
+                        slot.label()
+                    ))],
+                    ..Default::default()
+                })
+            }
+        }
         if closed {
             if !super::users::finish(slot, deadline).await {
                 return Ok(CloseReport {

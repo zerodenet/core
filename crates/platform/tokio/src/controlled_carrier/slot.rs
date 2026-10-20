@@ -27,6 +27,9 @@ pub(super) struct State {
     pub(super) spawning: bool,
     pub(super) spawn_attempted: bool,
     pub(super) driver: Option<(TaskId, TaskJoinWitness)>,
+    pub(super) auxiliary_attempted: bool,
+    pub(super) auxiliary: Option<TaskJoinWitness>,
+    pub(super) auxiliary_exit: Option<crate::contract::scope::TaskJoined>,
     pub(super) control: Option<Arc<AsyncMutex<ControlledTcpControl>>>,
     pub(super) close_observer: Option<crate::controlled_tcp::ControlledTcpCloseObserver>,
     /// Synchronous preparation acquired/consumed a handle without a control.
@@ -65,6 +68,7 @@ impl Slot {
                 && !state.view_live
                 && !state.spawning
                 && state.driver.is_none()
+                && state.auxiliary.is_none()
                 && state
                     .users
                     .as_ref()
