@@ -1,6 +1,7 @@
 //! Bounded original UDP ownership, including acquisition failure and rotation.
 //! Dropping an I/O handle never releases its owner's native reservation.
 mod acquire;
+mod flags;
 mod io;
 #[cfg(test)]
 mod tests;

@@ -59,9 +59,9 @@ impl ControlledDatagramOwner {
         } else {
             socket2::Domain::IPV6
         };
-        let original = match socket2::Socket::new(
+        let original = match socket2::Socket::new_raw(
             domain,
-            socket2::Type::DGRAM,
+            super::flags::creation_type(),
             Some(socket2::Protocol::UDP),
         ) {
             Ok(socket) => socket,
@@ -154,6 +154,8 @@ fn configure(
     interface: Option<&EgressInterface>,
 ) -> std_io::Result<()> {
     let socket = socket2::SockRef::from(original);
+    super::flags::configure(&socket)
+        .map_err(|source| std_io::Error::other(phase("configure_native_flags", source)))?;
     if source.is_ipv6() && v6_only {
         socket
             .set_only_v6(true)
