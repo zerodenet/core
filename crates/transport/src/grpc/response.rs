@@ -11,7 +11,7 @@ use std::{
 pub(super) struct Head(Arc<Shared>);
 struct Shared {
     state: Mutex<State>,
-    reader: AtomicWaker,
+    reader: Arc<WakeRelay>,
     failure: Arc<Mutex<Option<Arc<io::Error>>>>,
 }
 pub(super) struct ClosedHead {
@@ -24,9 +24,14 @@ enum State {
     Failed(Arc<io::Error>),
     Taken,
 }
-impl ArcWake for Shared {
+// H2 can consume its registered waker while holding its stream-store mutex.
+// That waker must not own Shared: dropping the last Shared would drop its
+// Pending ResponseFuture, whose OpaqueStreamRef re-locks the same H2 mutex.
+#[derive(Default)]
+struct WakeRelay(AtomicWaker);
+impl ArcWake for WakeRelay {
     fn wake_by_ref(this: &Arc<Self>) {
-        this.reader.wake();
+        this.0.wake();
     }
 }
 #[derive(Debug)]
@@ -48,13 +53,13 @@ impl Head {
     pub(super) fn new(response: h2::client::ResponseFuture) -> Self {
         Self(Arc::new(Shared {
             state: Mutex::new(State::Pending(response)),
-            reader: AtomicWaker::new(),
+            reader: Arc::new(WakeRelay::default()),
             failure: Arc::new(Mutex::new(None)),
         }))
     }
     fn poll_original(&self, state: &mut State) {
         if let State::Pending(response) = state {
-            let waker = waker_ref(&self.0);
+            let waker = waker_ref(&self.0.reader);
             let mut context = Context::from_waker(&waker);
             if let Poll::Ready(result) = Pin::new(response).poll(&mut context) {
                 *state = match result {
@@ -69,7 +74,7 @@ impl Head {
         }
     }
     pub(super) fn poll(&self, cx: &mut Context<'_>) -> Poll<io::Result<Response<h2::RecvStream>>> {
-        self.0.reader.register(cx.waker());
+        self.0.reader.0.register(cx.waker());
         let mut state = self.0.state.lock().unwrap();
         self.poll_original(&mut state);
         match &*state {
@@ -111,3 +116,7 @@ impl ClosedHead {
         self.failure.lock().unwrap().as_ref().map(retained)
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/grpc/response.rs"]
+mod tests;
