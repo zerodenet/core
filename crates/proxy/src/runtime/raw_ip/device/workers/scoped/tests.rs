@@ -234,3 +234,15 @@ async fn suspended_and_expired_host_registration_keep_the_actual_rejection_sourc
     assert!(expired.join().await.is_err());
     assert!(expired.is_drained());
 }
+
+impl ScopedWorkers {
+    pub(crate) fn test_original_witnesses(&self) -> Vec<TaskJoinWitness> {
+        self.state
+            .lock()
+            .unwrap()
+            .records
+            .iter()
+            .filter_map(|record| record.registered().map(|(_, witness)| witness))
+            .collect()
+    }
+}

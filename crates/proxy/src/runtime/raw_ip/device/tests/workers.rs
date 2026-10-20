@@ -91,3 +91,13 @@ async fn concurrent_original_worker_registration_is_not_rejected_as_transient_mu
     assert!(report.is_complete());
     assert!(report.closed_io.is_empty());
 }
+
+impl DeviceWorkers {
+    pub(crate) fn test_original_witnesses(
+        &self,
+    ) -> Vec<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.scoped()
+            .map(|owner| owner.test_original_witnesses())
+            .unwrap_or_default()
+    }
+}

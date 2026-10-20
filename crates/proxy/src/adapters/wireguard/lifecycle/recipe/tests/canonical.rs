@@ -161,6 +161,9 @@ async fn interrupted_slot_cleanup_retains_the_original_graph_until_the_same_inli
     let host = TestContext::new([slot.as_ref()]);
     let resolved = invocation.resolve(&upstream, request).await.unwrap();
     host.drive(slot.start(deadline())).await.unwrap();
+    let witnesses = pending.peer_stack(0).unwrap().test_original_witnesses();
+    assert_eq!(witnesses.len(), 2); // original control + endpoint driver
+    assert!(witnesses.iter().all(|witness| !witness.is_joined()));
     // The slot owns the real graph even though installation into a Link never
     // occurs. Abandonment revokes it, but cannot refund these original tasks.
     drop(resolved);
@@ -177,7 +180,25 @@ async fn interrupted_slot_cleanup_retains_the_original_graph_until_the_same_inli
     assert!(!pending.peer_stack(0).unwrap().is_drained());
     let report = host.drive(slot.shutdown(deadline())).await.unwrap();
     assert!(report.is_complete());
-    assert_eq!(report.exited_tasks.len(), 2); // control + driver, no TCP demand
+    // Dropping the uninstalled invocation releases its actual packet receiver.
+    // The endpoint driver may then exit Ok while the slot is still running;
+    // the host deliberately ACKs that success without retaining history. Its
+    // original witness still proves the exact join, independently of the
+    // closing-phase report (which can therefore contain only the control).
+    let joined: Vec<_> = witnesses
+        .iter()
+        .map(|witness| {
+            witness
+                .try_joined()
+                .expect("same inline host consumer must join both original tasks")
+        })
+        .collect();
+    assert!(joined.iter().all(|joined| joined.result().is_ok()));
+    assert_ne!(joined[0].id(), joined[1].id());
+    assert!(report
+        .exited_tasks
+        .iter()
+        .all(|id| joined.iter().any(|joined| joined.id() == *id)));
     assert!(pending.peer_stack(0).unwrap().is_drained());
     PendingEndpoints::release_closed(&adapter.pending_endpoints, &expected).unwrap();
     assert!(adapter.pending_endpoints.lock().unwrap().is_none());

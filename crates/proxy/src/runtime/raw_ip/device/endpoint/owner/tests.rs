@@ -224,3 +224,11 @@ async fn unbound_or_retired_scoped_candidates_never_fall_back_to_local_tokio_wor
     scope.begin_shutdown();
     assert!(scope.next_receipt().await.is_none());
 }
+
+impl EndpointStackOwner {
+    pub(crate) fn test_original_witnesses(
+        &self,
+    ) -> Vec<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.workers.test_original_witnesses()
+    }
+}
