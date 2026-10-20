@@ -40,6 +40,7 @@ pub(crate) struct DirectEndpointOwner {
     scope: TaskScope,
     commands: Option<mpsc::Receiver<Command>>,
     report: zero_platform_tokio::contract::lifecycle::CloseReport,
+    io_report: zero_platform_tokio::contract::lifecycle::CloseReport,
     failures: Vec<(
         zero_core::component::TaskId,
         zero_platform_tokio::contract::scope::TaskClass,
@@ -153,6 +154,7 @@ impl DirectEndpointOwner {
             scope,
             commands: Some(commands),
             report: Default::default(),
+            io_report: Default::default(),
             failures: Vec::new(),
         })
     }

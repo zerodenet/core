@@ -97,47 +97,62 @@ impl ResourceLifecycle for DirectEndpointOwner {
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke(CloseReason::Shutdown);
-        // TaskScope retains its actual JoinSet and partial exits if this await
-        // is interrupted. The same native state remains owner-held throughout.
-        let mut tasks = self.scope.shutdown(deadline).await;
-        for failure in tasks.failed_tasks.drain(..) {
-            let source = Arc::new(failure.error);
-            self.shared
+        self.scope.begin_shutdown();
+        let shared = &self.shared;
+        let scope = &mut self.scope;
+        let task_report = &mut self.report;
+        let failures = &mut self.failures;
+        let io_report = &mut self.io_report;
+        let join_tasks = async {
+            let mut tasks = scope.shutdown(deadline).await;
+            for failure in tasks.failed_tasks.drain(..) {
+                let source = Arc::new(failure.error);
+                shared
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .failure = Some(source.clone());
+                failures.push((failure.id, failure.class, source));
+            }
+            let unfinished = std::mem::take(&mut tasks.unfinished);
+            task_report.append(tasks);
+            unfinished
+        };
+        let close_io = async {
+            let Ok(mut sockets) = timeout_at(deadline, shared.sockets.lock()).await else {
+                return Ok(vec![Unfinished::Resource(
+                    "Direct original socket I/O owner still holds state".into(),
+                )]);
+            };
+            // This is the same guard held throughout the unique driver's I/O
+            // loop. Scope cancellation forbids any resumed/new driver I/O.
+            // Joining all scope tasks first would deadlock a task waiting for
+            // this actual association's mapping/queue cleanup.
+            sockets.close_all_native();
+            let mut native = sockets.take_native_close_report();
+            let unfinished = std::mem::take(&mut native.unfinished);
+            io_report.append(native); // Persist before any error/next suspension.
+            let mut state = shared
                 .state
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .failure = Some(source.clone());
-            self.failures.push((failure.id, failure.class, source));
-        }
-        let mut unfinished = std::mem::take(&mut tasks.unfinished);
-        self.report.append(tasks); // Persist receipts before the next suspension.
-        if unfinished.is_empty() {
-            match timeout_at(deadline, self.shared.sockets.lock()).await {
-                Ok(mut sockets) => {
-                    sockets.close_all_native();
-                    let mut native = sockets.take_native_close_report();
-                    unfinished.append(&mut native.unfinished);
-                    self.report.append(native); // Persist before returning an error.
-                    if let Some((_id, source)) = sockets.native_close_failure() {
-                        return Err(error(Stage::Close, Reason::Io, DeliveryState::Unknown)
-                            .with_source(source));
-                    }
-                    let mut state = self
-                        .shared
-                        .state
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    for (_, entry) in std::mem::take(&mut state.sessions) {
-                        entry.logical.closed.store(true, Ordering::Release);
-                        entry.logical.changed.notify_waiters();
-                    }
-                }
-                Err(_) => unfinished.push(Unfinished::Resource(
-                    "Direct original socket state acquisition after task exit".into(),
-                )),
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for (_, entry) in std::mem::take(&mut state.sessions) {
+                entry.logical.closed.store(true, Ordering::Release);
+                entry.logical.changed.notify_waiters();
             }
-        }
+            if let Some((_id, source)) = sockets.native_close_failure() {
+                return Err(
+                    error(Stage::Close, Reason::Io, DeliveryState::Unknown).with_source(source)
+                );
+            }
+            Ok::<_, ChannelError>(unfinished)
+        };
+        // Each branch commits its real receipts into owner fields immediately.
+        // Cancelling this join cannot discard the other branch's completed work.
+        let (mut unfinished, native) = tokio::join!(join_tasks, close_io);
+        unfinished.extend(native?);
         let mut report = std::mem::take(&mut self.report);
+        report.append(std::mem::take(&mut self.io_report));
         report.unfinished = unfinished;
         report
             .failed_tasks
