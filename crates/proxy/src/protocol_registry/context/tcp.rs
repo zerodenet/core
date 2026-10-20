@@ -38,6 +38,7 @@ impl TcpRuntimeServices {
         protocols: ProtocolInventory,
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
         principal_rate_limits: PrincipalRateLimitRegistry,
+        retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     ) -> Self {
         let components = protocols.prepare_components(snapshot.config().clone());
         Self {
@@ -50,6 +51,7 @@ impl TcpRuntimeServices {
                     egress_interface,
                 ),
                 principal_rate_limits,
+                retired_datagrams,
                 components,
                 invocation: None,
                 ingress: None,

@@ -12,6 +12,7 @@ pub(crate) struct TcpExecutionServices {
     pub(super) snapshot: Arc<EngineRuntimeSnapshot>,
     pub(in crate::protocol_registry::context) upstream: UpstreamConnectServices,
     pub(super) principal_rate_limits: PrincipalRateLimitRegistry,
+    pub(super) retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     pub(crate) components: Result<
         Arc<crate::component::catalog::ComponentPlan>,
         crate::component::instance::SharedError,
@@ -20,6 +21,12 @@ pub(crate) struct TcpExecutionServices {
     pub(crate) ingress: Option<crate::component::request::IngressIdentity>,
 }
 impl TcpExecutionServices {
+    pub(crate) fn retired_datagrams(
+        &self,
+    ) -> Arc<crate::component::datagram_retirement::RetiredDatagrams> {
+        self.retired_datagrams.clone()
+    }
+
     pub(crate) fn outbound_io(
         &self,
         tag: &str,

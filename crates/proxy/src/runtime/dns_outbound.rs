@@ -24,6 +24,7 @@ pub(super) struct ProxyDnsOutboundConnector {
     protocols: WeakProtocolInventory,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     principal_rate_limits: PrincipalRateLimitRegistry,
+    retired_datagrams: Weak<crate::component::datagram_retirement::RetiredDatagrams>,
 }
 
 impl ProxyDnsOutboundConnector {
@@ -33,6 +34,7 @@ impl ProxyDnsOutboundConnector {
         protocols: ProtocolInventory,
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
         principal_rate_limits: PrincipalRateLimitRegistry,
+        retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     ) -> Self {
         Self {
             engine,
@@ -42,6 +44,7 @@ impl ProxyDnsOutboundConnector {
             protocols: protocols.downgrade(),
             egress_interface,
             principal_rate_limits,
+            retired_datagrams: Arc::downgrade(&retired_datagrams),
         }
     }
 
@@ -55,6 +58,12 @@ impl ProxyDnsOutboundConnector {
                 "proxy runtime is shutting down",
             )
         })?;
+        let retired_datagrams = self.retired_datagrams.upgrade().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotConnected,
+                "datagram owner is shutting down",
+            )
+        })?;
         Ok(TcpRuntimeServices::new(
             self.engine.clone(),
             self.engine.runtime_snapshot(),
@@ -62,6 +71,7 @@ impl ProxyDnsOutboundConnector {
             protocols,
             self.egress_interface.clone(),
             self.principal_rate_limits.clone(),
+            retired_datagrams,
         ))
     }
 }

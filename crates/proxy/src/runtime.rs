@@ -101,6 +101,7 @@ pub struct Proxy {
     reload_ack: Arc<std::sync::Mutex<Option<PendingReloadAck>>>,
     reload_apply_lock: Arc<tokio::sync::Mutex<()>>,
     apply_owner: Arc<apply_owner::ApplyOwner>,
+    retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry,
 }
 
@@ -177,6 +178,14 @@ impl Proxy {
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
         let resolver = Arc::new(dns);
         let principal_rate_limits = principal_rate_limit::PrincipalRateLimitRegistry::default();
+        // Independent host limit for active + retiring native associations.
+        // This is not the V1 packet queue capacity or a legacy session budget.
+        const RETIRED_DATAGRAM_LIMIT: usize = 4096;
+        let retired_datagrams = Arc::new(
+            crate::component::datagram_retirement::RetiredDatagrams::new(
+                std::num::NonZeroUsize::new(RETIRED_DATAGRAM_LIMIT).unwrap(),
+            ),
+        );
         let proxy = Self {
             config,
             engine,
@@ -192,6 +201,7 @@ impl Proxy {
             reload_ack: Arc::new(std::sync::Mutex::new(None)),
             reload_apply_lock: Arc::new(tokio::sync::Mutex::new(())),
             apply_owner: Arc::new(apply_owner::ApplyOwner::default()),
+            retired_datagrams: retired_datagrams.clone(),
             principal_rate_limits: principal_rate_limits.clone(),
         };
         resolver.set_outbound_connector(Arc::new(dns_outbound::ProxyDnsOutboundConnector::new(
@@ -200,6 +210,7 @@ impl Proxy {
             proxy.protocols.clone(),
             proxy.egress_interface.clone(),
             principal_rate_limits,
+            retired_datagrams,
         )));
         Ok(proxy)
     }
@@ -292,6 +303,7 @@ impl Proxy {
             self.protocols.clone(),
             self.egress_interface.clone(),
             self.principal_rate_limits.clone(),
+            self.retired_datagrams.clone(),
         )
     }
 

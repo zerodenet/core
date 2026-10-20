@@ -85,6 +85,39 @@ impl OrchestrationState {
                 result = Err(EngineError::Io(error));
             }
         }
+        match proxy
+            .retired_datagrams
+            .wait_closed(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            Ok(report) if report.is_complete() && report.failed_tasks.is_empty() => {}
+            Ok(mut report) => {
+                if let Some(failure) = report.failed_tasks.pop() {
+                    cleanup_errors.push(format!(
+                        "datagram retirement task failed: {}",
+                        failure.error
+                    ));
+                    if result.is_ok() {
+                        result = Err(EngineError::Io(std::io::Error::other(failure.error)));
+                    }
+                    // The persistent owner retains any unfinished controllers.
+                }
+                let message = format!(
+                    "datagram retirement remains unconfirmed: {:?}",
+                    report.unfinished
+                );
+                cleanup_errors.push(message.clone());
+                if result.is_ok() {
+                    result = Err(std::io::Error::new(std::io::ErrorKind::TimedOut, message).into());
+                }
+            }
+            Err(error) => {
+                cleanup_errors.push(format!("datagram retirement failed: {error}"));
+                if result.is_ok() {
+                    result = Err(EngineError::Io(std::io::Error::other(error)));
+                }
+            }
+        }
         if let Err(error) = proxy
             .protocols
             .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(5))
