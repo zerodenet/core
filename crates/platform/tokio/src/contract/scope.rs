@@ -27,6 +27,7 @@ pub use super::lifecycle::TaskClass;
 mod join;
 pub use join::{TaskJoinWitness, TaskJoined};
 mod hosted;
+mod relay;
 pub use hosted::{HostedExitReceipt, HostedReceiptError, HostedScope};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
@@ -66,24 +67,17 @@ struct State {
 }
 
 enum CompletedExit {
-    Ordinary(TaskExit),
-    Hosted(hosted::Completion),
-}
-impl CompletedExit {
-    fn ordinary(self) -> TaskExit {
-        match self {
-            Self::Ordinary(exit) => exit,
-            Self::Hosted(_) => unreachable!("hosted exits require explicit acknowledgement"),
-        }
-    }
+    Ordinary(TaskExit, Option<join::Notification>),
+    Hosted(hosted::Completion, Option<join::Notification>),
 }
 
 struct Shared {
     state: Mutex<State>,
-    changed: Notify,
+    changed: Arc<Notify>,
     cancel: CancellationToken,
     runtime: Handle,
-    hosted_waker: Mutex<Option<std::task::Waker>>,
+    hosted_waker: Arc<Mutex<Option<std::task::Waker>>>,
+    relay: Arc<relay::JoinRelay>,
 }
 
 /// Cloneable registration authority. It cannot declare resources closed.
@@ -189,19 +183,14 @@ impl TaskScope {
     /// keep their existing immediate-registration semantics.
     pub fn suspended(runtime: Handle, limit: Option<NonZeroUsize>) -> Self {
         let scope = Self::with_limit(runtime, limit.map_or(0, NonZeroUsize::get));
-        scope
-            .0
-            .state
-            .lock()
-            .expect("scope state poisoned")
-            .registration_open = false;
+        scope.0.lock_state().registration_open = false;
         scope
     }
 
     /// Only the non-cloneable scope owner can grant registration. A retained
     /// protocol registrar cannot open build access or reopen a stopping scope.
     pub fn enable_registration(&mut self) -> Result<(), SpawnError> {
-        let mut state = self.0.state.lock().expect("scope state poisoned");
+        let mut state = self.0.lock_state();
         if state.closing {
             return Err(SpawnError::Closing);
         }
@@ -214,6 +203,9 @@ impl TaskScope {
     }
 
     fn with_mode(runtime: Handle, limit: usize, hosted: bool) -> Self {
+        let changed = Arc::new(Notify::new());
+        let hosted_waker = Arc::new(Mutex::new(None));
+        let relay = Arc::new(relay::JoinRelay::new(&changed, &hosted_waker));
         Self(Arc::new(Shared {
             state: Mutex::new(State {
                 hosted,
@@ -225,10 +217,11 @@ impl TaskScope {
                 completed: VecDeque::new(),
                 closing_report: None,
             }),
-            changed: Notify::new(),
+            changed,
             cancel: CancellationToken::new(),
             runtime,
-            hosted_waker: Mutex::new(None),
+            hosted_waker,
+            relay,
         }))
     }
 
@@ -243,12 +236,18 @@ impl TaskScope {
             tokio::pin!(changed);
             changed.as_mut().enable();
             let joined = poll_fn(|cx| {
-                let mut state = self.0.state.lock().expect("scope state poisoned");
+                self.0.register_hosted_waker(cx);
+                let waker = std::task::Waker::from(self.0.relay.clone());
+                let mut cx = std::task::Context::from_waker(&waker);
+                let mut state = self.0.lock_state();
                 if let Some(exit) = state.completed.pop_front() {
-                    return Poll::Ready(Some(exit.ordinary()));
+                    return Poll::Ready(Some(state.ordinary(exit)));
                 }
-                match state.tasks.poll_join_next_with_id(cx) {
-                    Poll::Ready(Some(result)) => Poll::Ready(Some(state.exit(result).ordinary())),
+                match state.tasks.poll_join_next_with_id(&mut cx) {
+                    Poll::Ready(Some(result)) => {
+                        let exit = state.exit(result);
+                        Poll::Ready(Some(state.ordinary(exit)))
+                    }
                     Poll::Ready(None) if state.closing => Poll::Ready(None),
                     _ => Poll::Pending,
                 }
@@ -258,7 +257,7 @@ impl TaskScope {
     }
 
     pub fn begin_shutdown(&mut self) {
-        self.0.state.lock().expect("scope state poisoned").closing = true;
+        self.0.lock_state().closing = true;
         self.0.cancel.cancel();
         self.0.notify_hosted();
     }
@@ -270,25 +269,15 @@ impl TaskScope {
         loop {
             match timeout_at(deadline, self.next_exit()).await {
                 Ok(Some(exit)) => {
-                    self.0
-                        .state
-                        .lock()
-                        .expect("scope state poisoned")
-                        .record_closed(exit);
+                    self.0.lock_state().record_closed(exit);
                 }
-                Ok(None) => {
-                    return self
-                        .0
-                        .state
-                        .lock()
-                        .expect("scope state poisoned")
-                        .take_close_report()
-                }
+                Ok(None) => return self.0.lock_state().take_close_report(),
                 Err(_) => {
-                    let mut state = self.0.state.lock().expect("scope state poisoned");
+                    let mut state = self.0.lock_state();
                     state.reap();
                     while let Some(exit) = state.completed.pop_front() {
-                        state.record_closed(exit.ordinary());
+                        let exit = state.ordinary(exit);
+                        state.record_closed(exit);
                     }
                     return state.take_close_report();
                 }
@@ -299,10 +288,17 @@ impl TaskScope {
 
 impl Drop for TaskScope {
     fn drop(&mut self) {
-        let mut state = self.0.state.lock().expect("scope state poisoned");
+        let mut state = self.0.lock_state();
         state.closing = true;
         state.tasks.abort_all();
         drop(state);
+        let waker = self
+            .0
+            .hosted_waker
+            .lock()
+            .expect("scope waker poisoned")
+            .take();
+        drop(waker);
         self.0.cancel.cancel();
         // Emergency ownership cleanup only. This does not issue a CloseReport.
     }

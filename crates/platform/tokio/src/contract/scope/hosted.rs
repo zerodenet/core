@@ -114,31 +114,16 @@ impl TaskScope {
     /// None grants no tasks. Only its installed owner may open registration.
     pub fn suspended_hosted(runtime: Handle, limit: Option<NonZeroUsize>) -> HostedScope {
         let scope = Self::with_mode(runtime, limit.map_or(0, NonZeroUsize::get), true);
-        scope
-            .0
-            .state
-            .lock()
-            .expect("scope state poisoned")
-            .registration_open = false;
+        scope.0.lock_state().registration_open = false;
         HostedScope(scope)
     }
 }
 
 impl Shared {
     pub(super) fn notify_hosted(&self) {
-        self.changed.notify_one();
-        let waker = self
-            .hosted_waker
-            .lock()
-            .expect("scope waker poisoned")
-            .take();
-        // A custom wake/drop may re-enter registration. Never run it while
-        // holding the scope state or waker lock.
-        if let Some(waker) = waker {
-            waker.wake();
-        }
+        self.relay.notify_changed();
     }
-    fn register_hosted_waker(&self, cx: &Context<'_>) {
+    pub(super) fn register_hosted_waker(&self, cx: &Context<'_>) {
         let incoming = cx.waker().clone();
         let previous = {
             let mut stored = self.hosted_waker.lock().expect("scope waker poisoned");
@@ -165,21 +150,23 @@ impl HostedScope {
     pub fn poll_exit(&mut self, cx: &mut Context<'_>) -> Poll<Option<HostedExitReceipt>> {
         let shared = &self.0 .0;
         shared.register_hosted_waker(cx);
-        let mut state = shared.state.lock().expect("scope state poisoned");
+        let waker = std::task::Waker::from(shared.relay.clone());
+        let mut internal_cx = Context::from_waker(&waker);
+        let mut state = shared.lock_state();
         state.reap();
         for entry in &mut state.completed {
-            if let CompletedExit::Hosted(entry) = entry {
+            if let CompletedExit::Hosted(entry, _) = entry {
                 if let Some(receipt) = entry.offer(shared) {
                     return Poll::Ready(Some(receipt));
                 }
             }
         }
-        match state.tasks.poll_join_next_with_id(cx) {
+        match state.tasks.poll_join_next_with_id(&mut internal_cx) {
             Poll::Ready(Some(result)) => {
                 let mut entry = state.exit(result);
                 let receipt = match &mut entry {
-                    CompletedExit::Hosted(entry) => entry.offer(shared),
-                    CompletedExit::Ordinary(_) => unreachable!("hosted scope mode"),
+                    CompletedExit::Hosted(entry, _) => entry.offer(shared),
+                    CompletedExit::Ordinary(_, _) => unreachable!("hosted scope mode"),
                 };
                 state.completed.push_back(entry);
                 Poll::Ready(receipt)
@@ -200,12 +187,12 @@ impl HostedScope {
             return Err(HostedReceiptError::ForeignScope);
         }
         let completed = {
-            let mut state = shared.state.lock().expect("scope state poisoned");
+            let mut state = shared.lock_state();
             let index = state
                 .completed
                 .iter()
                 .position(
-                    |entry| matches!(entry, CompletedExit::Hosted(entry) if entry.matches(receipt)),
+                    |entry| matches!(entry, CompletedExit::Hosted(entry, _) if entry.matches(receipt)),
                 )
                 .ok_or(HostedReceiptError::StaleReceipt)?;
             state.completed.remove(index)
@@ -221,13 +208,13 @@ impl HostedScope {
     /// Only actual consumed native joins. Registration may still be open and
     /// unacknowledged events may remain; this is not a scope/I/O close proof.
     pub fn is_joined(&self) -> bool {
-        let state = self.0 .0.state.lock().expect("scope state poisoned");
+        let state = self.0 .0.lock_state();
         state.records.is_empty() && state.tasks.is_empty()
     }
     /// Registration closed, all tasks actually joined, all deliveries acked.
     /// This still makes no claim about native I/O or protocol resource closure.
     pub fn is_drained(&self) -> bool {
-        let state = self.0 .0.state.lock().expect("scope state poisoned");
+        let state = self.0 .0.lock_state();
         state.closing
             && state.records.is_empty()
             && state.tasks.is_empty()
@@ -236,6 +223,7 @@ impl HostedScope {
 }
 impl Drop for HostedScope {
     fn drop(&mut self) {
+        self.0.begin_shutdown();
         let waker = self
             .0
              .0

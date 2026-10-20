@@ -15,6 +15,12 @@ struct JoinedState {
     joined: Mutex<Option<TaskJoined>>,
     changed: Notify,
 }
+pub(super) struct Notification(Arc<JoinedState>);
+impl Notification {
+    pub(super) fn notify(self) {
+        self.0.changed.notify_waiters();
+    }
+}
 impl std::fmt::Debug for JoinedState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JoinedState")
@@ -29,7 +35,7 @@ impl std::fmt::Debug for JoinedState {
 pub struct TaskJoinWitness(Arc<JoinedState>);
 impl TaskJoinWitness {
     fn new(owner: &Arc<Shared>) -> Self {
-        let hosted = owner.state.lock().expect("scope state poisoned").hosted;
+        let hosted = owner.lock_state().hosted;
         Self(Arc::new(JoinedState {
             hosted,
             owner: Arc::downgrade(owner),
@@ -127,11 +133,14 @@ pub(super) fn complete(
 ) -> CompletedExit {
     let witness = record.witness.and_then(|weak| weak.upgrade());
     if !hosted && witness.is_none() {
-        return CompletedExit::Ordinary(TaskExit {
-            id: record.id,
-            class: record.class,
-            result,
-        });
+        return CompletedExit::Ordinary(
+            TaskExit {
+                id: record.id,
+                class: record.class,
+                result,
+            },
+            None,
+        );
     }
     let result = result.map_err(Arc::new);
     let receipt = TaskJoined(Arc::new(Joined {
@@ -140,21 +149,26 @@ pub(super) fn complete(
         result: result.clone(),
         failure_accepted: std::sync::atomic::AtomicBool::new(false),
     }));
-    if let Some(witness) = witness {
+    let notification = if let Some(witness) = witness {
         let mut joined = witness.joined.lock().expect("task join witness poisoned");
         assert!(joined.is_none(), "a native task exit is consumed once");
         *joined = Some(receipt.clone());
         drop(joined);
-        witness.changed.notify_waiters();
-    }
+        Some(Notification(witness))
+    } else {
+        None
+    };
     if hosted {
-        return CompletedExit::Hosted(hosted::Completion::new(receipt));
+        return CompletedExit::Hosted(hosted::Completion::new(receipt), notification);
     }
-    CompletedExit::Ordinary(TaskExit {
-        id: record.id,
-        class: record.class,
-        result: result.map_err(forward),
-    })
+    CompletedExit::Ordinary(
+        TaskExit {
+            id: record.id,
+            class: record.class,
+            result: result.map_err(forward),
+        },
+        notification,
+    )
 }
 
 impl TaskRegistrar {
@@ -185,7 +199,7 @@ impl TaskRegistrar {
         task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
         witness: Option<Weak<JoinedState>>,
     ) -> Result<TaskId, SpawnError> {
-        let mut state = self.0.state.lock().expect("scope state poisoned");
+        let mut state = self.0.lock_state();
         if state.closing {
             return Err(SpawnError::Closing);
         }
