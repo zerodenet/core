@@ -112,3 +112,19 @@ cargo test --locked -p zero-proxy --all-features --lib rejected_plain_client_ret
 cargo test --locked -p zero-proxy --all-features --lib runtime::inbound_owners
 cargo test --locked -p zero-proxy --all-features --lib runtime::listener_loop
 ```
+
+The accepted handler now installs its existing weak AcceptedTcpTasks directly
+in the private inbound route runtime at first poll. Caller identity remains
+separate and cannot upgrade into a registrar. The generic logged operation still
+selects Unaccounted. Its same implementation accepts a crate-private explicit
+user plan; only the actual fixed-target Direct ordinary TCP source selects the
+audited single-primary chain. UDP combinations retain Unaccounted. This selects
+no capacity/default and does not prove closure itself: the original byte view,
+actual owning receiver delivery and explicit original native close remain
+mandatory. New source regression uses the actual Direct factory/registry/driver,
+a real bound-not-listening upstream refusal, a subsequent healthy exchange and
+pending IO, actual original-source retention and native address reuse before
+whole-owner terminal confirmation. It is source-only until root runtime tests.
+TLS/WS selected protocol branches and H2/MUX drivers still need actual task
+propagation before their detached constructors; this cut does not classify them
+from generic R or a completed handshake.

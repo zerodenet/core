@@ -13,6 +13,7 @@ use super::super::SharedIngressRuntimeServices;
 
 #[derive(Clone)]
 pub(crate) struct InboundRouteRuntime {
+    accepted_tasks: Option<zero_platform_tokio::AcceptedTcpTasks>,
     pub(super) tcp_runtime: TcpIngressRuntime,
     #[cfg(feature = "managed-stream-runtime")]
     pub(super) mux_udp_continuity: crate::runtime::mux_udp::MuxUdpContinuityRegistry,
@@ -21,6 +22,23 @@ pub(crate) struct InboundRouteRuntime {
 }
 
 impl InboundRouteRuntime {
+    /// Installed only at the original accepted handler's first poll. This keeps
+    /// task registration authority separate from the outbound caller identity.
+    pub(in crate::runtime) fn with_accepted_tasks(
+        mut self,
+        tasks: zero_platform_tokio::AcceptedTcpTasks,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        let caller = tasks.caller()?;
+        self.tcp_runtime = self.tcp_runtime.with_accepted_caller(caller);
+        self.accepted_tasks = Some(tasks);
+        Ok(self)
+    }
+    pub(in crate::runtime) fn accepted_tasks(
+        &self,
+    ) -> Option<zero_platform_tokio::AcceptedTcpTasks> {
+        self.accepted_tasks.clone()
+    }
+
     pub(crate) fn with_accepted_caller(
         mut self,
         caller: zero_platform_tokio::AcceptedTcpCaller,
@@ -48,6 +66,7 @@ impl InboundRouteRuntime {
         let shared = shared.with_current_snapshot();
         let tcp_runtime = shared.tcp_runtime(inbound_tag, source_addr);
         Self {
+            accepted_tasks: None,
             #[cfg(feature = "managed-stream-runtime")]
             mux_udp_continuity: shared.mux_udp_continuity(),
             #[cfg(feature = "udp-runtime")]

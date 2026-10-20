@@ -10,6 +10,7 @@ use tokio::{
 use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::component::ResourceDeclaration;
 mod accepted;
+mod accepted_direct;
 #[cfg(feature = "datagram-route-runtime")]
 mod datagram;
 #[cfg(feature = "raw-ip-runtime")]

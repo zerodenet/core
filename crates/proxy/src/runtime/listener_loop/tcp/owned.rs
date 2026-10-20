@@ -63,10 +63,11 @@ where
                 let handler = handler.clone();
                 let users = input.users;
                 let (_, witness) = accepted.spawn_handler_bound(TaskClass::Auxiliary, move |socket, tasks| async move {
-                    let caller = tasks.caller()?;
-                    if matches!(users, UsersPlan::Unaccounted) { caller.mark_unaccounted(); }
-                    // Real task identity is installed before this first poll.
-                    let runtime = runtime.with_local_addr(socket.local_addr().ok()).with_accepted_caller(caller);
+                    // Install the original same-entry weak task capability at
+                    // first poll; opaque Caller remains identity only.
+                    let runtime = runtime.with_local_addr(socket.local_addr().ok())
+                        .with_accepted_tasks(tasks.clone())?;
+                    if matches!(users, UsersPlan::Unaccounted) { tasks.mark_unaccounted(); }
                     handler(runtime, socket).await.map_err(|source| {
                         ChannelError::new(Stage::Receive, Reason::Io, Impact::Session).with_source(source)
                     })

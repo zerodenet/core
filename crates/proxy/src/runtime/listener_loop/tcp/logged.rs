@@ -28,6 +28,24 @@ where
         + 'static,
     Fut: Future<Output = Result<(), EngineError>> + Send + 'static,
 {
+    run_logged_tcp_socket_listener_with_users(request, super::owned::UsersPlan::Unaccounted).await
+}
+
+/// Only audited concrete source constructors select a complete inline plan.
+/// Generic protocol R never supplies completion evidence through its type.
+pub(crate) async fn run_logged_tcp_socket_listener_with_users<R, D, Fut>(
+    request: LoggedTcpSocketListenerRequest<R, D>,
+    users: super::owned::UsersPlan,
+) -> Result<(), EngineError>
+where
+    R: Clone + Send + Sync + 'static,
+    D: Fn(InboundRouteRuntime, R, zero_platform_tokio::TokioSocket) -> Fut
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    Fut: Future<Output = Result<(), EngineError>> + Send + 'static,
+{
     let LoggedTcpSocketListenerRequest {
         runtime_factory,
         protocol_name,
@@ -59,8 +77,8 @@ where
         }
     };
     if owned {
-        // Generic protocol R may create transport/mux users before returning
-        // its context. Only actual selected-user migration can clear this gap.
+        // The plan only classifies audited users. Completion still requires
+        // the actual original view, task receiver and native close receipts.
         super::owned::run(super::owned::OwnedLoop {
             request: TcpListenerLoopRequest {
                 runtime_factory,
@@ -69,7 +87,7 @@ where
                 shutdown,
                 handler,
             },
-            users: super::owned::UsersPlan::Unaccounted,
+            users,
         })
         .await
     } else {

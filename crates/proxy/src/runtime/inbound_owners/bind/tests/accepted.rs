@@ -58,6 +58,12 @@ async fn rejected_plain_client_retains_actual_source_without_stopping_same_owned
                 let source_send = source_send.clone();
                 async move {
                     let caller = runtime.accepted_caller().unwrap();
+                    let (_, actual_witness) =
+                        runtime.accepted_tasks().unwrap().current_task().unwrap();
+                    assert!(caller
+                        .task_join_witness()
+                        .unwrap()
+                        .same_registration(&actual_witness));
                     caller.check_open().map_err(std::io::Error::other)?;
                     if let Some(sender) = source_send.lock().unwrap().take() {
                         sender.send(caller).ok().unwrap();
