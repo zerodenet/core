@@ -48,7 +48,7 @@ impl ComponentTaskFault {
     }
 }
 
-pub(super) struct TaskMonitor {
+pub(in crate::component) struct TaskMonitor {
     inner: SyncMutex<Tasks>,
     pub(super) changed: Notify,
     critical: OnceLock<Arc<ComponentTaskFault>>,

@@ -23,9 +23,9 @@ mod mieru_stream;
 mod vless_grpc;
 
 /// Follow the actual typed payloads, including std::io's boxed error payload.
-pub(in crate::component) fn source<T: std::error::Error + 'static>(
-    error: &(dyn std::error::Error + 'static),
-) -> &T {
+pub(in crate::component) fn source<'a, T: std::error::Error + 'static>(
+    error: &'a (dyn std::error::Error + 'static),
+) -> &'a T {
     let mut current = Some(error);
     while let Some(error) = current {
         if let Some(value) = error.downcast_ref::<T>() {

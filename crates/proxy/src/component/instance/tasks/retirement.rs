@@ -2,7 +2,11 @@
 use super::*;
 
 impl TaskMonitor {
-    pub(super) async fn collect(&self, deadline: Instant, mut persist: impl FnMut(CloseReport)) {
+    pub(in crate::component) async fn collect(
+        &self,
+        deadline: Instant,
+        mut persist: impl FnMut(CloseReport),
+    ) {
         self.begin_shutdown();
         loop {
             let changed = self.changed.notified();
