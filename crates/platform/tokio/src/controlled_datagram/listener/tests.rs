@@ -227,3 +227,5 @@ async fn oversized_native_send_keeps_source_and_listener_healthy() {
     control.close().unwrap();
     assert_eq!(owner.take_report().confirmed_closed, 1);
 }
+
+mod reentry;

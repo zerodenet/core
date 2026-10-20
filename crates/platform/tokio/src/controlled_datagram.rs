@@ -245,57 +245,52 @@ impl ControlledDatagramOwner {
 impl Entry {
     fn close(&self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
         self.retired.cancel();
-        let mut native = self.lock();
-        if matches!(&*native, NativeHandleState::Closed) {
-            return Ok(DatagramCloseReceipt { id: self.id });
-        }
-        if matches!(
-            &*native,
-            NativeHandleState::Reserved | NativeHandleState::NoNative
-        ) {
-            *native = NativeHandleState::NoNative;
-            return Err(Arc::new(std_io::Error::other(
-                "no native UDP socket was acquired",
-            )));
-        }
-        if let NativeHandleState::Unknown(source) = &*native {
-            if !TokioDatagramSocket::close_is_retryable(source) {
-                return Err(source.clone());
+        // Detach the original under its state lock, then perform native close
+        // and runtime deregistration outside it. Deregistration can drop/wake
+        // an externally supplied I/O waker; it may synchronously reenter us.
+        let original = {
+            let mut native = self.lock();
+            if matches!(&*native, NativeHandleState::Closed) {
+                return Ok(DatagramCloseReceipt { id: self.id });
             }
-            let source = source.clone();
-            *native = NativeHandleState::Unknown(self.uncertain.clone());
-            return match TokioDatagramSocket::retry_close(&source) {
-                Ok(true) => {
-                    *native = NativeHandleState::Closed;
-                    Ok(DatagramCloseReceipt { id: self.id })
+            if matches!(
+                &*native,
+                NativeHandleState::Reserved | NativeHandleState::NoNative
+            ) {
+                *native = NativeHandleState::NoNative;
+                return Err(Arc::new(std_io::Error::other(
+                    "no native UDP socket was acquired",
+                )));
+            }
+            if let NativeHandleState::Unknown(source) = &*native {
+                if !TokioDatagramSocket::close_is_retryable(source) {
+                    return Err(source.clone());
                 }
-                Ok(false) => {
-                    *native = NativeHandleState::Unknown(source.clone());
-                    Err(source)
-                }
-                Err(source) => {
-                    let source = Arc::new(source);
-                    *native = NativeHandleState::Unknown(source.clone());
-                    Err(source)
-                }
-            };
-        }
-        let original = std::mem::replace(
-            &mut *native,
-            NativeHandleState::Unknown(self.uncertain.clone()),
-        );
+            }
+            std::mem::replace(
+                &mut *native,
+                NativeHandleState::Unknown(self.uncertain.clone()),
+            )
+        };
         let result = match original {
-            NativeHandleState::Raw(socket) => crate::datagram::native_close(socket),
-            NativeHandleState::Live(socket) => socket.close(),
+            NativeHandleState::Raw(socket) => {
+                crate::datagram::native_close(socket).map_err(Arc::new)
+            }
+            NativeHandleState::Live(socket) => socket.close().map_err(Arc::new),
+            NativeHandleState::Unknown(source) => match TokioDatagramSocket::retry_close(&source) {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(source),
+                Err(source) => Err(Arc::new(source)),
+            },
             _ => unreachable!("native state checked under same lock"),
         };
+        let mut native = self.lock();
         match result {
             Ok(()) => {
                 *native = NativeHandleState::Closed;
                 Ok(DatagramCloseReceipt { id: self.id })
             }
             Err(source) => {
-                let source = Arc::new(source);
                 *native = NativeHandleState::Unknown(source.clone());
                 Err(source)
             }

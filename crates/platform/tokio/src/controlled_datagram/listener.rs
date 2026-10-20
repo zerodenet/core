@@ -172,6 +172,7 @@ impl ControlledDatagramListenerControl {
     pub fn revoke(&self) {
         let mut retired = self.shared.lock();
         *retired = true;
+        drop(retired);
         self.shared.socket.entry.retired.cancel();
     }
     /// Serialize against actual I/O polls and close the same owned original.
@@ -179,6 +180,7 @@ impl ControlledDatagramListenerControl {
     pub fn close(&mut self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
         let mut retired = self.shared.lock();
         *retired = true;
+        drop(retired);
         self.shared.socket.entry.retired.cancel();
         self.shared.socket.close()
     }
