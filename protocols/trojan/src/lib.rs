@@ -6,6 +6,8 @@
 
 #![allow(async_fn_in_trait)]
 
+#[cfg(feature = "runtime")]
+pub mod component;
 pub mod inbound;
 pub mod metadata;
 #[cfg(feature = "tokio")]

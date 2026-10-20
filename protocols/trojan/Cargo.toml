@@ -28,7 +28,7 @@ sha2 = { version = "0.10", optional = true }
 tokio = { workspace = true, optional = true }
 zero-core = { path = "../../crates/core" }
 zero-platform-tokio = { path = "../../crates/platform/tokio", optional = true }
-zero-transport = { path = "../../crates/transport", optional = true, features = ["tls"] }
+zero-transport = { path = "../../crates/transport", optional = true, features = ["grpc", "tls", "ws"] }
 zero-traits = { path = "../../crates/traits" }
 
 [dev-dependencies]

@@ -29,6 +29,9 @@ fn compiled_registries() -> (
     components
         .declare("socks5", "socks5")
         .expect("unique SOCKS5 declaration");
+    components
+        .declare("trojan", "trojan")
+        .expect("unique Trojan declaration");
     let mut registry = ProtocolRegistry::default();
     #[cfg(feature = "socks5")]
     {
@@ -75,6 +78,16 @@ fn compiled_registries() -> (
     #[cfg(feature = "trojan")]
     {
         use crate::adapters::trojan::TrojanAdapter;
+        components
+            .register_where(
+                ::trojan::metadata::TrojanProtocol.descriptor(),
+                ::trojan::component::Factory,
+                crate::adapters::trojan::native_input,
+                crate::adapters::trojan::component_options,
+            )
+            .expect("unique Trojan component registration");
+        components
+            .set_legacy_connect_stage("trojan", crate::adapters::trojan::LEGACY_CONNECT_STAGE);
         let adapter = Arc::new(TrojanAdapter::default());
         registry.register_managed_capability(adapter, TrojanAdapter::claim_outbound_leaf_impl);
     }

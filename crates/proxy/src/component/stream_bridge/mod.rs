@@ -67,7 +67,7 @@ pub(crate) async fn connect(
         identity: invocation.identity,
         deadline: invocation.deadline,
         cancel: CancellationToken::new(),
-        observer: None,
+        observer: Some(traffic.clone()),
         upstream: UpstreamTransport::new(
             UpstreamBinding {
                 prefix: vec![],

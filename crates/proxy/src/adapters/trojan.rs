@@ -1,4 +1,6 @@
 #[cfg(feature = "trojan")]
+mod component;
+#[cfg(feature = "trojan")]
 mod listener;
 #[cfg(feature = "trojan")]
 use ::trojan::inbound::TrojanInboundProfileStore;
@@ -6,6 +8,8 @@ use ::trojan::transport::{
     TrojanInboundListenerRequest, TrojanInboundOptionsRef, TrojanInboundUserRef,
     TrojanOutboundBuildOptionsRef, TrojanOutboundLeaf, TrojanOutboundOptionsRef,
 };
+#[cfg(feature = "trojan")]
+pub(crate) use component::{component_options, native_input, LEGACY_CONNECT_STAGE};
 #[cfg(feature = "trojan")]
 use zero_config::InboundConfig;
 use zero_config::{InboundProtocolConfig, OutboundProtocolConfig};

@@ -20,6 +20,9 @@ pub enum ConnectFact {
 /// Implementations must record bounded facts synchronously, without blocking I/O.
 pub trait ConnectObserver: Send + Sync {
     fn record(&self, session: Option<SessionId>, fact: ConnectFact);
+    /// One cumulative protocol-handshake result for this open operation. This
+    /// excludes TLS/carrier framing; explicit zero is distinct from no report.
+    fn protocol_traffic(&self, _: Option<SessionId>, _: u64, _: u64) {}
 }
 
 #[derive(Debug, Clone)]
