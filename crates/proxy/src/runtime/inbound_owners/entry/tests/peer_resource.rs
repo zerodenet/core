@@ -2,6 +2,7 @@ use super::*;
 #[path = "peer_resource/failure.rs"]
 mod failure;
 #[cfg(feature = "raw-ip-runtime")]
+#[path = "peer_resource/live.rs"]
 mod live;
 #[path = "peer_resource/recovery.rs"]
 mod recovery;
