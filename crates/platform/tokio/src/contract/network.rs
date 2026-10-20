@@ -29,9 +29,43 @@ pub struct CarrierContext {
     pub cancel: CancellationToken,
 }
 
+/// A finite physical owner supplied by the actual selected role. Capacity and
+/// weak task registration do not by themselves authorize a business session;
+/// the host opener must validate its sealed demand for every real candidate.
+pub struct ControlledStreamRequest {
+    pub destination: Destination,
+    pub context: CarrierContext,
+    pub grants: crate::controlled_carrier::CarrierGrants,
+    pub tasks: super::scope::WeakTaskRegistrar,
+    /// Inline retirement budget only; never a replacement handshake deadline.
+    pub retirement: std::time::Duration,
+}
+
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    /// Multi-candidate resolution/acquisition is opt-in. Reject before legacy
+    /// execution or native I/O; an unsupported opener cannot silently fall back.
+    fn open_controlled_stream(
+        &self,
+        _: &UpstreamBinding,
+        request: ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
+        let mut error = ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        error.component = Some(request.grants.instance().component);
+        error.session = request.context.session;
+        error.delivery = super::DeliveryState::NotSubmitted;
+        Box::pin(async move {
+            Err(error.with_source(std::io::Error::other(
+                "controlled multi-candidate stream capability was not granted",
+            )))
+        })
+    }
+
     /// Controlled capability is opt-in. Reject before any legacy opener or I/O.
     fn prepare_controlled_stream(
         &self,
@@ -89,6 +123,12 @@ impl UpstreamTransport {
     ) -> Result<crate::controlled_carrier::PreparedCarrier, ChannelError> {
         self.opener
             .prepare_controlled_stream(&self.binding, destination, context, grant)
+    }
+    pub fn open_controlled_stream(
+        &self,
+        request: ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
+        self.opener.open_controlled_stream(&self.binding, request)
     }
     pub fn open_stream(
         &self,

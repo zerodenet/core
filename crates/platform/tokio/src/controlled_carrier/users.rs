@@ -80,7 +80,7 @@ impl Users {
     pub(super) fn acquired(&self) -> bool {
         self.acquired
     }
-    fn ready(&self) -> bool {
+    pub(super) fn ready(&self) -> bool {
         !self.live
             && (!self.acquired || self.caller.as_ref().is_some_and(TaskJoinWitness::is_joined))
     }

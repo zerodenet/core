@@ -57,6 +57,7 @@ pub struct CarrierSlotObservation {
     spawning: bool,
     physical_view_live: bool,
     driver: Option<(TaskId, TaskJoinWitness)>,
+    auxiliary: Option<TaskJoinWitness>,
     acquisition_unknown: Option<Arc<ChannelError>>,
     native: Option<CarrierNativeCloseObservation>,
 }
@@ -95,6 +96,9 @@ impl CarrierSlotObservation {
     }
     pub fn driver(&self) -> Option<&(TaskId, TaskJoinWitness)> {
         self.driver.as_ref()
+    }
+    pub fn auxiliary(&self) -> Option<&TaskJoinWitness> {
+        self.auxiliary.as_ref()
     }
     pub fn acquisition_unknown(&self) -> Option<&Arc<ChannelError>> {
         self.acquisition_unknown.as_ref()
@@ -169,6 +173,7 @@ impl CarrierOwnerRegistration {
                             spawning: state.spawning,
                             physical_view_live: state.view_live,
                             driver: state.driver.clone(),
+                            auxiliary: state.auxiliary.clone(),
                             acquisition_unknown: state.unknown.clone(),
                             native: None,
                         },

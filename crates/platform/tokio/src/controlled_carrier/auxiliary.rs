@@ -3,7 +3,7 @@
 use super::{error, CarrierAdoption};
 use crate::contract::{
     lifecycle::{ComponentError, TaskClass},
-    scope::{TaskJoinWitness, TaskJoined, TaskRegistrar},
+    scope::{TaskJoinWitness, TaskJoined, TaskRegistrar, WeakTaskRegistrar},
     ChannelError, DeliveryState, Reason, Stage,
 };
 use std::future::Future;
@@ -12,6 +12,16 @@ impl CarrierAdoption {
     pub fn spawn_auxiliary<F>(
         &self,
         registrar: &TaskRegistrar,
+        task: F,
+    ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
+    where
+        F: Future<Output = Result<(), ComponentError>> + Send + 'static,
+    {
+        self.spawn_auxiliary_weak(&registrar.downgrade(), task)
+    }
+    pub fn spawn_auxiliary_weak<F>(
+        &self,
+        registrar: &WeakTaskRegistrar,
         task: F,
     ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
     where
@@ -39,7 +49,7 @@ impl CarrierAdoption {
             || owner.cancel.is_cancelled()
             || !bound
                 .as_ref()
-                .is_some_and(|bound| bound.permits_driver(registrar))
+                .is_some_and(|bound| bound.permits_auxiliary(registrar))
         {
             return Err(failure(Reason::Revoked));
         }

@@ -15,6 +15,11 @@ pub struct CarrierGrant {
     pub(super) transferred: bool,
 }
 impl CarrierGrants {
+    /// Weak observation of this existing capability's same original owner.
+    /// The observation cannot reconstruct admission or native permissions.
+    pub fn registration(&self) -> super::CarrierOwnerRegistration {
+        super::CarrierOwnerRegistration::new(&self.0)
+    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.0.instance
     }
@@ -99,5 +104,47 @@ impl Drop for CarrierGrant {
             self.slot.state().opening = false;
             self.slot.unused();
         }
+    }
+}
+
+impl CarrierGrants {
+    /// Reclaim only original slots whose actual views/callers/tasks have already
+    /// returned. This is an inline maintenance step, never a generation-close
+    /// receipt, cancellation request for active users, or extra background task.
+    pub async fn reap_returned(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<usize, ChannelError> {
+        let slots = { self.0.state().slots.clone() };
+        let mut retired = 0;
+        for slot in slots {
+            let (idle, users, driver, auxiliary) = {
+                let state = slot.state();
+                (
+                    !state.opening
+                        && !state.spawning
+                        && !state.view_live
+                        && state.unknown.is_none(),
+                    state.users.clone(),
+                    state.driver.clone(),
+                    state.auxiliary.clone(),
+                )
+            };
+            // Witness getters and their last error/source drops are outside the
+            // actual carrier state lock. The close transaction rechecks state.
+            if !idle
+                || users.is_some_and(|users| !users.ready())
+                || driver.is_some_and(|(_, witness)| !witness.is_joined())
+                || auxiliary.is_some_and(|witness| !witness.is_joined())
+            {
+                continue;
+            }
+            let report = super::owner::close_slot(&slot, deadline).await?;
+            if report.is_complete() {
+                self.0.state().confirmed.append(report);
+                retired += 1;
+            }
+        }
+        Ok(retired)
     }
 }

@@ -3,7 +3,7 @@ use super::{error, CarrierOwnerRegistration};
 use crate::contract::{
     component::{ControlledStreamDemandClass, ResourceDeclaration},
     network::{CarrierContext, UpstreamBinding},
-    scope::{TaskRegistrar, TaskScopeIdentity},
+    scope::{TaskRegistrar, TaskScopeIdentity, WeakTaskRegistrar},
     CancellationToken, ChannelError, DeliveryState, Reason, Stage,
 };
 use std::sync::Arc;
@@ -162,6 +162,11 @@ impl BoundAuthority {
     }
     pub(super) fn cancellation(&self) -> CancellationToken {
         self.host_cancel.as_ref().clone()
+    }
+    pub(super) fn permits_auxiliary(&self, registrar: &WeakTaskRegistrar) -> bool {
+        !self.host_cancel.is_cancelled()
+            && self.scope.same_scope(&registrar.scope_identity())
+            && self.scope.registration_open()
     }
     pub(super) fn permits_driver(&self, registrar: &TaskRegistrar) -> bool {
         !self.host_cancel.is_cancelled()
