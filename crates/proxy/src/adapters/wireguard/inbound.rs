@@ -243,6 +243,12 @@ impl RawIpInboundDevice for WireguardInboundDevice {
             .public_peer_id(peer)
     }
 
+    fn authenticated_endpoint(&self, peer: usize) -> Option<SocketAddr> {
+        self.0
+            .peer_source(peer)
+            .and_then(|source| source.authenticated_endpoint)
+    }
+
     fn generation(&self) -> u64 {
         self.0.generation.load(Ordering::Acquire)
     }
@@ -346,3 +352,6 @@ fn invalid(error: impl std::fmt::Debug) -> EngineError {
         format!("{error:?}"),
     ))
 }
+
+#[cfg(test)]
+mod tests;

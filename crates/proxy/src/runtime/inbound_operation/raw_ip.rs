@@ -54,6 +54,11 @@ pub(crate) trait RawIpInboundDevice: Send {
     fn peer_identity(&self, _peer: usize) -> Option<String> {
         None
     }
+    /// Only an authenticated protocol-owned source observation may seed roaming
+    /// continuity after the original listener has actually closed.
+    fn authenticated_endpoint(&self, _peer: usize) -> Option<SocketAddr> {
+        None
+    }
     fn generation(&self) -> u64 {
         0
     }
@@ -132,3 +137,6 @@ impl PreparedInboundListenerOperation for RawIpInboundListenerOperation {
         Box::pin(async move { run(*self, runtime, bound, shutdown).await })
     }
 }
+
+#[cfg(test)]
+pub(crate) use lifecycle::retained_endpoint as retained_endpoint_for_test;

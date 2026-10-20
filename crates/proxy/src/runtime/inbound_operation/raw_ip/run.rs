@@ -57,7 +57,9 @@ pub(super) async fn run(
     let mut peer_revision = u64::MAX;
     let mut initial_endpoints = initial_endpoints;
     let mut endpoints = (0..operation.device.peer_count())
-        .map(|peer| initial_endpoints.get(peer).copied().flatten())
+        .map(|peer| {
+            super::lifecycle::retained_endpoint(operation.device.as_ref(), &initial_endpoints, peer)
+        })
         .collect::<Vec<_>>();
     let mut generation = operation.device.generation();
     let (proxied_tx, mut proxied_rx) = mpsc::channel::<ProxiedWirePacket>(256);
