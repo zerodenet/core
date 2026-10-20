@@ -52,6 +52,7 @@ pub(crate) struct SharedRawIpDevice {
     retired: AtomicBool,
     ready: watch::Receiver<Option<Result<(), String>>>,
     task: Arc<workers::DeviceWorkers>,
+    carrier: Option<Arc<dyn RawIpWireCarrier>>,
 }
 
 impl SharedRawIpDevice {
@@ -137,7 +138,7 @@ impl SharedRawIpDevice {
         let driver = Device {
             traffic,
             endpoint,
-            carrier,
+            carrier: carrier.clone(),
             tunnel,
             udp: udp.clone(),
             tcp: tcp.clone(),
@@ -160,6 +161,7 @@ impl SharedRawIpDevice {
             retired: AtomicBool::new(false),
             ready,
             task,
+            carrier: Some(carrier),
         }))
     }
 
@@ -204,6 +206,9 @@ impl SharedRawIpDevice {
     pub(crate) fn close_now(&self) {
         self.retired.store(true, Ordering::Release);
         self.closed.store(true, Ordering::Release);
+        if let Some(carrier) = &self.carrier {
+            drop(carrier.stop_background());
+        }
         self.tcp.revoke();
         self.udp.shutdown();
         self.task.abort();

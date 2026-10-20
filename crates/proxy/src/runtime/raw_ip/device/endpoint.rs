@@ -133,6 +133,7 @@ impl SharedRawIpDevice {
             retired: AtomicBool::new(false),
             ready,
             task,
+            carrier: None,
         }))
     }
 

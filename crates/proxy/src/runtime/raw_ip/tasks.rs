@@ -183,6 +183,23 @@ impl<T: TaskOutput> RetainedTasks<T> {
             self.joined(result);
         }
     }
+    /// Let an existing I/O driver supervise one original child without a
+    /// detached monitor. Cancellation leaves its handle in this same JoinSet.
+    pub(crate) async fn wait_one(&self) -> Result<bool, ChannelError> {
+        let mut tasks = self.inner.tasks.lock().await;
+        let result = tasks.join_next_with_id().await;
+        let joined = result.is_some();
+        if let Some(result) = result {
+            self.joined(result);
+        }
+        // Only the original failure is exposed; this is not a resource/close
+        // receipt while other children may still occupy the set.
+        if let Some(error) = self.fault_error() {
+            Err(error)
+        } else {
+            Ok(joined)
+        }
+    }
     pub(crate) fn resource(
         &self,
     ) -> Box<dyn zero_platform_tokio::contract::lifecycle::DynResourceLifecycle> {
@@ -219,14 +236,14 @@ impl<T: TaskOutput> RetainedTasks<T> {
             self.joined(joined);
         }
     }
-    fn joined_report(&self) -> Result<CloseReport, ChannelError> {
+    fn fault_error(&self) -> Option<ChannelError> {
         let admission = self
             .inner
             .admission
             .lock()
             .expect("raw-IP task admission poisoned");
         if let Some(first) = &admission.first {
-            return Err(
+            return Some(
                 ChannelError::new(Stage::Close, Reason::Io, Impact::Component).with_source(
                     RetainedFailures {
                         first: first.clone(),
@@ -234,6 +251,12 @@ impl<T: TaskOutput> RetainedTasks<T> {
                     },
                 ),
             );
+        }
+        None
+    }
+    fn joined_report(&self) -> Result<CloseReport, ChannelError> {
+        if let Some(error) = self.fault_error() {
+            return Err(error);
         }
         let mut report = CloseReport::default();
         report.released_resources.push(self.inner.label.into());

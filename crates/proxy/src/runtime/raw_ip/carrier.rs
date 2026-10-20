@@ -1,8 +1,10 @@
 //! Wire datagram I/O for a raw-IP peer device.
 
 use std::{
+    future::Future,
     io,
     net::SocketAddr,
+    pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -17,9 +19,37 @@ use zero_platform_tokio::TokioDatagramSocket;
 use crate::protocol_registry::PacketPathExecutionServices;
 use crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation;
 use crate::runtime::udp_flow::packet_path::PacketPathCarrier;
+use zero_engine::EngineError;
+
+#[derive(Debug)]
+struct BackgroundStopped;
+impl std::fmt::Display for BackgroundStopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("outer packet path owner stopped")
+    }
+}
+impl std::error::Error for BackgroundStopped {}
+pub(super) fn is_background_stopped(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|source| source.is::<BackgroundStopped>())
+}
+fn background_stopped() -> io::Error {
+    io::Error::new(io::ErrorKind::Interrupted, BackgroundStopped)
+}
+
+pub(crate) type CarrierWorkerCompletion =
+    Pin<Box<dyn Future<Output = Result<(), EngineError>> + Send>>;
 
 #[async_trait]
 pub(crate) trait RawIpWireCarrier: Send + Sync {
+    /// Synchronously fence/cancel this carrier's original background work,
+    /// returning a waiter for actual joins. None is an unmigrated task graph,
+    /// never successful cleanup. A worker join proves no native I/O close.
+    fn stop_background(&self) -> Option<CarrierWorkerCompletion> {
+        None
+    }
+
     async fn recv(&self, buf: &mut [u8]) -> io::Result<(usize, Option<SocketAddr>)>;
     async fn send(&self, packet: &[u8], endpoint: SocketAddr) -> io::Result<()>;
 }
@@ -28,6 +58,12 @@ pub(crate) struct DirectRawIpWireCarrier(pub(crate) TokioDatagramSocket);
 
 #[async_trait]
 impl RawIpWireCarrier for DirectRawIpWireCarrier {
+    fn stop_background(&self) -> Option<CarrierWorkerCompletion> {
+        // This concrete view owns no background task at all. Its native socket
+        // requires separate explicit close evidence after the I/O driver stops.
+        Some(Box::pin(async { Ok(()) }))
+    }
+
     async fn recv(&self, buf: &mut [u8]) -> io::Result<(usize, Option<SocketAddr>)> {
         self.0
             .recv_from_addr(buf)
@@ -52,8 +88,8 @@ struct ProxiedCarrierState {
     path: tokio::sync::watch::Sender<Arc<dyn PacketPathCarrier>>,
     operation: Arc<dyn PreparedUdpPacketPathOperation>,
     services: PacketPathExecutionServices,
-    rebuilding: AtomicBool,
     closing: tokio::sync::watch::Sender<bool>,
+    tasks: super::tasks::RetainedTasks<()>,
 }
 
 impl ProxiedRawIpWireCarrier {
@@ -69,8 +105,10 @@ impl ProxiedRawIpWireCarrier {
                 path,
                 operation,
                 services,
-                rebuilding: AtomicBool::new(false),
                 closing,
+                // The original design admits one reconnect worker; retain that
+                // exact finite budget across active and ready-but-unjoined work.
+                tasks: super::tasks::RetainedTasks::new("raw-IP outer carrier reconnect", 1),
             }),
             sent_once: AtomicBool::new(false),
         }
@@ -79,22 +117,28 @@ impl ProxiedRawIpWireCarrier {
 
 impl Drop for ProxiedRawIpWireCarrier {
     fn drop(&mut self) {
-        self.state.closing.send_replace(true);
+        drop(self.stop_background());
     }
 }
 
 impl ProxiedCarrierState {
     fn rebuild_if_current(self: &Arc<Self>, failed: Arc<dyn PacketPathCarrier>) {
-        if !Arc::ptr_eq(&failed, &*self.path.borrow())
-            || self.rebuilding.swap(true, Ordering::AcqRel)
-        {
+        if *self.closing.borrow() || !Arc::ptr_eq(&failed, &*self.path.borrow()) {
+            return;
+        }
+        let Some(mut tasks) = self.tasks.try_lock() else {
+            return;
+        };
+        self.tasks.reap_ready(&mut tasks);
+        if !tasks.is_empty() {
             return;
         }
         let state = Arc::clone(self);
-        tokio::spawn(async move {
+        if let Err(error) = tasks.spawn(async move {
             state.rebuild(failed).await;
-            state.rebuilding.store(false, Ordering::Release);
-        });
+        }) {
+            tracing::warn!(%error, "raw-IP original reconnect task admission failed");
+        }
     }
 
     async fn rebuild(&self, failed: Arc<dyn PacketPathCarrier>) {
@@ -128,6 +172,19 @@ impl ProxiedCarrierState {
 
 #[async_trait]
 impl RawIpWireCarrier for ProxiedRawIpWireCarrier {
+    fn stop_background(&self) -> Option<CarrierWorkerCompletion> {
+        self.state.closing.send_replace(true);
+        self.state.tasks.request_abort();
+        let tasks = self.state.tasks.clone();
+        Some(Box::pin(async move {
+            tasks
+                .join_unbounded()
+                .await
+                .map(|_| ())
+                .map_err(|source| EngineError::Io(io::Error::other(source)))
+        }))
+    }
+
     async fn recv(&self, buf: &mut [u8]) -> io::Result<(usize, Option<SocketAddr>)> {
         let mut changes = self.state.path.subscribe();
         loop {
@@ -138,9 +195,18 @@ impl RawIpWireCarrier for ProxiedRawIpWireCarrier {
                     tracing::warn!(%error, "raw-IP outer packet path receive failed");
                     self.state.rebuild_if_current(path.clone());
                     while Arc::ptr_eq(&path, &*changes.borrow()) {
-                        changes.changed().await.map_err(|_| {
-                            io::Error::new(io::ErrorKind::BrokenPipe, "outer packet path closed")
-                        })?;
+                        if *self.state.closing.borrow() {
+                            return Err(background_stopped());
+                        }
+                        tokio::select! {
+                            changed = changes.changed() => { changed.map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "outer packet path closed"))?; },
+                            joined = self.state.tasks.wait_one() => {
+                                let joined = joined.map_err(io::Error::other)?;
+                                if !joined && Arc::ptr_eq(&path, &*changes.borrow()) {
+                                    return Err(io::Error::new(io::ErrorKind::BrokenPipe, "outer packet path reconnect owner has no running worker"));
+                                }
+                            },
+                        }
                     }
                 }
             }
@@ -172,3 +238,7 @@ impl RawIpWireCarrier for ProxiedRawIpWireCarrier {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "carrier/tests.rs"]
+mod tests;
