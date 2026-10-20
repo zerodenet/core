@@ -3,7 +3,9 @@
 use bytes::Bytes;
 use http::{Request, Uri};
 use std::{
+    future::Future,
     io,
+    pin::Pin,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -24,10 +26,22 @@ fn sample(range: (u32, u32)) -> u32 {
     rand::random_range(range.0..=range.1)
 }
 
-/// The caller's return delay is independent of navigation on the owned carrier.
-/// A process-wide admission bound and a one-minute lifetime cap retain no orphan
-/// connection indefinitely when the remote site or application stops responding.
-pub async fn start<S>(stream: S, host: String, plan: Plan)
+/// Owned work on the original carrier, including its process-wide permit.
+/// Dropping this future releases both; preparation never performs I/O or spawns.
+pub type NavigationJob = Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'static>>;
+pub struct PreparedNavigation {
+    delay: Duration,
+    job: NavigationJob,
+}
+impl PreparedNavigation {
+    pub fn into_parts(self) -> (Duration, NavigationJob) {
+        (self.delay, self.job)
+    }
+}
+
+/// Validate and acquire the same global bound before transferring carrier
+/// ownership to an executor. No admission means no navigation or return delay.
+pub fn prepare<S>(stream: S, host: String, plan: Plan) -> Option<PreparedNavigation>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -40,19 +54,18 @@ where
         || !plan.path.starts_with('/')
         || plan.path.starts_with("//")
     {
-        return;
+        return None;
     }
     static ADMISSION: OnceLock<Arc<Semaphore>> = OnceLock::new();
-    let permits = ADMISSION
+    let permit = ADMISSION
         .get_or_init(|| Arc::new(Semaphore::new(64)))
-        .clone();
-    let Ok(permit) = permits.try_acquire_owned() else {
-        return;
-    };
-    let delay = sample(plan.ranges[4]);
-    tokio::spawn(async move {
+        .clone()
+        .try_acquire_owned()
+        .ok()?;
+    let delay = Duration::from_millis(sample(plan.ranges[4]) as u64);
+    let job = Box::pin(async move {
         let _permit = permit;
-        let result = tokio::time::timeout(Duration::from_secs(60), async move {
+        match tokio::time::timeout(Duration::from_secs(60), async move {
             let (sender, connection) = h2::client::handshake(stream)
                 .await
                 .map_err(io::Error::other)?;
@@ -68,12 +81,32 @@ where
                 result = &mut connection => result.map_err(io::Error::other),
             }
         })
-        .await;
-        if let Ok(Err(error)) = result {
+        .await
+        {
+            Ok(result) => result,
+            // The original navigation lifetime cap is an expected retirement.
+            Err(_) => Ok(()),
+        }
+    });
+    Some(PreparedNavigation { delay, job })
+}
+
+/// The caller's return delay is independent of navigation on the owned carrier.
+/// Legacy callers retain their existing executor; scoped callers use prepare.
+pub async fn start<S>(stream: S, host: String, plan: Plan)
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let Some(prepared) = prepare(stream, host, plan) else {
+        return;
+    };
+    let (delay, job) = prepared.into_parts();
+    tokio::spawn(async move {
+        if let Err(error) = job.await {
             tracing::debug!(%error, "HTTP navigation ended");
         }
     });
-    tokio::time::sleep(Duration::from_millis(delay as u64)).await;
+    tokio::time::sleep(delay).await;
 }
 
 #[cfg(test)]
