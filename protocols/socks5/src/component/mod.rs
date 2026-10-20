@@ -18,6 +18,7 @@ use zero_platform_tokio::contract::{
 };
 mod datagram;
 mod error;
+pub mod inbound;
 mod options;
 mod socket;
 pub use options::Options;
