@@ -38,29 +38,53 @@ where
         dispatch,
     } = request;
 
-    run_tcp_listener_loop(TcpListenerLoopRequest {
-        runtime_factory,
-        protocol_name,
-        listener,
-        shutdown,
-        handler: move |runtime: InboundRouteRuntime, stream: zero_platform_tokio::TokioSocket| {
-            let request = request.clone();
-            let dispatch = dispatch.clone();
-            async move {
-                let log_tag = runtime.inbound_tag().to_owned();
-                let source_addr = runtime.source_addr();
-                let result = dispatch(runtime, request, stream).await;
-                if let Err(ref error) = result {
-                    crate::logging::log_listener_connection_error(
-                        crate::logging::INBOUND_ACCEPT_ROUTE_STAGE,
-                        error_protocol_name,
-                        log_tag.as_str(),
-                        &source_addr,
-                        error,
-                    );
-                }
+    let owned = listener.accepted_task_receiver().is_some();
+    let handler = move |runtime: InboundRouteRuntime, stream: zero_platform_tokio::TokioSocket| {
+        let request = request.clone();
+        let dispatch = dispatch.clone();
+        async move {
+            let log_tag = runtime.inbound_tag().to_owned();
+            let source_addr = runtime.source_addr();
+            let result = dispatch(runtime, request, stream).await;
+            if let Err(ref error) = result {
+                crate::logging::log_listener_connection_error(
+                    crate::logging::INBOUND_ACCEPT_ROUTE_STAGE,
+                    error_protocol_name,
+                    log_tag.as_str(),
+                    &source_addr,
+                    error,
+                );
             }
-        },
-    })
-    .await
+            result
+        }
+    };
+    if owned {
+        // Generic protocol R may create transport/mux users before returning
+        // its context. Only actual selected-user migration can clear this gap.
+        super::owned::run(super::owned::OwnedLoop {
+            request: TcpListenerLoopRequest {
+                runtime_factory,
+                protocol_name,
+                listener,
+                shutdown,
+                handler,
+            },
+            users: super::owned::UsersPlan::Unaccounted,
+        })
+        .await
+    } else {
+        run_tcp_listener_loop(TcpListenerLoopRequest {
+            runtime_factory,
+            protocol_name,
+            listener,
+            shutdown,
+            handler: move |runtime, socket| {
+                let work = handler(runtime, socket);
+                async move {
+                    let _ = work.await;
+                }
+            },
+        })
+        .await
+    }
 }

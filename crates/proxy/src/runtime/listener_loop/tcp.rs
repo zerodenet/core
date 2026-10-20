@@ -1,5 +1,10 @@
 mod connection;
 mod logged;
+mod owned;
+#[cfg(test)]
+pub(crate) use owned::{
+    run as run_owned_tcp_listener_loop, OwnedLoop as OwnedTcpLoop, UsersPlan as AcceptedUsersPlan,
+};
 
 #[cfg(test)]
 pub(crate) use connection::{run_tcp_listener_loop, TcpListenerLoopRequest};

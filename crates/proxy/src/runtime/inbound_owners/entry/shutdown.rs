@@ -57,7 +57,9 @@ impl InboundOwner {
             scope.begin_shutdown();
             loop {
                 match timeout_at(deadline, scope.next_exit()).await {
-                    Ok(Some(exit)) => self.record(exit),
+                    Ok(Some(exit)) => {
+                        self.record(exit);
+                    }
                     Ok(None) => {
                         self.scope_closed.store(true, Ordering::Release);
                         return Ok::<(), std::io::Error>(());

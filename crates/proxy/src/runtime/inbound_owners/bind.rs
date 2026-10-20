@@ -33,9 +33,17 @@ impl InboundOwnerRegistry {
                 "listener reservation is outside its actual configuration",
             ));
         }
+        let accepted_slots = match prepared.accepted_tcp_limits() {
+            Some(limits) => limits
+                .task_slots()
+                .ok_or_else(|| io("accepted TCP task ceiling overflow"))?
+                .get(),
+            None => 0,
+        };
         let limit = prepared
             .internal_tasks()
             .checked_add(1)
+            .and_then(|limit| limit.checked_add(accepted_slots))
             .and_then(NonZeroUsize::new)
             .ok_or_else(|| io("inbound declared task limit exhausted"))?;
         let mut reserved = self
@@ -62,12 +70,16 @@ impl InboundOwnerRegistry {
                 prepared.address(),
                 max_bind_attempts,
                 owner.task_access().cancellation(),
+                owner.accepted_registrar(),
             )
             .map_err(std::io::Error::other)?,
         );
         // Construction above is cold. The unique actual native holder is a
         // registered resource before this owner or any bind capability escapes.
         owner.install_listener_native(identity, grant.resource())?;
+        if let Some(receiver) = grant.accepted_task_receiver() {
+            owner.install_accepted_receiver(receiver)?;
+        }
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(declaration) = prepared.resources().get(1) {
             owner.install_icmp_probe(declaration)?;

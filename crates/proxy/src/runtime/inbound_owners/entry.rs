@@ -26,6 +26,7 @@ pub(crate) use observation::consume_reported_error;
 pub(super) use pending_bound::pending_preparation_stopped;
 pub(super) use readiness::readiness_stopped;
 pub(crate) use readiness::InboundReady;
+mod accepted;
 mod driver;
 mod shutdown;
 mod terminal;
@@ -53,6 +54,8 @@ pub(crate) struct InboundOwner {
     resources: Mutex<Vec<Arc<Resource>>>,
     report: Mutex<CloseReport>,
     failure: Mutex<Option<SharedError>>,
+    accepted_receiver: OnceLock<zero_platform_tokio::AcceptedTcpTaskReceiver>,
+    client_failure: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
     driver: OnceLock<TaskId>,
     driver_finished: AtomicBool,
     scope_closed: AtomicBool,
@@ -143,6 +146,8 @@ impl InboundOwner {
             resources: Mutex::new(Vec::new()),
             report: Mutex::new(CloseReport::default()),
             failure: Mutex::new(None),
+            accepted_receiver: OnceLock::new(),
+            client_failure: OnceLock::new(),
             driver: OnceLock::new(),
             driver_finished: AtomicBool::new(false),
             scope_closed: AtomicBool::new(false),
@@ -159,6 +164,7 @@ impl InboundOwner {
             peers: Mutex::new(Vec::new()),
         }
     }
+
     pub(super) fn install_resource(
         &self,
         identity: ComponentInstanceId,
@@ -301,30 +307,6 @@ impl InboundOwner {
         {
             Some(error) => Err(std::io::Error::other(retained(error.clone())).into()),
             None => Ok(()),
-        }
-    }
-    pub(crate) async fn observe_driver(&self) -> Result<(), EngineError> {
-        if self.driver.get().is_none() {
-            return Err(std::io::Error::other("inbound driver was not accepted").into());
-        }
-        let mut scope = self.scope.lock().await;
-        #[cfg(feature = "managed-datagram-runtime")]
-        {
-            self.observe_peer_driver(&mut scope).await
-        }
-        #[cfg(not(feature = "managed-datagram-runtime"))]
-        {
-            while !self.driver_finished.load(Ordering::Acquire) {
-                let exit = scope.next_exit().await.ok_or_else(|| {
-                    std::io::Error::other("listener driver exit remains unobserved")
-                })?;
-                let failed = exit.result.is_err();
-                self.record(exit); // persist the actual ID/source before any next await
-                if failed {
-                    self.stop();
-                }
-            }
-            self.result()
         }
     }
 }

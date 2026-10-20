@@ -14,6 +14,7 @@ pub(crate) struct InboundTerminal {
     closed_io_receipts: usize,
     failure: Option<SharedError>,
     tasks: Box<[InboundTaskFailure]>,
+    client_failure: Option<zero_platform_tokio::contract::scope::TaskJoined>,
     native_bound_failures: Box<[SharedError]>,
 }
 impl InboundTerminal {
@@ -28,6 +29,11 @@ impl InboundTerminal {
     }
     pub(crate) fn native_bound_failures(&self) -> &[SharedError] {
         &self.native_bound_failures
+    }
+    pub(crate) fn client_failure(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoined> {
+        self.client_failure.clone()
     }
     pub(crate) fn task_failures(&self) -> &[InboundTaskFailure] {
         &self.tasks
@@ -52,7 +58,33 @@ impl ClosedInboundReceipt {
     }
 }
 impl InboundOwner {
-    pub(super) fn record(&self, exit: TaskExit) {
+    /// Returns whether this actual exit is a component/listener failure.
+    /// Ordinary accepted Auxiliary rejections have an explicit local receiver.
+    pub(super) fn record(&self, exit: TaskExit) -> bool {
+        // Acknowledge callbacks run before taking host report/resource
+        // locks. The same entry persisted its real TaskJoined before delivery.
+        let accepted = self
+            .accepted_receiver
+            .get()
+            .and_then(|receiver| receiver.observe_joined(exit.id));
+        if let Some(joined) = &accepted {
+            if joined.result().is_err() {
+                self.client_failure.get_or_init(|| joined.clone());
+            }
+        }
+        if accepted
+            .as_ref()
+            .is_some_and(|joined| joined.class() == TaskClass::Auxiliary)
+        {
+            let mut count = self
+                .joined_count
+                .lock()
+                .expect("inbound joined count poisoned");
+            *count = count.saturating_add(1);
+            drop(count);
+            self.ready.wake();
+            return false;
+        }
         let mut report = self.report.lock().expect("inbound close report poisoned");
         let mut joined = self
             .joined_count
@@ -105,11 +137,13 @@ impl InboundOwner {
         if !peer || failed {
             report.exited_tasks.push(exit.id);
         }
+        drop(report);
         self.ready.wake();
         if self.driver.get() == Some(&exit.id) {
             self.driver_finished.store(true, Ordering::Release);
             self.ready.wake();
         }
+        failed
     }
     pub(crate) fn identity(&self) -> ComponentInstanceId {
         self.identity
@@ -233,6 +267,7 @@ impl InboundOwner {
                     );
                     Arc::new(InboundTerminal {
                         native_bound_failures: native_bound_failures.into_boxed_slice(),
+                        client_failure: self.client_failure.get().cloned(),
                         identity: self.identity,
                         observation: self.observation.clone(),
                         joined_tasks: *self

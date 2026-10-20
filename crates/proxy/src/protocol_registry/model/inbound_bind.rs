@@ -43,6 +43,14 @@ impl PreparedInboundBind {
     pub(crate) fn address(&self) -> SocketAddr {
         self.address
     }
+    pub(crate) fn accepted_tcp_limits(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::component::AcceptedTcpLimits> {
+        match self.resources.first() {
+            Some(ResourceDeclaration::TcpListener { accepted, .. }) => *accepted,
+            _ => None,
+        }
+    }
     pub(crate) fn internal_tasks(&self) -> usize {
         self.operation.internal_tasks()
     }

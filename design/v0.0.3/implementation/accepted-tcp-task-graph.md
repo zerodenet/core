@@ -68,3 +68,47 @@ cargo test --locked -p zero-platform-tokio --all-features --lib controlled_liste
 cargo test --locked -p zero-platform-tokio --all-features --lib contract::scope
 cargo clippy --locked -p zero-platform-tokio --all-features --all-targets -- -D warnings
 ```
+
+## Actual host optional path
+
+The canonical TcpListener now has optional explicit AcceptedTcpLimits. All old
+callers pass None; no configuration/FFI field or production numeric default was
+added. The actual pre-bind reservation checks multiplication and addition of the
+child task ceiling before constructing its original Scope. When Some is present,
+its original NativeTcpGrant constructs the same controlled owner with that Scope's
+weak authority and installs the weak task receiver before bind. The general
+HostResources provider lacks this actual handler Scope and explicitly rejects
+Some rather than silently issuing an unbounded accepted view.
+
+The owned listener loop accepts only this controlled view, registers each
+handler in the actual Scope, installs the opaque caller at its first poll, and
+waits for the genuine join plus owning-receiver delivery before driving the same
+native control. Its bounded FuturesUnordered holds wait futures, not new tasks
+or another native table. The registry's persistent entry still owns everything
+if this outer future is cancelled. Real exit delivery retains the first original
+client TaskJoined independently from fatal listener/resource faults. Auxiliary
+client rejection does not stop the listener; critical or unrelated exits retain
+the original fatal semantics. Joined healthy handler IDs do not build history.
+
+The plain-handler regression uses the actual registry reservation, explicit
+canonical cap, NativeTcpGrant, original Scope observer and owned listener loop.
+It sends an invalid real byte, confirms original accepted socket EOF, then sends
+a valid byte on a new connection to the same listener. Shutdown separately
+asserts three real joins, listener/child native receipt counts, exact retained
+client-error Arc/class, no fatal listener failure and actual port rebinding.
+
+Generic protocol dispatch remains conservatively Unaccounted because it may
+create transport/mux users before returning a runtime context. This optional
+path does not declare an arbitrary generic future to be single-task. The audited
+plain fixture supplies an explicit PrimaryOnly selection; every selected
+production transport, multiplexer and other derived user still needs migration
+to the same entry's task authority before its gap can be cleared. This is not
+final production activation, default calibration, or ALL17 qualification.
+
+Additional parent-only focus:
+
+```sh
+cargo test --locked -p zero-proxy --all-features --lib rejected_plain_client_retains_actual_source_without_stopping_same_owned_listener
+cargo test --locked -p zero-proxy --all-features --lib runtime::inbound_owners
+cargo test --locked -p zero-proxy --all-features --lib runtime::listener_loop
+```

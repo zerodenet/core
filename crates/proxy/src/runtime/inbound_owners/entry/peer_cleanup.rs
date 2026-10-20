@@ -19,8 +19,7 @@ impl InboundOwner {
             tokio::select! {
                 exit = scope.next_exit() => {
                     let exit = exit.ok_or_else(|| std::io::Error::other("listener driver exit remains unobserved"))?;
-                    let failed = exit.result.is_err();
-                    self.record(exit); // persist original ID/source before awaiting cleanup
+                    let failed = self.record(exit); // persist original ID/source before awaiting cleanup
                     dirty = true;
                     if failed { self.stop(); }
                 }

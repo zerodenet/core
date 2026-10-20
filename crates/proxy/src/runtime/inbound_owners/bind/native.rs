@@ -49,13 +49,19 @@ impl NativeBindGrant {
         address: std::net::SocketAddr,
         attempts: NonZeroUsize,
         cancel: CancellationToken,
+        registrar: &zero_platform_tokio::contract::scope::TaskRegistrar,
     ) -> Result<Self, ChannelError> {
         match declaration {
-            ResourceDeclaration::TcpListener { .. } => {
-                grant::NativeTcpGrant::new(identity, declaration, address, attempts, cancel)
-                    .map(Arc::new)
-                    .map(Self::Tcp)
-            }
+            ResourceDeclaration::TcpListener { .. } => grant::NativeTcpGrant::new(
+                identity,
+                declaration,
+                address,
+                attempts,
+                cancel,
+                registrar,
+            )
+            .map(Arc::new)
+            .map(Self::Tcp),
             #[cfg(feature = "datagram-route-runtime")]
             ResourceDeclaration::DatagramListener { .. } => {
                 udp::NativeDatagramGrant::new(identity, declaration, address, attempts, cancel)
@@ -67,6 +73,15 @@ impl NativeBindGrant {
                 zero_platform_tokio::contract::Reason::Unsupported,
                 zero_platform_tokio::contract::Impact::Component,
             )),
+        }
+    }
+    pub(super) fn accepted_task_receiver(
+        &self,
+    ) -> Option<zero_platform_tokio::AcceptedTcpTaskReceiver> {
+        match self {
+            Self::Tcp(grant) => grant.accepted_task_receiver(),
+            #[cfg(feature = "datagram-route-runtime")]
+            Self::Datagram(_) => None,
         }
     }
     pub(super) fn resource(&self) -> Box<dyn DynResourceLifecycle> {

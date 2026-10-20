@@ -19,6 +19,7 @@ pub(super) struct NativeTcpGrant {
     native: AsyncMutex<ControlledTcpListenerOwner>,
     cancel: CancellationToken,
     bound: AtomicBool,
+    accepted: Option<zero_platform_tokio::AcceptedTcpTaskReceiver>,
 }
 impl NativeTcpGrant {
     pub(super) fn new(
@@ -27,18 +28,36 @@ impl NativeTcpGrant {
         address: SocketAddr,
         max_bind_attempts: NonZeroUsize,
         cancel: CancellationToken,
+        registrar: &zero_platform_tokio::contract::scope::TaskRegistrar,
     ) -> Result<Self, ChannelError> {
-        Ok(Self {
-            identity,
-            address,
-            native: AsyncMutex::new(ControlledTcpListenerOwner::new(
+        let native = match declaration {
+            ResourceDeclaration::TcpListener {
+                accepted: Some(limits),
+                ..
+            } => ControlledTcpListenerOwner::new_with_accepted_graph(
                 declaration,
                 max_bind_attempts,
                 cancel.clone(),
-            )?),
+                limits.max_sockets,
+                limits.max_tasks_per_socket,
+                registrar,
+            )?,
+            _ => ControlledTcpListenerOwner::new(declaration, max_bind_attempts, cancel.clone())?,
+        };
+        let accepted = native.accepted_task_receiver();
+        Ok(Self {
+            identity,
+            address,
+            native: AsyncMutex::new(native),
+            accepted,
             cancel,
             bound: AtomicBool::new(false),
         })
+    }
+    pub(super) fn accepted_task_receiver(
+        &self,
+    ) -> Option<zero_platform_tokio::AcceptedTcpTaskReceiver> {
+        self.accepted.clone()
     }
     pub(super) fn bind(&self) -> Result<ControlledTcpListener, EngineError> {
         if self.cancel.is_cancelled() {

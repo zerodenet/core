@@ -21,6 +21,17 @@ pub(crate) struct InboundRouteRuntime {
 }
 
 impl InboundRouteRuntime {
+    pub(crate) fn with_accepted_caller(
+        mut self,
+        caller: zero_platform_tokio::AcceptedTcpCaller,
+    ) -> Self {
+        self.tcp_runtime = self.tcp_runtime.with_accepted_caller(caller);
+        self
+    }
+
+    pub(crate) fn accepted_caller(&self) -> Option<zero_platform_tokio::AcceptedTcpCaller> {
+        self.tcp_runtime.accepted_caller()
+    }
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn with_caller_native(
         mut self,
