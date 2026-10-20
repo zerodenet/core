@@ -39,6 +39,7 @@ pub(crate) struct DirectUdpSockets {
     next_socket_id: u64,
     isolated_sessions: HashMap<u64, u64>,
     receive: tokio::sync::Mutex<receive::DirectUdpReceiver>,
+    close: close::NativeCloseLedger,
 }
 
 #[cfg(feature = "udp-runtime")]
@@ -84,6 +85,7 @@ impl DirectUdpSockets {
             next_socket_id: 0,
             isolated_sessions: HashMap::new(),
             receive: tokio::sync::Mutex::new(receive::DirectUdpReceiver::default()),
+            close: close::NativeCloseLedger::default(),
         }
     }
 
@@ -230,3 +232,6 @@ mod response;
 
 #[cfg(feature = "udp-runtime")]
 mod select;
+
+#[cfg(feature = "udp-runtime")]
+mod close;

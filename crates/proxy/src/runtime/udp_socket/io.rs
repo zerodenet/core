@@ -87,7 +87,7 @@ impl DirectUdpSockets {
             .services
             .direct_datagram_selection(target, &policy.dial_policy)?;
         if self.generation != selection.generation() {
-            self.sockets.clear();
+            self.retire_sockets(|_| true);
             self.generation = selection.generation();
         }
         // Compare borrowed identities before materializing a new binding. A

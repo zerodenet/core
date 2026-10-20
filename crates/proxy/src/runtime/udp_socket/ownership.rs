@@ -49,14 +49,14 @@ impl DirectUdpSockets {
     pub(crate) fn refresh_if_stale(&mut self) {
         let generation = self.services.egress_generation();
         if self.generation != generation {
-            self.sockets.clear();
+            self.retire_sockets(|_| true);
             self.generation = generation;
         } else {
             // Keep the policy fence live on every refresh. Socket-owned tables
             // drop their guards without a second global flow-table sweep.
-            self.sockets.retain(|socket| {
-                self.services
-                    .direct_policy_is_current(&socket.binding.policy)
+            let services = self.services.clone();
+            self.retire_sockets(|socket| {
+                !services.direct_policy_is_current(&socket.binding.policy)
             });
         }
         self.reset_receiver_if_empty();
@@ -68,7 +68,7 @@ impl DirectUdpSockets {
             socket.replies.retire_session(session_id);
         }
         self.isolated_sessions.remove(&session_id);
-        self.sockets.retain(|socket| !socket.replies.is_empty());
+        self.retire_sockets(|socket| socket.replies.is_empty());
         self.reset_receiver_if_empty();
     }
 }
