@@ -33,6 +33,9 @@ impl fmt::Debug for MetadataUsersClosedReceipt {
             .finish_non_exhaustive()
     }
 }
+/// The original graph and its unique actual driver-outcome receiver.
+pub type BoundMetadataUsers<O, B> = (MetadataUserGraph<O, B>, DriverExitReceiver<O, B>);
+
 impl MetadataViewClaim {
     /// Consume the original unique claim before any endpoint/driver is built.
     /// A foreign/closed scope returns the unconsumed original capability.
@@ -41,7 +44,7 @@ impl MetadataViewClaim {
         registrar: TaskRegistrar,
         max_drivers: NonZeroUsize,
         max_users: NonZeroUsize,
-    ) -> Result<(MetadataUserGraph<O, B>, DriverExitReceiver<O, B>), Self> {
+    ) -> Result<BoundMetadataUsers<O, B>, Self> {
         if !self.0.scope.matches(&registrar) || !self.0.scope.registration_open() {
             return Err(self);
         }

@@ -13,7 +13,10 @@ fn limits() -> MetadataLimits {
     MetadataLimits {
         main_sockets: bound(1),
         probe_sockets: bound(1),
-        probe_attempts_per_initialization: bound(1),
+        // The pinned Linux helper initializes both GSO and GRO, each with
+        // its real v6/v4 native fallback. Keep the explicit fixture allowance
+        // independent of the one concurrently retained original socket.
+        probe_attempts_per_initialization: bound(4),
         concurrent_send_calls: bound(1),
         write_pollers: bound(1),
     }
