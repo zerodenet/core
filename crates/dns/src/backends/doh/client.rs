@@ -1,6 +1,4 @@
 //! HTTP/2 connection admission and retirement for one DoH backend.
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use zero_platform_tokio::contract::CancellationToken;
 
 use super::*;
 
@@ -26,27 +24,9 @@ impl ConnectionKey {
     }
 }
 
-pub(super) struct ClientState {
-    usable: AtomicBool,
-    pub(super) leases: AtomicUsize,
-    pub(super) cancel: CancellationToken,
-    changed: Arc<tokio::sync::Notify>,
-}
-impl ClientState {
-    pub(super) fn new(changed: Arc<tokio::sync::Notify>) -> Self {
-        Self {
-            usable: AtomicBool::new(true),
-            leases: AtomicUsize::new(0),
-            cancel: CancellationToken::new(),
-            changed,
-        }
-    }
-    pub(super) fn retire(&self) {
-        self.usable.store(false, Ordering::Release);
-        self.cancel.cancel();
-        self.changed.notify_waiters();
-    }
-}
+mod state;
+pub(super) use state::ClientState;
+
 pub(super) struct DohClient {
     key: ConnectionKey,
     sender: h2::client::SendRequest<Bytes>,
@@ -65,24 +45,23 @@ impl ReadyClient {
             .ready()
             .await
             .map_err(io::Error::other)?;
-        if !self.state.usable.load(Ordering::Acquire) {
-            return Err(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "DoH connection retired while waiting for readiness",
-            ));
-        }
+        self.state.ensure_current()?;
         Ok(self)
     }
-    pub(super) fn complete(&mut self) {
+    pub(super) fn complete(&mut self) -> io::Result<()> {
+        self.state.ensure_current()?;
         self.complete = true;
+        Ok(())
     }
 }
 impl Drop for ReadyClient {
     fn drop(&mut self) {
-        if !self.complete {
+        if !self.complete || !self.state.reusable {
             self.state.retire();
         }
-        self.state.leases.fetch_sub(1, Ordering::AcqRel);
+        self.state
+            .leases
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         self.state.changed.notify_waiters();
     }
 }
@@ -93,7 +72,9 @@ impl Drop for DohClient {
 }
 impl DohClient {
     fn lease(&self) -> ReadyClient {
-        self.state.leases.fetch_add(1, Ordering::AcqRel);
+        self.state
+            .leases
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         ReadyClient {
             sender: self.sender.clone(),
             state: self.state.clone(),
@@ -162,67 +143,12 @@ impl DohDnsResolver {
     async fn cached_client(&self, key: &ConnectionKey) -> Option<ReadyClient> {
         let mut clients = self.clients.lock().await;
         let generation = self.egress.generation();
-        clients.retain(|entry| {
-            entry.key.generation == generation && entry.state.usable.load(Ordering::Acquire)
-        });
+        clients.retain(|entry| entry.key.generation == generation && entry.state.is_reusable());
         clients
             .iter()
             .find(|entry| entry.key == *key)
             .map(DohClient::lease)
     }
-
-    async fn connect_client(
-        &self,
-        key: &ConnectionKey,
-        connector: Option<&dyn crate::DnsOutboundConnector>,
-    ) -> io::Result<ReadyClient> {
-        let stream =
-            super::super::connect_tcp(key.addr, &self.egress, key.detour.as_deref(), connector)
-                .await
-                .map_err(|error| {
-                    io::Error::new(error.kind(), DohError::new("DoH connect failed", error))
-                })?;
-        key.ensure_current(&self.egress)?;
-        // The common DNS dial operation logs the actual pre-connect selection;
-        // do not re-probe the route afterwards and misreport a new selection
-        // as the binding of this already-open socket.
-        tracing::debug!(server = %key.addr, outbound = ?key.detour,
-            egress_generation = key.generation, "DoH TCP socket connected");
-
-        let stream = if let Some(tls) = &self.tls {
-            let server_name = rustls::pki_types::ServerName::try_from(self.server_name.clone())
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-            let connector = tokio_rustls::TlsConnector::from(Arc::clone(tls));
-            let tls = connector
-                .connect(server_name, stream)
-                .await
-                .map_err(|error| context_error("DoH TLS failed", error))?;
-            zero_platform_tokio::TcpRelayStream::new(tls)
-        } else {
-            stream
-        };
-        key.ensure_current(&self.egress)?;
-        let (sender, connection): (h2::client::SendRequest<Bytes>, _) =
-            h2::client::handshake(stream)
-                .await
-                .map_err(|error| context_error("DoH HTTP/2 handshake failed", error))?;
-        let mut clients = self.clients.lock().await;
-        key.ensure_current(&self.egress)?;
-        let entry = DohClient {
-            key: key.clone(),
-            sender,
-            state: self.owner.client(),
-        };
-        let client = entry.lease();
-        clients.retain(|entry| {
-            entry.key.addr != key.addr
-                && entry.key.generation == key.generation
-                && entry.state.usable.load(Ordering::Acquire)
-        });
-        // Spawn admission and closing share the actual owner lock. A failed
-        // registration drops this unstarted connection without publishing it.
-        self.owner.spawn(entry.state.clone(), connection)?;
-        clients.push(entry);
-        Ok(client)
-    }
 }
+
+mod connect;

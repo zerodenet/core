@@ -104,8 +104,20 @@ impl DriverOwner {
     pub(super) fn cancellation(&self) -> zero_platform_tokio::contract::CancellationToken {
         self.cancel.clone()
     }
-    pub(super) fn client(&self) -> Arc<ClientState> {
-        Arc::new(ClientState::new(self.changed.clone()))
+    pub(super) fn client(
+        &self,
+        binding: Option<Arc<dyn crate::DnsCarrierBinding>>,
+        direct: bool,
+        egress: zero_platform_tokio::EgressInterfaceControl,
+        generation: u64,
+    ) -> Arc<ClientState> {
+        Arc::new(ClientState::new(
+            self.changed.clone(),
+            binding,
+            direct,
+            egress,
+            generation,
+        ))
     }
     pub(super) fn ensure_open(&self) -> io::Result<()> {
         let mut state = self.state.lock().expect("DoH driver owner poisoned");
@@ -144,9 +156,11 @@ impl DriverOwner {
             ));
         }
         let cancel = client.cancel.clone();
+        let driver_client = client.clone();
         let handle = state.tasks.spawn(async move {
             tokio::select! {biased;
                 _=cancel.cancelled()=>Ok(()),
+                source=driver_client.revoked()=>{driver_client.retire();Err(source)},
                 result=connection=>result.map_err(io::Error::other),
             }
         });

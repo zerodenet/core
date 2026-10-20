@@ -321,6 +321,17 @@ async fn connect_tcp(
     detour: Option<&str>,
     connector: Option<&dyn DnsOutboundConnector>,
 ) -> io::Result<zero_platform_tokio::TcpRelayStream> {
+    connect_tcp_carrier(addr, egress, detour, connector)
+        .await
+        .map(|carrier| carrier.stream)
+}
+
+async fn connect_tcp_carrier(
+    addr: SocketAddr,
+    egress: &zero_platform_tokio::EgressInterfaceControl,
+    detour: Option<&str>,
+    connector: Option<&dyn DnsOutboundConnector>,
+) -> io::Result<crate::DnsOutboundCarrier> {
     if let Some(outbound) = detour {
         let connector = connector.ok_or_else(|| {
             io::Error::new(
@@ -329,7 +340,7 @@ async fn connect_tcp(
             )
         })?;
         return connector
-            .connect_with_context(
+            .connect_carrier_with_context(
                 outbound.to_owned(),
                 addr,
                 DnsConnectContext {
@@ -356,7 +367,10 @@ async fn connect_tcp(
     );
     zero_platform_tokio::TokioSocket::connect_addr_on(addr, interface.as_ref())
         .await
-        .map(zero_platform_tokio::TcpRelayStream::from)
+        .map(|stream| crate::DnsOutboundCarrier {
+            stream: stream.into(),
+            binding: None,
+        })
 }
 
 async fn write_framed<S: tokio::io::AsyncWrite + Unpin>(

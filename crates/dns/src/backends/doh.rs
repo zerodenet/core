@@ -182,7 +182,7 @@ impl DohDnsResolver {
             )));
         }
         let response = read_body(response.into_body()).await?;
-        client.complete();
+        client.complete()?;
         Ok(response)
     }
 

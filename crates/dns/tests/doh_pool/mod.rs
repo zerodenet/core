@@ -10,6 +10,7 @@ use crate::backends::doh::DohDnsResolver;
 use zero_platform_tokio::EgressInterfaceControl;
 
 mod binding;
+mod carrier;
 mod owner;
 
 #[derive(Clone, Copy)]
