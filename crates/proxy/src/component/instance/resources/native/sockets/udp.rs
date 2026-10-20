@@ -111,15 +111,18 @@ impl DatagramGrant {
             }
         }
     }
+    pub(in crate::component) fn revoke(&self) {
+        if let Some(control) = &self.control {
+            control.revoke();
+        }
+    }
     pub(in crate::component) fn shutdown(
         &mut self,
         component: ComponentId,
         address: SocketAddr,
         deadline: Instant,
     ) -> Result<CloseReport, ChannelError> {
-        if let Some(control) = &self.control {
-            control.revoke();
-        }
+        self.revoke();
         let mut report = self.snapshot();
         if Instant::now() < deadline {
             if let Some(control) = &mut self.control {

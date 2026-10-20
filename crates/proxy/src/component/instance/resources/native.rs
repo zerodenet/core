@@ -36,7 +36,9 @@ struct State {
 mod coverage;
 mod evidence;
 mod files;
+mod listener;
 pub(in crate::component) use evidence::HostIoEvidence;
+pub(crate) use listener::HostDatagramListenerOwner;
 mod shutdown;
 mod sockets;
 
