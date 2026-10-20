@@ -45,6 +45,22 @@ impl Options {
         THttp: zero_traits::HttpUpgradeTransportProfile + ?Sized,
         TSplit: zero_traits::SplitHttpTransportProfile + ?Sized,
     {
+        Self::from_options_refs_inner(input, dial, false)
+    }
+
+    pub(super) fn from_options_refs_inner<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
+        input: VlessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc, TH2, THttp, TSplit>,
+        dial: DialPolicy,
+        managed_grpc: bool,
+    ) -> Result<Self, Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+        TH2: zero_traits::H2TransportProfile + ?Sized,
+        THttp: zero_traits::HttpUpgradeTransportProfile + ?Sized,
+        TSplit: zero_traits::SplitHttpTransportProfile + ?Sized,
+    {
         if input.protocol.mux_concurrency.is_some() || input.protocol.xudp_concurrency.is_some() {
             return Err(Error::Unsupported(
                 "VLESS MUX/XUDP requires its shared resource owner",
@@ -102,7 +118,7 @@ impl Options {
         if input.ws.is_some() && input.grpc.is_some() {
             return Err(Error::Config("vless: ws and grpc are mutually exclusive"));
         }
-        if input.grpc.is_some() {
+        if input.grpc.is_some() && !managed_grpc {
             return Err(Error::Unsupported(
                 "VLESS gRPC requires its shared carrier and registered driver owner",
             ));

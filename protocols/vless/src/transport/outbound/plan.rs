@@ -1,3 +1,5 @@
+#[cfg(feature = "reality")]
+mod native_grpc;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 

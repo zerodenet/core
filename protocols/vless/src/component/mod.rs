@@ -1,24 +1,23 @@
 //! Protocol-owned ordinary VLESS Stream roles over a constrained real carrier.
 mod carrier;
+mod connect;
+pub mod grpc;
 pub mod inbound;
 pub(crate) mod navigation;
 mod options;
 pub use options::Options;
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
 use zero_platform_tokio::contract::{
     admission::{SessionAdmission, SessionOwner},
     component::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
         ResourceOwner, RoleKind,
     },
-    context::{with_deadline, ConnectFact, OpenContext},
+    context::{with_deadline, OpenContext},
     lifecycle::{erase_lifecycle, BuildError},
     network::CarrierContext,
     scope::TaskRegistrar,
-    stream::{
-        erase_stream, BoxStream, ConnectRequest, Connected, PeerConfirmation, StreamOutbound,
-    },
+    stream::{erase_stream, BoxStream, ConnectRequest, Connected, StreamOutbound},
     ChannelError, DeliveryState, Reason, Stage,
 };
 use zero_transport::{
@@ -156,7 +155,7 @@ impl StreamOutbound for Outbound {
                 .await
             }
         };
-        let mut io = tokio::select! { biased;
+        let io = tokio::select! { biased;
             _ = self.admission.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
             _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
             result = with_deadline(context.deadline,transport) => result.map_err(|source| self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
@@ -170,55 +169,6 @@ impl StreamOutbound for Outbound {
             }
             error.with_source(source)
         })?;
-        let control = zero_traits::AsyncSocket::transport_bypass_control(&io);
-        if crate::flow::is_vision_flow(self.options.flow) && control.is_none() {
-            let mut error = self.admission.error(
-                session,
-                Stage::Handshake,
-                Reason::Unsupported,
-                DeliveryState::Unknown,
-            );
-            if context.upstream.binding().prefix.is_empty() {
-                error.delivery = DeliveryState::NotSubmitted;
-                error.retry = zero_platform_tokio::contract::RetryClass::BeforeSubmission;
-            }
-            return Err(error.with_source(zero_core::Error::Unsupported(
-                "Vision requires TLS 1.3, REALITY or VLESS Encryption",
-            )));
-        }
-        let submit = async {
-            io.write_all(&bytes).await?;
-            io.flush().await
-        };
-        tokio::select! { biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result = with_deadline(context.deadline,submit) => result.map_err(|source| self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source| self.admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
-        if let Some(observer) = &context.observer {
-            // WebSocket early data can defer the upgrade until write/flush.
-            // Only successful flush proves that the complete carrier is ready.
-            observer.record(session, ConnectFact::CarrierReady);
-            observer.record(session, ConnectFact::RequestSubmitted);
-            observer.protocol_traffic(session, 0, bytes.len() as u64);
-        }
-        // The response is validated when the caller reads, so peers that wait
-        // for application data do not deadlock against an eager response read.
-        let stream = crate::deferred_response::DeferredVlessResponseStream::new(io)
-            .with_connect_observer(session, context.observer);
-        let io: BoxStream = if crate::flow::is_vision_flow(self.options.flow) {
-            Box::pin(crate::vision::VisionStream::with_testseed(
-                stream,
-                self.options.uuid,
-                control,
-                self.options.testseed,
-            ))
-        } else {
-            Box::pin(stream)
-        };
-        Ok(Connected {
-            io,
-            peer_confirmation: PeerConfirmation::Deferred,
-        })
+        connect::submit(&self.options, &self.admission, session, context, io, bytes).await
     }
 }
