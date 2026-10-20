@@ -82,3 +82,30 @@ async fn identity_is_weak_and_never_turns_empty_or_expired_scopes_into_authority
         assert!(!expired.registration_open());
     }
 }
+
+#[tokio::test]
+async fn zero_internal_task_scope_has_explicit_resource_phase_but_never_task_capacity() {
+    let mut owner = TaskScope::suspended_hosted(Handle::current(), None);
+    let registrar = owner.registrar();
+    let identity = registrar.scope_identity();
+    assert!(!identity.resource_open());
+    assert!(!identity.registration_open());
+    owner.enable_registration().unwrap();
+    assert!(identity.resource_open());
+    assert!(!identity.registration_open());
+    assert_eq!(
+        registrar.spawn(TaskClass::Auxiliary, async {
+            panic!("no internal task was declared")
+        }),
+        Err(SpawnError::Capacity)
+    );
+    assert!(identity.matches(&registrar));
+    owner.begin_shutdown();
+    assert!(!identity.resource_open());
+    assert!(!identity.registration_open());
+    assert!(owner.is_drained());
+    drop(registrar);
+    drop(owner);
+    assert!(!identity.resource_open());
+    assert!(identity.0.upgrade().is_none());
+}

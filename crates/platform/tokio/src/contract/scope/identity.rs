@@ -22,6 +22,18 @@ impl TaskScopeIdentity {
     pub fn matches(&self, registrar: &TaskRegistrar) -> bool {
         self.0.ptr_eq(&Arc::downgrade(&registrar.0))
     }
+    /// The original host has enabled this scope and has not closed it. A zero
+    /// internal-task limit still permits an independently declared resource.
+    /// This grants no task capacity, I/O authority, membership or close proof.
+    /// Like registration_open, query outside other owner locks: releasing the
+    /// temporary upgrade may drop the last strong scope owner.
+    pub fn resource_open(&self) -> bool {
+        let Some(owner) = self.0.upgrade() else {
+            return false;
+        };
+        let state = owner.state.lock().expect("scope state poisoned");
+        state.registration_open && !state.closing
+    }
     /// Current registration admission only: started, not closing, and a nonzero
     /// declared task budget. This does not claim available capacity, a joined
     /// task, successful start/Ready, native I/O closure or current host membership.
