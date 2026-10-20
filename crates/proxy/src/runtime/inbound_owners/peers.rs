@@ -86,6 +86,7 @@ impl InboundPeerTasks {
             changed: Notify::new(),
         }
     }
+    #[cfg(test)]
     pub(crate) fn spawn<F, Fut>(
         &self,
         host: &InboundTaskAccess,

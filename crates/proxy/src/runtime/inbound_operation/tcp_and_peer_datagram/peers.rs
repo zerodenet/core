@@ -1,6 +1,7 @@
 //! Bounded peer tasks: reported results close inputs and join actual handles.
 use super::*;
 use crate::runtime::inbound_owners::{InboundPeerTasks, MAX_DATAGRAM_PEERS};
+#[cfg(test)]
 pub(super) async fn run<F, Fut>(
     socket: Arc<UdpSocket>,
     shutdown: tokio::sync::watch::Receiver<bool>,
