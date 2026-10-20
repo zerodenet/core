@@ -16,7 +16,7 @@ fn session(id: SessionId) -> Session {
         Address::Domain("identity.test".into()),
         443,
         Network::Tcp,
-        ProtocolType::new("socks5"),
+        ProtocolType::new("test-auth"),
     )
 }
 fn events(engine: &Engine, kind: &str) -> Vec<zero_api::RawApiEvent> {
@@ -44,7 +44,7 @@ fn minted_identity_is_preserved_through_real_registry_events_and_single_settleme
     let identity = engine.mint_session_identity().unwrap();
     no_business(&engine);
     let mut business = session(identity.id());
-    let mut auth = SessionAuth::new("socks5");
+    let mut auth = SessionAuth::new("test-auth");
     auth.up_bps = Some(123);
     auth.down_bps = Some(456);
     business.apply_auth(auth.clone());
@@ -60,7 +60,7 @@ fn minted_identity_is_preserved_through_real_registry_events_and_single_settleme
     let started = events(&engine, event_type::FLOW_STARTED);
     assert_eq!(started.len(), 1);
     assert_eq!(started[0].payload["flow_id"], identity.id().0.to_string());
-    assert_eq!(started[0].payload["auth"]["scheme"], "socks5");
+    assert_eq!(started[0].payload["auth"]["scheme"], "test-auth");
     assert!(started[0].payload["auth"]["principal_key"].is_null());
     let mut handle = engine.track_session(identity.id().0);
     let completed = handle.finish(SessionOutcome::DirectRelayed).unwrap();
@@ -72,7 +72,7 @@ fn minted_identity_is_preserved_through_real_registry_events_and_single_settleme
     let completed = events(&engine, event_type::FLOW_COMPLETED);
     assert_eq!(completed.len(), 1);
     assert_eq!(completed[0].payload["flow_id"], identity.id().0.to_string());
-    assert_eq!(completed[0].payload["auth"]["scheme"], "socks5");
+    assert_eq!(completed[0].payload["auth"]["scheme"], "test-auth");
 }
 
 #[test]

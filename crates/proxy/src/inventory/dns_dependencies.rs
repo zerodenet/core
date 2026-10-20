@@ -1,11 +1,11 @@
 //! Persistent DNS transports depend on the entire actual selected native path.
-use super::{PreparedTcpCandidateExecution, ProtocolInventory};
+use super::ProtocolInventory;
 use crate::{
     component::{catalog::ComponentPlan, instance::ComponentSlot},
     protocol_registry::OutboundAdapterContext,
 };
 use std::{collections::BTreeSet, sync::Arc};
-use zero_engine::{Engine, EngineRuntimeSnapshot, ResolvedLeafOutbound, ResolvedOutbound};
+use zero_engine::{Engine, EngineRuntimeSnapshot, ResolvedOutbound};
 
 #[derive(PartialEq, Eq)]
 enum Shape {
@@ -86,22 +86,12 @@ impl ProtocolInventory {
         };
         let slots = leaves
             .iter()
-            .map(|leaf| match leaf {
-                ResolvedLeafOutbound::Direct { tag, .. } => components.direct(*tag).ok(),
-                ResolvedLeafOutbound::Block { .. } => None,
-                ResolvedLeafOutbound::Proxy { .. } => {
-                    let candidate = self
-                        .native_tcp_candidate(
-                            OutboundAdapterContext::new(snapshot.config()),
-                            leaf,
-                            Some(components),
-                        )?
-                        .ok()?;
-                    match candidate.execution {
-                        PreparedTcpCandidateExecution::Native(slot) => Some(slot),
-                        _ => None,
-                    }
-                }
+            .map(|leaf| {
+                self.native_tcp_owner(
+                    OutboundAdapterContext::new(snapshot.config()),
+                    leaf,
+                    components,
+                )
             })
             .collect::<Option<Vec<_>>>()?;
         (!slots.is_empty()).then_some(Owners { shape, slots })

@@ -163,12 +163,15 @@ fn dns_detours_cross_the_explicit_proxy_runtime_bridge() {
     let config = read(&workspace_root().join("crates/config/src/model/dns.rs"));
     let validation = read(&workspace_root().join("crates/config/src/validate/dns.rs"));
     let dns = read(&workspace_root().join("crates/dns/src/lib.rs"));
+    let outbound = read(&workspace_root().join("crates/dns/src/outbound.rs"));
     let runtime = read(&workspace_root().join("crates/proxy/src/runtime.rs"));
     let bridge = read(&workspace_root().join("crates/proxy/src/runtime/dns_outbound.rs"));
 
     assert!(config.contains("detour: Option<String>"));
     assert!(validation.contains("validate_node_detour_isolation"));
-    assert!(dns.contains("trait DnsOutboundConnector"));
+    assert!(dns.contains("mod outbound;"));
+    assert!(dns.contains("DnsOutboundConnector"));
+    assert!(outbound.contains("trait DnsOutboundConnector"));
     assert!(runtime.contains("set_outbound_connector"));
     assert!(bridge.contains("dispatch_tcp_outbound"));
     assert!(bridge.contains("Address::Ipv4"));

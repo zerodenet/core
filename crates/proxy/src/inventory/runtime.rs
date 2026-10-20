@@ -106,6 +106,29 @@ mod relay;
 pub(crate) use relay::ClaimedRelayChain;
 
 impl ProtocolInventory {
+    /// Project an engine leaf at the claim boundary. Consumers receive only the
+    /// actual native owner, without inspecting protocol/config leaf variants.
+    pub(in crate::inventory) fn native_tcp_owner(
+        &self,
+        ctx: crate::protocol_registry::OutboundAdapterContext<'_>,
+        leaf: &ResolvedLeafOutbound<'_>,
+        components: &crate::component::catalog::ComponentPlan,
+    ) -> Option<std::sync::Arc<crate::component::instance::ComponentSlot>> {
+        match leaf {
+            ResolvedLeafOutbound::Direct { tag, .. } => components.direct(*tag).ok(),
+            ResolvedLeafOutbound::Block { .. } => None,
+            ResolvedLeafOutbound::Proxy { .. } => {
+                let candidate = self
+                    .native_tcp_candidate(ctx, leaf, Some(components))?
+                    .ok()?;
+                match candidate.execution {
+                    super::PreparedTcpCandidateExecution::Native(slot) => Some(slot),
+                    _ => None,
+                }
+            }
+        }
+    }
+
     pub(in crate::inventory) fn native_tcp_candidate(
         &self,
         ctx: crate::protocol_registry::OutboundAdapterContext<'_>,
