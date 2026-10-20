@@ -143,7 +143,8 @@ impl MetadataOwner {
     pub fn take_report(&mut self) -> MetadataOwnerReport {
         self.gather_report(false)
     }
-    /// The host first stops actual consumers. No task join is asserted here.
+    /// Revoke native I/O and drain its original gate before closing. This is
+    /// native cleanup only: no Quinn user, task join or failure ACK is asserted.
     pub fn close_all(&mut self) -> MetadataOwnerReport {
         self.gather_report(true)
     }
@@ -176,6 +177,24 @@ impl MetadataOwner {
             .take()
             .unwrap_or_else(|| self.probes.owner.close_all())
     }
+    /// None means an actual native call/close lease still owns its gate. No
+    /// receipt is extracted; already completed originals remain in the ledger.
+    pub fn try_close_main(&mut self) -> Option<DatagramOwnerReport> {
+        if let Some(report) = self.pending_main.take() {
+            return Some(report);
+        }
+        for shared in self.views.values() {
+            shared.socket.entry.retired.cancel();
+            shared.pollers.signal();
+        }
+        try_close_owner(&mut self.main)
+    }
+    pub fn try_close_probes(&mut self) -> Option<DatagramOwnerReport> {
+        if let Some(report) = self.pending_probes.take() {
+            return Some(report);
+        }
+        try_close_owner(&mut self.probes.owner)
+    }
     fn gather_report(&mut self, close: bool) -> MetadataOwnerReport {
         if self.pending_main.is_none() {
             let main = if close {
@@ -201,4 +220,11 @@ impl MetadataOwner {
             probes: self.pending_probes.take().expect("installed probe report"),
         }
     }
+}
+
+fn try_close_owner(owner: &mut ControlledDatagramOwner) -> Option<DatagramOwnerReport> {
+    for entry in owner.entries.values() {
+        let _result = entry.try_close()?;
+    }
+    Some(owner.take_report())
 }

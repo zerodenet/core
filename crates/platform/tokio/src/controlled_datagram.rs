@@ -96,6 +96,7 @@ struct Entry {
     // Prepared before the original fd exists; installed before consuming OS
     // registration/close calls, including panic or cancellation of the caller.
     uncertain: Arc<std_io::Error>,
+    close_running: std::sync::atomic::AtomicBool,
     acquisition_failure: Mutex<Option<Arc<std_io::Error>>>,
     packet_failure: Mutex<Option<Arc<std_io::Error>>>,
     wake_relay: Arc<wake_relay::WakeRelay>,
@@ -201,6 +202,7 @@ impl ControlledDatagramOwner {
             id,
             retired: tokio_util::sync::CancellationToken::new(),
             native: Mutex::new(NativeHandleState::Reserved),
+            close_running: std::sync::atomic::AtomicBool::new(false),
             uncertain: Arc::new(std_io::Error::other(
                 "original UDP native operation remains unconfirmed",
             )),
@@ -259,11 +261,29 @@ impl Entry {
     }
     fn close(&self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
         self.retire_io();
+        let _claim =
+            NativeCloseClaim::acquire(&self.close_running).ok_or_else(|| self.uncertain.clone())?;
+        self.close_locked(self.lock())
+    }
+    /// None is an actual in-progress native gate/close lease, never a receipt.
+    fn try_close(&self) -> Option<Result<DatagramCloseReceipt, Arc<std_io::Error>>> {
+        self.retire_io();
+        let _claim = NativeCloseClaim::acquire(&self.close_running)?;
+        let native = match self.native.try_lock() {
+            Ok(native) => native,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        Some(self.close_locked(native))
+    }
+    fn close_locked(
+        &self,
+        mut native: MutexGuard<'_, NativeHandleState>,
+    ) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
         // Detach the original under its state lock, then perform native close
         // and runtime deregistration outside it. Deregistration can drop/wake
         // an externally supplied I/O waker; it may synchronously reenter us.
         let original = {
-            let mut native = self.lock();
             if matches!(&*native, NativeHandleState::Closed) {
                 return Ok(DatagramCloseReceipt { id: self.id });
             }
@@ -286,6 +306,7 @@ impl Entry {
                 NativeHandleState::Unknown(self.uncertain.clone()),
             )
         };
+        drop(native);
         let result = match original {
             NativeHandleState::Raw(socket) => {
                 crate::datagram::native_close(socket).map_err(Arc::new)
@@ -309,5 +330,26 @@ impl Entry {
                 Err(source)
             }
         }
+    }
+}
+
+/// One real native-close operation, including the unlocked OS call. If that
+/// call unwinds, Unknown remains in Entry and the operation lease is released.
+struct NativeCloseClaim<'a>(&'a std::sync::atomic::AtomicBool);
+impl<'a> NativeCloseClaim<'a> {
+    fn acquire(flag: &'a std::sync::atomic::AtomicBool) -> Option<Self> {
+        flag.compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        )
+        .ok()
+        .map(|_| Self(flag))
+    }
+}
+impl Drop for NativeCloseClaim<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
     }
 }

@@ -52,3 +52,47 @@ async fn actual_probe_wake_panic_preserves_preceding_main_native_receipt_for_ret
     assert!(closed.is_complete());
     assert_eq!(owner.take_report().main.confirmed_closed, 0);
 }
+
+#[tokio::test]
+async fn actual_main_native_gate_busy_is_pending_without_refund_or_false_unknown() {
+    let mut owner = MetadataOwner::new(limits()).unwrap();
+    let mut grant = owner.bind(address()).unwrap();
+    let entry = grant.tx.shared.socket.entry.clone();
+    let gate = entry.lock();
+    assert!(owner.try_close_main().is_none());
+    assert!(!entry.close_running.load(Ordering::Acquire));
+    assert!(matches!(&*gate, NativeHandleState::Live(_)));
+    drop(gate);
+    assert_eq!(
+        grant
+            .tx
+            .try_send(&transmit(address(), b"revoked"))
+            .unwrap_err()
+            .kind(),
+        std_io::ErrorKind::NotConnected
+    );
+    assert!(grant.control.set_observer(None).is_err());
+    let report = owner.try_close_main().unwrap();
+    assert_eq!(report.confirmed_closed, 1);
+    assert!(report.is_complete());
+    assert_eq!(owner.try_close_main().unwrap().confirmed_closed, 0);
+}
+
+#[tokio::test]
+async fn actual_probe_native_gate_busy_keeps_original_until_real_close_retry() {
+    let mut owner = MetadataOwner::new(limits()).unwrap();
+    let raw = owner.probes.owner.bind_raw_listener(address()).unwrap();
+    let probe = owner.probes.owner.register_native(raw).unwrap();
+    let gate = probe.entry.lock();
+    assert!(owner.try_close_probes().is_none());
+    assert!(matches!(&*gate, NativeHandleState::Live(_)));
+    drop(gate);
+    assert!(probe.local_addr().is_ok());
+    let report = owner.try_close_probes().unwrap();
+    assert_eq!(report.confirmed_closed, 1);
+    assert!(report.is_complete());
+    assert_eq!(
+        probe.local_addr().unwrap_err().kind(),
+        std_io::ErrorKind::NotConnected
+    );
+}

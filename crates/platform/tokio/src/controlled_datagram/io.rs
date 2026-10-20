@@ -59,7 +59,7 @@ impl ControlledDatagramSocket {
         observer: super::observation::Observer,
     ) -> std_io::Result<super::observation::Observer> {
         match &mut *self.entry.lock() {
-            NativeHandleState::Live(socket) => {
+            NativeHandleState::Live(socket) if !self.entry.retired.is_cancelled() => {
                 Ok(std::mem::replace(&mut socket.observer, observer))
             }
             other => Err(unavailable(other)),
