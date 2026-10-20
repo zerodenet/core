@@ -39,9 +39,15 @@ impl Node {
         // Called synchronously under the persistent owner's pending-slot lock.
         match bound.take().expect("one original bound object") {
             BoundInbound::Tcp(listener) => {
-                let (view, control) = listener.into_controlled(cancel);
-                self.kind = Kind::Tcp(control);
-                drop(view); // only retires admission; control still owns the fd
+                match listener.try_into_controlled(cancel) {
+                    Ok((view, control)) => {
+                        self.kind = Kind::Tcp(control);
+                        drop(view); // only retires admission; control still owns the fd
+                    }
+                    // Another actual owner has its control. Retain this same
+                    // view, never manufacture a second control or a close ACK.
+                    Err(listener) => self.kind = Kind::Raw(Some(BoundInbound::Tcp(listener))),
+                }
             }
             #[cfg(feature = "inbound-listener-group-runtime")]
             BoundInbound::Group(listeners) => {
