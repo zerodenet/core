@@ -9,11 +9,18 @@ pub(super) struct Fixture {
 }
 impl Fixture {
     pub(super) fn new(tls: bool, blocked: bool) -> Self {
+        Self::build(tls, blocked, false)
+    }
+    pub(super) fn anonymous_rates() -> Self {
+        Self::build(false, false, true)
+    }
+    fn build(tls: bool, blocked: bool, anonymous: bool) -> Self {
         support::interop::init_logs("vless=debug");
         let material = tls.then(test_tls_material);
         let mut protocol = serde_json::json!({"type":"vless","users":[{
-            "id":USER_ID,"principal_key":tls.then_some("configured:vless"),
-            "up_bps":65536,"down_bps":32768,"device_limit":2,"quota_remaining_bytes":4096,"policy_revision":7
+            "id":USER_ID,"principal_key":(!anonymous).then_some("configured:vless"),
+            "up_bps":65536,"down_bps":32768,"device_limit":(!anonymous).then_some(2),
+            "quota_remaining_bytes":(!anonymous).then_some(4096),"policy_revision":(!anonymous).then_some(7)
         }]});
         if let Some(tls) = &material {
             protocol["tls"] =

@@ -56,10 +56,7 @@ async fn standard_vless_tcp_uses_one_host_identity_full_auth_and_actual_tls_sni_
             assert_eq!((record.bytes_up, record.bytes_down), (16, 16));
             let auth = record.auth.as_ref().unwrap();
             assert_eq!(auth.scheme, "vless");
-            assert_eq!(
-                auth.principal_key.as_deref(),
-                tls.then_some("configured:vless")
-            );
+            assert_eq!(auth.principal_key.as_deref(), Some("configured:vless"));
             assert_eq!((auth.up_bps, auth.down_bps), (Some(65536), Some(32768)));
             assert_eq!(auth.device_limit, Some(2));
             assert_eq!(auth.quota_remaining_bytes, Some(4096));
@@ -94,6 +91,80 @@ async fn standard_vless_tcp_uses_one_host_identity_full_auth_and_actual_tls_sni_
             }
             fixture.running.shutdown().await.unwrap();
         }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn standard_vless_tcp_anonymous_rates_preserve_one_identity_payload_and_reverse_half_close() {
+    timeout(Duration::from_secs(5), async {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = listener.local_addr().unwrap();
+        let worker = tokio::spawn(async move {
+            let (mut io, _) = listener.accept().await.unwrap();
+            let mut payload = Vec::new();
+            io.read_to_end(&mut payload).await.unwrap();
+            assert_eq!(payload, b"original payload");
+            io.write_all(b"after-half-close").await.unwrap();
+            io.shutdown().await.unwrap();
+        });
+        let fixture = Fixture::anonymous_rates();
+        let before = fixture.probe.engine().mint_session_identity().unwrap();
+        let (mut io, source) = fixture.connect().await;
+        let mut request = vless_request_for_ipv4(USER_ID, [127, 0, 0, 1], target.port());
+        request.extend_from_slice(b"original payload");
+        io.write_all(&request).await.unwrap();
+        io.shutdown().await.unwrap();
+        let mut response = Vec::new();
+        io.read_to_end(&mut response).await.unwrap();
+        assert_eq!(response, b"\x00\x00after-half-close");
+        worker.await.unwrap();
+        wait_for("anonymous VLESS settlement", || {
+            !fixture.probe.completed_sessions().is_empty()
+        })
+        .await;
+        let completed = fixture.probe.completed_sessions();
+        assert_eq!(completed.len(), 1);
+        let record = &completed[0];
+        assert_eq!(record.id, before.id().0 + 1);
+        assert_eq!(
+            fixture
+                .probe
+                .engine()
+                .mint_session_identity()
+                .unwrap()
+                .id()
+                .0,
+            record.id + 1
+        );
+        assert_eq!(record.source_port, Some(source.port()));
+        assert_eq!(record.protocol.as_str(), "vless");
+        assert_eq!(record.sni, None);
+        assert_eq!((record.bytes_up, record.bytes_down), (16, 16));
+        let auth = record.auth.as_ref().unwrap();
+        assert_eq!(auth.scheme, "vless");
+        assert_eq!(auth.principal_key, None);
+        assert_eq!((auth.up_bps, auth.down_bps), (Some(65536), Some(32768)));
+        assert_eq!(auth.device_limit, None);
+        assert_eq!(auth.quota_remaining_bytes, None);
+        assert_eq!(auth.policy_revision, None);
+        let events = fixture
+            .probe
+            .latest(
+                usize::MAX,
+                EventFilter {
+                    event_types: vec![
+                        event_type::FLOW_STARTED.into(),
+                        event_type::FLOW_COMPLETED.into(),
+                    ],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| event.principal_key.is_none()));
+        fixture.running.shutdown().await.unwrap();
     })
     .await
     .unwrap();
