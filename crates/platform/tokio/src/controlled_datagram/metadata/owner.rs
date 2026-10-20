@@ -59,11 +59,10 @@ impl MetadataOwner {
         }
         self.reap();
         // A prior unresolved probe cannot be bypassed by creating a new main.
-        self.probes
-            .check_unknown()
-            .map_err(|source| {
-                self.main.acquisition_error(None, AcquisitionOutcome::KnownNoNative, source)
-            })?;
+        self.probes.check_unknown().map_err(|source| {
+            self.main
+                .acquisition_error(None, AcquisitionOutcome::KnownNoNative, source)
+        })?;
         self.probes.begin();
         let socket = self.main.bind_raw_listener(source)?;
         let setup = {
