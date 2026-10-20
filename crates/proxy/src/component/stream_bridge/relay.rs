@@ -16,7 +16,7 @@ use zero_platform_tokio::contract::{
     context::OpenContext,
     network::{UpstreamBinding, UpstreamTransport},
     stream::ConnectRequest,
-    CancellationToken, Reason,
+    Reason,
 };
 
 pub(crate) async fn connect(
@@ -71,7 +71,7 @@ pub(crate) async fn connect(
         },
         root.clone(),
     );
-    let cancel = CancellationToken::new();
+    let cancel = invocation.cancellation();
     let mut prefix = Vec::with_capacity(prepared.nodes.len());
     for (index, (node, role)) in prepared.nodes.iter().zip(roles).enumerate() {
         let context = OpenContext {

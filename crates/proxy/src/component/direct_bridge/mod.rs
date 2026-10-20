@@ -30,12 +30,21 @@ pub(crate) struct ServiceInvocation {
 
 #[derive(Clone)]
 pub(crate) struct Invocation {
+    pub(crate) admitted: Option<super::business_demand::AdmittedTcpDemand>,
     pub(crate) identity: RequestIdentity,
     pub(crate) deadline: Option<Instant>,
+}
+impl Invocation {
+    pub(crate) fn cancellation(&self) -> CancellationToken {
+        self.admitted
+            .as_ref()
+            .map_or_else(CancellationToken::new, |demand| demand.cancellation())
+    }
 }
 impl From<ServiceInvocation> for Invocation {
     fn from(invocation: ServiceInvocation) -> Self {
         Self {
+            admitted: None,
             identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
                 origin: ServiceOrigin::Runtime,
                 purpose: invocation.purpose,
@@ -81,10 +90,11 @@ pub(crate) async fn connect(
         dial: policy.clone(),
         network_generation: NetworkGeneration(opener.generation()),
     };
+    let cancel = invocation.cancellation();
     let context = OpenContext {
         identity: invocation.identity,
         deadline: invocation.deadline,
-        cancel: CancellationToken::new(),
+        cancel,
         observer: None,
         upstream: UpstreamTransport::new(binding, opener.clone()),
     };

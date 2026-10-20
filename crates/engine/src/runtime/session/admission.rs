@@ -32,6 +32,16 @@ impl Engine {
         admitted.check_issuer(&self.next_session_id, id)
     }
 
+    /// Projection of an already admitted demand, including its cancellation.
+    /// This checks sealed origin/ID only and grants no new live acquisition.
+    pub fn check_admitted_session_origin(
+        &self,
+        admitted: &crate::AdmittedSession,
+        id: zero_core::component::SessionId,
+    ) -> Result<(), EngineError> {
+        admitted.check_origin(&self.next_session_id, id)
+    }
+
     pub(super) fn admit_session(
         &self,
         session: &mut Session,

@@ -119,6 +119,7 @@ impl TcpRuntimeServices {
         }
         if let Some(ingress) = &self.execution.ingress {
             self.execution.invocation = Some(crate::component::direct_bridge::Invocation {
+                admitted: None,
                 identity: zero_platform_tokio::contract::context::RequestIdentity::Business(
                     Arc::new(crate::component::request::facts(session, ingress)),
                 ),
@@ -128,6 +129,32 @@ impl TcpRuntimeServices {
             });
         }
         Ok(self)
+    }
+
+    /// Only the real ingress admission return may bind this invocation. A
+    /// compatibility business projection remains without controlled authority.
+    pub(crate) fn with_admitted_business_identity(
+        self,
+        session: &zero_core::Session,
+        demand: crate::component::business_demand::AdmittedTcpDemand,
+    ) -> Result<Self, zero_engine::EngineError> {
+        demand.check(self.engine(), zero_core::component::SessionId(session.id))?;
+        let mut services = self.with_business_identity(session)?;
+        let invocation = services.execution.invocation.as_mut().ok_or_else(|| {
+            zero_engine::EngineError::AdmissionDenied {
+                reason: "admitted TCP demand requires its real ingress identity".into(),
+            }
+        })?;
+        if !matches!(&invocation.identity,
+            zero_platform_tokio::contract::context::RequestIdentity::Business(facts)
+                if facts.session.0 == session.id)
+        {
+            return Err(zero_engine::EngineError::AdmissionDenied {
+                reason: "admitted TCP demand cannot replace another request identity".into(),
+            });
+        }
+        invocation.admitted = Some(demand);
+        Ok(services)
     }
 
     #[cfg(feature = "udp-runtime")]

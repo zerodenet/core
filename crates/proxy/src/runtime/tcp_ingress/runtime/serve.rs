@@ -88,6 +88,11 @@ impl TcpIngressRuntime {
             );
             return Err(error);
         }
-        TcpPipe::new(self).dispatch(TcpPipeInput { session }).await
+        TcpPipe::new(self)
+            .dispatch(TcpPipeInput {
+                session,
+                admitted: None,
+            })
+            .await
     }
 }

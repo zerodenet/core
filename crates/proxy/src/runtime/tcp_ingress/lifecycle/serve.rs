@@ -81,7 +81,7 @@ pub(crate) async fn serve_with_identity<P: InboundProtocol>(
         runtime.apply_url_rewrite(&mut session);
     }
     runtime.apply_kernel_rate_limits(&mut session);
-    runtime
+    let admission = runtime
         .prepare_session_with_ticket(&mut session, identity)
         .await?;
     let traffic_rate_limiters = runtime.traffic_rate_limiters(&session);
@@ -101,9 +101,14 @@ pub(crate) async fn serve_with_identity<P: InboundProtocol>(
     handle.register_cancellation(move || {
         let _ = cancel_tx.send(());
     });
+    let demand = crate::component::business_demand::AdmittedTcpDemand::new(
+        runtime.runtime_services().engine(),
+        zero_core::component::SessionId(session.id),
+        admission,
+    )?;
     let mut pipe = TcpPipe::new(runtime);
     let dispatch_result = tokio::select! {
-        result = pipe.dispatch(TcpPipeInput { session: &mut session }) => result,
+        result = pipe.dispatch(TcpPipeInput { session: &mut session, admitted: Some(demand) }) => result,
         _ = &mut cancel_rx => {
             let reason = handle.cancellation_reason().unwrap_or_else(|| "cancelled".to_owned());
             let _ = handle.finish_with_reason(SessionOutcome::Cancelled, Some(reason));

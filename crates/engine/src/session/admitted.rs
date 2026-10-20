@@ -109,6 +109,14 @@ impl AdmittedSession {
         issuer: &Arc<AtomicU64>,
         id: SessionId,
     ) -> Result<(), EngineError> {
+        self.check_origin(issuer, id)?;
+        self.check_active()
+    }
+    pub(crate) fn check_origin(
+        &self,
+        issuer: &Arc<AtomicU64>,
+        id: SessionId,
+    ) -> Result<(), EngineError> {
         if !Weak::ptr_eq(&self.issuer, &Arc::downgrade(issuer)) {
             return Err(EngineError::AdmissionDenied {
                 reason: "admission belongs to a different Engine allocator".into(),
@@ -119,7 +127,7 @@ impl AdmittedSession {
                 reason: "admission does not match the request id".into(),
             });
         }
-        self.check_active()
+        Ok(())
     }
 }
 fn expired() -> EngineError {

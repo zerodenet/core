@@ -68,7 +68,7 @@ impl TcpIngressRuntime {
         });
         let mut pipe = TcpPipe::new(self);
         let dispatch = tokio::select! {
-            result = pipe.dispatch(TcpPipeInput { session: &mut session }) => result,
+            result = pipe.dispatch(TcpPipeInput { session: &mut session, admitted: None }) => result,
             _ = &mut cancel_rx => {
                 let reason = handle.cancellation_reason().unwrap_or_else(|| "cancelled".to_owned());
                 let _ = handle.finish_with_reason(SessionOutcome::Cancelled, Some(reason));

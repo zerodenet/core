@@ -166,7 +166,8 @@ async fn tcp_ingress_preserves_selected_packet_route_mode() {
     let trace = runtime.route_trace(&session).await;
     assert_eq!(trace.decision, RouteDecision::Direct);
     assert_eq!(trace.route_mode, RouteMode::Packet);
-    let error = match crate::runtime::tcp_dispatch::dispatch_tcp(&runtime, &mut session).await {
+    let error = match crate::runtime::tcp_dispatch::dispatch_tcp(&runtime, &mut session, None).await
+    {
         Ok(_) => panic!("packet mode cannot silently use direct TCP flow"),
         Err(error) => error,
     };
@@ -371,3 +372,5 @@ fn dns_a_query(domain: &str) -> Vec<u8> {
 #[cfg(all(feature = "managed-stream-runtime", feature = "dns"))]
 #[path = "tests/mux_fake_ip.rs"]
 mod mux_fake_ip;
+
+mod admitted;

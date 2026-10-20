@@ -14,7 +14,7 @@ use zero_platform_tokio::contract::{
     context::OpenContext,
     network::{UpstreamBinding, UpstreamTransport},
     stream::ConnectRequest,
-    CancellationToken, ChannelError, Reason,
+    ChannelError, Reason,
 };
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) mod datagram;
@@ -65,10 +65,11 @@ pub(crate) async fn connect(
         upstream.with_observer(Some(traffic.clone())),
         Destination::new(address, endpoint.1),
     ));
+    let cancel = invocation.cancellation();
     let context = OpenContext {
         identity: invocation.identity,
         deadline: invocation.deadline,
-        cancel: CancellationToken::new(),
+        cancel,
         observer: Some(traffic.clone()),
         upstream: UpstreamTransport::new(
             UpstreamBinding {
