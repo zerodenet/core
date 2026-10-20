@@ -62,6 +62,11 @@ impl Drop for ColdClaim<'_> {
     }
 }
 impl PeerResourceContext {
+    fn cold_failure(&self, failure: ChannelError) -> ChannelError {
+        let failure = Arc::new(failure);
+        self.group.fail(failure.clone());
+        retained(failure)
+    }
     pub(crate) fn ingress(&self) -> RoleInstanceId {
         self.ingress
     }
@@ -107,18 +112,20 @@ impl PeerResourceContext {
             .protocols
             .allocate_resource_identity()
             .map_err(|source| {
-                error(Reason::Internal, "peer resource identity exhausted").with_source(source)
+                self.cold_failure(
+                    error(Reason::Internal, "peer resource identity exhausted").with_source(source),
+                )
             })?;
         let identity = PeerChildIdentity {
             instance,
-            association: self.group.protocols.allocate_peer_association()?,
+            association: self
+                .group
+                .protocols
+                .allocate_peer_association()
+                .map_err(|failure| self.cold_failure(failure))?,
             task,
         };
-        let (owner, result) = build(identity).map_err(|failure| {
-            let failure = Arc::new(failure);
-            self.group.fail(failure.clone());
-            retained(failure)
-        })?;
+        let (owner, result) = build(identity).map_err(|failure| self.cold_failure(failure))?;
         let child = Arc::new(PeerChild {
             identity,
             binding: self.binding.clone(),
