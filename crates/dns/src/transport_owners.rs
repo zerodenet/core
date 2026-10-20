@@ -76,10 +76,10 @@ impl TransportOwners {
                     failure.get_or_insert(source);
                 }
             }
-            return match failure {
+            match failure {
                 Some(source) => Err(source),
                 None => Ok(()),
-            };
+            }
         }
         #[cfg(not(feature = "doq"))]
         {
@@ -135,10 +135,10 @@ impl TransportOwners {
                     failure.get_or_insert(source);
                 }
             }
-            return match failure {
+            match failure {
                 Some(source) => Err(source),
                 None => Ok(()),
-            };
+            }
         }
         #[cfg(not(feature = "doh"))]
         {
