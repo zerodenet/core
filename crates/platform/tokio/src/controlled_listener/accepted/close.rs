@@ -19,11 +19,7 @@ impl Pool {
                 entry: entry.clone(),
             }));
         }
-        let mut guard = match tokio::time::timeout_at(deadline, entry.control.lock()).await {
-            Ok(guard) => guard,
-            Err(_) => return Ok(None),
-        };
-        let Some(control) = guard.as_mut() else {
+        let Some(holder) = entry.control.get() else {
             let state = entry.state();
             return if state.phase == Phase::Waiting {
                 Ok(None)
@@ -35,6 +31,10 @@ impl Pool {
                         .unwrap_or_else(|| entry.uncertain.clone()),
                 ))
             };
+        };
+        let mut control = match tokio::time::timeout_at(deadline, holder.lock()).await {
+            Ok(guard) => guard,
+            Err(_) => return Ok(None),
         };
         // Concrete same original, never a caller's report or string receipt.
         match control.wait_closed(deadline).await {

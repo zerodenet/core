@@ -40,7 +40,10 @@ only that WaitingNoAcquisition reservation may be removed when its future is
 abandoned. It produces no closed_io. Successful returned original moves into
 the same entry's concrete ControlledTcpControl before nodelay, getters, hooks,
 observers or protocol code. The new private from_accepted constructor performs
-only the shared pure assembly with a constant label. Configuration then borrows
+only the shared pure assembly with a constant label. The entry installs the
+unique control through OnceLock before cleanup can borrow its async close gate;
+installation cannot contend on that close gate or strand a returned control on
+the accepting stack. Configuration then borrows
 that same original through the existing synchronous SocketLease, leaving its
 poll/close implementation unchanged. Configuration failure/panic retains the
 installed control for explicit cleanup.

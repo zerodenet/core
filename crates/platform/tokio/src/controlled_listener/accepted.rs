@@ -9,7 +9,7 @@ mod view;
 use super::*;
 use crate::contract::{lifecycle::CloseReport, ChannelError, DeliveryState, Impact, Reason, Stage};
 use crate::{ControlledTcpControl, ControlledTcpStream};
-use std::{collections::BTreeMap, num::NonZeroUsize};
+use std::{collections::BTreeMap, num::NonZeroUsize, sync::OnceLock};
 use tokio::{sync::Mutex as AsyncMutex, time::Instant};
 pub use view::AcceptedTcpStream;
 
@@ -93,7 +93,7 @@ struct Entry {
     id: u64,
     identity: Arc<()>,
     state: Mutex<EntryState>,
-    control: AsyncMutex<Option<ControlledTcpControl>>,
+    control: OnceLock<AsyncMutex<ControlledTcpControl>>,
     uncertain: Arc<ChannelError>,
 }
 struct EntryState {

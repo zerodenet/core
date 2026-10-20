@@ -69,11 +69,11 @@ impl ControlledTcpListener {
                 Poll::Ready(Ok((socket, peer))) => {
                     let (io, control) =
                         ControlledTcpStream::from_accepted(socket, pool.cancel.clone());
-                    *reservation
-                        .entry
-                        .control
-                        .try_lock()
-                        .expect("unpublished accepted control") = Some(control);
+                    let installed_control = reservation.entry.control.set(AsyncMutex::new(control));
+                    assert!(
+                        installed_control.is_ok(),
+                        "one actual accepted control per reservation"
+                    );
                     reservation.entry.state().phase = Phase::Installed;
                     // No original getter, configuration or external code ran
                     // before installing this exact control in the same entry.

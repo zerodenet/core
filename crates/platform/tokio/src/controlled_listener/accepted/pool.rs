@@ -71,7 +71,7 @@ impl Pool {
                 failure: None,
                 unknown: None,
             }),
-            control: AsyncMutex::new(None),
+            control: OnceLock::new(),
             uncertain: Arc::new(uncertain),
         });
         state.entries.insert(id, entry.clone());
