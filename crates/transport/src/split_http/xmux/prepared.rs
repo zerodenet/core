@@ -37,6 +37,33 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     E: hyper::rt::bounds::Http2ClientConnExec<Body, TokioIo<S>> + Unpin + Send + Sync + 'static,
 {
+    let PreparedH2 { sender, driver } =
+        http2_with_body::<S, Body, E>(stream, settings, keepalive, executor).await?;
+    Ok(PreparedConnection {
+        sender: carrier::Sender::Http2(sender),
+        driver,
+    })
+}
+
+pub(in crate::split_http) struct PreparedH2<B> {
+    pub(in crate::split_http) sender: hyper::client::conn::http2::SendRequest<B>,
+    pub(in crate::split_http) driver: Pin<Box<dyn Future<Output = io::Result<()>> + Send>>,
+}
+
+/// The same original Hyper connection, with the caller's typed request body.
+pub(in crate::split_http) async fn http2_with_body<S, B, E>(
+    stream: S,
+    settings: Option<&[u8]>,
+    keepalive: i64,
+    executor: E,
+) -> io::Result<PreparedH2<B>>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    B: hyper::body::Body + Send + Unpin + 'static,
+    B::Data: Send,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    E: hyper::rt::bounds::Http2ClientConnExec<B, TokioIo<S>> + Unpin + Send + Sync + 'static,
+{
     let period = if keepalive == 0 {
         Some(Duration::from_secs(45))
     } else if keepalive > 0 {
@@ -53,11 +80,11 @@ where
         .keep_alive_interval(period)
         .keep_alive_timeout(Duration::from_secs(15))
         .keep_alive_while_idle(true)
-        .handshake::<_, Body>(TokioIo::new(stream))
+        .handshake::<_, B>(TokioIo::new(stream))
         .await
         .map_err(io::Error::other)?;
-    Ok(PreparedConnection {
-        sender: carrier::Sender::Http2(sender),
+    Ok(PreparedH2 {
+        sender,
         driver: Box::pin(async move { driver.await.map_err(io::Error::other) }),
     })
 }
