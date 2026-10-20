@@ -1,5 +1,7 @@
 //! Bidirectional host L3 I/O. The host supplies a dedicated configured device.
+mod driver;
 mod policy;
+mod task;
 use super::{PacketForwardObservation, PreparedPacketRouteOperation};
 use crate::runtime::raw_ip::PacketReturns;
 pub(crate) use policy::PreparedHostPacketOperation;
@@ -8,7 +10,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{mpsc, oneshot, watch},
 };
-use zero_stack::{packet, FragmentReassembler};
+use zero_stack::packet;
 use zero_traits::IoObserver;
 struct Write {
     return_channel: zero_stack::packet_output::PacketSender,
@@ -28,81 +30,64 @@ pub(crate) struct HostPacketDevice {
     writes: mpsc::Sender<Write>,
     returns: Arc<PacketReturns>,
     stop: watch::Sender<bool>,
-    finished: watch::Receiver<bool>,
+    worker: task::DriverTask,
     pub(crate) mtu: usize,
     activate: watch::Sender<bool>,
 }
 impl HostPacketDevice {
+    #[cfg(any(test, target_os = "windows"))]
     pub(crate) fn start<D: zero_tun::TunDevice + 'static>(
         device: D,
         config: zero_config::DirectPacketDeviceConfig,
         mtu: u16,
     ) -> Arc<Self> {
-        let (writes, mut rx) = mpsc::channel::<Write>(128);
-        let returns = Arc::new(PacketReturns::default());
-        let (stop, mut stopped) = watch::channel(false);
-        let (done, finished) = watch::channel(false);
-        let packets = returns.clone();
-        let (activate, mut activated) = watch::channel(false);
-        struct Receipt(watch::Sender<bool>);
-        impl Drop for Receipt {
-            fn drop(&mut self) {
-                self.0.send_replace(true);
-            }
-        }
-        let receipt = Receipt(done);
-        tokio::spawn(async move {
-            let _receipt = receipt;
-            while !*activated.borrow_and_update() {
-                tokio::select! { biased; _ = stopped.changed() => return, result = activated.changed() => { if result.is_err() { return; } } }
-            }
-            let (mut reader, mut writer) = tokio::io::split(device);
-            let mut buffer = vec![0; 65_536];
-            let mut fragments = FragmentReassembler::new();
-            let mut timer = tokio::time::interval(std::time::Duration::from_secs(1));
-            loop {
-                tokio::select! {
-                    _ = stopped.changed() => break,
-                    result = reader.read(&mut buffer) => match result {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => match fragments.process(&buffer[..n], Instant::now()) {
-                            zero_stack::FragmentOutcome::NotFragmented(packet) => { packets.deliver(packet); },
-                            zero_stack::FragmentOutcome::Reassembled(packet) => { let _ = packets.deliver_owned(packet.into()); },
-                            zero_stack::FragmentOutcome::Pending | zero_stack::FragmentOutcome::Rejected(_) => packets.lose_receive_coverage(),
-                        },
-                    },
-                    write = rx.recv() => {
-                        let Some(write) = write else { break; };
-                        if write.return_channel.is_closed() { write.discarded(); let _ = write.ack.send((write.packet, Err(io::Error::new(io::ErrorKind::Interrupted,"packet route closed")))); continue; }
-                        let (result, stopped, discarded) = tokio::select! { biased;
-                            _ = stopped.changed() => (Err(io::Error::new(io::ErrorKind::Interrupted, "host packet device stopped")), true, true),
-                            _ = write.return_channel.closed() => (Err(io::Error::new(io::ErrorKind::Interrupted, "packet route closed")), false, true),
-                            result = writer.write(&write.packet) => {
-                                let result = result.and_then(|n| if n == write.packet.len() { Ok(()) } else { Err(io::Error::new(io::ErrorKind::WriteZero, "partial host packet write")) });
-                                let failed = result.is_err(); (result, failed, false)
-                            },
-                        };
-                        if discarded { write.discarded(); }
-                        else if let Some(observer) = &write.observer { if result.is_ok() { observer.sent(write.packet.len()); } else { observer.error(); } }
-                        let _ = write.ack.send((write.packet, result));
-                        if stopped { break; }
+        Self::start_with_close(device, config, mtu, |_| None)
+    }
 
-                    },
-                    _ = timer.tick() => packets.expire(),
-                }
-            }
-            rx.close();
-            while let Ok(write) = rx.try_recv() {
-                write.discarded();
-                let _ = write.ack.send((
-                    write.packet,
+    pub(crate) fn start_owned<D: zero_tun::OwnedTunDevice + 'static>(
+        device: D,
+        config: zero_config::DirectPacketDeviceConfig,
+        mtu: u16,
+    ) -> Arc<Self> {
+        let identity = device.owned_identity();
+        Self::start_with_close(device, config, mtu, move |device| {
+            let result = device.close_owned().and_then(|receipt| {
+                if receipt.identity().same_owner(&identity) {
+                    Ok(receipt)
+                } else {
                     Err(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "host packet writer stopped",
-                    )),
-                ));
+                        io::ErrorKind::InvalidData,
+                        "host packet close returned a different native owner",
+                    ))
+                }
+            });
+            Some(result.map_err(Arc::new))
+        })
+    }
+
+    fn start_with_close<D, C>(
+        device: D,
+        config: zero_config::DirectPacketDeviceConfig,
+        mtu: u16,
+        close: C,
+    ) -> Arc<Self>
+    where
+        D: zero_tun::TunDevice + 'static,
+        C: FnOnce(D) -> Option<Result<zero_tun::TunCloseReceipt, Arc<io::Error>>> + Send + 'static,
+    {
+        let (writes, rx) = mpsc::channel::<Write>(128);
+        let returns = Arc::new(PacketReturns::default());
+        let (stop, stopped) = watch::channel(false);
+        let (activate, activated) = watch::channel(false);
+        let packets = returns.clone();
+        let worker = task::DriverTask::new(async move {
+            let (device, failure) = driver::run(device, rx, packets, stopped, activated)
+                .await
+                .parts();
+            task::DriverResult {
+                failure,
+                native: close(device),
             }
-            packets.clear();
         });
         Arc::new(Self {
             activate,
@@ -110,7 +95,7 @@ impl HostPacketDevice {
             writes,
             returns,
             stop,
-            finished,
+            worker,
             mtu: usize::from(mtu),
         })
     }
@@ -121,14 +106,12 @@ impl HostPacketDevice {
         self.stop.send_replace(true);
     }
     pub(crate) fn usable(&self) -> bool {
-        *self.activate.borrow() && !*self.finished.borrow() && !*self.stop.borrow()
+        *self.activate.borrow() && !self.worker.is_finished() && !*self.stop.borrow()
     }
+    /// Compatibility waiter: actual join, no inferred native close receipt.
     pub(crate) async fn wait_stopped(&self) {
-        let mut done = self.finished.clone();
-        while !*done.borrow_and_update() {
-            if done.changed().await.is_err() {
-                break;
-            }
+        if let Err(error) = self.worker.join().await {
+            tracing::warn!(%error, "host packet original driver joined with a retained failure");
         }
     }
 }
