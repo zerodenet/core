@@ -58,11 +58,11 @@ struct Live {
     datagram: Option<Arc<dyn DynDatagramOutbound>>,
     started: OnceLock<Result<(), SharedError>>,
     owner: Mutex<Owner>,
+    tasks: Mutex<TaskScope>,
     resources: Arc<HostResources>,
 }
 struct Owner {
     instance: ComponentInstance,
-    tasks: TaskScope,
     pending_close: Option<Box<CloseReport>>,
     protocol_closed: bool,
 }
@@ -248,10 +248,10 @@ impl ComponentSlot {
                     started: OnceLock::new(),
                     owner: Mutex::new(Owner {
                         instance,
-                        tasks,
                         pending_close: None,
                         protocol_closed: false,
                     }),
+                    tasks: Mutex::new(tasks),
                 })
             })
             .await;
@@ -263,16 +263,24 @@ impl ComponentSlot {
                     armed: true,
                 };
                 let started = match live.resources.activate(deadline) {
-                    Ok(_access) => match owner.tasks.enable_registration() {
-                        Ok(()) => tokio::select! {
-                        biased;
-                        _ = self.cancel.cancelled() => Err(self.failure(Reason::Revoked, "component was stopped")),
-                        result = tokio::time::timeout_at(deadline, owner.instance.lifecycle.start(deadline)) => result.unwrap_or_else(|_| Err(self.failure(Reason::Timeout, "component start deadline elapsed"))),
-                            },
-                        Err(source) => Err(self
-                            .failure(Reason::Revoked, "component task registration is closed")
-                            .with_source(source)),
-                    },
+                    Ok(_access) => {
+                        // The installed join owner is independent of the borrowed
+                        // lifecycle. Never hold it across protocol start await.
+                        let registration = {
+                            let mut tasks = live.tasks.lock().await;
+                            tasks.enable_registration()
+                        };
+                        match registration {
+                            Ok(()) => tokio::select! {
+                            biased;
+                            _ = self.cancel.cancelled() => Err(self.failure(Reason::Revoked, "component was stopped")),
+                            result = tokio::time::timeout_at(deadline, owner.instance.lifecycle.start(deadline)) => result.unwrap_or_else(|_| Err(self.failure(Reason::Timeout, "component start deadline elapsed"))),
+                                },
+                            Err(source) => Err(self
+                                .failure(Reason::Revoked, "component task registration is closed")
+                                .with_source(source)),
+                        }
+                    }
                     Err(error) => Err(error),
                 };
                 if started.is_err() {
@@ -303,7 +311,9 @@ impl ComponentSlot {
         match self.live.get() {
             Some(Ok(live)) => {
                 let mut owner = live.owner.lock().await;
-                owner.shutdown(self.id, deadline, &live.resources).await
+                owner
+                    .shutdown(self.id, deadline, &live.resources, &live.tasks)
+                    .await
             }
             Some(Err(_)) | None => Ok(CloseReport::default()),
         }
@@ -312,6 +322,10 @@ impl ComponentSlot {
         self.cancel.cancel();
     }
 }
+
+#[cfg(test)]
+#[path = "tests/lifecycle_scope.rs"]
+mod lifecycle_scope_tests;
 
 fn started(component: ComponentId, live: &Result<Live, SharedError>) -> Result<(), ChannelError> {
     let result = match live {

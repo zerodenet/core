@@ -13,14 +13,17 @@ impl Owner {
         component: ComponentId,
         deadline: Instant,
         resources: &HostResources,
+        tasks: &tokio::sync::Mutex<zero_platform_tokio::contract::scope::TaskScope>,
     ) -> Result<CloseReport, ChannelError> {
         if !self.protocol_closed {
             self.instance.lifecycle.revoke(CloseReason::Shutdown);
         }
-        self.tasks.begin_shutdown();
+        {
+            let mut tasks = tasks.lock().await;
+            tasks.begin_shutdown();
+        }
         let Self {
             instance,
-            tasks,
             pending_close,
             protocol_closed,
         } = self;
@@ -68,6 +71,9 @@ impl Owner {
                 }
             };
             let collect_tasks = async {
+                // This remains the sole production join consumer until the
+                // catalog's hosted supervisor replaces this whole branch.
+                let mut tasks = tasks.lock().await;
                 persist(tasks.shutdown(deadline).await);
             };
             let collect_io = async {
