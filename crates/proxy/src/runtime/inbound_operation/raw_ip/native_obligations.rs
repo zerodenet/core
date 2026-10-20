@@ -41,6 +41,8 @@ struct Record {
     caller: Option<Arc<crate::runtime::inbound_owners::HostPeerBinding>>,
     business_failure: Option<Arc<zero_engine::EngineError>>,
     carrier: Option<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
+    carrier_owner: Option<zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration>,
+    additional_carriers: Vec<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
     carrier_conflict: bool,
 }
 pub(crate) struct NativePermit {
@@ -91,6 +93,8 @@ impl NativeObligations {
                 caller: None,
                 business_failure: None,
                 carrier: None,
+                carrier_owner: None,
+                additional_carriers: Vec::new(),
                 carrier_conflict: false,
             },
         );
