@@ -1,4 +1,6 @@
 //! Catalog-level cold assembly, not production activation or user I/O closure.
+#![cfg(feature = "shadowsocks")]
+
 use super::*;
 use crate::component::ComponentRegistry;
 use std::error::Error;

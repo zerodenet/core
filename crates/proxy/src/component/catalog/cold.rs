@@ -157,6 +157,6 @@ impl ComponentCatalog {
     }
 }
 
-#[cfg(all(test, feature = "shadowsocks"))]
+#[cfg(test)]
 #[path = "../tests/cold_union.rs"]
 mod tests;
