@@ -23,6 +23,12 @@ pub struct CarrierClosed {
     slot: Arc<Slot>,
 }
 impl CarrierAdoption {
+    /// Same original reservation identity; observation grants no native I/O,
+    /// driver registration, transferred-user completion or close permission.
+    pub fn same_slot(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.slot, &other.slot)
+    }
+
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
