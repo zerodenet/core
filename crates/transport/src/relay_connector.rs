@@ -181,7 +181,7 @@ fn interrupted(reason: Reason) -> ChannelError {
 }
 
 fn failure(reason: Reason, message: &'static str) -> RuntimeError {
-    let mut error = ChannelError::new(Stage::Open, reason, Impact::Session)
+    let mut error = ChannelError::new(Stage::Prepare, reason, Impact::Session)
         .with_source(std::io::Error::other(message));
     error.delivery = DeliveryState::NotSubmitted;
     let kind = match reason {
