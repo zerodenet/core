@@ -47,7 +47,7 @@ async fn stop(
 }
 #[tokio::test]
 async fn dropping_packet_udp_requests_exit_but_only_the_original_scope_joins_the_actual_worker() {
-    let mut scope = scope(3); // actual driver + TCP control + one UDP socket worker
+    let mut scope = scope(2); // actual endpoint driver + one UDP worker; no TCP demand
     let graph = EndpointStackOwner::suspended();
     graph.bind_scope(scope.registrar().downgrade()).unwrap();
     let (packets, mut submitted) = mpsc::channel(4);
@@ -69,7 +69,7 @@ async fn dropping_packet_udp_requests_exit_but_only_the_original_scope_joins_the
     )
     .unwrap();
     let witnesses = graph.test_original_witnesses();
-    assert_eq!(witnesses.len(), 3);
+    assert_eq!(witnesses.len(), 2);
     let mut responses = flow.subscribe_responses();
     flow.send(&address(ip(REMOTE)), 443, b"original worker")
         .await
@@ -98,7 +98,7 @@ async fn dropping_packet_udp_requests_exit_but_only_the_original_scope_joins_the
     assert!(!graph.is_drained());
     let report = stop(&graph, &mut scope).await.unwrap();
     assert!(report.is_complete());
-    assert_eq!(report.exited_tasks.len(), 3);
+    assert_eq!(report.exited_tasks.len(), 2);
     assert!(report.closed_io.is_empty());
     assert!(witnesses.iter().all(|witness| witness.is_joined()));
     // Naked logical response receivers still lack transferred-user provenance;
@@ -109,7 +109,7 @@ async fn dropping_packet_udp_requests_exit_but_only_the_original_scope_joins_the
 #[tokio::test]
 async fn actual_udp_worker_capacity_rejection_preserves_the_original_spawn_source_without_fallback()
 {
-    let mut scope = scope(2); // exact original control + driver, no UDP credit
+    let mut scope = scope(1); // sole original endpoint driver; no UDP credit
     let graph = EndpointStackOwner::suspended();
     graph.bind_scope(scope.registrar().downgrade()).unwrap();
     let (packets, _submitted) = mpsc::channel(4);
@@ -131,7 +131,7 @@ async fn actual_udp_worker_capacity_rejection_preserves_the_original_spawn_sourc
         Ok(_) => panic!("UDP worker escaped actual endpoint task capacity"),
         Err(error) => error,
     };
-    assert_eq!(graph.test_original_witnesses().len(), 2);
+    assert_eq!(graph.test_original_witnesses().len(), 1);
     let mut source: &(dyn std::error::Error + 'static) = &error;
     let mut original = None;
     while let Some(next) = source.source() {
