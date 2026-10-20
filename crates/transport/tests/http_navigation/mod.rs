@@ -25,7 +25,7 @@ async fn navigation_uses_owned_connection_headers_referers_and_discovered_paths(
                 .unwrap();
             body.send_data(Bytes::from_static(b"<a href=\"/child\">child</a>"), true)
                 .unwrap();
-            if requests.len() == 3 {
+            if requests.len() == 7 {
                 let _ = done.send(requests);
                 break;
             }
@@ -36,7 +36,7 @@ async fn navigation_uses_owned_connection_headers_referers_and_discovered_paths(
         "nav.test".into(),
         Plan {
             path: "/entry".into(),
-            ranges: [(4, 4), (1, 1), (2, 2), (0, 0), (0, 0)],
+            ranges: [(4, 4), (2, 2), (3, 3), (0, 0), (0, 0)],
         },
     )
     .await;
@@ -44,7 +44,8 @@ async fn navigation_uses_owned_connection_headers_referers_and_discovered_paths(
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(requests.len(), 3);
+    // One first request plus two concurrent workers with three requests each.
+    assert_eq!(requests.len(), 7);
     server.await.unwrap();
     let paths = paths::for_host("nav.test", "/ignored");
     let mut paths = paths.lock().await;
