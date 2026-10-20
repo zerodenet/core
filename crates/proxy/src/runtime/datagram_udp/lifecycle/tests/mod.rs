@@ -69,6 +69,7 @@ async fn datagram_loop_reclaims_idle_upstream_without_new_traffic() {
         // waits for the timer driver to process its millisecond-rounded tick.
         tokio::time::sleep_until(idle_deadline).await;
         assert!(futures_util::poll!(relay.as_mut()).is_pending());
+        fixture.confirm_idle_control(relay.as_mut()).await;
         fixture.assert_idle_closed();
         assert!(futures_util::poll!(relay.as_mut()).is_pending());
         fixture.assert_idle_closed();

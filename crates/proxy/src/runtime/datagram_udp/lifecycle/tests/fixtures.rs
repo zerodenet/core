@@ -1,5 +1,11 @@
 use std::net::Ipv4Addr;
 use std::time::Duration;
+use std::{
+    future::{poll_fn, Future},
+    pin::Pin,
+    sync::atomic::{AtomicBool, Ordering},
+    task::Poll,
+};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -17,7 +23,8 @@ pub(super) struct UpstreamFixture {
     pub(super) runtime: UdpIngressRuntime,
     listener: TcpListener,
     relay: UdpSocket,
-    control: TcpStream,
+    control: tokio::sync::Mutex<Option<TcpStream>>,
+    idle_control_eof: AtomicBool,
     session_id: u64,
 }
 
@@ -53,7 +60,7 @@ impl UpstreamFixture {
         let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
         let mut dispatch = runtime.new_dispatch("idle-test").await.unwrap();
         let packet = inbound_packet();
-        let (sent, control) = tokio::time::timeout(Duration::from_secs(2), async {
+        let (sent, mut control) = tokio::time::timeout(Duration::from_secs(2), async {
             tokio::join!(
                 runtime.dispatch_inbound_packet(&mut dispatch, &packet, None, None),
                 accept_association(&listener, relay_port),
@@ -63,6 +70,9 @@ impl UpstreamFixture {
         .expect("upstream association setup timed out");
         let session_id = sent.expect("send first upstream packet");
         receive_packet(&relay).await;
+        // Establish actual control-read suspension before the idle timer. A
+        // delay or a retained socket alone would not prove pending cleanup.
+        assert_control_pending(&mut control).await;
         assert_eq!(proxy.stats_snapshot().udp_upstream.active_associations, 1);
         (
             Self {
@@ -70,11 +80,51 @@ impl UpstreamFixture {
                 runtime,
                 listener,
                 relay,
-                control,
+                control: tokio::sync::Mutex::new(Some(control)),
+                idle_control_eof: AtomicBool::new(false),
                 session_id,
             },
             dispatch,
         )
+    }
+
+    pub(super) async fn confirm_idle_control<F: Future>(&self, mut relay: Pin<&mut F>) {
+        // The timer has fired under virtual time. Native TCP EOF must progress
+        // with real I/O; auto-advancing a virtual cleanup deadline is no ACK.
+        tokio::time::resume();
+        let mut control = self
+            .control
+            .lock()
+            .await
+            .take()
+            .expect("original server control");
+        let closing = async {
+            assert_eq!(
+                control.read(&mut [0]).await.unwrap(),
+                0,
+                "idle upstream control socket was not released"
+            );
+            drop(control); // The actual server now sends EOF back to the client.
+            self.idle_control_eof.store(true, Ordering::Release);
+        };
+        tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::select! {
+                _ = relay.as_mut() => panic!("idle relay unexpectedly ended before control EOF"),
+                _ = closing => {},
+            }
+            poll_fn(|cx| {
+                assert!(relay.as_mut().poll(cx).is_pending());
+                if self.proxy.stats_snapshot().udp_upstream.idle_timeouts == 1 {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+        })
+        .await
+        .expect("actual idle control/native retirement did not finish");
+        tokio::time::pause();
     }
 
     pub(super) fn assert_idle_closed(&self) {
@@ -86,18 +136,15 @@ impl UpstreamFixture {
         assert_eq!(self.proxy.engine().active_sessions()[0].id, self.session_id);
     }
 
-    pub(super) async fn assert_reestablishes(mut self, mut dispatch: UdpDispatch) {
+    pub(super) async fn assert_reestablishes(self, mut dispatch: UdpDispatch) {
         assert!(dispatch.upstream_association_view().is_none());
         assert!(
             dispatch.poll_refs().2.is_none(),
             "expired deadline remains armed"
         );
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(2), self.control.read(&mut [0]))
-                .await
-                .expect("idle upstream control socket was not released")
-                .unwrap(),
-            0
+        assert!(
+            self.idle_control_eof.load(Ordering::Acquire),
+            "actual original server EOF was not confirmed"
         );
 
         let packet = inbound_packet();
@@ -113,6 +160,7 @@ impl UpstreamFixture {
         .expect("replacement upstream association setup timed out");
         assert_eq!(sent.unwrap(), self.session_id, "tracked UDP flow changed");
         receive_packet(&self.relay).await;
+        assert_control_pending(&mut control).await;
 
         let stats = self.proxy.stats_snapshot().udp_upstream;
         assert_eq!(stats.created_associations, 2);
@@ -137,17 +185,31 @@ impl UpstreamFixture {
         );
         assert!(self.proxy.engine().active_sessions().is_empty());
         assert_eq!(self.proxy.engine().completed_sessions().len(), 1);
+        let retired = self
+            .runtime
+            .services()
+            .packet_path_execution()
+            .tcp()
+            .retired_datagrams();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let (report, ()) = tokio::join!(retired.progress_retired(deadline), async {
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(2), control.read(&mut [0]))
+                    .await
+                    .expect("replacement control socket was not released")
+                    .unwrap(),
+                0
+            );
+            drop(control);
+        },);
+        assert!(
+            report.unwrap().is_complete(),
+            "replacement original native closure remains unconfirmed"
+        );
         let stats = self.proxy.stats_snapshot().udp_upstream;
         assert_eq!(stats.active_associations, 0);
         assert_eq!(stats.idle_timeouts, 1);
         assert_eq!(stats.closed_associations, 1);
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(2), control.read(&mut [0]))
-                .await
-                .expect("replacement control socket was not released")
-                .unwrap(),
-            0
-        );
     }
 }
 
@@ -159,6 +221,20 @@ fn inbound_packet() -> InboundUdpDispatch {
         b"idle-test".to_vec(),
         None,
     )
+}
+
+async fn assert_control_pending(control: &mut TcpStream) {
+    let mut byte = [0];
+    let read = control.read(&mut byte);
+    tokio::pin!(read);
+    poll_fn(|cx| {
+        assert!(
+            read.as_mut().poll(cx).is_pending(),
+            "actual TCP control read must be suspended before retirement"
+        );
+        Poll::Ready(())
+    })
+    .await;
 }
 
 async fn receive_packet(relay: &UdpSocket) {
