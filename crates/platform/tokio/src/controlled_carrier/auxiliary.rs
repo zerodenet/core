@@ -121,6 +121,7 @@ impl CarrierAdoption {
                     .with_source(source)
                 })?;
         }
+        self.slot.state().auxiliary_accepted = true;
         Ok(Some(joined))
     }
     pub fn auxiliary_exit(&self) -> Option<TaskJoined> {

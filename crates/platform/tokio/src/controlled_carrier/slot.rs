@@ -30,6 +30,7 @@ pub(super) struct State {
     pub(super) auxiliary_attempted: bool,
     pub(super) auxiliary: Option<TaskJoinWitness>,
     pub(super) auxiliary_exit: Option<crate::contract::scope::TaskJoined>,
+    pub(super) auxiliary_accepted: bool,
     pub(super) control: Option<Arc<AsyncMutex<ControlledTcpControl>>>,
     pub(super) close_observer: Option<crate::controlled_tcp::ControlledTcpCloseObserver>,
     /// Synchronous preparation acquired/consumed a handle without a control.

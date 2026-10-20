@@ -155,6 +155,27 @@ pub(super) async fn close_slot(
     slot: &Arc<Slot>,
     deadline: Instant,
 ) -> Result<CloseReport, BuildError> {
+    // Cleanup is the persistent local receiver even when the original
+    // request was cancelled before observing its auxiliary result.
+    match timeout_at(
+        deadline,
+        super::CarrierAdoption { slot: slot.clone() }.accept_auxiliary(),
+    )
+    .await
+    {
+        Ok(result) => {
+            result?;
+        }
+        Err(_) => {
+            return Ok(CloseReport {
+                unfinished: vec![Unfinished::Resource(format!(
+                    "{} auxiliary join",
+                    slot.label()
+                ))],
+                ..Default::default()
+            })
+        }
+    }
     let _closing = match timeout_at(deadline, slot.closing.lock()).await {
         Ok(guard) => guard,
         Err(_) => {
@@ -168,7 +189,7 @@ pub(super) async fn close_slot(
         let changed = slot.changed.notified();
         tokio::pin!(changed);
         changed.as_mut().enable();
-        let (waiting, driver, control, unknown, closed) = {
+        let (waiting, driver, control, unknown, closed, auxiliary_pending) = {
             let state = slot.state();
             (
                 state.opening || state.spawning || (state.driver.is_none() && state.view_live),
@@ -176,28 +197,15 @@ pub(super) async fn close_slot(
                 state.control.clone(),
                 state.unknown.clone(),
                 state.closed,
+                state.auxiliary.is_some() && !state.auxiliary_accepted,
             )
         };
-        // Cleanup is the persistent local receiver even when the original
-        // request was cancelled before observing its auxiliary result.
-        match timeout_at(
-            deadline,
-            super::CarrierAdoption { slot: slot.clone() }.accept_auxiliary(),
-        )
-        .await
-        {
-            Ok(result) => {
-                result?;
-            }
-            Err(_) => {
-                return Ok(CloseReport {
-                    unfinished: vec![Unfinished::Resource(format!(
-                        "{} auxiliary join",
-                        slot.label()
-                    ))],
-                    ..Default::default()
-                })
-            }
+        if auxiliary_pending {
+            // A registration reserved before this close acquired its gate.
+            // Local ACK can call arbitrary host wakers, so release the gate
+            // before accepting it. Each slot permits only one such registration.
+            drop(_closing);
+            return Box::pin(close_slot(slot, deadline)).await;
         }
         if closed {
             if !super::users::finish(slot, deadline).await {
