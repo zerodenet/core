@@ -1,4 +1,4 @@
-//! The original registered driver retires only its prebound native listener.
+//! The original driver retires dependencies before its prebound native listener.
 use super::*;
 use futures_util::FutureExt;
 use std::{any::Any, panic::AssertUnwindSafe, sync::Weak};
@@ -65,9 +65,10 @@ impl InboundOwner {
                 if let Ok(Err(source)) = &outcome {
                     retain_failure(&parent, source.clone());
                 }
-                // No new task and no recursive Scope shutdown: only the sole
-                // canonical listener native holder, after its real work ends.
-                let native = close_native(&parent, &resources).await;
+                // Continue in the original task after real work ends. Its
+                // dependencies must finish before the native listener closes;
+                // this never consumes or waits for this task's own Scope join.
+                let native = close_resources(&parent, &resources).await;
                 match outcome {
                     Err(panic) => std::panic::resume_unwind(panic),
                     Ok(Err(source)) => Err(retained(source)),
@@ -96,28 +97,26 @@ fn retain_failure(parent: &Weak<InboundOwner>, source: SharedError) {
     }
 }
 
-async fn close_native(
+async fn close_resources(
     parent: &Weak<InboundOwner>,
     resources: &[Arc<Resource>],
 ) -> Option<SharedError> {
-    // Later-installed resources are actual dependencies of the listener.
-    // Preserve their reverse shutdown order. Do not wait here for a resource
-    // which may need this driver's real join; the external owner drives both.
-    if resources.iter().any(|resource| {
-        !resource.native_on_driver_exit && !resource.stopped.load(Ordering::Acquire)
-    }) {
-        return None;
-    }
     // Existing inbound-owner shutdown grace; this is no protocol Ready budget.
     let deadline = Instant::now() + std::time::Duration::from_secs(5);
     let mut failure = None;
-    for resource in resources
-        .iter()
-        .rev()
-        .filter(|resource| resource.native_on_driver_exit)
-    {
+    for resource in resources.iter().rev() {
         if resource.stopped.load(Ordering::Acquire) {
             continue;
+        }
+        // A dependency requiring this driver's actual Scope join cannot be
+        // completed here. Its bounded failure leaves the native holder intact
+        // for the external consumer, rather than inventing an early close.
+        if resource.native_on_driver_exit
+            && resources.iter().any(|dependency| {
+                !dependency.native_on_driver_exit && !dependency.stopped.load(Ordering::Acquire)
+            })
+        {
+            break;
         }
         let closed = AssertUnwindSafe(async {
             let mut native = resource.owner.lock().await;
@@ -147,8 +146,8 @@ async fn close_native(
             Ok(report) => {
                 let complete = report.is_complete();
                 if let Some(parent) = parent.upgrade() {
-                    // Persist the actual native receipt before marking this one
-                    // resource stopped. This is never driver/user join evidence.
+                    // Persist each actual receipt before marking this one
+                    // resource stopped. This is never our own Scope join.
                     parent
                         .report
                         .lock()
@@ -170,6 +169,11 @@ async fn close_native(
                 let source = resource.exit_fault.get_or_init(|| Arc::new(error)).clone();
                 failure.get_or_insert(source);
             }
+        }
+        if !resource.stopped.load(Ordering::Acquire) {
+            // Preserve reverse dependency order on error, timeout or an
+            // incomplete report; native closure remains independently pending.
+            break;
         }
     }
     failure
