@@ -128,3 +128,28 @@ Its `users_and_drivers_complete` deliberately makes no native-close assertion.
 The existing local-owner `shutdown` rejects hosted native cleanup with
 `Unsupported`; the host must separately retire/close/persist its own originals.
 This interface does not turn missing canonical user proof into coverage.
+
+The optional prepared HTTP/3 adapter consumes one connection from this same
+sealed graph. `prepare_http3` registers the original H3 handshake and lifecycle
+future with the existing registrar and driver ledger, using the distinct
+`Http3` origin and Auxiliary class. A one-shot registration gate prevents the
+first handshake poll before the actual task ID and witness have been retained.
+The original typed H3 terminal Arc remains in both the task failure and body;
+the separate owning receiver still must receive the actual joined result.
+
+H3 sender clones share the same original guarded connection rather than cloning
+a raw Quinn handle. Each actual stream direction keeps its original guard until
+the vendor adapter, including its pending read-chunk future and buffered frame,
+has dropped. Request FIN, response EOF and driver exit do not release a still
+retained request or sender. The two local h3-quinn constructor changes only move
+the original streams into its existing pinned adapters.
+
+The canonical Slot tests exercise real self-signed TLS, H3 POST/body/FIN and a
+remote connection failure, with user release, original driver reception and
+host native close checked separately. They are library fixtures, not production
+activation. Existing `split_http/http3/client.rs` still has its legacy H3 driver
+and upload/response workers; `split_http/xmux/connection.rs` retains its existing
+pooled sender/driver. HY2's authenticated connection, pooled raw streams, UDP
+dispatcher, FinalMask and port-hop workers remain their original graph. Those
+callers require their actual task/user transfers and explicit existing budgets
+before this adapter can replace them without dropping protocol capabilities.

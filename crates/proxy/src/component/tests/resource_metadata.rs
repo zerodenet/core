@@ -284,3 +284,9 @@ mod quic;
 
 #[path = "resource_metadata/confirmation.rs"]
 mod confirmation;
+
+// vless/reality -> its runtime explicitly enables the existing transport
+// split_http/hysteria features; hysteria2 alone currently does not do so.
+#[cfg(all(feature = "vless", feature = "transport_quic"))]
+#[path = "resource_metadata/h3.rs"]
+mod h3;
