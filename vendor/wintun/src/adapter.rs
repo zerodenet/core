@@ -201,15 +201,28 @@ impl Adapter {
         if result.is_null() {
             Err("WintunStartSession failed".into())
         } else {
-            let shutdown_event = unsafe { CreateEventA(None, FALSE, FALSE, PCSTR::null())? };
-            Ok(session::Session {
+            // Install the original native session before fallible event setup.
+            // Failure must explicitly end it, rather than lose the only handle.
+            let mut provisional = session::Session {
                 session: UnsafeHandle(result),
                 identity: session::SessionIdentity::new(result as usize),
                 wintun: self.wintun.clone(),
                 read_event: OnceLock::new(),
-                shutdown_event,
+                shutdown_event: Default::default(),
                 adapter: Arc::clone(self),
-            })
+            };
+            match unsafe { CreateEventA(None, FALSE, FALSE, PCSTR::null()) } {
+                Ok(event) => {
+                    provisional.shutdown_event = event;
+                    Ok(provisional)
+                }
+                Err(source) => {
+                    let ended = provisional.end_original();
+                    Err(Error::Io(std::io::Error::other(
+                        session::SessionStartError::new(ended, source),
+                    )))
+                }
+            }
         }
     }
 

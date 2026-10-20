@@ -17,10 +17,14 @@ Callers must stop every packet user and join the original receive thread before
 consuming the unique Session. A receipt is not a task/thread join, adapter close,
 acquisition-failure classification, or permission to start a replacement.
 
-The existing `Adapter::start_session` acquisition gap is **not fixed here**:
-CreateEventA can fail after WintunStartSession, before Session is returned. A
-future persistent acquisition owner must install the original provisional Session
-before event creation/other fallible setup; its failure cannot be called NoAcquire.
+`Adapter::start_session` now installs the original provisional Session immediately
+following a successful WintunStartSession. If CreateEventA fails, it explicitly
+ends that same original before returning the original typed Windows error together
+with the sealed EndSessionReceipt (inside `Error::Io`, downcastable as `SessionStartError`). No event was
+acquired on this branch. This is an acquired-and-ended session, never NoAcquire;
+Drop sees the consumed native handle and cannot end it twice. This failure branch
+has not yet been exercised on native Windows. Cross-compilation alone cannot
+qualify the actual Windows API behavior.
 The Zero existing-Wintun backend is not yet switched to the new close method.
 
 Integration changes the resolved package source from registry to this path, with

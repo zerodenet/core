@@ -98,7 +98,7 @@ pub use crate::{
     error::{Error, OutOfRangeData, Result},
     log::{default_logger, reset_logger, set_logger},
     packet::Packet,
-    session::{EndSessionReceipt, Session, SessionCloseError, SessionIdentity},
+    session::{EndSessionReceipt, Session, SessionCloseError, SessionIdentity, SessionStartError},
     util::{format_message, get_active_network_interface_gateways, run_command},
 };
 pub use windows::Win32::{Foundation::HANDLE, NetworkManagement::Ndis::NET_LUID_LH};

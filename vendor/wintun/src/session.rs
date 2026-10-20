@@ -62,6 +62,35 @@ impl EndSessionReceipt {
         &self.identity
     }
 }
+/// Event setup failed after the original native session was acquired and
+/// explicitly ended. This is neither NoAcquire nor a user/thread close proof.
+#[derive(Debug)]
+pub struct SessionStartError {
+    ended: EndSessionReceipt,
+    source: windows::core::Error,
+}
+impl SessionStartError {
+    pub(crate) fn new(ended: EndSessionReceipt, source: windows::core::Error) -> Self {
+        Self { ended, source }
+    }
+    pub fn ended(&self) -> &EndSessionReceipt {
+        &self.ended
+    }
+}
+impl std::fmt::Display for SessionStartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "shutdown event setup failed after ending the acquired session: {}",
+            self.source
+        )
+    }
+}
+impl std::error::Error for SessionStartError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
 /// The session ended, but closure of its original shutdown event is unconfirmed.
 #[derive(Debug)]
 pub struct SessionCloseError {
@@ -88,22 +117,25 @@ impl std::error::Error for SessionCloseError {
         Some(&self.source)
     }
 }
-
 impl Session {
     pub fn owned_identity(&self) -> SessionIdentity {
         self.identity.clone()
     }
 
-    /// Consume the unique actual Session after every user and receive thread
-    /// has stopped. No Arc::from_raw, inferred layout or Drop proof is used.
-    pub fn close_owned(mut self) -> Result<EndSessionReceipt, SessionCloseError> {
+    pub(crate) fn end_original(&mut self) -> EndSessionReceipt {
         // The identity was installed on this exact original StartSession result.
         assert_eq!(self.identity.0.native, self.session.0 as usize);
         let native = std::mem::replace(&mut self.session.0, ptr::null_mut());
         unsafe { self.wintun.WintunEndSession(native) };
-        let ended = EndSessionReceipt {
+        EndSessionReceipt {
             identity: self.identity.clone(),
-        };
+        }
+    }
+
+    /// Consume the unique actual Session after every user and receive thread
+    /// has stopped. No Arc::from_raw, inferred layout or Drop proof is used.
+    pub fn close_owned(mut self) -> Result<EndSessionReceipt, SessionCloseError> {
+        let ended = self.end_original();
         // A consuming OS operation must not be retried on an ambiguous/reused
         // event handle. Drop sees zero even when the actual close failed.
         let event = std::mem::replace(&mut self.shutdown_event, HANDLE::default());
