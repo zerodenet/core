@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use tokio::net::TcpSocket;
 mod dial;
+mod packet_selection;
 mod route_probe;
 use route_probe::route_source_for;
 
@@ -370,65 +371,20 @@ impl EgressInterfaceControl {
         Ok(selection.interface)
     }
 
+    fn selection_snapshot(&self, peer: SocketAddr) -> (EgressSelectionSnapshot, Vec<IpAddr>) {
+        let interfaces = self.0.read().expect("egress interface lock poisoned");
+        (
+            EgressSelectionSnapshot::capture(&interfaces, peer),
+            interfaces.tunnel_addresses.clone(),
+        )
+    }
+
     pub fn select_for_peer(&self, peer: SocketAddr) -> EgressSelection {
-        let (snapshot, tunnel_addresses) = {
-            let interfaces = self.0.read().expect("egress interface lock poisoned");
-            let (configured_interface, unavailable_reason) = if peer.is_ipv6() {
-                (
-                    interfaces.ipv6.clone(),
-                    interfaces.ipv6_unavailable_reason.clone(),
-                )
-            } else {
-                (
-                    interfaces.ipv4.clone(),
-                    interfaces.ipv4_unavailable_reason.clone(),
-                )
-            };
-            (
-                EgressSelectionSnapshot {
-                    configured_interface,
-                    generation: interfaces.generation,
-                    tun_active: !interfaces.tunnel_addresses.is_empty(),
-                    unavailable_reason,
-                },
-                interfaces.tunnel_addresses.clone(),
-            )
-        };
-        if peer.ip().is_loopback() {
-            return EgressSelection::from_snapshot(
-                &snapshot,
-                None,
-                None,
-                EgressRouteLookupStatus::Skipped,
-                None,
-                EgressBindingReason::Loopback,
-            );
+        let (snapshot, tunnel_addresses) = self.selection_snapshot(peer);
+        if let Some(selection) = packet_selection::without_probe(&snapshot, peer) {
+            return selection;
         }
         let physical = snapshot.configured_interface.clone();
-        // A wildcard address is used as a family marker when creating a
-        // reusable UDP socket; it is not a routable peer. Probing it makes
-        // Windows and Linux report loopback as the route source, which can be
-        // mistaken for an active TUN capture route. Preserve fail-closed
-        // behavior once TUN addresses have actually been published, while a
-        // normal runtime with no TUN state remains connectable.
-        if peer.ip().is_unspecified() {
-            let (interface, binding_reason) = match (physical, tunnel_addresses.is_empty()) {
-                (None, true) => (None, EgressBindingReason::NoConfiguredInterface),
-                (None, false) => (None, EgressBindingReason::TunEgressUnavailable),
-                (Some(physical), true) => {
-                    (Some(physical), EgressBindingReason::TunAddressesUnavailable)
-                }
-                (Some(physical), false) => (Some(physical), EgressBindingReason::TunRoute),
-            };
-            return EgressSelection::from_snapshot(
-                &snapshot,
-                interface,
-                None,
-                EgressRouteLookupStatus::Skipped,
-                None,
-                binding_reason,
-            );
-        }
         let no_physical_interface = physical.is_none();
         if no_physical_interface && tunnel_addresses.is_empty() {
             let (route_source, route_lookup_status, route_lookup_error) =
@@ -452,16 +408,6 @@ impl EgressInterfaceControl {
                 // already been withdrawn. Only explicit published TUN state
                 // may require a physical egress.
                 EgressBindingReason::NoConfiguredInterface,
-            );
-        }
-        if tunnel_addresses.is_empty() {
-            return EgressSelection::from_snapshot(
-                &snapshot,
-                Some(physical.expect("physical egress checked above")),
-                None,
-                EgressRouteLookupStatus::Skipped,
-                None,
-                EgressBindingReason::TunAddressesUnavailable,
             );
         }
         let (route_source, route_lookup_status, route_lookup_error) = match route_source_for(peer) {

@@ -2,7 +2,11 @@
 use std::{future::poll_fn, io, net::SocketAddr, sync::Arc};
 use tokio::net::UdpSocket;
 use zero_traits::PacketSocketIo;
-mod ancillary;
+pub(crate) mod ancillary;
+mod receiver;
+pub use receiver::PacketSocketReceiver;
+mod failure;
+pub use failure::PacketScopeRestoreFailure;
 mod sender;
 pub use sender::PacketSocketSender;
 #[derive(Clone)]

@@ -12,7 +12,9 @@ use std::io;
 mod icmp;
 mod packet_socket;
 pub use icmp::IcmpSocket;
-pub use packet_socket::{PacketSocket, PacketSocketSender};
+pub use packet_socket::{
+    PacketScopeRestoreFailure, PacketSocket, PacketSocketReceiver, PacketSocketSender,
+};
 
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;

@@ -91,6 +91,7 @@ struct Entry {
     // registration/close calls, including panic or cancellation of the caller.
     uncertain: Arc<std_io::Error>,
     acquisition_failure: Mutex<Option<Arc<std_io::Error>>>,
+    packet_failure: Mutex<Option<Arc<std_io::Error>>>,
 }
 enum NativeHandleState {
     Reserved,
@@ -198,6 +199,7 @@ impl ControlledDatagramOwner {
                 "original UDP native operation remains unconfirmed",
             )),
             acquisition_failure: Mutex::new(None),
+            packet_failure: Mutex::new(None),
         });
         self.entries.insert(id, entry.clone());
         self.next = next;

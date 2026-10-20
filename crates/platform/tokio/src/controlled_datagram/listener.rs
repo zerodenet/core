@@ -4,6 +4,7 @@ use super::*;
 use std::{future::poll_fn, net::SocketAddr};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
+mod packet;
 #[cfg(test)]
 mod tests;
 
@@ -19,7 +20,22 @@ impl Shared {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+    fn packet_failure(&self) -> Option<Arc<std_io::Error>> {
+        self.socket
+            .entry
+            .packet_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+    fn cancelled(&self) -> std_io::Error {
+        self.packet_failure()
+            .map_or_else(revoked, std_io::Error::other)
+    }
     fn check(&self, retired: bool) -> std_io::Result<()> {
+        if let Some(source) = self.packet_failure() {
+            return Err(std_io::Error::other(source));
+        }
         if retired || self.socket.entry.retired.is_cancelled() {
             Err(revoked())
         } else {
@@ -100,7 +116,7 @@ impl ControlledDatagramListenerRx {
         let shared = &self.shared;
         tokio::select! {
             biased;
-            _ = shared.socket.entry.retired.cancelled() => Err(revoked()),
+            _ = shared.socket.entry.retired.cancelled() => Err(shared.cancelled()),
             result = poll_fn(|cx| {
                 let retired = shared.lock();
                 if let Err(error) = shared.check(*retired) {
@@ -126,7 +142,7 @@ impl ControlledDatagramListenerTx {
         })?;
         tokio::select! {
             biased;
-            _ = shared.socket.entry.retired.cancelled() => Err(revoked()),
+            _ = shared.socket.entry.retired.cancelled() => Err(shared.cancelled()),
             result = async {
                 // Tokio UDP stores one writer waker. Keep only one actual
                 // native send poll active; waiting clones own bounded permits.
@@ -143,6 +159,11 @@ impl ControlledDatagramListenerTx {
     }
 }
 impl ControlledDatagramListenerControl {
+    /// A persistent packet-policy restoration fault is separate from native
+    /// close confirmation. Closing the original does not erase this source.
+    pub fn packet_failure(&self) -> Option<Arc<std_io::Error>> {
+        self.shared.packet_failure()
+    }
     pub fn reservation(&self) -> DatagramReservationId {
         self.shared.socket.reservation()
     }
