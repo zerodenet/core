@@ -155,3 +155,6 @@ async fn duplicate_reload_wakeup_preserves_dns_prepared_for_transaction_commit()
 }
 
 mod lifecycle;
+
+#[cfg(feature = "managed-datagram-runtime")]
+mod inbound_recovery;

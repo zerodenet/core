@@ -1,6 +1,13 @@
 # 控制面兼容性与破坏性变更
 
-## Unreleased: Native Stream component integration
+## Unreleased
+
+### 入站故障的物理关闭与恢复
+
+入站故障不再把已完成的实际任务 join 和原生资源关闭永久视为未确认。宿主保留原实例的任务 ID、类别与原始错误，只有实际物理关闭证明完成、错误同步交付监督及已有 endpoint 健康记录后，才消费该实例收据并允许新一代替换；取消或交付失败保留原 owner 和同一收据供重试。候选替换遇到旧实例故障仍被拒绝，现有补偿路径从最后成功配置重新建立实例。未确认或 Unknown 的资源继续阻止替换。
+
+此项影响配置更新、停止及内部 listener 监督，无配置字段或 API wire 标识变化，无 GUI/SDK 迁移步骤。普通 Direct listener 没有新增 endpoint 状态模型；候选 listener 的 Ready ACK 仍是后续独立问题。回归位于 `runtime/inbound_owners/entry/tests/peer_resource/recovery.rs`（真实任务 panic、UDP close、取消、交付失败与重放）及 `runtime/orchestration/tests/inbound_recovery.rs`（真实 listener/UDP 流量与最后成功配置恢复）。
+: Native Stream component integration
 
 - Rust `InboundCarrierPlan` now supplies `owner() -> Box<dyn DynResourceLifecycle>` sharing the actual protocol state; the host must retain and start that owner before activation. Dropping activation/completion is no cleanup confirmation. SS inbound plugin activation installs its real Child before readiness can suspend; cancellation requests termination while the separate owner retains the Child for deadline-bound reaping. The report covers the direct child only. Native process grants, socket/task joins and host replacement require their actual host integration; V1 configuration/API and FFI ABI are unchanged.
 - UDP peer 资源关闭（开发期宿主接线）：原有每 listener 4096 个 peer 名额现在覆盖准备、活动及退役阶段；首切每个真实 peer 最多登记一个冷态子资源，不增加任务或 socket 默认额度。宿主独立分配资源 ID 和 association ID，在资源 start 首次 await 前持久保存 owner。原 Scope 的真实 TaskExit 与原生资源明确关闭均确认后才回收名额；取消清理等待仍保留同 owner，Unknown/原始故障阻止新增。未支持的动态 grant/路由继续保留原明确边界，本条不宣称所有 UDP/RuntimeHost M4 已迁移。wire/config 无变化，GUI/SDK 无迁移；回归见 `runtime/inbound_owners/entry/tests/peer_resource.rs`。
