@@ -10,6 +10,9 @@ impl AcceptedTcpTaskReceiver {
     pub(super) fn new(pool: &Arc<Pool>) -> Self {
         Self(Arc::downgrade(pool))
     }
+    pub fn limit(&self) -> Option<NonZeroUsize> {
+        self.0.upgrade().map(|pool| pool.limit)
+    }
     /// Call from the actual Scope exit consumer, outside all host locks. The ID
     /// selects an existing entry's witness; only that witness's actual joined
     /// receipt can be returned. A body exit or an arbitrary ID is insufficient.
@@ -41,12 +44,6 @@ impl AcceptedTcpTaskReceiver {
     }
 }
 impl Users {
-    pub(super) fn reap_joined(&self) {
-        let ids: Vec<_> = self.state().tasks.keys().copied().collect();
-        for id in ids {
-            self.consume_joined(id);
-        }
-    }
     pub(super) fn consume_joined(&self, id: TaskId) -> Option<TaskJoined> {
         let node = self.state().tasks.get(&id).cloned()?;
         // The actual Scope, never this graph, consumes the native task exit.

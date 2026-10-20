@@ -25,7 +25,7 @@ async fn derived_original_scope_join_and_escaped_byte_view_are_independent_oblig
         let child = receive.await.unwrap();
         let child_id = child.current_task().unwrap().0;
         assert_ne!(child_id, primary);
-        let exit = scope.next_exit().await.unwrap();
+        let exit = observe_exit(&mut scope, &owner).await;
         assert_eq!(exit.id, primary);
         assert!(primary_join.is_joined());
         assert!(owner
@@ -39,7 +39,7 @@ async fn derived_original_scope_join_and_escaped_byte_view_are_independent_oblig
             peer.try_read(&mut [0]).unwrap_err().kind(),
             io::ErrorKind::WouldBlock
         );
-        let exit = scope.next_exit().await.unwrap();
+        let exit = observe_exit(&mut scope, &owner).await;
         assert_eq!(exit.id, child_id);
         assert!(owner
             .close_accepted_graph(&claim, deadline())
@@ -90,7 +90,7 @@ async fn foreign_scope_and_explicit_task_ceiling_reject_without_forging_task_acc
         )
         .unwrap();
     assert_eq!(receive.await.unwrap(), Reason::Capacity);
-    scope.next_exit().await.unwrap();
+    observe_exit(&mut scope, &owner).await;
     assert!(owner
         .close_accepted_graph(&claim, deadline())
         .await

@@ -22,6 +22,13 @@ impl AcceptedTcpTasks {
     }
 }
 impl AcceptedTcpCaller {
+    /// A selected legacy transport or detached user cannot inherit closure of
+    /// this primary task. This only retains a gap, never broadens authority.
+    pub fn mark_unaccounted(&self) {
+        if let Some(users) = self.users.upgrade() {
+            users.mark_unaccounted();
+        }
+    }
     /// Metadata from the original scope; it does not authorize an outbound scope.
     pub fn scope_identity(&self) -> TaskScopeIdentity {
         self.scope.clone()

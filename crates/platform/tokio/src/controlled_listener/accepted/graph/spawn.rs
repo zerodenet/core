@@ -41,7 +41,6 @@ impl Users {
                 "accepted scope admission is closed",
             ));
         }
-        self.reap_joined();
         {
             let mut state = self.state();
             if state.sealed || state.unaccounted || (primary && state.primary) {

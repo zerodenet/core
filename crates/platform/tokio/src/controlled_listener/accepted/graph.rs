@@ -118,11 +118,7 @@ impl Users {
         if unaccounted {
             return AcceptedTcpUsers::Unaccounted;
         }
-        if !sealed
-            || pending
-            || self.view_live.load(Ordering::Acquire)
-            || tasks.iter().any(|task| !task.is_joined())
-        {
+        if !sealed || pending || self.view_live.load(Ordering::Acquire) || !tasks.is_empty() {
             AcceptedTcpUsers::Pending
         } else {
             AcceptedTcpUsers::Confirmed
@@ -141,17 +137,21 @@ impl Users {
             .map(|node| node.witness.clone())
             .collect();
         for task in tasks {
-            let Ok(joined) = tokio::time::timeout_at(deadline, task.wait()).await else {
+            if tokio::time::timeout_at(deadline, task.wait())
+                .await
+                .is_err()
+            {
                 return false;
-            };
-            self.consume_joined(joined.id());
+            }
         }
         loop {
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
             let state = self.state();
-            let ready = state.spawning == 0 && !self.view_live.load(Ordering::Acquire);
+            let ready = state.spawning == 0
+                && state.tasks.is_empty()
+                && !self.view_live.load(Ordering::Acquire);
             drop(state);
             if ready {
                 return self.complete();

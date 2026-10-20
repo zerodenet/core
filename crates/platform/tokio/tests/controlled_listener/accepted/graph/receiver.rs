@@ -121,7 +121,7 @@ async fn same_connection_reuses_its_finite_derived_task_slots_after_real_join() 
             .unwrap()
             .is_none());
         assert!(caller.check_open().is_err());
-        scope.next_exit().await.unwrap();
+        observe_exit(&mut scope, &owner).await;
         assert!(primary.is_joined() && caller_witness.is_joined());
         assert!(owner
             .close_accepted_graph(&claim, deadline())
@@ -162,6 +162,23 @@ async fn joined_caller_is_rejected_before_graph_receiver_reaps_its_node() {
     assert!(caller.scope_identity().registration_open());
     assert!(caller.check_open().is_err());
     assert_eq!(owner.accepted_evidence().unwrap().retained, 1);
+    assert!(
+        owner
+            .close_accepted_graph(&claim, Instant::now() + Duration::from_millis(10))
+            .await
+            .unwrap()
+            .is_none(),
+        "real join cannot steal the owning receiver's pending delivery"
+    );
+    assert_eq!(
+        listener.accept_owned().await.err().unwrap().reason,
+        Reason::Capacity
+    );
+    assert!(owner
+        .accepted_task_receiver()
+        .unwrap()
+        .observe_joined(id)
+        .is_some());
     assert_eq!(
         peer.try_read(&mut [0]).unwrap_err().kind(),
         io::ErrorKind::WouldBlock

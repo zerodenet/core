@@ -85,7 +85,7 @@ async fn real_pending_handler_body_exit_is_not_scope_join_or_original_native_clo
             peer.try_read(&mut [0]).unwrap_err().kind(),
             io::ErrorKind::WouldBlock
         );
-        let actual = scope.next_exit().await.unwrap();
+        let actual = observe_exit(&mut scope, &owner).await;
         assert_eq!(actual.id, id);
         assert!(actual.result.is_ok());
         assert!(witness.is_joined());
@@ -138,7 +138,7 @@ async fn actual_healthy_graph_reuses_one_slot_for_sixty_five_real_connections() 
             let mut byte = [0];
             peer.read_exact(&mut byte).await.unwrap();
             assert_eq!(byte, [sequence]);
-            let actual = scope.next_exit().await.unwrap();
+            let actual = observe_exit(&mut scope, &owner).await;
             assert_eq!(actual.id, id);
             assert!(actual.result.is_ok());
             assert!(witness.is_joined());
@@ -168,3 +168,16 @@ mod descendants;
 
 #[path = "graph/receiver.rs"]
 mod receiver;
+
+async fn observe_exit(
+    scope: &mut TaskScope,
+    owner: &ControlledTcpListenerOwner,
+) -> crate::contract::scope::TaskExit {
+    let exit = scope.next_exit().await.unwrap();
+    assert!(owner
+        .accepted_task_receiver()
+        .unwrap()
+        .observe_joined(exit.id)
+        .is_some());
+    exit
+}
