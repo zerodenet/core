@@ -43,7 +43,7 @@ impl VmessOutboundLeaf {
             ws,
             grpc,
         } = options;
-        Self::from_profile_refs(
+        let mut leaf = Self::from_profile_refs(
             source_dir,
             tag,
             server,
@@ -58,7 +58,11 @@ impl VmessOutboundLeaf {
             ws,
             grpc,
             runtime.mux_pool(),
-        )
+        )?;
+        if grpc.is_some() {
+            leaf.transport.set_grpc_state(runtime.grpc_carrier_state());
+        }
+        Ok(leaf)
     }
 
     #[allow(clippy::too_many_arguments)]

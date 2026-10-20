@@ -64,6 +64,7 @@ impl OwnedVmessTransportOptions {
 
 #[derive(Debug, Clone)]
 pub struct OwnedVmessOutboundTransportPlan {
+    grpc_state: Option<std::sync::Arc<crate::component::grpc::registry::State>>,
     server: String,
     port: u16,
     transport: OwnedVmessTransportOptions,
@@ -84,12 +85,25 @@ impl OwnedVmessOutboundTransportPlan {
         TGrpc: GrpcTransportProfile + ?Sized,
     {
         Self {
+            grpc_state: None,
             server: server.to_owned(),
             port,
             transport: OwnedVmessTransportOptions::from_profile_refs(source_dir, tls, ws, grpc),
         }
     }
 
+    pub(super) fn set_grpc_state(
+        &mut self,
+        state: std::sync::Arc<crate::component::grpc::registry::State>,
+    ) {
+        self.grpc_state = Some(state);
+    }
+    fn enter_legacy_grpc(&self) -> Result<(), RuntimeError> {
+        if let Some(state) = &self.grpc_state {
+            state.enter_legacy()?;
+        }
+        Ok(())
+    }
     pub(super) fn server(&self) -> &str {
         &self.server
     }
@@ -128,6 +142,7 @@ impl OwnedVmessOutboundTransportPlan {
         OpenSocketFut: Future<Output = Result<TokioSocket, E>>,
         E: Into<RuntimeError>,
     {
+        self.enter_legacy_grpc()?;
         let socket = open_socket(self.server(), self.port())
             .await
             .map_err(Into::into)?;
@@ -144,6 +159,7 @@ impl OwnedVmessOutboundTransportPlan {
         &self,
         stream: TcpRelayStream,
     ) -> Result<TcpRelayStream, RuntimeError> {
+        self.enter_legacy_grpc()?;
         build_vmess_outbound_transport_over_stream(VmessFinalHopTransportRequest {
             carrier: RelayCarrier {
                 stream,

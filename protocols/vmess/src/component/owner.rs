@@ -7,7 +7,7 @@ use zero_platform_tokio::contract::{
     CloseReason,
 };
 
-type Prepared = Arc<Mutex<Option<zero_transport::tls::PreparedClient>>>;
+pub(super) type Prepared = Arc<Mutex<Option<zero_transport::tls::PreparedClient>>>;
 pub(super) struct CaOwner {
     owner: SessionOwner,
     admission: Arc<SessionAdmission>,

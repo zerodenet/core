@@ -7,11 +7,15 @@ use super::VmessInboundUserRef;
 
 #[derive(Debug, Clone, Default)]
 pub struct VmessTransportRuntime {
+    grpc_carriers: Arc<crate::component::grpc::registry::State>,
     mux_pool: crate::mux::VmessMuxConnectionPool,
     inbound_profiles: Arc<Mutex<HashMap<String, crate::inbound::VmessInboundProfile>>>,
 }
 
 impl VmessTransportRuntime {
+    pub(crate) fn grpc_carrier_state(&self) -> Arc<crate::component::grpc::registry::State> {
+        self.grpc_carriers.clone()
+    }
     pub fn on_config_reloaded(&self) {
         self.mux_pool.evict_all();
     }
