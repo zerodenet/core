@@ -23,7 +23,7 @@ pub(super) struct State {
     pub(super) next: u64,
     pub(super) binding: Option<Arc<super::binding::BoundAuthority>>,
     pub(super) slots: Vec<Arc<Slot>>,
-    confirmed: CloseReport,
+    pub(super) confirmed: CloseReport,
 }
 impl Shared {
     pub(super) fn state(&self) -> std::sync::MutexGuard<'_, State> {
