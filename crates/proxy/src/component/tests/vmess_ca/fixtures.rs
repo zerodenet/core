@@ -56,6 +56,9 @@ pub(super) struct Observations {
     pub(super) protocol: Mutex<Option<(u64, u64)>>,
     pub(super) outer: AtomicU64,
     pub(super) dials: AtomicUsize,
+    pub(super) boundaries: AtomicUsize,
+    pub(super) file_reads: AtomicUsize,
+    pub(super) file_owners: AtomicUsize,
 }
 impl ConnectObserver for Observations {
     fn record(&self, session: Option<SessionId>, fact: ConnectFact) {
@@ -66,7 +69,9 @@ impl ConnectObserver for Observations {
     }
 }
 impl zero_traits::IoObserver for Observations {
-    fn stream_boundary(&self) {}
+    fn stream_boundary(&self) {
+        self.boundaries.fetch_add(1, Ordering::Relaxed);
+    }
     fn received(&self, _: usize) {}
     fn sent(&self, bytes: usize) {
         self.outer.fetch_add(bytes as u64, Ordering::Relaxed);
@@ -143,6 +148,16 @@ pub(super) fn options(
     base: &Path,
     bound: usize,
 ) -> vmess::component::Options {
+    try_options(address, tls, ws, grpc, base, bound).unwrap()
+}
+pub(super) fn try_options(
+    address: SocketAddr,
+    tls: &OwnedClientTlsProfile,
+    ws: Option<&OwnedWebSocketProfile>,
+    grpc: Option<&OwnedGrpcProfile>,
+    base: &Path,
+    bound: usize,
+) -> Result<vmess::component::Options, zero_core::Error> {
     vmess::component::Options::from_options_refs_at(
         vmess::transport::VmessOutboundBuildOptionsRef {
             tag: "file-ca",
@@ -164,12 +179,19 @@ pub(super) fn options(
         Some(base),
         NonZeroUsize::new(bound),
     )
-    .unwrap()
 }
 pub(super) fn build(
     options: vmess::component::Options,
     expected_path: &Path,
     bound: usize,
+) -> (ComponentInstance, TaskScope, Arc<HostResources>) {
+    build_observed(options, expected_path, bound, None)
+}
+pub(super) fn build_observed(
+    options: vmess::component::Options,
+    expected_path: &Path,
+    bound: usize,
+    observations: Option<Arc<Observations>>,
 ) -> (ComponentInstance, TaskScope, Arc<HostResources>) {
     let spec = vmess::component::Factory.describe(&options);
     assert_eq!(
@@ -182,6 +204,17 @@ pub(super) fn build(
     assert_eq!(spec.task_limit, None);
     let cancel = CancellationToken::new();
     let grants = HostResources::new(ComponentId(301), &spec.resources, cancel.clone()).unwrap();
+    let resources: Arc<dyn zero_platform_tokio::contract::component::ResourceAccess> =
+        match observations {
+            Some(observations) => {
+                observations.file_owners.fetch_add(1, Ordering::Relaxed);
+                Arc::new(super::preparation::ObservedAccess {
+                    grants: grants.clone(),
+                    observations,
+                })
+            }
+            None => grants.clone(),
+        };
     let scope = TaskScope::empty(tokio::runtime::Handle::current());
     let context = BuildContext {
         component: ComponentId(301),
@@ -191,7 +224,7 @@ pub(super) fn build(
             outbound: Some(OutboundId(302)),
             ..Default::default()
         },
-        resources: grants.clone(),
+        resources,
         tasks: scope.registrar(),
         cancel,
         background_carrier: None,
@@ -205,8 +238,10 @@ pub(super) fn build(
     )
 }
 pub(super) fn tls_profile() -> OwnedClientTlsProfile {
-    let mut options = zero_traits::ClientTlsOptions::default();
-    options.disable_system_roots = true;
+    let options = zero_traits::ClientTlsOptions {
+        disable_system_roots: true,
+        ..Default::default()
+    };
     OwnedClientTlsProfile {
         options,
         server_name: Some("localhost".into()),

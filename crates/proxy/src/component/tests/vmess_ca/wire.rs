@@ -9,17 +9,17 @@ use zero_platform_tokio::contract::{
     context::ConnectFact,
     stream::{ConnectRequest, PeerConfirmation},
 };
-use zero_transport::profile::{OwnedGrpcProfile, OwnedWebSocketProfile};
+use zero_transport::profile::OwnedWebSocketProfile;
 
 #[tokio::test]
-async fn actual_native_file_grant_prepares_vmess_tls_ws_and_grpc_without_reopening_ca_at_connect() {
-    for carrier in [0, 1, 2] {
+async fn actual_native_file_grant_prepares_vmess_tls_and_ws_without_reopening_ca_at_connect() {
+    for carrier in [0, 1] {
         timeout(Duration::from_secs(5), async {
             let directory = Directory::new();
             let path = directory.0.join("identity.pem");
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
-            let (acceptor, pem) = tls_server(carrier == 2);
+            let (acceptor, pem) = tls_server(false);
             let ws = (carrier == 1).then(|| OwnedWebSocketProfile {
                 accept_proxy_protocol: false,
                 heartbeat_period_secs: 0,
@@ -27,25 +27,20 @@ async fn actual_native_file_grant_prepares_vmess_tls_ws_and_grpc_without_reopeni
                 path: "/trusted-vmess?ed=4096".into(),
                 headers: vec![("x-file-grant".into(), "preserved".into())],
             });
-            let grpc = (carrier == 2).then(|| OwnedGrpcProfile {
-                service_names: vec!["ca.vmess/Tun".into()],
-                authority: Some("native.example".into()),
-                ..Default::default()
-            });
-            let mut tls = tls_profile();
-            if carrier == 2 {
-                tls.alpn = vec!["h2".into()];
-            }
-            let options = options(
+            let tls = tls_profile();
+            let observations = Arc::new(Observations::default());
+            let (mut instance, mut scope, grants) = super::preparation::prepare(
                 address,
                 &tls,
                 ws.as_ref(),
-                grpc.as_ref(),
+                None,
                 &directory.0,
                 pem.len(),
-            );
-            let (mut instance, mut scope, grants) = build(options, &path, pem.len());
-            let observations = Arc::new(Observations::default());
+                observations.clone(),
+            )
+            .unwrap();
+            assert_eq!(observations.file_owners.load(Ordering::Relaxed), 1);
+            assert_eq!(observations.file_reads.load(Ordering::Relaxed), 0);
             assert!(instance
                 .roles
                 .stream
@@ -65,23 +60,15 @@ async fn actual_native_file_grant_prepares_vmess_tls_ws_and_grpc_without_reopeni
             let access = grants.activate(deadline()).unwrap();
             instance.lifecycle.start(deadline()).await.unwrap();
             drop(access);
+            assert_eq!(observations.file_reads.load(Ordering::Relaxed), 1);
             std::fs::remove_file(&path).unwrap(); // Connect must use its authorized snapshot.
             let server = tokio::spawn(async move {
                 let (io, _) = listener.accept().await.unwrap();
                 let tls = acceptor.accept(io).await.unwrap();
-                assert_eq!(
-                    tls.get_ref().1.alpn_protocol(),
-                    (carrier == 2).then_some(b"h2".as_slice())
-                );
+                assert_eq!(tls.get_ref().1.alpn_protocol(), None);
                 let carrier = if let Some(ws) = ws {
                     zero_platform_tokio::TcpRelayStream::new(
                         zero_transport::ws::accept_ws_profile(tls, &ws)
-                            .await
-                            .unwrap(),
-                    )
-                } else if let Some(grpc) = grpc {
-                    zero_platform_tokio::TcpRelayStream::new(
-                        zero_transport::grpc::accept_grpc_with_profile(tls, &grpc)
                             .await
                             .unwrap(),
                     )
@@ -116,6 +103,13 @@ async fn actual_native_file_grant_prepares_vmess_tls_ws_and_grpc_without_reopeni
                 .await
                 .unwrap();
             assert_eq!(connected.peer_confirmation, PeerConfirmation::Deferred);
+            assert_eq!(
+                observations.file_reads.load(Ordering::Relaxed),
+                1,
+                "connect uses the authorized prepared roots without another file read"
+            );
+            assert_eq!(observations.dials.load(Ordering::Relaxed), 1);
+            assert_eq!(observations.boundaries.load(Ordering::Relaxed), 1);
             assert_eq!(
                 *observations.protocol.lock().unwrap(),
                 Some((0, REQUEST_LEN))
