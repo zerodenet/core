@@ -1,6 +1,6 @@
 //! Legacy stream cipher state. Only this protocol module owns the crypto object.
 use crate::{validation::LegacyCipher, CipherKind};
-use zero_core::{Error, Network, ProtocolType, Session};
+use zero_core::Error;
 use zero_traits::AsyncSocket;
 
 pub struct LegacyCipherState(shadowsocks_crypto::v1::Cipher);
@@ -68,7 +68,7 @@ pub(crate) async fn accept_request<S: AsyncSocket>(
     stream: &mut S,
     cipher: CipherKind,
     password: &[u8],
-) -> Result<crate::ShadowsocksAccept, Error> {
+) -> Result<crate::inbound::ShadowsocksRequest, Error> {
     let mut iv = vec![0; cipher.salt_len()];
     super::read_exact(stream, &mut iv).await?;
     let mut state = LegacyCipherState::new(cipher, password, &iv)?;
@@ -93,14 +93,8 @@ pub(crate) async fn accept_request<S: AsyncSocket>(
     super::read_exact(stream, &mut address[start..]).await?;
     state.decrypt(&mut address[start..]);
     let (target, port, _) = super::parse_target_data(&address)?;
-    Ok(crate::ShadowsocksAccept {
-        session: Session::new(
-            0,
-            target,
-            port,
-            Network::Tcp,
-            ProtocolType::new("shadowsocks"),
-        ),
+    Ok(crate::inbound::ShadowsocksRequest {
+        destination: zero_core::request::Destination::new(target, port),
         remaining_payload: vec![],
         session_key: vec![],
         cipher,

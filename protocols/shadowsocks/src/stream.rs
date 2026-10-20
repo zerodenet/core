@@ -189,6 +189,30 @@ impl ShadowsocksAccept {
         inner: S,
         password: &[u8],
     ) -> Result<ShadowsocksAeadStream<S>, zero_core::Error> {
+        crate::inbound::ShadowsocksRequest::from(self).into_aead_stream(inner, password)
+    }
+
+    /// Wrap the original accepted TCP stream with an explicit response salt.
+    /// This compatibility entry retains its deterministic protocol-test API.
+    pub fn into_aead_stream_with_response_salt<S>(
+        self,
+        inner: S,
+        password: &[u8],
+        response_salt: Vec<u8>,
+    ) -> Result<ShadowsocksAeadStream<S>, zero_core::Error> {
+        crate::inbound::ShadowsocksRequest::from(self).into_aead_stream_with_response_salt(
+            inner,
+            password,
+            response_salt,
+        )
+    }
+}
+impl crate::inbound::ShadowsocksRequest {
+    pub(crate) fn into_aead_stream<S>(
+        self,
+        inner: S,
+        password: &[u8],
+    ) -> Result<ShadowsocksAeadStream<S>, zero_core::Error> {
         let mut response_salt = vec![0_u8; self.cipher.salt_len()];
         use ring::rand::SecureRandom;
         ring::rand::SystemRandom::new()
@@ -200,7 +224,7 @@ impl ShadowsocksAccept {
     /// Wrap an accepted inbound TCP stream with an explicit response salt.
     ///
     /// This is primarily useful for deterministic protocol tests.
-    pub fn into_aead_stream_with_response_salt<S>(
+    pub(crate) fn into_aead_stream_with_response_salt<S>(
         mut self,
         inner: S,
         password: &[u8],

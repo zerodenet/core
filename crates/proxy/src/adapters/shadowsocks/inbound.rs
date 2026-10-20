@@ -5,7 +5,6 @@ use ::shadowsocks::transport::ShadowsocksInboundBindings;
 use crate::runtime::inbound_operation::{
     InboundConnectionContext, TcpAndDatagramInboundListenerOperation,
 };
-use crate::runtime::tcp_ingress::NoClientResponseStreamProtocol;
 use crate::transport::{MeteredStream, TcpRelayStream};
 
 pub(super) fn prepare(
@@ -26,11 +25,20 @@ pub(super) fn prepare(
         tcp_dispatch: |acceptor: ::shadowsocks::transport::ShadowsocksInboundTcpAcceptor,
                        socket,
                        context: InboundConnectionContext| async move {
-            let (session, client) = acceptor
-                .accept_stream(MeteredStream::new(TcpRelayStream::from(socket)))
+            let (destination, auth, client) = acceptor
+                .accept_stream_facts(MeteredStream::new(TcpRelayStream::from(socket)))
                 .await?;
             context
-                .serve(session, client, NoClientResponseStreamProtocol::new())
+                .serve_standard_stream(
+                    ::shadowsocks::ShadowsocksInbound.protocol(),
+                    destination,
+                    Some(auth),
+                    None,
+                    move |facts| {
+                        ::shadowsocks::component::inbound::TcpReply::new(client, facts)
+                            .map(zero_platform_tokio::contract::inbound::accept_stream)
+                    },
+                )
                 .await
         },
         udp_relay,

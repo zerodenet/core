@@ -22,6 +22,12 @@ HTTP forward 请求现在向宿主交付目的地与规范化 wire 元数据，�
 
 V1 配置/API/events、wire 响应及 FFI ABI 不变，无 GUI/SDK 迁移。回归见 `protocols/http/tests/inbound.rs` 及 `crates/proxy/tests/http/standard_inbound.rs`；实际验证结果独立记录。
 
+### Shadowsocks 普通 TCP 标准请求移交
+
+普通 SS TCP 入站在原协议解析、用户快照认证及同一 replay authority 检查完成后，把真实 Destination、完整 SessionAuth 和原加密流移交宿主标准 Stream 入口，由宿主唯一分配业务身份。plain/stream、旧 AEAD、SIP022 及 SIP023 EIH 共用此路径；原 salt、nonce、首包剩余明文、响应绑定、跨 acceptor clone 的 replay 保留与容量拒绝规则不变。协议不新增成功响应或提前 flush，SIP003 子进程 owner、UDP 及 listener 资源路径不变。
+
+Rust 新增可选 `accept_stream_facts`；原返回 Session 的 `accept_stream`、公开 `ShadowsocksAccept` 字段及显式 response-salt 构造 API 保持兼容。V1 配置/API/event 与 FFI ABI 无变化，GUI/SDK 无迁移步骤。回归位于 `crates/proxy/tests/shadowsocks_inbound.rs` 和 `protocols/shadowsocks/tests/inbound/facts.rs`；本条记录实现，不代表完整 RuntimeHost 或原生资源关闭资格已通过。
+
 ### 冷态公开 outbound 诊断的 Service 生命周期
 
 `ProxyHandle::new` / CLI / FFI 的独立 `diagnostics.probe_outbound` 继续支持尚未运行 listener 的宿主。调用入口显式把冷态探测接受到已有有限宿主任务及配置串行锁，安装并启动实际临时 component plan，仅授予 Service preparing 权限；探测完成后确认该 plan 的实际组件任务/声明资源关闭，全程不发布 Business。调用方取消不再遗弃已接受的组件维护，实际探测仍受原有超时预算限制。冷态维护串行，运行中探测继续使用原有并发上限与实际 runtime owner。

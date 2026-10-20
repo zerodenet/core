@@ -83,3 +83,27 @@ SIP003 plugins are explicitly rejected by this factory; their real PluginFactory
 and child ownership remain intact, and a future Stream integration must consume
 an already-ready lease without starting a child from connect. No UDP or inbound
 process ownership is changed here.
+
+## Ordinary inbound TCP handoff
+
+The production TCP listener authenticates/decrypts the request and completes its
+existing replay admission before returning Destination, full SessionAuth and the
+original encrypted stream to the host's standard accepted Stream path. The host
+mints the one business identity and keeps the existing policy, routing,
+accounting, cancellation and half-close pipeline. Plain/stream methods, legacy
+AEAD, SIP022 and SIP023 EIH share this handoff; framing, salts, nonce positions,
+first-chunk remaining plaintext and response binding remain protocol-owned.
+
+Rust callers may opt into `ShadowsocksInboundTcpAcceptor::accept_stream_facts`;
+the Session-returning `accept_stream`, public `ShadowsocksAccept` fields and
+deterministic response-salt APIs remain compatible. Acceptor clones retain the
+same replay authorities, retention and capacity rules. Admission emits no new
+wire acknowledgement or response-salt flush. SIP003 activation/Child ownership
+and UDP execution retain their existing paths. No configuration, V1 API/event
+shape or FFI ABI changes are required.
+
+Regressions use the production proxy listener in
+`crates/proxy/tests/shadowsocks_inbound.rs` and real native TCP in
+`tests/inbound/facts.rs`, including pipelined plaintext, reverse half-close,
+cross-clone replay rejection and retention after capacity failure. These tests
+do not replace native resource-closure or full RuntimeHost qualification.

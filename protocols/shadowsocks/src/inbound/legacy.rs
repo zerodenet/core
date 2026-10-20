@@ -6,7 +6,7 @@ impl ShadowsocksInbound {
         stream: &mut S,
         cipher: crate::shared::CipherKind,
         users: &ShadowsocksAuthorizedUsers,
-    ) -> Result<(ShadowsocksAccept, usize), Error> {
+    ) -> Result<(ShadowsocksRequest, usize), Error> {
         use crate::shared::{
             decrypt_tcp_chunk_length, decrypt_tcp_chunk_payload, derive_session_key,
             parse_target_data, read_exact, TCP_CHUNK_SIZE_LEN,
@@ -40,17 +40,10 @@ impl ShadowsocksInbound {
         let plain =
             crate::shared::complete_tcp_target(stream, cipher, &key, &mut nonce, plain).await?;
         let (target, port, payload_offset) = parse_target_data(&plain)?;
-        let session = Session::new(
-            0,
-            target,
-            port,
-            Network::Tcp,
-            ProtocolType::new("shadowsocks"),
-        );
         Ok((
-            ShadowsocksAccept {
+            ShadowsocksRequest {
                 legacy: None,
-                session,
+                destination: zero_core::request::Destination::new(target, port),
                 remaining_payload: plain[payload_offset..].to_vec(),
                 session_key: key,
                 cipher,
@@ -68,7 +61,7 @@ impl ShadowsocksInbound {
         stream: &mut S,
         cipher: crate::shared::CipherKind,
         password: &[u8],
-    ) -> Result<ShadowsocksAccept, Error> {
+    ) -> Result<ShadowsocksRequest, Error> {
         use crate::shared::{derive_session_key, parse_target_data, read_exact, read_tcp_chunk};
 
         let salt_len = cipher.salt_len();
@@ -87,17 +80,9 @@ impl ShadowsocksInbound {
         let (target, port, payload_offset) = parse_target_data(&plain)?;
         let remaining_payload = plain[payload_offset..].to_vec();
 
-        let session = Session::new(
-            0,
-            target,
-            port,
-            Network::Tcp,
-            ProtocolType::new("shadowsocks"),
-        );
-
-        Ok(ShadowsocksAccept {
+        Ok(ShadowsocksRequest {
             legacy: None,
-            session,
+            destination: zero_core::request::Destination::new(target, port),
             remaining_payload,
             session_key: key,
             cipher,

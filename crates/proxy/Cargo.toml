@@ -57,6 +57,7 @@ hysteria2 = [
 ]
 quic_packet_path = ["dep:quinn"]
 shadowsocks = [
+    "standard-stream-inbound-runtime",
     "managed-datagram-runtime",
     "tcp-session-runtime",
     "dep:shadowsocks",

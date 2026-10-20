@@ -1,4 +1,5 @@
 //! Protocol-owned roleless shared-resource factories.
+pub mod inbound;
 mod plugin;
 pub use plugin::{PluginFactory, PluginOptions};
 #[cfg(feature = "blake3")]

@@ -13,7 +13,7 @@ impl ShadowsocksInbound {
         stream: &mut S,
         cipher: crate::shared::CipherKind,
         password: &[u8],
-    ) -> Result<ShadowsocksAccept, Error> {
+    ) -> Result<ShadowsocksRequest, Error> {
         match self
             .accept_request_2022_probe(stream, cipher, password)
             .await
@@ -35,7 +35,7 @@ impl ShadowsocksInbound {
         stream: &mut S,
         cipher: crate::shared::CipherKind,
         password: &[u8],
-    ) -> Result<ShadowsocksAccept, Error> {
+    ) -> Result<ShadowsocksRequest, Error> {
         use crate::shared::{
             decrypt_tcp_2022_single_chunk, derive_session_key, parse_2022_request_fixed_header,
             parse_2022_request_var_header, validate_2022_timestamp,
@@ -83,17 +83,9 @@ impl ShadowsocksInbound {
         }
         let (target, port, initial_payload) = parse_2022_request_var_header(&var_plain)?;
 
-        let session = Session::new(
-            0,
-            target,
-            port,
-            Network::Tcp,
-            ProtocolType::new("shadowsocks"),
-        );
-
-        Ok(ShadowsocksAccept {
+        Ok(ShadowsocksRequest {
             legacy: None,
-            session,
+            destination: zero_core::request::Destination::new(target, port),
             remaining_payload: initial_payload,
             session_key: key,
             cipher,
