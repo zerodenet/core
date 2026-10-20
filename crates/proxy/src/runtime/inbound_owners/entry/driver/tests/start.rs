@@ -16,7 +16,7 @@ impl ResourceLifecycle for FailedStart {
 }
 
 #[tokio::test]
-async fn real_start_failure_closes_prebound_native_and_retains_original_os_source_before_join() {
+async fn real_start_failure_retains_original_os_source_and_closes_native_after_its_dependency() {
     let proxy = proxy();
     let config = proxy.engine().config();
     let mut lease = lease(&proxy, &config, 0);
@@ -39,8 +39,9 @@ async fn real_start_failure_closes_prebound_native_and_retains_original_os_sourc
         })
         .unwrap();
     owner.seal_listener_installation();
-    let replacement = rebound(address).await;
-    assert!(!owner.driver_finished.load(Ordering::Acquire));
+    // The failed-start dependency must confirm shutdown before native close.
+    assert!(owner.observe_driver().await.is_err());
+    assert!(TcpListener::bind(address).await.is_err());
     assert!(owner.terminal().is_none());
     let first = owner.failure.lock().unwrap().clone().unwrap();
     assert_eq!(first.component, Some(origin.component));
@@ -54,7 +55,6 @@ async fn real_start_failure_closes_prebound_native_and_retains_original_os_sourc
             .unwrap(),
         &source
     ));
-    assert!(owner.observe_driver().await.is_err());
     {
         let faults = owner.task_failures.lock().unwrap();
         let task = &faults[owner.driver.get().unwrap()];
@@ -77,9 +77,22 @@ async fn real_start_failure_closes_prebound_native_and_retains_original_os_sourc
     assert_eq!(receipt.terminal().closed_io_receipts(), 1);
     assert_eq!(receipt.terminal().joined_tasks(), 1);
     assert!(Arc::ptr_eq(&receipt.terminal().failure().unwrap(), &first));
-    proxy
+    let replacement = rebound(address).await;
+    let released = proxy
         .inbound_owners
-        .release_closed_reported(receipt, |_| Ok(()))
-        .unwrap();
+        .release_closed_reported(receipt, |terminal| {
+            assert!(Arc::ptr_eq(&terminal.failure().unwrap(), &first));
+            Ok(())
+        })
+        .unwrap_err();
+    assert_eq!(
+        crate::runtime::inbound_owners::released_fault_identity(&released),
+        Some(owner.identity())
+    );
+    assert!(std::ptr::eq(
+        crate::transport::channel_failure(&released).unwrap(),
+        first.as_ref()
+    ));
+    assert!(proxy.inbound_owners.owner("first").is_none());
     assert_eq!(replacement.local_addr().unwrap(), address);
 }

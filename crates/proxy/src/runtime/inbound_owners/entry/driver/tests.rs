@@ -138,9 +138,22 @@ async fn work_panic_closes_same_original_then_resumes_in_the_same_registered_tas
     assert_eq!(receipt.terminal().joined_tasks(), 1);
     assert_eq!(receipt.terminal().closed_io_receipts(), 1);
     assert_eq!(receipt.terminal().task_failures().len(), 1);
-    proxy
+    let first = receipt.terminal().failure().unwrap();
+    let released = proxy
         .inbound_owners
-        .release_closed_reported(receipt, |_| Ok(()))
-        .unwrap();
+        .release_closed_reported(receipt, |terminal| {
+            assert!(Arc::ptr_eq(&terminal.failure().unwrap(), &first));
+            Ok(())
+        })
+        .unwrap_err();
+    assert_eq!(
+        crate::runtime::inbound_owners::released_fault_identity(&released),
+        Some(owner.identity())
+    );
+    assert!(std::ptr::eq(
+        crate::transport::channel_failure(&released).unwrap(),
+        first.as_ref()
+    ));
+    assert!(proxy.inbound_owners.owner("first").is_none());
     assert_eq!(replacement.local_addr().unwrap(), address);
 }

@@ -100,6 +100,14 @@ async fn close_native(
     parent: &Weak<InboundOwner>,
     resources: &[Arc<Resource>],
 ) -> Option<SharedError> {
+    // Later-installed resources are actual dependencies of the listener.
+    // Preserve their reverse shutdown order. Do not wait here for a resource
+    // which may need this driver's real join; the external owner drives both.
+    if resources.iter().any(|resource| {
+        !resource.native_on_driver_exit && !resource.stopped.load(Ordering::Acquire)
+    }) {
+        return None;
+    }
     // Existing inbound-owner shutdown grace; this is no protocol Ready budget.
     let deadline = Instant::now() + std::time::Duration::from_secs(5);
     let mut failure = None;
