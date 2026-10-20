@@ -61,9 +61,15 @@ pub(super) fn spawn_inbound_listener_with_state(
             let (operation, view, installed) = lease.promote()?;
             let listener =
                 zero_platform_tokio::TokioListener::from_controlled(view).map_err(|error| {
-                    installed
-                        .owner()
-                        .retain_managed_listener_error(error.into())
+                    let owner = installed.owner();
+                    let source = if error.reason == zero_platform_tokio::contract::Reason::Revoked
+                        && owner.task_access().cancellation().is_cancelled()
+                    {
+                        owner.ready_stopped()
+                    } else {
+                        EngineError::Io(std::io::Error::other(error))
+                    };
+                    owner.retain_managed_listener_error(source)
                 })?;
             (
                 operation,

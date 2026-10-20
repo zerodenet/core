@@ -113,3 +113,51 @@ async fn controlled_view_cannot_extract_a_second_native_control_and_remains_usab
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn revoked_conversion_is_typed_and_does_not_claim_native_close() {
+    let original = TokioListener::bind_addr("127.0.0.1:0".parse().unwrap())
+        .await
+        .unwrap();
+    let address = original.local_addr().unwrap();
+    let (view, mut control) = original.into_controlled(CancellationToken::new());
+    control.cancel(CloseReason::Shutdown);
+    let failure = TokioListener::from_controlled(view).unwrap_err();
+    assert_eq!(failure.reason, crate::contract::Reason::Revoked);
+    assert_eq!(
+        std::net::TcpListener::bind(address).unwrap_err().kind(),
+        io::ErrorKind::AddrInUse
+    );
+    let report = control
+        .wait_closed(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert!(report.is_complete());
+    assert_eq!(report.closed_io.len(), 1);
+    let _rebound = std::net::TcpListener::bind(address).unwrap();
+}
+
+#[tokio::test]
+async fn native_close_before_view_conversion_is_an_explicit_revoked_outcome() {
+    let original = TokioListener::bind_addr("127.0.0.1:0".parse().unwrap())
+        .await
+        .unwrap();
+    let address = original.local_addr().unwrap();
+    let (view, mut control) = original.into_controlled(CancellationToken::new());
+    let report = control
+        .wait_closed(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert!(report.is_complete());
+    assert_eq!(report.closed_io.len(), 1);
+    let _rebound = std::net::TcpListener::bind(address).unwrap();
+    let failure = TokioListener::from_controlled(view).unwrap_err();
+    assert_eq!(failure.reason, crate::contract::Reason::Revoked);
+    assert_eq!(failure.stage, crate::contract::Stage::Prepare);
+    assert!(control
+        .wait_closed(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap()
+        .closed_io
+        .is_empty());
+}

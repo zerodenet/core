@@ -74,6 +74,31 @@ pub struct ControlledTcpListener {
     cancelled: Pin<Box<dyn Future<Output = ()> + Send>>,
 }
 impl ControlledTcpListener {
+    /// The installation seam distinguishes an actual admission revocation from
+    /// a native address-query failure while holding the same ownership lock.
+    pub(crate) fn activation_address(&self) -> Result<SocketAddr, crate::contract::ChannelError> {
+        use crate::contract::{ChannelError, Impact, Reason, Stage};
+        let state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.retired || self.shared.cancel.is_cancelled() || state.listener.is_none() {
+            return Err(
+                ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component)
+                    .with_source(retired()),
+            );
+        }
+        state
+            .listener
+            .as_ref()
+            .unwrap()
+            .local_addr()
+            .map_err(|source| {
+                ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component).with_source(source)
+            })
+    }
+
     pub fn new(
         listener: TcpListener,
         parent: CancellationToken,

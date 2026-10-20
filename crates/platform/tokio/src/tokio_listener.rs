@@ -49,8 +49,10 @@ impl TokioListener {
 
     /// Consume the same unique accept view after its control has been installed
     /// in the persistent owner. This method does no native acquisition.
-    pub fn from_controlled(listener: ControlledTcpListener) -> io::Result<Self> {
-        let address = listener.local_addr()?;
+    pub fn from_controlled(
+        listener: ControlledTcpListener,
+    ) -> Result<Self, crate::contract::ChannelError> {
+        let address = listener.activation_address()?;
         Ok(Self {
             inner: Inner::Controlled {
                 listener: Mutex::new(listener),
