@@ -9,8 +9,8 @@ impl Entry {
                     entry: self.clone(),
                 })
             }
-            Native::Reserved | Native::NoNative => {
-                *native = Native::NoNative;
+            Native::Reserved | Native::NeverAcquired => {
+                *native = Native::NeverAcquired;
                 return Err(Arc::new(std_io::Error::other("no ICMP original acquired")));
             }
             Native::Unknown(source) => {

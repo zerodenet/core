@@ -107,7 +107,16 @@ struct ReenterDrop {
     receipt: Arc<Mutex<Option<IcmpCloseReceipt>>>,
 }
 impl Wake for ReenterDrop {
-    fn wake(self: Arc<Self>) {}
+    fn wake(self: Arc<Self>) {
+        if let Some(entry) = self.entry.upgrade() {
+            drop(
+                entry
+                    .native
+                    .try_lock()
+                    .expect("external target wake must run after native unlock"),
+            );
+        }
+    }
 }
 impl Drop for ReenterDrop {
     fn drop(&mut self) {

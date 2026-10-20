@@ -29,7 +29,7 @@ fn pure_reservations_are_bounded_and_unused_retirement_is_not_native_close() {
     assert!(report.is_complete());
     assert_eq!(report.known_no_native, 1);
     assert_eq!(report.confirmed_closed, 0);
-    assert!(matches!(*entry.native(), Native::NoNative));
+    assert!(matches!(*entry.native(), Native::NeverAcquired));
     assert!(owner.reserve(false).is_err());
 }
 #[test]

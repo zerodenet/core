@@ -27,7 +27,7 @@ impl ControlledIcmpOwner {
             Err(source) if source.kind() == std_io::ErrorKind::PermissionDenied => {
                 // No native handle returned: record this real failed attempt
                 // before the sole fallback. Do not turn it into close evidence.
-                *entry.native() = Native::NoNative;
+                *entry.native() = Native::NeverAcquired;
                 let source = Arc::new(source);
                 self.first_raw_permission_source
                     .get_or_insert_with(|| source.clone());
@@ -100,7 +100,7 @@ impl ControlledIcmpOwner {
         self.first_acquisition_failure
             .get_or_insert_with(|| source.clone());
         entry.metadata().acquisition_source = Some(source.clone());
-        *entry.native() = Native::NoNative;
+        *entry.native() = Native::NeverAcquired;
         self.reap();
         IcmpAcquisitionError {
             raw_permission_source: entry.metadata().raw_permission_source.clone(),

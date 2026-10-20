@@ -129,7 +129,7 @@ enum Native {
     Live(tokio::net::UdpSocket),
     Unknown(Arc<std_io::Error>),
     Closed,
-    NoNative,
+    NeverAcquired,
 }
 impl Entry {
     fn native(&self) -> relay::NativeGuard<'_> {
@@ -171,7 +171,7 @@ impl ControlledIcmpOwner {
                 self.confirmed_closed += 1;
                 false
             }
-            Native::NoNative => {
+            Native::NeverAcquired => {
                 self.known_no_native += 1;
                 false
             }
