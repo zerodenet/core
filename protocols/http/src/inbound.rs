@@ -18,6 +18,9 @@ pub enum HttpInboundMode {
     Forward,
 }
 
+mod command;
+pub use command::HttpInboundCommand;
+
 #[derive(Debug)]
 pub struct HttpInboundRequest {
     session: Session,
@@ -239,6 +242,18 @@ impl HttpConnectInbound {
     where
         S: AsyncSocket,
     {
+        self.accept_next_command(stream)
+            .await
+            .map(|command| command.map(HttpInboundCommand::into_legacy))
+    }
+
+    pub async fn accept_next_command<S>(
+        &self,
+        stream: &mut S,
+    ) -> Result<Option<HttpInboundCommand>, Error>
+    where
+        S: AsyncSocket,
+    {
         let Some(head) = read_head(stream).await? else {
             return Ok(None);
         };
@@ -247,16 +262,9 @@ impl HttpConnectInbound {
             .map_err(|_| Error::Protocol("HTTP request line is not ASCII"))?;
 
         match parse_request_line(line)? {
-            ParsedHttpRequestLine::Connect { target, port } => {
-                let session =
-                    Session::new(0, target, port, Network::Tcp, ProtocolType::new("http"));
-                Ok(Some(HttpInboundRequest {
-                    session,
-                    mode: HttpInboundMode::Connect,
-                    replay: Vec::new(),
-                    forward: None,
-                }))
-            }
+            ParsedHttpRequestLine::Connect { target, port } => Ok(Some(
+                HttpInboundCommand::Connect(zero_core::request::Destination::new(target, port)),
+            )),
             ParsedHttpRequestLine::Forward {
                 method,
                 target,
@@ -313,12 +321,7 @@ impl HttpConnectInbound {
                     expect_continue,
                     supports_chunked_response: version.eq_ignore_ascii_case("HTTP/1.1"),
                 };
-                Ok(Some(HttpInboundRequest {
-                    session,
-                    mode: HttpInboundMode::Forward,
-                    replay: normalized,
-                    forward: Some(forward),
-                }))
+                Ok(Some(HttpInboundCommand::Forward(forward)))
             }
         }
     }

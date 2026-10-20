@@ -3,7 +3,7 @@ use zero_engine::EngineError;
 use super::model::InboundConnectionContext;
 
 impl InboundConnectionContext {
-    #[cfg(feature = "socks5")]
+    #[cfg(any(feature = "socks5", feature = "http"))]
     pub(crate) async fn serve_standard_stream(
         &self,
         protocol: zero_core::ProtocolType,

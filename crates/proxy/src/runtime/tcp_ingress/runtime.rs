@@ -3,7 +3,7 @@ mod model;
 mod route;
 mod serve;
 mod session;
-#[cfg(feature = "socks5")]
+#[cfg(any(feature = "socks5", feature = "http"))]
 mod standard;
 #[cfg(test)]
 mod tests;

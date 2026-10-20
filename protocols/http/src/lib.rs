@@ -2,6 +2,11 @@
 #![allow(async_fn_in_trait)]
 
 extern crate alloc;
+#[cfg(feature = "runtime")]
+extern crate std;
+
+#[cfg(feature = "runtime")]
+pub mod component;
 
 mod body;
 mod inbound;
@@ -14,6 +19,6 @@ pub use body::{
 };
 pub use inbound::{
     HttpConnectInbound, HttpConnectResponse, HttpForwardRequest, HttpForwardResponse,
-    HttpInboundMode, HttpInboundRequest,
+    HttpInboundCommand, HttpInboundMode, HttpInboundRequest,
 };
 pub use metadata::HttpConnectProtocol;

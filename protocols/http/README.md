@@ -30,7 +30,8 @@
 ```text
 accept request
   -> parse CONNECT authority or absolute HTTP URI
-  -> create Session
+  -> CONNECT: return destination facts, host mints one real Session identity
+  -> forward request: retain message request metadata
   -> evaluate route rules
   -> connect selected upstream
   -> CONNECT: reply 200 and relay tunnel
@@ -42,5 +43,9 @@ accept request
 ```text
 src/lib.rs       — crate root and public exports
 src/parse.rs     — request-line, authority, and absolute URI parsing
-src/inbound.rs   — request acceptance, session construction, and responses
+src/inbound.rs   — request acceptance and responses
+src/inbound/command.rs — CONNECT facts and compatibility request conversion
+src/component.rs — runtime-gated standard CONNECT reply over the original stream
 ```
+
+`runtime` enables the standard Stream reply and Tokio bridge. The default feature set keeps parsing and validation independent of a runtime. Production HTTP and mixed CONNECT use the same host admission, routing, accounting and relay path; the reply is emitted after local upstream readiness. HTTP forward messages retain their existing message executor. The legacy request API remains available for Rust callers.

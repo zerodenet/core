@@ -1,15 +1,12 @@
 use std::io;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 use async_trait::async_trait;
-use http::{HttpConnectInbound, HttpForwardRequest, HttpInboundMode};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use http::{HttpConnectInbound, HttpForwardRequest, HttpInboundCommand};
 use zero_engine::EngineError;
 
 use crate::runtime::inbound_operation::{InboundConnectionContext, TcpInboundListenerOperation};
 use crate::runtime::tcp_ingress::{
-    InboundProtocol, MessageInboundProtocol, MessageRelayContext, MessageRelayOutcome,
+    MessageInboundProtocol, MessageRelayContext, MessageRelayOutcome,
 };
 use crate::transport::{ClientStream, TcpRelayStream};
 
@@ -18,41 +15,9 @@ use crate::transport::{ClientStream, TcpRelayStream};
 // body and may otherwise close while the proxy is still fetching a tiny tail.
 const REQUEST_COALESCE_LIMIT: u64 = 4 * 1024;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub(crate) struct HttpConnectInboundHandler {
     http_inbound: HttpConnectInbound,
-    send_connect_response: bool,
-}
-
-impl Default for HttpConnectInboundHandler {
-    fn default() -> Self {
-        Self {
-            http_inbound: HttpConnectInbound,
-            send_connect_response: true,
-        }
-    }
-}
-
-impl HttpConnectInboundHandler {
-    pub(crate) fn for_mode(self, mode: HttpInboundMode) -> Self {
-        Self {
-            send_connect_response: mode == HttpInboundMode::Connect,
-            ..self
-        }
-    }
-}
-
-pub(crate) fn replay_http_request(stream: TcpRelayStream, replay: Vec<u8>) -> TcpRelayStream {
-    if replay.is_empty() {
-        return stream;
-    }
-
-    let local_addr = stream.local_addr().ok();
-    let stream = HttpRequestReplayStream::new(stream, replay);
-    match local_addr {
-        Some(addr) => TcpRelayStream::with_local_addr(stream, addr),
-        None => TcpRelayStream::new(stream),
-    }
 }
 
 pub(crate) async fn handle_http_connection(
@@ -61,7 +26,7 @@ pub(crate) async fn handle_http_connection(
     context: InboundConnectionContext,
 ) -> Result<(), EngineError> {
     loop {
-        let request = match handler.http_inbound.accept_next_request(&mut client).await {
+        let request = match handler.http_inbound.accept_next_command(&mut client).await {
             Ok(Some(request)) => request,
             Ok(None) => return Ok(()),
             Err(error) => {
@@ -77,14 +42,22 @@ pub(crate) async fn handle_http_connection(
             }
         };
 
-        match request.mode() {
-            HttpInboundMode::Connect => {
-                let (session, mode, replay) = request.into_parts();
-                let client = replay_http_request(client, replay);
-                return context.serve(session, client, handler.for_mode(mode)).await;
+        match request {
+            HttpInboundCommand::Connect(destination) => {
+                return context
+                    .serve_standard_stream(
+                        zero_core::ProtocolType::new("http"),
+                        destination,
+                        None,
+                        move |facts| {
+                            http::component::ConnectReply::new(client, facts)
+                                .map(zero_platform_tokio::contract::inbound::accept_stream)
+                        },
+                    )
+                    .await;
             }
-            HttpInboundMode::Forward => {
-                if let Some((status, location)) = context.select_http_redirect(request.session()) {
+            HttpInboundCommand::Forward(forward) => {
+                if let Some((status, location)) = context.select_http_redirect(forward.session()) {
                     handler
                         .http_inbound
                         .send_redirect_response(&mut client, status, &location)
@@ -92,9 +65,6 @@ pub(crate) async fn handle_http_connection(
                         .map_err(EngineError::from)?;
                     return Ok(());
                 }
-                let forward = request
-                    .into_forward()
-                    .expect("forward-mode HTTP request must carry forward metadata");
                 match context
                     .serve_message(&handler, &mut client, forward)
                     .await?
@@ -308,92 +278,6 @@ where
 
     async fn shutdown(&mut self) -> Result<(), Self::Error> {
         zero_traits::AsyncSocket::shutdown(self.inner).await
-    }
-}
-
-struct HttpRequestReplayStream {
-    inner: TcpRelayStream,
-    replay: Vec<u8>,
-    offset: usize,
-}
-
-impl HttpRequestReplayStream {
-    fn new(inner: TcpRelayStream, replay: Vec<u8>) -> Self {
-        Self {
-            inner,
-            replay,
-            offset: 0,
-        }
-    }
-}
-
-impl AsyncRead for HttpRequestReplayStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        if self.offset < self.replay.len() {
-            let available = self.replay.len() - self.offset;
-            let to_copy = available.min(buf.remaining());
-            if to_copy > 0 {
-                let start = self.offset;
-                let end = start + to_copy;
-                buf.put_slice(&self.replay[start..end]);
-                self.offset = end;
-            }
-            return Poll::Ready(Ok(()));
-        }
-
-        Pin::new(&mut self.inner).poll_read(cx, buf)
-    }
-}
-
-impl AsyncWrite for HttpRequestReplayStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-}
-
-#[async_trait]
-impl InboundProtocol for HttpConnectInboundHandler {
-    type ClientStream = TcpRelayStream;
-
-    async fn send_ok(&self, client: &mut TcpRelayStream) -> Result<(), EngineError> {
-        if self.send_connect_response {
-            self.http_inbound
-                .send_success_response(client)
-                .await
-                .map_err(EngineError::from)?;
-        }
-        Ok(())
-    }
-
-    async fn send_blocked(&self, client: &mut TcpRelayStream) -> Result<(), EngineError> {
-        let _ = self.http_inbound.send_blocked_response(client).await;
-        let _ = AsyncWriteExt::shutdown(client).await;
-        Ok(())
-    }
-
-    async fn send_upstream_failure(&self, client: &mut TcpRelayStream) -> Result<(), EngineError> {
-        let _ = self
-            .http_inbound
-            .send_upstream_failure_response(client)
-            .await;
-        let _ = AsyncWriteExt::shutdown(client).await;
-        Ok(())
     }
 }
 
