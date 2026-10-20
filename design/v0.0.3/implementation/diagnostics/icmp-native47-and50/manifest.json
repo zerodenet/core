@@ -1,0 +1,638 @@
+{
+  "overall_passed": false,
+  "scope": "Actual ICMP Linux native selected library/provider/legacy cases only; original failures retained; no ALL17 proof",
+  "records": [
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-environment-fallback.txt",
+      "path": "evidence/pr05-parallel-47-icmp-container-environment-fallback.txt.gz",
+      "raw_bytes": 464,
+      "raw_sha256": "d6631efedce49505439e91c5c0327e75f60d9a4d187b3ac7535d84fd0bfa5821",
+      "gzip_bytes": 222,
+      "gzip_sha256": "c1176bac74cfc303819d6a7710674528951389a9c32edc3fb0abd6fc70619bad"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-environment-normal.txt",
+      "path": "evidence/pr05-parallel-47-icmp-container-environment-normal.txt.gz",
+      "raw_bytes": 339,
+      "raw_sha256": "0f2835d9ebd0b0ce40be9dbaf063683b1f1622e179134956220c03ad93c77bb6",
+      "gzip_bytes": 182,
+      "gzip_sha256": "6baf8804a13f41c76c3ac3ebc82e087d469b6d51ebd0ccd0c2ee65a29b5735e9"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-fallback.txt",
+      "path": "evidence/pr05-parallel-47-icmp-container-fallback.txt.gz",
+      "raw_bytes": 218,
+      "raw_sha256": "7b319fe801539438d60bc2f858a2c7e2d4140a70e9434d9e56ae7fd7cc053203",
+      "gzip_bytes": 170,
+      "gzip_sha256": "2140bdba3f133fad63e55bff18c3b3fdadb486ec2f2e33f3459c91384d7152f7"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-loader.txt",
+      "path": "evidence/pr05-parallel-47-icmp-container-loader.txt.gz",
+      "raw_bytes": 18262,
+      "raw_sha256": "62be1c2a7502c2a00e4d4902acae1a195919695785d57ad32c0ee4b49b130974",
+      "gzip_bytes": 4592,
+      "gzip_sha256": "ee17349741405991630b9824cf3bef39282904ae09cc42a47f8ea6d4b2536d15"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-normal.txt",
+      "path": "evidence/pr05-parallel-47-icmp-container-normal.txt.gz",
+      "raw_bytes": 1886,
+      "raw_sha256": "77cf23e99494a01923ce1c3e3a3c5fea71009b6f4ed8bf55341672aebb1e571a",
+      "gzip_bytes": 709,
+      "gzip_sha256": "f97b3c640f9b18478191253a1d973f72f254c636916c21aeee4886fc89af466c"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-native-container.json",
+      "path": "evidence/pr05-parallel-47-icmp-native-container.json.gz",
+      "raw_bytes": 6572,
+      "raw_sha256": "cc78dea8c7547e0c072fd2f1a2feb3456f18a9114054f5f2f03a81a545b496b5",
+      "gzip_bytes": 1572,
+      "gzip_sha256": "adb3b076d168315661c82f1d6d49f001049c5ade56cd4c64c55ff8b3034c1c60"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-environment-fallback.txt",
+      "path": "evidence/pr05-parallel-50-icmp-container-environment-fallback.txt.gz",
+      "raw_bytes": 464,
+      "raw_sha256": "d6631efedce49505439e91c5c0327e75f60d9a4d187b3ac7535d84fd0bfa5821",
+      "gzip_bytes": 222,
+      "gzip_sha256": "c1176bac74cfc303819d6a7710674528951389a9c32edc3fb0abd6fc70619bad"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-environment-normal.txt",
+      "path": "evidence/pr05-parallel-50-icmp-container-environment-normal.txt.gz",
+      "raw_bytes": 339,
+      "raw_sha256": "0f2835d9ebd0b0ce40be9dbaf063683b1f1622e179134956220c03ad93c77bb6",
+      "gzip_bytes": 182,
+      "gzip_sha256": "6baf8804a13f41c76c3ac3ebc82e087d469b6d51ebd0ccd0c2ee65a29b5735e9"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-fallback.txt",
+      "path": "evidence/pr05-parallel-50-icmp-container-fallback.txt.gz",
+      "raw_bytes": 218,
+      "raw_sha256": "cfdebdd09f9fb167b98416f839ab83c62e4b31d376a3aa4f5c5e55b15fc92361",
+      "gzip_bytes": 170,
+      "gzip_sha256": "d39cf1b3201d9b9355045a007b82aa518afcc4f33c07a2e3ff2cd4e5f91025a1"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-label-correction.json",
+      "path": "evidence/pr05-parallel-50-icmp-container-label-correction.json.gz",
+      "raw_bytes": 655,
+      "raw_sha256": "8a50954f89f4f6f66c71b2387b191e0b7890fb8ec2fa8fe3471e4d154eb32cf1",
+      "gzip_bytes": 372,
+      "gzip_sha256": "b6c076bf79cb90c46a0eba5d36ccc3601bbb399d16ab642ed94e929da1f0e7a7"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-loader.txt",
+      "path": "evidence/pr05-parallel-50-icmp-container-loader.txt.gz",
+      "raw_bytes": 19681,
+      "raw_sha256": "b8314834b672168cfd7fcfde10cf67d6e57eb378531b20a2b50f2c46fea04c6a",
+      "gzip_bytes": 4884,
+      "gzip_sha256": "f5f4f877bd53c9fd57d644ee23d2b80a9426d391cb8e59e562acb0605a58cca1"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-normal.txt",
+      "path": "evidence/pr05-parallel-50-icmp-container-normal.txt.gz",
+      "raw_bytes": 1475,
+      "raw_sha256": "ebdbdc05b87526c729a347d86e785309a90708389b029d15ed30fc0d1da89ff5",
+      "gzip_bytes": 637,
+      "gzip_sha256": "961f0fe488019ec01a06259c8c6e8286422e46cca7e1f33ce14ac4c38cae10a4"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-native-container.json",
+      "path": "evidence/pr05-parallel-50-icmp-native-container.json.gz",
+      "raw_bytes": 6567,
+      "raw_sha256": "0451a471e5e8d32c562275ce31cf6bce8e417b017ee922e374219256292a5905",
+      "gzip_bytes": 1559,
+      "gzip_sha256": "b08b42ae6b799e37b1c64d699f2df808c4e0e8d8c35be6ff9919b599dd300c84"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-provider-container.json",
+      "path": "evidence/pr05-parallel-50-icmp-provider-container.json.gz",
+      "raw_bytes": 3624,
+      "raw_sha256": "83ae27ba7730e79abc01000db576961a25cfaef74fed2b875d2b76c314bac1b7",
+      "gzip_bytes": 1039,
+      "gzip_sha256": "66168ab0f17a4e2e10503119aded6a49ad500aa2dcfb20d9ffcb41b2b1d3fa86"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-provider-legacy-echo.txt",
+      "path": "evidence/pr05-parallel-50-icmp-provider-legacy-echo.txt.gz",
+      "raw_bytes": 242,
+      "raw_sha256": "01127654e7b7f43b07fcb8bc51bb47d40af3d4663ec888396bab4dc0bb9b7f41",
+      "gzip_bytes": 183,
+      "gzip_sha256": "d4432f85b9dde42b63d5939a33ddf00a05f53b21dae7f1b98fc506813a044c98"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-provider-loader.txt",
+      "path": "evidence/pr05-parallel-50-icmp-provider-loader.txt.gz",
+      "raw_bytes": 77801,
+      "raw_sha256": "b95286c6a341a8c224b10065b18524b3e1e9177989c57a667c3e10d3307fa58a",
+      "gzip_bytes": 18114,
+      "gzip_sha256": "0406a174519cc3708404ee10251b9392c4545b8071f2f7de414ffb6cf698e5ea"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-provider-provider.txt",
+      "path": "evidence/pr05-parallel-50-icmp-provider-provider.txt.gz",
+      "raw_bytes": 1019,
+      "raw_sha256": "18c7af749af9fdf1315b6fe57f6a71e6b7418743a0840c5b6a8769ea9a779664",
+      "gzip_bytes": 498,
+      "gzip_sha256": "24e19b8b599e0ce21d60f2a037035d7d2dfa5ff5dc6b0d26fd9af84c8f5283c9"
+    },
+    {
+      "source": "/workspace/core-next/archive-icmp-native50.py",
+      "path": "evidence/archive-icmp-native50.py.gz",
+      "raw_bytes": 4243,
+      "raw_sha256": "755d8c26bf51744e098744c205bffa73e9cb1a89ea82f318276a1ce9c8241cb0",
+      "gzip_bytes": 2073,
+      "gzip_sha256": "8236ce1e5340b9d223926c08aae2ecce7b2906d18a465bb11ca35bcc83874c95"
+    },
+    {
+      "source": "/workspace/core-next/icmp-native-47-environment-review.md",
+      "path": "evidence/icmp-native-47-environment-review.md.gz",
+      "raw_bytes": 9013,
+      "raw_sha256": "34cd838c1fb3d675c03be74ff772186a640b64733378c7e626e642dc04003f0a",
+      "gzip_bytes": 4266,
+      "gzip_sha256": "9adde18e16c4cea8bca2bb70fb5fa65c53e36d427ee02adef4b305249e8ba4ba"
+    },
+    {
+      "source": "/workspace/core-next/run-icmp-native47.py",
+      "path": "evidence/run-icmp-native47.py.gz",
+      "raw_bytes": 3467,
+      "raw_sha256": "da8021ee5831f8416a44638ebfbcfaf128d629796048b0d5ac4b6cd6a928e8d8",
+      "gzip_bytes": 1672,
+      "gzip_sha256": "bc6aca85780a032ba3d6abef9ba7ec39bc88cbf911102632ca636ee8ba30a86b"
+    },
+    {
+      "source": "/workspace/core-next/run-icmp-native50.py",
+      "path": "evidence/run-icmp-native50.py.gz",
+      "raw_bytes": 3467,
+      "raw_sha256": "5b6145b55c746476db92773724c201f68db40ab93ee3fdbf4c0343455040e92b",
+      "gzip_bytes": 1668,
+      "gzip_sha256": "df992ac86f68bc3de6ded6c52bc758ea2dd2b9f22e91c32e6fa5c9c7c7aea22e"
+    },
+    {
+      "source": "/workspace/core-next/run-icmp-provider-native50.py",
+      "path": "evidence/run-icmp-provider-native50.py.gz",
+      "raw_bytes": 2636,
+      "raw_sha256": "35d282f1eb81fbfc0c59bd29e44149a94426d63e6c8c138bdf0a128209a4ab00",
+      "gzip_bytes": 1312,
+      "gzip_sha256": "f3f025934f87156b2cbcc89a966e872a54b3dcfb4ecc587e78c425e4ffc68425"
+    },
+    {
+      "source": "/workspace/core-next/verify-frozen-archive.py",
+      "path": "evidence/verify-frozen-archive.py.gz",
+      "raw_bytes": 733,
+      "raw_sha256": "7c509b4f57396d1f36a58a7db8cd3a039313c1156d11cdce72fd8e859fa0fa99",
+      "gzip_bytes": 423,
+      "gzip_sha256": "1920a2ad3c7e6a9a0518ea03450a02c706c2199517e3e4e98b2bb5b61ba70bec"
+    }
+  ],
+  "rounds": [
+    {
+      "source_head": "ad409401874e52794fbaf2a9ff21a5fa4a6dff34",
+      "tree": "63b306dc49b07fe81a4a875e8c51b46e139a9a58",
+      "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+      "binary": "/workspace/core-baseline-artifacts/zero-platform-root47-icmp-proof",
+      "binary_sha256": "260f2a0fbd733aa99e5e041ba9be1044b1aefb28382c0d7bf86da8c464061b59",
+      "image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "network": "none",
+      "host_configuration_changed": false,
+      "original47_permission_failures_preserved": true,
+      "commands": [
+        {
+          "name": "loader",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root47-icmp-proof,dst=/icmp-tests,readonly",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "/bin/sh",
+            "-c",
+            "ldd /icmp-tests && /icmp-tests --list"
+          ],
+          "exit": 0,
+          "seconds": 1.733225964999292,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-loader.txt",
+          "log_sha256": "62be1c2a7502c2a00e4d4902acae1a195919695785d57ad32c0ee4b49b130974",
+          "counts": []
+        },
+        {
+          "name": "environment-normal",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root47-icmp-proof,dst=/icmp-tests,readonly",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "python3",
+            "-c",
+            "import os,pathlib,socket,json\nprint(json.dumps({'uid':os.getuid(),'gid':os.getgid(),'groups':os.getgroups(),'range':pathlib.Path('/proc/sys/net/ipv4/ping_group_range').read_text(),'security':[x for x in pathlib.Path('/proc/self/status').read_text().splitlines() if x.startswith(('CapEff:','CapBnd:','NoNewPrivs:','Seccomp:'))]}))\nfor f,p in ((socket.AF_INET,socket.IPPROTO_ICMP),(socket.AF_INET6,socket.IPPROTO_ICMPV6)):\n for t in (socket.SOCK_RAW,socket.SOCK_DGRAM):\n  try:\n   s=socket.socket(f,t,p);s.close();print(json.dumps({'family':int(f),'kind':int(t),'created':True}))\n  except OSError as e:print(json.dumps({'family':int(f),'kind':int(t),'created':False,'errno':e.errno,'error':str(e)}))\n"
+          ],
+          "exit": 0,
+          "seconds": 1.6735619609971764,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-environment-normal.txt",
+          "log_sha256": "0f2835d9ebd0b0ce40be9dbaf063683b1f1622e179134956220c03ad93c77bb6",
+          "counts": []
+        },
+        {
+          "name": "environment-fallback",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root47-icmp-proof,dst=/icmp-tests,readonly",
+            "--cap-drop=NET_RAW",
+            "--group-add=65534",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "python3",
+            "-c",
+            "import os,pathlib,socket,json\nprint(json.dumps({'uid':os.getuid(),'gid':os.getgid(),'groups':os.getgroups(),'range':pathlib.Path('/proc/sys/net/ipv4/ping_group_range').read_text(),'security':[x for x in pathlib.Path('/proc/self/status').read_text().splitlines() if x.startswith(('CapEff:','CapBnd:','NoNewPrivs:','Seccomp:'))]}))\nfor f,p in ((socket.AF_INET,socket.IPPROTO_ICMP),(socket.AF_INET6,socket.IPPROTO_ICMPV6)):\n for t in (socket.SOCK_RAW,socket.SOCK_DGRAM):\n  try:\n   s=socket.socket(f,t,p);s.close();print(json.dumps({'family':int(f),'kind':int(t),'created':True}))\n  except OSError as e:print(json.dumps({'family':int(f),'kind':int(t),'created':False,'errno':e.errno,'error':str(e)}))\n"
+          ],
+          "exit": 0,
+          "seconds": 2.2314695690001827,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-environment-fallback.txt",
+          "log_sha256": "d6631efedce49505439e91c5c0327e75f60d9a4d187b3ac7535d84fd0bfa5821",
+          "counts": []
+        },
+        {
+          "name": "normal",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root47-icmp-proof,dst=/icmp-tests,readonly",
+            "--name",
+            "core-icmp47-normal",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "/icmp-tests",
+            "controlled_icmp::tests",
+            "--ignored",
+            "--test-threads=1",
+            "--nocapture",
+            "--skip",
+            "controlled_icmp::tests::echo::actual_raw_permission_denial_falls_back_to_real_icmp_datagram"
+          ],
+          "exit": 101,
+          "seconds": 3.4788386139989598,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-normal.txt",
+          "log_sha256": "77cf23e99494a01923ce1c3e3a3c5fea71009b6f4ed8bf55341672aebb1e571a",
+          "counts": [
+            [
+              8,
+              1,
+              0
+            ]
+          ]
+        },
+        {
+          "name": "fallback",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root47-icmp-proof,dst=/icmp-tests,readonly",
+            "--name",
+            "core-icmp47-fallback",
+            "--cap-drop=NET_RAW",
+            "--group-add=65534",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "/icmp-tests",
+            "--exact",
+            "controlled_icmp::tests::echo::actual_raw_permission_denial_falls_back_to_real_icmp_datagram",
+            "--ignored",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "seconds": 1.9225091169937514,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-47-icmp-container-fallback.txt",
+          "log_sha256": "7b319fe801539438d60bc2f858a2c7e2d4140a70e9434d9e56ae7fd7cc053203",
+          "counts": [
+            [
+              1,
+              0,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "source_head": "61f01a2b260adae5228950391b1859bdcd99f037",
+      "tree": "d5a9d27162da5ff807f90cec0fe194bb8d5cce2a",
+      "lock_sha256": "cbfa65b5969b78787ea35dfbaae93e44953103d4fd89bdcb8425f2ee9b780cdb",
+      "binary": "/workspace/core-baseline-artifacts/zero-platform-root50-icmp-proof",
+      "binary_sha256": "2942083b2b52d7deb640fffcf8175cf4e9d24ac0d3494530b2d7bea6efcc114f",
+      "image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "network": "none",
+      "host_configuration_changed": false,
+      "original50_permission_failures_preserved": true,
+      "commands": [
+        {
+          "name": "loader",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root50-icmp-proof,dst=/icmp-tests,readonly",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "/bin/sh",
+            "-c",
+            "ldd /icmp-tests && /icmp-tests --list"
+          ],
+          "exit": 0,
+          "seconds": 4.14484843100945,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-loader.txt",
+          "log_sha256": "b8314834b672168cfd7fcfde10cf67d6e57eb378531b20a2b50f2c46fea04c6a",
+          "counts": []
+        },
+        {
+          "name": "environment-normal",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root50-icmp-proof,dst=/icmp-tests,readonly",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "python3",
+            "-c",
+            "import os,pathlib,socket,json\nprint(json.dumps({'uid':os.getuid(),'gid':os.getgid(),'groups':os.getgroups(),'range':pathlib.Path('/proc/sys/net/ipv4/ping_group_range').read_text(),'security':[x for x in pathlib.Path('/proc/self/status').read_text().splitlines() if x.startswith(('CapEff:','CapBnd:','NoNewPrivs:','Seccomp:'))]}))\nfor f,p in ((socket.AF_INET,socket.IPPROTO_ICMP),(socket.AF_INET6,socket.IPPROTO_ICMPV6)):\n for t in (socket.SOCK_RAW,socket.SOCK_DGRAM):\n  try:\n   s=socket.socket(f,t,p);s.close();print(json.dumps({'family':int(f),'kind':int(t),'created':True}))\n  except OSError as e:print(json.dumps({'family':int(f),'kind':int(t),'created':False,'errno':e.errno,'error':str(e)}))\n"
+          ],
+          "exit": 0,
+          "seconds": 2.726544153993018,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-environment-normal.txt",
+          "log_sha256": "0f2835d9ebd0b0ce40be9dbaf063683b1f1622e179134956220c03ad93c77bb6",
+          "counts": []
+        },
+        {
+          "name": "environment-fallback",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root50-icmp-proof,dst=/icmp-tests,readonly",
+            "--cap-drop=NET_RAW",
+            "--group-add=65534",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "python3",
+            "-c",
+            "import os,pathlib,socket,json\nprint(json.dumps({'uid':os.getuid(),'gid':os.getgid(),'groups':os.getgroups(),'range':pathlib.Path('/proc/sys/net/ipv4/ping_group_range').read_text(),'security':[x for x in pathlib.Path('/proc/self/status').read_text().splitlines() if x.startswith(('CapEff:','CapBnd:','NoNewPrivs:','Seccomp:'))]}))\nfor f,p in ((socket.AF_INET,socket.IPPROTO_ICMP),(socket.AF_INET6,socket.IPPROTO_ICMPV6)):\n for t in (socket.SOCK_RAW,socket.SOCK_DGRAM):\n  try:\n   s=socket.socket(f,t,p);s.close();print(json.dumps({'family':int(f),'kind':int(t),'created':True}))\n  except OSError as e:print(json.dumps({'family':int(f),'kind':int(t),'created':False,'errno':e.errno,'error':str(e)}))\n"
+          ],
+          "exit": 0,
+          "seconds": 1.9260011260048486,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-environment-fallback.txt",
+          "log_sha256": "d6631efedce49505439e91c5c0327e75f60d9a4d187b3ac7535d84fd0bfa5821",
+          "counts": []
+        },
+        {
+          "name": "normal",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root50-icmp-proof,dst=/icmp-tests,readonly",
+            "--name",
+            "core-icmp50-normal",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "/icmp-tests",
+            "controlled_icmp::tests",
+            "--ignored",
+            "--test-threads=1",
+            "--nocapture",
+            "--skip",
+            "controlled_icmp::tests::echo::actual_raw_permission_denial_falls_back_to_real_icmp_datagram"
+          ],
+          "exit": 0,
+          "seconds": 2.027883828006452,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-normal.txt",
+          "log_sha256": "ebdbdc05b87526c729a347d86e785309a90708389b029d15ed30fc0d1da89ff5",
+          "counts": [
+            [
+              9,
+              0,
+              0
+            ]
+          ]
+        },
+        {
+          "name": "fallback",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-platform-root50-icmp-proof,dst=/icmp-tests,readonly",
+            "--name",
+            "core-icmp50-fallback",
+            "--cap-drop=NET_RAW",
+            "--group-add=65534",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "/icmp-tests",
+            "--exact",
+            "controlled_icmp::tests::echo::actual_raw_permission_denial_falls_back_to_real_icmp_datagram",
+            "--ignored",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "seconds": 1.9244036380114267,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-container-fallback.txt",
+          "log_sha256": "cfdebdd09f9fb167b98416f839ab83c62e4b31d376a3aa4f5c5e55b15fc92361",
+          "counts": [
+            [
+              1,
+              0,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "source_head": "61f01a2b260adae5228950391b1859bdcd99f037",
+      "tree": "d5a9d27162da5ff807f90cec0fe194bb8d5cce2a",
+      "lock_sha256": "cbfa65b5969b78787ea35dfbaae93e44953103d4fd89bdcb8425f2ee9b780cdb",
+      "binary": "/workspace/core-baseline-artifacts/zero-proxy-root50-icmp-provider-proof",
+      "binary_sha256": "06fcee781835096009a348ea33efa6fa6ae5f92235b445366ef62e95fdf9d010",
+      "image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "network": "none",
+      "host_configuration_changed": false,
+      "platform_native47_failures_preserved": true,
+      "commands": [
+        {
+          "name": "loader",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--env",
+            "RUST_MIN_STACK=16777216",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-proxy-root50-icmp-provider-proof,dst=/icmp-provider-tests,readonly",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "/bin/sh",
+            "-c",
+            "ldd /icmp-provider-tests && /icmp-provider-tests --list"
+          ],
+          "exit": 0,
+          "seconds": 3.533907425007783,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-provider-loader.txt",
+          "log_sha256": "b95286c6a341a8c224b10065b18524b3e1e9177989c57a667c3e10d3307fa58a",
+          "counts": []
+        },
+        {
+          "name": "provider",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--env",
+            "RUST_MIN_STACK=16777216",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-proxy-root50-icmp-provider-proof,dst=/icmp-provider-tests,readonly",
+            "--name",
+            "core-icmp50-provider",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "/icmp-provider-tests",
+            "component::instance::resources::icmp::tests::native::",
+            "--ignored",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "seconds": 2.782616611002595,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-provider-provider.txt",
+          "log_sha256": "18c7af749af9fdf1315b6fe57f6a71e6b7418743a0840c5b6a8769ea9a779664",
+          "counts": [
+            [
+              4,
+              0,
+              0
+            ]
+          ]
+        },
+        {
+          "name": "legacy-echo",
+          "argv": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--env",
+            "RUST_MIN_STACK=16777216",
+            "--mount",
+            "type=bind,src=/workspace/core-baseline-artifacts/zero-proxy-root50-icmp-provider-proof,dst=/icmp-provider-tests,readonly",
+            "--name",
+            "core-icmp50-legacy-echo",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "/icmp-provider-tests",
+            "--exact",
+            "runtime::inbound_operation::raw_ip::icmp::tests::direct_icmp_echo_probe_returns_real_ipv4_and_ipv6_loopback_replies",
+            "--ignored",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "seconds": 2.7882926290039904,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-50-icmp-provider-legacy-echo.txt",
+          "log_sha256": "01127654e7b7f43b07fcb8bc51bb47d40af3d4663ec888396bab4dc0bb9b7f41",
+          "counts": [
+            [
+              1,
+              0,
+              0
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "field_label_correction": "Root50 raw runner accidentally renamed historical original47_permission_failures_preserved to original50; separate correction JSON retains rawsha and exact actual command data unchanged."
+}

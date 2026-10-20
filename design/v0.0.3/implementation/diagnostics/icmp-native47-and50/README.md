@@ -1,0 +1,9 @@
+# ICMP native selected evidence
+
+Original root47 task-process native run failed all ten cases before acquisition (RAW EPERM1, datagram EACCES13); those logs remain in the frozen42–48 archive. Its unchanged immutable executable then ran in a network-none container: eight of nine normal cases passed, the real cooperative-wake getter assertion failed, and the separate RAW-denial/datagram fallback case passed.
+
+Root50 `61f01a2b260adae5228950391b1859bdcd99f037` retains all old assertions and corrects the test executor to exercise a real zero-budget synchronous native wake. All nine normal cases plus the separate fallback passed. Platform executable SHA `2942083b2b52d7deb640fffcf8175cf4e9d24ac0d3494530b2d7bea6efcc114f`. Its four explicitly ignored HostIcmpProbeOwner native cases passed, and the original IPv4/IPv6 legacy echo case passed separately. These scope-specific results do not certify a complete RuntimeHost, resource replacement, other platforms or ALL17.
+
+Image is fixed by digest, network none, read-only binary/root filesystem, one CPU/1GiB; normal default capabilities and the separate fallback capability-drop/group settings are recorded exactly. No host configuration was changed. Environment Python socket probes are readiness checks, not owner close receipts. The Windows check is separate compile-only evidence. No fake native disposition was inferred from descriptor Drop, task exit or address rebinding.
+
+All command argv/exit/raw logs, source HEAD/tree/lock and immutable executable hashes are retained. Executables remain outside Git as immutable local artifacts; the archive records and rehashes their identities. The raw root50 manifest has a historical metadata-key naming error; its separate label-correction JSON identifies the exact raw digest and intended root47 reference without altering original command evidence.
