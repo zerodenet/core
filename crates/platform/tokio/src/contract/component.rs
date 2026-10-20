@@ -44,6 +44,11 @@ pub enum DeviceOwnership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceDeclaration {
+    /// Native RAW/ping ICMP originals, distinct from UDP or device authority.
+    /// Counts live, retiring and Unknown sockets, not generation lifetime probes.
+    NativeIcmp {
+        max_sockets: NonZeroUsize,
+    },
     BoundOutboundDatagram {
         max_sockets: NonZeroUsize,
         max_bindings: NonZeroUsize,

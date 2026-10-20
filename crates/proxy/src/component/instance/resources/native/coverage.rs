@@ -4,6 +4,7 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::component) enum DeclaredResourceKind {
+    NativeIcmp,
     File,
     TcpListener,
     DatagramListener,
@@ -39,6 +40,9 @@ impl CoverageBinding {
         declaration: &ResourceDeclaration,
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
+            ResourceDeclaration::NativeIcmp { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::NativeIcmp)
+            }
             ResourceDeclaration::File { path, .. } => Self::File(path.clone()),
             ResourceDeclaration::TcpListener { destination, .. } => {
                 Self::Tcp(sockets::literal(component, destination)?)

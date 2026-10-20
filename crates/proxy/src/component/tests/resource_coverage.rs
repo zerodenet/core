@@ -155,6 +155,10 @@ fn missing_providers_are_explicitly_unaccounted_without_authorizing_their_constr
     use zero_core::component::NetworkGeneration;
     let declarations = [
         (
+            ResourceDeclaration::NativeIcmp { max_sockets: one() },
+            DeclaredResourceKind::NativeIcmp,
+        ),
+        (
             ResourceDeclaration::Device {
                 name: "owned".into(),
                 ownership: DeviceOwnership::Owned,
