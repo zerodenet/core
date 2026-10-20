@@ -1,0 +1,149 @@
+{
+  "overall_passed": false,
+  "scope": "Frozen68 through69 command evidence; no final ALL17 qualification",
+  "rounds": [
+    {
+      "number": 68,
+      "head": "3f6e553b35e056d2d2715d74043fc9df63e8c968",
+      "tree": "7fc2752b4c0e4a542a4e2f26d21796d1c84bc4ae",
+      "lock_sha256": "2540f657bb868ae1001889f6ab8fb23097835a3c134b6b14384cfaf2deb83fe6",
+      "commands": [
+        {
+          "name": "fmt",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "6907d0d9229f448e8fcdbfb8235e4308f3f44debd0f561e5b5ed3fdafae89108",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        }
+      ]
+    },
+    {
+      "number": 69,
+      "head": "a01856471e6c70e59e8a77283cf5ac3c7ddf53e1",
+      "tree": "77395f5268d2119d8a49130d9a516ddfc6dc78f5",
+      "lock_sha256": "2540f657bb868ae1001889f6ab8fb23097835a3c134b6b14384cfaf2deb83fe6",
+      "commands": [
+        {
+          "name": "fmt",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "d9556128cc535516abb7c6496a7edec0bb4e1c6022781c9f08fb6cd00ebe5fdd",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        }
+      ]
+    }
+  ],
+  "records": [
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-68-fmt.txt",
+      "path": "evidence/pr05-parallel-focused-68-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-68-workspace-alltargets-check.txt",
+      "path": "evidence/pr05-parallel-focused-68-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 1203,
+      "raw_sha256": "6907d0d9229f448e8fcdbfb8235e4308f3f44debd0f561e5b5ed3fdafae89108",
+      "gzip_bytes": 578,
+      "gzip_sha256": "35ae0f1b67617b98f5544af33aefe1a4620f8bcbd6d14725fe777e156676841e"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-68.json",
+      "path": "evidence/pr05-parallel-focused-68.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 1184,
+      "raw_sha256": "16abb83d8fab8d0ebad770a5283919d09fe80623b11cc2b1482c44644e3d4a58",
+      "gzip_bytes": 451,
+      "gzip_sha256": "93be23514c89884d0d95ffabee58e619a69d5701a4180ae3e620ef103cf4c826"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-69-fmt.txt",
+      "path": "evidence/pr05-parallel-focused-69-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-69-workspace-alltargets-check.txt",
+      "path": "evidence/pr05-parallel-focused-69-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 9087,
+      "raw_sha256": "d9556128cc535516abb7c6496a7edec0bb4e1c6022781c9f08fb6cd00ebe5fdd",
+      "gzip_bytes": 2732,
+      "gzip_sha256": "75733d56daa93d6207153bc84f4d02c4330176af57071cae8579f1425eac2b08"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-69.json",
+      "path": "evidence/pr05-parallel-focused-69.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 1187,
+      "raw_sha256": "cb81090264f9a6d8943732769acf30765ee63ee422c0c89a9838253e00f56211",
+      "gzip_bytes": 453,
+      "gzip_sha256": "0f0488a81f44a5a76b988f18a67f0a3df3983ada61b80d920a964d14bffaaef3"
+    },
+    {
+      "source": "/workspace/core-next/archive-frozen-through69.py",
+      "path": "evidence/archive-frozen-through69.py.gz",
+      "kind": "preparation-no-product-execution",
+      "raw_bytes": 4955,
+      "raw_sha256": "fb6bb9c4a1f52aa6a8a351c85091cb6765b90f8857b58c6a4edce18c3e26a81a",
+      "gzip_bytes": 2241,
+      "gzip_sha256": "b5950a91185ab2bb009e82b511c96204cf047b19a80e6217a8358cd557e0f265"
+    },
+    {
+      "source": "/workspace/core-next/focused-parallel-v13.py",
+      "path": "evidence/focused-parallel-v13.py.gz",
+      "kind": "preparation-no-product-execution",
+      "raw_bytes": 15792,
+      "raw_sha256": "180217c6e166bbeda0b61d731ed670ba6b5f20b0cb818159f836e69328eeb10a",
+      "gzip_bytes": 3285,
+      "gzip_sha256": "86a4991e3c494ccfd1acdd7bb4a4da53a34ba212fb4d5d2e1633af97d0b0971c"
+    },
+    {
+      "source": "/workspace/core-next/focused-parallel-v14.py",
+      "path": "evidence/focused-parallel-v14.py.gz",
+      "kind": "preparation-no-product-execution",
+      "raw_bytes": 15801,
+      "raw_sha256": "89df71c4dc0c8bdd51b972c4ec74273feb36fa5522d1f90b3756ecae811daa30",
+      "gzip_bytes": 3287,
+      "gzip_sha256": "4629bb2f158f4ea234bf357a426a7a91e70dd035d576d46cef525b925a144124"
+    }
+  ],
+  "input_sha256": {
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-68.json": "16abb83d8fab8d0ebad770a5283919d09fe80623b11cc2b1482c44644e3d4a58",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-68-fmt.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-68-workspace-alltargets-check.txt": "6907d0d9229f448e8fcdbfb8235e4308f3f44debd0f561e5b5ed3fdafae89108",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-69.json": "cb81090264f9a6d8943732769acf30765ee63ee422c0c89a9838253e00f56211",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-69-fmt.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-69-workspace-alltargets-check.txt": "d9556128cc535516abb7c6496a7edec0bb4e1c6022781c9f08fb6cd00ebe5fdd",
+    "/workspace/core-next/archive-frozen-through69.py": "fb6bb9c4a1f52aa6a8a351c85091cb6765b90f8857b58c6a4edce18c3e26a81a",
+    "/workspace/core-next/focused-parallel-v13.py": "180217c6e166bbeda0b61d731ed670ba6b5f20b0cb818159f836e69328eeb10a",
+    "/workspace/core-next/focused-parallel-v14.py": "89df71c4dc0c8bdd51b972c4ec74273feb36fa5522d1f90b3756ecae811daa30",
+    "/workspace/core/design/v0.0.3/implementation/pr05-parallel-progress-validation.json": "5b24d9d706de073bddb1006fc821b4d9fccb548da3f2196ee96855c2b030506e"
+  }
+}
