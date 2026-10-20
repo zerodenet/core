@@ -1,5 +1,5 @@
 use super::*;
-use zero_api::{event_type, EventFilter};
+use zero_api::{event_type, EventFilter, EventSource};
 
 #[tokio::test]
 async fn standard_connect_keeps_real_identity_authentication_policy_payload_and_half_close() {
