@@ -125,6 +125,3 @@ fn clear_live_managed_credentials(protocol: &mut zero_config::InboundProtocolCon
         _ => {}
     }
 }
-
-#[cfg(all(test, feature = "socks5"))]
-mod tests;
