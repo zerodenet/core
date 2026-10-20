@@ -72,6 +72,14 @@ impl Entry {
         }
         report
     }
+    pub(super) fn has_receipts(&self) -> bool {
+        let report = &self.receipts;
+        !report.closed_io.is_empty()
+            || !report.exited_tasks.is_empty()
+            || !report.failed_tasks.is_empty()
+            || !report.released_resources.is_empty()
+            || !report.recovered_resources.is_empty()
+    }
     pub(super) fn poll_closed(
         &mut self,
         cx: &mut Context<'_>,

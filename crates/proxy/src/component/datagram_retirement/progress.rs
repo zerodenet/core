@@ -52,6 +52,7 @@ impl RetiredDatagrams {
         let mut state = self.state.lock().expect("Datagram owner poisoned");
         state.waker = Some(cx.waker().clone());
         let mut complete = true;
+        let mut receipts = false;
         let mut failure = None;
         for entry in state.entries.values() {
             let mut entry = entry.lock().expect("Datagram entry poisoned");
@@ -66,6 +67,13 @@ impl RetiredDatagrams {
                 }
                 Poll::Ready(Ok(())) => {}
             }
+            receipts |= entry.closed || entry.has_receipts();
+        }
+        // Deliver already-confirmed progress immediately. An unrelated peer
+        // withholding EOF or retaining a real close error cannot pin every
+        // completed controller's admission capacity until its own deadline.
+        if receipts {
+            return Poll::Ready(Ok(()));
         }
         if let Some(error) = failure {
             return Poll::Ready(Err(error));

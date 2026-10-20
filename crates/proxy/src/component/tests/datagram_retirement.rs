@@ -191,3 +191,41 @@ async fn normal_udp_driver_recycles_capacity_one_for_two_real_socket_batches_wit
     }
     drop(owner.reserve().unwrap());
 }
+
+#[tokio::test]
+async fn a_real_pending_or_failed_tcp_close_does_not_pin_another_closed_udp_reservation() {
+    let owner = owner(2);
+    let (control, _eof, release, server) = tcp_control(true).await;
+    drop(owner.reserve().unwrap().adopt(control));
+    let reservation = owner.reserve().unwrap();
+    let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let socket = TokioDatagramSocket::bind("127.0.0.1:0").await.unwrap();
+    let local = socket.local_addr().unwrap();
+    let channel = socket.into_fixed_datagram_session(
+        AssociationId(53),
+        peer.local_addr().unwrap(),
+        CancellationToken::new(),
+    );
+    drop(reservation.adopt(channel.control));
+    let report = owner.progress_retired(deadline()).await.unwrap();
+    assert_eq!(report.closed_io.len(), 1);
+    assert!(!report.is_complete());
+    TokioDatagramSocket::bind_addr(local)
+        .await
+        .unwrap()
+        .close()
+        .unwrap();
+    // UDP's confirmed receipt releases its slot even though the real TCP peer
+    // has not allowed EOF, and its original protocol failure remains owned.
+    drop(owner.reserve().unwrap());
+    let error = owner.progress_retired(deadline()).await.unwrap_err();
+    assert_eq!(error.reason, Reason::Protocol);
+    release.notify_one();
+    let report = owner.progress_retired(deadline()).await.unwrap();
+    assert!(report.is_complete());
+    assert_eq!(report.closed_io.len(), 1);
+    tokio::time::timeout_at(deadline(), server)
+        .await
+        .unwrap()
+        .unwrap();
+}
