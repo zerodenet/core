@@ -54,10 +54,18 @@ impl ControlledDatagramOwner {
             Ok(prepared) => prepared,
             Err(source) => return Err(self.no_native(&entry, phase("prepare", source))),
         };
-        self.acquire_native(entry, source, preferred_port, v6_only, interface)
+        let socket = self.acquire_native(entry, source, preferred_port, v6_only, interface)?;
+        self.register_native(socket)
     }
     /// Bind an exact server address without outbound policy or port fallback.
     pub(super) fn bind_native_listener(
+        &mut self,
+        source: SocketAddr,
+    ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
+        let socket = self.bind_raw_listener(source)?;
+        self.register_native(socket)
+    }
+    pub(super) fn bind_raw_listener(
         &mut self,
         source: SocketAddr,
     ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
@@ -125,6 +133,16 @@ impl ControlledDatagramOwner {
                 source,
             });
         }
+        Ok(ControlledDatagramSocket { entry, interface })
+    }
+    /// Typed internal registration. The original stays in its entry before
+    /// metadata setup and across this consuming runtime boundary.
+    pub(super) fn register_native(
+        &mut self,
+        socket: ControlledDatagramSocket,
+    ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
+        let entry = &socket.entry;
+        let interface = &socket.interface;
         {
             let mut native = entry.lock();
             // from_std consumes the original. Install Unknown before crossing
@@ -158,7 +176,7 @@ impl ControlledDatagramOwner {
                 }
             }
         }
-        Ok(ControlledDatagramSocket { entry, interface })
+        Ok(socket)
     }
     fn no_native(
         &mut self,

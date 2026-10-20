@@ -1,0 +1,127 @@
+//! Owned native UDP ancillary I/O. This is a library boundary, not a runtime.
+//! Every native original (including capability probes) has a persistent owner.
+mod io;
+mod owner;
+mod poller;
+mod probes;
+#[cfg(test)]
+mod tests;
+mod types;
+use super::*;
+pub use poller::DatagramWritePoller;
+use std::{net::SocketAddr, task::Poll};
+pub use types::*;
+
+/// All limits are caller-assigned. No process or protocol defaults are implied.
+#[derive(Clone, Copy, Debug)]
+pub struct MetadataLimits {
+    pub main_sockets: NonZeroUsize,
+    pub probe_sockets: NonZeroUsize,
+    pub probe_attempts_per_initialization: NonZeroUsize,
+    pub concurrent_send_calls: NonZeroUsize,
+    pub write_pollers: NonZeroUsize,
+}
+pub struct MetadataOwner {
+    main: ControlledDatagramOwner,
+    probes: probes::Probes,
+    limits: MetadataLimits,
+    views: BTreeMap<DatagramReservationId, Arc<Shared>>,
+}
+#[derive(Debug)]
+pub struct MetadataOwnerReport {
+    pub main: DatagramOwnerReport,
+    pub probes: DatagramOwnerReport,
+}
+impl MetadataOwnerReport {
+    pub fn is_complete(&self) -> bool {
+        self.main.is_complete() && self.probes.is_complete()
+    }
+}
+/// Unique receiver, clonable sender and unique native control, same original.
+pub struct GrantedMetadataDatagram {
+    pub rx: MetadataDatagramRx,
+    pub tx: MetadataDatagramTx,
+    pub control: MetadataDatagramControl,
+}
+pub struct MetadataDatagramRx {
+    shared: Arc<Shared>,
+    registration: poller::Registration,
+}
+#[derive(Clone)]
+pub struct MetadataDatagramTx {
+    shared: Arc<Shared>,
+}
+pub struct MetadataDatagramControl {
+    shared: Arc<Shared>,
+}
+struct Shared {
+    socket: ControlledDatagramSocket,
+    state: quinn_udp::UdpSocketState,
+    pollers: Arc<poller::Broker>,
+    sends: tokio::sync::Semaphore,
+}
+impl Shared {
+    fn check(&self) -> std_io::Result<()> {
+        if self.socket.entry.retired.is_cancelled() {
+            return Err(std_io::Error::new(
+                std_io::ErrorKind::NotConnected,
+                "metadata datagram original is retired",
+            ));
+        }
+        Ok(())
+    }
+    fn capabilities(&self) -> MetadataCapabilities {
+        MetadataCapabilities {
+            transmit_segments: self.state.max_gso_segments(),
+            receive_segments: self.state.gro_segments(),
+            batch_size: quinn_udp::BATCH_SIZE,
+            may_fragment: self.state.may_fragment(),
+        }
+    }
+}
+impl MetadataDatagramTx {
+    pub fn local_addr(&self) -> std_io::Result<SocketAddr> {
+        self.shared.socket.local_addr()
+    }
+    pub fn capabilities(&self) -> MetadataCapabilities {
+        self.shared.capabilities()
+    }
+    pub fn create_write_poller(&self) -> std_io::Result<DatagramWritePoller> {
+        self.shared.check()?;
+        let registration = self.shared.pollers.register()?;
+        Ok(DatagramWritePoller {
+            shared: self.shared.clone(),
+            registration,
+        })
+    }
+}
+impl MetadataDatagramRx {
+    pub fn local_addr(&self) -> std_io::Result<SocketAddr> {
+        self.shared.socket.local_addr()
+    }
+    pub fn capabilities(&self) -> MetadataCapabilities {
+        self.shared.capabilities()
+    }
+}
+impl MetadataDatagramControl {
+    pub fn reservation(&self) -> DatagramReservationId {
+        self.shared.socket.reservation()
+    }
+    /// Stop all current and future native I/O. This is not a close receipt.
+    pub fn revoke(&self) {
+        self.shared.socket.entry.retired.cancel();
+        self.shared.pollers.signal();
+    }
+    pub fn close(&mut self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
+        self.revoke();
+        self.shared.socket.close()
+    }
+}
+impl fmt::Debug for MetadataOwner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MetadataOwner")
+            .field("main", &self.main)
+            .field("probes", &self.probes)
+            .finish_non_exhaustive()
+    }
+}

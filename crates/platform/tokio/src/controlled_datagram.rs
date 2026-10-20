@@ -4,6 +4,7 @@ mod acquire;
 mod flags;
 mod io;
 pub mod listener;
+pub mod metadata;
 mod observation;
 #[cfg(test)]
 mod tests;
