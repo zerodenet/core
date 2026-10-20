@@ -6,7 +6,14 @@ fn one() -> NonZeroUsize {
     NonZeroUsize::new(1).unwrap()
 }
 fn endpoint() -> Destination {
-    Destination::new(Address::Ipv4([127, 0, 0, 1]), 0)
+    // Linux routes the entire 127/8 through loopback. Isolate this close/rebind
+    // check from parallel tests allocating ephemeral 127.0.0.1 source ports.
+    // Other platforms retain their original configured loopback address.
+    #[cfg(target_os = "linux")]
+    let host = [127, 53, 22, 1];
+    #[cfg(not(target_os = "linux"))]
+    let host = [127, 0, 0, 1];
+    Destination::new(Address::Ipv4(host), 0)
 }
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(3)
@@ -116,6 +123,7 @@ async fn canonical_file_tcp_udp_entries_follow_original_ordinals_and_real_closur
     let tcp = grants.listen_tcp(endpoint()).await.unwrap();
     let address = tcp.local_addr().unwrap();
     let udp = grants.listen_datagram(endpoint()).await.unwrap();
+    let udp_address = udp.rx.local_addr().unwrap();
     assert_eq!(grants.read_file(path, 4).await.unwrap(), b"four");
     let live = grants.io_evidence();
     assert!(live.native.iter().all(|owner| !owner.known_no_acquisition));
@@ -132,7 +140,10 @@ async fn canonical_file_tcp_udp_entries_follow_original_ordinals_and_real_closur
         .send_to_addr(b"closed", "127.0.0.1:9".parse().unwrap())
         .await
         .is_err());
-    std::net::TcpListener::bind(address).unwrap();
+    // Hold both actual replacements through the remainder of the assertions.
+    // Rebinding supplements the owner's syscall receipt; it cannot mint one.
+    let _tcp_rebound = std::net::TcpListener::bind(address).unwrap();
+    let _udp_rebound = std::net::UdpSocket::bind(udp_address).unwrap();
     let mut missing = closed.clone();
     missing.declarations.clear();
     assert!(
