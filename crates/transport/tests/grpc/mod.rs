@@ -179,3 +179,4 @@ fn unknown_protobuf_groups_are_skipped_without_consuming_outer_hunks() {
         "/has%27apostrophe%2Fand%3Fslash/Tun"
     );
 }
+mod keepalive;
