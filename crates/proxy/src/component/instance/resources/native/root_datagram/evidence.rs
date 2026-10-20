@@ -67,6 +67,7 @@ impl RootDeclarations {
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if let Some(report) = native {
                     native_confirmed &= report.is_complete();
+                    ledger.native_unconfirmed = !report.unconfirmed.is_empty();
                     native_unknown = report
                         .unconfirmed
                         .first()

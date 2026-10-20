@@ -44,6 +44,24 @@ impl HostResources {
         if selection.generation != entry.generation.0 {
             return Err(deny());
         }
+        entry.reap_queries(self.component);
+        // An unresolved original or an unfinished acquisition cannot be
+        // repaired by another query. Do not create a second charged record
+        // referring to an already-Unknown original reservation.
+        if entry
+            .ledger
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .native_unconfirmed
+            || entry.queries().iter().any(|old| {
+                old.attempt
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .opening
+            })
+        {
+            return Err(deny());
+        }
         context.register_query(query).map_err(|_| {
             RootDatagramAttemptFailure::denied(error(
                 self.component,
@@ -51,7 +69,6 @@ impl HostResources {
                 "root query record ceiling exhausted",
             ))
         })?;
-        entry.reap_queries(self.component);
         let record = Arc::new(Query {
             witness: query.clone(),
             attempt: Mutex::new(Attempt {

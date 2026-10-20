@@ -56,6 +56,7 @@ struct Attempt {
 #[derive(Default)]
 struct Ledger {
     pending_closed: u64,
+    native_unconfirmed: bool,
     total_closed: u64,
     known_no_native: u64,
     first_fault: Option<Arc<ChannelError>>,
@@ -164,6 +165,7 @@ impl Entry {
             .ledger
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        ledger.native_unconfirmed = !report.unconfirmed.is_empty();
         ledger.pending_closed += report.confirmed_closed;
         ledger.total_closed += report.confirmed_closed;
         ledger.known_no_native += report.known_no_native;
