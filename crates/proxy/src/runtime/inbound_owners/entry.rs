@@ -33,6 +33,8 @@ pub(crate) struct InboundOwner {
     failure: Mutex<Option<SharedError>>,
     driver: OnceLock<TaskId>,
     driver_finished: AtomicBool,
+    #[cfg(feature = "managed-datagram-runtime")]
+    peers: Mutex<Vec<Arc<super::InboundPeerTasks>>>,
 }
 #[derive(Clone)]
 pub(crate) struct InboundTaskAccess {
@@ -82,6 +84,8 @@ impl InboundOwner {
             failure: Mutex::new(None),
             driver: OnceLock::new(),
             driver_finished: AtomicBool::new(false),
+            #[cfg(feature = "managed-datagram-runtime")]
+            peers: Mutex::new(Vec::new()),
         }
     }
     pub(super) fn install_resource(
@@ -104,6 +108,15 @@ impl InboundOwner {
             cancel: self.cancel.clone(),
             shutdown: self.shutdown.clone(),
         }
+    }
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(super) fn install_peer_tasks(&self) -> Arc<super::InboundPeerTasks> {
+        let group = Arc::new(super::InboundPeerTasks::new());
+        self.peers
+            .lock()
+            .expect("peer owners poisoned")
+            .push(group.clone());
+        group
     }
     pub(crate) fn spawn_driver(
         self: &Arc<Self>,
@@ -172,11 +185,15 @@ impl InboundOwner {
     fn stop(&self) {
         self.cancel.cancel();
         self.shutdown.send_replace(true);
+        #[cfg(feature = "managed-datagram-runtime")]
+        for peers in self.peers.lock().expect("peer owners poisoned").iter() {
+            peers.begin_shutdown();
+        }
     }
     fn record(&self, exit: TaskExit) {
         let mut report = self.report.lock().expect("inbound close report poisoned");
-        report.exited_tasks.push(exit.id);
-        if let Err(mut error) = exit.result {
+        let failed = exit.result.is_err();
+        let failure = if let Err(mut error) = exit.result {
             error.component.get_or_insert(self.identity.component);
             let error = Arc::new(error);
             self.failure
@@ -186,8 +203,28 @@ impl InboundOwner {
             report.failed_tasks.push(TaskFailure {
                 id: exit.id,
                 class: exit.class,
-                error: retained(error),
+                error: retained(error.clone()),
             });
+            Some(error)
+        } else {
+            None
+        };
+        #[cfg(feature = "managed-datagram-runtime")]
+        let peer = self
+            .peers
+            .lock()
+            .expect("peer owners poisoned")
+            .iter()
+            .any(|group| group.joined(exit.id, failure.clone()));
+        #[cfg(not(feature = "managed-datagram-runtime"))]
+        let peer = {
+            let _ = failure;
+            false
+        };
+        // A successful dynamic peer's actual exit is consumed by its group;
+        // keep only bounded active IDs and sticky failed receipts, not history.
+        if !peer || failed {
+            report.exited_tasks.push(exit.id);
         }
         if self.driver.get() == Some(&exit.id) {
             self.driver_finished.store(true, Ordering::Release);

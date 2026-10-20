@@ -1,6 +1,6 @@
 //! TCP listener plus bounded, independently routed UDP peer associations.
 use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
-use tokio::{net::UdpSocket, sync::mpsc, task::JoinSet};
+use tokio::{net::UdpSocket, sync::mpsc};
 use zero_core::InboundDatagramUdpRelay;
 use zero_engine::EngineError;
 mod peers;
@@ -15,6 +15,7 @@ use crate::{protocol_registry::BoundInbound, runtime::route_runtime::InboundList
 pub(crate) struct TcpAndPeerDatagramInboundListenerOperation<R, D, F> {
     pub(crate) tcp: TcpInboundListenerOperation<R, D>,
     pub(crate) relay_factory: F,
+    pub(crate) peers: Arc<crate::runtime::inbound_owners::InboundPeerTasks>,
 }
 
 impl<R, D, F, Fut, U> PreparedInboundListenerOperation
@@ -45,6 +46,7 @@ where
             let Self {
                 tcp: tcp_operation,
                 relay_factory,
+                peers,
             } = *self;
             let host = runtime
                 .host_control()
@@ -55,18 +57,24 @@ where
             let tcp_loop =
                 Box::new(tcp_operation).execute(runtime, BoundInbound::Tcp(tcp), shutdown.clone());
             let peer_socket = socket.clone();
-            let udp_loop = peers::run(socket, shutdown, host.clone(), move |peer, packets| {
-                let relay = (relay_factory)(peer, packets);
-                let runtime = udp_runtime.clone();
-                let socket = peer_socket.clone();
-                let tag = inbound_tag.clone();
-                async move {
-                    crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
-                        runtime, socket, relay, &tag, true,
-                    )
-                    .await
-                }
-            });
+            let udp_loop = peers::run(
+                socket,
+                shutdown,
+                host.clone(),
+                peers,
+                move |peer, packets| {
+                    let relay = (relay_factory)(peer, packets);
+                    let runtime = udp_runtime.clone();
+                    let socket = peer_socket.clone();
+                    let tag = inbound_tag.clone();
+                    async move {
+                        crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
+                            runtime, socket, relay, &tag, true,
+                        )
+                        .await
+                    }
+                },
+            );
             run_both(tcp_loop, udp_loop, host).await
         })
     }

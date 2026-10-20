@@ -1,4 +1,7 @@
 use super::*;
+#[cfg(feature = "managed-datagram-runtime")]
+#[path = "tests/peers.rs"]
+mod peers;
 use crate::runtime::Proxy;
 use std::task::Poll;
 use tokio::{

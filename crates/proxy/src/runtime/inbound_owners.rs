@@ -1,7 +1,11 @@
 //! Persistent actual listener drivers and carrier resources, outside run futures.
 mod entry;
+#[cfg(feature = "managed-datagram-runtime")]
+mod peers;
 use crate::inventory::ProtocolInventory;
 pub(crate) use entry::{InboundOwner, InboundTaskAccess};
+#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) use peers::{InboundPeerTasks, MAX_DATAGRAM_PEERS};
 use std::{
     collections::HashMap,
     num::NonZeroUsize,
@@ -32,6 +36,10 @@ pub(crate) struct InboundInstallContext {
     protocols: ProtocolInventory,
 }
 impl InboundInstallContext {
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn peer_tasks(&self) -> Arc<InboundPeerTasks> {
+        self.entry.install_peer_tasks()
+    }
     pub(crate) fn register(
         &self,
         owner: Box<dyn DynResourceLifecycle>,

@@ -34,10 +34,16 @@ async fn actual_tcp_failure_stops_peer_admission_and_drains_pending_peer_io_befo
     let (stop, shutdown) = tokio::sync::watch::channel(false);
     let installed = proxy
         .inbound_owners
-        .install("peer", &proxy.protocols, 0, stop)
+        .install(
+            "peer",
+            &proxy.protocols,
+            crate::runtime::inbound_owners::MAX_DATAGRAM_PEERS,
+            stop,
+        )
         .unwrap();
     let owner = installed.owner();
     let host = installed.tasks();
+    let tasks = installed.peer_tasks();
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
     let address = socket.local_addr().unwrap();
     let (first, mut first_server) = tcp_pair().await;
@@ -62,7 +68,7 @@ async fn actual_tcp_failure_stops_peer_admission_and_drains_pending_peer_io_befo
                     fail.notified().await;
                     Err(std::io::Error::other("actual TCP driver failure").into())
                 },
-                peers::run(socket, shutdown, udp_host, move |_, mut packets| {
+                peers::run(socket, shutdown, udp_host, tasks, move |_, mut packets| {
                     peers.fetch_add(1, Ordering::SeqCst);
                     let mut stream = stream
                         .lock()
@@ -163,10 +169,16 @@ async fn actual_peer_panic_stops_both_loops_and_retains_its_real_native_join_id_
     let (stop, mut stopping) = tokio::sync::watch::channel(false);
     let installed = proxy
         .inbound_owners
-        .install("peer-panic", &proxy.protocols, 0, stop)
+        .install(
+            "peer-panic",
+            &proxy.protocols,
+            crate::runtime::inbound_owners::MAX_DATAGRAM_PEERS,
+            stop,
+        )
         .unwrap();
     let owner = installed.owner();
     let host = installed.tasks();
+    let tasks = installed.peer_tasks();
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
     let address = socket.local_addr().unwrap();
     let (stream, mut server) = tcp_pair().await;
@@ -183,7 +195,7 @@ async fn actual_peer_panic_stops_both_loops_and_retains_its_real_native_join_id_
                     let _ = stopping.wait_for(|stop| *stop).await;
                     Ok(())
                 },
-                peers::run(socket, shutdown, udp_host, move |_, mut packets| {
+                peers::run(socket, shutdown, udp_host, tasks, move |_, mut packets| {
                     let mut stream = stream.lock().unwrap().take().unwrap();
                     let (native_id, pending) = (native_id.clone(), pending.clone());
                     async move {

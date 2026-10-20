@@ -41,48 +41,21 @@ impl InboundOwner {
         };
         let close_tasks = async {
             let mut scope = self.scope.lock().await;
-            let mut report = scope.shutdown(deadline).await;
-            let complete = report.is_complete();
-            for mut failure in report.failed_tasks.drain(..) {
-                failure
-                    .error
-                    .component
-                    .get_or_insert(self.identity.component);
-                let error = Arc::new(failure.error);
-                self.failure
-                    .lock()
-                    .expect("inbound failure poisoned")
-                    .get_or_insert(error.clone());
-                self.report
-                    .lock()
-                    .expect("inbound close report poisoned")
-                    .failed_tasks
-                    .push(TaskFailure {
-                        id: failure.id,
-                        class: failure.class,
-                        error: retained(error),
-                    });
-            }
-            // Publish receipts and inspect the driver ID under the same short
-            // lock as publish_driver, including the exit-before-ID race.
-            {
-                let mut stored = self.report.lock().expect("inbound close report poisoned");
-                stored.append(report);
-                if self
-                    .driver
-                    .get()
-                    .is_some_and(|id| stored.exited_tasks.contains(id))
-                {
-                    self.driver_finished.store(true, Ordering::Release);
+            scope.begin_shutdown();
+            loop {
+                match timeout_at(deadline, scope.next_exit()).await {
+                    Ok(Some(exit)) => self.record(exit),
+                    Ok(None) => return Ok::<(), std::io::Error>(()),
+                    Err(_) => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "inbound tasks remain unconfirmed",
+                        ))
+                    }
                 }
-            }
-            if complete {
-                Ok(())
-            } else {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "inbound tasks remain unconfirmed",
-                ))
+                // Dispatch each actual receipt before the next await. Dynamic
+                // peer drivers may be waiting for precisely this joined exit;
+                // collecting an all-tasks report first would deadlock them.
             }
         };
         let result = timeout_at(deadline, async {

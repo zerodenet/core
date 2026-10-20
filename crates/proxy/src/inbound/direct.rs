@@ -20,11 +20,31 @@ mod datagram;
 pub(crate) struct DirectInboundListenerOperation {
     #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) udp: bool,
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) peers: Option<std::sync::Arc<crate::runtime::inbound_owners::InboundPeerTasks>>,
     pub(crate) target: Option<Address>,
     pub(crate) port: Option<u16>,
 }
 
 impl PreparedInboundListenerOperation for DirectInboundListenerOperation {
+    fn internal_tasks(&self) -> usize {
+        #[cfg(feature = "managed-datagram-runtime")]
+        if self.udp {
+            return crate::runtime::inbound_owners::MAX_DATAGRAM_PEERS;
+        }
+        0
+    }
+    fn install_resources(
+        &mut self,
+        context: &crate::runtime::inbound_owners::InboundInstallContext,
+    ) -> Result<(), EngineError> {
+        #[cfg(feature = "managed-datagram-runtime")]
+        if self.udp {
+            self.peers = Some(context.peer_tasks());
+        }
+        let _ = context;
+        Ok(())
+    }
     fn execute(
         self: Box<Self>,
         runtime: crate::runtime::route_runtime::InboundListenerRuntime,
@@ -66,6 +86,9 @@ impl PreparedInboundListenerOperation for DirectInboundListenerOperation {
             let combined =
                 crate::runtime::inbound_operation::TcpAndPeerDatagramInboundListenerOperation {
                     tcp: operation,
+                    peers: self
+                        .peers
+                        .expect("peer owner installed before listener execution"),
                     relay_factory: move |peer, packets| {
                         datagram::DirectDatagramRelay::new(target.clone(), port, peer, packets)
                     },
