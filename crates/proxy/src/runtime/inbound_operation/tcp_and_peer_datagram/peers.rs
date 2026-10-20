@@ -51,7 +51,7 @@ where
     let mut buffer = vec![0; 65535];
     loop {
         tokio::select! { biased;
-            _ = shutdown.wait_for(|stop| *stop) => break,
+            _ = async { let _ = shutdown.wait_for(|stop| *stop).await; } => break,
             _ = tasks.changed() => {
                 peers.retain(|_, sender| !sender.is_closed());
                 if let Err(error) = tasks.retire_joined(tokio::time::Instant::now() + std::time::Duration::from_secs(5)).await {
