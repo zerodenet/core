@@ -68,7 +68,7 @@ pub use outbound::{
 /// hot-reloaded without restarting the proxy.
 pub struct DnsSystem {
     inner: std::sync::RwLock<DnsSystemInner>,
-    prepared_reload: std::sync::Mutex<Option<PreparedDnsReload>>,
+    prepared_reload: std::sync::Mutex<Option<Arc<reload::PreparedDnsReload>>>,
     config_generation: Arc<AtomicU64>,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     fake_ip_state_path: Option<PathBuf>,
@@ -106,14 +106,12 @@ enum DnsSystemInner {
     },
 }
 
-#[derive(Clone)]
-struct PreparedDnsReload {
-    config: Option<DnsConfig>,
-    dispatch: Option<zero_router::DomainDispatcher<String>>,
-}
+mod reload;
+pub use reload::DnsReloadResources;
 
 #[derive(Clone)]
 struct ResolverServer {
+    config: zero_config::DnsServerConfig,
     backend: Arc<ResolverBackend>,
     detour: Option<String>,
 }
@@ -186,14 +184,25 @@ impl DnsSystem {
             None
         };
         let transport_owners = Arc::new(transport_owners::TransportOwners::default());
+        let servers = config
+            .map(|config| {
+                reload::build_servers(
+                    config,
+                    &BTreeMap::new(),
+                    &Default::default(),
+                    &egress_interface,
+                    &transport_owners,
+                )
+            })
+            .transpose()?
+            .unwrap_or_default();
         let inner = Self::build_inner(
             config,
             dispatch,
-            &egress_interface,
             None,
             None,
             fake_ip_state_lease.clone(),
-            &transport_owners,
+            servers,
         )?;
         let query_coordinator = QueryCoordinator::default();
         let wire_query_coordinator = QueryCoordinator::with_graph(query_coordinator.shared_graph());
@@ -215,28 +224,14 @@ impl DnsSystem {
     fn build_inner(
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
-        egress_interface: &zero_platform_tokio::EgressInterfaceControl,
         previous_fake_ip: Option<Arc<FakeIpAllocator>>,
         previous_reverse_mapping: Option<RealIpReverseIndex>,
         fake_ip_state_lease: Option<Arc<fake_ip::StateLease>>,
-        transport_owners: &Arc<transport_owners::TransportOwners>,
+        servers: BTreeMap<String, ResolverServer>,
     ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
             return Ok(DnsSystemInner::System(TokioSystemResolver));
         };
-
-        let mut servers = BTreeMap::new();
-        for (tag, server) in &cfg.servers {
-            let backend = Arc::new(ResolverBackend::build(server, egress_interface.clone())?);
-            backend.register_owners(transport_owners)?;
-            servers.insert(
-                tag.clone(),
-                ResolverServer {
-                    backend,
-                    detour: server.detour().map(ToOwned::to_owned),
-                },
-            );
-        }
 
         let dispatcher = DnsDispatcher::new(dispatch.ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "missing compiled DNS dispatch")
@@ -276,141 +271,6 @@ impl DnsSystem {
             reverse_mapping,
             policy: Box::new(cfg.policy.clone()),
         })
-    }
-
-    /// Hot-reload DNS configuration.
-    ///
-    /// In-flight resolutions continue using the old inner state until they
-    /// complete; new resolutions see the updated config immediately.
-    pub fn reload(&self, config: Option<&DnsConfig>) -> io::Result<()> {
-        let dispatch = compile_standalone_dispatch(config)?;
-        self.reload_with_dispatch(config, dispatch)
-    }
-
-    pub fn reload_with_dispatch(
-        &self,
-        config: Option<&DnsConfig>,
-        dispatch: Option<zero_router::DomainDispatcher<String>>,
-    ) -> io::Result<()> {
-        self.prepare_reload_with_dispatch(config, dispatch)?;
-        let result = self.commit_prepared_reload();
-        if result.is_err() {
-            self.discard_prepared_reload();
-        }
-        result
-    }
-
-    /// Validate and stage a DNS configuration without making it observable or
-    /// replacing the committed Fake-IP journal.
-    ///
-    /// The proxy uses this boundary while the remaining TUN, listener, and
-    /// application components reconcile. It must call
-    /// [`Self::commit_prepared_reload`] only after the complete configuration
-    /// transaction succeeds, or [`Self::discard_prepared_reload`] on failure.
-    pub fn prepare_reload_with_dispatch(
-        &self,
-        config: Option<&DnsConfig>,
-        dispatch: Option<zero_router::DomainDispatcher<String>>,
-    ) -> io::Result<()> {
-        let mut prepared = self
-            .prepared_reload
-            .lock()
-            .expect("DNS prepared reload lock poisoned");
-        if prepared.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "another DNS reload is already prepared",
-            ));
-        }
-        let previous_fake_ip = self.snapshot_fake_ip();
-        let previous_reverse_mapping = self.snapshot_reverse_mapping();
-        if config.and_then(DnsConfig::fake_ip).is_some() {
-            let mut guard = self
-                .fake_ip_state_lease
-                .lock()
-                .expect("Fake-IP state lease lock poisoned");
-            if guard.is_none() {
-                *guard = self
-                    .fake_ip_state_path
-                    .as_ref()
-                    .map(|path| fake_ip::StateLease::acquire(path.clone()))
-                    .transpose()?;
-            }
-        }
-
-        // Build once without persistence to validate every candidate backend
-        // and allocator field. Incompatible Fake-IP state is intentionally not
-        // opened here because `open` replaces the durable journal.
-        Self::build_inner(
-            config,
-            dispatch.clone(),
-            &self.egress_interface,
-            previous_fake_ip,
-            previous_reverse_mapping,
-            None,
-            &self.transport_owners,
-        )?;
-        *prepared = Some(PreparedDnsReload {
-            config: config.cloned(),
-            dispatch,
-        });
-        Ok(())
-    }
-
-    /// Commit the staged DNS configuration atomically.
-    ///
-    /// Persistent Fake-IP state is opened only at this point, so a candidate
-    /// that is later rejected cannot erase mappings from the last committed
-    /// configuration.
-    pub fn commit_prepared_reload(&self) -> io::Result<()> {
-        let prepared = self
-            .prepared_reload
-            .lock()
-            .expect("DNS prepared reload lock poisoned")
-            .clone()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no DNS reload is prepared"))?;
-        let previous_fake_ip = self.snapshot_fake_ip();
-        let previous_reverse_mapping = self.snapshot_reverse_mapping();
-        let fake_ip_state_lease = if prepared
-            .config
-            .as_ref()
-            .and_then(DnsConfig::fake_ip)
-            .is_some()
-        {
-            self.fake_ip_state_lease
-                .lock()
-                .expect("Fake-IP state lease lock poisoned")
-                .clone()
-        } else {
-            None
-        };
-        let new_inner = Self::build_inner(
-            prepared.config.as_ref(),
-            prepared.dispatch,
-            &self.egress_interface,
-            previous_fake_ip,
-            previous_reverse_mapping,
-            fake_ip_state_lease,
-            &self.transport_owners,
-        )?;
-        {
-            let mut inner = self.inner.write().expect("dns system lock poisoned");
-            *inner = new_inner;
-            // Read under the same inner lock when taking a snapshot, so an
-            // old resolver can never carry the new configuration identity.
-            self.config_generation.fetch_add(1, Ordering::AcqRel);
-        }
-        self.discard_prepared_reload();
-        Ok(())
-    }
-
-    /// Drop a staged DNS candidate while retaining the committed resolver and
-    /// Fake-IP journal unchanged.
-    pub fn discard_prepared_reload(&self) {
-        self.prepared_reload
-            .lock()
-            .expect("DNS prepared reload lock poisoned")
-            .take();
     }
 
     /// Install the runtime bridge used by DNS servers that specify a detour.

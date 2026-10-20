@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub(super) mod owner;
+mod resources;
 
 const DNS_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -13,6 +14,7 @@ pub(crate) struct DoqDnsResolver {
     client: quinn::ClientConfig,
     egress: zero_platform_tokio::EgressInterfaceControl,
     owners: std::sync::Mutex<Arc<crate::transport_owners::TransportOwners>>,
+    resources: resources::EndpointSet,
 }
 
 impl DoqDnsResolver {
@@ -58,6 +60,7 @@ impl DoqDnsResolver {
             client: quinn::ClientConfig::new(Arc::new(quic)),
             egress,
             owners: std::sync::Mutex::new(Arc::default()),
+            resources: resources::EndpointSet::default(),
         })
     }
 
@@ -82,6 +85,19 @@ impl DoqDnsResolver {
         *self.owners.lock().expect("DoQ resource registry poisoned") = owners;
     }
 
+    pub(super) fn resource_admission_open(&self) -> bool {
+        self.resources.open()
+    }
+    pub(super) fn retire_resources(&self) {
+        self.resources.retire();
+    }
+    pub(super) async fn shutdown_resources(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> io::Result<()> {
+        self.resources.shutdown(deadline).await
+    }
+
     async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
         let owners = self
             .owners
@@ -89,13 +105,14 @@ impl DoqDnsResolver {
             .expect("DoQ resource registry poisoned")
             .clone();
         let owner = owner::EndpointOwner::new();
-        owners.register_doq(owner.clone())?;
+        self.resources.register(owner.clone(), &owners)?;
         let _close = owner::CloseOnDrop(owner.clone());
         let deadline = super::ATTEMPT_DEADLINE
             .try_with(|end| *end)
             .unwrap_or_else(|_| tokio::time::Instant::now() + DNS_TIMEOUT);
         owners.drain_retired_doq(deadline).await?;
         let work = async {
+            let _user = owner.query_user()?;
             owner.setup(addr, self.client.clone(), &self.egress)?;
             self.exchange_owned(&owner, addr, query).await
         };

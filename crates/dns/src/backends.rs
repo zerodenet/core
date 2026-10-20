@@ -14,6 +14,7 @@ use crate::system::TokioSystemResolver;
 #[cfg(feature = "udp")]
 use crate::udp::UdpDnsResolver;
 use crate::{DnsConnectContext, DnsOutboundConnector};
+mod lifecycle;
 tokio::task_local! { pub(crate) static ATTEMPT_DEADLINE:tokio::time::Instant; }
 
 pub(crate) enum ResolverBackend {

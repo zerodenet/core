@@ -94,6 +94,13 @@ impl DriverOwner {
             }),
         }
     }
+    pub(crate) fn resource_admission_open(&self) -> bool {
+        !self
+            .state
+            .lock()
+            .expect("DoH driver owner poisoned")
+            .closing
+    }
     pub(super) fn cancellation(&self) -> zero_platform_tokio::contract::CancellationToken {
         self.cancel.clone()
     }

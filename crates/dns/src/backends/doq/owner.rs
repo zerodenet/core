@@ -11,6 +11,7 @@ use std::{
 use tokio::{task::JoinSet, time::Instant};
 use zero_platform_tokio::contract::CancellationToken;
 mod runtime;
+mod users;
 
 #[derive(Default)]
 pub(super) struct Status {
@@ -66,6 +67,7 @@ pub(crate) struct EndpointOwner {
     endpoint: Mutex<Option<quinn::Endpoint>>,
     state: Mutex<State>,
     cleanup: tokio::sync::Mutex<()>,
+    users: users::Users,
     pub(super) status: Arc<Status>,
 }
 impl EndpointOwner {
@@ -78,8 +80,14 @@ impl EndpointOwner {
                 tasks: JoinSet::new(),
             }),
             cleanup: tokio::sync::Mutex::new(()),
+            users: users::Users::default(),
             status: Arc::default(),
         })
+    }
+    pub(super) fn query_user(&self) -> io::Result<users::Lease<'_>> {
+        let _setup = self.setup.lock().expect("DoQ setup gate poisoned");
+        self.ensure_open()?;
+        Ok(self.users.acquire())
     }
     fn reap(state: &mut State, status: &Status) {
         while let Some(result) = state.tasks.try_join_next() {
@@ -188,6 +196,7 @@ impl EndpointOwner {
             .expect("DoQ endpoint poisoned")
             .is_none()
             && state.tasks.is_empty()
+            && self.users.is_empty()
             && self.status.check().is_ok()
     }
     pub(crate) async fn shutdown(&self, deadline: Instant) -> io::Result<()> {
@@ -195,6 +204,7 @@ impl EndpointOwner {
         let _cleanup = tokio::time::timeout_at(deadline, self.cleanup.lock())
             .await
             .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+        self.users.drain(deadline).await?;
         let endpoint = self.endpoint.lock().expect("DoQ endpoint poisoned").clone();
         if let Some(endpoint) = endpoint {
             tokio::time::timeout_at(deadline, endpoint.wait_idle())

@@ -167,3 +167,98 @@ async fn confirmed_empty_shutdown_rejects_late_actual_endpoint_setup() {
     endpoint.close(0u32.into(), b"test finished");
     endpoint.wait_idle().await;
 }
+
+#[tokio::test]
+async fn retiring_one_backend_stops_its_actual_pending_io_without_closing_another_backend() {
+    let (endpoint, resolver) = fixture();
+    let (other_endpoint, other) = fixture();
+    let resolver = Arc::new(resolver);
+    let registry = resolver.owners.lock().unwrap().clone();
+    other.attach_registry(registry.clone());
+    let (entered, pending) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let connection = endpoint.accept().await.unwrap().await.unwrap();
+        let (_send, mut recv) = connection.accept_bi().await.unwrap();
+        let size = recv.read_u16().await.unwrap() as usize;
+        let mut query = vec![0_u8; size];
+        recv.read_exact(&mut query).await.unwrap();
+        entered.send(()).unwrap();
+        connection.closed().await;
+        endpoint.close(0u32.into(), b"test finished");
+        endpoint.wait_idle().await;
+    });
+    let caller = tokio::spawn({
+        let resolver = resolver.clone();
+        async move {
+            let query =
+                crate::message::build_query("retire.doq.example", crate::message::TYPE_A).unwrap();
+            resolver.exchange(&query).await
+        }
+    });
+    timeout(Duration::from_secs(5), pending)
+        .await
+        .unwrap()
+        .unwrap();
+    resolver
+        .shutdown_resources(Instant::now() + Duration::from_secs(8))
+        .await
+        .unwrap();
+    assert!(!resolver.resource_admission_open());
+    assert!(registry.doq_snapshot()[0].drained());
+    assert_eq!(
+        timeout(Duration::from_secs(1), caller)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::Interrupted
+    );
+    let retained = resolver
+        .exchange(&crate::message::build_query("late.doq.example", crate::message::TYPE_A).unwrap())
+        .await
+        .unwrap_err();
+    assert_eq!(retained.kind(), io::ErrorKind::NotConnected);
+    // A second actual backend still performs a complete QUIC exchange through
+    // the same registry; targeted retirement never closes global admission.
+    let other_server = tokio::spawn(async move {
+        let connection = other_endpoint.accept().await.unwrap().await.unwrap();
+        let (mut send, mut recv) = connection.accept_bi().await.unwrap();
+        let size = recv.read_u16().await.unwrap() as usize;
+        let mut query = vec![0; size];
+        recv.read_exact(&mut query).await.unwrap();
+        let response = crate::message::build_address_response(
+            &query,
+            &[IpAddress::V4([203, 0, 113, 54])],
+            120,
+        );
+        send.write_u16(response.len() as u16).await.unwrap();
+        send.write_all(&response).await.unwrap();
+        send.finish().unwrap();
+        let _ = send.stopped().await;
+        connection.closed().await;
+        other_endpoint.close(0u32.into(), b"test finished");
+        other_endpoint.wait_idle().await;
+    });
+    assert!(other.resource_admission_open());
+    let query = crate::message::build_query("other.doq.example", crate::message::TYPE_A).unwrap();
+    let response = other.exchange(&query).await.unwrap();
+    assert_eq!(
+        crate::message::parse_response(&query, &response)
+            .unwrap()
+            .addresses,
+        vec![IpAddress::V4([203, 0, 113, 54])]
+    );
+    other
+        .shutdown_resources(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(8), other_server)
+        .await
+        .unwrap()
+        .unwrap();
+    timeout(Duration::from_secs(8), server)
+        .await
+        .unwrap()
+        .unwrap();
+}

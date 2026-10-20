@@ -168,3 +168,109 @@ async fn pool_shutdown_cancels_and_confirms_actual_inline_setup_before_driver_re
         .unwrap()
         .unwrap();
 }
+
+#[tokio::test]
+async fn reload_retirement_waits_for_real_lease_and_recovery_rebuilds_retired_backend() {
+    use crate::{backends::ResolverBackend, DnsSystem, DnsSystemInner};
+    let (endpoint, server) = closing_server().await;
+    let resolver = local(endpoint);
+    let lease = resolver.ready_client(endpoint, None, None).await.unwrap();
+    let resolver = Arc::try_unwrap(resolver)
+        .ok()
+        .expect("fixture has one resolver owner");
+    let actual = Arc::new(ResolverBackend::Doh(resolver));
+    let config: zero_config::DnsConfig = serde_json::from_value(serde_json::json!({
+        "servers":{"local":{"type":"doh","host":"127.0.0.1","port":endpoint.port()}},
+        "default_server":"local"
+    }))
+    .unwrap();
+    let dns = DnsSystem::build(Some(&config)).unwrap();
+    // Reuse the real cleartext H2 fixture to isolate resource lifecycle from TLS.
+    actual.register_owners(&dns.transport_owners).unwrap();
+    if let DnsSystemInner::Configured { servers, .. } = &mut *dns.inner.write().unwrap() {
+        servers.get_mut("local").unwrap().backend = actual.clone();
+    }
+    let candidate = dns
+        .prepare_reload_resources_with_dispatch(None, None, &Default::default())
+        .unwrap();
+    assert!(
+        actual.resource_admission_open(),
+        "cold preparation cannot close current"
+    );
+    let error = dns
+        .retire_reload_resources(
+            &candidate,
+            tokio::time::Instant::now() + Duration::from_millis(20),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    assert_eq!(
+        dns.commit_reload_resources(&candidate).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert!(!actual.resource_admission_open());
+    drop(lease);
+    dns.retire_reload_resources(&candidate, until())
+        .await
+        .unwrap();
+    tokio::time::timeout_at(until(), server)
+        .await
+        .unwrap()
+        .unwrap();
+    // Model a later transaction failure: discard cannot revive the old pool.
+    dns.discard_prepared_reload();
+    let recovery = dns
+        .prepare_reload_resources_with_dispatch(
+            Some(&config),
+            crate::compile_standalone_dispatch(Some(&config)).unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
+    dns.retire_reload_resources(&recovery, until())
+        .await
+        .unwrap();
+    dns.commit_reload_resources(&recovery).unwrap();
+    if let DnsSystemInner::Configured { servers, .. } = &*dns.inner.read().unwrap() {
+        assert!(
+            !Arc::ptr_eq(&servers["local"].backend, &actual),
+            "recovery builds the closed backend again"
+        );
+        assert!(servers["local"].backend.resource_admission_open());
+    };
+}
+
+#[tokio::test]
+async fn rule_only_reload_reuses_the_live_h2_connection_and_actual_backend() {
+    use crate::{backends::ResolverBackend, DnsSystem, DnsSystemInner};
+    let (endpoint, server) = closing_server().await;
+    let resolver = Arc::try_unwrap(local(endpoint)).ok().unwrap();
+    let actual = Arc::new(ResolverBackend::Doh(resolver));
+    let mut config: zero_config::DnsConfig = serde_json::from_value(serde_json::json!({
+        "servers":{"local":{"type":"doh","host":"127.0.0.1","port":endpoint.port()}},
+        "default_server":"local"
+    }))
+    .unwrap();
+    let dns = DnsSystem::build(Some(&config)).unwrap();
+    actual.register_owners(&dns.transport_owners).unwrap();
+    if let DnsSystemInner::Configured { servers, .. } = &mut *dns.inner.write().unwrap() {
+        servers.get_mut("local").unwrap().backend = actual.clone();
+    }
+    let query = crate::message::build_query("reuse.reload.test", crate::message::TYPE_A).unwrap();
+    actual.exchange(&query, None, None).await.unwrap();
+    config.policy.timeout_ms += 1;
+    dns.reload(Some(&config)).unwrap();
+    let current = match &*dns.inner.read().unwrap() {
+        DnsSystemInner::Configured { servers, .. } => servers["local"].backend.clone(),
+        _ => panic!("configured DNS required"),
+    };
+    assert!(Arc::ptr_eq(&actual, &current));
+    // The fixture accepts only one TCP connection; the second real exchange
+    // can succeed only by reusing the original live H2 connection.
+    current.exchange(&query, None, None).await.unwrap();
+    dns.shutdown_doh_pools(until()).await.unwrap();
+    tokio::time::timeout_at(until(), server)
+        .await
+        .unwrap()
+        .unwrap();
+}
