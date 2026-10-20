@@ -120,10 +120,12 @@ impl OutboundDatagramSocketFactory {
         use zero_platform_tokio::controlled_datagram::{
             AcquisitionOutcome, DatagramAcquisitionError,
         };
-        let no_native = |source: io::Error| DatagramAcquisitionError {
-            reservation: None,
-            outcome: AcquisitionOutcome::KnownNoNative,
-            source: Arc::new(source),
+        let no_native = |source: io::Error| {
+            DatagramAcquisitionError::unverified(
+                None,
+                AcquisitionOutcome::KnownNoNative,
+                Arc::new(source),
+            )
         };
         self.require_direct().map_err(no_native)?;
         if self.hopping.is_some() || !self.final_mask.udp().is_empty() {
@@ -158,11 +160,11 @@ impl OutboundDatagramSocketFactory {
                 Ok(closed) => AcquisitionOutcome::Closed(closed),
                 Err(_) => AcquisitionOutcome::Unknown(socket.reservation()),
             };
-            return Err(DatagramAcquisitionError {
-                reservation: Some(socket.reservation()),
+            return Err(DatagramAcquisitionError::unverified(
+                Some(socket.reservation()),
                 outcome,
-                source: Arc::new(source),
-            });
+                Arc::new(source),
+            ));
         }
         Ok(socket)
     }
