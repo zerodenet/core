@@ -126,3 +126,55 @@ async fn actual_scope_task_failure_is_retained_and_cannot_be_erased_by_a_later_a
     let state = owner.owner.lock().await;
     assert!(std::error::Error::source(&state.failure.as_ref().unwrap().error).is_some());
 }
+
+#[tokio::test]
+async fn cancelling_a_suspended_observer_cannot_consume_the_real_failure_notification() {
+    async fn failed(entered: Arc<Notify>, release: Arc<Notify>) -> Result<(), String> {
+        entered.notify_one();
+        release.notified().await;
+        panic!("actual fault retained across cancelled observer")
+    }
+    let owner = Arc::new(ApplyOwner::default());
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let waiting = {
+        let (owner, entered, release) = (owner.clone(), entered.clone(), release.clone());
+        tokio::spawn(async move {
+            owner
+                .run(Arc::new(Mutex::new(())), failed(entered, release))
+                .await
+        })
+    };
+    entered.notified().await;
+    let held_owner = owner.owner.lock().await;
+    release.notify_one();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !owner.completed.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(waiting.await.unwrap().is_err());
+    let mut observing = Box::pin(owner.observe_failure());
+    std::future::poll_fn(|cx| {
+        assert!(
+            observing.as_mut().poll(cx).is_pending(),
+            "observer suspends at the actual held owner lock"
+        );
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(observing);
+    assert!(
+        owner.completed.load(Ordering::Acquire),
+        "unjoined completion must remain visible"
+    );
+    drop(held_owner);
+    let failure = tokio::time::timeout(Duration::from_secs(3), owner.observe_failure())
+        .await
+        .unwrap();
+    assert!(failure.contains("failed"));
+    let state = owner.owner.lock().await;
+    assert!(std::error::Error::source(&state.failure.as_ref().unwrap().error).is_some());
+}

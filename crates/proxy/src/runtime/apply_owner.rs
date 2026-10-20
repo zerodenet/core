@@ -106,29 +106,40 @@ impl ApplyOwner {
         let guard = serial.lock_owned().await;
         let mut owner = self.owner.lock().await;
         owner.join().await?;
-        if self.is_closing() {
-            return Err("proxy configuration owner is stopping".to_owned());
-        }
-        let scope = owner.scope.get_or_insert_with(|| {
-            TaskScope::new(
-                tokio::runtime::Handle::current(),
-                NonZeroUsize::new(1).unwrap(),
-            )
-        });
-        let (send, receive) = tokio::sync::oneshot::channel();
-        let completion = Completion(self.clone());
-        scope
-            .registrar()
-            .spawn(TaskClass::Critical, async move {
-                let _completion = completion;
-                let _guard = guard;
-                let result = work.await;
-                // A lost acknowledgement does not cancel commit or compensation.
-                let _ = send.send(result);
-                Ok(())
-            })
-            .map_err(|source| format!("configuration transaction was not accepted: {source}"))?;
-        owner.occupied = true;
+        self.completed.store(false, Ordering::Release);
+        let receive = {
+            // Acceptance and stop share one short gate. No await while held.
+            let _accept = self
+                .commit_gate
+                .lock()
+                .expect("configuration commit gate poisoned");
+            if self.is_closing() {
+                return Err("proxy configuration owner is stopping".to_owned());
+            }
+            let scope = owner.scope.get_or_insert_with(|| {
+                TaskScope::new(
+                    tokio::runtime::Handle::current(),
+                    NonZeroUsize::new(1).unwrap(),
+                )
+            });
+            let (send, receive) = tokio::sync::oneshot::channel();
+            let completion = Completion(self.clone());
+            scope
+                .registrar()
+                .spawn(TaskClass::Critical, async move {
+                    let _completion = completion;
+                    let _guard = guard;
+                    let result = work.await;
+                    // A lost acknowledgement does not cancel commit or compensation.
+                    let _ = send.send(result);
+                    Ok(())
+                })
+                .map_err(|source| {
+                    format!("configuration transaction was not accepted: {source}")
+                })?;
+            owner.occupied = true;
+            receive
+        };
         drop(owner);
         receive.await.map_err(|_| {
             "configuration transaction ended without an acknowledgement; query current state"
@@ -145,8 +156,13 @@ impl ApplyOwner {
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
-            if self.completed.swap(false, Ordering::AcqRel) {
-                if let Err(error) = self.wait_idle().await {
+            if self.completed.load(Ordering::Acquire) {
+                let mut owner = self.owner.lock().await;
+                let result = owner.join().await;
+                // A cancelled observer must not acknowledge a completion it
+                // has not joined. The same lock excludes a new accepted task.
+                self.completed.store(false, Ordering::Release);
+                if let Err(error) = result {
                     return error;
                 }
             }
