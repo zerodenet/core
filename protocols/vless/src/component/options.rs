@@ -106,7 +106,13 @@ impl Options {
             ));
         }
         let uuid = parse_uuid(input.protocol.id)?;
-        let tls = input.tls.map(OwnedClientTlsProfile::from_profile);
+        let tls = input.tls.map(|profile| {
+            crate::transport::client_tls_for_stream(
+                profile,
+                input.ws.is_some(),
+                input.grpc.is_some(),
+            )
+        });
         if let Some(tls) = &tls {
             if tls.ca_cert_path.is_some() {
                 return Err(Error::Unsupported(
@@ -158,3 +164,7 @@ impl Options {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "options/tests.rs"]
+mod tests;

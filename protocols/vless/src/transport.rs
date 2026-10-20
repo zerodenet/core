@@ -10,6 +10,7 @@ mod managed_udp;
 mod options;
 mod outbound;
 mod profile;
+pub(crate) use profile::client_tls_for_stream;
 mod runtime;
 
 pub use inbound::{

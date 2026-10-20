@@ -139,15 +139,11 @@ impl OwnedVlessUdpTransportOptions {
             {
                 return OwnedClientTlsProfile::from_profile(profile);
             }
-            let mut owned = super::super::profile::client_tls(profile);
-            if profile.alpn().is_empty() {
-                if ws.is_some() || http_upgrade.is_some() {
-                    owned.alpn = vec!["http/1.1".to_owned()];
-                } else if grpc.is_some() || h2.is_some() {
-                    owned.alpn = vec!["h2".to_owned()];
-                }
-            }
-            owned
+            super::super::profile::client_tls_for_stream(
+                profile,
+                ws.is_some() || http_upgrade.is_some(),
+                grpc.is_some() || h2.is_some(),
+            )
         });
         Self {
             tls,
