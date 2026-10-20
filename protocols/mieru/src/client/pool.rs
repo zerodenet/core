@@ -7,6 +7,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(feature = "runtime")]
+pub(crate) mod managed;
+#[cfg(feature = "runtime")]
+mod native;
 mod policy;
 mod slot;
 
@@ -70,6 +74,8 @@ impl std::fmt::Debug for PoolKey {
 pub struct ClientPool {
     entries: Mutex<BTreeMap<PoolKey, Arc<Slot>>>,
     policy: ClientPoolPolicy,
+    #[cfg(feature = "runtime")]
+    ownership: Mutex<managed::Ownership>,
 }
 
 impl Default for ClientPool {
@@ -89,6 +95,8 @@ impl ClientPool {
         Ok(Self {
             entries: Mutex::new(BTreeMap::new()),
             policy,
+            #[cfg(feature = "runtime")]
+            ownership: Mutex::new(managed::Ownership::default()),
         })
     }
 
@@ -113,7 +121,21 @@ impl ClientPool {
         }
         entries.clear();
     }
-    pub async fn open<F, Fut>(&self, key: PoolKey, mut connect: F) -> io::Result<MieruLogicalStream>
+    pub async fn open<F, Fut>(&self, key: PoolKey, connect: F) -> io::Result<MieruLogicalStream>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = io::Result<Arc<ClientConnection>>>,
+    {
+        #[cfg(feature = "runtime")]
+        self.enter_legacy()?;
+        self.open_inner(key, connect).await
+    }
+
+    pub(crate) async fn open_inner<F, Fut>(
+        &self,
+        key: PoolKey,
+        mut connect: F,
+    ) -> io::Result<MieruLogicalStream>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = io::Result<Arc<ClientConnection>>>,

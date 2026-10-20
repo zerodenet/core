@@ -1,4 +1,4 @@
-use super::{ClientConnection, OpenRequest};
+use super::{driver::DriverHandle, ClientConnection, OpenRequest};
 use crate::{
     inbound::multiplex::{
         reader::{read_segment, Reader},
@@ -20,6 +20,56 @@ use tokio::{
 use zero_traits::AsyncSocket;
 
 impl ClientConnection {
+    #[cfg(feature = "runtime")]
+    pub(crate) async fn tcp_managed<S>(
+        socket: S,
+        username: &str,
+        password: &str,
+        options: &mieru_config::MieruTransportOptions,
+        lease: super::pool::managed::CarrierLease,
+    ) -> io::Result<Arc<Self>>
+    where
+        S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    {
+        use zero_platform_tokio::contract::{
+            lifecycle::TaskClass, ChannelError, Impact, Reason, Stage,
+        };
+        let owner = lease.owner.clone();
+        let (socket, source) = super::native_io::Capture::new(socket);
+        let prepared = tokio::select! {biased;
+            _=owner.cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
+            _=owner.scope_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
+            result=prepare(socket, username, password, options)=>result.map_err(|error|source.recover(error))?,
+        };
+        if !owner.ready() {
+            return Err(io::ErrorKind::Interrupted.into());
+        }
+        let driver = super::driver::ManagedDriver::new(owner.cancel.child_token());
+        let completion = driver.completion();
+        let stop = driver.cancel.clone();
+        let scope_stop = owner.scope_cancel.clone();
+        let component = owner.instance.component;
+        let registration = lease.registering();
+        let (_, witness)=owner.tasks.spawn_tracked(TaskClass::Critical,async move {
+            let _lease=lease;
+            let _completion=completion;
+            tokio::select! {biased;
+                _=stop.cancelled()=>Ok(()),
+                _=scope_stop.cancelled()=>Ok(()),
+                result=prepared.driver=>result.map_err(|source|{
+                    let mut error=ChannelError::new(Stage::Receive,Reason::Io,Impact::Component).with_source(source);
+                    error.component=Some(component); error
+                }),
+            }
+        }).map_err(io::Error::other)?;
+        registration.registered(witness);
+        Ok(Self::from_prepared(
+            prepared.first,
+            prepared.opens,
+            DriverHandle::Managed(driver),
+        ))
+    }
+
     pub async fn tcp<S>(socket: S, username: &str, password: &str) -> io::Result<Arc<Self>>
     where
         S: AsyncSocket + AsyncRead + AsyncWrite + Unpin + 'static,
@@ -34,7 +84,7 @@ impl ClientConnection {
     }
 
     pub async fn tcp_with_options<S>(
-        mut socket: S,
+        socket: S,
         username: &str,
         password: &str,
         options: &mieru_config::MieruTransportOptions,
@@ -42,35 +92,23 @@ impl ClientConnection {
     where
         S: AsyncSocket + AsyncRead + AsyncWrite + Unpin + 'static,
     {
-        options.validate().map_err(io::Error::other)?;
-        let pattern = TrafficPattern::from_config(options.traffic_pattern.as_ref())
-            .map_err(io::Error::other)?;
-        let initial = tokio::time::timeout(
-            Duration::from_secs(15),
-            MieruOutbound::connect_with_pattern(&mut socket, username, password, &pattern),
-        )
-        .await
-        .map_err(|_| io::ErrorKind::TimedOut)?
-        .map_err(io::Error::other)?;
-        let id = initial.mieru_session.session_id;
-        let (ready, _unused) = mpsc::channel(1);
-        let (outgoing, commands) = mpsc::channel(64);
-        let (dropped, drop_events) = mpsc::unbounded_channel();
-        let mut reader = Reader::new(ready, outgoing, dropped, options.receive.clone());
-        let first = reader.create(id, Vec::new())?;
-        first.status.mark_open();
-        let (opens, requests) = mpsc::channel(64);
-        let (read, write) = tokio::io::split(socket);
-        let writer_username = username.to_owned();
+        let prepared = prepare(socket, username, password, options).await?;
         let task = tokio::spawn(async move {
-            tokio::select! {
-                _ = read_loop(reader, read, initial.server_cipher, id, requests, drop_events) => {},
-                _ = writer::run_direction_with_pattern(
-                    write, initial.client_cipher, id, commands, true, pattern, writer_username
-                ) => {},
-            }
+            let _ = prepared.driver.await;
         });
-        Ok(Arc::new(Self {
+        Ok(Self::from_prepared(
+            prepared.first,
+            prepared.opens,
+            DriverHandle::Legacy(task),
+        ))
+    }
+
+    pub(super) fn from_prepared(
+        first: crate::inbound::multiplex::stream::MieruLogicalStream,
+        opens: mpsc::Sender<OpenRequest>,
+        task: DriverHandle,
+    ) -> Arc<Self> {
+        Arc::new(Self {
             first: Mutex::new(Some(first)),
             opens,
             task,
@@ -78,8 +116,58 @@ impl ClientConnection {
             pending_opens: std::sync::atomic::AtomicUsize::new(0),
             max_streams: 256,
             created_at: std::time::Instant::now(),
-        }))
+        })
     }
+}
+
+pub(super) struct Prepared {
+    first: crate::inbound::multiplex::stream::MieruLogicalStream,
+    opens: mpsc::Sender<OpenRequest>,
+    driver: std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<()>> + Send>>,
+}
+
+async fn prepare<S>(
+    mut socket: S,
+    username: &str,
+    password: &str,
+    options: &mieru_config::MieruTransportOptions,
+) -> io::Result<Prepared>
+where
+    S: AsyncSocket + AsyncRead + AsyncWrite + Unpin + 'static,
+{
+    options.validate().map_err(io::Error::other)?;
+    let pattern =
+        TrafficPattern::from_config(options.traffic_pattern.as_ref()).map_err(io::Error::other)?;
+    let initial = tokio::time::timeout(
+        Duration::from_secs(15),
+        MieruOutbound::connect_with_pattern(&mut socket, username, password, &pattern),
+    )
+    .await
+    .map_err(|_| io::ErrorKind::TimedOut)?
+    .map_err(io::Error::other)?;
+    let id = initial.mieru_session.session_id;
+    let (ready, _unused) = mpsc::channel(1);
+    let (outgoing, commands) = mpsc::channel(64);
+    let (dropped, drop_events) = mpsc::unbounded_channel();
+    let mut reader = Reader::new(ready, outgoing, dropped, options.receive.clone());
+    let first = reader.create(id, Vec::new())?;
+    first.status.mark_open();
+    let (opens, requests) = mpsc::channel(64);
+    let (read, write) = tokio::io::split(socket);
+    let writer_username = username.to_owned();
+    let driver = Box::pin(async move {
+        tokio::select! {
+            result = read_loop(reader, read, initial.server_cipher, id, requests, drop_events) => result,
+            result = writer::run_direction_with_pattern(
+                write, initial.client_cipher, id, commands, true, pattern, writer_username
+            ) => result,
+        }
+    });
+    Ok(Prepared {
+        first,
+        opens,
+        driver,
+    })
 }
 async fn read_loop<R: AsyncRead + Unpin>(
     mut reader: Reader,

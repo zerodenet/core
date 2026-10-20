@@ -1,6 +1,9 @@
 //! Protocol-owned shared client sessions. The owning adapter supplies carriers.
 mod datagram;
-mod pool;
+mod driver;
+#[cfg(feature = "runtime")]
+mod native_io;
+pub(crate) mod pool;
 mod tcp;
 
 use crate::inbound::multiplex::stream::MieruLogicalStream;
@@ -8,6 +11,7 @@ pub use datagram::ClientDatagramCarrier;
 #[cfg(feature = "runtime")]
 pub(crate) use datagram::ObservedClientDatagramCarrier;
 pub(crate) use datagram::UdpClientDatagramCarrier;
+use driver::DriverHandle;
 pub use pool::{ClientPool, ClientPoolPolicy, ClientPoolSnapshot, PoolKey};
 use std::{
     io,
@@ -23,7 +27,7 @@ pub(crate) type OpenRequest = oneshot::Sender<io::Result<MieruLogicalStream>>;
 pub struct ClientConnection {
     first: Mutex<Option<MieruLogicalStream>>,
     opens: mpsc::Sender<OpenRequest>,
-    task: tokio::task::JoinHandle<()>,
+    task: DriverHandle,
     active_streams: AtomicUsize,
     pending_opens: AtomicUsize,
     max_streams: usize,
@@ -51,7 +55,7 @@ impl Drop for PendingOpen<'_> {
 }
 impl Drop for ClientConnection {
     fn drop(&mut self) {
-        self.task.abort();
+        self.task.cancel();
     }
 }
 impl ClientConnection {
@@ -168,7 +172,7 @@ impl ClientConnection {
         let connection = Arc::new(Self {
             first: Mutex::new(None),
             opens,
-            task,
+            task: DriverHandle::Legacy(task),
             active_streams: AtomicUsize::new(0),
             pending_opens: AtomicUsize::new(0),
             max_streams: 64,
