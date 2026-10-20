@@ -65,6 +65,14 @@ impl CarrierGrant {
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
+    /// Associates a persistent caller record with this exact reservation before
+    /// native preparation or its first await. This is neither readiness nor a
+    /// close/join receipt; spawning still requires a same-slot `CarrierDriver`.
+    pub fn adoption(&self) -> super::CarrierAdoption {
+        super::CarrierAdoption {
+            slot: self.slot.clone(),
+        }
+    }
     pub(super) fn check(&self) -> Result<(), ChannelError> {
         if self.slot.cancel.is_cancelled() {
             Err(error(

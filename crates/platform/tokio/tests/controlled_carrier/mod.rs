@@ -103,6 +103,8 @@ impl Fixture {
 }
 #[path = "admission.rs"]
 mod admission;
+#[path = "early.rs"]
+mod early;
 #[path = "lifecycle.rs"]
 mod lifecycle;
 #[path = "opening.rs"]

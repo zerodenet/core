@@ -35,6 +35,8 @@ async fn controlled_carrier_cold_finite_roleless_grant_and_default_deny_prevent_
     assert_eq!(grants.reserve().err().unwrap().reason, Reason::Revoked);
     owner.start(deadline()).await.unwrap();
     let first = grants.reserve().unwrap();
+    let record = first.adoption();
+    assert!(record.closed().is_none());
     assert_eq!(first.instance(), instance());
     assert_eq!(grants.reserve().err().unwrap().reason, Reason::Capacity);
     let binding = UpstreamBinding {
@@ -55,6 +57,11 @@ async fn controlled_carrier_cold_finite_roleless_grant_and_default_deny_prevent_
     assert_eq!(failure.delivery, DeliveryState::NotSubmitted);
     assert_eq!(failure.component, Some(instance().component));
     assert_eq!(failure.session, None);
+    let unused = record
+        .closed()
+        .expect("this exact rejected reservation closed");
+    assert!(unused.matches(&record));
+    assert!(unused.driver_exit().is_none());
     assert_eq!(
         owner.retained(),
         0,

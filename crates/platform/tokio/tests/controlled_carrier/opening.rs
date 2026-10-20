@@ -170,8 +170,10 @@ async fn controlled_carrier_real_refused_error_source_survives_until_original_cl
             binding.clone(),
             Arc::new(NativeCarrierOpener::new(instance(), binding, peer, egress, None).unwrap()),
         );
+        let grant = grants.reserve().unwrap();
+        let record = grant.adoption();
         let failure = transport
-            .prepare_controlled_stream(destination(peer), context(), grants.reserve().unwrap())
+            .prepare_controlled_stream(destination(peer), context(), grant)
             .unwrap()
             .open(deadline())
             .await
@@ -199,11 +201,16 @@ async fn controlled_carrier_real_refused_error_source_survives_until_original_cl
         );
         assert_eq!(owner.retained(), 1);
         assert_eq!(grants.reserve().err().unwrap().reason, Reason::Capacity);
-        let report = owner.shutdown(deadline()).await.unwrap();
+        assert!(record.closed().is_none());
+        let report = record.retire(deadline()).await.unwrap();
         assert!(report.is_complete());
         assert_eq!(report.closed_io.len(), 1);
+        let receipt = record.closed().unwrap();
+        assert!(receipt.matches(&record));
+        assert!(receipt.driver_exit().is_none());
         assert_eq!(owner.retained(), 0);
         assert_eq!(failure.component, Some(instance().component));
+        assert!(owner.shutdown(deadline()).await.unwrap().is_complete());
     })
     .await
     .unwrap();

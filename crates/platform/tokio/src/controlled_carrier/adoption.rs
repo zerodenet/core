@@ -12,8 +12,10 @@ use zero_core::component::{ComponentInstanceId, TaskId};
 pub struct CarrierAdoption {
     pub(super) slot: Arc<Slot>,
 }
-/// Issued only after this slot's concrete original native control confirmed
-/// closure. Every actually spawned driver must also be truly joined. Cleanup
+/// Issued after this slot's concrete original native control confirmed closure,
+/// or an unused reservation was closed before native acquisition. An unused
+/// reservation makes no native-I/O closure claim. Every actually spawned driver
+/// must also be truly joined. Cleanup
 /// before a driver ever starts has `driver_exit() == None`, never a fabricated
 /// task-exit claim. Join alone, cancellation, Drop and caller reports cannot mint it.
 #[derive(Clone)]
