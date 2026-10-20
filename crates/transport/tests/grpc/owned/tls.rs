@@ -154,10 +154,14 @@ async fn cancellation_at_actual_pending_tls_response_retains_original_control_un
     timeout(Duration::from_secs(6),async {
   let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();let peer=listener.local_addr().unwrap();let tls=acceptor();let observed=Arc::new(tokio::sync::Notify::new());let signal=observed.clone();let (finish,finished)=tokio::sync::oneshot::channel();
   let server=tokio::spawn(async move {let (io,_)=listener.accept().await.unwrap();let handshake=tls.accept(Withheld{io,pending:signal});tokio::pin!(handshake);tokio::select!{_=&mut handshake=>panic!("real server TLS response is withheld"),_=finished=>{}}});
-  let mut fixture=Fixture::cold(peer,1,2,Some(profile(true)),None);fixture.start().await;let managed=fixture.managed();let demand=fixture.demand();let cancel=demand.cancel.clone();let opening=fixture.options.open(fixture.actual,demand);tokio::pin!(opening);
+  let mut fixture=Fixture::cold(peer,1,2,Some(profile(true)),None);fixture.start().await;let managed=fixture.managed();let demand=fixture.demand();let cancel=demand.cancel.clone();
+  let record={
+  let opening=fixture.options.open(fixture.actual,demand);tokio::pin!(opening);
   tokio::select!{_=opening.as_mut()=>panic!("opening is pending on actual peer TLS response"),_=observed.notified()=>{}}
   std::future::poll_fn(|cx|{assert!(opening.as_mut().poll(cx).is_pending());Poll::Ready(())}).await;
-  let record=managed.records.lock().unwrap()[0].clone();assert!(record.adoption.closed().is_none());assert!(record.witness.lock().unwrap().is_none());cancel.cancel();let failure=opening.as_mut().await.err().unwrap();assert_eq!(failure.reason,Reason::Cancelled);drop(opening);
+  let record=managed.records.lock().unwrap()[0].clone();assert!(record.adoption.closed().is_none());assert!(record.witness.lock().unwrap().is_none());cancel.cancel();let failure=opening.as_mut().await.err().unwrap();assert_eq!(failure.reason,Reason::Cancelled);
+  record
+  };
   assert_eq!(managed.grants.reserve().err().unwrap().reason,Reason::Capacity);assert!(record.adoption.closed().is_none());
   let end=deadline();let (protocol,tasks)=tokio::join!(fixture.owner.lifecycle.shutdown(end),fixture.scope.shutdown(end));let report=protocol.unwrap();assert!(report.is_complete(),"{report:?}");assert_eq!(report.closed_io.len(),1);assert!(tasks.exited_tasks.is_empty());assert!(record.closed());assert!(record.adoption.closed().unwrap().driver_exit().is_none());finish.send(()).unwrap();server.await.unwrap();
  }).await.unwrap();
