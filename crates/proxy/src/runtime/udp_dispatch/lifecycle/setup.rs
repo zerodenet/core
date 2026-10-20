@@ -14,6 +14,14 @@ impl UdpDispatch {
         inbound_tag: &str,
         protocols: &crate::inventory::ProtocolInventory,
     ) -> Result<Self, EngineError> {
+        let flow_state = UdpFlowState::new(protocols.registered_udp_handlers());
+        #[cfg(feature = "managed-datagram-runtime")]
+        if let Some(context) = runtime.peer_resources() {
+            context
+                .binding()
+                .install_response_owner(&flow_state.response_owner())
+                .map_err(std::io::Error::other)?;
+        }
         let preferred_port = runtime.source_addr().map(|source| source.port());
         let direct_socket = DispatchDirectSockets::new(&runtime, preferred_port).await?;
         let (cancel_tx, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -23,7 +31,7 @@ impl UdpDispatch {
             flows: UdpSessionFlows::default(),
             flow_start_backoff: Default::default(),
             direct_socket,
-            flow_state: UdpFlowState::new(protocols.registered_udp_handlers()),
+            flow_state,
             cancel_tx,
             cancel_rx,
         })
