@@ -50,9 +50,13 @@ pub struct ClientTcpStack {
     mss: u16,
     mtu: usize,
     next_fragment_id: AtomicU32,
+    task_spawner: crate::task_owner::TcpTaskSpawner,
 }
 
 impl ClientTcpStack {
+    /// One original retransmission worker per connection and one control worker.
+    pub const BACKGROUND_TASK_LIMIT: usize = MAX_TCP_CONNECTIONS + 1;
+
     pub fn new(
         local_addresses: Vec<IpAddr>,
         outbound: tokio::sync::mpsc::Sender<Vec<u8>>,
@@ -72,6 +76,36 @@ impl ClientTcpStack {
         outbound: crate::packet_output::PacketSender,
         mtu: u16,
     ) -> Result<Self, ClientTcpStackError> {
+        Self::new_with_output_and_tasks(
+            local_addresses,
+            outbound,
+            mtu,
+            crate::task_owner::TcpTaskSpawner::default(),
+        )
+    }
+
+    /// Register the original client workers with the supplied persistent owner.
+    /// Construction is cold; failed admission never falls back to Tokio spawn.
+    pub fn new_observed_with_task_owner(
+        local_addresses: Vec<IpAddr>,
+        outbound: tokio::sync::mpsc::Sender<crate::packet_output::ObservedPacket>,
+        mtu: u16,
+        owner: Arc<dyn crate::TcpTaskOwner>,
+    ) -> Result<Self, ClientTcpStackError> {
+        Self::new_with_output_and_tasks(
+            local_addresses,
+            outbound.into(),
+            mtu,
+            crate::task_owner::TcpTaskSpawner::owned(owner),
+        )
+    }
+
+    fn new_with_output_and_tasks(
+        local_addresses: Vec<IpAddr>,
+        outbound: crate::packet_output::PacketSender,
+        mtu: u16,
+        task_spawner: crate::task_owner::TcpTaskSpawner,
+    ) -> Result<Self, ClientTcpStackError> {
         if local_addresses.is_empty() {
             return Err(ClientTcpStackError::MissingLocalAddress);
         }
@@ -82,11 +116,15 @@ impl ClientTcpStack {
         Ok(Self {
             local_addresses,
             connections: Arc::new(Mutex::new(HashMap::new())),
-            control_packets: TcpControlPackets::new(outbound.clone()),
+            control_packets: TcpControlPackets::new_with_tasks(
+                outbound.clone(),
+                task_spawner.clone(),
+            ),
             outbound,
             mss,
             mtu: usize::from(mtu),
             next_fragment_id: AtomicU32::new(1),
+            task_spawner,
         })
     }
 
@@ -110,7 +148,9 @@ impl ClientTcpStack {
         if local_ip.is_ipv4() != remote.ip().is_ipv4() {
             return Err(ClientTcpStackError::AddressFamilyMismatch);
         }
-        self.control_packets.ensure_worker();
+        if !self.control_packets.ensure_worker() {
+            return Err(ClientTcpStackError::OutboundClosed);
+        }
         let mut connections = self.connections.lock().await;
         let half_open = connections
             .values()
@@ -163,7 +203,7 @@ impl ClientTcpStack {
         );
         drop(connections);
         send_control.track_segment(iss.wrapping_add(1), syn.clone());
-        tokio::spawn(run_retransmission_worker(
+        if !self.task_spawner.spawn(run_retransmission_worker(
             Arc::downgrade(&self.connections),
             key,
             connection_id,
@@ -172,7 +212,11 @@ impl ClientTcpStack {
                 .clone()
                 .with_observer(observer.clone())
                 .downgrade(),
-        ));
+        )) {
+            send_control.expire();
+            self.connections.lock().await.remove(&key);
+            return Err(ClientTcpStackError::OutboundClosed);
+        }
         if !self
             .control_packets
             .clone()

@@ -40,9 +40,6 @@ struct ControlWorker {
 }
 
 impl TcpControlPackets {
-    pub(super) fn new(outbound: PacketSender) -> Self {
-        Self::new_with_tasks(outbound, crate::task_owner::TcpTaskSpawner::default())
-    }
     pub(super) fn new_with_tasks(
         outbound: PacketSender,
         task_spawner: crate::task_owner::TcpTaskSpawner,
