@@ -1,10 +1,13 @@
 //! One cold resource per actual peer; the existing peer permit includes retirement.
+mod datagram;
 use super::*;
 use crate::component::instance::{retained, SharedError};
+pub(crate) use datagram::PeerDatagramGrant;
 use tokio::sync::Mutex as AsyncMutex;
 use zero_core::component::{AssociationId, RoleInstanceId};
 use zero_platform_tokio::contract::{
-    lifecycle::DynResourceLifecycle, ChannelError, CloseReason, Impact, Reason, Stage,
+    lifecycle::{CloseReport, DynResourceLifecycle, TaskFailure},
+    ChannelError, CloseReason, Impact, Reason, Stage,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -18,6 +21,7 @@ pub(super) struct PeerChild {
     binding: Arc<HostPeerBinding>,
     owner: AsyncMutex<Box<dyn DynResourceLifecycle>>,
     failure: Mutex<Option<SharedError>>,
+    receipts: Mutex<CloseReport>,
 }
 #[derive(Clone)]
 pub(crate) struct PeerResourceContext {
@@ -120,6 +124,7 @@ impl PeerResourceContext {
             binding: self.binding.clone(),
             owner: AsyncMutex::new(owner),
             failure: Mutex::new(None),
+            receipts: Mutex::new(CloseReport::default()),
         });
         let stopped = {
             let mut state = self.group.state.lock().expect("peer task state poisoned");
@@ -217,20 +222,47 @@ impl InboundPeerTasks {
                     return Err(retained(failure));
                 }
             };
-            if let Some(failed) = report.failed_tasks.pop() {
-                let failure = child.remember(failed.error);
+            let complete = report.is_complete();
+            let mut failed = None;
+            let mut receipts = child
+                .receipts
+                .lock()
+                .expect("peer resource receipts poisoned");
+            for exit in report.failed_tasks.drain(..) {
+                let original = Arc::new(exit.error);
+                if !receipts
+                    .failed_tasks
+                    .iter()
+                    .any(|saved| saved.id == exit.id)
+                {
+                    receipts.failed_tasks.push(TaskFailure {
+                        id: exit.id,
+                        class: exit.class,
+                        error: retained(original.clone()),
+                    });
+                }
+                failed.get_or_insert(original);
+            }
+            // Persist one-shot evidence before returning a timeout/failure.
+            // Only the latest unfinished view replaces the previous view.
+            receipts.unfinished.clear();
+            receipts.append(report);
+            if let Some(failure) = failed {
+                drop(receipts);
                 self.fail(failure.clone());
                 return Err(retained(failure));
             }
-            if !report.is_complete() {
+            if !complete {
                 return Err(error(
                     Reason::Timeout,
                     "peer native resource remains unconfirmed",
                 ));
             }
+            let closed_io = receipts.closed_io.len();
+            drop(receipts);
             let mut state = self.state.lock().expect("peer task state poisoned");
             state.confirmed_children = state.confirmed_children.saturating_add(1);
-            state.closed_io = state.closed_io.saturating_add(report.closed_io.len());
+            state.closed_io = state.closed_io.saturating_add(closed_io);
             // Successful evidence has been consumed here. Retain bounded
             // totals, not one historical string/owner per completed peer.
             state.children.remove(&task);

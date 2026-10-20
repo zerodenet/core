@@ -9,10 +9,7 @@ pub(crate) use entry::{InboundOwner, InboundTaskAccess};
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 #[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use peers::{
-    children::{PeerChildIdentity, PeerResourceContext},
-    InboundPeerTasks, MAX_DATAGRAM_PEERS,
-};
+pub(crate) use peers::{children::PeerResourceContext, InboundPeerTasks, MAX_DATAGRAM_PEERS};
 use std::{
     collections::HashMap,
     num::NonZeroUsize,
