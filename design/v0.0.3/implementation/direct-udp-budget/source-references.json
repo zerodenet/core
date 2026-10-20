@@ -1,0 +1,377 @@
+{
+  "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "files": [
+    {
+      "path": "crates/proxy/src/inbound/direct.rs",
+      "sha256": "f8ca7ff7221ced5e029f1ed70104c97325cddbf978da20b7b0d7f85d60ed2aca",
+      "matches": [
+        {
+          "line": 67,
+          "text": "crate::runtime::inbound_operation::TcpAndPeerDatagramInboundListenerOperation {"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/inbound/direct/datagram.rs",
+      "sha256": "086cbebbc8aa98bd770092b44a19d4fcce765d37ba51cc9402930394689dbd80",
+      "matches": [
+        {
+          "line": 29,
+          "text": "deadline: Instant::now() + Duration::from_secs(120),"
+        },
+        {
+          "line": 51,
+          "text": "self.deadline = Instant::now() + Duration::from_secs(120);"
+        },
+        {
+          "line": 71,
+          "text": "self.deadline = Instant::now() + Duration::from_secs(120);"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/inbound_operation/tcp_and_peer_datagram.rs",
+      "sha256": "3d30ad0fb8eaef958eaf35d11286b9711caec47e6f261f513408ee14934f73f9",
+      "matches": [
+        {
+          "line": 54,
+          "text": "let mut buffer = vec![0; 65535];"
+        },
+        {
+          "line": 64,
+          "text": "if peers.len() >= 4096 { continue; }"
+        },
+        {
+          "line": 65,
+          "text": "let (sender, packets) = mpsc::channel(32);"
+        },
+        {
+          "line": 78,
+          "text": "let _ = peers[&peer].try_send(buffer[..size].to_vec());"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/udp_socket.rs",
+      "sha256": "450cc7d874bc73e5321e8b6ac48dd6dd03b50ee3ba580fba36b866b9f93f14cc",
+      "matches": [
+        {
+          "line": 35,
+          "text": "sockets: Vec<DirectUdpSocket>,"
+        },
+        {
+          "line": 59,
+          "text": "const MAX_DIRECT_UDP_PEERS_PER_SOCKET: usize = 256;"
+        },
+        {
+          "line": 82,
+          "text": "sockets: Vec::new(),"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/udp_socket/ownership.rs",
+      "sha256": "da737182902a897da15f78d8c93050e40f266ccf906abeb3f59e400b1ba98f67",
+      "matches": [
+        {
+          "line": 20,
+          "text": "&& self.retired.len() + self.flows.len() < MAX_DIRECT_UDP_PEERS_PER_SOCKET"
+        },
+        {
+          "line": 52,
+          "text": "self.sockets.clear();"
+        },
+        {
+          "line": 57,
+          "text": "self.sockets.retain(|socket| {"
+        },
+        {
+          "line": 71,
+          "text": "self.sockets.retain(|socket| !socket.replies.is_empty());"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/udp_socket/receive.rs",
+      "sha256": "c647a790ad8d6a6ed0f7e85b8af83d4b293b20016818ee237de5d103dabfa1c7",
+      "matches": [
+        {
+          "line": 10,
+          "text": "const MAX_DATAGRAM: usize = 65_535;"
+        },
+        {
+          "line": 38,
+          "text": "let needs_scratch = output.len() < MAX_DATAGRAM;"
+        },
+        {
+          "line": 40,
+          "text": "receiver.scratch.resize(MAX_DATAGRAM, 0);"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/udp_socket/select.rs",
+      "sha256": "56fdab1606b39d7e4aa831effbe9f97c0262c4a6737333c45e0d683dbf8887c8",
+      "matches": [
+        {
+          "line": 20,
+          "text": "while let Some(target) = select_stable_udp_target(logical_target, &candidates, true, true) {"
+        },
+        {
+          "line": 40,
+          "text": "candidates.retain(|candidate| candidate.is_ipv6() != target.is_ipv6());"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/udp_socket/io.rs",
+      "sha256": "4e460d2a131692905762bf91c43cf8b86ba1a37684d18f673ef9d03287f63a3d",
+      "matches": [
+        {
+          "line": 22,
+          "text": "self.services.ensure_direct_policy_current(policy)?;"
+        },
+        {
+          "line": 36,
+          "text": "self.services.ensure_direct_policy_current(policy)?;"
+        },
+        {
+          "line": 45,
+          "text": "\"egress topology changed before sending direct UDP packet\","
+        },
+        {
+          "line": 48,
+          "text": "let sent = send_direct_udp_packet(&entry.socket, target, payload).await?;"
+        },
+        {
+          "line": 134,
+          "text": "self.services.ensure_direct_policy_current(policy)?;"
+        },
+        {
+          "line": 138,
+          "text": "\"egress topology changed while binding direct UDP socket\","
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/udp_flow/sessions/model.rs",
+      "sha256": "216b9bab921c7f3ee23f10d96b9760b4b70d012c8930db636f2ff8b03afd252b",
+      "matches": [
+        {
+          "line": 68,
+          "text": "pub(super) flows: HashMap<UdpFlowKey, UdpFlow>,"
+        },
+        {
+          "line": 69,
+          "text": "pub(super) upstream_by_response: HashMap<UdpUpstreamResponseKey, UdpFlowKey>,"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/udp_dispatch/model.rs",
+      "sha256": "17e53f8ab2ff059089a677e7722a84dc083d72a25e6ebbc1e9d3c38556216c6c",
+      "matches": [
+        {
+          "line": 36,
+          "text": "pub(super) cancel_tx: tokio::sync::mpsc::UnboundedSender<UdpFlowCancellation>,"
+        },
+        {
+          "line": 37,
+          "text": "pub(super) cancel_rx: tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/udp_dispatch/backoff.rs",
+      "sha256": "ad7a91c8a5e7de95ebded4be048c28159d83ef46d1ed862590889d992122b45e",
+      "matches": [
+        {
+          "line": 6,
+          "text": "const INITIAL_BACKOFF: Duration = Duration::from_millis(250);"
+        },
+        {
+          "line": 7,
+          "text": "const MAX_BACKOFF: Duration = Duration::from_secs(10);"
+        },
+        {
+          "line": 8,
+          "text": "const MAX_TRACKED_FAILURES: usize = 1_024;"
+        },
+        {
+          "line": 29,
+          "text": "if self.failures.len() >= MAX_TRACKED_FAILURES && !self.failures.contains_key(&key) {"
+        },
+        {
+          "line": 31,
+          "text": "if self.failures.len() >= MAX_TRACKED_FAILURES {"
+        },
+        {
+          "line": 49,
+          "text": "failure.retry_at = now + INITIAL_BACKOFF.saturating_mul(multiplier).min(MAX_BACKOFF);"
+        },
+        {
+          "line": 74,
+          "text": "assert_eq!(backoff.retry_after(&flow_key, now), Some(INITIAL_BACKOFF));"
+        },
+        {
+          "line": 75,
+          "text": "backoff.record_failure(flow_key.clone(), now + INITIAL_BACKOFF);"
+        },
+        {
+          "line": 77,
+          "text": "backoff.retry_after(&flow_key, now + INITIAL_BACKOFF),"
+        },
+        {
+          "line": 78,
+          "text": "Some(INITIAL_BACKOFF.saturating_mul(2))"
+        },
+        {
+          "line": 83,
+          "text": "for port in 0..=MAX_TRACKED_FAILURES {"
+        },
+        {
+          "line": 86,
+          "text": "assert_eq!(backoff.failures.len(), MAX_TRACKED_FAILURES);"
+        }
+      ]
+    },
+    {
+      "path": "crates/proxy/src/runtime/datagram_udp/lifecycle/relay.rs",
+      "sha256": "c3ba92d2a5fcb411ff765a9f2b1c4d43fd1be066f47761726d2ffff000687e24",
+      "matches": [
+        {
+          "line": 58,
+          "text": "let mut direct_buf = vec![0_u8; 64 * 1024];"
+        },
+        {
+          "line": 60,
+          "text": "let mut upstream_buf = vec![0_u8; 64 * 1024];"
+        }
+      ]
+    },
+    {
+      "path": "crates/config/src/model/udp_queue.rs",
+      "sha256": "51f469dc8e87c948981364c55e3fa0348a6b292097ae7f3c7f15ab56b56346f3",
+      "matches": [
+        {
+          "line": 7,
+          "text": "/// Events per socket, including ICMP errors. Existing default: 64."
+        },
+        {
+          "line": 9,
+          "text": "pub capacity: usize,"
+        },
+        {
+          "line": 12,
+          "text": "pub max_payload_bytes: Option<usize>,"
+        },
+        {
+          "line": 16,
+          "text": "pub max_stack_payload_bytes: Option<usize>,"
+        },
+        {
+          "line": 21,
+          "text": "capacity: default_capacity(),"
+        },
+        {
+          "line": 22,
+          "text": "max_payload_bytes: None,"
+        },
+        {
+          "line": 23,
+          "text": "max_stack_payload_bytes: None,"
+        },
+        {
+          "line": 28,
+          "text": "64"
+        }
+      ]
+    },
+    {
+      "path": "crates/config/src/model/api.rs",
+      "sha256": "4906453fd69b4e6b7e25ce0603d38363ddb2eaf09aa5eee4d3eeeaa170fe92d0",
+      "matches": [
+        {
+          "line": 39,
+          "text": "#[serde(default = \"default_dispatcher_max_in_memory_deliveries\")]"
+        },
+        {
+          "line": 40,
+          "text": "pub max_in_memory_deliveries: usize,"
+        },
+        {
+          "line": 46,
+          "text": "pub max_in_memory_delivery_bytes: u32,"
+        },
+        {
+          "line": 53,
+          "text": "#[serde(default = \"default_source_queue_max_bytes\")]"
+        },
+        {
+          "line": 54,
+          "text": "pub source_queue_max_bytes: u32,"
+        },
+        {
+          "line": 68,
+          "text": "#[serde(default = \"default_outbox_min_free_bytes\")]"
+        },
+        {
+          "line": 69,
+          "text": "pub outbox_min_free_bytes: u64,"
+        },
+        {
+          "line": 72,
+          "text": "/// `outbox_min_free_bytes`."
+        },
+        {
+          "line": 73,
+          "text": "#[serde(default = \"default_outbox_min_free_percent\")]"
+        },
+        {
+          "line": 74,
+          "text": "pub outbox_min_free_percent: u8,"
+        },
+        {
+          "line": 82,
+          "text": "max_in_memory_deliveries: default_dispatcher_max_in_memory_deliveries(),"
+        },
+        {
+          "line": 83,
+          "text": "max_in_memory_delivery_bytes: default_delivery_max_bytes(),"
+        },
+        {
+          "line": 85,
+          "text": "source_queue_max_bytes: default_source_queue_max_bytes(),"
+        },
+        {
+          "line": 90,
+          "text": "outbox_min_free_bytes: default_outbox_min_free_bytes(),"
+        },
+        {
+          "line": 91,
+          "text": "outbox_min_free_percent: default_outbox_min_free_percent(),"
+        },
+        {
+          "line": 110,
+          "text": "fn default_dispatcher_max_in_memory_deliveries() -> usize {"
+        },
+        {
+          "line": 118,
+          "text": "fn default_source_queue_max_bytes() -> u32 {"
+        },
+        {
+          "line": 138,
+          "text": "fn default_outbox_min_free_bytes() -> u64 {"
+        },
+        {
+          "line": 139,
+          "text": "1024 * 1024 * 1024"
+        },
+        {
+          "line": 142,
+          "text": "fn default_outbox_min_free_percent() -> u8 {"
+        }
+      ]
+    }
+  ]
+}

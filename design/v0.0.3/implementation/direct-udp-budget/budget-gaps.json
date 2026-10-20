@@ -1,0 +1,124 @@
+{
+  "status": "audit and proposal only; no production/default/schema changes",
+  "authorization": "complete design authorizes necessary minimal optional fields; numeric defaults require representative measurements",
+  "fixed_old_source": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "existing_baseline": "../../baseline/resource-baseline.json",
+  "raw_task_census": "../../baseline/task-observation.json",
+  "task_census_scope": "TCP32 public library only; no UDP peer/pending-byte defaults inferred",
+  "measurements": [
+    "old-16x3-summary.json",
+    "old-fanin-16x3-summary.json"
+  ],
+  "proposal_config_parent": "runtime.network (small optional managed Direct/dispatch limits object; exact schema not frozen)",
+  "rows": [
+    {
+      "resource": "source_peers",
+      "owner_scope": "listener",
+      "existing_config_or_source": "hardcoded",
+      "existing_default": 4096,
+      "recommended_numeric_value": null,
+      "occupancy": "active+retiring",
+      "exhaustion_and_compatibility": "reject new source before task creation"
+    },
+    {
+      "resource": "ingress_queue_slots",
+      "owner_scope": "source peer",
+      "existing_config_or_source": "hardcoded",
+      "existing_default": 32,
+      "recommended_numeric_value": 32,
+      "occupancy": "queued source messages",
+      "exhaustion_and_compatibility": "drop incoming uncommitted packet on full"
+    },
+    {
+      "resource": "ingress_pending_payload_bytes",
+      "owner_scope": "listener and optional process aggregate",
+      "existing_config_or_source": "absent",
+      "existing_default": null,
+      "recommended_numeric_value": null,
+      "occupancy": "reserved+queued+inflight as documented",
+      "exhaustion_and_compatibility": "reserve before copy/admission; release on actual consumption or discard"
+    },
+    {
+      "resource": "logical_sessions",
+      "owner_scope": "actual dispatcher/peer",
+      "existing_config_or_source": "absent",
+      "existing_default": null,
+      "recommended_numeric_value": null,
+      "occupancy": "active+retiring",
+      "exhaustion_and_compatibility": "reject new logical target; preserve existing flows"
+    },
+    {
+      "resource": "native_sockets",
+      "owner_scope": "actual dispatcher/peer",
+      "existing_config_or_source": "absent",
+      "existing_default": null,
+      "recommended_numeric_value": null,
+      "occupancy": "pending+active+retiring+Unknown",
+      "exhaustion_and_compatibility": "reject new acquisition; exact native close receipt returns exact lease"
+    },
+    {
+      "resource": "pending_opens",
+      "owner_scope": "actual dispatcher/peer",
+      "existing_config_or_source": "absent",
+      "existing_default": null,
+      "recommended_numeric_value": null,
+      "occupancy": "pending acquisition jobs",
+      "exhaustion_and_compatibility": "finite concurrency; do not impose lifetime healthy attempt1"
+    },
+    {
+      "resource": "candidate_storage",
+      "owner_scope": "host-authorized resolution",
+      "existing_config_or_source": "absent",
+      "existing_default": null,
+      "recommended_numeric_value": null,
+      "occupancy": "actual candidate sets and fallback plan",
+      "exhaustion_and_compatibility": "preserve family/fallback semantics; bound before retention"
+    },
+    {
+      "resource": "response_tuple_security_state",
+      "owner_scope": "one native FD",
+      "existing_config_or_source": "hardcoded",
+      "existing_default": 256,
+      "recommended_numeric_value": 256,
+      "occupancy": "active+retired tuple",
+      "exhaustion_and_compatibility": "never expire live-FD tombstones to regain capacity"
+    },
+    {
+      "resource": "packet_reply_slots",
+      "owner_scope": "one client-stack socket",
+      "existing_config_or_source": "runtime.network.udp_receive_queue.capacity",
+      "existing_default": 64,
+      "recommended_numeric_value": 64,
+      "occupancy": "queued events including ICMP errors",
+      "exhaustion_and_compatibility": "existing Packet semantics; not wired to legacy managed Direct"
+    },
+    {
+      "resource": "packet_reply_payload_bytes",
+      "owner_scope": "one client-stack socket",
+      "existing_config_or_source": "runtime.network.udp_receive_queue.max_payload_bytes",
+      "existing_default": null,
+      "recommended_numeric_value": null,
+      "occupancy": "queued payload",
+      "exhaustion_and_compatibility": "existing null semantics"
+    },
+    {
+      "resource": "packet_stack_payload_bytes",
+      "owner_scope": "one client stack",
+      "existing_config_or_source": "runtime.network.udp_receive_queue.max_stack_payload_bytes",
+      "existing_default": null,
+      "recommended_numeric_value": null,
+      "occupancy": "aggregate queued payload within one stack",
+      "exhaustion_and_compatibility": "not process/global peer cap"
+    }
+  ],
+  "unmeasured": [
+    "Tokio UDP/CLI task census",
+    "per-owner user queue bytes",
+    "exact native open attempts",
+    "forced actual egress generation rotation",
+    "per-peer route/fake-IP/sniff multi-target projection",
+    "maximum packet and capacity rejection",
+    "new target paired run",
+    "GUI/Panel roundtrip for any new field"
+  ]
+}

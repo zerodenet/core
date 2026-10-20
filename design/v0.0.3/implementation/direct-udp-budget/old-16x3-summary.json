@@ -1,0 +1,469 @@
+{
+  "launcher": {
+    "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+    "binary_sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+    "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+    "command": [
+      "docker",
+      "run",
+      "--rm",
+      "--pull=never",
+      "--network=none",
+      "--cpus=1",
+      "--memory=1073741824",
+      "--memory-swap=1073741824",
+      "--mount",
+      "type=bind,src=/workspace/core-next/direct-udp-budget/old-16x3/kernel,dst=/kernel,readonly",
+      "--mount",
+      "type=bind,src=/workspace/core-parallel/resources/design/v0.0.3/implementation/direct-udp-budget,dst=/probe,readonly",
+      "--mount",
+      "type=bind,src=/workspace/core-next/direct-udp-budget/old-16x3,dst=/results",
+      "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "python3",
+      "/probe/worker.py",
+      "--binary",
+      "/kernel",
+      "--output",
+      "/results/data",
+      "--rotations",
+      "16",
+      "--trials",
+      "3"
+    ],
+    "scripts_sha256": {
+      "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+      "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+      "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+      "run.py": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+      "summarize.py": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+      "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+    },
+    "compile_processes": "excluded; none started by harness",
+    "reference_processes": "Python echo/DNS/harness share container; accounted separately from kernel PID",
+    "host_context": {
+      "load_average": [
+        0.53173828125,
+        0.63671875,
+        0.6640625
+      ],
+      "cpu.max": "400000 100000",
+      "memory.max": "17179869184",
+      "concurrent_validation": "parent is validating main; sizing observations only, not isolated RS01 throughput qualification"
+    },
+    "exit_code": 0
+  },
+  "limits_after": {
+    "cpu.max": "100000 100000",
+    "memory.max": "1073741824",
+    "memory.swap.max": "0",
+    "memory.peak": "74338304",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.stat": "usage_usec 9229184\nuser_usec 2970107\nsystem_usec 6259076\nnice_usec 0\nnr_periods 222\nnr_throttled 4\nthrottled_usec 420970\nnr_bursts 0\nburst_usec 0"
+  },
+  "measurement": "fixed old Combined Direct only; no new-target qualification",
+  "caveats": [
+    "FD/inode observations are not native close receipts",
+    "echo-port correlation excludes only the known ingress inode; raw snapshots retained",
+    "10ms samples can miss short peaks; RSS VmHWM separately retained",
+    "kernel UDP queue accounting differs from payload/user heap bytes",
+    "no new numeric production defaults inferred from this profile"
+  ],
+  "trials": [
+    {
+      "profile": "direct_combined_literal",
+      "verified_roundtrips": 51,
+      "attempted_roundtrips": 51,
+      "roundtrip_failures": [],
+      "policy_apply_failures": [],
+      "active_business_flows_peak_observed": 1,
+      "distinct_business_flow_ids_observed": 17,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          49653
+        ]
+      ],
+      "process_fd_peak_sampled": 13,
+      "process_udp_fd_peak_sampled": 2,
+      "echo_correlated_direct_fd_peak_sampled": 1,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 17,
+      "kernel_rss_peak_sampled_bytes": 33177600,
+      "kernel_vmhwm_max_observed_bytes": 33177600,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 0,
+      "own_udp_kernel_tx_queue_peak_sampled_bytes": 0,
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "bursts": {
+        "31": {
+          "sent": 31,
+          "received": 31,
+          "unique_received": 31,
+          "errors": [],
+          "not_observed": 0
+        },
+        "32": {
+          "sent": 32,
+          "received": 32,
+          "unique_received": 32,
+          "errors": [],
+          "not_observed": 0
+        },
+        "33": {
+          "sent": 33,
+          "received": 33,
+          "unique_received": 33,
+          "errors": [],
+          "not_observed": 0
+        }
+      },
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 63718187
+      },
+      "errors": [
+        null
+      ],
+      "sample_count": 218
+    },
+    {
+      "profile": "direct_combined_fixed_domain",
+      "verified_roundtrips": 51,
+      "attempted_roundtrips": 51,
+      "roundtrip_failures": [],
+      "policy_apply_failures": [],
+      "active_business_flows_peak_observed": 1,
+      "distinct_business_flow_ids_observed": 17,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          39716
+        ],
+        [
+          "127.0.0.2",
+          39716
+        ],
+        [
+          "::1",
+          39716
+        ]
+      ],
+      "process_fd_peak_sampled": 14,
+      "process_udp_fd_peak_sampled": 2,
+      "echo_correlated_direct_fd_peak_sampled": 1,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 17,
+      "kernel_rss_peak_sampled_bytes": 34086912,
+      "kernel_vmhwm_max_observed_bytes": 34086912,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 2304,
+      "own_udp_kernel_tx_queue_peak_sampled_bytes": 0,
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "bursts": {
+        "31": {
+          "sent": 31,
+          "received": 31,
+          "unique_received": 31,
+          "errors": [],
+          "not_observed": 0
+        },
+        "32": {
+          "sent": 32,
+          "received": 32,
+          "unique_received": 32,
+          "errors": [],
+          "not_observed": 0
+        },
+        "33": {
+          "sent": 33,
+          "received": 32,
+          "unique_received": 32,
+          "errors": [],
+          "not_observed": 1
+        }
+      },
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 65435274
+      },
+      "errors": [
+        null
+      ],
+      "sample_count": 221
+    },
+    {
+      "profile": "direct_combined_literal",
+      "verified_roundtrips": 51,
+      "attempted_roundtrips": 51,
+      "roundtrip_failures": [],
+      "policy_apply_failures": [],
+      "active_business_flows_peak_observed": 1,
+      "distinct_business_flow_ids_observed": 17,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          48918
+        ]
+      ],
+      "process_fd_peak_sampled": 14,
+      "process_udp_fd_peak_sampled": 2,
+      "echo_correlated_direct_fd_peak_sampled": 1,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 17,
+      "kernel_rss_peak_sampled_bytes": 30261248,
+      "kernel_vmhwm_max_observed_bytes": 30261248,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 0,
+      "own_udp_kernel_tx_queue_peak_sampled_bytes": 0,
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "bursts": {
+        "31": {
+          "sent": 31,
+          "received": 31,
+          "unique_received": 31,
+          "errors": [],
+          "not_observed": 0
+        },
+        "32": {
+          "sent": 32,
+          "received": 32,
+          "unique_received": 32,
+          "errors": [],
+          "not_observed": 0
+        },
+        "33": {
+          "sent": 33,
+          "received": 33,
+          "unique_received": 33,
+          "errors": [],
+          "not_observed": 0
+        }
+      },
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 31994098
+      },
+      "errors": [
+        null
+      ],
+      "sample_count": 213
+    },
+    {
+      "profile": "direct_combined_fixed_domain",
+      "verified_roundtrips": 51,
+      "attempted_roundtrips": 51,
+      "roundtrip_failures": [],
+      "policy_apply_failures": [],
+      "active_business_flows_peak_observed": 1,
+      "distinct_business_flow_ids_observed": 17,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          44629
+        ],
+        [
+          "127.0.0.2",
+          44629
+        ],
+        [
+          "::1",
+          44629
+        ]
+      ],
+      "process_fd_peak_sampled": 14,
+      "process_udp_fd_peak_sampled": 2,
+      "echo_correlated_direct_fd_peak_sampled": 1,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 17,
+      "kernel_rss_peak_sampled_bytes": 33636352,
+      "kernel_vmhwm_max_observed_bytes": 33636352,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 2304,
+      "own_udp_kernel_tx_queue_peak_sampled_bytes": 0,
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "bursts": {
+        "31": {
+          "sent": 31,
+          "received": 31,
+          "unique_received": 31,
+          "errors": [],
+          "not_observed": 0
+        },
+        "32": {
+          "sent": 32,
+          "received": 32,
+          "unique_received": 32,
+          "errors": [],
+          "not_observed": 0
+        },
+        "33": {
+          "sent": 33,
+          "received": 33,
+          "unique_received": 33,
+          "errors": [],
+          "not_observed": 0
+        }
+      },
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 31716540
+      },
+      "errors": [
+        null
+      ],
+      "sample_count": 215
+    },
+    {
+      "profile": "direct_combined_literal",
+      "verified_roundtrips": 51,
+      "attempted_roundtrips": 51,
+      "roundtrip_failures": [],
+      "policy_apply_failures": [],
+      "active_business_flows_peak_observed": 1,
+      "distinct_business_flow_ids_observed": 17,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          42528
+        ]
+      ],
+      "process_fd_peak_sampled": 14,
+      "process_udp_fd_peak_sampled": 2,
+      "echo_correlated_direct_fd_peak_sampled": 1,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 17,
+      "kernel_rss_peak_sampled_bytes": 33239040,
+      "kernel_vmhwm_max_observed_bytes": 33239040,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 0,
+      "own_udp_kernel_tx_queue_peak_sampled_bytes": 0,
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "bursts": {
+        "31": {
+          "sent": 31,
+          "received": 31,
+          "unique_received": 31,
+          "errors": [],
+          "not_observed": 0
+        },
+        "32": {
+          "sent": 32,
+          "received": 32,
+          "unique_received": 32,
+          "errors": [],
+          "not_observed": 0
+        },
+        "33": {
+          "sent": 33,
+          "received": 33,
+          "unique_received": 33,
+          "errors": [],
+          "not_observed": 0
+        }
+      },
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 63761165
+      },
+      "errors": [
+        null
+      ],
+      "sample_count": 194
+    },
+    {
+      "profile": "direct_combined_fixed_domain",
+      "verified_roundtrips": 51,
+      "attempted_roundtrips": 51,
+      "roundtrip_failures": [],
+      "policy_apply_failures": [],
+      "active_business_flows_peak_observed": 1,
+      "distinct_business_flow_ids_observed": 17,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          39966
+        ],
+        [
+          "127.0.0.2",
+          39966
+        ],
+        [
+          "::1",
+          39966
+        ]
+      ],
+      "process_fd_peak_sampled": 14,
+      "process_udp_fd_peak_sampled": 2,
+      "echo_correlated_direct_fd_peak_sampled": 1,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 17,
+      "kernel_rss_peak_sampled_bytes": 33656832,
+      "kernel_vmhwm_max_observed_bytes": 33656832,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 4608,
+      "own_udp_kernel_tx_queue_peak_sampled_bytes": 0,
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "bursts": {
+        "31": {
+          "sent": 31,
+          "received": 31,
+          "unique_received": 31,
+          "errors": [],
+          "not_observed": 0
+        },
+        "32": {
+          "sent": 32,
+          "received": 32,
+          "unique_received": 32,
+          "errors": [],
+          "not_observed": 0
+        },
+        "33": {
+          "sent": 33,
+          "received": 33,
+          "unique_received": 33,
+          "errors": [],
+          "not_observed": 0
+        }
+      },
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 63842280
+      },
+      "errors": [
+        null
+      ],
+      "sample_count": 219
+    }
+  ]
+}
