@@ -1,8 +1,7 @@
 use super::*;
 use std::{future::Future, num::NonZeroUsize, task::Poll, time::Duration};
 use zero_platform_tokio::{
-    contract::component::GrantedDatagramListener,
-    controlled_datagram::ControlledDatagramOwner,
+    contract::component::GrantedDatagramListener, controlled_datagram::ControlledDatagramOwner,
 };
 
 #[tokio::test]
