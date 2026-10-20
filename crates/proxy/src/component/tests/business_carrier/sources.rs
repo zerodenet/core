@@ -52,6 +52,13 @@ impl Caller {
             Self::Raw(caller) => caller.witness(),
         }
     }
+    pub(in crate::component) fn verify_carrier_completion(&self) {
+        match self {
+            Self::Accepted(caller) => caller.verify_carrier_completion(),
+            #[cfg(feature = "raw-ip-runtime")]
+            Self::Raw(caller) => caller.verify_carrier_completion(),
+        }
+    }
     pub(in crate::component) async fn join(&mut self) {
         match self {
             Self::Accepted(caller) => caller.join().await,

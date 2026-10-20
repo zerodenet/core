@@ -109,6 +109,13 @@ impl Caller {
     pub(in crate::component) fn witness(&self) -> TaskJoinWitness {
         self.registration.caller_witness().unwrap()
     }
+    pub(in crate::component) fn verify_carrier_completion(&self) {
+        let receipt = self
+            .registration
+            .carrier_completion()
+            .expect("original raw caller must observe its actual native and users closure");
+        assert!(receipt.matches(&self.registration));
+    }
     pub(in crate::component) async fn join(&mut self) {
         self.complete.take().unwrap().send(()).unwrap();
         self.parent.take().unwrap().send(()).unwrap();
@@ -128,5 +135,9 @@ impl Caller {
         assert_eq!(actual.class(), witnessed.class());
         assert!(actual.failure().is_none());
         assert!(witnessed.result().is_ok());
+        assert!(
+            self.registration.carrier_completion().is_none(),
+            "caller exit and transport exit alone cannot mint native closure"
+        );
     }
 }

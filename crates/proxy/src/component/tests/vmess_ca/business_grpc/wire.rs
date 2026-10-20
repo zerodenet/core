@@ -59,6 +59,9 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
                 while let Some(result)=tasks.join_next().await { result.unwrap(); }
             });
             let observations=Arc::new(Observations::default());
+            // Keep the actual caller owners until their native observations are
+            // consumed. An expired weak source is never a completion receipt.
+            let mut callers=Vec::new();
             for _ in 0..2 {
                 let mut caller = crate::component::tests::business_carrier::sources::Caller::new(&proxy, caller_kind).await;
                 let (session, invocation) = (caller.session().clone(), caller.invocation().clone());
@@ -97,12 +100,15 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
                 }
                 assert!(actual.closed().is_none());
                 proxy.engine().track_session(session.id).finish(zero_engine::SessionOutcome::DirectRelayed).unwrap();
+                callers.push(caller);
             }
             assert_eq!(captured.reads.load(Ordering::SeqCst),1);
             assert!(observations.outer.load(Ordering::Relaxed)>2*REQUEST_LEN);
             let report:CloseReport=host.drive(slot.shutdown(deadline())).await.unwrap();
             assert!(report.is_complete(), "same actual caller joins, returned logical views, actual drivers and native controls must close the real graph: {report:?}");
             assert!(actual.closed().unwrap().matches(&actual));
+            assert_eq!(callers.len(),2);
+            for caller in &callers {caller.verify_carrier_completion();}
             finish.send_replace(true);server.await.unwrap();
         }
         }

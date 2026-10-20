@@ -164,6 +164,17 @@ impl Caller {
     pub(in crate::component) fn witness(&self) -> TaskJoinWitness {
         self.witness.clone()
     }
+    pub(in crate::component) fn verify_carrier_completion(&self) {
+        assert!(self.witness.is_joined());
+        assert!(self.owner.accepted_evidence().unwrap().provider_confirmed());
+        assert_eq!(
+            self.owner
+                .accepted_evidence()
+                .unwrap()
+                .confirmed_native_closes,
+            1
+        );
+    }
     pub(in crate::component) async fn join(&mut self) {
         self.complete.take().unwrap().send(()).unwrap();
         let exit = self.scope.next_exit().await.unwrap();
