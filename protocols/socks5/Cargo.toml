@@ -37,3 +37,7 @@ required-features = ["runtime"]
 name = "socks_component"
 path = "tests/component.rs"
 required-features = ["runtime"]
+
+[[test]]
+name = "inbound_facts"
+required-features = ["runtime"]

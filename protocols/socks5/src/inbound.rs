@@ -4,7 +4,12 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use zero_core::{Address, Error, InboundClientResponse, Network, ProtocolType, Session};
+use zero_core::{
+    request::Destination, Address, Error, InboundClientResponse, ProtocolType, Session,
+};
+
+mod facts;
+pub use facts::{Socks5Command, Socks5CommandFacts};
 use zero_traits::AsyncSocket;
 
 use crate::shared::{
@@ -181,6 +186,16 @@ impl Socks5InboundTcpAcceptor {
             .await
     }
 
+    /// Parse the real command and authentication without allocating a Session.
+    pub async fn accept_command_facts<S>(&self, stream: &mut S) -> Result<Socks5CommandFacts, Error>
+    where
+        S: AsyncSocket,
+    {
+        self.inbound
+            .accept_command_facts_with_auth(stream, &self.auth)
+            .await
+    }
+
     pub async fn accept_request<S>(&self, stream: &mut S) -> Result<Session, Error>
     where
         S: AsyncSocket,
@@ -322,20 +337,31 @@ impl Socks5Inbound {
         S: AsyncSocket,
         A: Socks5PasswordAuth,
     {
-        let username = negotiate_method(stream, auth).await?;
-        let mut request = read_request(stream).await?;
-        if let (Some(name), Socks5Request::Connect(ref mut session)) =
-            (username.as_ref(), &mut request)
-        {
-            let pk = auth.principal_key_for(name);
-            let (up, down) = auth.rate_limit_for(name);
-            let mut sa = zero_core::SessionAuth::new("socks5");
-            sa.principal_key = pk;
-            sa.up_bps = up;
-            sa.down_bps = down;
-            session.apply_auth(sa);
+        let (command, username) = read_verified_command(stream, auth).await?;
+        // Legacy UDP never asked the authentication provider for policy fields.
+        let authenticated = matches!(&command, Socks5Command::Connect(_))
+            .then(|| facts::authentication(auth, username.as_deref()))
+            .flatten();
+        Ok(Socks5CommandFacts {
+            command,
+            auth: authenticated,
         }
-        Ok(request)
+        .into_legacy())
+    }
+
+    /// Wire parsing and verification do not require a business SessionId.
+    pub async fn accept_command_facts_with_auth<S, A>(
+        &self,
+        stream: &mut S,
+        auth: &A,
+    ) -> Result<Socks5CommandFacts, Error>
+    where
+        S: AsyncSocket,
+        A: Socks5PasswordAuth,
+    {
+        let (command, username) = read_verified_command(stream, auth).await?;
+        let auth = facts::authentication(auth, username.as_deref());
+        Ok(Socks5CommandFacts { command, auth })
     }
 
     pub async fn send_response<S>(&self, stream: &mut S, reply: Socks5Reply) -> Result<(), Error>
@@ -425,6 +451,14 @@ impl Socks5Inbound {
 
         Ok(session)
     }
+}
+
+async fn read_verified_command<S: AsyncSocket, A: Socks5PasswordAuth>(
+    stream: &mut S,
+    auth: &A,
+) -> Result<(Socks5Command, Option<String>), Error> {
+    let username = negotiate_method(stream, auth).await?;
+    Ok((read_request(stream).await?, username))
 }
 
 async fn negotiate_method<S, A>(stream: &mut S, auth: &A) -> Result<Option<String>, Error>
@@ -545,7 +579,7 @@ where
     }
 }
 
-async fn read_request<S>(stream: &mut S) -> Result<Socks5Request, Error>
+async fn read_request<S>(stream: &mut S) -> Result<Socks5Command, Error>
 where
     S: AsyncSocket,
 {
@@ -571,14 +605,8 @@ where
     let port = u16::from_be_bytes(port);
 
     match header[1] {
-        CMD_CONNECT => Ok(Socks5Request::Connect(Box::new(Session::new(
-            0,
-            address,
-            port,
-            Network::Tcp,
-            ProtocolType::new("socks5"),
-        )))),
-        CMD_UDP_ASSOCIATE => Ok(Socks5Request::UdpAssociate(Socks5UdpAssociateRequest {
+        CMD_CONNECT => Ok(Socks5Command::Connect(Destination::new(address, port))),
+        CMD_UDP_ASSOCIATE => Ok(Socks5Command::UdpAssociate(Socks5UdpAssociateRequest {
             client_hint: address,
             client_port: port,
         })),
