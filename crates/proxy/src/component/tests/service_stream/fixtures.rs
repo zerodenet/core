@@ -51,7 +51,9 @@ pub(super) async fn connect(
         .unwrap();
     let plan =
         crate::runtime::tcp_dispatch::service::prepare(services.protocols(), &services, &resolved)
-            .unwrap()
+            .unwrap_or_else(|failure| {
+                panic!("prepare Service at {}: {}", failure.stage, failure.error)
+            })
             .expect("whole selected relay must be native");
     crate::runtime::tcp_dispatch::service::connect(
         services.execution(),
