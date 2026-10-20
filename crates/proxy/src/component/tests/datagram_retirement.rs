@@ -240,3 +240,6 @@ async fn a_real_pending_or_failed_tcp_close_does_not_pin_another_closed_udp_rese
         .unwrap()
         .unwrap();
 }
+
+#[path = "datagram_retirement/reentry.rs"]
+mod reentry;

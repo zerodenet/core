@@ -1,29 +1,22 @@
-use std::{
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
-use tokio::time::{sleep_until, Duration, Instant, Sleep};
+use std::{future::Future, pin::Pin, sync::Arc};
+use tokio::time::Sleep;
 use zero_platform_tokio::contract::{
     lifecycle::{CloseReport, DynChannelControl, Unfinished},
     ChannelError, CloseReason,
 };
-type Closing = Pin<
-    Box<
-        dyn Future<
-                Output = (
-                    Box<dyn DynChannelControl>,
-                    Result<CloseReport, ChannelError>,
-                ),
-            > + Send,
-    >,
->;
+mod cancel;
+mod poll;
+type Control = Arc<tokio::sync::Mutex<Option<Box<dyn DynChannelControl>>>>;
+type Closing = Pin<Box<dyn Future<Output = Result<CloseReport, ChannelError>> + Send>>;
 pub(super) struct Entry {
     pub(super) reserved: bool,
     pub(super) active: bool,
     pub(super) closed: bool,
-    pub(super) control: Option<Box<dyn DynChannelControl>>,
+    pub(super) control: Option<Control>,
+    pending_cancel: Option<CloseReason>,
+    polling: bool,
+    protocol_closed: bool,
+    poll_panicked: bool,
     closing: Option<Closing>,
     retry: Option<Pin<Box<Sleep>>>,
     failure: Option<Arc<ChannelError>>,
@@ -38,6 +31,10 @@ impl Entry {
             active: false,
             closed: false,
             control: None,
+            pending_cancel: None,
+            polling: false,
+            protocol_closed: false,
+            poll_panicked: false,
             closing: None,
             retry: None,
             failure: None,
@@ -48,18 +45,21 @@ impl Entry {
     }
     pub(super) fn retire(&mut self, reason: CloseReason) {
         self.active = false;
-        if let Some(control) = &self.control {
-            control.cancel(reason);
-        }
+        self.pending_cancel = Some(reason);
     }
     pub(super) fn snapshot(&mut self, id: u64, take: bool) -> CloseReport {
+        // Keep terminal receipts durable until the completed controller's
+        // potentially arbitrary last destructor has also returned normally.
+        let take = take && (!self.protocol_closed || self.closed);
         let mut report = if take {
             std::mem::take(&mut self.receipts)
         } else {
             CloseReport::default()
         };
         if !self.closed {
-            if self.unfinished.is_empty() {
+            if self.poll_panicked {
+                report.unfinished.push(Unfinished::Io(format!("Datagram controller {id} cleanup poll panicked; original controller remains owned")));
+            } else if self.unfinished.is_empty() {
                 let kind = if self.reserved {
                     "reserved Datagram open"
                 } else {
@@ -84,80 +84,14 @@ impl Entry {
         }
     }
     pub(super) fn has_receipts(&self) -> bool {
+        if self.protocol_closed && !self.closed {
+            return false;
+        }
         let report = &self.receipts;
         !report.closed_io.is_empty()
             || !report.exited_tasks.is_empty()
             || !report.failed_tasks.is_empty()
             || !report.released_resources.is_empty()
             || !report.recovered_resources.is_empty()
-    }
-    pub(super) fn poll_closed(
-        &mut self,
-        cx: &mut Context<'_>,
-        deadline: Instant,
-    ) -> Poll<Result<(), Arc<ChannelError>>> {
-        if self.closed {
-            return Poll::Ready(Ok(()));
-        }
-        if self.reserved || self.active {
-            return Poll::Pending;
-        }
-        if self.failure_pending {
-            return Poll::Ready(Err(self
-                .failure
-                .as_ref()
-                .expect("actual unreported failure")
-                .clone()));
-        }
-        if let Some(retry) = &mut self.retry {
-            if retry.as_mut().poll(cx).is_pending() {
-                return Poll::Pending;
-            }
-            self.retry = None;
-        }
-        if self.closing.is_none() {
-            let mut control = self
-                .control
-                .take()
-                .expect("retired actual Datagram controller");
-            self.closing = Some(Box::pin(async move {
-                let result = control.wait_closed(deadline).await;
-                (control, result)
-            }));
-        }
-        let Poll::Ready((control, result)) = self.closing.as_mut().unwrap().as_mut().poll(cx)
-        else {
-            return Poll::Pending;
-        };
-        self.closing = None;
-        self.control = Some(control);
-        match result {
-            Ok(mut report) => {
-                self.failure = None;
-                self.failure_pending = false;
-                self.closed = report.is_complete();
-                self.unfinished = std::mem::take(&mut report.unfinished);
-                self.receipts.append(report);
-                if self.closed {
-                    Poll::Ready(Ok(()))
-                } else {
-                    let mut retry = Box::pin(sleep_until(
-                        deadline.min(Instant::now() + Duration::from_millis(10)),
-                    ));
-                    let _ = retry.as_mut().poll(cx);
-                    self.retry = Some(retry);
-                    Poll::Pending
-                }
-            }
-            Err(error) => {
-                let error = Arc::new(error);
-                self.failure = Some(error.clone());
-                self.failure_pending = true;
-                let mut retry = Box::pin(sleep_until(Instant::now() + Duration::from_millis(10)));
-                let _ = retry.as_mut().poll(cx);
-                self.retry = Some(retry);
-                Poll::Ready(Err(error))
-            }
-        }
     }
 }

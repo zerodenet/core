@@ -472,3 +472,17 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   users and QUIC driver graph are integrated. No default budget, production
   activation, outbound interface/dial-policy support, or full graph closure is
   implied by this host grant.
+
+- Logical Datagram retirement keeps the original controller in its existing
+  bounded entry independently of the borrowed close future. The existing
+  waiter remains the only consumer; cancellation and protocol-future polling
+  run outside owner/entry metadata locks. I/O receives an internal weak wake
+  relay, while the actual drive future owns the caller wake target. Synchronous
+  wake, last-Waker Drop and protocol callbacks therefore do not retain a caller
+  task through the retirement owner or run under its parent locks. A cancelled
+  wait restores the same future; a panicked poll propagates the original panic
+  and keeps the controller/entry unconfirmed rather than repolling a poisoned
+  protocol future or refunding capacity. Completed controllers are dropped
+  outside metadata locks before their retained receipts and admission credit
+  are released. This does not install a new background cleanup task, solve the
+  separate abandoned inbound Scope consumer, or prove accepted-user closure.
