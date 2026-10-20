@@ -6,6 +6,7 @@ use zero_platform_tokio::contract::lifecycle::{CloseReport, Unfinished};
 
 #[derive(Default)]
 pub(super) struct NativeClose {
+    pub(super) confirmed: std::collections::BTreeSet<(bool, SocketAddr)>,
     pub(super) receipts: CloseReport,
     // At most one retained first failure per declared native resource. The
     // actual owner separately retains the current OS source and original FD.
@@ -52,14 +53,20 @@ impl HostResources {
         }
         let mut report = std::mem::take(&mut state.io.receipts);
         report.append(std::mem::take(&mut state.files.receipts));
-        report
-            .unfinished
-            .extend(state.files.records.keys().map(|id| {
-                Unfinished::Resource(format!(
-                    "component {} file read task {id} remains unjoined",
-                    self.component.0
-                ))
-            }));
+        report.unfinished.extend(
+            state
+                .files
+                .evidence()
+                .into_iter()
+                .filter(|file| !file.physical_confirmed())
+                .map(|file| {
+                    Unfinished::Resource(format!(
+                        "component {} file {} job/native cleanup remains unconfirmed",
+                        self.component.0,
+                        file.path.display()
+                    ))
+                }),
+        );
         Ok(report)
     }
     async fn drive_native(&self, deadline: Instant) {
@@ -114,11 +121,12 @@ impl HostResources {
         match result {
             Ok(report) => {
                 if report.is_complete() {
-                    state.io.failures.remove(&key);
+                    state.io.confirmed.insert(key);
                 }
                 state.io.receipts.append(report);
             }
             Err(mut failure) => {
+                state.io.confirmed.remove(&key);
                 failure.component.get_or_insert(self.component);
                 state
                     .io
@@ -135,3 +143,7 @@ fn unfinished(label: String) -> CloseReport {
         ..Default::default()
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/resource_files/sticky.rs"]
+mod sticky_tests;

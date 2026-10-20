@@ -30,7 +30,11 @@ struct State {
     files: files::FileReads,
     io: shutdown::NativeClose,
 }
+// The nonconsuming proof API is staged for host slot integration; resourceful
+// production activation remains gated until that separate transaction exists.
+mod evidence;
 mod files;
+pub(in crate::component) use evidence::HostIoEvidence;
 mod shutdown;
 mod sockets;
 

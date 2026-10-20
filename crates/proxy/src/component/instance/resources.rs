@@ -9,6 +9,7 @@ use zero_platform_tokio::contract::{
     component::ResourceAccess, packet::BoxPacketSession, BoxFuture, ChannelError, Reason,
 };
 mod native;
+pub(in crate::component) use native::HostIoEvidence;
 pub(in crate::component) use native::HostResources;
 mod outbound_datagram;
 pub(crate) use outbound_datagram::HostOutboundDatagramResources;

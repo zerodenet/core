@@ -134,7 +134,16 @@ async fn interrupted_protocol_cleanup_retains_actual_file_join_and_scope_receipt
     assert!(report.is_complete());
     assert_eq!(report.released_resources.len(), 1);
     assert_eq!(report.exited_tasks, vec![task]);
-    assert_eq!(report.closed_io, vec![address.to_string()]);
+    assert_eq!(report.closed_io.len(), 2);
+    assert!(report.closed_io.contains(&address.to_string()));
+    assert_eq!(
+        report
+            .closed_io
+            .iter()
+            .filter(|label| label.contains("native close confirmed"))
+            .count(),
+        1
+    );
     assert!(std::net::TcpListener::bind(address).is_ok());
     assert!(
         read.await.unwrap().is_err(),
@@ -218,7 +227,16 @@ async fn a_confirmed_protocol_close_is_not_repeated_when_file_join_was_interrupt
         1,
         "only the unconfirmed branch is retried"
     );
-    assert_eq!(report.closed_io, vec![address.to_string()]);
+    assert_eq!(report.closed_io.len(), 2);
+    assert!(report.closed_io.contains(&address.to_string()));
+    assert_eq!(
+        report
+            .closed_io
+            .iter()
+            .filter(|label| label.contains("native close confirmed"))
+            .count(),
+        1
+    );
     assert_eq!(report.released_resources.len(), 1);
     assert!(read.await.unwrap().is_err());
 }

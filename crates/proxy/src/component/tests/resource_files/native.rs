@@ -58,7 +58,7 @@ async fn native_receipt_survives_cancelled_cleanup_while_actual_file_job_is_stil
         .unwrap()
         .unwrap();
     assert!(report.is_complete());
-    assert_eq!(report.closed_io.len(), 1);
+    assert_eq!(report.closed_io.len(), 2);
     assert_eq!(report.released_resources.len(), 1);
     assert!(grants
         .shutdown_io(deadline())
@@ -132,7 +132,7 @@ async fn actual_file_join_receipt_survives_cancelled_cleanup_while_native_owner_
     drop(native);
     let report = grants.shutdown_io(deadline()).await.unwrap();
     assert!(report.is_complete());
-    assert_eq!(report.closed_io.len(), 1);
+    assert_eq!(report.closed_io.len(), 2);
     assert_eq!(report.released_resources.len(), 1);
     std::net::TcpListener::bind(actual).unwrap();
     drop(view);

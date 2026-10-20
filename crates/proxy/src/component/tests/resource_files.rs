@@ -7,6 +7,8 @@ mod concurrency;
 mod fixtures;
 #[path = "resource_files/native.rs"]
 mod native;
+#[path = "resource_files/physical.rs"]
+mod physical;
 use fixtures::*;
 use tokio::time::{Duration, Instant};
 use zero_platform_tokio::contract::component::{ResourceAccess, ResourceDeclaration};
@@ -82,7 +84,7 @@ async fn declared_file_is_one_bounded_snapshot_and_exact_path_authority_is_start
     let report = grants.shutdown_io(deadline()).await.unwrap();
     assert!(report.is_complete());
     assert_eq!(report.released_resources.len(), 1);
-    assert!(report.closed_io.is_empty());
+    assert_eq!(report.closed_io.len(), 1);
     assert!(matches!(grants.activate(deadline()),Err(error) if error.reason==Reason::Revoked));
 }
 #[tokio::test]

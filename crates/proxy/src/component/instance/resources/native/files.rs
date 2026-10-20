@@ -1,10 +1,12 @@
 //! Blocking jobs stay in this actual grant owner when their caller goes away.
+pub(super) mod evidence;
 mod read;
 mod shutdown;
 use super::*;
 use std::{collections::HashMap, error::Error, fmt, io, path::Path};
 use tokio::task::{Id, JoinError, JoinSet};
 use zero_platform_tokio::contract::{lifecycle::CloseReport, Stage};
+use zero_platform_tokio::file::{FileNativeEvidence, PendingFileRead};
 
 type SharedResult = Result<Arc<[u8]>, Arc<io::Error>>;
 enum Cached {
@@ -15,16 +17,20 @@ enum Cached {
 struct FileGrant {
     max_bytes: usize,
     cached: Cached,
+    pending: Option<Arc<PendingFileRead>>,
+    joined: bool,
 }
 #[derive(Default)]
 pub(super) struct FileReads {
     grants: BTreeMap<PathBuf, FileGrant>,
-    jobs: JoinSet<io::Result<Vec<u8>>>,
+    jobs: JoinSet<Result<Vec<u8>, Arc<io::Error>>>,
     pub(super) records: HashMap<Id, PathBuf>,
     pub(super) receipts: CloseReport,
     pub(super) failure: Option<Arc<ChannelError>>,
     #[cfg(test)]
     before_read: Option<Arc<dyn Fn() + Send + Sync>>,
+    #[cfg(test)]
+    after_open: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 impl FileReads {
     pub(super) fn declare(
@@ -48,6 +54,8 @@ impl FileReads {
             FileGrant {
                 max_bytes,
                 cached: Cached::Unused,
+                pending: None,
+                joined: false,
             },
         );
         Ok(())
@@ -70,8 +78,17 @@ impl FileReads {
             ));
         }
         if matches!(grant.cached, Cached::Unused) {
-            let actual_path = path.to_path_buf();
-            let max_bytes = requested;
+            let pending = Arc::new(
+                PendingFileRead::new(path.to_path_buf(), requested)
+                    .map_err(|source| file_failure(component, Stage::Prepare, Arc::new(source)))?,
+            );
+            // Persist the sole descriptor holder before the worker can run.
+            grant.pending = Some(pending.clone());
+            // A scheduling panic must not permit replacing this holder or a
+            // second job. Physical proof still requires the actual join.
+            grant.cached = Cached::Running;
+            #[cfg(test)]
+            let after_open = self.after_open.clone();
             #[cfg(test)]
             let before = self.before_read.clone();
             // Admission and registration share the same enclosing state lock as
@@ -81,17 +98,27 @@ impl FileReads {
                 if let Some(before) = before {
                     before();
                 }
-                zero_platform_tokio::file::read_regular_file(&actual_path, max_bytes)
+                #[cfg(test)]
+                {
+                    pending.run_with_after_open(|| {
+                        if let Some(after) = after_open {
+                            after();
+                        }
+                    })
+                }
+                #[cfg(not(test))]
+                {
+                    pending.run()
+                }
             });
             self.records.insert(handle.id(), path.to_path_buf());
-            grant.cached = Cached::Running;
         }
         Ok(())
     }
     fn record(
         &mut self,
         component: ComponentId,
-        result: Result<(Id, io::Result<Vec<u8>>), JoinError>,
+        result: Result<(Id, Result<Vec<u8>, Arc<io::Error>>), JoinError>,
     ) {
         let id = match &result {
             Ok((id, _)) => *id,
@@ -99,7 +126,7 @@ impl FileReads {
         };
         let path = self.records.remove(&id).expect("actual owned file task");
         let result = match result {
-            Ok((_, result)) => result.map(Arc::from).map_err(Arc::new),
+            Ok((_, result)) => result.map(Arc::from),
             Err(source) => {
                 let source = Arc::new(io::Error::other(source));
                 self.failure.get_or_insert_with(|| {
@@ -108,10 +135,40 @@ impl FileReads {
                 Err(source)
             }
         };
-        self.grants
+        let grant = self
+            .grants
             .get_mut(&path)
-            .expect("declared owned file task")
-            .cached = Cached::Done(result);
+            .expect("declared owned file task");
+        grant.joined = true;
+        grant.cached = Cached::Done(result);
+        // The real JoinError/result has now been consumed. A panicking worker
+        // leaves its original File in this holder, never on its unwound stack.
+        let evidence = grant
+            .pending
+            .as_ref()
+            .expect("installed file owner")
+            .close_after_join();
+        match evidence.native {
+            FileNativeEvidence::ConfirmedClosed => self.receipts.closed_io.push(format!(
+                "component {} file {} native close confirmed",
+                component.0,
+                path.display()
+            )),
+            FileNativeEvidence::Unknown(source) => {
+                self.failure
+                    .get_or_insert_with(|| Arc::new(file_failure(component, Stage::Close, source)));
+            }
+            FileNativeEvidence::KnownNoAcquisition => {}
+            FileNativeEvidence::Busy | FileNativeEvidence::Owned => {
+                self.failure.get_or_insert_with(|| {
+                    Arc::new(error(
+                        component,
+                        Reason::Internal,
+                        "joined file job retains an unconfirmed native owner",
+                    ))
+                });
+            }
+        }
         // This is an actual blocking-task join receipt, not a native descriptor
         // close report, a protocol task ID, or transferred user-I/O confirmation.
         self.receipts.released_resources.push(format!(
