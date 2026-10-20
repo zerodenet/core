@@ -152,6 +152,11 @@ impl CarrierAdoption {
     }
 }
 impl CarrierClosed {
+    /// False for a private unused reservation receipt. Only the original native
+    /// preparation installs this control; caller code cannot fabricate it.
+    pub fn had_native_acquisition(&self) -> bool {
+        self.slot.state().control.is_some()
+    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }

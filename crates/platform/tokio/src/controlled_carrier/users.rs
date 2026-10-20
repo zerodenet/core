@@ -117,6 +117,13 @@ pub struct CarrierUsersClosed {
     caller: Option<TaskJoinWitness>,
 }
 impl CarrierUsersClosed {
+    pub fn had_native_acquisition(&self) -> bool {
+        self.slot
+            .state()
+            .users
+            .as_ref()
+            .is_some_and(|users| users.acquired)
+    }
     pub fn matches(&self, adoption: &CarrierAdoption) -> bool {
         Arc::ptr_eq(&self.slot, &adoption.slot)
     }

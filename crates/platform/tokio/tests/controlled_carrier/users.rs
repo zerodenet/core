@@ -126,6 +126,8 @@ async fn caller_join_logical_view_return_driver_join_and_native_close_are_distin
             let actual = caller_witness.try_joined().unwrap();
             assert_eq!(actual.class(), TaskClass::Critical);
             let users = adoption.users_closed().unwrap();
+            assert!(users.had_native_acquisition());
+            assert!(adoption.closed().unwrap().had_native_acquisition());
             assert!(users.matches(&adoption));
             assert!(users.matches_caller(&caller_witness));
             assert!(!users.matches_caller(&driver_witness));
