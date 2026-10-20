@@ -72,7 +72,7 @@ pub(super) async fn echo_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
     });
     (address, task)
 }
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct Observations {
     pub(super) facts: Mutex<Vec<(Option<SessionId>, ConnectFact)>>,
     pub(super) protocol: Mutex<Option<(u64, u64)>>,

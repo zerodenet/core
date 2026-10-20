@@ -40,7 +40,7 @@ pub(super) fn acceptor_with_alpn(h2: bool) -> tokio_rustls::TlsAcceptor {
     }
     tokio_rustls::TlsAcceptor::from(Arc::new(config))
 }
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct Observations {
     pub(super) facts: Mutex<Vec<(Option<SessionId>, ConnectFact)>>,
     pub(super) protocol: Mutex<Option<(u64, u64)>>,
