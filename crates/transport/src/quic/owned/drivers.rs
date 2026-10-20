@@ -117,9 +117,15 @@ impl QuinnDriverOwner {
     /// Only abstract-socket constructors are supported. This runtime grants no
     /// raw UDP acquisition and supplies no canonical host resource permission.
     pub fn runtime(&self, socket: &super::MetadataSocketOwner) -> Arc<dyn quinn::Runtime> {
+        self.runtime_for_callbacks(socket.callbacks.clone())
+    }
+    pub(super) fn runtime_for_callbacks(
+        &self,
+        callbacks: Arc<super::callbacks::Broker>,
+    ) -> Arc<dyn quinn::Runtime> {
         Arc::new(runtime::OwnedRuntime {
             owner: Arc::downgrade(&self.shared),
-            callbacks: socket.callbacks.clone(),
+            callbacks,
         })
     }
     pub fn revoke_registration(&self) {

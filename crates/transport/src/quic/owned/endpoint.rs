@@ -21,6 +21,8 @@ use zero_platform_tokio::{
 };
 mod connection;
 mod handle;
+mod native;
+use native::Native;
 mod stream;
 mod users;
 pub use connection::OwnedConnection;
@@ -36,7 +38,7 @@ pub struct OwnedEndpointLimits {
 }
 pub struct OwnedEndpointOwner {
     shared: Arc<Shared>,
-    native: MetadataSocketOwner,
+    native: Native,
     drivers: QuinnDriverOwner,
     native_snapshot: Option<Arc<MetadataOwnerReport>>,
     confirmed_main: u128,
@@ -51,44 +53,32 @@ struct Shared {
     admission: Admission,
     callbacks: Weak<super::callbacks::Broker>,
 }
-/// Native receipts, actual joined drivers and user release remain distinct.
-#[derive(Debug)]
-pub struct OwnedEndpointReport {
-    pub active_users: usize,
-    pub drivers: DriverTaskStatus,
-    pub joined: Vec<TaskJoined>,
-    pub native: Arc<MetadataOwnerReport>,
-    pub confirmed_main: u128,
-    pub confirmed_probes: u128,
-    pub native_count_overflow: bool,
-    pub original_native_failures: Vec<Arc<OwnedNativeFailure>>,
-    pub observer_faulted: bool,
-    pub suppressed_observer_panics: usize,
-}
-/// Original unresolved I/O sources, with the actual reservation namespace.
-#[derive(Debug)]
-pub struct OwnedNativeFailure {
-    pub probe: bool,
-    pub reservation: DatagramReservationId,
-    pub source: Arc<io::Error>,
-    pub acquisition_source: Option<Arc<io::Error>>,
-}
-impl OwnedEndpointReport {
-    pub fn is_complete(&self) -> bool {
-        self.active_users == 0
-            && self.drivers.pending_registration == 0
-            && self.drivers.unjoined.is_empty()
-            && self.drivers.unreceived.is_empty()
-            && self.native.is_complete()
-            && !self.native_count_overflow
-            && self.suppressed_observer_panics == 0
-    }
-}
+mod report;
+pub use report::{OwnedEndpointReport, OwnedEndpointUsersReport, OwnedNativeFailure};
 impl OwnedEndpointOwner {
     /// Cold construction, with already installed original native ownership and
     /// the caller's existing task registrar. No task/endpoint is started here.
     pub fn new(
         native: MetadataSocketOwner,
+        registrar: TaskRegistrar,
+        limits: OwnedEndpointLimits,
+    ) -> (Self, DriverExitReceiver) {
+        Self::construct(Native::Owned(Box::new(native)), registrar, limits)
+    }
+    /// Same host metadata views and actual registrar; no native acquisition or
+    /// control transfers to this consumer. Keep this owner before start.
+    pub fn new_hosted(
+        native: super::HostedMetadataSocket,
+        registrar: TaskRegistrar,
+        limits: OwnedEndpointLimits,
+    ) -> Result<(Self, DriverExitReceiver), super::HostedMetadataSocket> {
+        if !native.matches(&registrar) {
+            return Err(native);
+        }
+        Ok(Self::construct(Native::Hosted(native), registrar, limits))
+    }
+    fn construct(
+        native: Native,
         registrar: TaskRegistrar,
         limits: OwnedEndpointLimits,
     ) -> (Self, DriverExitReceiver) {
@@ -100,7 +90,7 @@ impl OwnedEndpointOwner {
             phase: AtomicU8::new(0),
             users,
             admission: drivers.admission(),
-            callbacks: Arc::downgrade(&native.callbacks),
+            callbacks: Arc::downgrade(native.callbacks()),
         });
         (
             Self {
@@ -131,7 +121,8 @@ impl OwnedEndpointOwner {
             config,
             server,
             self.native.socket(),
-            self.drivers.runtime(&self.native),
+            self.drivers
+                .runtime_for_callbacks(self.native.callbacks().clone()),
         );
         let mut endpoint = match result {
             Ok(endpoint) => endpoint,
@@ -191,16 +182,18 @@ impl OwnedEndpointOwner {
         &mut self,
         deadline: Instant,
     ) -> Result<OwnedEndpointReport, ChannelError> {
-        self.begin_shutdown();
-        self.shared.users.wait_empty(deadline).await?;
-        let joined = self.drivers.wait_joined(deadline).await?;
+        let users = self.shutdown_users(deadline).await?;
+        let Native::Owned(native) = &mut self.native else {
+            return Err(error(Stage::Close, Reason::Unsupported));
+        };
+        let joined = users.joined;
         if self
             .native_snapshot
             .as_ref()
             .is_none_or(|report| !report.is_complete())
             && !self.native_count_overflow
         {
-            let snapshot = Arc::new(self.native.close_io());
+            let snapshot = Arc::new(native.close_io());
             for (probe, report) in [(false, &snapshot.main), (true, &snapshot.probes)] {
                 for unknown in &report.unconfirmed {
                     self.native_failures
@@ -240,12 +233,29 @@ impl OwnedEndpointOwner {
             confirmed_probes: self.confirmed_probes,
             native_count_overflow: self.native_count_overflow,
             original_native_failures: self.native_failures.values().cloned().collect(),
-            observer_faulted: self.native.observer_faulted(),
-            suppressed_observer_panics: self.native.suppressed_observer_panics(),
+            observer_faulted: self.native.callbacks().failed(),
+            suppressed_observer_panics: self.native.suppressed(),
+        })
+    }
+    /// Complete only actual sealed users and driver joins. This never closes
+    /// or acknowledges the granting host's native main/probe originals.
+    pub async fn shutdown_users(
+        &self,
+        deadline: Instant,
+    ) -> Result<OwnedEndpointUsersReport, ChannelError> {
+        self.begin_shutdown();
+        self.shared.users.wait_empty(deadline).await?;
+        let joined = self.drivers.wait_joined(deadline).await?;
+        Ok(OwnedEndpointUsersReport {
+            active_users: self.active_users(),
+            drivers: self.drivers.task_status(),
+            joined,
+            observer_faulted: self.native.callbacks().failed(),
+            suppressed_observer_panics: self.native.suppressed(),
         })
     }
     pub fn take_suppressed_observer_panic(&mut self) -> Option<Box<dyn std::any::Any + Send>> {
-        self.native.take_suppressed_observer_panic()
+        self.native.callbacks().take_suppressed()
     }
 }
 impl Drop for OwnedEndpointOwner {

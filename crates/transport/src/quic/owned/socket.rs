@@ -6,6 +6,8 @@ use zero_platform_tokio::controlled_datagram::metadata::{
     GrantedMetadataDatagram, MetadataDatagramControl, MetadataDatagramRx, MetadataDatagramTx,
     MetadataOwner, MetadataOwnerReport,
 };
+mod hosted;
+pub use hosted::{HostedMetadataSocket, RejectedHostedMetadataSocket};
 mod poller;
 mod receive;
 mod send;

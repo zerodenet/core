@@ -117,3 +117,14 @@ protocol users independently constructed from those views are not retroactively
 registered. Canonical host grants and the complete accepted/mask/protocol graph
 must prevent or own such producers before production activation. Existing QUIC
 constructors, protocol integrations and defaults are unchanged.
+
+The canonical hosted variant consumes `GrantedMetadataListener`: the same
+host's weak scope identity, unique receiver, bounded sender and unique
+observation authority. `HostedMetadataSocket::new` checks the actual original
+views and registrar; `OwnedEndpointOwner::new_hosted` checks that scope again
+before any Quinn task starts. The granting host keeps main/probe native control.
+`shutdown_users` reports sealed users and actual driver joins/delivery only.
+Its `users_and_drivers_complete` deliberately makes no native-close assertion.
+The existing local-owner `shutdown` rejects hosted native cleanup with
+`Unsupported`; the host must separately retire/close/persist its own originals.
+This interface does not turn missing canonical user proof into coverage.

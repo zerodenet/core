@@ -6,14 +6,18 @@ mod drivers;
 mod endpoint;
 pub use endpoint::{
     OwnedConnection, OwnedEndpointHandle, OwnedEndpointLimits, OwnedEndpointOwner,
-    OwnedEndpointReport, OwnedNativeFailure, OwnedRecvStream, OwnedSendStream,
+    OwnedEndpointReport, OwnedEndpointUsersReport, OwnedNativeFailure, OwnedRecvStream,
+    OwnedSendStream,
 };
 mod socket;
 pub use drivers::{
     DriverBody, DriverDelivery, DriverExitReceiver, DriverRegistrationFailure,
     DriverRegistrationReason, DriverTaskStatus, QuinnDriverOwner,
 };
-pub use socket::{MetadataSocketOwner, NativeSendDrops, RejectedMetadataSocket};
+pub use socket::{
+    HostedMetadataSocket, MetadataSocketOwner, NativeSendDrops, RejectedHostedMetadataSocket,
+    RejectedMetadataSocket,
+};
 
 #[cfg(test)]
 #[path = "../../tests/quic/owned/mod.rs"]

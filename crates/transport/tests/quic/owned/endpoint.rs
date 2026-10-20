@@ -61,3 +61,5 @@ async fn collect(
 }
 mod admission;
 mod users;
+
+mod hosted;
