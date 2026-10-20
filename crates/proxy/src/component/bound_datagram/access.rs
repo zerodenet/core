@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use zero_core::request::Destination;
 use zero_platform_tokio::{
     contract::{
-        component::{GrantedBoundDatagram, ResourceAccess},
+        component::{BoundDatagramAttemptFailure, GrantedBoundDatagram, ResourceAccess},
         packet::BoxPacketSession,
         BoxFuture,
     },
@@ -22,22 +22,36 @@ impl ResourceAccess for HostBoundDatagramResources {
         &self,
         request: BoundDatagramRequest,
     ) -> Result<GrantedBoundDatagram, ChannelError> {
-        let binding = self.binding(&request)?;
-        let selected = binding.select(request.peer, request.expected_network_generation)?;
+        self.open_bound_datagram_attempt(request)
+            .map_err(BoundDatagramAttemptFailure::into_error)
+    }
+    fn open_bound_datagram_attempt(
+        &self,
+        request: BoundDatagramRequest,
+    ) -> Result<GrantedBoundDatagram, BoundDatagramAttemptFailure> {
+        let binding = self
+            .binding(&request)
+            .map_err(BoundDatagramAttemptFailure::denied)?;
+        let selected = binding
+            .select(request.peer, request.expected_network_generation)
+            .map_err(BoundDatagramAttemptFailure::denied)?;
         let mut state = self.state();
-        self.ensure_available(&state, true)?;
+        self.ensure_available(&state, true)
+            .map_err(BoundDatagramAttemptFailure::denied)?;
         if !state
             .bindings
             .get(&request.binding.sequence())
             .is_some_and(|actual| Arc::ptr_eq(actual, &binding))
         {
-            return Err(error(
+            return Err(BoundDatagramAttemptFailure::denied(error(
                 self.instance,
                 Reason::StalePlan,
                 "host UDP binding changed during selection",
-            ));
+            )));
         }
-        binding.check_current(request.expected_network_generation)?;
+        binding
+            .check_current(request.expected_network_generation)
+            .map_err(BoundDatagramAttemptFailure::denied)?;
         let acquired = state.owner.acquire(
             request.peer,
             binding.preferred_port(),
@@ -59,12 +73,16 @@ impl ResourceAccess for HostBoundDatagramResources {
                     }
                 }
                 self.collect(&mut state);
-                return Err(error(
-                    self.instance,
-                    Reason::Io,
-                    "host UDP original acquisition failed",
-                )
-                .with_source(source));
+                return Err(self.issuer.acquisition_failure(
+                    &request,
+                    error(
+                        self.instance,
+                        Reason::Io,
+                        "host UDP original acquisition failed",
+                    ),
+                    source,
+                    &state.owner,
+                ));
             }
         };
         drop(state);
@@ -73,7 +91,7 @@ impl ResourceAccess for HostBoundDatagramResources {
         if let Err(failure) = binding.check_current(request.expected_network_generation) {
             let _ = socket.close();
             self.collect(&mut self.state());
-            return Err(failure);
+            return Err(BoundDatagramAttemptFailure::denied(failure));
         }
         Ok(GrantedBoundDatagram::from_host(
             socket,

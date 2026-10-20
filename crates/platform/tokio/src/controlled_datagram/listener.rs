@@ -78,14 +78,14 @@ impl ControlledDatagramOwner {
         DatagramAcquisitionError,
     > {
         if max_pending_sends.get() > Semaphore::MAX_PERMITS {
-            return Err(DatagramAcquisitionError {
-                reservation: None,
-                outcome: AcquisitionOutcome::KnownNoNative,
-                source: Arc::new(std_io::Error::new(
+            return Err(self.acquisition_error(
+                None,
+                AcquisitionOutcome::KnownNoNative,
+                Arc::new(std_io::Error::new(
                     std_io::ErrorKind::InvalidInput,
                     "UDP listener send capacity exceeds semaphore capacity",
                 )),
-            });
+            ));
         }
         let socket = self.bind_native_listener(address)?;
         let shared = Arc::new(Shared {

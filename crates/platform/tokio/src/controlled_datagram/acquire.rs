@@ -127,11 +127,7 @@ impl ControlledDatagramOwner {
                 Err(_) => AcquisitionOutcome::Unknown(entry.id),
             };
             self.reap_confirmed(); // Persist actual confirmation before return.
-            return Err(DatagramAcquisitionError {
-                reservation: Some(entry.id),
-                outcome,
-                source,
-            });
+            return Err(self.acquisition_error(Some(entry.id), outcome, source));
         }
         Ok(ControlledDatagramSocket { entry, interface })
     }
@@ -168,11 +164,11 @@ impl ControlledDatagramOwner {
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source.clone());
                     *native = NativeHandleState::Unknown(source.clone());
-                    return Err(DatagramAcquisitionError {
-                        reservation: Some(entry.id),
-                        outcome: AcquisitionOutcome::Unknown(entry.id),
+                    return Err(self.acquisition_error(
+                        Some(entry.id),
+                        AcquisitionOutcome::Unknown(entry.id),
                         source,
-                    });
+                    ));
                 }
             }
         }
@@ -185,11 +181,7 @@ impl ControlledDatagramOwner {
     ) -> DatagramAcquisitionError {
         *entry.lock() = NativeHandleState::NoNative;
         self.reap_confirmed();
-        DatagramAcquisitionError {
-            reservation: Some(entry.id),
-            outcome: AcquisitionOutcome::KnownNoNative,
-            source,
-        }
+        self.acquisition_error(Some(entry.id), AcquisitionOutcome::KnownNoNative, source)
     }
 }
 fn configure(

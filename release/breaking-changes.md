@@ -32,6 +32,8 @@ BoundUDP 的同一持久 peer provider 新增 opaque 完成观察：同一个实
 
 原 listener inline observer 现在并行推进真实 Scope exit 与已 joined child 的协议/native 清理，不等整个 listener 停止才归还已确切关闭的 child 容量。Pending 清理不会阻挡同一 observer 消费其他实际 TaskExit；取消观察保留原 owner 和 receipts，重入先处理已 joined 的原 child。首次实际清理错误在下一 await 前持久保存并撤销准入，Unknown 槽不回收；此处仍不把 TaskExit、body Ready 或空声明当 native Closed。
 
+BoundUDP 新增独立 default-deny 的 typed acquisition attempt 能力；旧 opener 仅投影原错误，不据 diagnostic source 授权重试。原 UDP owner 的私有身份与不可改写 evidence 绑定真实 acquisition outcome、reservation 和原 SourceArc；相同数值 ID、其他 owner 或改写公开诊断字段不能取得 settled 证明。只有原 owner 已结算 KnownNoNative/明确 Closed、同一私有 binding issuer 核对确切 peer/generation，才提供 opaque pre-I/O receipt；Unknown 不提供。该凭据仍须与调用方有限 attempt/current/cancel 检查结合，不能重放已发送业务 payload。
+
 ### 候选入站的真实 Ready 确认
 
 配置应用和启动的 listener 成功确认现在等待同一实际实例的 Ready receipt。协议资源 start 和 carrier activation 必须先完成，随后实际 accept/recv loop 首次 poll 到运行态才由宿主该调用点确认；TCP+UDP 和 listener group 必须确认所有实际分支，登记任务本身不是 Ready。就绪前错误、停止和取消不发布候选成功；取消等待保留实际 owner、候选信息与同一 receipt，旧实例的通知不能确认新实例。协议自有就绪预算保持原样，包括 SIP003 TCP 原十秒预算，不新增通用五秒 Ready 超时。

@@ -1,4 +1,6 @@
+mod bound_attempt;
 mod bound_datagram;
+pub use bound_attempt::{BoundDatagramAttemptFailure, BoundDatagramRetryReceipt};
 pub use bound_datagram::{
     BoundDatagramRequest, BoundDatagramSocket, DatagramBindingAuthorization, DatagramBindingGuard,
     DatagramBindingId, DatagramBindingIssuer, GrantedBoundDatagram,
@@ -184,6 +186,20 @@ pub trait ResourceAccess: Send + Sync {
         );
         failure.delivery = super::DeliveryState::NotSubmitted;
         Err(failure)
+    }
+    /// Distinct default-deny capability. Never call the legacy opener and then
+    /// infer a retry from its diagnostic source, delivery flag or error kind.
+    fn open_bound_datagram_attempt(
+        &self,
+        _request: BoundDatagramRequest,
+    ) -> Result<GrantedBoundDatagram, BoundDatagramAttemptFailure> {
+        let mut error = super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        error.delivery = super::DeliveryState::NotSubmitted;
+        Err(BoundDatagramAttemptFailure::denied(error))
     }
     fn open_bound_outbound_datagram(
         &self,

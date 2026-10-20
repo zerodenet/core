@@ -1,6 +1,7 @@
 //! Bounded original UDP ownership, including acquisition failure and rotation.
 //! Dropping an I/O handle never releases its owner's native reservation.
 mod acquire;
+mod evidence;
 mod flags;
 mod io;
 pub mod listener;
@@ -47,6 +48,7 @@ pub struct DatagramAcquisitionError {
     pub reservation: Option<DatagramReservationId>,
     pub outcome: AcquisitionOutcome,
     pub source: Arc<std_io::Error>,
+    evidence: evidence::AcquisitionEvidence,
 }
 impl fmt::Display for DatagramAcquisitionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -80,6 +82,7 @@ impl DatagramOwnerReport {
 /// The caller retains this owner for the actual resource's whole lifetime.
 /// `limit` counts reserved, live, retiring and unknown originals together.
 pub struct ControlledDatagramOwner {
+    identity: Arc<()>,
     limit: NonZeroUsize,
     next: u64,
     entries: BTreeMap<DatagramReservationId, Arc<Entry>>,
@@ -136,6 +139,7 @@ impl fmt::Debug for ControlledDatagramSocket {
 impl ControlledDatagramOwner {
     pub fn new(limit: NonZeroUsize) -> Self {
         Self {
+            identity: Arc::new(()),
             limit,
             next: 0,
             entries: BTreeMap::new(),
@@ -167,10 +171,12 @@ impl ControlledDatagramOwner {
     }
     fn reserve(&mut self) -> Result<Arc<Entry>, DatagramAcquisitionError> {
         self.reap_confirmed();
-        let denied = |message| DatagramAcquisitionError {
-            reservation: None,
-            outcome: AcquisitionOutcome::KnownNoNative,
-            source: Arc::new(std_io::Error::other(message)),
+        let denied = |message| {
+            self.acquisition_error(
+                None,
+                AcquisitionOutcome::KnownNoNative,
+                Arc::new(std_io::Error::other(message)),
+            )
         };
         // An unresolved original cannot be repaired by opening another one.
         if let Some((id, source)) = self
@@ -181,11 +187,7 @@ impl ControlledDatagramOwner {
                 _ => None,
             })
         {
-            return Err(DatagramAcquisitionError {
-                reservation: Some(id),
-                outcome: AcquisitionOutcome::Unknown(id),
-                source,
-            });
+            return Err(self.acquisition_error(Some(id), AcquisitionOutcome::Unknown(id), source));
         }
         if self.entries.len() >= self.limit.get() {
             return Err(denied("original UDP reservation capacity exhausted"));
