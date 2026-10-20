@@ -8,9 +8,9 @@ use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex},
 };
-use zero_platform_tokio::contract::CancellationToken;
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::network::UpstreamBinding;
+use zero_platform_tokio::contract::CancellationToken;
 use zero_platform_tokio::controlled_datagram::{ControlledDatagramOwner, DatagramOwnerReport};
 
 pub(crate) struct PacketCarrierOwnerSlot {
