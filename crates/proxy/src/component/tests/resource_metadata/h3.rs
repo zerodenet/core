@@ -3,8 +3,8 @@ use super::{canonical::CanonicalMetadata, *};
 use bytes::{Buf, Bytes};
 use zero_transport::quic::owned::{
     h3::{Http3DriverExit, Http3DriverFailure, PendingHttp3},
-    DriverExitReceiver, HostedMetadataSocket, OwnedDriverOrigin, OwnedEndpointLimits,
-    OwnedEndpointOwner,
+    DriverExitReceiver, HostedMetadataSocket, OwnedConnection, OwnedDriverOrigin,
+    OwnedEndpointLimits, OwnedEndpointOwner,
 };
 #[path = "h3/peer.rs"]
 mod peer;
@@ -18,6 +18,18 @@ type Connected = (
     zero_platform_tokio::contract::scope::TaskRegistrar,
 );
 async fn connect(peer: &Peer) -> Connected {
+    let (fixture, owner, receiver, connection, tasks) = connect_owner(peer).await;
+    let pending = owner.prepare_http3(connection).unwrap();
+    (fixture, owner, receiver, pending, tasks)
+}
+type ConnectedOwner = (
+    CanonicalMetadata,
+    OwnedEndpointOwner,
+    DriverExitReceiver,
+    OwnedConnection,
+    zero_platform_tokio::contract::scope::TaskRegistrar,
+);
+async fn connect_owner(peer: &Peer) -> ConnectedOwner {
     let (fixture, mut grant, tasks) = CanonicalMetadata::start(loopback(), limits(), n(3)).await;
     let claim = grant.users_claim.take().unwrap();
     let socket = HostedMetadataSocket::new(grant, &tasks).unwrap();
@@ -41,8 +53,7 @@ async fn connect(peer: &Peer) -> Connected {
         .drive(handle.connect(peer.address, "localhost"))
         .await
         .unwrap();
-    let pending = owner.prepare_http3(connection).unwrap();
-    (fixture, owner, receiver, pending, tasks)
+    (fixture, owner, receiver, connection, tasks)
 }
 async fn receive_all(
     fixture: &CanonicalMetadata,
@@ -217,3 +228,7 @@ async fn actual_prepared_h3_remote_failure_keeps_the_same_typed_terminal_arc_unt
     .await
     .unwrap();
 }
+
+#[cfg(feature = "hysteria2")]
+#[path = "h3/hysteria2.rs"]
+mod hysteria2;

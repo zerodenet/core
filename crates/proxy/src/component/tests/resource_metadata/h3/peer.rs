@@ -1,6 +1,13 @@
 use super::*;
 use bytes::{Buf, Bytes};
 
+#[derive(Clone, Copy)]
+enum Mode {
+    Response,
+    Reject,
+    #[cfg(feature = "hysteria2")]
+    Hysteria2,
+}
 pub(super) struct Peer {
     pub address: SocketAddr,
     pub client: quinn::ClientConfig,
@@ -8,6 +15,13 @@ pub(super) struct Peer {
 }
 impl Peer {
     pub async fn start(reject: bool) -> Self {
+        Self::start_mode(if reject { Mode::Reject } else { Mode::Response }).await
+    }
+    #[cfg(feature = "hysteria2")]
+    pub async fn start_hysteria2() -> Self {
+        Self::start_mode(Mode::Hysteria2).await
+    }
+    async fn start_mode(mode: Mode) -> Self {
         let certificate = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let cert = certificate.cert.der().clone();
         let key =
@@ -57,6 +71,15 @@ impl Peer {
                 .await
                 .unwrap();
             assert_eq!(request.method(), "POST");
+            #[cfg(feature = "hysteria2")]
+            if matches!(mode, Mode::Hysteria2) {
+                assert_eq!(request.uri(), "https://hysteria/auth");
+                assert_eq!(request.headers()["hysteria-auth"], "actual-password");
+                assert_eq!(request.headers()["hysteria-cc-rx"], "2000000");
+            } else {
+                assert_eq!(request.uri().path(), "/prepared");
+            }
+            #[cfg(not(feature = "hysteria2"))]
             assert_eq!(request.uri().path(), "/prepared");
             let mut body = Vec::new();
             while let Some(mut bytes) = stream.recv_data().await.unwrap() {
@@ -67,10 +90,44 @@ impl Peer {
                 let len = bytes.remaining();
                 body.extend_from_slice(&bytes.copy_to_bytes(len));
             }
-            assert_eq!(body, b"actual H3 upload"); // Includes actual request FIN.
-            if reject {
-                connection.close(0x101u32.into(), b"actual H3 protocol failure");
+            #[cfg(feature = "hysteria2")]
+            if matches!(mode, Mode::Hysteria2) {
+                assert!(body.is_empty(), "authentication has an actual request FIN");
+                stream
+                    .send_response(
+                        http_uri::Response::builder()
+                            .status(233)
+                            .header("Hysteria-UDP", "true")
+                            .header("Hysteria-CC-RX", "3000000")
+                            .body(())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                stream.finish().await.unwrap();
+                // Same real QUIC connection, original HY2 UDP wire codec. The
+                // legacy production dispatcher is deliberately not replaced.
+                let datagram = connection.read_datagram().await.unwrap();
+                use zero_traits::UdpDatagramFraming;
+                let packet = ::hysteria2::Hysteria2Outbound
+                    .decode_udp_datagram(&(), &datagram)
+                    .unwrap();
+                assert_eq!(packet.session_id(), 17);
+                assert_eq!(
+                    packet.target(),
+                    &zero_core::Address::Domain("actual.hy2.test".into())
+                );
+                assert_eq!(packet.port(), 5353);
+                assert_eq!(packet.payload(), b"actual HY2 datagram");
+                connection.send_datagram(datagram).unwrap();
             } else {
+                assert_eq!(body, b"actual H3 upload");
+            }
+            #[cfg(not(feature = "hysteria2"))]
+            assert_eq!(body, b"actual H3 upload");
+            if matches!(mode, Mode::Reject) {
+                connection.close(0x101u32.into(), b"actual H3 protocol failure");
+            } else if matches!(mode, Mode::Response) {
                 stream
                     .send_response(http_uri::Response::builder().status(200).body(()).unwrap())
                     .await
