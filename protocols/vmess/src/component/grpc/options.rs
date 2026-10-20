@@ -2,8 +2,9 @@ use super::{
     registry::{Recipe, State},
     *,
 };
-use std::{num::NonZeroUsize, path::Path};
+use std::{num::NonZeroUsize, path::Path, time::Duration};
 use zero_core::Error;
+use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_traits::{ClientTlsProfile, DialPolicy, GrpcTransportProfile, WebSocketTransportProfile};
 use zero_transport::profile::OwnedGrpcProfile;
 /// Explicit library recipe for the adapter's one real admission state.
@@ -15,6 +16,7 @@ pub struct Options {
     pub(super) authority: String,
     pub(super) cap: NonZeroUsize,
     pub(super) identity: Arc<[u8]>,
+    pub(super) business: Option<Business>,
 }
 impl std::fmt::Debug for Options {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -22,6 +24,17 @@ impl std::fmt::Debug for Options {
             .field("carrier_limit", &self.cap)
             .finish_non_exhaustive()
     }
+}
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct Business {
+    pub(super) binding: UpstreamBinding,
+    /// Explicit independent retirement budget; never a demand handshake timer.
+    pub(super) cleanup_budget: Duration,
+}
+struct Limits {
+    ca_max_bytes: Option<NonZeroUsize>,
+    cap: NonZeroUsize,
+    business: Option<Business>,
 }
 impl Options {
     pub fn from_options_refs_at<TTls, TWs, TGrpc>(
@@ -37,6 +50,76 @@ impl Options {
         TWs: WebSocketTransportProfile + ?Sized,
         TGrpc: GrpcTransportProfile + ?Sized,
     {
+        Self::prepare(
+            input,
+            dial,
+            source_dir,
+            Limits {
+                ca_max_bytes,
+                cap: carrier_limit,
+                business: None,
+            },
+            runtime,
+        )
+    }
+    /// Explicit library Business recipe; no background carrier is granted or
+    /// retained. Every connect must bring its actual host-authorized opener.
+    pub fn from_business_options_refs_at<TTls, TWs, TGrpc>(
+        input: crate::transport::VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
+        binding: UpstreamBinding,
+        source_dir: Option<&Path>,
+        ca_max_bytes: Option<NonZeroUsize>,
+        carrier_limit: NonZeroUsize,
+        cleanup_budget: Duration,
+        runtime: &crate::transport::VmessTransportRuntime,
+    ) -> Result<Self, Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
+        if !binding.prefix.is_empty() {
+            return Err(Error::Unsupported(
+                "controlled VMess Business gRPC requires an empty prefix",
+            ));
+        }
+        if cleanup_budget.is_zero() {
+            return Err(Error::Config(
+                "controlled VMess carrier retirement budget must be nonzero",
+            ));
+        }
+        Self::prepare(
+            input,
+            binding.dial.clone(),
+            source_dir,
+            Limits {
+                ca_max_bytes,
+                cap: carrier_limit,
+                business: Some(Business {
+                    binding,
+                    cleanup_budget,
+                }),
+            },
+            runtime,
+        )
+    }
+    fn prepare<TTls, TWs, TGrpc>(
+        input: crate::transport::VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
+        dial: DialPolicy,
+        source_dir: Option<&Path>,
+        limits: Limits,
+        runtime: &crate::transport::VmessTransportRuntime,
+    ) -> Result<Self, Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
+        let Limits {
+            ca_max_bytes,
+            cap: carrier_limit,
+            business,
+        } = limits;
         if input.ws.is_some() {
             return Err(Error::Config("vmess: ws and grpc are mutually exclusive"));
         }
@@ -87,6 +170,7 @@ impl Options {
                 .map(|file| (file.path.clone(), file.max_bytes)),
             dial: base.dial.clone(),
             cap: carrier_limit,
+            business: business.clone(),
         })?;
         Ok(Self {
             base: Arc::new(base),
@@ -95,6 +179,7 @@ impl Options {
             authority,
             cap: carrier_limit,
             identity,
+            business,
         })
     }
 }

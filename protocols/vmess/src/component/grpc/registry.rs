@@ -16,6 +16,7 @@ pub(super) struct Recipe {
     pub(super) ca: Option<(std::path::PathBuf, usize)>,
     pub(super) dial: DialPolicy,
     pub(super) cap: std::num::NonZeroUsize,
+    pub(super) business: Option<super::options::Business>,
 }
 #[derive(Default)]
 struct Values {

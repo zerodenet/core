@@ -31,6 +31,9 @@ impl Error for SharedFailure {
 }
 impl Stream {
     pub(super) fn new(inner: GrpcStream, record: Arc<Record>) -> Self {
+        record
+            .user_live
+            .store(true, std::sync::atomic::Ordering::Release);
         Self {
             inner,
             record,
@@ -146,6 +149,9 @@ impl AsyncWrite for Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
+        self.record
+            .user_live
+            .store(false, std::sync::atomic::Ordering::Release);
         self.record.stop.cancel();
     }
 }

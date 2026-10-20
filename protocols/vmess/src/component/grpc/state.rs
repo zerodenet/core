@@ -14,7 +14,7 @@ pub(super) struct Managed {
     pub(super) options: Arc<Options>,
     pub(super) admission: Arc<SessionAdmission>,
     pub(super) prepared: super::super::owner::Prepared,
-    pub(super) upstream: UpstreamTransport,
+    pub(super) upstream: Option<UpstreamTransport>,
     pub(super) tasks: TaskRegistrar,
     pub(super) cancel: CancellationToken,
     pub(super) ready: AtomicBool,
@@ -29,6 +29,8 @@ pub(super) struct Record {
     pub(super) stop: CancellationToken,
     pub(super) opening: AtomicBool,
     pub(super) done: AtomicBool,
+    // Actual logical view returned to the caller, distinct from driver body exit.
+    pub(super) user_live: AtomicBool,
 }
 pub(super) struct Opening(pub(super) Arc<Record>, pub(super) std::sync::Weak<Managed>);
 impl Drop for Opening {
@@ -53,7 +55,7 @@ impl Drop for Body {
 }
 impl Record {
     pub(super) fn closed(&self) -> bool {
-        if !self.failure_accepted() {
+        if self.user_live.load(Ordering::Acquire) || !self.failure_accepted() {
             return false;
         }
         let Some(closed) = self.adoption.closed() else {
@@ -85,7 +87,8 @@ impl Managed {
     pub(super) fn stop(&self) {
         self.ready.store(false, Ordering::Release);
         self.cancel.cancel();
-        for record in self.records.lock().unwrap().iter() {
+        let records = self.records.lock().unwrap().clone();
+        for record in records {
             record.stop.cancel();
         }
     }
@@ -101,6 +104,7 @@ impl Managed {
                 )
             };
             if !record.opening.load(Ordering::Acquire)
+                && !record.user_live.load(Ordering::Acquire)
                 && joined
                 && (record.done.load(Ordering::Acquire) || !has_driver)
             {

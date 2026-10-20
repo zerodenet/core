@@ -22,14 +22,22 @@ impl StreamOutbound for Outbound {
         owner
             .check()
             .map_err(|source| owner.admission.attach(source, session))?;
-        if context.upstream.binding() != owner.upstream.binding() {
-            return Err(owner.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::NotSubmitted,
-            ));
-        }
+        let upstream = match (&owner.options.business, &owner.upstream) {
+            (Some(business), None)
+                if context.upstream.binding() == &business.binding && session.is_some() =>
+            {
+                &context.upstream
+            }
+            (None, Some(upstream)) if context.upstream.binding() == upstream.binding() => upstream,
+            _ => {
+                return Err(owner.admission.error(
+                    session,
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::NotSubmitted,
+                ))
+            }
+        };
         crate::shared::validate_request_target(&request.destination.address).map_err(|source| {
             owner
                 .admission
@@ -41,14 +49,26 @@ impl StreamOutbound for Outbound {
                 )
                 .with_source(source)
         })?;
-        let deadline = context.deadline.ok_or_else(|| {
-            owner.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::InvalidConfig,
-                DeliveryState::NotSubmitted,
-            )
-        })?;
+        let cleanup_deadline = match &owner.options.business {
+            Some(business) => Instant::now()
+                .checked_add(business.cleanup_budget)
+                .ok_or_else(|| {
+                    owner.admission.error(
+                        session,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        DeliveryState::NotSubmitted,
+                    )
+                })?,
+            None => context.deadline.ok_or_else(|| {
+                owner.admission.error(
+                    session,
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    DeliveryState::NotSubmitted,
+                )
+            })?,
+        };
         let prepared_tls = owner.prepared.lock().unwrap().clone();
         if owner.options.base.ca_file.is_some() && prepared_tls.is_none() {
             return Err(owner.admission.error(
@@ -59,7 +79,7 @@ impl StreamOutbound for Outbound {
             ));
         }
         owner
-            .reap(deadline)
+            .reap(cleanup_deadline)
             .await
             .map_err(|source| owner.admission.attach(source, session))?;
         let grant = owner
@@ -74,25 +94,29 @@ impl StreamOutbound for Outbound {
             stop: owner.cancel.child_token(),
             opening: AtomicBool::new(true),
             done: AtomicBool::new(false),
+            user_live: AtomicBool::new(false),
         });
         owner.records.lock().unwrap().push(record.clone());
         let _opening = Opening(record.clone(), Arc::downgrade(owner));
         // Persistent same-slot record precedes native socket creation and await.
         // Identity is passed unchanged; a Service-only provider rejects business.
-        let prepared = owner
-            .upstream
+        let prepared = upstream
             .prepare_controlled_stream(
                 owner.options.base.endpoint.clone(),
                 CarrierContext {
                     session,
-                    deadline: Some(deadline),
+                    deadline: context.deadline,
                     cancel: record.stop.clone(),
                 },
                 grant,
             )
             .map_err(|source| owner.admission.attach(source, session))?;
         let ready = owner
-            .wait(&context, Stage::Dial, prepared.open(deadline))
+            .wait(
+                &context,
+                Stage::Dial,
+                prepared.open_with_deadline(context.deadline),
+            )
             .await?;
         let (io, _) = ready.into_parts();
         let preparing = io.prepare_driver(|io| async {
@@ -151,7 +175,6 @@ impl StreamOutbound for Outbound {
             }
         }).map_err(|source|owner.admission.attach(source,session))?;
         *record.witness.lock().unwrap() = Some(witness);
-        record.opening.store(false, Ordering::Release);
         owner
             .check()
             .map_err(|source| owner.admission.attach(source, session))?;

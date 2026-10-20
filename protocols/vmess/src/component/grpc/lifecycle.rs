@@ -5,7 +5,7 @@ use zero_platform_tokio::{
         admission::SessionOwner,
         component::{
             BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
-            ResourceDeclaration,
+            ControlledStreamDemandClass, ResourceAccess, ResourceDeclaration,
         },
         lifecycle::{
             erase_lifecycle, BuildError, CloseReport, DynResourceLifecycle, ResourceLifecycle,
@@ -22,7 +22,15 @@ impl ComponentFactory for Factory {
     fn describe(&self, options: &Options) -> ComponentSpec {
         let mut spec = super::super::Factory.describe(&options.base);
         spec.static_identity = options.identity.clone();
-        spec.resources.push(ResourceDeclaration::BackgroundCarrier);
+        spec.resources.push(match &options.business {
+            Some(business) => ResourceDeclaration::ControlledOutboundStream {
+                endpoint: options.base.endpoint.clone(),
+                binding: business.binding.clone(),
+                demand: ControlledStreamDemandClass::Business,
+                max_sockets: options.cap,
+            },
+            None => ResourceDeclaration::BackgroundCarrier,
+        });
         spec.task_limit = Some(options.cap);
         spec
     }
@@ -35,13 +43,26 @@ impl ComponentFactory for Factory {
         if !context.dependencies.is_empty() || context.roles.outbound.is_none() {
             return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
         }
-        let upstream = context
-            .background_carrier
-            .clone()
-            .filter(|upstream| {
-                upstream.binding().prefix.is_empty() && upstream.binding().dial == options.base.dial
-            })
-            .ok_or_else(|| error(instance, Stage::Prepare, Reason::InvalidConfig))?;
+        let upstream = if options.business.is_some() {
+            if context.background_carrier.is_some() {
+                return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
+            }
+            None
+        } else {
+            Some(
+                context
+                    .background_carrier
+                    .clone()
+                    .filter(|upstream| {
+                        upstream.binding().prefix.is_empty()
+                            && upstream.binding().dial == options.base.dial
+                    })
+                    .ok_or_else(|| error(instance, Stage::Prepare, Reason::InvalidConfig))?,
+            )
+        };
+        let resources = context.resources.clone();
+        // The original File declaration, when present, remains ordinal zero.
+        let carrier_ordinal = usize::from(options.base.ca_file.is_some());
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
         let prepared = Arc::new(Mutex::new(None));
         let base = if options.base.ca_file.is_some() {
@@ -79,6 +100,8 @@ impl ComponentFactory for Factory {
                 carriers,
                 base,
                 attempted: false,
+                resources,
+                carrier_ordinal,
             }),
         })
     }
@@ -88,6 +111,8 @@ struct Owner {
     carriers: CarrierOwner,
     base: Box<dyn DynResourceLifecycle>,
     attempted: bool,
+    resources: Arc<dyn ResourceAccess>,
+    carrier_ordinal: usize,
 }
 impl Drop for Owner {
     fn drop(&mut self) {
@@ -115,6 +140,13 @@ impl ResourceLifecycle for Owner {
         }
         self.attempted = true;
         self.managed.options.state.claim(self.managed.instance)?;
+        if self.managed.options.business.is_some() {
+            self.resources.register_controlled_carrier(
+                self.carrier_ordinal,
+                self.carriers.registration(),
+                &self.managed.tasks,
+            )?;
+        }
         self.base.start(deadline).await?;
         self.carriers.start(deadline).await?;
         if self.managed.cancel.is_cancelled() || self.managed.tasks.cancellation().is_cancelled() {
