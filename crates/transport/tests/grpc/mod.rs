@@ -180,3 +180,5 @@ fn unknown_protobuf_groups_are_skipped_without_consuming_outer_hunks() {
     );
 }
 mod keepalive;
+
+mod single;

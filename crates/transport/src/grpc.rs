@@ -70,6 +70,8 @@ pub use owned::{
 mod pool;
 mod prepared;
 mod prepared_stream;
+mod single;
+pub use single::{validate_single_client_profile, PreparedSingleClient, SingleClientDriver};
 mod progress;
 pub use pool::GrpcPool;
 mod read;
