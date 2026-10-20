@@ -249,10 +249,19 @@ impl UdpSocketState {
         socket: UdpSockRef<'_>,
         transmit: &Transmit<'_>,
     ) -> io::Result<crate::controlled::SendOutcome> {
-        if transmit.segment_size == Some(0) {
+        if transmit
+            .segment_size
+            .is_some_and(|size| size == 0 || size > u16::MAX as usize)
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "zero UDP segment size",
+                "invalid UDP segment size",
+            ));
+        }
+        if self.sendmsg_einval() && transmit.ecn.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "native ECN ancillary fallback is unavailable",
             ));
         }
         let mut outcome = crate::controlled::SendOutcome::default();
