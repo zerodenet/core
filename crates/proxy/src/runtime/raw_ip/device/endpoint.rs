@@ -15,7 +15,11 @@ use std::{
 use tokio::sync::{mpsc, watch};
 use zero_stack::{client_udp::ClientUdpStack, packet, ClientTcpStack};
 
-use super::{DeviceHealth, ForwardedPackets, PacketReturns, SharedRawIpDevice};
+use super::{
+    stack_tcp_error, stack_udp_error, DeviceHealth, ForwardedPackets, PacketReturns,
+    SharedRawIpDevice,
+};
+use zero_engine::EngineError;
 
 /// An inner IP packet submitted to a bidirectional datagram endpoint.
 pub(crate) struct EndpointPacket {
@@ -50,7 +54,7 @@ impl SharedRawIpDevice {
         mtu: u16,
         peer: usize,
         endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
-    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+    ) -> Result<Arc<Self>, EngineError> {
         Self::start_on_endpoint_with_options(
             local_addresses,
             mtu,
@@ -66,8 +70,10 @@ impl SharedRawIpDevice {
         peer: usize,
         endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
         options: super::super::RawIpStackOptions,
-    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
-        EndpointStackRecipe::prepare(local_addresses, mtu, peer, endpoint, options)?.start()
+    ) -> Result<Arc<Self>, EngineError> {
+        EndpointStackRecipe::prepare(local_addresses, mtu, peer, endpoint, options)
+            .map_err(stack_udp_error)?
+            .start()
     }
 
     fn start_endpoint_stack(
@@ -76,7 +82,8 @@ impl SharedRawIpDevice {
         peer: usize,
         endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
         options: super::super::RawIpStackOptions,
-    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+    ) -> Result<Arc<Self>, EngineError> {
+        let task = super::workers::DeviceWorkers::new();
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
@@ -86,17 +93,21 @@ impl SharedRawIpDevice {
             mtu,
             Some(Arc::new(options.traffic)),
             options.udp_receive_queue,
-        )?;
+        )
+        .map_err(stack_udp_error)?;
         let tcp = Arc::new(
-            ClientTcpStack::new_observed(local_addresses, outbound, mtu)
-                .map_err(|_| zero_stack::client_udp::ClientUdpStackError::InvalidMtu)?,
+            ClientTcpStack::new_observed_with_task_owner(
+                local_addresses,
+                outbound,
+                mtu,
+                task.clone(),
+            )
+            .map_err(stack_tcp_error)?,
         );
         let returns = Arc::new(PacketReturns::default());
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
         let (_ready_tx, ready) = watch::channel(Some(Ok(())));
-        let (completed_tx, completed) = watch::channel(false);
-        let completion = super::completion::Completion(completed_tx);
         let stack = EndpointStack {
             peer,
             endpoint,
@@ -107,11 +118,10 @@ impl SharedRawIpDevice {
             closed: closed.clone(),
             returns: returns.clone(),
         };
-        let task = tokio::spawn(async move {
-            let _completion = completion;
+        task.spawn_driver(async move {
             run_endpoint_stack(stack).await;
-        })
-        .abort_handle();
+            Ok(())
+        })?;
         Ok(Arc::new(Self {
             incarnation: super::super::next_incarnation(),
             udp,
@@ -123,7 +133,6 @@ impl SharedRawIpDevice {
             retired: AtomicBool::new(false),
             ready,
             task,
-            completed,
         }))
     }
 

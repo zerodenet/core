@@ -28,9 +28,7 @@ impl EndpointStackRecipe {
 
     /// BuildNew is the only phase allowed to consume this recipe.
     /// This does not certify old resources closed; the host must hold that proof.
-    pub(crate) fn start(
-        self,
-    ) -> Result<Arc<SharedRawIpDevice>, zero_stack::client_udp::ClientUdpStackError> {
+    pub(crate) fn start(self) -> Result<Arc<SharedRawIpDevice>, EngineError> {
         SharedRawIpDevice::start_endpoint_stack(
             self.local_addresses,
             self.mtu,

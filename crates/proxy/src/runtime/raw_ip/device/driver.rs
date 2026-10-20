@@ -33,13 +33,14 @@ pub(super) struct Device {
 pub(super) async fn run_device(
     mut device: Device,
     ready: watch::Sender<Option<Result<(), String>>>,
-) {
+) -> Result<(), EngineError> {
     let result = run_device_inner(&mut device, &ready).await;
-    if let Err(error) = result {
+    if let Err(error) = &result {
         ready.send_replace(Some(Err(error.to_string())));
         tracing::warn!(error = %error, "raw-IP device stopped");
     }
     device.closed.store(true, Ordering::Release);
+    result
 }
 
 async fn run_device_inner(

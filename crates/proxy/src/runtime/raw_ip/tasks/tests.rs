@@ -194,3 +194,81 @@ async fn synchronous_resource_revoke_on_another_thread_fences_the_original_live_
     assert!(report.is_complete());
     assert!(owner.inner.tasks.lock().await.is_empty());
 }
+
+#[tokio::test]
+async fn reap_ready_preserves_the_actual_completed_failure_and_refuses_a_new_registration() {
+    let owner = RetainedTasks::new("original failed outbound worker", 1);
+    let mut tasks = owner.lock().await.unwrap();
+    let (done, ready) = oneshot::channel();
+    let id = tasks
+        .spawn(async move {
+            done.send(()).unwrap();
+            Err::<(), _>(zero_engine::EngineError::Io(
+                std::io::Error::from_raw_os_error(10013),
+            ))
+        })
+        .unwrap();
+    ready.await.unwrap();
+    // The child is ready, but its handle still occupies the only slot until
+    // this exact registry actually consumes it.
+    assert_eq!(tasks.len(), 1);
+    owner.reap_ready(&mut tasks);
+    assert!(tasks.is_empty());
+    assert_eq!(
+        tasks.spawn(async { Ok(()) }).unwrap_err().reason,
+        Reason::Revoked
+    );
+    let first = owner
+        .inner
+        .admission
+        .lock()
+        .unwrap()
+        .first
+        .as_ref()
+        .unwrap()
+        .clone();
+    assert_eq!(first.task, id);
+    drop(tasks);
+    for _ in 0..2 {
+        let error = owner
+            .close(Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap_err();
+        let failure = std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref::<RetainedFailures>()
+            .unwrap();
+        assert!(Arc::ptr_eq(&failure.first.source, &first.source));
+    }
+}
+
+#[tokio::test]
+async fn synchronous_abort_with_held_guard_is_not_join_and_retry_consumes_the_same_handles() {
+    let owner = RetainedTasks::<()>::new("actual retained outbound driver", 1);
+    let mut tasks = owner.lock().await.unwrap();
+    let (entered, pending) = oneshot::channel();
+    let mut entered = Some(entered);
+    tasks
+        .spawn(async move {
+            std::future::poll_fn(|_| {
+                if let Some(entered) = entered.take() {
+                    entered.send(()).unwrap();
+                }
+                Poll::<()>::Pending
+            })
+            .await;
+        })
+        .unwrap();
+    pending.await.unwrap();
+    owner.request_abort();
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks.spawn(async {}).unwrap_err().reason, Reason::Revoked);
+    let report = owner.close(Instant::now()).await.unwrap();
+    assert!(!report.is_complete());
+    assert_eq!(tasks.len(), 1);
+    drop(tasks);
+    let report = owner.join_unbounded().await.unwrap();
+    assert!(report.is_complete());
+    assert!(report.closed_io.is_empty());
+    assert!(owner.inner.tasks.lock().await.is_empty());
+}

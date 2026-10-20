@@ -145,6 +145,14 @@ impl<T: Send + 'static> RetainedTasks<T> {
             .expect("raw-IP task admission poisoned")
             .revoked = true;
     }
+    /// Synchronous cancellation is not a join receipt. The same owner must
+    /// subsequently await shutdown even when a guard is temporarily borrowed.
+    pub(crate) fn request_abort(&self) {
+        self.revoke();
+        if let Ok(mut tasks) = self.inner.tasks.try_lock() {
+            tasks.abort_all();
+        }
+    }
     fn fault(&self, task: tokio::task::Id, source: Source) {
         let mut admission = self
             .inner
@@ -167,6 +175,14 @@ impl<T: Send + 'static> RetainedTasks<T> {
     }
 }
 impl<T: TaskOutput> RetainedTasks<T> {
+    /// Reclaim only actual joined handles before another bounded registration.
+    /// Normalized original failures close the same admission fence as shutdown.
+    pub(crate) fn reap_ready(&self, guard: &mut TasksGuard<'_, T>) {
+        assert!(std::ptr::eq(guard.owner, self.inner.as_ref()));
+        while let Some(result) = guard.tasks.try_join_next_with_id() {
+            self.joined(result);
+        }
+    }
     pub(crate) fn resource(
         &self,
     ) -> Box<dyn zero_platform_tokio::contract::lifecycle::DynResourceLifecycle> {
@@ -195,22 +211,15 @@ impl<T: TaskOutput> RetainedTasks<T> {
             self.joined(joined);
         }
     }
-    async fn close(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
-        self.revoke(); // Fences even an already-held guard before the first await.
-        let closing = async {
-            let mut tasks = self.inner.tasks.lock().await;
-            tasks.abort_all();
-            while let Some(joined) = tasks.join_next_with_id().await {
-                self.joined(joined); // Persist the original output/source before waiting again.
-            }
-        };
-        let mut report = CloseReport::default();
-        if tokio::time::timeout_at(deadline, closing).await.is_err() {
-            report
-                .unfinished
-                .push(Unfinished::Resource(self.inner.label.into()));
-            return Ok(report);
+    async fn join_all(&self) {
+        self.revoke();
+        let mut tasks = self.inner.tasks.lock().await;
+        tasks.abort_all();
+        while let Some(joined) = tasks.join_next_with_id().await {
+            self.joined(joined);
         }
+    }
+    fn joined_report(&self) -> Result<CloseReport, ChannelError> {
         let admission = self
             .inner
             .admission
@@ -226,8 +235,29 @@ impl<T: TaskOutput> RetainedTasks<T> {
                 ),
             );
         }
+        let mut report = CloseReport::default();
         report.released_resources.push(self.inner.label.into());
         Ok(report)
+    }
+    /// Compatibility for existing explicit waits with no caller deadline.
+    /// This still consumes the actual handles and reports their original fault.
+    pub(crate) async fn join_unbounded(&self) -> Result<CloseReport, ChannelError> {
+        self.join_all().await;
+        self.joined_report()
+    }
+    pub(crate) async fn close(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
+        self.revoke(); // Fences even an already-held guard before the first await.
+        let mut report = CloseReport::default();
+        if tokio::time::timeout_at(deadline, self.join_all())
+            .await
+            .is_err()
+        {
+            report
+                .unfinished
+                .push(Unfinished::Resource(self.inner.label.into()));
+            return Ok(report);
+        }
+        self.joined_report()
     }
 }
 impl<T: TaskOutput> ResourceLifecycle for RetainedTasks<T> {
