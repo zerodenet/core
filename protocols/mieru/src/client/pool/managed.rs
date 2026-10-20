@@ -149,7 +149,7 @@ impl ManagedState {
             changed.await;
         }
     }
-    pub(super) fn release_unattempted(&self, record: &Arc<CarrierRecord>) {
+    fn release_unattempted(&self, record: &Arc<CarrierRecord>) {
         self.state
             .lock()
             .unwrap()
