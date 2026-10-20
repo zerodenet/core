@@ -11,6 +11,8 @@ use zero_core::{
 };
 use zero_traits::IoObserver;
 
+mod controlled_stream;
+pub use controlled_stream::ControlledStreamDemandClass;
 mod process;
 pub use process::ProcessRequest;
 mod outbound_datagram;
@@ -44,6 +46,16 @@ pub enum DeviceOwnership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceDeclaration {
+    /// Sole actual physical stream owner, exact host-selected endpoint and full
+    /// prefix/dial/network binding. Registration and users remain separately
+    /// proved; this declaration alone never opens I/O or grants a task.
+    ControlledOutboundStream {
+        endpoint: Destination,
+        binding: super::network::UpstreamBinding,
+        demand: ControlledStreamDemandClass,
+        /// Live, retiring and Unknown originals, not lifetime healthy opens.
+        max_sockets: NonZeroUsize,
+    },
     /// Native RAW/ping ICMP originals, distinct from UDP or device authority.
     /// Counts live, retiring and Unknown sockets, not generation lifetime probes.
     NativeIcmp {

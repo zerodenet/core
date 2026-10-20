@@ -4,6 +4,7 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::component) enum DeclaredResourceKind {
+    ControlledOutboundStream,
     NativeIcmp,
     File,
     TcpListener,
@@ -40,6 +41,9 @@ impl CoverageBinding {
         declaration: &ResourceDeclaration,
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
+            ResourceDeclaration::ControlledOutboundStream { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::ControlledOutboundStream)
+            }
             ResourceDeclaration::NativeIcmp { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::NativeIcmp)
             }
