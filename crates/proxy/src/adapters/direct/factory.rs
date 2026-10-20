@@ -8,6 +8,7 @@ use zero_platform_tokio::contract::{
         ResourceOwner, RoleKind,
     },
     context::{with_deadline, ConnectFact, OpenContext},
+    datagram::erase_datagram,
     lifecycle::{erase_lifecycle, BuildError},
     network::CarrierContext,
     stream::{
@@ -19,7 +20,7 @@ use zero_traits::DialPolicy;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectOptions {
-    policy: DialPolicy,
+    pub(super) policy: DialPolicy,
 }
 impl DirectOptions {
     pub fn validate(policy: DialPolicy) -> Result<Self, zero_traits::DialPolicyError> {
@@ -45,11 +46,11 @@ pub(crate) fn decode(
         zero_config::ConfigError::InvalidOutbound(format!("outbound `{}` dial: {error}", input.tag))
     })
 }
-struct Outbound {
-    options: Arc<DirectOptions>,
-    state: Arc<SessionAdmission>,
+pub(super) struct Outbound {
+    pub(super) options: Arc<DirectOptions>,
+    pub(super) state: Arc<SessionAdmission>,
 }
-fn during_open(
+pub(super) fn during_open(
     state: &SessionAdmission,
     session: Option<SessionId>,
     reason: Reason,
@@ -64,7 +65,7 @@ impl ComponentFactory for DirectFactory {
     fn describe(&self, options: &Self::Options) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream],
+            roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![],
             // The neutral dial policy contains no credentials.
             static_identity: format!("{:?}", options.policy).into_bytes().into(),
@@ -81,7 +82,11 @@ impl ComponentFactory for DirectFactory {
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(owner),
             roles: ComponentRoles {
-                stream: Some(erase_stream(Outbound { options, state })),
+                stream: Some(erase_stream(Outbound {
+                    options: options.clone(),
+                    state: state.clone(),
+                })),
+                datagram: Some(erase_datagram(Outbound { options, state })),
                 ..Default::default()
             },
         })

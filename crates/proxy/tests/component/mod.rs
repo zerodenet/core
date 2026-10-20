@@ -1,3 +1,4 @@
+mod datagram;
 mod direct;
 mod fixtures;
 mod registration;

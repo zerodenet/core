@@ -96,15 +96,18 @@ impl UpstreamOpener for NodeOpener {
     }
     fn open_datagram(
         &self,
-        _: &UpstreamBinding,
-        _: DatagramRequest,
-        _: CarrierContext,
+        binding: &UpstreamBinding,
+        request: DatagramRequest,
+        context: CarrierContext,
     ) -> BoxFuture<'_, Result<BoxDatagramSession, ChannelError>> {
-        Box::pin(async {
-            Err(invalid(
-                Reason::Internal,
-                "node Stream opener has no datagram grant",
-            ))
-        })
+        #[cfg(feature = "udp-runtime")]
+        {
+            Box::pin(self.services.open_node_datagram(binding, request, context))
+        }
+        #[cfg(not(feature = "udp-runtime"))]
+        {
+            let _ = (binding, request, context);
+            Box::pin(async { Err(invalid(Reason::Unsupported, "UDP runtime is disabled")) })
+        }
     }
 }
