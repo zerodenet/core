@@ -13,6 +13,7 @@ use zero_engine::{Engine, EngineError};
 use crate::inventory::ProtocolInventory;
 use crate::protocol_registry::TcpRuntimeServices;
 
+pub(crate) mod current_services;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod datagram_udp;
 mod dns_outbound;
@@ -107,6 +108,7 @@ pub struct Proxy {
     inbound_owners: Arc<inbound_owners::InboundOwnerRegistry>,
     retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry,
+    current_services: Arc<current_services::CurrentServiceSource>,
 }
 
 #[derive(Debug)]
@@ -193,6 +195,14 @@ impl Proxy {
         let packet_close_owner = Arc::new(packet_close_owner::PacketCloseOwner::new(
             engine.packet_route_capacity(),
         ));
+        let current_services = Arc::new(current_services::CurrentServiceSource::new(
+            engine.clone(),
+            &resolver,
+            &protocols,
+            egress_interface.clone(),
+            principal_rate_limits.clone(),
+            &retired_datagrams,
+        ));
         let proxy = Self {
             config,
             engine,
@@ -212,20 +222,22 @@ impl Proxy {
             inbound_owners: Arc::default(),
             retired_datagrams: retired_datagrams.clone(),
             principal_rate_limits: principal_rate_limits.clone(),
+            current_services,
         };
         resolver.set_outbound_connector(Arc::new(dns_outbound::ProxyDnsOutboundConnector::new(
-            proxy.engine.clone(),
-            &resolver,
-            proxy.protocols.clone(),
-            proxy.egress_interface.clone(),
-            principal_rate_limits,
-            retired_datagrams,
+            proxy.current_service_source(),
         )));
         Ok(proxy)
     }
 
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    pub(crate) fn current_service_source(
+        &self,
+    ) -> std::sync::Weak<current_services::CurrentServiceSource> {
+        Arc::downgrade(&self.current_services)
     }
 
     /// Shared physical-egress authority for application-owned network services.

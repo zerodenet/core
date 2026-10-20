@@ -8,21 +8,14 @@ fn dns_callback_does_not_keep_outbound_pools_alive_after_proxy_drop() {
     let config =
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
     let proxy = Proxy::new(config).unwrap();
-    let resolver = proxy.resolver.clone();
-    let callback = super::ProxyDnsOutboundConnector::new(
-        proxy.engine.clone(),
-        &resolver,
-        proxy.protocols.clone(),
-        proxy.egress_interface.clone(),
-        proxy.principal_rate_limits.clone(),
-        proxy.retired_datagrams.clone(),
-    );
-    assert!(callback.runtime_services().is_ok());
+    let _retained_resolver = proxy.resolver.clone();
+    let callback = super::ProxyDnsOutboundConnector::new(proxy.current_service_source());
+    assert!(callback.source().unwrap().runtime_services().is_ok());
     drop(proxy);
     // A retained resolver (as held by an established carrier) may outlive the
     // proxy, but its callback must no longer revive the outbound inventory.
     let error = callback
-        .runtime_services()
+        .source()
         .err()
         .expect("inventory retained by DNS callback");
     assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);

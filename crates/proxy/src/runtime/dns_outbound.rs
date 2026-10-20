@@ -1,4 +1,5 @@
 pub(crate) mod service;
+use super::current_services::CurrentServiceSource;
 use std::fmt;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -9,73 +10,30 @@ use zero_core::{Address, Network, ProtocolType, Session};
 use zero_dns::DnsOutboundDatagramFuture;
 use zero_dns::{
     DnsConnectContext, DnsOutboundCarrier, DnsOutboundCarrierFuture, DnsOutboundConnectFuture,
-    DnsOutboundConnector, DnsSystem,
+    DnsOutboundConnector,
 };
-use zero_engine::Engine;
 #[cfg(feature = "raw-ip-runtime")]
 use zero_engine::ResolvedOutbound;
 
-use crate::inventory::{ProtocolInventory, WeakProtocolInventory};
-use crate::protocol_registry::TcpRuntimeServices;
-use crate::runtime::principal_rate_limit::PrincipalRateLimitRegistry;
 use crate::transport::extract_tcp_stream;
 
 #[derive(Clone)]
 pub(super) struct ProxyDnsOutboundConnector {
-    engine: Engine,
-    resolver: Weak<DnsSystem>,
-    protocols: WeakProtocolInventory,
-    egress_interface: zero_platform_tokio::EgressInterfaceControl,
-    principal_rate_limits: PrincipalRateLimitRegistry,
-    retired_datagrams: Weak<crate::component::datagram_retirement::RetiredDatagrams>,
+    source: Weak<CurrentServiceSource>,
 }
 
 impl ProxyDnsOutboundConnector {
-    pub(super) fn new(
-        engine: Engine,
-        resolver: &Arc<DnsSystem>,
-        protocols: ProtocolInventory,
-        egress_interface: zero_platform_tokio::EgressInterfaceControl,
-        principal_rate_limits: PrincipalRateLimitRegistry,
-        retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
-    ) -> Self {
-        Self {
-            engine,
-            resolver: Arc::downgrade(resolver),
-            // Pooled carriers retain network services and their DNS resolver.
-            // The resolver's detour callback must not own those same pools.
-            protocols: protocols.downgrade(),
-            egress_interface,
-            principal_rate_limits,
-            retired_datagrams: Arc::downgrade(&retired_datagrams),
-        }
+    pub(super) fn new(source: Weak<CurrentServiceSource>) -> Self {
+        Self { source }
     }
 
-    fn runtime_services(&self) -> io::Result<TcpRuntimeServices> {
-        let resolver = self.resolver.upgrade().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::NotConnected, "DNS runtime is shutting down")
-        })?;
-        let protocols = self.protocols.upgrade().ok_or_else(|| {
+    fn source(&self) -> io::Result<Arc<CurrentServiceSource>> {
+        self.source.upgrade().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotConnected,
-                "proxy runtime is shutting down",
+                "proxy service owner is shutting down",
             )
-        })?;
-        let retired_datagrams = self.retired_datagrams.upgrade().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotConnected,
-                "datagram owner is shutting down",
-            )
-        })?;
-        Ok(TcpRuntimeServices::new(
-            self.engine.clone(),
-            self.engine.runtime_snapshot(),
-            resolver,
-            protocols,
-            self.egress_interface.clone(),
-            self.principal_rate_limits.clone(),
-            retired_datagrams,
-        ))
+        })
     }
 }
 
@@ -111,7 +69,8 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
         let connector = self.clone();
         let call = context.clone();
         let operation = async move {
-            let services = connector.runtime_services()?;
+            let source = connector.source()?;
+            let services = source.runtime_services()?;
             let target_id = services
                 .snapshot()
                 .plan()
@@ -132,12 +91,7 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                 .ok_or_else(|| {
                     io::Error::other(format!("DNS detour `{outbound}` could not be resolved"))
                 })?;
-            let protocols = connector.protocols.upgrade().ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotConnected,
-                    "proxy runtime is shutting down",
-                )
-            })?;
+            let protocols = source.protocols()?;
             if let Some(plan) =
                 service::prepare(&protocols, &services, &resolved).map_err(|failure| {
                     io::Error::other(DnsDetourFailure {
@@ -239,15 +193,16 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
     ) -> DnsOutboundDatagramFuture {
         let connector = self.clone();
         Box::pin(async move {
-            let snapshot = connector.engine.runtime_snapshot();
+            let source = connector.source()?;
+            let snapshot = source.engine().runtime_snapshot();
             let target_id = snapshot.plan().target_id(&outbound).ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
                     format!("DNS detour `{outbound}` was not found"),
                 )
             })?;
-            let (resolved, _) = connector
-                .engine
+            let (resolved, _) = source
+                .engine()
                 .resolve_target_id_in_snapshot(&snapshot, target_id)
                 .ok_or_else(|| io::Error::other("DNS datagram detour could not be resolved"))?;
             let ResolvedOutbound::Single(leaf) = resolved else {
@@ -256,12 +211,7 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                     "DNS datagram detour requires one packet-capable outbound",
                 ));
             };
-            let protocols = connector.protocols.upgrade().ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotConnected,
-                    "proxy runtime is shutting down",
-                )
-            })?;
+            let protocols = source.protocols()?;
             let claimed = protocols
                 .claim_outbound_leaf(snapshot.config(), leaf)
                 .map_err(io::Error::other)?;
@@ -275,9 +225,9 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                 .exchange(
                     endpoint,
                     query,
-                    connector.egress_interface.generation(),
+                    source.egress_generation(),
                     crate::runtime::traffic_io::outbound(
-                        &connector.engine,
+                        source.engine(),
                         claimed.runtime().tag.as_deref().unwrap_or(&outbound),
                         zero_api::TrafficPlane::Inner,
                     ),

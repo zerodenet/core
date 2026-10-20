@@ -172,14 +172,7 @@ impl Harness {
             .commit_components(&config, || Ok(()))
             .unwrap();
         let connector = Arc::new(ObservedConnector {
-            actual: ProxyDnsOutboundConnector::new(
-                proxy.engine.clone(),
-                &proxy.resolver,
-                proxy.protocols.clone(),
-                proxy.egress_interface.clone(),
-                proxy.principal_rate_limits.clone(),
-                proxy.retired_datagrams.clone(),
-            ),
+            actual: ProxyDnsOutboundConnector::new(proxy.current_service_source()),
             resolver: Arc::downgrade(&proxy.resolver),
             opens: AtomicUsize::new(0),
             witnesses: Mutex::new(vec![]),

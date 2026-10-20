@@ -2,14 +2,7 @@ use super::*;
 use crate::runtime::dns_outbound::ProxyDnsOutboundConnector;
 use zero_dns::{DnsConnectContext, DnsOutboundConnector};
 fn callback(proxy: &Proxy) -> ProxyDnsOutboundConnector {
-    ProxyDnsOutboundConnector::new(
-        proxy.engine.clone(),
-        &proxy.resolver,
-        proxy.protocols.clone(),
-        proxy.egress_interface.clone(),
-        proxy.principal_rate_limits.clone(),
-        proxy.retired_datagrams.clone(),
-    )
+    ProxyDnsOutboundConnector::new(proxy.current_service_source())
 }
 fn direct() -> zero_config::RuntimeConfig {
     zero_config::RuntimeConfig::parse(&serde_json::json!({
