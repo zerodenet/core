@@ -71,6 +71,12 @@ impl DirectUdpSockets {
                     });
                 }
                 Err(error) => {
+                    if self.services.is_none() {
+                        // The scoped provider returned the actual authorization
+                        // or acquisition failure. It currently grants no replay;
+                        // never route around that boundary through another family.
+                        return Err(error);
+                    }
                     // Auto may use another family when the first family cannot
                     // bind. The same source/interface policy survives the retry,
                     // and payload is only sent once after successful binding.
