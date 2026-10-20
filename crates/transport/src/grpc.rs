@@ -64,6 +64,7 @@ mod codec;
 mod keepalive;
 mod options;
 mod pool;
+mod prepared;
 use crate::stream::progress;
 pub use pool::GrpcPool;
 mod read;

@@ -152,6 +152,7 @@ async fn pool_reuses_one_connection_and_retirement_preserves_admitted_streams() 
     .expect("gRPC pool lifetime stalled");
 }
 
+mod prepared;
 mod read;
 mod reconnect;
 

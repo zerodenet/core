@@ -17,26 +17,14 @@ impl Client {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        let activity = keepalive::Activity::new();
-        let stream = keepalive::ObservedIo {
-            io: stream,
-            activity: activity.clone(),
-        };
-        let mut builder = h2::client::Builder::new();
-        if let Some(settings) = settings {
-            builder.peer_application_settings(settings);
-        }
-        if profile.initial_window_size > 65535 {
-            builder.initial_window_size(profile.initial_window_size.min(0x7fff_ffff));
-        }
-        let (sender, mut conn) = builder.handshake(stream).await.map_err(io::Error::other)?;
-        let ping = conn.ping_pong().expect("first ping handle");
-        let active = Arc::new(AtomicUsize::new(0));
-        let observed = active.clone();
+        let prepared::PreparedConnection {
+            sender,
+            active,
+            driver,
+        } = prepared::prepare_connection(stream, profile, settings).await?;
         let driver = tokio::spawn(async move {
-            tokio::select! {
-                result=conn=>{if let Err(error)=result {tracing::debug!(%error,"gRPC connection failed");}}
-                _=keepalive::run(ping,profile,activity,false,observed)=>{}
+            if let Err(error) = driver.await {
+                tracing::debug!(%error,"gRPC connection failed");
             }
         });
         Ok(Self {
