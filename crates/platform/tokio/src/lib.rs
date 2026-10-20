@@ -21,6 +21,7 @@ use zero_traits::{
     TcpListener as TcpListenerTrait, TransportBypassControl,
 };
 
+pub mod controlled_datagram;
 mod controlled_tcp;
 mod datagram;
 #[cfg(any(unix, windows))]

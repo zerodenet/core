@@ -118,7 +118,7 @@ impl std::error::Error for NativeCloseFailure {
 }
 
 #[cfg(unix)]
-fn native_close(socket: std::net::UdpSocket) -> io::Result<()> {
+pub(crate) fn native_close(socket: std::net::UdpSocket) -> io::Result<()> {
     use std::os::fd::IntoRawFd;
     let descriptor = socket.into_raw_fd();
     // Ownership was consumed; even EINTR must not recreate/drop/retry this fd.
@@ -138,7 +138,7 @@ fn native_close(socket: std::net::UdpSocket) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-fn native_close(socket: std::net::UdpSocket) -> io::Result<()> {
+pub(crate) fn native_close(socket: std::net::UdpSocket) -> io::Result<()> {
     use std::os::windows::io::{FromRawSocket, IntoRawSocket};
     use windows_sys::Win32::Networking::WinSock::{closesocket, WSAGetLastError, WSAEWOULDBLOCK};
     let socket = socket.into_raw_socket();
