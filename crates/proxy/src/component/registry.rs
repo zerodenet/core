@@ -1,6 +1,6 @@
 //! Typed cold-path registration. No input documents survive preparation.
 use super::{instance::invalid, recipe::ComponentRecipe, ResourcePreparation};
-use std::{collections::BTreeMap, error::Error, fmt, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 use zero_config::ConfigError;
 use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentFactory, ComponentInstance, ComponentSpec},
@@ -9,54 +9,9 @@ use zero_platform_tokio::contract::{
 };
 use zero_traits::ProtocolCapabilityDescriptor;
 
-#[derive(Debug)]
-pub enum RegistrationError {
-    Duplicate(&'static str),
-    Unknown(String),
-    FeatureDisabled {
-        protocol: &'static str,
-        feature: &'static str,
-    },
-    FeatureMismatch(&'static str),
-    Options(ConfigError),
-    Planning(BuildError),
-}
-impl fmt::Display for RegistrationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Duplicate(kind) => write!(f, "protocol `{kind}` registered more than once"),
-            Self::Unknown(kind) => write!(f, "unknown protocol `{kind}`"),
-            Self::FeatureDisabled { protocol, feature } => write!(
-                f,
-                "protocol `{protocol}` requires Cargo feature `{feature}`"
-            ),
-            Self::FeatureMismatch(kind) => {
-                write!(f, "protocol `{kind}` has inconsistent feature metadata")
-            }
-            Self::Options(error) => error.fmt(f),
-            Self::Planning(error) => error.fmt(f),
-        }
-    }
-}
-impl Error for RegistrationError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Options(error) => Some(error),
-            Self::Planning(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-impl From<ConfigError> for RegistrationError {
-    fn from(error: ConfigError) -> Self {
-        Self::Options(error)
-    }
-}
-impl From<BuildError> for RegistrationError {
-    fn from(error: BuildError) -> Self {
-        Self::Planning(error)
-    }
-}
+mod error;
+pub use error::RegistrationError;
+mod eligibility;
 
 #[derive(Clone)]
 pub struct ValidatedRecipe {
@@ -123,6 +78,7 @@ struct Entry<Input> {
     feature: &'static str,
     descriptor: Option<ProtocolCapabilityDescriptor>,
     registration: Option<Arc<dyn Registration<Input>>>,
+    accepts: Option<Arc<dyn Fn(&Input) -> bool + Send + Sync>>,
 }
 
 impl<Input> Clone for Entry<Input> {
@@ -132,6 +88,7 @@ impl<Input> Clone for Entry<Input> {
             feature: self.feature,
             descriptor: self.descriptor,
             registration: self.registration.clone(),
+            accepts: self.accepts.clone(),
         }
     }
 }
@@ -169,6 +126,7 @@ impl<Input: 'static> ComponentRegistry<Input> {
                 feature,
                 descriptor: None,
                 registration: None,
+                accepts: None,
             },
         );
         Ok(())
@@ -210,6 +168,7 @@ impl<Input: 'static> ComponentRegistry<Input> {
             feature: descriptor.feature,
             descriptor: None,
             registration: None,
+            accepts: None,
         });
         if entry.registration.is_some() {
             return Err(RegistrationError::Duplicate(descriptor.protocol));
@@ -225,6 +184,7 @@ impl<Input: 'static> ComponentRegistry<Input> {
         }));
         Ok(())
     }
+
     pub(crate) fn set_legacy_connect_stage(&mut self, protocol: &str, stage: &'static str) {
         self.entries
             .get_mut(protocol)
@@ -236,6 +196,7 @@ impl<Input: 'static> ComponentRegistry<Input> {
             .get(protocol)
             .is_some_and(|entry| entry.registration.is_some())
     }
+
     pub fn descriptors(&self) -> impl Iterator<Item = ProtocolCapabilityDescriptor> + '_ {
         self.entries.values().filter_map(|entry| entry.descriptor)
     }
@@ -286,6 +247,15 @@ impl<Input: 'static> ComponentRegistry<Input> {
                     protocol: name,
                     feature: entry.feature,
                 })?;
+        if entry
+            .accepts
+            .as_ref()
+            .is_some_and(|accepts| !accepts(input))
+        {
+            return Err(RegistrationError::Options(ConfigError::InvalidOutbound(
+                format!("protocol `{name}` input is not selected for native component execution"),
+            )));
+        }
         registration.prepare(input, resources).map(|mut recipe| {
             recipe.legacy_connect_stage = entry.legacy_connect_stage;
             recipe

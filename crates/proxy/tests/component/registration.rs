@@ -12,6 +12,60 @@ use zero_platform_tokio::contract::Reason;
 use zero_proxy::component::{ComponentRegistry, DirectFactory, DirectOptions, RegistrationError};
 use zero_traits::DialPolicy;
 
+#[test]
+fn cold_input_selection_never_decodes_excluded_styles_or_hides_invalid_selected_options() {
+    struct Input {
+        selected: bool,
+        invalid: bool,
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let mut registry = ComponentRegistry::<Input>::default();
+    registry
+        .register_where(
+            descriptor(),
+            DirectFactory,
+            |input| input.selected,
+            move |input| {
+                counter.fetch_add(1, Ordering::Relaxed);
+                if input.invalid {
+                    return Err(ConfigError::InvalidOutbound(
+                        "selected.option: invalid".into(),
+                    ));
+                }
+                Ok(DirectOptions::validate(Default::default()).unwrap())
+            },
+        )
+        .unwrap();
+    let registry = registry.clone();
+    let excluded = Input {
+        selected: false,
+        invalid: false,
+    };
+    assert!(!registry.has_factory_for("direct", &excluded));
+    assert!(matches!(
+        registry.prepare("direct", &excluded),
+        Err(RegistrationError::Options(_))
+    ));
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
+    let invalid = Input {
+        selected: true,
+        invalid: true,
+    };
+    assert!(registry.has_factory_for("direct", &invalid));
+    assert!(matches!(
+        registry.prepare("direct", &invalid),
+        Err(RegistrationError::Options(_))
+    ));
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    let valid = Input {
+        selected: true,
+        invalid: false,
+    };
+    assert!(registry.prepare("direct", &valid).is_ok());
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+}
+
 // Intentionally not Clone. Prepared recipes must retain typed Options, not input.
 struct Input {
     policy: DialPolicy,
