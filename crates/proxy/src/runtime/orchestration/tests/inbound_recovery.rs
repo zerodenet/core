@@ -151,11 +151,12 @@ async fn prove_cancelled_recovery(supersede: bool) {
         zero_platform_tokio::contract::scope::TaskClass::Critical
     );
     let original_failure = joined.failure().unwrap();
-    assert!(std::error::Error::source(original_failure.as_ref())
-        .unwrap()
-        .downcast_ref::<tokio::task::JoinError>()
-        .unwrap()
-        .is_panic());
+    crate::runtime::inbound_owners::test_support::assert_tracked_panic(
+        &binding,
+        actual_task,
+        joined.class(),
+        original_failure.as_ref(),
+    );
     let replacement = proxy.inbound_owners.owner("recover-direct").unwrap();
     assert_ne!(replacement.identity(), old_id);
     assert!(Arc::ptr_eq(&state.applied_snapshot, &last_good));

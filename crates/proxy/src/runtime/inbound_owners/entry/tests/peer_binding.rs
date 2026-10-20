@@ -92,12 +92,11 @@ async fn peer_binding_publishes_only_the_real_dispatched_scope_receipt_and_origi
         &first.failure().unwrap(),
         owner.failure.lock().unwrap().as_ref().unwrap()
     ));
-    assert!(
-        std::error::Error::source(first.failure().as_ref().unwrap().as_ref())
-            .unwrap()
-            .downcast_ref::<tokio::task::JoinError>()
-            .unwrap()
-            .is_panic()
+    crate::runtime::inbound_owners::test_support::assert_tracked_panic(
+        &binding,
+        task,
+        TaskClass::Critical,
+        first.failure().as_ref().unwrap().as_ref(),
     );
     owner.stop();
     assert!(timeout(Duration::from_secs(2), owner.observe_driver())

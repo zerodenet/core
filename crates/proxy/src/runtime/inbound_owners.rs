@@ -9,6 +9,8 @@ mod peers;
 mod preparing;
 mod recovery;
 mod state_recovery;
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+pub(crate) mod test_support;
 pub(crate) use preparing::{preparation_stopped, PreparingInbounds};
 mod released_fault;
 use crate::inventory::ProtocolInventory;

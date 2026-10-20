@@ -140,11 +140,12 @@ async fn prove_recovery(consume_before_publication: bool) {
         .unwrap();
     assert_eq!(actual.class, TaskClass::Critical);
     assert!(Arc::ptr_eq(&actual.source, &original));
-    assert!(std::error::Error::source(actual.source.as_ref())
-        .unwrap()
-        .downcast_ref::<tokio::task::JoinError>()
-        .unwrap()
-        .is_panic());
+    crate::runtime::inbound_owners::test_support::assert_tracked_panic(
+        &binding,
+        peer_task,
+        actual.class,
+        actual.source.as_ref(),
+    );
     let _physical_confirmation = UdpSocket::bind(address).await.unwrap();
     let (sender, receiver) = std::sync::mpsc::channel();
     drop(receiver);
