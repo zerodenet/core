@@ -9,6 +9,17 @@ pub struct ShadowsocksTransportState {
         std::sync::Mutex<std::collections::HashMap<(ReplayPolicy, Option<usize>), LegacyReplay>>,
 }
 impl ShadowsocksTransportState {
+    /// Prepare protocol framing with this actual adapter's nonce history.
+    /// No proxy Session, socket, child or maintenance task is created here.
+    #[cfg(feature = "blake3")]
+    pub fn prepare_tcp(
+        &self,
+        input: crate::component::TcpPreparation<'_>,
+    ) -> Result<crate::component::PreparedTcp, zero_core::Error> {
+        crate::component::PreparedTcp::new(input, |policy, capacity| {
+            self.replay_guard(policy, capacity)
+        })
+    }
     /// A resource handle sharing the plan used by `with_plugin` leaves.
     pub fn plugin_resource(
         &self,

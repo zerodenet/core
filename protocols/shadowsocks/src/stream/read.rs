@@ -147,6 +147,9 @@ where
                                     io::Error::new(io::ErrorKind::InvalidData, error)
                                 })?;
                             }
+                            self.report_peer(
+                                zero_platform_tokio::contract::context::ConnectFact::PeerConfirmed,
+                            );
                             self.read_state = ReadState::FirstPayload2022 {
                                 expected_len: length as usize,
                                 buf: vec![0_u8; length as usize + self.cipher.tag_len()],

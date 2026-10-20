@@ -1,3 +1,4 @@
+mod observer;
 mod read;
 mod write;
 use std::io;
@@ -44,6 +45,10 @@ enum ReadState {
 
 pub struct ShadowsocksAeadStream<S> {
     inner: S,
+    connect_observer: Option<(
+        Option<zero_core::component::SessionId>,
+        std::sync::Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>,
+    )>,
     legacy_read: Option<crate::shared::legacy::LegacyCipherState>,
     legacy_write: Option<crate::shared::legacy::LegacyCipherState>,
     replay: crate::shared::legacy_replay::LegacyReplay,
@@ -104,6 +109,7 @@ impl<S> ShadowsocksAeadStream<S> {
         };
         Self {
             inner,
+            connect_observer: None,
             legacy_read: None,
             legacy_write: None,
             replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
@@ -131,13 +137,27 @@ impl<S> ShadowsocksAeadStream<S> {
     }
 
     pub fn outbound(inner: S, session: ShadowsocksOutboundSession, password: Vec<u8>) -> Self {
+        Self::outbound_with_replay(
+            inner,
+            session,
+            password,
+            crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+        )
+    }
+    pub(crate) fn outbound_with_replay(
+        inner: S,
+        session: ShadowsocksOutboundSession,
+        password: Vec<u8>,
+        replay: crate::shared::legacy_replay::LegacyReplay,
+    ) -> Self {
         let cipher = session.cipher;
         let is_2022 = cipher.is_blake3();
         Self {
             inner,
+            connect_observer: None,
             legacy_read: None,
             legacy_write: session.legacy,
-            replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+            replay,
             legacy_response_salt: None,
             modern_response_salt: None,
             cipher,
@@ -238,7 +258,12 @@ where
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::into_inner(self).poll_read_decrypted(cx, buf)
+        let this = Pin::into_inner(self);
+        let result = this.poll_read_decrypted(cx, buf);
+        if matches!(&result, Poll::Ready(Err(_))) {
+            this.report_peer(zero_platform_tokio::contract::context::ConnectFact::PeerRejected);
+        }
+        result
     }
 }
 

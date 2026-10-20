@@ -31,6 +31,9 @@ pub struct ReplayOptions {
     owner: Arc<str>,
 }
 impl ReplayOptions {
+    pub(crate) fn pool(&self) -> Option<Arc<ReplaySaltPool>> {
+        self.pool.upgrade()
+    }
     pub(crate) fn new(
         pool: Arc<ReplaySaltPool>,
         policy: ReplayPolicy,
@@ -197,10 +200,11 @@ impl ResourceLifecycle for Owner {
                 "replay maintenance start deadline elapsed",
             ));
         }
+        let driver_scope = self.tasks.cancellation();
         let job = self.pool.as_ref().unwrap().registered_maintenance(
             self.component,
             self.cancel.clone(),
-            self.tasks.cancellation(),
+            driver_scope.clone(),
         );
         // The worker future now owns the lease, including an unpolled future
         // rejected by the registrar. This owner must never release it early.
@@ -222,7 +226,7 @@ impl ResourceLifecycle for Owner {
         self.pool
             .as_ref()
             .unwrap()
-            .bind_registered_owner(self.instance)
+            .bind_registered_owner(self.instance, self.cancel.clone(), driver_scope)
             .map_err(|source| {
                 failure(
                     self.component,

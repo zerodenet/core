@@ -33,6 +33,17 @@ impl ShadowsocksTcpConnectConfig {
     }
 
     pub fn from_config(cipher: &str, password: &str) -> Result<Self, Error> {
+        Self::from_config_with_replay(
+            cipher,
+            password,
+            crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+        )
+    }
+    pub(crate) fn from_config_with_replay(
+        cipher: &str,
+        password: &str,
+        replay: crate::shared::legacy_replay::LegacyReplay,
+    ) -> Result<Self, Error> {
         let cipher = crate::shared::CipherKind::from_str(cipher)
             .ok_or(Error::Protocol("ss: unknown tcp cipher"))?;
         let password = password.as_bytes().to_vec();
@@ -52,8 +63,12 @@ impl ShadowsocksTcpConnectConfig {
             cipher,
             password,
             response_password,
-            replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+            replay,
         })
+    }
+
+    pub(crate) fn is_2022(&self) -> bool {
+        self.cipher.is_blake3()
     }
 
     pub fn tcp_target<'a>(&'a self, session: &'a Session) -> ShadowsocksTcpTarget<'a> {
@@ -116,12 +131,12 @@ impl ShadowsocksTcpConnectConfig {
         stream: S,
         session: ShadowsocksOutboundSession,
     ) -> crate::stream::ShadowsocksAeadStream<S> {
-        crate::stream::ShadowsocksAeadStream::outbound(
+        crate::stream::ShadowsocksAeadStream::outbound_with_replay(
             stream,
             session,
             self.response_password.clone(),
+            self.replay.clone(),
         )
-        .with_replay_guard(self.replay.clone())
     }
 }
 

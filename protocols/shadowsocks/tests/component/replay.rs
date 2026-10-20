@@ -108,6 +108,11 @@ async fn replay_factory_transfers_the_actual_shared_history_to_one_registered_dr
         registrar.spawn(TaskClass::Auxiliary, async { Ok(()) }),
         Err(SpawnError::Capacity)
     );
+    instance.lifecycle.revoke(CloseReason::Shutdown);
+    assert!(
+        !pool.registered_owner_is_ready(actual),
+        "revocation is immediate, before worker join"
+    );
     let end = deadline();
     let (protocol, tasks) = tokio::join!(instance.lifecycle.shutdown(end), scope.shutdown(end));
     assert!(protocol.unwrap().is_complete());

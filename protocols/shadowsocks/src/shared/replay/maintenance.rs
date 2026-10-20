@@ -13,6 +13,10 @@ pub(super) struct Maintenance {
     leased: bool,
     claimed_by: Option<ComponentInstanceId>,
     ready: bool,
+    cancellation: Option<(
+        zero_platform_tokio::contract::CancellationToken,
+        zero_platform_tokio::contract::CancellationToken,
+    )>,
     pub(super) legacy: Option<LegacyWorker>,
 }
 
@@ -43,6 +47,7 @@ impl ReplaySaltPool {
         state.leased = true;
         state.claimed_by = owner;
         state.ready = false;
+        state.cancellation = None;
         Ok(state.legacy.take().map(|worker| {
             let _ = worker.stop.send(());
             worker.task
@@ -55,6 +60,7 @@ impl ReplaySaltPool {
         }
         state.leased = false;
         state.ready = false;
+        state.cancellation = None;
         state.claimed_by = None;
         // Managed mode stays sticky: a stale framing handle cannot start an
         // unregistered replacement beside the host's retired task scope.
@@ -64,25 +70,40 @@ impl ReplaySaltPool {
     pub(crate) fn bind_registered_owner(
         &self,
         owner: ComponentInstanceId,
+        parent: zero_platform_tokio::contract::CancellationToken,
+        scope: zero_platform_tokio::contract::CancellationToken,
     ) -> Result<(), zero_core::Error> {
         let mut state = self.maintenance.lock().unwrap();
-        if !state.leased || state.claimed_by != Some(owner) {
+        if !state.leased
+            || state.claimed_by != Some(owner)
+            || parent.is_cancelled()
+            || scope.is_cancelled()
+        {
             return Err(zero_core::Error::Protocol(
                 "ss: replay driver claim is no longer current",
             ));
         }
         state.ready = true;
+        state.cancellation = Some((parent, scope));
         Ok(())
     }
     pub(crate) fn revoke_registered_owner(&self, owner: ComponentInstanceId) {
         let mut state = self.maintenance.lock().unwrap();
         if state.claimed_by == Some(owner) {
             state.ready = false;
+            state.cancellation = None;
         }
     }
     pub(crate) fn registered_owner_is_ready(&self, owner: ComponentInstanceId) -> bool {
         let state = self.maintenance.lock().unwrap();
-        state.managed && state.leased && state.ready && state.claimed_by == Some(owner)
+        state.managed
+            && state.leased
+            && state.ready
+            && state.claimed_by == Some(owner)
+            && state
+                .cancellation
+                .as_ref()
+                .is_some_and(|(parent, scope)| !parent.is_cancelled() && !scope.is_cancelled())
     }
     pub(crate) fn registered_maintenance(
         self: &Arc<Self>,
