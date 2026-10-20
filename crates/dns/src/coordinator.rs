@@ -69,6 +69,7 @@ use flight::{Flight, SharedError, Waiter};
 pub(super) struct QueryCoordinator<T> {
     state: Arc<Mutex<CoordinatorState<T>>>,
     graph: Arc<Mutex<dependency::Graph>>,
+    owned_tasks: Option<crate::query_tasks::OwnedDnsQueryTasks>,
 }
 
 mod state;
@@ -82,8 +83,16 @@ impl<T> Default for QueryCoordinator<T> {
 
 impl<T> QueryCoordinator<T> {
     pub(crate) fn with_graph(graph: Arc<Mutex<dependency::Graph>>) -> Self {
+        Self::with_graph_and_tasks(graph, None)
+    }
+
+    pub(crate) fn with_graph_and_tasks(
+        graph: Arc<Mutex<dependency::Graph>>,
+        owned_tasks: Option<crate::query_tasks::OwnedDnsQueryTasks>,
+    ) -> Self {
         Self {
             graph,
+            owned_tasks,
             state: Arc::new(Mutex::new(CoordinatorState {
                 closing: false,
                 observed_egress_generation: None,
@@ -107,6 +116,9 @@ where
     }
 
     pub(super) fn ensure_open(&self) -> io::Result<()> {
+        if let Some(tasks) = &self.owned_tasks {
+            tasks.ensure_open()?;
+        }
         let mut state = self.state.lock().expect("DNS coordinator poisoned");
         state.reap_finished();
         if state.closing {
@@ -124,6 +136,7 @@ where
     where
         F: Future<Output = io::Result<T>> + Send + 'static,
     {
+        self.ensure_open()?;
         let dependency = Dependency::new(
             Arc::as_ptr(&self.state) as usize,
             key.clone(),
@@ -228,8 +241,17 @@ where
                     .get(&admission_key)
                     .is_some_and(|current| Arc::ptr_eq(current, &flight))
             {
-                let task = state.tasks.spawn(job);
-                flight.set_abort_handle(task);
+                if let Some(tasks) = &self.owned_tasks {
+                    // The original job is registered exactly once. No Scope
+                    // callbacks or query cancellation run under this state lock.
+                    drop(state);
+                    if let Err(error) = tasks.spawn(job, flight.cancel.clone()) {
+                        flight.cancel(error);
+                    }
+                } else {
+                    let task = state.tasks.spawn(job);
+                    flight.set_abort_handle(task);
+                }
             } else {
                 flight.cancel(io::Error::new(
                     io::ErrorKind::NotConnected,
@@ -251,6 +273,18 @@ where
     }
 
     async fn next_task_exit(&self) -> bool {
+        if let Some(tasks) = &self.owned_tasks {
+            let observed = tasks.next_exit().await;
+            if let Err(error) = tasks.ensure_open() {
+                let mut state = self.state.lock().expect("DNS coordinator poisoned");
+                let source = SharedError::from(error);
+                for flight in state.in_flight.drain().map(|(_, flight)| flight) {
+                    flight.cancel(source.to_io_error());
+                }
+                state.task_failure.get_or_insert(source);
+            }
+            return observed;
+        }
         std::future::poll_fn(|cx| {
             let mut state = self.state.lock().expect("DNS coordinator poisoned");
             match state.tasks.poll_join_next(cx) {
@@ -278,6 +312,9 @@ where
                 ));
             }
             state.tasks.abort_all();
+        }
+        if let Some(tasks) = &self.owned_tasks {
+            return tasks.shutdown(deadline).await;
         }
         while tokio::time::timeout_at(deadline, self.next_task_exit())
             .await

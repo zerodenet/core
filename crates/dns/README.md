@@ -50,3 +50,33 @@ fallback. Query cancellation/retirement releases only that query's users; the
 host separately retains and closes its native originals and actual drivers.
 The default capability is absent during staged migration. DNS does not import
 a transport runtime, raw QUIC handles or another Quinn owner implementation.
+
+## Explicit owned UDP root library path
+
+`DnsSystem::build_with_owned_udp` requires original host-issued
+`RootDatagramGrant`s and `OwnedDnsQueryTasks` from the actual root registrar,
+with an explicit finite query limit. The root's existing HostResources owns each
+original native descriptor before I/O; DNS receives a unique I/O view. Name and
+wire query coalescing register their original leader jobs exactly once in that
+same Scope through a weak registrar. No task, runtime, native pool or production
+default is added. Root grants validate the actual instance, original Scope,
+current host lifecycle, exact declared peer and physical-egress generation;
+public service-purpose metadata does not authorize a native open.
+
+The UDP wire retry count, DNS transaction/source matching, backend deadlines,
+cache keys and configured candidate order remain shared with existing DNS code.
+A backend deadline is settled inside the owned socket continuation so its real
+close runs before another backend can receive that query. Acquisition fallback
+requires the same root/query provider's private settlement receipt. A successful
+acquisition requires explicit original native close before fallback; Unknown or
+close failure ends the attempt and stays charged. Returned errors retain their
+original typed sources. Cancellation drops only the I/O view: the host retains
+the original native owner until explicit cleanup. Query body completion, actual
+Scope join, view return and native close remain separate facts.
+
+This explicit UDP-only entry rejects other native transports, System OS lookup,
+detours, dynamic ECH endpoints and truncated-UDP TCP fallback before those
+unaccounted operations. Existing builders preserve those capabilities during
+migration. Their owners need separate real grants before this path can replace
+a production DNS root; neither query joins nor UDP receipts qualify the whole
+resolver, the raw-IP gateway, or M4.

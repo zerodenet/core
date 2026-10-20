@@ -12,6 +12,10 @@ mod fake_ip;
 mod family;
 mod message;
 mod outbound;
+mod owned_root;
+use owned_root::OwnedDnsRoot;
+mod query_tasks;
+pub use query_tasks::OwnedDnsQueryTasks;
 mod reverse;
 mod router;
 mod service;
@@ -71,6 +75,7 @@ pub use outbound::{
 /// Inner state is under a read-write lock so DNS config can be
 /// hot-reloaded without restarting the proxy.
 pub struct DnsSystem {
+    owned_root: Option<Arc<OwnedDnsRoot>>,
     inner: std::sync::RwLock<DnsSystemInner>,
     prepared_reload: std::sync::Mutex<Option<Arc<reload::PreparedDnsReload>>>,
     config_generation: Arc<AtomicU64>,
@@ -179,6 +184,16 @@ impl DnsSystem {
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
         fake_ip_state_path: Option<PathBuf>,
     ) -> io::Result<Self> {
+        Self::build_internal(config, dispatch, egress_interface, fake_ip_state_path, None)
+    }
+
+    fn build_internal(
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+        fake_ip_state_path: Option<PathBuf>,
+        owned_root: Option<Arc<OwnedDnsRoot>>,
+    ) -> io::Result<Self> {
         let fake_ip_state_lease = if config.and_then(DnsConfig::fake_ip).is_some() {
             fake_ip_state_path
                 .as_ref()
@@ -196,6 +211,7 @@ impl DnsSystem {
                     &Default::default(),
                     &egress_interface,
                     &transport_owners,
+                    owned_root.as_deref(),
                 )
             })
             .transpose()?
@@ -208,9 +224,15 @@ impl DnsSystem {
             fake_ip_state_lease.clone(),
             servers,
         )?;
-        let query_coordinator = QueryCoordinator::default();
-        let wire_query_coordinator = QueryCoordinator::with_graph(query_coordinator.shared_graph());
+        let tasks = owned_root.as_ref().map(|root| root.tasks.clone());
+        let query_coordinator = QueryCoordinator::with_graph_and_tasks(
+            Arc::new(std::sync::Mutex::new(Default::default())),
+            tasks.clone(),
+        );
+        let wire_query_coordinator =
+            QueryCoordinator::with_graph_and_tasks(query_coordinator.shared_graph(), tasks);
         Ok(Self {
+            owned_root,
             inner: std::sync::RwLock::new(inner),
             transport_owners,
             prepared_reload: std::sync::Mutex::new(None),
@@ -631,6 +653,12 @@ impl DnsSystem {
         role: DnsQueryRole,
         config_generation: u64,
     ) -> io::Result<Vec<IpAddress>> {
+        if self.owned_root.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned DNS UDP root does not authorize OS resolver work",
+            ));
+        }
         let sys_resolver = {
             let guard = self.inner.read().expect("dns system lock poisoned");
             match &*guard {
@@ -673,6 +701,12 @@ impl DnsSystem {
         family: AddressFamily,
         config_generation: u64,
     ) -> io::Result<Vec<IpAddress>> {
+        if self.owned_root.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned DNS UDP root does not authorize OS resolver work",
+            ));
+        }
         let resolver = {
             let guard = self.inner.read().expect("dns system lock poisoned");
             match &*guard {
@@ -1220,35 +1254,26 @@ async fn exchange_snapshot(
     }
 
     let mut last_error = None;
-    for tag in tags {
+    for (index, tag) in tags.iter().copied().enumerate() {
         let server = snapshot.servers.get(tag).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("DNS policy selected undefined backend `{tag}`"),
             )
         })?;
-        let timeout_ms = snapshot.policy.timeout_ms_for(tag);
-        let deadline = std::time::Duration::from_millis(timeout_ms);
-        let attempt = match tokio::time::timeout(
-            deadline,
-            backends::ATTEMPT_DEADLINE.scope(
-                tokio::time::Instant::now() + deadline,
-                server.backend.exchange(
-                    query,
-                    server.detour.as_deref(),
-                    snapshot.outbound_connector.as_deref(),
-                    snapshot.family,
-                ),
-            ),
+        let next = tags
+            .get(index + 1)
+            .and_then(|next| snapshot.servers.get(*next))
+            .map(|server| server.backend.as_ref());
+        let (attempt, permits_fallback) = owned_root::exchange_backend_attempt(
+            tag,
+            server,
+            query,
+            snapshot,
+            next,
+            snapshot.policy.timeout_ms_for(tag),
         )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                format!("DNS backend `{tag}` timed out after {}ms", timeout_ms),
-            )),
-        };
+        .await;
         match attempt.and_then(|response| {
             let parsed = message::parse_response(query, &response)?;
             if let Some(address) = parsed.addresses.iter().find(|address| {
@@ -1292,6 +1317,9 @@ async fn exchange_snapshot(
                     "DNS backend attempt failed"
                 );
                 record_query_attempt(snapshot, domain, role, tag, server, Some(error.to_string()));
+                if !permits_fallback {
+                    return Err(error);
+                }
                 last_error = Some(error);
             }
         }

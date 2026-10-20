@@ -27,6 +27,7 @@ pub(super) fn build_servers(
     affected_detours: &BTreeSet<String>,
     egress: &zero_platform_tokio::EgressInterfaceControl,
     owners: &Arc<transport_owners::TransportOwners>,
+    owned_root: Option<&OwnedDnsRoot>,
 ) -> io::Result<BTreeMap<String, ResolverServer>> {
     config
         .servers
@@ -42,7 +43,10 @@ pub(super) fn build_servers(
             let server = match reusable {
                 Some(server) => server.clone(),
                 None => {
-                    let backend = Arc::new(ResolverBackend::build(config, egress.clone())?);
+                    let backend = Arc::new(match owned_root {
+                        Some(root) => root.build_backend(config, egress.clone())?,
+                        None => ResolverBackend::build(config, egress.clone())?,
+                    });
                     backend.register_owners(owners)?;
                     ResolverServer {
                         config: config.clone(),
@@ -92,6 +96,12 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         affected_detours: &BTreeSet<String>,
     ) -> io::Result<DnsReloadResources> {
+        if self.owned_root.is_some() && config.is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned DNS UDP reload requires its explicit configured root",
+            ));
+        }
         let mut prepared = self
             .prepared_reload
             .lock()
@@ -118,6 +128,7 @@ impl DnsSystem {
                     affected_detours,
                     &self.egress_interface,
                     &self.transport_owners,
+                    self.owned_root.as_deref(),
                 )
             })
             .transpose()?

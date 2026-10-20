@@ -105,6 +105,34 @@ impl ResolverBackend {
         }
     }
 
+    #[cfg(feature = "udp")]
+    pub(crate) fn build_owned_udp(
+        server: &DnsServerConfig,
+        egress: zero_platform_tokio::EgressInterfaceControl,
+        owned: std::sync::Arc<crate::udp::OwnedDnsUdp>,
+    ) -> io::Result<Self> {
+        let DnsServerConfig::Udp { port, .. } = server else {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned DNS UDP root does not authorize another transport",
+            ));
+        };
+        let addrs = server_endpoints(server, *port)?;
+        Ok(Self::Udp {
+            resolver: UdpDnsResolver::new_owned(addrs.clone(), egress.clone(), owned)?,
+            tcp_addrs: addrs,
+            egress,
+        })
+    }
+
+    #[cfg(feature = "udp")]
+    pub(crate) fn owned_udp(&self) -> Option<&UdpDnsResolver> {
+        match self {
+            Self::Udp { resolver, .. } if resolver.is_owned() => Some(resolver),
+            _ => None,
+        }
+    }
+
     pub(crate) async fn exchange(
         &self,
         query: &[u8],
@@ -136,6 +164,12 @@ impl ResolverBackend {
                 let response = resolver.exchange(query).await?;
                 if !parse_response(query, &response)?.truncated {
                     return Ok(response);
+                }
+                if resolver.is_owned() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "truncated owned DNS UDP requires a separately authorized native TCP root",
+                    ));
                 }
                 exchange_tcp_many(tcp_addrs, query, egress, None, None).await
             }

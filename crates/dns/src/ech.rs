@@ -20,6 +20,12 @@ impl DnsSystem {
         query_name: &str,
         server: &str,
     ) -> io::Result<EchDnsRecord> {
+        if self.owned_root.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "dynamic ECH endpoints require a separately authorized owned DNS root",
+            ));
+        }
         let query_name = crate::message::normalize_domain(query_name)?;
         let endpoint = url::Url::parse(server).map_err(invalid_endpoint)?;
         let host = endpoint
