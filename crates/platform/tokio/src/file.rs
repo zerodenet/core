@@ -66,9 +66,9 @@ fn read_opened_file(file: File, max_bytes: usize, limit: usize) -> io::Result<Ve
 }
 
 #[cfg(all(test, unix))]
-#[path = "../tests/file.rs"]
+#[path = "../tests/file/unix.rs"]
 mod tests;
 
 #[cfg(all(test, windows))]
-#[path = "../tests/file_windows.rs"]
+#[path = "../tests/file/windows.rs"]
 mod windows_tests;
