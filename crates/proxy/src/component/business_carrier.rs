@@ -115,18 +115,32 @@ impl BusinessCarrierRequest {
             .upgrade()
             .ok_or_else(|| invalid(Reason::Revoked, "original component owner was released"))?;
         let caller = self.caller_witness()?;
-        slot.issue_business_carrier(
-            endpoint,
-            binding,
-            grant,
-            &self.identity,
-            Arc::new(self.clone()),
-            caller,
-        )
-        .map_err(|mut error| {
-            error.session.get_or_insert(self.session);
-            error
-        })
+        let authorized = slot
+            .issue_business_carrier(
+                endpoint,
+                binding,
+                grant,
+                &self.identity,
+                Arc::new(self.clone()),
+                caller,
+            )
+            .map_err(|mut error| {
+                error.session.get_or_insert(self.session);
+                error
+            })?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(caller) = &self.caller_native {
+            // The host issuer has already installed this original caller on
+            // the same reservation. Observe it before native preparation/await;
+            // the original raw owner alone decides its remaining obligations.
+            caller
+                .observe_carrier(grant.adoption())
+                .map_err(|mut error| {
+                    error.session.get_or_insert(self.session);
+                    error
+                })?;
+        }
+        Ok(authorized)
     }
 }
 impl CarrierBusinessDemand for BusinessCarrierRequest {
