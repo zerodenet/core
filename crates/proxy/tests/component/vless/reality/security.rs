@@ -9,10 +9,9 @@ use tokio::{
 use zero_platform_tokio::contract::{stream::ConnectRequest, DeliveryState, Reason, Stage};
 
 #[tokio::test]
-async fn actual_reality_factory_rejects_wrong_public_key_short_id_name_and_authenticated_version_policy(
-) {
+async fn actual_reality_factory_enforces_key_short_id_name_version_and_time_authentication() {
     timeout(Duration::from_secs(8), async {
-        for invalid in ["public-key", "short-id", "name", "version-policy"] {
+        for invalid in ["public-key", "short-id", "name", "version-policy", "clock"] {
             let (private, public) = vless::reality::generate_reality_key_pair();
             let (_, wrong_public) = vless::reality::generate_reality_key_pair();
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -26,8 +25,31 @@ async fn actual_reality_factory_rejects_wrong_public_key_short_id_name_and_authe
                     })
                     .unwrap();
             }
+            if invalid == "clock" {
+                policy = policy
+                    .with_policy(vless::reality_policy::PolicyRef {
+                        max_time_diff_ms: 10,
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
             let peer = tokio::spawn(async move {
-                let (io, _) = listener.accept().await.unwrap();
+                let (mut io, _) = listener.accept().await.unwrap();
+                let mut prefix = Vec::new();
+                if invalid == "clock" {
+                    let mut header = [0; 5];
+                    io.read_exact(&mut header).await.unwrap();
+                    assert_eq!(header[0], 22);
+                    let mut hello = vec![0; u16::from_be_bytes([header[3], header[4]]) as usize];
+                    io.read_exact(&mut hello).await.unwrap();
+                    assert_eq!(hello[0], 1);
+                    prefix.extend_from_slice(&header);
+                    prefix.extend_from_slice(&hello);
+                    // Delay an already received, genuinely authenticated
+                    // ClientHello; never replace the clock or forge its proof.
+                    tokio::time::sleep(Duration::from_millis(1100)).await;
+                }
+                let io = zero_transport::ReplayStream::new(io, prefix);
                 // No authenticated stream is returned, hence no VLESS request
                 // may reach a server application through this connection.
                 assert!(policy.upgrade_server(io).await.is_err());
