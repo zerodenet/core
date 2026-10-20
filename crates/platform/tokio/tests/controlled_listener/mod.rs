@@ -6,6 +6,7 @@ use tokio::{
     net::TcpStream,
     time::{timeout, Instant},
 };
+mod adoption;
 #[cfg(unix)]
 #[path = "failure_policy.rs"]
 mod failure_policy;

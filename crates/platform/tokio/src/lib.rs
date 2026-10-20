@@ -394,6 +394,17 @@ impl TokioListener {
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()
     }
+
+    /// Move this same bound listener into explicit close ownership.
+    /// Install the returned control in a persistent owner before transferring
+    /// the accept view or beginning fallible activation. Accepted sockets keep
+    /// their own independent lifecycle; view/control Drop is not close proof.
+    pub fn into_controlled(
+        self,
+        parent: tokio_util::sync::CancellationToken,
+    ) -> (ControlledTcpListener, ControlledTcpListenerControl) {
+        ControlledTcpListener::new(self.inner, parent)
+    }
 }
 
 impl TcpListenerTrait for TokioListener {
