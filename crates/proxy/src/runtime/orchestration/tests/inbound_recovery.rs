@@ -20,6 +20,12 @@ use zero_platform_tokio::contract::{lifecycle::erase_lifecycle, ChannelError};
 #[tokio::test]
 async fn cancelled_reconcile_retains_real_fault_and_native_owner_then_rebuilds_last_good_listener()
 {
+    let _trace = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .without_time()
+            .with_test_writer()
+            .finish(),
+    );
     let proxy = Proxy::new(
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
     )
