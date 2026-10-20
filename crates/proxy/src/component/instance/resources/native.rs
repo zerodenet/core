@@ -1,6 +1,7 @@
 //! Declared native starts; the protocol lifecycle retains the actual Child.
 use std::{
     collections::BTreeMap,
+    net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -20,7 +21,10 @@ pub(in crate::component) struct HostResources {
 struct State {
     start_deadline: Option<Instant>,
     remaining: BTreeMap<PathBuf, usize>,
+    tcp: BTreeMap<SocketAddr, bool>,
+    datagram: BTreeMap<SocketAddr, bool>,
 }
+mod sockets;
 
 /// Closing the grant phase does not claim that its children have exited.
 pub(in crate::component) struct StartAccess(Arc<HostResources>);
@@ -40,28 +44,49 @@ impl HostResources {
         cancel: CancellationToken,
     ) -> Result<Arc<Self>, ChannelError> {
         let mut remaining = BTreeMap::new();
+        let mut tcp = BTreeMap::new();
+        let mut datagram = BTreeMap::new();
         for declaration in declarations {
-            let ResourceDeclaration::Process {
-                program,
-                max_starts,
-            } = declaration
-            else {
-                return Err(error(
-                    component,
-                    Reason::InvalidConfig,
-                    "resource grant is not implemented",
-                ));
-            };
-            if program.as_os_str().is_empty()
-                || remaining
-                    .insert(program.clone(), max_starts.get())
-                    .is_some()
-            {
-                return Err(error(
-                    component,
-                    Reason::InvalidConfig,
-                    "empty or duplicate process declaration",
-                ));
+            match declaration {
+                ResourceDeclaration::Process {
+                    program,
+                    max_starts,
+                } => {
+                    if program.as_os_str().is_empty()
+                        || remaining
+                            .insert(program.clone(), max_starts.get())
+                            .is_some()
+                    {
+                        return Err(error(
+                            component,
+                            Reason::InvalidConfig,
+                            "empty or duplicate process declaration",
+                        ));
+                    }
+                }
+                ResourceDeclaration::TcpListener(address)
+                | ResourceDeclaration::DatagramListener(address) => {
+                    let address = sockets::literal(component, address)?;
+                    let grants = if matches!(declaration, ResourceDeclaration::TcpListener(_)) {
+                        &mut tcp
+                    } else {
+                        &mut datagram
+                    };
+                    if grants.insert(address, false).is_some() {
+                        return Err(error(
+                            component,
+                            Reason::InvalidConfig,
+                            "duplicate listener declaration",
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(error(
+                        component,
+                        Reason::InvalidConfig,
+                        "resource grant is not implemented",
+                    ))
+                }
             }
         }
         Ok(Arc::new(Self {
@@ -70,6 +95,8 @@ impl HostResources {
             state: Mutex::new(State {
                 start_deadline: None,
                 remaining,
+                tcp,
+                datagram,
             }),
         }))
     }
@@ -152,15 +179,15 @@ impl ResourceAccess for HostResources {
     }
     fn listen_tcp(
         &self,
-        _: Destination,
+        address: Destination,
     ) -> BoxFuture<'_, Result<tokio::net::TcpListener, ChannelError>> {
-        Box::pin(async { Err(self.denied()) })
+        Box::pin(async move { self.bind_tcp(address) })
     }
     fn listen_datagram(
         &self,
-        _: Destination,
+        address: Destination,
     ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, ChannelError>> {
-        Box::pin(async { Err(self.denied()) })
+        Box::pin(async move { self.bind_datagram(address) })
     }
     fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, ChannelError>> {
         Box::pin(async { Err(self.denied()) })

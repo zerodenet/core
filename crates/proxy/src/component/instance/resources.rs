@@ -11,9 +11,12 @@ use zero_platform_tokio::contract::{
 mod native;
 pub(in crate::component) use native::HostResources;
 
-// This transitional slot grants no I/O. Production catalog activation admits
-// only zero-resource Stream descriptors; roleless maintenance can use its actual
-// registered task budget. Declared I/O requires a host granting that exact access.
+#[cfg(test)]
+#[path = "../tests/resource_grants.rs"]
+mod grant_tests;
+
+// Test-only denial implementation. Real declared native acquisition is handled
+// by HostResources; declaring a resource alone does not activate it in the catalog.
 #[cfg(test)]
 pub(crate) struct NoResources;
 #[cfg(test)]
