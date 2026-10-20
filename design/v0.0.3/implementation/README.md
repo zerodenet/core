@@ -180,6 +180,22 @@ SS 的 roleless replay 工厂使用既有适配器按 `(ReplayPolicy, capacity)`
 
 生产 catalog 仍只激活零资源 Stream；跨配置共享身份稳定性、依赖代际传播、使用者/共享I/O确认替换、原生进程授权、M4与其余任务卡继续。入站plugin activate和旧pool.clear活跃租借语义尚待迁移，本批不宣称整体完成。
 
+## PR03 进行中：共享身份索引与依赖代际传播
+
+代码提交 `64dc19d2c2e80b943eae4f754afba5bb0764bb4e`，冻结 tree `a528a3ba91fc4380a72fa9756ee62ceb3abd332b`。[验证及23份证据](pr03-resource-identities-validation.json)保存实际命令、源码及原文/gzip摘要。
+
+实际 catalog 的冷装配现在按拓扑顺序比较本地描述、拨号策略及依赖代际。依赖改变会逐层重建消费者，每个消费者只增加一次代际；已由本地变化分配下一代际的候选不会重复增加。未变化节点保留实际 Arc 所有者及角色，未知依赖和代际耗尽仍在 build/start 前失败。
+
+`SharedResourceIdentities` 只保存同一宿主分配器/编译装配域内的 namespace、secret-free static identity和实际 ComponentId，跨准备轮次维持未变化资源的身份。索引只包含本次请求的资源，删除后再添加取得新的实际ID；新分配和复用ID共用冲突检查。索引不持有旧配方或工厂，失败轮次不能导出新索引；宿主只能随确认提交的候选发布它。
+
+九项新回归覆盖传递代际、无关节点/原角色复用、一次递增、无效图、耗尽、跨轮次ID、删除/再添加、旧Factory释放与复用/分配冲突。组合回归使用原适配器的真实 replay 池：冷候选沿用实际ID，选择已有运行中 slot，丢弃未使用的冷候选，再次 start 不抢第二租约，最后取得唯一真实维护任务的 join 结果。组件过滤47/0。
+
+严格 workspace/all-target/all-feature Clippy 的完整源码tree与提交相同，12个文件及锁摘要一致。提交后保持源码/HEAD/锁文件冻结，七项检查全部通过：fmt、workspace check、完整 workspace **2761/0/159**（155条摘要，含晚期文档测试）、默认release、实际thumb no_std、最小proxy feature和依赖边界。实际默认release git_hash=`64dc19d2`，SHA=`274fdebd67d6c2b1491bfee5a3cc2e08176d4ad95d16b35e2012a8a7200cf6cb`；不代表可选connector/grpc/WireGuard release资格。
+
+最终完整workspace同一不可变proxy二进制在1 CPU/1 GiB/no swap/user1000、独立网络命名空间与只读挂载下，组件过滤47/0，SHA=`358bb39f938a16421e7492743142beb08c253334cdc1584405f3d60579b3ec43`。这不是完整RS01或物理设备资格。
+
+新代际逻辑已用于零资源Stream生产catalog。共享资源工厂仍待宿主确认使用者/I/O清理与恢复后激活。实际适配器 guards Map 仍保留原安全历史；轻量索引不保留Factory不能推定所有协议池/历史或I/O已退休。原生进程授权、共享资源完整宿主事务、其余角色/协议、M4及全部任务卡继续。
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
