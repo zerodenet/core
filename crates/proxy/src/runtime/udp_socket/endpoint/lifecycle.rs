@@ -18,6 +18,7 @@ impl std::fmt::Debug for DirectEndpointOwner {
             .field("closing", &state.closing)
             .field("active_associations", &state.sessions.len())
             .field("failed", &state.failure.is_some())
+            .field("queue", &self.endpoint().queue_usage())
             .finish()
     }
 }
