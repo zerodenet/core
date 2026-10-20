@@ -20,7 +20,16 @@ pub(crate) struct DirectDispatchEndpoint {
 }
 struct Slot {
     tx: DirectEndpointTx,
-    control: Box<dyn DynChannelControl>,
+    // Storage only: the unique controller is Send, not Sync. Every access
+    // requires an exclusive Slot and uses get_mut; no lock spans native poll.
+    control: Mutex<Box<dyn DynChannelControl>>,
+}
+impl Slot {
+    fn control(&mut self) -> &mut Box<dyn DynChannelControl> {
+        self.control
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 #[derive(Default)]
 struct Receiver {
@@ -147,7 +156,7 @@ impl DirectDispatchEndpoint {
             session,
             Slot {
                 tx: channel.tx,
-                control,
+                control: Mutex::new(control),
             },
         );
         receiver.flows.push((session, channel.rx));
@@ -186,8 +195,8 @@ impl DirectDispatchEndpoint {
             .get_mut()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(session);
-        if let Some(slot) = self.slots.remove(&session) {
-            slot.control.cancel(CloseReason::Completed);
+        if let Some(mut slot) = self.slots.remove(&session) {
+            slot.control().cancel(CloseReason::Completed);
         }
     }
     pub(crate) async fn finish_session(
@@ -200,7 +209,7 @@ impl DirectDispatchEndpoint {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(session);
         match self.slots.remove(&session) {
-            Some(mut slot) => slot.control.wait_closed(deadline).await,
+            Some(mut slot) => slot.control().wait_closed(deadline).await,
             None => Ok(CloseReport::default()),
         }
     }
@@ -228,8 +237,8 @@ impl DirectDispatchReceive<'_> {
 }
 impl Drop for DirectDispatchEndpoint {
     fn drop(&mut self) {
-        for slot in self.slots.values() {
-            slot.control.cancel(CloseReason::Shutdown);
+        for slot in self.slots.values_mut() {
+            slot.control().cancel(CloseReason::Shutdown);
         }
     }
 }
