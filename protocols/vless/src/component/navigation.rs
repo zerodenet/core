@@ -8,7 +8,7 @@ use zero_platform_tokio::contract::{
     ChannelError, Impact, Reason, Stage,
 };
 
-pub(super) async fn start<S>(
+pub(crate) async fn start<S>(
     stream: S,
     host: String,
     plan: zero_transport::http_navigation::Plan,
