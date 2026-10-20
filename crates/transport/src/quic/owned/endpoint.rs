@@ -19,6 +19,8 @@ use zero_platform_tokio::{
     },
     controlled_datagram::{metadata::MetadataOwnerReport, DatagramReservationId},
 };
+mod bidi;
+pub use bidi::OwnedBiStream;
 mod connection;
 mod handle;
 mod native;
