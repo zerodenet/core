@@ -1,4 +1,6 @@
 pub mod contract;
+mod tokio_listener;
+pub use tokio_listener::TokioListener;
 mod controlled_listener;
 pub mod file;
 pub use controlled_listener::{ControlledTcpListener, ControlledTcpListenerControl};
@@ -15,10 +17,10 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tokio::io::{copy_bidirectional, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::net::{lookup_host, TcpListener as TokioTcpListener, TcpSocket, TcpStream, UdpSocket};
+use tokio::net::{lookup_host, TcpSocket, TcpStream, UdpSocket};
 use zero_traits::{
     AsyncSocket, DatagramSocket as DatagramSocketTrait, DnsResolver, IpAddress, SocketAddress,
-    TcpListener as TcpListenerTrait, TransportBypassControl,
+    TransportBypassControl,
 };
 
 pub mod controlled_carrier;
@@ -366,59 +368,6 @@ impl AsyncWrite for PrefixedSocket {
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-}
-
-#[derive(Debug)]
-pub struct TokioListener {
-    inner: TokioTcpListener,
-}
-
-impl TokioListener {
-    pub async fn bind_addr(addr: SocketAddr) -> io::Result<Self> {
-        TokioTcpListener::bind(addr)
-            .await
-            .map(|inner| Self { inner })
-    }
-
-    pub async fn bind(addr: &str) -> io::Result<Self> {
-        TokioTcpListener::bind(addr)
-            .await
-            .map(|inner| Self { inner })
-    }
-
-    pub async fn accept(&self) -> io::Result<(TokioSocket, Option<SocketAddress>)> {
-        <Self as TcpListenerTrait>::accept(self).await
-    }
-
-    pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.inner.local_addr()
-    }
-
-    /// Move this same bound listener into explicit close ownership.
-    /// Install the returned control in a persistent owner before transferring
-    /// the accept view or beginning fallible activation. Accepted sockets keep
-    /// their own independent lifecycle; view/control Drop is not close proof.
-    pub fn into_controlled(
-        self,
-        parent: tokio_util::sync::CancellationToken,
-    ) -> (ControlledTcpListener, ControlledTcpListenerControl) {
-        ControlledTcpListener::new(self.inner, parent)
-    }
-}
-
-impl TcpListenerTrait for TokioListener {
-    type Stream = TokioSocket;
-    type Error = io::Error;
-
-    async fn accept(&self) -> Result<(Self::Stream, Option<SocketAddress>), Self::Error> {
-        let (stream, remote_addr) = self.inner.accept().await?;
-        stream.set_nodelay(true)?;
-
-        Ok((
-            TokioSocket::new(stream),
-            Some(socket_addr_to_socket_address(remote_addr)),
-        ))
     }
 }
 
