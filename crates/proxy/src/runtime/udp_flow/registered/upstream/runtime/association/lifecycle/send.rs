@@ -74,7 +74,19 @@ where
             self.idle_deadline = None;
         }
 
-        match A::establish(services.clone(), association.clone(), session, inbound_tag).await {
+        // Business facts and ingress identity are derived by the runtime before
+        // crossing into an adapter. The transport never receives the registry.
+        let established = async {
+            let execution = services.datagram_execution(inbound_tag, session)?;
+            A::establish(
+                execution,
+                services.association_observer(),
+                association.clone(),
+            )
+            .await
+        }
+        .await;
+        match established {
             Ok(a) => {
                 services.record_udp_upstream_association_created();
                 self.idle_deadline =

@@ -53,8 +53,8 @@ pub(crate) use context::{
 };
 #[cfg(feature = "udp-runtime")]
 pub(crate) use context::{
-    PacketPathExecutionServices, UdpAdapterContext, UdpAssociationCloseKind, UdpNetworkServices,
-    UdpRuntimeServices,
+    PacketPathExecutionServices, UdpAdapterContext, UdpAssociationCloseKind,
+    UdpAssociationObserver, UdpNetworkServices, UdpRuntimeServices,
 };
 #[cfg(feature = "udp-runtime")]
 pub(crate) use defaults::bind_datagram_listener;

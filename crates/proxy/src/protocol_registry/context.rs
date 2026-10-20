@@ -14,6 +14,7 @@ pub(crate) use device::OutboundDevicePreparationContext;
 pub(crate) use tcp::{TcpExecutionServices, TcpRuntimeServices};
 #[cfg(feature = "udp-runtime")]
 pub(crate) use udp::{
-    PacketPathExecutionServices, UdpAssociationCloseKind, UdpNetworkServices, UdpRuntimeServices,
+    PacketPathExecutionServices, UdpAssociationCloseKind, UdpAssociationObserver,
+    UdpNetworkServices, UdpRuntimeServices,
 };
 pub(crate) use upstream::UpstreamConnectServices;

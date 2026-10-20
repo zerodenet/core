@@ -1,7 +1,7 @@
 //! The legacy shared-association holder now invokes the actual Datagram role.
 mod control;
 use crate::{
-    protocol_registry::UdpRuntimeServices,
+    protocol_registry::{TcpExecutionServices, UdpAssociationObserver},
     runtime::udp_flow::registered::{UpstreamAssociationCloseReason, UpstreamAssociationTransport},
 };
 use ::socks5::transport::Socks5ManagedUdpAssociationTarget;
@@ -18,7 +18,7 @@ use zero_core::{
     component::AssociationId,
     packet::Datagram,
     request::{DatagramTargets, Destination},
-    Address, Session,
+    Address,
 };
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
@@ -48,12 +48,10 @@ fn address(server: &str) -> Address {
 #[async_trait::async_trait]
 impl UpstreamAssociationTransport<Socks5ManagedUdpAssociationTarget> for NativeAssociation {
     async fn establish(
-        services: UdpRuntimeServices,
+        execution: TcpExecutionServices,
+        observer: UdpAssociationObserver,
         target: Socks5ManagedUdpAssociationTarget,
-        session: &Session,
-        inbound_tag: &str,
     ) -> Result<Self, EngineError> {
-        let execution = services.datagram_execution(inbound_tag, session)?;
         let (tag, server, port) = target.log_parts();
         let input = execution
             .config()
@@ -111,7 +109,7 @@ impl UpstreamAssociationTransport<Socks5ManagedUdpAssociationTarget> for NativeA
         let reason = Arc::new(AtomicU8::new(0));
         let actual = erase_control(ObservedControl::new(
             channel.control,
-            services.network(),
+            observer,
             reason.clone(),
         ));
         let control = reservation.adopt(actual);
