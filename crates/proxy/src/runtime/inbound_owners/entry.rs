@@ -16,8 +16,10 @@ use zero_platform_tokio::contract::{
 };
 mod observation;
 mod pending_bound;
+use pending_bound::PendingNativeBound;
 mod readiness;
 pub(crate) use observation::consume_reported_error;
+pub(super) use pending_bound::pending_preparation_stopped;
 pub(super) use readiness::readiness_stopped;
 pub(crate) use readiness::InboundReady;
 mod shutdown;
@@ -49,7 +51,8 @@ pub(crate) struct InboundOwner {
     observation: Arc<observation::ObservationDisposition>,
     ready: InboundReady,
     installation_complete: AtomicBool,
-    pending_native_bound: Mutex<Option<crate::protocol_registry::BoundInbound>>,
+    pending_native_bound: Mutex<Option<Arc<PendingNativeBound>>>,
+    pending_native_cause: Mutex<Option<SharedError>>,
     #[cfg(feature = "managed-datagram-runtime")]
     peers: Mutex<Vec<Arc<super::InboundPeerTasks>>>,
 }
@@ -116,6 +119,7 @@ impl InboundOwner {
             ready: InboundReady::new(),
             installation_complete: AtomicBool::new(true),
             pending_native_bound: Mutex::new(None),
+            pending_native_cause: Mutex::new(None),
             #[cfg(feature = "managed-datagram-runtime")]
             peers: Mutex::new(Vec::new()),
         }

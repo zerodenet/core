@@ -26,6 +26,12 @@ impl SharedIngressRuntimeServices {
         let Some(failure) = terminal.failure() else {
             return;
         };
+        for source in terminal.native_bound_failures() {
+            tracing::error!(inbound_tag = tag, component = terminal.identity().component.0,
+                generation = terminal.identity().generation.0, error = ?source,
+                reason = "inbound_native_close_fault_physically_closed",
+                "supervisor retained original native close failure after confirmed inbound closure");
+        }
         for task in terminal.task_failures() {
             tracing::error!(inbound_tag = tag, component = terminal.identity().component.0,
                 generation = terminal.identity().generation.0, task_id = task.id.0,

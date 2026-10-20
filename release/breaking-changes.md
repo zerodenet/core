@@ -8,7 +8,9 @@
 
 外部停止现在与原 startup/reconcile future 同时受 poll；停止只撤销该准备阶段记录的实际 pre-Ready 候选，并同步拒绝迟到安装，最后成功监听器不加入该候选集合。宿主继续驱动同一个借用事务完成真实清理与补偿，保留原 DNS candidate、任务/Child owner 和关闭收据；停止后最终发布与 ACK 再校验同一阶段，不能把取消等待或 future Drop 当关闭证明。跟踪元数据只弱引用本阶段实际实例，已完成物理关闭或 Ready 的项被回收，阶段结束不保留历史。回归新增真实 pending SIP003 的 startup/reload 停止与 reap，以及未受候选停止影响的真实 last-good TCP listener。
 
-过渡保守边界：listener owner 在对 Registry 可见之前先标记安装未封口；只有实际任务登记成功或原生预绑定对象已同步留入持久失败槽，才完成该安装阶段。准备阶段关闭后的迟到安装、已安装 owner 的资源准备失败不会再把原 `BoundInbound` 丢在返回栈上。其原错误及原生对象保持 Unknown，空 TaskScope 的真实完成仍记零 joined tasks，不构成 listener FD 关闭收据；取消和重试均不能释放它或允许同 tag 替换。此临时持有路径尚无 native control 回收，必须在完整 Bound 控制迁移后以实际显式 close 接入并删除永久持有分支。owner 安装前的 adapter prepare/bind reservation 失败及普通 listener 的完整原生关闭合同仍是独立缺口，不能据此宣称 M4 完成。回归见 `runtime/inbound_owners/entry/pending_bound/tests.rs` 的实际 production spawn 迟到拒绝、原 TCP 端口保持、真实 Scope 锁等待取消、同 Arc source 与零虚构关闭收据。
+过渡保守边界：listener owner 在对 Registry 可见之前先标记安装未封口；只有实际任务登记成功或原生预绑定对象已同步留入持久失败槽，才完成该安装阶段。准备阶段关闭后的迟到安装、已安装 owner 的资源准备失败不会再把原 `BoundInbound` 丢在返回栈上。冷态 TCP 叶节点现在把同一原监听器同步移入受控关闭状态，先持久安装唯一 control，随后才释放 accept view；group 逐叶保留实际关闭进度，等待取消和 deadline 不丢原对象、首个原生错误或已取得的关闭收据。真实空 TaskScope 完成仍记零 joined tasks；TCP 显式原生 close 与 Scope 完成都确认后才允许交付该实例的关闭证明。宿主正常阶段取消的原因单独保留，在真实关闭前仍返回同一 Unknown；关闭完整后它属于预期停止，不伪造 TaskFailure。真正准备、任务或原生错误仍持久交给监督；任意 Interrupted 或嵌套任务错误不能冒充宿主私有取消标记。
+
+尚未迁移的 UDP/QUIC 叶节点仍由原槽持有且保持 Unknown，混合 group 的 TCP 关闭不代表这些独立资源已关闭。实际任务登记失败而 submitted future 已被消费的未封口路径仍不能确认关闭。owner 安装前的 adapter prepare、bind reservation 失败，以及普通活动 listener、SIP003 原生监听器交接、QUIC 隐藏 driver 的完整合同仍是独立缺口；后续必须通过同一宿主资源图的 bind lease 接入实际 control，删除原生未确认的永久持有分支，不能据此宣称 M4 完成。回归见 `runtime/inbound_owners/entry/pending_bound/tests.rs` 及 `tests/errors.rs`：真实 production spawn 迟到拒绝、原 TCP 端口关闭及复用、真实 Scope 等待取消、原 Arc source、混合 UDP 保留和监督交付重试。
 
 wire、配置 schema 及调用方式不变，无 GUI/SDK 迁移步骤；原调用方可能更晚收到成功，实际初始化失败会进入原补偿路径。此确认描述监听循环已进入运行态，不代替已转交会话、原生 FD 或整个 M4 资源关闭证明。回归见 `runtime/inbound_owners/entry/readiness/tests.rs` 的真实 TCP/UDP pending、取消和原 TaskExit source，以及 `runtime/orchestration/tests/inbound_ready.rs` 的实际 SIP003 Child、超过五秒仍 pending 的初始化、真实 ACK 和明确 reap。
 

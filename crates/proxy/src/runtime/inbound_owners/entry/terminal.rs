@@ -14,6 +14,7 @@ pub(crate) struct InboundTerminal {
     closed_io_receipts: usize,
     failure: Option<SharedError>,
     tasks: Box<[InboundTaskFailure]>,
+    native_bound_failures: Box<[SharedError]>,
 }
 impl InboundTerminal {
     pub(in crate::runtime::inbound_owners) fn publish(&self) {
@@ -24,6 +25,9 @@ impl InboundTerminal {
     }
     pub(crate) fn failure(&self) -> Option<SharedError> {
         self.failure.clone()
+    }
+    pub(crate) fn native_bound_failures(&self) -> &[SharedError] {
+        &self.native_bound_failures
     }
     pub(crate) fn task_failures(&self) -> &[InboundTaskFailure] {
         &self.tasks
@@ -137,17 +141,30 @@ impl InboundOwner {
         if self.physically_closed.load(Ordering::Acquire) {
             return true;
         }
-        if !self.installation_complete.load(Ordering::Acquire)
-            || self
-                .pending_native_bound
+        let pending = self
+            .pending_native_bound
+            .lock()
+            .expect("pending native listener poisoned");
+        if let Some(pending) = pending.as_ref() {
+            if !pending.is_closed() {
+                return false;
+            }
+            // A second shutdown caller can see the native close before the
+            // original waiter resumes. Transfer its durable evidence under
+            // the same report lock before sealing a terminal receipt.
+            self.report
                 .lock()
-                .expect("pending native listener poisoned")
-                .is_some()
+                .expect("inbound close report poisoned")
+                .append(pending.take_report());
+            self.retain_pending_native_faults(pending);
+        }
+        if !self.installation_complete.load(Ordering::Acquire)
             || !self.cancel.is_cancelled()
             || !self.scope_closed.load(Ordering::Acquire)
         {
             return false;
         }
+        drop(pending);
         if self
             .resources
             .lock()
@@ -192,7 +209,17 @@ impl InboundOwner {
                         .fold(closed_io_receipts, |total, group| {
                             total.saturating_add(group.closed_io_receipts_count())
                         });
+                    let native_bound_failures = self
+                        .pending_native_bound
+                        .lock()
+                        .expect("pending native listener poisoned")
+                        .as_ref()
+                        .map_or_else(
+                            || Vec::new().into_boxed_slice(),
+                            |pending| pending.failures(),
+                        );
                     Arc::new(InboundTerminal {
+                        native_bound_failures,
                         identity: self.identity,
                         observation: self.observation.clone(),
                         joined_tasks: *self

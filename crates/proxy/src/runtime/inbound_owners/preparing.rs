@@ -64,6 +64,7 @@ pub(crate) fn preparation_stopped(error: &EngineError) -> bool {
         .get_ref()
         .is_some_and(|source| source.is::<PreparationStopped>())
         || entry::readiness_stopped(error)
+        || entry::pending_preparation_stopped(error)
 }
 #[cfg(test)]
 mod tests;

@@ -87,9 +87,14 @@ impl InboundOwner {
             Ok::<(), std::io::Error>(())
         };
         let result = timeout_at(deadline, async {
-            let (resources, tasks, peers) = tokio::join!(close_resources, close_tasks, close_peers);
+            let (resources, tasks, peers, bound) = tokio::join!(
+                close_resources,
+                close_tasks,
+                close_peers,
+                self.close_pending_bound(deadline)
+            );
             // A fault does not cancel a sibling's actual join/close operation.
-            resources.and(tasks).and(peers)
+            resources.and(tasks).and(peers).and(bound)
         })
         .await;
         if self.confirm_physical_close() {
@@ -98,17 +103,21 @@ impl InboundOwner {
         }
         // A retained pre-execution native listener has no close receipt yet.
         // Empty Scope completion cannot clear its original Unknown source.
-        self.result()?;
+        self.pending_native_result()?;
         match result {
+            Ok(Err(error)) => Err(error.into()),
             Ok(Ok(())) => {
+                self.result()?;
                 Err(std::io::Error::other("inbound physical confirmation is incomplete").into())
             }
-            Ok(Err(error)) => Err(error.into()),
-            Err(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "inbound owner shutdown remains unconfirmed",
-            )
-            .into()),
+            Err(_) => {
+                self.result()?;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "inbound owner shutdown remains unconfirmed",
+                )
+                .into())
+            }
         }
     }
 }
