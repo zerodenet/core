@@ -44,7 +44,7 @@ async fn two_real_pending_workers_retire_when_one_h2_request_fails_with_original
         let (_, mut job) = prepare(client, "failure.test".into(), Plan {
             path: "/".into(), ranges: [(0, 0), (2, 2), (1, 1), (0, 0), (0, 0)],
         }).unwrap().into_parts();
-        let handshake = h2::server::handshake::<_, Bytes>(peer.clone());
+        let handshake = h2::server::handshake(peer.clone());
         tokio::pin!(handshake);
         let mut server = tokio::select! {
             result = &mut handshake => result.unwrap(),
