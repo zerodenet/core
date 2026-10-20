@@ -1,4 +1,5 @@
 pub mod contract;
+pub mod controlled_icmp;
 mod tokio_listener;
 pub use tokio_listener::TokioListener;
 mod controlled_listener;
