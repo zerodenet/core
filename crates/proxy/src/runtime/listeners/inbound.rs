@@ -49,8 +49,35 @@ pub(in crate::runtime) async fn reconcile_inbounds(
     runtime_factory: &InboundListenerRuntimeFactory,
     rollback_runtime_factory: &InboundListenerRuntimeFactory,
     new_config: &RuntimeConfig,
-    mut state: InboundReconcileState<'_>,
+    state: InboundReconcileState<'_>,
 ) -> Result<(), EngineError> {
+    reconcile_inbounds_with_before_bind(
+        protocols,
+        source_dir,
+        runtime_factory,
+        rollback_runtime_factory,
+        new_config,
+        state,
+        || async { Ok(()) },
+    )
+    .await
+}
+
+/// The caller retains its actual outbound transition. This hook runs only after
+/// every affected listener's real shutdown receipt, before any new native bind.
+pub(in crate::runtime) async fn reconcile_inbounds_with_before_bind<F, Fut>(
+    protocols: &ProtocolInventory,
+    source_dir: Option<&Path>,
+    runtime_factory: &InboundListenerRuntimeFactory,
+    rollback_runtime_factory: &InboundListenerRuntimeFactory,
+    new_config: &RuntimeConfig,
+    mut state: InboundReconcileState<'_>,
+    before_bind: F,
+) -> Result<(), EngineError>
+where
+    F: FnOnce() -> Fut + Send,
+    Fut: std::future::Future<Output = Result<(), EngineError>> + Send,
+{
     // A canceled or partially failed previous pass may have retired only its
     // local views. Confirm those same persistent native owners and report their
     // original faults before a different actual-config batch may reserve.
@@ -77,6 +104,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
     plan.reuse_live(protocols, runtime_factory, source_dir, &mut state)
         .await?;
     plan.stop_old(rollback_runtime_factory, &mut state).await?;
+    before_bind().await?;
     for candidate in plan.candidates {
         apply::apply_candidate(
             candidate,
