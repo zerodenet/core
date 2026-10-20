@@ -9,6 +9,7 @@ pub(super) struct Fixture {
 }
 impl Fixture {
     pub(super) fn new(tls: bool, blocked: bool) -> Self {
+        support::interop::init_logs("vless=debug");
         let material = tls.then(test_tls_material);
         let mut protocol = serde_json::json!({"type":"vless","users":[{
             "id":USER_ID,"principal_key":tls.then_some("configured:vless"),
