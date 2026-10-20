@@ -76,7 +76,7 @@ members = [
     "crates/tun",
     "crates/stack",
 ]
-exclude = ["vendor/quinn-udp", "vendor/quinn-proto", "vendor/h3-quinn", "vendor/blake3", "vendor/h2", "vendor/hyper", "vendor/gotatun", "vendor/wintun"]
+exclude = ["vendor/quinn", "vendor/quinn-udp", "vendor/quinn-proto", "vendor/h3-quinn", "vendor/blake3", "vendor/h2", "vendor/hyper", "vendor/gotatun", "vendor/wintun"]
 resolver = "2"
 
 [workspace.package]
@@ -150,6 +150,7 @@ hyper = { path = "vendor/hyper" }
 rustls = { path = "vendor/rustls" }
 openssl-sys = { path = "vendor/openssl-sys-0.9.117-openssl4" }
 blake3 = { path = "vendor/blake3" }
+quinn = { path = "vendor/quinn" }
 quinn-proto = { path = "vendor/quinn-proto" }
 quinn-udp = { path = "vendor/quinn-udp" }
 h3-quinn = { path = "vendor/h3-quinn" }
