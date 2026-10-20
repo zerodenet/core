@@ -8,6 +8,7 @@ mod peer_binding;
 mod peers;
 mod preparing;
 mod recovery;
+mod state_recovery;
 pub(crate) use preparing::{preparation_stopped, PreparingInbounds};
 mod released_fault;
 use crate::inventory::ProtocolInventory;
@@ -35,6 +36,7 @@ pub(crate) struct InboundOwnerRegistry {
     entries: Mutex<HashMap<String, Arc<InboundOwner>>>,
     terminals: Mutex<HashMap<String, Arc<InboundTerminal>>>,
     reservations: Mutex<bind::BindReservations>,
+    retained_states: Mutex<std::collections::BTreeMap<String, state_recovery::RetainedState>>,
 }
 impl std::fmt::Debug for InboundOwnerRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

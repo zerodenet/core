@@ -60,7 +60,7 @@ pub(crate) use context::{
 pub(crate) use defaults::bind_datagram_listener;
 pub(crate) use defaults::prepare_tcp_inbound_bind;
 pub(crate) use defaults::{bind_tcp_inbound, bind_tcp_listener, inbound_listen_addr};
-pub(crate) use model::{BoundInbound, OutboundLeafRuntime, PreparedInboundBind};
+pub(crate) use model::{BoundInbound, InboundRecovery, OutboundLeafRuntime, PreparedInboundBind};
 pub(crate) use registry::ClaimedOutboundLeaf;
 pub(crate) use registry::ProtocolRegistry;
 #[cfg(feature = "managed-stream-runtime")]

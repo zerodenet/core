@@ -13,6 +13,7 @@ pub(super) struct Candidate {
 pub(super) struct Plan {
     pub(super) candidates: Vec<Candidate>,
     removed: BTreeSet<String>,
+    previous: std::sync::Arc<RuntimeConfig>,
 }
 
 pub(super) fn prepare(
@@ -92,6 +93,7 @@ pub(super) fn prepare(
     Ok(Plan {
         candidates,
         removed,
+        previous: previous_config,
     })
 }
 impl Plan {
@@ -144,6 +146,16 @@ impl Plan {
                 .iter()
                 .map(|candidate| candidate.inbound.tag.clone()),
         );
+        for tag in &affected {
+            if let Some(previous) = self
+                .previous
+                .inbounds
+                .iter()
+                .find(|inbound| inbound.tag == *tag)
+            {
+                runtime_factory.owners().retain_recovery(tag, previous)?;
+            }
+        }
         // Request every affected stop before awaiting any individual shutdown.
         for tag in &affected {
             if let Some(shutdown) = state.listener_stops.get(tag) {

@@ -74,6 +74,15 @@ pub(super) fn spawn_inbound_listener_with_state(
         }
     };
     let owner = installed.owner();
+    if let Some(recovery) = operation.recovery_state() {
+        if let Err(error) = owner.install_recovery(recovery) {
+            return Err(if managed {
+                owner.retain_managed_listener_error(error)
+            } else {
+                owner.retain_unexecuted_bound(bound, error)
+            });
+        }
+    }
     if !rollback {
         if let Err(error) = runtime_factory.register_preparing(&owner) {
             return Err(if managed {

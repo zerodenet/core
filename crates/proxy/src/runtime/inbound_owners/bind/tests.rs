@@ -29,7 +29,7 @@ pub(super) fn proxy() -> Proxy {
     )
     .unwrap()
 }
-fn lease(proxy: &Proxy, config: &Arc<RuntimeConfig>, index: usize) -> InboundBindLease {
+pub(super) fn lease(proxy: &Proxy, config: &Arc<RuntimeConfig>, index: usize) -> InboundBindLease {
     let inbound = &config.inbounds[index];
     // This tests the generic host with an actual cold operation. It does not
     // opt Direct into the production capability's still-unmigrated UDP path.

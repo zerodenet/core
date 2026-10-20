@@ -17,6 +17,10 @@ pub(super) async fn apply_candidate(
         prepared,
         ..
     } = candidate;
+    let prepared = runtime_factory
+        .owners()
+        .prepare_recovery_bind(inbound.clone(), source_dir, false)?
+        .or(prepared);
     let inbound = &inbound;
     let (shutdown_tx, _) = watch::channel(false);
     let bound = super::super::bind::bind_prepared_listener(

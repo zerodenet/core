@@ -34,6 +34,7 @@ struct Resource {
 }
 pub(crate) struct InboundOwner {
     identity: ComponentInstanceId,
+    pub(super) recovery: OnceLock<Arc<dyn crate::protocol_registry::InboundRecovery>>,
     shutdown: watch::Sender<bool>,
     cancel: CancellationToken,
     scope: AsyncMutex<TaskScope>,
@@ -101,6 +102,7 @@ impl InboundOwner {
         let registrar = scope.registrar();
         Self {
             identity,
+            recovery: OnceLock::new(),
             shutdown,
             cancel: CancellationToken::new(),
             scope: AsyncMutex::new(scope),

@@ -65,6 +65,7 @@ impl InboundOwnerRegistry {
             return Err(std::io::Error::other("stale or consumed inbound shutdown receipt").into());
         }
         let result = publish(&receipt.terminal)?;
+        self.confirm_recovery_origin(&receipt.tag, &receipt.terminal);
         receipt.terminal.publish();
         pending.remove(&receipt.tag);
         entries.remove(&receipt.tag);
