@@ -10,7 +10,7 @@ fn config() -> RuntimeConfig {
             {"tag":"two","protocol":{"type":"socks5","server":"127.0.0.1","port":10002}}
         ],
         "outbound_groups":[{"tag":"dns-path","type":"relay","proxies":["one","two"]}],
-        "runtime":{"dns":{"servers":{"remote":{"type":"udp","host":"127.0.0.1","detour":"dns-path"}},"default_server":"remote"}},
+        "runtime":{"dns":{"servers":{"node":{"type":"udp","host":"127.0.0.1"},"remote":{"type":"udp","host":"127.0.0.1","detour":"dns-path"}},"default_server":"remote","policy":{"node_server":"node"}}},
         "route":{"final":{"type":"direct"}}
     }).to_string()).unwrap()
 }
