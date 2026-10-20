@@ -138,7 +138,10 @@ async fn cancelled_real_dns_query_cannot_commit_a_late_success_to_cache() {
             .await
         })
     };
-    received.await.unwrap();
+    tokio::time::timeout_at(deadline(), received)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(
         !pending.is_finished(),
         "cancellation must interrupt actual pending DNS I/O"
