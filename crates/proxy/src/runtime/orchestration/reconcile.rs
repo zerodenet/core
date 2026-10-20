@@ -46,16 +46,7 @@ impl OrchestrationState {
             &new_snapshot,
             &components,
         );
-        let dns_reload = new_config
-            .compile_dns_dispatch()
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))
-            .and_then(|dispatch| {
-                proxy.resolver.prepare_reload_resources_with_dispatch(
-                    new_config.runtime.dns.as_ref(),
-                    dispatch,
-                    &affected,
-                )
-            });
+        let dns_reload = self.prepare_dns_for_reload(proxy, &new_snapshot, &components, &affected);
         if let Err(error) = dns_reload {
             warn!(%error, reason = "dns_reload_error", "failed to prepare dns config");
             self.reject_reload(proxy, &new_snapshot, error.to_string())
@@ -154,9 +145,8 @@ impl OrchestrationState {
         }
         if !proxy.pending_reload_matches(&new_snapshot) {
             let commit = async {
-                let token = proxy
-                    .resolver
-                    .prepared_reload_resources()
+                let token = self
+                    .dns_reload_resources(&new_snapshot)
                     .map_err(|error| error.to_string())?;
                 proxy
                     .resolver
@@ -214,6 +204,9 @@ impl OrchestrationState {
         }
         self.publish_endpoint_facts(proxy);
         log_reload_reconciled(&new_config);
+        // For an accepted apply, its persistent task takes over retirement and
+        // commit after this real acknowledgement. Resolver retains the token.
+        self.pending_dns_reload = None;
         proxy.complete_reload(&self.applied_snapshot, Ok(()));
     }
 

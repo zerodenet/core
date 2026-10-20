@@ -9,6 +9,7 @@ impl OrchestrationState {
         message: String,
         recover_dns: bool,
     ) {
+        self.pending_dns_reload = None;
         proxy.resolver.discard_prepared_reload();
         let persist = proxy.pending_reload_persists(rejected);
         let previous = proxy

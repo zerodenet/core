@@ -63,6 +63,7 @@ impl OrchestrationState {
             urltest_runtime,
             inbound_runtime_factory,
             applied_snapshot,
+            pending_dns_reload: None,
             configured_tun_failures: proxy.configured_tun_failures.subscribe(),
         };
 

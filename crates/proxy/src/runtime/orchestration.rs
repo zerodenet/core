@@ -10,6 +10,7 @@ mod devices;
 mod endpoint;
 mod lifecycle;
 mod logging;
+mod pending_dns;
 mod reconcile;
 mod startup;
 mod state;

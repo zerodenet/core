@@ -37,6 +37,7 @@ pub(super) struct OrchestrationState {
     pub(super) urltest_runtime: UrlTestRuntime,
     pub(super) inbound_runtime_factory: InboundListenerRuntimeFactory,
     pub(super) applied_snapshot: std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
+    pub(super) pending_dns_reload: Option<super::pending_dns::PendingDnsReload>,
     pub(super) configured_tun_failures: tokio::sync::broadcast::Receiver<String>,
 }
 
