@@ -1,5 +1,5 @@
 use super::*;
-use crate::contract::{lifecycle::ChannelControl, CloseReason};
+use crate::contract::lifecycle::ChannelControl;
 use std::{
     future::Future,
     sync::{

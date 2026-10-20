@@ -107,8 +107,8 @@ impl Shared {
 /// Dropping either view requests cancellation, never a successful close receipt.
 pub struct ControlledTcpStream {
     shared: Arc<Shared>,
-    read_cancelled: Pin<Box<dyn Future<Output = ()> + Send>>,
-    write_cancelled: Pin<Box<dyn Future<Output = ()> + Send>>,
+    read_cancelled: Pin<Box<dyn Future<Output = ()> + Send + Sync>>,
+    write_cancelled: Pin<Box<dyn Future<Output = ()> + Send + Sync>>,
     read_waiter: Arc<WaitTarget>,
     write_waiter: Arc<WaitTarget>,
 }
