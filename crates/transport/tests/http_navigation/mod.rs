@@ -125,3 +125,5 @@ async fn scoped_executor_drives_real_h2_and_dropping_job_closes_its_original_car
         .unwrap()
         .unwrap();
 }
+
+mod owned;
