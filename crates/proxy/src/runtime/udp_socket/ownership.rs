@@ -29,6 +29,11 @@ impl DirectUdpReplies {
         self.flows.entry(peer).or_insert_with(make_flow);
     }
 
+    pub(super) fn retire_all(&mut self) {
+        self.retired
+            .extend(self.flows.drain().map(|(peer, _flow)| peer));
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.flows.is_empty()
     }

@@ -126,3 +126,55 @@ async fn socket_identity_exhaustion_rejects_new_collision_before_bind_and_keeps_
     );
     tokio::net::UdpSocket::bind(local).await.unwrap();
 }
+
+#[tokio::test]
+async fn deferred_native_retirement_revokes_guards_but_keeps_original_fds_and_budget() {
+    let proxy = proxy();
+    let mut sockets = socket_set(&proxy, None);
+    sockets.defer_native_close = true;
+    sockets.native_budget = Some(super::super::DirectNativeBudget {
+        sockets: std::num::NonZeroUsize::new(1).unwrap(),
+        attempts: std::num::NonZeroUsize::new(1).unwrap(),
+        started: 0,
+    });
+    let policy = policy(&proxy, Some("first"));
+    let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let target = peer.local_addr().unwrap();
+    let mut bytes = [0; 32];
+    sockets
+        .send_to_addr(b"actual", target, 1, &policy)
+        .await
+        .unwrap();
+    let (_, local) = peer.recv_from(&mut bytes).await.unwrap();
+    peer.send_to(b"read guard", local).await.unwrap();
+    let (_, guard) = sockets.recv_from_addr(&mut bytes).await.unwrap();
+    assert!(guard.is_current());
+    sockets.retire_session(1);
+    assert!(!guard.is_current());
+    assert_eq!(sockets.sockets.len(), 1);
+    assert!(sockets.sockets[0].retired);
+    assert!(sockets.take_native_close_report().closed_io.is_empty());
+    assert!(tokio::net::UdpSocket::bind(local).await.is_err());
+    // Neither logical retirement nor a topology refresh may reclaim the fd
+    // slot or allow reuse of its old peer mapping before physical close.
+    proxy.egress_interface.invalidate_network();
+    sockets.refresh_if_stale();
+    assert_eq!(sockets.sockets.len(), 1);
+    assert!(sockets
+        .send_to_addr(b"forbidden reuse", target, 2, &policy)
+        .await
+        .is_err());
+    assert!(sockets.take_native_close_report().closed_io.is_empty());
+    assert!(tokio::net::UdpSocket::bind(local).await.is_err());
+    // This terminal operation is invoked by the owning lifecycle only after
+    // its external task proof. This unit checks the native ledger, not that
+    // separate host-joined proof (no synthetic TaskExit is constructed).
+    sockets.close_all_native();
+    let report = sockets.take_native_close_report();
+    assert!(report.is_complete());
+    assert_eq!(
+        report.closed_io,
+        vec!["explicitly closed 1 original Direct UDP sockets"]
+    );
+    tokio::net::UdpSocket::bind(local).await.unwrap();
+}

@@ -93,7 +93,8 @@ impl DirectUdpSockets {
         // Compare borrowed identities before materializing a new binding. A
         // warm send must not clone the tag/policy/interface just to reuse it.
         let matches_binding = |socket: &DirectUdpSocket| {
-            socket.binding.policy == *policy
+            !socket.retired
+                && socket.binding.policy == *policy
                 && socket.binding.ipv6 == target.is_ipv6()
                 && socket.binding.egress_generation == selection.generation()
                 && socket.binding.source == selection.dial_source_address()
@@ -157,6 +158,7 @@ impl DirectUdpSockets {
             .await?;
         self.sockets.push(DirectUdpSocket {
             id,
+            retired: false,
             socket,
             binding,
             selection,
@@ -173,8 +175,7 @@ impl DirectUdpSockets {
         // A stale completion still owns a real original socket. Retire it into
         // this same ledger before returning the original admission error.
         if let Err(error) = self.services.ensure_direct_policy_current(policy) {
-            self.close
-                .retire(self.sockets.pop().expect("just installed socket"));
+            self.retire_sockets(|socket| socket.id == id);
             return Err(error);
         }
         if self
@@ -185,8 +186,7 @@ impl DirectUdpSockets {
             .egress_generation
             != self.services.egress_generation()
         {
-            self.close
-                .retire(self.sockets.pop().expect("just installed socket"));
+            self.retire_sockets(|socket| socket.id == id);
             return Err(EngineError::Io(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
                 "egress topology changed while binding direct UDP socket",

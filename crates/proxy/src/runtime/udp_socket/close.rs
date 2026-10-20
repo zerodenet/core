@@ -66,6 +66,15 @@ impl NativeCloseLedger {
 }
 impl DirectUdpSockets {
     pub(super) fn retire_sockets(&mut self, mut remove: impl FnMut(&DirectUdpSocket) -> bool) {
+        if self.defer_native_close {
+            for entry in &mut self.sockets {
+                if remove(entry) {
+                    entry.replies.retire_all();
+                    entry.retired = true;
+                }
+            }
+            return;
+        }
         // extract_if retains the order/capacity of surviving shared sockets.
         // No replacement handle, descriptor clone, read task, or warm allocation.
         for entry in self.sockets.extract_if(.., |entry| remove(entry)) {
@@ -104,7 +113,12 @@ impl DirectUdpSockets {
         Ok(())
     }
     pub(crate) fn close_all_native(&mut self) {
-        self.retire_sockets(|_| true);
+        // Only the actual owning lifecycle may call this terminal operation.
+        // Peer mode reaches it after matching the real joined-task receipt;
+        // ordinary retire/refresh paths above retain the original descriptors.
+        for entry in self.sockets.drain(..) {
+            self.close.retire(entry);
+        }
         self.isolated_sessions.clear();
         self.reset_receiver_if_empty();
         self.close.retry_known_open();

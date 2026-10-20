@@ -41,6 +41,8 @@ pub(crate) struct DirectUdpSockets {
     receive: tokio::sync::Mutex<receive::DirectUdpReceiver>,
     close: close::NativeCloseLedger,
     native_budget: Option<DirectNativeBudget>,
+    // Peer mode waits for the actual containing task exit before FD close.
+    defer_native_close: bool,
 }
 #[cfg(feature = "udp-runtime")]
 struct DirectNativeBudget {
@@ -52,6 +54,7 @@ struct DirectNativeBudget {
 #[cfg(feature = "udp-runtime")]
 struct DirectUdpSocket {
     id: u64,
+    retired: bool,
     socket: TokioDatagramSocket,
     binding: DirectUdpSocketBinding,
     selection: zero_platform_tokio::EgressSelection,
@@ -94,6 +97,7 @@ impl DirectUdpSockets {
             receive: tokio::sync::Mutex::new(receive::DirectUdpReceiver::default()),
             close: close::NativeCloseLedger::default(),
             native_budget: None,
+            defer_native_close: false,
         }
     }
 

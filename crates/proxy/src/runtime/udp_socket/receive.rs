@@ -76,7 +76,8 @@ impl DirectUdpSockets {
     }
 
     fn receive_is_current(&self, entry: &DirectUdpSocket) -> bool {
-        self.generation == self.services.egress_generation()
+        !entry.retired
+            && self.generation == self.services.egress_generation()
             && self
                 .services
                 .direct_policy_is_current(&entry.binding.policy)
