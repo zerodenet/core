@@ -151,7 +151,6 @@ async fn actual_registration_capacity_failure_never_starts_an_unowned_replacemen
 }
 #[tokio::test]
 async fn registered_driver_failure_retains_original_io_payload_and_actual_scope_join_result() {
-    use std::error::Error;
     let pool = Arc::new(ClientPool::default());
     let control = Arc::new(FailureControl::default());
     let marker = Arc::new(());
@@ -188,17 +187,11 @@ async fn registered_driver_failure_retains_original_io_payload_and_actual_scope_
         .unwrap()
         .unwrap();
     let error = exit.result.unwrap_err();
-    let source = error.source().unwrap().downcast_ref::<io::Error>().unwrap();
-    assert_eq!(source.kind(), io::ErrorKind::ConnectionReset);
-    let original = source
-        .source()
-        .unwrap()
-        .downcast_ref::<io::Error>()
-        .unwrap()
-        .get_ref()
-        .unwrap()
-        .downcast_ref::<OriginalFailure>()
-        .unwrap();
+    assert_eq!(error.stage, Stage::Receive);
+    assert_eq!(error.reason, Reason::Io);
+    assert_eq!(error.impact, Impact::Component);
+    let original =
+        original_failure(&error).expect("same rich I/O payload through tracked scope forwarding");
     assert!(Arc::ptr_eq(&original.0, &marker));
     assert!(stream.read(&mut payload).await.is_err());
     drop(stream);
@@ -211,4 +204,21 @@ async fn registered_driver_failure_retains_original_io_payload_and_actual_scope_
         [Unfinished::Io(_)]
     ));
     assert!(tasks.is_complete());
+}
+
+fn original_failure(error: &(dyn std::error::Error + 'static)) -> Option<&OriginalFailure> {
+    let mut current = Some(error);
+    while let Some(source) = current {
+        if let Some(io) = source.downcast_ref::<io::Error>() {
+            assert_eq!(io.kind(), io::ErrorKind::ConnectionReset);
+            if let Some(original) = io
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<OriginalFailure>())
+            {
+                return Some(original);
+            }
+        }
+        current = source.source();
+    }
+    None
 }
