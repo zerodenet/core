@@ -19,6 +19,7 @@ pub(in crate::component) struct HostResources {
     coverage: Vec<coverage::CoverageBinding>,
     carriers: carrier::CarrierDeclarations,
     metadata: metadata::MetadataDeclarations,
+    roots: root_datagram::RootDeclarations,
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Arc<tokio::sync::Notify>,
@@ -42,6 +43,7 @@ mod files;
 mod listener;
 mod metadata;
 mod prepare;
+mod root_datagram;
 pub(in crate::component) use evidence::HostIoEvidence;
 pub(crate) use listener::HostDatagramListenerOwner;
 mod shutdown;
@@ -82,6 +84,8 @@ impl HostResources {
             ));
         }
         state.start_deadline = Some(deadline);
+        drop(state);
+        self.roots.activate();
         Ok(StartAccess(self.clone()))
     }
     fn denied(&self) -> ChannelError {
@@ -100,6 +104,23 @@ impl ResourceAccess for HostResources {
         tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
     ) -> Result<(), ChannelError> {
         self.confirm_metadata_original_users(ordinal, receipt, tasks)
+    }
+
+    fn open_root_datagram(
+        &self,
+        request: &zero_platform_tokio::contract::component::RootDatagramRequest,
+        query: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<
+        zero_platform_tokio::contract::component::GrantedRootDatagram,
+        zero_platform_tokio::contract::component::RootDatagramAttemptFailure,
+    > {
+        self.open_root(request, query)
+    }
+    fn close_root_datagram(
+        &self,
+        usage: zero_platform_tokio::contract::component::RootDatagramUse,
+    ) -> Result<zero_platform_tokio::contract::component::RootDatagramClosed, ChannelError> {
+        self.close_root(usage)
     }
 
     fn listen_metadata_datagram(

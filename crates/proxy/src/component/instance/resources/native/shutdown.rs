@@ -29,11 +29,13 @@ impl HostResources {
         // Cancellation callbacks run after the durable closed phase is installed
         // and outside every host resource/cleanup lock.
         self.carriers.revoke();
+        self.roots.revoke_and_close(self.component);
         self.changed.notify_waiters();
         // Native observations may flush external wakes. Sample before acquiring
         // even the async cleanup gate; a concurrently completed receipt can be
         // observed on retry, never guessed from an older pending snapshot.
         let carriers = self.carriers.evidence();
+        let roots = self.roots.evidence(self.component);
         self.metadata.close_native(self.component);
         let metadata = self.metadata.evidence(self.component);
         let Ok(_cleanup) = timeout_at(deadline, self.cleanup.lock()).await else {
@@ -67,6 +69,9 @@ impl HostResources {
         {
             return Err(crate::component::instance::retained(source.clone()));
         }
+        if let Some(source) = roots.iter().find_map(|entry| entry.first_fault.as_ref()) {
+            return Err(crate::component::instance::retained(source.clone()));
+        }
         if let Some(source) = metadata.iter().find_map(|entry| entry.first_fault.as_ref()) {
             return Err(crate::component::instance::retained(source.clone()));
         }
@@ -93,6 +98,7 @@ impl HostResources {
         drop(state);
         self.metadata.append_receipts(self.component, &mut report);
         report.unfinished.extend(metadata.iter().filter(|entry| !entry.physical_confirmed()).map(|entry| Unfinished::Resource(format!("component {} metadata declaration {} native_busy={} unconfirmed users={:?} confirmed private user graphs={}",self.component.0,entry.ordinal,entry.busy,entry.unconfirmed_users(),entry.confirmed_users()))));
+        self.roots.append_receipts(self.component, &mut report);
         Ok(report)
     }
     async fn drive_native(&self, deadline: Instant) {

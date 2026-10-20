@@ -29,6 +29,8 @@ impl HostResources {
         cancel: CancellationToken,
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
     ) -> Result<Arc<Self>, ChannelError> {
+        let roots =
+            root_datagram::RootDeclarations::new(component, declarations, identity.clone())?;
         let metadata =
             metadata::MetadataDeclarations::new(component, declarations, identity.clone())?;
         let carriers =
@@ -110,7 +112,8 @@ impl HostResources {
                 ResourceDeclaration::File { path, max_bytes } => {
                     files.declare(component, path, *max_bytes)?
                 }
-                ResourceDeclaration::ControlledOutboundStream { .. }
+                ResourceDeclaration::ControlledOutboundDatagram { .. }
+                | ResourceDeclaration::ControlledOutboundStream { .. }
                 | ResourceDeclaration::ControlledDirectStream { .. }
                 | ResourceDeclaration::MetadataDatagram { .. } => {}
                 ResourceDeclaration::OutboundDatagram { .. } => {
@@ -138,6 +141,7 @@ impl HostResources {
             coverage,
             carriers,
             metadata,
+            roots,
             cancel,
             state: Mutex::new(State {
                 closed: false,

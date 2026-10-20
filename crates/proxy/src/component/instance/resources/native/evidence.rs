@@ -10,6 +10,7 @@ pub(in crate::component) struct HostIoEvidence {
     pub admission_closed: bool,
     pub files: Vec<FileIoEvidence>,
     pub native: Vec<NativeIoEvidence>,
+    pub roots: Vec<super::root_datagram::RootDatagramEvidence>,
     pub carriers: Vec<super::carrier::CarrierIoEvidence>,
     pub metadata: Vec<super::metadata::MetadataIoEvidence>,
     pub sticky_faults: Vec<Arc<ChannelError>>,
@@ -55,6 +56,8 @@ impl HostResources {
         let files = state.files.evidence();
         let admission_closed = state.closed || self.cancel.is_cancelled();
         drop(state);
+        let roots = self.roots.evidence(self.component);
+        sticky_faults.extend(roots.iter().filter_map(|entry| entry.first_fault.clone()));
         let carriers = self.carriers.evidence();
         let metadata = self.metadata.evidence(self.component);
         sticky_faults.extend(
@@ -91,6 +94,13 @@ impl HostResources {
                         .map(coverage::DeclarationProvider::Metadata)
                         .unwrap_or(coverage::DeclarationProvider::Unaccounted);
                 }
+                if matches!(binding, coverage::CoverageBinding::RootDatagram) {
+                    proof.provider = roots
+                        .iter()
+                        .position(|root| root.ordinal == ordinal)
+                        .map(coverage::DeclarationProvider::RootDatagram)
+                        .unwrap_or(coverage::DeclarationProvider::Unaccounted);
+                }
                 proof
             })
             .collect();
@@ -101,6 +111,7 @@ impl HostResources {
             files,
             native,
             carriers,
+            roots,
             metadata,
             sticky_faults,
         }

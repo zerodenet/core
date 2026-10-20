@@ -5,6 +5,7 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::component) enum DeclaredResourceKind {
     ControlledOutboundStream,
+    ControlledOutboundDatagram,
     ControlledDirectStream,
     NativeIcmp,
     MetadataDatagram,
@@ -23,6 +24,7 @@ pub(in crate::component) enum DeclarationProvider {
     Native(usize),
     Carrier(usize),
     Metadata(usize),
+    RootDatagram(usize),
     Unaccounted,
 }
 #[derive(Clone, Debug)]
@@ -36,6 +38,7 @@ pub(in crate::component) struct DeclarationEvidence {
 pub(super) enum CoverageBinding {
     Carrier(DeclaredResourceKind),
     Metadata,
+    RootDatagram,
     File(PathBuf),
     Tcp(SocketAddr),
     Datagram(SocketAddr),
@@ -47,6 +50,7 @@ impl CoverageBinding {
         declaration: &ResourceDeclaration,
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
+            ResourceDeclaration::ControlledOutboundDatagram { .. } => Self::RootDatagram,
             ResourceDeclaration::ControlledOutboundStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledOutboundStream)
             }
@@ -86,6 +90,7 @@ impl CoverageBinding {
         let (kind, provider) = match self {
             Self::Carrier(kind) => (*kind, None),
             Self::Metadata => (DeclaredResourceKind::MetadataDatagram, None),
+            Self::RootDatagram => (DeclaredResourceKind::ControlledOutboundDatagram, None),
             Self::File(path) => (
                 DeclaredResourceKind::File,
                 files
@@ -127,6 +132,7 @@ impl evidence::HostIoEvidence {
         let mut native = vec![false; self.native.len()];
         let mut carriers = vec![false; self.carriers.len()];
         let mut metadata = vec![false; self.metadata.len()];
+        let mut roots = vec![false; self.roots.len()];
         for (ordinal, declaration) in self.declarations.iter().enumerate() {
             if declaration.ordinal != ordinal {
                 return false;
@@ -189,6 +195,17 @@ impl evidence::HostIoEvidence {
                         _ => false,
                     }
                 }
+                DeclarationProvider::RootDatagram(index)
+                    if declaration.kind == DeclaredResourceKind::ControlledOutboundDatagram =>
+                {
+                    match (self.roots.get(index), roots.get_mut(index)) {
+                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                            *seen = true;
+                            owner.physical_confirmed()
+                        }
+                        _ => false,
+                    }
+                }
                 _ => false,
             };
             if !confirmed {
@@ -199,6 +216,7 @@ impl evidence::HostIoEvidence {
             && native.into_iter().all(|seen| seen)
             && carriers.into_iter().all(|seen| seen)
             && metadata.into_iter().all(|seen| seen)
+            && roots.into_iter().all(|seen| seen)
     }
 }
 
