@@ -66,14 +66,21 @@ where
                 peers,
                 move |peer, packets, binding| {
                     let relay = (relay_factory)(peer, packets);
+                    let context = peer_resources.resource_context(binding, ingress);
+                    let (slot, driver) =
+                        crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot::channel();
                     let runtime = udp_runtime
                         .clone()
-                        .with_peer_resources(peer_resources.resource_context(binding, ingress));
+                        .with_peer_resources(context)
+                        .with_direct_peer_driver(slot);
                     let socket = peer_socket.clone();
                     let tag = inbound_tag.clone();
                     async move {
-                        crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
-                            runtime, socket, relay, &tag, true,
+                        crate::runtime::udp_socket::endpoint::peer::job::run_peer_with_driver(
+                            crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
+                                runtime, socket, relay, &tag, true,
+                            ),
+                            driver,
                         )
                         .await
                     }
