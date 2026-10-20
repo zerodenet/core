@@ -259,3 +259,36 @@ async fn tracked_registration_preserves_cold_capacity_and_closing_reasons_withou
         SpawnError::Closing
     );
 }
+
+#[tokio::test]
+async fn witness_identity_is_the_original_registration_before_and_after_real_join() {
+    let mut first = scope(2);
+    let mut second = scope(1);
+    let (_, a) = first
+        .registrar()
+        .spawn_tracked(TaskClass::Auxiliary, async { Ok(()) })
+        .unwrap();
+    let (_, b) = first
+        .registrar()
+        .spawn_tracked(TaskClass::Auxiliary, async { Ok(()) })
+        .unwrap();
+    let (_, foreign) = second
+        .registrar()
+        .spawn_tracked(TaskClass::Auxiliary, async { Ok(()) })
+        .unwrap();
+    let same = a.clone();
+    assert!(a.same_registration(&same));
+    assert!(!a.same_registration(&b));
+    assert!(!a.same_registration(&foreign));
+    assert!(!a.is_joined());
+    first.next_exit().await.unwrap();
+    first.next_exit().await.unwrap();
+    second.next_exit().await.unwrap();
+    assert!(a.same_registration(&same));
+    assert!(!a.same_registration(&b));
+    assert!(!a.same_registration(&foreign));
+    assert_eq!(
+        a.try_joined().unwrap().id(),
+        same.try_joined().unwrap().id()
+    );
+}

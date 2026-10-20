@@ -34,6 +34,11 @@ impl std::fmt::Debug for JoinedState {
 #[derive(Clone, Debug)]
 pub struct TaskJoinWitness(Arc<JoinedState>);
 impl TaskJoinWitness {
+    /// Compare the original registration observer, without joining, waking,
+    /// retaining the scope, or granting permission to acknowledge an exit.
+    pub fn same_registration(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     fn new(owner: &Arc<Shared>) -> Self {
         let hosted = owner.lock_state().hosted;
         Self(Arc::new(JoinedState {
