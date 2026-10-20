@@ -1,6 +1,7 @@
 //! Bounded browser navigation over an already authenticated TLS carrier.
 //! This module never dials a target or grants proxy admission.
 use bytes::Bytes;
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use http::{Request, Uri};
 use std::{
     future::Future,
@@ -126,7 +127,8 @@ async fn crawl(sender: h2::client::SendRequest<Bytes>, host: String, plan: Plan)
         &paths,
     )
     .await?;
-    let mut jobs = tokio::task::JoinSet::new();
+    // These are child futures of this single owned job, never detached tasks.
+    let mut jobs = FuturesUnordered::new();
     for _ in 0..sample(plan.ranges[1]) {
         let (sender, origin, paths, plan, first) = (
             sender.clone(),
@@ -135,7 +137,7 @@ async fn crawl(sender: h2::client::SendRequest<Bytes>, host: String, plan: Plan)
             plan.clone(),
             first.clone(),
         );
-        jobs.spawn(async move {
+        jobs.push(async move {
             let mut referer = first;
             for _ in 0..sample(plan.ranges[2]) {
                 let path = paths.lock().await.choose();
@@ -154,8 +156,8 @@ async fn crawl(sender: h2::client::SendRequest<Bytes>, host: String, plan: Plan)
             Ok::<_, io::Error>(())
         });
     }
-    while let Some(result) = jobs.join_next().await {
-        result.map_err(io::Error::other)??;
+    while let Some(result) = jobs.next().await {
+        result?;
     }
     Ok(())
 }
