@@ -1,7 +1,5 @@
-//! Real host Business path: actual raw-IP callers close users; untracked callers stay unaccounted.
+//! Real host Business path with actual accepted and raw-IP caller graphs.
 use super::fixtures::*;
-#[cfg(not(feature = "raw-ip-runtime"))]
-use crate::component::business_demand::AdmittedTcpDemand;
 use crate::{
     component::{
         business_carrier::BusinessCarrierRequest, catalog::supervision::testing::TestContext,
@@ -23,8 +21,6 @@ use tokio::{
     time::{timeout, Duration},
 };
 use zero_core::{component::*, request::Destination, Address};
-#[cfg(not(feature = "raw-ip-runtime"))]
-use zero_core::{Network, ProtocolType, Session, SessionAuth};
 use zero_platform_tokio::{
     contract::{
         component::{
@@ -141,36 +137,5 @@ impl ResourceAccess for Access {
         self.original.open_device(name)
     }
 }
-#[cfg(not(feature = "raw-ip-runtime"))]
-fn admitted(proxy: &Proxy) -> (Session, crate::component::direct_bridge::Invocation) {
-    let mut session = Session::new(
-        0,
-        Address::Domain("native.example".into()),
-        443,
-        Network::Tcp,
-        ProtocolType::new("verified"),
-    );
-    session.source_ip = Some(Address::Ipv4([192, 0, 2, 12]));
-    session.source_port = Some(48012);
-    let mut auth = SessionAuth::new("verified");
-    auth.principal_key = Some("business-grpc".into());
-    auth.quota_remaining_bytes = Some(4096);
-    auth.device_limit = Some(1);
-    session.apply_auth(auth);
-    let receipt = proxy
-        .engine()
-        .prepare_session_admitted(&mut session, "in")
-        .unwrap();
-    let demand = AdmittedTcpDemand::new(proxy.engine(), SessionId(session.id), receipt).unwrap();
-    let invocation = proxy
-        .tcp_runtime_services()
-        .for_inbound("in".into())
-        .with_admitted_business_identity(&session, demand)
-        .unwrap()
-        .execution()
-        .invocation
-        .unwrap();
-    (session, invocation)
-}
-mod options;
+
 mod wire;

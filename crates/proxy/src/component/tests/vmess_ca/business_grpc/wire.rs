@@ -2,6 +2,7 @@ use super::*;
 #[tokio::test]
 async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls_grpc_clients() {
     timeout(Duration::from_secs(12), async {
+        for caller_kind in crate::component::tests::business_carrier::sources::Kind::all() {
         for multi_mode in [false,true] {
             let proxy=proxy();
             let directory=Directory::new();
@@ -59,14 +60,9 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
             });
             let observations=Arc::new(Observations::default());
             for _ in 0..2 {
-                #[cfg(feature = "raw-ip-runtime")]
-                let mut caller = crate::component::tests::business_carrier::caller::Caller::new(&proxy).await;
-                #[cfg(feature = "raw-ip-runtime")]
-                let (session, invocation) = (caller.session.clone(), caller.invocation.clone());
-                #[cfg(not(feature = "raw-ip-runtime"))]
-                let (session,invocation)=admitted(&proxy);
+                let mut caller = crate::component::tests::business_carrier::sources::Caller::new(&proxy, caller_kind).await;
+                let (session, invocation) = (caller.session().clone(), caller.invocation().clone());
                 assert!(invocation.deadline.is_none());
-                #[cfg(feature = "raw-ip-runtime")]
                 {
                     let auth=session.auth.as_ref().unwrap();
                     assert_eq!(auth.scheme,"verified");
@@ -95,7 +91,6 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
                 let exit=host.drive(witness.wait()).await;
                 assert_eq!(exit.class(),zero_platform_tokio::contract::scope::TaskClass::Auxiliary);
                 assert!(exit.result().is_ok());
-                #[cfg(feature = "raw-ip-runtime")]
                 {
                     assert!(!caller.witness().is_joined(), "transport exit is not caller completion");
                     caller.join().await;
@@ -106,12 +101,10 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
             assert_eq!(captured.reads.load(Ordering::SeqCst),1);
             assert!(observations.outer.load(Ordering::Relaxed)>2*REQUEST_LEN);
             let report:CloseReport=host.drive(slot.shutdown(deadline())).await.unwrap();
-            #[cfg(feature = "raw-ip-runtime")]
             assert!(report.is_complete(), "same actual caller joins, returned logical views, actual drivers and native controls must close the real graph: {report:?}");
-            #[cfg(not(feature = "raw-ip-runtime"))]
-            assert!(!report.is_complete(), "without an actual caller registration native closure cannot invent a user graph");
             assert!(actual.closed().unwrap().matches(&actual));
             finish.send_replace(true);server.await.unwrap();
+        }
         }
     }).await.unwrap();
 }
