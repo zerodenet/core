@@ -69,7 +69,7 @@ impl HostResources {
             } else {
                 tokio::net::TcpSocket::new_v6()?
             };
-            // Match Tokio/Mio bind policy, including Windows' exclusive-use semantics.
+            // Match Tokio/Mio: leave SO_REUSEADDR unset on Windows.
             #[cfg(not(windows))]
             socket.set_reuseaddr(true)?;
             socket.bind(address)?;
