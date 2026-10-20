@@ -14,8 +14,8 @@ use zero_platform_tokio::{
 use zero_traits::IpAddress;
 
 use super::direct_dial::{
-    dial_tcp_candidates, dial_tcp_candidates_with_policy, dial_tcp_fallback_candidates,
-    TcpDialAttempt, TcpDialFailure,
+    candidate::LegacyCandidateOpener, dial_tcp_candidates, dial_tcp_candidates_using,
+    dial_tcp_fallback_using, CandidateOpener, TcpDialAttempt, TcpDialFailure,
 };
 use candidates::{
     literal_direct_target, recovered_ipv4_candidate_refresh, refresh_recovered_ipv4_candidates,
@@ -29,8 +29,8 @@ mod policy;
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DirectConnector;
 
-pub(crate) struct DirectTcpConnection {
-    pub(crate) socket: TokioSocket,
+pub(crate) struct DirectTcpConnection<S = TokioSocket> {
+    pub(crate) socket: S,
     pub(crate) remote: SocketAddr,
     pub(crate) network: FlowNetworkObservation,
 }
@@ -110,6 +110,18 @@ impl DirectConnector {
         egress: &EgressInterfaceControl,
         policy: &zero_traits::DialPolicy,
     ) -> Result<DirectTcpConnection, DirectTcpConnectFailure> {
+        self.connect_using(session, resolver, egress, policy, &LegacyCandidateOpener)
+            .await
+    }
+
+    pub(crate) async fn connect_using<D: CandidateOpener>(
+        &self,
+        session: &Session,
+        resolver: &Arc<DnsSystem>,
+        egress: &EgressInterfaceControl,
+        policy: &zero_traits::DialPolicy,
+        opener: &D,
+    ) -> Result<DirectTcpConnection<D::Socket>, DirectTcpConnectFailure> {
         let resolution = match self
             .resolve_target_addrs_with_policy(session, resolver.as_ref(), egress, policy)
             .await
@@ -128,7 +140,7 @@ impl DirectConnector {
         };
 
         let dial =
-            match dial_tcp_candidates_with_policy(resolution.candidates.clone(), egress, policy)
+            match dial_tcp_candidates_using(resolution.candidates.clone(), egress, policy, opener)
                 .await
             {
                 Ok(success) => Ok(success),
@@ -139,7 +151,7 @@ impl DirectConnector {
                         egress,
                         &resolution,
                         failure,
-                        policy,
+                        opener,
                     ))
                     .await
                 }
@@ -148,7 +160,7 @@ impl DirectConnector {
         match dial {
             Ok(success) => {
                 let socket = success.socket;
-                let local = socket.local_addr().ok();
+                let local = opener.local(&socket, success.local_addr);
                 let network = direct_network_observation(
                     &success.selection,
                     DirectNetworkDialObservation {
@@ -365,15 +377,16 @@ impl DirectConnector {
         })
     }
 
-    async fn retry_recovered_candidates(
+    async fn retry_recovered_candidates<D: CandidateOpener>(
         &self,
         session: &Session,
         resolver: &Arc<DnsSystem>,
         egress: &EgressInterfaceControl,
         resolution: &DirectTargetResolution,
         failure: Box<TcpDialFailure>,
-        policy: &zero_traits::DialPolicy,
-    ) -> Result<super::direct_dial::TcpDialSuccess, Box<TcpDialFailure>> {
+        opener: &D,
+    ) -> Result<super::direct_dial::TcpDialSuccess<D::Socket>, Box<TcpDialFailure>> {
+        let policy = &resolution.dial_policy;
         let Some(refresh) = resolution.recovered_candidate_refresh.as_ref() else {
             return Err(failure);
         };
@@ -445,7 +458,7 @@ impl DirectConnector {
             candidate_count = resolution.candidates.len() + additional_candidates.len(),
             "original direct endpoint failed; retrying trusted DNS candidates"
         );
-        dial_tcp_fallback_candidates(failure, additional_candidates, egress, policy).await
+        dial_tcp_fallback_using(failure, additional_candidates, egress, policy, opener).await
     }
 
     #[cfg(test)]
