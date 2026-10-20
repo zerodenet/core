@@ -20,6 +20,8 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
         outbounds: BTreeMap::new(),
         order: vec![blocking, panicking],
         started: AtomicBool::new(false),
+        deferred_devices: std::collections::BTreeSet::new(),
+        device_pass: false,
         failures: Mutex::new(BTreeMap::new()),
         confirmed_declared_close: Default::default(),
         closing: Default::default(),

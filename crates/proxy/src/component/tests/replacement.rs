@@ -26,6 +26,8 @@ fn plan(slots: Vec<Arc<ComponentSlot>>) -> Arc<ComponentPlan> {
         outbounds: BTreeMap::new(),
         order: slots,
         started: AtomicBool::new(false),
+        deferred_devices: std::collections::BTreeSet::new(),
+        device_pass: false,
         failures: Default::default(),
         shared_identities: Default::default(),
         confirmed_declared_close: Default::default(),
