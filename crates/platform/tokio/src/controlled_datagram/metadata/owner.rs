@@ -48,14 +48,14 @@ impl MetadataOwner {
         source: SocketAddr,
     ) -> Result<GrantedMetadataDatagram, DatagramAcquisitionError> {
         if self.pending_main.is_some() || self.pending_probes.is_some() {
-            return Err(DatagramAcquisitionError {
-                reservation: None,
-                outcome: AcquisitionOutcome::KnownNoNative,
-                source: Arc::new(std_io::Error::new(
+            return Err(self.main.acquisition_error(
+                None,
+                AcquisitionOutcome::KnownNoNative,
+                Arc::new(std_io::Error::new(
                     std_io::ErrorKind::WouldBlock,
                     "metadata report delivery remains pending",
                 )),
-            });
+            ));
         }
         self.reap();
         // A prior unresolved probe cannot be bypassed by creating a new main.
