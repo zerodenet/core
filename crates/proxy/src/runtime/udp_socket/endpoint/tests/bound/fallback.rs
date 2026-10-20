@@ -267,15 +267,32 @@ async fn actual_send_error_never_replays_payload_to_another_family() {
         .err()
         .unwrap();
     assert!(!has_closed_acquisition(&error, 0));
+    // This fatal send error ends the original inline driver and consumer. The
+    // actual observer may already have joined both and explicitly closed the
+    // original provider before this waiter resumes; that is real completion,
+    // not a timing promise that closed() must still be None.
+    let joined = fixture
+        .live
+        .context
+        .binding()
+        .wait_joined(deadline())
+        .await
+        .unwrap();
+    assert_eq!(joined.task(), fixture.registration.identity().task);
+    let original_failure = joined
+        .failure()
+        .expect("actual send failure remains a failed peer exit");
     assert_no_packet(&peer).await;
-    assert!(fixture.registration.closed().is_none());
     drop(fixture.bridge);
-    // The true original driver failure remains fatal; successful physical
-    // cleanup does not erase the actual send error retained by its real host.
+    // Join/native close does not erase the business send failure or allow a
+    // second-family replay. Keep the same original error in the close receipt.
     assert!(fixture.live.finish().await.is_err());
-    assert!(fixture
-        .registration
-        .closed()
-        .unwrap()
-        .matches(&fixture.registration));
+    let closed = fixture.registration.closed().unwrap();
+    assert!(closed.matches(&fixture.registration));
+    assert_eq!(closed.joined().task(), joined.task());
+    assert_eq!(closed.joined().class(), joined.class());
+    assert!(Arc::ptr_eq(
+        &closed.joined().failure().unwrap(),
+        &original_failure
+    ));
 }
