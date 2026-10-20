@@ -1,7 +1,7 @@
 //! Resolve the entire selected service path before opening any carrier. Protocol
 //! support is determined by actual registered slots, never protocol-name matches.
 mod selection;
-use super::{PreparedTcpCandidateExecution, ProtocolInventory};
+use super::ProtocolInventory;
 use crate::{
     component::{catalog::ComponentPlan, instance::ComponentSlot},
     protocol_registry::OutboundAdapterContext,
@@ -10,8 +10,7 @@ use crate::{
 pub(crate) use selection::ServiceSelections;
 use std::sync::Arc;
 use zero_core::{request::Destination, Address};
-use zero_engine::{ResolvedLeafOutbound, ResolvedOutbound};
-use zero_platform_tokio::contract::dns::DnsQueryRole;
+use zero_engine::ResolvedOutbound;
 
 pub(crate) struct ServiceNode {
     pub(crate) slot: Arc<ComponentSlot>,
@@ -69,55 +68,6 @@ impl ProtocolInventory {
                 } else {
                     Ok(Some(ServicePlan::Fallback(nodes)))
                 }
-            }
-        }
-    }
-    fn service_node(
-        &self,
-        ctx: OutboundAdapterContext<'_>,
-        leaf: &ResolvedLeafOutbound<'_>,
-        components: &ComponentPlan,
-    ) -> Result<Option<ServiceNode>, TcpOutboundFailure> {
-        let failure = |error| TcpOutboundFailure {
-            stage: "prepare_service",
-            error: zero_engine::EngineError::Io(std::io::Error::other(error)),
-            upstream_endpoint: None,
-            network: None,
-        };
-        match leaf {
-            ResolvedLeafOutbound::Direct {
-                tag, dial_policy, ..
-            } => {
-                let slot = components.direct(*tag).map_err(failure)?;
-                Ok(Some(ServiceNode {
-                    slot,
-                    tag: tag.map(str::to_owned),
-                    endpoint: None,
-                    wire_endpoint: None,
-                    role: DnsQueryRole::Direct,
-                    dial: dial_policy.clone(),
-                }))
-            }
-            ResolvedLeafOutbound::Block { .. } => Ok(None),
-            ResolvedLeafOutbound::Proxy { .. } => {
-                let Some(candidate) = self.native_tcp_candidate(ctx, leaf, Some(components)) else {
-                    return Ok(None);
-                };
-                let candidate = candidate?;
-                let PreparedTcpCandidateExecution::Native(slot) = candidate.execution else {
-                    return Ok(None);
-                };
-                let Some((host, port)) = candidate.endpoint else {
-                    return Ok(None);
-                };
-                Ok(Some(ServiceNode {
-                    dial: slot.dial.clone(),
-                    slot,
-                    tag: candidate.tag,
-                    endpoint: Some(endpoint(&host, port)),
-                    wire_endpoint: Some(Destination::new(Address::Domain(host), port)),
-                    role: DnsQueryRole::Node,
-                }))
             }
         }
     }

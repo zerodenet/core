@@ -6,13 +6,19 @@ use zero_engine::OutboundIdentity;
 use zero_engine::RouteMode;
 use zero_engine::{EngineError, ResolvedLeafOutbound};
 
-use super::ProtocolInventory;
+use super::service::{endpoint, ServiceNode};
+use super::{PreparedTcpCandidateExecution, ProtocolInventory};
+use crate::component::catalog::ComponentPlan;
+use crate::protocol_registry::OutboundAdapterContext;
 use crate::protocol_registry::{ClaimedOutboundLeaf, OutboundLeafRuntime};
 use crate::runtime::tcp_dispatch::operation::{
     PreparedTcpConnectOperation, PreparedTcpRelayOperation,
 };
 #[cfg(feature = "udp-runtime")]
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
+use crate::transport::TcpOutboundFailure;
+use zero_core::{request::Destination, Address};
+use zero_platform_tokio::contract::dns::DnsQueryRole;
 
 #[derive(Clone)]
 pub(crate) struct ClaimedInventoryLeaf<'a> {
@@ -106,6 +112,56 @@ mod relay;
 pub(crate) use relay::ClaimedRelayChain;
 
 impl ProtocolInventory {
+    pub(in crate::inventory) fn service_node(
+        &self,
+        ctx: OutboundAdapterContext<'_>,
+        leaf: &ResolvedLeafOutbound<'_>,
+        components: &ComponentPlan,
+    ) -> Result<Option<ServiceNode>, TcpOutboundFailure> {
+        let failure = |error| TcpOutboundFailure {
+            stage: "prepare_service",
+            error: zero_engine::EngineError::Io(std::io::Error::other(error)),
+            upstream_endpoint: None,
+            network: None,
+        };
+        match leaf {
+            ResolvedLeafOutbound::Direct {
+                tag, dial_policy, ..
+            } => {
+                let slot = components.direct(*tag).map_err(failure)?;
+                Ok(Some(ServiceNode {
+                    slot,
+                    tag: tag.map(str::to_owned),
+                    endpoint: None,
+                    wire_endpoint: None,
+                    role: DnsQueryRole::Direct,
+                    dial: dial_policy.clone(),
+                }))
+            }
+            ResolvedLeafOutbound::Block { .. } => Ok(None),
+            ResolvedLeafOutbound::Proxy { .. } => {
+                let Some(candidate) = self.native_tcp_candidate(ctx, leaf, Some(components)) else {
+                    return Ok(None);
+                };
+                let candidate = candidate?;
+                let PreparedTcpCandidateExecution::Native(slot) = candidate.execution else {
+                    return Ok(None);
+                };
+                let Some((host, port)) = candidate.endpoint else {
+                    return Ok(None);
+                };
+                Ok(Some(ServiceNode {
+                    dial: slot.dial.clone(),
+                    slot,
+                    tag: candidate.tag,
+                    endpoint: Some(endpoint(&host, port)),
+                    wire_endpoint: Some(Destination::new(Address::Domain(host), port)),
+                    role: DnsQueryRole::Node,
+                }))
+            }
+        }
+    }
+
     /// Project an engine leaf at the claim boundary. Consumers receive only the
     /// actual native owner, without inspecting protocol/config leaf variants.
     pub(in crate::inventory) fn native_tcp_owner(
