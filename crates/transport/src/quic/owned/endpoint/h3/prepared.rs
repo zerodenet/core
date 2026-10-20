@@ -75,7 +75,7 @@ impl super::super::OwnedEndpointOwner {
                     // drivers. Original observer panics resume outside library locks.
                     let outcome = if accepted.await.is_ok() {
                         crate::quic::owned::callbacks::Boundary::new(
-                            run(connection, cancel, handoff),
+                            Box::pin(run(connection, cancel, handoff)),
                             callbacks,
                         )
                         .await

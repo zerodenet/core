@@ -195,13 +195,16 @@ impl Drop for Restore {
         drop(old);
     }
 }
-pub(super) struct Boundary {
-    future: quinn::DriverFuture,
+pub(super) struct Boundary<O> {
+    future: Pin<Box<dyn Future<Output = O> + Send>>,
     broker: Arc<Broker>,
     slot: Arc<Mutex<Option<Payload>>>,
 }
-impl Boundary {
-    pub(super) fn new(future: quinn::DriverFuture, broker: Arc<Broker>) -> Self {
+impl<O> Boundary<O> {
+    pub(super) fn new(
+        future: Pin<Box<dyn Future<Output = O> + Send>>,
+        broker: Arc<Broker>,
+    ) -> Self {
         Self {
             future,
             broker,
@@ -209,8 +212,8 @@ impl Boundary {
         }
     }
 }
-impl Future for Boundary {
-    type Output = quinn::DriverExit;
+impl<O> Future for Boundary<O> {
+    type Output = O;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
         let active = Active {
