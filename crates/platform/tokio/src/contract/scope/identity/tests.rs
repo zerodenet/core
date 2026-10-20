@@ -8,6 +8,8 @@ async fn identity_matches_only_the_same_original_live_registration_authority() {
     let identity = registrar.scope_identity();
     let identity_clone = identity.clone();
     let foreign = TaskScope::new(Handle::current(), NonZeroUsize::new(1).unwrap());
+    assert!(identity.same_scope(&identity_clone));
+    assert!(!identity.same_scope(&foreign.registrar().scope_identity()));
     assert!(identity.matches(&registrar));
     assert!(identity_clone.matches(&cloned));
     assert!(!identity.matches(&foreign.registrar()));
@@ -65,12 +67,17 @@ async fn identity_is_weak_and_never_turns_empty_or_expired_scopes_into_authority
         identity
     };
     assert!(
+        expired.same_scope(&expired.clone()),
+        "same expired metadata grants no authority"
+    );
+    assert!(
         expired.0.upgrade().is_none(),
         "metadata cannot retain the old Scope"
     );
     assert!(!expired.registration_open());
     for _ in 0..32 {
         let new = TaskScope::new(Handle::current(), NonZeroUsize::new(1).unwrap());
+        assert!(!expired.same_scope(&new.registrar().scope_identity()));
         assert!(!expired.matches(&new.registrar()));
         assert!(!expired.registration_open());
     }

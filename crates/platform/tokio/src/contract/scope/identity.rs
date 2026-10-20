@@ -12,6 +12,11 @@ impl fmt::Debug for TaskScopeIdentity {
     }
 }
 impl TaskScopeIdentity {
+    /// Same original weak identity, without retaining either scope. Expired
+    /// metadata can still compare equal; this is not live/open authority.
+    pub fn same_scope(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
     /// Exact original scope, with a live registrar supplying the strong owner.
     /// A foreign or expired weak identity cannot match a newly allocated scope.
     pub fn matches(&self, registrar: &TaskRegistrar) -> bool {
