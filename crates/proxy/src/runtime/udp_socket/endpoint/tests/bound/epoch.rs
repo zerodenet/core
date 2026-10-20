@@ -79,7 +79,7 @@ async fn actual_bound_peer_recycles_one_native_and_binding_slot_across_network_e
             // A stale command uses the actual old authorization. Its exact
             // NotSubmitted/Never source returns without faulting the whole peer.
             egress.invalidate_network();
-            let stale = bridge
+            let stale = match bridge
                 .send_new_packet(
                     SessionId(session.id),
                     &Address::Ipv4([127, 0, 0, 1]),
@@ -87,7 +87,10 @@ async fn actual_bound_peer_recycles_one_native_and_binding_slot_across_network_e
                     b"must not submit",
                 )
                 .await
-                .unwrap_err();
+            {
+                Err(error) => error,
+                Ok(_) => panic!("the actual old network authorization must reject submission"),
+            };
             assert_rejection(&stale, Reason::StalePlan);
             assert!(!live.context.binding().cancellation().is_cancelled());
         }

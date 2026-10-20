@@ -70,7 +70,7 @@ fn as_binding(
 }
 
 fn assert_rejection(error: &EngineError, reason: Reason) {
-    assert!(failure::logical_rejection(error));
+    assert!(super::super::failure::logical_rejection(error));
     let EngineError::Io(io) = error else {
         panic!("actual scoped error must retain its typed boundary");
     };
@@ -84,7 +84,7 @@ fn assert_rejection(error: &EngineError, reason: Reason) {
     assert_eq!(channel.retry, RetryClass::Never);
     assert!(!channel.retry_permitted());
     if reason == Reason::StalePlan {
-        assert_eq!(channel.stage, Stage::Open);
+        assert_eq!(channel.stage, Stage::Prepare);
         assert!(channel.source().is_some());
     }
 }
@@ -211,7 +211,7 @@ async fn actual_bound_peer_shares_original_ports_preserves_tombstones_and_keeps_
     bridge
         .admit_bound(SessionId(four.id), binding, None, CancellationToken::new())
         .unwrap();
-    let pressure = bridge
+    let pressure = match bridge
         .send_new_packet(
             SessionId(four.id),
             &Address::Ipv4([127, 0, 0, 1]),
@@ -219,7 +219,10 @@ async fn actual_bound_peer_shares_original_ports_preserves_tombstones_and_keeps_
             b"requires third native original",
         )
         .await
-        .unwrap_err();
+    {
+        Err(error) => error,
+        Ok(_) => panic!("a third native original must fail at the explicit capacity bound"),
+    };
     assert_rejection(&pressure, Reason::Capacity);
     assert!(bridge
         .finish_session(SessionId(four.id), deadline())
