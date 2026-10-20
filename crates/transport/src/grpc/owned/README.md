@@ -47,3 +47,12 @@ remains gated pending host resource planning and confirmed replacement. Relay
 prefixes, hostname DNS and their per-demand/background grants are not supported
 by this direct library provider. Tests use actual loopback TCP, TLS, H2 and the
 original gRPC framing; only the parent integration tree runs Cargo validation.
+
+Hosted Auxiliary failure delivery uses one TaskJoined slot in each original
+Physical record. Real user failure and no-user owner cleanup persist that exact
+receipt/source Arc before marking local acceptance. No permanent Auxiliary
+history is allocated; records disappear with their confirmed original native
+close. The supervisor still acknowledges its original exit receipt to return
+task publication credit. Local acceptance, original task join, publication ACK
+and physical close remain distinct, and one recoverable carrier failure does
+not revoke the shared component. No production resourceful gate is enabled.

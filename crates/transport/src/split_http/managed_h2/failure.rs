@@ -2,17 +2,22 @@ use super::evidence::{H2ConnectionFailure, IoOperation};
 use std::{
     error::Error,
     future::Future,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 use tokio::sync::Notify;
 use zero_core::component::ComponentInstanceId;
-use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
+use zero_platform_tokio::contract::{
+    scope::{HostedReceiptError, TaskJoinWitness, TaskJoined},
+    ChannelError, Impact, Reason, Stage,
+};
 
 pub(super) struct Failure {
     instance: ComponentInstanceId,
     first: Mutex<Option<Arc<ChannelError>>>,
     changed: Notify,
     evidence: H2ConnectionFailure,
+    witness: OnceLock<TaskJoinWitness>,
+    received: Mutex<Option<TaskJoined>>,
 }
 impl Failure {
     pub(super) fn new(instance: ComponentInstanceId) -> Self {
@@ -21,7 +26,41 @@ impl Failure {
             first: Mutex::new(None),
             changed: Notify::new(),
             evidence: H2ConnectionFailure::default(),
+            witness: OnceLock::new(),
+            received: Mutex::new(None),
         }
+    }
+    pub(super) fn install_witness(&self, witness: TaskJoinWitness) {
+        // Called once immediately after the actual same-slot registration.
+        let _ = self.witness.set(witness);
+    }
+    pub(super) fn received(&self) -> Option<TaskJoined> {
+        self.received.lock().unwrap().clone()
+    }
+    pub(super) fn receive_joined(&self) -> Result<Option<TaskJoined>, HostedReceiptError> {
+        let Some(witness) = self.witness.get() else {
+            return Ok(None);
+        };
+        let Some(joined) = witness.try_joined() else {
+            return Ok(None);
+        };
+        // Scope's aggregate error is distinct from the original connection
+        // first-error Arc. Retain both exact objects, without substituting them.
+        let received = self.received.lock().unwrap().get_or_insert(joined).clone();
+        if received.result().is_err() {
+            witness.acknowledge_hosted_failure(&received)?;
+        }
+        Ok(Some(received))
+    }
+    pub(super) async fn deliver_before_return(&self) {
+        if let Some(witness) = self.witness.get() {
+            if witness.is_hosted() {
+                witness.wait().await;
+            }
+        }
+        // Rejection retains the scope's credit and the original local receipt;
+        // the explicit persistent receiver exposes the error for cleanup retry.
+        let _ = self.receive_joined();
     }
     pub(super) fn get(&self) -> Option<Arc<ChannelError>> {
         self.first
@@ -117,10 +156,11 @@ impl Failure {
         E: Error + Send + Sync + 'static,
     {
         let result = tokio::select! {biased;
-            source = self.wait() => return Err(source),
+            source = self.wait() => { self.deliver_before_return().await; return Err(source); },
             result = operation => result,
         };
         if let Some(error) = self.get() {
+            self.deliver_before_return().await;
             return Err(error);
         }
         result.map_err(|source| self.local(stage, Reason::Io, source))
@@ -131,13 +171,23 @@ impl Failure {
         operation: impl Future<Output = hyper::Result<T>>,
     ) -> Result<T, Arc<ChannelError>> {
         let result = tokio::select! {biased;
-            source=self.wait()=>return Err(source),
+            source=self.wait()=>{ self.deliver_before_return().await; return Err(source); },
             result=operation=>result,
         };
         match result {
-            Err(source) => Err(self.request_error(stage, source)),
+            Err(source) => {
+                let source = self.request_error(stage, source);
+                // A stream-local reset is not an aggregate failure.
+                if self.get().is_some() {
+                    self.deliver_before_return().await;
+                }
+                Err(source)
+            }
             Ok(value) => match self.get() {
-                Some(source) => Err(source),
+                Some(source) => {
+                    self.deliver_before_return().await;
+                    Err(source)
+                }
                 None => Ok(value),
             },
         }

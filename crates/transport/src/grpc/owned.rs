@@ -2,6 +2,7 @@
 mod options;
 pub(super) use options::Recipe;
 pub use options::{NativePoolOptions, NativePoolSettings};
+mod reception;
 mod state;
 pub(super) use state::{Managed, Ownership};
 mod lifecycle;

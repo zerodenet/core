@@ -69,6 +69,8 @@ impl StreamOutbound for Outbound {
         let record = Arc::new(Record {
             adoption: grant.adoption(),
             witness: Mutex::new(None),
+            received: Mutex::new(None),
+            accepted: AtomicBool::new(false),
             stop: owner.cancel.child_token(),
             opening: AtomicBool::new(true),
             done: AtomicBool::new(false),

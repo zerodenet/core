@@ -127,8 +127,9 @@ impl ResourceLifecycle for Owner {
         if self.claimed {
             GrpcPool(self.pool.clone()).retire();
         }
-        let mut report = self.carriers.shutdown(deadline).await?;
+        let physical = self.carriers.shutdown(deadline).await;
         self.managed.harvest();
+        let mut report = physical?;
         if self.managed.physical_unconfirmed() && report.is_complete() {
             report.unfinished.push(Unfinished::Io(
                 "gRPC original carrier lacks a matching close receipt".into(),

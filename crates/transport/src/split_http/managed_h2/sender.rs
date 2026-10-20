@@ -53,6 +53,7 @@ impl<B> Sender<B> {
         // Construct send_request only after admission, since construction
         // submits the original request to Hyper before its future is polled.
         if let Some(source) = failure.get() {
+            failure.deliver_before_return().await;
             return Err(source);
         }
         let response = failure
@@ -87,8 +88,24 @@ impl ResponseBody {
         Self {
             body,
             failure,
-            waiting: Box::pin(async move { notified.wait().await }),
+            waiting: Box::pin(async move {
+                let source = notified.wait().await;
+                notified.deliver_before_return().await;
+                source
+            }),
             finished: false,
+        }
+    }
+}
+type FailureFrame = Option<Result<hyper::body::Frame<bytes::Bytes>, Arc<ChannelError>>>;
+impl ResponseBody {
+    fn poll_connection_failure(&mut self, cx: &mut Context<'_>) -> Poll<FailureFrame> {
+        match self.waiting.as_mut().poll(cx) {
+            Poll::Ready(source) => {
+                self.finished = true;
+                Poll::Ready(Some(Err(source)))
+            }
+            Poll::Pending => Poll::Pending,
         }
     }
 }
@@ -103,25 +120,32 @@ impl hyper::body::Body for ResponseBody {
         if this.finished {
             return Poll::Ready(None);
         }
-        if let Poll::Ready(source) = this.waiting.as_mut().poll(cx) {
-            this.finished = true;
-            return Poll::Ready(Some(Err(source)));
+        if this.failure.get().is_some() {
+            return this.poll_connection_failure(cx);
+        }
+        // Keep the actual failure waiter registered even before the peer fails.
+        if let ready @ Poll::Ready(_) = this.poll_connection_failure(cx) {
+            return ready;
         }
         match Pin::new(&mut this.body).poll_frame(cx) {
             Poll::Ready(None) => {
+                if this.failure.get().is_some() {
+                    return this.poll_connection_failure(cx);
+                }
                 this.finished = true;
                 Poll::Ready(None)
             }
             Poll::Ready(Some(Err(source))) => {
+                let source = this.failure.request_error(Stage::Receive, source);
+                if this.failure.get().is_some() {
+                    return this.poll_connection_failure(cx);
+                }
                 this.finished = true;
-                Poll::Ready(Some(Err(this
-                    .failure
-                    .request_error(Stage::Receive, source))))
+                Poll::Ready(Some(Err(source)))
             }
             Poll::Ready(Some(Ok(frame))) => {
-                if let Some(source) = this.failure.get() {
-                    this.finished = true;
-                    Poll::Ready(Some(Err(source)))
+                if this.failure.get().is_some() {
+                    this.poll_connection_failure(cx)
                 } else {
                     Poll::Ready(Some(Ok(frame)))
                 }

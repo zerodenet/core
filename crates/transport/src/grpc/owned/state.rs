@@ -7,7 +7,7 @@ use std::sync::{
 use zero_platform_tokio::{
     contract::{
         network::UpstreamTransport,
-        scope::{TaskJoinWitness, TaskRegistrar},
+        scope::{TaskJoinWitness, TaskJoined, TaskRegistrar},
     },
     controlled_carrier::{CarrierAdoption, CarrierGrants},
 };
@@ -34,6 +34,8 @@ pub(in crate::grpc) struct Managed {
 pub(super) struct Physical {
     pub(super) adoption: CarrierAdoption,
     pub(super) witness: Mutex<Option<TaskJoinWitness>>,
+    pub(super) received: Mutex<Option<TaskJoined>>,
+    pub(super) accepted: AtomicBool,
     pub(super) done: AtomicBool,
 }
 pub(super) struct Body(pub(super) Arc<Physical>);
@@ -44,6 +46,9 @@ impl Drop for Body {
 }
 impl Physical {
     pub(super) fn closed(&self) -> bool {
+        if !self.failure_accepted() {
+            return false;
+        }
         let Some(receipt) = self.adoption.closed() else {
             return false;
         };
@@ -59,6 +64,7 @@ impl Physical {
         }
     }
     pub(super) fn can_retire(&self) -> bool {
+        self.receive_available();
         self.done.load(Ordering::Acquire)
             && self
                 .witness
@@ -150,6 +156,10 @@ impl Managed {
         Ok(())
     }
     pub(super) fn harvest(&self) {
+        let records = self.records.lock().unwrap().clone();
+        for record in records {
+            record.receive_available();
+        }
         self.records
             .lock()
             .unwrap()

@@ -43,3 +43,12 @@ fixtures therefore prove Service behavior only. Production Business provider,
 host resource graph/replacement, hostname DNS, relay close-control and ordinary
 VMess MUX remain separate requirements. The public ordinary Options and proxy
 native qualification continue to reject gRPC/CA resourceful configurations.
+
+Hosted Auxiliary exits are delivered into the same bounded carrier Record. User
+failure reads and actual owner cleanup first retain the original TaskJoined and
+its unchanged failure Arc, then mark local acceptance on that witness. The host
+must still acknowledge its actual publication receipt. Acknowledgement does not
+close the native carrier or refund its physical slot. Actual no-user cleanup uses
+that same Record; there is no Auxiliary history map or second task manager.
+Ordinary scopes retain their existing task/source behavior. Service-only native
+provider restrictions and all production resourceful eligibility gates remain.

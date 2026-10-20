@@ -4,7 +4,7 @@ use zero_platform_tokio::{
     contract::{
         admission::SessionAdmission,
         network::UpstreamTransport,
-        scope::{TaskJoinWitness, TaskRegistrar},
+        scope::{TaskJoinWitness, TaskJoined, TaskRegistrar},
         CancellationToken,
     },
     controlled_carrier::{CarrierAdoption, CarrierGrants},
@@ -24,6 +24,8 @@ pub(super) struct Managed {
 pub(super) struct Record {
     pub(super) adoption: CarrierAdoption,
     pub(super) witness: Mutex<Option<TaskJoinWitness>>,
+    pub(super) received: Mutex<Option<TaskJoined>>,
+    pub(super) accepted: AtomicBool,
     pub(super) stop: CancellationToken,
     pub(super) opening: AtomicBool,
     pub(super) done: AtomicBool,
@@ -51,6 +53,9 @@ impl Drop for Body {
 }
 impl Record {
     pub(super) fn closed(&self) -> bool {
+        if !self.failure_accepted() {
+            return false;
+        }
         let Some(closed) = self.adoption.closed() else {
             return false;
         };
@@ -87,6 +92,7 @@ impl Managed {
     pub(super) async fn reap(&self, deadline: Instant) -> Result<(), ChannelError> {
         let records = self.records.lock().unwrap().clone();
         for record in records {
+            record.receive_available();
             let (joined, has_driver) = {
                 let witness = record.witness.lock().unwrap();
                 (

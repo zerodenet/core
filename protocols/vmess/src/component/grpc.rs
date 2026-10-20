@@ -2,6 +2,7 @@
 mod options;
 pub use options::Options;
 mod lifecycle;
+mod reception;
 pub(crate) mod registry;
 mod state;
 pub use lifecycle::Factory;
@@ -17,3 +18,7 @@ fn error(instance: ComponentInstanceId, stage: Stage, reason: Reason) -> Channel
     error.delivery = DeliveryState::NotSubmitted;
     error
 }
+
+#[cfg(test)]
+#[path = "../../tests/component/grpc_hosted.rs"]
+mod tests;

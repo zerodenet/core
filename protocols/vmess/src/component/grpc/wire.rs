@@ -48,8 +48,10 @@ impl Stream {
             let Some(witness) = witness else {
                 return Poll::Ready(fallback);
             };
+            let record = self.record.clone();
             *failure = Some(Box::pin(async move {
-                match witness.wait().await.result() {
+                let joined = record.receive(witness.wait().await);
+                match joined.result() {
                     Ok(()) => fallback,
                     Err(source) => Err(io::Error::new(
                         fallback

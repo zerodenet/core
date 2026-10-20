@@ -91,6 +91,8 @@ impl Managed {
         let physical = Arc::new(Physical {
             adoption: grant.adoption(),
             witness: Mutex::new(None),
+            received: Mutex::new(None),
+            accepted: AtomicBool::new(false),
             done: AtomicBool::new(false),
         });
         self.records.lock().unwrap().push(physical.clone());

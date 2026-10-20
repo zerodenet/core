@@ -7,6 +7,8 @@ mod evidence;
 mod executor;
 mod failure;
 mod observed_io;
+mod receiver;
+pub use receiver::LocalTaskReceiver;
 mod sender;
 pub use evidence::{H2ConnectionFailure, IoOperation};
 use failure::Failure;
@@ -47,6 +49,11 @@ impl<B> PendingH2<B> {
     /// Observation of this actual aggregate's JoinSet consumption, not I/O close.
     pub fn join_witness(&self) -> &TaskJoinWitness {
         &self.witness
+    }
+    /// Keep this receiver in the actual caller owner before dropping request
+    /// handles. Its explicit cleanup acceptance is separate from native close.
+    pub fn local_task_receiver(&self) -> LocalTaskReceiver {
+        LocalTaskReceiver::new(self.failure.clone(), self.witness.clone())
     }
     /// Bounded original diagnostic evidence, independent of task/native close.
     pub fn failure_evidence(&self) -> &H2ConnectionFailure {
@@ -97,6 +104,7 @@ where
     let (id, witness) = adoption.spawn_driver(registrar, class, io.into_driver(), move |io| {
         driver::run(io, options, task_failure, handoff)
     })?;
+    failure.install_witness(witness.clone());
     Ok(PendingH2 {
         receiver: Some(receiver),
         failure,

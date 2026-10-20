@@ -39,3 +39,5 @@ mod recipe;
 mod tls;
 mod unknown;
 mod wire;
+
+mod hosted;

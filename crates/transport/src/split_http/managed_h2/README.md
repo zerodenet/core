@@ -59,3 +59,16 @@ of claiming those reconstructed h2 IO facades retain a native OS representation.
 Panic/abort's original JoinError remains in the actual TaskScope/witness; a waiter
 awakened by aggregate Drop receives Revoked, not an invented JoinError or
 physical-close acknowledgement.
+
+Hosted task failure delivery has an explicit per-carrier local receiver. The
+actual caller must retain `PendingH2::local_task_receiver()` beside its existing
+CarrierOwner before dropping request handles, then use `receive_joined` (or
+`wait_and_receive` while the real supervisor drives joins) during no-user cleanup.
+Failure stores one actual TaskJoined before marking its local acceptance. Its
+original H2/Hyper/I/O first-error Arc remains distinct from the scope aggregate's
+original failure Arc. Hosted request errors wait for that actual join and local
+acceptance; ordinary scopes keep their previous error-return timing. Drop,
+read-only witness observation and absence of a receiver never acknowledge an
+error. The host still acknowledges its own original exit receipt to release task
+credit; native capacity additionally needs the original close receipt. This is a
+library capability and does not activate a production XHTTP owner or host grant.

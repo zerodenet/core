@@ -138,6 +138,10 @@ impl ResourceLifecycle for Owner {
             self.base.shutdown(deadline),
             self.carriers.shutdown(deadline)
         );
+        let records = self.managed.records.lock().unwrap().clone();
+        for record in records {
+            record.receive_available();
+        }
         let mut report = base?;
         report.append(physical?);
         self.managed
