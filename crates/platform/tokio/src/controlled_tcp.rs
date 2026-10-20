@@ -1,11 +1,11 @@
 //! Byte I/O and explicit native close share one original TCP descriptor.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) mod connect;
 mod control;
 mod native;
 mod socket;
 use crate::TokioSocket;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub use connect::PendingTcpConnect;
 pub use control::ControlledTcpControl;
 use socket::Socket;
@@ -29,6 +29,17 @@ struct Shared {
     state: Mutex<State>,
     cancel: CancellationToken,
     label: String,
+}
+
+impl Shared {
+    fn state(&self) -> std::sync::MutexGuard<'_, State> {
+        // A synchronous registration panic can poison this lock after its
+        // consumed-unknown marker was installed. Keep that original state
+        // available to explicit close instead of panicking during cleanup.
+        self.state
+            .lock()
+            .unwrap_or_else(|source| source.into_inner())
+    }
 }
 
 /// A unique byte-stream view. Its separate control must remain in a persistent
@@ -72,9 +83,7 @@ impl ControlledTcpStream {
     }
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.shared
-            .state
-            .lock()
-            .expect("TCP owner poisoned")
+            .state()
             .socket
             .as_ref()
             .ok_or_else(closed)?
@@ -82,9 +91,7 @@ impl ControlledTcpStream {
     }
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         self.shared
-            .state
-            .lock()
-            .expect("TCP owner poisoned")
+            .state()
             .socket
             .as_ref()
             .ok_or_else(closed)?
@@ -92,9 +99,7 @@ impl ControlledTcpStream {
     }
     pub fn egress_interface(&self) -> Option<crate::EgressInterface> {
         self.shared
-            .state
-            .lock()
-            .expect("TCP owner poisoned")
+            .state()
             .socket
             .as_ref()
             .and_then(|socket| socket.egress_interface().cloned())
@@ -117,7 +122,7 @@ impl AsyncRead for ControlledTcpStream {
         if this.read_cancelled.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Err(closed()));
         }
-        let mut state = this.shared.state.lock().expect("TCP owner poisoned");
+        let mut state = this.shared.state();
         let Some(socket) = &mut state.socket else {
             return Poll::Ready(Err(closed()));
         };
@@ -136,7 +141,7 @@ impl AsyncWrite for ControlledTcpStream {
         if this.write_cancelled.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Err(closed()));
         }
-        let mut state = this.shared.state.lock().expect("TCP owner poisoned");
+        let mut state = this.shared.state();
         let Some(socket) = &mut state.socket else {
             return Poll::Ready(Err(closed()));
         };
@@ -147,7 +152,7 @@ impl AsyncWrite for ControlledTcpStream {
         if this.write_cancelled.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Err(closed()));
         }
-        let mut state = this.shared.state.lock().expect("TCP owner poisoned");
+        let mut state = this.shared.state();
         let Some(socket) = &mut state.socket else {
             return Poll::Ready(Err(closed()));
         };
@@ -158,7 +163,7 @@ impl AsyncWrite for ControlledTcpStream {
         if this.write_cancelled.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Err(closed()));
         }
-        let mut state = this.shared.state.lock().expect("TCP owner poisoned");
+        let mut state = this.shared.state();
         let Some(socket) = &mut state.socket else {
             return Poll::Ready(Err(closed()));
         };

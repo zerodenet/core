@@ -1,6 +1,6 @@
 //! Native socket enforcement for neutral dial requirements.
 pub(crate) mod interfaces;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod owned_tcp;
 mod tcp;
 mod udp;

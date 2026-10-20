@@ -21,7 +21,7 @@ impl ChannelControl for ControlledTcpControl {
         self.cancel(CloseReason::Shutdown);
         loop {
             {
-                let mut state = self.shared.state.lock().expect("TCP owner poisoned");
+                let mut state = self.shared.state();
                 if !state.closed {
                     if let Some(source) = &state.error {
                         if !TokioSocket::close_is_retryable(source) {

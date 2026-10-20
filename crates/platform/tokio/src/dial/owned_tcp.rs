@@ -1,12 +1,15 @@
-//! Additive Unix preparation; existing production dial entrypoints are unchanged.
+//! Additive native preparation; existing production dial entrypoints are unchanged.
 use super::prepare;
 use crate::{
     controlled_tcp::PendingTcpConnect, egress::bind_tcp_to_interface, ControlledTcpControl,
     EgressSelection, TcpConnectError,
 };
+#[cfg(unix)]
+use std::os::fd::{FromRawFd, IntoRawFd};
+#[cfg(windows)]
+use std::os::windows::io::{FromRawSocket, IntoRawSocket};
 use std::{
     net::{SocketAddr, TcpStream},
-    os::fd::{FromRawFd, IntoRawFd},
     sync::Arc,
 };
 use tokio::net::TcpSocket;
@@ -15,7 +18,7 @@ use zero_traits::{DialPolicy, IoObserver};
 impl PendingTcpConnect {
     /// Reuses the production policy validation, source and interface binding.
     /// Transfers (never duplicates) the raw socket into a persistent owner before
-    /// any connect future exists. A Unix Tokio runtime with I/O is required when
+    /// any connect future exists. A Tokio runtime with I/O is required when
     /// polling `connect`, just as for other native Tokio socket operations.
     pub fn prepare(
         peer: SocketAddr,
@@ -61,7 +64,11 @@ impl PendingTcpConnect {
         }
         // SAFETY: IntoRawFd relinquishes the one socket. The std wrapper takes
         // that exact ownership once; there is no clone, dup, or connect await.
+        #[cfg(unix)]
         let original = unsafe { TcpStream::from_raw_fd(socket.into_raw_fd()) };
+        // SAFETY: the same exclusive ownership transfer on Winsock; no clone.
+        #[cfg(windows)]
+        let original = unsafe { TcpStream::from_raw_socket(socket.into_raw_socket()) };
         Ok(Self::from_socket(
             original,
             dial.peer,

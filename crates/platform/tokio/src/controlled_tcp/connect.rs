@@ -1,4 +1,4 @@
-//! Unix pre-connect ownership. No task or connect future owns the descriptor.
+//! Native pre-connect ownership. No task or connect future owns the descriptor.
 use super::{
     socket::{NativeSocket, Socket},
     ControlledTcpControl, ControlledTcpStream, Shared, State,
@@ -15,12 +15,14 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use zero_traits::IoObserver;
 
-/// Unix-only native TCP owner prepared before the first connect await.
+/// Native TCP owner prepared before the first connect await.
 ///
 /// Keep the returned control in a persistent resource owner. Cancellation,
 /// timeout, or dropping `connect` preserves its original socket until explicit
 /// `wait_closed`. This primitive is not wired into production dialing yet.
-/// Windows pre-connect ownership is unsupported by this implementation.
+/// Windows registration consumes its input even on failure. Such a failure
+/// retains the original source and descriptor identity as permanent unknown;
+/// it never reconstructs a handle or returns a successful close receipt.
 pub struct PendingTcpConnect {
     shared: Arc<Shared>,
     peer: SocketAddr,
@@ -69,16 +71,14 @@ impl PendingTcpConnect {
     }
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.shared
-            .state
-            .lock()
-            .expect("TCP owner poisoned")
+            .state()
             .socket
             .as_ref()
             .ok_or_else(super::closed)?
             .local_addr()
     }
     fn error(&self, stage: &'static str, error: io::Error) -> Arc<TcpConnectError> {
-        let state = self.shared.state.lock().expect("TCP owner poisoned");
+        let state = self.shared.state();
         Arc::new(TcpConnectError {
             stage,
             interface_bound: self.interface_bound,
@@ -145,7 +145,7 @@ impl PendingTcpConnect {
     }
     fn poll_connect(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Arc<TcpConnectError>>> {
         let result = {
-            let mut state = self.shared.state.lock().expect("TCP owner poisoned");
+            let mut state = self.shared.state();
             let Some(Socket::Native(socket)) = state.socket.as_mut() else {
                 return Poll::Ready(Err(
                     self.error_without_lock("connect_socket", super::closed())
@@ -154,10 +154,11 @@ impl PendingTcpConnect {
             if !self.started {
                 self.started = true;
                 if let Err((stage, source)) = socket.begin_connect(self.peer) {
+                    self.last_local = socket.observed_local_addr().or(self.last_local);
                     return Poll::Ready(Err(Arc::new(TcpConnectError {
                         stage,
                         interface_bound: socket.interface.is_some(),
-                        local_addr: socket.local_addr().ok(),
+                        local_addr: self.last_local,
                         error: source,
                     })));
                 }
@@ -195,6 +196,10 @@ impl Drop for Attempt<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "../../tests/controlled_tcp/connect_pending.rs"]
 mod tests;
+
+#[cfg(all(test, windows))]
+#[path = "../../tests/controlled_tcp/connect_windows.rs"]
+mod windows_tests;

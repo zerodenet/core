@@ -23,7 +23,7 @@ use zero_traits::{
 
 mod controlled_tcp;
 mod datagram;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub use controlled_tcp::PendingTcpConnect;
 pub use controlled_tcp::{ControlledTcpControl, ControlledTcpStream};
 mod dial;

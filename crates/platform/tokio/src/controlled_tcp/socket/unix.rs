@@ -62,6 +62,9 @@ impl NativeSocket {
             .expect("owned descriptor")
             .local_addr()
     }
+    pub(in crate::controlled_tcp) fn observed_local_addr(&self) -> Option<SocketAddr> {
+        self.local_addr().ok()
+    }
     pub(in crate::controlled_tcp) fn peer_addr(&self) -> io::Result<SocketAddr> {
         self.original
             .0
