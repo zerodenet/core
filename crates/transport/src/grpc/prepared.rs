@@ -40,7 +40,7 @@ where
     let driver = Box::pin(async move {
         tokio::select! {
             result=connection=>result.map_err(io::Error::other),
-            _=keepalive::run(ping,profile,activity,false,observed)=>Ok(()),
+            result=keepalive::run(ping,profile,activity,false,observed)=>result,
         }
     });
     Ok(PreparedConnection {

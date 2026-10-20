@@ -6,12 +6,18 @@ use std::sync::{
     Arc, Mutex,
 };
 #[derive(Clone, Default)]
-pub struct GrpcPool(Arc<State>);
+pub struct GrpcPool(pub(super) Arc<State>);
 #[derive(Default)]
-struct State {
-    retired: AtomicBool,
-    cached: Mutex<Option<Arc<Client>>>,
-    connecting: tokio::sync::Mutex<()>,
+pub(super) struct State {
+    pub(super) retired: AtomicBool,
+    pub(super) cached: Mutex<Option<Cached>>,
+    pub(super) connecting: tokio::sync::Mutex<()>,
+    pub(super) ownership: Mutex<super::owned::Ownership>,
+}
+#[derive(Clone)]
+pub(super) enum Cached {
+    Legacy(Arc<Client>),
+    Owned(Arc<super::owned::NativeClient>),
 }
 impl std::fmt::Debug for GrpcPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -21,6 +27,9 @@ impl std::fmt::Debug for GrpcPool {
 impl GrpcPool {
     pub fn retire(&self) {
         self.0.retired.store(true, Ordering::Release);
+        if let super::owned::Ownership::Managed(owner) = &*self.0.ownership.lock().unwrap() {
+            owner.stop();
+        }
         self.0.cached.lock().unwrap().take();
     }
     /// Open a TLS-aware carrier, preserving its authenticated application settings.
@@ -74,31 +83,30 @@ impl GrpcPool {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<(S, Option<Vec<u8>>), RuntimeError>>,
     {
+        self.enter_legacy()?;
         super::options::request(profile, authority)?;
-        let cached = self.0.cached.lock().unwrap().clone();
+        let cached = self.legacy_cached()?;
         if let Some(client) = cached.filter(|client| !client.closed()) {
             if let Ok(stream) = client.open(profile, authority).await {
                 return Ok(stream);
             }
             let mut cached = self.0.cached.lock().unwrap();
-            if cached
-                .as_ref()
-                .is_some_and(|current| Arc::ptr_eq(current, &client))
-            {
+            if cached.as_ref().is_some_and(
+                |current| matches!(current,Cached::Legacy(current) if Arc::ptr_eq(current,&client)),
+            ) {
                 cached.take();
             }
         }
         let _guard = self.0.connecting.lock().await;
-        let cached = self.0.cached.lock().unwrap().clone();
+        let cached = self.legacy_cached()?;
         if let Some(client) = cached.filter(|client| !client.closed()) {
             if let Ok(stream) = client.open(profile, authority).await {
                 return Ok(stream);
             }
             let mut cached = self.0.cached.lock().unwrap();
-            if cached
-                .as_ref()
-                .is_some_and(|current| Arc::ptr_eq(current, &client))
-            {
+            if cached.as_ref().is_some_and(
+                |current| matches!(current,Cached::Legacy(current) if Arc::ptr_eq(current,&client)),
+            ) {
                 cached.take();
             }
         }
@@ -109,9 +117,20 @@ impl GrpcPool {
         if !self.0.retired.load(Ordering::Acquire) {
             let mut cached = self.0.cached.lock().unwrap();
             if !self.0.retired.load(Ordering::Acquire) {
-                *cached = Some(client.clone());
+                *cached = Some(Cached::Legacy(client.clone()));
             }
         }
         client.open(profile, authority).await
+    }
+    fn legacy_cached(&self) -> Result<Option<Arc<Client>>, RuntimeError> {
+        match self.0.cached.lock().unwrap().as_ref() {
+            None => Ok(None),
+            Some(Cached::Legacy(client)) => Ok(Some(client.clone())),
+            Some(Cached::Owned(_)) => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "gRPC pool belongs to its controlled native owner",
+            )
+            .into()),
+        }
     }
 }

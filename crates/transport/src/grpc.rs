@@ -63,6 +63,10 @@ mod client;
 mod codec;
 mod keepalive;
 mod options;
+mod owned;
+pub use owned::{
+    Demand, NativeGrpcStream, NativePoolFactory, NativePoolOptions, NativePoolSettings,
+};
 mod pool;
 mod prepared;
 mod prepared_stream;
