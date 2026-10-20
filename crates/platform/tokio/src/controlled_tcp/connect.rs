@@ -31,6 +31,7 @@ pub struct PendingTcpConnect {
     started: bool,
     transferred: bool,
     failure: Option<Arc<TcpConnectError>>,
+    waiter: Arc<super::WaitTarget>,
 }
 impl PendingTcpConnect {
     pub(crate) fn from_socket(
@@ -42,17 +43,38 @@ impl PendingTcpConnect {
     ) -> (Self, ControlledTcpControl) {
         let interface_bound = interface.is_some();
         let last_local = socket.local_addr().ok();
+        let observations = Arc::new(super::observation::Capture::default());
         let shared = Arc::new(Shared {
             label: format!("native TCP {:?} -> {peer}", socket.local_addr().ok()),
             cancel: parent.child_token(),
             state: Mutex::new(State {
                 socket: Some(Socket::Native(NativeSocket::new(
-                    socket, interface, observer,
+                    socket,
+                    interface,
+                    Some(observations.clone()),
                 ))),
                 closed: false,
                 error: None,
+                retry: None,
+                unknown: None,
+                closing: false,
+                polling: false,
+                metadata: None,
             }),
+            observer: Mutex::new(observer),
+            observations,
+            wakes: super::IoRelays::new(),
         });
+        // The same original native owner is installed before external code.
+        // No native/state lock is held during the real boundary callback.
+        let observer = shared
+            .observer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(observer) = observer {
+            observer.stream_boundary();
+        }
         (
             Self {
                 shared: shared.clone(),
@@ -62,6 +84,7 @@ impl PendingTcpConnect {
                 started: false,
                 transferred: false,
                 failure: None,
+                waiter: shared.wakes.write.waiter(),
             },
             ControlledTcpControl {
                 shared,
@@ -70,12 +93,7 @@ impl PendingTcpConnect {
         )
     }
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.shared
-            .state()
-            .socket
-            .as_ref()
-            .ok_or_else(super::closed)?
-            .local_addr()
+        self.shared.local_addr()
     }
     fn error(&self, stage: &'static str, error: io::Error) -> Arc<TcpConnectError> {
         let state = self.shared.state();
@@ -144,9 +162,16 @@ impl PendingTcpConnect {
         }
     }
     fn poll_connect(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Arc<TcpConnectError>>> {
+        self.waiter.publish(cx.waker());
+        let waker = std::task::Waker::from(self.shared.wakes.write.clone());
+        let mut native = Context::from_waker(&waker);
         let result = {
-            let mut state = self.shared.state();
-            let Some(Socket::Native(socket)) = state.socket.as_mut() else {
+            let Some(mut lease) = self.shared.lease() else {
+                return Poll::Ready(Err(
+                    self.error_without_lock("connect_socket", super::closed())
+                ));
+            };
+            let Socket::Native(socket) = &mut *lease else {
                 return Poll::Ready(Err(
                     self.error_without_lock("connect_socket", super::closed())
                 ));
@@ -164,7 +189,7 @@ impl PendingTcpConnect {
                 }
             }
             self.last_local = socket.local_addr().ok().or(self.last_local);
-            match socket.poll_connect(cx, self.peer) {
+            match socket.poll_connect(&mut native, self.peer) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(source)) => Err(("connect_socket", source)),
                 Poll::Ready(Ok(())) => socket

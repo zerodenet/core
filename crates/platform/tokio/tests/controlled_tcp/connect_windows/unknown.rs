@@ -30,9 +30,17 @@ async fn windows_consumed_registration_unknown_retains_source_identity_and_never
             })),
             closed: false,
             error: None,
+            retry: None,
+            unknown: None,
+            closing: false,
+            polling: false,
+            metadata: None,
         }),
         cancel: CancellationToken::new(),
         label: "policy-only SOCKET 42 consumed by registration".into(),
+        observer: Mutex::new(None),
+        observations: Arc::new(crate::controlled_tcp::observation::Capture::default()),
+        wakes: crate::controlled_tcp::IoRelays::new(),
     });
     // The unknown marker remains available if conversion unwinds while the
     // state lock is held. This is a synthetic poison-policy check only.
