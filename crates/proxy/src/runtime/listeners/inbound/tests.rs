@@ -63,7 +63,7 @@ async fn prove_stop_before_bind(multiple: bool) {
         }
         drop(applying);
         assert!(!fixture.gate.closed.load(Ordering::Acquire));
-        assert!(original.terminal().is_none());
+        assert!(original.terminal_for_test().is_none());
         assert!(Arc::ptr_eq(
             &original,
             &fixture
@@ -118,7 +118,7 @@ async fn prove_stop_before_bind(multiple: bool) {
             .await
             .unwrap();
         let _closed_old = TcpListener::bind(&old_address).await.unwrap();
-        assert!(original.terminal().unwrap().closed_io_receipts() >= 2);
+        assert!(original.terminal_for_test().unwrap().closed_io_receipts() >= 2);
         for index in indexes {
             let tag = &candidate.inbounds[*index].tag;
             let owner = fixture.proxy.inbound_owners.owner(tag).unwrap();
@@ -168,7 +168,7 @@ async fn switched_port_conflict_recovers_stopped_tags_from_actual_last_good_snap
         drop(next_port);
         let error = reconcile_inbounds(&protocols, None, &next, &rollback, &candidate, fixture.state()).await.unwrap_err();
         assert!(fixture.gate.closed.load(Ordering::Acquire));
-        assert!(fixture.originals.iter().all(|owner| owner.terminal().is_some()));
+        assert!(fixture.originals.iter().all(|owner| owner.terminal_for_test().is_some()));
         assert!(crate::transport::channel_failure(&error).is_some(), "actual owned bind failure remains typed");
         let mut pending_faults = fixture.proxy.inbound_owners.identities();
         let old = fixture.old.clone();

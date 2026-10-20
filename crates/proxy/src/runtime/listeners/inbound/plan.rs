@@ -134,7 +134,7 @@ impl Plan {
     }
 
     pub(super) async fn stop_old(
-        &self,
+        &mut self,
         runtime_factory: &InboundListenerRuntimeFactory,
         state: &mut InboundReconcileState<'_>,
     ) -> Result<(), EngineError> {

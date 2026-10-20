@@ -46,7 +46,7 @@ async fn credential_only_reload_keeps_same_listener_owner_and_actual_profile_aut
             &fixture.proxy.inbound_owners.owner("old-0").unwrap()
         ));
         assert!(original.is_running());
-        assert!(original.terminal().is_none());
+        assert!(original.terminal_for_test().is_none());
         assert!(!fixture.gate.closed.load(Ordering::Acquire));
         assert!(TcpListener::bind(("127.0.0.1", port)).await.is_err());
         // The real post-reconcile callback remains the publication point for

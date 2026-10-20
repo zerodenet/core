@@ -51,12 +51,16 @@ impl State {
         }
         use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        let next = NEXT
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
-                old.checked_add(1)
-            })
-            .map_err(|_| Error::Config("VMess gRPC recipe identity exhausted"))?
-            + 1;
+        let mut previous = NEXT.load(Ordering::Relaxed);
+        let next = loop {
+            let next = previous
+                .checked_add(1)
+                .ok_or(Error::Config("VMess gRPC recipe identity exhausted"))?;
+            match NEXT.compare_exchange_weak(previous, next, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => break next,
+                Err(actual) => previous = actual,
+            }
+        };
         let identity: Arc<[u8]> = next.to_le_bytes().into();
         values.recipe = Some((recipe, identity.clone()));
         Ok(identity)

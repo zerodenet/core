@@ -74,7 +74,7 @@ fn original_h2<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a h
     if let Some(source) = error
         .downcast_ref::<std::io::Error>()
         .and_then(std::io::Error::get_ref)
-        .and_then(original_h2)
+        .and_then(|source| original_h2(source))
     {
         return Some(source);
     }

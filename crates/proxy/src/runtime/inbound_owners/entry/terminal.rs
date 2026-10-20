@@ -187,6 +187,11 @@ impl InboundOwner {
         self.physically_closed.store(true, Ordering::Release);
         true
     }
+    #[cfg(test)]
+    pub(in crate::runtime) fn terminal_for_test(&self) -> Option<Arc<InboundTerminal>> {
+        self.terminal()
+    }
+
     pub(in crate::runtime::inbound_owners) fn terminal(&self) -> Option<Arc<InboundTerminal>> {
         if !self.physically_closed.load(Ordering::Acquire) {
             return None;

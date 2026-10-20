@@ -164,12 +164,13 @@ impl Fixture {
                         .prepare_inbound_listener(inbound.clone(), None)
                         .unwrap();
                     let declaration =
-                        zero_platform_tokio::contract::component::ResourceDeclaration::TcpListener(
-                            zero_core::request::Destination::new(
+                        zero_platform_tokio::contract::component::ResourceDeclaration::TcpListener {
+                            destination: zero_core::request::Destination::new(
                                 zero_core::Address::Ipv4([127, 0, 0, 1]),
                                 inbound.listen.port,
                             ),
-                        );
+                            max_bind_attempts: NonZeroUsize::new(50).unwrap(),
+                        };
                     PreparedInboundBind::new(operation, Arc::from([declaration])).unwrap()
                 }
             };

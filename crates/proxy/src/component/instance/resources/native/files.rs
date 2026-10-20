@@ -20,9 +20,9 @@ struct FileGrant {
 pub(super) struct FileReads {
     grants: BTreeMap<PathBuf, FileGrant>,
     jobs: JoinSet<io::Result<Vec<u8>>>,
-    records: HashMap<Id, PathBuf>,
-    receipts: CloseReport,
-    failure: Option<Arc<ChannelError>>,
+    pub(super) records: HashMap<Id, PathBuf>,
+    pub(super) receipts: CloseReport,
+    pub(super) failure: Option<Arc<ChannelError>>,
     #[cfg(test)]
     before_read: Option<Arc<dyn Fn() + Send + Sync>>,
 }
