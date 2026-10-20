@@ -54,6 +54,7 @@ fn actual_character_device_and_explicit_device_namespaces_are_rejected() {
     for path in [
         r"\\.\PhysicalDrive0",
         r"\\.\C:",
+        r"\\?\C:",
         r"\\?\GLOBALROOT\Device\HarddiskVolume1\file",
         r"\\localhost\pipe\zero-file-grant",
         r"\\?\UNC\localhost\pipe\zero-file-grant",

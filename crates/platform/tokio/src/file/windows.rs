@@ -14,9 +14,13 @@ pub(super) fn read(path: &Path, max_bytes: usize, limit: usize) -> io::Result<Ve
     // Do not open explicit device/NT namespaces (including physical volumes and
     // local named pipes). A UNC pipe share is also not an ordinary file grant.
     // This validates syntax only; it does not canonicalize or grant a new path.
-    if let Some(Component::Prefix(prefix)) = path.components().next() {
+    let mut components = path.components();
+    if let Some(Component::Prefix(prefix)) = components.next() {
         let unsupported = match prefix.kind() {
             Prefix::DeviceNS(_) | Prefix::Verbatim(_) => true,
+            // `\\?\C:` addresses a volume, whereas `\\?\C:\file` is a
+            // filesystem path. Do not pass the bare volume form to open.
+            Prefix::VerbatimDisk(_) => !matches!(components.next(), Some(Component::RootDir)),
             Prefix::UNC(_, share) | Prefix::VerbatimUNC(_, share) => share
                 .to_str()
                 .is_some_and(|share| share.eq_ignore_ascii_case("pipe")),
