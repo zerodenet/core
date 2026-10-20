@@ -259,3 +259,30 @@ async fn relays_chunked_body_without_consuming_the_next_message() {
     assert_eq!(input.read(&mut next).await.expect("next message"), 4);
     assert_eq!(&next, b"NEXT");
 }
+
+#[tokio::test]
+async fn native_forward_command_keeps_destination_and_body_without_a_legacy_session() {
+    let mut socket = MockSocket::new(b"POST http://example.com:8080/upload HTTP/1.1\r\nHost: example.com:8080\r\nContent-Length: 4\r\n\r\ndata");
+    let command = HttpConnectInbound
+        .accept_next_command(&mut socket)
+        .await
+        .unwrap()
+        .unwrap();
+    let http::HttpInboundCommand::Forward(mut forward) = command else {
+        panic!("parsed forward facts");
+    };
+    assert_eq!(
+        forward.destination(),
+        &zero_core::request::Destination::new(Address::Domain("example.com".into()), 8080)
+    );
+    assert_eq!(forward.method(), "POST");
+    assert_eq!(forward.body(), HttpBodyKind::ContentLength(4));
+    assert_eq!(forward.head(), b"POST /upload HTTP/1.1\r\nHost: example.com:8080\r\nContent-Length: 4\r\nConnection: close\r\n\r\n");
+    assert_eq!(socket.reads.iter().copied().collect::<Vec<_>>(), b"data");
+    forward.set_effective_authority(&Address::Ipv4([127, 0, 0, 1]), 1234);
+    assert_eq!(
+        forward.destination(),
+        &zero_core::request::Destination::new(Address::Ipv4([127, 0, 0, 1]), 1234)
+    );
+    assert_eq!(forward.head(), b"POST /upload HTTP/1.1\r\nHost: 127.0.0.1:1234\r\nContent-Length: 4\r\nConnection: close\r\n\r\n");
+}

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use zero_core::Session;
+use zero_core::{request::Destination, ProtocolType, SessionAuth};
 use zero_engine::EngineError;
 
 use crate::protocol_registry::TcpRuntimeServices;
@@ -101,7 +101,11 @@ impl MessageRelayContext {
 pub(crate) trait MessageInboundProtocol: Send + Sync {
     type Request: Send + Sync;
 
-    fn session<'a>(&self, request: &'a Self::Request) -> &'a Session;
+    fn destination(&self, request: &Self::Request) -> Destination;
+    fn protocol(&self) -> ProtocolType;
+    fn authentication(&self, _request: &Self::Request) -> Option<SessionAuth> {
+        None
+    }
     fn set_effective_target(
         &self,
         request: &mut Self::Request,

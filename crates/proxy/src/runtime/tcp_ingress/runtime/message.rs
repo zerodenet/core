@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use zero_core::{Network, Session};
 use zero_engine::{EngineError, SessionOutcome};
 
 use super::super::contract::{
@@ -24,9 +25,20 @@ impl TcpIngressRuntime {
     where
         P: MessageInboundProtocol,
     {
-        let original_target = protocol.session(&request).target.clone();
-        let original_port = protocol.session(&request).port;
-        let mut session = protocol.session(&request).clone();
+        let destination = protocol.destination(&request);
+        let original_target = destination.address.clone();
+        let original_port = destination.port;
+        let identity = self.services.engine().mint_session_identity()?;
+        let mut session = Session::new(
+            identity.id().0,
+            destination.address,
+            destination.port,
+            Network::Tcp,
+            protocol.protocol(),
+        );
+        if let Some(auth) = protocol.authentication(&request) {
+            session.apply_auth(auth);
+        }
         let started_at = Instant::now();
         let target_resolution = self.resolve_fake_ip_target(&mut session).await;
         if target_resolution.is_ok() {
@@ -36,7 +48,8 @@ impl TcpIngressRuntime {
             protocol.set_effective_target(&mut request, &session.target, session.port);
         }
         self.apply_kernel_rate_limits(&mut session);
-        self.prepare_session(&mut session).await?;
+        self.prepare_session_with_ticket(&mut session, Some(&identity))
+            .await?;
         let rate_limiters = self.traffic_rate_limiters(&session);
         let mut handle = self.track_session(session.id);
         if let Err(error) = target_resolution {

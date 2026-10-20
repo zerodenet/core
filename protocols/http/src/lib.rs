@@ -18,7 +18,7 @@ pub use body::{
     relay_close_delimited_as_chunked, relay_http_body, HttpBodyKind, HttpTransferCount,
 };
 pub use inbound::{
-    HttpConnectInbound, HttpConnectResponse, HttpForwardRequest, HttpForwardResponse,
-    HttpInboundCommand, HttpInboundMode, HttpInboundRequest,
+    HttpConnectInbound, HttpConnectResponse, HttpForwardCommand, HttpForwardRequest,
+    HttpForwardResponse, HttpInboundCommand, HttpInboundMode, HttpInboundRequest,
 };
 pub use metadata::HttpConnectProtocol;

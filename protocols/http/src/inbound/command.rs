@@ -1,4 +1,4 @@
-use super::{HttpForwardRequest, HttpInboundMode, HttpInboundRequest};
+use super::{HttpForwardCommand, HttpInboundMode, HttpInboundRequest};
 use alloc::vec::Vec;
 use zero_core::{Network, ProtocolType, Session};
 
@@ -6,7 +6,7 @@ use zero_core::{Network, ProtocolType, Session};
 #[derive(Debug)]
 pub enum HttpInboundCommand {
     Connect(zero_core::request::Destination),
-    Forward(HttpForwardRequest),
+    Forward(HttpForwardCommand),
 }
 impl HttpInboundCommand {
     pub(super) fn into_legacy(self) -> HttpInboundRequest {
@@ -23,12 +23,15 @@ impl HttpInboundCommand {
                 replay: Vec::new(),
                 forward: None,
             },
-            Self::Forward(forward) => HttpInboundRequest {
-                session: forward.session.clone(),
-                mode: HttpInboundMode::Forward,
-                replay: forward.head.clone(),
-                forward: Some(forward),
-            },
+            Self::Forward(command) => {
+                let forward = command.into_legacy();
+                HttpInboundRequest {
+                    session: forward.session().clone(),
+                    mode: HttpInboundMode::Forward,
+                    replay: forward.head().to_vec(),
+                    forward: Some(forward),
+                }
+            }
         }
     }
 }

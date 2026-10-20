@@ -1,7 +1,7 @@
 use std::io;
 
 use async_trait::async_trait;
-use http::{HttpConnectInbound, HttpForwardRequest, HttpInboundCommand};
+use http::{HttpConnectInbound, HttpForwardCommand, HttpInboundCommand};
 use zero_engine::EngineError;
 
 use crate::runtime::inbound_operation::{InboundConnectionContext, TcpInboundListenerOperation};
@@ -57,7 +57,9 @@ pub(crate) async fn handle_http_connection(
                     .await;
             }
             HttpInboundCommand::Forward(forward) => {
-                if let Some((status, location)) = context.select_http_redirect(forward.session()) {
+                if let Some((status, location)) =
+                    context.select_http_redirect(forward.destination())
+                {
                     handler
                         .http_inbound
                         .send_redirect_response(&mut client, status, &location)
@@ -79,10 +81,13 @@ pub(crate) async fn handle_http_connection(
 
 #[async_trait]
 impl MessageInboundProtocol for HttpConnectInboundHandler {
-    type Request = HttpForwardRequest;
+    type Request = HttpForwardCommand;
 
-    fn session<'a>(&self, request: &'a Self::Request) -> &'a zero_core::Session {
-        request.session()
+    fn destination(&self, request: &Self::Request) -> zero_core::request::Destination {
+        request.destination().clone()
+    }
+    fn protocol(&self) -> zero_core::ProtocolType {
+        self.http_inbound.protocol()
     }
 
     fn set_effective_target(

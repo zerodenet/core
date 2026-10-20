@@ -47,9 +47,9 @@ impl InboundConnectionContext {
 
     pub(crate) fn select_http_redirect(
         &self,
-        session: &zero_core::Session,
+        destination: &zero_core::request::Destination,
     ) -> Option<(u16, String)> {
-        self.runtime.select_http_redirect(session)
+        self.runtime.select_http_redirect(destination)
     }
 
     #[cfg(any(

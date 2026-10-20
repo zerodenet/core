@@ -56,9 +56,9 @@ impl InboundRouteRuntime {
 
     pub(crate) fn select_http_redirect(
         &self,
-        session: &zero_core::Session,
+        destination: &zero_core::request::Destination,
     ) -> Option<(u16, String)> {
-        self.tcp_runtime.select_http_redirect(session)
+        self.tcp_runtime.select_http_redirect(destination)
     }
 
     #[cfg(feature = "udp-runtime")]

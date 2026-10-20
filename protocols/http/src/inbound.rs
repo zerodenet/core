@@ -2,7 +2,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use zero_core::{Error, Network, ProtocolType, Session};
+use zero_core::{Error, ProtocolType, Session};
 use zero_traits::AsyncSocket;
 
 use crate::body::HttpBodyKind;
@@ -47,102 +47,8 @@ impl HttpInboundRequest {
     }
 }
 
-#[derive(Debug)]
-pub struct HttpForwardRequest {
-    session: Session,
-    method: String,
-    head: Vec<u8>,
-    body: HttpBodyKind,
-    close_after_response: bool,
-    upgrade_requested: bool,
-    expect_continue: bool,
-    supports_chunked_response: bool,
-}
-
-impl HttpForwardRequest {
-    pub fn session(&self) -> &Session {
-        &self.session
-    }
-
-    pub fn into_session(self) -> Session {
-        self.session
-    }
-
-    pub fn method(&self) -> &str {
-        &self.method
-    }
-
-    pub fn head(&self) -> &[u8] {
-        &self.head
-    }
-
-    pub fn body(&self) -> HttpBodyKind {
-        self.body
-    }
-
-    pub fn close_after_response(&self) -> bool {
-        self.close_after_response
-    }
-
-    pub fn upgrade_requested(&self) -> bool {
-        self.upgrade_requested
-    }
-
-    pub fn expect_continue(&self) -> bool {
-        self.expect_continue
-    }
-
-    pub fn supports_chunked_response(&self) -> bool {
-        self.supports_chunked_response
-    }
-
-    pub fn set_effective_authority(&mut self, target: &zero_core::Address, port: u16) {
-        let authority = format_authority(target, port);
-        let Some(host_start) = self
-            .head
-            .windows(6)
-            .position(|window| window.eq_ignore_ascii_case(b"Host: "))
-        else {
-            return;
-        };
-        let value_start = host_start + 6;
-        let Some(relative_end) = self.head[value_start..]
-            .windows(2)
-            .position(|window| window == b"\r\n")
-        else {
-            return;
-        };
-        self.head
-            .splice(value_start..value_start + relative_end, authority.bytes());
-        self.session.target = target.clone();
-        self.session.port = port;
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub fn into_parts(
-        self,
-    ) -> (
-        Session,
-        String,
-        Vec<u8>,
-        HttpBodyKind,
-        bool,
-        bool,
-        bool,
-        bool,
-    ) {
-        (
-            self.session,
-            self.method,
-            self.head,
-            self.body,
-            self.close_after_response,
-            self.upgrade_requested,
-            self.expect_continue,
-            self.supports_chunked_response,
-        )
-    }
-}
+mod forward;
+pub use forward::{HttpForwardCommand, HttpForwardRequest};
 
 #[derive(Debug)]
 pub struct HttpForwardResponse {
@@ -273,8 +179,6 @@ impl HttpConnectInbound {
                 origin_form,
                 version,
             } => {
-                let session =
-                    Session::new(0, target, port, Network::Tcp, ProtocolType::new("http"));
                 let transfer_encoding = transfer_encoding(&headers)?;
                 let content_length = content_length(&headers)?;
                 if transfer_encoding.is_some() && content_length.is_some() {
@@ -311,10 +215,10 @@ impl HttpConnectInbound {
                     content_length,
                     upgrade_requested,
                 );
-                let forward = HttpForwardRequest {
-                    session: session.clone(),
+                let forward = HttpForwardCommand {
+                    destination: zero_core::request::Destination::new(target, port),
                     method,
-                    head: normalized.clone(),
+                    head: normalized,
                     body,
                     close_after_response,
                     upgrade_requested,
