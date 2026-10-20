@@ -63,8 +63,15 @@ pub(super) async fn run_inner(
                     let query_runtime = runtime.clone();
                     let stack = Arc::clone(&stack);
                     let query = buffer[..size].to_vec();
+                    #[cfg(feature = "raw-ip-runtime")]
+                    let mut native = owned.as_ref().map(|owner| owner.native.reserve(crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Dns)).transpose().map_err(std::io::Error::other)?;
                     dns_tasks.spawn(async move {
-                        let response = query_runtime.resolver().answer_udp_query(&query).await?;
+                        #[cfg(feature = "raw-ip-runtime")]
+                        if let Some(native) = &mut native { native.enter().map_err(std::io::Error::other)?; }
+                        let response = query_runtime.resolver().answer_udp_query(&query).await;
+                        #[cfg(feature = "raw-ip-runtime")]
+                        let response = response.map_err(|error| match &native { Some(native) => native.retain_error(error), None => error });
+                        let response = response?;
                         stack.send_to(&response, destination, source).await;
                         Ok::<(), std::io::Error>(())
                     })?;
@@ -106,6 +113,8 @@ pub(super) async fn run_inner(
                                         source,
                                         id,
                                         first: datagram,
+                                        #[cfg(feature = "raw-ip-runtime")]
+                                        native: owned.as_ref().map(|owner| owner.native.reserve(crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Udp)).transpose().map_err(std::io::Error::other)?,
                                     },
                                 )?;
                                 tracing::trace!(

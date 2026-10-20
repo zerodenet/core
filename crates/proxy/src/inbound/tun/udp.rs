@@ -56,6 +56,8 @@ struct AssociationStart {
     source: SocketAddress,
     id: u64,
     first: TunDatagram,
+    #[cfg(feature = "raw-ip-runtime")]
+    native: Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativePermit>,
 }
 
 impl InboundDatagramUdpRelay<Arc<UserUdpStack>> for TunUdpRelay {
@@ -185,6 +187,8 @@ fn spawn_association(
         source,
         id,
         first,
+        #[cfg(feature = "raw-ip-runtime")]
+        mut native,
     } = start;
     let (sender, receiver) = mpsc::channel(ASSOCIATION_QUEUE_CAPACITY);
     sender
@@ -195,6 +199,12 @@ fn spawn_association(
         zero_platform_tokio::socket_address_to_socket_addr(source),
     ));
     let registered = tasks.spawn(async move {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(native) = &mut native {
+            if let Err(error) = native.enter() {
+                return (source, id, Err(std::io::Error::other(error).into()));
+            }
+        }
         let result = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
             runtime,
             stack,
@@ -203,6 +213,11 @@ fn spawn_association(
             true,
         )
         .await;
+        #[cfg(feature = "raw-ip-runtime")]
+        let result = result.map_err(|error| match &native {
+            Some(native) => EngineError::Io(native.retain_error(error)),
+            None => error,
+        });
         (source, id, result)
     });
     if registered.is_err() {

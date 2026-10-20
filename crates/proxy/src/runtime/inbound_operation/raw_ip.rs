@@ -4,6 +4,7 @@
 mod children;
 mod icmp;
 mod lifecycle;
+pub(crate) mod native_obligations;
 mod outer;
 mod route;
 mod run;

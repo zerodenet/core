@@ -14,6 +14,7 @@ pub(super) async fn accept(
     tcp: Arc<UserTcpStack>,
     runtime_factory: InboundRouteRuntimeFactory,
     owner: super::tasks::RetainedTasks<Result<(), EngineError>>,
+    native: super::native_obligations::NativeObligations,
 ) -> Result<(), EngineError> {
     let mut connections = owner.lock().await.map_err(std::io::Error::other)?;
     loop {
@@ -23,6 +24,7 @@ pub(super) async fn accept(
                     return Err(EngineError::Io(io::Error::new(io::ErrorKind::UnexpectedEof, "raw-IP TCP stack closed")));
                 };
                 if connections.len() >= 4096 { continue; }
+                let mut native = native.reserve(super::native_obligations::ChildKind::Tcp).map_err(std::io::Error::other)?;
                 let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
                 let mut session = Session::new(0, socket_address_to_address(destination), destination.port, Network::Tcp, ProtocolType::UNKNOWN);
                 session.inbound_peer_identity = stream.peer_identity();
@@ -30,7 +32,9 @@ pub(super) async fn accept(
                 let runtime = runtime_factory.for_connection(Some(source_addr));
                 connections.spawn(async move {
                     let stream = ReplayStream::new(stream, Vec::new());
+                    native.enter().map_err(std::io::Error::other)?;
                     runtime.serve(session, stream, &NoClientResponseStreamProtocol::new()).await
+                        .map_err(|error| EngineError::Io(native.retain_error(error)))
                 }).map_err(std::io::Error::other)?;
             }
             Some(result) = connections.join_next(), if !connections.is_empty() => {

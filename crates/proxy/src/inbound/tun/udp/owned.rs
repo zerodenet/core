@@ -7,12 +7,19 @@ use crate::runtime::{
 type AssociationExit = (SocketAddress, u64, Result<(), EngineError>);
 #[derive(Clone)]
 pub(crate) struct OwnedTunUdpTasks {
+    pub(super) native:
+        crate::runtime::inbound_operation::raw_ip::native_obligations::NativeObligations,
     pub(super) associations: RetainedTasks<AssociationExit>,
     pub(super) dns: RetainedTasks<Result<(), std::io::Error>>,
 }
 impl OwnedTunUdpTasks {
-    pub(crate) fn new() -> Self {
+    pub(crate) const MAX_ASSOCIATIONS: usize = association::MAX_ACTIVE_ASSOCIATIONS;
+    pub(crate) const MAX_DNS: usize = MAX_CONCURRENT_DNS_QUERIES;
+    pub(crate) fn new(
+        native: crate::runtime::inbound_operation::raw_ip::native_obligations::NativeObligations,
+    ) -> Self {
         Self {
+            native,
             associations: RetainedTasks::new(
                 "raw-IP UDP associations joined",
                 association::MAX_ACTIVE_ASSOCIATIONS,

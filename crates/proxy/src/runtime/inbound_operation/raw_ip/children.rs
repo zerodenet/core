@@ -5,6 +5,7 @@ use crate::inbound::tun::udp::OwnedTunUdpTasks;
 use crate::runtime::inbound_owners::InboundInstallContext;
 
 pub(super) struct RawIpChildren {
+    pub(super) native: super::native_obligations::NativeObligations,
     pub(super) icmp: Option<crate::component::instance::HostIcmpProbeGrant>,
     pub(super) drivers: RetainedTasks<Result<(), EngineError>>,
     pub(super) proxies: RetainedTasks<()>,
@@ -15,7 +16,13 @@ pub(super) struct RawIpChildren {
 }
 impl RawIpChildren {
     pub(super) fn new() -> Self {
+        let native = super::native_obligations::NativeObligations::new(
+            4096,
+            OwnedTunUdpTasks::MAX_ASSOCIATIONS,
+            OwnedTunUdpTasks::MAX_DNS,
+        );
         Self {
+            native: native.clone(),
             icmp: None,
             drivers: RetainedTasks::new("raw-IP stack drivers joined", 2),
             proxies: RetainedTasks::new(
@@ -23,7 +30,7 @@ impl RawIpChildren {
                 crate::runtime::raw_ip::MAX_RAW_IP_DEVICES,
             ),
             connections: RetainedTasks::new("raw-IP TCP connections joined", 4096),
-            udp: OwnedTunUdpTasks::new(),
+            udp: OwnedTunUdpTasks::new(native),
             stack_workers: RetainedTasks::new(
                 "raw-IP TCP retransmission and control workers joined",
                 zero_stack::UserTcpStack::BACKGROUND_TASK_LIMIT,
@@ -36,6 +43,7 @@ impl RawIpChildren {
     }
     pub(super) fn install(&mut self, context: &InboundInstallContext) -> Result<(), EngineError> {
         self.icmp = context.icmp_probe_grant();
+        context.register(self.native.resource())?;
         context.register(self.stack_workers.resource())?;
         context.register(self.connections.resource())?;
         self.udp.install(context)?;

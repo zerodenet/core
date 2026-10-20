@@ -39,6 +39,7 @@ pub(super) async fn run(
             tcp.clone(),
             runtime.route_factory(),
             operation.children.connections.clone(),
+            operation.children.native.clone(),
         ))
         .map_err(std::io::Error::other)?;
     tasks
