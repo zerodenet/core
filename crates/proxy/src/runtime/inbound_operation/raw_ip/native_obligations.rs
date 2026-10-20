@@ -40,6 +40,8 @@ struct Record {
     retiring: bool,
     caller: Option<Arc<crate::runtime::inbound_owners::HostPeerBinding>>,
     business_failure: Option<Arc<zero_engine::EngineError>>,
+    carrier: Option<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
+    carrier_conflict: bool,
 }
 pub(crate) struct NativePermit {
     owner: NativeObligations,
@@ -88,6 +90,8 @@ impl NativeObligations {
                 retiring: false,
                 caller: None,
                 business_failure: None,
+                carrier: None,
+                carrier_conflict: false,
             },
         );
         Ok(NativePermit {
@@ -108,6 +112,7 @@ pub(crate) struct NativeRegistration {
     id: u64,
 }
 mod business;
+mod carrier;
 mod registration;
 impl NativePermit {
     pub(crate) fn registration(&self) -> NativeRegistration {
@@ -209,6 +214,27 @@ impl ResourceLifecycle for NativeObligations {
     }
     async fn shutdown(&mut self, _: Instant) -> Result<CloseReport, ChannelError> {
         self.stop();
+        // Clone only bounded registration identities before querying original
+        // carrier/caller receipts; no ledger lock surrounds other owners.
+        let registrations: Vec<_> = self
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .records
+            .keys()
+            .map(|id| NativeRegistration {
+                owner: Arc::downgrade(&self.0),
+                id: *id,
+            })
+            .collect();
+        let locally_closed_carriers = registrations
+            .iter()
+            .filter(|registration| {
+                registration
+                    .carrier_completion()
+                    .is_some_and(|receipt| receipt.matches(registration))
+            })
+            .count();
         let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(source) = &state.first_source {
             return Err(rejected(Reason::Io).with_source(SharedSource(source.clone())));
@@ -226,7 +252,7 @@ impl ResourceLifecycle for NativeObligations {
                 .filter(|record| record.retiring)
                 .count();
             report.unfinished.push(Unfinished::Io(format!(
-                "{} raw-IP child obligations ({entered} unaccounted, {retiring} retiring) lack native closure proof",
+                "{} raw-IP child obligations ({entered} unaccounted, {retiring} retiring, {locally_closed_carriers} locally confirmed carriers) lack complete gateway closure proof",
                 state.records.len()
             )));
         }
