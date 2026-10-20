@@ -326,6 +326,7 @@ impl Proxy {
             self.principal_rate_limits.clone(),
             self.retired_datagrams.clone(),
         )
+        .with_current_service_source(self.current_service_source())
     }
 
     #[cfg(all(test, feature = "udp-runtime"))]

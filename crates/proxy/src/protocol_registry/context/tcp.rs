@@ -45,6 +45,7 @@ impl TcpRuntimeServices {
             execution: TcpExecutionServices {
                 engine,
                 snapshot,
+                current_source: std::sync::Weak::new(),
                 upstream: UpstreamConnectServices::new(
                     resolver,
                     protocols.direct_connector(),
@@ -58,6 +59,14 @@ impl TcpRuntimeServices {
             },
             protocols,
         }
+    }
+
+    pub(crate) fn with_current_service_source(
+        mut self,
+        source: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
+    ) -> Self {
+        self.execution.current_source = source;
+        self
     }
 
     pub(crate) fn with_current_snapshot(&self) -> Self {

@@ -1,4 +1,4 @@
-//! Execution inputs that reusable relay factories may retain without a registry.
+//! Short-lived execution inputs. Retained relay factories use a Weak host source.
 use super::super::UpstreamConnectServices;
 use crate::runtime::principal_rate_limit::{PrincipalRateLimitRegistry, TrafficRateLimiters};
 use std::sync::Arc;
@@ -10,6 +10,8 @@ use zero_engine::{Engine, EngineRuntimeSnapshot};
 pub(crate) struct TcpExecutionServices {
     pub(in crate::protocol_registry::context) engine: Engine,
     pub(super) snapshot: Arc<EngineRuntimeSnapshot>,
+    pub(crate) current_source:
+        std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     pub(in crate::protocol_registry::context) upstream: UpstreamConnectServices,
     pub(super) principal_rate_limits: PrincipalRateLimitRegistry,
     pub(super) retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,

@@ -62,7 +62,7 @@ impl CurrentServiceSource {
         self.egress_interface.generation()
     }
 
-    pub(super) fn runtime_services(&self) -> io::Result<TcpRuntimeServices> {
+    pub(super) fn runtime_services(self: &Arc<Self>) -> io::Result<TcpRuntimeServices> {
         let resolver = self
             .resolver
             .upgrade()
@@ -80,7 +80,8 @@ impl CurrentServiceSource {
             self.egress_interface.clone(),
             self.principal_rate_limits.clone(),
             retired_datagrams,
-        ))
+        )
+        .with_current_service_source(Arc::downgrade(self)))
     }
 }
 fn unavailable(message: &'static str) -> io::Error {
