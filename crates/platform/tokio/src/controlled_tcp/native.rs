@@ -51,7 +51,7 @@ impl std::error::Error for NativeCloseFailure {
     }
 }
 #[cfg(unix)]
-fn native_close(socket: TcpStream) -> io::Result<()> {
+pub(super) fn native_close(socket: TcpStream) -> io::Result<()> {
     use std::os::fd::IntoRawFd;
     let descriptor = socket.into_raw_fd();
     // SAFETY: consume the original uniquely owned native descriptor once.
@@ -69,7 +69,7 @@ fn native_close(socket: TcpStream) -> io::Result<()> {
     ))
 }
 #[cfg(windows)]
-fn native_close(socket: TcpStream) -> io::Result<()> {
+pub(super) fn native_close(socket: TcpStream) -> io::Result<()> {
     use std::os::windows::io::{FromRawSocket, IntoRawSocket};
     use windows_sys::Win32::Networking::WinSock::{closesocket, WSAGetLastError, WSAEWOULDBLOCK};
     let socket = socket.into_raw_socket();

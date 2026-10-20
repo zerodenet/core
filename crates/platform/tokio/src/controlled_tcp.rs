@@ -1,8 +1,14 @@
 //! Byte I/O and explicit native close share one original TCP descriptor.
+#[cfg(unix)]
+pub(crate) mod connect;
 mod control;
 mod native;
+mod socket;
 use crate::TokioSocket;
+#[cfg(unix)]
+pub use connect::PendingTcpConnect;
 pub use control::ControlledTcpControl;
+use socket::Socket;
 use std::{
     future::Future,
     io,
@@ -15,7 +21,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_util::sync::CancellationToken;
 
 struct State {
-    socket: Option<TokioSocket>,
+    socket: Option<Socket>,
     closed: bool,
     error: Option<Arc<io::Error>>,
 }
@@ -43,23 +49,26 @@ impl ControlledTcpStream {
                 socket.inner.peer_addr().ok()
             ),
             state: Mutex::new(State {
-                socket: Some(socket),
+                socket: Some(Socket::Tokio(socket)),
                 closed: false,
                 error: None,
             }),
             cancel,
         });
         (
-            Self {
-                read_cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
-                write_cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
-                shared: shared.clone(),
-            },
+            Self::from_shared(shared.clone()),
             ControlledTcpControl {
                 shared,
                 reported: false,
             },
         )
+    }
+    fn from_shared(shared: Arc<Shared>) -> Self {
+        Self {
+            read_cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
+            write_cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
+            shared,
+        }
     }
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.shared
@@ -114,7 +123,7 @@ impl AsyncRead for ControlledTcpStream {
         };
         // Delegate to the original socket: its observer and actual readiness,
         // effective addresses, and selected interface remain intact.
-        Pin::new(socket).poll_read(cx, buffer)
+        socket.poll_read(cx, buffer)
     }
 }
 impl AsyncWrite for ControlledTcpStream {
@@ -131,7 +140,7 @@ impl AsyncWrite for ControlledTcpStream {
         let Some(socket) = &mut state.socket else {
             return Poll::Ready(Err(closed()));
         };
-        Pin::new(socket).poll_write(cx, bytes)
+        socket.poll_write(cx, bytes)
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
@@ -142,7 +151,7 @@ impl AsyncWrite for ControlledTcpStream {
         let Some(socket) = &mut state.socket else {
             return Poll::Ready(Err(closed()));
         };
-        Pin::new(socket).poll_flush(cx)
+        socket.poll_flush(cx)
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
@@ -154,7 +163,7 @@ impl AsyncWrite for ControlledTcpStream {
             return Poll::Ready(Err(closed()));
         };
         // Write half-close is not whole-channel cancellation or native close.
-        Pin::new(socket).poll_shutdown(cx)
+        socket.poll_shutdown(cx)
     }
 }
 impl Drop for ControlledTcpStream {

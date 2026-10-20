@@ -1,5 +1,7 @@
 //! Native socket enforcement for neutral dial requirements.
 pub(crate) mod interfaces;
+#[cfg(unix)]
+mod owned_tcp;
 mod tcp;
 mod udp;
 use crate::{EgressInterface, EgressSelection};
