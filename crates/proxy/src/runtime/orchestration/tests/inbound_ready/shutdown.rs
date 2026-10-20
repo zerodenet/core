@@ -80,7 +80,10 @@ async fn public_shutdown_during_accepted_candidate_ready_drives_original_compens
     )
     .unwrap();
     let proxy = Proxy::new(initial.clone()).unwrap();
-    let handle = crate::ProxyHandle::new(proxy.clone());
+    let handle = crate::ProxyHandle::new(
+        zero_engine::EngineHandle::new(proxy.engine().clone()),
+        proxy.clone(),
+    );
     let (stop, shutdown) = tokio::sync::oneshot::channel();
     let run = proxy.run_until(async {
         let _ = shutdown.await;
