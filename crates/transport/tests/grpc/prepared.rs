@@ -64,13 +64,9 @@ async fn prepared_h2_connection_runs_its_original_driver_inline_and_preserves_re
         } = connection;
         let operation = async move {
             let mut sender = sender.ready().await.unwrap();
-            let (response, mut send) = sender
-                .send_request(
-                    options::request(&profile, "ignored.example").unwrap(),
-                    false,
-                )
+            let (response, send) = sender
+                .send_request(options::request(&profile, "ignored.example").unwrap(), true)
                 .unwrap();
-            send.send_data(Bytes::new(), true).unwrap();
             drop(send);
             let response = response.await.unwrap();
             assert_eq!(response.status(), 200);

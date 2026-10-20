@@ -153,6 +153,7 @@ async fn pool_reuses_one_connection_and_retirement_preserves_admitted_streams() 
 }
 
 mod prepared;
+mod prepared_stream;
 mod read;
 mod reconnect;
 
