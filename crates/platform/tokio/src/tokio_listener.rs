@@ -124,5 +124,5 @@ impl TcpListenerTrait for TokioListener {
 }
 
 #[cfg(test)]
-#[path = "../tests/tokio_listener.rs"]
+#[path = "../tests/tokio_listener/mod.rs"]
 mod tests;
