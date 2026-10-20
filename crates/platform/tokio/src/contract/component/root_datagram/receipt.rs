@@ -7,7 +7,7 @@ pub struct RootDatagramRetryReceipt {
 }
 pub struct RootDatagramAttemptFailure {
     error: ChannelError,
-    retry: Option<RootDatagramRetryReceipt>,
+    retry: Option<Box<RootDatagramRetryReceipt>>,
 }
 pub struct RootDatagramClosed {
     usage: RootDatagramUse,
@@ -38,7 +38,10 @@ impl RootDatagramAttemptFailure {
         Self { error, retry: None }
     }
     pub(super) fn acquired(error: ChannelError, retry: Option<RootDatagramRetryReceipt>) -> Self {
-        Self { error, retry }
+        Self {
+            error,
+            retry: retry.map(Box::new),
+        }
     }
     pub fn error(&self) -> &ChannelError {
         &self.error
@@ -47,7 +50,7 @@ impl RootDatagramAttemptFailure {
         self.error
     }
     pub fn retry_receipt(&self) -> Option<&RootDatagramRetryReceipt> {
-        self.retry.as_ref()
+        self.retry.as_deref()
     }
 }
 impl RootDatagramClosed {
