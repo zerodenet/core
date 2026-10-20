@@ -6,7 +6,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         mpsc, Weak,
     },
-    task::{Context, Poll, Wake, Waker},
+    task::{Context, Wake, Waker},
 };
 
 fn bounded(work: impl FnOnce() + Send + 'static) {

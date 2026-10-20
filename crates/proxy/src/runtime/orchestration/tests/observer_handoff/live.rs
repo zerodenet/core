@@ -58,7 +58,11 @@ async fn live_primary_fault_reaches_the_supervisor_before_the_original_peer_join
     fail.send(()).unwrap();
     let error = timeout(
         Duration::from_secs(2),
-        super::super::lifecycle::run_loop(&proxy, &mut state, std::future::pending()),
+        crate::runtime::orchestration::lifecycle::run_loop(
+            &proxy,
+            &mut state,
+            std::future::pending(),
+        ),
     )
     .await
     .unwrap()
