@@ -134,6 +134,21 @@ pub struct GrantedDatagramListener {
 /// The host implements access only for resources declared by this component.
 /// Calls are deferred until ResourceLifecycle::start, after ownership is installed.
 pub trait ResourceAccess: Send + Sync {
+    /// Bind the already installed sole physical owner to this exact canonical
+    /// declaration ordinal and actual host scope. This grants no task/session
+    /// and supplies no external-user completion receipt. Default deny.
+    fn register_controlled_carrier(
+        &self,
+        _ordinal: usize,
+        _registration: crate::controlled_carrier::CarrierOwnerRegistration,
+        _tasks: &TaskRegistrar,
+    ) -> Result<crate::controlled_carrier::CarrierOwnerBinding, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     /// Default deny. Success must be installed synchronously in the protocol's
     /// persistent socket owner before callbacks, generation checks or awaits.
     /// The actual host selection is returned; protocols cannot supply one.

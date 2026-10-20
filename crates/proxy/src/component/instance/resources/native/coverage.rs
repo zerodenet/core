@@ -19,6 +19,7 @@ pub(in crate::component) enum DeclaredResourceKind {
 pub(in crate::component) enum DeclarationProvider {
     File(usize),
     Native(usize),
+    Carrier(usize),
     Unaccounted,
 }
 #[derive(Clone, Debug)]
@@ -30,6 +31,7 @@ pub(in crate::component) struct DeclarationEvidence {
     pub provider: DeclarationProvider,
 }
 pub(super) enum CoverageBinding {
+    Carrier,
     File(PathBuf),
     Tcp(SocketAddr),
     Datagram(SocketAddr),
@@ -41,9 +43,7 @@ impl CoverageBinding {
         declaration: &ResourceDeclaration,
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
-            ResourceDeclaration::ControlledOutboundStream { .. } => {
-                Self::Unaccounted(DeclaredResourceKind::ControlledOutboundStream)
-            }
+            ResourceDeclaration::ControlledOutboundStream { .. } => Self::Carrier,
             ResourceDeclaration::NativeIcmp { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::NativeIcmp)
             }
@@ -74,6 +74,7 @@ impl CoverageBinding {
         native: &[evidence::NativeIoEvidence],
     ) -> DeclarationEvidence {
         let (kind, provider) = match self {
+            Self::Carrier => (DeclaredResourceKind::ControlledOutboundStream, None),
             Self::File(path) => (
                 DeclaredResourceKind::File,
                 files
@@ -113,6 +114,7 @@ impl evidence::HostIoEvidence {
         }
         let mut files = vec![false; self.files.len()];
         let mut native = vec![false; self.native.len()];
+        let mut carriers = vec![false; self.carriers.len()];
         for (ordinal, declaration) in self.declarations.iter().enumerate() {
             if declaration.ordinal != ordinal {
                 return false;
@@ -145,13 +147,26 @@ impl evidence::HostIoEvidence {
                         _ => false,
                     }
                 }
+                DeclarationProvider::Carrier(index)
+                    if declaration.kind == DeclaredResourceKind::ControlledOutboundStream =>
+                {
+                    match (self.carriers.get(index), carriers.get_mut(index)) {
+                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                            *seen = true;
+                            owner.physical_confirmed()
+                        }
+                        _ => false,
+                    }
+                }
                 _ => false,
             };
             if !confirmed {
                 return false;
             }
         }
-        files.into_iter().all(|seen| seen) && native.into_iter().all(|seen| seen)
+        files.into_iter().all(|seen| seen)
+            && native.into_iter().all(|seen| seen)
+            && carriers.into_iter().all(|seen| seen)
     }
 }
 

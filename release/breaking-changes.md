@@ -418,3 +418,10 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   metadata for exact host/provider scope matching. Its `registration_open` check
   reports only original registration admission, without polling tasks, delivering
   exits, retaining a Scope or claiming resource/user closure.
+
+- `ResourceAccess::register_controlled_carrier` is a default-deny Rust-only
+  registration hook for the sole declared physical owner, actual declaration
+  ordinal and host TaskRegistrar. HostResources requires the actual component
+  generation and scope before supporting it. The exact owner/fence binding does
+  not provide business admission or transferred-user completion; missing users
+  retain an actual unfinished cleanup obligation. V1 config and FFI are unchanged.

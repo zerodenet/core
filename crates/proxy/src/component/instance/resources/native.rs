@@ -9,7 +9,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
-    component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
+    component::{ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
     BoxFuture, CancellationToken, ChannelError, Reason,
 };
@@ -17,6 +17,7 @@ use zero_platform_tokio::contract::{
 pub(in crate::component) struct HostResources {
     component: ComponentId,
     coverage: Vec<coverage::CoverageBinding>,
+    carriers: carrier::CarrierDeclarations,
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Arc<tokio::sync::Notify>,
@@ -33,10 +34,12 @@ struct State {
 }
 // The nonconsuming proof API is staged for host slot integration; resourceful
 // production activation remains gated until that separate transaction exists.
+mod carrier;
 mod coverage;
 mod evidence;
 mod files;
 mod listener;
+mod prepare;
 pub(in crate::component) use evidence::HostIoEvidence;
 pub(crate) use listener::HostDatagramListenerOwner;
 mod shutdown;
@@ -54,120 +57,6 @@ impl Drop for StartAccess {
     }
 }
 impl HostResources {
-    pub(in crate::component) fn new(
-        component: ComponentId,
-        declarations: &[ResourceDeclaration],
-        cancel: CancellationToken,
-    ) -> Result<Arc<Self>, ChannelError> {
-        let mut remaining = BTreeMap::new();
-        let mut tcp = BTreeMap::new();
-        let mut datagram = BTreeMap::new();
-        let mut files = files::FileReads::default();
-        for declaration in declarations {
-            match declaration {
-                ResourceDeclaration::Process {
-                    program,
-                    max_starts,
-                } => {
-                    if program.as_os_str().is_empty()
-                        || remaining
-                            .insert(program.clone(), max_starts.get())
-                            .is_some()
-                    {
-                        return Err(error(
-                            component,
-                            Reason::InvalidConfig,
-                            "empty or duplicate process declaration",
-                        ));
-                    }
-                }
-                ResourceDeclaration::TcpListener {
-                    destination,
-                    max_bind_attempts,
-                } => {
-                    let address = sockets::literal(component, destination)?;
-                    let owner = sockets::TcpGrant {
-                        native: zero_platform_tokio::ControlledTcpListenerOwner::new(
-                            declaration,
-                            *max_bind_attempts,
-                            cancel.clone(),
-                        )?,
-                        acquired: false,
-                        attempted: false,
-                    };
-                    if tcp
-                        .insert(address, Arc::new(AsyncMutex::new(owner)))
-                        .is_some()
-                    {
-                        return Err(error(
-                            component,
-                            Reason::InvalidConfig,
-                            "duplicate listener declaration",
-                        ));
-                    }
-                }
-                ResourceDeclaration::DatagramListener {
-                    destination,
-                    max_bind_attempts,
-                    max_pending_sends,
-                } => {
-                    let address = sockets::literal(component, destination)?;
-                    let owner = sockets::DatagramGrant::new(
-                        component,
-                        *max_bind_attempts,
-                        *max_pending_sends,
-                    )?;
-                    if datagram
-                        .insert(address, Arc::new(AsyncMutex::new(owner)))
-                        .is_some()
-                    {
-                        return Err(error(
-                            component,
-                            Reason::InvalidConfig,
-                            "duplicate listener declaration",
-                        ));
-                    }
-                }
-                ResourceDeclaration::File { path, max_bytes } => {
-                    files.declare(component, path, *max_bytes)?
-                }
-                ResourceDeclaration::OutboundDatagram { .. } => {
-                    return Err(error(
-                        component,
-                        Reason::Unsupported,
-                        "outbound datagram access requires its installed dynamic host owner",
-                    ));
-                }
-                _ => {
-                    return Err(error(
-                        component,
-                        Reason::InvalidConfig,
-                        "resource grant is not implemented",
-                    ))
-                }
-            }
-        }
-        let coverage = declarations
-            .iter()
-            .map(|declaration| coverage::CoverageBinding::new(component, declaration))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Arc::new(Self {
-            component,
-            coverage,
-            cancel,
-            state: Mutex::new(State {
-                closed: false,
-                start_deadline: None,
-                remaining,
-                tcp,
-                datagram,
-                files,
-                io: shutdown::NativeClose::default(),
-            }),
-            changed: Arc::new(tokio::sync::Notify::new()),
-            cleanup: AsyncMutex::new(()),
-        }))
-    }
     pub(in crate::component) fn activate(
         self: &Arc<Self>,
         deadline: Instant,
@@ -202,6 +91,14 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn register_controlled_carrier(
+        &self,
+        ordinal: usize,
+        registration: zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOwnerBinding, ChannelError> {
+        self.register_carrier(ordinal, registration, tasks)
+    }
     fn spawn_process(
         &self,
         request: ProcessRequest,

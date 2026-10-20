@@ -10,6 +10,7 @@ pub(in crate::component) struct HostIoEvidence {
     pub admission_closed: bool,
     pub files: Vec<FileIoEvidence>,
     pub native: Vec<NativeIoEvidence>,
+    pub carriers: Vec<super::carrier::CarrierIoEvidence>,
     pub sticky_faults: Vec<Arc<ChannelError>>,
 }
 #[derive(Clone, Debug)]
@@ -51,18 +52,37 @@ impl HostResources {
             })
             .collect();
         let files = state.files.evidence();
+        let admission_closed = state.closed || self.cancel.is_cancelled();
+        drop(state);
+        let carriers = self.carriers.evidence();
+        sticky_faults.extend(
+            carriers
+                .iter()
+                .filter_map(|carrier| carrier.first_fault.clone()),
+        );
         let declarations = self
             .coverage
             .iter()
             .enumerate()
-            .map(|(ordinal, binding)| binding.observe(ordinal, &files, &native))
+            .map(|(ordinal, binding)| {
+                let mut proof = binding.observe(ordinal, &files, &native);
+                if matches!(binding, coverage::CoverageBinding::Carrier) {
+                    proof.provider = carriers
+                        .iter()
+                        .position(|carrier| carrier.ordinal == ordinal && carrier.registered)
+                        .map(coverage::DeclarationProvider::Carrier)
+                        .unwrap_or(coverage::DeclarationProvider::Unaccounted);
+                }
+                proof
+            })
             .collect();
         HostIoEvidence {
             declared_count: self.coverage.len(),
             declarations,
-            admission_closed: state.closed || self.cancel.is_cancelled(),
+            admission_closed,
             files,
             native,
+            carriers,
             sticky_faults,
         }
     }

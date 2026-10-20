@@ -26,6 +26,10 @@ impl HostResources {
             state.start_deadline = None;
         }
         self.changed.notify_waiters();
+        // Native observations may flush external wakes. Sample before acquiring
+        // even the async cleanup gate; a concurrently completed receipt can be
+        // observed on retry, never guessed from an older pending snapshot.
+        let carriers = self.carriers.evidence();
         let Ok(_cleanup) = timeout_at(deadline, self.cleanup.lock()).await else {
             return Ok(unfinished("native/file cleanup owner is still busy".into()));
         };
@@ -51,6 +55,12 @@ impl HostResources {
         if let Some(source) = state.io.failures.values().next() {
             return Err(crate::component::instance::retained(source.clone()));
         }
+        if let Some(source) = carriers
+            .iter()
+            .find_map(|carrier| carrier.first_fault.as_ref())
+        {
+            return Err(crate::component::instance::retained(source.clone()));
+        }
         let mut report = std::mem::take(&mut state.io.receipts);
         report.append(std::mem::take(&mut state.files.receipts));
         report.unfinished.extend(
@@ -67,6 +77,10 @@ impl HostResources {
                     ))
                 }),
         );
+        report.unfinished.extend(carriers.iter().map(|carrier| Unfinished::Resource(format!(
+            "component {} carrier declaration {} native_closed={} transferred users remain unaccounted",
+            self.component.0, carrier.ordinal, carrier.native_generation_closed
+        ))));
         Ok(report)
     }
     async fn drive_native(&self, deadline: Instant) {
