@@ -17,6 +17,11 @@ impl OrchestrationState {
         {
             return;
         }
+        if let Err(error) = self.preparing_inbounds.ensure_open() {
+            self.reject_reload(proxy, &new_snapshot, error.to_string())
+                .await;
+            return;
+        }
         if let Err(error) = self.validate_endpoint_directions(proxy, &new_snapshot) {
             self.reject_reload(proxy, &new_snapshot, error.to_string())
                 .await;

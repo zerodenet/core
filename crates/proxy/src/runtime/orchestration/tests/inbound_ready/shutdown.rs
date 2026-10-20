@@ -152,3 +152,30 @@ async fn public_shutdown_during_accepted_candidate_ready_drives_original_compens
         .unwrap();
     assert!(tail.is_empty());
 }
+
+#[tokio::test]
+async fn already_requested_shutdown_precedes_zero_listener_startup_and_never_publishes_ready() {
+    let config =
+        zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
+    let proxy = Proxy::new(config).unwrap();
+    let snapshot = proxy.engine.runtime_snapshot();
+    proxy
+        .run_until(async {
+            assert!(
+                !*proxy.orchestration_ready.borrow(),
+                "an already-ready stop must be polled before publishing startup Ready"
+            );
+            assert!(proxy
+                .protocols
+                .current_components(snapshot.config())
+                .is_none());
+        })
+        .await
+        .unwrap();
+    assert!(!*proxy.orchestration_ready.borrow());
+    assert!(proxy
+        .protocols
+        .current_components(snapshot.config())
+        .is_none());
+    assert!(proxy.inbound_owners.identities().is_empty());
+}

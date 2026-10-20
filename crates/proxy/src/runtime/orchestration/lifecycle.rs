@@ -21,8 +21,7 @@ where
     let (startup, stopped) = {
         let startup = state.start(proxy);
         tokio::pin!(startup);
-        tokio::select! {
-            result = &mut startup => (result, false),
+        tokio::select! { biased;
             _ = &mut shutdown => {
                 proxy.apply_owner.begin_shutdown();
                 proxy.protocols.stop_component_admission();
@@ -31,6 +30,7 @@ where
                 // Stop is a request; only its original cleanup path can ACK.
                 (startup.await, true)
             }
+            result = &mut startup => (result, false),
         }
     };
     if stopped || startup.is_err() {
@@ -89,6 +89,7 @@ where
                     reason = "shutdown_signal",
                     "proxy orchestration shutdown requested"
                 );
+                state.preparing_inbounds.begin_shutdown();
                 return state.drain_configuration(proxy).await;
             }
             Some(()) = state.reload_async_rx.recv() => {
@@ -102,8 +103,7 @@ where
                 let stopped = {
                     let reconciliation = state.reconcile_reload(proxy);
                     tokio::pin!(reconciliation);
-                    tokio::select! {
-                        _ = &mut reconciliation => false,
+                    tokio::select! { biased;
                         _ = &mut shutdown => {
                             proxy.apply_owner.begin_shutdown();
                             proxy.protocols.stop_component_admission();
@@ -113,6 +113,7 @@ where
                             reconciliation.await;
                             true
                         }
+                        _ = &mut reconciliation => false,
                     }
                 };
                 if stopped { return state.drain_configuration(proxy).await; }

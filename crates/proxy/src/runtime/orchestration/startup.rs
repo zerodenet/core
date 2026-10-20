@@ -85,6 +85,7 @@ impl OrchestrationState {
     }
 
     pub(super) async fn start(&mut self, proxy: &Proxy) -> Result<(), EngineError> {
+        self.preparing_inbounds.ensure_open()?;
         let snapshot = self.applied_snapshot.clone();
         let config = snapshot.config().clone();
         proxy.protocols.validate_dial_environment(&config)?;
