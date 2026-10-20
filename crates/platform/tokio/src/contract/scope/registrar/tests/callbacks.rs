@@ -13,10 +13,10 @@ async fn weak_identity_and_callback_guard_never_keep_a_scope_or_create_admission
     let foreign = TaskScope::suspended_hosted(Handle::current(), None);
     assert!(identity.same_scope(&original));
     assert!(!identity.same_scope(&foreign.registrar().scope_identity()));
-    assert_eq!(Arc::strong_count(&owner.0 .0), 1);
+    assert_eq!(weak.0.strong_count(), 1);
     let callbacks = weak.defer_callbacks().unwrap();
     assert_eq!(
-        Arc::strong_count(&owner.0 .0),
+        weak.0.strong_count(),
         1,
         "guard owns only original relay metadata"
     );
@@ -152,7 +152,7 @@ async fn weak_deferral_delivers_same_native_failure_after_parent_unlock_then_rel
                     Poll::Ready(None) => panic!("actual registration disappeared"),
                 };
                 assert_eq!(callback.calls.load(Ordering::SeqCst), 0);
-                assert_eq!(Arc::strong_count(&owner.0 .0), 1);
+                assert_eq!(weak.0.strong_count(), 1);
                 drop(locked);
                 joined
             };
