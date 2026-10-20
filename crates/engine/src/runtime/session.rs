@@ -1,6 +1,3 @@
-use std::sync::atomic::Ordering;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use zero_core::{Address, Session, SessionAuth};
 
 use super::Engine;
@@ -12,6 +9,10 @@ use crate::{
     EngineError, FlowFailureObservation, FlowNetworkObservation, FlowRemoteEndpoint,
     FlowRouteObservation, RouteDecision, RouteTrace,
 };
+
+mod admission;
+mod identity;
+pub use identity::SessionIdentity;
 
 impl Engine {
     pub(crate) fn register_session_cancellation<F>(&self, id: u64, cancel: F) -> bool
@@ -27,63 +28,6 @@ impl Engine {
 
     pub(crate) fn session_cancellation_reason(&self, id: u64) -> Option<String> {
         self.session_registry.cancellation_reason(id)
-    }
-
-    pub fn prepare_session(
-        &self,
-        session: &mut Session,
-        inbound_tag: &str,
-    ) -> Result<(), EngineError> {
-        session.id = self.next_session_id.fetch_add(1, Ordering::Relaxed);
-        session.inbound_tag = Some(inbound_tag.to_owned());
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let mode = self.mode.lock().unwrap_or_else(|error| error.into_inner());
-        self.principal_policies.validate(session.auth.as_ref())?;
-        let hook = self
-            .flow_hook
-            .read()
-            .expect("flow hook lock poisoned")
-            .clone();
-        if let Some(hook) = hook {
-            let context = FlowContext::from_session(session, mode.kind(), now_ms);
-            if let Err(reason) = hook.on_flow_start(&context) {
-                tracing::warn!(flow_id = session.id, reason = %reason.message, "flow blocked by hook");
-                return Err(EngineError::AdmissionDenied {
-                    reason: reason.message,
-                });
-            }
-        }
-        let device_registration =
-            self.acquire_principal_device(session.auth.as_ref(), session.source_ip.as_ref())?;
-        let quota_registration = self.principal_quotas.acquire(session.auth.as_ref())?;
-        let inserted = self.session_registry.insert(
-            session,
-            mode.kind(),
-            device_registration,
-            quota_registration,
-        );
-        self.session_registry.bind_traffic(
-            session.id,
-            false,
-            self.traffic.meter(&zero_api::TrafficScope::Inbound {
-                tag: inbound_tag.into(),
-            }),
-        );
-        self.session_registry.bind_endpoint_traffic(
-            session.id,
-            false,
-            self.endpoint_role_meter(inbound_tag, false),
-        );
-        if let Some(peer) = &session.inbound_peer_identity {
-            self.bind_session_peer(session.id, inbound_tag, false, peer);
-        }
-        self.stats.record_start();
-        self.event_log
-            .push_flow_started(&inserted.active, inserted.principal_observation.as_ref());
-        Ok(())
     }
 
     pub fn acquire_principal_device(

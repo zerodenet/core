@@ -31,6 +31,7 @@ pub use principal::{
 };
 pub use runtime::{
     EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot, OutboundHealthObservation,
+    SessionIdentity,
 };
 pub use runtime::{PacketRouteControl, PacketRouteLease};
 pub use runtime::{RouteDecision, RouteEvaluation, RouteTrace};

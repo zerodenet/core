@@ -35,6 +35,7 @@ pub use packet_route::{PacketRouteControl, PacketRouteLease};
 pub use policy::OutboundHealthObservation;
 mod route;
 mod session;
+pub use session::SessionIdentity;
 mod snapshot;
 mod traffic;
 
