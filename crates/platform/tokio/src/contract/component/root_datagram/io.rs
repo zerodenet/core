@@ -38,6 +38,8 @@ impl RootDatagramUse {
     }
     pub(super) fn matches_request(&self, request: &RootDatagramRequest) -> bool {
         self.request.authority.matches_request(request)
+            && self.request.access.ptr_eq(&request.access)
+            && self.request.instance == request.instance
             && self.request.ordinal == request.ordinal
             && self.request.peer == request.peer
             && self.request.generation == request.generation

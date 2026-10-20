@@ -24,6 +24,8 @@ pub use receipt::{RootDatagramAttemptFailure, RootDatagramClosed, RootDatagramRe
 pub struct RootDatagramAuthority(Arc<()>);
 #[derive(Clone)]
 pub struct RootDatagramRequest {
+    access: Weak<dyn ResourceAccess>,
+    instance: ComponentInstanceId,
     authority: RootDatagramAuthority,
     ordinal: usize,
     peer: SocketAddr,
@@ -56,9 +58,11 @@ impl RootDatagramAuthority {
         generation: NetworkGeneration,
     ) -> RootDatagramGrant {
         RootDatagramGrant {
-            access,
+            access: access.clone(),
             instance,
             request: RootDatagramRequest {
+                access,
+                instance,
                 authority: self.clone(),
                 ordinal,
                 peer,
@@ -98,6 +102,9 @@ impl RootDatagramAuthority {
     }
 }
 impl RootDatagramRequest {
+    pub fn instance(&self) -> ComponentInstanceId {
+        self.instance
+    }
     pub fn ordinal(&self) -> usize {
         self.ordinal
     }
@@ -156,3 +163,6 @@ impl RootDatagramGrant {
 fn denied() -> ChannelError {
     ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component)
 }
+
+#[cfg(test)]
+mod tests;

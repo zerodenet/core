@@ -18,6 +18,9 @@ impl RootDatagramRetryReceipt {
     }
     pub fn permits(&self, next: &RootDatagramGrant, query: &TaskJoinWitness) -> bool {
         self.request.authority.matches_request(&next.request)
+            && self.request.access.ptr_eq(&next.request.access)
+            && self.request.instance == next.request.instance
+            && self.request.generation == next.request.generation
             && self.query.same_registration(query)
             && !query.is_joined()
     }

@@ -115,5 +115,5 @@ impl Drop for ControlledDatagramControl {
 }
 
 #[cfg(test)]
-#[path = "../tests/controlled_datagram/control.rs"]
+#[path = "../../tests/controlled_datagram/control.rs"]
 mod tests;
