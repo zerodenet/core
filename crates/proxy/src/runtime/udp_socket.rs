@@ -235,3 +235,6 @@ mod select;
 
 #[cfg(feature = "udp-runtime")]
 mod close;
+
+#[cfg(feature = "udp-runtime")]
+pub(crate) mod endpoint;
