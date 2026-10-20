@@ -1,0 +1,52 @@
+[package]
+name = "wintun"
+version = "0.4.0"
+edition = "2021"
+authors = [
+    "null.black Inc. <opensource@null.black>",
+    "Troy Neubauer <troy@null.black>",
+]
+repository = "https://github.com/nulldotblack/wintun"
+readme = "README.md"
+documentation = "https://docs.rs/wintun/"
+description = "Safe idiomatic bindings to the WinTun C library"
+license = "MIT"
+keywords = ["wintun", "tap", "tun", "vpn", "wireguard"]
+categories = ["api-bindings"]
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = [
+    "aarch64-pc-windows-msvc",
+    "i686-pc-windows-msvc",
+    "x86_64-pc-windows-msvc",
+]
+
+[features]
+panic_on_unsent_packets = []
+
+[dependencies]
+c2rust-bitfields = "0.18"
+libloading = "0.8"
+log = "0.4"
+thiserror = "1.0"
+windows = { version = "0.52", features = [
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_SystemServices",
+    "Win32_Security_Cryptography",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_System_Threading",
+    "Win32_System_Com",
+    "Win32_Security",
+    "Win32_Foundation",
+    "Win32_System_Ioctl",
+    "Win32_System_IO",
+] }
+
+[dev-dependencies]
+env_logger = "0.10"
+packet = "0.1"
+pcap-file = "2.0"
+subprocess = "0.2"

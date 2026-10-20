@@ -1,0 +1,56 @@
+{
+  "crate": "wintun",
+  "version": "0.4.0",
+  "registry_checksum": "1b3c8c8876c686f8a2d6376999ac1c9a24c74d2968551c9394f7e89127783685",
+  "vcs_commit": "8988a0469e58b2ee5da3cbf3170ba6afdf0e02a1",
+  "original_files": [
+    {
+      "path": "src/adapter.rs",
+      "sha256": "e0a041b26e71e8a671fe454590e0dfb3cf01a304eccc38d21b68e62c07447b00"
+    },
+    {
+      "path": "src/error.rs",
+      "sha256": "490cd165877bf1712e95201b41f3c342d91ec819cdae07e3d272850c9c317ce8"
+    },
+    {
+      "path": "src/lib.rs",
+      "sha256": "0d37c7c278b3778138a66973cf14c06a826cc5cf965c6c066600fd318f570b7f"
+    },
+    {
+      "path": "src/log.rs",
+      "sha256": "bdffa8b9836ee31e4c425c2cea08d3f78a0358d556b17ef8c77de896e621bcb6"
+    },
+    {
+      "path": "src/packet.rs",
+      "sha256": "366a8f5369ae521b9b57457f1385807be4c8d1162cb0d128fe46f4cb0ed33037"
+    },
+    {
+      "path": "src/session.rs",
+      "sha256": "3354219d3c93a3efbe74b1981073fda60a0003f2d3764c73e5a1e29551184925"
+    },
+    {
+      "path": "src/util.rs",
+      "sha256": "ea11593021059aca8188cd58ec854bf1dd2ee52ac2db27d14cf26069be4e36f9"
+    },
+    {
+      "path": "src/wintun_raw.rs",
+      "sha256": "b31dbfe04f244d684903798794259c5d17712483b496f4a5052f0ea1b39643bb"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "8d83b55152196bc5e352da26e856b2dea5a310d6a65a98db495ca16a260a82bd"
+    },
+    {
+      "path": "Cargo.toml.orig",
+      "sha256": "b3eef00a118fbc4235fefd4d0477a8803f0ac66699ff705e256b32448ad00cd1"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "3e019695b70db141b469080146b802254f8d22d42f7d62f5a1440e65946ce037"
+    },
+    {
+      "path": "README.md",
+      "sha256": "775ae2378d1c22250f2cd46df829f10fb88254976e92b70cd6d7d78f7a97ab4c"
+    }
+  ]
+}
