@@ -119,3 +119,5 @@ mod origin;
 mod registration;
 
 mod binding;
+
+mod endpoints;

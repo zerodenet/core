@@ -16,13 +16,19 @@ pub struct PreparedCarrier {
     pub(super) cancel: CancellationToken,
     pub(super) authorization: Option<CancellationToken>,
     pub(super) end: Instant,
+    pub(super) endpoint_observer: Option<Arc<dyn super::CarrierEndpointObserver>>,
+    pub(super) session: Option<zero_core::component::SessionId>,
     pub(super) transferred: bool,
 }
 pub struct ControlledCarrier {
     io: CarrierIo,
     adoption: CarrierAdoption,
+    endpoints: super::CarrierEndpoints,
 }
 impl ControlledCarrier {
+    pub fn endpoints(&self) -> &super::CarrierEndpoints {
+        &self.endpoints
+    }
     pub fn into_parts(self) -> (CarrierIo, CarrierAdoption) {
         (self.io, self.adoption)
     }
@@ -31,7 +37,34 @@ impl ControlledCarrier {
     }
 }
 impl PreparedCarrier {
-    pub async fn open(mut self, deadline: Instant) -> Result<ControlledCarrier, ChannelError> {
+    pub fn with_endpoint_observer(
+        mut self,
+        observer: Arc<dyn super::CarrierEndpointObserver>,
+    ) -> Self {
+        self.endpoint_observer = Some(observer);
+        self
+    }
+    pub async fn open(self, deadline: Instant) -> Result<ControlledCarrier, ChannelError> {
+        self.open_with_deadline(Some(deadline)).await
+    }
+    /// None preserves the original native operation end, not an invented total
+    /// business handshake deadline. Explicit callers can only shorten that end.
+    pub async fn open_with_deadline(
+        self,
+        deadline: Option<Instant>,
+    ) -> Result<ControlledCarrier, ChannelError> {
+        let session = self.session;
+        self.open_inner(deadline).await.map_err(|mut error| {
+            if error.session.is_none() {
+                error.session = session;
+            }
+            error
+        })
+    }
+    async fn open_inner(
+        mut self,
+        deadline: Option<Instant>,
+    ) -> Result<ControlledCarrier, ChannelError> {
         if self.egress.generation() != self.generation.0 {
             return Err(error(
                 self.slot.instance,
@@ -40,7 +73,7 @@ impl PreparedCarrier {
                 DeliveryState::Unknown,
             ));
         }
-        let end = self.end.min(deadline);
+        let end = deadline.map_or(self.end, |deadline| self.end.min(deadline));
         let authorization = self.authorization.clone();
         let revoked = async {
             match &authorization {
@@ -75,8 +108,26 @@ impl PreparedCarrier {
                 DeliveryState::Unknown,
             ));
         }
-        let mut state = self.slot.state();
-        state.view_live = true;
+        // Read real socket facts before boxing; original native control is
+        // already persistent. No enclosing carrier lock surrounds these getters.
+        let endpoints = super::CarrierEndpoints {
+            origin: Arc::downgrade(&self.slot),
+            local: socket.local_addr().ok(),
+            peer: socket.peer_addr().map_err(|source| {
+                error(
+                    self.slot.instance,
+                    Stage::Dial,
+                    Reason::Io,
+                    DeliveryState::Unknown,
+                )
+                .with_source(source)
+            })?,
+        };
+        {
+            let mut state = self.slot.state();
+            state.view_live = true;
+            state.endpoints = Some(endpoints.clone());
+        }
         let carrier = ControlledCarrier {
             io: CarrierIo {
                 io: Box::pin(socket),
@@ -85,8 +136,13 @@ impl PreparedCarrier {
             adoption: CarrierAdoption {
                 slot: self.slot.clone(),
             },
+            endpoints,
         };
-        drop(state);
+        // CarrierIo now owns the view-live guard: callback panic/drop restores
+        // view accounting while retaining the original native control.
+        if let Some(observer) = &self.endpoint_observer {
+            observer.connected(&carrier.endpoints);
+        }
         self.transferred = true;
         Ok(carrier)
     }

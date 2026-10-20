@@ -26,6 +26,9 @@ impl CarrierAdoption {
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
+    pub fn endpoints(&self) -> Option<super::CarrierEndpoints> {
+        self.slot.state().endpoints.clone()
+    }
     pub fn closed(&self) -> Option<CarrierClosed> {
         self.slot.state().closed.then(|| CarrierClosed {
             slot: self.slot.clone(),

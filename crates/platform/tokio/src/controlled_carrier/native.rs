@@ -189,6 +189,8 @@ impl NativeCarrierOpener {
             cancel: context.cancel,
             authorization: bound.as_ref().map(|bound| bound.cancellation()),
             end,
+            endpoint_observer: None,
+            session: context.session,
             transferred: false,
         })
     }
