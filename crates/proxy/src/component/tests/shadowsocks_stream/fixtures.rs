@@ -20,7 +20,6 @@ use zero_core::{
     Address,
 };
 use zero_platform_tokio::contract::{
-    component::ComponentFactory,
     context::{ConnectFact, ConnectObserver, OpenContext, RequestIdentity},
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, UpstreamBinding, UpstreamOpener, UpstreamTransport},

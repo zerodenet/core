@@ -78,14 +78,6 @@ pub struct ShadowsocksAeadStream<S> {
 }
 
 impl<S> ShadowsocksAeadStream<S> {
-    pub(crate) fn with_replay_guard(
-        mut self,
-        replay: crate::shared::legacy_replay::LegacyReplay,
-    ) -> Self {
-        self.replay = replay;
-        self
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn inbound(
         inner: S,
