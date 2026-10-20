@@ -13,8 +13,11 @@ pub(crate) struct OwnedTunUdpTasks {
 impl OwnedTunUdpTasks {
     pub(crate) fn new() -> Self {
         Self {
-            associations: RetainedTasks::new("raw-IP UDP associations joined"),
-            dns: RetainedTasks::new("raw-IP UDP DNS queries joined"),
+            associations: RetainedTasks::new(
+                "raw-IP UDP associations joined",
+                association::MAX_ACTIVE_ASSOCIATIONS,
+            ),
+            dns: RetainedTasks::new("raw-IP UDP DNS queries joined", MAX_CONCURRENT_DNS_QUERIES),
         }
     }
     pub(crate) fn install(&self, context: &InboundInstallContext) -> Result<(), EngineError> {

@@ -15,14 +15,18 @@ pub(super) struct RawIpChildren {
 impl RawIpChildren {
     pub(super) fn new() -> Self {
         Self {
-            drivers: RetainedTasks::new("raw-IP stack drivers joined"),
-            proxies: RetainedTasks::new("raw-IP outer carrier readers joined"),
-            connections: RetainedTasks::new("raw-IP TCP connections joined"),
+            drivers: RetainedTasks::new("raw-IP stack drivers joined", 2),
+            proxies: RetainedTasks::new(
+                "raw-IP outer carrier readers joined",
+                crate::runtime::raw_ip::MAX_RAW_IP_DEVICES,
+            ),
+            connections: RetainedTasks::new("raw-IP TCP connections joined", 4096),
             udp: OwnedTunUdpTasks::new(),
             stack_workers: RetainedTasks::new(
                 "raw-IP TCP retransmission and control workers joined",
+                zero_stack::UserTcpStack::BACKGROUND_TASK_LIMIT,
             ),
-            echoes: RetainedTasks::new("raw-IP ICMP probes joined"),
+            echoes: RetainedTasks::new("raw-IP ICMP probes joined", super::icmp::MAX_ECHO_PROBES),
         }
     }
     pub(super) fn install(&self, context: &InboundInstallContext) -> Result<(), EngineError> {

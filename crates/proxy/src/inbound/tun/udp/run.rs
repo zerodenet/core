@@ -12,32 +12,30 @@ pub(super) async fn run_inner(
     let mut buffer = vec![0_u8; 65_535];
     let mut next_id = 1_u64;
     let mut associations = AssociationRegistry::new();
-    let mut tasks = JoinSet::new();
-    let mut dns_tasks = JoinSet::new();
+    let mut legacy_tasks = JoinSet::new();
+    let mut legacy_dns = JoinSet::new();
     #[cfg(feature = "raw-ip-runtime")]
-    let mut owned_tasks = match &owned {
-        Some(owner) => Some(
+    let mut tasks = match &owned {
+        Some(owner) => task_set::TunTasks::Owned(
             owner
                 .associations
                 .lock()
                 .await
                 .map_err(std::io::Error::other)?,
         ),
-        None => None,
+        None => task_set::TunTasks::Legacy(&mut legacy_tasks),
     };
+    #[cfg(not(feature = "raw-ip-runtime"))]
+    let mut tasks = task_set::TunTasks::Legacy(&mut legacy_tasks);
     #[cfg(feature = "raw-ip-runtime")]
-    let mut owned_dns = match &owned {
-        Some(owner) => Some(owner.dns.lock().await.map_err(std::io::Error::other)?),
-        None => None,
+    let mut dns_tasks = match &owned {
+        Some(owner) => {
+            task_set::TunTasks::Owned(owner.dns.lock().await.map_err(std::io::Error::other)?)
+        }
+        None => task_set::TunTasks::Legacy(&mut legacy_dns),
     };
-    #[cfg(feature = "raw-ip-runtime")]
-    let tasks = owned_tasks.as_deref_mut().unwrap_or(&mut tasks);
     #[cfg(not(feature = "raw-ip-runtime"))]
-    let tasks = &mut tasks;
-    #[cfg(feature = "raw-ip-runtime")]
-    let dns_tasks = owned_dns.as_deref_mut().unwrap_or(&mut dns_tasks);
-    #[cfg(not(feature = "raw-ip-runtime"))]
-    let dns_tasks = &mut dns_tasks;
+    let mut dns_tasks = task_set::TunTasks::Legacy(&mut legacy_dns);
     let mut last_dns_pressure_log = None;
 
     loop {
@@ -69,7 +67,7 @@ pub(super) async fn run_inner(
                         let response = query_runtime.resolver().answer_udp_query(&query).await?;
                         stack.send_to(&response, destination, source).await;
                         Ok::<(), std::io::Error>(())
-                    });
+                    })?;
                     continue;
                 }
                 let datagram = TunDatagram {
@@ -99,7 +97,7 @@ pub(super) async fn run_inner(
                             Ok(()) => {
                                 let id = next_id;
                                 spawn_association(
-                                    tasks,
+                                    &mut tasks,
                                     &mut associations,
                                     AssociationStart {
                                         runtime: runtime.clone(),
@@ -109,7 +107,7 @@ pub(super) async fn run_inner(
                                         id,
                                         first: datagram,
                                     },
-                                );
+                                )?;
                                 tracing::trace!(
                                     ?source,
                                     ?destination,

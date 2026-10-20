@@ -22,6 +22,7 @@ mod owned;
 pub(crate) use owned::OwnedTunUdpTasks;
 mod association;
 mod run;
+mod task_set;
 use association::{AdmissionRejection, AssociationRegistry, Delivery};
 use run::run_inner;
 
@@ -173,10 +174,10 @@ fn pressure_log_due(last: &mut Option<Instant>, now: Instant) -> bool {
 }
 
 fn spawn_association(
-    tasks: &mut JoinSet<(SocketAddress, u64, Result<(), EngineError>)>,
+    tasks: &mut task_set::TunTasks<'_, (SocketAddress, u64, Result<(), EngineError>)>,
     associations: &mut AssociationRegistry,
     start: AssociationStart,
-) {
+) -> Result<(), EngineError> {
     let AssociationStart {
         runtime,
         stack,
@@ -193,7 +194,7 @@ fn spawn_association(
     let runtime = runtime.with_source_addr(Some(
         zero_platform_tokio::socket_address_to_socket_addr(source),
     ));
-    tasks.spawn(async move {
+    let registered = tasks.spawn(async move {
         let result = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
             runtime,
             stack,
@@ -204,6 +205,10 @@ fn spawn_association(
         .await;
         (source, id, result)
     });
+    if registered.is_err() {
+        associations.remove_matching(source, id);
+    }
+    registered
 }
 
 fn log_pressure_drop(

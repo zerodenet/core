@@ -20,7 +20,6 @@ impl zero_stack::TcpTaskOwner for StackTasks {
         if tasks.len() >= zero_stack::UserTcpStack::BACKGROUND_TASK_LIMIT {
             return false;
         }
-        tasks.spawn(worker);
-        true
+        tasks.spawn(worker).is_ok()
     }
 }

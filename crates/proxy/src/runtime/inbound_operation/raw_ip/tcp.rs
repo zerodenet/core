@@ -31,7 +31,7 @@ pub(super) async fn accept(
                 connections.spawn(async move {
                     let stream = ReplayStream::new(stream, Vec::new());
                     runtime.serve(session, stream, &NoClientResponseStreamProtocol::new()).await
-                });
+                }).map_err(std::io::Error::other)?;
             }
             Some(result) = connections.join_next(), if !connections.is_empty() => {
                 match result {

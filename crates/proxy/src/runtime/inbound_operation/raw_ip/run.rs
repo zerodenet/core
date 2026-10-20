@@ -34,17 +34,21 @@ pub(super) async fn run(
         .lock()
         .await
         .map_err(std::io::Error::other)?;
-    tasks.spawn(tcp::accept(
-        tcp.clone(),
-        runtime.route_factory(),
-        operation.children.connections.clone(),
-    ));
-    tasks.spawn(crate::inbound::tun::udp::run_with_owned_tasks(
-        runtime.udp_runtime(),
-        udp.clone(),
-        runtime.route_factory().inbound_tag().to_owned(),
-        operation.children.udp.clone(),
-    ));
+    tasks
+        .spawn(tcp::accept(
+            tcp.clone(),
+            runtime.route_factory(),
+            operation.children.connections.clone(),
+        ))
+        .map_err(std::io::Error::other)?;
+    tasks
+        .spawn(crate::inbound::tun::udp::run_with_owned_tasks(
+            runtime.udp_runtime(),
+            udp.clone(),
+            runtime.route_factory().inbound_tag().to_owned(),
+            operation.children.udp.clone(),
+        ))
+        .map_err(std::io::Error::other)?;
     let initial_endpoints = operation
         .endpoint
         .as_ref()

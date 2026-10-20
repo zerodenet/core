@@ -15,7 +15,7 @@ use zero_stack::packet;
 
 use crate::runtime::route_runtime::InboundRouteRuntimeFactory;
 
-const MAX_ECHO_PROBES: usize = 64;
+pub(super) const MAX_ECHO_PROBES: usize = 64;
 const ECHO_TIMEOUT: Duration = Duration::from_secs(3);
 static NEXT_PROBE_ID: AtomicU16 = AtomicU16::new(1);
 
@@ -109,7 +109,7 @@ impl IcmpEchoRelay {
                     }
                 }
             }
-            tasks.spawn(probe);
+            let _ = tasks.spawn(probe);
         } else {
             tokio::spawn(probe); // Ordinary TUN retains its existing execution path.
         }

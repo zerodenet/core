@@ -1,7 +1,7 @@
 //! Optional outer datagram carriers for neutral raw-IP endpoints.
 
 use std::{net::SocketAddr, sync::Arc};
-use tokio::{sync::mpsc, task::JoinSet};
+use tokio::sync::mpsc;
 use zero_stack::FragmentReassembler;
 
 use super::{RawIpInboundAction, RawIpInboundEndpoint};
@@ -23,7 +23,7 @@ pub(super) async fn refresh_endpoint_peers(
     fragments: &mut FragmentReassembler,
     endpoint_fragments: &mut FragmentReassembler,
     owner: &super::tasks::RetainedTasks<()>,
-    proxied_tasks: &mut JoinSet<()>,
+    proxied_tasks: &mut super::tasks::TasksGuard<'_, ()>,
     proxied_tx: &mpsc::Sender<ProxiedWirePacket>,
     peer_uses_proxy: &mut Vec<bool>,
 ) -> Result<(), zero_engine::EngineError> {
@@ -51,30 +51,32 @@ pub(super) async fn refresh_endpoint_peers(
         };
         let sender = proxied_tx.clone();
         let revision = peers.revision;
-        proxied_tasks.spawn(async move {
-            let mut buffer = vec![0; 65_536];
-            loop {
-                let (size, source) = match carrier.recv(&mut buffer).await {
-                    Ok(value) => value,
-                    Err(error) => {
-                        tracing::debug!(%error, peer, "raw-IP outer carrier stopped");
+        proxied_tasks
+            .spawn(async move {
+                let mut buffer = vec![0; 65_536];
+                loop {
+                    let (size, source) = match carrier.recv(&mut buffer).await {
+                        Ok(value) => value,
+                        Err(error) => {
+                            tracing::debug!(%error, peer, "raw-IP outer carrier stopped");
+                            return;
+                        }
+                    };
+                    if sender
+                        .send(ProxiedWirePacket {
+                            bytes: buffer[..size].to_vec(),
+                            source,
+                            peer,
+                            revision,
+                        })
+                        .await
+                        .is_err()
+                    {
                         return;
                     }
-                };
-                if sender
-                    .send(ProxiedWirePacket {
-                        bytes: buffer[..size].to_vec(),
-                        source,
-                        peer,
-                        revision,
-                    })
-                    .await
-                    .is_err()
-                {
-                    return;
                 }
-            }
-        });
+            })
+            .map_err(std::io::Error::other)?;
     }
     *revision = peers.revision;
     // Preserve an authenticated learned address when the configured initial

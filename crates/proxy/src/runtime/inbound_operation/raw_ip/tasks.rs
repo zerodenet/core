@@ -1,5 +1,10 @@
-//! Persistent child handles for the actual raw-IP listener, outside its future.
-use std::sync::{Arc, Mutex};
+//! Bounded, fenced child handles retained outside the actual listener future.
+mod output;
+pub(crate) use output::TaskOutput;
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+};
 use tokio::{
     sync::{Mutex as AsyncMutex, MutexGuard},
     task::{JoinError, JoinSet},
@@ -9,30 +14,85 @@ use zero_platform_tokio::contract::{
     lifecycle::{CloseReport, ResourceLifecycle, Unfinished},
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
+pub(crate) type Source = Arc<dyn std::error::Error + Send + Sync>;
 
 pub(crate) struct RetainedTasks<T: Send + 'static> {
     inner: Arc<Inner<T>>,
 }
 struct Inner<T: Send + 'static> {
     label: &'static str,
-    faulted: std::sync::atomic::AtomicBool,
-    tasks: AsyncMutex<State<T>>,
-    faults: Mutex<Vec<Arc<JoinError>>>,
+    limit: usize,
+    tasks: AsyncMutex<JoinSet<T>>,
+    admission: Mutex<Admission>,
 }
-struct State<T: Send + 'static> {
-    tasks: JoinSet<T>,
-    closing: bool,
+#[derive(Default)]
+struct Admission {
+    revoked: bool,
+    first: Option<ActualTaskFailure>,
+    additional: usize,
 }
-pub(crate) struct TasksGuard<'a, T: Send + 'static>(MutexGuard<'a, State<T>>);
-impl<T: Send + 'static> std::ops::Deref for TasksGuard<'_, T> {
-    type Target = JoinSet<T>;
-    fn deref(&self) -> &Self::Target {
-        &self.0.tasks
+#[derive(Clone, Debug)]
+struct ActualTaskFailure {
+    task: tokio::task::Id,
+    source: Source,
+}
+#[derive(Debug)]
+struct RetainedFailures {
+    first: ActualTaskFailure,
+    additional: usize,
+}
+impl std::fmt::Display for RetainedFailures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "actual raw-IP child {} failed ({} additional joined failures): {}",
+            self.first.task, self.additional, self.first.source
+        )
     }
 }
-impl<T: Send + 'static> std::ops::DerefMut for TasksGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0.tasks
+impl std::error::Error for RetainedFailures {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.first.source.as_ref())
+    }
+}
+/// No DerefMut: every registration, including one through a long-lived guard,
+/// must pass the same synchronous admission fence as revoke and first failure.
+pub(crate) struct TasksGuard<'a, T: Send + 'static> {
+    tasks: MutexGuard<'a, JoinSet<T>>,
+    owner: &'a Inner<T>,
+}
+impl<T: Send + 'static> TasksGuard<'_, T> {
+    pub(crate) fn spawn(
+        &mut self,
+        future: impl Future<Output = T> + Send + 'static,
+    ) -> Result<tokio::task::Id, ChannelError> {
+        let admission = self
+            .owner
+            .admission
+            .lock()
+            .expect("raw-IP task admission poisoned");
+        if admission.revoked {
+            return Err(rejected(Reason::Revoked));
+        }
+        if self.tasks.len() >= self.owner.limit {
+            return Err(rejected(Reason::Capacity));
+        }
+        Ok(self.tasks.spawn(future).id())
+    }
+    pub(crate) fn len(&self) -> usize {
+        self.tasks.len()
+    }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+    pub(crate) fn abort_all(&mut self) {
+        self.tasks.abort_all();
+    }
+    pub(crate) async fn join_next(&mut self) -> Option<Result<T, JoinError>> {
+        self.tasks.join_next().await
+    }
+    pub(crate) fn try_join_next(&mut self) -> Option<Result<T, JoinError>> {
+        self.tasks.try_join_next()
     }
 }
 impl<T: Send + 'static> Clone for RetainedTasks<T> {
@@ -43,83 +103,105 @@ impl<T: Send + 'static> Clone for RetainedTasks<T> {
     }
 }
 impl<T: Send + 'static> RetainedTasks<T> {
-    pub(crate) fn new(label: &'static str) -> Self {
+    pub(crate) fn new(label: &'static str, limit: usize) -> Self {
         Self {
             inner: Arc::new(Inner {
                 label,
-                faulted: std::sync::atomic::AtomicBool::new(false),
-                tasks: AsyncMutex::new(State {
-                    tasks: JoinSet::new(),
-                    closing: false,
-                }),
-                faults: Mutex::new(Vec::new()),
+                limit,
+                tasks: AsyncMutex::new(JoinSet::new()),
+                admission: Mutex::new(Admission::default()),
             }),
         }
     }
-    /// The driver may borrow the set for its entire loop. Cancelling or
-    /// unwinding that driver releases this borrow, retaining every actual handle.
+    fn admitted(&self) -> bool {
+        !self
+            .inner
+            .admission
+            .lock()
+            .expect("raw-IP task admission poisoned")
+            .revoked
+    }
     pub(crate) async fn lock(&self) -> Result<TasksGuard<'_, T>, ChannelError> {
-        let guard = self.inner.tasks.lock().await;
-        if guard.closing
-            || self
-                .inner
-                .faulted
-                .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return Err(ChannelError::new(
-                Stage::Prepare,
-                Reason::Revoked,
-                Impact::Component,
-            ));
+        let tasks = self.inner.tasks.lock().await;
+        if !self.admitted() {
+            return Err(rejected(Reason::Revoked));
         }
-        Ok(TasksGuard(guard))
+        Ok(TasksGuard {
+            tasks,
+            owner: &self.inner,
+        })
     }
     pub(crate) fn try_lock(&self) -> Option<TasksGuard<'_, T>> {
-        let guard = self.inner.tasks.try_lock().ok()?;
-        (!guard.closing
-            && !self
-                .inner
-                .faulted
-                .load(std::sync::atomic::Ordering::Acquire))
-        .then_some(TasksGuard(guard))
+        let tasks = self.inner.tasks.try_lock().ok()?;
+        self.admitted().then_some(TasksGuard {
+            tasks,
+            owner: &self.inner,
+        })
+    }
+    fn revoke(&self) {
+        self.inner
+            .admission
+            .lock()
+            .expect("raw-IP task admission poisoned")
+            .revoked = true;
+    }
+    fn fault(&self, task: tokio::task::Id, source: Source) {
+        let mut admission = self
+            .inner
+            .admission
+            .lock()
+            .expect("raw-IP task admission poisoned");
+        admission.revoked = true;
+        if admission.first.is_none() {
+            admission.first = Some(ActualTaskFailure { task, source });
+        } else {
+            admission.additional = admission.additional.saturating_add(1);
+        }
     }
     pub(crate) fn remember(&self, error: JoinError) -> Arc<JoinError> {
-        let error = Arc::new(error);
-        if !error.is_cancelled() {
-            self.inner
-                .faulted
-                .store(true, std::sync::atomic::Ordering::Release);
-            self.inner
-                .faults
-                .lock()
-                .expect("raw-IP task faults poisoned")
-                .push(error.clone());
+        let source = Arc::new(error);
+        if !source.is_cancelled() {
+            self.fault(source.id(), source.clone());
         }
-        error
+        source
     }
+}
+impl<T: TaskOutput> RetainedTasks<T> {
     pub(crate) fn resource(
         &self,
     ) -> Box<dyn zero_platform_tokio::contract::lifecycle::DynResourceLifecycle> {
         zero_platform_tokio::contract::lifecycle::erase_lifecycle(self.clone())
     }
-    pub(crate) async fn finish(&self, tasks: &mut TasksGuard<'_, T>) {
-        tasks.abort_all();
-        while let Some(result) = tasks.join_next().await {
-            if let Err(error) = result {
+    fn joined(&self, result: Result<(tokio::task::Id, T), JoinError>) {
+        match result {
+            Ok((id, output)) => {
+                if let Some(source) = output.into_failure() {
+                    self.fault(id, source);
+                }
+            }
+            Err(error) => {
                 self.remember(error);
             }
         }
     }
+    pub(crate) async fn finish(&self, guard: &mut TasksGuard<'_, T>) {
+        assert!(
+            std::ptr::eq(guard.owner, self.inner.as_ref()),
+            "same original child set"
+        );
+        self.revoke();
+        guard.tasks.abort_all();
+        while let Some(joined) = guard.tasks.join_next_with_id().await {
+            self.joined(joined);
+        }
+    }
     async fn close(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
+        self.revoke(); // Fences even an already-held guard before the first await.
         let closing = async {
-            let mut state = self.inner.tasks.lock().await;
-            state.closing = true; // No later driver/probe may reopen this retired set.
-            state.tasks.abort_all();
-            while let Some(joined) = state.tasks.join_next().await {
-                if let Err(error) = joined {
-                    self.remember(error);
-                }
-                // Each consumed JoinError is retained before another suspension.
+            let mut tasks = self.inner.tasks.lock().await;
+            tasks.abort_all();
+            while let Some(joined) = tasks.join_next_with_id().await {
+                self.joined(joined); // Persist the original output/source before waiting again.
             }
         };
         let mut report = CloseReport::default();
@@ -129,33 +211,40 @@ impl<T: Send + 'static> RetainedTasks<T> {
                 .push(Unfinished::Resource(self.inner.label.into()));
             return Ok(report);
         }
-        if let Some(source) = self
+        let admission = self
             .inner
-            .faults
+            .admission
             .lock()
-            .expect("raw-IP task faults poisoned")
-            .first()
-            .cloned()
-        {
+            .expect("raw-IP task admission poisoned");
+        if let Some(first) = &admission.first {
             return Err(
-                ChannelError::new(Stage::Close, Reason::Io, Impact::Component).with_source(source),
+                ChannelError::new(Stage::Close, Reason::Io, Impact::Component).with_source(
+                    RetainedFailures {
+                        first: first.clone(),
+                        additional: admission.additional,
+                    },
+                ),
             );
         }
         report.released_resources.push(self.inner.label.into());
         Ok(report)
     }
 }
-impl<T: Send + 'static> ResourceLifecycle for RetainedTasks<T> {
+impl<T: TaskOutput> ResourceLifecycle for RetainedTasks<T> {
     async fn start(&mut self, _: Instant) -> Result<(), ChannelError> {
-        let _cold = self.lock().await?;
-        Ok(())
+        self.admitted()
+            .then_some(())
+            .ok_or_else(|| rejected(Reason::Revoked))
     }
-    fn revoke(&self, _: CloseReason) {} // Host stops the owning driver first.
+    fn revoke(&self, _: CloseReason) {
+        RetainedTasks::revoke(self);
+    }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.close(deadline).await
     }
 }
-
+fn rejected(reason: Reason) -> ChannelError {
+    ChannelError::new(Stage::Prepare, reason, Impact::Component)
+}
 #[cfg(test)]
-#[path = "tasks/tests.rs"]
 mod tests;
