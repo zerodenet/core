@@ -1,6 +1,11 @@
 //! Bounded original UDP ownership, including acquisition failure and rotation.
 //! Dropping an I/O handle never releases its owner's native reservation.
 mod acquire;
+mod control;
+pub use control::{
+    ControlledDatagramClosed, ControlledDatagramControl, ControlledDatagramIdentity,
+    DatagramControlObservation,
+};
 mod evidence;
 mod flags;
 mod io;
@@ -98,6 +103,7 @@ struct Entry {
     // registration/close calls, including panic or cancellation of the caller.
     uncertain: Arc<std_io::Error>,
     close_running: std::sync::atomic::AtomicBool,
+    control_issued: std::sync::atomic::AtomicBool,
     acquisition_failure: Mutex<Option<Arc<std_io::Error>>>,
     packet_failure: Mutex<Option<Arc<std_io::Error>>>,
     wake_relay: Arc<wake_relay::WakeRelay>,
@@ -204,6 +210,7 @@ impl ControlledDatagramOwner {
             retired: tokio_util::sync::CancellationToken::new(),
             native: Mutex::new(NativeHandleState::Reserved),
             close_running: std::sync::atomic::AtomicBool::new(false),
+            control_issued: std::sync::atomic::AtomicBool::new(false),
             uncertain: Arc::new(std_io::Error::other(
                 "original UDP native operation remains unconfirmed",
             )),
