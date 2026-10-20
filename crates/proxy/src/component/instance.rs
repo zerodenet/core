@@ -2,6 +2,8 @@
 use super::{ComponentRecipe, ValidatedRecipe};
 mod cleanup;
 mod resources;
+pub(super) use resources::HostResources;
+#[cfg(test)]
 pub(super) use resources::NoResources;
 use std::sync::{Arc, OnceLock};
 use tokio::{
@@ -48,6 +50,7 @@ struct Live {
     stream: Option<Arc<dyn DynStreamOutbound>>,
     started: OnceLock<Result<(), SharedError>>,
     owner: Mutex<Owner>,
+    resources: Arc<HostResources>,
 }
 struct Owner {
     instance: ComponentInstance,
@@ -183,6 +186,9 @@ impl ComponentSlot {
                     Some(limit) => TaskScope::new(runtime, limit),
                     None => TaskScope::empty(runtime),
                 };
+                let resources =
+                    HostResources::new(self.id, &self.recipe.spec().resources, self.cancel.clone())
+                        .map_err(Arc::new)?;
                 let context = BuildContext {
                     component: self.id,
                     generation: self.generation,
@@ -196,13 +202,14 @@ impl ComponentSlot {
                             .then_some(OutboundId(self.id.0)),
                         ..Default::default()
                     },
-                    resources: Arc::new(NoResources),
+                    resources: resources.clone(),
                     tasks: tasks.registrar(),
                     cancel: self.cancel.child_token(),
                     background_carrier: None,
                 };
                 let instance = self.recipe.build(context).map_err(Arc::new)?;
                 Ok(Live {
+                    resources,
                     stream: instance.roles.stream.clone(),
                     started: OnceLock::new(),
                     owner: Mutex::new(Owner {
@@ -220,10 +227,13 @@ impl ComponentSlot {
                     cancel: self.cancel.clone(),
                     armed: true,
                 };
-                let started = tokio::select! {
+                let started = match live.resources.activate(deadline) {
+                    Ok(_access) => tokio::select! {
                     biased;
                     _ = self.cancel.cancelled() => Err(self.failure(Reason::Revoked, "component was stopped")),
                     result = tokio::time::timeout_at(deadline, owner.instance.lifecycle.start(deadline)) => result.unwrap_or_else(|_| Err(self.failure(Reason::Timeout, "component start deadline elapsed"))),
+                    },
+                    Err(error) => Err(error),
                 };
                 if started.is_err() {
                     owner.instance.lifecycle.revoke(CloseReason::Shutdown);

@@ -26,6 +26,46 @@ impl ShadowsocksPluginResource {
     pub(crate) fn new(plan: PluginPlan) -> Self {
         Self { plan }
     }
+    pub(crate) fn program(&self) -> std::path::PathBuf {
+        self.plan.program()
+    }
+    pub(crate) fn identity(&self) -> String {
+        self.plan.cache_identity()
+    }
+    pub(crate) fn revoke(&self) {
+        self.plan.cancel.cancel();
+    }
+    pub(crate) async fn start_authorized(
+        &self,
+        resources: std::sync::Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
+        claimed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> io::Result<SocketAddr> {
+        self.plan
+            .acquire_authorized(self.plan.supports_tcp(), resources, claimed)
+            .await?
+            .map(|lease| lease.endpoint())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "plugin has no enabled transport",
+                )
+            })
+    }
+    pub(crate) async fn wait_exit(&self) -> io::Result<ExitStatus> {
+        let lease = self
+            .plan
+            .running
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| io::Error::other("plugin child was not started"))?;
+        loop {
+            if let Some(status) = lease.child.lock().unwrap().try_wait()? {
+                return Ok(status);
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
     pub async fn start(&self) -> io::Result<SocketAddr> {
         self.start_with_probe(tokio::net::TcpStream::connect).await
     }

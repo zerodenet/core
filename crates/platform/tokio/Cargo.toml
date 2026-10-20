@@ -14,7 +14,7 @@ host-network-stats = []
 
 [dependencies]
 socket2 = { version = "0.6", features = ["all"] }
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 zero-traits = { path = "../../traits" }
 zero-core = { path = "../../core" }
 zero-error = { path = "../../error" }

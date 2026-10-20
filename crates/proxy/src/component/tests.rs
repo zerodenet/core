@@ -2,6 +2,7 @@ mod bindings;
 mod catalog;
 mod dependencies;
 mod generations;
+mod native_process;
 mod ownership;
 mod preparation;
 mod request;

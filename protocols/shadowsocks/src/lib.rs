@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-#[cfg(all(feature = "runtime", feature = "blake3"))]
+#[cfg(feature = "runtime")]
 pub mod component;
 
 #[cfg(feature = "runtime")]

@@ -6,6 +6,9 @@ use zero_core::{
 };
 use zero_traits::IoObserver;
 
+mod process;
+pub use process::ProcessRequest;
+
 use super::{
     datagram::DynDatagramOutbound,
     inbound::DynInboundSource,
@@ -45,6 +48,12 @@ pub enum ResourceDeclaration {
         max_bytes: usize,
     },
     BackgroundCarrier,
+    /// Native child starts for this component generation. Arguments and
+    /// environment remain protocol-owned; this is not descendant containment.
+    Process {
+        program: PathBuf,
+        max_starts: NonZeroUsize,
+    },
 }
 
 /// A static ownership description, resolved to IDs by the host.
@@ -70,6 +79,16 @@ pub struct ComponentSpec {
 /// The host implements access only for resources declared by this component.
 /// Calls are deferred until ResourceLifecycle::start, after ownership is installed.
 pub trait ResourceAccess: Send + Sync {
+    /// Synchronous so the persistent protocol owner can install the returned
+    /// Child before any await. Default deny; only the host grants native starts.
+    fn spawn_process(&self, _: ProcessRequest) -> Result<tokio::process::Child, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::InvalidConfig,
+            super::Impact::Component,
+        )
+        .with_source(std::io::Error::other("undeclared native process")))
+    }
     fn read_file(
         &self,
         path: PathBuf,

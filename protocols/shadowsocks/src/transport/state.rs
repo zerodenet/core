@@ -18,6 +18,14 @@ impl ShadowsocksTransportState {
     ) -> super::plugin::ShadowsocksPluginResource {
         super::plugin::ShadowsocksPluginResource::new(self.plugins.plan(host, port, config))
     }
+    pub fn plugin_component_options(
+        &self,
+        host: &str,
+        port: u16,
+        config: crate::validation::PluginConfig,
+    ) -> crate::component::PluginOptions {
+        crate::component::PluginOptions::new(self.plugin_resource(host, port, config))
+    }
     pub fn clear_plugins(&self) {
         self.plugins.clear();
     }

@@ -9,7 +9,7 @@ fn plugin_environment_is_opaque_and_obfsproxy_uses_reference_arguments() {
         mode: PluginMode::TcpOnly,
     };
     let local = "127.0.0.1:1234".parse().unwrap();
-    let cmd = command(&config, ("::1", 5678), local, true);
+    let cmd = request(&config, ("::1", 5678), local, true).command();
     let env = cmd
         .as_std()
         .get_envs()
@@ -26,7 +26,7 @@ fn plugin_environment_is_opaque_and_obfsproxy_uses_reference_arguments() {
     assert_eq!(env["SS_PLUGIN_OPTIONS"], config.options.as_deref());
     config.command = "obfsproxy".into();
     config.options = Some("obfs2 --shared-secret=test".into());
-    let cmd = command(&config, ("::1", 5678), local, true);
+    let cmd = request(&config, ("::1", 5678), local, true).command();
     let args = cmd
         .as_std()
         .get_args()

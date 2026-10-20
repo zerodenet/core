@@ -128,11 +128,51 @@ impl PluginPlan {
     pub(super) async fn acquire_with_probe<Probe, Pending>(
         &self,
         tcp: bool,
-        mut probe: Probe,
+        probe: Probe,
     ) -> io::Result<Option<Arc<PluginLease>>>
     where
         Probe: FnMut(SocketAddr) -> Pending + Send,
         Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>> + Send,
+    {
+        self.acquire_with(tcp, probe, process::spawn_request, false)
+            .await
+    }
+    pub(crate) fn program(&self) -> std::path::PathBuf {
+        self.key.config.command.clone().into()
+    }
+    pub(super) async fn acquire_authorized(
+        &self,
+        tcp: bool,
+        resources: Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
+        claimed: Arc<std::sync::atomic::AtomicBool>,
+    ) -> io::Result<Option<Arc<PluginLease>>> {
+        self.acquire_with(
+            tcp,
+            tokio::net::TcpStream::connect,
+            move |request| {
+                resources
+                    .spawn_process(request)
+                    .inspect(|_| {
+                        claimed.store(true, std::sync::atomic::Ordering::Release);
+                    })
+                    .map_err(io::Error::other)
+            },
+            true,
+        )
+        .await
+    }
+    async fn acquire_with<Probe, Pending, Spawn>(
+        &self,
+        tcp: bool,
+        mut probe: Probe,
+        spawn: Spawn,
+        require_fresh: bool,
+    ) -> io::Result<Option<Arc<PluginLease>>>
+    where
+        Probe: FnMut(SocketAddr) -> Pending + Send,
+        Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>> + Send,
+        Spawn: FnOnce(zero_platform_tokio::contract::component::ProcessRequest) -> io::Result<Child>
+            + Send,
     {
         if (tcp && !self.key.config.mode.tcp()) || (!tcp && !self.key.config.mode.udp()) {
             return Ok(None);
@@ -145,6 +185,12 @@ impl PluginPlan {
             return Err(revoked());
         }
         if let Some(running) = slot.as_ref() {
+            if require_fresh {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "plugin child already has an owner",
+                ));
+            }
             running.ready()?;
             running.check()?;
             return Ok(Some(running.clone()));
@@ -162,12 +208,12 @@ impl PluginPlan {
         if self.cancel.is_cancelled() {
             return Err(revoked());
         }
-        let child = process::spawn(
+        let child = spawn(process::request(
             &self.key.config,
             (&self.key.host, self.key.port),
             local,
             false,
-        )?;
+        ))?;
         let running = Arc::new(PluginLease {
             child: Mutex::new(child),
             endpoint: local,
