@@ -21,7 +21,6 @@ pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::io;
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
