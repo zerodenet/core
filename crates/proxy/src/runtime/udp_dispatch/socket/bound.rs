@@ -20,6 +20,7 @@ use zero_platform_tokio::contract::{component::ResourceAccess, ChannelError};
 pub(crate) struct BoundDirectBudget {
     pub(crate) limits: DirectEndpointLimits,
     pub(crate) max_bindings: NonZeroUsize,
+    pub(crate) pre_io_bind_attempts: NonZeroUsize,
     pub(crate) start_deadline: tokio::time::Instant,
 }
 pub(crate) struct BoundDirectSockets {
@@ -28,6 +29,7 @@ pub(crate) struct BoundDirectSockets {
     pub(super) generation: u64,
     authority: Arc<PeerBoundDatagramAuthority>,
     resources: Arc<dyn ResourceAccess>,
+    pre_io_bind_attempts: NonZeroUsize,
 }
 fn channel(error: ChannelError) -> EngineError {
     std::io::Error::other(error).into()
@@ -85,6 +87,7 @@ impl BoundDirectSockets {
             authority,
             isolation: HashMap::new(),
             generation: 0,
+            pre_io_bind_attempts: budget.pre_io_bind_attempts,
         })
     }
     async fn admit(
@@ -116,6 +119,7 @@ impl BoundDirectSockets {
                     generation: authorized.generation,
                     policy: authorized.policy,
                     source: authorized.source,
+                    pre_io_bind_attempts: self.pre_io_bind_attempts,
                 },
                 self.isolation.get(&session.id).copied(),
                 context.binding().cancellation().child_token(),

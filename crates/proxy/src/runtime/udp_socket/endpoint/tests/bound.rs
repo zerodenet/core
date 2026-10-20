@@ -66,6 +66,7 @@ fn as_binding(
         generation,
         policy,
         source,
+        pre_io_bind_attempts: NonZeroUsize::new(1).unwrap(),
     }
 }
 
@@ -263,3 +264,6 @@ async fn actual_bound_peer_shares_original_ports_preserves_tombstones_and_keeps_
 }
 
 mod epoch;
+
+#[cfg(target_os = "linux")]
+mod fallback;

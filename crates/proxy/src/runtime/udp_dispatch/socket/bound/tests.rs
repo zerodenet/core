@@ -24,6 +24,7 @@ fn budget() -> BoundDirectBudget {
             candidates_per_job: two,
         },
         max_bindings: two,
+        pre_io_bind_attempts: two,
         start_deadline: Instant::now() + Duration::from_secs(2),
     }
 }

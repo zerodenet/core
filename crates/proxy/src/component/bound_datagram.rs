@@ -46,6 +46,8 @@ struct State {
     originals: BTreeMap<DatagramReservationId, u64>,
     pending_closed: u64,
     fault: Option<SharedError>,
+    // Bounded diagnostic retention, separate from Unknown/terminal faults.
+    first_acquisition_source: Option<Arc<std::io::Error>>,
     unknown: bool,
     retained_live: usize,
 }
@@ -81,6 +83,7 @@ impl HostBoundDatagramResources {
                 originals: BTreeMap::new(),
                 pending_closed: 0,
                 fault: None,
+                first_acquisition_source: None,
                 unknown: false,
                 retained_live: 0,
             }),

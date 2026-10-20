@@ -67,6 +67,9 @@ impl ResourceAccess for HostBoundDatagramResources {
                 socket
             }
             Err(source) => {
+                state
+                    .first_acquisition_source
+                    .get_or_insert_with(|| source.source.clone());
                 if matches!(source.outcome, AcquisitionOutcome::Unknown(_)) {
                     if let Some(id) = source.reservation {
                         state.originals.insert(id, request.binding.sequence());

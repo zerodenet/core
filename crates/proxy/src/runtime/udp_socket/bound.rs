@@ -16,6 +16,7 @@ pub(crate) struct DirectEndpointBinding {
     pub(crate) generation: NetworkGeneration,
     pub(crate) policy: DirectUdpPolicy,
     pub(crate) source: Arc<dyn DatagramBindingAuthorization>,
+    pub(crate) pre_io_bind_attempts: std::num::NonZeroUsize,
 }
 impl DirectEndpointBinding {
     pub(crate) fn check_current(&self) -> Result<(), ChannelError> {
@@ -27,7 +28,7 @@ impl DirectEndpointBinding {
         }
         self.source.check_current(self.generation)
     }
-    fn request(&self, peer: SocketAddr) -> BoundDatagramRequest {
+    pub(super) fn request(&self, peer: SocketAddr) -> BoundDatagramRequest {
         BoundDatagramRequest {
             binding: self.id.clone(),
             peer,
@@ -91,6 +92,15 @@ impl DirectUdpSockets {
         session: u64,
         policy: &DirectUdpPolicy,
     ) -> Result<usize, EngineError> {
+        self.bound_socket_attempt(target, session, policy)
+            .map_err(|failure| failure.error)
+    }
+    pub(super) fn bound_socket_attempt(
+        &mut self,
+        target: SocketAddr,
+        session: u64,
+        policy: &DirectUdpPolicy,
+    ) -> Result<usize, BoundSocketAttemptFailure> {
         let bound = self
             .bound
             .as_ref()
@@ -102,7 +112,7 @@ impl DirectUdpSockets {
             .select_bound_outbound_datagram(request.clone())
             .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
         if selection.generation() != bound.generation.0 {
-            return Err(denied(Reason::StalePlan));
+            return Err(denied(Reason::StalePlan).into());
         }
         let isolation = self.isolated_sessions.get(&session).copied();
         let matches = |entry: &DirectUdpSocket| {
@@ -137,7 +147,7 @@ impl DirectUdpSockets {
             .checked_add(self.close.bound_occupied())
             .is_none_or(|used| used >= self.bound_native_limit.expect("bound mode limit").get())
         {
-            return Err(denied(Reason::Capacity));
+            return Err(denied(Reason::Capacity).into());
         }
         let id = self.next_socket_id;
         self.next_socket_id = id.checked_add(1).ok_or_else(|| denied(Reason::Capacity))?;
@@ -153,8 +163,14 @@ impl DirectUdpSockets {
         };
         let replies = ownership::DirectUdpReplies::default();
         let granted = resources
-            .open_bound_outbound_datagram(request)
-            .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+            .open_bound_datagram_attempt(request)
+            .map_err(|failure| {
+                let (error, retry) = failure.into_parts();
+                BoundSocketAttemptFailure {
+                    error: std::io::Error::other(error).into(),
+                    retry,
+                }
+            })?;
         // The provider already holds the original. Install the unique view before
         // any external fence/callback; failed postchecks physically retire it.
         self.sockets.push(DirectUdpSocket {
@@ -180,7 +196,7 @@ impl DirectUdpSockets {
         if !valid || current.is_err() {
             self.close_rotated_sockets(|entry| entry.id == id);
             current?;
-            return Err(denied(Reason::StalePlan));
+            return Err(denied(Reason::StalePlan).into());
         }
         Ok(self.sockets.len() - 1)
     }
@@ -189,4 +205,20 @@ fn denied(reason: Reason) -> EngineError {
     let mut failure = ChannelError::new(Stage::Prepare, reason, Impact::Component);
     failure.delivery = DeliveryState::NotSubmitted;
     std::io::Error::other(failure).into()
+}
+
+/// Structured grant result stays outside the diagnostic EngineError wrapper.
+pub(super) struct BoundSocketAttemptFailure {
+    pub(super) error: EngineError,
+    pub(super) retry: Option<zero_platform_tokio::contract::component::BoundDatagramRetryReceipt>,
+}
+impl From<EngineError> for BoundSocketAttemptFailure {
+    fn from(error: EngineError) -> Self {
+        Self { error, retry: None }
+    }
+}
+impl From<std::io::Error> for BoundSocketAttemptFailure {
+    fn from(error: std::io::Error) -> Self {
+        EngineError::Io(error).into()
+    }
 }

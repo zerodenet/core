@@ -1,5 +1,6 @@
 //! Destination selection opens only a permitted family and never retries data.
 use super::*;
+mod bound;
 
 impl DirectUdpSockets {
     pub(crate) async fn send_new_packet(
@@ -29,7 +30,7 @@ impl DirectUdpSockets {
         payload: &[u8],
         session_id: u64,
         policy: &DirectUdpPolicy,
-    ) -> Result<DirectUdpSentPacket, EngineError> {
+    ) -> Result<DirectUdpSentPacket, OwnedSendFailure> {
         self.refresh_if_stale();
         self.ensure_policy_current(policy)?;
         policy.dial_policy.validate().map_err(invalid_policy)?;
@@ -42,8 +43,14 @@ impl DirectUdpSockets {
                 Err(_) => false,
             },
         );
+        if self.services.is_none() {
+            return self
+                .send_bound_candidates(logical_target, candidates, payload, session_id, policy)
+                .await;
+        }
         self.send_candidates(logical_target, candidates, payload, session_id, policy)
             .await
+            .map_err(OwnedSendFailure::from)
     }
 
     async fn send_candidates(
@@ -54,6 +61,12 @@ impl DirectUdpSockets {
         session_id: u64,
         policy: &DirectUdpPolicy,
     ) -> Result<DirectUdpSentPacket, EngineError> {
+        if self.services.is_none() {
+            return self
+                .send_bound_candidates(logical_target, candidates, payload, session_id, policy)
+                .await
+                .map_err(OwnedSendFailure::into_error);
+        }
         let mut last_error = None;
         while let Some(target) = select_stable_udp_target(logical_target, &candidates, true, true) {
             self.ensure_policy_current(policy)?;
@@ -71,12 +84,6 @@ impl DirectUdpSockets {
                     });
                 }
                 Err(error) => {
-                    if self.services.is_none() {
-                        // The scoped provider returned the actual authorization
-                        // or acquisition failure. It currently grants no replay;
-                        // never route around that boundary through another family.
-                        return Err(error);
-                    }
                     // Auto may use another family when the first family cannot
                     // bind. The same source/interface policy survives the retry,
                     // and payload is only sent once after successful binding.
@@ -91,5 +98,44 @@ impl DirectUdpSockets {
                 "no direct UDP target satisfies the dial policy",
             ))
         }))
+    }
+}
+
+/// The sole driver receives settled acquisition evidence outside diagnostics.
+pub(super) struct OwnedSendFailure {
+    error: EngineError,
+    settled: Option<(
+        zero_platform_tokio::contract::component::BoundDatagramRetryReceipt,
+        zero_platform_tokio::contract::component::BoundDatagramRequest,
+    )>,
+}
+impl OwnedSendFailure {
+    fn acquisition(
+        error: EngineError,
+        receipt: Option<zero_platform_tokio::contract::component::BoundDatagramRetryReceipt>,
+        request: zero_platform_tokio::contract::component::BoundDatagramRequest,
+    ) -> Self {
+        Self {
+            error,
+            settled: receipt
+                .filter(|receipt| receipt.matches(&request))
+                .map(|receipt| (receipt, request)),
+        }
+    }
+    pub(in crate::runtime::udp_socket) fn settled_acquisition(&self) -> bool {
+        self.settled
+            .as_ref()
+            .is_some_and(|(receipt, request)| receipt.matches(request))
+    }
+    pub(in crate::runtime::udp_socket) fn into_error(self) -> EngineError {
+        self.error
+    }
+}
+impl From<EngineError> for OwnedSendFailure {
+    fn from(error: EngineError) -> Self {
+        Self {
+            error,
+            settled: None,
+        }
     }
 }
