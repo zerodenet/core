@@ -206,7 +206,9 @@ async fn registered_driver_failure_retains_original_io_payload_and_actual_scope_
     assert!(tasks.is_complete());
 }
 
-fn original_failure<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a OriginalFailure> {
+fn original_failure<'a>(
+    error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a OriginalFailure> {
     let mut current = Some(error);
     while let Some(source) = current {
         if let Some(io) = source.downcast_ref::<io::Error>() {
