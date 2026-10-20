@@ -19,7 +19,7 @@ pub(crate) async fn handle_socks5_connection(
         ::socks5::Socks5Command::Connect(destination) => {
             tcp_context
                 .serve_standard_stream(
-                    zero_core::ProtocolType::new("socks5"),
+                    ::socks5::Socks5Inbound.protocol(),
                     destination,
                     facts.auth,
                     move |facts| {

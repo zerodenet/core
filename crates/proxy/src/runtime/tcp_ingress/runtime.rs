@@ -3,7 +3,7 @@ mod model;
 mod route;
 mod serve;
 mod session;
-#[cfg(any(feature = "socks5", feature = "http"))]
+#[cfg(feature = "standard-stream-inbound-runtime")]
 mod standard;
 #[cfg(test)]
 mod tests;

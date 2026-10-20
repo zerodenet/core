@@ -5,7 +5,7 @@ use super::model::InboundRouteRuntime;
 use crate::runtime::tcp_ingress::InboundProtocol;
 
 impl InboundRouteRuntime {
-    #[cfg(any(feature = "socks5", feature = "http"))]
+    #[cfg(feature = "standard-stream-inbound-runtime")]
     pub(crate) async fn serve_standard_stream(
         &self,
         protocol: zero_core::ProtocolType,

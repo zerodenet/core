@@ -133,12 +133,15 @@ fn assert_sources_exclude(root: &Path, forbidden: &[&str]) {
     }
 }
 
+fn is_test_source(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "tests")
+        || path.file_name().is_some_and(|name| name == "tests.rs")
+}
+
 fn assert_non_test_sources_exclude(root: &Path, forbidden: &[&str]) {
     for path in rust_sources(root) {
-        if path
-            .components()
-            .any(|component| component.as_os_str() == std::ffi::OsStr::new("tests"))
-        {
+        if is_test_source(&path) {
             continue;
         }
         let source = read(&path);
@@ -174,7 +177,7 @@ fn adapters_prepare_protocol_parts_but_do_not_own_runtime_execution() {
 
 #[test]
 fn adapters_do_not_recover_engine_leaves_or_construct_runtime_facts() {
-    assert_sources_exclude(
+    assert_non_test_sources_exclude(
         &proxy_src().join("adapters"),
         &[
             "ResolvedLeafOutbound",
@@ -410,10 +413,7 @@ fn concrete_protocol_feature_gates_exist_only_in_adapters_and_registration() {
     let protocol_feature_tokens = adapter_feature_tokens();
     let proxy = proxy_src();
     for path in rust_sources(&proxy) {
-        if path
-            .components()
-            .any(|component| component.as_os_str() == std::ffi::OsStr::new("tests"))
-        {
+        if is_test_source(&path) {
             continue;
         }
         let source = read(&path);
@@ -578,7 +578,7 @@ fn protocol_identity_is_open_and_engine_does_not_enumerate_protocols() {
     for protocol in adapter_feature_names() {
         assert!(!protocol_identity.contains(protocol.as_str()));
     }
-    assert_sources_exclude(
+    assert_non_test_sources_exclude(
         &workspace_root().join("crates/engine/src"),
         &["ProtocolType::"],
     );
@@ -667,7 +667,7 @@ fn tcp_prepared_operations_are_gated_by_tcp_capabilities_not_udp_runtime() {
 
 #[test]
 fn proxy_runtime_does_not_retain_engine_leaf_types() {
-    assert_sources_exclude(&proxy_src().join("runtime"), &["ResolvedLeafOutbound"]);
+    assert_non_test_sources_exclude(&proxy_src().join("runtime"), &["ResolvedLeafOutbound"]);
 }
 
 #[test]
@@ -747,7 +747,7 @@ fn listener_and_task_lifecycle_are_runtime_owned() {
     let inbound_operation = read_module(&proxy_src().join("runtime/inbound_operation.rs"));
     let listener_loop = read(&proxy_src().join("runtime/listener_loop.rs"));
     let inventory_inbound = read(&proxy_src().join("inventory/inbound.rs"));
-    let runtime_listeners = read(&proxy_src().join("runtime/listeners/inbound.rs"));
+    let runtime_listeners = read_module(&proxy_src().join("runtime/listeners/inbound.rs"));
     assert!(inbound_operation.contains("PreparedInboundListenerOperation"));
     assert!(inbound_operation.contains("InboundConnectionContext"));
     assert!(inbound_operation.contains("JoinSet") || listener_loop.contains("JoinSet"));
@@ -1832,21 +1832,28 @@ fn vless_transport_plan_accepts_client_owned_surface_without_callback_wrappers()
 fn socks5_adapter_accepts_protocol_request_before_runtime_handoff() {
     let listener = read(&proxy_src().join("adapters/socks5/inbound/listener.rs"));
     assert!(
-        listener.contains(".accept_command(&mut metered)"),
+        listener.contains(".accept_command_facts(&mut metered)"),
         "adapters/socks5/inbound/listener.rs should accept a protocol-owned request surface before runtime handoff"
     );
     assert!(
-        listener.contains("Socks5Request::Connect"),
+        listener.contains("Socks5Command::Connect"),
         "adapters/socks5/inbound/listener.rs should explicitly branch on accepted SOCKS5 CONNECT requests"
     );
     assert!(
-        listener.contains("Socks5Request::UdpAssociate"),
+        listener.contains("Socks5Command::UdpAssociate"),
         "adapters/socks5/inbound/listener.rs should explicitly branch on accepted SOCKS5 UDP ASSOCIATE requests"
     );
     assert!(
         listener.contains("setup_inbound_udp_association(&mut metered, request)"),
         "adapters/socks5/inbound/listener.rs should keep SOCKS5 UDP associate setup explicit at the adapter/runtime boundary"
     );
+
+    assert!(listener.contains(".serve_standard_stream("));
+    assert!(listener.contains("component::inbound::ConnectReply::new"));
+    assert!(!listener.contains("Session::new"));
+    let standard = read(&proxy_src().join("runtime/tcp_ingress/runtime/standard.rs"));
+    assert!(standard.contains("mint_session_identity()?"));
+    assert!(standard.contains("serve_with_identity("));
 
     let inbound = read(&workspace_root().join("protocols/socks5/src/inbound.rs"));
     assert!(
@@ -2675,7 +2682,7 @@ fn udp_ingress_runtime_collapses_proxy_and_services_for_session_loops() {
     assert!(!inventory_inbound.contains("use crate::runtime::Proxy"));
     assert!(!inventory_inbound.contains("execute(proxy.clone()"));
 
-    let listener_inbound = read(&proxy_src().join("runtime/listeners/inbound.rs"));
+    let listener_inbound = read_module(&proxy_src().join("runtime/listeners/inbound.rs"));
     assert!(listener_inbound.contains("ProtocolInventory"));
     assert!(listener_inbound.contains("InboundListenerRuntimeFactory"));
     assert!(listener_inbound.contains("listeners.spawn("));

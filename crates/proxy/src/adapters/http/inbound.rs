@@ -46,7 +46,7 @@ pub(crate) async fn handle_http_connection(
             HttpInboundCommand::Connect(destination) => {
                 return context
                     .serve_standard_stream(
-                        zero_core::ProtocolType::new("http"),
+                        handler.http_inbound.protocol(),
                         destination,
                         None,
                         move |facts| {
