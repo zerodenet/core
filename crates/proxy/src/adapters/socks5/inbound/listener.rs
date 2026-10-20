@@ -22,6 +22,7 @@ pub(crate) async fn handle_socks5_connection(
                     ::socks5::Socks5Inbound.protocol(),
                     destination,
                     facts.auth,
+                    None,
                     move |facts| {
                         ::socks5::component::inbound::ConnectReply::new(metered, facts)
                             .map(zero_platform_tokio::contract::inbound::accept_stream)

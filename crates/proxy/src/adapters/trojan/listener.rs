@@ -32,6 +32,7 @@ pub(super) fn prepare(
                                 ::trojan::inbound::TrojanInbound.protocol(),
                                 destination,
                                 Some(auth),
+                                None,
                                 move |facts| {
                                     ::trojan::component::inbound::TcpReply::new(*stream, facts)
                                         .map(zero_platform_tokio::contract::inbound::accept_stream)

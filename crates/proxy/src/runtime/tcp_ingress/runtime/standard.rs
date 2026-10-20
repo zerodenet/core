@@ -14,6 +14,7 @@ impl TcpIngressRuntime {
         protocol: ProtocolType,
         destination: Destination,
         auth: Option<SessionAuth>,
+        sni: Option<String>,
         reply: impl FnOnce(RequestFacts) -> Result<Box<dyn AcceptedStream>, ChannelError> + Send,
     ) -> Result<(), EngineError> {
         // Mint only for a recognized business request. The sealed ticket stays
@@ -26,6 +27,9 @@ impl TcpIngressRuntime {
             Network::Tcp,
             protocol,
         );
+        // Carrier metadata is captured before protocol handoff and becomes
+        // part of the host-issued facts used by the existing routing path.
+        session.sni = sni;
         if let Some(auth) = auth {
             session.apply_auth(auth);
         }

@@ -9,6 +9,7 @@ impl InboundConnectionContext {
         protocol: zero_core::ProtocolType,
         destination: zero_core::request::Destination,
         auth: Option<zero_core::SessionAuth>,
+        sni: Option<String>,
         reply: impl FnOnce(
                 zero_core::request::RequestFacts,
             ) -> Result<
@@ -17,7 +18,7 @@ impl InboundConnectionContext {
             > + Send,
     ) -> Result<(), EngineError> {
         self.runtime
-            .serve_standard_stream(protocol, destination, auth, reply)
+            .serve_standard_stream(protocol, destination, auth, sni, reply)
             .await
     }
 

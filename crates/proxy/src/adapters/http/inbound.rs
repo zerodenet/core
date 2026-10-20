@@ -49,6 +49,7 @@ pub(crate) async fn handle_http_connection(
                         handler.http_inbound.protocol(),
                         destination,
                         None,
+                        None,
                         move |facts| {
                             http::component::ConnectReply::new(client, facts)
                                 .map(zero_platform_tokio::contract::inbound::accept_stream)
