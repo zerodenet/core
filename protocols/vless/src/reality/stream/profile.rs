@@ -167,43 +167,18 @@ pub fn generate_reality_key_pair() -> (String, String) {
 }
 
 pub async fn upgrade_reality_client<IO>(
-    mut io: IO,
+    io: IO,
     options: RealityClientOptions<'_>,
 ) -> io::Result<RealityTlsStream<IO>>
 where
     IO: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let spider = crate::reality_spider::Profile::parse(options.spider_x)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    let config = RealityClientConfig {
-        decoy_trust: None,
-        hybrid_key_exchange: options.hybrid_key_exchange,
-        mldsa65: options
-            .mldsa65_verify
-            .map(super::super::mldsa::verifier)
-            .transpose()?,
-        public_key: decode_public_key(options.public_key)?,
-        short_id: decode_short_id(options.short_id)?,
-        server_name: options.server_name.to_owned(),
-        cipher_suites: parse_cipher_suites(options.cipher_suites)?,
-        client_hello_profile: options
-            .client_fingerprint
-            .parse()
-            .map_err(|error: String| io::Error::new(io::ErrorKind::InvalidInput, error))?,
-        handshake_timeout_ms: 10_000,
-    };
-
-    let mut session = RealityClientConnection::new(config)?;
-    tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        perform_reality_handshake(&mut session, &mut io),
-    )
-    .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "REALITY handshake timed out"))??;
-
-    admit_client(io, session, options.server_name, spider).await
+    PreparedRealityClient::from_options(options)?
+        .connect(io)
+        .await
 }
 
+#[cfg(test)]
 async fn admit_client<IO>(
     io: IO,
     session: RealityClientConnection,
@@ -274,7 +249,7 @@ fn make_server_config(options: RealityServerOptions<'_>) -> io::Result<RealitySe
     })
 }
 
-fn parse_cipher_suites(names: &[String]) -> io::Result<Vec<CipherSuite>> {
+pub(super) fn parse_cipher_suites(names: &[String]) -> io::Result<Vec<CipherSuite>> {
     if names.is_empty() {
         return Ok(DEFAULT_CIPHER_SUITES.to_vec());
     }

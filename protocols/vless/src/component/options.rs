@@ -17,6 +17,7 @@ pub struct Options {
     pub(super) uuid: [u8; 16],
     pub(super) flow: Option<&'static str>,
     pub(super) testseed: [u32; 4],
+    pub(super) reality: Option<crate::reality::PreparedRealityClient>,
     pub(super) tls: Option<OwnedClientTlsProfile>,
     pub(super) ws: Option<OwnedWebSocketProfile>,
     pub(super) grpc: Option<OwnedGrpcProfile>,
@@ -60,7 +61,9 @@ impl Options {
             ));
         }
         if crate::flow::is_vision_flow(flow)
-            && (input.tls.is_none() || input.ws.is_some() || input.grpc.is_some())
+            && ((input.tls.is_none() && input.protocol.reality.is_none())
+                || input.ws.is_some()
+                || input.grpc.is_some())
         {
             return Err(Error::Unsupported(
                 "Vision requires a real switchable TLS carrier",
@@ -80,8 +83,7 @@ impl Options {
                 "VLESS Encryption requires its protocol state owner",
             ));
         }
-        if input.protocol.reality.is_some()
-            || input.protocol.quic.is_some()
+        if input.protocol.quic.is_some()
             || input.final_mask.is_some()
             || input.mkcp.is_some()
             || input.hysteria.is_some()
@@ -105,6 +107,32 @@ impl Options {
                 "VLESS browser dialer requires its resource owner",
             ));
         }
+        if input.protocol.reality.is_some()
+            && (input.tls.is_some() || input.ws.is_some() || input.grpc.is_some())
+        {
+            return Err(Error::Config(
+                "REALITY direct carrier cannot combine TLS/WS/gRPC",
+            ));
+        }
+        let reality = input
+            .protocol
+            .reality
+            .map(|profile| {
+                crate::reality::PreparedRealityClient::from_options(
+                    crate::reality::RealityClientOptions {
+                        spider_x: profile.spider_x,
+                        hybrid_key_exchange: profile.hybrid_key_exchange,
+                        mldsa65_verify: profile.mldsa65_verify,
+                        public_key: profile.public_key,
+                        short_id: profile.short_id,
+                        server_name: profile.server_name.unwrap_or(input.server),
+                        cipher_suites: profile.cipher_suites,
+                        client_fingerprint: profile.client_fingerprint,
+                    },
+                )
+                .map_err(|_| Error::Config("invalid REALITY client profile"))
+            })
+            .transpose()?;
         let uuid = parse_uuid(input.protocol.id)?;
         let tls = input.tls.map(|profile| {
             crate::transport::client_tls_for_stream(
@@ -147,6 +175,9 @@ impl Options {
             flow.hash(&mut hash);
             testseed.hash(&mut hash);
             format!("{tls:?}{ws:?}{grpc:?}").hash(&mut hash);
+            // Full profile participates in this keyed, process-local equality
+            // hint; PreparedRealityClient's Debug intentionally omits keys.
+            format!("{:?}", input.protocol.reality).hash(&mut hash);
             dial.hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
@@ -156,6 +187,7 @@ impl Options {
             uuid,
             flow,
             testseed,
+            reality,
             tls,
             ws,
             grpc,

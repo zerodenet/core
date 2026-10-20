@@ -149,6 +149,24 @@ pub(super) fn instance_with_flow(
     flow: Option<&str>,
     testseed: &[u32],
 ) -> (ComponentInstance, TaskScope) {
+    instance_with_profiles(address, tls, ws, grpc, flow, testseed, None)
+}
+pub(super) fn instance_with_reality(
+    address: SocketAddr,
+    reality: vless::transport::VlessRealityClientOptionsRef<'_>,
+    flow: Option<&str>,
+) -> (ComponentInstance, TaskScope) {
+    instance_with_profiles(address, None, None, None, flow, &[], Some(reality))
+}
+fn instance_with_profiles(
+    address: SocketAddr,
+    tls: Option<&zero_transport::profile::OwnedClientTlsProfile>,
+    ws: Option<&zero_transport::profile::OwnedWebSocketProfile>,
+    grpc: Option<&zero_transport::profile::OwnedGrpcProfile>,
+    flow: Option<&str>,
+    testseed: &[u32],
+    reality: Option<vless::transport::VlessRealityClientOptionsRef<'_>>,
+) -> (ComponentInstance, TaskScope) {
     let options = vless::component::Options::from_options_refs(
         vless::transport::VlessOutboundBuildOptionsRef {
             final_mask: None,
@@ -169,7 +187,7 @@ pub(super) fn instance_with_flow(
                 mux_idle_timeout_secs: None,
                 mux_response_backlog_frames: None,
                 mux_response_backlog_bytes: None,
-                reality: None,
+                reality,
                 quic: None,
             },
             tls,
@@ -183,7 +201,11 @@ pub(super) fn instance_with_flow(
     )
     .unwrap();
     assert!(!format!("{options:?}").contains(ID));
-    let (context, scope) = super::super::fixtures::build_context();
+    let (mut context, mut scope) = super::super::fixtures::build_context();
+    if let Some(limit) = vless::component::Factory.describe(&options).task_limit {
+        scope = TaskScope::new(tokio::runtime::Handle::current(), limit);
+        context.tasks = scope.registrar();
+    }
     (
         vless::component::Factory
             .build(Arc::new(options), context)

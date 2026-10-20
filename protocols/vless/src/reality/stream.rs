@@ -13,6 +13,8 @@ use zero_traits::TransportBypassControl;
 use ztls::cipher::{CipherSuite, DEFAULT_CIPHER_SUITES};
 use ztls::reader_writer::{RealityReader, RealityWriter};
 
+mod client_profile;
+pub use client_profile::PreparedRealityClient;
 mod handshake;
 mod profile;
 #[path = "stream/io.rs"]

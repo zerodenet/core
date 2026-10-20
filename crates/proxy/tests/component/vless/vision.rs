@@ -1,3 +1,3 @@
-mod fixtures;
+pub(super) mod fixtures;
 mod golden;
 mod transition;

@@ -125,10 +125,19 @@ ID 沿用本协议解析，普通请求帧复用原编码函数。build 不打�
 读取中检查版本并完整消费 addons，完成后才上报 PeerConfirmed；非法版本上报
 PeerRejected，截断仍保留 EOF 错误。Flow 只记录请求帧，Outer 保留实际载体字节。
 
-暂未迁移的边界明确保留原有实际路径；直接传入这些项的 Options 返回错误：
+REALITY 直载（普通流及 Vision）目前仅开放独立库 Factory：协议先冷验证密钥、
+short ID、ML-DSA、cipher、fingerprint 与 spider profile，真实载体打开后才生成
+本次 ClientHello 的时间与随机。认证成功后保留实际 REALITY bypass control；
+经过真实证书验证但未获 REALITY 认证的 decoy 始终返回 PermissionDenied，不发送
+VLESS 请求。decoy 沿原连接执行同一个有界 HTTP/2 导航 job，任务由调用者实际
+TaskScope 登记；descriptor 声明最多 64 个任务，并发子请求为 job 内部 future。
+旧 transport 的导航也复用相同实现，保持全局 64/32 额度、范围、60 秒上限和独立
+return delay。生产资格仍明确排除 REALITY，等待 host 资源替换、任务监督和真实
+I/O 关闭确认；库级 scope join 本身不证明所有载体或会话资源关闭。
 
-- zero-aead flow 尚需独立认证流接入；Vision 目前只接受实际 TLS 1.3 直载，不假接 WS/gRPC 绕过控制。
-- REALITY 需要完整认证、密钥 profile、拒绝及 decoy 导航语义的独立接入回归。
+其余暂未迁移的边界保留原有实际路径；直接传入以下项的 Options 返回错误：
+
+- zero-aead flow 尚需独立认证流接入；Vision 只接受实际 TLS 1.3 或库级 REALITY 直载，不假接 WS/gRPC 绕过控制。
 - VLESS Encryption，尤其 0RTT ticket cache，需要协议状态代际和共享所有者。
 - MUX/XUDP、testpre、reverse、browser_dialer 需要相应资源和后台生命周期。
 - QUIC、mKCP、Hysteria、FinalMask 需要真实 UDP/socket、驱动或 framing 接入。

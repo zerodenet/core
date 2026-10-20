@@ -1,8 +1,8 @@
 use std::sync::Arc;
-pub(super) fn uuid() -> [u8; 16] {
+pub(in super::super) fn uuid() -> [u8; 16] {
     super::super::fixtures::request()[1..17].try_into().unwrap()
 }
-pub(super) fn request() -> Vec<u8> {
+pub(in super::super) fn request() -> Vec<u8> {
     let plain = super::super::fixtures::request();
     let mut bytes = plain[..17].to_vec();
     bytes.extend_from_slice(&[18, 0x0a, 16]);
@@ -10,7 +10,7 @@ pub(super) fn request() -> Vec<u8> {
     bytes.extend_from_slice(&plain[18..]);
     bytes
 }
-pub(super) fn frame(first: bool, command: u8, content: &[u8], padding: usize) -> Vec<u8> {
+pub(in super::super) fn frame(first: bool, command: u8, content: &[u8], padding: usize) -> Vec<u8> {
     let mut bytes = Vec::new();
     if first {
         bytes.extend_from_slice(&uuid());
@@ -22,7 +22,7 @@ pub(super) fn frame(first: bool, command: u8, content: &[u8], padding: usize) ->
     bytes.resize(bytes.len() + padding, 0);
     bytes
 }
-pub(super) fn inner_tls() -> (tokio_rustls::TlsAcceptor, Arc<rustls::ClientConfig>) {
+pub(in super::super) fn inner_tls() -> (tokio_rustls::TlsAcceptor, Arc<rustls::ClientConfig>) {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let key = rustls::pki_types::PrivateKeyDer::from(rustls::pki_types::PrivatePkcs8KeyDer::from(
@@ -42,7 +42,7 @@ pub(super) fn inner_tls() -> (tokio_rustls::TlsAcceptor, Arc<rustls::ClientConfi
         Arc::new(client),
     )
 }
-pub(super) fn tls12_acceptor() -> tokio_rustls::TlsAcceptor {
+pub(in super::super) fn tls12_acceptor() -> tokio_rustls::TlsAcceptor {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let key = rustls::pki_types::PrivateKeyDer::from(rustls::pki_types::PrivatePkcs8KeyDer::from(

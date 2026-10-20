@@ -71,3 +71,30 @@ fn tls_vision_keeps_flow_and_padding_while_invalid_selected_parameters_still_fai
         );
     }
 }
+
+#[test]
+fn reality_library_factory_does_not_activate_production_before_resource_owner_gate() {
+    let (_, public) = ::vless::reality::generate_reality_key_pair();
+    for flow in [None, Some("xtls-rprx-vision")] {
+        let flow = flow
+            .map(|flow| format!(",\"flow\":\"{flow}\""))
+            .unwrap_or_default();
+        let input = input(&format!(
+            r#", "reality":{{"public_key":"{public}","short_id":"0123456789abcdef","server_name":"localhost","client_fingerprint":"chrome"}}{flow}"#
+        ));
+        assert!(
+            !native_input(&input),
+            "task-bearing REALITY must retain its old production owner"
+        );
+        let options = component_options(&input).unwrap();
+        use zero_platform_tokio::contract::component::ComponentFactory;
+        assert_eq!(
+            ::vless::component::Factory
+                .describe(&options)
+                .task_limit
+                .unwrap()
+                .get(),
+            64
+        );
+    }
+}
