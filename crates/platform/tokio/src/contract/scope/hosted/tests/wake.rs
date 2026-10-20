@@ -82,9 +82,15 @@ async fn receipt_drop_and_ack_wake_outside_locks_after_releasing_the_offer() {
 struct ReentrantDrop {
     owner: Weak<Shared>,
     dropped: Arc<AtomicUsize>,
+    wakes: Arc<AtomicUsize>,
 }
 impl Wake for ReentrantDrop {
-    fn wake(self: Arc<Self>) {}
+    fn wake(self: Arc<Self>) {
+        let owner = self.owner.upgrade().unwrap();
+        assert!(owner.state.try_lock().is_ok());
+        assert!(owner.hosted_waker.try_lock().is_ok());
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
 }
 impl Drop for ReentrantDrop {
     fn drop(&mut self) {
@@ -101,10 +107,14 @@ impl Drop for ReentrantDrop {
 async fn replacing_a_host_waker_drops_its_last_strong_reference_outside_the_mutex() {
     let owner = scope(1);
     let dropped = Arc::new(AtomicUsize::new(0));
+    let wakes = Arc::new(AtomicUsize::new(0));
     let waker = Waker::from(Arc::new(ReentrantDrop {
         owner: Arc::downgrade(&owner.0 .0),
         dropped: dropped.clone(),
+        wakes: wakes.clone(),
     }));
+    waker.wake_by_ref();
+    assert_eq!(wakes.load(Ordering::SeqCst), 1);
     owner
         .0
          .0
