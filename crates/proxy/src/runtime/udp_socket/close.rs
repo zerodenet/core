@@ -11,6 +11,7 @@ pub(super) struct NativeCloseLedger {
     // An unknown Unix outcome contains no reconstructed fd. A retryable Windows
     // error alone can retain its original, documented still-open SOCKET.
     failures: BTreeMap<u64, Arc<io::Error>>,
+    controlled: BTreeMap<u64, Arc<io::Error>>,
 }
 impl NativeCloseLedger {
     pub(super) fn retire(&mut self, entry: DirectUdpSocket) {
@@ -22,13 +23,33 @@ impl NativeCloseLedger {
         } = entry;
         // Revoke every already-read response token before descriptor retirement.
         drop(replies);
-        match socket.close() {
-            Ok(()) => self.confirmed += 1,
-            Err(source) => {
-                tracing::warn!(socket_id=id,error=%source,"Direct UDP native close remains unconfirmed");
-                self.failures.insert(id, Arc::new(source));
+        match socket {
+            super::native::DirectDatagramIo::Controlled(socket) => {
+                // Its persistent owner retains both the original and outcome.
+                // Only collect_controlled consumes its actual receipt below.
+                let _ = socket.close();
             }
+            super::native::DirectDatagramIo::Raw(socket) => match socket.close() {
+                Ok(()) => self.confirmed += 1,
+                Err(source) => {
+                    tracing::warn!(socket_id=id,error=%source,"Direct UDP native close remains unconfirmed");
+                    self.failures.insert(id, Arc::new(source));
+                }
+            },
         }
+    }
+    pub(super) fn collect_controlled(
+        &mut self,
+        report: zero_platform_tokio::controlled_datagram::DatagramOwnerReport,
+    ) {
+        self.confirmed += report.confirmed_closed;
+        // This owner's authoritative current ledger alone can remove a prior
+        // unknown after a documented Windows known-open retry actually closes.
+        self.controlled = report
+            .unconfirmed
+            .into_iter()
+            .map(|failure| (failure.reservation.get(), failure.source))
+            .collect();
     }
     fn retry_known_open(&mut self) {
         self.failures.retain(|_id, source| {
@@ -61,6 +82,11 @@ impl NativeCloseLedger {
                 "unconfirmed original Direct UDP socket {id}"
             )));
         }
+        for id in self.controlled.keys() {
+            report.unfinished.push(Unfinished::Io(format!(
+                "unconfirmed controlled original Direct UDP socket {id}"
+            )));
+        }
         report
     }
 }
@@ -75,28 +101,25 @@ impl DirectUdpSockets {
             }
             return;
         }
+        self.close_rotated_sockets(remove);
+    }
+    /// The sole I/O owner has dropped the old native poll and revoked mappings.
+    /// Real FD close here is normal rotation, never a containing TaskExit.
+    pub(super) fn close_rotated_sockets(
+        &mut self,
+        mut remove: impl FnMut(&DirectUdpSocket) -> bool,
+    ) {
         // extract_if retains the order/capacity of surviving shared sockets.
         // No replacement handle, descriptor clone, read task, or warm allocation.
         for entry in self.sockets.extract_if(.., |entry| remove(entry)) {
             self.close.retire(entry);
         }
+        self.collect_native_outcomes();
     }
-    pub(super) fn reserve_native_open(&mut self) -> Result<(), zero_engine::EngineError> {
-        if let Some(budget) = &mut self.native_budget {
-            if self.sockets.len().saturating_add(self.close.failures.len()) >= budget.sockets.get()
-                || budget.started >= budget.attempts.get()
-            {
-                use zero_platform_tokio::contract::{
-                    ChannelError, DeliveryState, Impact, Reason, Stage,
-                };
-                let mut failure =
-                    ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component);
-                failure.delivery = DeliveryState::NotSubmitted;
-                return Err(io::Error::other(failure).into());
-            }
-            budget.started += 1;
+    fn collect_native_outcomes(&mut self) {
+        if let Some(owner) = &mut self.native_owner {
+            self.close.collect_controlled(owner.take_report());
         }
-        Ok(())
     }
     pub(super) fn ensure_native_admission(&self) -> Result<(), zero_engine::EngineError> {
         if let Some((_id, source)) = self.native_close_failure() {
@@ -115,23 +138,29 @@ impl DirectUdpSockets {
     pub(crate) fn close_all_native(&mut self) {
         // Only the actual owning lifecycle may call this terminal operation.
         // Peer mode reaches it after matching the real joined-task receipt;
-        // ordinary retire/refresh paths above retain the original descriptors.
+        // logical retirement alone retains originals; explicit normal rotation
+        // above separately consumes real native-close outcomes under I/O lock.
         for entry in self.sockets.drain(..) {
             self.close.retire(entry);
         }
         self.isolated_sessions.clear();
         self.reset_receiver_if_empty();
         self.close.retry_known_open();
+        if let Some(owner) = &mut self.native_owner {
+            self.close.collect_controlled(owner.close_all());
+        }
     }
     /// Caller must persist this actual report before its next suspension or
     /// error return. Unknown original-descriptor failures remain in this ledger.
     pub(crate) fn take_native_close_report(&mut self) -> CloseReport {
+        self.collect_native_outcomes();
         self.close.take_report()
     }
     pub(crate) fn native_close_failure(&self) -> Option<(u64, Arc<io::Error>)> {
         self.close
             .failures
             .first_key_value()
+            .or_else(|| self.close.controlled.first_key_value())
             .map(|(id, source)| (*id, source.clone()))
     }
 }

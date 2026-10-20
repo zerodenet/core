@@ -5,7 +5,9 @@ use std::{mem::size_of, sync::atomic::Ordering};
 pub(crate) struct DirectEndpointLimits {
     pub(crate) logical: NonZeroUsize,
     pub(crate) native_sockets: NonZeroUsize,
-    pub(crate) native_open_attempts: NonZeroUsize,
+    /// Current acquisition jobs, not total lifetime attempts. The sole driver
+    /// and synchronous native acquire hold at most one at a time.
+    pub(crate) pending_native_opens: NonZeroUsize,
     pub(crate) pending_bytes: NonZeroUsize,
     pub(crate) candidates_per_job: NonZeroUsize,
 }

@@ -154,11 +154,11 @@ impl DirectEndpointOwner {
     ) -> Result<Self, ChannelError> {
         let scope_cancel = scope.registrar().cancellation();
         let mut sockets = DirectUdpSockets::new(services, preferred_port);
-        sockets.native_budget = Some(super::DirectNativeBudget {
-            sockets: limits.native_sockets,
-            attempts: limits.native_open_attempts,
-            started: 0,
-        });
+        sockets.native_owner = Some(
+            zero_platform_tokio::controlled_datagram::ControlledDatagramOwner::new(
+                limits.native_sockets,
+            ),
+        );
         let (shared, commands) = shared(identity, sockets, queue, limits, scope_cancel, observer)?;
         Ok(Self {
             shared,

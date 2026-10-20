@@ -47,7 +47,6 @@ impl DirectUdpSockets {
             expected_network_generation: grant.generation,
         };
         self.ensure_native_admission()?;
-        self.reserve_native_open()?;
         let id = self.next_socket_id;
         self.next_socket_id = id.checked_add(1).ok_or_else(|| denied(Reason::Capacity))?;
         self.sockets
@@ -70,7 +69,7 @@ impl DirectUdpSockets {
         self.sockets.push(DirectUdpSocket {
             id,
             retired: false,
-            socket: granted.socket,
+            socket: native::DirectDatagramIo::Raw(granted.socket),
             selection: granted.selection,
             binding,
             association_id: isolation,
@@ -79,7 +78,7 @@ impl DirectUdpSockets {
         let entry = self.sockets.last_mut().expect("just installed original");
         entry.binding.source = entry.selection.dial_source_address();
         entry.binding.egress = entry.selection.interface().cloned();
-        entry.socket.set_observer(observer);
+        entry.socket.set_observer(observer)?;
         let current = self.services.ensure_direct_policy_current(policy);
         let valid_generation = entry.selection.generation()
             == request.expected_network_generation.0

@@ -84,7 +84,7 @@ async fn actual_peer_driver_ready_keeps_original_until_real_registered_peer_join
                                         limits: DirectEndpointLimits {
                                             logical: one,
                                             native_sockets: one,
-                                            native_open_attempts: one,
+                                            pending_native_opens: one,
                                             candidates_per_job: one,
                                             pending_bytes: NonZeroUsize::new(65_600).unwrap(),
                                         },

@@ -61,7 +61,7 @@ impl DirectEndpointOwner {
         if preferred_port.is_some()
             || limits.logical.get() != 1
             || limits.native_sockets.get() != 1
-            || limits.native_open_attempts.get() != 1
+            || limits.pending_native_opens.get() != 1
             || limits.candidates_per_job.get() != 1
         {
             return Err(error(
@@ -78,11 +78,6 @@ impl DirectEndpointOwner {
             ));
         }
         let mut sockets = DirectUdpSockets::new(services, None);
-        sockets.native_budget = Some(super::super::DirectNativeBudget {
-            sockets: limits.native_sockets,
-            attempts: limits.native_open_attempts,
-            started: 0,
-        });
         sockets.defer_native_close = true;
         sockets.outbound_grant = Some(super::super::grant::DirectOutboundGrant {
             resources,

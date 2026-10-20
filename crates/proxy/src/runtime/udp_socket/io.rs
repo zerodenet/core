@@ -90,7 +90,7 @@ impl DirectUdpSockets {
             .services
             .direct_datagram_selection(target, &policy.dial_policy)?;
         if self.generation != selection.generation() {
-            self.retire_sockets(|_| true);
+            self.close_rotated_sockets(|_| true);
             self.generation = selection.generation();
         }
         // Compare borrowed identities before materializing a new binding. A
@@ -124,7 +124,6 @@ impl DirectUdpSockets {
         // Existing healthy mappings above may keep running, but a new native
         // endpoint must not grow an unresolved original-descriptor ledger.
         self.ensure_native_admission()?;
-        self.reserve_native_open()?;
         let id = self.next_socket_id;
         self.next_socket_id = self.next_socket_id.checked_add(1).ok_or_else(|| {
             EngineError::Io(std::io::Error::other(
@@ -146,19 +145,24 @@ impl DirectUdpSockets {
             egress: selection.interface().cloned(),
         };
         let replies = ownership::DirectUdpReplies::default();
-        let socket = self
-            .services
-            .bind_direct_datagram_socket(
-                target,
-                if scope.is_some() {
-                    None
-                } else {
-                    self.preferred_port
-                },
-                &policy.dial_policy,
-                &selection,
+        let preferred = if scope.is_some() {
+            None
+        } else {
+            self.preferred_port
+        };
+        let socket = if let Some(owner) = &mut self.native_owner {
+            let acquired = owner.acquire(target, preferred, &policy.dial_policy, &selection);
+            self.close.collect_controlled(owner.take_report());
+            native::DirectDatagramIo::Controlled(
+                acquired.map_err(|source| EngineError::Io(std::io::Error::other(source)))?,
             )
-            .await?;
+        } else {
+            native::DirectDatagramIo::Raw(
+                self.services
+                    .bind_direct_datagram_socket(target, preferred, &policy.dial_policy, &selection)
+                    .await?,
+            )
+        };
         self.sockets.push(DirectUdpSocket {
             id,
             retired: false,
@@ -174,11 +178,11 @@ impl DirectUdpSockets {
             .last_mut()
             .expect("just installed socket")
             .socket
-            .set_observer(observer);
+            .set_observer(observer)?;
         // A stale completion still owns a real original socket. Retire it into
         // this same ledger before returning the original admission error.
         if let Err(error) = self.services.ensure_direct_policy_current(policy) {
-            self.retire_sockets(|socket| socket.id == id);
+            self.close_rotated_sockets(|socket| socket.id == id);
             return Err(error);
         }
         if self
@@ -189,7 +193,7 @@ impl DirectUdpSockets {
             .egress_generation
             != self.services.egress_generation()
         {
-            self.retire_sockets(|socket| socket.id == id);
+            self.close_rotated_sockets(|socket| socket.id == id);
             return Err(EngineError::Io(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
                 "egress topology changed while binding direct UDP socket",

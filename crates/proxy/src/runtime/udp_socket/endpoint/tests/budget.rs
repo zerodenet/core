@@ -7,11 +7,11 @@ use std::{
 };
 
 #[tokio::test]
-async fn explicit_native_slots_and_lifetime_attempts_bound_actual_socket_opens() {
+async fn actual_closed_native_slots_reuse_without_a_lifetime_attempt_limit() {
     let fixture = Fixture::new().await;
     let mut grants = limits();
     grants.native_sockets = NonZeroUsize::new(1).unwrap();
-    grants.native_open_attempts = NonZeroUsize::new(2).unwrap();
+    grants.pending_native_opens = NonZeroUsize::new(1).unwrap();
     let mut owner = fixture.owner_with_limits(
         TaskScope::new(
             tokio::runtime::Handle::current(),
@@ -32,7 +32,7 @@ async fn explicit_native_slots_and_lifetime_attempts_bound_actual_socket_opens()
         .send_new_packet(
             &Address::Ipv4([127, 0, 0, 1]),
             &[target],
-            b"collision would need second fd"
+            b"collision needs another original"
         )
         .await
         .is_err());
@@ -40,25 +40,17 @@ async fn explicit_native_slots_and_lifetime_attempts_bound_actual_socket_opens()
     assert_eq!(send(&mut tx1, &peer, b"healthy original").await, original);
     assert!(ctl1.wait_closed(deadline()).await.unwrap().is_complete());
     tokio::net::UdpSocket::bind(original).await.unwrap();
-    let (mut tx3, _rx3, mut ctl3) = fixture.open(&endpoint, target, CancellationToken::new());
-    let second = send(&mut tx3, &peer, b"second allowed attempt").await;
-    assert!(ctl3.wait_closed(deadline()).await.unwrap().is_complete());
-    tokio::net::UdpSocket::bind(second).await.unwrap();
-    let (mut tx4, _rx4, mut ctl4) = fixture.open(&endpoint, target, CancellationToken::new());
-    assert!(tx4
-        .send_new_packet(
-            &Address::Ipv4([127, 0, 0, 1]),
-            &[target],
-            b"lifetime exhausted"
-        )
-        .await
-        .is_err());
-    assert!(ctl4.wait_closed(deadline()).await.unwrap().is_complete());
+    for _ in 0..128 {
+        let (mut tx, _rx, mut control) = fixture.open(&endpoint, target, CancellationToken::new());
+        let local = send(&mut tx, &peer, b"capacity reused after actual close").await;
+        assert!(control.wait_closed(deadline()).await.unwrap().is_complete());
+        tokio::net::UdpSocket::bind(local).await.unwrap();
+    }
     let report = owner.shutdown(deadline()).await.unwrap();
     assert!(report.is_complete());
     assert_eq!(
         report.closed_io,
-        vec!["explicitly closed 2 original Direct UDP sockets"]
+        vec!["explicitly closed 129 original Direct UDP sockets"]
     );
 }
 
@@ -134,4 +126,49 @@ async fn command_copy_budget_covers_domain_candidates_payload_and_cancelled_owne
     let report = owner.shutdown(deadline()).await.unwrap();
     assert!(report.is_complete());
     assert!(report.closed_io.is_empty());
+}
+
+#[tokio::test]
+async fn same_actual_logical_flow_rotates_network_epochs_with_native_capacity_one() {
+    let fixture = Fixture::new().await;
+    let mut grants = limits();
+    grants.native_sockets = NonZeroUsize::new(1).unwrap();
+    grants.pending_native_opens = NonZeroUsize::new(1).unwrap();
+    let mut owner = fixture.owner_with_limits(
+        TaskScope::new(
+            tokio::runtime::Handle::current(),
+            NonZeroUsize::new(1).unwrap(),
+        ),
+        UdpReceiveQueueConfig::default(),
+        None,
+        grants,
+    );
+    owner.start(deadline()).await.unwrap();
+    let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let (mut tx, mut rx, mut control) = fixture.open(
+        &owner.endpoint(),
+        peer.local_addr().unwrap(),
+        CancellationToken::new(),
+    );
+    let mut previous = None;
+    for _ in 0..32 {
+        if let Some(source) = previous.take() {
+            fixture.proxy.egress_interface.invalidate_network();
+            assert!(!DirectUdpResponseSource::is_current(&source));
+        }
+        let original = send(&mut tx, &peer, b"same flow new epoch").await;
+        peer.send_to(b"current", original).await.unwrap();
+        let (bytes, source) = rx.recv().await.unwrap().unwrap();
+        assert_eq!(bytes, b"current");
+        assert!(source.is_current());
+        previous = Some(source);
+    }
+    assert!(control.wait_closed(deadline()).await.unwrap().is_complete());
+    assert!(!previous.unwrap().is_current());
+    let report = owner.shutdown(deadline()).await.unwrap();
+    assert!(report.is_complete());
+    assert_eq!(
+        report.closed_io,
+        vec!["explicitly closed 32 original Direct UDP sockets"]
+    );
 }

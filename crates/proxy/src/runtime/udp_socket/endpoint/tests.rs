@@ -18,7 +18,7 @@ fn limits() -> DirectEndpointLimits {
     DirectEndpointLimits {
         logical: NonZeroUsize::new(4).unwrap(),
         native_sockets: NonZeroUsize::new(4).unwrap(),
-        native_open_attempts: NonZeroUsize::new(16).unwrap(),
+        pending_native_opens: NonZeroUsize::new(1).unwrap(),
         pending_bytes: NonZeroUsize::new(1_048_576).unwrap(),
         candidates_per_job: NonZeroUsize::new(8).unwrap(),
     }

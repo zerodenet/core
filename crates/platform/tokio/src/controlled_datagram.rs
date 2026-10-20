@@ -62,13 +62,14 @@ pub struct UnconfirmedDatagram {
 #[derive(Debug, Default)]
 pub struct DatagramOwnerReport {
     pub confirmed_closed: u64,
+    pub retained_live: usize,
     pub known_no_native: u64,
     /// Exact bounded original sources, including the native close source.
     pub unconfirmed: Vec<UnconfirmedDatagram>,
 }
 impl DatagramOwnerReport {
     pub fn is_complete(&self) -> bool {
-        self.unconfirmed.is_empty()
+        self.retained_live == 0 && self.unconfirmed.is_empty()
     }
 }
 /// The caller retains this owner for the actual resource's whole lifetime.
@@ -199,6 +200,7 @@ impl ControlledDatagramOwner {
         self.reap_confirmed();
         let mut report = DatagramOwnerReport {
             confirmed_closed: std::mem::take(&mut self.confirmed_closed),
+            retained_live: 0,
             known_no_native: std::mem::take(&mut self.known_no_native),
             unconfirmed: Vec::new(),
         };
@@ -213,15 +215,7 @@ impl ControlledDatagramOwner {
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .clone(),
                 }),
-                _ => report.unconfirmed.push(UnconfirmedDatagram {
-                    reservation: entry.id,
-                    source: entry.uncertain.clone(),
-                    acquisition_source: entry
-                        .acquisition_failure
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .clone(),
-                }),
+                _ => report.retained_live += 1,
             }
         }
         report

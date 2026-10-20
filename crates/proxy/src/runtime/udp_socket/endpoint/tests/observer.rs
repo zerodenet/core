@@ -118,5 +118,5 @@ async fn failed_native_bind_does_not_count_an_uncreated_datagram_boundary() {
     assert_eq!(observation.boundaries.load(Ordering::Acquire), 0);
     let report = owner.shutdown(deadline()).await.unwrap();
     assert!(report.is_complete());
-    assert!(report.closed_io.is_empty());
+    assert_eq!(report.closed_io, vec!["explicitly closed 1 original Direct UDP sockets"], "the failed interface bind created a native original, now explicitly closed by its controlled owner");
 }

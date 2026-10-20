@@ -54,13 +54,13 @@ impl DirectUdpSockets {
     pub(crate) fn refresh_if_stale(&mut self) {
         let generation = self.services.egress_generation();
         if self.generation != generation {
-            self.retire_sockets(|_| true);
+            self.close_rotated_sockets(|_| true);
             self.generation = generation;
         } else {
             // Keep the policy fence live on every refresh. Socket-owned tables
             // drop their guards without a second global flow-table sweep.
             let services = self.services.clone();
-            self.retire_sockets(|socket| {
+            self.close_rotated_sockets(|socket| {
                 !services.direct_policy_is_current(&socket.binding.policy)
             });
         }

@@ -9,8 +9,6 @@ use std::collections::HashMap;
 use zero_core::Address;
 #[cfg(feature = "udp-runtime")]
 use zero_engine::EngineError;
-#[cfg(feature = "udp-runtime")]
-use zero_platform_tokio::TokioDatagramSocket;
 
 /// Immutable route-time policy identity. A tag can return to the same policy
 /// after a reload, so its monotonic revision is part of the identity as well.
@@ -40,23 +38,16 @@ pub(crate) struct DirectUdpSockets {
     isolated_sessions: HashMap<u64, u64>,
     receive: tokio::sync::Mutex<receive::DirectUdpReceiver>,
     close: close::NativeCloseLedger,
-    native_budget: Option<DirectNativeBudget>,
+    native_owner: Option<zero_platform_tokio::controlled_datagram::ControlledDatagramOwner>,
     // Peer mode waits for the actual containing task exit before FD close.
     defer_native_close: bool,
     outbound_grant: Option<grant::DirectOutboundGrant>,
 }
 #[cfg(feature = "udp-runtime")]
-struct DirectNativeBudget {
-    sockets: std::num::NonZeroUsize,
-    attempts: std::num::NonZeroUsize,
-    started: usize,
-}
-
-#[cfg(feature = "udp-runtime")]
 struct DirectUdpSocket {
     id: u64,
     retired: bool,
-    socket: TokioDatagramSocket,
+    socket: native::DirectDatagramIo,
     binding: DirectUdpSocketBinding,
     selection: zero_platform_tokio::EgressSelection,
     association_id: Option<u64>,
@@ -97,7 +88,7 @@ impl DirectUdpSockets {
             isolated_sessions: HashMap::new(),
             receive: tokio::sync::Mutex::new(receive::DirectUdpReceiver::default()),
             close: close::NativeCloseLedger::default(),
-            native_budget: None,
+            native_owner: None,
             defer_native_close: false,
             outbound_grant: None,
         }
@@ -193,7 +184,7 @@ fn udp_candidate_score(logical_target: &Address, candidate: SocketAddr) -> u64 {
 }
 
 #[cfg(feature = "udp-runtime")]
-fn log_direct_socket(id: u64, family: &str, socket: &TokioDatagramSocket) {
+fn log_direct_socket(id: u64, family: &str, socket: &native::DirectDatagramIo) {
     let local = socket.local_addr().ok();
     let egress = socket.egress_interface();
     tracing::debug!(
@@ -208,8 +199,8 @@ fn log_direct_socket(id: u64, family: &str, socket: &TokioDatagramSocket) {
 
 /// Send UDP packet directly to target.
 #[cfg(feature = "udp-runtime")]
-pub(crate) async fn send_direct_udp_packet(
-    socket: &TokioDatagramSocket,
+async fn send_direct_udp_packet(
+    socket: &native::DirectDatagramIo,
     target_addr: SocketAddr,
     payload: &[u8],
 ) -> Result<usize, EngineError> {
@@ -255,3 +246,6 @@ pub(crate) mod endpoint;
 
 #[cfg(feature = "udp-runtime")]
 mod grant;
+
+#[cfg(feature = "udp-runtime")]
+mod native;
