@@ -12,6 +12,7 @@ async fn panic_after_taking_original_close_retains_same_unknown_source_without_f
     let (_io, mut control) =
         ControlledTcpStream::new(socket.unwrap(), tokio_util::sync::CancellationToken::new());
     let mut peer = peer.unwrap().0;
+    let observer = control.close_observer();
     let shared = control.shared.clone();
     let unknown = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let action = shared.close_action(Instant::now() + Duration::from_secs(1));
@@ -27,6 +28,12 @@ async fn panic_after_taking_original_close_retains_same_unknown_source_without_f
     }));
     assert!(unknown.is_err());
     let original = shared.state().unknown.clone().unwrap();
+    let observation = observer.observe().unwrap();
+    assert!(!observation.closed);
+    assert!(Arc::ptr_eq(
+        observation.disposition_unknown.as_ref().unwrap(),
+        &original
+    ));
     for _ in 0..2 {
         let failure = control
             .wait_closed(Instant::now() + Duration::from_secs(1))

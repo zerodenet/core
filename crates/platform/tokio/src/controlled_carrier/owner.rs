@@ -14,6 +14,7 @@ pub(super) struct Shared {
     pub(super) limit: NonZeroUsize,
     pub(super) cancel: CancellationToken,
     pub(super) state: Mutex<State>,
+    pub(super) completion: Arc<super::registration::Completion>,
 }
 #[derive(Default)]
 pub(super) struct State {
@@ -44,7 +45,11 @@ impl CarrierOwner {
             limit,
             cancel: parent.child_token(),
             state: Mutex::new(State::default()),
+            completion: Arc::new(super::registration::Completion::default()),
         }))
+    }
+    pub fn registration(&self) -> super::CarrierOwnerRegistration {
+        super::CarrierOwnerRegistration::new(&self.0)
     }
     pub fn grants(&self) -> CarrierGrants {
         CarrierGrants(self.0.clone())
@@ -122,6 +127,11 @@ impl ResourceLifecycle for CarrierOwner {
         }
         let mut report = std::mem::take(&mut self.0.state().confirmed);
         report.append(unfinished);
+        if report.is_complete() {
+            // Revoke preceded the exact original-slot close loop. No new
+            // reservation can race this generation's explicit confirmation.
+            self.0.completion.confirm();
+        }
         Ok(report)
     }
 }

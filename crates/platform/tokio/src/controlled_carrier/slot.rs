@@ -24,6 +24,7 @@ pub(super) struct State {
     pub(super) spawn_attempted: bool,
     pub(super) driver: Option<(TaskId, TaskJoinWitness)>,
     pub(super) control: Option<Arc<AsyncMutex<ControlledTcpControl>>>,
+    pub(super) close_observer: Option<crate::controlled_tcp::ControlledTcpCloseObserver>,
     /// Synchronous preparation acquired/consumed a handle without a control.
     pub(super) unknown: Option<Arc<ChannelError>>,
     pub(super) closed: bool,

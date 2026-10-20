@@ -146,7 +146,8 @@ async fn controlled_carrier_real_acquisition_panic_retains_unknown_and_never_min
         fn error(&self) {}
         fn dropped(&self) {}
     }
-    let fixture = Fixture::new(1).await;
+    let mut fixture = Fixture::new(1).await;
+    let registration = fixture.owner.registration();
     let binding = fixture.transport.binding().clone();
     let opener = NativeCarrierOpener::new(
         instance(),
@@ -186,6 +187,18 @@ async fn controlled_carrier_real_acquisition_panic_retains_unknown_and_never_min
             Reason::Capacity
         );
     }
+    let snapshot = registration.observe().unwrap();
+    assert!(Arc::ptr_eq(
+        snapshot.slots()[0].acquisition_unknown().unwrap(),
+        &original
+    ));
+    assert!(snapshot.slots()[0].native().is_none());
+    assert!(fixture.owner.shutdown(deadline()).await.is_err());
+    assert!(registration.closed().is_none());
+    assert!(Arc::ptr_eq(
+        record.slot.state().unknown.as_ref().unwrap(),
+        &original
+    ));
     assert!(
         timeout(Duration::from_millis(20), fixture.listener.accept())
             .await

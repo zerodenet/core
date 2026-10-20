@@ -11,6 +11,7 @@ mod socket;
 use crate::TokioSocket;
 #[cfg(any(unix, windows))]
 pub use connect::PendingTcpConnect;
+pub(crate) use control::ControlledTcpCloseObserver;
 pub use control::ControlledTcpControl;
 use relay::{IoRelays, StateGuard, WaitTarget};
 use socket::Socket;

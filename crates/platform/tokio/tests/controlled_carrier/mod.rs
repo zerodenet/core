@@ -111,3 +111,5 @@ mod lifecycle;
 mod opening;
 #[path = "origin.rs"]
 mod origin;
+
+mod registration;

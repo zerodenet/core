@@ -159,6 +159,7 @@ impl NativeCarrierOpener {
             let mut state = grant.slot.state();
             // Sole original control is installed before PreparedCarrier exists
             // and before its inline connect can ever reach a first await.
+            state.close_observer = Some(control.close_observer());
             state.control = Some(Arc::new(Mutex::new(control)));
             state.unknown = None;
         }

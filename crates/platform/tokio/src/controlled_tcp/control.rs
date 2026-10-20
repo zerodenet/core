@@ -3,7 +3,10 @@ use crate::contract::{
     lifecycle::{ChannelControl, CloseReport, Unfinished},
     ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
 };
-use std::{io, sync::Arc};
+use std::{
+    io,
+    sync::{Arc, Weak},
+};
 use tokio::time::{sleep_until, Duration, Instant};
 
 /// Retains the same original socket after I/O cancellation or close interruption.
@@ -11,6 +14,37 @@ use tokio::time::{sleep_until, Duration, Instant};
 pub struct ControlledTcpControl {
     pub(super) shared: Arc<Shared>,
     pub(super) reported: bool,
+}
+/// Read-only weak observation; it retains no original or close authority.
+#[derive(Clone)]
+pub(crate) struct ControlledTcpCloseObserver(Weak<Shared>);
+pub(crate) struct TcpCloseObservation {
+    pub(crate) closed: bool,
+    pub(crate) first_fault: Option<Arc<io::Error>>,
+    pub(crate) disposition_unknown: Option<Arc<io::Error>>,
+    pub(crate) operation_pending: bool,
+}
+impl ControlledTcpControl {
+    pub(crate) fn close_observer(&self) -> ControlledTcpCloseObserver {
+        ControlledTcpCloseObserver(Arc::downgrade(&self.shared))
+    }
+}
+impl ControlledTcpCloseObserver {
+    // Call with no enclosing carrier/scope/resource lock. StateGuard may flush
+    // an external pending waker after it releases the original native lock.
+    pub(crate) fn observe(&self) -> Option<TcpCloseObservation> {
+        let shared = self.0.upgrade()?;
+        let state = shared.state();
+        Some(TcpCloseObservation {
+            closed: state.closed,
+            first_fault: state.error.clone(),
+            // A synchronous poll lease is pending I/O, not a close fault. The
+            // actual close sentinel (including an unwound unknown disposition)
+            // remains distinct from the first returned native-close error.
+            disposition_unknown: (!state.polling).then(|| state.unknown.clone()).flatten(),
+            operation_pending: state.polling || state.closing,
+        })
+    }
 }
 enum CloseAction {
     Closed,

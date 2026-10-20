@@ -6,6 +6,7 @@ mod grant;
 mod native;
 mod owner;
 mod prepared;
+mod registration;
 mod slot;
 mod view;
 use crate::contract::{ChannelError, DeliveryState, Impact, Reason, Stage};
@@ -14,6 +15,10 @@ pub use grant::{CarrierGrant, CarrierGrants};
 pub use native::NativeCarrierOpener;
 pub use owner::CarrierOwner;
 pub use prepared::{ControlledCarrier, PreparedCarrier};
+pub use registration::{
+    CarrierNativeCloseObservation, CarrierOwnerClosed, CarrierOwnerObservation,
+    CarrierOwnerRegistration, CarrierSlotObservation,
+};
 use std::sync::Arc;
 pub use view::{CarrierDriver, CarrierIo};
 use zero_core::component::ComponentInstanceId;
