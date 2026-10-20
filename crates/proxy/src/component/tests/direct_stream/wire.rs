@@ -63,7 +63,7 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
             assert!(invocation.deadline.is_none());
             let binding = UpstreamBinding {
                 prefix: vec![],
-                dial: policy,
+                dial: policy.clone(),
                 network_generation: NetworkGeneration(
                     proxy
                         .tcp_runtime_services()
