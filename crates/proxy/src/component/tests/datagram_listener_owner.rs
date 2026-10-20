@@ -15,11 +15,15 @@ fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(3)
 }
 fn original_io<'a>(mut error: &'a (dyn Error + 'static)) -> &'a std::io::Error {
+    let mut original = None;
     loop {
         if let Some(source) = error.downcast_ref::<std::io::Error>() {
-            return source;
+            original = Some(source);
         }
-        error = error.source().expect("actual original IO source");
+        match error.source() {
+            Some(source) => error = source,
+            None => return original.expect("actual original IO source"),
+        }
     }
 }
 

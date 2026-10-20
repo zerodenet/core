@@ -9,6 +9,8 @@ use zero_platform_tokio::contract::{lifecycle::CloseReport, Stage};
 use zero_platform_tokio::file::{FileNativeEvidence, PendingFileRead};
 
 type SharedResult = Result<Arc<[u8]>, Arc<io::Error>>;
+type JobResult = Result<Vec<u8>, Arc<io::Error>>;
+type JoinedJob = Result<(Id, JobResult), JoinError>;
 enum Cached {
     Unused,
     Running,
@@ -23,7 +25,7 @@ struct FileGrant {
 #[derive(Default)]
 pub(super) struct FileReads {
     grants: BTreeMap<PathBuf, FileGrant>,
-    jobs: JoinSet<Result<Vec<u8>, Arc<io::Error>>>,
+    jobs: JoinSet<JobResult>,
     pub(super) records: HashMap<Id, PathBuf>,
     pub(super) receipts: CloseReport,
     pub(super) failure: Option<Arc<ChannelError>>,
@@ -118,7 +120,7 @@ impl FileReads {
     fn record(
         &mut self,
         component: ComponentId,
-        result: Result<(Id, Result<Vec<u8>, Arc<io::Error>>), JoinError>,
+        result: JoinedJob,
     ) {
         let id = match &result {
             Ok((id, _)) => *id,
