@@ -1,0 +1,57 @@
+{
+  "scope": "Preparation only; no runtime qualification; same locked package versions/sources/checksums, only proxy test dependency references",
+  "changes": {
+    "before_sha256": "2540f657bb868ae1001889f6ab8fb23097835a3c134b6b14384cfaf2deb83fe6",
+    "after_sha256": "42a4beb4f9c6775590290728d04af853f227e9c33d020719c1fba13089520825",
+    "changes": [
+      {
+        "package": "zero-proxy",
+        "added": [
+          "bytes",
+          "h3",
+          "h3-quinn"
+        ],
+        "removed": []
+      }
+    ],
+    "package_count": 441,
+    "no_versions_sources_checksums_changed": true
+  },
+  "records": [
+    {
+      "source": "/workspace/core-baseline-artifacts/Cargo.lock-before-h3-fixture71-2540f657",
+      "path": "Cargo.lock-before-h3-fixture71-2540f657.gz",
+      "raw_sha256": "2540f657bb868ae1001889f6ab8fb23097835a3c134b6b14384cfaf2deb83fe6",
+      "gzip_sha256": "fc31a54e87095c61ae6caa537321055c49a18149cc795b26a9211d81093c6d74",
+      "raw_bytes": 107672
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-lock-h3-fixture71.diff",
+      "path": "pr05-parallel-lock-h3-fixture71.diff.gz",
+      "raw_sha256": "9bd471eb3708ab6ca7672e3e2c18ae4acc9d53a5b43169d77de8c8d0a2c8c766",
+      "gzip_sha256": "c903039752dd35cf2782e2c7e080d2dd42c76d1582fd0660f00d41555c42f772",
+      "raw_bytes": 259
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-lock-h3-fixture71.json",
+      "path": "pr05-parallel-lock-h3-fixture71.json.gz",
+      "raw_sha256": "9699c098eb1ebf4fb1c8ee05b4d7471d6243af80fb832db201afccb703246915",
+      "gzip_sha256": "fbf201489044e562a180f82ed88f943742c7458e869dfe508fd1478ca6462abb",
+      "raw_bytes": 408
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-resolved-metadata-h3-fixture71.json",
+      "path": "pr05-parallel-resolved-metadata-h3-fixture71.json.gz",
+      "raw_sha256": "08c8defd5d0da71557d8e6dcb2bf5bf65f77c1f1d7b3adbdde0b4ae4c8b09466",
+      "gzip_sha256": "79260479cde279b3bfdaf62bcea7e55a52341a81dcbb7c95d155da280fa922fc",
+      "raw_bytes": 2112453
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/rebuildable-cache-before71.json",
+      "path": "rebuildable-cache-before71.json.gz",
+      "raw_sha256": "baedbc984a4e8f0510df4afd2fc96fe0c9fa3c710f133b714752b8d71a8d4b55",
+      "gzip_sha256": "6f636e2d1446d9f27b707a27661f3b1103da4dde28c6490cf22bc7f61e16371e",
+      "raw_bytes": 20610
+    }
+  ]
+}
