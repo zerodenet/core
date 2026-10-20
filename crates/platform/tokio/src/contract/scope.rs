@@ -26,6 +26,8 @@ use super::{
 pub use super::lifecycle::TaskClass;
 mod join;
 pub use join::{TaskJoinWitness, TaskJoined};
+mod hosted;
+pub use hosted::{HostedExitReceipt, HostedReceiptError, HostedScope};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     NotStarted,
@@ -53,13 +55,27 @@ pub struct TaskExit {
 }
 
 struct State {
+    hosted: bool,
     registration_open: bool,
     closing: bool,
     limit: usize,
     tasks: JoinSet<Result<(), ComponentError>>,
     records: HashMap<Id, join::Registration>,
-    completed: VecDeque<TaskExit>,
+    completed: VecDeque<CompletedExit>,
     closing_report: Option<Box<CloseReport>>,
+}
+
+enum CompletedExit {
+    Ordinary(TaskExit),
+    Hosted(hosted::Completion),
+}
+impl CompletedExit {
+    fn ordinary(self) -> TaskExit {
+        match self {
+            Self::Ordinary(exit) => exit,
+            Self::Hosted(_) => unreachable!("hosted exits require explicit acknowledgement"),
+        }
+    }
 }
 
 struct Shared {
@@ -67,6 +83,7 @@ struct Shared {
     changed: Notify,
     cancel: CancellationToken,
     runtime: Handle,
+    hosted_waker: Mutex<Option<std::task::Waker>>,
 }
 
 /// Cloneable registration authority. It cannot declare resources closed.
@@ -96,7 +113,10 @@ fn allocate_task_id() -> Result<TaskId, SpawnError> {
 }
 
 impl State {
-    fn exit(&mut self, result: Result<(Id, Result<(), ComponentError>), JoinError>) -> TaskExit {
+    fn exit(
+        &mut self,
+        result: Result<(Id, Result<(), ComponentError>), JoinError>,
+    ) -> CompletedExit {
         let native_id = match &result {
             Ok((id, _)) => *id,
             Err(error) => error.id(),
@@ -115,7 +135,7 @@ impl State {
                 )
             }
         };
-        join::complete(record, result)
+        join::complete(record, result, self.hosted)
     }
 
     fn reap(&mut self) {
@@ -190,8 +210,13 @@ impl TaskScope {
     }
 
     fn with_limit(runtime: Handle, limit: usize) -> Self {
+        Self::with_mode(runtime, limit, false)
+    }
+
+    fn with_mode(runtime: Handle, limit: usize, hosted: bool) -> Self {
         Self(Arc::new(Shared {
             state: Mutex::new(State {
+                hosted,
                 registration_open: true,
                 closing: false,
                 limit,
@@ -203,6 +228,7 @@ impl TaskScope {
             changed: Notify::new(),
             cancel: CancellationToken::new(),
             runtime,
+            hosted_waker: Mutex::new(None),
         }))
     }
 
@@ -219,10 +245,10 @@ impl TaskScope {
             let joined = poll_fn(|cx| {
                 let mut state = self.0.state.lock().expect("scope state poisoned");
                 if let Some(exit) = state.completed.pop_front() {
-                    return Poll::Ready(Some(exit));
+                    return Poll::Ready(Some(exit.ordinary()));
                 }
                 match state.tasks.poll_join_next_with_id(cx) {
-                    Poll::Ready(Some(result)) => Poll::Ready(Some(state.exit(result))),
+                    Poll::Ready(Some(result)) => Poll::Ready(Some(state.exit(result).ordinary())),
                     Poll::Ready(None) if state.closing => Poll::Ready(None),
                     _ => Poll::Pending,
                 }
@@ -234,7 +260,7 @@ impl TaskScope {
     pub fn begin_shutdown(&mut self) {
         self.0.state.lock().expect("scope state poisoned").closing = true;
         self.0.cancel.cancel();
-        self.0.changed.notify_one();
+        self.0.notify_hosted();
     }
 
     /// Timeout retains task ownership; interruption also retains collected exits.
@@ -262,7 +288,7 @@ impl TaskScope {
                     let mut state = self.0.state.lock().expect("scope state poisoned");
                     state.reap();
                     while let Some(exit) = state.completed.pop_front() {
-                        state.record_closed(exit);
+                        state.record_closed(exit.ordinary());
                     }
                     return state.take_close_report();
                 }

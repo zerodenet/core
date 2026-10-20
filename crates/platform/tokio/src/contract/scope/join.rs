@@ -72,6 +72,9 @@ impl TaskJoined {
     pub fn result(&self) -> Result<(), Arc<ComponentError>> {
         self.0.result.clone()
     }
+    pub(super) fn same_receipt(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 #[derive(Debug)]
 struct SharedFailure(Arc<ComponentError>);
@@ -97,30 +100,40 @@ fn forward(source: Arc<ComponentError>) -> ComponentError {
 }
 /// The sole constructor/completion site, called only from State::exit after a
 /// JoinSet consumer returns the real native exit and removes its registration.
-pub(super) fn complete(record: Registration, result: Result<(), ComponentError>) -> TaskExit {
-    let Some(witness) = record.witness.and_then(|weak| weak.upgrade()) else {
-        return TaskExit {
+pub(super) fn complete(
+    record: Registration,
+    result: Result<(), ComponentError>,
+    hosted: bool,
+) -> CompletedExit {
+    let witness = record.witness.and_then(|weak| weak.upgrade());
+    if !hosted && witness.is_none() {
+        return CompletedExit::Ordinary(TaskExit {
             id: record.id,
             class: record.class,
             result,
-        };
-    };
+        });
+    }
     let result = result.map_err(Arc::new);
     let receipt = TaskJoined(Arc::new(Joined {
         id: record.id,
         class: record.class,
         result: result.clone(),
     }));
-    let mut joined = witness.joined.lock().expect("task join witness poisoned");
-    assert!(joined.is_none(), "a native task exit is consumed once");
-    *joined = Some(receipt);
-    drop(joined);
-    witness.changed.notify_waiters();
-    TaskExit {
+    if let Some(witness) = witness {
+        let mut joined = witness.joined.lock().expect("task join witness poisoned");
+        assert!(joined.is_none(), "a native task exit is consumed once");
+        *joined = Some(receipt.clone());
+        drop(joined);
+        witness.changed.notify_waiters();
+    }
+    if hosted {
+        return CompletedExit::Hosted(hosted::Completion::new(receipt));
+    }
+    CompletedExit::Ordinary(TaskExit {
         id: record.id,
         class: record.class,
         result: result.map_err(forward),
-    }
+    })
 }
 
 impl TaskRegistrar {
@@ -162,6 +175,8 @@ impl TaskRegistrar {
         // As before, undelivered exits consume the declared budget. A witness
         // observing a join cannot acknowledge the supervisor's exit event.
         if state.records.len() + state.completed.len() >= state.limit {
+            drop(state);
+            self.0.notify_hosted();
             return Err(SpawnError::Capacity);
         }
         let id = allocate_task_id()?;
@@ -170,7 +185,7 @@ impl TaskRegistrar {
             .records
             .insert(handle.id(), Registration { id, class, witness });
         drop(state);
-        self.0.changed.notify_one();
+        self.0.notify_hosted();
         Ok(id)
     }
 }
