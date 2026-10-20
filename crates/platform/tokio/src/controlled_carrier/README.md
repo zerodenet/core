@@ -36,3 +36,15 @@ reservation/acquisition/adoption, interrupts the existing prepared open, and is
 selected inside the same registered aggregate task (ready original task results
 keep priority). No cancellation worker is created and no permit is refunded by
 body exit: the actual scope join and original native close remain required.
+
+`CarrierAdoption::retire_native` runs that same original close transaction only
+through native settlement. It requires the physical carrier view to return and
+actual registered transport/auxiliary tasks to join before issuing the original
+`CarrierClosed`. A query may call it while its external caller task is still
+running; it never waits for that caller to join itself. The logical user lease
+and actual caller witness remain attached to the charged original slot. No slot
+is removed, no capacity is refunded, and no users/generation receipt is issued.
+The opaque `CarrierNativeSettlement` exposes native-stage unfinished diagnostics
+and its exact native receipt. Successful native close reports stay in the original
+slot for the later full settlement to consume once. Ordinary `retire` and owner
+`shutdown` still wait for the full original user/caller graph.

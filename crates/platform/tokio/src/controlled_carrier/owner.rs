@@ -155,6 +155,19 @@ pub(super) async fn close_slot(
     slot: &Arc<Slot>,
     deadline: Instant,
 ) -> Result<CloseReport, BuildError> {
+    close_slot_until(slot, deadline, true).await
+}
+pub(super) async fn close_native_slot(
+    slot: &Arc<Slot>,
+    deadline: Instant,
+) -> Result<CloseReport, BuildError> {
+    close_slot_until(slot, deadline, false).await
+}
+async fn close_slot_until(
+    slot: &Arc<Slot>,
+    deadline: Instant,
+    wait_users: bool,
+) -> Result<CloseReport, BuildError> {
     // Cleanup is the persistent local receiver even when the original
     // request was cancelled before observing its auxiliary result.
     match timeout_at(
@@ -192,7 +205,9 @@ pub(super) async fn close_slot(
         let (waiting, driver, control, unknown, closed, auxiliary_pending) = {
             let state = slot.state();
             (
-                state.opening || state.spawning || (state.driver.is_none() && state.view_live),
+                state.opening
+                    || state.spawning
+                    || (state.view_live && (!wait_users || state.driver.is_none())),
                 state.driver.clone(),
                 state.control.clone(),
                 state.unknown.clone(),
@@ -205,9 +220,14 @@ pub(super) async fn close_slot(
             // Local ACK can call arbitrary host wakers, so release the gate
             // before accepting it. Each slot permits only one such registration.
             drop(_closing);
-            return Box::pin(close_slot(slot, deadline)).await;
+            return Box::pin(close_slot_until(slot, deadline, wait_users)).await;
         }
-        if closed {
+        if closed && (wait_users || !waiting) {
+            if !wait_users {
+                // The original native report remains in pending_close for the
+                // full settlement. Do not duplicate it or release this slot.
+                return Ok(CloseReport::default());
+            }
             if !super::users::finish(slot, deadline).await {
                 return Ok(CloseReport {
                     unfinished: vec![Unfinished::Resource(format!(

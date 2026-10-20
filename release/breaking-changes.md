@@ -531,3 +531,14 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   after owner expiry. Actual Scope stop propagates to it; cancelling that child
   cannot cancel the Scope or siblings. It retains no Scope/runtime/task owner and
   grants no registration, native authority, join or closure acknowledgement.
+
+### Controlled carrier native-only settlement (library)
+
+- `CarrierAdoption::retire_native` returns an opaque native-stage settlement from
+  the original control only after its physical view returns and registered
+  transport/auxiliary tasks actually join. It does not wait for the external
+  caller's own join, release its logical user lease, remove the charged slot,
+  or issue whole-user/generation completion. Existing retire/shutdown remain full
+  confirmation paths; original successful native reports are consumed there once.
+- This adds no Root service or Business authority, production activation, schema
+  or default budget. The real host issuer and separate user graph remain required.

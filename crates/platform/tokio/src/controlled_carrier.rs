@@ -8,6 +8,7 @@ mod business;
 mod endpoints;
 mod grant;
 mod native;
+mod native_settlement;
 mod owner;
 mod prepared;
 mod registration;
@@ -21,6 +22,7 @@ pub use business::{CarrierBusinessDemand, CarrierBusinessGrant, CarrierBusinessI
 pub use endpoints::{CarrierEndpointObserver, CarrierEndpoints};
 pub use grant::{CarrierGrant, CarrierGrants};
 pub use native::NativeCarrierOpener;
+pub use native_settlement::CarrierNativeSettlement;
 pub use owner::CarrierOwner;
 pub use prepared::{ControlledCarrier, PreparedCarrier};
 pub use registration::{
