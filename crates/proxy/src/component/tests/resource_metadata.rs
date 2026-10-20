@@ -251,3 +251,7 @@ mod wake;
 
 #[path = "resource_metadata/canonical.rs"]
 mod canonical;
+
+#[cfg(all(feature = "dns", feature = "transport_quic"))]
+#[path = "resource_metadata/quic.rs"]
+mod quic;
