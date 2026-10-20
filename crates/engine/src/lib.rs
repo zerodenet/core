@@ -21,9 +21,9 @@ pub use health::{
 };
 pub use observability::SessionOutcome;
 pub use plan::{
-    EnginePlan, FallbackGroupPlan, LoadBalanceGroupPlan, OutboundIdentity, OutboundTarget,
-    ResolvedLeafOutbound, ResolvedOutbound, SelectorGroupPlan, TargetId, TargetKind, TargetNode,
-    UrlTestGroupPlan, UrlTestSelection, UrlTestSelectionReason,
+    EnginePlan, FallbackGroupPlan, LoadBalanceGroupPlan, OutboundIdentity, OutboundStaticBinding,
+    OutboundTarget, ResolvedLeafOutbound, ResolvedOutbound, SelectorGroupPlan, TargetId,
+    TargetKind, TargetNode, UrlTestGroupPlan, UrlTestSelection, UrlTestSelectionReason,
 };
 pub use principal::{
     inspect_principal_quota_state, PrincipalCancellationRegistration, PrincipalDeviceRegistration,

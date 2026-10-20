@@ -121,6 +121,7 @@ impl Engine {
             .write()
             .expect("runtime snapshot lock poisoned");
         new_plan.reconcile_direct_dial_generations(Some(&current.plan), &self.next_dial_generation);
+        new_plan.reconcile_outbound_static(&new_config, &current.plan, &current.config);
         let new_plan = Arc::new(new_plan);
         let outbound_group_state = crate::groups::OutboundGroupStateStore::for_plan(
             &new_plan,

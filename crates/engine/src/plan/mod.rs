@@ -2,6 +2,8 @@
 
 mod dial;
 mod resolve;
+mod static_identity;
+pub use static_identity::OutboundStaticBinding;
 
 pub(crate) use resolve::{
     resolve_target_chains, resolve_target_id, resolve_target_id_with_urltest_selector,
@@ -26,6 +28,9 @@ impl TargetId {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnginePlan {
+    // Equality of plans remains structural; token pointer identity is examined
+    // only through OutboundStaticBinding, never Arc<()> value equality.
+    outbound_static: HashMap<String, std::sync::Arc<()>>,
     targets: Box<[TargetNode]>,
     targets_by_tag: HashMap<String, TargetId>,
     selector_groups: Box<[TargetId]>,
@@ -151,6 +156,11 @@ impl EnginePlan {
         }
 
         Ok(Self {
+            outbound_static: config
+                .outbounds
+                .iter()
+                .map(|outbound| (outbound.tag.clone(), std::sync::Arc::new(())))
+                .collect(),
             targets: targets.into_boxed_slice(),
             targets_by_tag,
             selector_groups: selector_groups.into_boxed_slice(),
