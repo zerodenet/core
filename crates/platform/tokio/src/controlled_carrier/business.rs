@@ -22,12 +22,16 @@ pub trait CarrierBusinessDemand: Send + Sync {
 pub struct CarrierBusinessIssuer {
     binding: CarrierOwnerBinding,
     slot: Weak<Slot>,
+    endpoint: Destination,
+    upstream: UpstreamBinding,
 }
 #[derive(Clone)]
 pub struct CarrierBusinessGrant {
     binding: CarrierOwnerBinding,
     slot: Weak<Slot>,
     demand: Arc<dyn CarrierBusinessDemand>,
+    endpoint: Destination,
+    upstream: UpstreamBinding,
     caller: Option<crate::contract::scope::TaskJoinWitness>,
 }
 impl CarrierOwnerBinding {
@@ -40,11 +44,47 @@ impl CarrierOwnerBinding {
         host_fence: &Arc<CancellationToken>,
         grant: &CarrierGrant,
     ) -> Result<CarrierBusinessIssuer, ChannelError> {
+        let (endpoint, binding) = self.fixed_endpoint_binding().ok_or_else(|| {
+            error(
+                grant.instance(),
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            )
+        })?;
+        self.issuer_for(host_fence, grant, endpoint.clone(), binding.clone())
+    }
+    /// The real host must derive this literal candidate from its original
+    /// business Direct resolution, never from a caller's claimed SessionId.
+    pub fn direct_business_issuer(
+        &self,
+        host_fence: &Arc<CancellationToken>,
+        grant: &CarrierGrant,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+    ) -> Result<CarrierBusinessIssuer, ChannelError> {
+        if !self.matches_direct(endpoint, binding) {
+            return Err(error(
+                grant.instance(),
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        self.issuer_for(host_fence, grant, endpoint.clone(), binding.clone())
+    }
+    fn issuer_for(
+        &self,
+        host_fence: &Arc<CancellationToken>,
+        grant: &CarrierGrant,
+        endpoint: Destination,
+        upstream: UpstreamBinding,
+    ) -> Result<CarrierBusinessIssuer, ChannelError> {
         if self.demand() != ControlledStreamDemandClass::Business
             || !self.matches_host_cancel(host_fence)
             || self.host_cancelled()
             || !self.registration().matches_grant(grant)
-            || !self.scope_identity().registration_open()
+            || !self.scope_identity().resource_open()
         {
             return Err(error(
                 grant.instance(),
@@ -57,6 +97,8 @@ impl CarrierOwnerBinding {
         Ok(CarrierBusinessIssuer {
             binding: self.clone(),
             slot: Arc::downgrade(&grant.slot),
+            endpoint,
+            upstream,
         })
     }
 }
@@ -85,6 +127,8 @@ impl CarrierBusinessIssuer {
             binding: self.binding,
             slot: self.slot,
             demand,
+            endpoint: self.endpoint,
+            upstream: self.upstream,
             caller,
         };
         grant.check_liveness()?;
@@ -125,6 +169,12 @@ impl CarrierBusinessGrant {
     pub(super) fn binding(&self) -> &CarrierOwnerBinding {
         &self.binding
     }
+    pub(super) fn endpoint(&self) -> &Destination {
+        &self.endpoint
+    }
+    pub(super) fn upstream(&self) -> &UpstreamBinding {
+        &self.upstream
+    }
     pub(super) fn session(&self) -> SessionId {
         self.demand.session()
     }
@@ -142,7 +192,7 @@ impl CarrierBusinessGrant {
         };
         if self.session().0 == 0
             || self.binding.host_cancelled()
-            || !self.binding.scope_identity().registration_open()
+            || !self.binding.scope_identity().resource_open()
             || slot.cancel.is_cancelled()
             || self
                 .caller
@@ -170,8 +220,8 @@ impl CarrierBusinessGrant {
     ) -> Result<(), ChannelError> {
         if !Weak::ptr_eq(&self.slot, &Arc::downgrade(&grant.slot))
             || !self.binding.registration().matches_grant(grant)
-            || self.binding.binding() != binding
-            || self.binding.endpoint() != destination
+            || &self.upstream != binding
+            || &self.endpoint != destination
             || context.session != Some(self.session())
             || context.deadline != self.demand.deadline()
         {

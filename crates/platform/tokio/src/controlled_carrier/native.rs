@@ -60,7 +60,7 @@ impl NativeCarrierOpener {
     ) -> Result<Self, ChannelError> {
         grant.check_liveness()?;
         let instance = grant.binding().registration().instance();
-        let endpoint = grant.binding().endpoint();
+        let endpoint = grant.endpoint();
         let ip = match endpoint.address {
             zero_core::Address::Ipv4(ip) => std::net::Ipv4Addr::from(ip).into(),
             zero_core::Address::Ipv6(ip) => std::net::Ipv6Addr::from(ip).into(),
@@ -75,7 +75,7 @@ impl NativeCarrierOpener {
         };
         let mut native = Self::new(
             instance,
-            grant.binding().binding().clone(),
+            grant.upstream().clone(),
             SocketAddr::new(ip, endpoint.port),
             egress,
             observer,

@@ -10,9 +10,7 @@ use std::sync::Arc;
 use zero_core::{request::Destination, Address};
 
 pub(super) struct BoundAuthority {
-    endpoint: Destination,
-    binding: UpstreamBinding,
-    demand: ControlledStreamDemandClass,
+    declaration: ResourceDeclaration,
     scope: TaskScopeIdentity,
     host_cancel: Arc<CancellationToken>,
 }
@@ -38,24 +36,34 @@ impl CarrierOwnerRegistration {
                 DeliveryState::NotSubmitted,
             )
         };
-        let ResourceDeclaration::ControlledOutboundStream {
-            endpoint,
-            binding,
-            demand,
-            max_sockets,
-        } = declaration
-        else {
-            return Err(failure(Reason::InvalidConfig));
+        let limit = match declaration {
+            ResourceDeclaration::ControlledOutboundStream {
+                endpoint,
+                binding,
+                max_sockets,
+                ..
+            } => {
+                if endpoint.port == 0 {
+                    return Err(failure(Reason::InvalidConfig));
+                }
+                if !binding.prefix.is_empty() || matches!(endpoint.address, Address::Domain(_)) {
+                    return Err(failure(Reason::Unsupported));
+                }
+                *max_sockets
+            }
+            ResourceDeclaration::ControlledDirectStream { dial, max_sockets } => {
+                dial.validate()
+                    .map_err(|_| failure(Reason::InvalidConfig))?;
+                *max_sockets
+            }
+            _ => return Err(failure(Reason::InvalidConfig)),
         };
-        if *max_sockets != self.limit() || endpoint.port == 0 {
+        if limit != self.limit() {
             return Err(failure(Reason::InvalidConfig));
-        }
-        if !binding.prefix.is_empty() || matches!(endpoint.address, Address::Domain(_)) {
-            return Err(failure(Reason::Unsupported));
         }
         let scope = registrar.scope_identity();
         // No owner lock encloses the actual scope getter or any potential wake.
-        if host_cancel.is_cancelled() || !scope.registration_open() {
+        if host_cancel.is_cancelled() || !scope.resource_open() {
             return Err(failure(Reason::Revoked));
         }
         let owner = self
@@ -76,9 +84,7 @@ impl CarrierOwnerRegistration {
             bound.clone()
         } else {
             let bound = Arc::new(BoundAuthority {
-                endpoint: endpoint.clone(),
-                binding: binding.clone(),
-                demand: *demand,
+                declaration: declaration.clone(),
                 scope,
                 host_cancel: host_cancel.clone(),
             });
@@ -101,8 +107,19 @@ impl CarrierOwnerRegistration {
 }
 impl BoundAuthority {
     fn matches(&self, declaration: &ResourceDeclaration, limit: std::num::NonZeroUsize) -> bool {
-        matches!(declaration, ResourceDeclaration::ControlledOutboundStream { endpoint, binding, demand, max_sockets }
-            if endpoint == &self.endpoint && binding == &self.binding && demand == &self.demand && *max_sockets == limit)
+        &self.declaration == declaration
+            && match declaration {
+                ResourceDeclaration::ControlledOutboundStream { max_sockets, .. }
+                | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => {
+                    *max_sockets == limit
+                }
+                _ => false,
+            }
+    }
+    fn matches_direct(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
+        matches!(&self.declaration, ResourceDeclaration::ControlledDirectStream { dial, .. }
+            if dial == &binding.dial && binding.prefix.is_empty() && destination.port != 0
+            && !matches!(destination.address, Address::Domain(_)))
     }
     pub(super) fn permits_native(
         &self,
@@ -110,20 +127,35 @@ impl BoundAuthority {
         destination: &Destination,
         context: &CarrierContext,
     ) -> bool {
-        !self.host_cancel.is_cancelled()
-            && self.binding == *binding
-            && self.endpoint == *destination
-            && self.scope.registration_open()
-            && match self.demand {
-                ControlledStreamDemandClass::Business => {
-                    context.session.is_some_and(|id| id.0 != 0)
-                }
-                ControlledStreamDemandClass::Service
-                | ControlledStreamDemandClass::BackgroundControl => context.session.is_none(),
+        let descriptor = match &self.declaration {
+            ResourceDeclaration::ControlledOutboundStream {
+                endpoint,
+                binding: expected,
+                demand,
+                ..
+            } => {
+                expected == binding
+                    && endpoint == destination
+                    && match demand {
+                        ControlledStreamDemandClass::Business => {
+                            context.session.is_some_and(|id| id.0 != 0)
+                        }
+                        ControlledStreamDemandClass::Service
+                        | ControlledStreamDemandClass::BackgroundControl => {
+                            context.session.is_none()
+                        }
+                    }
             }
+            ResourceDeclaration::ControlledDirectStream { .. } => {
+                self.matches_direct(destination, binding)
+                    && context.session.is_some_and(|id| id.0 != 0)
+            }
+            _ => false,
+        };
+        !self.host_cancel.is_cancelled() && self.scope.resource_open() && descriptor
     }
     pub(super) fn available(&self) -> bool {
-        !self.host_cancel.is_cancelled() && self.scope.registration_open()
+        !self.host_cancel.is_cancelled() && self.scope.resource_open()
     }
     pub(super) fn host_cancelled(&self) -> bool {
         self.host_cancel.is_cancelled()
@@ -154,14 +186,26 @@ impl CarrierOwnerBinding {
         self.authority
             .matches(declaration, self.registration.limit())
     }
-    pub fn endpoint(&self) -> &Destination {
-        &self.authority.endpoint
+    /// Dynamic Direct has no fabricated fixed endpoint or network generation.
+    pub fn fixed_endpoint_binding(&self) -> Option<(&Destination, &UpstreamBinding)> {
+        match &self.authority.declaration {
+            ResourceDeclaration::ControlledOutboundStream {
+                endpoint, binding, ..
+            } => Some((endpoint, binding)),
+            _ => None,
+        }
     }
-    pub fn binding(&self) -> &UpstreamBinding {
-        &self.authority.binding
+    pub fn matches_direct(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
+        self.authority.matches_direct(destination, binding)
     }
     pub fn demand(&self) -> ControlledStreamDemandClass {
-        self.authority.demand
+        match &self.authority.declaration {
+            ResourceDeclaration::ControlledOutboundStream { demand, .. } => *demand,
+            ResourceDeclaration::ControlledDirectStream { .. } => {
+                ControlledStreamDemandClass::Business
+            }
+            _ => unreachable!("bound carrier declaration"),
+        }
     }
     pub fn scope_identity(&self) -> TaskScopeIdentity {
         self.authority.scope.clone()
