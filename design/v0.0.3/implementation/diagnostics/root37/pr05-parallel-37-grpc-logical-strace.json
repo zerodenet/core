@@ -1,0 +1,20 @@
+{
+  "argv": [
+    "strace",
+    "-ff",
+    "-tt",
+    "-s",
+    "96",
+    "-o",
+    "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-strace",
+    "/workspace/core-baseline-artifacts/zero-transport-root37-hang-original",
+    "grpc::owned::tests::logical::actual_remote_h2_stream_limit_bounds_pending_demands_and_cancellation_preserves_shared_carrier",
+    "--exact",
+    "--nocapture",
+    "--test-threads=1"
+  ],
+  "exit": 0,
+  "diagnostic_timeout": false,
+  "seconds": 0.16566740699636284,
+  "scope": "immutable root37 original binary diagnosis only"
+}

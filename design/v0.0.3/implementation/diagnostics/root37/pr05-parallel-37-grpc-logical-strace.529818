@@ -1,0 +1,108 @@
+09:16:09.528192 execve("/workspace/core-baseline-artifacts/zero-transport-root37-hang-original", ["/workspace/core-baseline-artifacts/zero-transport-root37-hang-original", "grpc::owned::tests::logical::actual_remote_h2_stream_limit_bounds_pending_demands_and_cancellati"..., "--exact", "--nocapture", "--test-threads=1"], 0x7ffd5a7bf0b0 /* 62 vars */) = 0
+09:16:09.529199 brk(NULL)               = 0x5633107b9000
+09:16:09.530012 mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7fbbdb580000
+09:16:09.530208 access("/etc/ld.so.preload", R_OK) = -1 ENOENT (No such file or directory)
+09:16:09.530422 openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+09:16:09.530575 fstat(3, {st_mode=S_IFREG|0644, st_size=141003, ...}) = 0
+09:16:09.530976 mmap(NULL, 141003, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7fbbdb55d000
+09:16:09.531042 close(3)                = 0
+09:16:09.531161 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libgcc_s.so.1", O_RDONLY|O_CLOEXEC) = 3
+09:16:09.531246 read(3, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0@\0\0\0\0\0\0\0\10\303\2\0\0\0\0\0\0\0\0\0@\08\0\v\0@\0\35\0\34\0\1\0\0\0\4\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+09:16:09.531350 fstat(3, {st_mode=S_IFREG|0644, st_size=182856, ...}) = 0
+09:16:09.531419 mmap(NULL, 181160, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x7fbbdb530000
+09:16:09.531479 mmap(0x7fbbdb534000, 143360, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x4000) = 0x7fbbdb534000
+09:16:09.531545 mmap(0x7fbbdb557000, 16384, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x27000) = 0x7fbbdb557000
+09:16:09.531604 mmap(0x7fbbdb55b000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x2b000) = 0x7fbbdb55b000
+09:16:09.531764 close(3)                = 0
+09:16:09.531834 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libm.so.6", O_RDONLY|O_CLOEXEC) = 3
+09:16:09.531898 read(3, "\177ELF\2\1\1\3\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0@\0\0\0\0\0\0\0X\341\16\0\0\0\0\0\0\0\0\0@\08\0\f\0@\0\36\0\35\0\1\0\0\0\4\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+09:16:09.531964 fstat(3, {st_mode=S_IFREG|0644, st_size=977112, ...}) = 0
+09:16:09.532051 mmap(NULL, 978968, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x7fbbdb440000
+09:16:09.532119 mmap(0x7fbbdb451000, 512000, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x11000) = 0x7fbbdb451000
+09:16:09.532181 mmap(0x7fbbdb4ce000, 393216, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x8e000) = 0x7fbbdb4ce000
+09:16:09.532239 mmap(0x7fbbdb52e000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0xed000) = 0x7fbbdb52e000
+09:16:09.532311 close(3)                = 0
+09:16:09.532381 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
+09:16:09.532443 read(3, "\177ELF\2\1\1\3\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0p\236\2\0\0\0\0\0@\0\0\0\0\0\0\0\220b\36\0\0\0\0\0\0\0\0\0@\08\0\17\0@\0=\0<\0\6\0\0\0\4\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0"..., 832) = 832
+09:16:09.532563 pread64(3, "\6\0\0\0\4\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0H\3\0\0\0\0\0\0H\3\0\0\0\0\0\0\10\0\0\0\0\0\0\0\3\0\0\0\4\0\0\0\240\1\36\0\0\0\0\0\240\1\36\0\0\0\0\0\240\1\36\0\0\0\0\0\34\0\0\0\0\0\0\0"..., 840, 64) = 840
+09:16:09.532629 fstat(3, {st_mode=S_IFREG|0755, st_size=1995216, ...}) = 0
+09:16:09.532720 pread64(3, "\6\0\0\0\4\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0H\3\0\0\0\0\0\0H\3\0\0\0\0\0\0\10\0\0\0\0\0\0\0\3\0\0\0\4\0\0\0\240\1\36\0\0\0\0\0\240\1\36\0\0\0\0\0\240\1\36\0\0\0\0\0\34\0\0\0\0\0\0\0"..., 840, 64) = 840
+09:16:09.532785 mmap(NULL, 2047568, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x7fbbdb24c000
+09:16:09.532845 mmap(0x7fbbdb274000, 1454080, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x28000) = 0x7fbbdb274000
+09:16:09.532905 mmap(0x7fbbdb3d7000, 352256, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x18b000) = 0x7fbbdb3d7000
+09:16:09.532966 mmap(0x7fbbdb42d000, 24576, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x1e0000) = 0x7fbbdb42d000
+09:16:09.533056 mmap(0x7fbbdb433000, 52816, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x7fbbdb433000
+09:16:09.533369 close(3)                = 0
+09:16:09.533452 mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7fbbdb24a000
+09:16:09.533522 arch_prctl(ARCH_SET_FS, 0x7fbbdb24b500) = 0
+09:16:09.533628 set_tid_address(0x7fbbdb24b7d0) = 529818
+09:16:09.533704 set_robust_list(0x7fbbdb24b7e0, 24) = 0
+09:16:09.533759 rseq(0x7fbbdb24b280, 0x20, 0, 0x53053053) = 0
+09:16:09.534006 mprotect(0x7fbbdb42d000, 16384, PROT_READ) = 0
+09:16:09.534188 mprotect(0x7fbbdb52e000, 4096, PROT_READ) = 0
+09:16:09.534257 mprotect(0x7fbbdb55b000, 4096, PROT_READ) = 0
+09:16:09.559011 mprotect(0x5632d5b58000, 1589248, PROT_READ) = 0
+09:16:09.559195 mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7fbbdb248000
+09:16:09.559321 mprotect(0x7fbbdb5be000, 8192, PROT_READ) = 0
+09:16:09.559460 prlimit64(0, RLIMIT_STACK, NULL, {rlim_cur=8192*1024, rlim_max=RLIM64_INFINITY}) = 0
+09:16:09.559697 munmap(0x7fbbdb55d000, 141003) = 0
+09:16:09.560271 poll([{fd=0, events=0}, {fd=1, events=0}, {fd=2, events=0}], 3, 0) = 1 ([{fd=0, revents=POLLHUP}])
+09:16:09.560540 rt_sigaction(SIGPIPE, {sa_handler=SIG_IGN, sa_mask=[PIPE], sa_flags=SA_RESTORER|SA_RESTART, sa_restorer=0x7fbbdb28bd70}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+09:16:09.560734 getrandom("\xe5\xb0\x79\xc7\x58\xd7\x53\xd0", 8, GRND_NONBLOCK) = 8
+09:16:09.561069 brk(NULL)               = 0x5633107b9000
+09:16:09.561161 brk(0x5633107da000)     = 0x5633107da000
+09:16:09.561697 openat(AT_FDCWD, "/proc/self/maps", O_RDONLY|O_CLOEXEC) = 3
+09:16:09.561846 prlimit64(0, RLIMIT_STACK, NULL, {rlim_cur=8192*1024, rlim_max=RLIM64_INFINITY}) = 0
+09:16:09.561954 fstat(3, {st_mode=S_IFREG|0444, st_size=0, ...}) = 0
+09:16:09.562128 read(3, "5632d380f000-5632d41f2000 r--p 00000000 00:1b 832736                     /workspace/core-baselin"..., 1024) = 1024
+09:16:09.562268 read(3, "2036855306550        /usr/lib/x86_64-linux-gnu/libc.so.6\n7fbbdb42d000-7fbbdb431000 r--p 001e0000"..., 1024) = 1024
+09:16:09.562377 read(3, ":1b 9223372036855306911        /usr/lib/x86_64-linux-gnu/libgcc_s.so.1\n7fbbdb557000-7fbbdb55b000"..., 1024) = 1024
+09:16:09.562479 read(3, "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n7fbbdb5be000-7fbbdb5c0000 r--p 00034000 00:1b 92233720"..., 1024) = 412
+09:16:09.562580 close(3)                = 0
+09:16:09.564736 sched_getaffinity(529818, 32, [0 1 2 3 4]) = 32
+09:16:09.564853 rt_sigaction(SIGSEGV, NULL, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+09:16:09.564985 sigaltstack(NULL, {ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=0}) = 0
+09:16:09.565214 mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x7fbbdb57d000
+09:16:09.565313 mprotect(0x7fbbdb57d000, 4096, PROT_NONE) = 0
+09:16:09.565396 sigaltstack({ss_sp=0x7fbbdb57e000, ss_flags=0, ss_size=8192}, NULL) = 0
+09:16:09.565506 gettid()                = 529818
+09:16:09.566258 rt_sigaction(SIGSEGV, {sa_handler=0x5632d5b31980, sa_mask=[], sa_flags=SA_RESTORER|SA_ONSTACK|SA_SIGINFO, sa_restorer=0x7fbbdb28bd70}, NULL, 8) = 0
+09:16:09.566359 rt_sigaction(SIGBUS, NULL, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+09:16:09.566448 rt_sigaction(SIGBUS, {sa_handler=0x5632d5b31980, sa_mask=[], sa_flags=SA_RESTORER|SA_ONSTACK|SA_SIGINFO, sa_restorer=0x7fbbdb28bd70}, NULL, 8) = 0
+09:16:09.567356 statx(AT_FDCWD, "/home/agent/.terminfo", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc59886210) = -1 ENOENT (No such file or directory)
+09:16:09.568707 statx(0, NULL, AT_STATX_SYNC_AS_STAT, STATX_ALL, NULL) = -1 EFAULT (Bad address)
+09:16:09.568894 statx(AT_FDCWD, "/etc/terminfo", AT_STATX_SYNC_AS_STAT, STATX_ALL, {stx_mask=STATX_TYPE|STATX_MODE|STATX_NLINK|STATX_UID|STATX_GID|STATX_MTIME|STATX_CTIME|STATX_INO|STATX_SIZE|STATX_BLOCKS|STATX_MNT_ID, stx_attributes=STATX_ATTR_IMMUTABLE, stx_mode=S_IFDIR|0755, stx_size=45, ...}) = 0
+09:16:09.569047 statx(AT_FDCWD, "/etc/terminfo/d/dumb", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc59886210) = -1 ENOENT (No such file or directory)
+09:16:09.569277 statx(AT_FDCWD, "/etc/terminfo/64/dumb", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc59886210) = -1 ENOENT (No such file or directory)
+09:16:09.569368 statx(AT_FDCWD, "/lib/terminfo", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc59886210) = -1 ENOENT (No such file or directory)
+09:16:09.569454 statx(AT_FDCWD, "/usr/share/terminfo", AT_STATX_SYNC_AS_STAT, STATX_ALL, {stx_mask=STATX_TYPE|STATX_MODE|STATX_NLINK|STATX_UID|STATX_GID|STATX_MTIME|STATX_CTIME|STATX_INO|STATX_SIZE|STATX_BLOCKS|STATX_MNT_ID, stx_attributes=STATX_ATTR_IMMUTABLE, stx_mode=S_IFDIR|0755, stx_size=209, ...}) = 0
+09:16:09.569572 statx(AT_FDCWD, "/usr/share/terminfo/d/dumb", AT_STATX_SYNC_AS_STAT, STATX_ALL, {stx_mask=STATX_TYPE|STATX_MODE|STATX_NLINK|STATX_UID|STATX_GID|STATX_MTIME|STATX_CTIME|STATX_INO|STATX_SIZE|STATX_BLOCKS|STATX_MNT_ID, stx_attributes=STATX_ATTR_IMMUTABLE|STATX_ATTR_DAX, stx_mode=S_IFREG|0644, stx_size=308, ...}) = 0
+09:16:09.569753 openat(AT_FDCWD, "/usr/share/terminfo/d/dumb", O_RDONLY|O_CLOEXEC) = 3
+09:16:09.569868 read(3, "\32\1\30\0\2\0\1\0\202\0\10\0dumb|80-column dumb tty\0\0\1P\0\377\377\0\0\2\0\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\4\0\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377"..., 8192) = 308
+09:16:09.570066 rt_sigprocmask(SIG_BLOCK, ~[], [], 8) = 0
+09:16:09.572691 mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_DROPPABLE|MAP_ANONYMOUS, -1, 0) = 0x7fbbdb57c000
+09:16:09.572797 mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7fbbdb57b000
+09:16:09.572916 rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+09:16:09.573030 getrandom("\xb9\x6e\x19\x89\x3f\x4a\xb6\x7c\x13\x9f\x83\xd7\x7e\xfd\xb9\xf7\xd7\xf2\xb9\x22\xba\xe6\x0f\x09\x57\x29\x42\xa4\x37\x85\xfe\x39", 32, 0) = 32
+09:16:09.573210 close(3)                = 0
+09:16:09.573531 write(1, "\nrunning 1 test\n", 16) = 16
+09:16:09.574730 write(1, "test grpc::owned::tests::logical::actual_remote_h2_stream_limit_bounds_pending_demands_and_cance"..., 133) = 133
+09:16:09.574993 rt_sigaction(SIGRT_1, {sa_handler=0x7fbbdb2dc1d0, sa_mask=[], sa_flags=SA_RESTORER|SA_ONSTACK|SA_RESTART|SA_SIGINFO, sa_restorer=0x7fbbdb28bd70}, NULL, 8) = 0
+09:16:09.575095 rt_sigprocmask(SIG_UNBLOCK, [RTMIN RT_1], NULL, 8) = 0
+09:16:09.575180 mmap(NULL, 2101248, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x7fbbdb047000
+09:16:09.575272 mprotect(0x7fbbdb048000, 2097152, PROT_READ|PROT_WRITE) = 0
+09:16:09.575379 rt_sigprocmask(SIG_BLOCK, ~[], [], 8) = 0
+09:16:09.575466 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7fbbdb247990, parent_tid=0x7fbbdb247990, exit_signal=0, stack=0x7fbbdb047000, stack_size=0x1ffdc0, tls=0x7fbbdb2476c0} => {parent_tid=[529819]}, 88) = 529819
+09:16:09.575724 rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+09:16:09.575834 futex(0x5633107c1128, FUTEX_WAIT_BITSET_PRIVATE, 4294967295, NULL, FUTEX_BITSET_MATCH_ANY) = 0
+09:16:09.667633 futex(0x7fbbdb247990, FUTEX_WAIT_BITSET|FUTEX_CLOCK_REALTIME, 529819, NULL, FUTEX_BITSET_MATCH_ANY) = 0
+09:16:09.669238 write(1, "ok", 2)       = 2
+09:16:09.669342 write(1, "\n", 1)       = 1
+09:16:09.670118 write(1, "\n", 1)       = 1
+09:16:09.672704 write(1, "test result: ", 13) = 13
+09:16:09.673058 write(1, "ok", 2)       = 2
+09:16:09.673457 write(1, ". 1 passed; 0 failed; 0 ignored; 0 measured; 187 filtered out", 61) = 61
+09:16:09.673615 write(1, "; finished in 0.10s", 19) = 19
+09:16:09.673732 write(1, "\n\n", 2)     = 2
+09:16:09.675790 exit_group(0)           = ?
+09:16:09.676302 +++ exited with 0 +++

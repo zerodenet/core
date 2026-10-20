@@ -154,6 +154,336 @@
       "gzip_sha256": "d8dbbdd4b7204ddb2ae1b475d155432f0cdd603c4f5243fd3ba3c88a269b8a4b"
     },
     {
+      "source": "pr05-parallel-37-diagnostic-restore.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-diagnostic-restore.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 852,
+      "raw_sha256": "2cd709a01839644f338af616f46ef942e93045a72564fd56e9b6abe81c5f4051",
+      "gzip_bytes": 461,
+      "gzip_sha256": "cffdbe08c0275f0445bb5898e65f11b1dba6598ebb52db9bac4980b9d314aaa2",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-diagnostic-restore.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-diagnostic-restore.json"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-lifecycle-instrumentation.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-lifecycle-instrumentation.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 329,
+      "raw_sha256": "f6721361b0cd9ede7a7544707374c9fd71d95642b160b76679a6883ea6e8cfd9",
+      "gzip_bytes": 251,
+      "gzip_sha256": "eb2b3f74890b6eb3f16667e19e473f9cddbf142e74a42cc67b0cf5d5fa9cadb5",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-lifecycle-instrumentation.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-lifecycle-instrumentation.json"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-lifecycle-instrumented-build.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-lifecycle-instrumented-build.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 348,
+      "raw_sha256": "7fbd55158688cf37cf598006b1e412efc59171c593a5ec4fd886ffca1fecc94a",
+      "gzip_bytes": 225,
+      "gzip_sha256": "e32eeda39d2d92f7a71d27fdedb972c4c3f335af98cdc12796183a3599a5a77a",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-lifecycle-instrumented-build.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-lifecycle-instrumented-build.txt"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-lifecycle-instrumented.rs",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-lifecycle-instrumented.rs.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 5494,
+      "raw_sha256": "d9fa78fdc3531c9be4f8bde95f8f7810d204bae47d23f247b2324c35b9764753",
+      "gzip_bytes": 1620,
+      "gzip_sha256": "6990b5cb7403bfbea951c1439841b2fb29918708d3eda3352e61f1169b7bce20",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-lifecycle-instrumented.rs",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-lifecycle-instrumented.rs"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-lifecycle-original.rs",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-lifecycle-original.rs.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 4896,
+      "raw_sha256": "f263e84638ca03fc651c222a44363569b2d1a3debad64967ca6771fdf6b961bc",
+      "gzip_bytes": 1495,
+      "gzip_sha256": "ced0cd64441d6e62f7dd1eb1e67e884125f0d51f9ecdb56f38a3d7c023cd493a",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-lifecycle-original.rs",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-lifecycle-original.rs"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumentation.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-instrumentation.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 1269,
+      "raw_sha256": "ca3f3001b8a88ac6d43d39887f23d5e2264333f7aa0f02ed0b7c86be16bad520",
+      "gzip_bytes": 550,
+      "gzip_sha256": "cb8eeb36096cc609638235f2ec4ecb55f2a0a4ec27eb3b93a64674a029896535",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-instrumentation.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-instrumentation.json"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumented-build.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-instrumented-build.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 251,
+      "raw_sha256": "664c90daa422a53d64b4ef99e0dffac4378f67a6b180170bc2a5ce67817bbba9",
+      "gzip_bytes": 203,
+      "gzip_sha256": "f3827ad6a9648dec763d5e1ab4647dd76647c4b8dc1165c2ce8dc21eb53d63f9",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-instrumented-build.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-instrumented-build.txt"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumented-run.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-instrumented-run.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 642,
+      "raw_sha256": "3e50cf6a12165b8f99fd3a84eb211e552c0cd1066bde90a84868f2a9269f8004",
+      "gzip_bytes": 394,
+      "gzip_sha256": "7f92f2ee39de8382110b08c0c7adee605811a59d317f2fc70be7d832a0129c67",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-instrumented-run.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-instrumented-run.json"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumented.rs",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-instrumented.rs.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 4766,
+      "raw_sha256": "ff405ab37454783209c73e8e8158656cbf4a3470f5b8b3ae4f3fac7412276749",
+      "gzip_bytes": 1672,
+      "gzip_sha256": "3ce4a19ec33b2b56c3396c03c0fdbc722c4e339e9dfdf8134487c6e1a18f01b1",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-instrumented.rs",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-instrumented.rs"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumented.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-instrumented.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 338,
+      "raw_sha256": "86215a7be4088fd55cb7e032803b8288da340e5402f66ba4d75c0f1cc15dc898",
+      "gzip_bytes": 152,
+      "gzip_sha256": "f387870a4b3a06635be5eab7ddabfc1d53cff33b8e6068e43f66532f7c409252",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-instrumented.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-instrumented.txt"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-original-diagnostic.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-original-diagnostic.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 608,
+      "raw_sha256": "5f50759a00aad64752dde0ac675707cc904d6c9edb13f09a6bc4be513f3ca081",
+      "gzip_bytes": 390,
+      "gzip_sha256": "7bcc24d7879b801324def38f2b718d755cc626e062f43dafc447e62f9ba5fe6e",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-original-diagnostic.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-original-diagnostic.json"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-original-diagnostic.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-original-diagnostic.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 149,
+      "raw_sha256": "c01d9041109177fe3aa88d1f49dc427bc92b24aeb2138fee69600c321adae496",
+      "gzip_bytes": 131,
+      "gzip_sha256": "b04c91915bc5e32edece8296a676dc6b503f1b4eb3638185e779883987ef46dd",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-original-diagnostic.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-original-diagnostic.txt"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-original.rs",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-original.rs.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 3443,
+      "raw_sha256": "768475968e82d197db9f157448d3a805917c0a4c92bb2cb5d59dc679f16828ac",
+      "gzip_bytes": 1393,
+      "gzip_sha256": "684cee2d474bf592cef7adbe2daf3bf527732250ea6d76c97a52d76e465f85bb",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-original.rs",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-original.rs"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-strace.529818",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-strace.529818.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 11911,
+      "raw_sha256": "85c8162c62064658f204819f98378f2fe102c0c3c3a11dc9a6840a5cb937959b",
+      "gzip_bytes": 3132,
+      "gzip_sha256": "20c937e582ba482d98e0146f5e4399f386a2e5e1fab9e7b8f3f352f29fb065bb",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-strace.529818",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-strace.529818"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-strace.529819",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-strace.529819.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 9311,
+      "raw_sha256": "e52a7ee847f20433e48d99317cd37a441102f081b25caa959e7cdd84f0ae6d6d",
+      "gzip_bytes": 2371,
+      "gzip_sha256": "c9073d658995cdddaaad0aace91076c8e36e7b19d8503216b51c1f676a9a9478",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-strace.529819",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-strace.529819"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-strace.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-strace.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 571,
+      "raw_sha256": "09731ec0262c2732398d0f60b729132875027bbfce44eb5d555ab0f9ec686404",
+      "gzip_bytes": 340,
+      "gzip_sha256": "3f2ab9821db98c835b8965ba5c8606455842564de649c438c0d68eb4c1079c99",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-strace.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-strace.json"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-strace.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-logical-strace.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 250,
+      "raw_sha256": "ecc98bad9121da03953f3ca3fce7fb4bcfed32bc5f2d337d3af8e29589b70b4c",
+      "gzip_bytes": 190,
+      "gzip_sha256": "724c25acd334c37c58921b09242ea8864d2c79cebf2e94e56a7e8e6795c54c3d",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-strace.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-logical-strace.txt"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-scope-instrumented-build.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-scope-instrumented-build.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 348,
+      "raw_sha256": "b59f1d2fb752198a3d5b426e20b713d13234dc7a01959afd9def1500215240c0",
+      "gzip_bytes": 224,
+      "gzip_sha256": "65104a219cc92f455c0b04627f764c5492821b9ab8052f5c327afa2cc668c14a",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-scope-instrumented-build.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-scope-instrumented-build.txt"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-scope-instrumented-run.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-scope-instrumented-run.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 789,
+      "raw_sha256": "ae9ad9b44a18964e0c9064514ce1654232b111caa8ddabf3d066e24e7af6161c",
+      "gzip_bytes": 430,
+      "gzip_sha256": "bc4ca0233b33a963a73b19d05bc14762e4ea467be88264c97aa992c8ab77fc49",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-scope-instrumented-run.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-scope-instrumented-run.json"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-scope-instrumented.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-scope-instrumented.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 668,
+      "raw_sha256": "ed9609616abca799d59944e23323baa6296f7c4c41e3ad380d1dda6b3be47f22",
+      "gzip_bytes": 278,
+      "gzip_sha256": "a237191de1061a301c015171ccb40f92fa4dc1dfe6a18d5322bfffd6596a57dc",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-scope-instrumented.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-scope-instrumented.txt"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-branches-build.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-shutdown-branches-build.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 251,
+      "raw_sha256": "687afea37ab2636044f41f4cf67bd112902e66d17badb33d1407d878f77dda88",
+      "gzip_bytes": 203,
+      "gzip_sha256": "152f70171911636dca5102cd603c5c8f7b53b00a050aba82d29345d49a03c1d2",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-shutdown-branches-build.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-shutdown-branches-build.txt"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-branches-instrumented.rs",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-shutdown-branches-instrumented.rs.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 3669,
+      "raw_sha256": "44ca7ea037f09a732d3119e5b9a4ca3c51607caf0a2b92a0a083f309f69dc2cb",
+      "gzip_bytes": 1447,
+      "gzip_sha256": "8aa1548cecf87d754be8757db2c41240891b6848c8957342a22b5e8d729e0b1b",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-shutdown-branches-instrumented.rs",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-shutdown-branches-instrumented.rs"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-branches-run.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-shutdown-branches-run.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 721,
+      "raw_sha256": "c8cce96feb0e4933da0a22b1ce8138a41ce8e29861dc60418a252ef8f5f6fa44",
+      "gzip_bytes": 414,
+      "gzip_sha256": "1d9c95424cb273e6f342aebe44b97fc267ea0b9bfa5497b1dcb23433e8aecad7",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-shutdown-branches-run.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-shutdown-branches-run.json"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-branches.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-shutdown-branches.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 381,
+      "raw_sha256": "2c1050e6722ea6e6adae9b74c9c995b55ec3a1cac2bd3b84c769dc5aa9ab978c",
+      "gzip_bytes": 213,
+      "gzip_sha256": "c83964ddbf6cbb566e64d460832b0595f730444d7e76c61551f122f71ee4b8d9",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-shutdown-branches.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-shutdown-branches.txt"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-instrumented-run.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-shutdown-instrumented-run.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 649,
+      "raw_sha256": "25a6fb44637316070198b19b6f51696de93fb877fbe362c2ec02486acf8d0b9b",
+      "gzip_bytes": 406,
+      "gzip_sha256": "fd64d43e277eee7254d3283a5bf92cd3797f89e1cb52d3bfb531eaa996e2d5a7",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-shutdown-instrumented-run.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-shutdown-instrumented-run.json"
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-instrumented.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-37-grpc-shutdown-instrumented.txt.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 324,
+      "raw_sha256": "f68d8f2c067aab1aaea814341b6ec621103ed2dc3f5df0f1d676ab6a69aec304",
+      "gzip_bytes": 195,
+      "gzip_sha256": "32439de7c0613d13f684329e221444e87512b907734655ec5f75d2196741b41f",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-shutdown-instrumented.txt",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-grpc-shutdown-instrumented.txt"
+    },
+    {
+      "source": "pr05-parallel-37-scope-instrumentation.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-scope-instrumentation.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 255,
+      "raw_sha256": "ace4d90c2a1ceeed1f55f995e9a3c8fc76d19dccf5e78136f9d4e4cff326cdf5",
+      "gzip_bytes": 209,
+      "gzip_sha256": "cead39eb3a040b9245f3debad3630ce5588df05b5dda35cff8a5db7325a2f414",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-scope-instrumentation.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-scope-instrumentation.json"
+    },
+    {
+      "source": "pr05-parallel-37-scope-instrumented.rs",
+      "path": "evidence/parallel-progress/pr05-parallel-37-scope-instrumented.rs.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 9637,
+      "raw_sha256": "0d50dc7c8475cc9624347df1bd9960612d7e3fbc0f4e3302d6787b10d1555999",
+      "gzip_bytes": 2973,
+      "gzip_sha256": "87047e3e96e61593639be6df274ee644f15a874833f483603758f12fce7e1484",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-scope-instrumented.rs",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-scope-instrumented.rs"
+    },
+    {
+      "source": "pr05-parallel-37-scope-original.rs",
+      "path": "evidence/parallel-progress/pr05-parallel-37-scope-original.rs.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 9177,
+      "raw_sha256": "94296a58ea92f883680017b635e910140a207125149bed95a11480652d5fae7e",
+      "gzip_bytes": 2866,
+      "gzip_sha256": "e57abdaca83df29f04a07d08c7c526d9811736f6ac25443bd10efb75a2725531",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-scope-original.rs",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-scope-original.rs"
+    },
+    {
+      "source": "pr05-parallel-37-transport-hang.json",
+      "path": "evidence/parallel-progress/pr05-parallel-37-transport-hang.json.gz",
+      "kind": "diagnostic-only-not-qualification",
+      "raw_bytes": 3822,
+      "raw_sha256": "c833a93069c7eb1e60eec5a30d97b329dd337bb01a6b77a8592c7f2fb2b1914e",
+      "gzip_bytes": 1321,
+      "gzip_sha256": "a84766ff14489ead6371184c998f7ed65079b04b17608b79efbf49c45d21c708",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-37-transport-hang.json",
+      "diagnostic_raw_path": "diagnostics/root37/pr05-parallel-37-transport-hang.json"
+    },
+    {
       "source": "pr05-parallel-focused-1-datagram-platform.txt",
       "path": "evidence/parallel-progress/pr05-parallel-focused-1-datagram-platform.txt.gz",
       "raw_bytes": 1136,
@@ -2570,6 +2900,406 @@
       "gzip_sha256": "689117f42c3f79e0b639519730eae7f12e82a7167970b7fbe205e906275020ec"
     },
     {
+      "source": "pr05-parallel-focused-35-component-unit.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-35-component-unit.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 18201,
+      "raw_sha256": "5c281a5547aa6a299d5dff7843c2850311c877bc90948a9a62dd2665984fe390",
+      "gzip_bytes": 4927,
+      "gzip_sha256": "9d65605f6b1577ecd2cace6e1b4272a77a75efb15797b94551488eb5a9458ddb",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-component-unit.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-35-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-35-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-fmt.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-35-source-architecture-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-35-source-architecture-guard.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 2491,
+      "raw_sha256": "968969e9519c7f54256108ae259533e1d7a90a15f5933b16630a04a91e845c6e",
+      "gzip_bytes": 1107,
+      "gzip_sha256": "acf534cef308023437e58a46872ac6f3b775efab629999c4ba161558539a8088",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-source-architecture-guard.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-35-source-runtime-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-35-source-runtime-guard.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 14524,
+      "raw_sha256": "bd6bde4f3128ca2a4b508ce3fb581af0f961c83990f56efc7857959b3beb5ae5",
+      "gzip_bytes": 3336,
+      "gzip_sha256": "51ff922d4db6b91e5b9ed144285933fe7e9cb6956f20ac3e5507ac63a09c8c32",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-source-runtime-guard.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-35-test-layout.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-35-test-layout.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 59,
+      "raw_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+      "gzip_bytes": 77,
+      "gzip_sha256": "079178c46ec27a5e5a4e5e71d1d64e37b4818eb505423729cd211952020997a5",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-test-layout.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-35-workspace-alltargets-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-35-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 34241,
+      "raw_sha256": "7ce8c14620405e15b7054708769651bca7e2fc15ed12250d51517e52e86a77af",
+      "gzip_bytes": 5631,
+      "gzip_sha256": "c62298252e0eae6a3a28d39032013f097d2829224b49311ffbf92f1a1ddb103d",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-workspace-alltargets-check.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-35.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-35.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 3280,
+      "raw_sha256": "b641849e843293fad5eccaa86b31a95d6900f425b97276a80d825ad9133f1402",
+      "gzip_bytes": 704,
+      "gzip_sha256": "ec6bee77419a4f0be8cf09918a6169ef1663d1af81820f55c575e4f6b9e3e036",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35.json"
+    },
+    {
+      "source": "pr05-parallel-focused-36-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-36-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-36-fmt.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-36-workspace-alltargets-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-36-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 5809,
+      "raw_sha256": "058303e122cbbea7c42a91050e5b55d179e99e4e63589fdb1fe083f703e4236d",
+      "gzip_bytes": 1147,
+      "gzip_sha256": "3919322d520d5788a4a22eee17d724ee214e5eaaefa0ce64dd4f8b9ff487e77d",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-36-workspace-alltargets-check.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-36.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-36.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 1187,
+      "raw_sha256": "34c6f235294ed4e0edb8f1b8dd497e092c1724c42b99e63a89b9cfe175d20af3",
+      "gzip_bytes": 451,
+      "gzip_sha256": "503a00920bdfd3b992fdf327553b17fefbec989ac78f269ccacf000f93ef58f5",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-36.json"
+    },
+    {
+      "source": "pr05-parallel-focused-37-component-unit.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-37-component-unit.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 18977,
+      "raw_sha256": "112e3c77c155182f028daedf819e7563e7419c8adaab7ca3ded03c01a3d9e3c6",
+      "gzip_bytes": 5085,
+      "gzip_sha256": "32f19cbad58375fafbe9ad733e9e176fb2a9baad9154920fbf3574fa73544ee4",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-component-unit.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-37-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-37-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-fmt.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-37-source-architecture-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-37-source-architecture-guard.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 2491,
+      "raw_sha256": "701f2707e679a986464b42145fab21a0a2c8496077d38d7f00d4a8fd5d26c742",
+      "gzip_bytes": 1104,
+      "gzip_sha256": "538f87fab21531ec1f3c866947c51b55a51115eebe56ad1952d113dec534a200",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-source-architecture-guard.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-37-source-runtime-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-37-source-runtime-guard.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 13956,
+      "raw_sha256": "b2dd3623afd272e3afaaea1d1a2f278afa81321453cc544cce7fdfff8ef546c6",
+      "gzip_bytes": 3130,
+      "gzip_sha256": "137d4be32c2e5bd93cbd9da35105da239b7ed322a1bc1bab271e0168a5db15df",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-source-runtime-guard.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-37-test-layout.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-37-test-layout.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 59,
+      "raw_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+      "gzip_bytes": 77,
+      "gzip_sha256": "079178c46ec27a5e5a4e5e71d1d64e37b4818eb505423729cd211952020997a5",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-test-layout.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-37-transport-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-37-transport-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 20522,
+      "raw_sha256": "dad135ef7f2f66673f7d419785576030e2668544a6c02b09c4e436a4e830a019",
+      "gzip_bytes": 5969,
+      "gzip_sha256": "f508d988da7121b5b5f1c9c0a2b8cdf1d274fe4aa098682d3e8e274ddff9e640",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-transport-library.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-37-vmess-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-37-vmess-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 20654,
+      "raw_sha256": "481f6c70342c10c716c44778510c02b5b2d3c8b42b12c3c52f2535cba190f5a1",
+      "gzip_bytes": 4351,
+      "gzip_sha256": "a79fea4cee78fb169aa1262a0d843e29c0245ef57679094bcb7512c4e86b6818",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-vmess-library.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-37-workspace-alltargets-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-37-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 35262,
+      "raw_sha256": "6f2bbc9efd9310e5b056e2f20ad2bf8d2810189fc42a363fd96418f53a8dc008",
+      "gzip_bytes": 5822,
+      "gzip_sha256": "6b8f3eb76cb0e62a67ff2eca5b554f29ac9f54ec76c054e6e6e4b8af03430217",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-workspace-alltargets-check.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-37.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-37.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 4356,
+      "raw_sha256": "c14374e2cfee3f54127920c416bcc5d911adc8ab6c41c900055f65fc4978f7dc",
+      "gzip_bytes": 785,
+      "gzip_sha256": "c8dbc0fdd98d4cc74dc849711afb5123ce0554f8464c69e3a3750959bc5798b1",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37.json"
+    },
+    {
+      "source": "pr05-parallel-focused-38-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-38-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-38-fmt.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-38-transport-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-38-transport-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 22233,
+      "raw_sha256": "65bd0500e05101fe9b8ebf9135ac17da5bf24bcd88534239f2e49c417387f4a3",
+      "gzip_bytes": 6412,
+      "gzip_sha256": "bd2120810bada18f724d14cffc721551b52749b7748b93e9cade51fbb6dbea56",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-38-transport-library.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-38-workspace-alltargets-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-38-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 9762,
+      "raw_sha256": "2a152aba5e49866b110a2687d5fd9205994434bb9c8e6d1ceb64eb3d4f18c8a8",
+      "gzip_bytes": 2623,
+      "gzip_sha256": "88079c50c021a16d3fa67a6a24e219042268006069a23ad9fa833d3f9f79011a",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-38-workspace-alltargets-check.txt"
+    },
+    {
+      "source": "pr05-parallel-focused-38.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-38.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 1759,
+      "raw_sha256": "2d91b68259e1b996f4e4f5e77ff79844f6e22e37cc7c2963b6048431bdefc41b",
+      "gzip_bytes": 533,
+      "gzip_sha256": "d04b50d317ea2388fe29ea8ac91b5c2a92bd6be8fe15aa7d8aa721d0608a983e",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-38.json"
+    },
+    {
+      "source": "pr05-parallel-focused-39-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-fmt.txt",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr05-parallel-focused-39-platform-contracts-all.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-platform-contracts-all.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-platform-contracts-all.txt",
+      "raw_bytes": 8223,
+      "raw_sha256": "2bb48331621d4881de28ef50add7a98b8f548090934f2ebf20fb51f451bcf622",
+      "gzip_bytes": 2544,
+      "gzip_sha256": "e722124fb7b087327c47c20eb0a9c8fa6fd3d19ee5c23e2165486e3461b49503"
+    },
+    {
+      "source": "pr05-parallel-focused-39-platform-unit.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-platform-unit.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-platform-unit.txt",
+      "raw_bytes": 11396,
+      "raw_sha256": "496ba789353685689ad86a03c456a7dd88b36d5cb4f5c8c3032c10ff0599f84a",
+      "gzip_bytes": 3131,
+      "gzip_sha256": "4e48010cfd44bc974e865a3e5cf4815a81cf21cb813d2b57a3274f2bfe2f81ce"
+    },
+    {
+      "source": "pr05-parallel-focused-39-proxy-dispatch-all.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-proxy-dispatch-all.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-proxy-dispatch-all.txt",
+      "raw_bytes": 43215,
+      "raw_sha256": "2744b306337acfd7568dbb8e4f62a8c1e69f36826099f94e3f80c9222d9998ce",
+      "gzip_bytes": 7510,
+      "gzip_sha256": "8ce2f19ec267a0755ab33fc29f7da3ed3127e78938c88b4d0f7a6925a1cebd00"
+    },
+    {
+      "source": "pr05-parallel-focused-39-proxy-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-proxy-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-proxy-library.txt",
+      "raw_bytes": 79831,
+      "raw_sha256": "8c5f656b6856798d411dc7d7a95a963c8324daffa7784b33f4d1df765c5a5331",
+      "gzip_bytes": 18297,
+      "gzip_sha256": "81450ae6c9f32235d5f4ab1f8cafbad7762a6416c488ae599e554ea590b36838"
+    },
+    {
+      "source": "pr05-parallel-focused-39-source-architecture-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-source-architecture-guard.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-source-architecture-guard.txt",
+      "raw_bytes": 2491,
+      "raw_sha256": "acb3cd63a05691371d8bba8567abeed7775c08e26aefab73ca9c27e86b7c44f4",
+      "gzip_bytes": 1102,
+      "gzip_sha256": "6bbaa60b7d07c51a9e249350e7eb00e78a07b131b0766f6b3b889e48028a1349"
+    },
+    {
+      "source": "pr05-parallel-focused-39-source-runtime-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-source-runtime-guard.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-source-runtime-guard.txt",
+      "raw_bytes": 15322,
+      "raw_sha256": "6a35a951dd589ecc5d1f05f0d54de0a8105b119862ef581d06d5832c864d18a0",
+      "gzip_bytes": 3453,
+      "gzip_sha256": "ed2419cf1ec9ad614d30159b3337972b5795a4c3043c281927d43b5118da4e49"
+    },
+    {
+      "source": "pr05-parallel-focused-39-strict.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-strict.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-strict.txt",
+      "raw_bytes": 3001,
+      "raw_sha256": "95e980014e5b881b419720b981e71e51a790a372f4c8a0e393f782278aca650c",
+      "gzip_bytes": 1024,
+      "gzip_sha256": "1d2ed11d0c524304eb8e72af46026f484967444726bc84bbc33196216b6c727d"
+    },
+    {
+      "source": "pr05-parallel-focused-39-test-layout.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-test-layout.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-test-layout.txt",
+      "raw_bytes": 59,
+      "raw_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+      "gzip_bytes": 77,
+      "gzip_sha256": "079178c46ec27a5e5a4e5e71d1d64e37b4818eb505423729cd211952020997a5"
+    },
+    {
+      "source": "pr05-parallel-focused-39-transport-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-transport-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-transport-library.txt",
+      "raw_bytes": 21375,
+      "raw_sha256": "dd58bb6c78a18d252cf423714e42a9e28ed509045b4e9f29e8b253674593610d",
+      "gzip_bytes": 6142,
+      "gzip_sha256": "e39687ce96d58df57aaaa576f53bc239c5aeb3a9246be20fc02a689b510483d8"
+    },
+    {
+      "source": "pr05-parallel-focused-39-vless-proxy-all.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-vless-proxy-all.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-vless-proxy-all.txt",
+      "raw_bytes": 38649,
+      "raw_sha256": "c95c134e2990f850035215181828d9c9edaf7ced18b8389d5268fb501cdacb3d",
+      "gzip_bytes": 6868,
+      "gzip_sha256": "f4ab6c5f2694aaab261849485be56538fb3a83be3a0702c74e3be9723fe90820"
+    },
+    {
+      "source": "pr05-parallel-focused-39-vmess-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-vmess-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-vmess-library.txt",
+      "raw_bytes": 20874,
+      "raw_sha256": "98586b2ab38367a9ec1124f15a6c5ca1f640d1d1cf08ddb3b5487aa5f6d1d8a6",
+      "gzip_bytes": 4415,
+      "gzip_sha256": "65c27299bf6dfda7d567f946a954e05ec4cf607ea157f3e920b0e4cc42474ce9"
+    },
+    {
+      "source": "pr05-parallel-focused-39-vmess-minimal.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-vmess-minimal.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-vmess-minimal.txt",
+      "raw_bytes": 105991,
+      "raw_sha256": "8a0d6e7e2d977353508a05ed32579d78a005d8fa2a0dcac45d133ffbede2519d",
+      "gzip_bytes": 16816,
+      "gzip_sha256": "d163ce1d145376471434b24390fd0925f7a3201ec147fb61459a83aa6e3e0087"
+    },
+    {
+      "source": "pr05-parallel-focused-39-windows-platform.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-windows-platform.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-windows-platform.txt",
+      "raw_bytes": 601,
+      "raw_sha256": "89adc502635cebcdc017bfd0dc6f30b49251d5e9439037818958691e6b2c79e6",
+      "gzip_bytes": 367,
+      "gzip_sha256": "14f439dd3e0364c06e8da386bad937c2376e86a643411ef9342ac441bba4941a"
+    },
+    {
+      "source": "pr05-parallel-focused-39-wireguard-inbound-all.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-wireguard-inbound-all.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-wireguard-inbound-all.txt",
+      "raw_bytes": 35335,
+      "raw_sha256": "c9d5cce881acc0bfd9cb61e18c21048d8bf8d42689ce528c24aae538346d4b0f",
+      "gzip_bytes": 6363,
+      "gzip_sha256": "7147f8cc049057823b1b97b943fb34b4b5ccb7ccac37a0b57bf31ba621dd861c"
+    },
+    {
+      "source": "pr05-parallel-focused-39-workspace-alltargets-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-workspace-alltargets-check.txt",
+      "raw_bytes": 34872,
+      "raw_sha256": "a1be059c22b054c35d918cbfeb1769cc9eef237142232ed44e37672d1d0e9d2d",
+      "gzip_bytes": 5731,
+      "gzip_sha256": "41f8fad7650400593098f83b176214c88c389edc27b7606ae39539edbd21d393"
+    },
+    {
+      "source": "pr05-parallel-focused-39.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-39.json.gz",
+      "kind": "frozen-command-evidence",
+      "source_location": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39.json",
+      "raw_bytes": 8981,
+      "raw_sha256": "9a259c44f8a1c9531d5597584eb04b33736a219e3c0418ba894b1e24c7e0a535",
+      "gzip_bytes": 1182,
+      "gzip_sha256": "08b090a8d1d26c2b16d6f03738f4d47d9a0523ea98204b555541edd95f242b40"
+    },
+    {
       "source": "pr05-parallel-focused-4-component-contracts.txt",
       "path": "evidence/parallel-progress/pr05-parallel-focused-4-component-contracts.txt.gz",
       "raw_bytes": 2905,
@@ -3152,14 +3882,388 @@
       "raw_sha256": "b72ed07f75636cb7872fb5365b5aded8b51955b5edccf3fc12deb30ddc9f7db5",
       "gzip_bytes": 1082,
       "gzip_sha256": "e863fed4442ea6eea67a8a1ef1046e6108d92159b84cb6c0221c46db9de70853"
+    },
+    {
+      "source": "prepare-progress-through38.py",
+      "path": "evidence/parallel-progress/prepare-progress-through38.py.gz",
+      "kind": "evidence-preparation-script-no-product-execution",
+      "raw_bytes": 25994,
+      "raw_sha256": "7654f9669ed1ce8db5e498dd345e0625424aeb71d59032e8757448ac0e395d91",
+      "gzip_bytes": 9642,
+      "gzip_sha256": "7bbba3fdb43120a228bf36f7a8d59220cc2cfea8f56113d850ccdb49d78e22fc",
+      "source_location": "/workspace/core-next/prepare-progress-through38.py",
+      "diagnostic_raw_path": "diagnostics/preparation/prepare-progress-through38.py"
+    },
+    {
+      "source": "prepare-progress-through39.py",
+      "path": "evidence/parallel-progress/prepare-progress-through39.py.gz",
+      "kind": "evidence-preparation-script-no-product-execution",
+      "source_location": "/workspace/core-next/prepare-progress-through39.py",
+      "raw_bytes": 17523,
+      "raw_sha256": "a161121964f61fc73d076615375eb13f71de9e8987f4b854fc36c27493d98f6a",
+      "gzip_bytes": 7017,
+      "gzip_sha256": "b6dcdc35983e8f66f5f1e9f99af562f720ff058751ca71e8b8331253df2e5c1c",
+      "diagnostic_raw_path": "diagnostics/preparation/prepare-progress-through39.py"
+    },
+    {
+      "source": "root37-binary-identity-verification.json",
+      "path": "evidence/parallel-progress/root37-binary-identity-verification.json.gz",
+      "kind": "derived-identity-verification",
+      "raw_bytes": 2911,
+      "raw_sha256": "3c0aec8b4b699826cd722efa077b5218f2a20138a131b947eb0b6cb799dcdb63",
+      "gzip_bytes": 842,
+      "gzip_sha256": "eae1a3accea8511254ad14f4bcd7f2a103167d20ac10ec6ca82c9ca9e7390506",
+      "diagnostic_raw_path": "diagnostics/root37/binary-identities.json"
+    },
+    {
+      "source": "root37-head-original.rs",
+      "path": "evidence/parallel-progress/root37-head-original.rs.gz",
+      "kind": "fixed-source-snapshot-not-runtime",
+      "raw_bytes": 3937,
+      "raw_sha256": "2b22a508824f57577eab28dd04e8827247a4b5ac258e691233037ccef561d786",
+      "gzip_bytes": 1325,
+      "gzip_sha256": "cee20b4aa3a63a66089d94bad3bb86fd0635c2dfdee3eb8f22012f527f0f0268",
+      "source_location": "git:0ee7c39d971b6656c837c68222cf2213ac210a50:crates/transport/src/grpc/response.rs",
+      "diagnostic_raw_path": "diagnostics/root37/root37-head-original.rs"
+    },
+    {
+      "source": "root37-restore-source-verification.json",
+      "path": "evidence/parallel-progress/root37-restore-source-verification.json.gz",
+      "kind": "derived-source-verification",
+      "raw_bytes": 2393,
+      "raw_sha256": "65b9f89ab88ccf47880cfa50b9ad06b94a1eb7d1d3eb703b414353ed90d4b132",
+      "gzip_bytes": 778,
+      "gzip_sha256": "d243cffb1b2c58e378d63b096a6f1d674c499da185fa6f57bb18546e000408ab",
+      "diagnostic_raw_path": "diagnostics/root37/restore-verification.json"
+    },
+    {
+      "source": "root38-head-regression-fixture.rs",
+      "path": "evidence/parallel-progress/root38-head-regression-fixture.rs.gz",
+      "kind": "fixed-source-snapshot-not-runtime",
+      "raw_bytes": 6888,
+      "raw_sha256": "325ce292ba399977a87abb32e1f58d20661dade01e5694f2db38cd4a11681366",
+      "gzip_bytes": 1990,
+      "gzip_sha256": "ac28eac5b49e1b7da1256a3ab479f6badc6014efa6fbf5d9b42c6563cef32d83",
+      "source_location": "git:dafcf04f83a1007b075832f27ae56ddc7559c61e:crates/transport/tests/grpc/response.rs",
+      "diagnostic_raw_path": "diagnostics/root37/root38-head-regression-fixture.rs"
+    },
+    {
+      "source": "root38-head-wake-relay.rs",
+      "path": "evidence/parallel-progress/root38-head-wake-relay.rs.gz",
+      "kind": "fixed-source-snapshot-not-runtime",
+      "raw_bytes": 4304,
+      "raw_sha256": "bcefff5c76976d422ac3b87244a527b28612ac9ef650b60a4aa4b04b5637646d",
+      "gzip_bytes": 1502,
+      "gzip_sha256": "8486e3c2db8eafd7c79b8eca660445bd028717ca844f3b0f3903d1f5eb890983",
+      "source_location": "git:dafcf04f83a1007b075832f27ae56ddc7559c61e:crates/transport/src/grpc/response.rs",
+      "diagnostic_raw_path": "diagnostics/root37/root38-head-wake-relay.rs"
+    },
+    {
+      "source": "verify-progress-through39.py",
+      "path": "evidence/parallel-progress/verify-progress-through39.py.gz",
+      "kind": "evidence-preparation-script-no-product-execution",
+      "source_location": "/workspace/core-next/verify-progress-through39.py",
+      "raw_bytes": 4746,
+      "raw_sha256": "75dce6925d72a03f05785354b6f43be5f0bffed415978e6ad74a9cfd867f7822",
+      "gzip_bytes": 1726,
+      "gzip_sha256": "e63d11baee697564b627279d70398c479035b70963c4ab6850a15045bb4ff7f8",
+      "diagnostic_raw_path": "diagnostics/preparation/verify-progress-through39.py"
+    },
+    {
+      "source": "wireguard-stopold-recovery-review.md",
+      "path": "evidence/parallel-progress/wireguard-stopold-recovery-review.md.gz",
+      "kind": "read-only-audit-original-not-implementation",
+      "raw_bytes": 22687,
+      "raw_sha256": "b9736f077be1d40428fbe1ebe5b4b4b9cc691b14b109a7f18e4847b63cb3fb6c",
+      "gzip_bytes": 10323,
+      "gzip_sha256": "26380b1d0c52e86b918e4fb02750eb0ab91e50a20c5be6de917ca4ba36d1e933",
+      "source_location": "/workspace/core-next/wireguard-stopold-recovery-review.md"
+    },
+    {
+      "source": "wireguard-stopold-recovery-review.portable.md",
+      "path": "evidence/parallel-progress/wireguard-stopold-recovery-review.portable.md.gz",
+      "kind": "portable-derived-audit-not-implementation",
+      "raw_bytes": 24207,
+      "raw_sha256": "656e4c9c1635fff5ad76737d86d6ca8739379bef945c9029056438d5f314e867",
+      "gzip_bytes": 10772,
+      "gzip_sha256": "2cc9605d72ca4bf3c9617c7c92476b392f3559e184f9fe0912ee6c187f5b409e",
+      "diagnostic_raw_path": "diagnostics/wireguard-stopold-recovery-review.md",
+      "derived_from_raw_sha256": "b9736f077be1d40428fbe1ebe5b4b4b9cc691b14b109a7f18e4847b63cb3fb6c",
+      "portable_source_links_verified": [
+        {
+          "source_path": "crates/proxy/tests/wireguard_inbound.rs",
+          "original_audit_line": 41,
+          "portable_target": "../../../../crates/proxy/tests/wireguard_inbound.rs#L41"
+        },
+        {
+          "source_path": "crates/proxy/tests/wireguard_inbound.rs",
+          "original_audit_line": 185,
+          "portable_target": "../../../../crates/proxy/tests/wireguard_inbound.rs#L185"
+        },
+        {
+          "source_path": "crates/proxy/tests/wireguard_inbound.rs",
+          "original_audit_line": 159,
+          "portable_target": "../../../../crates/proxy/tests/wireguard_inbound.rs#L159"
+        },
+        {
+          "source_path": "crates/proxy/tests/wireguard_inbound.rs",
+          "original_audit_line": 298,
+          "portable_target": "../../../../crates/proxy/tests/wireguard_inbound.rs#L298"
+        },
+        {
+          "source_path": "crates/proxy/tests/wireguard_inbound.rs",
+          "original_audit_line": 405,
+          "portable_target": "../../../../crates/proxy/tests/wireguard_inbound.rs#L405"
+        },
+        {
+          "source_path": "crates/proxy/tests/wireguard_inbound.rs",
+          "original_audit_line": 434,
+          "portable_target": "../../../../crates/proxy/tests/wireguard_inbound.rs#L434"
+        },
+        {
+          "source_path": "design/v0.0.3/lifecycle.md",
+          "original_audit_line": 61,
+          "portable_target": "../../../../design/v0.0.3/lifecycle.md#L61"
+        },
+        {
+          "source_path": "design/v0.0.3/lifecycle.md",
+          "original_audit_line": 125,
+          "portable_target": "../../../../design/v0.0.3/lifecycle.md#L125"
+        },
+        {
+          "source_path": "protocols/wireguard/src/runtime/inbound.rs",
+          "original_audit_line": 77,
+          "portable_target": "../../../../protocols/wireguard/src/runtime/inbound.rs#L77"
+        },
+        {
+          "source_path": "protocols/wireguard/src/runtime.rs",
+          "original_audit_line": 108,
+          "portable_target": "../../../../protocols/wireguard/src/runtime.rs#L108"
+        },
+        {
+          "source_path": "vendor/gotatun/src/noise/mod.rs",
+          "original_audit_line": 69,
+          "portable_target": "../../../../vendor/gotatun/src/noise/mod.rs#L69"
+        },
+        {
+          "source_path": "vendor/gotatun/src/noise/session.rs",
+          "original_audit_line": 32,
+          "portable_target": "../../../../vendor/gotatun/src/noise/session.rs#L32"
+        },
+        {
+          "source_path": "vendor/gotatun/src/noise/session.rs",
+          "original_audit_line": 51,
+          "portable_target": "../../../../vendor/gotatun/src/noise/session.rs#L51"
+        },
+        {
+          "source_path": "vendor/gotatun/src/noise/handshake.rs",
+          "original_audit_line": 343,
+          "portable_target": "../../../../vendor/gotatun/src/noise/handshake.rs#L343"
+        },
+        {
+          "source_path": "vendor/gotatun/src/noise/handshake.rs",
+          "original_audit_line": 613,
+          "portable_target": "../../../../vendor/gotatun/src/noise/handshake.rs#L613"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/inbound/device.rs",
+          "original_audit_line": 7,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/inbound/device.rs#L7"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard.rs",
+          "original_audit_line": 39,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard.rs#L39"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard.rs",
+          "original_audit_line": 102,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard.rs#L102"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/inbound.rs",
+          "original_audit_line": 30,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/inbound.rs#L30"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard.rs",
+          "original_audit_line": 40,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard.rs#L40"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/inbound.rs",
+          "original_audit_line": 42,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/inbound.rs#L42"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/raw_ip/pool.rs",
+          "original_audit_line": 29,
+          "portable_target": "../../../../crates/proxy/src/runtime/raw_ip/pool.rs#L29"
+        },
+        {
+          "source_path": "protocols/wireguard/src/runtime/inbound.rs",
+          "original_audit_line": 136,
+          "portable_target": "../../../../protocols/wireguard/src/runtime/inbound.rs#L136"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/inbound.rs",
+          "original_audit_line": 188,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/inbound.rs#L188"
+        },
+        {
+          "source_path": "protocols/wireguard/src/runtime/inbound.rs",
+          "original_audit_line": 48,
+          "portable_target": "../../../../protocols/wireguard/src/runtime/inbound.rs#L48"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard.rs",
+          "original_audit_line": 220,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard.rs#L220"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/inbound.rs",
+          "original_audit_line": 57,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/inbound.rs#L57"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/lifecycle/linked.rs",
+          "original_audit_line": 55,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/lifecycle/linked.rs#L55"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/lifecycle/linked.rs",
+          "original_audit_line": 72,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/lifecycle/linked.rs#L72"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/lifecycle/linked.rs",
+          "original_audit_line": 141,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/lifecycle/linked.rs#L141"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/lifecycle/linked.rs",
+          "original_audit_line": 168,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/lifecycle/linked.rs#L168"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard/inbound.rs",
+          "original_audit_line": 118,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard/inbound.rs#L118"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/raw_ip/device/endpoint.rs",
+          "original_audit_line": 219,
+          "portable_target": "../../../../crates/proxy/src/runtime/raw_ip/device/endpoint.rs#L219"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_operation/raw_ip/run.rs",
+          "original_audit_line": 12,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_operation/raw_ip/run.rs#L12"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_operation/raw_ip/run.rs",
+          "original_audit_line": 38,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_operation/raw_ip/run.rs#L38"
+        },
+        {
+          "source_path": "protocols/wireguard/src/runtime/inbound.rs",
+          "original_audit_line": 182,
+          "portable_target": "../../../../protocols/wireguard/src/runtime/inbound.rs#L182"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_operation/raw_ip/outer.rs",
+          "original_audit_line": 70,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_operation/raw_ip/outer.rs#L70"
+        },
+        {
+          "source_path": "crates/proxy/src/adapters/wireguard.rs",
+          "original_audit_line": 258,
+          "portable_target": "../../../../crates/proxy/src/adapters/wireguard.rs#L258"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_operation/raw_ip/run.rs",
+          "original_audit_line": 303,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_operation/raw_ip/run.rs#L303"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/raw_ip/device/endpoint.rs",
+          "original_audit_line": 104,
+          "portable_target": "../../../../crates/proxy/src/runtime/raw_ip/device/endpoint.rs#L104"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/raw_ip/device/completion.rs",
+          "original_audit_line": 3,
+          "portable_target": "../../../../crates/proxy/src/runtime/raw_ip/device/completion.rs#L3"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/raw_ip/device.rs",
+          "original_audit_line": 145,
+          "portable_target": "../../../../crates/proxy/src/runtime/raw_ip/device.rs#L145"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/raw_ip/device.rs",
+          "original_audit_line": 190,
+          "portable_target": "../../../../crates/proxy/src/runtime/raw_ip/device.rs#L190"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/raw_ip/pool.rs",
+          "original_audit_line": 187,
+          "portable_target": "../../../../crates/proxy/src/runtime/raw_ip/pool.rs#L187"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_owners/entry/terminal.rs",
+          "original_audit_line": 140,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_owners/entry/terminal.rs#L140"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_owners/entry/pending_bound/tree.rs",
+          "original_audit_line": 144,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_owners/entry/pending_bound/tree.rs#L144"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/listeners/inbound/spawn.rs",
+          "original_audit_line": 108,
+          "portable_target": "../../../../crates/proxy/src/runtime/listeners/inbound/spawn.rs#L108"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_operation/contract.rs",
+          "original_audit_line": 14,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_operation/contract.rs#L14"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_owners/entry/terminal.rs",
+          "original_audit_line": 161,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_owners/entry/terminal.rs#L161"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_owners/entry/terminal.rs",
+          "original_audit_line": 190,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_owners/entry/terminal.rs#L190"
+        },
+        {
+          "source_path": "crates/proxy/src/runtime/inbound_owners/entry/shutdown.rs",
+          "original_audit_line": 104,
+          "portable_target": "../../../../crates/proxy/src/runtime/inbound_owners/entry/shutdown.rs#L104"
+        },
+        {
+          "source_path": "protocols/wireguard/tests/runtime.rs",
+          "original_audit_line": 185,
+          "portable_target": "../../../../protocols/wireguard/tests/runtime.rs#L185"
+        },
+        {
+          "source_path": "protocols/wireguard/tests/runtime.rs",
+          "original_audit_line": 206,
+          "portable_target": "../../../../protocols/wireguard/tests/runtime.rs#L206"
+        }
+      ]
     }
   ],
   "root24": "Frozen3d0c49fa clean. Actual grpc9/1 original typed H2 reset source lost, HTTP/Trojan/SOCKS dispatch target COMPILE BLOCKED missing Trojan EventSource, strict large enum failure. Recovery2/0, DirectEndpoint17/0, sources2/0, wrappers1/0, retained9/0, coldcancel1/0, snapshot1/0, peers12/0, UDPidle2/0, HTTPcomponent3/0 pure11/0, health12/0, diagnostic4/0, originalgrpc1/0, contracts8/0, minimal/fmt/check PASS. All failures retained, no aggregate qualification.",
   "root25": "Frozen2e7ce766 clean. fmt/check PASS, grpc10/0 including unchanged typed-source assertion; actual Ready ACK1/0 beyond5sec, recovery2/0, HTTP14/0, Trojan new3/0+original3/0, SOCKSTCP20/0 UDP29/0, originalgrpc1/0, static189/0+26/0. Peer14/1 panic Display assertion later fixed to exact original error Arc+TaskId/class; strict socks fixture type complexity later fixed. No global qualification.",
   "root26": "Frozen dfee9029 clean. fmt/check/minimal PASS. VMess library22/0 (same actual replay authority/fullauth) contracts11/0, peer15/0 with actual original Arc/TaskID/class assertion; static189/0+26/0. proxy_dispatch COMPILE BLOCKED because root VMess fixture referenced private request type (fixed77490b66 via existing public bundle), dependent integrations NOT RUN. strict DNS needless_return failure (fixed4ec6). No global qualification.",
   "post26": "Superseded by root27–31 actual results. New pre-native TCP owner/registry lease and same-view adapter are isolated WIP, not yet Cargo tested; cold VMess/Trojan profile mutation discovered and being staged while preserving genuine post-reconcile managed-user hot updates. Shared resource production activation and RuntimeHostM4/ALL17 remain incomplete.",
-  "latest_runtime_code_commit": "f96b7600162c97eda4e97503bfc33ff8925cfd42",
-  "latest_runtime_tree": "cf95c11038f9dfdfc026c94e65e6f6bf983d827a",
+  "latest_runtime_code_commit": "7a2670a4ac50e92e37758806df6d40552fc7509d",
+  "latest_runtime_tree": "de87a8e6cf751b31e6cbd4b94cfee2c51e9aa1d1",
   "root27": "5f774fa5: actual wire VMess new2/original7, HTTP14, Trojan3 PASS; full check PASS; transport/proxy lib compile blocked by path/privateLife/constructor API drift, fixed later. New VLESS2 FAIL invalid anonymous+device_limit fixture; original principal identity regression independently PASS pinned old binary. strict and static original failures retained.",
   "root28": "67071c99: whole workspace allfeatures/alltargets and fmt PASS, no runtime claim.",
   "VLESS_invalid_fixture": "Logging-only9a6547f5 captured exact device-limited session has no principal identity. Separate validfixture7770 preserves full7 auth raw/TLS and adds principalNone/rates-only. No Engine/admission/timer/wire weakening. Original principal regression frozen27 binary9e312... PASS1. Raw logs and hashes retained.",
@@ -3889,5 +4993,1139 @@
       "CLI Tokio census, user queue bytes and exact native attempts remain null.",
       "Old/current library observations are separate profiles; not interchangeable with CLI."
     ]
+  },
+  "latest_alltargets_pass_commit": "7a2670a4ac50e92e37758806df6d40552fc7509d",
+  "rounds35_38": {
+    "35": {
+      "head": "68c166321194a20921ced96a8bdd1d22be97099b",
+      "tree": "af808fbce7de3dca25c7ea003f0e918776df0717",
+      "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+      "commands": [
+        {
+          "name": "fmt",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--check"
+          ],
+          "exit": 0,
+          "seconds": 4.847518050999497,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-fmt.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "argv": [
+            "cargo",
+            "check",
+            "--locked",
+            "--workspace",
+            "--all-features",
+            "--all-targets"
+          ],
+          "exit": 0,
+          "seconds": 84.18343703099526,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-workspace-alltargets-check.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "test-layout",
+          "argv": [
+            "python3",
+            "scripts/check-test-layout.py"
+          ],
+          "exit": 0,
+          "seconds": 0.11873074898903724,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-test-layout.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "component-unit",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "zero-proxy",
+            "--all-features",
+            "--lib",
+            "component::"
+          ],
+          "exit": 0,
+          "seconds": 144.87688504300604,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-component-unit.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            128,
+            0,
+            0
+          ],
+          "selected_test_count": 128,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "source-runtime-guard",
+          "argv": [
+            "python3",
+            "/workspace/core-next/run-source-guard.py",
+            "runtime"
+          ],
+          "exit": 101,
+          "seconds": 1.4404184220038587,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-source-runtime-guard.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            188,
+            1,
+            0
+          ],
+          "selected_test_count": 189,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "source-architecture-guard",
+          "argv": [
+            "python3",
+            "/workspace/core-next/run-source-guard.py",
+            "architecture"
+          ],
+          "exit": 0,
+          "seconds": 0.48938318000000436,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-35-source-architecture-guard.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            26,
+            0,
+            0
+          ],
+          "selected_test_count": 26,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        }
+      ]
+    },
+    "36": {
+      "head": "eb7371f50ac944b0acb82e94085c3407f1c8b3d6",
+      "tree": "b67535c4d16eaf4e1b1addacc95b4da6754eafd2",
+      "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+      "commands": [
+        {
+          "name": "fmt",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--check"
+          ],
+          "exit": 0,
+          "seconds": 5.805225774995051,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-36-fmt.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "argv": [
+            "cargo",
+            "check",
+            "--locked",
+            "--workspace",
+            "--all-features",
+            "--all-targets"
+          ],
+          "exit": 101,
+          "seconds": 15.180003929999657,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-36-workspace-alltargets-check.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        }
+      ]
+    },
+    "37": {
+      "head": "0ee7c39d971b6656c837c68222cf2213ac210a50",
+      "tree": "925ec6fd2a1c48af886ac70feaa4ee51fb0b251d",
+      "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+      "commands": [
+        {
+          "name": "fmt",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--check"
+          ],
+          "exit": 0,
+          "seconds": 5.105755541997496,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-fmt.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "argv": [
+            "cargo",
+            "check",
+            "--locked",
+            "--workspace",
+            "--all-features",
+            "--all-targets"
+          ],
+          "exit": 0,
+          "seconds": 103.0208888079942,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-workspace-alltargets-check.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "test-layout",
+          "argv": [
+            "python3",
+            "scripts/check-test-layout.py"
+          ],
+          "exit": 0,
+          "seconds": 0.10816798800078686,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-test-layout.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "transport-library",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "zero-transport",
+            "--all-features",
+            "--lib"
+          ],
+          "exit": 101,
+          "seconds": 191.9056238310004,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-transport-library.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": false,
+          "lock_unchanged": true
+        },
+        {
+          "name": "vmess-library",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "vmess",
+            "--all-features",
+            "--lib"
+          ],
+          "exit": 0,
+          "seconds": 11.999188320987741,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-vmess-library.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            25,
+            0,
+            0
+          ],
+          "selected_test_count": 25,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "component-unit",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "zero-proxy",
+            "--all-features",
+            "--lib",
+            "component::"
+          ],
+          "exit": 0,
+          "seconds": 190.30554533199756,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-component-unit.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            128,
+            0,
+            0
+          ],
+          "selected_test_count": 128,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "source-runtime-guard",
+          "argv": [
+            "python3",
+            "/workspace/core-next/run-source-guard.py",
+            "runtime"
+          ],
+          "exit": 0,
+          "seconds": 1.460865268993075,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-source-runtime-guard.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            189,
+            0,
+            0
+          ],
+          "selected_test_count": 189,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "source-architecture-guard",
+          "argv": [
+            "python3",
+            "/workspace/core-next/run-source-guard.py",
+            "architecture"
+          ],
+          "exit": 0,
+          "seconds": 0.4049869180016685,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-37-source-architecture-guard.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            26,
+            0,
+            0
+          ],
+          "selected_test_count": 26,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        }
+      ]
+    },
+    "38": {
+      "head": "dafcf04f83a1007b075832f27ae56ddc7559c61e",
+      "tree": "821c5a8b4ec96f918126a5935c4506efd48b104e",
+      "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+      "commands": [
+        {
+          "name": "fmt",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--check"
+          ],
+          "exit": 0,
+          "seconds": 5.4020204929984175,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-38-fmt.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "transport-library",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "zero-transport",
+            "--all-features",
+            "--lib"
+          ],
+          "exit": 101,
+          "seconds": 26.913754054010496,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-38-transport-library.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            194,
+            1,
+            1
+          ],
+          "selected_test_count": 196,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "argv": [
+            "cargo",
+            "check",
+            "--locked",
+            "--workspace",
+            "--all-features",
+            "--all-targets"
+          ],
+          "exit": 101,
+          "seconds": 113.24164396899869,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-38-workspace-alltargets-check.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        }
+      ]
+    }
+  },
+  "root35": "68c16632: fmt/alltargets/layout PASS; component128/0, runtime guard188/1, architecture26/0. cold test fixture concrete-gate violation fixed in c1a2ced0; root37 runtime189/0 is successor evidence, not a rewrite.",
+  "root36": "eb7371f5: fmt PASS, alltargets compile blocked by four ambiguous fixture methods; no runtime command executed.",
+  "root37": "0ee7c39d: fmt/alltargets/layout PASS; whole transport hung and SIGTERM, counts=null/coverage_ok=false; individual managedH2 six and grpc single two ok cannot qualify the whole library. VMess25/0, component128/0, runtime189/0, architecture26/0.",
+  "root38": "dafcf04f: fmt PASS; transport194/1/1 FAIL (original logical hang regression now ok, new Head cleanup fixture BrokenPipe failure retained); managedH2 twelve individual cases ok; alltargets FAIL zero-proxy4lib+10libtest. Other intended scopes not run.",
+  "post38_status": "Stops at root38 partial failures. Root4229afb7 compile repair and subsequent response-fixture repair/root39 are not qualified by this stage. No full ALL17/RuntimeHost M4/shared-resource/platform/final-head or downstream qualification.",
+  "root37_hang_diagnostic": {
+    "scope": "historical diagnosis only; temporary instrumentation not production qualification",
+    "capture": "diagnostics/root37/pr05-parallel-37-transport-hang.json",
+    "binary_metadata": "diagnostics/root37/binary-identities.json",
+    "source_restore": "diagnostics/root37/pr05-parallel-37-diagnostic-restore.json",
+    "source_restore_verification": "diagnostics/root37/restore-verification.json",
+    "original_case": "grpc::owned::tests::logical::actual_remote_h2_stream_limit_bounds_pending_demands_and_cancellation_preserves_shared_carrier",
+    "original_inner_timeout_seconds": 7,
+    "original_binary_repro_exit": -15,
+    "instrumented_runs_not_qualification": true,
+    "strace": {
+      "per_pid_traces": [
+        "diagnostics/root37/pr05-parallel-37-grpc-logical-strace.529818",
+        "diagnostics/root37/pr05-parallel-37-grpc-logical-strace.529819"
+      ],
+      "single_case_observed_pass_under_strace": true,
+      "does_not_negate_original_hang": true
+    },
+    "source_diagnosis": "Head Shared strongly owned its registered waker and Pending ResponseFuture. H2 can drop that waker while holding streams.inner; last Shared drop re-enters drop_stream_ref on the same mutex. WakeRelay is separated from Shared to break this ownership/re-entry path.",
+    "integrated_fix_commit": "dafcf04f83a1007b075832f27ae56ddc7559c61e",
+    "equivalent_worker_fix_commit": "687da883ace5a3307a40712a43daf11146274f87",
+    "root38_original_case_pass": true,
+    "root38_new_cleanup_fixture_pass": false,
+    "no_proc_stack_or_gdb_claim": true
+  },
+  "individual_transport_observations37_38": {
+    "37": {
+      "managed_h2_individual_ok": [
+        "split_http::managed_h2::tests::body::delegate_rejection_wakes_an_already_pending_response_body_with_the_same_first_arc",
+        "split_http::managed_h2::tests::outer::dropping_the_last_sender_keeps_the_real_pending_upload_delegate_until_owner_cancellation",
+        "split_http::managed_h2::tests::rejection::active_and_queued_delegates_share_one_finite_budget_and_error_retains_no_rejected_future",
+        "split_http::managed_h2::tests::rejection::actual_hyper_delegate_rejection_wakes_pending_request_with_the_same_original_source",
+        "split_http::managed_h2::tests::wire::dropping_unclaimed_handshake_result_never_refunds_original_native_capacity",
+        "split_http::managed_h2::tests::wire::original_h2_wire_runs_in_one_registered_aggregate_and_native_close_waits_for_join"
+      ],
+      "grpc_single_individual_ok": [
+        "grpc::tests::single::single_client_cold_validation_checks_the_full_service_set",
+        "grpc::tests::single::single_client_keeps_original_framing_and_reverse_half_close_without_spawning_workers"
+      ],
+      "not_a_whole_suite_pass": true
+    },
+    "38": {
+      "managed_h2_individual_ok": [
+        "split_http::managed_h2::tests::body::delegate_rejection_wakes_an_already_pending_response_body_with_the_same_first_arc",
+        "split_http::managed_h2::tests::outer::dropping_the_last_sender_keeps_the_real_pending_upload_delegate_until_owner_cancellation",
+        "split_http::managed_h2::tests::rejection::active_and_queued_delegates_share_one_finite_budget_and_error_retains_no_rejected_future",
+        "split_http::managed_h2::tests::rejection::actual_hyper_delegate_rejection_wakes_pending_request_with_the_same_original_source",
+        "split_http::managed_h2::tests::sources::physical::cancellation_observed_before_peer_reset_keeps_first_arc_without_inventing_an_unpolled_io_error",
+        "split_http::managed_h2::tests::sources::physical::real_tcp_reset_keeps_original_os_and_connmaperr_h2_objects_before_actual_join_and_close",
+        "split_http::managed_h2::tests::sources::poll::actual_hyper_handshake_error_and_original_injected_payload_survive_in_typed_evidence",
+        "split_http::managed_h2::tests::sources::poll::eof_and_pending_reads_never_fabricate_an_original_io_failure",
+        "split_http::managed_h2::tests::sources::poll::every_original_poll_error_retains_the_same_native_object_and_vectored_behavior",
+        "split_http::managed_h2::tests::sources::reset::stream_reset_keeps_its_original_hyper_h2_error_and_sibling_succeeds_on_the_same_connection",
+        "split_http::managed_h2::tests::wire::dropping_unclaimed_handshake_result_never_refunds_original_native_capacity",
+        "split_http::managed_h2::tests::wire::original_h2_wire_runs_in_one_registered_aggregate_and_native_close_waits_for_join"
+      ],
+      "grpc_single_individual_ok": [
+        "grpc::tests::single::single_client_cold_validation_checks_the_full_service_set",
+        "grpc::tests::single::single_client_keeps_original_framing_and_reverse_half_close_without_spawning_workers"
+      ],
+      "not_a_whole_suite_pass": true
+    }
+  },
+  "wireguard_stopold_recovery_review": {
+    "scope": "read-only design audit, not implementation, activation or qualification",
+    "implemented": false,
+    "runtime_validated": false,
+    "original_raw_gzip": "evidence/parallel-progress/wireguard-stopold-recovery-review.md.gz",
+    "original_raw_sha256": "b9736f077be1d40428fbe1ebe5b4b4b9cc691b14b109a7f18e4847b63cb3fb6c",
+    "portable_copy": "diagnostics/wireguard-stopold-recovery-review.md",
+    "portable_raw_sha256": "656e4c9c1635fff5ad76737d86d6ca8739379bef945c9029056438d5f314e867",
+    "portable_source_link_count": 53,
+    "gap": "same actual WG security/history object may be retained across new FDs; opaque recovery capsule, actual native/control obligations, join/close, candidate cleanup, last-good recovery, ancillary and cold/staged device wiring remain unimplemented."
+  },
+  "round39": {
+    "head": "7a2670a4ac50e92e37758806df6d40552fc7509d",
+    "tree": "de87a8e6cf751b31e6cbd4b94cfee2c51e9aa1d1",
+    "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+    "commands": [
+      {
+        "name": "fmt",
+        "argv": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit": 0,
+        "seconds": 4.551409793988569,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-fmt.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": null,
+        "selected_test_count": 0,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "workspace-alltargets-check",
+        "argv": [
+          "cargo",
+          "check",
+          "--locked",
+          "--workspace",
+          "--all-features",
+          "--all-targets"
+        ],
+        "exit": 0,
+        "seconds": 106.23187437799061,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-workspace-alltargets-check.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": null,
+        "selected_test_count": 0,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "test-layout",
+        "argv": [
+          "python3",
+          "scripts/check-test-layout.py"
+        ],
+        "exit": 0,
+        "seconds": 0.11326052999356762,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-test-layout.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": null,
+        "selected_test_count": 0,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "transport-library",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "zero-transport",
+          "--all-features",
+          "--lib"
+        ],
+        "exit": 0,
+        "seconds": 23.56305099200108,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-transport-library.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          195,
+          0,
+          1
+        ],
+        "selected_test_count": 196,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "platform-unit",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "zero-platform-tokio",
+          "--all-features",
+          "--lib"
+        ],
+        "exit": 0,
+        "seconds": 4.3404279989917995,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-platform-unit.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          92,
+          0,
+          1
+        ],
+        "selected_test_count": 93,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "platform-contracts-all",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "zero-platform-tokio",
+          "--all-features",
+          "--test",
+          "platform_contracts"
+        ],
+        "exit": 0,
+        "seconds": 3.8694592120009474,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-platform-contracts-all.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          82,
+          0,
+          0
+        ],
+        "selected_test_count": 82,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "windows-platform",
+        "argv": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "zero-platform-tokio",
+          "--tests",
+          "--target",
+          "x86_64-pc-windows-gnu"
+        ],
+        "exit": 0,
+        "seconds": 2.281130250004935,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-windows-platform.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": null,
+        "selected_test_count": 0,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "vmess-library",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "vmess",
+          "--all-features",
+          "--lib"
+        ],
+        "exit": 0,
+        "seconds": 10.539863931000582,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-vmess-library.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          25,
+          0,
+          0
+        ],
+        "selected_test_count": 25,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "vmess-minimal",
+        "argv": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "zero-proxy",
+          "--no-default-features",
+          "--features",
+          "vmess"
+        ],
+        "exit": 0,
+        "seconds": 26.060445038005128,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-vmess-minimal.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": null,
+        "selected_test_count": 0,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "proxy-library",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "zero-proxy",
+          "--all-features",
+          "--lib"
+        ],
+        "exit": 0,
+        "seconds": 179.63363516399113,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-proxy-library.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          648,
+          0,
+          2
+        ],
+        "selected_test_count": 650,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "proxy-dispatch-all",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "zero-proxy",
+          "--all-features",
+          "--test",
+          "proxy_dispatch"
+        ],
+        "exit": 0,
+        "seconds": 145.72642130100576,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-proxy-dispatch-all.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          99,
+          0,
+          0
+        ],
+        "selected_test_count": 99,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "vless-proxy-all",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "zero-proxy",
+          "--all-features",
+          "--test",
+          "proxy_vless"
+        ],
+        "exit": 0,
+        "seconds": 26.328906246999395,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-vless-proxy-all.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          52,
+          0,
+          1
+        ],
+        "selected_test_count": 53,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "wireguard-inbound-all",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "zero-proxy",
+          "--all-features",
+          "--test",
+          "wireguard_inbound"
+        ],
+        "exit": 101,
+        "seconds": 23.722687831992516,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-wireguard-inbound-all.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          5,
+          2,
+          1
+        ],
+        "selected_test_count": 8,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "source-runtime-guard",
+        "argv": [
+          "python3",
+          "/workspace/core-next/run-source-guard.py",
+          "runtime"
+        ],
+        "exit": 101,
+        "seconds": 1.0902966419962468,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-source-runtime-guard.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          186,
+          3,
+          0
+        ],
+        "selected_test_count": 189,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "source-architecture-guard",
+        "argv": [
+          "python3",
+          "/workspace/core-next/run-source-guard.py",
+          "architecture"
+        ],
+        "exit": 0,
+        "seconds": 0.3563951809919672,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-source-architecture-guard.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": [
+          26,
+          0,
+          0
+        ],
+        "selected_test_count": 26,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      },
+      {
+        "name": "strict",
+        "argv": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "--workspace",
+          "--all-targets",
+          "--all-features",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 101,
+        "seconds": 16.310173078993103,
+        "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-39-strict.txt",
+        "head_unchanged": true,
+        "source_clean": true,
+        "counts": null,
+        "selected_test_count": 0,
+        "coverage_ok": true,
+        "lock_unchanged": true
+      }
+    ]
+  },
+  "root39": "7a2670a4: fmt/alltargets/layout PASS; transport195/0/1 platform92/0/1 contracts82/0; Windows GNU compile-only and VMess minimal compile PASS; VMess25/0 proxy648/0/2 dispatch99/0 VLESS52/0/1; WG5/2/1 FAIL original recovery assertions; runtime186/3 FAIL; architecture26/0; strict FAIL three transport fixture lints, later private deadcode not qualified.",
+  "post39_status": "Frozen39 remains partial and failed. Later integration/repairs and any current31 profiling are not final-head or ALL17 qualification. Historical failures retained; no whole-workspace tests/release/downstream/platform-runtime/performance qualification added.",
+  "through39_preparation": {
+    "previous_stage": "/workspace/core-next/progress-through38",
+    "previous_records": 451,
+    "previous_manifest_sha256": "c9e85021a9f7269d80ad724c55a06b489cf17fbc6ee1801c6c04c56d151d0570",
+    "previous_progress_sha256": "6d421cf13947e3430dd9c83acbd74712c61d63058effb24a45f5f02660e13b64",
+    "previous_stage_verification_sha256": "ef8caeb5f3dcc3936ecb8b0e2ab1aa72ca93e1f304b729bdd5fb25906bd3d870",
+    "inherited_records_and_gzip_and_raw_byte_identical": true,
+    "new_frozen_command_artifacts": 17,
+    "new_preparation_scripts": 2,
+    "independent_log_checks": [
+      {
+        "name": "fmt",
+        "exit": 0,
+        "counts": null,
+        "selected_test_count": 0,
+        "raw_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "workspace-alltargets-check",
+        "exit": 0,
+        "counts": null,
+        "selected_test_count": 0,
+        "raw_log_sha256": "a1be059c22b054c35d918cbfeb1769cc9eef237142232ed44e37672d1d0e9d2d",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "test-layout",
+        "exit": 0,
+        "counts": null,
+        "selected_test_count": 0,
+        "raw_log_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "transport-library",
+        "exit": 0,
+        "counts": [
+          195,
+          0,
+          1
+        ],
+        "selected_test_count": 196,
+        "raw_log_sha256": "dd58bb6c78a18d252cf423714e42a9e28ed509045b4e9f29e8b253674593610d",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "platform-unit",
+        "exit": 0,
+        "counts": [
+          92,
+          0,
+          1
+        ],
+        "selected_test_count": 93,
+        "raw_log_sha256": "496ba789353685689ad86a03c456a7dd88b36d5cb4f5c8c3032c10ff0599f84a",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "platform-contracts-all",
+        "exit": 0,
+        "counts": [
+          82,
+          0,
+          0
+        ],
+        "selected_test_count": 82,
+        "raw_log_sha256": "2bb48331621d4881de28ef50add7a98b8f548090934f2ebf20fb51f451bcf622",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "windows-platform",
+        "exit": 0,
+        "counts": null,
+        "selected_test_count": 0,
+        "raw_log_sha256": "89adc502635cebcdc017bfd0dc6f30b49251d5e9439037818958691e6b2c79e6",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "vmess-library",
+        "exit": 0,
+        "counts": [
+          25,
+          0,
+          0
+        ],
+        "selected_test_count": 25,
+        "raw_log_sha256": "98586b2ab38367a9ec1124f15a6c5ca1f640d1d1cf08ddb3b5487aa5f6d1d8a6",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "vmess-minimal",
+        "exit": 0,
+        "counts": null,
+        "selected_test_count": 0,
+        "raw_log_sha256": "8a0d6e7e2d977353508a05ed32579d78a005d8fa2a0dcac45d133ffbede2519d",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "proxy-library",
+        "exit": 0,
+        "counts": [
+          648,
+          0,
+          2
+        ],
+        "selected_test_count": 650,
+        "raw_log_sha256": "8c5f656b6856798d411dc7d7a95a963c8324daffa7784b33f4d1df765c5a5331",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "proxy-dispatch-all",
+        "exit": 0,
+        "counts": [
+          99,
+          0,
+          0
+        ],
+        "selected_test_count": 99,
+        "raw_log_sha256": "2744b306337acfd7568dbb8e4f62a8c1e69f36826099f94e3f80c9222d9998ce",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "vless-proxy-all",
+        "exit": 0,
+        "counts": [
+          52,
+          0,
+          1
+        ],
+        "selected_test_count": 53,
+        "raw_log_sha256": "c95c134e2990f850035215181828d9c9edaf7ced18b8389d5268fb501cdacb3d",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "wireguard-inbound-all",
+        "exit": 101,
+        "counts": [
+          5,
+          2,
+          1
+        ],
+        "selected_test_count": 8,
+        "raw_log_sha256": "c9d5cce881acc0bfd9cb61e18c21048d8bf8d42689ce528c24aae538346d4b0f",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "source-runtime-guard",
+        "exit": 101,
+        "counts": [
+          186,
+          3,
+          0
+        ],
+        "selected_test_count": 189,
+        "raw_log_sha256": "6a35a951dd589ecc5d1f05f0d54de0a8105b119862ef581d06d5832c864d18a0",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "source-architecture-guard",
+        "exit": 0,
+        "counts": [
+          26,
+          0,
+          0
+        ],
+        "selected_test_count": 26,
+        "raw_log_sha256": "acb3cd63a05691371d8bba8567abeed7775c08e26aefab73ca9c27e86b7c44f4",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      },
+      {
+        "name": "strict",
+        "exit": 101,
+        "counts": null,
+        "selected_test_count": 0,
+        "raw_log_sha256": "95e980014e5b881b419720b981e71e51a790a372f4c8a0e393f782278aca650c",
+        "parsed_count_matches_manifest": true,
+        "frozen_source_flags_all_true": true
+      }
+    ],
+    "fixed_git_tree_verified": true,
+    "seven_original_binaries_rehashed_no_execution": [
+      {
+        "path": "/workspace/core-baseline-artifacts/zero-transport-root37-hang-instrumented",
+        "bytes": 65071816,
+        "sha256": "e40da5f0eb30e567b1db2a9c6297d0336a9c8a68d8657d5836a6231a6f61a5a0",
+        "executed": false,
+        "copied": false
+      },
+      {
+        "path": "/workspace/core-baseline-artifacts/zero-transport-root37-hang-original",
+        "bytes": 65054264,
+        "sha256": "43ad7ac9a302a18946479dbe8e57ef30cb8cb3ac78de8420f66e2dfe26f624a9",
+        "executed": false,
+        "copied": false
+      },
+      {
+        "path": "/workspace/core-baseline-artifacts/zero-transport-root37-scope-instrumented",
+        "bytes": 65075552,
+        "sha256": "8e9fe26e5e00a5e6e8cdbb7641d6cc4b0c86090111581869c543b43ae2769876",
+        "executed": false,
+        "copied": false
+      },
+      {
+        "path": "/workspace/core-baseline-artifacts/zero-transport-root37-shutdown-branches",
+        "bytes": 65075216,
+        "sha256": "cb8b83e30a47cf6c8d58fc7fd3b3e088ff4d0c9e1475cbf2b136b3c37c577bcb",
+        "executed": false,
+        "copied": false
+      },
+      {
+        "path": "/workspace/core-baseline-artifacts/zero-transport-root37-shutdown-instrumented",
+        "bytes": 65055056,
+        "sha256": "40a4d57639dfe74b73756b300d4de1d1f9ba75d0ba574653c197ff069bd71a12",
+        "executed": false,
+        "copied": false
+      },
+      {
+        "path": "/workspace/core-baseline-artifacts/zero-release",
+        "bytes": 58579864,
+        "sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+        "executed": false,
+        "copied": false
+      },
+      {
+        "path": "/workspace/core-baseline-artifacts/zero-matched-current-9e3f3ed3",
+        "bytes": 64142136,
+        "sha256": "b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd",
+        "executed": false,
+        "copied": false
+      }
+    ],
+    "does_not_include_later_smaps_run": true,
+    "all17_passed": false
+  },
+  "root39_successor_observations": {
+    "root37_original_logical_seven_second_regression": "actual ok; no historical root37 aggregate counts invented",
+    "root38_new_head_cleanup_fixture": "actual ok; original root38 BrokenPipe failure preserved",
+    "root38_proxy_compile_failures": "frozen39 alltargets actual exit0; historical 4lib/10libtest errors preserved",
+    "runtime_guard_regression": "186/3, inline noStandby test declarations/tokens in generic listener file; original assertions retained",
+    "wireguard_original_recovery_expectations": "5/2/1; two actual failed-reload/failed-bind recovery timeouts retained; audit still read-only and unimplemented"
   }
 }

@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "/workspace/core-baseline-artifacts/zero-transport-root37-scope-instrumented",
+    "grpc::owned::tests::logical::actual_remote_h2_stream_limit_bounds_pending_demands_and_cancellation_preserves_shared_carrier",
+    "--exact",
+    "--nocapture",
+    "--test-threads=1"
+  ],
+  "scope_source": "pr05-parallel-37-scope-instrumented.rs",
+  "test_source": "pr05-parallel-37-grpc-shutdown-branches-instrumented.rs",
+  "lifecycle_source": "pr05-parallel-37-grpc-lifecycle-instrumented.rs",
+  "binary_sha256": "8e9fe26e5e00a5e6e8cdbb7641d6cc4b0c86090111581869c543b43ae2769876",
+  "exit": -15,
+  "seconds": 15.255604898004094,
+  "outer_diagnostic_timeout": true,
+  "log": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-scope-instrumented.txt",
+  "qualification": false
+}

@@ -1,0 +1,45 @@
+{
+  "head": "0ee7c39d",
+  "time": "2026-10-20T09:13:18.563853+00:00",
+  "pid": 527974,
+  "binary": "/workspace/core-baseline-artifacts/zero-transport-root37-hang-original",
+  "binary_sha256": "43ad7ac9a302a18946479dbe8e57ef30cb8cb3ac78de8420f66e2dfe26f624a9",
+  "scope": "whole transport library incomplete; original logical remote-H2 test hangs despite inner7s timeout; other selected tests not aggregate qualification",
+  "proc": {
+    "status": "Name:\tzero_transport-\nUmask:\t0077\nState:\tS (sleeping)\nTgid:\t527974\nNgid:\t0\nPid:\t527974\nPPid:\t527889\nTracerPid:\t0\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\nFDSize:\t64\nGroups:\t \nNStgid:\t527974\nNSpid:\t527974\nNSpgid:\t527074\nNSsid:\t527074\nKthread:\t0\nVmPeak:\t  598740 kB\nVmSize:\t  484220 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t   42696 kB\nVmRSS:\t   42648 kB\nRssAnon:\t    9612 kB\nRssFile:\t   33036 kB\nRssShmem:\t       0 kB\nVmData:\t   69236 kB\nVmStk:\t     136 kB\nVmExe:\t   26008 kB\nVmLib:\t    2228 kB\nVmPTE:\t     204 kB\nVmSwap:\t       0 kB\nHugetlbPages:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t1\nuntag_mask:\t0xffffffffffffffff\nThreads:\t2\nSigQ:\t0/71955\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000000001000\nSigCgt:\t0000000100000440\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapBnd:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\nSeccomp_filters:\t1\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\talways enabled\nCpus_allowed:\t1f\nCpus_allowed_list:\t0-4\nMems_allowed:\t00000000,00000001\nMems_allowed_list:\t0\nvoluntary_ctxt_switches:\t516\nnonvoluntary_ctxt_switches:\t0\n",
+    "cmdline": "/workspace/core-target/debug/deps/zero_transport-3f3de94558daccaa ",
+    "stat": "527974 (zero_transport-) S 527889 527074 527074 0 -1 4194560 7667 0 0 0 298 13 0 0 20 0 2 0 6768179 495841280 10602 18446744073709551615 1 1 0 0 0 0 0 4096 1088 0 0 0 17 4 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
+    "wchan": "0"
+  },
+  "probe_block": "kernel denied proc stack/syscall reads; no gdb installed; continue using process snapshot and instrumented reproduction, no approval required",
+  "threads": {
+    "527974": {
+      "comm": "zero_transport-\n",
+      "stat": "527974 (zero_transport-) S 527889 527074 527074 0 -1 4194560 781 0 0 0 0 2 0 0 20 0 2 0 6768179 495841280 10602 18446744073709551615 1 1 0 0 0 0 0 4096 1088 0 0 0 17 4 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
+      "wchan": "0",
+      "stack": "[Errno 13] Permission denied",
+      "syscall": "[Errno 1] Operation not permitted"
+    },
+    "528007": {
+      "comm": "grpc::owned::te\n",
+      "stat": "528007 (grpc::owned::te) S 527889 527074 527074 0 -1 4194368 66 0 0 0 0 0 0 0 20 0 2 0 6768236 495841280 10602 18446744073709551615 1 1 0 0 0 0 0 4096 1088 0 0 0 -1 3 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
+      "wchan": "0",
+      "stack": "[Errno 13] Permission denied",
+      "syscall": "[Errno 1] Operation not permitted"
+    }
+  },
+  "fds": {
+    "0": "[Errno 13] Permission denied: '/proc/527974/fd/0'",
+    "1": "[Errno 13] Permission denied: '/proc/527974/fd/1'",
+    "2": "[Errno 13] Permission denied: '/proc/527974/fd/2'",
+    "9": "[Errno 13] Permission denied: '/proc/527974/fd/9'",
+    "10": "[Errno 13] Permission denied: '/proc/527974/fd/10'",
+    "22": "[Errno 13] Permission denied: '/proc/527974/fd/22'",
+    "23": "[Errno 13] Permission denied: '/proc/527974/fd/23'",
+    "24": "[Errno 13] Permission denied: '/proc/527974/fd/24'",
+    "25": "[Errno 13] Permission denied: '/proc/527974/fd/25'",
+    "26": "[Errno 13] Permission denied: '/proc/527974/fd/26'",
+    "27": "[Errno 13] Permission denied: '/proc/527974/fd/27'",
+    "28": "[Errno 13] Permission denied: '/proc/527974/fd/28'"
+  }
+}

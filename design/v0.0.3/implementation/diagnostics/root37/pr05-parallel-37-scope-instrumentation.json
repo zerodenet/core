@@ -1,0 +1,5 @@
+{
+  "original_sha256": "94296a58ea92f883680017b635e910140a207125149bed95a11480652d5fae7e",
+  "instrumented_sha256": "0d50dc7c8475cc9624347df1bd9960612d7e3fbc0f4e3302d6787b10d1555999",
+  "scope": "temporary diagnostic only, actual locks/polls unchanged"
+}

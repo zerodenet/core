@@ -87,3 +87,51 @@ root34 证明新增 pre-native TCP owner、同实际句柄的受限视图、持�
 新归档的 [current31 内存诊断原文](diagnostics/current31-memory-review.md) 与 [派生数据](diagnostics/current31-memory-review-data/derived.json) 只读取原轨迹和固定 ELF。保留每 phase 的原数据及 readelf/size 输出 SHA；未执行新负载、二进制或 Cargo。实际差异在首次 apply/稳态已出现，之后旧、新都增长，burst 更高，关闭时观察到部分 VmRSS 回落。静态 ELF 文件/段增长、相同 compiler comments、Tokio 版本差异都不是 RSS 因果证明；缺少 smaps/allocator/实际 owner 分项，不能声称已经证实或排除泄漏。
 
 完整 stage 同时保存旧证据和 root32–34 全部新 raw 的确定性 gzip；每项解压 raw 与 gzip 的长度及 SHA-256 都已校验，诊断原文/输出原字节另存。没有 commit、push、Cargo、发布、部署或访问用户 Mac；这是一份可审阅的证据更新，不是全球资格声明。
+
+## root35–38 后继记录与真实挂起诊断（保留此前截止/失败）
+
+本节把归档推进到 **root38 `dafcf04f83a1007b075832f27ae56ddc7559c61e`**，tree `821c5a8b4ec96f918126a5935c4506efd48b104e`，lock SHA `ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764`。此前“latest/待下一冻结”等属于原历史段落，旧 fields/失败不删除。root38 自身仍失败；后继 `4229afb7` 类型修复与准备中的 root39 不在此运行资格内，**ALL17、RuntimeHost M4、完整资源替换/平台/最终 head/下游资格仍未完成**。
+
+| 冻结 | 实际范围与结果 | 限制 |
+| --- | --- | --- |
+| root35 `68c16632` | fmt、all-features/all-targets、layout 通过；component **128/0**；runtime guard **188/1**；architecture **26/0**。 | 首次失败是 `component/catalog/cold.rs` 测试的具体协议 gate 越过通用边界。后继 `c1a2ced0` 将真实 fixture 移入测试边界，root37 的 **189/0** 是后继证据，不覆盖 root35 原失败。 |
+| root36 `eb7371f5` | fmt 通过；all-targets 在四处 gRPC fixture 方法歧义处编译阻塞。 | 没有运行 runtime 测试；不能把仅 managedH2 类型无错误称为整体通过。 |
+| root37 `0ee7c39d` | fmt、workspace all-targets、layout 通过；VMess **25/0**，component **128/0**，runtime/architecture guards **189/0 + 26/0**。whole transport 原 logical remote-H2 case 挂起，实际 SIGTERM，manifest **counts=null / coverage_ok=false**。 | 日志中 managedH2 **6 个**与原 single **2 个**单项 ok，仅说明这些个体已执行，不构成 whole transport 或可相加的 aggregate counts。 |
+| root38 `dafcf04f` | fmt 通过；transport **194/1/1**（passed/failed/ignored），原挂起 logical case 已实际 ok，managedH2/source **12 个**个体 ok。新 Head cleanup fixture 在 `response.rs:132` 的原 unwrap 上得到 **BrokenPipe**，该失败保留。workspace all-targets **4 lib + 10 lib-test 编译失败**。 | transport 与 all-targets 均未通过；其余计划范围未运行，没有新 strict/workspace 全量/平台结论。忽略项不计运行通过，子范围不相加成全库资格。 |
+
+### root37 原挂起、源码自锁与修复证据
+
+原 whole-suite 进程在七秒内部 timeout 之外挂住。[原进程现场](diagnostics/root37/pr05-parallel-37-transport-hang.json) 保留 PID/thread/FD/proc 可读取内容，也保留 stack/syscall 权限拒绝；没有伪造 stack、gdb 或 FD 读数。原 immutable binary 的独立重现再次外部 SIGTERM；五个原/诊断二进制均按各运行 JSON 的 SHA 逐项读验，保存在[身份清单](diagnostics/root37/binary-identities.json)，**只保元数据与原绝对 artifact 路径，不把二进制入库、不执行或删除原文件**。
+
+全部 instrumentation JSON、构建日志、各原/阶段 `.rs`、原运行/超时 JSON/log、每 PID strace 原 trace 均归档在 `diagnostics/root37/` 并有对应确定性 gzip。strace 观察的一次原 binary 单项实际 **1/0、0.10s**，不是超时；该反例原样保留，不能改写成“始终必现”，也不能据此否定既有 whole-suite hang 或宣布修复。临时 instrumentation 只用于诊断，不作为生产资格。
+
+源码调查定位 `Head → Shared → 强 registered waker/Pending ResponseFuture` 保活与重入：h2 持 `streams.inner` 时释放该 waker，最后 Shared 销毁 PendingResponseFuture，再进 `drop_stream_ref` 请求同锁。根 **`dafcf04f`**（对应独立 worker `687da883`）把 WakeRelay 与 Shared 所有权分开。[原 Head](diagnostics/root37/root37-head-original.rs)、[固定 root38 Head](diagnostics/root37/root38-head-wake-relay.rs) 与[新回归源码](diagnostics/root37/root38-head-regression-fixture.rs) 是固定 Git 对象的副本；不是据 proc 权限不足的现场捏造的调用栈。
+
+[三文件原 restore JSON](diagnostics/root37/pr05-parallel-37-diagnostic-restore.json) 原字节保留；[独立核验](diagnostics/root37/restore-verification.json) 对 lifecycle/logical/TaskScope 的原与最后诊断版本 SHA、固定 `0ee7c39d`/`9d08459f` Git 对象逐项匹配。原 logical 测试在 root38 仍 byte-identical，**七秒 timeout、wire 和断言未放宽**；修复后该原 case 实际通过。新 cleanup fixture 的 BrokenPipe 失败仍是 root38 未通过事项，后继修复待新冻结验证。
+
+### WireGuard StopOld 恢复审计尚未实施
+
+[可移植 WG 审计副本](diagnostics/wireguard-stopold-recovery-review.md) 只分析 same actual security/history state 跨新 FD 恢复、StopOld/候选清理/last-good/capsule/native-control/ancillary 的真实缺口。源码链接已改仓库相对路径并标原审计行号；[原文 gzip](evidence/parallel-progress/wireguard-stopold-recovery-review.md.gz) 保持原字节，raw/gzip SHA 与 portable 派生 SHA 分别登记，两者明确不同。该报告不是实现、生产启用或回归通过；正常 legacy WG 空 resource 迭代可能误确认 physical complete 等缺口仍保留，不能以“同 crypto 对象可留存”推导 FD 已关闭。
+
+本更新只复制原证据、读取固定 Git 源码和核验 digest。全部旧 gzip 逐字节保留，新 gzip 确定性生成；逐项解压核 raw/gzip 长度与 SHA，所有原日志/失败/取消/未运行状态保留。没有 Cargo、产品/测试 binary、诊断负载、新源码实现、commit、push 或 Mac 操作。
+
+## root39 冻结后继记录（旧 451 条与原失败不改写）
+
+此节只推进到 **root39 `7a2670a4ac50e92e37758806df6d40552fc7509d`**，tree `de87a8e6cf751b31e6cbd4b94cfee2c51e9aa1d1`，lock SHA `ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764`。原 [manifest](evidence/parallel-progress/pr05-parallel-focused-39.json.gz) 和全部 16 条命令的日志逐项归档；16 条均记载 `head_unchanged/source_clean/lock_unchanged/coverage_ok=true`。本次只读核验固定 Git tree、原日志逐项状态/计数与原 SHA；没有重新运行这些命令。前述截止 root38 的段落和字段仍是原历史，后继成功不删除失败。
+
+| 实际 root39 范围 | 结果（passed/failed/ignored） | 资格边界 |
+| --- | --- | --- |
+| fmt、workspace all-features/all-targets check、test-layout | 全部 exit 0；layout **313 source files / 95 targets / 0 errors**。 | check 编译通过与测试执行分开。没有 workspace 全量测试或 release 构建结论。 |
+| transport library | **195/0/1**；原七秒 logical 挂起回归与新 Head cleanup fixture 均实际 ok。 | root37 SIGTERM/无 aggregate counts 与 root38 BrokenPipe 原失败继续保留；忽略项不计通过。 |
+| platform unit / platform contracts | **92/0/1 + 82/0/0**。 | 两个独立范围不合并重复计数，也不等于所有平台运行资格。 |
+| Windows GNU target / VMess minimal | 两项 `cargo check` exit 0。 | Windows 是 `--tests --target x86_64-pc-windows-gnu` **编译检查**，未运行 Windows 测试；VMess minimal 是 `--no-default-features --features vmess` 编译检查。 |
+| VMess library / Proxy library / dispatch / VLESS integration | **25/0/0；648/0/2；99/0/0；52/0/1**。 | 各自实际命令通过；不跨范围相加、忽略项不计运行通过。 |
+| WireGuard inbound | **5/2/1，exit 101**。 | 原 `zero_wireguard_inbound_routes_tcp_and_udp_from_zero_outbound` 在 `wireguard_inbound.rs:452` 失败：failed reload 后旧 listener 恢复超时。原 `linked_wireguard_endpoints_share_socket_and_peer_state_in_both_directions` 在 `:214` 失败：failed bind 后丢失 session 的恢复超时。保留两条原恢复预期，未放宽断言。 |
+| runtime source guard / architecture source guard | **186/3/0，exit 101；26/0/0，exit 0**。 | runtime 三项为 `generic_proxy_sources_gate_capabilities_not_protocol_lists`、`concrete_protocol_feature_gates_exist_only_in_adapters_and_registration`、`udp_ingress_runtime_collapses_proxy_and_services_for_session_loops`；日志均指向 generic `listeners/inbound.rs` 的 inline noStandby 测试具体协议 cfg / `proxy: &Proxy` token。后继修复尚不由本冻结证明。 |
+| workspace strict clippy | **exit 101**。 | 原 `grpc/response.rs:36/116` 两处 `redundant_async_block`，`xhttp/managed_h2/wire.rs:56` 一处 `never_loop`；在 transport lib-test 三项错误处停止，**不把尚未完成的后续 private deadcode 等 strict 检查视为通过**。 |
+
+root39 为前两轮源码修复提供具体后继证据：workspace all-targets 现 exit 0，原 logical 与 Head cleanup case 现都实际通过。源码自锁诊断、七秒原测试、原二进制 SHA、instrumentation、三文件 restore、每 PID strace 原始证据和 strace 一次成功的调度反例全部保持原字节。root35–38 的 451 条记录 JSON 字段、gzip 及其 raw 诊断副本逐字节继承，没有覆盖此前失败、取消或未运行状态。五个 root37 固定二进制和两个 old/current31 固定二进制仅重新读取并核 SHA，未复制、执行或删除。
+
+[WG 恢复只读审计](diagnostics/wireguard-stopold-recovery-review.md) 继续明确未实施；原 gzip、portable 派生副本及各自 digest 均未变。root39 两个真实恢复失败不被设计方案覆盖。后续 file/packet 或其他修复的新 HEAD、root39 之后的 current31 smaps 诊断不属于此冻结，也不被此记录授予资格。**ALL17、RuntimeHost M4、完整资源替换、最终 head、全 workspace/release、跨平台运行、下游和性能资格仍未完成。**
+
+本 stage 共 **470 条**证据记录（旧 451 + 本轮 manifest/日志 17 + 本轮制备/只读复验脚本 2）。每个 gzip 的长度/SHA、解压 raw 长度/SHA、可移植诊断副本与源码链接均核验；脚本不运行 Cargo、产品/测试 binary 或诊断负载，不修改根仓库源码/报告，不 commit/push。

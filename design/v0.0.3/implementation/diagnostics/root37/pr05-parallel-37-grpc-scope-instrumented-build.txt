@@ -1,0 +1,4 @@
+   Compiling zero-platform-tokio v0.0.3-dev.202610162206 (/workspace/core/crates/platform/tokio)
+   Compiling zero-transport v0.0.3-dev.202610162206 (/workspace/core/crates/transport)
+    Finished `test` profile [unoptimized] target(s) in 20.53s
+  Executable unittests src/lib.rs (/workspace/core-target/debug/deps/zero_transport-3f3de94558daccaa)

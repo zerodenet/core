@@ -1,0 +1,6 @@
+{
+  "base_head": "9d08459f",
+  "original_sha256": "f263e84638ca03fc651c222a44363569b2d1a3debad64967ca6771fdf6b961bc",
+  "instrumented_sha256": "d9fa78fdc3531c9be4f8bde95f8f7810d204bae47d23f247b2324c35b9764753",
+  "scope": "temporary diagnostic shutdown prints only; original assertions/wire/timeouts intact; not qualification"
+}

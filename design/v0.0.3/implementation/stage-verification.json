@@ -1,0 +1,2848 @@
+{
+  "summary": {
+    "stage": "/workspace/core-next/progress-through39",
+    "scope": "through39 partial evidence only; ALL17 and overall qualification incomplete",
+    "old_records": 451,
+    "new_runtime_records": 17,
+    "new_preparation_script_records": 2,
+    "total_records": 470,
+    "all_old_and_new_gzip_and_raw_verified": true,
+    "all_old_records_metadata_and_gzip_and_raw_byte_identical": true,
+    "all_source_inputs_unchanged": true,
+    "root_report_files_unchanged": true,
+    "seven_fixed_binaries_rehashed": true,
+    "product_binary_archived_or_executed": false,
+    "cargo_or_workload_run": false,
+    "commit_or_push": false,
+    "latest_runtime_code_commit": "7a2670a4ac50e92e37758806df6d40552fc7509d",
+    "latest_runtime_tree": "de87a8e6cf751b31e6cbd4b94cfee2c51e9aa1d1",
+    "overall_passed": false,
+    "manifest_sha256": "5b24d9d706de073bddb1006fc821b4d9fccb548da3f2196ee96855c2b030506e",
+    "progress_sha256": "9496a5f73fa85dac52e12e222150b7d8ef7779c4eb42ea8a5f6ade742c1a5b43",
+    "previous_manifest_sha256": "c9e85021a9f7269d80ad724c55a06b489cf17fbc6ee1801c6c04c56d151d0570",
+    "previous_progress_sha256": "6d421cf13947e3430dd9c83acbd74712c61d63058effb24a45f5f02660e13b64",
+    "previous_stage_verification_sha256": "ef8caeb5f3dcc3936ecb8b0e2ab1aa72ca93e1f304b729bdd5fb25906bd3d870"
+  },
+  "verified": [
+    {
+      "source": "current31-memory-review-data-current31-comment.txt",
+      "gzip_sha256": "cca1cac15f760547e0dd404e5fa928382842100b15764cc8f204760b5e8fe1d1",
+      "raw_sha256": "538261653a2041431e3e043a81ccc3548b0a7e426501e1a6f4db324520e82bbd",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-current31-dynamic.txt",
+      "gzip_sha256": "892032c3f350091907783a7f1d6217280589d3708d35046c26a683188642654d",
+      "raw_sha256": "6bc5d754877e71ac9fbe96aa40f54cb932d3235d95168032a67e74870eb5871c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-current31-sections.txt",
+      "gzip_sha256": "221f2372eae0f4f43278a9619cf40ccee19bc487c879ce4ec2772f8278b31095",
+      "raw_sha256": "2a884f27c6e980ff5797cd7ded67e070b502eef157230313c223478851e23862",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-current31-segments.txt",
+      "gzip_sha256": "36d4cdc1e5fa2b544c4d81206181288629bf4d0667aeebed184bc7fbac819edb",
+      "raw_sha256": "3c80694eacdf9dd0990ddecd2d52cfbb6d57f2f02a57a64798ea6d6ecf2913a8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-current31-size.txt",
+      "gzip_sha256": "1fe68a1cbe787e558b6245f7c6a72ee78cc7b0b0e03df694db3797a7b7823606",
+      "raw_sha256": "c4789c3b8d4fefd9e2f4852c3b53d7e52a7f4468240295a2357c85fbcc3bb10c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-derived.json",
+      "gzip_sha256": "068053b5e2d45d0a4e5e8fed240ac883cc0e203c0cb217a70a41d6e9ec7185fe",
+      "raw_sha256": "f2ab8edf67fd1f4a5e0e1b15c6194ec365691566b22291a0904acd1a078409f1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-old-comment.txt",
+      "gzip_sha256": "cca1cac15f760547e0dd404e5fa928382842100b15764cc8f204760b5e8fe1d1",
+      "raw_sha256": "538261653a2041431e3e043a81ccc3548b0a7e426501e1a6f4db324520e82bbd",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-old-dynamic.txt",
+      "gzip_sha256": "661ce030b7eeb6e606aad03dc571c65d5c4601fe67d5c3b5d5e2cce39b7e2e11",
+      "raw_sha256": "f61f316c0603d365f6ba1877b0cbf8043a3aa65e7683e3848c3a224d16f120d9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-old-sections.txt",
+      "gzip_sha256": "76216dc323090d0cbe74f621fc181637e2f08b866e714cf98ddcb38806283531",
+      "raw_sha256": "a85ac9df7811a9d469f2873099de2ab21736061b9b43eecff734247cc9b293e5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-old-segments.txt",
+      "gzip_sha256": "5f29e9517ae21876ce23a82a1ee6c826e7b776eabec6187f59182564e29fb477",
+      "raw_sha256": "90b7f156222d92203c9b707ebff5f29b7c29320cb251d85ebd3da7371fb57898",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review-data-old-size.txt",
+      "gzip_sha256": "3512b800fe785ae99cf723105fbb858b7246d6377a46bca8257695e7eee28af2",
+      "raw_sha256": "46902c41495ef4bcb392abaa925c23bea6230c2f2a4c9139a120870dacc164a1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "current31-memory-review.md",
+      "gzip_sha256": "7ab92cb69a7415b1f14f073fc124a3b168b367f73808a18922a78a6362cce1ce",
+      "raw_sha256": "1466d7fa8ebabb2f9b8c7742cc53703b9ce528cdbd04d7afddd5302f5dd5d5c2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "host-recovery-diagnostic.txt",
+      "gzip_sha256": "75c2ea41b4b4e9b491f688913c28fda2a8bc905a17ad2dd1b4ab268a4b30ba78",
+      "raw_sha256": "cea81a82680da4f6f4b4e5536a33e9c05e53137271de9a3cba781f2c21aaae64",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-27-vless-original-diagnostic.json",
+      "gzip_sha256": "d30b97608eda3af5a14f83f112db1c13d95ae660b9853a7b2c84007a77b8cd98",
+      "raw_sha256": "56363fb831fdd81080c3322c929414c233c8fb7484f342a888b63bd101b2c96c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-27-vless-original-diagnostic.txt",
+      "gzip_sha256": "d8dbbdd4b7204ddb2ae1b475d155432f0cdd603c4f5243fd3ba3c88a269b8a4b",
+      "raw_sha256": "7a129318a96864a500cc2cd5d8252fbcc049497eb88503e98962907d52299686",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-diagnostic-restore.json",
+      "gzip_sha256": "cffdbe08c0275f0445bb5898e65f11b1dba6598ebb52db9bac4980b9d314aaa2",
+      "raw_sha256": "2cd709a01839644f338af616f46ef942e93045a72564fd56e9b6abe81c5f4051",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-lifecycle-instrumentation.json",
+      "gzip_sha256": "eb2b3f74890b6eb3f16667e19e473f9cddbf142e74a42cc67b0cf5d5fa9cadb5",
+      "raw_sha256": "f6721361b0cd9ede7a7544707374c9fd71d95642b160b76679a6883ea6e8cfd9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-lifecycle-instrumented-build.txt",
+      "gzip_sha256": "e32eeda39d2d92f7a71d27fdedb972c4c3f335af98cdc12796183a3599a5a77a",
+      "raw_sha256": "7fbd55158688cf37cf598006b1e412efc59171c593a5ec4fd886ffca1fecc94a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-lifecycle-instrumented.rs",
+      "gzip_sha256": "6990b5cb7403bfbea951c1439841b2fb29918708d3eda3352e61f1169b7bce20",
+      "raw_sha256": "d9fa78fdc3531c9be4f8bde95f8f7810d204bae47d23f247b2324c35b9764753",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-lifecycle-original.rs",
+      "gzip_sha256": "ced0cd64441d6e62f7dd1eb1e67e884125f0d51f9ecdb56f38a3d7c023cd493a",
+      "raw_sha256": "f263e84638ca03fc651c222a44363569b2d1a3debad64967ca6771fdf6b961bc",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumentation.json",
+      "gzip_sha256": "cb8eeb36096cc609638235f2ec4ecb55f2a0a4ec27eb3b93a64674a029896535",
+      "raw_sha256": "ca3f3001b8a88ac6d43d39887f23d5e2264333f7aa0f02ed0b7c86be16bad520",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumented-build.txt",
+      "gzip_sha256": "f3827ad6a9648dec763d5e1ab4647dd76647c4b8dc1165c2ce8dc21eb53d63f9",
+      "raw_sha256": "664c90daa422a53d64b4ef99e0dffac4378f67a6b180170bc2a5ce67817bbba9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumented-run.json",
+      "gzip_sha256": "7f92f2ee39de8382110b08c0c7adee605811a59d317f2fc70be7d832a0129c67",
+      "raw_sha256": "3e50cf6a12165b8f99fd3a84eb211e552c0cd1066bde90a84868f2a9269f8004",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumented.rs",
+      "gzip_sha256": "3ce4a19ec33b2b56c3396c03c0fdbc722c4e339e9dfdf8134487c6e1a18f01b1",
+      "raw_sha256": "ff405ab37454783209c73e8e8158656cbf4a3470f5b8b3ae4f3fac7412276749",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-instrumented.txt",
+      "gzip_sha256": "f387870a4b3a06635be5eab7ddabfc1d53cff33b8e6068e43f66532f7c409252",
+      "raw_sha256": "86215a7be4088fd55cb7e032803b8288da340e5402f66ba4d75c0f1cc15dc898",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-original-diagnostic.json",
+      "gzip_sha256": "7bcc24d7879b801324def38f2b718d755cc626e062f43dafc447e62f9ba5fe6e",
+      "raw_sha256": "5f50759a00aad64752dde0ac675707cc904d6c9edb13f09a6bc4be513f3ca081",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-original-diagnostic.txt",
+      "gzip_sha256": "b04c91915bc5e32edece8296a676dc6b503f1b4eb3638185e779883987ef46dd",
+      "raw_sha256": "c01d9041109177fe3aa88d1f49dc427bc92b24aeb2138fee69600c321adae496",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-original.rs",
+      "gzip_sha256": "684cee2d474bf592cef7adbe2daf3bf527732250ea6d76c97a52d76e465f85bb",
+      "raw_sha256": "768475968e82d197db9f157448d3a805917c0a4c92bb2cb5d59dc679f16828ac",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-strace.529818",
+      "gzip_sha256": "20c937e582ba482d98e0146f5e4399f386a2e5e1fab9e7b8f3f352f29fb065bb",
+      "raw_sha256": "85c8162c62064658f204819f98378f2fe102c0c3c3a11dc9a6840a5cb937959b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-strace.529819",
+      "gzip_sha256": "c9073d658995cdddaaad0aace91076c8e36e7b19d8503216b51c1f676a9a9478",
+      "raw_sha256": "e52a7ee847f20433e48d99317cd37a441102f081b25caa959e7cdd84f0ae6d6d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-strace.json",
+      "gzip_sha256": "3f2ab9821db98c835b8965ba5c8606455842564de649c438c0d68eb4c1079c99",
+      "raw_sha256": "09731ec0262c2732398d0f60b729132875027bbfce44eb5d555ab0f9ec686404",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-logical-strace.txt",
+      "gzip_sha256": "724c25acd334c37c58921b09242ea8864d2c79cebf2e94e56a7e8e6795c54c3d",
+      "raw_sha256": "ecc98bad9121da03953f3ca3fce7fb4bcfed32bc5f2d337d3af8e29589b70b4c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-scope-instrumented-build.txt",
+      "gzip_sha256": "65104a219cc92f455c0b04627f764c5492821b9ab8052f5c327afa2cc668c14a",
+      "raw_sha256": "b59f1d2fb752198a3d5b426e20b713d13234dc7a01959afd9def1500215240c0",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-scope-instrumented-run.json",
+      "gzip_sha256": "bc4ca0233b33a963a73b19d05bc14762e4ea467be88264c97aa992c8ab77fc49",
+      "raw_sha256": "ae9ad9b44a18964e0c9064514ce1654232b111caa8ddabf3d066e24e7af6161c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-scope-instrumented.txt",
+      "gzip_sha256": "a237191de1061a301c015171ccb40f92fa4dc1dfe6a18d5322bfffd6596a57dc",
+      "raw_sha256": "ed9609616abca799d59944e23323baa6296f7c4c41e3ad380d1dda6b3be47f22",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-branches-build.txt",
+      "gzip_sha256": "152f70171911636dca5102cd603c5c8f7b53b00a050aba82d29345d49a03c1d2",
+      "raw_sha256": "687afea37ab2636044f41f4cf67bd112902e66d17badb33d1407d878f77dda88",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-branches-instrumented.rs",
+      "gzip_sha256": "8aa1548cecf87d754be8757db2c41240891b6848c8957342a22b5e8d729e0b1b",
+      "raw_sha256": "44ca7ea037f09a732d3119e5b9a4ca3c51607caf0a2b92a0a083f309f69dc2cb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-branches-run.json",
+      "gzip_sha256": "1d9c95424cb273e6f342aebe44b97fc267ea0b9bfa5497b1dcb23433e8aecad7",
+      "raw_sha256": "c8cce96feb0e4933da0a22b1ce8138a41ce8e29861dc60418a252ef8f5f6fa44",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-branches.txt",
+      "gzip_sha256": "c83964ddbf6cbb566e64d460832b0595f730444d7e76c61551f122f71ee4b8d9",
+      "raw_sha256": "2c1050e6722ea6e6adae9b74c9c995b55ec3a1cac2bd3b84c769dc5aa9ab978c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-instrumented-run.json",
+      "gzip_sha256": "fd64d43e277eee7254d3283a5bf92cd3797f89e1cb52d3bfb531eaa996e2d5a7",
+      "raw_sha256": "25a6fb44637316070198b19b6f51696de93fb877fbe362c2ec02486acf8d0b9b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-grpc-shutdown-instrumented.txt",
+      "gzip_sha256": "32439de7c0613d13f684329e221444e87512b907734655ec5f75d2196741b41f",
+      "raw_sha256": "f68d8f2c067aab1aaea814341b6ec621103ed2dc3f5df0f1d676ab6a69aec304",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-scope-instrumentation.json",
+      "gzip_sha256": "cead39eb3a040b9245f3debad3630ce5588df05b5dda35cff8a5db7325a2f414",
+      "raw_sha256": "ace4d90c2a1ceeed1f55f995e9a3c8fc76d19dccf5e78136f9d4e4cff326cdf5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-scope-instrumented.rs",
+      "gzip_sha256": "87047e3e96e61593639be6df274ee644f15a874833f483603758f12fce7e1484",
+      "raw_sha256": "0d50dc7c8475cc9624347df1bd9960612d7e3fbc0f4e3302d6787b10d1555999",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-scope-original.rs",
+      "gzip_sha256": "e57abdaca83df29f04a07d08c7c526d9811736f6ac25443bd10efb75a2725531",
+      "raw_sha256": "94296a58ea92f883680017b635e910140a207125149bed95a11480652d5fae7e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-37-transport-hang.json",
+      "gzip_sha256": "a84766ff14489ead6371184c998f7ed65079b04b17608b79efbf49c45d21c708",
+      "raw_sha256": "c833a93069c7eb1e60eec5a30d97b329dd337bb01a6b77a8592c7f2fb2b1914e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-1-datagram-platform.txt",
+      "gzip_sha256": "57a6dd75eeedd801c5544a842420a2a618e6a3e0decf68aa6afdd7dc83144173",
+      "raw_sha256": "7a3fd31f1b9703891d97e48baf00081bdfca94d1648fd04c8bd2fd7645a2e4b3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-1-dns.txt",
+      "gzip_sha256": "afad9b09d2c896a1d7de260a5d674fb961e82034889696c83df31d2420b743ef",
+      "raw_sha256": "bbb508916e7b3d048d718c50ec39046b37a981e113377832aaa09490949ccf5b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-1-network.txt",
+      "gzip_sha256": "382475653f5f67e91f7c18fe354b97a8ee132149c413e5c32f0e9fe7cd87893c",
+      "raw_sha256": "91dd29da898c74983c5f03d8ec6a4a0e33f660a65c6ff0d18bb5951d721cc953",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-1-socks-component.txt",
+      "gzip_sha256": "4667569e0c3258b3a7dcef785d4a7efafbb0701adaefad1f4b939a4417be345e",
+      "raw_sha256": "7b13bd46567fb4306bc6f3b0f7b84ea336c57d869e680536c2b96a2610ca9e91",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-1.json",
+      "gzip_sha256": "aa4b25fca339b125d185fe0ac8e54fcbdd0db4ed8d8e730a85e24cd572be66cd",
+      "raw_sha256": "fb26906153f864cc033bda5b481f1c3d97ec09444d411eff784e065dcca506be",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-10-component-contracts.txt",
+      "gzip_sha256": "6fa5ed674e21f24477bb8435e8e8c4d0ee26e9cc4314a92649e240620d4f2d3c",
+      "raw_sha256": "71ffbd4359545cdd5dab70addec39e964dcf5167bf8eae2f6478be193297c5e1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-10-component-unit.txt",
+      "gzip_sha256": "71ff4d0a2398ca36992a14aaac79428e1a171acf74604d844d7bd9cbe6bd9f5d",
+      "raw_sha256": "27631e66f7ce8d2c5e599b6ba6e90dd50b445c8af85f63d45998dd8fc5273164",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-10-datagram-owner.txt",
+      "gzip_sha256": "8171f8d6a79b60eeec8cba2cfa12f334b8ffb4f16a6693972c0dda9c8e55dac3",
+      "raw_sha256": "2d3517c9b86f2fbfafa570d9e2d8f72f237334e8785f44aa65059575a13fd693",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-10-dns.txt",
+      "gzip_sha256": "9853f3270dd8388a27c4c34ea89e4596ac19d2c26b3fe2fd9ec450e643f0d8f5",
+      "raw_sha256": "5fcee41c168336e7f6b78a68f4856cd8ae14342b9826b1de665a011776e1f048",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-10-packet-close.txt",
+      "gzip_sha256": "41f94ea62577fc32ce28181809bb1148c54f52a1274155581d9525ab73a8cdfc",
+      "raw_sha256": "a124ca477b7e0f8b88b817abc0bf22b26bb45e81638d9dc72109702360c2a922",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-10-proxy-check.txt",
+      "gzip_sha256": "365d8e5b45f5bbbeaf4f6232815e3fdfcc4654b07aee9b9ef8c3c92c9c8b5daf",
+      "raw_sha256": "ad78ab322dfccbfa864780b3da3f441c41f241434dc688eee7a0e1945b2df08c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-10-socks-udp.txt",
+      "gzip_sha256": "1e8cced8bf9aa5b7cb592aebc6e032cf9c086d825798748f21acc3597bd4f5ad",
+      "raw_sha256": "2d188d432eaa08763ae2ededfe42ab33e3777b574f97404ed402d699fee40324",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-10-vless-contracts.txt",
+      "gzip_sha256": "a9375e77d68e641aa5b066f3f2e55e6f7bdacec0f74b57de4376f0eb0fc966ce",
+      "raw_sha256": "38f57e6fac387c9965b5e58f05b9416d1d4c2603510c650b431617a53aae77c0",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-10.json",
+      "gzip_sha256": "2d1bb0ca5305beb70c8f9a098783025bae527b857cbd54af3320932ba40a5433",
+      "raw_sha256": "03532f2083034144495e2bd9e7c5710690141742b1e0dc19935b6566a8579b3f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-component-contracts.txt",
+      "gzip_sha256": "bd507c314919d356ac52d70c405e5554694d2bca77939df530050e70df6eb92e",
+      "raw_sha256": "e35648bcb0e225c0c0f621570980078b02bce5026782ce6a484df628a4dcf46c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-component-unit.txt",
+      "gzip_sha256": "092e6dd7ee42be1ba8911b82170d6faf4e3de689fb4fb4a25cc87ae4d8afb983",
+      "raw_sha256": "d8dcecbdd9559f4a9dae37ce31096ed8ff4b955d7ab79da3e59d44176bed7e2d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-controlled-policy.txt",
+      "gzip_sha256": "e6e62ee5aeb142fffb1b1f5d8193ce8647fe191e6b7541775bbda268e0849306",
+      "raw_sha256": "caf31ef0afa1fad6170dbc98e8dfb179b0bd685300d87f34df83de8e15f3a34e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-controlled-tcp.txt",
+      "gzip_sha256": "943415410b5abf6099ead1cf3ec49aab3b5535b5afad535ec3c0f45d3cd3d260",
+      "raw_sha256": "347b15c49dbbff199b53c01218db7365b2aca18398397f4e68dee55687bed1c5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-dns.txt",
+      "gzip_sha256": "369fd18835f66f3be7011636953db84dc7ea4f91df345f4428ab4c9d92901532",
+      "raw_sha256": "33ae2f5eab33669b89fbb39eedd0be6b1a4584253070416f0f537ddd6e0cdcc9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-file-grants.txt",
+      "gzip_sha256": "280007b31531cfd356be7bb1d021967a6eafe5ed3d72c0d9a1f0c9441ce13171",
+      "raw_sha256": "fc552024f8bb6ebe797bb0cfada41f406ba0db965cd1b3d1abee40d8774c81ba",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-file-os.txt",
+      "gzip_sha256": "6afbf2518829eedbd8f24d1efd442440d20292b0320c7221d9a6a630e238e776",
+      "raw_sha256": "aa55b5b3be05e9aa81b213b845914ca9c199f00f01367d93c30ab8184782fd19",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-navigation.txt",
+      "gzip_sha256": "1f5674fc960e09881816021e1ff67563692e3326e8bdf6e24ecad3e08630ab34",
+      "raw_sha256": "1be08c15967e6ea2b7c861438abac3fec96401239753f1512107fcdc313698f5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-peer-drain.txt",
+      "gzip_sha256": "e8ee7c2338a67fece248fd651f9ab6e4062ede8eee5914a2a63a96dd74c2c034",
+      "raw_sha256": "678f3426c712ed54a44152744be5aff745b7dfcf98ad562cf85ff09de778aad8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-proxy-check.txt",
+      "gzip_sha256": "2f17a52d907d3f4e2c70c9989187e34b49dd28b151ba41c87ff0ee9c2212b858",
+      "raw_sha256": "24707b5519783a22a9758852089caa9b7e30124ef99081c947b68ce3cfdabb2d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11-reality-prepared.txt",
+      "gzip_sha256": "0dae0d0af0738ca4b2bb74e28c80b295f0a0b5fa27ed5abf24619098a93e44c4",
+      "raw_sha256": "2fec38e45d362eb157b247097bfabff810102d2d9d2e951747e5039b989a126b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-11.json",
+      "gzip_sha256": "128e4c67e0efe318b6bb491f37bb9bc28cfb1a84c938def056741d90e6910579",
+      "raw_sha256": "a721626ea21a4f5da452d0d110fdbb1c5707d0ef7e7e7ea33f54b16cc964b5a8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-apply-owner.txt",
+      "gzip_sha256": "010c582bef7f218dcb3e825866aa349c2d5b9dc5db8936e19a5fcc6a84f367d8",
+      "raw_sha256": "8ba8d02491a7138f9233392e8250f357af7275c4b67f6918c9181d25ccd112e9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-component-contracts.txt",
+      "gzip_sha256": "591a456b6f83aa5f44a2ccd3c9f836bfacbe7fad8ab7a4c43764a40f0982ad98",
+      "raw_sha256": "1616882fbe32f433fad865704866eadb5edbecc814cd5fd58cc802ce5691a485",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-component-unit.txt",
+      "gzip_sha256": "4e10b1b12903ba49149add48d1acb48c93133b343d4d6cd5958aaf7a4b3ff711",
+      "raw_sha256": "7211df6fd20bce64b8b651c2742bd1d59e7e96f2e5b287a82b0936733eb43713",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-configuration.txt",
+      "gzip_sha256": "19f7c62d46cf3569b5891352d550d987c3e04edfb201cb6557d0de1903921d6b",
+      "raw_sha256": "7def1b80f0e85302ea2931af2360aab787a3cbc4e1d4b94bcba732afedc890cb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-dns-dependencies.txt",
+      "gzip_sha256": "185f6ded66136c80126c0711a576f309113c9d5ab7556be1b77be499f39f7fe6",
+      "raw_sha256": "a6d8b1a1843bb931085a78f811d5f14c499e1f428604fa5896f78b77ba2c0996",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-dns.txt",
+      "gzip_sha256": "cf7c6f73b40e170e6012c7f6d508d0b9c8cd3ca3807d2c7a52f9c19025c7f217",
+      "raw_sha256": "acff348967d6eadec37d1a75d5f199160cb89d51f5e3d4b866f6100fc9c4b846",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-endpoint.txt",
+      "gzip_sha256": "38deb321a8c83ab7623d0430c1eb8a3b6e4a844ea272b8d41598f2d93cc5396b",
+      "raw_sha256": "0f16ee7ab9a6d9ff0fdc45db7ad2c56ef38be4d3e55f44cc41a4d745ed16c86e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-file-grants.txt",
+      "gzip_sha256": "8f4bca521d1efd6b2dd95017e5c318311ba08c2d6b20a06c1d48b4dd870233af",
+      "raw_sha256": "d45803797fb5a5eddead93d38a9b63eacc9597d71d205a09537d23149a3bafe6",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-native-direct.txt",
+      "gzip_sha256": "398c7e861a4f757009f06ab89908ed13546eff5d8b03115cf7afb1b8bd990c01",
+      "raw_sha256": "d36fa4a40ebcb91bbfcaf224a0177e129546ace0493d028e63debaaa1331ff88",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-navigation.txt",
+      "gzip_sha256": "ce9718260d5b07a32d877df8e243f59390d802420f14d8704936f0726110a868",
+      "raw_sha256": "be89a2f0103d79bdd0056165dfbce704cc1a26247091ff689914695fa2630c00",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-proxy-check.txt",
+      "gzip_sha256": "72af37ccb1fd479249dc4eb42c3bff1c1e683b4d01601af30c5ea644ddd84248",
+      "raw_sha256": "84f835be9596014c3611c33f950783641cf373f67813d7f319612cb711125b27",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-reality-prepared.txt",
+      "gzip_sha256": "04703aab2a839f265db4c15e22f705d708e800a8aca14c158e528cf60f9916a5",
+      "raw_sha256": "c9b6c214d9e62e39d8e8051d33a9e20a1fd710e1bb1ed66421a694bc506e5c04",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-socks-udp.txt",
+      "gzip_sha256": "03636244cce42005229cd2f53a6232e6276806dd27b675d7761bf4ddf9f6d234",
+      "raw_sha256": "4d78939650472517d80ec737262a7915a9e9c5d3136252fd0cdcf1bd3a0a9d01",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-stop-admission.txt",
+      "gzip_sha256": "9ce944d470ea8a2aea5a0b75b46f7333c6cffda69352045e1c846e9fccce727c",
+      "raw_sha256": "cf43a3471c275cc50e896ad384ee6700c756f4d5f2f3e2cd9e585075e284214a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12-stop-handoff.txt",
+      "gzip_sha256": "a8b191130a55e461be0faae405a907e0fdec32658fd9316397172b12680372b9",
+      "raw_sha256": "44a9089d5b5e5f126e926a6b52c2d330d1f957b31a4b5e050e82aad875259b88",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-12.json",
+      "gzip_sha256": "fd331cb82bdcb8b31e96896f87d6c72e6d88d69fef6e0a55891c86a73b7c44bf",
+      "raw_sha256": "7829fdac465217edff9d7db8609f4fa7ea595b5bf67c9ccca9c1717e0ac0b15e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-controlled-listener.txt",
+      "gzip_sha256": "563b25f92cdbbb37260fbb28b16f78058ad0ef6998e514e0ab30506d279819fa",
+      "raw_sha256": "489bfbcff1687d69d7c3d754febf440462c21ba25edab4ae689864913eb7a506",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-direct-endpoint.txt",
+      "gzip_sha256": "fa695bc5c26f699a2ef45eb660ff77b5e158bee6b180f09f0258709dd733e88f",
+      "raw_sha256": "7e2d2e60ea42f8c7bda7d0d243a5adcc616f438bb5843d73272b29cc278ed050",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-dns-dependencies.txt",
+      "gzip_sha256": "fa695bc5c26f699a2ef45eb660ff77b5e158bee6b180f09f0258709dd733e88f",
+      "raw_sha256": "7e2d2e60ea42f8c7bda7d0d243a5adcc616f438bb5843d73272b29cc278ed050",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-dns.txt",
+      "gzip_sha256": "6cc0a87966988ebd0755f700555f9ef45ab41e7dadbc7624f9b7b7574e097d16",
+      "raw_sha256": "e9bf117737248c1d7248aa1b33ac3b6c0ac7cb534b3c9b50e2ce83ff39bce458",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-endpoint-contracts.txt",
+      "gzip_sha256": "e27c490deb41c2a3c8f456781622c05f4822321edcec8e0ccac1719144a354e4",
+      "raw_sha256": "addaecc06b8a4c96f00ab85655f822d8fa0f53f31f815c4e0d17e4f5db484ae2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-engine-selection.txt",
+      "gzip_sha256": "6fa367a0a9fcf0413ef3e02eee3d8726f142525ca38cf987b557a690b11302c0",
+      "raw_sha256": "195831b2a6691261fd7c2143fd0d4a941435c0ddb8aae6df083ab38006f159e4",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-file-os.txt",
+      "gzip_sha256": "c405318a5ad1616667a99bd6b364045955b63870b0d8b87a13e6835d71ef7b86",
+      "raw_sha256": "3e9c8201bf006e292520c74dfc99d9d9cf2233db2ce8c554ec3c2825f7434cd3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-peer-drain.txt",
+      "gzip_sha256": "fa695bc5c26f699a2ef45eb660ff77b5e158bee6b180f09f0258709dd733e88f",
+      "raw_sha256": "7e2d2e60ea42f8c7bda7d0d243a5adcc616f438bb5843d73272b29cc278ed050",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-peer-scopes.txt",
+      "gzip_sha256": "fa695bc5c26f699a2ef45eb660ff77b5e158bee6b180f09f0258709dd733e88f",
+      "raw_sha256": "7e2d2e60ea42f8c7bda7d0d243a5adcc616f438bb5843d73272b29cc278ed050",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-proxy-check.txt",
+      "gzip_sha256": "9bd7f44154d41303b94e5f94373a76ef44458e8924428980e428cd472a906972",
+      "raw_sha256": "c6b1ebc616dcb6739d8d259c03662f5dc5a4367b4d17ffb86312587969e834f8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-reality-prepared.txt",
+      "gzip_sha256": "4166a24026168fd65e9666d305aa6bdcbb32888b6b5048c6659ffe17fc514e16",
+      "raw_sha256": "128272f0efad52d1eee752250a8e5e2aa93f17076a6a9d2afeb1cd63768fb064",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-socks-inbound-facts.txt",
+      "gzip_sha256": "60939397b20615977aabe10a274b4d5fa6f1f566c5ac33ea34a1b7d9aee5c1fc",
+      "raw_sha256": "03c6e8179664800419eea76a0d4c62823616064e4cff82a86f4ea65a6386b262",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-socks-inbound-legacy.txt",
+      "gzip_sha256": "58be51ee278fa22ac2b44a54184af289c21044a42306debb609d65761ef15048",
+      "raw_sha256": "cfec6b7dced4a4dc9a1e19884dea65e6ad570546ad01cc3e3e73bf6d4c482849",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-tls-prepared.txt",
+      "gzip_sha256": "e3f4126a6dba3fc2108d2a6c43a007b0a80defec34fe6a936c853e3de3997023",
+      "raw_sha256": "477acda806981c59f7d1f23ddad373babab622954c7899b09fc3b4b7641c96bd",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-vmess-ca.txt",
+      "gzip_sha256": "848db31356c4be176fd95dffd7bf64d04bba943356b3467eb7f0929e9ff85bf1",
+      "raw_sha256": "a858f07d0ada43d397427b7c9faf1a5cc81c52cddcfbc47897a8d11e766028ab",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-vmess-options.txt",
+      "gzip_sha256": "ea308dd7455b2b6664fc69886fe222a0bc68a40efc912b542193aeb8574ad6e0",
+      "raw_sha256": "ea3a46a3239e336f57d300c300e929bf2b822f28511dcb34cabef49b8dde51fa",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13-windows-platform.txt",
+      "gzip_sha256": "248c38834a667bd765b1c2d640e1841be7224aa6d263178f7b9c1d3f0b1d9aad",
+      "raw_sha256": "beeb4823ab141f51390c709c3b05b820be1172cb3238c06edf85ffaee8239c00",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-13.json",
+      "gzip_sha256": "fb88a35178df80dceb7ece360a469dfc4835aed2b9d442dea84d8520becca250",
+      "raw_sha256": "0c4ef5423b089963d73c04abd182fd6f15e7ff279d0151eee50ff4f2ee622fba",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-component-contracts.txt",
+      "gzip_sha256": "62eb1b78144498ed30051242074adf5a182d8217a931e2eb03fbf157fc7f6141",
+      "raw_sha256": "5e67cf51e07a6928da94a04f5b4a0840c6df01a75d31d23c081033611fd4e35a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-component-unit.txt",
+      "gzip_sha256": "d8ead70db8f2a251eed212908a0818009298e5cc3622b70bd52588210d821c20",
+      "raw_sha256": "59a97a2a8aaf4f121315a6c181db3bbb0adae032604709e3a9b826e84b0e64e7",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-controlled-policy.txt",
+      "gzip_sha256": "727f0a8c5a9cd8c45a14508b576f7ecc7708eafef4970f700cef951d1fe82e6c",
+      "raw_sha256": "272f1ace3260dc55c024925ac84c52ea9942238493b14cd3e04dc2fe976e99d2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-controlled-tcp.txt",
+      "gzip_sha256": "f8351d329b7f57bbe14c8f485ad4eb3bc2914ecb0bcdca33cb101736a7cc1aaf",
+      "raw_sha256": "53e15cdf4aede92a9863406614837a61e5b3b9aabed2cd49451298af0d15748a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-dns.txt",
+      "gzip_sha256": "cb8efe90fa9f212d92c7e7e55e462a98b15f7825ebc1f41b28aaa17cdb809a4e",
+      "raw_sha256": "8a2945113573d377160d328e9fa0a04c5114da4a0dc5b2e2ec9df61cdb6c458b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-pending-tcp.txt",
+      "gzip_sha256": "885d231baf04f7521cc599806118ced37b8ec3e43d759399209a68bcab222cd8",
+      "raw_sha256": "514b7b869a923189aa840e6b3b432187182858071fa5b861ffa0ee8df5c24b51",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-proxy-check.txt",
+      "gzip_sha256": "aefed13f99e63a540630ad0d59341d17f24604fd2d5557fa533cb7dd0f4e065e",
+      "raw_sha256": "959c40eadc30ea72a84fb68d889d57a485413f6b1e762b74bb800667cf469ec5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-udp-bind-compat.txt",
+      "gzip_sha256": "8487d3411bcd118062c0c79010404db4fee271d6d8212aff7d953e0c756f2b45",
+      "raw_sha256": "4a79bc6498778ef70052bfb2debc45beb3e2767e19442a70cfa79bee1c0ed413",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-udp-bind-source.txt",
+      "gzip_sha256": "09424f7830c508af477462843ae9d1509524379f947d3401699a5aa12e9372b4",
+      "raw_sha256": "af9e5e65dc53a30e11bc9d434b2fda0406ed95db8625cbbd4fec9184a9a61300",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14-windows-platform.txt",
+      "gzip_sha256": "b74067ac2b3c46bacf3e8db328f0572f7daecea33ed21cfa3da409a24737fabc",
+      "raw_sha256": "d292db6bb29897e824dc3ab47c02b98fe8db7df06f802eedc35696a687e2e567",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-14.json",
+      "gzip_sha256": "39fb2ccfa193b69c22635013437a971bb198b5780be6ab34b56ecc1a20d93ef2",
+      "raw_sha256": "1f52bf1399177772d4d5826631d4c96350d673fd707545b2a38773346a0185c1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-apply-owner.txt",
+      "gzip_sha256": "d84d60e9f6123ab2a7b10c813f178812e2eb0d3c4a9351156b42f2e10ca63343",
+      "raw_sha256": "d78412bb7b537161ecde661aaa7630709a79e51d4ad3b054bb8a07bccd088bae",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-component-unit.txt",
+      "gzip_sha256": "0e7d5105af23669d286cab71eb51d2e3d75149d266155f88c64c953586ee2585",
+      "raw_sha256": "291459a1a3340d1faab8dfca71ce99c5f0d17a1b61325d1b981afae50053bc9c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-configuration.txt",
+      "gzip_sha256": "ab2635fd2a1394a4eef9a205f41aaec995702db7fafb0e54faf31d6ad3b3342b",
+      "raw_sha256": "83cc8e9399bedb2589288553ae03ea67b3e516c483e4aa36fa305d34b7517085",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-direct-endpoint.txt",
+      "gzip_sha256": "b72ae1662b2fe029ee41867b78cd31095cd2abdcf04a881cd99a0058e97acd27",
+      "raw_sha256": "9e618d57cd82bee4300f685170d04c386c3be29944299cf4bb0585e3b227fc3c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-dns-dependencies.txt",
+      "gzip_sha256": "b6492fb0eac02954b66598e01279695e047e3f3b8bec44ee8b0a74ea837d1c5a",
+      "raw_sha256": "e07ffe18abdb1f56d0db61fdba4eddec502928ac17fdcb55b633f2c53d7b5c6e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-dns-detour.txt",
+      "gzip_sha256": "8f4ccc01d76bc1afde44fa5260754c6e98589d05c8e1f0a73d98ff2f1cb23a43",
+      "raw_sha256": "d7d574f45e04b7cd0a0cb6a86a83197a60d2e5363bdd74e0e9bf6460264395c8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-peer-drain.txt",
+      "gzip_sha256": "eac2d809acd07d2bc24a641c29d09ba9f3238de61a42d3c96ed4140a29edb9c0",
+      "raw_sha256": "7fc11c394271b2908781ef4928ff9b0cc8efe819ead988ac78b853c2a5558f98",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-peer-scopes.txt",
+      "gzip_sha256": "a40749fb51de8a960ebfcec4ba455be574a1d6fb5499fbf3d81b003614f6d2dc",
+      "raw_sha256": "fc1ac841710232b12b10d76cc9c99ee8b26a273aebd429cfe813109c851b9010",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-proxy-check.txt",
+      "gzip_sha256": "d214854897602cf621c0dfc3d29f0be52b2fe90bd13e60029d3daeb031190524",
+      "raw_sha256": "ff0c379d3af520b7211022ed72ad0b196bc55d673fb47d17735ffe63725e22e7",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-ss-native.txt",
+      "gzip_sha256": "f121d4d514ea74d980ece4f560d833e98c377a806308d184da0da6d857acc1b1",
+      "raw_sha256": "a0c97c37932994783ac8923e58b12de36b3fcb81ef209a9ffedc23e431b6bda8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-ss-protocol-native.txt",
+      "gzip_sha256": "d062c7918404f0bc8e50d8d17b23f5dab76d7b1889dfab2aec8665aed29edac8",
+      "raw_sha256": "bec021ae8b02c1ff19a0a2da00b462587baad00c4790e75bc3e8a1f30f99befb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-ss-replay.txt",
+      "gzip_sha256": "16c06b59fff11a0eefc8c478b75ad858cf7c084fb02cfe376d44a4aa183d633a",
+      "raw_sha256": "86c4350b3af39f7c58d07298e9b8b106e5f1f893e06af26ee6b34dada187df53",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-ss-runtime-check.txt",
+      "gzip_sha256": "89e2781353103e48b7daa3e78731aec97b254e3f65fa7e5f9fe25377d86c9e4a",
+      "raw_sha256": "edea83a08c642114edbe19417bf660a40fb57e0aa8455c33970ada7e7799961e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15-vmess-ca.txt",
+      "gzip_sha256": "1b6a51f3567711b4653749cc1b1c5dfa24922a8c4e4cc2da7f8f84ea8f87bb11",
+      "raw_sha256": "efa5b6e9776893eda3f61dff500c12f1de7eac8da46ad7d8bc3230179a9b5045",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-15.json",
+      "gzip_sha256": "e0e3c52dcfb1da9294d62fc9f02adcf87e4ec82c3ca604213660ede45373f498",
+      "raw_sha256": "e4baca16aded52abf5a511fd5ad07f8ac456eb0be556de71d2de9387016ea6d4",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-component-unit.txt",
+      "gzip_sha256": "48a6553414f3ab8bd731a721db4f96ed7c0cb7673c4a23fc8a89edb8bbd539bd",
+      "raw_sha256": "52b927957227f3855d1a6b10acb900b08dcad916fee18395dab402bc6a8814d9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-controlled-policy.txt",
+      "gzip_sha256": "a04474513fdef937aee7b0f296511ac3025e9d32f221677d9624446d20af386a",
+      "raw_sha256": "a89dfb1c24147a642db6c38bca882123f444dda79b706a257217e28fda5e785f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-controlled-tcp.txt",
+      "gzip_sha256": "97917b96680693e5b49504241a95036bbca8bce055c06a066e80e70656d6d15f",
+      "raw_sha256": "b2b011a74e34c8f7fe548bfb46fa8c57f382d16fd2a87189c84133a54a65bd03",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-dns.txt",
+      "gzip_sha256": "f18982d285f2447625cbddf6264936e91770dc41759752b99cdf743f449a23a9",
+      "raw_sha256": "9e6f34e6c09593ab5d5d283cc1c437a47b21fbce416a6738ff72d7de3bdca712",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-pending-tcp.txt",
+      "gzip_sha256": "2b0014d737dfe3a4feda594aad581328ae0960f01f7ea8cd59b6f7f3a860d7ce",
+      "raw_sha256": "37ab48e90265971a77068861ee535eaadbfbae33192f86294129cebc6c435241",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-platform-unit.txt",
+      "gzip_sha256": "feb258e06b8065078a23b751b5d020bed27c2d9093d116b94b435f5ddea0cf9e",
+      "raw_sha256": "f030a96ef7297a74e950bc6d375abad9aeec8390ab0e3e218273065f9c4f8545",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-proxy-check.txt",
+      "gzip_sha256": "231e49bb9b7ce910c0b985df14174419dc7782968f3df5713bcc73ec4198cdd5",
+      "raw_sha256": "182b42fa464ebfa0a907d750b1bc5540bd108bed9e3ceb00297f0bed944f1376",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-ss-protocol-native.txt",
+      "gzip_sha256": "f3d94ffb50237dfca21795a719f422e0b68d53901764c481aa8fa760c5ecb812",
+      "raw_sha256": "d86fdc06b81562b7c2d81f78dd63dc47352f6c179ce053f9f8727a3b2c0cb918",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-ss-replay.txt",
+      "gzip_sha256": "b987bf330df2b1ea8663cd5b36aaf3ed9afe70cc6f4c4e37424378a66d4884aa",
+      "raw_sha256": "ad2dbd9b045a8556caf0a1c985f975fc77a5ebd09ba9441c176b7c720851baa4",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-ss-runtime-check.txt",
+      "gzip_sha256": "3293afc9c7fde87292b4d0e1885205115d0c2c883729288885f6a5f5070d7807",
+      "raw_sha256": "42cfd14d21eb44fd678eb7cab8fb2f83eac6aac6a060b60b47d972f873ba9e9b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16-windows-platform.txt",
+      "gzip_sha256": "b71175fb4dcfaad48f8ac1cc8bcb88614ff19ee90fd1b492e4746f2303cf78a3",
+      "raw_sha256": "1e422c19c2ca7627099a59c8e6ee232fc1ffe4e208609906ddb943c38e502563",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-16.json",
+      "gzip_sha256": "7eb42e765ed803235b7bf9bff0f30dce9f07bdaaf7d0940d5594d6b450502cd2",
+      "raw_sha256": "a7652b841aa889eed5225515fbdd3f1eee634ae529533096d2bd0c83017a73fe",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-17-component-contracts.txt",
+      "gzip_sha256": "bd94035af946767b89e54f4c62b36b06afebd3fb486875516b6f215e10023faf",
+      "raw_sha256": "c52bdccd09acbdb8c2a1ffbb5695114ec4f2bced63417298dd9946e6d27f7770",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-17-component-unit.txt",
+      "gzip_sha256": "7f28b75f21639f34d1b9589bc3adad3a9d35a37e3d578348c76bf9de453be6b1",
+      "raw_sha256": "633eaff30631cea96ba291a939d91fcacbda64b7aead8ab3c702da1e0e3dec73",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-17-mieru-pool.txt",
+      "gzip_sha256": "34058a2b8551d38e3107947955db70e6ef3f6e56092c413bf819de346a874a00",
+      "raw_sha256": "535e8e466436e8b5a01fec989a4b292a1e4e6965dab26eadcdf320c482dc17e6",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-17-proxy-check.txt",
+      "gzip_sha256": "f77df4fd3403d03003925c96e7b112ad6fa774e1721b91db31437b9b3ea68da4",
+      "raw_sha256": "08ad3bd0131c35363146b5864dc45f63aec0a1b38870708f87849683240793fa",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-17.json",
+      "gzip_sha256": "aca2d19f97cfdc1a4d50c64bfdeb2dfa127e14c28b50241f15729a4fe2cc71de",
+      "raw_sha256": "4bda5159d0ded055d506e1b0999c35622330112a944878ebefcf5b1e6bb12f4b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-apply-owner.txt",
+      "gzip_sha256": "f3d1b7be56ffa623ab462d1dfe8f80c8602a609c310c6fd3edc95a83e0d71397",
+      "raw_sha256": "58af96bd4121f28d29d53eb1b90c8c6eb493a8c0e84ee9f6c0f90f339530d36f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-component-unit.txt",
+      "gzip_sha256": "1cad52b8856bb8c648743be6d5e3804a58e2f49ed900ea878867435519f8a8b1",
+      "raw_sha256": "ea361c4a0e8905290d20fd584a987c88612d2670276af1f15e422bb1c67f36a0",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-configuration.txt",
+      "gzip_sha256": "1e804c7ccf5f539fa794289cd71bb40d3e44fe2fd5eadf7c9bb3e17ce247d651",
+      "raw_sha256": "b0e439d2fbfa2f9ded3c95537bccde9850f153fa1dd5bd9320493f7ced6aed92",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-controlled-udp.txt",
+      "gzip_sha256": "d64ad224a33edbcd1c83120219c6ce91f6f8e248301152e0dd6c6539dc16b30b",
+      "raw_sha256": "7a348e67fe74024ad118876284e2d884ad75ca1b008f2d9048a41dca0ea2c2b2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-direct-endpoint.txt",
+      "gzip_sha256": "fd64104c87ae9a57c39cd1b12f4b8946a75380edc9eac6e26da5472096e8bac1",
+      "raw_sha256": "dca99b21b0be50d7a7731fd7411d350ba7eba29d530e3c5c85d2b9fd26376536",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-dns-dependencies.txt",
+      "gzip_sha256": "dffe4e435c228bdcb8b384e89d916f3908c57ec63938381d578dd478abe22cac",
+      "raw_sha256": "22bda725d8e3fc2a665905dbfe825aaaa752f134ff2067c57e094b63c896ac34",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-dns-detour.txt",
+      "gzip_sha256": "a4da642d2d1e9bc682a9feaab35375f6aa3c4c169b7797705441b94d830fd7b9",
+      "raw_sha256": "9cac429e9f3f69c5845c84d53b3736b9fa819c2c306675442dfcdcf87f615f7c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-engine-identity.txt",
+      "gzip_sha256": "50945ca4e1f5420ed8193fbb6d23c79fa88b6f9e9ba62531ae6e92162c3d53ea",
+      "raw_sha256": "88278ac4d6395a0a9a87956323534a6d02a6b2207e0d78aecf816910571d083a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-mieru-pool.txt",
+      "gzip_sha256": "d348a68d2c77f37272886630f3cd556f86493595196ae5d1669407691f1999b3",
+      "raw_sha256": "de70278b04cd26261da0134851a7710d04629e85dbcdde653a58dc5eb2c390a6",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-peer-drain.txt",
+      "gzip_sha256": "ae700e1cafda20c21231e823b5314f417df11f732aa7c19eab0fdacac7ec040d",
+      "raw_sha256": "cbff96ec083abc1644f52d9da76347e74aeff185992d661bf5a87518d96dc56b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-peer-scopes.txt",
+      "gzip_sha256": "bb1b1ee18a16650593dcfa40f603200eebb44b108bcc17677682571afc99c7b7",
+      "raw_sha256": "5c3ebf41de8d8b2dceb37072258c85cff537bc2d8ff06f953556fce86c6e898e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-proxy-check.txt",
+      "gzip_sha256": "5e8011249ecd85c6bf0dc65504025f5e18610cb0b3fcd4fc7846171c68dfeb67",
+      "raw_sha256": "520898e91032c05ee949d2da17d8f66653d01d53563e9e9edf6711338f0a873f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-socks-reply.txt",
+      "gzip_sha256": "97ab4ad0f898795ac0342fc84f621a368b8a485de53439394940aac4f90c96bd",
+      "raw_sha256": "2d2502702bb8ea96c327c34943233db09f05389f0c799cc29b9e52db43c24cf9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-ss-native.txt",
+      "gzip_sha256": "25cf4a777a23c08148c36a632374a75734f578541b637cd22c800678c4d47952",
+      "raw_sha256": "215fff4006eb372b4b1f3c79af9de5b853e6fc056627c4c5ad10166287f35586",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-udp-bind-compat.txt",
+      "gzip_sha256": "f000165d268a27dcb9b80c90360ddd8f5d8f282cf6a03a6da6e348ce15dfb470",
+      "raw_sha256": "1197c6bac583369b42b1319d0e7fe1e91d82f4178e922f1233e24d99b22b70b5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-udp-bind-source.txt",
+      "gzip_sha256": "2a5d0169834b18f72aaf233765ff843d79f7b0775a0032c3336c5be25846f008",
+      "raw_sha256": "bae9bcec76a4a7369746e39da7e393390777d3c599dee5802b3f89ce57ec1ab8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18-windows-platform.txt",
+      "gzip_sha256": "29696785536d1278f936559e32aa7a8dcfed04e6890f8462edc2ac5a51bb03fd",
+      "raw_sha256": "c19f15003de166fccb3284d02eca1484891b8d66473e64382a7046ec6b4cfd21",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-18.json",
+      "gzip_sha256": "1d492a5b74a15f80183b803a2619d0b2dcd93f4e77a77b6590ffd23497770394",
+      "raw_sha256": "ca9a1506f65af60dfe818a2d815fe8438fc3c65d9c1e96645a05db974a1e8d29",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-apply-owner.txt",
+      "gzip_sha256": "7cad094653b18d6ed7fd872154a072ff071e1370f8ad4631e2e0af4fce00fd8a",
+      "raw_sha256": "fe97d995d82706374415fcac3919504161a2bef904d87903fa7bb525330462f8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-component-unit.txt",
+      "gzip_sha256": "19bc19696ff1fb629fbba3bf920ca119f863101c3068c35e6d3c9090611b49dd",
+      "raw_sha256": "085a917a3661e64f734960e1eb3b8bfe6c21483157004a9ffdf9d648918e4108",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-configuration.txt",
+      "gzip_sha256": "674c902f95d6d02ffd5f3639e599ec2d251390bd7b7c96135d0985a83970901b",
+      "raw_sha256": "7ee646d3bc856ec79eb4b8f71e9957afc02fd80595ab624df5c9e683069aea15",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-direct-endpoint.txt",
+      "gzip_sha256": "7f695f50a77746fca8e7782d65ee6461c9196e1447fb0f5326bc4a8d5ab2a151",
+      "raw_sha256": "0885b640a2ba63e7b6ee4c9a46ad26f2662baaaa25fa3770426e44b19aca9fc2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-dns-detour.txt",
+      "gzip_sha256": "7a0cedbeb806d381865668ccab41fff562022032bd02b1315a2c82a87c3b7964",
+      "raw_sha256": "04d359b95efa08a155e4c753f9bb74e911366baff47b5cae4af3e7943f01dca5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-engine-identity.txt",
+      "gzip_sha256": "7b0be5b80bd6cfbc41269fd19cd05be7f73438db6b975a993c6fd49ad4b92c16",
+      "raw_sha256": "a1a5248aeb4382659d6a375282efb1b93899efbd8f7e637bf6cb9dfdb902167c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-mieru-component.txt",
+      "gzip_sha256": "b9e38d8394b750e7f6aece574b5de41ee21122f41e39ebaa2b63fe899c559447",
+      "raw_sha256": "d5bb83c661694fb1b1ed2785fb27f0eae73fbbc4610dd7da1d2c0e0eea26bf64",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-peer-drain.txt",
+      "gzip_sha256": "efa8e012976c4af8970a74dbe4a3c23ba79adb78bef800ca058cfb32469f56c2",
+      "raw_sha256": "c58a31e65fb04761a8edd0bba46745f581a2128c3e3a74f37257222d5c6a5af3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-peer-scopes.txt",
+      "gzip_sha256": "6303887097dbbc4de774400a73ae13449c0f5aef8968254da7e7dbdd5885d4be",
+      "raw_sha256": "246d4d7fcc6ce80fe31d5ed3bf177f39e048afa63817ebd146021aeb3ecc4117",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-platform-unit.txt",
+      "gzip_sha256": "4ee8df03178c91402dc05b8c86f8d4c0fc222b911ffa0480be8869e4397b6d2e",
+      "raw_sha256": "625d3efd730e75cc0ea58a0ad34f99dddc5dc82770e3ddf1b0a8e7008d7a8e2e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-proxy-check.txt",
+      "gzip_sha256": "f05b1d5486ef6a2877408ed7b353387a9ad0530c40edc4fff4e2d3d6986def6c",
+      "raw_sha256": "698f2b38f0cb122cf1b46bf7b99d4983b4a01d8584b2d7335686537935450979",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-socks-reply.txt",
+      "gzip_sha256": "c59696e04f5edcbab591bf85ff3dcb380256e8c982fadacb3c4602c42325415e",
+      "raw_sha256": "3b377dfe068ab91266e9445f8c20fd82e68811278fb85290beb3ba841bf74bd3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-socks-tcp.txt",
+      "gzip_sha256": "5c0115de4c85a163fe0a40ed05859662a64fcee1d456602bed453e1dc3d80525",
+      "raw_sha256": "6a86039b72b60cd13fbe1f0d440b6614d75d42dfc048c1bf1ff27ef6ad17c474",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-socks-udp.txt",
+      "gzip_sha256": "74377fa6175b75ae328c59fc1f51a20b6c6e850defb52f0579d979241488e375",
+      "raw_sha256": "182109c735c6e4cec117ec82cc3117a7c4d795b876a7ff19faa8142c98e3f8ff",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19-windows-platform.txt",
+      "gzip_sha256": "c55aed7a01b01bf25717c13e501eaacfa03724333a3b640c8a50553ef39267a3",
+      "raw_sha256": "887675e261a9c8a1ef63bae776cefeb8d684b8fb220ae96b94daac536b875893",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-19.json",
+      "gzip_sha256": "b95442a9ed7ce434dce135acb966a026ed1c3484b964ba13fcb95b6ffa13752c",
+      "raw_sha256": "118e94e17562f9f4bc28c8cc91754bb93b711c48438aa5011be5518ca5597cf9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-2-component-contracts.txt",
+      "gzip_sha256": "2f230a6e6d3d3472190ea9b127882439d0c2dc683b3440ac501879058de11c2a",
+      "raw_sha256": "d513073a8c2455d06b8679939f601b636eab7a56b1bc6de56d0d8941a9b7b64d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-2.json",
+      "gzip_sha256": "6eb2b881ad64a20dbd4b0ab5bbc09e8cf50eb7ab4a175e45fc3be251d3ac1294",
+      "raw_sha256": "8adae4317b9e3a5b1cf007654bac87edc0f8aa938b85308cca3b262abeb4556f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-22-aborted.json",
+      "gzip_sha256": "c20f7efcc33a628622ece37b78e36e4b8a221bcde3917d4c7a6696e1512727cc",
+      "raw_sha256": "e15172acf3bb3207364914c2f680ddc56848add3f9cd8f2fe91dcad1e535158e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-22-engine-static.txt",
+      "gzip_sha256": "e8251d44c00dae0d66776ddbfd07a45d8bc65aa171cfe3028bef42d1e2b26e29",
+      "raw_sha256": "f0d183370712c2d6d1538476cbfb81cdc42bcf52cf583380ce1dc87bcdffc27a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-22-fmt-final.txt",
+      "gzip_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-22-fmt.txt",
+      "gzip_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-22-http-component.txt",
+      "gzip_sha256": "a7f1eac4a6a4fecb7f021ca0b1e4645cc790b8a303062e995d3323bb3e73e574",
+      "raw_sha256": "ba541071b6b0fe9275358c5906f78f522460d85d836d83a80520d3581e09be0a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-22-http-pure.txt",
+      "gzip_sha256": "5b10349437bddf39de2bc1af9451dd300059aa43c9198685e28b75fe69a561e4",
+      "raw_sha256": "dedffb9b41ba1f8cb8dd023d321009fe21445384ba1e9e3c05ea93d8e8e27f95",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-22-inbound-recovery.txt",
+      "gzip_sha256": "f112b93589b38662edd1220e30b63f6d189e28a343046262c38dbea47950707d",
+      "raw_sha256": "85b0de4e93e7e5f081c8742b2c4ab71ad5fd2f8e6351ffbac19e590a4a2ff636",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-22-workspace-check.txt",
+      "gzip_sha256": "c19084d2a14eaf276b5c65b608fb0b041c4175e2f9f57dea962ec863ed701d79",
+      "raw_sha256": "ce343b312ca47fecff3ecfd169df087206b35dcb9f1ad96c3429fb51dc43dbf2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-22.json",
+      "gzip_sha256": "935bfcb7a16a1fca28ebcf9cb83058c02096d64462ce9e502e9ead95d58f0057",
+      "raw_sha256": "37ba98e453f87b790d170496f4356c25a946f46d13599f03b96b040777581569",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-bound-wrapper.txt",
+      "gzip_sha256": "2259436e8fa32dee8d6e623f64e5997387a35ce8f3fa79b4ec94b081731882b1",
+      "raw_sha256": "bed9c42c3fb20a16b2f14e960222a06037a3b9a6ee0d846a1c74767927f1339c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-close-observer.txt",
+      "gzip_sha256": "dadf7d441dd373df81576bfe0579ad021504ea3d896c5ccbe7d4135ee4277e70",
+      "raw_sha256": "448a4d788612b57bf9579944ffdb75c081e3ecea6e54e59b71f9cb4832ecdddf",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-cold-probe-owner.txt",
+      "gzip_sha256": "576fef0e08d844fdae4e31131035d1a26b138e93b205254ae902ba6ca7ab7c36",
+      "raw_sha256": "649f8105b6d1ca8ddd85a85e8ae0542f04b9c79e5883e88ed5cb9ab632e4232e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-direct-endpoint.txt",
+      "gzip_sha256": "9127c85e7098d60e0277b6cff2130a11f1a620df3b2658a6fa3cb6646bbfb3d7",
+      "raw_sha256": "b2ce1a0b7018e15c06fdf8deb90de9fd19a2d51c32fea49895ed41f5369966f0",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-engine-static.txt",
+      "gzip_sha256": "a78f7d0cea8862fecab6c4bb32d492b8c01108951c55c09b9d8ef3491ddfa8d4",
+      "raw_sha256": "f089407ddb51ec873566690c6fd2530f52f917a01a2b9fd0643acff7bfff3d8f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-fmt.txt",
+      "gzip_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-grpc-reuse.txt",
+      "gzip_sha256": "e7e4e58ba8baccd4db78f2c19454637521ffde2af903ae05c32c36e107b0b7a0",
+      "raw_sha256": "e982b78039ef5ab42a93dd80a314f06121e2fd5c887e6430961f7ebff9d5a971",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-host-source.txt",
+      "gzip_sha256": "4ffff0f8d1e55b02f3844bfe67cbc4828d02aa80003bfe0437e28f82a58875e1",
+      "raw_sha256": "3f64268cbca613adf6ecdf2af3aeb231c9e1c21b4ba2d52aac0c9a0dc8c69c34",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-http-component.txt",
+      "gzip_sha256": "999258bb3ee0ca2b0efc317db2fc7e69f51be96aa2957d2508cd157fc2c489d5",
+      "raw_sha256": "27429a8595fac8808c403ac904af8218b91ebb0efcd894ea7920ff23340fe279",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-http-dispatch.txt",
+      "gzip_sha256": "ac1d071168279f18f9ade9128392ca3829b57f5e8dc9bf09148aa96f421368ab",
+      "raw_sha256": "d641f456556dc1803301689f3930c78604584d8907ce35ff3c4114d847ae8e48",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-http-pure.txt",
+      "gzip_sha256": "cae60d9a2747ad65b3dd4d97cbd39e526186f36d7f70d321b90dcf10aee0b5c6",
+      "raw_sha256": "93431971a9b97e941df5db3f5413e6988fd9a3d90b0be0a8c9a7d9d2a32cb707",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-inbound-recovery.txt",
+      "gzip_sha256": "b4e54f49e59c551096ff751a6e57fa86edcd3535d10df7ac0e280ee7bc69f140",
+      "raw_sha256": "ef69d240d39279eea4df204b5b8a108ea7cc4783e49a83f252915488058abf56",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-peer-scopes.txt",
+      "gzip_sha256": "b84bdcea9bf4e35e36b212b114616a0f141d5a0ff98e5a5fe57b242993f1208f",
+      "raw_sha256": "fb0a8de80213c5b7663e5c4ea80efb3d00f62886a2e0ba95f4210e9cb1096801",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-probe-diagnostics.txt",
+      "gzip_sha256": "d387d3d79d65272b819778a1f579a8e50f332c08336240a229d8517e5f68a227",
+      "raw_sha256": "f263e595486650f23fc9a46e2db2104cadd09d04973795686803fef3c841f191",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-proxy-health.txt",
+      "gzip_sha256": "5f717e76e4023c8e20432b1eee869cb83db66dbd1944a09d1c3a5975551851c0",
+      "raw_sha256": "647f603ff6644993526acc583f3c39867259f7e2c9798bbb27c938dfdc562f69",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-retained-recipe.txt",
+      "gzip_sha256": "3650ff6e6c8e0b7f1476e319f0eeb5e55db7b0c50cc921fdfa952d413dba41a4",
+      "raw_sha256": "6607b555761970f922cf559ae7cfd4d16b40c0ea9f4a2ee34706db7e2b8a1629",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-runtime-boundary.txt",
+      "gzip_sha256": "30629b0f0f0eacadf3c802b6e8519e8d267e7b58830effe33a589a9cfc2f15ca",
+      "raw_sha256": "42c14dec9968dba62567c6b22e4948f482b98ca22e6e80f31a3f71fdaf3997c8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-socks-component.txt",
+      "gzip_sha256": "7d750d4d8b5b747a950e8e1137c4cafa4b07bef8b1674c8193c33f6bbd663e8a",
+      "raw_sha256": "154e05a1d4354905a018be5552f1ea1eba46604ce1754ec8df855b67d7a3e427",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-socks-relay.txt",
+      "gzip_sha256": "5c24fbb77932620912bf0590773996f3678c391af2e03348245be10fb2f399e0",
+      "raw_sha256": "d499ad494324fe1c523ccd5d50c65b6ce1b2b890ac66aba345e5293f03f36580",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-socks-tcp.txt",
+      "gzip_sha256": "39e1d8772b8e79e73305e70c8e86dd777f9b69b388c8ce483d115cfdbd4c83bd",
+      "raw_sha256": "746fa5b5a11476504e30a654e7aaf53697a97671328f0172eaa6f4d0ddc0c483",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-socks-udp.txt",
+      "gzip_sha256": "39e1d8772b8e79e73305e70c8e86dd777f9b69b388c8ce483d115cfdbd4c83bd",
+      "raw_sha256": "746fa5b5a11476504e30a654e7aaf53697a97671328f0172eaa6f4d0ddc0c483",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-tcp-idle.txt",
+      "gzip_sha256": "770ca37012e2a5af3ba384cd401a9824b354a648094cf3132e36be449c70f5da",
+      "raw_sha256": "553c06df8ceabe8a999a16aca79bdd582bb7d9b875852005ed87bcacfbcf7c82",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-tun-positive.txt",
+      "gzip_sha256": "a94f9e6ece92e777c678179335461eb58a9090850fb95d56ad4662e33e94b765",
+      "raw_sha256": "590f675e07026acf1f77d32e4e7a4eb5770202028d77f5c67c0f6a95277f0095",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-udp-idle.txt",
+      "gzip_sha256": "131c036cc707307c0eea2aa34786cbd097e03da31513823668443ce1c44f07e8",
+      "raw_sha256": "b9e7be6afe87653b22139a42ff88a84f2e0955c810e201379e7976f928680840",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-workspace-architecture.txt",
+      "gzip_sha256": "ff84be5d1a8069fe4b1f7f9269e194306bd86a9c597c0cb0ccdf8e25cd94add4",
+      "raw_sha256": "28e6118e6029c9daff2cd10f83937f0ce228c32077186366463cad952f09a49b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23-workspace-check.txt",
+      "gzip_sha256": "b1fce1f9a7a6fe24c291c27c4c8bf7e0f342c79b1698c2e1d0a00f83aa37a4f9",
+      "raw_sha256": "f3b572caeffe90fa3e303cf3124c12e0ae5471ec419272af53630be5da71c394",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-23.json",
+      "gzip_sha256": "ae25955adccc2153fb1612e29079d5ee4b9ce69998553f5ee5e03d6e0f82c0c5",
+      "raw_sha256": "2b9a3bd039edaede373ebdb8cbe8a8a8dd1f276e7d5e00ec936d4662df6e2029",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-apply-owner.txt",
+      "gzip_sha256": "2225829f5ce462ab8d33f35b967971ef8137ac8f49b571754f2add38a9617b39",
+      "raw_sha256": "0671be5583c04619c3370ac57ed4831eb60863288181612b3ed8eb90a1fc227d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-bound-wrapper.txt",
+      "gzip_sha256": "69332775d2c6796382b7fb952ba0c40068bb7e561d1909e0c3609e9a1452b684",
+      "raw_sha256": "947767f0e8e9c5489b19a7aaf638340c7da872e618f025b0eb7dca14f9c7ef31",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-close-observer.txt",
+      "gzip_sha256": "040b32c6901a2d6f3c195877dce3ae0a72028e1fab9bae5aa5518432664ab951",
+      "raw_sha256": "807991ff859508e3b6072841462aa3ebb45d5f39c505ee30f1cefa64d25cceca",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-cold-probe-owner.txt",
+      "gzip_sha256": "5f0606c9b6a3b64e21b9b261aa52272ecadc659aa499151b283135c567ec46b8",
+      "raw_sha256": "ec293b26d2121a40ab59c56c64a1c8a870817ba9b15aecb7d6c55d29d974f0a0",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-configuration.txt",
+      "gzip_sha256": "7a9fe99083682bcc9e139ab60364da0b0172b2940da773be3f9dc3253d7ce0a4",
+      "raw_sha256": "cd649b6b751df275769464cb0750702809c8fc9ccbfc6712bf9f811d5a3f3ffc",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-direct-endpoint.txt",
+      "gzip_sha256": "80464f39639a7c37e81066a8df2eba7ed97224234cbd6b750e8baae2ddfd8a2f",
+      "raw_sha256": "3516aeaa9789ca682ac5cfc54c22d8a4346f9e0724c3fa0c9ba6bafb583bb35c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-engine-static.txt",
+      "gzip_sha256": "fa39454e173f4ee373d5898d7a144152dbf4fac08b26c25d608929b51d0fb45c",
+      "raw_sha256": "02e0e957f35d6a85cd87573ef7ed43fdcb8777a1cb4b37a5c14a55363d32294d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-grpc-prepared.txt",
+      "gzip_sha256": "c00971e0d35ff2e540cc1d8bee1b6df67ca6aab0f3bd2bd10e6d98bd948189be",
+      "raw_sha256": "ee3e0f0a8e2e2aeea7e05374c64b8893b31158486240139fa241b6e32e7ae4b2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-grpc-reuse.txt",
+      "gzip_sha256": "b3450658fd99bf7f3b54b2bd847e4314441062c759e1190bf2f70d916890e536",
+      "raw_sha256": "c98652e4bd915bf0433cea6f282255fac3e5ad9d197a42aac8e914bb56619aac",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-host-source.txt",
+      "gzip_sha256": "e5b84fb0917cf5a5e637437a2748bb5791a2fb490e3b426f0e85a0d2cbf99b13",
+      "raw_sha256": "700d552ad87b479239d0e28097628d154e098690aeda824916c5968d4f9243b8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-http-component.txt",
+      "gzip_sha256": "1d97dd2f4277a3928d685283438da4a38b07cbb58c4dd54d36d416b8a3567b69",
+      "raw_sha256": "bb454195e459f410952a98a482e2fee152e39267d8fd12170272c267ebcc8783",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-http-dispatch.txt",
+      "gzip_sha256": "e392335b8af43fd1d8768a7ed5fbb5f4ca2cf4893aaf438a1a5f985b660c0205",
+      "raw_sha256": "e7cf2e87370cee6a9db605c6494b7329384d3cdbb2aab926a86ab598c8cc18f9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-http-minimal.txt",
+      "gzip_sha256": "95831e8632e1b69fb9de628e0ae5d1503f88379fd2a409fc40502e184d640772",
+      "raw_sha256": "5e8d673eec5ce5ede92e717a4261ccb9819060bb6c091b0027806b669e9d07f1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-http-pure.txt",
+      "gzip_sha256": "e9d1f90a1c2171be51f70318146e29e92ab600df3e199757cd8b6faf44659ab6",
+      "raw_sha256": "8844c8154c1d6396e5e5881f4d0c2ff60120674f8283f818005dffef29f9a352",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-inbound-recovery.txt",
+      "gzip_sha256": "3a4e04eac18ffe0818249aa02f999e0d5794d61326d98de445d6515c67fe613d",
+      "raw_sha256": "189fbb0dc4d502ae155928305dd8ac374eb39cb573aa94d55ef0ed3b28584d7a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-peer-scopes.txt",
+      "gzip_sha256": "4e949cf73faa3c53940f6f388d1e4931a4e332dd4e1efb2aedd288412329b679",
+      "raw_sha256": "e8cd1d225d9552b30364284dd7f86a8ceb45f11152fa1bbf048d9bc84a36c65b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-probe-diagnostics.txt",
+      "gzip_sha256": "622e9bbd47e4d0fa2c010a12f8a445d7de8ea2bf14f11ca95ec776e12bbb2caa",
+      "raw_sha256": "975056aeadb5c92600effc35bc7cc278a20850fb1cff3a3144978f4a6eca709a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-proxy-health.txt",
+      "gzip_sha256": "89c0ca992f4bb24f6e7a29e98f607fa1d54ddf2cf0fea89bbc1537c3ced0bc5d",
+      "raw_sha256": "512321161d5229160847a77c5e3ad9b1e154e2b6dcc43e6a86d8080bbe25424a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-retained-recipe.txt",
+      "gzip_sha256": "48fb03206325d4917ee58ed46c1f8f5539f08bd27f508c3bfa7be4a1dbf6cf4f",
+      "raw_sha256": "3e24a8480947ff0e334ae9c1365109cdaa618405d1f222d07dc47949b5386865",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-source-architecture-guard.txt",
+      "gzip_sha256": "ddf5633169a25b58466510685c29c2215314a3ff934dba06d885cecac9b204e7",
+      "raw_sha256": "6b51aebf5d4076065621dee41e6b550aaa408d3a3382c745583643438cb9587e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-source-runtime-guard.txt",
+      "gzip_sha256": "c9d2534adcf43cbef5a5e9339dde2225c10c09662a2a6850944f3264a53483c1",
+      "raw_sha256": "8c0b4f2b3bc9c96aa50d340f1b7be82b8aba84df55ac5af6aa981fb24d9e6c68",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-startup-snapshot.txt",
+      "gzip_sha256": "3402b979ec9c3adb490a379b6addbc0653eda039d1b99fcec20b9319522efbc1",
+      "raw_sha256": "bfdea2a0eb1208a1424c1a6c07a5619db3f8f2db1937086cab61a3fac9cc4ce9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-strict.txt",
+      "gzip_sha256": "b1faf8df6025f1806de7bbc532702e8103126f29f78b82c6880bb98fce0a6b53",
+      "raw_sha256": "8c57832200c1fc94513f5349c803929f5fbdb7cd5dd5a7c846de2c28905673dd",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-trojan-contracts.txt",
+      "gzip_sha256": "ab807b809431e383107f72d4694cffe3c9ba486e7911c14e189c013d2b411cdc",
+      "raw_sha256": "937603567d3c7e66c7aedfe743755d0c6514537c6a37acc5a473069fb9484f61",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-trojan-minimal.txt",
+      "gzip_sha256": "581225b763c6715c6e41e51d66fd47a1ea51337a5f5e421d66c46b9445131b27",
+      "raw_sha256": "88ae61a3f9cc1a38334a8e541cbaaa8037b853284b21b04484b113fb0814349f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-udp-idle.txt",
+      "gzip_sha256": "8c3af59df0e120b25decac78881ced413a3e7cf13c8529528d4d4b4f1147af3e",
+      "raw_sha256": "9a6fe5213ff6d0d1e6f7976f79efc5fb2da29e3e449940bc058099965f0b5f2e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24-workspace-check.txt",
+      "gzip_sha256": "c0cf1b31b310a5c4077d921533da3114ef1a6005c659a92719e87d907ce87500",
+      "raw_sha256": "9df7d9b85cc0a830fe20975f11b9df8b73faa85fab97bba682735a13c523d0d3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-24.json",
+      "gzip_sha256": "7684dbf7f08fb6cd00981e5b2764db6b8786b42d55768eb98847969b253f64d6",
+      "raw_sha256": "957b15d9fe33a6f5952c66b445955283cdc1d49358fa8ab12d89a2d31277a540",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-grpc-prepared.txt",
+      "gzip_sha256": "fdbce0d29037cbd7ede1e12bae3b578295c1200a1a612b6794943f3d9210ba7c",
+      "raw_sha256": "9d52ec6d148116f0c5e53bebb1e95cb88f91ecd99df011aa989d4d84ae32fd14",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-grpc-reuse.txt",
+      "gzip_sha256": "cda1efab39b9588047319a032eb588b25c8590408ed2bbcc3a2ecb4524980e74",
+      "raw_sha256": "869bbcb219e662e108d188990c16db2ede84de9bfa1448a87a7ea13e12b2d738",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-http-dispatch.txt",
+      "gzip_sha256": "5c12e41667bbb0797cd332f301bc8e7d95b6cb85539c225d1e2283f1f540625b",
+      "raw_sha256": "ab5a6e1e6fc83c5912670e5f2bea78a262442b32a92aeeca4d62d4015569f559",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-inbound-ready.txt",
+      "gzip_sha256": "d5edf5d13ee56ec0fa0e6b0bc512372ab3ef3189604f70be524803cbfd507b72",
+      "raw_sha256": "bc658b91f68a8279bbb615a134ebcbdf757990f27a310b504fd9c56199348bb8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-inbound-recovery.txt",
+      "gzip_sha256": "df15032bba9bc1c575422d10dc6f1580b013f2ff112a453b8191042256f7f8d7",
+      "raw_sha256": "41a6b319128690feb6f05c42610f5e4f5939a89164062a2ffb8f5db7a2966c32",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-peer-scopes.txt",
+      "gzip_sha256": "060ebd14f607d808e5802535633be1e141e993671acb8abb1c548401527b92e0",
+      "raw_sha256": "90b3c372dfecb43d497e3542d10d7d0be2dab195f6b2d292c80453a8b829e200",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-socks-tcp.txt",
+      "gzip_sha256": "7f82b64f5c29ed088cc2f929706c99d48da6bb097360909c6753d57ca4a55dd6",
+      "raw_sha256": "57a75f129735435d6a4145c7fb634752fa4dc9fc9bae455d9ca98ba78781cf9d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-socks-udp.txt",
+      "gzip_sha256": "7963cef3c2bdb93bc07147537ae7514cc68d6e4469860150dc6a06ce472fe6de",
+      "raw_sha256": "4b85e352aca8cea418812ec6d88e029eea648e1fc696b5e3b5bbc08edc62c721",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-source-architecture-guard.txt",
+      "gzip_sha256": "4d3fc6a47beb63154e08a7538a8d9518762325f0ae1d2d530d8709ae1efcb71b",
+      "raw_sha256": "56f3775cee0e52a8262da9ae418b88fdf9f686dbe9caf231af00672ded741142",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-source-runtime-guard.txt",
+      "gzip_sha256": "744569de5dd285920fa5ffe252c49665d71436f56710b448e5881651994e7f0b",
+      "raw_sha256": "fe3dd9c77590fce01f209950a208cca938941c03f284688970adb62ecd0641d8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-strict.txt",
+      "gzip_sha256": "282be93fe3decf19a4ba672f697715340e42f110de00a9075c9a1eeb2c52ef42",
+      "raw_sha256": "953f3d0b1acb159fdd2d0024599f2a3c740b1191c028bb4a581c0cbd6b6013ab",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-trojan-dispatch.txt",
+      "gzip_sha256": "f20343c93c964a915368849633e876c6f949df14eb2046f271f14e3be82f22e7",
+      "raw_sha256": "77431bcf4619dc1f3d4e5f992c6e4040ab4b9ddfef9d34bcf4174f6087d2a8b5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-trojan-inbound.txt",
+      "gzip_sha256": "9d9cf67f0aa9f783f965129137ed7c4607ed27e2cb6898e815351fad5f1a85fc",
+      "raw_sha256": "10f637d7bde7bb03146888ce02081ddf1c984b4c0f79946fdaaab05b7c383653",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25-workspace-check.txt",
+      "gzip_sha256": "929633d36ec2a9c053775986bbe5a2705d8158a59a8dd2e7cb55c467d0974d28",
+      "raw_sha256": "0bf96094fa48a86304cde0bcf209f9ed99ff8da34e83f9acb16eafd72aaafabe",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-25.json",
+      "gzip_sha256": "51bc32b87d8e2aba0ddcf14d7feaa84468ab8f02bd298a27330d73ae79853533",
+      "raw_sha256": "131281786c980be7eaeabdf928e1ad4d39e08f70700e10ec3e4425db91477f88",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-peer-scopes.txt",
+      "gzip_sha256": "01f18e088f2c0dc390da528be837ff8bdfc2f16f28a76ec024a5c9f960bb82e8",
+      "raw_sha256": "29040e207c6cdeb61ee96759054a721eaef113c6c2c9ae67fc30ac72c0ff3fa2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-source-architecture-guard.txt",
+      "gzip_sha256": "cac4bd755e52f278d6eb02f967d26a82b7641e9e8d3efa05d0923f34b4e17f01",
+      "raw_sha256": "2e54a219ab79410b301958a6322ef8457604a088694ddc4b89360c6485e205c3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-source-runtime-guard.txt",
+      "gzip_sha256": "0a1b0ad011e4c6817cc04fe3a624f4ac18bfcc50f9bb137af57eb5a129b4dcb9",
+      "raw_sha256": "867c72aa774d37f4d424badf0658b47f0ffcf0a5a3db26b478233e738ce4a936",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-strict.txt",
+      "gzip_sha256": "0bc40fcff1c3c4afe7785db48f03ac48a6d399e990ea7f40d8e03438cd706120",
+      "raw_sha256": "d8417b48c779ff14db3fe473f25b2e857eb4253ae3363a25745b7e67a0e771eb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-vmess-contracts.txt",
+      "gzip_sha256": "991daf73a49a7b55b7ba35734bab5e423f92507cdcb71c472f6bd0f77faa212b",
+      "raw_sha256": "a0c6e7029107f4fa2e019c0d5bc7efa595d7c3e512b2ea14283acfa256b0d1c8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-vmess-inbound.txt",
+      "gzip_sha256": "fde8d2dbfed7efef3b3e78b7a609943fa7b1b32c725d67ac31a06dceb73e7b06",
+      "raw_sha256": "c04ae99b19d0a3d16110c51287a34484ede4e4ff923e0935b94a51dbe16eadc8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-vmess-library.txt",
+      "gzip_sha256": "6b63755a4729576a01d25ebf518cb5cb198fbdcc5b39578dee46015dc6f37d0e",
+      "raw_sha256": "484f2e92e84a24db2513585e088bd0422df344580217057909575337d67ddd25",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-vmess-minimal.txt",
+      "gzip_sha256": "999b80642ac951ab45cf6415482cb9d9e7c20c57d3efd00114dfd50efd3e607e",
+      "raw_sha256": "b5cce1ae4218ac8949fd9ba23ff57a86447afe855077c2b0c05f4582a4d9e283",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26-workspace-check.txt",
+      "gzip_sha256": "7cdf8198b8a6c4e67dbeee9de77a54e940c912aca1660f4faa51201076e6f832",
+      "raw_sha256": "7624e38f51403022e9403915a0189528b6b8adbfab3b57befe692ccf16e5ca3b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-26.json",
+      "gzip_sha256": "b8a336c71c40e605af6f6dae1a91fecbd584816111e6740ee18a3a3966e16b65",
+      "raw_sha256": "b58b7f3557d979f9eb6548ec510d89d992b7eb42f24e47dad312fe43223b807b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-fmt.txt",
+      "gzip_sha256": "21c0377332cf6833870f27939ff51024a0437f131295155666889733e04b227d",
+      "raw_sha256": "a5a9eaa8922e9d45308efee875678a640a7c648cf23b273b9c4fd88af0e788bb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-grpc-prepared.txt",
+      "gzip_sha256": "482e58c7107530305001a919bf7bbdd82417acab018a77c03795ae69ecb2808b",
+      "raw_sha256": "e27ce6d92ff45041347974639985727987ce3237c295f036a7fb277611bc9a13",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-grpc-reuse.txt",
+      "gzip_sha256": "8e501436f7435aa8f217c38a0c6a977d86deba412a81ce463f43bc442975b721",
+      "raw_sha256": "de373f37ecfd8b1048ea040fc43fbb5a340dc6544a24bd778069078ca200f775",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-http-dispatch.txt",
+      "gzip_sha256": "04cf13c04e59226e01e7ea343e75ce93eec12a6da1c141be0cfded847a8a3149",
+      "raw_sha256": "8ab73a6a625b37be3416f6b06a66b0c794b270925319010693dca966e0e36a92",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-peer-scopes.txt",
+      "gzip_sha256": "05333e148c5fe7998ea9d2aa9211c6bac225a32eb1f94041d983e89372ebde4e",
+      "raw_sha256": "75ef7ca80662fd69fee4382fd2c623a1eaa9ba4fdc77673e771946e2ebfe2215",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-proxy-health.txt",
+      "gzip_sha256": "d86dab49f1751e50422832abb09c49b701f2187738b74a168d76990c9ec42fd7",
+      "raw_sha256": "8279011676f4ed6e6ee5154962b86213b82c0c3b011a3d537f71ad5cd0d31797",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-source-architecture-guard.txt",
+      "gzip_sha256": "c22bade42968c213de4d23c58e24df052474136fdbc4bee86a1884d3627d3f4b",
+      "raw_sha256": "342bf95a2e2c7524044d98bc7c7fac18d2318410be97d0831e7333c9877ed874",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-source-runtime-guard.txt",
+      "gzip_sha256": "67ea1f467255d3e5750a3436904d78c3a9eb9fc53d4cd1e40fc84dfe31677587",
+      "raw_sha256": "c61bc8450025ffd312393e983692a21935cdf3842b4be881d9cd72ef0a360731",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-strict.txt",
+      "gzip_sha256": "d55b1f713b30f62e64dc7c5a0ab10a6e92da6007d410aa747823460cc2bcc9e4",
+      "raw_sha256": "7e930d25d4ab60905d4bbd55301e8ad9fc8d040b6e01cfde9183632498bb8d9f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-trojan-inbound.txt",
+      "gzip_sha256": "09c873abef8262aa6fb6094f462c98ee3e31cb16c844c762b1da3c89e768a6db",
+      "raw_sha256": "8f389f3e8b481b315a1ad712cadfc4f9e1e12d8694d1f2565020b0f5d068936b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-vless-contracts.txt",
+      "gzip_sha256": "89df9e7bee6b5ad3295dea328b828793d2525a8929314ce26bdd85eb92a57235",
+      "raw_sha256": "399fcc69d46eaf8a8fdd7db623e393b4c02c9f712408af2f84f9d3c50e20d851",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-vless-inbound.txt",
+      "gzip_sha256": "04e026a96409d5a95449de19ecf0e5b90925a5ccafe7407c818d13a16d006979",
+      "raw_sha256": "f34f8b5a252ab79331035c6519978456c5dbaeb599edb58d21970fbaf143182a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-vless-library.txt",
+      "gzip_sha256": "b0a22e1e1386cdbe2fca1aac360cba5f2811531f2f326c92637e863151cad112",
+      "raw_sha256": "40ea6e32a41a77f17a88142195c359761b8107135ebe325fa9b9adedd5fc1a0f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-vmess-dispatch.txt",
+      "gzip_sha256": "5e8a7455c5bf1119b37aacbd19207c07a29b21bbcfac7c53cdfbfd082bfd43bf",
+      "raw_sha256": "6c2e38c1e26c9443acbd18ce691a8fec90b21d08d0ae78ea4748592f395dbed5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-vmess-inbound.txt",
+      "gzip_sha256": "d81aee3a25094d007e1e8ff34ba65a67f1e42260e3136ea369c373149eaf19da",
+      "raw_sha256": "dd5460af3e9624a17fe566ab4cb2778a8d45449a7d9aa81d1081645af9b9017e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27-workspace-check.txt",
+      "gzip_sha256": "342bbb33a21e96c346d748d9c85aee491437ff9214caedf7eb634065b6ae167c",
+      "raw_sha256": "276b8c53f4610b9d8dd37e2de60547daac4850dd2dad3596c9b08841b8c133bc",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-27.json",
+      "gzip_sha256": "9636ea6f53ef24706483840ac1352373e812dcdec0efe377cd6c98cf97450802",
+      "raw_sha256": "9313f440d7ffaec4b6b8c4d79c12ca3ca1dedc18e45ba82def7c6ba8583102af",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-28-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-28-workspace-alltargets-check.txt",
+      "gzip_sha256": "cfb9fb2ba6deeb57362546fc8da06d1c65b2e0a7ec690cb13307c5672918943c",
+      "raw_sha256": "8984aeb4d6a82c5390569471b5fb1a82b308cdf866433ba43d1f1cb01573f891",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-28.json",
+      "gzip_sha256": "fe1556a2de145ffd796301ea826e359629fdc129925774f6f3592eb050d17727",
+      "raw_sha256": "c47d62516083c5a59fa88cb6b314b5c971dd2a3afc828ff2fa1401da2739ca57",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-29-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-29-workspace-alltargets-check.txt",
+      "gzip_sha256": "6715e32ae540729489e2eb4e03dc52007edfd1b4b13e1c953267d4f279d36736",
+      "raw_sha256": "84c2daedec4076503b3819b1b919cafe3b1ae4584873a15f219b34ae1ac0f3b7",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-29.json",
+      "gzip_sha256": "49157a634855fd6153e9f86bb860f51a0b0674727cd363a13fc6c0f50dbde809",
+      "raw_sha256": "71e019fa981b7b226eff5d7a69743c8533258b90005cf88ebc7ebf3e80da8e95",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-3-component-contracts.txt",
+      "gzip_sha256": "2c80d395bba67a4b1c48c0ea9bb8cc5113ae8a78720f01563388693fceaa934c",
+      "raw_sha256": "531a78cd380785aa9594adaa36d8b896f049d9e3cf420843a1c1c0ce28d5c6f9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-3.json",
+      "gzip_sha256": "c27fc2e5682568279f29fa4411723525a1b723b9dfb83044a4197630dd695d33",
+      "raw_sha256": "43bcaf630622148e621b6852845f3913f1dbfc48e00b4b16a52c92106e312acc",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-SS-inbound.txt",
+      "gzip_sha256": "efdd2b168587b2404feadf8b52ff802f6af4f27299db8446244f01efe6ac83f3",
+      "raw_sha256": "13eb65fe8e9ba4d2dfc26c50fa280a12d2eaf46ad75cdd7f8106cd6600ebd920",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-SS-library.txt",
+      "gzip_sha256": "3b6c73c2c47ddd9d40ca90b4f3bec2a193313394adb97b9046f83752f1b6ffa9",
+      "raw_sha256": "d6f34c686e36202029fa0e8fbba255a01476bd9139398c48e69895132c100c2e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-grpc-reuse.txt",
+      "gzip_sha256": "1ea940aa297e7806007afa329aff79b7ee2e7d20de3518bd8483f9413c0e2c20",
+      "raw_sha256": "aafa6c857aac0f76e47d64e160e9a198146ad51259b9bf2656a71942c7656f2a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-platform-unit.txt",
+      "gzip_sha256": "d3b182a264e0488044c29b799185f49488e0e607ed1b07b6c30f44ef1101ac7c",
+      "raw_sha256": "34990c7eba9d2fa6d1f3d5dfc3649fc4a5fbfac73d602a864c91bba7cad2932e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-proxy-dispatch-all.txt",
+      "gzip_sha256": "0dfad46b5cce10b03620eac41a80bd58ddc6e1707a717d6096e00d157c1ba405",
+      "raw_sha256": "954b32d4b6e8eb77d7eb3a573ed9dd33dfeac904bd81dc9d5c6d1c2e17a50b3c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-proxy-health.txt",
+      "gzip_sha256": "275e7a83395d0feab8ed8a535d67c5db04f748e2a03ffeb017d736cfb5d9124c",
+      "raw_sha256": "036aefbc37c0df02fe4883402cfbc3e04f3c0982d7ceb5c3f3372b1ab852af49",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-proxy-library.txt",
+      "gzip_sha256": "a1e42cda0c8ecdcbaa840cfaa6844528380150a9bbe8a8503ad645c1bc762eb0",
+      "raw_sha256": "c12038d818c01126fa6c88d8f8781d07622e8fef606f4804346b39762a1dfe9a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-source-architecture-guard.txt",
+      "gzip_sha256": "caee5d95bc1ed53768b6e7bc0ab4b43954adadb29c186116c8b558478d5b23b5",
+      "raw_sha256": "da17973c01395fd83ef56b2ff914e8dc4ec8713e9c8b66c3f0e9237be269d9bc",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-source-runtime-guard.txt",
+      "gzip_sha256": "b710abed14404dc4a54b7a99ce41ae82d03d9cbca6be456414d79b120d387877",
+      "raw_sha256": "616473b77ec22865ce4b90902e96647ebb75930f3bb30becf532cf16e60e9b23",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-strict.txt",
+      "gzip_sha256": "d16003ed89bdd6a28d19e837e3d1c997e423ab6dd41bb0e4e04e5c4fa39f1c65",
+      "raw_sha256": "cdaa6e771be20140591eea3b12b6d349d641075026d26c6d67f674352a09edd8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-transport-library.txt",
+      "gzip_sha256": "c19d4887a59e8de93f7b4d7857557b6f415a5e95403d3c34c1268b5dec22cb7f",
+      "raw_sha256": "7d8fa3625adfaccb3accb183eebaa5197673a26c7e3d06fdaadb994ab52c6207",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-vless-inbound.txt",
+      "gzip_sha256": "868f862b131c1c902da1485b1037c8a00aa493dae4e978eb1cdea6d80571066c",
+      "raw_sha256": "ef5bc4c1de22000d72c3f3b39f54b0ed32852d5be96629311131f3d9319a26c3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-vless-library.txt",
+      "gzip_sha256": "a054257854257f2cdac22b0811e46c346ea107bd5a044821d16ac4f8f20b0f36",
+      "raw_sha256": "0e034bae39ebcb7424f2339df25e86b0c186a25b07eca25e1b35b49f62ecba27",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-windows-platform.txt",
+      "gzip_sha256": "d1d99631f9aeea25f1d4ce70eb90cc00bdb20ef053eec60010c18eb52c6f0c0e",
+      "raw_sha256": "251cc59c095e306b83b4c9263c62ccbe8c0925e91d91d61cd9519697c303d819",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30-workspace-alltargets-check.txt",
+      "gzip_sha256": "5ddadaaecb47c29707055803a065b512ec1239925dc4cac2b68dddad10384d91",
+      "raw_sha256": "8b60997825ed280f69fdeaea723318c1c95855f8b340a1a30d7c9be67ec1c6f7",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-30.json",
+      "gzip_sha256": "e0c5bd90f033f53f8f749c136cefd76883d3ee9fec7e2bdf83e6a68489b98d50",
+      "raw_sha256": "e22b59aa2bb2d0cf8a8f74700b3378b8b592b7b3114e6f7f35078a413df1f947",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-31-SS-inbound.txt",
+      "gzip_sha256": "1f6276b9b9bb632103275e3f179d212f00750474da65f52c779b9babd9b7d10f",
+      "raw_sha256": "49f2d2a55077d4339c86fe28c6fcc37cb80b8d813196445643b3b1c2fb24352d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-31-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-31-proxy-library.txt",
+      "gzip_sha256": "1074afacd94349a1f85ff9f4d485d0fa838bb9f36a7e7a5715d21dcca6a2c76b",
+      "raw_sha256": "0b13b112955b303601ba7d325622b90aff83e7a10213e0e78240a67610fd68e9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-31-source-architecture-guard.txt",
+      "gzip_sha256": "cf7e0d094941b21e8d891538d42d8ef5ea75c790edccfcae80baa279c7fe4180",
+      "raw_sha256": "255114c6828b96c44c521b99d77fd56240849c777555967a3828cadcedeedcf8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-31-source-runtime-guard.txt",
+      "gzip_sha256": "9e88fa9a59f3b0eef5b1676688065de2709a17cd6099ec1ecf98ed242189f828",
+      "raw_sha256": "3afdeaae5183701d0d2572a93eda685e92c2b03d297c7fe3328120e1a9443b25",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-31-strict.txt",
+      "gzip_sha256": "4fd86fa00d2f5a425a558f01304e4c1f2995da7412edf2508509f81b441830f0",
+      "raw_sha256": "dd058ba1832fbe79254f95d2fdff9ee9d851eadb38ed1bf0b5011865ba219015",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-31-workspace-alltargets-check.txt",
+      "gzip_sha256": "164833a1e86b59c07a6aeaf345698db7d905fecdf20906f6704b5ad7e31e15a3",
+      "raw_sha256": "fa298a4b0037c5059588e41b2e627c9a1845f50d2f923d2eb3571bec18861acf",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-31.json",
+      "gzip_sha256": "622c571e8081b1e27aa8779a844ba27d7b1603ac2a263a18deb2c6b0356242fd",
+      "raw_sha256": "7d3aac84f5fb09b704f8888b2ff92fd11277aeeaaa76524bf4b71f86a97ef496",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-32-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-32-workspace-alltargets-check.txt",
+      "gzip_sha256": "b22a193de8b5bf08f9b16a0d50b423e55eef10fc823f16348edee4382d00726f",
+      "raw_sha256": "eb3705568fddb3a0acb8ba7930d1877e302e9b8bc6af05cf800e4587c16c628b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-32.json",
+      "gzip_sha256": "5acc3d34302c15882e9cdcc3567c9aeeb1f00d69918d6d1e7a3f6fb511d29f9c",
+      "raw_sha256": "850e40fbbac7fbc91bd81c8919a4c5cbde9763955eabef167f855cf95b6fcb2f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-33-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-33-workspace-alltargets-check.txt",
+      "gzip_sha256": "1361e9cd31c4750bcab343254662a78fb75787d325c27df8c05c540671e44d4b",
+      "raw_sha256": "6c2203720926c4f2ffdad34e4b7589004d313acc6c27b46f2631c9d82da50446",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-33.json",
+      "gzip_sha256": "95d0d140e3bc229b5bc06f882c673cd12de9baa19deaf873638930668e4994ad",
+      "raw_sha256": "854d9ec301317a1e29704d0c471fbff052e5ee2041d305c3987f4026d002f673",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-platform-unit.txt",
+      "gzip_sha256": "abbc64b0fcdb20adcecadfe314316eeb29facb28033c6ff8d7f351fddb6c00e0",
+      "raw_sha256": "e9aa36023a8cee4763b4f3661844aaae0f211c960f155a353feab988bc3a944c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-proxy-dispatch-all.txt",
+      "gzip_sha256": "d77a39c9047bf6d5d2343c5a01d2e39cca5be6e6b4152b92c9aef1dc9495da65",
+      "raw_sha256": "3f17f69e726c0b34fe7139ae1009f728eca4455a0a236d06e84bd8cc2b494d56",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-proxy-health.txt",
+      "gzip_sha256": "d9bdcf4ae4b3edcd2fad7f19f4062c562ae4dfd9982698dd5800b46de86a2b56",
+      "raw_sha256": "972238fdef4249b563d7d8f2dc02327aa0c527177db7c870cb82c29bc6981c83",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-proxy-library.txt",
+      "gzip_sha256": "0331fce30523b582c563f043590f671d4d374fa79fc49ca45c77b51863d3dddb",
+      "raw_sha256": "2dc1945925b703fb687b53fef3bd4af746e23315c801859f17855171c17e52e0",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-source-architecture-guard.txt",
+      "gzip_sha256": "e04abbf1609885a19160c17c9f62c03b22d3f201599f8f36767533a932f9631a",
+      "raw_sha256": "61254c6c9d5d17b6d8ef7b2e3edd35b43d7526cac9232da905b4ee07807cd50f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-source-runtime-guard.txt",
+      "gzip_sha256": "2c2b61cb3aec7a88d9485df4a677a98c8c28044989104e366db8efd224ce9154",
+      "raw_sha256": "90e34ef123c20ac2742d64ffb61940ef4b8c1a2dfc3b3901fcda63fbeb73e41a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-strict.txt",
+      "gzip_sha256": "1a59906fa9270ea42faa8f7bb199df11aecec30e94443db7a416e0f7da545018",
+      "raw_sha256": "88befef145d01597aabd242c2e0aeb51507ddf4c1ff58e84754792742c47af39",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-test-layout.txt",
+      "gzip_sha256": "079178c46ec27a5e5a4e5e71d1d64e37b4818eb505423729cd211952020997a5",
+      "raw_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-trojan-library.txt",
+      "gzip_sha256": "161ccae4b28c404545c528b4e12558db4449a9cbe530d3609bba5fd58f439910",
+      "raw_sha256": "01711ee20426839d7985c0fa87f1f6973bec1c07f81cc08c0c092a30004779ef",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-vless-proxy-all.txt",
+      "gzip_sha256": "30508af8f4d2a936c49555161356e195b67bf07e9927d2398b0c08c63981b99e",
+      "raw_sha256": "4f0f46a251d7a45a7487a924b0b1131d4b7675f8fa5bdb04019d18f62c419ffd",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-vmess-library.txt",
+      "gzip_sha256": "0ef5fed3b37855c241ec124059f4af071e365945ea1c42c229be6aaeccbb6b8a",
+      "raw_sha256": "1741ad364393ede1fac4bff6c6b073b30b39e16c93d5225c8bb12ac9276ff6fd",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-windows-platform.txt",
+      "gzip_sha256": "2849c41de105f347e46cc7538ee7d33f36579ef8ebbc77bdcb0187bfbfc71b18",
+      "raw_sha256": "e13a3795ccd29f02311ff7d9b11dab8932d0ccf476fff5eab1b7c7037ab1025f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34-workspace-alltargets-check.txt",
+      "gzip_sha256": "35222af9886eca6bdcd5c783792164a6963e6025e7e7b403ad98fd6590aaef69",
+      "raw_sha256": "6b24f8145d5a4a17ff06b7c09644c15e18854c6241fdf008d8bfd7b8222dae97",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-34.json",
+      "gzip_sha256": "689117f42c3f79e0b639519730eae7f12e82a7167970b7fbe205e906275020ec",
+      "raw_sha256": "9781c83eae02564b8257e37d7205c42e1fc62a176fbcae4d715ef6192669e1b3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-35-component-unit.txt",
+      "gzip_sha256": "9d65605f6b1577ecd2cace6e1b4272a77a75efb15797b94551488eb5a9458ddb",
+      "raw_sha256": "5c281a5547aa6a299d5dff7843c2850311c877bc90948a9a62dd2665984fe390",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-35-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-35-source-architecture-guard.txt",
+      "gzip_sha256": "acf534cef308023437e58a46872ac6f3b775efab629999c4ba161558539a8088",
+      "raw_sha256": "968969e9519c7f54256108ae259533e1d7a90a15f5933b16630a04a91e845c6e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-35-source-runtime-guard.txt",
+      "gzip_sha256": "51ff922d4db6b91e5b9ed144285933fe7e9cb6956f20ac3e5507ac63a09c8c32",
+      "raw_sha256": "bd6bde4f3128ca2a4b508ce3fb581af0f961c83990f56efc7857959b3beb5ae5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-35-test-layout.txt",
+      "gzip_sha256": "079178c46ec27a5e5a4e5e71d1d64e37b4818eb505423729cd211952020997a5",
+      "raw_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-35-workspace-alltargets-check.txt",
+      "gzip_sha256": "c62298252e0eae6a3a28d39032013f097d2829224b49311ffbf92f1a1ddb103d",
+      "raw_sha256": "7ce8c14620405e15b7054708769651bca7e2fc15ed12250d51517e52e86a77af",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-35.json",
+      "gzip_sha256": "ec6bee77419a4f0be8cf09918a6169ef1663d1af81820f55c575e4f6b9e3e036",
+      "raw_sha256": "b641849e843293fad5eccaa86b31a95d6900f425b97276a80d825ad9133f1402",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-36-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-36-workspace-alltargets-check.txt",
+      "gzip_sha256": "3919322d520d5788a4a22eee17d724ee214e5eaaefa0ce64dd4f8b9ff487e77d",
+      "raw_sha256": "058303e122cbbea7c42a91050e5b55d179e99e4e63589fdb1fe083f703e4236d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-36.json",
+      "gzip_sha256": "503a00920bdfd3b992fdf327553b17fefbec989ac78f269ccacf000f93ef58f5",
+      "raw_sha256": "34c6f235294ed4e0edb8f1b8dd497e092c1724c42b99e63a89b9cfe175d20af3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-37-component-unit.txt",
+      "gzip_sha256": "32f19cbad58375fafbe9ad733e9e176fb2a9baad9154920fbf3574fa73544ee4",
+      "raw_sha256": "112e3c77c155182f028daedf819e7563e7419c8adaab7ca3ded03c01a3d9e3c6",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-37-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-37-source-architecture-guard.txt",
+      "gzip_sha256": "538f87fab21531ec1f3c866947c51b55a51115eebe56ad1952d113dec534a200",
+      "raw_sha256": "701f2707e679a986464b42145fab21a0a2c8496077d38d7f00d4a8fd5d26c742",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-37-source-runtime-guard.txt",
+      "gzip_sha256": "137d4be32c2e5bd93cbd9da35105da239b7ed322a1bc1bab271e0168a5db15df",
+      "raw_sha256": "b2dd3623afd272e3afaaea1d1a2f278afa81321453cc544cce7fdfff8ef546c6",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-37-test-layout.txt",
+      "gzip_sha256": "079178c46ec27a5e5a4e5e71d1d64e37b4818eb505423729cd211952020997a5",
+      "raw_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-37-transport-library.txt",
+      "gzip_sha256": "f508d988da7121b5b5f1c9c0a2b8cdf1d274fe4aa098682d3e8e274ddff9e640",
+      "raw_sha256": "dad135ef7f2f66673f7d419785576030e2668544a6c02b09c4e436a4e830a019",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-37-vmess-library.txt",
+      "gzip_sha256": "a79fea4cee78fb169aa1262a0d843e29c0245ef57679094bcb7512c4e86b6818",
+      "raw_sha256": "481f6c70342c10c716c44778510c02b5b2d3c8b42b12c3c52f2535cba190f5a1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-37-workspace-alltargets-check.txt",
+      "gzip_sha256": "6b8f3eb76cb0e62a67ff2eca5b554f29ac9f54ec76c054e6e6e4b8af03430217",
+      "raw_sha256": "6f2bbc9efd9310e5b056e2f20ad2bf8d2810189fc42a363fd96418f53a8dc008",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-37.json",
+      "gzip_sha256": "c8dbc0fdd98d4cc74dc849711afb5123ce0554f8464c69e3a3750959bc5798b1",
+      "raw_sha256": "c14374e2cfee3f54127920c416bcc5d911adc8ab6c41c900055f65fc4978f7dc",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-38-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-38-transport-library.txt",
+      "gzip_sha256": "bd2120810bada18f724d14cffc721551b52749b7748b93e9cade51fbb6dbea56",
+      "raw_sha256": "65bd0500e05101fe9b8ebf9135ac17da5bf24bcd88534239f2e49c417387f4a3",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-38-workspace-alltargets-check.txt",
+      "gzip_sha256": "88079c50c021a16d3fa67a6a24e219042268006069a23ad9fa833d3f9f79011a",
+      "raw_sha256": "2a152aba5e49866b110a2687d5fd9205994434bb9c8e6d1ceb64eb3d4f18c8a8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-38.json",
+      "gzip_sha256": "d04b50d317ea2388fe29ea8ac91b5c2a92bd6be8fe15aa7d8aa721d0608a983e",
+      "raw_sha256": "2d91b68259e1b996f4e4f5e77ff79844f6e22e37cc7c2963b6048431bdefc41b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-fmt.txt",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-platform-contracts-all.txt",
+      "gzip_sha256": "e722124fb7b087327c47c20eb0a9c8fa6fd3d19ee5c23e2165486e3461b49503",
+      "raw_sha256": "2bb48331621d4881de28ef50add7a98b8f548090934f2ebf20fb51f451bcf622",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-platform-unit.txt",
+      "gzip_sha256": "4e48010cfd44bc974e865a3e5cf4815a81cf21cb813d2b57a3274f2bfe2f81ce",
+      "raw_sha256": "496ba789353685689ad86a03c456a7dd88b36d5cb4f5c8c3032c10ff0599f84a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-proxy-dispatch-all.txt",
+      "gzip_sha256": "8ce2f19ec267a0755ab33fc29f7da3ed3127e78938c88b4d0f7a6925a1cebd00",
+      "raw_sha256": "2744b306337acfd7568dbb8e4f62a8c1e69f36826099f94e3f80c9222d9998ce",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-proxy-library.txt",
+      "gzip_sha256": "81450ae6c9f32235d5f4ab1f8cafbad7762a6416c488ae599e554ea590b36838",
+      "raw_sha256": "8c5f656b6856798d411dc7d7a95a963c8324daffa7784b33f4d1df765c5a5331",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-source-architecture-guard.txt",
+      "gzip_sha256": "6bbaa60b7d07c51a9e249350e7eb00e78a07b131b0766f6b3b889e48028a1349",
+      "raw_sha256": "acb3cd63a05691371d8bba8567abeed7775c08e26aefab73ca9c27e86b7c44f4",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-source-runtime-guard.txt",
+      "gzip_sha256": "ed2419cf1ec9ad614d30159b3337972b5795a4c3043c281927d43b5118da4e49",
+      "raw_sha256": "6a35a951dd589ecc5d1f05f0d54de0a8105b119862ef581d06d5832c864d18a0",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-strict.txt",
+      "gzip_sha256": "1d2ed11d0c524304eb8e72af46026f484967444726bc84bbc33196216b6c727d",
+      "raw_sha256": "95e980014e5b881b419720b981e71e51a790a372f4c8a0e393f782278aca650c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-test-layout.txt",
+      "gzip_sha256": "079178c46ec27a5e5a4e5e71d1d64e37b4818eb505423729cd211952020997a5",
+      "raw_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-transport-library.txt",
+      "gzip_sha256": "e39687ce96d58df57aaaa576f53bc239c5aeb3a9246be20fc02a689b510483d8",
+      "raw_sha256": "dd58bb6c78a18d252cf423714e42a9e28ed509045b4e9f29e8b253674593610d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-vless-proxy-all.txt",
+      "gzip_sha256": "f4ab6c5f2694aaab261849485be56538fb3a83be3a0702c74e3be9723fe90820",
+      "raw_sha256": "c95c134e2990f850035215181828d9c9edaf7ced18b8389d5268fb501cdacb3d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-vmess-library.txt",
+      "gzip_sha256": "65c27299bf6dfda7d567f946a954e05ec4cf607ea157f3e920b0e4cc42474ce9",
+      "raw_sha256": "98586b2ab38367a9ec1124f15a6c5ca1f640d1d1cf08ddb3b5487aa5f6d1d8a6",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-vmess-minimal.txt",
+      "gzip_sha256": "d163ce1d145376471434b24390fd0925f7a3201ec147fb61459a83aa6e3e0087",
+      "raw_sha256": "8a0d6e7e2d977353508a05ed32579d78a005d8fa2a0dcac45d133ffbede2519d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-windows-platform.txt",
+      "gzip_sha256": "14f439dd3e0364c06e8da386bad937c2376e86a643411ef9342ac441bba4941a",
+      "raw_sha256": "89adc502635cebcdc017bfd0dc6f30b49251d5e9439037818958691e6b2c79e6",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-wireguard-inbound-all.txt",
+      "gzip_sha256": "7147f8cc049057823b1b97b943fb34b4b5ccb7ccac37a0b57bf31ba621dd861c",
+      "raw_sha256": "c9d5cce881acc0bfd9cb61e18c21048d8bf8d42689ce528c24aae538346d4b0f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39-workspace-alltargets-check.txt",
+      "gzip_sha256": "41f8fad7650400593098f83b176214c88c389edc27b7606ae39539edbd21d393",
+      "raw_sha256": "a1be059c22b054c35d918cbfeb1769cc9eef237142232ed44e37672d1d0e9d2d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-39.json",
+      "gzip_sha256": "08b090a8d1d26c2b16d6f03738f4d47d9a0523ea98204b555541edd95f242b40",
+      "raw_sha256": "9a259c44f8a1c9531d5597584eb04b33736a219e3c0418ba894b1e24c7e0a535",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-4-component-contracts.txt",
+      "gzip_sha256": "fa7931d954f28449e5347cfbe9fd6064da419d917826806c0c6654c45159f053",
+      "raw_sha256": "bc5da8a2f13b9acabcf0423c1129f7879e8763542dadbd121af0682f0905a9c9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-4.json",
+      "gzip_sha256": "df4d639c54cbf476368a61e854bb085e6090bb0a21ff28b0bb0a0baf3451ead7",
+      "raw_sha256": "8eb2c3f43732eaf970e1b5564f6e9c21ff613b3f02ad8217dd1daa0f6996837c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-5-component-contracts.txt",
+      "gzip_sha256": "fd18d189137dce6ce74f9ca344a90aaaa3427be2c09c9f6d251f867c3577567f",
+      "raw_sha256": "04744d40dac9b6c306488053cef6226314642d9c36918fb4f3e96268e211a9a2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-5.json",
+      "gzip_sha256": "38138813e51646fa6258187d60ed1c9c199298c89dcc170b7a3ed37ad888b081",
+      "raw_sha256": "465d5e6260c848f487af409afe6a1c26667fba7adc44427302f2feadf11a057d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-6-component-unit.txt",
+      "gzip_sha256": "4e07fcfc938d6d0533f583196fc661d708ab7260a26d023b6c42bfcbb45ba1d1",
+      "raw_sha256": "429611abec0b811737efa000ade2c6ad2cb3049bfce0c93afc53d2d41826e42e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-6.json",
+      "gzip_sha256": "1099c8df64edfdbc067750211227732380d82a79364a692f9861cbbc10e4357b",
+      "raw_sha256": "44ef0ecfde6cbf8e49c031756f177620f77014c7b97813b634a901c22eac851e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-7-apply-owner.txt",
+      "gzip_sha256": "3639ad75f88c313d21cdaa17362f4d46b77deb5df17189bf78542d222ee0bb03",
+      "raw_sha256": "50821b5a1f250f5c732427c30f2a07f3fde32a722bb872a9d6e5daec03f95466",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-7-dns.txt",
+      "gzip_sha256": "0976c435ec2fb83e0914a2171fc6255d08cc405183c1cc8a9798388ae8a6aa1f",
+      "raw_sha256": "764a45340df0b26c1a0c56ed5e2634181227558d8009d7298bf306719582b1ff",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-7-proxy-check.txt",
+      "gzip_sha256": "79628587761ca6a33e2df7a2cb376e22b8f2d885a3396f15be1ae921fc2acb7d",
+      "raw_sha256": "e75c47d2fb9db0db40db71710b2bd5d0a6e162cd1fa173921a232e40c65b4ebc",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-7-scope.txt",
+      "gzip_sha256": "d28031852d8b39a646d4788932638d8a484963b464277dc87674f5f992293fde",
+      "raw_sha256": "dd7f4aed37ea733ea5afae1cac07cc706b64475f7b0e501050fcaa40c331ac63",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-7.json",
+      "gzip_sha256": "b4b185566f24a6739c84e5e70dd7feb6b4066ebeb597379b0b89686469a5125b",
+      "raw_sha256": "b6717b49c110ca73053d010b191a960825cf9ac56de223e51b0c3bc810cbad14",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-apply-owner.txt",
+      "gzip_sha256": "ebb9d6ef80239b88f95166336ad93222ab460725e5c0a8bb66534dec95bda37c",
+      "raw_sha256": "8b6bcb5951e6b5855f83863ce0bb0d8e822234d94723337b5c04c6d37c2fb06b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-component-contracts.txt",
+      "gzip_sha256": "8876f40d90bd79a810f2949324f35521b79c5b536e320f58cf312f306689fe25",
+      "raw_sha256": "faf3846fc03b6d69546256e995eb4d6a235fba20e804e6df2cd59b1d1ab917fa",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-component-unit.txt",
+      "gzip_sha256": "d5a2a0f3d22b3f694d0ac83ddea6a4e58a8d8db349e5db291f33772eca3cfb17",
+      "raw_sha256": "4fe655701f067151cbff2d1793600897d92f3b49f17003b4624e3f792044203c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-configuration.txt",
+      "gzip_sha256": "360263a09705c1f425f80fc9ed296bee8940d2725fc94c1fd1e46cd2f1fe8414",
+      "raw_sha256": "a2a9555c00391b543692048469bec67f2ce18063cf93bad1ee14f0f3cce44d2f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-dns.txt",
+      "gzip_sha256": "1bda35bc68cff6d38845b39988f99413941d9e3466eb3aa80b181358a16bc191",
+      "raw_sha256": "79e47b90c788aab87a38831e29b963e6199f290d93bf70dc5a83e1ab31e3f9db",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-proxy-check.txt",
+      "gzip_sha256": "6e34c8736ecb67a9169eb3032ec5e83bc1d1012e75f0c6c471b01b5998f5da64",
+      "raw_sha256": "7ebbab5fccac44a7dc6d26c21184e17552d07b8e1bc82ef25cad965991253b94",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-scope.txt",
+      "gzip_sha256": "95c04358687cca8f132bf6f04dc7d17093cc2c6f3a61ec0f311a0efd14a504e4",
+      "raw_sha256": "a58e3c416d772851254f157dff92eefbf230451e0072534e968f75b9ccb221a2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-trojan-dispatch.txt",
+      "gzip_sha256": "216dc7d4da6946acfc06c052a9e4b1f9f12eb48b2632695892bc6e5d8293c716",
+      "raw_sha256": "8f40676972dd165ff6fac4bc4ab6dd6c2e39de99656f59d1bedeeb2aadbc5288",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-vmess-contracts.txt",
+      "gzip_sha256": "3eda5f3e9070840c52b7f27d4b103a272f716b54714536990e4011302205892a",
+      "raw_sha256": "f197359459bf6806d65aba76fb67db89e9a8bf2a709febab920f5ffdf619330e",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8-vmess-dispatch.txt",
+      "gzip_sha256": "c0ce6a6fe068d1092c2414be46bb5b76f2a2c8b86e0256492fd151b1317f3f7c",
+      "raw_sha256": "c3ea57a51bbf05adffcd128b121a13e94431e1d2b2e53399a057371a6fb1f446",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-8.json",
+      "gzip_sha256": "2579cd5a6b67c59061b787b4805a5d2193b560520ac5baf356019ca381f3559f",
+      "raw_sha256": "2a26183b4d4ff96ac0b298b9aa096a8dba3c0c351c17eac15f00580a8818d437",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-9-SS-library.txt",
+      "gzip_sha256": "26bf2032cdb2fc30a85c370530c31910beb7ab9edd8dfd57648a9bfd5cafb109",
+      "raw_sha256": "b020545f2bb988bed061354e9ea9ed5d004ff83fdd734a3db4796786dd007430",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-9-component-contracts.txt",
+      "gzip_sha256": "14145f7595603043612599a1e4ca63311770f0fd6c3d87115636f3ace09649c5",
+      "raw_sha256": "66b63005f47df10513cf2d7ffcdb6a9907199f0c2218f02a8f03c8dc03512a3c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-9-component-unit.txt",
+      "gzip_sha256": "9d208e4d8de0b5de089c102a3c545a937017e0aa11b5547005a9f49615543be8",
+      "raw_sha256": "3a973eeb47818a0ca6a4b87edf42b3178d9549c8964870bfb60d7c2e7058880b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-9-dns-detour.txt",
+      "gzip_sha256": "e6113d0bbe2de1c384f4429f98594a6bcf5d766408921db0f227844c02e344dc",
+      "raw_sha256": "46e9695bb5e42931e1ba6d756e324edfc487d8004ff57aa45c2bfe075b26fa59",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-9-inbound-owner.txt",
+      "gzip_sha256": "817dcf58615ca769b2ac03364bbb79ce74cc25f6484eecaee01c49168a9377b4",
+      "raw_sha256": "583352d4abcb941ced5327abb07a9f0be87a7f86ff1262c5fbc4b4a5139e5b85",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-9-proxy-check.txt",
+      "gzip_sha256": "ff8279f63f209a662b05a6623bec01649aa1ff06de79161d3f35e4ba7c8f5375",
+      "raw_sha256": "ef13d2076ac53eebc64e1c0e41182baff5c1a270399a4b37548468b65d0e77c5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-focused-9.json",
+      "gzip_sha256": "89e1dec3eac176533216ade13b714d176d1e9a6824352890124e9fee4ba7b5dc",
+      "raw_sha256": "2af03fdde66c95906c16be6f944b76417562e334e9d3c28622e589875bb1a84f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-format-13.txt",
+      "gzip_sha256": "96ac1486eba77cf95fb1e98a905f7bccd4648e81028fca733b677c4ddff12542",
+      "raw_sha256": "e61b5a8f20996daec931ad10db22d2d04c23ff9d51ff11a4508ef8b9507c1137",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-format-14-pre.txt",
+      "gzip_sha256": "5d385f8c3b39d82248c0c70d4b538482e5997d44c7af2424f54da3cdc12af12e",
+      "raw_sha256": "14bf054b3bb68a1b466a4da0e80c0f40558f71735895d442f7e2e8c8d4c718f4",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-format-15-pre.txt",
+      "gzip_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-format-16-pre.txt",
+      "gzip_sha256": "865a56e8fccbe094b3ee7e123a2b03acfd4912d0d7850ea69cfb9e43f20f51f3",
+      "raw_sha256": "f66218139a46757397c7955a8999499427eb4f390dbaf0445093504185fc01c5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-http-lock-change.json",
+      "gzip_sha256": "592d5c9d53106fb2d4231cf1af93950751478bcc46719f30a5e3a052566ebb34",
+      "raw_sha256": "52dcbbec6d8b73c13286810c78aac90f8abd694a640059e9d491bf60562966d8",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-http-lock-metadata.json",
+      "gzip_sha256": "3cc7c2f68cf668f60bf71fcf57550644d8947b257aed000c5a05493487033d1b",
+      "raw_sha256": "9dd2d106ed2141864d7b93121ee33ecc46e660cd6210c6116c98b1e9685356e2",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-http-resolved-metadata.json",
+      "gzip_sha256": "be3579e7ca391371c02fca75fc71eccf92e1c7865ef2dddd9aaf79b417cf3e70",
+      "raw_sha256": "65c5657e4b4fa19d8cacef4439d5dca8ab44561e92b84271f30aac940c782a7f",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-layout-13.txt",
+      "gzip_sha256": "73e305f811f34ad7ef9ce1e343a6f739da5ea35afa1ad17032efa7e7848e5e50",
+      "raw_sha256": "44a79df5dae1fe7e4ab6bd34b81869a78b23a1a9ef48699c89009231fcead684",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-layout-14.txt",
+      "gzip_sha256": "73e305f811f34ad7ef9ce1e343a6f739da5ea35afa1ad17032efa7e7848e5e50",
+      "raw_sha256": "44a79df5dae1fe7e4ab6bd34b81869a78b23a1a9ef48699c89009231fcead684",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-layout-15.txt",
+      "gzip_sha256": "73e305f811f34ad7ef9ce1e343a6f739da5ea35afa1ad17032efa7e7848e5e50",
+      "raw_sha256": "44a79df5dae1fe7e4ab6bd34b81869a78b23a1a9ef48699c89009231fcead684",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-obsolete-executable-cache-candidates.json",
+      "gzip_sha256": "a6b4816883bc059da9a8d62f1dae5bc5d821da9baafcba7f6d4c1298f3be9e9c",
+      "raw_sha256": "8d0dcc38a1a53f0999098f0a0c2ae54b3e76b33d8a71de1f50d5bd0efc1341b0",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-obsolete-executable-cache-cleanup.json",
+      "gzip_sha256": "dd6f1a03ecd2738fb4270e9ca434746048e0ad633f9c7e3630ba463d8e6e1f3b",
+      "raw_sha256": "ed3a147df66b238c4409c96378e6eda824e6e0fc263a43d12d6001a12da1d782",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-obsolete-proxy-cache-cleanup.json",
+      "gzip_sha256": "d8f4940014526a6862afce5aa874702b391cd2df3e3d4fc432d7dd921ef8ab14",
+      "raw_sha256": "6be63ec7bf474f424b957fdeb77f4f3a847955e9c970317243edd75805629b14",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-obsolete-test-cache-cleanup.json",
+      "gzip_sha256": "f7043a166d73a0ea6a3e8d6ee66c1fd086d596fbe19c431389d989767bbd9d9a",
+      "raw_sha256": "78ac4ee38fb602c72f28e0ed5408972d60d345961be6012654f160e08924f41a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-pre23-fmt.txt",
+      "gzip_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-pre23-workspace-check.json",
+      "gzip_sha256": "e6dc37d1455f83f731263701a8d9d9ea079b832bd79766d0cb163364da29b319",
+      "raw_sha256": "d492a030b0f0b874ddef1d56c6a88972c674d2adad25c22da2f490ab46d6eb80",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-pre23-workspace-check.txt",
+      "gzip_sha256": "aa5880c4a893d0759005b081f6212198ee36b36a927dab2de1973f83c8ab9dc1",
+      "raw_sha256": "6d2c74f10c9b6d0d8b393a799e888290419a277cb3fcfc243e89e8f488d2a2c9",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-pre24-architecture-source-guard.txt",
+      "gzip_sha256": "8ff392af115f2d5e855684c2946a003ebe17d9e84b3d279c2ded77df6d5493fa",
+      "raw_sha256": "efa286adcc5e0ed2725df2c4ae11f13825f82bb7ed0ddfdc692c62c611d994ab",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-pre24-runtime-source-guard.txt",
+      "gzip_sha256": "44d4d106a54d03480ee3d230fd70ac056b7a42460851e27fd0823f3f7e78369a",
+      "raw_sha256": "2a77f67a092f5ad49307210b972fd7c5b0831703b1ff4f7780349f84b5126bb1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-vless-grpc-stream-diagnostic-01.txt",
+      "gzip_sha256": "5e0389c6bda6964306f382316ebfff2507fa7f98673699780ac8478a2679d9cc",
+      "raw_sha256": "cb68d0d061585da8ae7a06713ee3e9300668fdd16262ba157788f612718c4933",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-vless-grpc-stream-diagnostic-02.txt",
+      "gzip_sha256": "11e8d4bd7cbfb89b459092c357178f7dab133373e4bff11e7464af262d471548",
+      "raw_sha256": "c632962380bf7f47c9564fc81de6cda5577237bd7226a2bad3d40ee7199709d1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-vless-invalid-fixture-trace.json",
+      "gzip_sha256": "6fc55e0b13634074fe85a36038f418e71f267b375fa8a7717e0a5220ed290c5a",
+      "raw_sha256": "8f541f90304920102d40df0569c16c8f69eba9a812095245c1a26260139c46fd",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-vless-invalid-fixture-trace.txt",
+      "gzip_sha256": "87ea7b83d97cfb6dd2767cf70c627eed82d45c92e4855ad5578d85e492966740",
+      "raw_sha256": "914adfd561041cfa85082e801a2c2dc6eaf9dad091bb10dd28fa941979c0b0cc",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-working-state.json",
+      "gzip_sha256": "59337165d512d8b823ff92387d061915d496fdcf12d6f76218345c89b773ba98",
+      "raw_sha256": "244bf7067b34e878616f312e379f51b3f547f0c56041dd7b56ed956ecbf6707c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-20-check.txt",
+      "gzip_sha256": "0f342746321433ca69199ba24466bd8e7f5638b7913ec8920bcbb0e8fcc4fc0a",
+      "raw_sha256": "b0704e53d37bd181232c74da936b130c5ff8ce4d3eddfe3c7ea4b017a00f8cdb",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-20-dependencies.txt",
+      "gzip_sha256": "de9ee21a71506346f8789a396151027cfdf7ad3cd69ebf22fc827347590801ca",
+      "raw_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-20-fmt.txt",
+      "gzip_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-20-minimal.txt",
+      "gzip_sha256": "9e1b95a8818c5f9dd50ef856a0bf8aab0c1dde1bf9c66c28af0f033e4c4566c1",
+      "raw_sha256": "6d7df02874405d323521d1bfb069f03a9c3af6bff3a6907f99336b4c64a8d405",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-20-no-std.txt",
+      "gzip_sha256": "844db12d643ee5281105543148f196925e04619d132573be09a6f84af36ab674",
+      "raw_sha256": "dda7980e8da1041233b9bd7cd86f479320cbe44ef953019bb06c5f1c023ea622",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-20-release.txt",
+      "gzip_sha256": "264cf4f832596721052a186ad0dc4316518f065ef3ae68403d716319e9844af9",
+      "raw_sha256": "4904957fff10c4a25e89d2061e6d99c3882233880c0f29e7d7c8ad4c13ca9cec",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-20-strict.txt",
+      "gzip_sha256": "014fe1427751dd36b369c839b9f31f6c811ce2d580e5b3ced87b4040def4afc8",
+      "raw_sha256": "a5f6d846716b5384d0b3dfae26d148be0bbc47d6b78d8c525d8dc32dfded06c0",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-20-test.txt",
+      "gzip_sha256": "fb7d48d5d6bc149d85da4e977beec058575d191075c27751f564b7151fe80e8e",
+      "raw_sha256": "5fcb0e921c5723992c6e5ff0b57b989cffde8bb29581d390426002bde8a04eab",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-20-validation.json",
+      "gzip_sha256": "05f8b6115935c5057b2017fb88445b4d51e055f8910971f081e917820efea356",
+      "raw_sha256": "ae08f1d9f83795bf321842638a8159f0b5ca04ef3ff862cbfb1571e78a39a0dc",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-check.txt",
+      "gzip_sha256": "93eb3b21578032b3c5fb4e5c6b42daab23dc42da7c00b0bd4fbb175670fcdc0f",
+      "raw_sha256": "661e2ea4dae0e9baf40591ae14e3e9e141ca51bb838752dbe181bc610896cf8d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-dependencies.txt",
+      "gzip_sha256": "de9ee21a71506346f8789a396151027cfdf7ad3cd69ebf22fc827347590801ca",
+      "raw_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-fmt.txt",
+      "gzip_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-minimal.txt",
+      "gzip_sha256": "7cdda58c38b59cda0e92dde2b12d83e00c3d47472c40848f5455a3870d559e75",
+      "raw_sha256": "62614992a0408258b2fa4d5a35e7c88e608ff1350ab372ba791476534244956d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-no-std.txt",
+      "gzip_sha256": "e8833e80d66aa0c81495f41e4cec9e035365a5f43910fd69b5857f5c42ec5b55",
+      "raw_sha256": "968694eb2dcf057f0b793892b3309e93c43d784f6c9588d49e7b6eeeaad76702",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-proxy-intervention.json",
+      "gzip_sha256": "414326ea135b64f15725029e81abbe2638539e3b94ed47134eb40bc1aa22c32d",
+      "raw_sha256": "58e07bf16368ef67b7b12fe23b1def6927d8b1321db9b1a1130fd78e41880c3b",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-release.txt",
+      "gzip_sha256": "ed056cfb6ba29ff0778f66d2986ce850a9752a4e6a2b2ce29268eb2af0cb7c80",
+      "raw_sha256": "52809268d5e199815f50ba48903139a00bbad8b30cfa6851bc7772a2121f36a6",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-socks-failure-diagnostic.txt",
+      "gzip_sha256": "42437a8a690236b9db7453f69e28d72df1630bb3fe5bb5ecbebb9f39a2fecb6e",
+      "raw_sha256": "1fdb47f5d6d86545b701f9c6c1978e0e4a16a184cd9398c7da717d985f736a10",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-strict.txt",
+      "gzip_sha256": "16bb47382e0b618dd5d6674165017084abd1378c14f6468b3c34b4008c88b5ab",
+      "raw_sha256": "24e7b252c807ac3fe22b315b6ea4aeebd592c4793defdd0240de726b5eb16193",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-test.txt",
+      "gzip_sha256": "c0bd37c86027185be82447d0d59977b7d3c4e63ec0810cff92e4a9597eeaac42",
+      "raw_sha256": "97b08d5c0f7cb1bbfecd349a76eb7ee28c55b46f4347e2298e71256d93fcd1ba",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "pr05-parallel-workspace-21-validation.json",
+      "gzip_sha256": "e863fed4442ea6eea67a8a1ef1046e6108d92159b84cb6c0221c46db9de70853",
+      "raw_sha256": "b72ed07f75636cb7872fb5365b5aded8b51955b5edccf3fc12deb30ddc9f7db5",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "prepare-progress-through38.py",
+      "gzip_sha256": "7bbba3fdb43120a228bf36f7a8d59220cc2cfea8f56113d850ccdb49d78e22fc",
+      "raw_sha256": "7654f9669ed1ce8db5e498dd345e0625424aeb71d59032e8757448ac0e395d91",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "prepare-progress-through39.py",
+      "gzip_sha256": "b6dcdc35983e8f66f5f1e9f99af562f720ff058751ca71e8b8331253df2e5c1c",
+      "raw_sha256": "a161121964f61fc73d076615375eb13f71de9e8987f4b854fc36c27493d98f6a",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "root37-binary-identity-verification.json",
+      "gzip_sha256": "eae1a3accea8511254ad14f4bcd7f2a103167d20ac10ec6ca82c9ca9e7390506",
+      "raw_sha256": "3c0aec8b4b699826cd722efa077b5218f2a20138a131b947eb0b6cb799dcdb63",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "root37-head-original.rs",
+      "gzip_sha256": "cee20b4aa3a63a66089d94bad3bb86fd0635c2dfdee3eb8f22012f527f0f0268",
+      "raw_sha256": "2b22a508824f57577eab28dd04e8827247a4b5ac258e691233037ccef561d786",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "root37-restore-source-verification.json",
+      "gzip_sha256": "d243cffb1b2c58e378d63b096a6f1d674c499da185fa6f57bb18546e000408ab",
+      "raw_sha256": "65b9f89ab88ccf47880cfa50b9ad06b94a1eb7d1d3eb703b414353ed90d4b132",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "root38-head-regression-fixture.rs",
+      "gzip_sha256": "ac28eac5b49e1b7da1256a3ab479f6badc6014efa6fbf5d9b42c6563cef32d83",
+      "raw_sha256": "325ce292ba399977a87abb32e1f58d20661dade01e5694f2db38cd4a11681366",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "root38-head-wake-relay.rs",
+      "gzip_sha256": "8486e3c2db8eafd7c79b8eca660445bd028717ca844f3b0f3903d1f5eb890983",
+      "raw_sha256": "bcefff5c76976d422ac3b87244a527b28612ac9ef650b60a4aa4b04b5637646d",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "verify-progress-through39.py",
+      "gzip_sha256": "e63d11baee697564b627279d70398c479035b70963c4ab6850a15045bb4ff7f8",
+      "raw_sha256": "75dce6925d72a03f05785354b6f43be5f0bffed415978e6ad74a9cfd867f7822",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "wireguard-stopold-recovery-review.md",
+      "gzip_sha256": "26380b1d0c52e86b918e4fb02750eb0ab91e50a20c5be6de917ca4ba36d1e933",
+      "raw_sha256": "b9736f077be1d40428fbe1ebe5b4b4b9cc691b14b109a7f18e4847b63cb3fb6c",
+      "gzip_and_raw_verified": true
+    },
+    {
+      "source": "wireguard-stopold-recovery-review.portable.md",
+      "gzip_sha256": "2cc9605d72ca4bf3c9617c7c92476b392f3559e184f9fe0912ee6c187f5b409e",
+      "raw_sha256": "656e4c9c1635fff5ad76737d86d6ca8739379bef945c9029056438d5f314e867",
+      "gzip_and_raw_verified": true
+    }
+  ]
+}

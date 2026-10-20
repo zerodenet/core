@@ -1,0 +1,109 @@
+09:16:09.577356 rseq(0x7fbbdb247440, 0x20, 0, 0x53053053) = 0
+09:16:09.577527 set_robust_list(0x7fbbdb2479a0, 24) = 0
+09:16:09.577652 rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+09:16:09.579749 prctl(PR_SET_NAME, "grpc::owned::te"...) = 0
+09:16:09.579956 mmap(NULL, 134217728, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7fbbd3000000
+09:16:09.580075 munmap(0x7fbbd3000000, 16777216) = 0
+09:16:09.580188 munmap(0x7fbbd8000000, 50331648) = 0
+09:16:09.580297 mprotect(0x7fbbd4000000, 135168, PROT_READ|PROT_WRITE) = 0
+09:16:09.580408 sched_getaffinity(529819, 32, [0 1 2 3 4]) = 32
+09:16:09.580560 gettid()                = 529819
+09:16:09.580680 sigaltstack(NULL, {ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=0}) = 0
+09:16:09.580793 mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x7fbbdb578000
+09:16:09.580897 mprotect(0x7fbbdb578000, 4096, PROT_NONE) = 0
+09:16:09.581001 sigaltstack({ss_sp=0x7fbbdb579000, ss_flags=0, ss_size=8192}, NULL) = 0
+09:16:09.581452 rt_sigprocmask(SIG_BLOCK, ~[], [], 8) = 0
+09:16:09.581574 rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+09:16:09.581685 getrandom("\x6f\x0d\x84\xcb\x2b\xc1\xd6\xac\x80\xf2\x40\x86\x58\x01\x5a\x19\x07\x24\x8f\x9d\x11\xfa\x5d\x96\x99\x45\xf8\xd9\xf8\x39\xb4\x0d", 32, 0) = 32
+09:16:09.582111 epoll_create1(EPOLL_CLOEXEC) = 3
+09:16:09.582405 eventfd2(0, EFD_CLOEXEC|EFD_NONBLOCK) = 4
+09:16:09.582522 epoll_ctl(3, EPOLL_CTL_ADD, 4, {events=EPOLLIN|EPOLLRDHUP|EPOLLET, data=0}) = 0
+09:16:09.582638 fcntl(3, F_DUPFD_CLOEXEC, 3) = 5
+09:16:09.582947 socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0, [6, 7]) = 0
+09:16:09.583492 fcntl(6, F_DUPFD_CLOEXEC, 3) = 8
+09:16:09.583586 epoll_ctl(5, EPOLL_CTL_ADD, 8, {events=EPOLLIN|EPOLLRDHUP|EPOLLET, data=0x1}) = 0
+09:16:09.584892 socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_IP) = 9
+09:16:09.585112 setsockopt(9, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
+09:16:09.585271 bind(9, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("127.0.0.1")}, 16) = 0
+09:16:09.585689 listen(9, 128)          = 0
+09:16:09.585903 epoll_ctl(5, EPOLL_CTL_ADD, 9, {events=EPOLLIN|EPOLLOUT|EPOLLRDHUP|EPOLLET, data=0x7fbbd400c300}) = 0
+09:16:09.586029 getsockname(9, {sa_family=AF_INET, sin_port=htons(41231), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+09:16:09.592983 socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_TCP) = 10
+09:16:09.596829 getsockname(10, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("0.0.0.0")}, [128 => 16]) = 0
+09:16:09.596999 getsockname(10, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("0.0.0.0")}, [128 => 16]) = 0
+09:16:09.597413 connect(10, {sa_family=AF_INET, sin_port=htons(41231), sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS (Operation now in progress)
+09:16:09.598388 epoll_ctl(5, EPOLL_CTL_ADD, 10, {events=EPOLLIN|EPOLLOUT|EPOLLRDHUP|EPOLLET, data=0x7fbbd400ed00}) = 0
+09:16:09.598800 getsockname(10, {sa_family=AF_INET, sin_port=htons(47424), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+09:16:09.598954 write(4, "\1\0\0\0\0\0\0\0", 8) = 8
+09:16:09.599099 write(4, "\1\0\0\0\0\0\0\0", 8) = 8
+09:16:09.599199 write(4, "\1\0\0\0\0\0\0\0", 8) = 8
+09:16:09.599763 epoll_wait(3, [{events=EPOLLIN, data=0x7fbbd400c300}, {events=EPOLLOUT, data=0x7fbbd400ed00}, {events=EPOLLIN, data=0}], 1024, 3953) = 3
+09:16:09.599915 getsockname(10, {sa_family=AF_INET, sin_port=htons(47424), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+09:16:09.600007 getsockopt(10, SOL_SOCKET, SO_ERROR, [0], [4]) = 0
+09:16:09.600090 getpeername(10, {sa_family=AF_INET, sin_port=htons(41231), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+09:16:09.600185 setsockopt(10, SOL_TCP, TCP_NODELAY, [1], 4) = 0
+09:16:09.601143 sendto(10, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 24, MSG_NOSIGNAL, NULL, 0) = 24
+09:16:09.607546 accept4(9, {sa_family=AF_INET, sin_port=htons(47424), sin_addr=inet_addr("127.0.0.1")}, [128 => 16], SOCK_CLOEXEC|SOCK_NONBLOCK) = 11
+09:16:09.607774 epoll_ctl(5, EPOLL_CTL_ADD, 11, {events=EPOLLIN|EPOLLOUT|EPOLLRDHUP|EPOLLET, data=0x7fbbd4019800}) = 0
+09:16:09.608312 writev(11, [{iov_base="\0\0\6\4\0\0\0\0\0\0\3\0\0\0\1", iov_len=15}], 1) = 15
+09:16:09.608645 recvfrom(11, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 24, 0, NULL, NULL) = 24
+09:16:09.609312 recvfrom(11, 0x7fbbd401d8a0, 8192, 0, NULL, NULL) = -1 EAGAIN (Resource temporarily unavailable)
+09:16:09.610829 sendto(10, "\0\0\0\4\0\0\0\0\0\0\0\214\1\4\0\0\0\1\203\207A\213\10\235\\\v\201p\334h\"d?\4\214`\376*,\214o\266\255\26\320\223\177_\213\35u\320b\r&=LMed@\202I\177\206M\2035\5\261\37z\325\320\177f\242\201\260\332\340S\372\344j\244?\204)\247z\201\2\340\373S"..., 158, MSG_NOSIGNAL, NULL, 0) = 158
+09:16:09.611417 sendto(10, "\0\0\v\0\0\0\0\0\1\0\0\0\0\6\n\4live", 20, MSG_NOSIGNAL, NULL, 0) = 20
+09:16:09.613968 epoll_wait(3, [{events=EPOLLIN|EPOLLOUT, data=0x7fbbd4019800}, {events=EPOLLIN|EPOLLOUT, data=0x7fbbd400ed00}], 1024, 0) = 2
+09:16:09.614219 recvfrom(11, "\0\0\0\4\0\0\0\0\0\0\0\214\1\4\0\0\0\1\203\207A\213\10\235\\\v\201p\334h\"d?\4\214`\376*,\214o\266\255\26\320\223\177_\213\35u\320b\r&=LMed@\202I\177\206M\2035\5\261\37z\325\320\177f\242\201\260\332\340S\372\344j\244?\204)\247z\201\2\340\373S"..., 8192, 0, NULL, NULL) = 178
+09:16:09.614625 mprotect(0x7fbbd4021000, 4096, PROT_READ|PROT_WRITE) = 0
+09:16:09.615191 writev(11, [{iov_base="\0\0\0\4\1\0\0\0\0", iov_len=9}], 1) = 9
+09:16:09.615457 mprotect(0x7fbbd4022000, 4096, PROT_READ|PROT_WRITE) = 0
+09:16:09.615746 mprotect(0x7fbbd4023000, 4096, PROT_READ|PROT_WRITE) = 0
+09:16:09.615930 writev(11, [{iov_base="\0\0\16\1\4\0\0\0\1\210_\213\35u\320b\r&=LMed", iov_len=23}], 1) = 23
+09:16:09.616057 recvfrom(10, "\0\0\6\4\0\0\0\0\0\0\3\0\0\0\1\0\0\0\4\1\0\0\0\0", 8192, 0, NULL, NULL) = 24
+09:16:09.616247 recvfrom(10, 0x7fbbd4012db8, 8168, 0, NULL, NULL) = -1 EAGAIN (Resource temporarily unavailable)
+09:16:09.616341 sendto(10, "\0\0\0\4\1\0\0\0\0", 9, MSG_NOSIGNAL, NULL, 0) = 9
+09:16:09.616974 writev(11, [{iov_base="\0\0\v\0\0\0\0\0\1\0\0\0\0\6\n\4live", iov_len=20}], 1) = 20
+09:16:09.617142 epoll_wait(3, [{events=EPOLLIN|EPOLLOUT, data=0x7fbbd400ed00}, {events=EPOLLIN|EPOLLOUT, data=0x7fbbd4019800}], 1024, 4063) = 2
+09:16:09.617311 recvfrom(10, "\0\0\16\1\4\0\0\0\1\210_\213\35u\320b\r&=LMed", 8168, 0, NULL, NULL) = 23
+09:16:09.617491 recvfrom(10, 0x7fbbd4012dcf, 8145, 0, NULL, NULL) = -1 EAGAIN (Resource temporarily unavailable)
+09:16:09.617601 recvfrom(11, "\0\0\0\4\1\0\0\0\0", 8014, 0, NULL, NULL) = 9
+09:16:09.617797 epoll_wait(3, [{events=EPOLLIN|EPOLLOUT, data=0x7fbbd400ed00}], 1024, 4062) = 1
+09:16:09.657349 recvfrom(10, "\0\0\v\0\0\0\0\0\1\0\0\0\0\6\n\4live", 8145, 0, NULL, NULL) = 20
+09:16:09.657553 recvfrom(10, 0x7fbbd4012de3, 8125, 0, NULL, NULL) = -1 EAGAIN (Resource temporarily unavailable)
+09:16:09.657788 epoll_wait(3, [], 1024, 0) = 0
+09:16:09.658027 mprotect(0x7fbbd4024000, 4096, PROT_READ|PROT_WRITE) = 0
+09:16:09.658565 sendto(10, "\0\0\v\0\0\0\0\0\1\0\0\0\0\6\n\4kept", 20, MSG_NOSIGNAL, NULL, 0) = 20
+09:16:09.658891 epoll_wait(3, [{events=EPOLLIN|EPOLLOUT, data=0x7fbbd4019800}], 1024, 0) = 1
+09:16:09.659050 recvfrom(11, "\0\0\v\0\0\0\0\0\1\0\0\0\0\6\n\4kept", 8005, 0, NULL, NULL) = 20
+09:16:09.659293 writev(11, [{iov_base="\0\0\v\0\0\0\0\0\1\0\0\0\0\6\n\4kept", iov_len=20}], 1) = 20
+09:16:09.659504 epoll_wait(3, [{events=EPOLLIN|EPOLLOUT, data=0x7fbbd400ed00}], 1024, 4021) = 1
+09:16:09.659692 recvfrom(10, "\0\0\v\0\0\0\0\0\1\0\0\0\0\6\n\4kept", 8125, 0, NULL, NULL) = 20
+09:16:09.659863 recvfrom(10, 0x7fbbd4012df7, 8105, 0, NULL, NULL) = -1 EAGAIN (Resource temporarily unavailable)
+09:16:09.660074 epoll_wait(3, [], 1024, 0) = 0
+09:16:09.660246 mprotect(0x7fbbd4025000, 4096, PROT_READ|PROT_WRITE) = 0
+09:16:09.660555 write(4, "\1\0\0\0\0\0\0\0", 8) = 8
+09:16:09.662595 write(4, "\1\0\0\0\0\0\0\0", 8) = 8
+09:16:09.663350 epoll_wait(3, [{events=EPOLLIN, data=0}], 1024, 0) = 1
+09:16:09.663579 epoll_ctl(5, EPOLL_CTL_DEL, 10, NULL) = 0
+09:16:09.663795 close(10)               = 0
+09:16:09.664143 epoll_ctl(5, EPOLL_CTL_DEL, 11, NULL) = 0
+09:16:09.664262 fcntl(11, F_GETFD)      = 0x1 (flags FD_CLOEXEC)
+09:16:09.664371 close(11)               = 0
+09:16:09.664752 epoll_ctl(5, EPOLL_CTL_DEL, 9, NULL) = 0
+09:16:09.664874 fcntl(9, F_GETFD)       = 0x1 (flags FD_CLOEXEC)
+09:16:09.664990 close(9)                = 0
+09:16:09.665734 epoll_wait(3, [], 1024, 0) = 0
+09:16:09.665989 fcntl(3, F_GETFD)       = 0x1 (flags FD_CLOEXEC)
+09:16:09.666147 close(3)                = 0
+09:16:09.666229 fcntl(8, F_GETFD)       = 0x1 (flags FD_CLOEXEC)
+09:16:09.666311 close(8)                = 0
+09:16:09.666394 fcntl(5, F_GETFD)       = 0x1 (flags FD_CLOEXEC)
+09:16:09.667025 close(5)                = 0
+09:16:09.667140 fcntl(4, F_GETFD)       = 0x1 (flags FD_CLOEXEC)
+09:16:09.667227 close(4)                = 0
+09:16:09.667320 futex(0x7fbbd400b7b8, FUTEX_WAKE_PRIVATE, 2147483647) = 0
+09:16:09.667463 futex(0x5633107c1128, FUTEX_WAKE_PRIVATE, 1) = 1
+09:16:09.667582 sigaltstack({ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=8192}, NULL) = 0
+09:16:09.668004 munmap(0x7fbbdb578000, 12288) = 0
+09:16:09.668175 rt_sigprocmask(SIG_BLOCK, ~[RT_1], NULL, 8) = 0
+09:16:09.668265 madvise(0x7fbbdb047000, 2076672, MADV_DONTNEED) = 0
+09:16:09.668556 exit(0)                 = ?
+09:16:09.668693 +++ exited with 0 +++
