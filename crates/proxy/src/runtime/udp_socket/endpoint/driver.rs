@@ -164,6 +164,9 @@ pub(super) async fn run(
                     let _ = command.receipt.send(Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::NotSubmitted))));
                     continue;
                 }
+                if let Some(isolation) = command.logical.isolation {
+                    sockets.isolate_association(command.logical.session.0, isolation);
+                }
                 let sent = tokio::select! {
                     _ = shared.scope_cancel.cancelled() => Err(legacy(error(Stage::Send, Reason::Revoked, DeliveryState::Unknown))),
                     _ = command.logical.cancel.cancelled() => Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::Unknown))),

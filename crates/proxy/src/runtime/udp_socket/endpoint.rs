@@ -79,6 +79,7 @@ struct Logical {
     session: SessionId,
     association: AssociationId,
     policy: DirectUdpPolicy,
+    isolation: Option<u64>,
     cancel: CancellationToken,
     closed: AtomicBool,
     changed: Notify,
@@ -172,6 +173,18 @@ impl DirectEndpoint {
         policy: DirectUdpPolicy,
         cancel: CancellationToken,
     ) -> Result<DirectEndpointSession, ChannelError> {
+        self.open_isolated(session, association, policy, cancel, None)
+    }
+    /// Preserve the protocol-supplied opaque client-session isolation key.
+    /// It is separate from the host-assigned logical association identity.
+    pub(crate) fn open_isolated(
+        &self,
+        session: SessionId,
+        association: AssociationId,
+        policy: DirectUdpPolicy,
+        cancel: CancellationToken,
+        isolation: Option<u64>,
+    ) -> Result<DirectEndpointSession, ChannelError> {
         let mut state = self
             .0
             .state
@@ -211,6 +224,7 @@ impl DirectEndpoint {
             session,
             association,
             policy,
+            isolation,
             cancel,
             closed: AtomicBool::new(false),
             changed: Notify::new(),

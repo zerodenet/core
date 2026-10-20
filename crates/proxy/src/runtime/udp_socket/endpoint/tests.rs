@@ -84,6 +84,19 @@ impl Fixture {
         DirectEndpointRx,
         Box<dyn DynChannelControl>,
     ) {
+        self.open_isolated(endpoint, target, cancel, None)
+    }
+    fn open_isolated(
+        &self,
+        endpoint: &DirectEndpoint,
+        target: SocketAddr,
+        cancel: CancellationToken,
+        isolation: Option<u64>,
+    ) -> (
+        DirectEndpointTx,
+        DirectEndpointRx,
+        Box<dyn DynChannelControl>,
+    ) {
         let mut business = Session::new(
             0,
             Address::Ipv4([127, 0, 0, 1]),
@@ -97,11 +110,12 @@ impl Fixture {
             .unwrap();
         let reservation = self.retirement.reserve().unwrap();
         let session = endpoint
-            .open(
+            .open_isolated(
                 SessionId(business.id),
                 reservation.association(),
                 super::super::tests::policy(&self.proxy, Some("first")),
                 cancel,
+                isolation,
             )
             .unwrap();
         (
@@ -215,5 +229,6 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
     drop(fixture.catalog);
 }
 
+mod isolation;
 mod lifecycle;
 mod queue;
