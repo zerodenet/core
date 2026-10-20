@@ -12,6 +12,7 @@ pub(super) struct State {
     pub(super) retired: AtomicBool,
     pub(super) cached: Mutex<Option<Cached>>,
     pub(super) connecting: tokio::sync::Mutex<()>,
+    pub(super) recipe: Mutex<Option<super::owned::Recipe>>,
     pub(super) ownership: Mutex<super::owned::Ownership>,
 }
 #[derive(Clone)]
@@ -25,6 +26,11 @@ impl std::fmt::Debug for GrpcPool {
     }
 }
 impl GrpcPool {
+    /// Actual pool identity only; equality is not an ownership or close receipt.
+    pub fn shares_state(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     pub fn retire(&self) {
         self.0.retired.store(true, Ordering::Release);
         if let super::owned::Ownership::Managed(owner) = &*self.0.ownership.lock().unwrap() {

@@ -5,15 +5,16 @@ use crate::{
     RuntimeError,
 };
 use std::{
-    collections::hash_map::RandomState,
-    hash::{BuildHasher, Hash, Hasher},
     num::NonZeroUsize,
-    sync::{Arc, OnceLock, Weak},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Weak,
+    },
 };
 use zero_core::{request::Destination, Address};
 use zero_traits::DialPolicy;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativePoolSettings {
     pub server: String,
     pub port: u16,
@@ -103,16 +104,50 @@ impl NativePoolOptions {
             .map(str::to_owned)
             .unwrap_or_else(|| std::net::SocketAddr::new(ip, settings.port).to_string());
         crate::grpc::options::request(&settings.grpc, &authority)?;
-        static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
-        let mut identity = Vec::new();
-        for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
-            let mut hash = key.build_hasher();
-            (Arc::as_ptr(&pool.0) as usize).hash(&mut hash);
-            format!("{settings:?}").hash(&mut hash);
-            carrier_limit.hash(&mut hash);
-            stream_limit.hash(&mut hash);
-            identity.extend_from_slice(&hash.finish().to_le_bytes());
-        }
+        let identity = {
+            let mut recipe = pool.0.recipe.lock().unwrap();
+            match recipe.as_ref() {
+                Some(recipe)
+                    if recipe.settings == settings
+                        && recipe.carriers == carrier_limit
+                        && recipe.streams == stream_limit =>
+                {
+                    recipe.identity.clone()
+                }
+                Some(_) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "conflicting complete native gRPC recipe for the same actual pool",
+                    )
+                    .into())
+                }
+                None => {
+                    static NEXT: AtomicU64 = AtomicU64::new(0);
+                    let mut current = NEXT.load(Ordering::Relaxed);
+                    let identity = loop {
+                        let next = current.checked_add(1).ok_or_else(|| {
+                            std::io::Error::other("native gRPC recipe identity exhausted")
+                        })?;
+                        match NEXT.compare_exchange_weak(
+                            current,
+                            next,
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        ) {
+                            Ok(_) => break Arc::<[u8]>::from(next.to_le_bytes()),
+                            Err(observed) => current = observed,
+                        }
+                    };
+                    *recipe = Some(Recipe {
+                        settings: settings.clone(),
+                        carriers: carrier_limit,
+                        streams: stream_limit,
+                        identity: identity.clone(),
+                    });
+                    identity
+                }
+            }
+        };
         Ok(Self {
             pool: Arc::downgrade(&pool.0),
             settings,
@@ -120,7 +155,7 @@ impl NativePoolOptions {
             authority,
             carrier_limit,
             stream_limit,
-            identity: identity.into(),
+            identity,
         })
     }
     pub fn matches(&self, instance: ComponentInstanceId) -> Result<(), ChannelError> {
@@ -129,7 +164,16 @@ impl NativePoolOptions {
             .upgrade()
             .ok_or_else(|| error(instance, Stage::Prepare, Reason::Revoked))?;
         let managed = state.managed(instance)?;
-        if managed.options.identity != self.identity {
+        if managed.options.identity != self.identity
+            || managed.options.settings != self.settings
+            || managed.options.carrier_limit != self.carrier_limit
+            || managed.options.stream_limit != self.stream_limit
+            || !managed
+                .options
+                .pool
+                .upgrade()
+                .is_some_and(|actual| Arc::ptr_eq(&actual, &state))
+        {
             return Err(error(instance, Stage::Prepare, Reason::StalePlan));
         }
         Ok(())
@@ -146,4 +190,13 @@ impl NativePoolOptions {
             .ok_or_else(|| error(instance, Stage::Prepare, Reason::Revoked))?;
         state.managed(instance)?.open(demand).await
     }
+}
+
+/// One complete cold recipe per actual pool, without a history or authority to
+/// start it. Its checked process-local ID cannot alias a different pool/recipe.
+pub(in crate::grpc) struct Recipe {
+    settings: NativePoolSettings,
+    carriers: NonZeroUsize,
+    streams: NonZeroUsize,
+    identity: Arc<[u8]>,
 }

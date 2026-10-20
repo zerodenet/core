@@ -1,5 +1,6 @@
 //! Controlled library ownership of the same pool, never a replacement pool.
 mod options;
+pub(super) use options::Recipe;
 pub use options::{NativePoolOptions, NativePoolSettings};
 mod state;
 pub(super) use state::{Managed, Ownership};

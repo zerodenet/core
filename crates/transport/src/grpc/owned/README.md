@@ -3,8 +3,11 @@
 `NativePoolOptions::from_pool` binds the caller's existing `GrpcPool`, the full
 TLS/gRPC/dial settings, and independent explicit nonzero physical-carrier and
 logical-stream limits. `NativePoolFactory` is roleless and declares
-`BackgroundCarrier` plus one possible scoped task per physical carrier. There
-are no production defaults or registrations. The initial provider requires a
+`BackgroundCarrier` plus one possible scoped task per physical carrier. One complete cold recipe is retained in that actual pool state; a checked
+process-local opaque recipe ID cannot be reused or mistaken for a host identity.
+Cold canonical equality cannot silently conflate conflicting full settings or
+budgets; live matches additionally compare full values and actual state identity.
+There are no production defaults or registrations. The initial provider requires a
 literal endpoint and an exact empty-prefix background binding. CA files,
 DNS-backed ECH and unsupported TLS backends require their real resource owners.
 
