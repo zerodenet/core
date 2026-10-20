@@ -60,19 +60,32 @@ impl CarrierAdoption {
             // an ID, retain this uncertain window instead of refunding the slot.
             state.spawning = true;
         }
-        let result = registrar.spawn_tracked(TaskClass::Auxiliary, task);
+        let callbacks = registrar.defer_callbacks();
+        let (admit, admitted) = tokio::sync::oneshot::channel();
+        let result = registrar.spawn_tracked(TaskClass::Auxiliary, async move {
+            if admitted.await.is_err() {
+                return Ok(());
+            }
+            task.await
+        });
         let mut state = self.slot.state();
         state.spawning = false;
         match result {
             Ok((id, witness)) => {
                 state.auxiliary = Some(witness.clone());
                 drop(state);
+                // Actual work cannot poll before the original slot owns the
+                // exact returned TaskId/witness. Gate sends and callback flush
+                // can invoke arbitrary external wakers, so both are lock-free.
+                let _ = admit.send(());
                 self.slot.notify();
+                drop(callbacks);
                 Ok((id, witness))
             }
             Err(source) => {
                 drop(state);
                 self.slot.notify();
+                drop(callbacks);
                 Err(failure(match source {
                     crate::contract::scope::SpawnError::Closing => Reason::Revoked,
                     crate::contract::scope::SpawnError::NotStarted => Reason::InvalidConfig,
