@@ -201,7 +201,33 @@ async fn actual_bind_failure_keeps_same_os_source_while_later_native_close_and_r
         error.source().and_then(acquisition)
     }
     let source = acquisition(&failed).unwrap().source.clone();
-    assert_eq!(source.kind(), std::io::ErrorKind::AddrInUse);
+    fn original_os<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a std::io::Error {
+        let mut current = Some(error);
+        while let Some(error) = current {
+            if let Some(io) = error.downcast_ref::<std::io::Error>() {
+                if io.raw_os_error().is_some() {
+                    return io;
+                }
+                if let Some(payload) = io.get_ref() {
+                    current = Some(payload);
+                    continue;
+                }
+            }
+            if let Some(shared) = error.downcast_ref::<Arc<std::io::Error>>() {
+                current = Some(shared.as_ref());
+                continue;
+            }
+            current = error.source();
+        }
+        panic!("actual occupied bind lost its original OS source: {error:?}");
+    }
+    let os = original_os(source.as_ref());
+    assert_eq!(os.kind(), std::io::ErrorKind::AddrInUse);
+    assert!(os.raw_os_error().is_some());
+    assert!(std::ptr::eq(
+        os,
+        original_os(acquisition(first.as_ref()).unwrap().source.as_ref())
+    ));
     assert!(Arc::ptr_eq(
         &source,
         &acquisition(first.as_ref()).unwrap().source
