@@ -22,7 +22,8 @@ pub trait ConnectObserver: Send + Sync {
     fn record(&self, session: Option<SessionId>, fact: ConnectFact);
     /// One cumulative protocol-handshake result for this open operation. This
     /// excludes TLS/carrier framing; explicit zero is distinct from no report.
-    fn protocol_traffic(&self, _: Option<SessionId>, _: u64, _: u64) {}
+    fn protocol_traffic(&self, _session: Option<SessionId>, _read_bytes: u64, _written_bytes: u64) {
+    }
 }
 
 #[derive(Debug, Clone)]
