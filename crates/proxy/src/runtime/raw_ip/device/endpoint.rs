@@ -1,5 +1,8 @@
 //! Active client stacks attached to a neutral bidirectional IP endpoint.
 
+mod recipe;
+pub(crate) use recipe::EndpointStackRecipe;
+
 use std::{
     net::IpAddr,
     sync::{
@@ -58,6 +61,16 @@ impl SharedRawIpDevice {
     }
 
     pub(crate) fn start_on_endpoint_with_options(
+        local_addresses: Vec<IpAddr>,
+        mtu: u16,
+        peer: usize,
+        endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
+        options: super::super::RawIpStackOptions,
+    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+        EndpointStackRecipe::prepare(local_addresses, mtu, peer, endpoint, options)?.start()
+    }
+
+    fn start_endpoint_stack(
         local_addresses: Vec<IpAddr>,
         mtu: u16,
         peer: usize,
