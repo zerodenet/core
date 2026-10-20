@@ -17,7 +17,26 @@ impl OrchestrationState {
         {
             return;
         }
-        if let Err(error) = self.preparing_inbounds.ensure_open() {
+        let compensating = proxy.pending_reload_compensates(&new_snapshot);
+        // Only an accepted transaction's exact restore acknowledgement may
+        // reconstruct its last-good listeners after shutdown. It is not a new
+        // candidate and must not inherit the stopped candidate phase. Ordinary
+        // reloads still fail even if a previous compensation reset that phase.
+        let preparing = if compensating {
+            std::sync::Arc::new(crate::runtime::inbound_owners::PreparingInbounds::default())
+        } else {
+            if proxy.apply_owner.is_closing() {
+                self.reject_reload(
+                    proxy,
+                    &new_snapshot,
+                    "proxy stopped before configuration commit".to_owned(),
+                )
+                .await;
+                return;
+            }
+            self.preparing_inbounds.clone()
+        };
+        if let Err(error) = preparing.ensure_open() {
             self.reject_reload(proxy, &new_snapshot, error.to_string())
                 .await;
             return;
@@ -74,8 +93,12 @@ impl OrchestrationState {
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),
             proxy.inbound_owners.clone(),
-        )
-        .with_preparing(self.preparing_inbounds.clone());
+        );
+        let candidate_runtime_factory = if compensating {
+            candidate_runtime_factory
+        } else {
+            candidate_runtime_factory.with_preparing(preparing.clone())
+        };
         let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services.clone());
         #[cfg(feature = "managed-stream-runtime")]
         let prepared_services = match proxy.protocols.prepare_inbound_services(&new_config) {
@@ -149,7 +172,7 @@ impl OrchestrationState {
             self.reject_reload(proxy, &new_snapshot, message).await;
             return;
         }
-        if let Err(error) = self.preparing_inbounds.ensure_open() {
+        if let Err(error) = preparing.ensure_open() {
             self.reject_reload(proxy, &new_snapshot, error.to_string())
                 .await;
             return;
@@ -167,9 +190,7 @@ impl OrchestrationState {
                     )
                     .await
                     .map_err(|error| error.to_string())?;
-                self.preparing_inbounds
-                    .ensure_open()
-                    .map_err(|error| error.to_string())?;
+                preparing.ensure_open().map_err(|error| error.to_string())?;
                 proxy
                     .protocols
                     .commit_components(new_snapshot.config(), || {
@@ -210,13 +231,15 @@ impl OrchestrationState {
         // Resource/service publication above can suspend. Recheck the same
         // phase immediately before its success ACK; stop cannot become success
         // merely because all listeners had reached Ready earlier.
-        if let Err(error) = self.preparing_inbounds.ensure_open() {
+        if let Err(error) = preparing.ensure_open() {
             self.finish_rejection(proxy, &new_snapshot, error.to_string(), true)
                 .await;
             return;
         }
         self.inbound_runtime_factory = candidate_runtime_factory.without_preparing();
-        self.preparing_inbounds = Default::default();
+        if !compensating {
+            self.preparing_inbounds = Default::default();
+        }
         self.urltest_runtime = candidate_urltest_runtime;
         self.publish_removed_endpoints(proxy, &new_snapshot);
         self.applied_snapshot = new_snapshot;

@@ -86,6 +86,7 @@ async fn duplicate_reload_notification_preserves_dns_candidate_owned_by_acknowle
         expected: proxy.engine.runtime_snapshot(),
         previous,
         persist: false,
+        compensating: false,
         sender,
     });
     state.reconcile_reload(&proxy).await;
@@ -114,8 +115,11 @@ async fn identical_config_snapshots_do_not_cross_acknowledge_reload_operations()
         expected: candidate.clone(),
         previous: previous.clone(),
         persist: false,
+        compensating: true,
         sender,
     });
+    assert!(!proxy.pending_reload_compensates(&previous));
+    assert!(proxy.pending_reload_compensates(&candidate));
     proxy.complete_reload(&previous, Ok(()));
     assert_eq!(
         receiver.try_recv(),
@@ -123,6 +127,7 @@ async fn identical_config_snapshots_do_not_cross_acknowledge_reload_operations()
     );
     proxy.complete_reload(&candidate, Ok(()));
     receiver.await.unwrap().unwrap();
+    assert!(!proxy.pending_reload_compensates(&candidate));
 }
 
 #[tokio::test]

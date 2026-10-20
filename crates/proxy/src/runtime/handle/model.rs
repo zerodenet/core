@@ -199,6 +199,7 @@ impl ProxyHandle {
                 expected: self.proxy.engine.runtime_snapshot(),
                 previous: self.proxy.engine.runtime_snapshot(),
                 persist,
+                compensating: restore.is_some(),
                 sender,
             });
         }

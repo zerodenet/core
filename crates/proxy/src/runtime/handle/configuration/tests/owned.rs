@@ -130,6 +130,10 @@ async fn cancelled_config_waiter_does_not_abandon_actual_application_and_dns_rol
 #[tokio::test]
 async fn host_stop_drives_the_accepted_transaction_rollback_and_joins_before_success() {
     let proxy = Proxy::new(config("198.18.0.0/24")).unwrap();
+    DnsResolver::resolve(proxy.resolver.as_ref(), "last-good.example")
+        .await
+        .unwrap();
+    let previous = proxy.engine().runtime_snapshot();
     let reconciler = paused(false);
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone())
         .with_config_apply_reconciler(reconciler.clone());
@@ -159,6 +163,16 @@ async fn host_stop_drives_the_accepted_transaction_rollback_and_joins_before_suc
         .contains("stopped before configuration commit"));
     stopped.await.unwrap().unwrap();
     assert_eq!(proxy.engine().config_revision(), before);
+    assert!(Arc::ptr_eq(&proxy.engine().runtime_snapshot(), &previous));
+    assert_eq!(
+        proxy
+            .resolver
+            .lookup_fake_ip(&IpAddress::V4([198, 18, 0, 1]))
+            .await
+            .as_deref(),
+        Some("last-good.example")
+    );
+    assert!(proxy.apply_owner.is_closing());
     assert_eq!(
         *reconciler.calls.lock().unwrap(),
         vec!["198.19.0.0/24", "198.18.0.0/24"]

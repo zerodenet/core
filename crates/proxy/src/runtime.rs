@@ -117,6 +117,7 @@ struct PendingReloadAck {
     expected: Arc<zero_engine::EngineRuntimeSnapshot>,
     previous: Arc<zero_engine::EngineRuntimeSnapshot>,
     persist: bool,
+    compensating: bool,
     sender: oneshot::Sender<Result<(), String>>,
 }
 
@@ -308,6 +309,17 @@ impl Proxy {
             .expect("reload ack lock poisoned")
             .as_ref()
             .is_some_and(|pending| Arc::ptr_eq(&pending.expected, expected))
+    }
+
+    pub(crate) fn pending_reload_compensates(
+        &self,
+        expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
+    ) -> bool {
+        self.reload_ack
+            .lock()
+            .expect("reload ack lock poisoned")
+            .as_ref()
+            .is_some_and(|pending| pending.compensating && Arc::ptr_eq(&pending.expected, expected))
     }
 
     pub(crate) fn tcp_runtime_services(&self) -> TcpRuntimeServices {
