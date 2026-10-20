@@ -276,14 +276,16 @@ pub(super) async fn run(
                     let failure = Arc::new(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(source));
                     shared.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
                         .failure = Some(failure.clone());
-                    command.logical.cancel.cancel();
                     let _ = command.receipt.send(Err(legacy(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(failure.clone()))));
+                    command.logical.cancel.cancel();
                     return Err(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(failure));
                 }
-                if sent.is_err() { command.logical.cancel.cancel(); }
-                // Losing the receiver cannot turn an actual submission into a
-                // retryable error. The pending sender guard revokes this flow.
+                let failed = sent.is_err();
+                // Publish the actual receipt before waking cancellation. The
+                // sender gives an already-ready receipt priority over that wake.
+                // Losing the receiver still revokes the exact flow.
                 let _ = command.receipt.send(sent);
+                if failed { command.logical.cancel.cancel(); }
             }
         }
     }

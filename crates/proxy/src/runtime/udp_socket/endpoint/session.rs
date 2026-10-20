@@ -95,9 +95,12 @@ impl DirectEndpointTx {
             _storage: storage,
         });
         let result = tokio::select! {
+            // A completed actual submission/rejection is more precise than its
+            // associated cancellation wake. Never overwrite that receipt.
+            biased;
+            result = response => result.map_err(|source| legacy(error(Stage::Send, Reason::Internal, DeliveryState::Unknown).with_source(source)))?,
             _ = self.logical.cancel.cancelled() => return Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::Unknown))),
             _ = self.shared.scope_cancel.cancelled() => return Err(legacy(error(Stage::Send, Reason::Revoked, DeliveryState::Unknown))),
-            result = response => result.map_err(|source| legacy(error(Stage::Send, Reason::Internal, DeliveryState::Unknown).with_source(source)))?,
         };
         pending.armed = false;
         result
