@@ -241,4 +241,5 @@ async fn callback_failure_preserves_the_original_shared_source_object() {
     assert!(Arc::ptr_eq(preserved, &original));
 }
 
+#[path = "relay_connector/deadline.rs"]
 mod deadline;
