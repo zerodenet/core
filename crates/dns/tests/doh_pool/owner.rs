@@ -263,7 +263,10 @@ async fn rule_only_reload_reuses_the_live_h2_connection_and_actual_backend() {
         servers.get_mut("local").unwrap().backend = actual.clone();
     }
     let query = crate::message::build_query("reuse.reload.test", crate::message::TYPE_A).unwrap();
-    actual.exchange(&query, None, None).await.unwrap();
+    actual
+        .exchange(&query, None, None, zero_traits::AddressFamily::Auto)
+        .await
+        .unwrap();
     config.policy.timeout_ms += 1;
     dns.reload(Some(&config)).unwrap();
     let current = match &*dns.inner.read().unwrap() {
@@ -273,7 +276,10 @@ async fn rule_only_reload_reuses_the_live_h2_connection_and_actual_backend() {
     assert!(Arc::ptr_eq(&actual, &current));
     // The fixture accepts only one TCP connection; the second real exchange
     // can succeed only by reusing the original live H2 connection.
-    current.exchange(&query, None, None).await.unwrap();
+    current
+        .exchange(&query, None, None, zero_traits::AddressFamily::Auto)
+        .await
+        .unwrap();
     dns.shutdown_doh_pools(until()).await.unwrap();
     tokio::time::timeout_at(until(), server)
         .await
