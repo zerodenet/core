@@ -31,6 +31,25 @@ pub(crate) struct PreparedDatagramRelayCarrier {
 }
 
 impl PreparedDatagramRelayCarrier {
+    pub(crate) fn retained_admission(&self) -> Result<(), EngineError> {
+        for layer in &self.layers {
+            match layer {
+                PreparedDatagramRelayLayer::Base(operation) => operation.retained_admission()?,
+                PreparedDatagramRelayLayer::Associated {
+                    operation,
+                    tcp_prefix,
+                } => {
+                    operation.retained_admission()?;
+                    crate::runtime::tcp_dispatch::relay::retained::check_owners(tcp_prefix)?;
+                }
+                PreparedDatagramRelayLayer::Codec(_) => {
+                    return Err(unsupported("retained datagram codec owner is not migrated"));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn new(operation: Box<dyn PreparedUdpPacketPathOperation>) -> Option<Self> {
         let descriptor = operation.carrier_descriptor()?;
         Some(Self {
@@ -156,6 +175,10 @@ impl std::fmt::Debug for PreparedDatagramRelayCarrier {
 }
 
 pub(crate) trait PreparedUdpPacketPathOperation: Send + Sync + 'static {
+    fn retained_admission(&self) -> Result<(), EngineError> {
+        Err(unsupported("retained datagram owner is not migrated"))
+    }
+
     fn carrier_descriptor(&self) -> Option<PacketPathCarrierDescriptor> {
         None
     }

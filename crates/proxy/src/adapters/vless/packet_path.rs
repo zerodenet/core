@@ -52,6 +52,10 @@ where
 }
 struct Operation(::vless::udp::packet_path::Plan, String);
 impl PreparedUdpPacketPathOperation for Operation {
+    fn retained_admission(&self) -> Result<(), zero_engine::EngineError> {
+        self.0.check_retained_carrier_owner().map_err(Into::into)
+    }
+
     fn carrier_descriptor(&self) -> Option<PacketPathCarrierDescriptor> {
         let (cache_key, server, port) = self.0.descriptor();
         Some(PacketPathCarrierDescriptor {

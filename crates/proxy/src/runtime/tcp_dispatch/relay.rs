@@ -1,6 +1,7 @@
 #[cfg(feature = "udp-runtime")]
 mod datagram;
 mod identity;
+pub(in crate::runtime) mod retained;
 use zero_core::Session;
 
 use crate::inventory::{PreparedTcpRelayChain, PreparedTcpRelayPrefix};
@@ -235,12 +236,13 @@ fn lazy_relay_carrier<'a>(
     generation: u64,
 ) -> LazyTcpRelayCarrier<'a> {
     let endpoint = (prefix.final_server.clone(), prefix.final_port);
+    let retained = retained::RetainedSource::capture(&services, &prefix);
     #[cfg(feature = "udp-runtime")]
     let datagrams = prefix
         .datagram_prefixes
         .last()
         .and_then(Option::as_ref)
-        .map(|plan| datagram::factory(&services, plan.clone()));
+        .map(|plan| datagram::factory(&services, retained.clone(), prefix.clone(), plan.clone()));
     let connector = zero_transport::relay_connector::RelayStreamConnector::new(
         identity.clone(),
         generation,
@@ -248,8 +250,11 @@ fn lazy_relay_carrier<'a>(
             let mut prefix = prefix.clone();
             prefix.final_server = server;
             prefix.final_port = port;
-            let services = services.clone();
+            let retained = retained.clone();
             Box::pin(async move {
+                let services = retained.services(&prefix).map_err(|source| {
+                    zero_transport::RuntimeError::Io(std::io::Error::other(source))
+                })?;
                 execute_relay_prefix_stream(services, prefix, intent)
                     .await
                     .map_err(|failure| {
