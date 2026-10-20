@@ -268,6 +268,7 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
 }
 
 mod budget;
+mod dispatch;
 mod isolation;
 mod lifecycle;
 mod observer;

@@ -1,5 +1,6 @@
 //! Independent real shared Direct owner. Production graph activation is separate.
 mod budget;
+pub(crate) mod dispatch;
 mod driver;
 mod lifecycle;
 mod session;
