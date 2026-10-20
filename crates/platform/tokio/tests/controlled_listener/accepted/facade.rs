@@ -31,7 +31,7 @@ async fn accepted_facade_keeps_original_io_metadata_peek_and_observation_without
         let socket = socket
             .into_inner()
             .expect_err("accepted native original must stay in its entry");
-        let mut socket = socket
+        let mut socket = (*socket)
             .into_controlled(CancellationToken::new())
             .err()
             .expect("an accepted view cannot create a second control");

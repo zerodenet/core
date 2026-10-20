@@ -117,9 +117,9 @@ impl ControlledTcpStream {
     pub fn new(
         socket: TokioSocket,
         parent: CancellationToken,
-    ) -> Result<(Self, ControlledTcpControl), TokioSocket> {
+    ) -> Result<(Self, ControlledTcpControl), Box<TokioSocket>> {
         if socket.is_controlled() {
-            return Err(socket);
+            return Err(Box::new(socket));
         }
         let label = format!(
             "native TCP {:?} -> {:?}",
@@ -252,7 +252,7 @@ impl TokioSocket {
     pub fn into_controlled(
         self,
         cancel: CancellationToken,
-    ) -> Result<(ControlledTcpStream, ControlledTcpControl), Self> {
+    ) -> Result<(ControlledTcpStream, ControlledTcpControl), Box<Self>> {
         ControlledTcpStream::new(self, cancel)
     }
 }

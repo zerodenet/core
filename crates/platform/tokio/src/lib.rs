@@ -199,10 +199,10 @@ impl TokioSocket {
 
     /// Native-only extraction. A controlled accepted view is returned intact;
     /// its original descriptor/control never escapes the listener's entry.
-    pub fn into_inner(self) -> Result<TcpStream, Self> {
+    pub fn into_inner(self) -> Result<TcpStream, Box<Self>> {
         match self.inner {
             TcpStorage::Native(inner) => Ok(inner),
-            inner => Err(Self { inner, ..self }),
+            inner => Err(Box::new(Self { inner, ..self })),
         }
     }
     /// Pure view adaptation, without getters, cloning, binding or close rights.
