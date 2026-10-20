@@ -50,3 +50,11 @@
 - ServiceBinding / NativeDnsBinding 保存实际角色 admission、network watch 与 chosen selection signal，不保存 Engine / 整 config；它们提供撤权信号，没有提供底层物理关闭 receipt。DoH consumer 的 lease / driver join 也不能泛称跨 SOCKS、MUX、TLS 和原始 socket 的全部物理闭合。
 - Stream 的 `Connected.io` / BoxStream 传递 I/O，目前没有 Datagram 那样独立 Control / wait_closed 的跨前缀确认通道。prefix 建立后发生 generation 变化、或最终 receipt 构造失败时，现有错误路径会 drop returned Stream；迁移有共享后台资源的角色时，不能把该 drop 当旧资源 join / physical-close ACK。
 - 现有 Service start 的五秒协调上限只用于角色启动，不是新增池维护默认预算。长期后台工作必须由真实资源 owner 声明和关闭；native admission / static dependencies 本身不提供 TaskScope 或物理资源额度。
+
+## 独立 per-demand connector 切面（待统一验证）
+
+`9920add3` 增加 `RelayStreamConnector::new_service_bound` / `connect_with_context`。constructor 保存完整 UpstreamBinding、精确 carrier endpoint 和 opener；不保存首次请求的 deadline / cancel，不产生 Task、owner 或默认 CarrierContext。每次显式调用提供新的实际 CarrierContext；binding 的 prefix / dial / network generation、endpoint 和 Service 的无业务会话约束在 opener 调用前核对。已取消 / 已到期 demand 不调用 opener；callback 已开始后的取消 / 超时保守为 Unknown delivery，实际 Elapsed 或 callback 原错误对象保留。旧 `connect` 与 constructor 行为保留；旧 factory 不能忽略 context 接入新 API，新 Service factory 也不能借无 context 的旧 API 隐式重置预算。调用者明确传入的 None deadline 沿用既有可选 deadline 语义，不构成后台授权。
+
+`4d6809a1` 是 proxy 库中的真实 consumer 回归：callback 仅保 WeakCurrentServiceSource、实际已 start / commit 的 Native SOCKS node 和其静态 / 网络 / owner 检查；在每次 demand 中短借当前服务，原样传入现有 native Service dispatcher，不使用旧 Session 外壳。实际 SOCKS greeting 已发送且等待方法响应时确认 Pending，再取消该 demand；下一次显式新 token / deadline 完成真实 CONNECT 与载荷读写。另有实际 owner 退休、宿主弱引用与完整配置 / DNS 引用回收检查。transport 库回归检查完整 binding、取消后的新调用预算、真实 pending TCP deadline 的 Elapsed 来源和 callback 原 Arc source。此处只新增测试源码，结果由根任务冻结运行记录；没有声称 pool 聚合验证已通过。
+
+**尚未执行的动作**是把该入口接到生产 XHTTP pool → Group.factory。具体阻塞位于 `split_http/xmux.rs::connect_with_download` 的 maintenance spawn、`xmux/connection.rs::acquire` 的 H1/H2 driver spawn 和 `client.rs::connect_profiles` 的后续上传 / 下载工作：它们尚无提供真实持久 join 和每次后续 send budget 的池 owner。`request::Sender::send_request` 后续仍可能触发新 acquire；将首次调用的 CarrierContext 存到 Sender / Group 只会把旧 query 生命周期扩散到后台，并不解决此阻塞。该生产接线保持未迁移状态；不是审批拒绝，也没有启用替代池、放宽 default budget 或制造背景身份。下一步须先复用 stream 任务正在建立的真实共享资源 owner / driver-return / controlled-underlay 证据，再由该 owner 为每次实际 demand 提供范围和关闭确认；具体 XHTTP 共享额度不得临时默认扩容。
