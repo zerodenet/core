@@ -326,7 +326,7 @@ impl InboundListenerCapability for TrojanAdapter {
         Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
         EngineError,
     > {
-        let request = match &inbound.protocol {
+        let (request, profile_update) = match &inbound.protocol {
             InboundProtocolConfig::Trojan {
                 password,
                 users,
@@ -338,8 +338,8 @@ impl InboundListenerCapability for TrojanAdapter {
                 ..
             } => {
                 let user_refs = inbound_user_refs(password, users);
-                let profile = self.inbound_profiles.replace(&inbound.tag, &user_refs);
-                TrojanInboundListenerRequest::from_options_refs(
+                let profile_update = self.inbound_profiles.prepare(&inbound.tag, &user_refs);
+                let request = TrojanInboundListenerRequest::from_options_refs(
                     source_dir,
                     TrojanInboundOptionsRef {
                         users: user_refs.iter().copied(),
@@ -350,8 +350,8 @@ impl InboundListenerCapability for TrojanAdapter {
                     ws.as_deref(),
                     grpc.as_deref(),
                 )
-                .map_err(EngineError::from)?
-                .with_profile(profile)
+                .map_err(EngineError::from)?;
+                (request, profile_update)
             }
             _ => {
                 return Err(EngineError::Io(std::io::Error::new(
@@ -360,7 +360,7 @@ impl InboundListenerCapability for TrojanAdapter {
                 )));
             }
         };
-        Ok(listener::prepare(request))
+        Ok(listener::prepare(request, profile_update))
     }
 }
 

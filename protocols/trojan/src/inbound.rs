@@ -1,7 +1,6 @@
 //! Trojan inbound protocol handler.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use zero_core::{Error, InboundStreamUdpRelay, Network, ProtocolType, Session, SessionAuth};
 use zero_traits::AsyncSocket;
@@ -10,6 +9,8 @@ use super::shared::{read_password, read_request, CMD_TCP, CMD_UDP};
 use crate::udp::TrojanInboundUdpResponder;
 mod facts;
 pub use facts::TrojanRequestFacts;
+mod profile;
+pub use profile::{TrojanInboundProfileStore, TrojanInboundProfileUpdate};
 
 /// Trojan inbound handler.
 #[derive(Debug, Default, Clone, Copy)]
@@ -274,28 +275,6 @@ impl TrojanInboundProfile {
                 mux_response_backlog,
             ),
         )
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct TrojanInboundProfileStore {
-    profiles: Arc<Mutex<HashMap<String, TrojanInboundProfile>>>,
-}
-
-impl TrojanInboundProfileStore {
-    pub fn replace(&self, tag: &str, users: &[TrojanInboundUserRef<'_>]) -> TrojanInboundProfile {
-        let mut profiles = self
-            .profiles
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if let Some(profile) = profiles.get(tag) {
-            profile.replace_config_users(users.iter().copied());
-            return profile.clone();
-        }
-
-        let profile = TrojanInboundProfile::from_config_users(users.iter().copied());
-        profiles.insert(tag.to_owned(), profile.clone());
-        profile
     }
 }
 

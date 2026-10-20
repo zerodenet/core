@@ -20,6 +20,9 @@ const ATYP_IPV4: u8 = 1;
 mod fixture;
 use fixture::*;
 
+#[path = "trojan_inbound/reload.rs"]
+mod reload;
+
 #[tokio::test]
 async fn standard_trojan_tcp_preserves_host_identity_full_auth_payload_and_reverse_half_close() {
     timeout(Duration::from_secs(10), async {

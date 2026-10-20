@@ -3,10 +3,13 @@ use ::trojan::transport::{TrojanInboundAcceptedRoute, TrojanInboundListenerReque
 use crate::runtime::inbound_operation::TcpInboundListenerOperation;
 use crate::runtime::inbound_route::NoClientMuxRouteDefaults;
 
+mod profile;
+
 pub(super) fn prepare(
     request: TrojanInboundListenerRequest,
+    update: ::trojan::inbound::TrojanInboundProfileUpdate,
 ) -> Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation> {
-    Box::new(TcpInboundListenerOperation {
+    let operation = TcpInboundListenerOperation {
         protocol_name: request.protocol_name(),
         error_protocol_name: request.error_protocol_name(),
         request,
@@ -45,5 +48,6 @@ pub(super) fn prepare(
                     }
                 }
             },
-    })
+    };
+    profile::staged(operation, update)
 }
