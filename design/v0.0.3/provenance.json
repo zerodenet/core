@@ -113,8 +113,8 @@
       "id": "12",
       "title": "公共 Rust 契约详细规格",
       "file": "rust-contracts.md",
-      "characters": 10160,
-      "sha256": "fb975cbb1a72a50dd19c8c10aea5c881e52eb6979f98672791383fa70561d1f4"
+      "characters": 10297,
+      "sha256": "a35275cab8d95d582cac0ac2b53e66ba5971b608668cb4ac6fcdadd1603674a4"
     },
     {
       "id": "13",
@@ -251,6 +251,29 @@
       ],
       "policy": "delivery-policy.md",
       "technical_contracts": "unchanged; no scope reduction or validation downgrade"
+    },
+    {
+      "date": "2026-10-20",
+      "reason": "Record the already committed cold task-registration gate refinement in 9709229e; this is an explicit amendment, not unchanged Page revision 7 text.",
+      "sections": [
+        "12"
+      ],
+      "implementation_commit": "9709229e",
+      "previous_section": {
+        "id": "12",
+        "title": "公共 Rust 契约详细规格",
+        "file": "rust-contracts.md",
+        "characters": 10160,
+        "sha256": "fb975cbb1a72a50dd19c8c10aea5c881e52eb6979f98672791383fa70561d1f4"
+      },
+      "updated_section": {
+        "id": "12",
+        "title": "公共 Rust 契约详细规格",
+        "file": "rust-contracts.md",
+        "characters": 10297,
+        "sha256": "a35275cab8d95d582cac0ac2b53e66ba5971b608668cb4ac6fcdadd1603674a4"
+      },
+      "technical_contracts": "Suspended component scopes reject task registration until their installed owner enters start; include NotStarted and checked identity exhaustion. Ordinary TaskScope direct registration semantics remain unchanged."
     }
   ]
 }
