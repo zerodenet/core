@@ -148,6 +148,11 @@ impl CarrierBusinessIssuer {
     }
 }
 impl CarrierBusinessGrant {
+    /// Weak evidence of this exact issued ticket's original owner. This cannot
+    /// construct another ticket, native control, task or completion receipt.
+    pub fn owner_registration(&self) -> super::CarrierOwnerRegistration {
+        self.binding.registration().clone()
+    }
     pub(super) fn bind_caller(&self, slot: &Arc<Slot>) -> Result<(), ChannelError> {
         if let Some(caller) = &self.caller {
             let mut state = slot.state();

@@ -144,6 +144,11 @@ impl CarrierOwnerRegistration {
     pub fn matches_grant(&self, grant: &CarrierGrant) -> bool {
         Weak::ptr_eq(&self.owner, &grant.slot.owner)
     }
+    /// Pure identity for a reservation already observed by the real host.
+    /// It grants no acquisition, caller binding or completion authority.
+    pub fn matches_adoption(&self, adoption: &super::CarrierAdoption) -> bool {
+        Weak::ptr_eq(&self.owner, &adoption.slot.owner)
+    }
     /// None means unavailable, never implicitly closed. Count zero alone does
     /// not prove that the generation can no longer admit a new original.
     pub fn observe(&self) -> Option<CarrierOwnerObservation> {
