@@ -276,3 +276,8 @@ mod queue;
 
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer;
+
+#[cfg(feature = "managed-datagram-runtime")]
+mod bound;
+
+mod failure;
