@@ -109,3 +109,33 @@ async fn zero_internal_task_scope_has_explicit_resource_phase_but_never_task_cap
     assert!(!identity.resource_open());
     assert!(identity.0.upgrade().is_none());
 }
+
+#[tokio::test]
+async fn registration_identity_and_actual_exit_matching_do_not_consume_or_acknowledge_a_join() {
+    let mut scope = TaskScope::new(Handle::current(), NonZeroUsize::new(1).unwrap());
+    let mut foreign = TaskScope::new(Handle::current(), NonZeroUsize::new(1).unwrap());
+    let (_, witness) = scope
+        .registrar()
+        .spawn_tracked(TaskClass::Critical, async { Ok(()) })
+        .unwrap();
+    let (_, other) = foreign
+        .registrar()
+        .spawn_tracked(TaskClass::Critical, async { Ok(()) })
+        .unwrap();
+    assert!(witness.scope_identity().matches(&scope.registrar()));
+    assert!(!witness.scope_identity().matches(&foreign.registrar()));
+    assert!(!witness.is_joined());
+    foreign.next_exit().await.unwrap().result.unwrap();
+    let other = other.wait().await;
+    assert!(!witness.matches_joined(&other));
+    assert!(
+        !witness.is_joined(),
+        "the read-only comparison did not consume this scope's exit"
+    );
+    let actual = scope.next_exit().await.unwrap();
+    let joined = witness.wait().await;
+    assert_eq!(actual.id, joined.id());
+    assert!(witness.matches_joined(&joined));
+    assert!(witness.matches_joined(&joined.clone()));
+    assert!(!witness.matches_joined(&other));
+}

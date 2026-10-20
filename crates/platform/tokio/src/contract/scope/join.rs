@@ -34,6 +34,17 @@ impl std::fmt::Debug for JoinedState {
 #[derive(Clone, Debug)]
 pub struct TaskJoinWitness(Arc<JoinedState>);
 impl TaskJoinWitness {
+    /// Weak identity of this actual registration's original scope. This does
+    /// not join, acknowledge, retain the scope or grant another registration.
+    pub fn scope_identity(&self) -> super::TaskScopeIdentity {
+        super::TaskScopeIdentity::from_owner(self.0.owner.clone())
+    }
+    /// Match this actual consumed native exit, including its original result
+    /// Arc. Equal task numbers or another scope's exit cannot substitute it.
+    pub fn matches_joined(&self, joined: &TaskJoined) -> bool {
+        self.try_joined()
+            .is_some_and(|actual| actual.same_receipt(joined))
+    }
     /// Compare the original registration observer, without joining, waking,
     /// retaining the scope, or granting permission to acknowledge an exit.
     pub fn same_registration(&self, other: &Self) -> bool {
