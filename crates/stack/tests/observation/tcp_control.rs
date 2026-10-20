@@ -29,10 +29,8 @@ async fn retrying_control_queue_backpressure_is_not_counted_as_packet_loss() {
     let counter = Arc::new(Counts::default());
     let (tx, mut rx) = mpsc::channel::<ObservedPacket>(1);
     let output = PacketSender::from(tx).with_observer(Some(counter.clone()));
-    let control = TcpControlPackets::new_with_tasks(
-        output,
-        crate::task_owner::TcpTaskSpawner::default(),
-    );
+    let control =
+        TcpControlPackets::new_with_tasks(output, crate::task_owner::TcpTaskSpawner::default());
     assert!(control.try_send(vec![0]));
     for i in 0..TCP_CONTROL_QUEUE_CAPACITY {
         assert!(control.try_send(vec![i as u8]));
