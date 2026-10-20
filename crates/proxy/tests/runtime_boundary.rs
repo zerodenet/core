@@ -1724,20 +1724,57 @@ fn hysteria2_protocol_inbound_surface_stops_at_authenticated_quic_connections() 
 #[test]
 fn shadowsocks_adapter_accepts_protocol_stream_before_runtime_handoff() {
     let listener = read(&proxy_src().join("adapters/shadowsocks/inbound.rs"));
+    let accepted = listener.find(".accept_stream_facts(").expect(
+        "SS adapter must obtain protocol-owned authenticated facts and the original cipher stream",
+    );
+    let handed = listener.find(".serve_standard_stream(").expect(
+        "SS adapter must hand business identity and execution to the standard host ingress",
+    );
     assert!(
-        listener.contains(".accept_stream("),
-        "adapters/shadowsocks/inbound.rs should accept a protocol-owned stream surface before runtime handoff"
+        accepted < handed,
+        "SS protocol acceptance must precede host handoff"
+    );
+    assert!(
+        listener.contains("component::inbound::TcpReply::new"),
+        "SS wire response ownership must stay with the protocol"
     );
     assert!(
         !listener.contains("accept_and_dispatch_stream"),
         "adapters/shadowsocks/inbound.rs must not use legacy accept-and-dispatch helpers"
     );
+    for forbidden in ["Session::new", "NoClientResponseStreamProtocol"] {
+        assert!(
+            !listener.contains(forbidden),
+            "SS adapter must hand actual facts to host identity admission, not `{forbidden}`"
+        );
+    }
 
-    let inbound = read(&workspace_root().join("protocols/shadowsocks/src/inbound.rs"));
+    let inbound = read_module(&workspace_root().join("protocols/shadowsocks/src/inbound.rs"));
+    assert!(
+        inbound.contains("pub async fn accept_stream_facts"),
+        "authenticated SS facts and cipher state must originate in the protocol"
+    );
     assert!(
         !inbound.contains("accept_and_dispatch_stream"),
-        "protocols/shadowsocks/src/inbound.rs must stop at accept_stream instead of owning runtime handoff helpers"
+        "protocols/shadowsocks/src/inbound.rs must stop at accepted facts/stream instead of owning runtime handoff helpers"
     );
+    let standard = read_module(&proxy_src().join("runtime/tcp_ingress/runtime/standard.rs"));
+    for forbidden in [
+        "decrypt_tcp_chunk",
+        "derive_session_key",
+        "parse_target_data",
+        "SS_2022",
+        "ShadowsocksAeadStream",
+    ] {
+        assert!(
+            !listener.contains(forbidden),
+            "SS adapter must not parse wire or own crypto via `{forbidden}`"
+        );
+        assert!(
+            !standard.contains(forbidden),
+            "generic standard ingress must not parse SS wire via `{forbidden}`"
+        );
+    }
 }
 
 #[test]
