@@ -16,6 +16,7 @@ pub(super) struct Stream {
     inner: GrpcStream,
     record: Arc<Record>,
     failure: Mutex<Option<FailureWait>>,
+    _user: Option<zero_platform_tokio::controlled_carrier::CarrierUserView>,
 }
 #[derive(Debug)]
 pub(super) struct SharedFailure(pub(super) Arc<ChannelError>);
@@ -30,7 +31,11 @@ impl Error for SharedFailure {
     }
 }
 impl Stream {
-    pub(super) fn new(inner: GrpcStream, record: Arc<Record>) -> Self {
+    pub(super) fn new(
+        inner: GrpcStream,
+        record: Arc<Record>,
+        user: Option<zero_platform_tokio::controlled_carrier::CarrierUserView>,
+    ) -> Self {
         record
             .user_live
             .store(true, std::sync::atomic::Ordering::Release);
@@ -38,6 +43,7 @@ impl Stream {
             inner,
             record,
             failure: Mutex::new(None),
+            _user: user,
         }
     }
     fn driver_failure(

@@ -24,6 +24,9 @@ pub(super) struct BusinessCarrierRequest {
     identity: RequestIdentity,
     session: SessionId,
     deadline: Option<Instant>,
+    #[cfg(feature = "raw-ip-runtime")]
+    caller_native:
+        Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
 }
 impl BusinessCarrierRequest {
     pub(super) fn new(
@@ -63,8 +66,28 @@ impl BusinessCarrierRequest {
             identity: invocation.identity.clone(),
             session: facts.session,
             deadline: invocation.deadline,
+            #[cfg(feature = "raw-ip-runtime")]
+            caller_native: invocation.caller_native.clone(),
         };
         Ok(Some(request))
+    }
+    fn caller_witness(
+        &self,
+    ) -> Result<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>, ChannelError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(caller) = &self.caller_native {
+            caller.check_open().map_err(|mut error| {
+                error.session.get_or_insert(self.session);
+                error
+            })?;
+            return caller.caller_witness().map(Some).ok_or_else(|| {
+                invalid(
+                    Reason::Revoked,
+                    "actual caller has no original tracked registration",
+                )
+            });
+        }
+        Ok(None)
     }
     pub(super) fn authorize(
         &self,
@@ -77,12 +100,14 @@ impl BusinessCarrierRequest {
             .slot
             .upgrade()
             .ok_or_else(|| invalid(Reason::Revoked, "original component owner was released"))?;
+        let caller = self.caller_witness()?;
         slot.issue_business_carrier(
             endpoint,
             binding,
             grant,
             &self.identity,
             Arc::new(self.clone()),
+            caller,
         )
         .map_err(|mut error| {
             error.session.get_or_insert(self.session);
@@ -92,6 +117,13 @@ impl BusinessCarrierRequest {
 }
 impl CarrierBusinessDemand for BusinessCarrierRequest {
     fn check(&self) -> Result<(), ChannelError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(caller) = &self.caller_native {
+            caller.check_open().map_err(|mut error| {
+                error.session.get_or_insert(self.session);
+                error
+            })?;
+        }
         self.admitted.check_active().map_err(|source| {
             let mut error = invalid(Reason::Revoked, "original Engine business admission ended")
                 .with_source(source);

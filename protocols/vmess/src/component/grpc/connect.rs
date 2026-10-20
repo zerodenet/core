@@ -82,10 +82,21 @@ impl StreamOutbound for Outbound {
             .reap(cleanup_deadline)
             .await
             .map_err(|source| owner.admission.attach(source, session))?;
-        let grant = owner
+        let mut grant = owner
             .grants
             .reserve()
             .map_err(|source| owner.admission.attach(source, session))?;
+        // This one lease starts before physical preparation, remains with this
+        // inline opening on error/cancel, and moves into the actual logical view.
+        let user_view = if owner.options.business.is_some() {
+            Some(
+                grant
+                    .claim_user_view()
+                    .map_err(|source| owner.admission.attach(source, session))?,
+            )
+        } else {
+            None
+        };
         let record = Arc::new(Record {
             adoption: grant.adoption(),
             witness: Mutex::new(None),
@@ -178,7 +189,8 @@ impl StreamOutbound for Outbound {
         owner
             .check()
             .map_err(|source| owner.admission.attach(source, session))?;
-        let io = zero_transport::TcpRelayStream::new(super::wire::Stream::new(io, record));
+        let io =
+            zero_transport::TcpRelayStream::new(super::wire::Stream::new(io, record, user_view));
         super::super::submit::submit(
             &owner.options.base,
             &owner.admission,

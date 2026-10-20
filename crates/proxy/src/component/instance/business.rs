@@ -45,6 +45,7 @@ impl ComponentSlot {
         grant: &CarrierGrant,
         identity: &RequestIdentity,
         demand: Arc<dyn CarrierBusinessDemand>,
+        caller: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     ) -> Result<CarrierBusinessGrant, ChannelError> {
         self.check_business_carrier(identity)?;
         let live = self
@@ -69,6 +70,9 @@ impl ComponentSlot {
         }
         // Recheck after resource getters: they can flush actual I/O wakers.
         self.check_business_carrier(identity)?;
-        issuer.authorize(demand)
+        match caller {
+            Some(caller) => issuer.authorize_with_caller(demand, caller),
+            None => issuer.authorize(demand),
+        }
     }
 }
