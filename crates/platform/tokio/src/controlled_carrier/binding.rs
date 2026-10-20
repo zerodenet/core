@@ -4,7 +4,7 @@ use crate::contract::{
     component::{ControlledStreamDemandClass, ResourceDeclaration},
     network::{CarrierContext, UpstreamBinding},
     scope::{TaskRegistrar, TaskScopeIdentity},
-    ChannelError, DeliveryState, Reason, Stage,
+    CancellationToken, ChannelError, DeliveryState, Reason, Stage,
 };
 use std::sync::Arc;
 use zero_core::{request::Destination, Address};
@@ -14,6 +14,7 @@ pub(super) struct BoundAuthority {
     binding: UpstreamBinding,
     demand: ControlledStreamDemandClass,
     scope: TaskScopeIdentity,
+    host_cancel: CancellationToken,
 }
 /// Private-origin binding of one actual owner, full descriptor and actual scope.
 /// This is registration evidence, not host business admission/native permission.
@@ -27,6 +28,7 @@ impl CarrierOwnerRegistration {
         &self,
         declaration: &ResourceDeclaration,
         registrar: &TaskRegistrar,
+        host_cancel: &CancellationToken,
     ) -> Result<CarrierOwnerBinding, ChannelError> {
         let failure = |reason| {
             error(
@@ -53,7 +55,7 @@ impl CarrierOwnerRegistration {
         }
         let scope = registrar.scope_identity();
         // No owner lock encloses the actual scope getter or any potential wake.
-        if !scope.registration_open() {
+        if host_cancel.is_cancelled() || !scope.registration_open() {
             return Err(failure(Reason::Revoked));
         }
         let owner = self
@@ -75,6 +77,7 @@ impl CarrierOwnerRegistration {
                 binding: binding.clone(),
                 demand: *demand,
                 scope,
+                host_cancel: host_cancel.clone(),
             });
             state.binding = Some(bound.clone());
             bound
@@ -104,7 +107,8 @@ impl BoundAuthority {
         destination: &Destination,
         context: &CarrierContext,
     ) -> bool {
-        self.binding == *binding
+        !self.host_cancel.is_cancelled()
+            && self.binding == *binding
             && self.endpoint == *destination
             && self.scope.registration_open()
             && match self.demand {
@@ -115,11 +119,25 @@ impl BoundAuthority {
                 | ControlledStreamDemandClass::BackgroundControl => context.session.is_none(),
             }
     }
+    pub(super) fn available(&self) -> bool {
+        !self.host_cancel.is_cancelled() && self.scope.registration_open()
+    }
+    pub(super) fn host_cancelled(&self) -> bool {
+        self.host_cancel.is_cancelled()
+    }
+    pub(super) fn cancellation(&self) -> CancellationToken {
+        self.host_cancel.clone()
+    }
     pub(super) fn permits_driver(&self, registrar: &TaskRegistrar) -> bool {
-        self.scope.matches(registrar) && self.scope.registration_open()
+        !self.host_cancel.is_cancelled()
+            && self.scope.matches(registrar)
+            && self.scope.registration_open()
     }
 }
 impl CarrierOwnerBinding {
+    pub fn host_cancelled(&self) -> bool {
+        self.authority.host_cancel.is_cancelled()
+    }
     pub fn matches_registration(&self, registration: &CarrierOwnerRegistration) -> bool {
         self.registration.same_owner(registration)
     }

@@ -27,3 +27,10 @@ declaration ordinal, instance, cap, scope and installed lifecycle before accepti
 the opaque binding as coverage. Physical completion still excludes transferred
 business users, whose actual owner/handler join remains separate. The existing Service-only
 Business rejection is unchanged.
+
+The first successful binding also freezes the original host revocation token.
+Idempotent binding never replaces it with another token. Revocation rejects new
+reservation/acquisition/adoption, interrupts the existing prepared open, and is
+selected inside the same registered aggregate task (ready original task results
+keep priority). No cancellation worker is created and no permit is refunded by
+body exit: the actual scope join and original native close remain required.

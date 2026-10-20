@@ -14,6 +14,7 @@ async fn same_declared_scope_drives_actual_wire_and_only_original_join_and_close
             .bind_declared(
                 &declaration(&fixture, ControlledStreamDemandClass::Service),
                 &scope.registrar(),
+                &fixture.owner.0.cancel,
             )
             .unwrap();
         fixture.owner.start(deadline()).await.unwrap();
@@ -86,7 +87,7 @@ async fn actual_native_acquisition_checks_declared_endpoint_before_creating_any_
     fixture
         .owner
         .registration()
-        .bind_declared(&description, &scope.registrar())
+        .bind_declared(&description, &scope.registrar(), &fixture.owner.0.cancel)
         .unwrap();
     fixture.owner.start(deadline()).await.unwrap();
     let failure = fixture

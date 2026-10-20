@@ -24,7 +24,7 @@ async fn cold_binding_compares_complete_description_actual_owner_and_original_sc
     let registration = fixture.owner.registration();
     let description = declaration(&fixture, ControlledStreamDemandClass::Service);
     let binding = registration
-        .bind_declared(&description, &scope.registrar())
+        .bind_declared(&description, &scope.registrar(), &fixture.owner.0.cancel)
         .unwrap();
     assert!(binding.matches_registration(&registration));
     assert!(!binding.matches_registration(&other.owner.registration()));
@@ -32,11 +32,11 @@ async fn cold_binding_compares_complete_description_actual_owner_and_original_sc
     assert!(binding.scope_identity().matches(&scope.registrar()));
     assert!(!binding.scope_identity().matches(&foreign.registrar()));
     assert!(registration
-        .bind_declared(&description, &scope.registrar())
+        .bind_declared(&description, &scope.registrar(), &fixture.owner.0.cancel)
         .unwrap()
         .matches_registration(&registration));
     assert!(registration
-        .bind_declared(&description, &foreign.registrar())
+        .bind_declared(&description, &foreign.registrar(), &fixture.owner.0.cancel)
         .is_err());
     let mut changed = description.clone();
     let ResourceDeclaration::ControlledOutboundStream {
@@ -49,11 +49,11 @@ async fn cold_binding_compares_complete_description_actual_owner_and_original_sc
     changed_binding.dial.source_ip = Some("127.0.0.2".parse().unwrap());
     assert!(!binding.matches_declaration(&changed));
     assert!(registration
-        .bind_declared(&changed, &scope.registrar())
+        .bind_declared(&changed, &scope.registrar(), &fixture.owner.0.cancel)
         .is_err());
     fixture.owner.start(deadline()).await.unwrap();
     assert!(registration
-        .bind_declared(&description, &scope.registrar())
+        .bind_declared(&description, &scope.registrar(), &fixture.owner.0.cancel)
         .is_err());
     assert!(fixture
         .owner
@@ -88,6 +88,7 @@ async fn bound_native_carrier_rejects_foreign_scope_before_building_its_real_dri
             .bind_declared(
                 &declaration(&fixture, ControlledStreamDemandClass::Service),
                 &actual.registrar(),
+                &fixture.owner.0.cancel,
             )
             .unwrap();
         fixture.owner.start(deadline()).await.unwrap();
@@ -143,6 +144,7 @@ async fn declared_business_registration_cannot_bypass_the_existing_service_only_
         .bind_declared(
             &declaration(&fixture, ControlledStreamDemandClass::Business),
             &scope.registrar(),
+            &fixture.owner.0.cancel,
         )
         .unwrap();
     fixture.owner.start(deadline()).await.unwrap();
@@ -186,3 +188,5 @@ async fn declared_business_registration_cannot_bypass_the_existing_service_only_
 }
 
 mod native;
+
+mod revocation;

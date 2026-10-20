@@ -82,8 +82,23 @@ impl Drop for CarrierOwner {
 }
 impl ResourceLifecycle for CarrierOwner {
     async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
+        let bound = { self.0.state().binding.clone() };
+        if bound.is_some_and(|bound| !bound.available()) {
+            return Err(error(
+                self.instance(),
+                Stage::Prepare,
+                Reason::Revoked,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         let mut state = self.0.state();
-        if state.stopped || self.0.cancel.is_cancelled() {
+        if state.stopped
+            || self.0.cancel.is_cancelled()
+            || state
+                .binding
+                .as_ref()
+                .is_some_and(|bound| bound.host_cancelled())
+        {
             return Err(error(
                 self.instance(),
                 Stage::Prepare,

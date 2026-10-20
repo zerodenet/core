@@ -14,6 +14,7 @@ pub struct PreparedCarrier {
     pub(super) egress: Arc<EgressInterfaceControl>,
     pub(super) generation: NetworkGeneration,
     pub(super) cancel: CancellationToken,
+    pub(super) authorization: Option<CancellationToken>,
     pub(super) end: Instant,
     pub(super) transferred: bool,
 }
@@ -40,11 +41,25 @@ impl PreparedCarrier {
             ));
         }
         let end = self.end.min(deadline);
+        let authorization = self.authorization.clone();
+        let revoked = async {
+            match &authorization {
+                Some(cancel) => cancel.cancelled().await,
+                None => std::future::pending::<()>().await,
+            }
+        };
         let socket = tokio::select! {biased;
+            _ = revoked => return Err(error(self.slot.instance, Stage::Dial, Reason::Revoked, DeliveryState::Unknown)),
             _ = self.cancel.cancelled() => return Err(error(self.slot.instance, Stage::Dial, Reason::Cancelled, DeliveryState::Unknown)),
             result = self.pending.connect(end) => result.map_err(|source|connect_error(self.slot.instance, source))?,
         };
-        if self.slot.cancel.is_cancelled() || self.cancel.is_cancelled() {
+        if self.slot.cancel.is_cancelled()
+            || self.cancel.is_cancelled()
+            || self
+                .authorization
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+        {
             return Err(error(
                 self.slot.instance,
                 Stage::Dial,

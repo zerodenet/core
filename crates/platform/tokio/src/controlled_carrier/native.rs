@@ -61,7 +61,10 @@ impl NativeCarrierOpener {
             let state = owner.state();
             state.binding.clone()
         });
-        if bound.is_some_and(|bound| !bound.permits_native(binding, &destination, &context)) {
+        if bound
+            .as_ref()
+            .is_some_and(|bound| !bound.permits_native(binding, &destination, &context))
+        {
             return Err(error(
                 grant.instance(),
                 Stage::Prepare,
@@ -184,6 +187,7 @@ impl NativeCarrierOpener {
             egress: self.egress.clone(),
             generation: binding.network_generation,
             cancel: context.cancel,
+            authorization: bound.as_ref().map(|bound| bound.cancellation()),
             end,
             transferred: false,
         })

@@ -70,7 +70,10 @@ impl CarrierAdoption {
             let state = owner.state();
             state.binding.clone()
         });
-        if bound.is_some_and(|bound| !bound.permits_driver(registrar)) {
+        if bound
+            .as_ref()
+            .is_some_and(|bound| !bound.permits_driver(registrar))
+        {
             return Err(error(
                 self.instance(),
                 Stage::Prepare,
@@ -101,6 +104,16 @@ impl CarrierAdoption {
         }
         let _registration = Registering(self.slot.clone());
         let task = build(io.io);
+        let host_cancel = bound.as_ref().map(|bound| bound.cancellation());
+        let task = async move {
+            match host_cancel {
+                Some(cancel) => tokio::select! { biased;
+                    result = task => result,
+                    _ = cancel.cancelled() => Ok(()),
+                },
+                None => task.await,
+            }
+        };
         match registrar.spawn_tracked(class, task) {
             Ok((id, witness)) => {
                 self.slot.state().driver = Some((id, witness.clone()));

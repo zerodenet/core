@@ -20,7 +20,14 @@ impl CarrierGrants {
     }
     pub fn reserve(&self) -> Result<CarrierGrant, ChannelError> {
         let mut state = self.0.state();
-        if !state.live || state.stopped || self.0.cancel.is_cancelled() {
+        if !state.live
+            || state.stopped
+            || self.0.cancel.is_cancelled()
+            || state
+                .binding
+                .as_ref()
+                .is_some_and(|bound| bound.host_cancelled())
+        {
             return Err(error(
                 self.0.instance,
                 Stage::Prepare,
