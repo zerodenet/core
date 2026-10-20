@@ -3,6 +3,9 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+#[path = "../support/listener_tests.rs"]
+mod listener_ownership;
+
 #[path = "../build_info.rs"]
 mod build_info;
 #[path = "../config_errors.rs"]

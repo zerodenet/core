@@ -81,9 +81,11 @@ If you change protocol behavior, config parsing, routing, or runtime wiring, run
 - Tests live in sibling `tests/` directories, not inline in logic files
 - Name tests after the behavior they test
 - Always add/update tests when changing config shape, protocol handling, routing, runtime behavior, or logging
+- Listener fixtures retain the actual bound socket until its worker takes ownership. A shared port-allocation mutex does not reserve endpoints against the OS or other processes.
 
 ## Boundaries
 
+- Cold assembly validates host-assigned dependency identities, duplicate entries and cycles before build/start. Start follows dependency order and protocol cleanup follows reverse order. Ordering alone does not prove transferred sessions or shared I/O have closed; resourceful replacement still requires the host's confirmed cleanup and recovery transaction.
 - Component factories declare their internal task limit explicitly; `None` grants no tasks. Install the resource owner before awaiting start, retain it when start is interrupted, and drive protocol cleanup together with scope cancellation and joins. Interrupted cleanup must retain collected task failures and their sources. Timeout, abort and Drop never prove resource closure.
 - Shared Shadowsocks TCP2022 replay maintenance uses the actual adapter-scoped salt pool. Its native roleless factory declares one critical task, joins any legacy worker before registration, and keeps the maintenance lease until the registered future exits. Protocol cleanup alone cannot admit a replacement worker; valid salt history and capacity rejection survive retirement. Activate resourceful factories only after host shared-resource planning and confirmed replacement ordering exist.
 - SIP003 outbound plans install their Child owner before awaiting readiness. Once a Child exists, failed or interrupted readiness is terminal for that plan and retains the original failure or child handle; cancellation requests termination without claiming exit. The protocol resource handle shares the adapter's actual plan and exposes deadline-bound shutdown with a reaped ExitStatus; interrupted/expired cleanup retains ownership. Native process grants and host replacement transactions must use that actual owner, never a dummy SessionOwner or a Drop-based completion claim.
