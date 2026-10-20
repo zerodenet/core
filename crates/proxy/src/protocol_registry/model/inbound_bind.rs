@@ -17,7 +17,7 @@ impl PreparedInboundBind {
         operation: Box<dyn PreparedInboundListenerOperation>,
         resources: Arc<[ResourceDeclaration]>,
     ) -> Result<Self, EngineError> {
-        let [ResourceDeclaration::TcpListener(destination)] = resources.as_ref() else {
+        let [ResourceDeclaration::TcpListener { destination, .. }] = resources.as_ref() else {
             return Err(unsupported());
         };
         let ip = match destination.address {

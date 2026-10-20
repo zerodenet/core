@@ -16,7 +16,10 @@ impl HostResources {
         max_bytes: usize,
     ) -> Result<Vec<u8>, ChannelError> {
         let deadline = {
-            let mut state = self.state.lock().expect("native grants poisoned");
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.listener_phase(&state)?;
             state.files.register(self.component, &path, max_bytes)?;
             state.start_deadline.expect("checked start phase")
@@ -26,7 +29,10 @@ impl HostResources {
             tokio::pin!(changed);
             changed.as_mut().enable();
             {
-                let state = self.state.lock().expect("native grants poisoned");
+                let state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 self.listener_phase(&state)?;
                 if let Cached::Done(result) = &state
                     .files
@@ -65,7 +71,10 @@ impl HostResources {
             tokio::pin!(changed);
             changed.as_mut().enable();
             let next = {
-                let mut state = self.state.lock().expect("native grants poisoned");
+                let mut state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 match state
                     .files
                     .jobs

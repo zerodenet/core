@@ -5,10 +5,11 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
-    component::{ProcessRequest, ResourceAccess, ResourceDeclaration},
+    component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
     BoxFuture, CancellationToken, ChannelError, Reason,
 };
@@ -18,16 +19,19 @@ pub(in crate::component) struct HostResources {
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Arc<tokio::sync::Notify>,
+    cleanup: AsyncMutex<()>,
 }
 struct State {
     closed: bool,
     start_deadline: Option<Instant>,
     remaining: BTreeMap<PathBuf, usize>,
-    tcp: BTreeMap<SocketAddr, bool>,
-    datagram: BTreeMap<SocketAddr, bool>,
+    tcp: BTreeMap<SocketAddr, Arc<AsyncMutex<sockets::TcpGrant>>>,
+    datagram: BTreeMap<SocketAddr, Arc<AsyncMutex<sockets::DatagramGrant>>>,
     files: files::FileReads,
+    io: shutdown::NativeClose,
 }
 mod files;
+mod shutdown;
 mod sockets;
 
 /// Closing the grant phase does not claim that its children have exited.
@@ -37,7 +41,7 @@ impl Drop for StartAccess {
         self.0
             .state
             .lock()
-            .expect("native grants poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .start_deadline = None;
     }
 }
@@ -69,15 +73,45 @@ impl HostResources {
                         ));
                     }
                 }
-                ResourceDeclaration::TcpListener(address)
-                | ResourceDeclaration::DatagramListener(address) => {
-                    let address = sockets::literal(component, address)?;
-                    let grants = if matches!(declaration, ResourceDeclaration::TcpListener(_)) {
-                        &mut tcp
-                    } else {
-                        &mut datagram
+                ResourceDeclaration::TcpListener {
+                    destination,
+                    max_bind_attempts,
+                } => {
+                    let address = sockets::literal(component, destination)?;
+                    let owner = sockets::TcpGrant {
+                        native: zero_platform_tokio::ControlledTcpListenerOwner::new(
+                            declaration,
+                            *max_bind_attempts,
+                            cancel.clone(),
+                        )?,
+                        acquired: false,
                     };
-                    if grants.insert(address, false).is_some() {
+                    if tcp
+                        .insert(address, Arc::new(AsyncMutex::new(owner)))
+                        .is_some()
+                    {
+                        return Err(error(
+                            component,
+                            Reason::InvalidConfig,
+                            "duplicate listener declaration",
+                        ));
+                    }
+                }
+                ResourceDeclaration::DatagramListener {
+                    destination,
+                    max_bind_attempts,
+                    max_pending_sends,
+                } => {
+                    let address = sockets::literal(component, destination)?;
+                    let owner = sockets::DatagramGrant::new(
+                        component,
+                        *max_bind_attempts,
+                        *max_pending_sends,
+                    )?;
+                    if datagram
+                        .insert(address, Arc::new(AsyncMutex::new(owner)))
+                        .is_some()
+                    {
                         return Err(error(
                             component,
                             Reason::InvalidConfig,
@@ -114,15 +148,20 @@ impl HostResources {
                 tcp,
                 datagram,
                 files,
+                io: shutdown::NativeClose::default(),
             }),
             changed: Arc::new(tokio::sync::Notify::new()),
+            cleanup: AsyncMutex::new(()),
         }))
     }
     pub(in crate::component) fn activate(
         self: &Arc<Self>,
         deadline: Instant,
     ) -> Result<StartAccess, ChannelError> {
-        let mut state = self.state.lock().expect("native grants poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if self.cancel.is_cancelled() || state.closed {
             return Err(error(
                 self.component,
@@ -153,7 +192,10 @@ impl ResourceAccess for HostResources {
         &self,
         request: ProcessRequest,
     ) -> Result<tokio::process::Child, ChannelError> {
-        let mut state = self.state.lock().expect("native grants poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if self.cancel.is_cancelled() || state.closed {
             return Err(error(
                 self.component,
@@ -202,13 +244,16 @@ impl ResourceAccess for HostResources {
     fn listen_tcp(
         &self,
         address: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::TcpListener, ChannelError>> {
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::ControlledTcpListener, ChannelError>> {
         Box::pin(async move { self.bind_tcp(address) })
     }
     fn listen_datagram(
         &self,
         address: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, ChannelError>> {
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::component::GrantedDatagramListener, ChannelError>,
+    > {
         Box::pin(async move { self.bind_datagram(address) })
     }
     fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, ChannelError>> {

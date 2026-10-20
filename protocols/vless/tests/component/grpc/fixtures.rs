@@ -78,13 +78,19 @@ impl ResourceAccess for Denied {
     ) -> BoxFuture<'_, Result<Vec<u8>, BuildError>> {
         denied()
     }
-    fn listen_tcp(&self, _: Destination) -> BoxFuture<'_, Result<TcpListener, BuildError>> {
+    fn listen_tcp(
+        &self,
+        _: Destination,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::ControlledTcpListener, BuildError>> {
         denied()
     }
     fn listen_datagram(
         &self,
         _: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, BuildError>> {
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::component::GrantedDatagramListener, BuildError>,
+    > {
         denied()
     }
     fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>> {

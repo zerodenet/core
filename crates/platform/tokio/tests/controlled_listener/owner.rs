@@ -4,16 +4,19 @@ use crate::contract::{component::ResourceDeclaration, DeliveryState, Reason};
 use std::{error::Error, num::NonZeroUsize};
 use zero_core::{request::Destination, Address};
 
-fn declaration(address: SocketAddr) -> ResourceDeclaration {
+fn declaration(address: SocketAddr, attempts: usize) -> ResourceDeclaration {
     let ip = match address.ip() {
         std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
         std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
     };
-    ResourceDeclaration::TcpListener(Destination::new(ip, address.port()))
+    ResourceDeclaration::TcpListener {
+        destination: Destination::new(ip, address.port()),
+        max_bind_attempts: std::num::NonZeroUsize::new(attempts).unwrap(),
+    }
 }
 fn owner(address: SocketAddr, attempts: usize) -> ControlledTcpListenerOwner {
     ControlledTcpListenerOwner::new(
-        &declaration(address),
+        &declaration(address, attempts),
         NonZeroUsize::new(attempts).unwrap(),
         CancellationToken::new(),
     )
@@ -157,8 +160,10 @@ async fn owner_retains_success_after_view_drop_and_abandoned_cleanup_until_actua
 fn domain_and_non_tcp_declarations_are_rejected_without_native_work() {
     let parent = CancellationToken::new();
     let cap = NonZeroUsize::new(1).unwrap();
-    let domain =
-        ResourceDeclaration::TcpListener(Destination::new(Address::Domain("localhost".into()), 0));
+    let domain = ResourceDeclaration::TcpListener {
+        destination: Destination::new(Address::Domain("localhost".into()), 0),
+        max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
+    };
     let error = match ControlledTcpListenerOwner::new(&domain, cap, parent.clone()) {
         Err(e) => e,
         Ok(_) => panic!("implicit DNS"),
@@ -166,6 +171,20 @@ fn domain_and_non_tcp_declarations_are_rejected_without_native_work() {
     assert_eq!(error.reason, Reason::Unsupported);
     let wrong = ResourceDeclaration::BackgroundCarrier;
     assert!(ControlledTcpListenerOwner::new(&wrong, cap, parent).is_err());
+}
+
+#[test]
+fn actual_attempt_budget_cannot_exceed_the_same_canonical_listener_declaration() {
+    let address = "127.0.0.1:0".parse().unwrap();
+    let error = match ControlledTcpListenerOwner::new(
+        &declaration(address, 1),
+        NonZeroUsize::new(2).unwrap(),
+        CancellationToken::new(),
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("actual caller exceeded declared attempt ceiling"),
+    };
+    assert_eq!(error.reason, Reason::InvalidConfig);
 }
 
 #[test]

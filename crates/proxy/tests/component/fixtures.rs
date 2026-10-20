@@ -127,13 +127,16 @@ impl ResourceAccess for NoResources {
     fn listen_tcp(
         &self,
         _: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::TcpListener, BuildError>> {
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::ControlledTcpListener, BuildError>> {
         panic!("undeclared TCP listener")
     }
     fn listen_datagram(
         &self,
         _: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, BuildError>> {
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::component::GrantedDatagramListener, BuildError>,
+    > {
         panic!("undeclared datagram listener")
     }
     fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>> {

@@ -1,10 +1,12 @@
 //! Listener acquisition has no await between native bind and transfer to its owner.
 use super::*;
-use std::{
-    io,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use zero_core::Address;
+
+pub(super) struct TcpGrant {
+    pub(super) native: zero_platform_tokio::ControlledTcpListenerOwner,
+    pub(super) acquired: bool,
+}
 
 pub(super) fn literal(
     component: ComponentId,
@@ -51,80 +53,48 @@ impl HostResources {
     pub(super) fn bind_tcp(
         &self,
         destination: Destination,
-    ) -> Result<tokio::net::TcpListener, ChannelError> {
-        let mut state = self.state.lock().expect("native grants poisoned");
+    ) -> Result<zero_platform_tokio::ControlledTcpListener, ChannelError> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.listener_phase(&state)?;
         let address = literal(self.component, &destination)?;
-        let acquired = state.tcp.get_mut(&address).ok_or_else(|| self.denied())?;
-        if *acquired {
+        let owner = state.tcp.get(&address).ok_or_else(|| self.denied())?;
+        // This short synchronous lock cannot cross await; the installed owner
+        // remains in State before the first native create and every failure.
+        let mut native = owner.try_lock().map_err(|_| self.denied())?;
+        if native.acquired {
             return Err(error(
                 self.component,
                 Reason::Capacity,
                 "declared TCP listener was already acquired",
             ));
         }
-        let bind = || -> io::Result<_> {
-            let socket = if address.is_ipv4() {
-                tokio::net::TcpSocket::new_v4()?
-            } else {
-                tokio::net::TcpSocket::new_v6()?
-            };
-            // Match Tokio/Mio: leave SO_REUSEADDR unset on Windows.
-            #[cfg(not(windows))]
-            socket.set_reuseaddr(true)?;
-            socket.bind(address)?;
-            let backlog = if cfg!(target_os = "horizon") {
-                20
-            } else if cfg!(target_os = "haiku") {
-                32
-            } else {
-                128
-            };
-            socket.listen(backlog)
-        };
-        let listener = bind().map_err(|source| {
-            error(
-                self.component,
-                Reason::Io,
-                "native TCP listener bind failed",
-            )
-            .with_source(source)
+        let view = native.native.bind_listener(address).map_err(|mut error| {
+            error.component.get_or_insert(self.component);
+            error
         })?;
-        *acquired = true;
-        Ok(listener)
+        native.acquired = true;
+        Ok(view)
     }
     pub(super) fn bind_datagram(
         &self,
         destination: Destination,
-    ) -> Result<tokio::net::UdpSocket, ChannelError> {
-        let mut state = self.state.lock().expect("native grants poisoned");
+    ) -> Result<GrantedDatagramListener, ChannelError> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.listener_phase(&state)?;
         let address = literal(self.component, &destination)?;
-        let acquired = state
-            .datagram
-            .get_mut(&address)
-            .ok_or_else(|| self.denied())?;
-        if *acquired {
-            return Err(error(
-                self.component,
-                Reason::Capacity,
-                "declared UDP listener was already acquired",
-            ));
-        }
-        let bind = || -> io::Result<_> {
-            let socket = std::net::UdpSocket::bind(address)?;
-            socket.set_nonblocking(true)?;
-            tokio::net::UdpSocket::from_std(socket)
-        };
-        let socket = bind().map_err(|source| {
-            error(
-                self.component,
-                Reason::Io,
-                "native UDP listener bind failed",
-            )
-            .with_source(source)
-        })?;
-        *acquired = true;
-        Ok(socket)
+        let owner = state.datagram.get(&address).ok_or_else(|| self.denied())?;
+        let result = owner
+            .try_lock()
+            .map_err(|_| self.denied())?
+            .bind(self.component, address);
+        result
     }
 }
+mod udp;
+pub(super) use udp::DatagramGrant;

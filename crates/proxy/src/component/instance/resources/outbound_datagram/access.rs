@@ -22,7 +22,7 @@ impl ResourceAccess for HostOutboundDatagramResources {
     fn listen_tcp(
         &self,
         _: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::TcpListener, ChannelError>> {
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::ControlledTcpListener, ChannelError>> {
         Box::pin(async {
             Err(error(
                 self.instance,
@@ -34,7 +34,10 @@ impl ResourceAccess for HostOutboundDatagramResources {
     fn listen_datagram(
         &self,
         _: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, ChannelError>> {
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::component::GrantedDatagramListener, ChannelError>,
+    > {
         Box::pin(async {
             Err(error(
                 self.instance,

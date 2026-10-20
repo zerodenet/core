@@ -48,8 +48,19 @@ pub enum ResourceDeclaration {
         max_sockets: NonZeroUsize,
         max_bindings: NonZeroUsize,
     },
-    TcpListener(Destination),
-    DatagramListener(Destination),
+    TcpListener {
+        destination: Destination,
+        /// Actual native creations, including failed attempts. One successful
+        /// listener per declaration; Unknown originals never grant replacement.
+        max_bind_attempts: NonZeroUsize,
+    },
+    DatagramListener {
+        destination: Destination,
+        max_bind_attempts: NonZeroUsize,
+        /// Waiting plus in-flight sends over the same original listener. No
+        /// payload storage or worker task is implicitly allocated by this bound.
+        max_pending_sends: NonZeroUsize,
+    },
     /// A literal outbound peer on the actual host network generation. The
     /// current provider supports exactly one socket and one acquisition attempt
     /// (including failures), default dial policy and no preferred source port.
@@ -93,6 +104,14 @@ pub struct ComponentSpec {
     /// Maximum registered tasks, including undelivered completion records.
     /// None grants no internal tasks; it never means unlimited capacity.
     pub task_limit: Option<NonZeroUsize>,
+}
+
+/// Unique server receiver and bounded send-only clones, with no close authority.
+/// The granting host retains the exact
+/// native owner/controller before creation and confirms cleanup independently.
+pub struct GrantedDatagramListener {
+    pub rx: crate::controlled_datagram::listener::ControlledDatagramListenerRx,
+    pub tx: crate::controlled_datagram::listener::ControlledDatagramListenerTx,
 }
 
 /// The host implements access only for resources declared by this component.
@@ -155,11 +174,11 @@ pub trait ResourceAccess: Send + Sync {
     fn listen_tcp(
         &self,
         address: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::TcpListener, BuildError>>;
+    ) -> BoxFuture<'_, Result<crate::ControlledTcpListener, BuildError>>;
     fn listen_datagram(
         &self,
         address: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, BuildError>>;
+    ) -> BoxFuture<'_, Result<GrantedDatagramListener, BuildError>>;
     fn open_device(&self, name: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>>;
 }
 

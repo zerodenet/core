@@ -28,30 +28,42 @@ use zero_platform_tokio::contract::{
 
 struct Grants {
     binds: Arc<AtomicUsize>,
+    native: tokio::sync::Mutex<zero_platform_tokio::ControlledTcpListenerOwner>,
 }
 impl ResourceAccess for Grants {
     fn read_file(&self, _: PathBuf, _: usize) -> BoxFuture<'_, Result<Vec<u8>, BuildError>> {
         panic!("no file declared")
     }
-    fn listen_tcp(&self, address: Destination) -> BoxFuture<'_, Result<TcpListener, BuildError>> {
-        self.binds.fetch_add(1, Ordering::SeqCst);
+    fn listen_tcp(
+        &self,
+        address: Destination,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::ControlledTcpListener, BuildError>> {
         Box::pin(async move {
-            let host = match address.address {
-                zero_core::Address::Domain(host) => host,
-                zero_core::Address::Ipv4(ip) => std::net::Ipv4Addr::from(ip).to_string(),
-                zero_core::Address::Ipv6(ip) => std::net::Ipv6Addr::from(ip).to_string(),
+            let ip = match address.address {
+                zero_core::Address::Domain(_) => {
+                    return Err(ChannelError::new(
+                        Stage::Prepare,
+                        Reason::Unsupported,
+                        Impact::Component,
+                    ))
+                }
+                zero_core::Address::Ipv4(ip) => std::net::IpAddr::V4(ip.into()),
+                zero_core::Address::Ipv6(ip) => std::net::IpAddr::V6(ip.into()),
             };
-            TcpListener::bind((host.as_str(), address.port))
+            self.binds.fetch_add(1, Ordering::SeqCst);
+            self.native
+                .lock()
                 .await
-                .map_err(|e| {
-                    ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component).with_source(e)
-                })
+                .bind_listener(SocketAddr::new(ip, address.port))
         })
     }
     fn listen_datagram(
         &self,
         _: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, BuildError>> {
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::component::GrantedDatagramListener, BuildError>,
+    > {
         panic!("no datagram listener declared")
     }
     fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>> {
@@ -60,6 +72,7 @@ impl ResourceAccess for Grants {
 }
 struct Options {
     address: SocketAddr,
+    grants: Arc<Grants>,
 }
 fn destination(address: SocketAddr) -> Destination {
     let host = match address.ip() {
@@ -72,7 +85,8 @@ struct Factory;
 struct Owner {
     address: SocketAddr,
     resources: Arc<dyn ResourceAccess>,
-    listener: Option<TcpListener>,
+    listener: Option<zero_platform_tokio::ControlledTcpListener>,
+    native: Arc<Grants>,
     ready: Arc<AtomicBool>,
 }
 impl ResourceLifecycle for Owner {
@@ -84,19 +98,11 @@ impl ResourceLifecycle for Owner {
     fn revoke(&self, _: CloseReason) {
         self.ready.store(false, Ordering::SeqCst);
     }
-    async fn shutdown(&mut self, _: Instant) -> Result<CloseReport, BuildError> {
+    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
         self.ready.store(false, Ordering::SeqCst);
         let listener = self.listener.take();
-        let held = listener.is_some();
         drop(listener);
-        Ok(CloseReport {
-            released_resources: if held {
-                vec![self.address.to_string()]
-            } else {
-                vec![]
-            },
-            ..Default::default()
-        })
+        self.native.native.lock().await.wait_closed(deadline).await
     }
 }
 struct Stream(Arc<AtomicBool>);
@@ -130,9 +136,10 @@ impl ComponentFactory for Factory {
             roles: vec![RoleKind::Stream],
             dependencies: vec![],
             static_identity: options.address.to_string().into_bytes().into(),
-            resources: vec![ResourceDeclaration::TcpListener(destination(
-                options.address,
-            ))],
+            resources: vec![ResourceDeclaration::TcpListener {
+                destination: destination(options.address),
+                max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
+            }],
         }
     }
     fn build(
@@ -146,6 +153,7 @@ impl ComponentFactory for Factory {
                 address: options.address,
                 resources: context.resources,
                 listener: None,
+                native: options.grants.clone(),
                 ready: ready.clone(),
             }),
             roles: ComponentRoles {
@@ -163,7 +171,24 @@ async fn stream_only_factory_builds_without_binding_and_keeps_owner_after_start_
     let binds = Arc::new(AtomicUsize::new(0));
     let mut scope = TaskScope::empty(Handle::current());
     let factory = Factory;
-    let options = Arc::new(Options { address });
+    let grants = Arc::new(Grants {
+        binds: binds.clone(),
+        native: tokio::sync::Mutex::new(
+            zero_platform_tokio::ControlledTcpListenerOwner::new(
+                &ResourceDeclaration::TcpListener {
+                    destination: destination(address),
+                    max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
+                },
+                std::num::NonZeroUsize::new(1).unwrap(),
+                Default::default(),
+            )
+            .unwrap(),
+        ),
+    });
+    let options = Arc::new(Options {
+        address,
+        grants: grants.clone(),
+    });
     let spec = factory.describe(&options);
     assert_eq!(spec.roles.len(), 1);
     let mut instance = factory
@@ -177,9 +202,7 @@ async fn stream_only_factory_builds_without_binding_and_keeps_owner_after_start_
                     outbound: Some(OutboundId(1)),
                     ..Default::default()
                 },
-                resources: Arc::new(Grants {
-                    binds: binds.clone(),
-                }),
+                resources: grants,
                 tasks: scope.registrar(),
                 cancel: scope.registrar().cancellation(),
                 background_carrier: None,
@@ -215,76 +238,5 @@ async fn stream_only_factory_builds_without_binding_and_keeps_owner_after_start_
     let _released = TcpListener::bind(address).await.unwrap();
 }
 
-struct BoundOpener {
-    seen: std::sync::Mutex<Vec<UpstreamBinding>>,
-}
-impl UpstreamOpener for BoundOpener {
-    fn open_stream(
-        &self,
-        binding: &UpstreamBinding,
-        _: Destination,
-        _: CarrierContext,
-    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
-        self.seen.lock().unwrap().push(binding.clone());
-        Box::pin(async {
-            Err(ChannelError::new(
-                Stage::Dial,
-                Reason::StalePlan,
-                Impact::Session,
-            ))
-        })
-    }
-    fn open_datagram(
-        &self,
-        _: &UpstreamBinding,
-        _: DatagramRequest,
-        _: CarrierContext,
-    ) -> BoxFuture<'_, Result<BoxDatagramSession, ChannelError>> {
-        panic!("stream request must not turn into datagram")
-    }
-}
-
-#[tokio::test]
-async fn bound_upstream_retains_prefix_policy_and_generation_without_fallback() {
-    use zero_core::{component::NetworkGeneration, Address};
-    let opener = Arc::new(BoundOpener {
-        seen: Default::default(),
-    });
-    let binding = UpstreamBinding {
-        prefix: vec![RoleInstanceId {
-            component: ComponentId(42),
-            role: RoleId::Outbound(OutboundId(42)),
-            generation: ResourceGeneration(1),
-        }],
-        dial: zero_traits::DialPolicy {
-            address_family: zero_traits::AddressFamily::OnlyIpv6,
-            interface: Some("contract-interface".into()),
-            source_ip: Some("::1".parse().unwrap()),
-        },
-        network_generation: NetworkGeneration(7),
-    };
-    let mut rebuilt = binding.clone();
-    rebuilt.prefix[0].generation = ResourceGeneration(2);
-    let identities = std::collections::HashSet::from([binding.clone(), rebuilt]);
-    assert_eq!(
-        identities.len(),
-        2,
-        "a rebuilt prefix must not reuse its old pool key"
-    );
-    let upstream = UpstreamTransport::new(binding.clone(), opener.clone());
-    let context = CarrierContext {
-        session: None,
-        deadline: Some(Instant::now()),
-        cancel: Default::default(),
-    };
-    let error = upstream
-        .open_stream(
-            Destination::new(Address::Domain("carrier.test".into()), 443),
-            context,
-        )
-        .await
-        .err()
-        .unwrap();
-    assert_eq!(error.reason, Reason::StalePlan);
-    assert_eq!(opener.seen.lock().unwrap().as_slice(), [binding]);
-}
+#[path = "contract_factory/upstream.rs"]
+mod upstream;

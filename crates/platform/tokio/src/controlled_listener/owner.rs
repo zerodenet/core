@@ -30,12 +30,22 @@ impl ControlledTcpListenerOwner {
         max_bind_attempts: NonZeroUsize,
         parent: CancellationToken,
     ) -> Result<Self, ChannelError> {
-        let ResourceDeclaration::TcpListener(destination) = declaration else {
+        let ResourceDeclaration::TcpListener {
+            destination,
+            max_bind_attempts: ceiling,
+        } = declaration
+        else {
             return Err(denied(
                 Reason::InvalidConfig,
                 "not a TCP listener declaration",
             ));
         };
+        if max_bind_attempts > *ceiling {
+            return Err(denied(
+                Reason::InvalidConfig,
+                "TCP listener attempt budget exceeds declaration",
+            ));
+        }
         let ip = match &destination.address {
             Address::Ipv4(ip) => IpAddr::V4((*ip).into()),
             Address::Ipv6(ip) => IpAddr::V6((*ip).into()),

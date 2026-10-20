@@ -41,10 +41,10 @@ fn lease(proxy: &Proxy, config: &Arc<RuntimeConfig>, index: usize) -> InboundBin
     };
     let prepared = PreparedInboundBind::new(
         operation,
-        Arc::from([ResourceDeclaration::TcpListener(Destination::new(
-            Address::Ipv4(address),
-            0,
-        ))]),
+        Arc::from([ResourceDeclaration::TcpListener {
+            destination: Destination::new(Address::Ipv4(address), 0),
+            max_bind_attempts: std::num::NonZeroUsize::new(50).unwrap(),
+        }]),
     )
     .unwrap();
     let (shutdown, _) = watch::channel(false);
@@ -162,10 +162,10 @@ async fn dropped_partial_reservations_hold_native_fds_until_explicit_batch_clean
         .unwrap();
     let prepared = PreparedInboundBind::new(
         operation,
-        Arc::from([ResourceDeclaration::TcpListener(Destination::new(
-            Address::Ipv4([127, 0, 0, 1]),
-            0,
-        ))]),
+        Arc::from([ResourceDeclaration::TcpListener {
+            destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
+            max_bind_attempts: std::num::NonZeroUsize::new(50).unwrap(),
+        }]),
     )
     .unwrap();
     let (stop, _) = watch::channel(false);

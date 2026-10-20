@@ -5,6 +5,8 @@ mod cleanup;
 mod concurrency;
 #[path = "resource_files/fixtures.rs"]
 mod fixtures;
+#[path = "resource_files/native.rs"]
+mod native;
 use fixtures::*;
 use tokio::time::{Duration, Instant};
 use zero_platform_tokio::contract::component::{ResourceAccess, ResourceDeclaration};

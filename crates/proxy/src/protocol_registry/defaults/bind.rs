@@ -18,13 +18,16 @@ pub(crate) fn prepare_tcp_inbound_bind(
     else {
         return Ok(None);
     };
-    let declaration = ResourceDeclaration::TcpListener(Destination::new(
-        match address.ip() {
-            std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
-            std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
-        },
-        address.port(),
-    ));
+    let declaration = ResourceDeclaration::TcpListener {
+        destination: Destination::new(
+            match address.ip() {
+                std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
+                std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
+            },
+            address.port(),
+        ),
+        max_bind_attempts: std::num::NonZeroUsize::new(50).unwrap(),
+    };
     let operation = adapter.prepare_inbound_listener(inbound, source_dir)?;
     crate::protocol_registry::PreparedInboundBind::new(
         operation,

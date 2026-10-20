@@ -44,13 +44,16 @@ impl ResourceAccess for ObservedAccess {
     fn listen_tcp(
         &self,
         address: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::TcpListener, BuildError>> {
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::ControlledTcpListener, BuildError>> {
         self.grants.listen_tcp(address)
     }
     fn listen_datagram(
         &self,
         address: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, BuildError>> {
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::component::GrantedDatagramListener, BuildError>,
+    > {
         self.grants.listen_datagram(address)
     }
     fn open_device(&self, name: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>> {
