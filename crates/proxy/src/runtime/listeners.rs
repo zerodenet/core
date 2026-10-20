@@ -7,7 +7,7 @@ mod urltest;
 pub(super) use bind::PendingInbound;
 pub(super) use inbound::{
     bind_inbound_listener, reconcile_inbounds, reconcile_inbounds_with_before_bind,
-    spawn_inbound_listener, InboundReconcileState,
+    spawn_inbound_listener, InboundReconcileState, StoppedInbounds,
 };
 pub(super) use urltest::reconcile_urltests;
 

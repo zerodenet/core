@@ -12,6 +12,7 @@ use tokio::{
 mod fixture;
 #[cfg(feature = "vless")]
 mod hot_users;
+mod phase;
 use fixture::*;
 
 #[tokio::test]

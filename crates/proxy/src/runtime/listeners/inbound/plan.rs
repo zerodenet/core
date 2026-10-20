@@ -14,6 +14,7 @@ pub(super) struct Plan {
     pub(super) candidates: Vec<Candidate>,
     removed: BTreeSet<String>,
     previous: std::sync::Arc<RuntimeConfig>,
+    candidate: std::sync::Weak<RuntimeConfig>,
 }
 
 pub(super) fn prepare(
@@ -94,6 +95,7 @@ pub(super) fn prepare(
         candidates,
         removed,
         previous: previous_config,
+        candidate: std::sync::Arc::downgrade(&runtime_factory.config_handle()),
     })
 }
 impl Plan {
@@ -139,7 +141,7 @@ impl Plan {
         &mut self,
         runtime_factory: &InboundListenerRuntimeFactory,
         state: &mut InboundReconcileState<'_>,
-    ) -> Result<(), EngineError> {
+    ) -> Result<StoppedInbounds, EngineError> {
         let mut affected = self.removed.clone();
         affected.extend(
             self.candidates
@@ -165,13 +167,34 @@ impl Plan {
                 owner.task_access().request_stop();
             }
         }
+        let mut stopped = StoppedInbounds::new(self.candidate.clone());
         for tag in affected {
             if runtime_factory.owners().owner(&tag).is_some() {
-                wait_listener_stopped(runtime_factory, &tag, state).await?;
+                let terminal =
+                    stop::wait_listener_stopped_with_terminal(runtime_factory, &tag, state).await?;
+                if let Some(terminal) = terminal {
+                    stopped.record_terminal(tag.clone(), terminal);
+                }
                 info!(%tag, reason = "replacement_stop_old",
                     "confirmed affected old inbound owner shutdown before candidate bind");
+            } else if let Some(previous) = self
+                .previous
+                .inbounds
+                .iter()
+                .find(|inbound| inbound.tag == tag)
+            {
+                if let Some(terminal) = runtime_factory
+                    .owners()
+                    .closed_recovery_origin(&tag, previous)?
+                {
+                    stopped.record_terminal(tag.clone(), terminal);
+                } else {
+                    stopped.record_absent(tag.clone());
+                }
+            } else {
+                stopped.record_absent(tag.clone());
             }
         }
-        Ok(())
+        Ok(stopped)
     }
 }

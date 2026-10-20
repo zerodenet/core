@@ -56,6 +56,11 @@ impl ClosedInboundReceipt {
     pub(crate) fn terminal(&self) -> &InboundTerminal {
         &self.terminal
     }
+    /// Same immutable original evidence, without the registry release/ACK
+    /// capability. Cloning it cannot release an owner or issue another receipt.
+    pub(crate) fn terminal_handle(&self) -> Arc<InboundTerminal> {
+        self.terminal.clone()
+    }
 }
 impl InboundOwner {
     /// Returns whether this actual exit is a component/listener failure.

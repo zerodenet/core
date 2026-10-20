@@ -103,6 +103,10 @@ async fn exact_origin_capsule_survives_interrupted_real_native_close_and_pending
         .prepare_recovery_bind(last_good.clone(), None, true)
         .is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(proxy
+        .inbound_owners
+        .closed_recovery_origin("first", &last_good)
+        .is_err());
     resume.send(()).unwrap();
     let receipt = proxy
         .inbound_owners
@@ -118,11 +122,18 @@ async fn exact_origin_capsule_survives_interrupted_real_native_close_and_pending
         .inbound_owners
         .prepare_recovery_bind(last_good.clone(), None, true)
         .is_err());
+    let original_terminal = receipt.terminal_handle();
     proxy
         .inbound_owners
         .release_closed(receipt, |_| Ok(()))
         .unwrap();
     assert!(proxy.inbound_owners.owner("first").is_none());
+    let observed = proxy
+        .inbound_owners
+        .closed_recovery_origin("first", &last_good)
+        .unwrap()
+        .unwrap();
+    assert!(Arc::ptr_eq(&original_terminal, &observed));
     drop(owner); // The passive capsule is retained by the pending transition.
     let cold = proxy
         .inbound_owners
@@ -134,6 +145,10 @@ async fn exact_origin_capsule_survives_interrupted_real_native_close_and_pending
     assert_eq!(original_port.local_addr().unwrap(), address);
     let mut wrong = last_good.clone();
     wrong.listen.port = address.port();
+    assert!(proxy
+        .inbound_owners
+        .closed_recovery_origin("first", &wrong)
+        .is_err());
     assert!(proxy
         .inbound_owners
         .prepare_recovery_bind(wrong, None, true)

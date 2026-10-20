@@ -5,6 +5,16 @@ pub(super) async fn wait_listener_stopped(
     tag: &str,
     state: &mut InboundReconcileState<'_>,
 ) -> Result<(), EngineError> {
+    wait_listener_stopped_with_terminal(runtime_factory, tag, state)
+        .await
+        .map(|_| ())
+}
+
+pub(super) async fn wait_listener_stopped_with_terminal(
+    runtime_factory: &InboundListenerRuntimeFactory,
+    tag: &str,
+    state: &mut InboundReconcileState<'_>,
+) -> Result<Option<std::sync::Arc<crate::runtime::inbound_owners::InboundTerminal>>, EngineError> {
     let Some(receipt) = runtime_factory
         .owners()
         .confirm_shutdown(
@@ -13,7 +23,7 @@ pub(super) async fn wait_listener_stopped(
         )
         .await?
     else {
-        return Ok(());
+        return Ok(None);
     };
     // Physical absence must be truthful even if reporting fails. Otherwise the
     // compensation pass could mistake the closed old listener for a live one.
@@ -22,10 +32,12 @@ pub(super) async fn wait_listener_stopped(
     if receipt.terminal().joined_tasks() > 0 && receipt.terminal().failure().is_none() {
         *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
     }
+    let terminal = receipt.terminal_handle();
     runtime_factory
         .owners()
         .release_closed_reported(receipt, |terminal| {
             runtime_factory.publish_inbound_terminal(tag, terminal);
             Ok(())
-        })
+        })?;
+    Ok(Some(terminal))
 }

@@ -6,6 +6,8 @@ use tokio::task::JoinSet;
 use tracing::{info, warn};
 mod apply;
 mod plan;
+mod stopped;
+pub(in crate::runtime) use stopped::StoppedInbounds;
 mod spawn;
 mod stop;
 pub(in crate::runtime) use spawn::spawn_inbound_listener;
@@ -58,7 +60,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         rollback_runtime_factory,
         new_config,
         state,
-        || async { Ok(()) },
+        |_stopped| async { Ok(()) },
     )
     .await
 }
@@ -75,7 +77,7 @@ pub(in crate::runtime) async fn reconcile_inbounds_with_before_bind<F, Fut>(
     before_bind: F,
 ) -> Result<(), EngineError>
 where
-    F: FnOnce() -> Fut + Send,
+    F: FnOnce(StoppedInbounds) -> Fut + Send,
     Fut: std::future::Future<Output = Result<(), EngineError>> + Send,
 {
     // A canceled or partially failed previous pass may have retired only its
@@ -103,8 +105,8 @@ where
     // it is deliberately separate from pure cold candidate preparation.
     plan.reuse_live(protocols, runtime_factory, source_dir, &mut state)
         .await?;
-    plan.stop_old(rollback_runtime_factory, &mut state).await?;
-    before_bind().await?;
+    let stopped = plan.stop_old(rollback_runtime_factory, &mut state).await?;
+    before_bind(stopped).await?;
     for candidate in plan.candidates {
         apply::apply_candidate(
             candidate,

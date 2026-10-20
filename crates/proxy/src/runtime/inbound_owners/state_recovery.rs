@@ -73,6 +73,36 @@ impl InboundOwnerRegistry {
             }
         }
     }
+    /// A cancelled host pass may already have released the original entry.
+    /// Only that bounded transition's exact last-good/instance terminal can be
+    /// observed again; absence of an entry is never fabricated into a terminal.
+    pub(crate) fn closed_recovery_origin(
+        &self,
+        tag: &str,
+        last_good: &InboundConfig,
+    ) -> Result<Option<Arc<InboundTerminal>>, EngineError> {
+        let states = self
+            .retained_states
+            .lock()
+            .expect("listener recovery poisoned");
+        let Some(retained) = states.get(tag) else {
+            return Ok(None);
+        };
+        if retained.last_good != *last_good {
+            return Err(failure(
+                "listener phase differs from retained last-good facts",
+            ));
+        }
+        let Some(terminal) = &retained.closed else {
+            return Err(failure("original listener terminal remains unconfirmed"));
+        };
+        if terminal.identity() != retained.identity {
+            return Err(failure(
+                "listener phase terminal belongs to another actual instance",
+            ));
+        }
+        Ok(Some(terminal.clone()))
+    }
     /// Host identity, last-good facts and the actual terminal precede invoking
     /// opaque protocol behavior. The capsule itself cannot manufacture a permit.
     pub(crate) fn prepare_recovery_bind(
