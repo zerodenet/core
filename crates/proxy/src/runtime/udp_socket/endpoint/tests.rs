@@ -273,3 +273,6 @@ mod isolation;
 mod lifecycle;
 mod observer;
 mod queue;
+
+#[cfg(feature = "managed-datagram-runtime")]
+mod peer;

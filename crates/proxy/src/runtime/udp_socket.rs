@@ -43,6 +43,7 @@ pub(crate) struct DirectUdpSockets {
     native_budget: Option<DirectNativeBudget>,
     // Peer mode waits for the actual containing task exit before FD close.
     defer_native_close: bool,
+    outbound_grant: Option<grant::DirectOutboundGrant>,
 }
 #[cfg(feature = "udp-runtime")]
 struct DirectNativeBudget {
@@ -98,6 +99,7 @@ impl DirectUdpSockets {
             close: close::NativeCloseLedger::default(),
             native_budget: None,
             defer_native_close: false,
+            outbound_grant: None,
         }
     }
 
@@ -250,3 +252,6 @@ mod close;
 
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod endpoint;
+
+#[cfg(feature = "udp-runtime")]
+mod grant;

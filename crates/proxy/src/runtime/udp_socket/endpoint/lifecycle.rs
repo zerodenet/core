@@ -45,6 +45,13 @@ impl ResourceLifecycle for DirectEndpointOwner {
                 DeliveryState::NotSubmitted,
             ));
         }
+        #[cfg(feature = "managed-datagram-runtime")]
+        if self.peer.is_some() {
+            state.started = true;
+            drop(state);
+            self.shared.changed.notify_waiters();
+            return Ok(());
+        }
         let receiver = self.commands.take().ok_or_else(|| {
             error(
                 Stage::Prepare,
@@ -55,6 +62,8 @@ impl ResourceLifecycle for DirectEndpointOwner {
         let shared = self.shared.clone();
         match self
             .scope
+            .as_ref()
+            .expect("scope mode owns actual scope")
             .registrar()
             .spawn(TaskClass::Critical, driver::run(shared, receiver))
         {
@@ -94,12 +103,20 @@ impl ResourceLifecycle for DirectEndpointOwner {
         }
         drop(state);
         self.shared.changed.notify_one();
+        #[cfg(feature = "managed-datagram-runtime")]
+        if let Some(peer) = &self.peer {
+            peer.binding.request_stop();
+        }
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke(CloseReason::Shutdown);
-        self.scope.begin_shutdown();
+        #[cfg(feature = "managed-datagram-runtime")]
+        if self.peer.is_some() {
+            return self.shutdown_peer(deadline).await;
+        }
+        let scope = self.scope.as_mut().expect("scope mode owns actual scope");
+        scope.begin_shutdown();
         let shared = &self.shared;
-        let scope = &mut self.scope;
         let task_report = &mut self.report;
         let failures = &mut self.failures;
         let io_report = &mut self.io_report;

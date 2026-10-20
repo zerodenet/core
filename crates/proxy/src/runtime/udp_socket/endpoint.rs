@@ -3,6 +3,8 @@ mod budget;
 pub(crate) mod dispatch;
 mod driver;
 mod lifecycle;
+#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) mod peer;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -41,7 +43,9 @@ pub(crate) struct DirectEndpointIdentity {
 }
 pub(crate) struct DirectEndpointOwner {
     shared: Arc<Shared>,
-    scope: TaskScope,
+    scope: Option<TaskScope>,
+    #[cfg(feature = "managed-datagram-runtime")]
+    peer: Option<peer::PeerOwner>,
     commands: Option<mpsc::Receiver<Command>>,
     report: zero_platform_tokio::contract::lifecycle::CloseReport,
     io_report: zero_platform_tokio::contract::lifecycle::CloseReport,
@@ -66,6 +70,7 @@ struct Shared {
     changed: Notify,
     scope_cancel: CancellationToken,
     retain_native_until_peer_exit: bool,
+    fixed_peer: Option<std::net::SocketAddr>,
     commands: mpsc::Sender<Command>,
     queue: UdpReceiveQueueConfig,
     limits: DirectEndpointLimits,
@@ -75,6 +80,7 @@ struct Shared {
 #[derive(Default)]
 struct State {
     started: bool,
+    admitted: bool,
     closing: bool,
     failure: Option<Arc<ChannelError>>,
     sessions: BTreeMap<SessionId, Entry>,
@@ -146,20 +152,6 @@ impl DirectEndpointOwner {
         scope: TaskScope,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<Self, ChannelError> {
-        // A per-client-stack byte budget needs that actual stack's shared
-        // reservation owner. Do not reinterpret it as an endpoint-wide cap.
-        if NonZeroUsize::new(queue.capacity).is_none()
-            || queue.capacity > 65_536
-            || queue.max_payload_bytes.is_some_and(|limit| limit < 65_527)
-            || queue.max_stack_payload_bytes.is_some()
-        {
-            return Err(error(
-                Stage::Prepare,
-                Reason::Unsupported,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        let (tx, commands) = mpsc::channel(queue.capacity);
         let scope_cancel = scope.registrar().cancellation();
         let mut sockets = DirectUdpSockets::new(services, preferred_port);
         sockets.native_budget = Some(super::DirectNativeBudget {
@@ -167,21 +159,12 @@ impl DirectEndpointOwner {
             attempts: limits.native_open_attempts,
             started: 0,
         });
+        let (shared, commands) = shared(identity, sockets, queue, limits, scope_cancel, observer)?;
         Ok(Self {
-            shared: Arc::new(Shared {
-                identity,
-                sockets: AsyncMutex::new(sockets),
-                state: Mutex::new(State::default()),
-                changed: Notify::new(),
-                scope_cancel,
-                retain_native_until_peer_exit: false,
-                commands: tx,
-                queue,
-                limits,
-                pending_bytes: Arc::new(AtomicUsize::new(0)),
-                observer,
-            }),
-            scope,
+            shared,
+            scope: Some(scope),
+            #[cfg(feature = "managed-datagram-runtime")]
+            peer: None,
             commands: Some(commands),
             report: Default::default(),
             io_report: Default::default(),
@@ -191,6 +174,47 @@ impl DirectEndpointOwner {
     pub(crate) fn endpoint(&self) -> DirectEndpoint {
         DirectEndpoint(self.shared.clone())
     }
+}
+fn shared(
+    identity: DirectEndpointIdentity,
+    sockets: DirectUdpSockets,
+    queue: UdpReceiveQueueConfig,
+    limits: DirectEndpointLimits,
+    scope_cancel: CancellationToken,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
+) -> Result<(Arc<Shared>, mpsc::Receiver<Command>), ChannelError> {
+    // A per-client-stack byte budget needs that actual stack's shared owner.
+    if NonZeroUsize::new(queue.capacity).is_none()
+        || queue.capacity > 65_536
+        || queue.max_payload_bytes.is_some_and(|limit| limit < 65_527)
+        || queue.max_stack_payload_bytes.is_some()
+    {
+        return Err(error(
+            Stage::Prepare,
+            Reason::Unsupported,
+            DeliveryState::NotSubmitted,
+        ));
+    }
+    let fixed_peer = sockets.outbound_grant.as_ref().map(|grant| grant.peer);
+    let retain_native_until_peer_exit = sockets.defer_native_close;
+    let (tx, commands) = mpsc::channel(queue.capacity);
+    Ok((
+        Arc::new(Shared {
+            identity,
+            sockets: AsyncMutex::new(sockets),
+            state: Mutex::new(State::default()),
+            changed: Notify::new(),
+            scope_cancel,
+            retain_native_until_peer_exit,
+            fixed_peer,
+            commands: tx,
+            queue,
+            limits,
+            pending_bytes: Arc::new(AtomicUsize::new(0)),
+            observer,
+        }),
+        commands,
+    ))
 }
 impl DirectEndpoint {
     pub(crate) fn identity(&self) -> DirectEndpointIdentity {
@@ -239,7 +263,9 @@ impl DirectEndpoint {
                 DeliveryState::NotSubmitted,
             ));
         }
-        if state.sessions.len() >= self.0.limits.logical.get() {
+        if (self.0.fixed_peer.is_some() && state.admitted)
+            || state.sessions.len() >= self.0.limits.logical.get()
+        {
             return Err(error(
                 Stage::Prepare,
                 Reason::Capacity,
@@ -258,6 +284,13 @@ impl DirectEndpoint {
                 DeliveryState::NotSubmitted,
             ));
         }
+        if self.0.fixed_peer.is_some() && policy.dial_policy != zero_traits::DialPolicy::default() {
+            return Err(error(
+                Stage::Prepare,
+                Reason::Unsupported,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         let (responses, rx) = mpsc::channel(self.0.queue.capacity);
         let logical = Arc::new(Logical {
             session,
@@ -271,6 +304,7 @@ impl DirectEndpoint {
             receiver: Mutex::new(rx),
             bytes: AtomicUsize::new(0),
         });
+        state.admitted = true;
         state.sessions.insert(
             session,
             Entry {

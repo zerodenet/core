@@ -46,6 +46,20 @@ impl DirectEndpointTx {
         candidates: &[std::net::SocketAddr],
         payload: &[u8],
     ) -> Result<DirectUdpSentPacket, EngineError> {
+        if let Some(peer) = self.shared.fixed_peer {
+            let literal_matches = match target {
+                Address::Ipv4(ip) => peer.ip() == std::net::IpAddr::from(*ip),
+                Address::Ipv6(ip) => peer.ip() == std::net::IpAddr::from(*ip),
+                Address::Domain(_) => false,
+            };
+            if !literal_matches || candidates != [peer] {
+                return Err(legacy(error(
+                    Stage::Send,
+                    Reason::Unsupported,
+                    DeliveryState::NotSubmitted,
+                )));
+            }
+        }
         let max = if candidates.iter().all(std::net::SocketAddr::is_ipv4) {
             65_507
         } else {

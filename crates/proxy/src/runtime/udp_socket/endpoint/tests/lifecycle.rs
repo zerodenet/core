@@ -160,6 +160,8 @@ async fn actual_scope_task_waiting_for_logical_cleanup_cannot_deadlock_native_cl
     assert!(tokio::net::UdpSocket::bind(original).await.is_err());
     let cleanup_id = owner
         .scope
+        .as_ref()
+        .unwrap()
         .registrar()
         .spawn(TaskClass::Critical, async move {
             let report = control.wait_closed(deadline()).await?;

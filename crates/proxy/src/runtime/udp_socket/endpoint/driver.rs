@@ -50,7 +50,7 @@ impl Drop for DriverGuard {
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !state.closing {
+        if !state.closing && !self.0.scope_cancel.is_cancelled() {
             state.failure.get_or_insert_with(|| {
                 Arc::new(
                     error(Stage::Receive, Reason::Internal, DeliveryState::Unknown).with_source(
@@ -236,6 +236,17 @@ pub(super) async fn run(
                     _ = command.logical.cancel.cancelled() => Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::Unknown))),
                     sent = sockets.send_owned_packet(&command.target, std::mem::take(&mut command.candidates), &command.payload, command.logical.session.0, &command.logical.policy) => sent.map_err(|source| legacy(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(source))),
                 };
+                if sent.is_err() && shared.retain_native_until_peer_exit
+                    && !shared.scope_cancel.is_cancelled() && !command.logical.cancel.is_cancelled()
+                {
+                    let source = Arc::new(sent.err().expect("checked actual failure"));
+                    let failure = Arc::new(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(source));
+                    shared.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .failure = Some(failure.clone());
+                    command.logical.cancel.cancel();
+                    let _ = command.receipt.send(Err(legacy(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(failure.clone()))));
+                    return Err(error(Stage::Send, Reason::Io, DeliveryState::Unknown).with_source(failure));
+                }
                 if sent.is_err() { command.logical.cancel.cancel(); }
                 // Losing the receiver cannot turn an actual submission into a
                 // retryable error. The pending sender guard revokes this flow.

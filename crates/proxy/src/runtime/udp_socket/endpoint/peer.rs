@@ -1,0 +1,156 @@
+//! Structured peer driver; the real host peer owns its registration and join.
+mod close;
+mod job;
+use super::*;
+use crate::runtime::inbound_owners::{HostPeerBinding, JoinedPeer};
+pub(crate) use job::{run_peer_with_driver, DirectPeerDriverSlot};
+use std::{
+    future::Future,
+    net::SocketAddr,
+    pin::Pin,
+    task::{Context, Poll},
+};
+use zero_core::component::{NetworkGeneration, TaskId};
+use zero_platform_tokio::contract::{component::ResourceAccess, lifecycle::ComponentError};
+
+pub(crate) struct DirectPeerOptions {
+    pub(crate) identity: DirectEndpointIdentity,
+    pub(crate) task: TaskId,
+    pub(crate) target: SocketAddr,
+    pub(crate) network_generation: NetworkGeneration,
+    pub(crate) preferred_port: Option<u16>,
+    pub(crate) queue: UdpReceiveQueueConfig,
+    pub(crate) limits: DirectEndpointLimits,
+    pub(crate) resources: Arc<dyn ResourceAccess>,
+}
+pub(super) struct PeerOwner {
+    pub(super) binding: Arc<HostPeerBinding>,
+    task: TaskId,
+    // Retained proof, never reconstructed from driver Ready, Drop or cancel.
+    joined: Option<Arc<JoinedPeer>>,
+}
+/// Poll this future in the same actual registered peer task as its consumer.
+/// It never creates a scope, registers a task or fabricates a task receipt.
+pub(crate) struct DirectPeerDriver {
+    stop: CancellationToken,
+    future: Pin<Box<dyn Future<Output = Result<(), ComponentError>> + Send>>,
+}
+impl Future for DirectPeerDriver {
+    type Output = Result<(), ComponentError>;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.future.as_mut().poll(cx)
+    }
+}
+impl DirectEndpointOwner {
+    pub(crate) fn for_peer(
+        options: DirectPeerOptions,
+        services: UdpNetworkServices,
+        binding: Arc<HostPeerBinding>,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Result<(Self, DirectPeerDriver), ChannelError> {
+        let DirectPeerOptions {
+            identity,
+            task,
+            target,
+            network_generation,
+            preferred_port,
+            queue,
+            limits,
+            resources,
+        } = options;
+        if preferred_port.is_some()
+            || limits.logical.get() != 1
+            || limits.native_sockets.get() != 1
+            || limits.native_open_attempts.get() != 1
+            || limits.candidates_per_job.get() != 1
+        {
+            return Err(error(
+                Stage::Prepare,
+                Reason::Unsupported,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        if services.egress_generation() != network_generation.0 {
+            return Err(error(
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let mut sockets = DirectUdpSockets::new(services, None);
+        sockets.native_budget = Some(super::super::DirectNativeBudget {
+            sockets: limits.native_sockets,
+            attempts: limits.native_open_attempts,
+            started: 0,
+        });
+        sockets.defer_native_close = true;
+        sockets.outbound_grant = Some(super::super::grant::DirectOutboundGrant {
+            resources,
+            peer: target,
+            generation: network_generation,
+        });
+        let (shared, commands) = shared(
+            identity,
+            sockets,
+            queue,
+            limits,
+            binding.cancellation(),
+            observer,
+        )?;
+        let driver_shared = shared.clone();
+        let driver_binding = binding.clone();
+        let driver = DirectPeerDriver {
+            stop: shared.scope_cancel.clone(),
+            future: Box::pin(async move {
+                // A registrar may poll the actual peer before spawn_bound publishes
+                // its TaskId. Neither native I/O nor driver startup precedes binding.
+                let actual = driver_binding.wait_bound().await?;
+                if actual != task {
+                    return Err(error(
+                        Stage::Prepare,
+                        Reason::StalePlan,
+                        DeliveryState::NotSubmitted,
+                    ));
+                }
+                loop {
+                    let changed = driver_shared.changed.notified();
+                    tokio::pin!(changed);
+                    changed.as_mut().enable();
+                    {
+                        let state = driver_shared
+                            .state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if state.closing || driver_shared.scope_cancel.is_cancelled() {
+                            return Ok(());
+                        }
+                        if state.started {
+                            break;
+                        }
+                    }
+                    tokio::select! {
+                        _ = changed => {},
+                        _ = driver_shared.scope_cancel.cancelled() => return Ok(()),
+                    }
+                }
+                driver::run(driver_shared, commands).await
+            }),
+        };
+        Ok((
+            Self {
+                shared,
+                scope: None,
+                peer: Some(PeerOwner {
+                    binding,
+                    task,
+                    joined: None,
+                }),
+                commands: None,
+                report: Default::default(),
+                io_report: Default::default(),
+                failures: Vec::new(),
+            },
+            driver,
+        ))
+    }
+}

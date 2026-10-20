@@ -82,6 +82,9 @@ impl DirectUdpSockets {
         session_id: u64,
         policy: &DirectUdpPolicy,
     ) -> Result<usize, EngineError> {
+        if self.outbound_grant.is_some() {
+            return self.granted_socket_for(target, session_id, policy);
+        }
         let scope = self.isolated_sessions.get(&session_id).copied();
         let selection = self
             .services
