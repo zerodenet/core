@@ -1,7 +1,7 @@
 //! Adopt an existing dedicated host L3 device without configuring the host.
 use std::io;
 #[cfg(unix)]
-fn duplicate(fd: i32) -> io::Result<std::os::fd::OwnedFd> {
+pub(crate) fn duplicate(fd: i32) -> io::Result<std::os::fd::OwnedFd> {
     use std::os::fd::FromRawFd;
     if fd < 3 {
         return Err(io::Error::new(
