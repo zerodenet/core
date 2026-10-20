@@ -39,6 +39,7 @@ struct Record {
     entered: bool,
     retiring: bool,
     caller: Option<Arc<crate::runtime::inbound_owners::HostPeerBinding>>,
+    business_failure: Option<Arc<zero_engine::EngineError>>,
 }
 pub(crate) struct NativePermit {
     owner: NativeObligations,
@@ -86,6 +87,7 @@ impl NativeObligations {
                 entered: false,
                 retiring: false,
                 caller: None,
+                business_failure: None,
             },
         );
         Ok(NativePermit {
@@ -105,6 +107,7 @@ pub(crate) struct NativeRegistration {
     owner: Weak<Mutex<State>>,
     id: u64,
 }
+mod business;
 mod registration;
 impl NativePermit {
     pub(crate) fn registration(&self) -> NativeRegistration {

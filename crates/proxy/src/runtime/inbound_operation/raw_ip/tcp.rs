@@ -55,13 +55,7 @@ pub(super) async fn accept(
             let result = runtime
                 .serve(session, stream, &NoClientResponseStreamProtocol::new())
                 .await;
-            if let Err(error) = result {
-                // A business failure preserves the original source in its
-                // native obligation without inventing a critical Scope panic.
-                let error = native.retain_error(error);
-                tracing::debug!(%error, "raw-IP TCP connection failed");
-            }
-            Ok(())
+            native.consume_business_result(result)
         })?;
     }
 }
