@@ -144,18 +144,26 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
         .await
         .unwrap()
         .unwrap_err();
-    assert!(
-        failed
-            .to_string()
-            .contains("actual pre-ready listener failure"),
-        "{failed:?}"
-    );
     assert!(!owner.ready.0.complete.load(Ordering::Acquire));
     assert!(observing.await.unwrap().is_err());
     let original = owner.failure.lock().unwrap().clone().unwrap();
     let failures = owner.task_failures.lock().unwrap();
     let actual = failures.get(owner.driver.get().unwrap()).unwrap();
+    assert_eq!(actual.class, TaskClass::Critical);
     assert!(Arc::ptr_eq(&actual.source, &original));
+    let EngineError::Io(returned) = failed else {
+        panic!("expected original retained scope error")
+    };
+    let returned = returned
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<ChannelError>()
+        .unwrap();
+    let returned_original = std::error::Error::source(returned)
+        .unwrap()
+        .downcast_ref::<Arc<ChannelError>>()
+        .unwrap();
+    assert!(Arc::ptr_eq(returned_original, &original), "{returned:?}");
     let source = std::error::Error::source(original.as_ref()).unwrap();
     assert!(source
         .downcast_ref::<tokio::task::JoinError>()
