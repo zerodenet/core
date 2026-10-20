@@ -202,3 +202,5 @@ async fn weak_authority_in_a_real_pending_task_does_not_retain_its_scope_or_fabr
         "task body Drop never completes a join witness"
     );
 }
+
+mod callbacks;

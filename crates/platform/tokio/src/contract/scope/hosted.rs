@@ -147,6 +147,13 @@ impl Shared {
 pub struct HostedCallbacks {
     deferred: Option<super::relay::DeferredGuard>,
 }
+impl HostedCallbacks {
+    pub(super) fn defer(shared: &Shared) -> Self {
+        Self {
+            deferred: Some(shared.relay.enter_parent()),
+        }
+    }
+}
 impl Drop for HostedCallbacks {
     fn drop(&mut self) {
         drop(self.deferred.take());
@@ -166,9 +173,7 @@ impl TaskRegistrar {
 
 impl HostedScope {
     pub fn defer_callbacks(&self) -> HostedCallbacks {
-        HostedCallbacks {
-            deferred: Some(self.0 .0.relay.enter_parent()),
-        }
+        HostedCallbacks::defer(&self.0 .0)
     }
     pub fn registrar(&self) -> TaskRegistrar {
         self.0.registrar()

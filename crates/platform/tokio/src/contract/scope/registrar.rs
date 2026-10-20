@@ -18,6 +18,26 @@ impl TaskRegistrar {
     }
 }
 impl WeakTaskRegistrar {
+    /// Original weak scope identity only. This does not upgrade or retain the
+    /// scope, inspect admission, register a task, or grant any I/O authority.
+    pub fn scope_identity(&self) -> TaskScopeIdentity {
+        TaskScopeIdentity::from_owner(self.0.clone())
+    }
+    /// Defer this original scope's callbacks using its existing relay. The
+    /// temporary upgrade is released before returning; the guard retains only
+    /// relay metadata with weak scope/notification/waker targets. None means
+    /// the original scope has expired, not a replacement scope or a grant.
+    ///
+    /// Call outside enclosing owner/resource locks, and drop the returned guard
+    /// only after releasing those locks. Some does not imply open registration,
+    /// available capacity, native completion, or acknowledgement of any exit.
+    pub fn defer_callbacks(&self) -> Option<HostedCallbacks> {
+        let owner = self.0.upgrade()?;
+        let callbacks = HostedCallbacks::defer(&owner);
+        drop(owner);
+        Some(callbacks)
+    }
+
     /// Call outside enclosing owner/resource locks. The temporary original
     /// scope upgrade is released after registration, which can deliver actual
     /// native/witness callbacks or be its last owner during concurrent Drop.

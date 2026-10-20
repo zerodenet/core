@@ -508,3 +508,12 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   an observer result, and Scope completion do not acknowledge native/user I/O
   closure or enable resourceful production factories. Proxy/registry destruction
   still drops its owned handles without manufacturing close confirmation.
+
+### Weak original Scope collaboration
+
+- `WeakTaskRegistrar::scope_identity()` copies only the original weak identity.
+  `defer_callbacks()` returns the existing original relay's short parent guard
+  after releasing its temporary Scope upgrade; an expired owner returns `None`.
+  The guard retains no Scope, caller Waker, registration or I/O authority.
+  Create it outside enclosing owner/resource locks and drop it after unlocking.
+  Neither method changes admission, task budgets, receipt ACK or closure proof.

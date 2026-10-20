@@ -15,6 +15,7 @@ impl TaskScopeIdentity {
     pub(super) fn from_owner(owner: Weak<Shared>) -> Self {
         Self(owner)
     }
+
     /// Same original weak identity, without retaining either scope. Expired
     /// metadata can still compare equal; this is not live/open authority.
     pub fn same_scope(&self, other: &Self) -> bool {
