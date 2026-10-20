@@ -94,7 +94,7 @@ async fn direct_source_keeps_no_host_config_and_policy_aba_never_revives_old_epo
     source.check_current(generation).unwrap();
     live.proxy
         .engine()
-        .reload_runtime_config(config("ipv4_only"))
+        .reload_runtime_config(config("only_ipv4"))
         .unwrap();
     assert_eq!(
         source.check_current(generation).unwrap_err().reason,
