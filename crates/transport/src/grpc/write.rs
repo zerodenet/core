@@ -5,13 +5,14 @@ pub(super) fn spawn_grpc_write_relay(
     progress: std::sync::Arc<super::progress::Progress>,
     server: bool,
 ) {
-    tokio::spawn(write_grpc_hunks(sender, receiver, progress, server));
+    tokio::spawn(write_grpc_hunks(sender, receiver, progress, server, None));
 }
 pub(super) async fn write_grpc_hunks(
     mut sender: h2::SendStream<Bytes>,
     mut receiver: mpsc::Receiver<Vec<u8>>,
     progress: std::sync::Arc<super::progress::Progress>,
     server: bool,
+    response: Option<super::response::ClosedHead>,
 ) {
     let result = async {
         while let Some(data) = receiver.recv().await {
@@ -19,7 +20,7 @@ pub(super) async fn write_grpc_hunks(
             let mut frame = Vec::with_capacity(GRPC_HEADER_LEN + hunk.len());
             frame.extend_from_slice(&grpc_frame_header(hunk.len()));
             frame.extend_from_slice(&hunk);
-            write_h2_data(&mut sender, Bytes::from(frame)).await?;
+            write_h2_data(&mut sender, Bytes::from(frame), response.as_ref()).await?;
             progress.commit(data.len());
         }
         if server {
@@ -44,12 +45,20 @@ pub(super) async fn write_grpc_hunks(
     progress.finish();
 }
 
-async fn write_h2_data(sender: &mut h2::SendStream<Bytes>, mut bytes: Bytes) -> io::Result<()> {
+async fn write_h2_data(
+    sender: &mut h2::SendStream<Bytes>,
+    mut bytes: Bytes,
+    response: Option<&super::response::ClosedHead>,
+) -> io::Result<()> {
     while !bytes.is_empty() {
         sender.reserve_capacity(bytes.len());
         let capacity = futures_util::future::poll_fn(|cx| sender.poll_capacity(cx))
             .await
-            .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))?
+            .ok_or_else(|| {
+                response
+                    .and_then(|response| response.closed_error())
+                    .unwrap_or_else(|| io::ErrorKind::BrokenPipe.into())
+            })?
             .map_err(io::Error::other)?;
         if capacity == 0 {
             continue;

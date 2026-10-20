@@ -69,6 +69,7 @@ mod prepared_stream;
 mod progress;
 pub use pool::GrpcPool;
 mod read;
+mod response;
 mod server;
 mod stream;
 mod write;
