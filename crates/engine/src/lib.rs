@@ -1,6 +1,7 @@
 mod api;
 mod error;
 mod groups;
+pub use groups::{GroupSelectionBinding, GroupSelectionChanged, SelectionChange};
 mod health;
 mod observability;
 mod plan;

@@ -95,6 +95,15 @@ impl Engine {
 }
 
 impl EngineRuntimeSnapshot {
+    /// Capture the real selector/urltest state without resolving a target or
+    /// advancing load-balance scheduling. None means this is not such a group.
+    pub fn group_selection_binding(
+        &self,
+        group_id: TargetId,
+    ) -> Option<crate::GroupSelectionBinding> {
+        self.outbound_group_state.selection_binding(group_id)
+    }
+
     pub fn urltest_state(&self, group_id: TargetId) -> Option<UrlTestGroupState> {
         self.outbound_group_state.urltest_state(group_id)
     }

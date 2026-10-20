@@ -5,12 +5,31 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::plan::{TargetId, UrlTestSelection};
 
 mod reload;
+mod selection;
+use selection::Signal;
+pub use selection::{GroupSelectionBinding, GroupSelectionChanged, SelectionChange};
 
 #[derive(Debug, Default)]
 pub(crate) struct OutboundGroupStateStore {
-    selector: Mutex<HashMap<TargetId, TargetId>>,
-    urltest: Mutex<HashMap<TargetId, UrlTestGroupState>>,
+    selector: Mutex<HashMap<TargetId, SelectorState>>,
+    urltest: Mutex<HashMap<TargetId, UrlTestState>>,
     loadbalance: Mutex<HashMap<TargetId, u64>>,
+}
+
+#[derive(Debug)]
+struct SelectorState {
+    selected: TargetId,
+    signal: Arc<Signal>,
+}
+#[derive(Debug)]
+struct UrlTestState {
+    state: UrlTestGroupState,
+    signal: Arc<Signal>,
+}
+fn wake(waiters: Vec<std::task::Waker>) {
+    for waiter in waiters {
+        waiter.wake();
+    }
 }
 
 impl OutboundGroupStateStore {
@@ -22,22 +41,61 @@ impl OutboundGroupStateStore {
         self.selector
             .lock()
             .expect("selector group state lock poisoned")
-            .insert(group_id, selected);
+            .insert(
+                group_id,
+                SelectorState {
+                    selected,
+                    signal: Arc::default(),
+                },
+            );
     }
-
     pub(crate) fn update_selector(&self, group_id: TargetId, selected: TargetId) {
-        self.selector
-            .lock()
-            .expect("selector group state lock poisoned")
-            .insert(group_id, selected);
+        let waiters = {
+            let mut states = self
+                .selector
+                .lock()
+                .expect("selector group state lock poisoned");
+            match states.get_mut(&group_id) {
+                Some(state) if state.selected != selected => {
+                    state.selected = selected;
+                    state.signal.advance()
+                }
+                Some(_) => Vec::new(),
+                None => {
+                    states.insert(
+                        group_id,
+                        SelectorState {
+                            selected,
+                            signal: Arc::default(),
+                        },
+                    );
+                    Vec::new()
+                }
+            }
+        };
+        wake(waiters);
     }
-
     pub(crate) fn selector_selected_target(&self, group_id: TargetId) -> Option<TargetId> {
         self.selector
             .lock()
             .expect("selector group state lock poisoned")
             .get(&group_id)
-            .copied()
+            .map(|state| state.selected)
+    }
+    pub(crate) fn selection_binding(&self, group_id: TargetId) -> Option<GroupSelectionBinding> {
+        if let Some(state) = self
+            .selector
+            .lock()
+            .expect("selector group state lock poisoned")
+            .get(&group_id)
+        {
+            return Some(state.signal.capture(state.selected));
+        }
+        self.urltest
+            .lock()
+            .expect("urltest group state lock poisoned")
+            .get(&group_id)
+            .map(|state| state.signal.capture(state.state.selected))
     }
 
     pub(crate) fn initialize_urltest(
@@ -51,22 +109,25 @@ impl OutboundGroupStateStore {
             .expect("urltest group state lock poisoned")
             .insert(
                 group_id,
-                UrlTestGroupState {
-                    selected,
-                    latency_ms: None,
-                    last_checked_unix_ms: None,
-                    selection: None,
-                    members: members
-                        .iter()
-                        .map(|member_id| UrlTestMemberState {
-                            member_id: *member_id,
-                            healthy: false,
-                            latency_ms: None,
-                            last_checked_unix_ms: None,
-                            last_error: None,
-                            effective_chains: Vec::new(),
-                        })
-                        .collect(),
+                UrlTestState {
+                    signal: Arc::default(),
+                    state: UrlTestGroupState {
+                        selected,
+                        latency_ms: None,
+                        last_checked_unix_ms: None,
+                        selection: None,
+                        members: members
+                            .iter()
+                            .map(|member_id| UrlTestMemberState {
+                                member_id: *member_id,
+                                healthy: false,
+                                latency_ms: None,
+                                last_checked_unix_ms: None,
+                                last_error: None,
+                                effective_chains: Vec::new(),
+                            })
+                            .collect(),
+                    },
                 },
             );
     }
@@ -79,19 +140,41 @@ impl OutboundGroupStateStore {
         members: Vec<UrlTestMemberState>,
         selection: UrlTestSelection,
     ) {
-        self.urltest
-            .lock()
-            .expect("urltest group state lock poisoned")
-            .insert(
-                group_id,
-                UrlTestGroupState {
-                    selected,
-                    latency_ms,
-                    last_checked_unix_ms: Some(unix_timestamp_ms()),
-                    members,
-                    selection: Some(selection),
-                },
-            );
+        let next = UrlTestGroupState {
+            selected,
+            latency_ms,
+            last_checked_unix_ms: Some(unix_timestamp_ms()),
+            members,
+            selection: Some(selection),
+        };
+        let waiters = {
+            let mut states = self
+                .urltest
+                .lock()
+                .expect("urltest group state lock poisoned");
+            match states.get_mut(&group_id) {
+                Some(state) => {
+                    let waiters = if state.state.selected != selected {
+                        state.signal.advance()
+                    } else {
+                        Vec::new()
+                    };
+                    state.state = next;
+                    waiters
+                }
+                None => {
+                    states.insert(
+                        group_id,
+                        UrlTestState {
+                            state: next,
+                            signal: Arc::default(),
+                        },
+                    );
+                    Vec::new()
+                }
+            }
+        };
+        wake(waiters);
     }
 
     pub(crate) fn selected_target(&self, group_id: TargetId) -> Option<TargetId> {
@@ -113,12 +196,19 @@ impl OutboundGroupStateStore {
         let Some(state) = states.get_mut(&group_id) else {
             return false;
         };
-        if state != expected {
+        if &state.state != expected {
             return false;
         }
-        state.selected = selection.selected;
-        state.latency_ms = selection.best_latency_ms;
-        state.selection = Some(selection);
+        let waiters = if state.state.selected != selection.selected {
+            state.signal.advance()
+        } else {
+            Vec::new()
+        };
+        state.state.selected = selection.selected;
+        state.state.latency_ms = selection.best_latency_ms;
+        state.state.selection = Some(selection);
+        drop(states);
+        wake(waiters);
         true
     }
 
@@ -127,7 +217,7 @@ impl OutboundGroupStateStore {
             .lock()
             .expect("urltest group state lock poisoned")
             .get(&group_id)
-            .cloned()
+            .map(|state| state.state.clone())
     }
 
     pub(crate) fn urltest_selected_target(&self, group_id: TargetId) -> Option<TargetId> {
@@ -135,7 +225,7 @@ impl OutboundGroupStateStore {
             .lock()
             .expect("urltest group state lock poisoned")
             .get(&group_id)
-            .map(|state| state.selected)
+            .map(|state| state.state.selected)
     }
 
     pub(crate) fn initialize_loadbalance(&self, group_id: TargetId) {
