@@ -16,6 +16,7 @@ use wireguard::{
 use zero_config::{InboundConfig, InboundProtocolConfig, WireguardSecret};
 use zero_engine::EngineError;
 
+pub(super) mod cold;
 mod device;
 use super::inbound_protocol_identity;
 use crate::runtime::inbound_operation::{
@@ -142,28 +143,6 @@ impl LinkedEndpoint {
     }
 }
 
-pub(super) fn prepare(
-    inbound: InboundConfig,
-) -> Result<
-    (
-        Box<dyn PreparedInboundListenerOperation>,
-        Arc<LiveInboundDevice>,
-    ),
-    EngineError,
-> {
-    let device = prepare_device(&inbound)?;
-    let identity = inbound_protocol_identity(&inbound.protocol)
-        .ok_or_else(|| invalid("cannot identify WireGuard inbound"))?;
-    let live = Arc::new(LiveInboundDevice::new(device, identity));
-    Ok((
-        Box::new(RawIpInboundListenerOperation::new(
-            Box::new(WireguardInboundDevice(live.clone())),
-            None,
-        )),
-        live,
-    ))
-}
-
 pub(super) fn prepare_unlinked_with_live(
     live: Arc<LiveInboundDevice>,
 ) -> Box<dyn PreparedInboundListenerOperation> {
@@ -173,6 +152,7 @@ pub(super) fn prepare_unlinked_with_live(
     ))
 }
 
+#[cfg(test)]
 pub(super) fn prepare_linked(
     linked: &Arc<LinkedEndpoint>,
 ) -> Result<

@@ -1,6 +1,7 @@
 //! WireGuard adapter: config projection and explicit outbound capabilities.
 
 mod inbound;
+mod inbound_state;
 mod lifecycle;
 mod observation;
 mod packet;
@@ -29,6 +30,9 @@ use crate::protocol_registry::{
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::raw_ip::RawIpDevicePool;
 
+type InboundDeviceKey = (String, [u8; 32]);
+type InboundDeviceMap = HashMap<InboundDeviceKey, Weak<inbound::LiveInboundDevice>>;
+
 type LinkedEndpointMap = HashMap<String, Arc<inbound::LinkedEndpoint>>;
 type PendingEndpointMap =
     Arc<Mutex<Option<HashMap<String, Arc<lifecycle::PendingLinkedEndpoint>>>>>;
@@ -37,7 +41,7 @@ type PendingEndpointMap =
 pub(crate) struct WireguardAdapter {
     pool: Arc<RawIpDevicePool>,
     profiles: Arc<Mutex<HashMap<String, CachedProfile>>>,
-    inbound_devices: Mutex<HashMap<String, Weak<inbound::LiveInboundDevice>>>,
+    inbound_devices: Mutex<InboundDeviceMap>,
     linked_endpoints: Arc<Mutex<LinkedEndpointMap>>,
     pending_endpoints: PendingEndpointMap,
 }
@@ -51,6 +55,10 @@ struct CachedProfile {
 impl NamedProtocolAdapter for WireguardAdapter {
     const PROTOCOL_NAME: &'static str = "wireguard";
     const FEATURE_NAME: &'static str = "wireguard";
+
+    fn on_config_reloaded(&self, _: &zero_config::RuntimeConfig) {
+        self.prune_inbound_devices();
+    }
 }
 
 impl WireguardAdapter {
@@ -108,32 +116,21 @@ impl WireguardAdapter {
         Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
         EngineError,
     > {
-        let tag = inbound.tag.clone();
-        let (operation, live) = match linked {
-            Some(linked) => inbound::prepare_linked(&linked)?,
-            None => {
-                let identity = inbound_protocol_identity(&inbound.protocol)
-                    .ok_or_else(|| invalid("cannot identify WireGuard inbound"))?;
-                let retained = self
-                    .inbound_devices
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .get(&tag)
-                    .and_then(Weak::upgrade)
-                    .filter(|live| live.matches_identity(identity));
-                match retained {
-                    Some(live) => (inbound::prepare_unlinked_with_live(live.clone()), live),
-                    None => inbound::prepare(inbound)?,
-                }
-            }
+        let binding = match linked {
+            Some(linked) => inbound::cold::Binding::Ready(linked),
+            None => self
+                .pending_linked_endpoint(&inbound.tag, &inbound.listen)
+                .map(inbound::cold::Binding::Pending)
+                .unwrap_or(inbound::cold::Binding::Standalone),
         };
-        let mut devices = self
-            .inbound_devices
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        devices.retain(|_, handle| handle.strong_count() > 0);
-        devices.insert(tag, Arc::downgrade(&live));
-        Ok(operation)
+        let live = match &binding {
+            inbound::cold::Binding::Ready(linked) => linked.live.clone(),
+            inbound::cold::Binding::Pending(pending) => pending.live(),
+            inbound::cold::Binding::Standalone => self.passive_inbound_live(&inbound)?,
+        };
+        Ok(Box::new(inbound::cold::ColdListener::new(
+            &inbound, live, binding,
+        )?))
     }
 
     pub(crate) fn claim_outbound_leaf_impl<'a>(
@@ -248,12 +245,7 @@ impl InboundListenerCapability for WireguardAdapter {
         inbound: InboundConfig,
         _source_dir: Option<&std::path::Path>,
     ) -> Result<bool, EngineError> {
-        let live = self
-            .inbound_devices
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(&inbound.tag)
-            .and_then(Weak::upgrade);
+        let live = self.active_inbound_live(&inbound.tag);
         let Some(live) = live else {
             return Ok(false);
         };
@@ -278,6 +270,7 @@ impl InboundListenerCapability for WireguardAdapter {
         let identity = inbound_protocol_identity(&inbound.protocol)
             .ok_or_else(|| invalid("cannot identify WireGuard inbound"))?;
         live.replace(device, identity);
+        self.cache_inbound_live(&inbound, &live)?;
         Ok(true)
     }
 

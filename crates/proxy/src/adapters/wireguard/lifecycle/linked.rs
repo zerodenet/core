@@ -168,14 +168,7 @@ impl WireguardAdapter {
                 }),
             ));
         }
-        let live = self
-            .inbound_devices
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(&inbound.tag)
-            .and_then(std::sync::Weak::upgrade)
-            .filter(|live| live.matches_identity(inbound_identity))
-            .unwrap_or_else(|| Arc::new(inbound::LiveInboundDevice::new(device, inbound_identity)));
+        let live = self.passive_inbound_live(inbound)?;
         Ok((
             Arc::new(inbound::LinkedEndpoint::new(
                 identity,

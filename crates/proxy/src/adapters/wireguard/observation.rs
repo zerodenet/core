@@ -28,13 +28,10 @@ impl EndpointObservationCapability for WireguardAdapter {
             .filter(|outbound| binding.outbound_tags.contains(&outbound.tag))
             .collect();
         let health = self.outbound_device_health(&outbounds);
-        let inbound_device = binding.inbound_tags.iter().find_map(|tag| {
-            self.inbound_devices
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .get(tag)
-                .and_then(std::sync::Weak::upgrade)
-        });
+        let inbound_device = binding
+            .inbound_tags
+            .iter()
+            .find_map(|tag| self.active_inbound_live(tag));
         let inbound_live = inbound_device.is_some();
         let outbound_live = !health.is_empty()
             && health.iter().any(|peer| {
