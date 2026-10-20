@@ -16,6 +16,7 @@ use zero_platform_tokio::contract::{
     scope::{SpawnError, TaskClass, TaskScope},
     ChannelError, Impact, Reason, Stage,
 };
+mod cancellation;
 mod witness;
 
 fn bounded(work: impl FnOnce() + Send + 'static) {
