@@ -41,7 +41,7 @@ impl HostResources {
                     .with_source(source),
                 )
             })?;
-        if selection.generation != entry.generation.0 {
+        if selection.generation() != entry.generation.0 {
             return Err(deny());
         }
         entry.reap_queries(self.component);
