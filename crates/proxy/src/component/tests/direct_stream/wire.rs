@@ -76,6 +76,13 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
             let facts = Arc::new(Facts::default());
             // A real role and public Session projection alone do not authorize
             // DNS/native execution. Missing sealed demand remains pre-I/O reject.
+            let retained_before_denial = actual
+                .observe()
+                .unwrap()
+                .slots()
+                .iter()
+                .map(|slot| slot.ordinal())
+                .collect::<Vec<_>>();
             let denied = Arc::new(DirectOpener::new(
                 proxy.tcp_runtime_services().execution().upstream(),
                 session.clone(),
@@ -100,7 +107,11 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
                 error.reason,
                 zero_platform_tokio::contract::Reason::Unsupported
             );
-            assert_eq!(actual.observe().unwrap().retained(), 0);
+            assert_eq!(
+                actual.observe().unwrap().slots().iter().map(|slot| slot.ordinal()).collect::<Vec<_>>(),
+                retained_before_denial,
+                "pre-I/O rejection neither acquires nor reaps another demand's original slots"
+            );
             let demand = BusinessCarrierRequest::new(proxy.engine(), &slot, &invocation).unwrap();
             let opener = Arc::new(
                 DirectOpener::new(
