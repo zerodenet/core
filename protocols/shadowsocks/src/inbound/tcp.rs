@@ -127,7 +127,7 @@ impl ShadowsocksInboundTcpAcceptor {
 
         let destination = accept.destination.clone();
         let auth = user.auth();
-        let client = self.profile.into_request_stream(accept, &user, stream)?;
+        let client = self.profile.build_request_stream(accept, &user, stream)?;
         Ok((destination, auth, client))
     }
 }

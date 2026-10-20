@@ -210,10 +210,10 @@ impl ShadowsocksInboundProfile {
         user: &ShadowsocksUser,
         inner: S,
     ) -> Result<crate::stream::ShadowsocksAeadStream<S>, Error> {
-        self.into_request_stream(accept.into(), user, inner)
+        self.build_request_stream(accept.into(), user, inner)
     }
 
-    pub(super) fn into_request_stream<S>(
+    pub(super) fn build_request_stream<S>(
         &self,
         accept: ShadowsocksRequest,
         user: &ShadowsocksUser,
