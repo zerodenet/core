@@ -24,6 +24,13 @@ pub(crate) struct ClosedUpstreamAssociation {
 }
 
 impl UdpDispatch {
+    pub(crate) fn observe_chain_join(
+        &self,
+        result: crate::runtime::udp_flow::response_join::NativeChainJoin,
+    ) -> crate::runtime::udp_flow::response_join::ObservedChainJoin {
+        self.flow_state.observe_chain_join(result)
+    }
+
     /// Drain cancellation signals that arrived while an outer transport was
     /// detached. Returns true when the authenticated association itself must
     /// be closed.

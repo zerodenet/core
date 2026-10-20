@@ -52,14 +52,22 @@ impl UdpFlowState {
             registered: RegisteredUdpState::new(handlers),
             packet_path: crate::runtime::udp_flow::packet_path_chain::PacketPathManager::new(),
             chain_tasks: JoinSet::new(),
+            response_tasks: Default::default(),
         }
+    }
+
+    pub(crate) fn observe_chain_join(
+        &self,
+        result: super::super::response_join::NativeChainJoin,
+    ) -> super::super::response_join::ObservedChainJoin {
+        self.response_tasks.observe(result)
     }
 
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn chain_tasks(&mut self) -> &mut JoinSet<ChainTask> {
         #[cfg(feature = "managed-stream-runtime")]
         self.registered
-            .poll_logical_responses(&mut self.chain_tasks);
+            .poll_logical_responses(&mut self.chain_tasks, &self.response_tasks);
         &mut self.chain_tasks
     }
 
@@ -75,7 +83,7 @@ impl UdpFlowState {
     ) {
         #[cfg(feature = "managed-stream-runtime")]
         self.registered
-            .poll_logical_responses(&mut self.chain_tasks);
+            .poll_logical_responses(&mut self.chain_tasks, &self.response_tasks);
         (
             UpstreamUdpPoll {
                 registered: &self.registered,

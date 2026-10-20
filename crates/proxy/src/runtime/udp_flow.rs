@@ -21,6 +21,8 @@ pub(crate) mod rate_limit;
 pub(crate) mod registered;
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) mod response;
+#[cfg(feature = "udp-runtime")]
+pub(crate) mod response_join;
 pub(crate) mod result;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod sessions;

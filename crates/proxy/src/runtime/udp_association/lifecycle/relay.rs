@@ -105,7 +105,7 @@ where
                 upstream = upstream_udp.recv_response(&mut upstream_buf) => {
                     handle_upstream_response(&context, &mut dispatch, &mut handler, &relay, upstream).await?;
                 }
-                Some(chain_result) = chain_tasks.join_next() => {
+                Some(chain_result) = chain_tasks.join_next_with_id() => {
                     handle_chain_result(&context, &dispatch, &mut handler, &relay, chain_result).await;
                 }
                 _ = wait_for_upstream_idle(idle_deadline) => {

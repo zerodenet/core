@@ -16,11 +16,10 @@ use crate::runtime::udp_delivery::{
     record_upstream_udp_response_received, write_upstream_response,
 };
 use crate::runtime::udp_dispatch::UdpDispatch;
-use crate::runtime::udp_flow::packet_path::ChainTask;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::response::UpstreamUdpResponse;
 
-pub(super) type ChainUdpResponseResult = Result<ChainTask, tokio::task::JoinError>;
+pub(super) type ChainUdpResponseResult = crate::runtime::udp_flow::response_join::NativeChainJoin;
 
 pub(super) async fn handle_direct_response<H>(
     context: &PacketSessionUdpLoopContext<'_>,
@@ -118,6 +117,7 @@ pub(super) async fn handle_chain_result<H>(
 where
     H: PacketSessionUdpHandler,
 {
+    let chain_result = dispatch.observe_chain_join(chain_result);
     match chain_result {
         Ok(Ok((target, port, payload, session_id))) => {
             *last_activity = TokioInstant::now();
