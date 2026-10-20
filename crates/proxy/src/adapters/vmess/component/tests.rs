@@ -15,7 +15,7 @@ fn resourceful_styles_remain_excluded_and_direct_options_never_discard_them() {
     for extra in [
         r#", "mux_concurrency":2"#,
         r#", "tls":{"ca_cert_path":"not-opened.pem"}"#,
-        r#", "tls":{"options":{"ech_config_list":"udp://127.0.0.1:53"}}"#,
+        r#", "tls":{"server_name":"localhost","options":{"ech_config_list":"udp://127.0.0.1:53"}}"#,
         r#", "ws":{"browser_dialer":{}}"#,
     ] {
         let input = input(extra);
