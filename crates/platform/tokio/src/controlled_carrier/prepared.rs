@@ -112,7 +112,15 @@ impl PreparedCarrier {
         // already persistent. No enclosing carrier lock surrounds these getters.
         let endpoints = super::CarrierEndpoints {
             origin: Arc::downgrade(&self.slot),
-            local: socket.local_addr().ok(),
+            local: Some(socket.local_addr().map_err(|source| {
+                error(
+                    self.slot.instance,
+                    Stage::Dial,
+                    Reason::Io,
+                    DeliveryState::Unknown,
+                )
+                .with_source(source)
+            })?),
             peer: socket.peer_addr().map_err(|source| {
                 error(
                     self.slot.instance,
