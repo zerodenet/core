@@ -171,3 +171,76 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
         &original
     ));
 }
+
+struct OccupiedUdp(std::net::SocketAddr);
+impl zero_platform_tokio::contract::lifecycle::ResourceLifecycle for OccupiedUdp {
+    async fn start(&mut self, _: Instant) -> Result<(), ChannelError> {
+        match UdpSocket::bind(self.0).await {
+            Err(source) => Err(
+                ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component)
+                    .with_source(source),
+            ),
+            Ok(_) => panic!("the actual competing UDP owner must retain its socket"),
+        }
+    }
+    fn revoke(&self, _: CloseReason) {}
+    async fn shutdown(&mut self, _: Instant) -> Result<CloseReport, ChannelError> {
+        // This failed bind never acquired a native socket.
+        Ok(CloseReport::default())
+    }
+}
+#[tokio::test]
+async fn resource_start_failure_prevents_loop_poll_and_ready_with_original_os_error() {
+    let proxy = proxy();
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let (stop, _) = watch::channel(false);
+    let installed = proxy
+        .inbound_owners
+        .install("resource-failed", &proxy.protocols, 0, stop)
+        .unwrap();
+    let resource = installed
+        .register(zero_platform_tokio::contract::lifecycle::erase_lifecycle(
+            OccupiedUdp(socket.local_addr().unwrap()),
+        ))
+        .unwrap();
+    let owner = installed.owner();
+    owner
+        .spawn_driver(async { panic!("failed resource start must not poll the listener loop") })
+        .unwrap();
+    let observing = {
+        let owner = owner.clone();
+        tokio::spawn(async move { owner.observe_driver().await })
+    };
+    let error = timeout(Duration::from_secs(2), owner.wait_ready())
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(observing.await.unwrap().is_err());
+    assert!(!owner.ready.0.complete.load(Ordering::Acquire));
+    let original = owner.failure.lock().unwrap().clone().unwrap();
+    assert_eq!(original.component, Some(resource.component));
+    let source = std::error::Error::source(original.as_ref())
+        .unwrap()
+        .downcast_ref::<std::io::Error>()
+        .unwrap();
+    assert_eq!(source.kind(), std::io::ErrorKind::AddrInUse);
+    assert!(source.raw_os_error().is_some());
+    let EngineError::Io(error) = error else {
+        panic!("expected retained native error")
+    };
+    let retained = error
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<ChannelError>()
+        .unwrap();
+    let original_ref = std::error::Error::source(retained)
+        .unwrap()
+        .downcast_ref::<Arc<ChannelError>>()
+        .unwrap();
+    assert!(Arc::ptr_eq(original_ref, &original));
+    assert!(proxy
+        .inbound_owners
+        .shutdown("resource-failed", Instant::now() + Duration::from_secs(2))
+        .await
+        .is_err());
+}
