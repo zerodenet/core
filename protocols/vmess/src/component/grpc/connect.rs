@@ -2,7 +2,7 @@ use super::{
     state::{Body, Managed, Opening, Record},
     *,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use zero_platform_tokio::contract::{
     context::{with_deadline, OpenContext},
     network::CarrierContext,
