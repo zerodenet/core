@@ -10,14 +10,19 @@ use zero_transport::profile::{OwnedGrpcProfile, OwnedWebSocketProfile};
 
 #[tokio::test]
 async fn real_native_vmess_tls_websocket_and_grpc_keep_profiles_and_distinct_protocol_counts() {
-    for carrier in [0, 1, 2] {
+    for carrier in [0, 1, 2, 3] {
         let grpc_carrier = carrier == 2;
         timeout(Duration::from_secs(5), async {
-            let ws = (carrier == 1).then(|| OwnedWebSocketProfile {
+            let ws = matches!(carrier, 1 | 3).then(|| OwnedWebSocketProfile {
                 accept_proxy_protocol: false,
                 heartbeat_period_secs: 0,
                 host: Some("native.example".into()),
-                path: "/native-vmess".into(),
+                path: if carrier == 3 {
+                    "/native-vmess?ed=4096"
+                } else {
+                    "/native-vmess"
+                }
+                .into(),
                 headers: vec![("x-native-profile".into(), "preserved".into())],
             });
             let grpc = grpc_carrier.then(|| OwnedGrpcProfile {

@@ -10,13 +10,18 @@ use zero_transport::profile::{OwnedGrpcProfile, OwnedWebSocketProfile};
 
 #[tokio::test]
 async fn real_tls_websocket_and_grpc_keep_their_profiles_and_only_trojan_bytes_in_flow() {
-    for grpc_carrier in [false, true] {
+    for (grpc_carrier, early) in [(false, false), (false, true), (true, false)] {
         timeout(Duration::from_secs(5), async {
             let ws = (!grpc_carrier).then(|| OwnedWebSocketProfile {
                 accept_proxy_protocol: false,
                 heartbeat_period_secs: 0,
                 host: Some("native.example".into()),
-                path: "/native-trojan".into(),
+                path: if early {
+                    "/native-trojan?ed=4096"
+                } else {
+                    "/native-trojan"
+                }
+                .into(),
                 headers: vec![("x-native-profile".into(), "preserved".into())],
             });
             let grpc = grpc_carrier.then(|| OwnedGrpcProfile {
@@ -109,4 +114,68 @@ async fn real_tls_websocket_and_grpc_keep_their_profiles_and_only_trojan_bytes_i
         .await
         .unwrap();
     }
+}
+
+#[tokio::test]
+async fn rejected_actual_lazy_websocket_upgrade_does_not_report_ready_or_proxy_submission() {
+    timeout(Duration::from_secs(5), async {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let acceptor = acceptor();
+        let ws = OwnedWebSocketProfile {
+            accept_proxy_protocol: false,
+            heartbeat_period_secs: 0,
+            host: None,
+            path: "/native?ed=4096".into(),
+            headers: vec![],
+        };
+        let mut rejected = ws.clone();
+        rejected.path = "/different".into();
+        let server = tokio::spawn(async move {
+            let (io, _) = listener.accept().await.unwrap();
+            let tls = acceptor.accept(io).await.unwrap();
+            assert!(zero_transport::ws::accept_ws_profile(tls, &rejected)
+                .await
+                .is_err());
+        });
+        let observations = Arc::new(Observations::default());
+        let (mut instance, mut scope) = instance_with_profiles(address, true, Some(&ws), None);
+        instance
+            .lifecycle
+            .start(super::super::fixtures::deadline())
+            .await
+            .unwrap();
+        let result = instance
+            .roles
+            .stream
+            .as_ref()
+            .unwrap()
+            .connect(
+                ConnectRequest {
+                    destination: destination(),
+                },
+                context(address, observations.clone()),
+            )
+            .await;
+        let error = match result {
+            Ok(_) => panic!("rejected upgrade must fail real flush"),
+            Err(error) => error,
+        };
+        assert_eq!(error.reason, zero_platform_tokio::contract::Reason::Io);
+        assert!(std::error::Error::source(&error).is_some());
+        assert!(observations.facts.lock().unwrap().is_empty());
+        assert!(observations.protocol.lock().unwrap().is_none());
+        server.await.unwrap();
+        instance
+            .lifecycle
+            .shutdown(super::super::fixtures::deadline())
+            .await
+            .unwrap();
+        assert!(scope
+            .shutdown(super::super::fixtures::deadline())
+            .await
+            .is_complete());
+    })
+    .await
+    .unwrap();
 }

@@ -154,7 +154,7 @@ impl StreamOutbound for Outbound {
             result = with_deadline(context.deadline,submit) => result.map_err(|source| self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
         }.map_err(|source| self.admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
         if let Some(observer) = &context.observer {
-            // WebSocket performs its real upgrade lazily on write/flush.
+            // WebSocket early data can defer the upgrade until write/flush.
             // Only successful flush proves that the complete carrier is ready.
             observer.record(session, ConnectFact::CarrierReady);
             observer.record(session, ConnectFact::RequestSubmitted);
