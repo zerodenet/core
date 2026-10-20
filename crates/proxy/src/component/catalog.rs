@@ -237,13 +237,23 @@ impl ComponentCatalog {
     pub(crate) fn allocate_association(
         &self,
     ) -> Result<zero_core::component::AssociationId, ChannelError> {
-        self.next_association
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                value.checked_add(1)
-            })
-            .map(|previous| zero_core::component::AssociationId(previous + 1))
-            .map_err(|_| invalid(Reason::Internal, "association identity exhausted"))
+        let mut current = self.next_association.load(Ordering::Relaxed);
+        loop {
+            let next = current
+                .checked_add(1)
+                .ok_or_else(|| invalid(Reason::Internal, "association identity exhausted"))?;
+            match self.next_association.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Ok(zero_core::component::AssociationId(next)),
+                Err(observed) => current = observed,
+            }
+        }
     }
+
     pub(crate) fn allocate_id(&self) -> Result<ComponentId, ChannelError> {
         let mut current = self.next_id.load(Ordering::Relaxed);
         loop {
