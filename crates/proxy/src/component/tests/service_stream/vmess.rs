@@ -1,4 +1,5 @@
 use super::fixtures::*;
+use crate::{Proxy, ProxyHandle};
 use std::time::Duration;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -6,10 +7,9 @@ use tokio::{
     time::timeout,
 };
 use zero_config::RuntimeConfig;
-use zero_proxy::{Proxy, ProxyHandle};
 
 #[tokio::test]
-async fn actual_registered_socks_to_trojan_chain_keeps_tls_and_service_identity_inside_the_selected_prefix(
+async fn actual_registered_socks_to_vmess_chain_keeps_tls_and_service_identity_inside_the_selected_prefix(
 ) {
     timeout(Duration::from_secs(10), async {
         let tls_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -17,11 +17,9 @@ async fn actual_registered_socks_to_trojan_chain_keeps_tls_and_service_identity_
         let acceptor = acceptor();
         let server = tokio::spawn(async move {
             let (stream, _) = tls_listener.accept().await.unwrap();
-            let mut stream = acceptor.accept(stream).await.unwrap();
-            let expected = request();
-            let mut header = vec![0; expected.len()];
-            stream.read_exact(&mut header).await.unwrap();
-            assert_eq!(header, expected);
+            let tls = acceptor.accept(stream).await.unwrap();
+            let (facts,mut stream)=profile("aes-128-gcm").accept_tcp_stream(vmess::inbound::VmessInbound,zero_platform_tokio::TcpRelayStream::new(tls)).await.unwrap();
+            assert_eq!(facts.target,destination().address);assert_eq!(facts.port,destination().port);
             let mut http = Vec::new();
             loop {
                 let byte = stream.read_u8().await.unwrap();
@@ -57,17 +55,22 @@ async fn actual_registered_socks_to_trojan_chain_keeps_tls_and_service_identity_
         let config = RuntimeConfig::parse(&format!(r#"{{
             "outbounds":[
                 {{"tag":"prefix","protocol":{{"type":"socks5","server":"127.0.0.1","port":{}}}}},
-                {{"tag":"native","protocol":{{"type":"trojan","server":"127.0.0.1","port":{},
-                    "password":"{}","sni":"localhost","insecure":true,"client_fingerprint":"none"}}}}
+                {{"tag":"native","protocol":{{"type":"vmess","server":"127.0.0.1","port":{},"id":"{}","cipher":"aes-128-gcm",
+                    "tls":{{"server_name":"localhost","insecure":true,"client_fingerprint":"none"}}}}}}
             ],
             "outbound_groups":[{{"tag":"chain","type":"relay","proxies":["prefix","native"]}}],
             "route":{{"final":{{"type":"direct"}}}}
-        }}"#, socks_address.port(), tls_address.port(), PASSWORD)).unwrap();
+        }}"#, socks_address.port(), tls_address.port(), ID)).unwrap();
         let proxy = Proxy::new(config.clone()).unwrap();
         let running = proxy.spawn();
         let handle = ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
         handle.apply_runtime_config_and_wait(config, Duration::from_secs(5)).await.unwrap();
-        proxy.probe_outbound_single("chain", "http://native.example:443/native").await.unwrap();
+        let mut stream=connect(&proxy,"chain").await;
+        stream.write_all(b"HEAD /native HTTP/1.1\r\nHost: native.example\r\n\r\n").await.unwrap();
+        stream.flush().await.unwrap();
+        let mut response=Vec::new();stream.read_to_end(&mut response).await.unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 204"));
+        drop(stream);
         assert!(proxy.engine().active_sessions().is_empty(), "service requests must not create fake business sessions");
         running.shutdown().await.unwrap();
         server.await.unwrap();
