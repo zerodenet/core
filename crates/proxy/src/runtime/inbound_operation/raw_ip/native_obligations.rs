@@ -156,7 +156,7 @@ impl Drop for NativePermit {
 struct SharedSource(Source);
 impl std::fmt::Display for SharedSource {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(formatter)
+        std::fmt::Display::fmt(self.0.as_ref(), formatter)
     }
 }
 impl std::error::Error for SharedSource {
