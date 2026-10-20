@@ -15,6 +15,7 @@ use zero_platform_tokio::contract::{
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
 mod observation;
+mod pending_bound;
 mod readiness;
 pub(crate) use observation::consume_reported_error;
 pub(super) use readiness::readiness_stopped;
@@ -47,6 +48,8 @@ pub(crate) struct InboundOwner {
     terminal: OnceLock<Arc<InboundTerminal>>,
     observation: Arc<observation::ObservationDisposition>,
     ready: InboundReady,
+    installation_complete: AtomicBool,
+    pending_native_bound: Mutex<Option<crate::protocol_registry::BoundInbound>>,
     #[cfg(feature = "managed-datagram-runtime")]
     peers: Mutex<Vec<Arc<super::InboundPeerTasks>>>,
 }
@@ -111,6 +114,8 @@ impl InboundOwner {
             terminal: OnceLock::new(),
             observation: Arc::new(observation::ObservationDisposition::new(identity)),
             ready: InboundReady::new(),
+            installation_complete: AtomicBool::new(true),
+            pending_native_bound: Mutex::new(None),
             #[cfg(feature = "managed-datagram-runtime")]
             peers: Mutex::new(Vec::new()),
         }

@@ -96,6 +96,9 @@ impl InboundOwner {
             // Failure reporting and actual physical completion are independent.
             return self.result();
         }
+        // A retained pre-execution native listener has no close receipt yet.
+        // Empty Scope completion cannot clear its original Unknown source.
+        self.result()?;
         match result {
             Ok(Ok(())) => {
                 Err(std::io::Error::other("inbound physical confirmation is incomplete").into())

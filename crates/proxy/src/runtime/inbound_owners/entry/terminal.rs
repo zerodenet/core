@@ -137,7 +137,15 @@ impl InboundOwner {
         if self.physically_closed.load(Ordering::Acquire) {
             return true;
         }
-        if !self.cancel.is_cancelled() || !self.scope_closed.load(Ordering::Acquire) {
+        if !self.installation_complete.load(Ordering::Acquire)
+            || self
+                .pending_native_bound
+                .lock()
+                .expect("pending native listener poisoned")
+                .is_some()
+            || !self.cancel.is_cancelled()
+            || !self.scope_closed.load(Ordering::Acquire)
+        {
             return false;
         }
         if self

@@ -85,6 +85,25 @@ impl InboundOwnerRegistry {
         nested_tasks: usize,
         shutdown: watch::Sender<bool>,
     ) -> Result<InboundInstallContext, EngineError> {
+        self.install_inner(tag, protocols, nested_tasks, shutdown, false)
+    }
+    pub(crate) fn install_listener(
+        &self,
+        tag: &str,
+        protocols: &ProtocolInventory,
+        nested_tasks: usize,
+        shutdown: watch::Sender<bool>,
+    ) -> Result<InboundInstallContext, EngineError> {
+        self.install_inner(tag, protocols, nested_tasks, shutdown, true)
+    }
+    fn install_inner(
+        &self,
+        tag: &str,
+        protocols: &ProtocolInventory,
+        nested_tasks: usize,
+        shutdown: watch::Sender<bool>,
+        listener: bool,
+    ) -> Result<InboundInstallContext, EngineError> {
         let limit = nested_tasks
             .checked_add(1)
             .and_then(NonZeroUsize::new)
@@ -104,6 +123,9 @@ impl InboundOwnerRegistry {
             limit,
             shutdown,
         ));
+        if listener {
+            entry.begin_listener_installation();
+        }
         entries.insert(tag.to_owned(), entry.clone());
         Ok(InboundInstallContext {
             entry,

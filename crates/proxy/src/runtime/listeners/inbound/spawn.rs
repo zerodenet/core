@@ -53,7 +53,7 @@ pub(super) fn spawn_inbound_listener_with_state(
     })?;
     // Persistent host ownership is installed synchronously before registration
     // or any activation await. The observer below never owns the actual driver.
-    let installed = runtime_factory.owners().install(
+    let installed = runtime_factory.owners().install_listener(
         &inbound.tag,
         protocols,
         operation.internal_tasks(),
@@ -61,9 +61,13 @@ pub(super) fn spawn_inbound_listener_with_state(
     )?;
     let owner = installed.owner();
     if !rollback {
-        runtime_factory.register_preparing(&owner)?;
+        if let Err(error) = runtime_factory.register_preparing(&owner) {
+            return Err(owner.retain_unexecuted_bound(bound, error));
+        }
     }
-    operation.install_resources(&installed)?;
+    if let Err(error) = operation.install_resources(&installed) {
+        return Err(owner.retain_unexecuted_bound(bound, error));
+    }
     let inbound_tag = inbound.tag.clone();
     let protocol = inbound.protocol.protocol_name();
     let listen_address = inbound.listen.address.clone();
@@ -73,7 +77,7 @@ pub(super) fn spawn_inbound_listener_with_state(
         .with_readiness(owner.readiness());
 
     let shutdown_rx = shutdown_tx.subscribe();
-    owner.spawn_driver(async move {
+    let accepted = owner.spawn_driver(async move {
         info!(
             inbound_tag = %inbound_tag,
             protocol = protocol,
@@ -104,7 +108,11 @@ pub(super) fn spawn_inbound_listener_with_state(
             ),
         }
         result
-    })?;
+    });
+    if let Err(error) = accepted {
+        return Err(owner.retain_failed_driver_installation(error));
+    }
+    owner.seal_listener_installation();
     let observing = owner.clone();
     listeners.spawn(async move {
         observing
