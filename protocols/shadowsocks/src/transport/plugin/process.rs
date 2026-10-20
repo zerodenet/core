@@ -86,24 +86,6 @@ pub(super) fn spawn(
 ) -> io::Result<Child> {
     spawn_request(request(config, remote, local, server))
 }
-pub(super) async fn ready(child: &mut Child, endpoint: SocketAddr, tcp: bool) -> io::Result<()> {
-    ready_with_status(|| child.try_wait(), endpoint, tcp).await
-}
-
-pub(super) async fn ready_with_status<Status>(
-    status: Status,
-    endpoint: SocketAddr,
-    tcp: bool,
-) -> io::Result<()>
-where
-    Status: FnMut() -> io::Result<Option<std::process::ExitStatus>>,
-{
-    ready_with_probe(status, endpoint, tcp, || {
-        tokio::net::TcpStream::connect(endpoint)
-    })
-    .await
-}
-
 pub(super) async fn ready_with_probe<Status, Probe, Pending>(
     mut status: Status,
     endpoint: SocketAddr,
