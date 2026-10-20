@@ -25,13 +25,6 @@ impl CarrierAdoption {
                 DeliveryState::Unknown,
             )
         };
-        // Serialize with the same original native-close transaction. An
-        // in-flight retirement cannot issue a receipt before this registration.
-        let _closing = self
-            .slot
-            .closing
-            .try_lock()
-            .map_err(|_| failure(Reason::Revoked))?;
         let owner = self
             .slot
             .owner
@@ -51,6 +44,13 @@ impl CarrierAdoption {
             return Err(failure(Reason::Revoked));
         }
         {
+            // Only reserve under the original close transaction. Actual scope
+            // registration and refused-future destruction happen after unlock.
+            let _closing = self
+                .slot
+                .closing
+                .try_lock()
+                .map_err(|_| failure(Reason::Revoked))?;
             let mut state = self.slot.state();
             if state.closed || state.auxiliary_attempted || state.spawning {
                 return Err(failure(Reason::InvalidConfig));
