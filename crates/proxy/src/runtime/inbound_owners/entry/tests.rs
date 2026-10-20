@@ -8,6 +8,9 @@ mod peer_resource;
 #[cfg(feature = "managed-datagram-runtime")]
 #[path = "tests/peers.rs"]
 mod peers;
+#[cfg(feature = "managed-datagram-runtime")]
+#[path = "tests/responses.rs"]
+mod responses;
 use crate::runtime::Proxy;
 use std::task::Poll;
 use tokio::{

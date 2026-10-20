@@ -210,13 +210,23 @@ impl InboundPeerTasks {
             state.failure.get_or_insert(failure);
             state.closing = true;
         }
-        if !state.children.contains_key(&id) && !state.claiming.contains(&id) {
+        if !state.children.contains_key(&id)
+            && !state.claiming.contains(&id)
+            && !binding.responses_pending()
+        {
             state.active.remove(&id);
             state.reclaimed = state.reclaimed.saturating_add(1);
         }
         drop(state);
         self.notify_changed();
         true
+    }
+    pub(super) fn first_fault(&self) -> Option<SharedError> {
+        self.state
+            .lock()
+            .expect("peer task state poisoned")
+            .failure
+            .clone()
     }
     pub(super) fn physically_closed(&self) -> bool {
         let state = self.state.lock().expect("peer task state poisoned");

@@ -353,6 +353,23 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   dispatch can write that cell. This view proves neither response-task joins
   nor native/transferred-user closure.
 
+### Original UDP response Set retirement
+
+- A real peer binding retains at most its dispatcher's one original response
+  JoinSet owner, installed before response spawning. Its read-only join observer
+  shares only the original join cell and cannot retain that response/resource
+  graph. Caller Scope completion does not refund the peer permit while the
+  original response lease or actual response joins remain pending.
+- The existing inline peer cleanup returns to that same Set's unique consumer,
+  persists its opaque task-close receipt, then drives the original child's native
+  cleanup. Cancellation retains the Set, actual Tokio task identities and first
+  fatal source; it neither constructs component TaskIds nor acknowledges native
+  I/O. A confirmed task/native close still delivers the original panic to the
+  listener supervisor. Ordinary response body errors and requested cancellation
+  retain their local handling. This adds no Scope, task, manager or cleanup actor
+  and does not establish the rest of the transferred-user graph or enable any
+  resourceful production factory.
+
 ## 0.0.1
 
 - 经项目所有者授权清理旧 Release 和 tag，基于当前 main 源码发布统一的首个正式版。以下旧编号条目仅保留兼容性背景，不代表仍可下载的发布记录。

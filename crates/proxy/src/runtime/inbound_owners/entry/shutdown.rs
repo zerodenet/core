@@ -85,6 +85,14 @@ impl InboundOwner {
                     if let Err(error) = group.wait_closed().await {
                         failure.get_or_insert_with(|| std::io::Error::other(error));
                     }
+                    // A group's physical completion must not erase its
+                    // actual sticky task source when no live observer remains.
+                    if let Some(source) = group.first_fault() {
+                        self.failure
+                            .lock()
+                            .expect("inbound failure poisoned")
+                            .get_or_insert(source);
+                    }
                 }
                 if let Some(error) = failure {
                     return Err(error);

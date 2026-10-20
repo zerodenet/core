@@ -4,19 +4,48 @@ impl InboundPeerTasks {
     /// Only the original scope's dispatched TaskExit makes a child eligible.
     /// Cancellation retains both actual owners and already consumed evidence.
     pub(crate) async fn retire_joined(&self, deadline: Instant) -> Result<(), ChannelError> {
-        let children = {
+        let joined = {
             let state = self.state.lock().expect("peer task state poisoned");
             state
-                .children
+                .active
                 .iter()
-                .filter(|(_, child)| child.binding.joined_receipt().is_some())
-                .map(|(task, child)| (*task, child.clone()))
+                .filter(|(_, binding)| binding.joined_receipt().is_some())
+                .map(|(task, binding)| (*task, binding.clone(), state.children.get(task).cloned()))
                 .collect::<Vec<_>>()
         };
         let mut failure = None;
-        for (task, child) in children {
-            if let Err(error) = self.retire_one(task, child, deadline).await {
-                failure.get_or_insert(error);
+        for (task, binding, child) in joined {
+            match binding.close_responses(deadline).await {
+                Err(error) => {
+                    failure.get_or_insert(error);
+                    continue;
+                }
+                Ok(Some(source)) => {
+                    self.fail(source.clone());
+                    failure.get_or_insert_with(|| retained(source));
+                    // A real panic must still allow the same owner's native
+                    // cleanup after its original response Set has really joined.
+                }
+                Ok(None) => {}
+            }
+            if let Some(child) = child {
+                if let Err(error) = self.retire_one(task, child, deadline).await {
+                    failure.get_or_insert(error);
+                }
+            } else {
+                let mut state = self.state.lock().expect("peer task state poisoned");
+                if !state.claiming.contains(&task)
+                    && !state.children.contains_key(&task)
+                    && state
+                        .active
+                        .get(&task)
+                        .is_some_and(|actual| Arc::ptr_eq(actual, &binding))
+                {
+                    state.active.remove(&task);
+                    state.reclaimed = state.reclaimed.saturating_add(1);
+                }
+                drop(state);
+                self.notify_changed();
             }
         }
         failure.map_or(Ok(()), Err)

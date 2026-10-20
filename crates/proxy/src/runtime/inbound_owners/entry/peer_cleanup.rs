@@ -45,7 +45,7 @@ impl InboundOwner {
             // peers' real exits. Pending close cannot block those Scope joins.
             if let Err(mut error) = group.retire_joined(deadline).await {
                 error.component.get_or_insert(self.identity.component);
-                let source = Arc::new(error);
+                let source = group.first_fault().unwrap_or_else(|| Arc::new(error));
                 self.failure
                     .lock()
                     .expect("inbound failure poisoned")

@@ -3,6 +3,7 @@ use super::*;
 use crate::component::instance::{retained, SharedError};
 use tokio::sync::Notify;
 mod observer;
+mod responses;
 pub(crate) use observer::HostPeerJoinObserver;
 use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{scope::TaskClass, ChannelError, Impact, Reason, Stage};
@@ -40,6 +41,7 @@ pub(crate) struct HostPeerBinding {
     parent: ComponentInstanceId,
     join: Arc<JoinCell>,
     cancel: CancellationToken,
+    responses: Mutex<Option<responses::ResponseOwner>>,
 }
 impl std::fmt::Debug for HostPeerBinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -57,6 +59,7 @@ impl HostPeerBinding {
             parent,
             join: Arc::default(),
             cancel: cancel.child_token(),
+            responses: Mutex::new(None),
         }
     }
     pub(super) fn bind(
