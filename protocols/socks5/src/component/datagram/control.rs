@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
+    io::ReadBuf,
     time::{timeout_at, Instant},
 };
 use zero_platform_tokio::contract::{
