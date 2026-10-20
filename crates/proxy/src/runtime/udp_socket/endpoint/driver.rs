@@ -94,14 +94,29 @@ impl Shared {
                 return;
             }
         };
-        if logical
-            .bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
-                used.checked_add(bytes.len())
-                    .filter(|next| self.queue.max_payload_bytes.is_none_or(|max| *next <= max))
-            })
-            .is_err()
-        {
+        let mut used = logical.bytes.load(Ordering::Acquire);
+        let reserved = loop {
+            let Some(next) = used.checked_add(bytes.len()) else {
+                break false;
+            };
+            if self
+                .queue
+                .max_payload_bytes
+                .is_some_and(|limit| next > limit)
+            {
+                break false;
+            }
+            match logical.bytes.compare_exchange_weak(
+                used,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break true,
+                Err(observed) => used = observed,
+            }
+        };
+        if !reserved {
             self.drop_queued(zero_traits::PacketDropReason::QueueFull);
             return;
         }
