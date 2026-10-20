@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[path = "udp/tests/owned.rs"]
 mod owned_tests;
 use zero_engine::EngineError;
 
