@@ -46,32 +46,76 @@ fn critical(source: ChannelError) -> EngineError {
 }
 pub(crate) async fn run_peer_with_driver<F>(
     consumer: F,
-    mut job: DirectPeerDriverJob,
+    job: DirectPeerDriverJob,
 ) -> Result<(), EngineError>
+where
+    F: Future<Output = Result<(), EngineError>> + Send,
+{
+    let (consumer, driver) = run_pair(consumer, job).await;
+    ordinary(consumer);
+    driver.map_err(critical)
+}
+/// Raw-IP's original association result also drives its existing backoff and
+/// retained-source ledger. Do not turn that actual failure into success.
+pub(crate) async fn run_peer_preserving<F>(
+    consumer: F,
+    job: DirectPeerDriverJob,
+) -> Result<(), EngineError>
+where
+    F: Future<Output = Result<(), EngineError>> + Send,
+{
+    match run_pair(consumer, job).await {
+        (Ok(()), driver) => driver.map_err(critical),
+        (Err(consumer), Ok(())) => Err(consumer),
+        (Err(consumer), Err(driver)) => {
+            Err(std::io::Error::other(PeerFailures { consumer, driver }).into())
+        }
+    }
+}
+#[derive(Debug)]
+struct PeerFailures {
+    consumer: EngineError,
+    driver: ChannelError,
+}
+impl std::fmt::Display for PeerFailures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "UDP peer consumer failed: {}; original driver failed: {}",
+            self.consumer, self.driver
+        )
+    }
+}
+impl std::error::Error for PeerFailures {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.driver)
+    }
+}
+async fn run_pair<F>(
+    consumer: F,
+    mut job: DirectPeerDriverJob,
+) -> (Result<(), EngineError>, Result<(), ChannelError>)
 where
     F: Future<Output = Result<(), EngineError>> + Send,
 {
     tokio::pin!(consumer);
     let mut driver = tokio::select! {
-        result = &mut consumer => { ordinary(result); return Ok(()); },
+        result = &mut consumer => return (result, Ok(())),
         received = &mut job.0 => match received {
             Ok(driver) => driver,
-            Err(_) => { ordinary(consumer.await); return Ok(()); },
+            Err(_) => return (consumer.await, Ok(())),
         },
     };
     tokio::select! {
         result = &mut consumer => {
-            ordinary(result);
             driver.stop.cancel();
-            driver.await.map_err(critical)
+            (result, driver.await)
         },
         result = &mut driver => {
-            // Wake the actual peer consumer, let it finalize its tracked
-            // associations, then return the same driver failure to TaskScope.
-            // Dropping consumer here would skip that real cleanup path.
+            // The same task finishes both original futures. No child driver
+            // escapes when either result first becomes ready.
             driver.stop.cancel();
-            ordinary(consumer.await);
-            result.map_err(critical)
+            (consumer.await, result)
         },
     }
 }

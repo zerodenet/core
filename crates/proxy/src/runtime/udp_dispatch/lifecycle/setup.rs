@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 
 use zero_engine::EngineError;
 
+use super::super::socket::DispatchDirectSockets;
 use crate::runtime::udp_dispatch::UdpDispatch;
 use crate::runtime::udp_flow::sessions::UdpSessionFlows;
 use crate::runtime::udp_flow::state::UdpFlowState;
-use crate::runtime::udp_socket::DirectUdpSockets;
 
 impl UdpDispatch {
     /// Create a dispatcher; Direct sockets are opened only when needed.
@@ -15,7 +15,7 @@ impl UdpDispatch {
         protocols: &crate::inventory::ProtocolInventory,
     ) -> Result<Self, EngineError> {
         let preferred_port = runtime.source_addr().map(|source| source.port());
-        let direct_socket = DirectUdpSockets::new(runtime.services().network(), preferred_port);
+        let direct_socket = DispatchDirectSockets::new(&runtime, preferred_port).await?;
         let (cancel_tx, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(Self {
             runtime,

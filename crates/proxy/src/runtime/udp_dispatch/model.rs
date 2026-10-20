@@ -1,8 +1,8 @@
 use super::backoff::UdpFlowStartBackoff;
+use super::socket::DispatchDirectSockets;
 use crate::runtime::udp_flow::sessions::UdpSessionFlows;
 use crate::runtime::udp_flow::state::UdpFlowState;
 use crate::runtime::udp_ingress::UdpIngressRuntime;
-use crate::runtime::udp_socket::DirectUdpSockets;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct UdpFlowCancellation {
@@ -30,7 +30,7 @@ pub(crate) struct UdpDispatch {
     pub(super) flows: UdpSessionFlows,
     pub(super) flow_start_backoff: UdpFlowStartBackoff,
     /// Lazy policy-isolated native Direct sockets and exact response bindings.
-    pub(super) direct_socket: DirectUdpSockets,
+    pub(super) direct_socket: DispatchDirectSockets,
     /// Managed protocol, packet-path, and chain response state for this UDP session.
     pub(super) flow_state: UdpFlowState,
     pub(super) cancel_tx: tokio::sync::mpsc::UnboundedSender<UdpFlowCancellation>,

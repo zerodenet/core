@@ -1,4 +1,4 @@
-use crate::runtime::udp_socket::DirectUdpSockets;
+use super::super::socket::DispatchDirectSockets;
 use tokio::task::JoinSet;
 #[cfg(feature = "upstream-association-runtime")]
 use tokio::time::Instant as TokioInstant;
@@ -41,7 +41,7 @@ impl UdpDispatch {
     pub(crate) fn poll_sockets(
         &mut self,
     ) -> (
-        &DirectUdpSockets,
+        &DispatchDirectSockets,
         &mut JoinSet<ChainTask>,
         &mut tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,
     ) {
@@ -58,7 +58,7 @@ impl UdpDispatch {
     pub(crate) fn poll_refs(
         &mut self,
     ) -> (
-        &DirectUdpSockets,
+        &DispatchDirectSockets,
         UpstreamUdpPoll<'_>,
         Option<TokioInstant>,
         &mut JoinSet<ChainTask>,

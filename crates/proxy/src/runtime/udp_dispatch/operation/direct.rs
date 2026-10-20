@@ -35,6 +35,15 @@ impl PreparedUdpFlowOperation for DirectUdpFlowOperation {
         Self: 'a,
     {
         Box::pin(async move {
+            #[cfg(feature = "managed-datagram-runtime")]
+            dispatch
+                .admit_bound_direct(&self, session)
+                .await
+                .map_err(|error| FlowFailure {
+                    stage: "udp_direct_bound_admission",
+                    error,
+                    upstream: None,
+                })?;
             execute_direct_udp_operation(
                 dispatch,
                 ctx.runtime_services(),

@@ -10,6 +10,8 @@ pub(crate) struct UdpIngressRuntime {
     #[cfg(feature = "managed-datagram-runtime")]
     peer_resources: Option<crate::runtime::inbound_owners::PeerResourceContext>,
     #[cfg(feature = "managed-datagram-runtime")]
+    bound_direct_budget: Option<crate::runtime::udp_dispatch::BoundDirectBudget>,
+    #[cfg(feature = "managed-datagram-runtime")]
     direct_peer_driver: Option<crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot>,
 }
 
@@ -24,6 +26,8 @@ impl UdpIngressRuntime {
             listener_stop: None,
             #[cfg(feature = "managed-datagram-runtime")]
             peer_resources: None,
+            #[cfg(feature = "managed-datagram-runtime")]
+            bound_direct_budget: None,
             #[cfg(feature = "managed-datagram-runtime")]
             direct_peer_driver: None,
         }
@@ -42,6 +46,8 @@ impl UdpIngressRuntime {
             #[cfg(feature = "managed-datagram-runtime")]
             peer_resources: self.peer_resources.clone(),
             #[cfg(feature = "managed-datagram-runtime")]
+            bound_direct_budget: self.bound_direct_budget,
+            #[cfg(feature = "managed-datagram-runtime")]
             direct_peer_driver: self.direct_peer_driver.clone(),
         }
     }
@@ -55,6 +61,8 @@ impl UdpIngressRuntime {
             listener_stop: self.listener_stop.clone(),
             #[cfg(feature = "managed-datagram-runtime")]
             peer_resources: self.peer_resources.clone(),
+            #[cfg(feature = "managed-datagram-runtime")]
+            bound_direct_budget: self.bound_direct_budget,
             #[cfg(feature = "managed-datagram-runtime")]
             direct_peer_driver: self.direct_peer_driver.clone(),
         }
@@ -102,6 +110,21 @@ impl UdpIngressRuntime {
         &self,
     ) -> Option<&crate::runtime::inbound_owners::PeerResourceContext> {
         self.peer_resources.as_ref()
+    }
+    /// Explicit actual caller grant. No default budget is inferred from peer count.
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn with_bound_direct_budget(
+        mut self,
+        budget: crate::runtime::udp_dispatch::BoundDirectBudget,
+    ) -> Self {
+        self.bound_direct_budget = Some(budget);
+        self
+    }
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn bound_direct_budget(
+        &self,
+    ) -> Option<crate::runtime::udp_dispatch::BoundDirectBudget> {
+        self.bound_direct_budget
     }
     #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) fn with_direct_peer_driver(

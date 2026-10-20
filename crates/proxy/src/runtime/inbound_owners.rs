@@ -19,7 +19,10 @@ pub(crate) use entry::{
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 #[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use peers::{children::PeerResourceContext, InboundPeerTasks, MAX_DATAGRAM_PEERS};
+pub(crate) use peers::{
+    children::{PeerBoundDatagramAuthority, PeerBoundDatagramRegistration, PeerResourceContext},
+    InboundPeerTasks, MAX_DATAGRAM_PEERS,
+};
 pub(crate) use released_fault::released_fault_identity;
 use std::{
     collections::HashMap,

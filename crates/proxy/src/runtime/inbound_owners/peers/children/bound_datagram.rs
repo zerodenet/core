@@ -1,7 +1,7 @@
 //! Explicit finite epoch grants; there is deliberately no default activation.
 mod close;
 mod completion;
-pub(crate) use completion::{PeerBoundDatagramClosed, PeerBoundDatagramRegistration};
+pub(crate) use completion::PeerBoundDatagramRegistration;
 #[cfg(test)]
 mod tests;
 use super::*;

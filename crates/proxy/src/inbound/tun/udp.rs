@@ -211,7 +211,7 @@ fn spawn_association(
     let ingress = scope.as_ref().map(|_| runtime.peer_ingress()).transpose()?;
     let registered = tasks.spawn_bound(move |binding| async move {
         #[cfg(feature = "raw-ip-runtime")]
-        let runtime = match (binding, scope, ingress) {
+        let (runtime, driver_job) = match (binding, scope, ingress) {
             (Some(binding), Some(scope), Some(ingress)) => {
                 if let Err(error) = binding.wait_bound().await {
                     return (source, id, Err(std::io::Error::other(error).into()));
@@ -221,9 +221,16 @@ fn spawn_association(
                         return (source, id, Err(std::io::Error::other(error).into()));
                     }
                 }
-                runtime.with_peer_resources(scope.group.resource_context(binding, ingress))
+                let (slot, job) =
+                    crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot::channel();
+                (
+                    runtime
+                        .with_peer_resources(scope.group.resource_context(binding, ingress))
+                        .with_direct_peer_driver(slot),
+                    Some(job),
+                )
             }
-            (None, None, None) => runtime,
+            (None, None, None) => (runtime, None),
             _ => {
                 return (
                     source,
@@ -240,14 +247,23 @@ fn spawn_association(
                 return (source, id, Err(std::io::Error::other(error).into()));
             }
         }
-        let result = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
+        let relay = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
             runtime,
             stack,
             TunUdpRelay { source, receiver },
             &inbound_tag,
             true,
-        )
-        .await;
+        );
+        #[cfg(feature = "raw-ip-runtime")]
+        let result = match driver_job {
+            Some(job) => {
+                crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(relay, job)
+                    .await
+            }
+            None => relay.await,
+        };
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let result = relay.await;
         #[cfg(feature = "raw-ip-runtime")]
         let result = result.map_err(|error| match &native {
             Some(native) => EngineError::Io(native.retain_error(error)),

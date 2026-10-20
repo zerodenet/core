@@ -55,6 +55,10 @@
 mod backoff;
 mod dispatch;
 #[cfg(feature = "udp-runtime")]
+mod socket;
+#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) use socket::bound::BoundDirectBudget;
+#[cfg(feature = "udp-runtime")]
 mod failure;
 #[cfg(feature = "udp-runtime")]
 mod forward;

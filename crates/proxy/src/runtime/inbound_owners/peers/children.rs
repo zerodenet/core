@@ -1,5 +1,6 @@
 //! One cold resource per actual peer; the existing peer permit includes retirement.
 mod bound_datagram;
+pub(crate) use bound_datagram::{PeerBoundDatagramAuthority, PeerBoundDatagramRegistration};
 mod close;
 mod datagram;
 use super::*;
