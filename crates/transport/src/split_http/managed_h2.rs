@@ -3,9 +3,12 @@
 //! its persistent CarrierOwner and must join the real task, then confirm native
 //! closure through that owner. Dropping a pending handshake refunds nothing.
 mod driver;
+mod evidence;
 mod executor;
 mod failure;
+mod observed_io;
 mod sender;
+pub use evidence::{H2ConnectionFailure, IoOperation};
 use failure::Failure;
 pub use sender::{ResponseBody, Sender};
 use std::{num::NonZeroUsize, sync::Arc};
@@ -44,6 +47,10 @@ impl<B> PendingH2<B> {
     /// Observation of this actual aggregate's JoinSet consumption, not I/O close.
     pub fn join_witness(&self) -> &TaskJoinWitness {
         &self.witness
+    }
+    /// Bounded original diagnostic evidence, independent of task/native close.
+    pub fn failure_evidence(&self) -> &H2ConnectionFailure {
+        self.failure.evidence()
     }
     /// Cancelling this wait leaves the original receiver and owner intact.
     pub async fn ready(&mut self) -> Result<Sender<B>, Arc<ChannelError>> {

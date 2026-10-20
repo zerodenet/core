@@ -121,4 +121,5 @@ async fn pending_once<F: Future>(future: Pin<&mut F>) {
 mod body;
 mod outer;
 mod rejection;
+mod sources;
 mod wire;

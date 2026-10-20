@@ -3,6 +3,7 @@ use std::{
     future::Future,
     marker::PhantomData,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -60,8 +61,19 @@ const DEFAULT_MAX_HEADER_LIST_SIZE: u32 = 1024 * 16; // 16kb
 // the `REFUSED_STREAM` error.
 const DEFAULT_INITIAL_MAX_SEND_STREAMS: usize = 100;
 
+/// Optional observation of the owned connection error otherwise erased to ().
+#[derive(Clone)]
+pub(crate) struct ConnectionErrorObserver(pub(crate) Arc<dyn Fn(h2::Error) + Send + Sync>);
+
+impl std::fmt::Debug for ConnectionErrorObserver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConnectionErrorObserver")
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Config {
+    pub(crate) connection_error_observer: Option<ConnectionErrorObserver>,
     pub(crate) application_settings: Option<Vec<u8>>,
     pub(crate) adaptive_window: bool,
     pub(crate) initial_conn_window_size: u32,
@@ -83,6 +95,7 @@ pub(crate) struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            connection_error_observer: None,
             application_settings: None,
             adaptive_window: false,
             initial_conn_window_size: DEFAULT_CONN_WINDOW,
@@ -187,6 +200,7 @@ where
     let conn: ConnMapErr<T, B> = ConnMapErr {
         conn,
         is_terminated: false,
+        observer: config.connection_error_observer.clone(),
     };
 
     exec.execute_h2_future(H2ClientFuture::Task {
@@ -264,6 +278,7 @@ pin_project! {
         conn: Either<Conn<T, B>, Connection<Compat<T>, SendBuf<<B as Body>::Data>>>,
         #[pin]
         is_terminated: bool,
+        observer: Option<ConnectionErrorObserver>,
     }
 }
 
@@ -284,8 +299,11 @@ where
         if polled.is_ready() {
             *this.is_terminated = true;
         }
-        polled.map_err(|_e| {
-            debug!(error = %_e, "connection error");
+        polled.map_err(|error| {
+            debug!(error = %error, "connection error");
+            if let Some(observer) = this.observer.as_ref() {
+                (observer.0)(error);
+            }
         })
     }
 }

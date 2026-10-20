@@ -68,3 +68,13 @@ H2 helper 显式接收 generic executor E，约束使用 vendor 已公开的 `hy
 新增库回归以真实 TCP 验证 H1 请求、响应 body、driver await 和远端 EOF 分别发生；另在真实 socket 的 shutdown 注入失败，核对原 Arc source 经 Hyper error 映射仍保留。H2 回归观察真实 24 字节 client preface 和握手已将原任务交给显式 RecordingExecutor，且 outer driver Drop 后该任务仍被保存；测试销毁这些 future 不被描述为 TaskScope join 或物理关闭 ACK。测试源码尚待根任务冻结运行，不能把这些声明当成通过结果。
 
 本切面没有实现 H2 受管 executor / 新共享 owner，也不设置任意任务额度。`xmux.rs` maintenance、`client.rs` upload / download / producer、`client/carrier.rs` 非池驱动路径、StreamOne / H3 的各自后台任务与逻辑 user / response-body 关闭仍需完整 owner 集成；每次 demand 的来源和这些资源的真实关闭确认到齐前，生产 mixed DNS / XHTTP 接线继续保持未迁移。
+
+## 库内有限 H2 aggregate 与原错误证据
+
+后续 `89d364f8` 增加独立 `split_http::managed_h2` 库入口：同一个已被实际 CarrierOwner 持有的 ControlledCarrier 经同槽 `CarrierIo::into_driver`，在握手首次 poll 前由实际 TaskRegistrar 登记一个 aggregate。显式 NonZero delegate_limit 同时计原 queued 与 active executor futures，不产生额外 task/thread/runtime、不新增池、不启用生产 XHTTP。typed sender/body 共同观察首错误 Arc；Scope 的真实 join 与原 native control 的确认关闭仍是两个独立事实。
+
+当前窄 source 补丁在该同 IO 视图外侧录实际 poll Err 的原 `Arc<io::Error>`；共享 facade 保 kind，原 raw_os_error 必须从原对象读取。Pending/EOF 不捏造错误，侧录本身也不提前宣告协议 fatal。只有原 handshake/outer Hyper 失败或真实 ConnMapErr 连接失败发布全局首错误。首 ChannelError Arc 与 component/session/stage/reason/impact/delivery/retry 七字段不被迟到 h2/Hyper 证据或 cancel 覆盖。
+
+Hyper 仍为 vendor **1.9.0**、h2 仍为 **0.4.14**。唯一新 vendor 开口是可选 HTTP2 connection-error observer，在 ConnMapErr 把原 h2 错误抹成 `()` 前交出该实际对象；legacy 默认 None，不改原返回值、执行器或 wire。没有新依赖或 lockfile 变更。`H2ConnectionFailure` 只留 first IO/h2/Hyper typed 证据，不补造从未产生的类型，不保错误历史。普通 stream RST 返回该请求的 Protocol/Session 错误，不把它当 whole-carrier IO 故障。
+
+h2 内部 `proto::Error::Io` 仍把 source 转为 String，h2 Error 的 `source()` 仍为空，Hyper `new_h2` 仍消费 IO 型 h2 对象。这些上游事实没有被重写；单独的原 IO Arc 与实际 ConnMapErr h2 对象避免用这些 facade 冒充原 native OS/source。新 source 回归和原 aggregate/物理关闭回归由根任务冻结运行，实施源码不预报通过；Xmux owner、logical workers、maintenance、H3、mixed-prefix 全链路物理资格依然未完成。

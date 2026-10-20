@@ -1,4 +1,5 @@
 use super::failure::Failure;
+use super::H2ConnectionFailure;
 use std::{
     future::Future,
     pin::Pin,
@@ -21,8 +22,11 @@ impl<B> Sender<B> {
     }
     pub async fn ready(&mut self) -> Result<(), Arc<ChannelError>> {
         self.failure
-            .run(Stage::Handshake, self.sender.ready())
+            .run_hyper(Stage::Handshake, self.sender.ready())
             .await
+    }
+    pub fn failure_evidence(&self) -> &H2ConnectionFailure {
+        self.failure.evidence()
     }
     /// Sends the original request once. Failure never retries business bytes.
     pub async fn send_request(
@@ -52,7 +56,7 @@ impl<B> Sender<B> {
             return Err(source);
         }
         let response = failure
-            .run(Stage::Handshake, self.sender.send_request(request))
+            .run_hyper(Stage::Handshake, self.sender.send_request(request))
             .await?;
         Ok(response.map(|body| ResponseBody::new(body, failure)))
     }
@@ -75,6 +79,9 @@ pub struct ResponseBody {
     finished: bool,
 }
 impl ResponseBody {
+    pub fn failure_evidence(&self) -> &H2ConnectionFailure {
+        self.failure.evidence()
+    }
     fn new(body: hyper::body::Incoming, failure: Arc<Failure>) -> Self {
         let notified = failure.clone();
         Self {
@@ -107,9 +114,9 @@ impl hyper::body::Body for ResponseBody {
             }
             Poll::Ready(Some(Err(source))) => {
                 this.finished = true;
-                Poll::Ready(Some(Err(this.failure.get().unwrap_or_else(|| {
-                    this.failure.local(Stage::Receive, Reason::Io, source)
-                }))))
+                Poll::Ready(Some(Err(this
+                    .failure
+                    .request_error(Stage::Receive, source))))
             }
             Poll::Ready(Some(Ok(frame))) => {
                 if let Some(source) = this.failure.get() {

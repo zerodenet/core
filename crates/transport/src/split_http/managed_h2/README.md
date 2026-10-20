@@ -30,9 +30,32 @@ user/response leases and replacement admission. This seam does not qualify Xmux
 pool maintenance, logical upload/download workers, H3/Quinn, TLS/CA/ECH resource
 preparation or mixed prefix native ownership. It does not change legacy call sites.
 
-The pinned Hyper `ConnMapErr` erases some underlying connection failures to `()`;
-this seam preserves sources it actually receives, including executor admission,
-outer Hyper errors and body/request errors. It cannot reconstruct an OS error
-which Hyper already discarded. Panic/abort's original JoinError remains in the
-actual TaskScope/witness; a waiter awakened by aggregate Drop receives Revoked,
-not an invented JoinError or physical-close acknowledgement.
+The unique IO view records the first actual poll error as its original
+`Arc<io::Error>`, then returns the same error kind with a shared-original source
+wrapper. The facade's `raw_os_error()` is not the original code: read that code
+from `failure_evidence().io_source()`. Pending, EOF and successful polls record
+nothing. A raw poll error alone does not invent a fatal connection result; the
+original protocol operation retains its error handling.
+
+The pinned Hyper 1.9.0 has a narrowly optional connection-error observer, installed
+only on this managed path. It consumes the actual `h2::Error` which `ConnMapErr`
+would discard to `()`, without changing the delegated future's result or adding
+tasks. That actual fatal result wakes the aggregate and its waiters. Legacy
+builders have no observer. A stream RST remains a local Protocol/Session error;
+it does not publish global connection failure and siblings can keep using it.
+
+`H2ConnectionFailure` retains at most the first original IO, h2 and Hyper object
+actually observed, with typed getters. The same first ChannelError Arc and all
+seven decision fields stay unchanged when later evidence/cancellation arrives.
+Some failure paths never produce one of these types: no synthetic Hyper/h2/IO
+object fills a missing field. Request-local evidence stays separate from the
+connection's fatal evidence. A diagnostic getter is not a resource grant.
+
+The lower h2 protocol still stringifies IO sources internally and its `Error`
+does not expose `get_io()` through `Error::source`. Hyper's `new_h2` also consumes
+an IO-type h2 error. These APIs are unchanged: the separate original IO Arc and
+the optional exact ConnMapErr h2 object preserve their actual evidence instead
+of claiming those reconstructed h2 IO facades retain a native OS representation.
+Panic/abort's original JoinError remains in the actual TaskScope/witness; a waiter
+awakened by aggregate Drop receives Revoked, not an invented JoinError or
+physical-close acknowledgement.

@@ -1,6 +1,7 @@
 use super::{
     executor::{Inbox, Work},
     failure::{self, Failure},
+    observed_io::ObservedIo,
     Options,
 };
 use crate::split_http::xmux::prepared::{self, PreparedH2};
@@ -12,7 +13,7 @@ use zero_platform_tokio::{
     controlled_carrier::CarrierIo,
 };
 
-type Driver = Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>;
+type Driver = Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>>;
 struct Life {
     inbox: Arc<Inbox>,
     completed: bool,
@@ -51,11 +52,17 @@ where
         inbox: inbox.clone(),
         completed: false,
     };
+    let observer = Arc::downgrade(&failure);
     let mut handshake = Some(Box::pin(prepared::http2_with_body::<_, B, _>(
-        io,
+        ObservedIo::new(io, failure.clone()),
         options.settings.as_deref(),
         options.keepalive,
         inbox.executor(),
+        Some(Arc::new(move |error| {
+            if let Some(failure) = observer.upgrade() {
+                failure.observe_h2(error);
+            }
+        })),
     )));
     let mut handoff = Some(handoff);
     let mut outer: Option<Driver> = None;
@@ -93,7 +100,7 @@ where
                         }
                     }
                     Err(source)=>{
-                        let source=failure.set(failure.local(Stage::Handshake,Reason::Io,source));
+                        let source=failure.connection_error(Stage::Handshake,source);
                         return Err(failure::forwarded(source));
                     }
                 }
@@ -101,7 +108,7 @@ where
             result=async {outer.as_mut().expect("guarded outer driver").as_mut().await},if outer.is_some()=>{
                 outer=None;
                 if let Err(source)=result {
-                    let source=failure.set(failure.local(Stage::Receive,Reason::Io,source));
+                    let source=failure.connection_error(Stage::Receive,source);
                     return Err(failure::forwarded(source));
                 }
                 // Outer Ready alone is not aggregate completion. All queued

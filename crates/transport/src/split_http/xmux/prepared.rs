@@ -3,7 +3,7 @@
 //! during handshake. Returning the outer future does not join those delegates.
 use super::super::{body::Body, client::carrier};
 use hyper_util::rt::{TokioIo, TokioTimer};
-use std::{future::Future, io, pin::Pin, time::Duration};
+use std::{future::Future, io, pin::Pin, sync::Arc, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub(in crate::split_http) struct PreparedConnection {
@@ -38,16 +38,18 @@ where
     E: hyper::rt::bounds::Http2ClientConnExec<Body, TokioIo<S>> + Unpin + Send + Sync + 'static,
 {
     let PreparedH2 { sender, driver } =
-        http2_with_body::<S, Body, E>(stream, settings, keepalive, executor).await?;
+        http2_with_body::<S, Body, E>(stream, settings, keepalive, executor, None)
+            .await
+            .map_err(io::Error::other)?;
     Ok(PreparedConnection {
         sender: carrier::Sender::Http2(sender),
-        driver,
+        driver: Box::pin(async move { driver.await.map_err(io::Error::other) }),
     })
 }
 
 pub(in crate::split_http) struct PreparedH2<B> {
     pub(in crate::split_http) sender: hyper::client::conn::http2::SendRequest<B>,
-    pub(in crate::split_http) driver: Pin<Box<dyn Future<Output = io::Result<()>> + Send>>,
+    pub(in crate::split_http) driver: Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>>,
 }
 
 /// The same original Hyper connection, with the caller's typed request body.
@@ -56,7 +58,8 @@ pub(in crate::split_http) async fn http2_with_body<S, B, E>(
     settings: Option<&[u8]>,
     keepalive: i64,
     executor: E,
-) -> io::Result<PreparedH2<B>>
+    observer: Option<Arc<dyn Fn(h2::Error) + Send + Sync>>,
+) -> hyper::Result<PreparedH2<B>>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     B: hyper::body::Body + Send + Unpin + 'static,
@@ -72,6 +75,9 @@ where
         None
     };
     let mut builder = hyper::client::conn::http2::Builder::new(executor);
+    if let Some(observer) = observer {
+        builder.connection_error_observer(move |error| observer(error));
+    }
     if let Some(settings) = settings {
         builder.peer_application_settings(settings);
     }
@@ -81,11 +87,10 @@ where
         .keep_alive_timeout(Duration::from_secs(15))
         .keep_alive_while_idle(true)
         .handshake::<_, B>(TokioIo::new(stream))
-        .await
-        .map_err(io::Error::other)?;
+        .await?;
     Ok(PreparedH2 {
         sender,
-        driver: Box::pin(async move { driver.await.map_err(io::Error::other) }),
+        driver: Box::pin(driver),
     })
 }
 
