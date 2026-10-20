@@ -126,7 +126,7 @@ impl ProxyHandle {
             .await?;
 
         let Some(reconciler) = &self.config_reconciler else {
-            if let Err(error) = self.commit_configuration() {
+            if let Err(error) = self.commit_configuration(timeout).await {
                 let rollback = self
                     .rollback_proxy_dns_under_guard(previous, timeout, persist)
                     .await;
@@ -143,7 +143,7 @@ impl ProxyHandle {
         let candidate = Arc::new(candidate);
         match reconciler.reconcile(candidate).await {
             Ok(result) => {
-                if let Err(error) = self.commit_configuration() {
+                if let Err(error) = self.commit_configuration(timeout).await {
                     let proxy_rollback = self
                         .rollback_proxy_dns_under_guard(previous.clone(), timeout, persist)
                         .await;
@@ -189,20 +189,41 @@ impl ProxyHandle {
         }
     }
 
-    fn commit_configuration(&self) -> Result<(), String> {
+    async fn commit_configuration(&self, timeout: Duration) -> Result<(), String> {
+        if self.proxy.apply_owner.is_closing() {
+            return Err("proxy stopped before configuration commit".to_owned());
+        }
+        let token = self.retire_prepared_dns(timeout).await?;
         self.proxy.apply_owner.commit(|| {
             self.proxy.protocols.commit_components(
                 self.proxy.engine.runtime_snapshot().config(),
                 || {
                     self.proxy
                         .resolver
-                        .commit_prepared_reload()
+                        .commit_reload_resources(&token)
                         .map_err(|error| format!("DNS config commit failed: {error}"))?;
                     self.proxy.engine.commit_config_change();
                     Ok(())
                 },
             )
         })
+    }
+
+    pub(super) async fn retire_prepared_dns(
+        &self,
+        timeout: Duration,
+    ) -> Result<zero_dns::DnsReloadResources, String> {
+        let token = self
+            .proxy
+            .resolver
+            .prepared_reload_resources()
+            .map_err(|error| format!("DNS resource candidate is unavailable: {error}"))?;
+        self.proxy
+            .resolver
+            .retire_reload_resources(&token, tokio::time::Instant::now() + timeout)
+            .await
+            .map_err(|error| format!("DNS resource retirement remains unconfirmed: {error}"))?;
+        Ok(token)
     }
 
     async fn rollback_proxy_dns_under_guard(
@@ -220,10 +241,22 @@ impl ProxyHandle {
                 Some(previous),
             )
             .await;
-        // The committed resolver was never replaced, so the rollback's
-        // prepared last-known-good candidate is redundant.
-        self.proxy.resolver.discard_prepared_reload();
-        result
+        result?;
+        // Retirement may have closed the previous persistent backend before a
+        // later commit failed. Recovery must confirm and publish the exact new
+        // old-config candidate; discarding it cannot revive a closed pool.
+        let token = self.retire_prepared_dns(timeout).await?;
+        self.proxy.apply_owner.compensate(|| {
+            self.proxy.protocols.commit_components(
+                self.proxy.engine.runtime_snapshot().config(),
+                || {
+                    self.proxy
+                        .resolver
+                        .commit_reload_resources(&token)
+                        .map_err(|error| format!("DNS recovery commit failed: {error}"))
+                },
+            )
+        })
     }
 }
 

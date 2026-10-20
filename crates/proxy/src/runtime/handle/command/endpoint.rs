@@ -241,15 +241,23 @@ impl ProxyHandle {
                 .await
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
         }
+        let token = self
+            .retire_prepared_dns(TIMEOUT)
+            .await
+            .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
         self.proxy
-            .resolver
-            .commit_prepared_reload()
-            .map_err(|error| {
-                ApiError::new(
-                    ApiErrorCode::Internal,
-                    format!("endpoint DNS commit failed: {error}"),
-                )
-            })?;
+            .apply_owner
+            .commit(|| {
+                self.proxy
+                    .protocols
+                    .commit_components(snapshot.config(), || {
+                        self.proxy
+                            .resolver
+                            .commit_reload_resources(&token)
+                            .map_err(|error| format!("endpoint DNS commit failed: {error}"))
+                    })
+            })
+            .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
         Ok(())
     }
 

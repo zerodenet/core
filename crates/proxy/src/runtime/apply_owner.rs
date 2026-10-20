@@ -101,6 +101,19 @@ impl ApplyOwner {
         }
         commit()
     }
+    /// An accepted task retains compensation ownership while shutdown waits
+    /// for it. Business admission remains closed; this only restores its
+    /// previous DNS/component owners under the same short publication gate.
+    pub(super) fn compensate(
+        &self,
+        restore: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        let _gate = self
+            .commit_gate
+            .lock()
+            .expect("configuration commit gate poisoned");
+        restore()
+    }
     pub(super) async fn run<T: Send + 'static>(
         self: &Arc<Self>,
         serial: Arc<Mutex<()>>,
