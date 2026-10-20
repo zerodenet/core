@@ -18,7 +18,7 @@ struct State {
     failure: Option<SharedError>,
     reclaimed: usize,
     confirmed_children: usize,
-    closed_io: usize,
+    closed_io_receipts: usize,
 }
 pub(crate) struct InboundPeerTasks {
     identity: ComponentInstanceId,
@@ -67,7 +67,7 @@ impl std::fmt::Debug for InboundPeerTasks {
             .field("active", &state.active.len())
             .field("reclaimed", &state.reclaimed)
             .field("confirmed_children", &state.confirmed_children)
-            .field("closed_io", &state.closed_io)
+            .field("closed_io_receipts", &state.closed_io_receipts)
             .field("closing", &state.closing)
             .finish_non_exhaustive()
     }
@@ -204,11 +204,11 @@ impl InboundPeerTasks {
             && state.children.is_empty()
             && state.claiming.is_empty()
     }
-    pub(super) fn closed_io_count(&self) -> usize {
+    pub(super) fn closed_io_receipts_count(&self) -> usize {
         self.state
             .lock()
             .expect("peer task state poisoned")
-            .closed_io
+            .closed_io_receipts
     }
     pub(crate) fn begin_shutdown(&self) {
         let mut state = self.state.lock().expect("peer task state poisoned");

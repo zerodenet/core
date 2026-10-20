@@ -42,7 +42,7 @@ impl SharedIngressRuntimeServices {
             }
         }
         tracing::error!(inbound_tag = tag, component = terminal.identity().component.0,
-            joined_tasks = terminal.joined_tasks(), closed_io = terminal.closed_io(), error = %failure,
+            joined_tasks = terminal.joined_tasks(), closed_io_receipts = terminal.closed_io_receipts(), error = %failure,
             reason = "inbound_fault_physically_closed", "inbound fault handed to supervisor after confirmed shutdown");
     }
     pub(super) fn for_inbound(mut self, tag: String) -> Self {

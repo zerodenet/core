@@ -129,7 +129,7 @@ async fn prove_recovery(consume_before_publication: bool) {
         .unwrap();
     assert!(std::ptr::eq(first.terminal(), replay.terminal()));
     assert!(first.terminal().joined_tasks() >= 2);
-    assert_eq!(first.terminal().closed_io(), 1);
+    assert_eq!(first.terminal().closed_io_receipts(), 1);
     let old_instance = first.terminal().identity();
     let original = first.terminal().failure().unwrap();
     let actual = first

@@ -88,11 +88,11 @@ impl InboundPeerTasks {
                 "peer native resource remains unconfirmed",
             ));
         }
-        let closed_io = receipts.closed_io.len();
+        let closed_io_receipts = receipts.closed_io.len();
         drop(receipts);
         let mut state = self.state.lock().expect("peer task state poisoned");
         state.confirmed_children = state.confirmed_children.saturating_add(1);
-        state.closed_io = state.closed_io.saturating_add(closed_io);
+        state.closed_io_receipts = state.closed_io_receipts.saturating_add(closed_io_receipts);
         // Successful evidence has been consumed here. Retain bounded
         // totals, not one historical string/owner per completed peer.
         state.children.remove(&task);

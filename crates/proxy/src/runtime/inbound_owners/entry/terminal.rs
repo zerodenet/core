@@ -11,7 +11,7 @@ pub(crate) struct InboundTerminal {
     identity: ComponentInstanceId,
     observation: Arc<observation::ObservationDisposition>,
     joined_tasks: usize,
-    closed_io: usize,
+    closed_io_receipts: usize,
     failure: Option<SharedError>,
     tasks: Box<[InboundTaskFailure]>,
 }
@@ -31,8 +31,8 @@ impl InboundTerminal {
     pub(crate) fn joined_tasks(&self) -> usize {
         self.joined_tasks
     }
-    pub(crate) fn closed_io(&self) -> usize {
-        self.closed_io
+    pub(crate) fn closed_io_receipts(&self) -> usize {
+        self.closed_io_receipts
     }
 }
 /// A caller may own a capability, but only the registry can issue/consume it.
@@ -167,20 +167,20 @@ impl InboundOwner {
         Some(
             self.terminal
                 .get_or_init(|| {
-                    let closed_io = self
+                    let closed_io_receipts = self
                         .report
                         .lock()
                         .expect("inbound close report poisoned")
                         .closed_io
                         .len();
                     #[cfg(feature = "managed-datagram-runtime")]
-                    let closed_io = self
+                    let closed_io_receipts = self
                         .peers
                         .lock()
                         .expect("peer owners poisoned")
                         .iter()
-                        .fold(closed_io, |total, group| {
-                            total.saturating_add(group.closed_io_count())
+                        .fold(closed_io_receipts, |total, group| {
+                            total.saturating_add(group.closed_io_receipts_count())
                         });
                     Arc::new(InboundTerminal {
                         identity: self.identity,
@@ -189,7 +189,7 @@ impl InboundOwner {
                             .joined_count
                             .lock()
                             .expect("inbound joined count poisoned"),
-                        closed_io,
+                        closed_io_receipts,
                         failure: self
                             .failure
                             .lock()
