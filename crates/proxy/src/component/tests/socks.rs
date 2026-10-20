@@ -11,13 +11,25 @@ use tokio::{
 use zero_core::{Address, Network, ProtocolType, Session};
 use zero_engine::{RouteDecision, RouteMode};
 
-fn proxy(ports: &[u16]) -> Proxy {
+async fn proxy(ports: &[u16]) -> Proxy {
     let outbounds:Vec<_>=ports.iter().enumerate().map(|(index,port)| serde_json::json!({"tag":format!("node-{index}"),"protocol":{"type":"socks5","server":"127.0.0.1","port":port}})).collect();
     let mut config = serde_json::json!({"outbounds":outbounds,"route":{"final":{"type":"route","outbound":"node-0"}}});
     if ports.len() > 1 {
         config["outbound_groups"] = serde_json::json!([{"tag":"fallback","type":"fallback","outbounds":["node-0","node-1"]}]);
     }
-    Proxy::new(zero_config::RuntimeConfig::parse(&config.to_string()).unwrap()).unwrap()
+    let proxy =
+        Proxy::new(zero_config::RuntimeConfig::parse(&config.to_string()).unwrap()).unwrap();
+    let config = proxy.engine().runtime_snapshot().config().clone();
+    proxy
+        .protocols
+        .start_components(config.clone(), Instant::now() + Duration::from_secs(3))
+        .await
+        .unwrap();
+    proxy
+        .protocols
+        .commit_components(&config, || Ok(()))
+        .unwrap();
+    proxy
 }
 fn request(proxy: &Proxy) -> (Session, crate::protocol_registry::TcpRuntimeServices) {
     let mut session = Session::new(
@@ -51,7 +63,7 @@ async fn handshake(stream: &mut TcpStream) {
 async fn business_socks_uses_built_role_and_accounts_only_actual_handshake_bytes() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    let proxy = proxy(&[port]);
+    let proxy = proxy(&[port]).await;
     let (session, services) = request(&proxy);
     let (resolved, _plan) = proxy
         .engine()
@@ -105,7 +117,7 @@ async fn business_socks_uses_built_role_and_accounts_only_actual_handshake_bytes
 #[tokio::test]
 async fn revoked_socks_role_does_not_fall_back_to_a_per_request_legacy_claim() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let proxy = proxy(&[listener.local_addr().unwrap().port()]);
+    let proxy = proxy(&[listener.local_addr().unwrap().port()]).await;
     let (session, services) = request(&proxy);
     let plan = services.execution().components.unwrap();
     let slot = plan.configured("node-0").unwrap();
@@ -155,7 +167,8 @@ async fn fallback_does_not_replay_an_unconfirmed_submitted_socks_connect() {
     let proxy = proxy(&[
         first.local_addr().unwrap().port(),
         second.local_addr().unwrap().port(),
-    ]);
+    ])
+    .await;
     let (session, services) = request(&proxy);
     let server = tokio::spawn(async move {
         let (mut stream, _) = first.accept().await.unwrap();
@@ -185,7 +198,7 @@ async fn fallback_does_not_replay_an_unconfirmed_submitted_socks_connect() {
 #[tokio::test]
 async fn native_socks_preserves_existing_rejection_code_message_stage_and_endpoint() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let proxy = proxy(&[listener.local_addr().unwrap().port()]);
+    let proxy = proxy(&[listener.local_addr().unwrap().port()]).await;
     let server = tokio::spawn(async move {
         for _ in 0..2 {
             let (mut stream, _) = listener.accept().await.unwrap();
@@ -232,7 +245,8 @@ async fn fallback_can_try_another_member_before_any_socks_connect_request_is_sub
     let proxy = proxy(&[
         first.local_addr().unwrap().port(),
         second.local_addr().unwrap().port(),
-    ]);
+    ])
+    .await;
     let (session, services) = request(&proxy);
     let rejected = tokio::spawn(async move {
         let (mut stream, _) = first.accept().await.unwrap();
@@ -274,7 +288,7 @@ async fn fallback_can_try_another_member_before_any_socks_connect_request_is_sub
 #[tokio::test]
 async fn stream_only_factory_does_not_bypass_strict_packet_plane_validation() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let proxy = proxy(&[listener.local_addr().unwrap().port()]);
+    let proxy = proxy(&[listener.local_addr().unwrap().port()]).await;
     let (_session, services) = request(&proxy);
     let (resolved, _plan) = proxy
         .engine()

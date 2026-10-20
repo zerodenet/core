@@ -3,8 +3,10 @@ use crate::profile::OwnedClientTlsProfile;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn profile() -> OwnedClientTlsProfile {
-    let mut options = zero_traits::ClientTlsOptions::default();
-    options.disable_system_roots = true;
+    let options = zero_traits::ClientTlsOptions {
+        disable_system_roots: true,
+        ..Default::default()
+    };
     OwnedClientTlsProfile {
         options,
         server_name: Some("localhost".into()),

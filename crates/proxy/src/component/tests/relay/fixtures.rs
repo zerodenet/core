@@ -21,6 +21,19 @@ pub(super) async fn setup(count: usize) -> (Proxy, Session, TcpRuntimeServices, 
     let config = serde_json::json!({"outbounds":outbounds,"outbound_groups":[{"tag":"relay","type":"relay","proxies":tags}],"route":{"final":{"type":"route","outbound":"relay"}}});
     let proxy =
         Proxy::new(zero_config::RuntimeConfig::parse(&config.to_string()).unwrap()).unwrap();
+    let config = proxy.engine().runtime_snapshot().config().clone();
+    proxy
+        .protocols
+        .start_components(
+            config.clone(),
+            tokio::time::Instant::now() + std::time::Duration::from_secs(3),
+        )
+        .await
+        .unwrap();
+    proxy
+        .protocols
+        .commit_components(&config, || Ok(()))
+        .unwrap();
     let mut session = Session::new(
         0,
         Address::Ipv4([203, 0, 113, 9]),
