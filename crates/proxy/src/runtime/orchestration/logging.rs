@@ -2,13 +2,13 @@ use tracing::info;
 
 use crate::runtime::Proxy;
 
-pub(super) fn log_started(proxy: &Proxy) {
+pub(super) fn log_started(proxy: &Proxy, config: &zero_config::RuntimeConfig) {
     info!(
-        inbound_count = proxy.config.inbounds.len(),
-        outbound_count = proxy.config.outbounds.len(),
-        outbound_group_count = proxy.config.outbound_groups.len(),
-        rule_count = proxy.config.route.rules.len(),
-        mode = %proxy.config.mode.kind(),
+        inbound_count = config.inbounds.len(),
+        outbound_count = config.outbounds.len(),
+        outbound_group_count = config.outbound_groups.len(),
+        rule_count = config.route.rules.len(),
+        mode = %config.mode.kind(),
         udp_upstream_idle_timeout_seconds = proxy.engine.udp_upstream_idle_timeout().as_secs(),
         supported_inbounds = ?proxy.protocols.supported_inbounds(),
         supported_outbounds = ?proxy.protocols.supported_outbounds(),

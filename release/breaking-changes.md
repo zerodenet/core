@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### 启动期间的实际配置代次一致性
+
+宿主先订阅实际 reload 通知，再捕获一次 Engine snapshot；本次启动的 DNS candidate 准备/真实资源退休、组件 start/commit、listener 与服务均使用该同一 snapshot 的配置。启动 await 期间的后续公开 Engine reload 留待原 bridge 逐次 reconcile，不能把后来读取的配置提交到先前启动的组件。启动前已完成 Engine reload 也从捕获的实际配置建立 DNS 与组件。wire 与配置 schema 不变；公开 Engine reload / probe 调用方式不需要迁移。回归保留 `automatic_urltest_rebuilds_runtime_across_large_and_small_reloads`，并新增 `runtime/orchestration/tests/startup_snapshot.rs` 的真实 UDP DNS/HTTP 流量与同一 plan Arc 验证。
+
+
 ### 冷态公开 outbound 诊断的 Service 生命周期
 
 `ProxyHandle::new` / CLI / FFI 的独立 `diagnostics.probe_outbound` 继续支持尚未运行 listener 的宿主。调用入口显式把冷态探测接受到已有有限宿主任务及配置串行锁，安装并启动实际临时 component plan，仅授予 Service preparing 权限；探测完成后确认该 plan 的实际组件任务/声明资源关闭，全程不发布 Business。调用方取消不再遗弃已接受的组件维护，实际探测仍受原有超时预算限制。冷态维护串行，运行中探测继续使用原有并发上限与实际 runtime owner。

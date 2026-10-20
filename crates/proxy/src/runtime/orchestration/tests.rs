@@ -1,4 +1,6 @@
 use zero_engine::EngineError;
+#[cfg(feature = "managed-stream-runtime")]
+mod startup_snapshot;
 
 use super::lifecycle::{
     handle_configured_tun_failure, handle_listener_result, handle_urltest_result,
