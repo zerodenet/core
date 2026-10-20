@@ -108,7 +108,8 @@ impl DriverOwner {
         Arc::new(ClientState::new(self.changed.clone()))
     }
     pub(super) fn ensure_open(&self) -> io::Result<()> {
-        let state = self.state.lock().expect("DoH driver owner poisoned");
+        let mut state = self.state.lock().expect("DoH driver owner poisoned");
+        state.reap();
         if state.closing {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
@@ -132,6 +133,9 @@ impl DriverOwner {
                 io::ErrorKind::NotConnected,
                 "DoH pool is closing",
             ));
+        }
+        if let Some(source) = &state.failure {
+            return Err(io::Error::other(Retained(source.clone())));
         }
         if state.records.len() >= self.limit {
             return Err(io::Error::new(
