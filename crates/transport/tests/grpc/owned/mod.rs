@@ -33,6 +33,7 @@ use zero_platform_tokio::{
 mod fixtures;
 use fixtures::*;
 mod admission;
+mod logical;
 mod recipe;
 #[cfg(feature = "tls")]
 mod tls;
