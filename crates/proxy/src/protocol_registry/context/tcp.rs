@@ -1,3 +1,4 @@
+mod accepted;
 mod execution;
 use super::{OutboundAdapterContext, UpstreamConnectServices};
 use crate::inventory::ProtocolInventory;
@@ -122,6 +123,7 @@ impl TcpRuntimeServices {
                 #[cfg(feature = "raw-ip-runtime")]
                 caller_native: None,
                 admitted: None,
+                caller_accepted: None,
                 identity: zero_platform_tokio::contract::context::RequestIdentity::Business(
                     Arc::new(crate::component::request::facts(session, ingress)),
                 ),
@@ -180,6 +182,9 @@ impl TcpRuntimeServices {
                         "native caller association requires the original admitted demand",
                     )
                 })?;
+            if invocation.caller_accepted.is_some() {
+                return Err(std::io::Error::other("one admitted demand cannot replace its actual accepted caller with a raw caller").into());
+            }
             if invocation
                 .caller_native
                 .as_ref()

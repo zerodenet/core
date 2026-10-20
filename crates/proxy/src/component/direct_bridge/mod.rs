@@ -34,6 +34,7 @@ pub(crate) struct Invocation {
     pub(crate) caller_native:
         Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
     pub(crate) admitted: Option<super::business_demand::AdmittedTcpDemand>,
+    pub(crate) caller_accepted: Option<zero_platform_tokio::AcceptedTcpCaller>,
     pub(crate) identity: RequestIdentity,
     pub(crate) deadline: Option<Instant>,
 }
@@ -43,6 +44,13 @@ impl Invocation {
             .admitted
             .as_ref()
             .map_or_else(CancellationToken::new, |demand| demand.cancellation());
+        if self
+            .caller_accepted
+            .as_ref()
+            .is_some_and(|caller| caller.check_open().is_err())
+        {
+            cancel.cancel();
+        }
         #[cfg(feature = "raw-ip-runtime")]
         if self
             .caller_native
@@ -62,6 +70,7 @@ impl From<ServiceInvocation> for Invocation {
             #[cfg(feature = "raw-ip-runtime")]
             caller_native: None,
             admitted: None,
+            caller_accepted: None,
             identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
                 origin: ServiceOrigin::Runtime,
                 purpose: invocation.purpose,

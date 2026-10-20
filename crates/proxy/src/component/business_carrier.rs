@@ -24,6 +24,7 @@ pub(super) struct BusinessCarrierRequest {
     identity: RequestIdentity,
     session: SessionId,
     deadline: Option<Instant>,
+    caller_accepted: Option<zero_platform_tokio::AcceptedTcpCaller>,
     #[cfg(feature = "raw-ip-runtime")]
     caller_native:
         Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
@@ -66,6 +67,7 @@ impl BusinessCarrierRequest {
             identity: invocation.identity.clone(),
             session: facts.session,
             deadline: invocation.deadline,
+            caller_accepted: invocation.caller_accepted.clone(),
             #[cfg(feature = "raw-ip-runtime")]
             caller_native: invocation.caller_native.clone(),
         };
@@ -84,6 +86,18 @@ impl BusinessCarrierRequest {
                 invalid(
                     Reason::Revoked,
                     "actual caller has no original tracked registration",
+                )
+            });
+        }
+        if let Some(caller) = &self.caller_accepted {
+            caller.check_open().map_err(|mut error| {
+                error.session.get_or_insert(self.session);
+                error
+            })?;
+            return caller.task_join_witness().map(Some).ok_or_else(|| {
+                invalid(
+                    Reason::Revoked,
+                    "accepted caller has no original tracked registration",
                 )
             });
         }
@@ -119,6 +133,12 @@ impl CarrierBusinessDemand for BusinessCarrierRequest {
     fn check(&self) -> Result<(), ChannelError> {
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(caller) = &self.caller_native {
+            caller.check_open().map_err(|mut error| {
+                error.session.get_or_insert(self.session);
+                error
+            })?;
+        }
+        if let Some(caller) = &self.caller_accepted {
             caller.check_open().map_err(|mut error| {
                 error.session.get_or_insert(self.session);
                 error

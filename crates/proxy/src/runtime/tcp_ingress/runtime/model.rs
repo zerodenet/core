@@ -9,6 +9,7 @@ pub(crate) struct TcpIngressRuntime {
     pub(super) inbound_tag: String,
     pub(super) source_addr: Option<SocketAddr>,
     pub(super) local_addr: Option<SocketAddr>,
+    caller_accepted: Option<zero_platform_tokio::AcceptedTcpCaller>,
     #[cfg(feature = "raw-ip-runtime")]
     caller_native:
         Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
@@ -25,11 +26,22 @@ impl TcpIngressRuntime {
             inbound_tag,
             source_addr,
             local_addr: None,
+            caller_accepted: None,
             #[cfg(feature = "raw-ip-runtime")]
             caller_native: None,
         }
     }
 
+    pub(crate) fn with_accepted_caller(
+        mut self,
+        caller: zero_platform_tokio::AcceptedTcpCaller,
+    ) -> Self {
+        self.caller_accepted = Some(caller);
+        self
+    }
+    pub(crate) fn accepted_caller(&self) -> Option<zero_platform_tokio::AcceptedTcpCaller> {
+        self.caller_accepted.clone()
+    }
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn with_caller_native(
         mut self,
