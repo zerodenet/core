@@ -1,7 +1,7 @@
 //! Bounded peer registrations belong to the actual persistent listener scope.
 use super::*;
 use crate::component::instance::{retained, SharedError};
-use std::{collections::BTreeSet, future::Future};
+use std::{collections::BTreeMap, future::Future};
 use tokio::sync::Notify;
 use zero_core::component::TaskId;
 
@@ -9,14 +9,50 @@ use zero_core::component::TaskId;
 pub(crate) const MAX_DATAGRAM_PEERS: usize = 4096;
 #[derive(Default)]
 struct State {
-    active: BTreeSet<TaskId>,
+    active: BTreeMap<TaskId, Arc<HostPeerBinding>>,
+    preparing: usize,
     closing: bool,
     failure: Option<SharedError>,
     reclaimed: usize,
 }
 pub(crate) struct InboundPeerTasks {
+    identity: ComponentInstanceId,
+    cancel: CancellationToken,
     state: Mutex<State>,
     changed: Notify,
+}
+struct Registration<'a> {
+    group: &'a InboundPeerTasks,
+    binding: Arc<HostPeerBinding>,
+    accepted: bool,
+}
+impl Drop for Registration<'_> {
+    fn drop(&mut self) {
+        if self.accepted {
+            return;
+        }
+        let mut state = self
+            .group
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.preparing -= 1;
+        // A cold factory may panic before an actual task is accepted. Reject
+        // its admission, never invent a joined TaskId or an I/O close report.
+        state.closing = true;
+        self.binding.reject(Arc::new(
+            zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::Revoked,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+            .with_source(std::io::Error::other(
+                "peer registration ended before scope acceptance",
+            )),
+        ));
+        drop(state);
+        self.group.changed.notify_one();
+    }
 }
 impl std::fmt::Debug for InboundPeerTasks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -29,8 +65,10 @@ impl std::fmt::Debug for InboundPeerTasks {
     }
 }
 impl InboundPeerTasks {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(identity: ComponentInstanceId, cancel: CancellationToken) -> Self {
         Self {
+            identity,
+            cancel,
             state: Mutex::default(),
             changed: Notify::new(),
         }
@@ -44,26 +82,94 @@ impl InboundPeerTasks {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<(), EngineError>> + Send + 'static,
     {
+        self.spawn_bound(host, |_| {
+            let task = make();
+            async move {
+                if let Err(error) = task.await {
+                    tracing::debug!(%error, "UDP peer association ended");
+                }
+                Ok(())
+            }
+        })
+    }
+    pub(crate) fn spawn_bound<F, Fut>(
+        &self,
+        host: &InboundTaskAccess,
+        make: F,
+    ) -> Result<bool, EngineError>
+    where
+        F: FnOnce(Arc<HostPeerBinding>) -> Fut,
+        Fut: Future<Output = Result<(), EngineError>> + Send + 'static,
+    {
+        if host.identity != self.identity {
+            return Err(std::io::Error::other(
+                "peer group belongs to another actual listener scope",
+            )
+            .into());
+        }
+        let binding = {
+            let mut state = self.state.lock().expect("peer task state poisoned");
+            if state.closing || state.active.len() + state.preparing >= MAX_DATAGRAM_PEERS {
+                return Ok(false);
+            }
+            state.preparing += 1;
+            Arc::new(HostPeerBinding::new(self.identity, self.cancel.clone()))
+        };
+        let mut registration = Registration {
+            group: self,
+            binding: binding.clone(),
+            accepted: false,
+        };
+        // Never run a protocol/cold-owner factory under the registration lock.
+        // Its bounded reservation persists if it panics or stop races it.
+        let task = make(binding.clone());
         let mut state = self.state.lock().expect("peer task state poisoned");
-        if state.closing || state.active.len() >= MAX_DATAGRAM_PEERS {
+        if state.closing || self.cancel.is_cancelled() {
+            drop(state);
             return Ok(false);
         }
-        let task = make();
-        let id = host.spawn(async move {
-            if let Err(error) = task.await {
-                tracing::debug!(%error, "UDP peer association ended");
+        let id = host.spawn_critical(task);
+        let id = match id {
+            Ok(id) => id,
+            Err(source) => {
+                use zero_platform_tokio::contract::{scope::SpawnError, Reason};
+                let reason = match source {
+                    SpawnError::Capacity => Reason::Capacity,
+                    SpawnError::Closing => Reason::Revoked,
+                    SpawnError::NotStarted => Reason::InvalidConfig,
+                    SpawnError::IdentityExhausted => Reason::Internal,
+                };
+                let source = Arc::new(
+                    zero_platform_tokio::contract::ChannelError::new(
+                        zero_platform_tokio::contract::Stage::Prepare,
+                        reason,
+                        zero_platform_tokio::contract::Impact::Component,
+                    )
+                    .with_source(source),
+                );
+                binding.reject(source.clone());
+                drop(state);
+                return Err(std::io::Error::other(retained(source)).into());
             }
-            Ok(())
-        })?;
+        };
         // Receipt dispatch takes this same lock, including exit-before-insert.
-        state.active.insert(id);
+        binding.bind(id);
+        state.active.insert(id, binding);
+        state.preparing -= 1;
+        registration.accepted = true;
         Ok(true)
     }
-    pub(super) fn joined(&self, id: TaskId, failure: Option<SharedError>) -> bool {
+    pub(super) fn joined(
+        &self,
+        id: TaskId,
+        class: zero_platform_tokio::contract::scope::TaskClass,
+        failure: Option<SharedError>,
+    ) -> bool {
         let mut state = self.state.lock().expect("peer task state poisoned");
-        if !state.active.remove(&id) {
+        let Some(binding) = state.active.remove(&id) else {
             return false;
-        }
+        };
+        binding.joined(id, class, failure.clone());
         if let Some(failure) = failure {
             state.failure.get_or_insert(failure);
             state.closing = true;
@@ -75,7 +181,11 @@ impl InboundPeerTasks {
         true
     }
     pub(crate) fn begin_shutdown(&self) {
-        self.state.lock().expect("peer task state poisoned").closing = true;
+        let mut state = self.state.lock().expect("peer task state poisoned");
+        state.closing = true;
+        for binding in state.active.values() {
+            binding.request_stop();
+        }
         self.changed.notify_one();
     }
     pub(crate) async fn changed(&self) {
@@ -87,7 +197,7 @@ impl InboundPeerTasks {
             let notified = self.changed.notified();
             {
                 let state = self.state.lock().expect("peer task state poisoned");
-                if state.active.is_empty() {
+                if state.active.is_empty() && state.preparing == 0 {
                     return state.failure.as_ref().map_or(Ok(()), |error| {
                         Err(std::io::Error::other(retained(error.clone())).into())
                     });

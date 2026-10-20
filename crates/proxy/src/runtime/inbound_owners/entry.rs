@@ -38,6 +38,8 @@ pub(crate) struct InboundOwner {
 }
 #[derive(Clone)]
 pub(crate) struct InboundTaskAccess {
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(super) identity: ComponentInstanceId,
     registrar: TaskRegistrar,
     cancel: CancellationToken,
     shutdown: watch::Sender<bool>,
@@ -55,14 +57,18 @@ impl InboundTaskAccess {
         &self,
         work: impl Future<Output = Result<(), EngineError>> + Send + 'static,
     ) -> Result<TaskId, EngineError> {
-        self.registrar
-            .spawn(TaskClass::Critical, async move {
-                work.await.map_err(|source| {
-                    ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
-                        .with_source(source)
-                })
-            })
+        self.spawn_critical(work)
             .map_err(|source| std::io::Error::other(source).into())
+    }
+    pub(super) fn spawn_critical(
+        &self,
+        work: impl Future<Output = Result<(), EngineError>> + Send + 'static,
+    ) -> Result<TaskId, zero_platform_tokio::contract::scope::SpawnError> {
+        self.registrar.spawn(TaskClass::Critical, async move {
+            work.await.map_err(|source| {
+                ChannelError::new(Stage::Close, Reason::Io, Impact::Component).with_source(source)
+            })
+        })
     }
 }
 impl InboundOwner {
@@ -104,6 +110,8 @@ impl InboundOwner {
     }
     pub(crate) fn task_access(&self) -> InboundTaskAccess {
         InboundTaskAccess {
+            #[cfg(feature = "managed-datagram-runtime")]
+            identity: self.identity,
             registrar: self.registrar.clone(),
             cancel: self.cancel.clone(),
             shutdown: self.shutdown.clone(),
@@ -111,7 +119,10 @@ impl InboundOwner {
     }
     #[cfg(feature = "managed-datagram-runtime")]
     pub(super) fn install_peer_tasks(&self) -> Arc<super::InboundPeerTasks> {
-        let group = Arc::new(super::InboundPeerTasks::new());
+        let group = Arc::new(super::InboundPeerTasks::new(
+            self.identity,
+            self.cancel.clone(),
+        ));
         self.peers
             .lock()
             .expect("peer owners poisoned")
@@ -215,7 +226,7 @@ impl InboundOwner {
             .lock()
             .expect("peer owners poisoned")
             .iter()
-            .any(|group| group.joined(exit.id, failure.clone()));
+            .any(|group| group.joined(exit.id, exit.class, failure.clone()));
         #[cfg(not(feature = "managed-datagram-runtime"))]
         let peer = {
             let _ = failure;
