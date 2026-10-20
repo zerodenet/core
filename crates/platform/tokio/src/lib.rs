@@ -1,5 +1,7 @@
 pub mod contract;
+mod controlled_listener;
 pub mod file;
+pub use controlled_listener::{ControlledTcpListener, ControlledTcpListenerControl};
 #[cfg(feature = "host-network-stats")]
 pub mod network_statistics;
 use std::io;
