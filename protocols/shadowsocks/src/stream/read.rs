@@ -1,3 +1,4 @@
+use super::error::protocol_io;
 use super::*;
 impl<S> ShadowsocksAeadStream<S>
 where
@@ -54,26 +55,22 @@ where
                                 )
                             })?;
                             if self.cipher.is_stream() {
-                                self.replay.check(salt).map_err(|error| {
-                                    io::Error::new(io::ErrorKind::InvalidData, error)
-                                })?;
+                                self.replay.check(salt).map_err(protocol_io)?;
                                 self.legacy_read = Some(
                                     crate::shared::legacy::LegacyCipherState::new(
                                         self.cipher,
                                         &password,
                                         salt,
                                     )
-                                    .map_err(|error| {
-                                        io::Error::new(io::ErrorKind::InvalidData, error)
-                                    })?,
+                                    .map_err(protocol_io)?,
                                 );
                                 self.read_state = ReadState::Legacy;
                                 continue;
                             }
-                            self.read_key =
-                                Some(derive_download_key(self.cipher, &password, salt).map_err(
-                                    |error| io::Error::new(io::ErrorKind::InvalidData, error),
-                                )?);
+                            self.read_key = Some(
+                                derive_download_key(self.cipher, &password, salt)
+                                    .map_err(|error| protocol_io(error))?,
+                            );
                             if self.is_2022 {
                                 self.modern_response_salt = Some(salt.clone());
                                 // 2022 response: read the fixed-length header
@@ -112,16 +109,14 @@ where
                                 &mut self.read_nonce,
                                 buf,
                             )
-                            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                            .map_err(protocol_io)?;
                             let salt_len = self.cipher.salt_len();
                             let (header_type, _timestamp, resp_request_salt, length) =
                                 crate::shared::parse_2022_response_fixed_header(
                                     &header_plain,
                                     salt_len,
                                 )
-                                .map_err(|error| {
-                                    io::Error::new(io::ErrorKind::InvalidData, error)
-                                })?;
+                                .map_err(protocol_io)?;
                             if header_type != crate::shared::SS_2022_HEADER_TYPE_SERVER_STREAM {
                                 return Poll::Ready(Err(io::Error::new(
                                     io::ErrorKind::InvalidData,
@@ -130,9 +125,8 @@ where
                             }
                             #[cfg(feature = "blake3")]
                             {
-                                crate::shared::validate_2022_timestamp(_timestamp).map_err(
-                                    |error| io::Error::new(io::ErrorKind::InvalidData, error),
-                                )?;
+                                crate::shared::validate_2022_timestamp(_timestamp)
+                                    .map_err(|error| protocol_io(error))?;
                             }
                             // SIP022 3.1.3: the client MUST verify the echoed request salt.
                             if resp_request_salt != self.request_salt {
@@ -143,9 +137,7 @@ where
                             }
                             #[cfg(feature = "blake3")]
                             if let Some(salt) = self.modern_response_salt.take() {
-                                self.replay.check_2022(&salt).map_err(|error| {
-                                    io::Error::new(io::ErrorKind::InvalidData, error)
-                                })?;
+                                self.replay.check_2022(&salt).map_err(protocol_io)?;
                             }
                             self.report_peer(
                                 zero_platform_tokio::contract::context::ConnectFact::PeerConfirmed,
@@ -177,7 +169,7 @@ where
                             &mut self.read_nonce,
                             encrypted,
                         )
-                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                        .map_err(protocol_io)?;
                         if self.read_plain.len() != *expected_len {
                             return Poll::Ready(Err(io::Error::new(
                                 io::ErrorKind::InvalidData,
@@ -216,11 +208,9 @@ where
                             &mut self.read_nonce,
                             encrypted_len,
                         )
-                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                        .map_err(protocol_io)?;
                         if let Some(salt) = self.legacy_response_salt.take() {
-                            self.replay.check(&salt).map_err(|error| {
-                                io::Error::new(io::ErrorKind::InvalidData, error)
-                            })?;
+                            self.replay.check(&salt).map_err(protocol_io)?;
                         }
                         self.read_state = ReadState::Payload {
                             expected_len,
@@ -249,7 +239,7 @@ where
                             *expected_len,
                             encrypted_payload,
                         )
-                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                        .map_err(protocol_io)?;
                         self.read_plain_pos = 0;
                         self.read_state = ReadState::Length {
                             buf: vec![0_u8; TCP_CHUNK_SIZE_LEN + self.cipher.tag_len()],

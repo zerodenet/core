@@ -169,7 +169,12 @@ async fn two_canonical_native_consumers_reject_the_second_authenticated_2022_res
             } else {
                 let error = result.unwrap_err();
                 assert!(error.to_string().contains("replay salt rejected"));
-                assert!(std::error::Error::source(&error).is_some());
+                let source = std::error::Error::source(&error)
+                    .expect("original replay rejection remains in the source chain");
+                assert!(matches!(
+                    source.downcast_ref::<zero_core::Error>(),
+                    Some(zero_core::Error::Protocol("ss: 2022 replay salt rejected"))
+                ));
                 assert_eq!(
                     observations.facts.lock().unwrap().last(),
                     Some(&(None, ConnectFact::PeerRejected))

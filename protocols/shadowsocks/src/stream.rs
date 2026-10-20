@@ -1,3 +1,4 @@
+mod error;
 mod observer;
 mod read;
 mod write;
