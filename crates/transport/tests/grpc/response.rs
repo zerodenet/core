@@ -64,84 +64,89 @@ async fn dropping_head_after_real_pending_response_registration_reclaims_it_befo
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (accepted, request_accepted) = tokio::sync::oneshot::channel();
-        let (release, released) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel::<bool>();
+        let (cancelled, cancellation) = tokio::sync::oneshot::channel();
         let (finish, finished) = tokio::sync::oneshot::channel();
         let server = tokio::spawn(async move {
             let (io, _) = listener.accept().await.unwrap();
             let mut connection = h2::server::handshake(io).await.unwrap();
-            let (_request, mut respond) = connection.accept().await.unwrap().unwrap();
+            let (request, mut respond) = connection.accept().await.unwrap().unwrap();
             accepted.send(()).unwrap();
-            let gate = async {
-                released.await.unwrap();
-            };
+            let gate = async { released.await.unwrap() };
             tokio::pin!(gate);
-            let live = tokio::select! {_=&mut gate=>true,_=connection.accept()=>{gate.await;false}};
-            // A correctly dropped response may already be reset. This response
-            // exists only to break the old strong-owner cycle before asserting.
-            let _ = respond.send_response(Response::builder().status(200).body(()).unwrap(), true);
-            let finish = async {
-                finished.await.unwrap();
+            let rescue = tokio::select! {
+                rescue=&mut gate=>rescue,
+                incoming=connection.accept()=>panic!("connection ended before cancellation coordination: {}",incoming.is_some()),
             };
-            tokio::pin!(finish);
-            if live {
-                tokio::select! {_=&mut finish=>{},_=connection.accept()=>{finish.await;}}
+            if rescue {
+                // Regression cleanup only: the old waker still owns the Head.
+                // Resolve that original future before asserting, rather than
+                // unwinding its last owner under H2's stream-store mutex.
+                respond.send_response(Response::builder().status(200).body(()).unwrap(),true).unwrap();
+                cancelled.send(false).unwrap();
             } else {
-                finish.await;
+                let reset = futures_util::future::poll_fn(|cx|respond.poll_reset(cx));
+                tokio::pin!(reset);
+                let reason = tokio::select! {
+                    reason=&mut reset=>reason.unwrap(),
+                    incoming=connection.accept()=>panic!("connection ended before the actual stream reset: {}",incoming.is_some()),
+                };
+                assert_eq!(reason,h2::Reason::CANCEL);
+                // The peer has now actually consumed RST_STREAM(CANCEL).
+                // Do not send response headers on this cancelled stream.
+                cancelled.send(true).unwrap();
             }
+            let finishing = async { finished.await.unwrap() };
+            tokio::pin!(finishing);
+            tokio::select! {
+                _=&mut finishing=>{},
+                incoming=connection.accept()=>{
+                    assert!(incoming.is_none(),"no second request belongs to this fixture");
+                    finishing.await;
+                    return;
+                },
+            }
+            drop(request);
+            drop(respond);
+            connection.graceful_shutdown();
+            assert!(connection.accept().await.is_none(),"graceful H2 shutdown must drain the actual connection");
         });
         let io = tokio::net::TcpStream::connect(address).await.unwrap();
         let (sender, connection) = h2::client::handshake(io).await.unwrap();
         let driver = tokio::spawn(async move { connection.await });
         let mut sender = sender.ready().await.unwrap();
-        let (response, send) = sender
-            .send_request(
-                Request::builder()
-                    .uri("https://localhost/pending")
-                    .body(())
-                    .unwrap(),
-                true,
-            )
-            .unwrap();
+        let (response, send) = sender.send_request(
+            Request::builder().uri("https://localhost/pending").body(()).unwrap(),true,
+        ).unwrap();
         request_accepted.await.unwrap();
         let head = Head::new(response);
         let weak = Arc::downgrade(&head.0);
         futures_util::future::poll_fn(|cx| {
             assert!(head.poll(cx).is_pending());
             Poll::Ready(())
-        })
-        .await;
+        }).await;
         let isolated = Arc::strong_count(&head.0) == 1;
         drop(head);
         let rescue = weak.upgrade();
         let reclaimed = rescue.is_none();
-        // Acquire the fallback owner before allowing the remote notification,
-        // including if this fixture is later run on a multithreaded runtime.
-        release.send(()).unwrap();
+        // Hold any regression fallback before releasing the remote notification.
+        release.send(rescue.is_some()).unwrap();
         if let Some(shared) = rescue {
-            // On the regressed implementation, consume the original future
-            // with real H2 I/O before cleanup; an assertion must not deadlock
-            // while unwinding the same pending future/waker ownership cycle.
             let rescue = Head(shared);
-            let response = futures_util::future::poll_fn(|cx| rescue.poll(cx))
-                .await
-                .unwrap();
+            let response = futures_util::future::poll_fn(|cx|rescue.poll(cx)).await.unwrap();
             drop(response);
             drop(rescue);
         }
+        // This END_STREAM SendStream is the remaining stream reference;
+        // release it while keeping SendRequest/connection alive to flush CANCEL.
         drop(send);
+        let observed_cancel = cancellation.await.unwrap();
         drop(sender);
         finish.send(()).unwrap();
         server.await.unwrap();
         driver.await.unwrap().unwrap();
-        assert!(
-            isolated,
-            "a registered H2 waker must not increase Shared ownership"
-        );
-        assert!(
-            reclaimed,
-            "pending Head must be reclaimed before connection cleanup"
-        );
-    })
-    .await
-    .unwrap();
+        assert!(isolated,"a registered H2 waker must not increase Shared ownership");
+        assert!(reclaimed,"pending Head must be reclaimed before connection cleanup");
+        assert!(observed_cancel,"the peer must observe the real CANCEL before teardown");
+    }).await.unwrap();
 }
