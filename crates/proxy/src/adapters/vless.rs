@@ -174,6 +174,10 @@ fn inbound_user_refs(users: &[zero_config::VlessUserConfig]) -> Vec<VlessInbound
 #[cfg(feature = "vless")]
 #[async_trait::async_trait]
 impl ProxyTransportTcpLeaf for VlessOutboundLeaf {
+    fn retained_admission(&self) -> Result<(), zero_engine::EngineError> {
+        self.check_retained_carrier_owner().map_err(Into::into)
+    }
+
     const TCP_CONNECT_STAGE: &'static str = "connect_upstream_vless";
     const TCP_INVALID_CONNECT_CONFIG: &'static str = "invalid vless tcp config";
     const TCP_INVALID_RELAY_CONFIG: &'static str = "invalid vless tcp relay config";

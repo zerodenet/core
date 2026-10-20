@@ -19,6 +19,10 @@ impl<TLeaf> PreparedTcpConnectOperation for TransportLeafTcpConnectOperation<TLe
 where
     TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync,
 {
+    fn retained_admission(&self) -> Result<(), EngineError> {
+        self.prepared.retained_admission()
+    }
+
     fn execute<'a>(
         &'a self,
         services: TcpExecutionServices,
@@ -58,6 +62,10 @@ impl<TLeaf> PreparedTcpRelayOperation for TransportLeafTcpRelayOperation<TLeaf>
 where
     TLeaf: ProxyTransportTcpLeaf + Send + Sync,
 {
+    fn retained_admission(&self) -> Result<(), EngineError> {
+        self.prepared.retained_admission()
+    }
+
     fn execute<'a>(
         &'a self,
         services: crate::protocol_registry::UpstreamConnectServices,

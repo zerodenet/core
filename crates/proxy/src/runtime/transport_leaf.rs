@@ -52,6 +52,10 @@ where
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
 #[async_trait::async_trait]
 pub(crate) trait ProxyTransportTcpLeaf: ProxyTransportLeaf + Send + Sync {
+    fn retained_admission(&self) -> Result<(), zero_engine::EngineError> {
+        Err(zero_core::Error::Unsupported("retained transport owner is not migrated").into())
+    }
+
     const TCP_CONNECT_STAGE: &'static str;
     const TCP_INVALID_CONNECT_CONFIG: &'static str;
     const TCP_INVALID_RELAY_CONFIG: &'static str;
@@ -162,6 +166,10 @@ impl<TLeaf> PreparedTransportLeaf<TLeaf>
 where
     TLeaf: ProxyTransportTcpLeaf,
 {
+    pub(crate) fn retained_admission(&self) -> Result<(), zero_engine::EngineError> {
+        self.leaf.retained_admission()
+    }
+
     pub(crate) async fn open_tcp_stream(
         &self,
         services: UpstreamConnectServices,

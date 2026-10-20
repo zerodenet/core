@@ -206,6 +206,12 @@ impl VlessOutboundLeaf {
         }
     }
 
+    /// Check the actual transport-runtime pool epoch captured when preparing
+    /// this leaf. This does not confirm that its old users or I/O have closed.
+    pub fn check_retained_carrier_owner(&self) -> Result<(), RuntimeError> {
+        self.relay_pools.check_current()
+    }
+
     pub fn tag(&self) -> &str {
         &self.tag
     }

@@ -72,6 +72,11 @@ impl<'a> LazyTcpRelayCarrier<'a> {
 }
 
 pub(crate) trait PreparedTcpConnectOperation: Send + Sync {
+    /// Unknown legacy owners cannot authorize retained reconnection.
+    fn retained_admission(&self) -> Result<(), EngineError> {
+        Err(zero_core::Error::Unsupported("retained TCP owner is not migrated").into())
+    }
+
     fn execute<'a>(
         &'a self,
         services: TcpExecutionServices,
@@ -82,6 +87,10 @@ pub(crate) trait PreparedTcpConnectOperation: Send + Sync {
 }
 
 pub(crate) trait PreparedTcpRelayOperation: Send + Sync {
+    fn retained_admission(&self) -> Result<(), EngineError> {
+        Err(zero_core::Error::Unsupported("retained relay owner is not migrated").into())
+    }
+
     fn execute<'a>(
         &'a self,
         services: crate::protocol_registry::UpstreamConnectServices,
