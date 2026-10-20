@@ -59,8 +59,11 @@ pub(super) fn spawn_inbound_listener_with_state(
         operation.internal_tasks(),
         shutdown_tx.clone(),
     )?;
-    operation.install_resources(&installed)?;
     let owner = installed.owner();
+    if !rollback {
+        runtime_factory.register_preparing(&owner)?;
+    }
+    operation.install_resources(&installed)?;
     let inbound_tag = inbound.tag.clone();
     let protocol = inbound.protocol.protocol_name();
     let listen_address = inbound.listen.address.clone();

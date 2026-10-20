@@ -83,11 +83,32 @@ impl InboundListenerRuntime {
 
 #[derive(Clone)]
 pub(crate) struct InboundListenerRuntimeFactory {
+    preparing: Option<std::sync::Arc<crate::runtime::inbound_owners::PreparingInbounds>>,
     owners: std::sync::Arc<crate::runtime::inbound_owners::InboundOwnerRegistry>,
     shared: SharedIngressRuntimeServices,
 }
 
 impl InboundListenerRuntimeFactory {
+    pub(crate) fn with_preparing(
+        mut self,
+        preparing: std::sync::Arc<crate::runtime::inbound_owners::PreparingInbounds>,
+    ) -> Self {
+        self.preparing = Some(preparing);
+        self
+    }
+    pub(crate) fn without_preparing(mut self) -> Self {
+        self.preparing = None;
+        self
+    }
+    pub(crate) fn register_preparing(
+        &self,
+        owner: &std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.preparing
+            .as_ref()
+            .map_or(Ok(()), |preparing| preparing.register(owner))
+    }
+
     pub(crate) fn owners(
         &self,
     ) -> &std::sync::Arc<crate::runtime::inbound_owners::InboundOwnerRegistry> {
@@ -100,7 +121,11 @@ impl InboundListenerRuntimeFactory {
         shared: SharedIngressRuntimeServices,
         owners: std::sync::Arc<crate::runtime::inbound_owners::InboundOwnerRegistry>,
     ) -> Self {
-        Self { shared, owners }
+        Self {
+            shared,
+            owners,
+            preparing: None,
+        }
     }
 
     pub(crate) fn publish_inbound_terminal(

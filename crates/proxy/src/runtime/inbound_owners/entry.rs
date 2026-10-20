@@ -17,6 +17,7 @@ use zero_platform_tokio::contract::{
 mod observation;
 mod readiness;
 pub(crate) use observation::consume_reported_error;
+pub(super) use readiness::readiness_stopped;
 pub(crate) use readiness::InboundReady;
 mod shutdown;
 mod terminal;
@@ -176,7 +177,7 @@ impl InboundOwner {
         work: impl Future<Output = Result<(), EngineError>> + Send + 'static,
     ) -> Result<(), EngineError> {
         if self.cancel.is_cancelled() || *self.shutdown.borrow() {
-            return Err(std::io::Error::other("inbound stopped before driver acceptance").into());
+            return Err(self.ready_stopped());
         }
         self.scope
             .try_lock()

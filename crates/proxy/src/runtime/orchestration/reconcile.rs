@@ -69,7 +69,8 @@ impl OrchestrationState {
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),
             proxy.inbound_owners.clone(),
-        );
+        )
+        .with_preparing(self.preparing_inbounds.clone());
         let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services.clone());
         #[cfg(feature = "managed-stream-runtime")]
         let prepared_services = match proxy.protocols.prepare_inbound_services(&new_config) {
@@ -143,6 +144,11 @@ impl OrchestrationState {
             self.reject_reload(proxy, &new_snapshot, message).await;
             return;
         }
+        if let Err(error) = self.preparing_inbounds.ensure_open() {
+            self.reject_reload(proxy, &new_snapshot, error.to_string())
+                .await;
+            return;
+        }
         if !proxy.pending_reload_matches(&new_snapshot) {
             let commit = async {
                 let token = self
@@ -155,6 +161,9 @@ impl OrchestrationState {
                         tokio::time::Instant::now() + std::time::Duration::from_secs(5),
                     )
                     .await
+                    .map_err(|error| error.to_string())?;
+                self.preparing_inbounds
+                    .ensure_open()
                     .map_err(|error| error.to_string())?;
                 proxy
                     .protocols
@@ -193,7 +202,16 @@ impl OrchestrationState {
                 self.shutdown_rx.clone(),
             )
             .await;
-        self.inbound_runtime_factory = candidate_runtime_factory;
+        // Resource/service publication above can suspend. Recheck the same
+        // phase immediately before its success ACK; stop cannot become success
+        // merely because all listeners had reached Ready earlier.
+        if let Err(error) = self.preparing_inbounds.ensure_open() {
+            self.finish_rejection(proxy, &new_snapshot, error.to_string(), true)
+                .await;
+            return;
+        }
+        self.inbound_runtime_factory = candidate_runtime_factory.without_preparing();
+        self.preparing_inbounds = Default::default();
         self.urltest_runtime = candidate_urltest_runtime;
         self.publish_removed_endpoints(proxy, &new_snapshot);
         self.applied_snapshot = new_snapshot;

@@ -88,7 +88,35 @@ impl InboundReady {
         .await
     }
 }
+#[derive(Debug)]
+struct ReadinessStopped(zero_core::component::ComponentInstanceId);
+impl std::fmt::Display for ReadinessStopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "actual inbound {:?} stopped before readiness acknowledgement",
+            self.0
+        )
+    }
+}
+impl std::error::Error for ReadinessStopped {}
+pub(in crate::runtime::inbound_owners) fn readiness_stopped(error: &std::io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|source| source.is::<ReadinessStopped>())
+}
 impl InboundOwner {
+    pub(crate) fn is_ready(&self) -> bool {
+        self.ready.0.complete.load(Ordering::Acquire)
+    }
+    pub(crate) fn ready_stopped(&self) -> EngineError {
+        std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            ReadinessStopped(self.identity),
+        )
+        .into()
+    }
+
     pub(crate) fn readiness(&self) -> InboundReady {
         self.ready.clone()
     }
@@ -101,17 +129,13 @@ impl InboundOwner {
             changed.as_mut().enable();
             // An original task/resource failure takes precedence over Ready.
             self.result()?;
+            if self.cancel.is_cancelled() || *self.shutdown.borrow() {
+                return Err(self.ready_stopped());
+            }
             if self.driver_finished.load(Ordering::Acquire) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::ConnectionAborted,
                     "inbound driver exited before readiness acknowledgement",
-                )
-                .into());
-            }
-            if self.cancel.is_cancelled() || *self.shutdown.borrow() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Interrupted,
-                    "inbound stopped before readiness acknowledgement",
                 )
                 .into());
             }

@@ -4,7 +4,9 @@ mod entry;
 mod peer_binding;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peers;
+mod preparing;
 mod recovery;
+pub(crate) use preparing::{preparation_stopped, PreparingInbounds};
 mod released_fault;
 use crate::inventory::ProtocolInventory;
 pub(crate) use entry::{

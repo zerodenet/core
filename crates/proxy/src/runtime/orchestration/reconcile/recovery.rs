@@ -9,6 +9,10 @@ impl OrchestrationState {
         message: String,
         recover_dns: bool,
     ) {
+        // Only candidate instances registered by this phase are stopped.
+        // Recovery uses the last-good factory without this admission fence.
+        self.preparing_inbounds.begin_shutdown();
+        self.preparing_inbounds = Default::default();
         self.pending_dns_reload = None;
         proxy.resolver.discard_prepared_reload();
         let persist = proxy.pending_reload_persists(rejected);

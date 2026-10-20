@@ -6,6 +6,8 @@
 
 配置应用和启动的 listener 成功确认现在等待同一实际实例的 Ready receipt。协议资源 start 和 carrier activation 必须先完成，随后实际 accept/recv loop 首次 poll 到运行态才由宿主该调用点确认；TCP+UDP 和 listener group 必须确认所有实际分支，登记任务本身不是 Ready。就绪前错误、停止和取消不发布候选成功；取消等待保留实际 owner、候选信息与同一 receipt，旧实例的通知不能确认新实例。协议自有就绪预算保持原样，包括 SIP003 TCP 原十秒预算，不新增通用五秒 Ready 超时。
 
+外部停止现在与原 startup/reconcile future 同时受 poll；停止只撤销该准备阶段记录的实际 pre-Ready 候选，并同步拒绝迟到安装，最后成功监听器不加入该候选集合。宿主继续驱动同一个借用事务完成真实清理与补偿，保留原 DNS candidate、任务/Child owner 和关闭收据；停止后最终发布与 ACK 再校验同一阶段，不能把取消等待或 future Drop 当关闭证明。跟踪元数据只弱引用本阶段实际实例，已完成物理关闭或 Ready 的项被回收，阶段结束不保留历史。回归新增真实 pending SIP003 的 startup/reload 停止与 reap，以及未受候选停止影响的真实 last-good TCP listener。
+
 wire、配置 schema 及调用方式不变，无 GUI/SDK 迁移步骤；原调用方可能更晚收到成功，实际初始化失败会进入原补偿路径。此确认描述监听循环已进入运行态，不代替已转交会话、原生 FD 或整个 M4 资源关闭证明。回归见 `runtime/inbound_owners/entry/readiness/tests.rs` 的真实 TCP/UDP pending、取消和原 TaskExit source，以及 `runtime/orchestration/tests/inbound_ready.rs` 的实际 SIP003 Child、超过五秒仍 pending 的初始化、真实 ACK 和明确 reap。
 
 ### 启动期间的实际配置代次一致性

@@ -15,7 +15,35 @@ where
     // An empty configuration is a valid management-only runtime. Keep the
     // reload/shutdown loop alive so a controller can install its first inbound
     // through the same reconciled configuration transaction used on reload.
-    let mut state = OrchestrationState::new(proxy).await?;
+    let mut state = OrchestrationState::assemble(proxy);
+    tokio::pin!(shutdown);
+    let preparing = state.preparing_inbounds.clone();
+    let (startup, stopped) = {
+        let startup = state.start(proxy);
+        tokio::pin!(startup);
+        tokio::select! {
+            result = &mut startup => (result, false),
+            _ = &mut shutdown => {
+                proxy.apply_owner.begin_shutdown();
+                proxy.protocols.stop_component_admission();
+                preparing.begin_shutdown();
+                // Preserve the same borrowed state and every temporary owner.
+                // Stop is a request; only its original cleanup path can ACK.
+                (startup.await, true)
+            }
+        }
+    };
+    if stopped || startup.is_err() {
+        let result = match startup {
+            Err(error)
+                if !stopped || !crate::runtime::inbound_owners::preparation_stopped(&error) =>
+            {
+                Err(error)
+            }
+            _ => Ok(()),
+        };
+        return state.finish(proxy, result).await;
+    }
     let _sampler = super::statistics::Sampler::start(proxy.engine.clone());
     let result = run_loop(proxy, &mut state, shutdown).await;
     let result = state.finish(proxy, result).await;
@@ -70,7 +98,24 @@ where
                     reason = "config_reload",
                     "proxy orchestration reload requested"
                 );
-                state.reconcile_reload(proxy).await;
+                let preparing = state.preparing_inbounds.clone();
+                let stopped = {
+                    let reconciliation = state.reconcile_reload(proxy);
+                    tokio::pin!(reconciliation);
+                    tokio::select! {
+                        _ = &mut reconciliation => false,
+                        _ = &mut shutdown => {
+                            proxy.apply_owner.begin_shutdown();
+                            proxy.protocols.stop_component_admission();
+                            preparing.begin_shutdown();
+                            // Drive this exact compensation, including its
+                            // original DNS token and closed-owner receipts.
+                            reconciliation.await;
+                            true
+                        }
+                    }
+                };
+                if stopped { return state.drain_configuration(proxy).await; }
             }
             failure = proxy.packet_close_owner.observe_failure() => {
                 return Err(io::Error::other(failure).into());

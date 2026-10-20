@@ -21,6 +21,15 @@ while True:
     stream, _ = listener.accept()
     stream.close()
 "#;
+fn candidate(port: u16, gate_port: u16) -> zero_config::RuntimeConfig {
+    zero_config::RuntimeConfig::parse(&serde_json::json!({
+        "inbounds":[{"tag":"ready-ss","listen":{"address":"127.0.0.1","port":port},
+        "protocol":{"type":"shadowsocks","cipher":"aes-128-gcm","password":"readiness-test",
+        "plugin":{"command":"python3","args":["-c",PLUGIN,gate_port.to_string()],"mode":"tcp_only"}}}],
+        "route":{"final":{"type":"direct"}}
+    }).to_string()).unwrap()
+}
+
 #[tokio::test]
 async fn candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loops() {
     let initial =
@@ -32,12 +41,7 @@ async fn candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loop
     // Retain the real candidate port until the same task begins reconciliation.
     let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = reserved.local_addr().unwrap().port();
-    let candidate = zero_config::RuntimeConfig::parse(&serde_json::json!({
-        "inbounds":[{"tag":"ready-ss","listen":{"address":"127.0.0.1","port":port},
-        "protocol":{"type":"shadowsocks","cipher":"aes-128-gcm","password":"readiness-test",
-        "plugin":{"command":"python3","args":["-c",PLUGIN,gate.local_addr().unwrap().port().to_string()],"mode":"tcp_only"}}}],
-        "route":{"final":{"type":"direct"}}
-    }).to_string()).unwrap();
+    let candidate = candidate(port, gate.local_addr().unwrap().port());
     proxy.engine.stage_runtime_config(candidate).unwrap();
     let expected = proxy.engine.runtime_snapshot();
     let (sender, mut acknowledgement) = tokio::sync::oneshot::channel();
@@ -120,3 +124,5 @@ async fn candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loop
         .unwrap();
     assert_eq!(tail, b"bound\n");
 }
+
+mod shutdown;

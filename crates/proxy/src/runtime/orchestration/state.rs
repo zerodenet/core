@@ -11,6 +11,8 @@ use crate::groups::UrlTestRuntime;
 use crate::runtime::route_runtime::InboundListenerRuntimeFactory;
 
 pub(super) struct OrchestrationState {
+    pub(super) preparing_inbounds:
+        std::sync::Arc<crate::runtime::inbound_owners::PreparingInbounds>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) egress_updates: watch::Receiver<u64>,
     #[cfg(feature = "raw-ip-runtime")]
