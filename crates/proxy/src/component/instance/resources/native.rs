@@ -93,6 +93,15 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn confirm_metadata_users(
+        &self,
+        ordinal: usize,
+        receipt: &zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        self.confirm_metadata_original_users(ordinal, receipt, tasks)
+    }
+
     fn listen_metadata_datagram(
         &self,
         request: zero_platform_tokio::contract::component::MetadataDatagramRequest,

@@ -19,6 +19,7 @@ async fn actual_claimed_quinn_graph_requires_real_stream_release_receiver_accept
         let observation = grant.control.take_observation().unwrap();
         let metadata = HostedMetadataSocket::new(
             GrantedMetadataListener {
+                users_claim: None,
                 scope: registrar.scope_identity(),
                 rx: grant.rx,
                 tx: grant.tx,
@@ -120,6 +121,7 @@ async fn claimed_constructor_returns_exact_foreign_claim_without_starting_any_dr
     let observation = second.control.take_observation().unwrap();
     let metadata = HostedMetadataSocket::new(
         GrantedMetadataListener {
+            users_claim: None,
             scope: registrar.scope_identity(),
             rx: second.rx,
             tx: second.tx,

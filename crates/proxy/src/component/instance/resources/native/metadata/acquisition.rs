@@ -109,6 +109,34 @@ impl HostResources {
             }
         };
         native.controls.push(control);
+        let (issuer, users_claim) = match native
+            .controls
+            .last_mut()
+            .expect("installed same original control")
+            .claim_views(scope.clone())
+        {
+            Ok(value) => value,
+            Err(source) => {
+                let failure = Arc::new(
+                    error(
+                        self.component,
+                        Reason::Io,
+                        "metadata users claim issuance failed",
+                    )
+                    .with_source(source),
+                );
+                let source = native.first_fault.get_or_insert(failure).clone();
+                native.observe_originals(self.component);
+                return Err(crate::component::instance::retained(source));
+            }
+        };
+        // Persist the private original issuer before any observation transfer,
+        // external callback, postcheck, or release of the unique public claim.
+        native.users.push(UsersClaim {
+            issuer,
+            transferred: false,
+            confirmed: None,
+        });
         let observation = match native
             .controls
             .last_mut()
@@ -142,11 +170,19 @@ impl HostResources {
             return Err(failure);
         }
         native.observe_originals(self.component);
+        // No callback/await lies between this durable transfer obligation and
+        // returning the original views plus their unique claim to the caller.
+        native
+            .users
+            .last_mut()
+            .expect("installed original users issuer")
+            .transferred = true;
         Ok(GrantedMetadataListener {
             scope: scope.clone(),
             rx,
             tx,
             observation,
+            users_claim: Some(users_claim),
         })
     }
 }

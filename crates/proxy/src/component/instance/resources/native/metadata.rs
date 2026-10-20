@@ -8,17 +8,26 @@ use zero_platform_tokio::{
         scope::TaskScopeIdentity,
     },
     controlled_datagram::{
-        metadata::{MetadataDatagramControl, MetadataLimits, MetadataOwner},
+        metadata::{
+            users::MetadataUsersClosedReceipt, MetadataDatagramControl, MetadataLimits,
+            MetadataOwner, MetadataViewIssuer,
+        },
         DatagramOwnerReport,
     },
 };
 mod acquisition;
+mod confirmation;
 mod evidence;
 pub(in crate::component) use evidence::MetadataIoEvidence;
 
 pub(super) struct MetadataDeclarations {
     identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
     entries: BTreeMap<usize, Entry>,
+}
+struct UsersClaim {
+    issuer: MetadataViewIssuer,
+    transferred: bool,
+    confirmed: Option<MetadataUsersClosedReceipt>,
 }
 struct Entry {
     source: SocketAddr,
@@ -29,6 +38,8 @@ struct Native {
     owner: MetadataOwner,
     // Same originals, installed before observation transfer or any postcheck.
     controls: Vec<MetadataDatagramControl>,
+    // Bounded by the original finite bind-attempt budget, not a new registry.
+    users: Vec<UsersClaim>,
     remaining: usize,
     attempted: bool,
     closing: bool,
@@ -75,6 +86,7 @@ impl MetadataDeclarations {
                     state: Mutex::new(Native {
                         owner,
                         controls: Vec::new(),
+                        users: Vec::new(),
                         remaining: max_bind_attempts.get(),
                         attempted: false,
                         closing: false,
@@ -105,6 +117,10 @@ impl MetadataDeclarations {
                 && !native.probes_busy
                 && native.main.complete()
                 && native.probes.complete()
+                && native
+                    .users
+                    .iter()
+                    .all(|claim| !claim.transferred || claim.confirmed.is_some())
             {
                 native.controls.clear();
             }

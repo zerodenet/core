@@ -172,6 +172,21 @@ pub trait ResourceAccess: Send + Sync {
             super::Impact::Component,
         ))
     }
+    /// Accept only an opaque exact-original users/actual-join reception proof.
+    /// Cleanup confirmation remains allowed after admission closes. Native main
+    /// and probe receipts and host task-publication ACKs remain independent.
+    fn confirm_metadata_users(
+        &self,
+        _ordinal: usize,
+        _receipt: &crate::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
+        _tasks: &TaskRegistrar,
+    ) -> Result<(), BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Close,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn listen_metadata_datagram(
         &self,
         _request: MetadataDatagramRequest,

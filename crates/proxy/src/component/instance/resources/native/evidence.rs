@@ -84,6 +84,13 @@ impl HostResources {
                         .map(coverage::DeclarationProvider::Carrier)
                         .unwrap_or(coverage::DeclarationProvider::Unaccounted);
                 }
+                if matches!(binding, coverage::CoverageBinding::Metadata) {
+                    proof.provider = metadata
+                        .iter()
+                        .position(|entry| entry.ordinal == ordinal)
+                        .map(coverage::DeclarationProvider::Metadata)
+                        .unwrap_or(coverage::DeclarationProvider::Unaccounted);
+                }
                 proof
             })
             .collect();

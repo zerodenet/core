@@ -22,4 +22,9 @@ pub struct GrantedMetadataListener {
     pub rx: MetadataDatagramRx,
     pub tx: MetadataDatagramTx,
     pub observation: MetadataDatagramObservation,
+    /// Unique original claim, issued by the canonical owner before transfer.
+    /// A consumer selecting the sealed user graph must take it before adapting
+    /// the grant. Dropping it or using unclaimed views is never a users ACK.
+    /// None supports existing library-only grants; it cannot confirm coverage.
+    pub users_claim: Option<crate::controlled_datagram::metadata::MetadataViewClaim>,
 }

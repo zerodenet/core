@@ -22,6 +22,7 @@ pub(in crate::component) enum DeclarationProvider {
     File(usize),
     Native(usize),
     Carrier(usize),
+    Metadata(usize),
     Unaccounted,
 }
 #[derive(Clone, Debug)]
@@ -34,6 +35,7 @@ pub(in crate::component) struct DeclarationEvidence {
 }
 pub(super) enum CoverageBinding {
     Carrier(DeclaredResourceKind),
+    Metadata,
     File(PathBuf),
     Tcp(SocketAddr),
     Datagram(SocketAddr),
@@ -51,9 +53,7 @@ impl CoverageBinding {
             ResourceDeclaration::ControlledDirectStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledDirectStream)
             }
-            ResourceDeclaration::MetadataDatagram { .. } => {
-                Self::Unaccounted(DeclaredResourceKind::MetadataDatagram)
-            }
+            ResourceDeclaration::MetadataDatagram { .. } => Self::Metadata,
             ResourceDeclaration::NativeIcmp { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::NativeIcmp)
             }
@@ -85,6 +85,7 @@ impl CoverageBinding {
     ) -> DeclarationEvidence {
         let (kind, provider) = match self {
             Self::Carrier(kind) => (*kind, None),
+            Self::Metadata => (DeclaredResourceKind::MetadataDatagram, None),
             Self::File(path) => (
                 DeclaredResourceKind::File,
                 files
@@ -125,6 +126,7 @@ impl evidence::HostIoEvidence {
         let mut files = vec![false; self.files.len()];
         let mut native = vec![false; self.native.len()];
         let mut carriers = vec![false; self.carriers.len()];
+        let mut metadata = vec![false; self.metadata.len()];
         for (ordinal, declaration) in self.declarations.iter().enumerate() {
             if declaration.ordinal != ordinal {
                 return false;
@@ -157,6 +159,17 @@ impl evidence::HostIoEvidence {
                         _ => false,
                     }
                 }
+                DeclarationProvider::Metadata(index)
+                    if declaration.kind == DeclaredResourceKind::MetadataDatagram =>
+                {
+                    match (self.metadata.get(index), metadata.get_mut(index)) {
+                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                            *seen = true;
+                            owner.physical_confirmed()
+                        }
+                        _ => false,
+                    }
+                }
                 DeclarationProvider::Carrier(index)
                     if matches!(
                         declaration.kind,
@@ -185,6 +198,7 @@ impl evidence::HostIoEvidence {
         files.into_iter().all(|seen| seen)
             && native.into_iter().all(|seen| seen)
             && carriers.into_iter().all(|seen| seen)
+            && metadata.into_iter().all(|seen| seen)
     }
 }
 

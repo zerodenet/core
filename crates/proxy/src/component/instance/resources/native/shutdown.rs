@@ -92,7 +92,7 @@ impl HostResources {
         ))));
         drop(state);
         self.metadata.append_receipts(self.component, &mut report);
-        report.unfinished.extend(metadata.iter().map(|entry| Unfinished::Resource(format!("component {} metadata declaration {} native_busy={} transferred users/drivers remain unaccounted",self.component.0,entry.ordinal,entry.busy))));
+        report.unfinished.extend(metadata.iter().filter(|entry| !entry.physical_confirmed()).map(|entry| Unfinished::Resource(format!("component {} metadata declaration {} native_busy={} unconfirmed users={:?} confirmed private user graphs={}",self.component.0,entry.ordinal,entry.busy,entry.unconfirmed_users(),entry.confirmed_users()))));
         Ok(report)
     }
     async fn drive_native(&self, deadline: Instant) {

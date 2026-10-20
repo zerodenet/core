@@ -50,6 +50,9 @@ impl HostedMetadataSocket {
             rx,
             tx,
             observation,
+            // Legacy selection does not consume the claim into a user graph.
+            // Its canonical issuer stays unconfirmed, even after native close.
+            users_claim: _,
         } = grant;
         Ok(Self {
             observation,

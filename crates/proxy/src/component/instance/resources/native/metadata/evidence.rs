@@ -41,8 +41,29 @@ pub(in crate::component) struct MetadataIoEvidence {
     pub main: Originals,
     pub probes: Originals,
     pub first_fault: Option<Arc<ChannelError>>,
-    // Deliberately no whole-graph completion method: exact transferred users
-    // and actual QUIC drivers remain a separate, currently unaccounted duty.
+    // Private snapshot is made only from this provider's original issuers and
+    // retained opaque confirmations. Mutable public diagnostic counts/fields
+    // cannot be used to manufacture user-graph coverage.
+    users: Option<UsersEvidence>,
+}
+#[derive(Clone, Debug)]
+struct UsersEvidence {
+    pending: usize,
+    confirmed: Vec<MetadataUsersClosedReceipt>,
+}
+impl MetadataIoEvidence {
+    pub(in crate::component) fn physical_confirmed(&self) -> bool {
+        !self.busy
+            && self.main.complete()
+            && self.probes.complete()
+            && self.users.as_ref().is_some_and(|users| users.pending == 0)
+    }
+    pub(in crate::component) fn unconfirmed_users(&self) -> Option<usize> {
+        self.users.as_ref().map(|users| users.pending)
+    }
+    pub(in crate::component) fn confirmed_users(&self) -> usize {
+        self.users.as_ref().map_or(0, |users| users.confirmed.len())
+    }
 }
 impl MetadataDeclarations {
     pub(in crate::component::instance::resources::native) fn evidence(
@@ -60,6 +81,7 @@ impl MetadataDeclarations {
                         main: Default::default(),
                         probes: Default::default(),
                         first_fault: None,
+                        users: None,
                     };
                 };
                 native.observe_originals(component);
@@ -70,6 +92,18 @@ impl MetadataDeclarations {
                     main: native.main.clone(),
                     probes: native.probes.clone(),
                     first_fault: native.first_fault.clone(),
+                    users: Some(UsersEvidence {
+                        pending: native
+                            .users
+                            .iter()
+                            .filter(|claim| claim.transferred && claim.confirmed.is_none())
+                            .count(),
+                        confirmed: native
+                            .users
+                            .iter()
+                            .filter_map(|claim| claim.confirmed.clone())
+                            .collect(),
+                    }),
                 }
             })
             .collect()

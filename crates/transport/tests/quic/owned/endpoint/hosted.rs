@@ -12,6 +12,7 @@ async fn actual_hosted_quinn_users_and_driver_joins_leave_native_close_with_orig
         let observation = grant.control.take_observation().unwrap();
         let metadata = HostedMetadataSocket::new(
             GrantedMetadataListener {
+                users_claim: None,
                 scope: scope.registrar().scope_identity(),
                 rx: grant.rx,
                 tx: grant.tx,
@@ -96,6 +97,7 @@ async fn actual_hosted_metadata_foreign_scope_rejection_returns_original_views_t
     let observation = grant.control.take_observation().unwrap();
     let rejected = HostedMetadataSocket::new(
         GrantedMetadataListener {
+            users_claim: None,
             scope: scope.registrar().scope_identity(),
             rx: grant.rx,
             tx: grant.tx,
