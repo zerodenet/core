@@ -14,7 +14,7 @@ pub(super) struct BoundAuthority {
     binding: UpstreamBinding,
     demand: ControlledStreamDemandClass,
     scope: TaskScopeIdentity,
-    host_cancel: CancellationToken,
+    host_cancel: Arc<CancellationToken>,
 }
 /// Private-origin binding of one actual owner, full descriptor and actual scope.
 /// This is registration evidence, not host business admission/native permission.
@@ -28,7 +28,7 @@ impl CarrierOwnerRegistration {
         &self,
         declaration: &ResourceDeclaration,
         registrar: &TaskRegistrar,
-        host_cancel: &CancellationToken,
+        host_cancel: &Arc<CancellationToken>,
     ) -> Result<CarrierOwnerBinding, ChannelError> {
         let failure = |reason| {
             error(
@@ -67,7 +67,10 @@ impl CarrierOwnerRegistration {
             return Err(failure(Reason::Revoked));
         }
         let authority = if let Some(bound) = &state.binding {
-            if !bound.matches(declaration, self.limit()) || !bound.scope.matches(registrar) {
+            if !bound.matches(declaration, self.limit())
+                || !bound.scope.matches(registrar)
+                || !Arc::ptr_eq(&bound.host_cancel, host_cancel)
+            {
                 return Err(failure(Reason::StalePlan));
             }
             bound.clone()
@@ -126,7 +129,7 @@ impl BoundAuthority {
         self.host_cancel.is_cancelled()
     }
     pub(super) fn cancellation(&self) -> CancellationToken {
-        self.host_cancel.clone()
+        self.host_cancel.as_ref().clone()
     }
     pub(super) fn permits_driver(&self, registrar: &TaskRegistrar) -> bool {
         !self.host_cancel.is_cancelled()
@@ -135,6 +138,9 @@ impl BoundAuthority {
     }
 }
 impl CarrierOwnerBinding {
+    pub fn matches_host_cancel(&self, host_cancel: &Arc<CancellationToken>) -> bool {
+        Arc::ptr_eq(&self.authority.host_cancel, host_cancel)
+    }
     pub fn host_cancelled(&self) -> bool {
         self.authority.host_cancel.is_cancelled()
     }

@@ -8,16 +8,18 @@ async fn first_host_revocation_is_frozen_and_cancels_prepared_io_while_the_actua
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(1).unwrap(),
     );
-    let host = CancellationToken::new();
-    let replacement = CancellationToken::new();
+    let host = Arc::new(CancellationToken::new());
+    let replacement = Arc::new(CancellationToken::new());
     let registration = fixture.owner.registration();
     let description = declaration(&fixture, ControlledStreamDemandClass::Service);
     let binding = registration
         .bind_declared(&description, &scope.registrar(), &host)
         .unwrap();
-    let repeated = registration
+    assert!(binding.matches_host_cancel(&host));
+    assert!(!binding.matches_host_cancel(&replacement));
+    assert!(registration
         .bind_declared(&description, &scope.registrar(), &replacement)
-        .unwrap();
+        .is_err());
     fixture.owner.start(deadline()).await.unwrap();
     let grant = fixture.grants.reserve().unwrap();
     let original = grant.adoption();
@@ -29,7 +31,6 @@ async fn first_host_revocation_is_frozen_and_cancels_prepared_io_while_the_actua
     assert!(scope.registrar().scope_identity().registration_open());
     assert!(!replacement.is_cancelled());
     assert!(binding.host_cancelled());
-    assert!(repeated.host_cancelled());
     let failure = prepared.open(deadline()).await.err().unwrap();
     assert_eq!(failure.reason, Reason::Revoked);
     assert_eq!(failure.delivery, DeliveryState::Unknown);
@@ -62,7 +63,7 @@ async fn same_registered_task_observes_host_revocation_without_a_second_scope_or
             tokio::runtime::Handle::current(),
             NonZeroUsize::new(1).unwrap(),
         );
-        let host = CancellationToken::new();
+        let host = Arc::new(CancellationToken::new());
         let registration = fixture.owner.registration();
         registration
             .bind_declared(

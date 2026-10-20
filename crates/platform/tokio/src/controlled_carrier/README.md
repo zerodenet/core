@@ -29,7 +29,9 @@ business users, whose actual owner/handler join remains separate. The existing S
 Business rejection is unchanged.
 
 The first successful binding also freezes the original host revocation token.
-Idempotent binding never replaces it with another token. Revocation rejects new
+Idempotent binding requires the same Arc identity and never replaces it with
+another token. A protocol prebinding a foreign fence cannot impersonate the
+actual host registration even if its description and scope match. Revocation rejects new
 reservation/acquisition/adoption, interrupts the existing prepared open, and is
 selected inside the same registered aggregate task (ready original task results
 keep priority). No cancellation worker is created and no permit is refunded by
