@@ -21,6 +21,16 @@ pub struct OwnedRecvStream {
     permit: Permit,
 }
 impl OwnedSendStream {
+    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    pub(super) fn into_h3(self) -> super::h3::SendStream {
+        let Self {
+            stream,
+            cancelled,
+            permit,
+        } = self;
+        super::h3::SendStream::new(stream, cancelled, permit)
+    }
+
     pub(super) fn new(stream: quinn::SendStream, permit: Permit) -> Self {
         let cancelled = Box::pin(permit.users().cancellation().clone().cancelled_owned());
         Self {
@@ -43,6 +53,16 @@ impl OwnedSendStream {
     }
 }
 impl OwnedRecvStream {
+    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    pub(super) fn into_h3(self) -> super::h3::RecvStream {
+        let Self {
+            stream,
+            cancelled,
+            permit,
+        } = self;
+        super::h3::RecvStream::new(stream, cancelled, permit)
+    }
+
     pub(super) fn new(stream: quinn::RecvStream, permit: Permit) -> Self {
         let cancelled = Box::pin(permit.users().cancellation().clone().cancelled_owned());
         Self {

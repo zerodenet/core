@@ -20,6 +20,8 @@ use zero_platform_tokio::{
     controlled_datagram::{metadata::MetadataOwnerReport, DatagramReservationId},
 };
 mod bidi;
+#[cfg(any(feature = "split_http", feature = "hysteria"))]
+pub mod h3;
 pub use bidi::OwnedBiStream;
 mod connection;
 mod handle;

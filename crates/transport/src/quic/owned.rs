@@ -4,6 +4,8 @@
 mod callbacks;
 mod drivers;
 mod endpoint;
+#[cfg(any(feature = "split_http", feature = "hysteria"))]
+pub use endpoint::h3;
 pub use endpoint::{
     MetadataUsersCompletion, OwnedBiStream, OwnedConnection, OwnedEndpointHandle,
     OwnedEndpointLimits, OwnedEndpointOwner, OwnedEndpointReport, OwnedEndpointUsersReport,
