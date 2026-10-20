@@ -1,4 +1,4 @@
-use ::vless::transport::VlessInboundListenerRequest;
+use ::vless::transport::{VlessInboundListenerRequest, VlessStandardTcpAccept};
 use zero_engine::EngineError;
 
 use crate::runtime::inbound_operation::{
@@ -108,12 +108,34 @@ pub(super) fn prepare(
             let fallback = request.fallback;
             let accept = request
                 .protocol
-                .accept_recorded_tcp_route(socket)
+                .accept_standard_tcp_route(socket)
                 .await
                 .map_err(EngineError::from)?;
-            let accept: Option<PreparedInboundRouteAccept<_, _>> = accept
-                .map(|result| prepare_inbound_route_accept(result, fallback))
-                .transpose()?;
+            let accept: Option<PreparedInboundRouteAccept<_, _>> = match accept {
+                Some(VlessStandardTcpAccept::Tcp {
+                    destination,
+                    auth,
+                    sni,
+                    stream,
+                }) => {
+                    return context
+                        .serve_standard_stream(
+                            ::vless::inbound::VlessInbound.protocol(),
+                            destination,
+                            Some(auth),
+                            sni,
+                            move |facts| {
+                                ::vless::component::inbound::TcpReply::new(*stream, facts)
+                                    .map(zero_platform_tokio::contract::inbound::accept_stream)
+                            },
+                        )
+                        .await;
+                }
+                Some(VlessStandardTcpAccept::Legacy(accept)) => {
+                    Some(prepare_inbound_route_accept(*accept, fallback)?)
+                }
+                None => None,
+            };
             context
                 .dispatch_recorded_mux_tcp_route(Ok(accept), protocol, defaults)
                 .await

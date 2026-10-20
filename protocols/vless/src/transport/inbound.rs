@@ -16,7 +16,9 @@ pub use metadata::VlessInboundStreamMetadata;
 mod multiplex;
 mod plan;
 mod session;
+mod standard;
 pub use multiplex::VlessInboundTransportStreams;
+pub use standard::VlessStandardTcpAccept;
 
 use super::options::{VlessInboundOptionsRef, VlessInboundUserRef};
 

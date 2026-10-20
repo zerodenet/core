@@ -1,5 +1,6 @@
 //! Protocol-owned ordinary VLESS Stream roles over a constrained real carrier.
 mod carrier;
+pub mod inbound;
 pub(crate) mod navigation;
 mod options;
 pub use options::Options;

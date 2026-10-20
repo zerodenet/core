@@ -23,6 +23,10 @@ use crate::shared::{
 
 mod fallback;
 #[cfg(feature = "reality")]
+mod standard;
+#[cfg(feature = "reality")]
+pub(crate) use standard::{AuthenticatedClient, RoutedRequest};
+#[cfg(feature = "reality")]
 mod vision;
 #[cfg(feature = "reality")]
 use vision::VlessInboundTcpStream;
@@ -1216,6 +1220,14 @@ async fn read_routed_request<S>(
 where
     S: AsyncSocket,
 {
+    Ok(read_routed_facts(stream).await?.into_legacy_parts())
+}
+
+#[cfg(feature = "reality")]
+async fn read_routed_facts<S>(stream: &mut S) -> Result<RoutedRequest, Error>
+where
+    S: AsyncSocket,
+{
     let mut version = [0_u8; 1];
     read_exact(stream, &mut version).await?;
     if version[0] != VLESS_VERSION {
@@ -1228,8 +1240,7 @@ where
     if zero_aead {
         let (command, port, target) =
             flow_read_request(stream, Some(FLOW_ZERO_AEAD_V1), &id).await?;
-        command_to_session(command, target, port, id)
-            .map(|(session, id)| (session, id, Some(FLOW_ZERO_AEAD_V1), false))
+        RoutedRequest::new(command, target, port, id, Some(FLOW_ZERO_AEAD_V1), false)
     } else {
         let mut command = [0_u8; 1];
         read_exact(stream, &mut command).await?;
@@ -1237,22 +1248,17 @@ where
             return Err(Error::Unsupported("Vision UDP must use XUDP MUX"));
         }
         if command[0] == crate::reverse::COMMAND {
-            return Ok((
-                Session::new(
-                    0,
-                    Address::Domain(crate::reverse::REQUEST_DOMAIN.into()),
-                    0,
-                    Network::Tcp,
-                    ProtocolType::new("vless"),
-                ),
+            return RoutedRequest::new(
+                command[0],
+                Address::Domain(crate::reverse::REQUEST_DOMAIN.into()),
+                0,
                 id,
                 flow,
                 true,
-            ));
+            );
         }
         if command[0] == CMD_MUX {
-            return command_to_session(CMD_MUX, Address::Domain(String::new()), 0, id)
-                .map(|(session, id)| (session, id, flow, false));
+            return RoutedRequest::new(CMD_MUX, Address::Domain(String::new()), 0, id, flow, false);
         }
         let mut port = [0_u8; 2];
         read_exact(stream, &mut port).await?;
@@ -1263,8 +1269,7 @@ where
         let mut atyp = [0_u8; 1];
         read_exact(stream, &mut atyp).await?;
         let target = read_address(stream, atyp[0]).await?;
-        command_to_session(command[0], target, port, id)
-            .map(|(session, id)| (session, id, flow, false))
+        RoutedRequest::new(command[0], target, port, id, flow, false)
     }
 }
 
@@ -1359,6 +1364,7 @@ where
 
 // ── command dispatch helper ──
 
+#[cfg(not(feature = "reality"))]
 fn command_to_session(
     command: u8,
     target: Address,

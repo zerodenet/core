@@ -15,7 +15,7 @@ mod runtime;
 
 pub use inbound::{
     VlessInboundBindPlan, VlessInboundListenerRequest, VlessInboundStreamMetadata,
-    VlessInboundTransportStreams,
+    VlessInboundTransportStreams, VlessStandardTcpAccept,
 };
 pub use leaf::{VlessOutboundLeaf, VlessReverseBridge};
 pub use managed_udp::{VlessManagedUdpConnectorFlow, VlessManagedUdpFlowResume};

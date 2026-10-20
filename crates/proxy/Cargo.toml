@@ -40,6 +40,7 @@ authenticated-quic-inbound-runtime = [
     "transport_quic",
 ]
 vless = [
+    "standard-stream-inbound-runtime",
     "datagram-route-runtime",    "managed-stream-runtime",
     "tcp-tunnel-runtime",
     "transport_quic",
