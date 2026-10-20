@@ -20,7 +20,7 @@ pub(super) async fn receive_endpoint_packet(
     }
 }
 
-pub(super) fn retained_endpoint(
+pub(crate) fn retained_endpoint(
     device: &dyn RawIpInboundDevice,
     initial_endpoints: &[Option<SocketAddr>],
     peer: usize,

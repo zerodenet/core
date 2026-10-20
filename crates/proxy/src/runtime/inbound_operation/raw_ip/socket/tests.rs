@@ -1,6 +1,9 @@
 use super::*;
 use std::{future::Future, num::NonZeroUsize, task::Poll, time::Duration};
-use zero_platform_tokio::{contract::component::GrantedDatagramListener, ControlledDatagramOwner};
+use zero_platform_tokio::{
+    contract::component::GrantedDatagramListener,
+    controlled_datagram::ControlledDatagramOwner,
+};
 
 #[tokio::test]
 async fn granted_packet_socket_keeps_actual_source_pending_read_and_native_close_owner() {
