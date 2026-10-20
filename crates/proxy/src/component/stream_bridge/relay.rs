@@ -125,6 +125,7 @@ pub(crate) async fn connect(
             binding.clone(),
             Arc::new(PrefixOpener {
                 role,
+                datagram_slot: Some(node.slot.clone()),
                 context,
                 expected_binding: binding,
                 expected_endpoint: destination(&next.endpoint),

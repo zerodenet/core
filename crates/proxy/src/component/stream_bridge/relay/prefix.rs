@@ -1,3 +1,4 @@
+mod datagram;
 use super::health::FirstHopHealth;
 use crate::component::instance::invalid;
 use crate::protocol_registry::UpstreamConnectServices;
@@ -13,6 +14,7 @@ use zero_platform_tokio::contract::{
 
 pub(super) struct PrefixOpener {
     pub(super) role: Arc<dyn DynStreamOutbound>,
+    pub(super) datagram_slot: Option<Arc<crate::component::instance::ComponentSlot>>,
     pub(super) context: OpenContext,
     pub(super) expected_binding: UpstreamBinding,
     pub(super) expected_endpoint: Destination,
@@ -98,15 +100,64 @@ impl UpstreamOpener for PrefixOpener {
     }
     fn open_datagram(
         &self,
-        _: &UpstreamBinding,
-        _: DatagramRequest,
-        _: CarrierContext,
+        binding: &UpstreamBinding,
+        request: DatagramRequest,
+        carrier: CarrierContext,
     ) -> BoxFuture<'_, Result<BoxDatagramSession, ChannelError>> {
-        Box::pin(async {
-            Err(invalid(
-                Reason::Internal,
-                "Stream prefix has no datagram grant",
-            ))
+        let binding = binding.clone();
+        Box::pin(async move {
+            let shorter = self.context.upstream.binding();
+            if binding != self.expected_binding
+                || binding.prefix.len() != shorter.prefix.len() + 1
+                || binding.prefix[..shorter.prefix.len()] != shorter.prefix[..]
+                || self.network.network_generation() != binding.network_generation.0
+                || carrier.session != self.context.session_identity()?
+            {
+                return Err(self.interrupted(&carrier, Reason::StalePlan));
+            }
+            // A carrier open is for the concrete relay selected by the next
+            // protocol, never permission to turn a Multiple session into root UDP.
+            if !matches!(
+                &request.targets,
+                zero_core::request::DatagramTargets::Fixed(_)
+            ) {
+                return Err(self.interrupted(&carrier, Reason::Unsupported));
+            }
+            let slot = self
+                .datagram_slot
+                .as_ref()
+                .ok_or_else(|| self.interrupted(&carrier, Reason::Unsupported))?;
+            if binding.prefix.last() != Some(&slot.role_id()) {
+                return Err(self.interrupted(&carrier, Reason::StalePlan));
+            }
+            let mut context = self.context.clone();
+            context.deadline = match (context.deadline, carrier.deadline) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            // A child preserves the parent's fence. Poll guards also retain
+            // the additional caller cancellation after ownership is transferred.
+            let logical = context.cancel.child_token();
+            context.cancel = logical.clone();
+            let deadline = context.deadline;
+            let admission_deadline = deadline
+                .unwrap_or_else(|| tokio::time::Instant::now() + std::time::Duration::from_secs(5));
+            let open = async {
+                let role = slot.datagram(admission_deadline).await?;
+                role.open(request, context).await
+            };
+            let session = tokio::select! { biased;
+                _ = self.context.cancel.cancelled() => return Err(self.interrupted(&carrier,Reason::Cancelled)),
+                _ = carrier.cancel.cancelled() => return Err(self.interrupted(&carrier,Reason::Cancelled)),
+                result = with_deadline(deadline,open) => result.map_err(|source|self.interrupted(&carrier,Reason::Timeout).with_source(source))?,
+            }?;
+            // Once open succeeds, its owner and actual Control must be returned
+            // even if a generation changes here. New opens will be fenced; no
+            // completed carrier is silently discarded as a stale root retry.
+            if self.network.network_generation() != binding.network_generation.0 {
+                logical.cancel();
+            }
+            Ok(datagram::guard(session, logical, carrier.cancel))
         })
     }
 }

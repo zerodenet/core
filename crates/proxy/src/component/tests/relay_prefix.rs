@@ -103,6 +103,7 @@ fn fixture() -> (PrefixOpener, Arc<Capture>) {
     });
     let endpoint = Destination::new(zero_core::Address::Ipv4([127, 0, 0, 1]), 8080);
     let opener = PrefixOpener {
+        datagram_slot: None,
         role: erase_stream(RecordingRole(capture.clone())),
         context: OpenContext {
             identity,
@@ -265,3 +266,6 @@ async fn network_change_after_prefix_connect_keeps_unknown_delivery_and_actual_o
     assert_eq!(error.session, opener.context.identity.session());
     assert!(!error.retry_permitted());
 }
+
+#[path = "relay_prefix_datagram.rs"]
+mod datagram_tests;
