@@ -126,6 +126,21 @@ impl DirectUdpSockets {
                 "direct UDP socket identity exhausted",
             ))
         })?;
+        // Prepare allocations and observation handles before a native fd exists.
+        // The external boundary callback still runs exactly once after a
+        // successful bind, after the original fd enters this same state.
+        self.sockets
+            .try_reserve(1)
+            .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+        let observer = self.services.direct_datagram_observer();
+        let binding = DirectUdpSocketBinding {
+            policy: policy.clone(),
+            ipv6: target.is_ipv6(),
+            egress_generation: selection.generation(),
+            source: selection.dial_source_address(),
+            egress: selection.interface().cloned(),
+        };
+        let replies = ownership::DirectUdpReplies::default();
         let socket = self
             .services
             .bind_direct_datagram_socket(
@@ -139,34 +154,43 @@ impl DirectUdpSockets {
                 &selection,
             )
             .await?;
-        let entry = DirectUdpSocket {
+        self.sockets.push(DirectUdpSocket {
             id,
             socket,
-            binding: DirectUdpSocketBinding {
-                policy: policy.clone(),
-                ipv6: target.is_ipv6(),
-                egress_generation: selection.generation(),
-                source: selection.dial_source_address(),
-                egress: selection.interface().cloned(),
-            },
+            binding,
             selection,
             association_id: scope,
-            replies: ownership::DirectUdpReplies::default(),
-        };
+            replies,
+        });
+        // In-place attachment cannot drop the installed socket if the external
+        // observer panics. The owner/scope cleanup sees this exact descriptor.
+        self.sockets
+            .last_mut()
+            .expect("just installed socket")
+            .socket
+            .set_observer(observer);
         // A stale completion still owns a real original socket. Retire it into
         // this same ledger before returning the original admission error.
         if let Err(error) = self.services.ensure_direct_policy_current(policy) {
-            self.close.retire(entry);
+            self.close
+                .retire(self.sockets.pop().expect("just installed socket"));
             return Err(error);
         }
-        if entry.binding.egress_generation != self.services.egress_generation() {
-            self.close.retire(entry);
+        if self
+            .sockets
+            .last()
+            .expect("just installed socket")
+            .binding
+            .egress_generation
+            != self.services.egress_generation()
+        {
+            self.close
+                .retire(self.sockets.pop().expect("just installed socket"));
             return Err(EngineError::Io(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
                 "egress topology changed while binding direct UDP socket",
             )));
         }
-        self.sockets.push(entry);
         let entry = self.sockets.last().expect("just inserted socket");
         log_direct_socket(entry.id, family_name(target.is_ipv6()), &entry.socket);
         Ok(self.sockets.len() - 1)

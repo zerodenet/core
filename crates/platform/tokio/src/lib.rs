@@ -462,11 +462,17 @@ impl TokioDatagramSocket {
         mut self,
         observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> Self {
+        self.set_observer(observer);
+        self
+    }
+
+    /// Attach observation after the unique socket has entered its actual owner.
+    /// A callback panic must not move/drop that owner's original descriptor.
+    pub fn set_observer(&mut self, observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>) {
         if let Some(observer) = &observer {
             observer.datagram_boundary();
         }
         self.observer = observer;
-        self
     }
 
     pub async fn bind(addr: &str) -> io::Result<Self> {

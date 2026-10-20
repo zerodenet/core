@@ -394,8 +394,13 @@ impl UdpNetworkServices {
             selection,
         )
         .await
-        .map(|socket| socket.with_observer(self.upstream.observer()))
         .map_err(Into::into)
+    }
+
+    pub(crate) fn direct_datagram_observer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn zero_traits::IoObserver>> {
+        self.upstream.observer()
     }
 
     pub(crate) async fn resolve_node_address(

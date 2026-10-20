@@ -236,4 +236,5 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
 
 mod isolation;
 mod lifecycle;
+mod observer;
 mod queue;
