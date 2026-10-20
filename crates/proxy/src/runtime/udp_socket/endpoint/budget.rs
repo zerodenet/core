@@ -1,6 +1,6 @@
 //! Explicit host grants; no production defaults or inferred resource budget.
 use super::*;
-use std::{mem::size_of, sync::atomic::Ordering};
+use std::mem::size_of;
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct DirectEndpointLimits {
     pub(crate) logical: NonZeroUsize,
@@ -11,37 +11,9 @@ pub(crate) struct DirectEndpointLimits {
     pub(crate) pending_bytes: NonZeroUsize,
     pub(crate) candidates_per_job: NonZeroUsize,
 }
-pub(super) struct CopyReservation {
-    counter: Arc<AtomicUsize>,
-    bytes: usize,
-}
-impl Drop for CopyReservation {
-    fn drop(&mut self) {
-        self.counter.fetch_sub(self.bytes, Ordering::AcqRel);
-    }
-}
 impl Shared {
     pub(super) fn reserve_copy(&self, bytes: usize) -> Option<CopyReservation> {
-        let mut used = self.pending_bytes.load(Ordering::Acquire);
-        loop {
-            let next = used
-                .checked_add(bytes)
-                .filter(|next| *next <= self.limits.pending_bytes.get())?;
-            match self.pending_bytes.compare_exchange_weak(
-                used,
-                next,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => {
-                    return Some(CopyReservation {
-                        counter: self.pending_bytes.clone(),
-                        bytes,
-                    })
-                }
-                Err(observed) => used = observed,
-            }
-        }
+        self.copies.reserve(bytes, accounting::Phase::QueuedReceive)
     }
     pub(super) fn reserve_command_copy(
         &self,
@@ -71,12 +43,14 @@ impl Shared {
                     DeliveryState::NotSubmitted,
                 )
             })?;
-        self.reserve_copy(bytes).ok_or_else(|| {
-            error(
-                Stage::Prepare,
-                Reason::Capacity,
-                DeliveryState::NotSubmitted,
-            )
-        })
+        self.copies
+            .reserve(bytes, accounting::Phase::QueuedSend)
+            .ok_or_else(|| {
+                error(
+                    Stage::Prepare,
+                    Reason::Capacity,
+                    DeliveryState::NotSubmitted,
+                )
+            })
     }
 }

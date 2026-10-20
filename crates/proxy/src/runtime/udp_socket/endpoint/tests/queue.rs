@@ -159,7 +159,7 @@ async fn cancel_drains_actual_queued_payload_before_reclaim_while_old_rx_stays_a
         control.cancel(zero_platform_tokio::contract::CloseReason::Completed);
         assert!(control.wait_closed(deadline()).await.unwrap().is_complete());
         assert_eq!(logical.bytes.load(Ordering::Acquire), 0);
-        assert_eq!(owner.shared.pending_bytes.load(Ordering::Acquire), 0);
+        assert_eq!(owner.shared.copies.snapshot().owned.bytes, 0);
         assert!(logical.receiver.lock().unwrap().is_empty());
         tokio::net::UdpSocket::bind(local).await.unwrap();
         old_receivers.push(rx);

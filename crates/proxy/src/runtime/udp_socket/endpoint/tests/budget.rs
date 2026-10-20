@@ -2,7 +2,6 @@ use super::*;
 use std::{
     future::{poll_fn, Future},
     mem::size_of,
-    sync::atomic::Ordering,
     task::Poll,
 };
 
@@ -85,7 +84,7 @@ async fn command_copy_budget_covers_domain_candidates_payload_and_cancelled_owne
         .send_new_packet(&Address::Ipv4([127, 0, 0, 1]), &[target, target], b"")
         .await
         .is_err());
-    assert_eq!(shared.pending_bytes.load(Ordering::Acquire), 0);
+    assert_eq!(shared.copies.snapshot().owned.bytes, 0);
     let literal = Address::Ipv4([127, 0, 0, 1]);
     let candidates = [target];
     let mut pending = Box::pin(tx.send_new_packet(&literal, &candidates, b"ok"));
@@ -95,10 +94,18 @@ async fn command_copy_budget_covers_domain_candidates_payload_and_cancelled_owne
     })
     .await;
     assert_eq!(
-        shared.pending_bytes.load(Ordering::Acquire),
+        shared.copies.snapshot().owned.bytes,
         grants.pending_bytes.get()
     );
     drop(pending);
+    let cancelled = owner.endpoint().queue_usage();
+    assert_eq!(
+        cancelled.owned.entries, 1,
+        "cancel is not release of the actual queued copy"
+    );
+    assert_eq!(cancelled.owned.bytes, grants.pending_bytes.get());
+    assert_eq!(cancelled.queued_send, cancelled.owned);
+    assert_eq!(cancelled.in_flight_send.entries, 0);
     let (mut other, _other_rx, mut other_control) =
         fixture.open(&endpoint, target, CancellationToken::new());
     assert!(other
@@ -111,13 +118,17 @@ async fn command_copy_budget_covers_domain_candidates_payload_and_cancelled_owne
             .is_err(),
         "active+retiring logical slots remain charged"
     );
+    assert_eq!(
+        owner.endpoint().queue_usage(),
+        cancelled,
+        "pressure cannot clear an outstanding copy or reset history"
+    );
     assert!(
         io_guard.sockets.is_empty(),
         "no native fd opens behind the blocked actual state owner"
     );
     drop(io_guard);
     assert!(control.wait_closed(deadline()).await.unwrap().is_complete());
-    assert_eq!(shared.pending_bytes.load(Ordering::Acquire), 0);
     assert!(other_control
         .wait_closed(deadline())
         .await
@@ -126,6 +137,11 @@ async fn command_copy_budget_covers_domain_candidates_payload_and_cancelled_owne
     let report = owner.shutdown(deadline()).await.unwrap();
     assert!(report.is_complete());
     assert!(report.closed_io.is_empty());
+    let released = owner.endpoint().queue_usage();
+    assert_eq!(released.owned.entries, 0);
+    assert_eq!(released.owned.bytes, 0);
+    assert_eq!(released.peak_entries, 1);
+    assert_eq!(released.peak_bytes, grants.pending_bytes.get());
 }
 
 #[tokio::test]

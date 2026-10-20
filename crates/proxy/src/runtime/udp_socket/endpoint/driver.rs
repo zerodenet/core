@@ -258,6 +258,7 @@ pub(super) async fn run(
                     let _ = command.receipt.send(Err(legacy(error(Stage::Send, Reason::Cancelled, DeliveryState::NotSubmitted))));
                     continue;
                 }
+                command._storage.start_send();
                 if let Some(isolation) = command.logical.isolation {
                     sockets.isolate_association(command.logical.session.0, isolation);
                 }
