@@ -10,6 +10,126 @@
   "post23": "Fixes and further HTTP forward/Trojan/grpc driver seams are implemented in integration code commit but runtime validation pending; pre24 std-only source guards architecture26/0/runtime189/0 only.",
   "records": [
     {
+      "source": "current31-memory-review-data-current31-comment.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-current31-comment.txt.gz",
+      "raw_bytes": 242,
+      "raw_sha256": "538261653a2041431e3e043a81ccc3548b0a7e426501e1a6f4db324520e82bbd",
+      "gzip_bytes": 203,
+      "gzip_sha256": "cca1cac15f760547e0dd404e5fa928382842100b15764cc8f204760b5e8fe1d1",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/current31-comment.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-current31-dynamic.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-current31-dynamic.txt.gz",
+      "raw_bytes": 1700,
+      "raw_sha256": "6bc5d754877e71ac9fbe96aa40f54cb932d3235d95168032a67e74870eb5871c",
+      "gzip_bytes": 512,
+      "gzip_sha256": "892032c3f350091907783a7f1d6217280589d3708d35046c26a683188642654d",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/current31-dynamic.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-current31-sections.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-current31-sections.txt.gz",
+      "raw_bytes": 3391,
+      "raw_sha256": "2a884f27c6e980ff5797cd7ded67e070b502eef157230313c223478851e23862",
+      "gzip_bytes": 1142,
+      "gzip_sha256": "221f2372eae0f4f43278a9619cf40ccee19bc487c879ce4ec2772f8278b31095",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/current31-sections.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-current31-segments.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-current31-segments.txt.gz",
+      "raw_bytes": 2049,
+      "raw_sha256": "3c80694eacdf9dd0990ddecd2d52cfbb6d57f2f02a57a64798ea6d6ecf2913a8",
+      "gzip_bytes": 725,
+      "gzip_sha256": "36d4cdc1e5fa2b544c4d81206181288629bf4d0667aeebed184bc7fbac819edb",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/current31-segments.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-current31-size.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-current31-size.txt.gz",
+      "raw_bytes": 1412,
+      "raw_sha256": "c4789c3b8d4fefd9e2f4852c3b53d7e52a7f4468240295a2357c85fbcc3bb10c",
+      "gzip_bytes": 544,
+      "gzip_sha256": "1fe68a1cbe787e558b6245f7c6a72ee78cc7b0b0e03df694db3797a7b7823606",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/current31-size.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-derived.json",
+      "path": "evidence/parallel-progress/current31-memory-review-data-derived.json.gz",
+      "raw_bytes": 93566,
+      "raw_sha256": "f2ab8edf67fd1f4a5e0e1b15c6194ec365691566b22291a0904acd1a078409f1",
+      "gzip_bytes": 10703,
+      "gzip_sha256": "068053b5e2d45d0a4e5e8fed240ac883cc0e203c0cb217a70a41d6e9ec7185fe",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/derived.json",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-old-comment.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-old-comment.txt.gz",
+      "raw_bytes": 242,
+      "raw_sha256": "538261653a2041431e3e043a81ccc3548b0a7e426501e1a6f4db324520e82bbd",
+      "gzip_bytes": 203,
+      "gzip_sha256": "cca1cac15f760547e0dd404e5fa928382842100b15764cc8f204760b5e8fe1d1",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/old-comment.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-old-dynamic.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-old-dynamic.txt.gz",
+      "raw_bytes": 1699,
+      "raw_sha256": "f61f316c0603d365f6ba1877b0cbf8043a3aa65e7683e3848c3a224d16f120d9",
+      "gzip_bytes": 511,
+      "gzip_sha256": "661ce030b7eeb6e606aad03dc571c65d5c4601fe67d5c3b5d5e2cce39b7e2e11",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/old-dynamic.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-old-sections.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-old-sections.txt.gz",
+      "raw_bytes": 3391,
+      "raw_sha256": "a85ac9df7811a9d469f2873099de2ab21736061b9b43eecff734247cc9b293e5",
+      "gzip_bytes": 1148,
+      "gzip_sha256": "76216dc323090d0cbe74f621fc181637e2f08b866e714cf98ddcb38806283531",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/old-sections.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-old-segments.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-old-segments.txt.gz",
+      "raw_bytes": 2049,
+      "raw_sha256": "90b7f156222d92203c9b707ebff5f29b7c29320cb251d85ebd3da7371fb57898",
+      "gzip_bytes": 722,
+      "gzip_sha256": "5f29e9517ae21876ce23a82a1ee6c826e7b776eabec6187f59182564e29fb477",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/old-segments.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review-data-old-size.txt",
+      "path": "evidence/parallel-progress/current31-memory-review-data-old-size.txt.gz",
+      "raw_bytes": 1395,
+      "raw_sha256": "46902c41495ef4bcb392abaa925c23bea6230c2f2a4c9139a120870dacc164a1",
+      "gzip_bytes": 527,
+      "gzip_sha256": "3512b800fe785ae99cf723105fbb858b7246d6377a46bca8257695e7eee28af2",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review-data/old-size.txt",
+      "kind": "read-only-diagnostic"
+    },
+    {
+      "source": "current31-memory-review.md",
+      "path": "evidence/parallel-progress/current31-memory-review.md.gz",
+      "raw_bytes": 10253,
+      "raw_sha256": "1466d7fa8ebabb2f9b8c7742cc53703b9ce528cdbd04d7afddd5302f5dd5d5c2",
+      "gzip_bytes": 5733,
+      "gzip_sha256": "7ab92cb69a7415b1f14f073fc124a3b168b367f73808a18922a78a6362cce1ce",
+      "diagnostic_raw_path": "diagnostics/current31-memory-review.md",
+      "kind": "read-only-diagnostic"
+    },
+    {
       "source": "host-recovery-diagnostic.txt",
       "path": "evidence/parallel-progress/host-recovery-diagnostic.txt.gz",
       "raw_bytes": 1131,
@@ -2282,6 +2402,174 @@
       "gzip_sha256": "622c571e8081b1e27aa8779a844ba27d7b1603ac2a263a18deb2c6b0356242fd"
     },
     {
+      "source": "pr05-parallel-focused-32-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-32-fmt.txt.gz",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr05-parallel-focused-32-workspace-alltargets-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-32-workspace-alltargets-check.txt.gz",
+      "raw_bytes": 1960,
+      "raw_sha256": "eb3705568fddb3a0acb8ba7930d1877e302e9b8bc6af05cf800e4587c16c628b",
+      "gzip_bytes": 881,
+      "gzip_sha256": "b22a193de8b5bf08f9b16a0d50b423e55eef10fc823f16348edee4382d00726f"
+    },
+    {
+      "source": "pr05-parallel-focused-32.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-32.json.gz",
+      "raw_bytes": 1187,
+      "raw_sha256": "850e40fbbac7fbc91bd81c8919a4c5cbde9763955eabef167f855cf95b6fcb2f",
+      "gzip_bytes": 451,
+      "gzip_sha256": "5acc3d34302c15882e9cdcc3567c9aeeb1f00d69918d6d1e7a3f6fb511d29f9c"
+    },
+    {
+      "source": "pr05-parallel-focused-33-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-33-fmt.txt.gz",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr05-parallel-focused-33-workspace-alltargets-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-33-workspace-alltargets-check.txt.gz",
+      "raw_bytes": 35159,
+      "raw_sha256": "6c2203720926c4f2ffdad34e4b7589004d313acc6c27b46f2631c9d82da50446",
+      "gzip_bytes": 5987,
+      "gzip_sha256": "1361e9cd31c4750bcab343254662a78fb75787d325c27df8c05c540671e44d4b"
+    },
+    {
+      "source": "pr05-parallel-focused-33.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-33.json.gz",
+      "raw_bytes": 1186,
+      "raw_sha256": "854d9ec301317a1e29704d0c471fbff052e5ee2041d305c3987f4026d002f673",
+      "gzip_bytes": 451,
+      "gzip_sha256": "95d0d140e3bc229b5bc06f882c673cd12de9baa19deaf873638930668e4994ad"
+    },
+    {
+      "source": "pr05-parallel-focused-34-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-fmt.txt.gz",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr05-parallel-focused-34-platform-unit.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-platform-unit.txt.gz",
+      "raw_bytes": 11273,
+      "raw_sha256": "e9aa36023a8cee4763b4f3661844aaae0f211c960f155a353feab988bc3a944c",
+      "gzip_bytes": 3113,
+      "gzip_sha256": "abbc64b0fcdb20adcecadfe314316eeb29facb28033c6ff8d7f351fddb6c00e0"
+    },
+    {
+      "source": "pr05-parallel-focused-34-proxy-dispatch-all.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-proxy-dispatch-all.txt.gz",
+      "raw_bytes": 43215,
+      "raw_sha256": "3f17f69e726c0b34fe7139ae1009f728eca4455a0a236d06e84bd8cc2b494d56",
+      "gzip_bytes": 7519,
+      "gzip_sha256": "d77a39c9047bf6d5d2343c5a01d2e39cca5be6e6b4152b92c9aef1dc9495da65"
+    },
+    {
+      "source": "pr05-parallel-focused-34-proxy-health.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-proxy-health.txt.gz",
+      "raw_bytes": 34324,
+      "raw_sha256": "972238fdef4249b563d7d8f2dc02327aa0c527177db7c870cb82c29bc6981c83",
+      "gzip_bytes": 5968,
+      "gzip_sha256": "d9bdcf4ae4b3edcd2fad7f19f4062c562ae4dfd9982698dd5800b46de86a2b56"
+    },
+    {
+      "source": "pr05-parallel-focused-34-proxy-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-proxy-library.txt.gz",
+      "raw_bytes": 75165,
+      "raw_sha256": "2dc1945925b703fb687b53fef3bd4af746e23315c801859f17855171c17e52e0",
+      "gzip_bytes": 17309,
+      "gzip_sha256": "0331fce30523b582c563f043590f671d4d374fa79fc49ca45c77b51863d3dddb"
+    },
+    {
+      "source": "pr05-parallel-focused-34-source-architecture-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-source-architecture-guard.txt.gz",
+      "raw_bytes": 2491,
+      "raw_sha256": "61254c6c9d5d17b6d8ef7b2e3edd35b43d7526cac9232da905b4ee07807cd50f",
+      "gzip_bytes": 1106,
+      "gzip_sha256": "e04abbf1609885a19160c17c9f62c03b22d3f201599f8f36767533a932f9631a"
+    },
+    {
+      "source": "pr05-parallel-focused-34-source-runtime-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-source-runtime-guard.txt.gz",
+      "raw_bytes": 13956,
+      "raw_sha256": "90e34ef123c20ac2742d64ffb61940ef4b8c1a2dfc3b3901fcda63fbeb73e41a",
+      "gzip_bytes": 3126,
+      "gzip_sha256": "2c2b61cb3aec7a88d9485df4a677a98c8c28044989104e366db8efd224ce9154"
+    },
+    {
+      "source": "pr05-parallel-focused-34-strict.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-strict.txt.gz",
+      "raw_bytes": 35376,
+      "raw_sha256": "88befef145d01597aabd242c2e0aeb51507ddf4c1ff58e84754792742c47af39",
+      "gzip_bytes": 5924,
+      "gzip_sha256": "1a59906fa9270ea42faa8f7bb199df11aecec30e94443db7a416e0f7da545018"
+    },
+    {
+      "source": "pr05-parallel-focused-34-test-layout.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-test-layout.txt.gz",
+      "raw_bytes": 59,
+      "raw_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+      "gzip_bytes": 77,
+      "gzip_sha256": "079178c46ec27a5e5a4e5e71d1d64e37b4818eb505423729cd211952020997a5"
+    },
+    {
+      "source": "pr05-parallel-focused-34-trojan-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-trojan-library.txt.gz",
+      "raw_bytes": 18853,
+      "raw_sha256": "01711ee20426839d7985c0fa87f1f6973bec1c07f81cc08c0c092a30004779ef",
+      "gzip_bytes": 3713,
+      "gzip_sha256": "161ccae4b28c404545c528b4e12558db4449a9cbe530d3609bba5fd58f439910"
+    },
+    {
+      "source": "pr05-parallel-focused-34-vless-proxy-all.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-vless-proxy-all.txt.gz",
+      "raw_bytes": 38649,
+      "raw_sha256": "4f0f46a251d7a45a7487a924b0b1131d4b7675f8fa5bdb04019d18f62c419ffd",
+      "gzip_bytes": 6865,
+      "gzip_sha256": "30508af8f4d2a936c49555161356e195b67bf07e9927d2398b0c08c63981b99e"
+    },
+    {
+      "source": "pr05-parallel-focused-34-vmess-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-vmess-library.txt.gz",
+      "raw_bytes": 20751,
+      "raw_sha256": "1741ad364393ede1fac4bff6c6b073b30b39e16c93d5225c8bb12ac9276ff6fd",
+      "gzip_bytes": 4373,
+      "gzip_sha256": "0ef5fed3b37855c241ec124059f4af071e365945ea1c42c229be6aaeccbb6b8a"
+    },
+    {
+      "source": "pr05-parallel-focused-34-windows-platform.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-windows-platform.txt.gz",
+      "raw_bytes": 601,
+      "raw_sha256": "e13a3795ccd29f02311ff7d9b11dab8932d0ccf476fff5eab1b7c7037ab1025f",
+      "gzip_bytes": 365,
+      "gzip_sha256": "2849c41de105f347e46cc7538ee7d33f36579ef8ebbc77bdcb0187bfbfc71b18"
+    },
+    {
+      "source": "pr05-parallel-focused-34-workspace-alltargets-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34-workspace-alltargets-check.txt.gz",
+      "raw_bytes": 34241,
+      "raw_sha256": "6b24f8145d5a4a17ff06b7c09644c15e18854c6241fdf008d8bfd7b8222dae97",
+      "gzip_bytes": 5634,
+      "gzip_sha256": "35222af9886eca6bdcd5c783792164a6963e6025e7e7b403ad98fd6590aaef69"
+    },
+    {
+      "source": "pr05-parallel-focused-34.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-34.json.gz",
+      "raw_bytes": 7770,
+      "raw_sha256": "9781c83eae02564b8257e37d7205c42e1fc62a176fbcae4d715ef6192669e1b3",
+      "gzip_bytes": 1066,
+      "gzip_sha256": "689117f42c3f79e0b639519730eae7f12e82a7167970b7fbe205e906275020ec"
+    },
+    {
       "source": "pr05-parallel-focused-4-component-contracts.txt",
       "path": "evidence/parallel-progress/pr05-parallel-focused-4-component-contracts.txt.gz",
       "raw_bytes": 2905,
@@ -2870,13 +3158,736 @@
   "root25": "Frozen2e7ce766 clean. fmt/check PASS, grpc10/0 including unchanged typed-source assertion; actual Ready ACK1/0 beyond5sec, recovery2/0, HTTP14/0, Trojan new3/0+original3/0, SOCKSTCP20/0 UDP29/0, originalgrpc1/0, static189/0+26/0. Peer14/1 panic Display assertion later fixed to exact original error Arc+TaskId/class; strict socks fixture type complexity later fixed. No global qualification.",
   "root26": "Frozen dfee9029 clean. fmt/check/minimal PASS. VMess library22/0 (same actual replay authority/fullauth) contracts11/0, peer15/0 with actual original Arc/TaskID/class assertion; static189/0+26/0. proxy_dispatch COMPILE BLOCKED because root VMess fixture referenced private request type (fixed77490b66 via existing public bundle), dependent integrations NOT RUN. strict DNS needless_return failure (fixed4ec6). No global qualification.",
   "post26": "Superseded by root27–31 actual results. New pre-native TCP owner/registry lease and same-view adapter are isolated WIP, not yet Cargo tested; cold VMess/Trojan profile mutation discovered and being staged while preserving genuine post-reconcile managed-user hot updates. Shared resource production activation and RuntimeHostM4/ALL17 remain incomplete.",
-  "latest_runtime_code_commit": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
-  "latest_runtime_tree": "12fdc3ad23e89a88ccf91ed56a46c0cd04128182",
+  "latest_runtime_code_commit": "f96b7600162c97eda4e97503bfc33ff8925cfd42",
+  "latest_runtime_tree": "cf95c11038f9dfdfc026c94e65e6f6bf983d827a",
   "root27": "5f774fa5: actual wire VMess new2/original7, HTTP14, Trojan3 PASS; full check PASS; transport/proxy lib compile blocked by path/privateLife/constructor API drift, fixed later. New VLESS2 FAIL invalid anonymous+device_limit fixture; original principal identity regression independently PASS pinned old binary. strict and static original failures retained.",
   "root28": "67071c99: whole workspace allfeatures/alltargets and fmt PASS, no runtime claim.",
   "VLESS_invalid_fixture": "Logging-only9a6547f5 captured exact device-limited session has no principal identity. Separate validfixture7770 preserves full7 auth raw/TLS and adds principalNone/rates-only. No Engine/admission/timer/wire weakening. Original principal regression frozen27 binary9e312... PASS1. Raw logs and hashes retained.",
   "root29": "a6b98f6e: whole workspace allfeatures/alltargets and fmt PASS, no runtime claim.",
   "root30": "1eb5c5c4: fmt/alltargets PASS; transport179/0/1,platform80/0/1,Windows compilecheck0(no native runtime),Proxy603/2/2,VLESSlib60/0,SSlib45/0,dispatch97/0,VLESSstandard3/0,originalgrpc1/0,health12/0. SSnewwire0/3 invalid SIP022/SIP023 identity fixture; runtimeguard188/1 staleacceptsurface,architecture26/0,strict FAIL privateinto_ helper +dropPin+unactivatedprivatecode. Two Proxy failures originalVMessCA expectation and real stoppedrollbackDNS fakeIP reconcilehook. All fixed nextfreeze; no aggregate across overlapping filters.",
   "root31": "9e3f3ed33024e32f61685b0bff5bb4611f365109: fmt/workspaceallfeaturesalltargets PASS; Proxy609/0/2 includes real coldTCP4 and exact stoppedrollbackhook restoration; VMessCA rawTLS/WS positive and nativegRPC explicitcoldUnsupported originalgate, legacyactualCA+grpc dispatch previous30positive retained. SSnewwire3/0 all5 protocol subcases, source runtime189/0 architecture26/0. strict FAIL109lib/17libtest (mostly unactivatedprivatelibrary; representations and test lexicalguards remaining). No global qualification; no summed overlappingfilters.",
-  "post31_isolated_integration": "This evidence/document update is based on isolated source9959fccf. It includes same-nativeTCPpreowner, registry lease, and staged VMess/Trojan profiles but NO Cargo qualification on this new source yet. Root source9e3f3ed3 is frozen for actual immutable observer+exact17featuresCLI measurements; those are intermediate evidence for9e3, not finalhead. Nextroot32 must verify all new listener/socket/profile work before any activation/global claim."
+  "post31_isolated_integration": "This evidence/document update is based on isolated source9959fccf. It includes same-nativeTCPpreowner, registry lease, and staged VMess/Trojan profiles but NO Cargo qualification on this new source yet. Root source9e3f3ed3 is frozen for actual immutable observer+exact17featuresCLI measurements; those are intermediate evidence for9e3, not finalhead. Nextroot32 must verify all new listener/socket/profile work before any activation/global claim.",
+  "latest_runtime_lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+  "root32": "58a08688c74c1e522a39f024793b354ebb0d271c: fmt PASS; allfeatures/alltargets check FAIL E0106 source-lifetime + E0616 private TokioListener.inner fixture; no runtime tests were run.",
+  "root33": "aeb671e04218edc8bd6de610911d0a1e85e5ee82: fmt PASS; allfeatures/alltargets check FAIL two E0616 private Proxy.inbound_owners fixture accesses; no runtime tests were run.",
+  "root34": "f96b7600162c97eda4e97503bfc33ff8925cfd42 tree cf95c11038f9dfdfc026c94e65e6f6bf983d827a lock ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764: fmt/allfeatures/alltargets/layout313source95targets PASS; platform91/0/1, Windows compilecheck0(no native runtime), VMess25/0, Trojan4/0, Proxy616/0/2, dispatch99/0, VLESS52/0/1, runtime189/0, architecture26/0, health12/0. strict FAIL103lib+3libtest private unactivated code. Overlapping scopes must not be summed; no overall qualification.",
+  "post34_status": "This copied evidence stage stops at root34. Old cutoff and pending-validation paragraphs are historical, superseded only by the explicit root32–34 correction. Root35 frozen68c16632 is not covered. No warning suppression, new resource defaults or unqualified library production activation is represented; RuntimeHost M4/ALL17/final downstream/platform qualification remain incomplete.",
+  "rounds32_34": {
+    "32": {
+      "head": "58a08688c74c1e522a39f024793b354ebb0d271c",
+      "tree": "133c6805a418dc56327e4aad025e60ac2d7bce70",
+      "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+      "commands": [
+        {
+          "name": "fmt",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--check"
+          ],
+          "exit": 0,
+          "seconds": 4.962400604999857,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-32-fmt.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "argv": [
+            "cargo",
+            "check",
+            "--locked",
+            "--workspace",
+            "--all-features",
+            "--all-targets"
+          ],
+          "exit": 101,
+          "seconds": 12.843536018001032,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-32-workspace-alltargets-check.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        }
+      ]
+    },
+    "33": {
+      "head": "aeb671e04218edc8bd6de610911d0a1e85e5ee82",
+      "tree": "21ea9af06e229bd1a117eb0640a3641c20fd4613",
+      "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+      "commands": [
+        {
+          "name": "fmt",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--check"
+          ],
+          "exit": 0,
+          "seconds": 5.755915428002481,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-33-fmt.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "argv": [
+            "cargo",
+            "check",
+            "--locked",
+            "--workspace",
+            "--all-features",
+            "--all-targets"
+          ],
+          "exit": 101,
+          "seconds": 119.2155990399915,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-33-workspace-alltargets-check.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        }
+      ]
+    },
+    "34": {
+      "head": "f96b7600162c97eda4e97503bfc33ff8925cfd42",
+      "tree": "cf95c11038f9dfdfc026c94e65e6f6bf983d827a",
+      "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+      "commands": [
+        {
+          "name": "fmt",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--check"
+          ],
+          "exit": 0,
+          "seconds": 5.363939703005599,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-fmt.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "argv": [
+            "cargo",
+            "check",
+            "--locked",
+            "--workspace",
+            "--all-features",
+            "--all-targets"
+          ],
+          "exit": 0,
+          "seconds": 87.7165609549993,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-workspace-alltargets-check.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "test-layout",
+          "argv": [
+            "python3",
+            "scripts/check-test-layout.py"
+          ],
+          "exit": 0,
+          "seconds": 0.1164793659991119,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-test-layout.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "platform-unit",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "zero-platform-tokio",
+            "--all-features",
+            "--lib"
+          ],
+          "exit": 0,
+          "seconds": 4.198427263996564,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-platform-unit.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            91,
+            0,
+            1
+          ],
+          "selected_test_count": 92,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "windows-platform",
+          "argv": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "zero-platform-tokio",
+            "--tests",
+            "--target",
+            "x86_64-pc-windows-gnu"
+          ],
+          "exit": 0,
+          "seconds": 2.055465823999839,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-windows-platform.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "vmess-library",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "vmess",
+            "--all-features",
+            "--lib"
+          ],
+          "exit": 0,
+          "seconds": 10.82607835100498,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-vmess-library.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            25,
+            0,
+            0
+          ],
+          "selected_test_count": 25,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "trojan-library",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "trojan",
+            "--all-features",
+            "--lib"
+          ],
+          "exit": 0,
+          "seconds": 8.479036339005688,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-trojan-library.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            4,
+            0,
+            0
+          ],
+          "selected_test_count": 4,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "proxy-library",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "zero-proxy",
+            "--all-features",
+            "--lib"
+          ],
+          "exit": 0,
+          "seconds": 190.82726944999013,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-proxy-library.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            616,
+            0,
+            2
+          ],
+          "selected_test_count": 618,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "proxy-dispatch-all",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "zero-proxy",
+            "--all-features",
+            "--test",
+            "proxy_dispatch"
+          ],
+          "exit": 0,
+          "seconds": 143.2329946559912,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-proxy-dispatch-all.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            99,
+            0,
+            0
+          ],
+          "selected_test_count": 99,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "vless-proxy-all",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "zero-proxy",
+            "--all-features",
+            "--test",
+            "proxy_vless"
+          ],
+          "exit": 0,
+          "seconds": 34.07139314900269,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-vless-proxy-all.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            52,
+            0,
+            1
+          ],
+          "selected_test_count": 53,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "source-runtime-guard",
+          "argv": [
+            "python3",
+            "/workspace/core-next/run-source-guard.py",
+            "runtime"
+          ],
+          "exit": 0,
+          "seconds": 1.496915812997031,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-source-runtime-guard.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            189,
+            0,
+            0
+          ],
+          "selected_test_count": 189,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "source-architecture-guard",
+          "argv": [
+            "python3",
+            "/workspace/core-next/run-source-guard.py",
+            "architecture"
+          ],
+          "exit": 0,
+          "seconds": 0.4408521279983688,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-source-architecture-guard.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            26,
+            0,
+            0
+          ],
+          "selected_test_count": 26,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "proxy-health",
+          "argv": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "zero-proxy",
+            "--all-features",
+            "--test",
+            "proxy_health"
+          ],
+          "exit": 0,
+          "seconds": 4.084752241004026,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-proxy-health.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": [
+            12,
+            0,
+            0
+          ],
+          "selected_test_count": 12,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        },
+        {
+          "name": "strict",
+          "argv": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "--workspace",
+            "--all-targets",
+            "--all-features",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit": 101,
+          "seconds": 104.09359066399338,
+          "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-34-strict.txt",
+          "head_unchanged": true,
+          "source_clean": true,
+          "counts": null,
+          "selected_test_count": 0,
+          "coverage_ok": true,
+          "lock_unchanged": true
+        }
+      ]
+    }
+  },
+  "current31_memory_diagnostic": {
+    "scope": "Read-only diagnostic of existing current31 measurements; no new workload, no smaps/allocator causality, not resource calibration or later-head evidence",
+    "source_commit": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+    "report": "diagnostics/current31-memory-review.md",
+    "derived": "diagnostics/current31-memory-review-data/derived.json",
+    "fixed_binary_identity_checks": [
+      {
+        "path": "/workspace/core-baseline-artifacts/zero-release",
+        "sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+        "bytes": 58579864,
+        "archived": false,
+        "scope": "identity checked only; not executed"
+      },
+      {
+        "path": "/workspace/core-baseline-artifacts/zero-matched-current-9e3f3ed3",
+        "sha256": "b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd",
+        "bytes": 64142136,
+        "archived": false,
+        "scope": "identity checked only; not executed"
+      }
+    ],
+    "observed_matched_cli": {
+      "old": {
+        "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+        "binary_sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+        "trials": [
+          {
+            "trial": 0,
+            "steady": {
+              "sent": 816,
+              "unique_received": 816,
+              "not_observed": 0
+            },
+            "overlapping_reload": {
+              "sent": 1504,
+              "unique_received": 1388,
+              "not_observed": 116,
+              "actual_sends_within_apply_interval": 35,
+              "echo_receives_within_apply_interval": 209
+            },
+            "bursts": {
+              "31": {
+                "sent": 496,
+                "unique_received": 216,
+                "not_observed": 280,
+                "duplicates": 0
+              },
+              "32": {
+                "sent": 512,
+                "unique_received": 118,
+                "not_observed": 394,
+                "duplicates": 0
+              },
+              "33": {
+                "sent": 528,
+                "unique_received": 166,
+                "not_observed": 362,
+                "duplicates": 0
+              }
+            },
+            "kernel_vmhwm_max_observed_bytes": 60416000,
+            "tokio_task_peak": null,
+            "user_queue_bytes_peak": null,
+            "exact_native_open_attempts": null
+          },
+          {
+            "trial": 1,
+            "steady": {
+              "sent": 816,
+              "unique_received": 816,
+              "not_observed": 0
+            },
+            "overlapping_reload": {
+              "sent": 1456,
+              "unique_received": 1350,
+              "not_observed": 106,
+              "actual_sends_within_apply_interval": 80,
+              "echo_receives_within_apply_interval": 210
+            },
+            "bursts": {
+              "31": {
+                "sent": 496,
+                "unique_received": 212,
+                "not_observed": 284,
+                "duplicates": 0
+              },
+              "32": {
+                "sent": 512,
+                "unique_received": 104,
+                "not_observed": 408,
+                "duplicates": 0
+              },
+              "33": {
+                "sent": 528,
+                "unique_received": 146,
+                "not_observed": 382,
+                "duplicates": 0
+              }
+            },
+            "kernel_vmhwm_max_observed_bytes": 60211200,
+            "tokio_task_peak": null,
+            "user_queue_bytes_peak": null,
+            "exact_native_open_attempts": null
+          },
+          {
+            "trial": 2,
+            "steady": {
+              "sent": 816,
+              "unique_received": 816,
+              "not_observed": 0
+            },
+            "overlapping_reload": {
+              "sent": 1408,
+              "unique_received": 1311,
+              "not_observed": 97,
+              "actual_sends_within_apply_interval": 16,
+              "echo_receives_within_apply_interval": 185
+            },
+            "bursts": {
+              "31": {
+                "sent": 496,
+                "unique_received": 154,
+                "not_observed": 342,
+                "duplicates": 0
+              },
+              "32": {
+                "sent": 512,
+                "unique_received": 143,
+                "not_observed": 369,
+                "duplicates": 0
+              },
+              "33": {
+                "sent": 528,
+                "unique_received": 503,
+                "not_observed": 25,
+                "duplicates": 0
+              }
+            },
+            "kernel_vmhwm_max_observed_bytes": 57253888,
+            "tokio_task_peak": null,
+            "user_queue_bytes_peak": null,
+            "exact_native_open_attempts": null
+          }
+        ]
+      },
+      "current31": {
+        "source_commit": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+        "binary_sha256": "b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd",
+        "trials": [
+          {
+            "trial": 0,
+            "steady": {
+              "sent": 816,
+              "unique_received": 816,
+              "not_observed": 0
+            },
+            "overlapping_reload": {
+              "sent": 1472,
+              "unique_received": 1280,
+              "not_observed": 192,
+              "actual_sends_within_apply_interval": 64,
+              "echo_receives_within_apply_interval": 227
+            },
+            "bursts": {
+              "31": {
+                "sent": 496,
+                "unique_received": 193,
+                "not_observed": 303,
+                "duplicates": 0
+              },
+              "32": {
+                "sent": 512,
+                "unique_received": 196,
+                "not_observed": 316,
+                "duplicates": 0
+              },
+              "33": {
+                "sent": 528,
+                "unique_received": 404,
+                "not_observed": 124,
+                "duplicates": 0
+              }
+            },
+            "kernel_vmhwm_max_observed_bytes": 69578752,
+            "tokio_task_peak": null,
+            "user_queue_bytes_peak": null,
+            "exact_native_open_attempts": null
+          },
+          {
+            "trial": 1,
+            "steady": {
+              "sent": 816,
+              "unique_received": 816,
+              "not_observed": 0
+            },
+            "overlapping_reload": {
+              "sent": 1392,
+              "unique_received": 1250,
+              "not_observed": 142,
+              "actual_sends_within_apply_interval": 32,
+              "echo_receives_within_apply_interval": 165
+            },
+            "bursts": {
+              "31": {
+                "sent": 496,
+                "unique_received": 129,
+                "not_observed": 367,
+                "duplicates": 0
+              },
+              "32": {
+                "sent": 512,
+                "unique_received": 398,
+                "not_observed": 114,
+                "duplicates": 0
+              },
+              "33": {
+                "sent": 528,
+                "unique_received": 172,
+                "not_observed": 356,
+                "duplicates": 0
+              }
+            },
+            "kernel_vmhwm_max_observed_bytes": 68898816,
+            "tokio_task_peak": null,
+            "user_queue_bytes_peak": null,
+            "exact_native_open_attempts": null
+          },
+          {
+            "trial": 2,
+            "steady": {
+              "sent": 816,
+              "unique_received": 816,
+              "not_observed": 0
+            },
+            "overlapping_reload": {
+              "sent": 1424,
+              "unique_received": 1239,
+              "not_observed": 185,
+              "actual_sends_within_apply_interval": 34,
+              "echo_receives_within_apply_interval": 199
+            },
+            "bursts": {
+              "31": {
+                "sent": 496,
+                "unique_received": 185,
+                "not_observed": 311,
+                "duplicates": 0
+              },
+              "32": {
+                "sent": 512,
+                "unique_received": 203,
+                "not_observed": 309,
+                "duplicates": 0
+              },
+              "33": {
+                "sent": 528,
+                "unique_received": 155,
+                "not_observed": 373,
+                "duplicates": 0
+              }
+            },
+            "kernel_vmhwm_max_observed_bytes": 69578752,
+            "tokio_task_peak": null,
+            "user_queue_bytes_peak": null,
+            "exact_native_open_attempts": null
+          }
+        ]
+      }
+    },
+    "observed_hwm_bytes": {
+      "old": [
+        60416000,
+        60211200,
+        57253888
+      ],
+      "current31": [
+        69578752,
+        68898816,
+        69578752
+      ]
+    },
+    "hwm_range_bytes": {
+      "old": [
+        57253888,
+        60416000
+      ],
+      "current31": [
+        68898816,
+        69578752
+      ]
+    },
+    "suggested_new_capacity_defaults": null,
+    "limitations": [
+      "All drops and timing/phase caveats retained from original observations.",
+      "VmHWM is max observed and sometimes decreases in original proc samples; do not smooth/rewrite.",
+      "Static ELF and matching compiler comments do not prove resident memory or explain RSS growth.",
+      "CLI Tokio census, user queue bytes and exact native attempts remain null.",
+      "Old/current library observations are separate profiles; not interchangeable with CLI."
+    ]
+  }
 }

@@ -1,0 +1,36 @@
+/workspace/core-baseline-artifacts/zero-release  :
+section                  size       addr
+.interp                    28        736
+.note.ABI-tag              32        764
+.note.gnu.build-id         36        796
+.dynsym                  6792        832
+.gnu.version              566       7624
+.gnu.version_r            544       8192
+.gnu.hash                  28       8736
+.dynstr                  3762       8764
+.rela.dyn             2334024      12528
+.rela.plt                3432    2346552
+.rodata               3700512    2351104
+.gcc_except_table     2778280    6051616
+.eh_frame_hdr          675396    8829896
+.eh_frame             4803504    9505296
+.text                42469564   14312896
+.init                      28   56782460
+.fini                       9   56782488
+.plt                     2304   56782512
+.tdata                    304   56788912
+.tbss                     408   56789216
+.fini_array                32   56789216
+.init_array                24   56789248
+.data.rel.ro          1671712   56789280
+.dynamic                  480   58460992
+.got                    63048   58461472
+.got.plt                 1168   58524520
+.relro_padding           2056   58525688
+.tm_clone_table             0   58529784
+.data                   59752   58529792
+.bss                    33252   58589568
+.comment                  170          0
+Total                58611247
+
+
