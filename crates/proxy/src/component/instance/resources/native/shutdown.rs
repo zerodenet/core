@@ -34,6 +34,8 @@ impl HostResources {
         // even the async cleanup gate; a concurrently completed receipt can be
         // observed on retry, never guessed from an older pending snapshot.
         let carriers = self.carriers.evidence();
+        self.metadata.close_native(self.component);
+        let metadata = self.metadata.evidence(self.component);
         let Ok(_cleanup) = timeout_at(deadline, self.cleanup.lock()).await else {
             return Ok(unfinished("native/file cleanup owner is still busy".into()));
         };
@@ -65,6 +67,9 @@ impl HostResources {
         {
             return Err(crate::component::instance::retained(source.clone()));
         }
+        if let Some(source) = metadata.iter().find_map(|entry| entry.first_fault.as_ref()) {
+            return Err(crate::component::instance::retained(source.clone()));
+        }
         let mut report = std::mem::take(&mut state.io.receipts);
         report.append(std::mem::take(&mut state.files.receipts));
         report.unfinished.extend(
@@ -85,6 +90,9 @@ impl HostResources {
             "component {} carrier declaration {} native_closed={} transferred users remain unaccounted",
             self.component.0, carrier.ordinal, carrier.native_generation_closed
         ))));
+        drop(state);
+        self.metadata.append_receipts(self.component, &mut report);
+        report.unfinished.extend(metadata.iter().map(|entry| Unfinished::Resource(format!("component {} metadata declaration {} native_busy={} transferred users/drivers remain unaccounted",self.component.0,entry.ordinal,entry.busy))));
         Ok(report)
     }
     async fn drive_native(&self, deadline: Instant) {

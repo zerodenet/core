@@ -11,6 +11,7 @@ pub(in crate::component) struct HostIoEvidence {
     pub files: Vec<FileIoEvidence>,
     pub native: Vec<NativeIoEvidence>,
     pub carriers: Vec<super::carrier::CarrierIoEvidence>,
+    pub metadata: Vec<super::metadata::MetadataIoEvidence>,
     pub sticky_faults: Vec<Arc<ChannelError>>,
 }
 #[derive(Clone, Debug)]
@@ -55,6 +56,12 @@ impl HostResources {
         let admission_closed = state.closed || self.cancel.is_cancelled();
         drop(state);
         let carriers = self.carriers.evidence();
+        let metadata = self.metadata.evidence(self.component);
+        sticky_faults.extend(
+            metadata
+                .iter()
+                .filter_map(|entry| entry.first_fault.clone()),
+        );
         sticky_faults.extend(
             carriers
                 .iter()
@@ -83,6 +90,7 @@ impl HostResources {
             files,
             native,
             carriers,
+            metadata,
             sticky_faults,
         }
     }

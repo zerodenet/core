@@ -6,6 +6,7 @@ use super::*;
 pub(in crate::component) enum DeclaredResourceKind {
     ControlledOutboundStream,
     NativeIcmp,
+    MetadataDatagram,
     File,
     TcpListener,
     DatagramListener,
@@ -44,6 +45,9 @@ impl CoverageBinding {
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
             ResourceDeclaration::ControlledOutboundStream { .. } => Self::Carrier,
+            ResourceDeclaration::MetadataDatagram { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::MetadataDatagram)
+            }
             ResourceDeclaration::NativeIcmp { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::NativeIcmp)
             }

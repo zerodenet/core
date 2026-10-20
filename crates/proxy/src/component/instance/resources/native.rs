@@ -18,6 +18,7 @@ pub(in crate::component) struct HostResources {
     component: ComponentId,
     coverage: Vec<coverage::CoverageBinding>,
     carriers: carrier::CarrierDeclarations,
+    metadata: metadata::MetadataDeclarations,
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Arc<tokio::sync::Notify>,
@@ -39,6 +40,7 @@ mod coverage;
 mod evidence;
 mod files;
 mod listener;
+mod metadata;
 mod prepare;
 pub(in crate::component) use evidence::HostIoEvidence;
 pub(crate) use listener::HostDatagramListenerOwner;
@@ -91,6 +93,15 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn listen_metadata_datagram(
+        &self,
+        request: zero_platform_tokio::contract::component::MetadataDatagramRequest,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::component::GrantedMetadataListener, ChannelError>,
+    > {
+        Box::pin(async move { self.bind_metadata(request) })
+    }
     fn register_controlled_carrier(
         &self,
         ordinal: usize,

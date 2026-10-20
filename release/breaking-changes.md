@@ -458,3 +458,17 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   original scope's admission, allocator, budget and exit receipts, and rejects
   expired owners as closing. Retained task futures can hold this authority
   without retaining their own Scope; weak identity metadata cannot mint it.
+
+- Hosted ancillary UDP acquisition now uses the canonical `MetadataDatagram`
+  declaration ordinal, exact literal source, complete explicit metadata limits,
+  finite bind-attempt ceiling and the installed instance's actual task-scope
+  identity. The host installs the same main/probe native owner before creation
+  and retains native controls when granting unique RX, bounded TX and unique
+  observation authority. This is separate from plain UDP listener permission.
+  Main/probe native-close evidence and original acquisition/close errors survive
+  retry independently. Provider callbacks run outside HostState/cleanup locks;
+  reentrant access to a busy original returns pending/busy rather than blocking.
+  Canonical metadata coverage remains `Unaccounted` until the actual transferred
+  users and QUIC driver graph are integrated. No default budget, production
+  activation, outbound interface/dial-policy support, or full graph closure is
+  implied by this host grant.

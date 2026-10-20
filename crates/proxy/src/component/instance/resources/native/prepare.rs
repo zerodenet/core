@@ -29,6 +29,8 @@ impl HostResources {
         cancel: CancellationToken,
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
     ) -> Result<Arc<Self>, ChannelError> {
+        let metadata =
+            metadata::MetadataDeclarations::new(component, declarations, identity.clone())?;
         let carriers =
             carrier::CarrierDeclarations::new(component, declarations, identity, cancel.clone())?;
         let mut remaining = BTreeMap::new();
@@ -103,7 +105,8 @@ impl HostResources {
                 ResourceDeclaration::File { path, max_bytes } => {
                     files.declare(component, path, *max_bytes)?
                 }
-                ResourceDeclaration::ControlledOutboundStream { .. } => {}
+                ResourceDeclaration::ControlledOutboundStream { .. }
+                | ResourceDeclaration::MetadataDatagram { .. } => {}
                 ResourceDeclaration::OutboundDatagram { .. } => {
                     return Err(error(
                         component,
@@ -128,6 +131,7 @@ impl HostResources {
             component,
             coverage,
             carriers,
+            metadata,
             cancel,
             state: Mutex::new(State {
                 closed: false,
