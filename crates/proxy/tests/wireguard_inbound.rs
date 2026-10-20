@@ -6,6 +6,8 @@ mod deadline;
 mod egress;
 #[path = "support/host.rs"]
 mod host;
+#[path = "wireguard_inbound/recovery.rs"]
+mod recovery;
 mod support;
 
 use host::non_loopback_host_ipv4;
