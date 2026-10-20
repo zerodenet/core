@@ -19,8 +19,9 @@ pub struct ControlledTcpListenerOwner {
     address: SocketAddr,
     remaining: usize,
     acquired: bool,
-    control: ControlledTcpListenerControl,
+    pub(super) control: ControlledTcpListenerControl,
     acquisition_source: Option<Arc<io::Error>>,
+    pub(super) pending_close: CloseReport,
 }
 impl ControlledTcpListenerOwner {
     /// Pure validation/allocation. No DNS, native socket or runtime task.
@@ -58,6 +59,7 @@ impl ControlledTcpListenerOwner {
         };
         let address = SocketAddr::new(ip, destination.port);
         let shared = Arc::new(Shared {
+            accepted: None,
             state: Mutex::new(State {
                 listener: None,
                 raw: None,
@@ -78,6 +80,7 @@ impl ControlledTcpListenerOwner {
                 reported: false,
             },
             acquisition_source: None,
+            pending_close: CloseReport::default(),
         })
     }
 
@@ -177,7 +180,11 @@ impl ControlledTcpListenerOwner {
         self.control.shared.cancel_admission();
     }
     pub async fn wait_closed(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
-        self.control.wait_closed(deadline).await
+        if self.control.shared.accepted.is_some() {
+            self.wait_owned_children(deadline).await
+        } else {
+            self.control.wait_closed(deadline).await
+        }
     }
 }
 impl ChannelControl for ControlledTcpListenerOwner {

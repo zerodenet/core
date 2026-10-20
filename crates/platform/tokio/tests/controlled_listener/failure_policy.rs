@@ -8,6 +8,7 @@ async fn consumed_handle_unknown_policy_retains_exact_source_and_never_confirms_
     // There is deliberately no fabricated close success or reconstructed fd.
     let source = Arc::new(io::Error::from_raw_os_error(libc::EIO));
     let shared = Arc::new(Shared {
+        accepted: None,
         state: Mutex::new(State {
             listener: None,
             raw: None,

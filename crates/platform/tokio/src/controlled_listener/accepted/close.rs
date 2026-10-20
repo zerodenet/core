@@ -1,0 +1,63 @@
+use super::*;
+use crate::contract::lifecycle::ChannelControl;
+impl Pool {
+    pub(super) async fn close(
+        &self,
+        claim: &AcceptedTcpClaim,
+        deadline: Instant,
+    ) -> Result<Option<AcceptedTcpNativeClosed>, ChannelError> {
+        let entry = &claim.entry;
+        if !Arc::ptr_eq(&self.identity, &entry.identity) {
+            return Err(failure(
+                Stage::Close,
+                Reason::StalePlan,
+                "accepted TCP claim belongs to another listener",
+            ));
+        }
+        if entry.state().phase == Phase::Closed {
+            return Ok(Some(AcceptedTcpNativeClosed {
+                entry: entry.clone(),
+            }));
+        }
+        let mut guard = match tokio::time::timeout_at(deadline, entry.control.lock()).await {
+            Ok(guard) => guard,
+            Err(_) => return Ok(None),
+        };
+        let Some(control) = guard.as_mut() else {
+            let state = entry.state();
+            return if state.phase == Phase::Waiting {
+                Ok(None)
+            } else {
+                Err(retained(
+                    state
+                        .unknown
+                        .clone()
+                        .unwrap_or_else(|| entry.uncertain.clone()),
+                ))
+            };
+        };
+        // Concrete same original, never a caller's report or string receipt.
+        match control.wait_closed(deadline).await {
+            Ok(report) if report.is_complete() => {
+                entry.state().phase = Phase::Closed;
+                self.confirm(entry);
+                Ok(Some(AcceptedTcpNativeClosed {
+                    entry: entry.clone(),
+                }))
+            }
+            Ok(_) => Ok(None),
+            Err(source) => Err(self.remember(entry, source, true)),
+        }
+    }
+    pub(super) async fn shutdown(&self, deadline: Instant) -> Option<ChannelError> {
+        let entries: Vec<_> = self.state().entries.values().cloned().collect();
+        let mut first = None;
+        for entry in entries {
+            match self.close(&AcceptedTcpClaim { entry }, deadline).await {
+                Err(error) if first.is_none() => first = Some(error),
+                _ => {}
+            }
+        }
+        first
+    }
+}

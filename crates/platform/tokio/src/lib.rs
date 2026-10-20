@@ -5,7 +5,9 @@ pub use tokio_listener::TokioListener;
 mod controlled_listener;
 pub mod file;
 pub use controlled_listener::{
-    ControlledTcpListener, ControlledTcpListenerControl, ControlledTcpListenerOwner,
+    AcceptedTcp, AcceptedTcpClaim, AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream,
+    AcceptedTcpUsers, ControlledTcpListener, ControlledTcpListenerControl,
+    ControlledTcpListenerOwner,
 };
 #[cfg(feature = "host-network-stats")]
 pub mod network_statistics;

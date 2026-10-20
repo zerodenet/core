@@ -1,5 +1,10 @@
 //! One actual listener, a cancel-safe accept view, and explicit close ownership.
+mod accepted;
 mod control;
+pub use accepted::{
+    AcceptedTcp, AcceptedTcpClaim, AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream,
+    AcceptedTcpUsers,
+};
 mod native;
 mod owner;
 use crate::TokioSocket;
@@ -25,6 +30,7 @@ struct State {
     error: Option<Arc<io::Error>>,
 }
 struct Shared {
+    accepted: Option<Arc<accepted::Pool>>,
     state: Mutex<State>,
     cancel: CancellationToken,
     label: String,
@@ -105,6 +111,7 @@ impl ControlledTcpListener {
     ) -> (Self, ControlledTcpListenerControl) {
         let cancel = parent.child_token();
         let shared = Arc::new(Shared {
+            accepted: None,
             label: format!("native TCP listener {:?}", listener.local_addr().ok()),
             state: Mutex::new(State {
                 listener: Some(listener),
@@ -142,6 +149,12 @@ impl ControlledTcpListener {
     /// No task is started. Dropping a pending accept leaves the same listener
     /// available to the next accept; `&mut self` prevents competing Tokio wakers.
     pub async fn accept(&mut self) -> io::Result<(TokioSocket, SocketAddr)> {
+        if self.shared.accepted.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "tracked accepted TCP requires accept_owned",
+            ));
+        }
         poll_fn(|cx| {
             if self.cancelled.as_mut().poll(cx).is_ready() {
                 return Poll::Ready(Err(retired()));
