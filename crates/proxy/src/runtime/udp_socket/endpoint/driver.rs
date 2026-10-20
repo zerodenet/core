@@ -73,6 +73,11 @@ impl Shared {
         sockets: &mut DirectUdpSockets,
         watches: &mut FuturesUnordered<CancelWatch>,
     ) {
+        let refresh = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .refresh_requested;
         sockets.refresh_if_stale();
         let mut state = self
             .state
@@ -109,12 +114,18 @@ impl Shared {
                 entry.watched = true;
             }
         }
+        let refreshed = state.refresh_completed < refresh;
+        state.refresh_completed = refresh;
         if let Some((_id, source)) = sockets.native_close_failure() {
             state.failure.get_or_insert_with(|| {
                 Arc::new(
                     error(Stage::Close, Reason::Io, DeliveryState::Unknown).with_source(source),
                 )
             });
+        }
+        drop(state);
+        if refreshed {
+            self.changed.notify_waiters();
         }
     }
     fn deliver(&self, bytes: &[u8], mut source: DirectUdpResponseSource) {

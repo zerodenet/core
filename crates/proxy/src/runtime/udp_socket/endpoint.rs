@@ -6,6 +6,7 @@ mod failure;
 mod lifecycle;
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) mod peer;
+mod refresh;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -86,6 +87,8 @@ struct State {
     admitted: bool,
     closing: bool,
     failure: Option<Arc<ChannelError>>,
+    refresh_requested: u64,
+    refresh_completed: u64,
     sessions: BTreeMap<SessionId, Entry>,
 }
 struct Entry {
