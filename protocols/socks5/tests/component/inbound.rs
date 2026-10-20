@@ -75,9 +75,12 @@ async fn real_connect_reply_keeps_wire_unread_payload_half_close_and_failure_cod
         client.read_exact(&mut method).await.unwrap();
         assert_eq!(method, [5, 0]);
         client
-            .write_all(b"\x05\x01\x00\x01\x7f\x00\x00\x01\x01\x41pipelined payload")
+            .write_all(b"\x05\x01\x00\x01\x7f\x00\x00\x01\x01\x41")
             .await
             .unwrap();
+        if code == 0 {
+            client.write_all(b"pipelined payload").await.unwrap();
+        }
         client.shutdown().await.unwrap();
         let mut reply = [0; 10];
         client.read_exact(&mut reply).await.unwrap();
