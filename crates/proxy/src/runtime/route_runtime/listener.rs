@@ -89,6 +89,10 @@ pub(crate) struct InboundListenerRuntimeFactory {
 }
 
 impl InboundListenerRuntimeFactory {
+    pub(crate) fn config_handle(&self) -> std::sync::Arc<zero_config::RuntimeConfig> {
+        self.shared.config_handle()
+    }
+
     pub(crate) fn with_preparing(
         mut self,
         preparing: std::sync::Arc<crate::runtime::inbound_owners::PreparingInbounds>,

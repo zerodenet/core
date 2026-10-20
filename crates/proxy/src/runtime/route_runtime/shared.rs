@@ -18,6 +18,10 @@ pub(crate) struct SharedIngressRuntimeServices {
 }
 
 impl SharedIngressRuntimeServices {
+    pub(super) fn config_handle(&self) -> std::sync::Arc<zero_config::RuntimeConfig> {
+        self.tcp_services.snapshot().config().clone()
+    }
+
     pub(super) fn publish_inbound_terminal(
         &self,
         tag: &str,

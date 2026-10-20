@@ -12,6 +12,7 @@ use stop::wait_listener_stopped;
 use zero_config::{InboundConfig, RuntimeConfig};
 use zero_engine::EngineError;
 
+use super::bind::PendingInbound;
 use super::reservation::{bind_inbound_with_retry, reserve_candidates};
 use crate::inventory::ProtocolInventory;
 use crate::runtime::route_runtime::InboundListenerRuntimeFactory;
@@ -28,10 +29,17 @@ pub(in crate::runtime) async fn bind_inbound_listener(
     runtime_factory: &InboundListenerRuntimeFactory,
     source_dir: Option<&Path>,
     inbound: &InboundConfig,
-) -> Result<crate::protocol_registry::BoundInbound, EngineError> {
-    protocols
-        .bind_inbound(&runtime_factory.listener_config(inbound), source_dir)
-        .await
+    shutdown: watch::Sender<bool>,
+) -> Result<PendingInbound, EngineError> {
+    super::bind::bind_listener(
+        protocols,
+        runtime_factory,
+        source_dir,
+        inbound,
+        shutdown,
+        std::num::NonZeroUsize::new(1).unwrap(),
+    )
+    .await
 }
 
 pub(in crate::runtime) async fn reconcile_inbounds(
@@ -42,6 +50,19 @@ pub(in crate::runtime) async fn reconcile_inbounds(
     new_config: &RuntimeConfig,
     mut state: InboundReconcileState<'_>,
 ) -> Result<(), EngineError> {
+    // A canceled or partially failed previous pass may have retired only its
+    // local views. Confirm those same persistent native owners and report their
+    // original faults before a different actual-config batch may reserve.
+    runtime_factory
+        .owners()
+        .retire_bind_reservations_reported(
+            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            |tag, terminal| {
+                runtime_factory.publish_inbound_terminal(tag, terminal);
+                Ok(())
+            },
+        )
+        .await?;
     // Reserve every independently bindable candidate before replacing any
     // live listener. A later bind failure must not expose an earlier candidate
     // protocol session or require re-creating its original socket on rollback.
@@ -148,8 +169,21 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         let (shutdown_tx, _) = watch::channel(false);
         let bound = match prebound {
             Some(bound) => Ok(bound),
-            None => bind_inbound_with_retry(protocols, runtime_factory, source_dir, inbound).await,
+            None => {
+                bind_inbound_with_retry(
+                    protocols,
+                    runtime_factory,
+                    source_dir,
+                    inbound,
+                    shutdown_tx.clone(),
+                )
+                .await
+            }
         };
+        let shutdown_tx = bound
+            .as_ref()
+            .map(|bound| bound.shutdown_sender(&shutdown_tx))
+            .unwrap_or(shutdown_tx);
         let error = match bound {
             Ok(bound) => match async {
                 let owner = spawn_inbound_listener(
@@ -229,6 +263,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
                 rollback_runtime_factory,
                 source_dir,
                 &previous,
+                rollback_tx.clone(),
             )
             .await
             {

@@ -48,10 +48,14 @@ async fn late_production_spawn_confirms_actual_tcp_close_and_zero_task_receipts_
         &factory,
         None,
         &config.inbounds[0],
+        watch::channel(false).0,
     )
     .await
     .unwrap();
-    let crate::protocol_registry::BoundInbound::Tcp(listener) = &bound else {
+    let crate::runtime::listeners::PendingInbound::Legacy(
+        crate::protocol_registry::BoundInbound::Tcp(listener),
+    ) = &bound
+    else {
         panic!("actual TCP-only listener")
     };
     let address = listener.local_addr().unwrap();

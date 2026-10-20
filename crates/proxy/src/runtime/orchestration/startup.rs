@@ -176,6 +176,7 @@ impl OrchestrationState {
                 &self.inbound_runtime_factory,
                 source_dir.as_deref(),
                 inbound,
+                tx.clone(),
             )
             .await?;
             listeners::spawn_inbound_listener(

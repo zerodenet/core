@@ -84,10 +84,14 @@ pub(super) async fn initial_listener(
         &state.inbound_runtime_factory,
         None,
         &config.inbounds[0],
+        tokio::sync::watch::channel(false).0,
     )
     .await
     .unwrap();
-    let crate::protocol_registry::BoundInbound::TcpAndDatagram(tcp, _) = &bound else {
+    let crate::runtime::listeners::PendingInbound::Legacy(
+        crate::protocol_registry::BoundInbound::TcpAndDatagram(tcp, _),
+    ) = &bound
+    else {
         panic!("actual combined listener");
     };
     let address = tcp.local_addr().unwrap();

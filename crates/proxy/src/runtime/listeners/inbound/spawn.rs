@@ -6,7 +6,7 @@ pub(in crate::runtime) fn spawn_inbound_listener(
     source_dir: Option<&Path>,
     runtime_factory: &InboundListenerRuntimeFactory,
     inbound: &InboundConfig,
-    bound: crate::protocol_registry::BoundInbound,
+    bound: PendingInbound,
     shutdown_tx: watch::Sender<bool>,
     listeners: &mut JoinSet<Result<(), EngineError>>,
 ) -> Result<std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>, EngineError> {
@@ -28,45 +28,67 @@ pub(super) fn spawn_inbound_listener_with_state(
     source_dir: Option<&Path>,
     runtime_factory: &InboundListenerRuntimeFactory,
     inbound: &InboundConfig,
-    bound: crate::protocol_registry::BoundInbound,
+    bound: PendingInbound,
     shutdown_tx: watch::Sender<bool>,
     listeners: &mut JoinSet<Result<(), EngineError>>,
     rollback: bool,
 ) -> Result<std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>, EngineError> {
-    let listener_config = runtime_factory.listener_config(inbound);
-    let mut operation = (if rollback {
-        protocols.prepare_rollback_inbound_listener(listener_config, source_dir)
-    } else {
-        protocols.prepare_inbound_listener(listener_config, source_dir)
-    })
-    .map_err(|error| {
-        warn!(
-            inbound_tag = %inbound.tag,
-            protocol = inbound.protocol.protocol_name(),
-            listen_address = %inbound.listen.address,
-            listen_port = inbound.listen.port,
-            reason = "adapter_prepare_error",
-            error = %error,
-            "inbound listener adapter preparation failed"
-        );
-        error
-    })?;
-    // Persistent host ownership is installed synchronously before registration
-    // or any activation await. The observer below never owns the actual driver.
-    let installed = runtime_factory.owners().install_listener(
-        &inbound.tag,
-        protocols,
-        operation.internal_tasks(),
-        shutdown_tx.clone(),
-    )?;
+    let shutdown_tx = bound.shutdown_sender(&shutdown_tx);
+    let (mut operation, bound, installed, managed) = match bound {
+        PendingInbound::Legacy(bound) => {
+            let listener_config = runtime_factory.listener_config(inbound);
+            let operation = if rollback {
+                protocols.prepare_rollback_inbound_listener(listener_config, source_dir)
+            } else {
+                protocols.prepare_inbound_listener(listener_config, source_dir)
+            }
+            .map_err(|error| {
+                warn!(inbound_tag = %inbound.tag, protocol = inbound.protocol.protocol_name(),
+                    listen_address = %inbound.listen.address, listen_port = inbound.listen.port,
+                    reason = "adapter_prepare_error", error = %error,
+                    "inbound listener adapter preparation failed");
+                error
+            })?;
+            let installed = runtime_factory.owners().install_listener(
+                &inbound.tag,
+                protocols,
+                operation.internal_tasks(),
+                shutdown_tx.clone(),
+            )?;
+            (operation, bound, installed, false)
+        }
+        PendingInbound::Leased(lease) => {
+            let (operation, view, installed) = lease.promote()?;
+            let listener =
+                zero_platform_tokio::TokioListener::from_controlled(view).map_err(|error| {
+                    installed
+                        .owner()
+                        .retain_managed_listener_error(error.into())
+                })?;
+            (
+                operation,
+                crate::protocol_registry::BoundInbound::Tcp(listener),
+                installed,
+                true,
+            )
+        }
+    };
     let owner = installed.owner();
     if !rollback {
         if let Err(error) = runtime_factory.register_preparing(&owner) {
-            return Err(owner.retain_unexecuted_bound(bound, error));
+            return Err(if managed {
+                owner.retain_managed_listener_error(error)
+            } else {
+                owner.retain_unexecuted_bound(bound, error)
+            });
         }
     }
     if let Err(error) = operation.install_resources(&installed) {
-        return Err(owner.retain_unexecuted_bound(bound, error));
+        return Err(if managed {
+            owner.retain_managed_listener_error(error)
+        } else {
+            owner.retain_unexecuted_bound(bound, error)
+        });
     }
     let inbound_tag = inbound.tag.clone();
     let protocol = inbound.protocol.protocol_name();
@@ -110,7 +132,11 @@ pub(super) fn spawn_inbound_listener_with_state(
         result
     });
     if let Err(error) = accepted {
-        return Err(owner.retain_failed_driver_installation(error));
+        return Err(if managed {
+            owner.retain_managed_listener_error(error)
+        } else {
+            owner.retain_failed_driver_installation(error)
+        });
     }
     owner.seal_listener_installation();
     let observing = owner.clone();
