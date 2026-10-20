@@ -34,7 +34,9 @@ reports the actual resources still owned at shutdown. Scope task IDs are not
 reported twice by protocol cleanup. Returned I/O preserves the same actual
 scoped failure Arc when the physical driver fails.
 
-Request Session identity is forwarded unchanged. The supplied library
+Each library demand supplies an explicit absolute deadline; missing deadlines
+are rejected before I/O instead of inventing a new timer or resetting a prior
+request budget. Request Session identity is forwarded unchanged. The supplied library
 NativeCarrierOpener only supports literal/empty-prefix Service carriers and
 rejects real Business Some(SessionId) before native I/O. The library success
 fixtures therefore prove Service behavior only. Production Business provider,

@@ -40,13 +40,13 @@ async fn pending_real_vmess_tls_cancel_keeps_original_control_until_close_withou
     timeout(Duration::from_secs(6),async {
         let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();let peer=listener.local_addr().unwrap();
         let directory=Directory::new();let (acceptor,pem)=tls_server(true);std::fs::write(directory.0.join("identity.pem"),&pem).unwrap();
-        let pending=Arc::new(tokio::sync::Notify::new());let signal=pending.clone();let (finish,finished)=tokio::sync::oneshot::channel();
+        let pending=Arc::new(tokio::sync::Notify::new());let signal=pending.clone();let (finish,mut finished)=tokio::sync::oneshot::channel();
         let server=tokio::spawn(async move {
             let (io,_)=listener.accept().await.unwrap();
             let handshake=acceptor.accept(Withheld{io,pending:signal});tokio::pin!(handshake);
             tokio::select! {
                 result=&mut handshake=>{assert!(result.is_err());finished.await.unwrap();},
-                _=finished=>{},
+                _=&mut finished=>{},
             }
         });
         let runtime=vmess::transport::VmessTransportRuntime::default();let mut tls=tls_profile();tls.alpn=vec!["h2".into()];
