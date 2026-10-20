@@ -1,3 +1,4 @@
+#![cfg(feature = "socks5")]
 use crate::Proxy;
 use std::time::Duration;
 use tokio::time::Instant;

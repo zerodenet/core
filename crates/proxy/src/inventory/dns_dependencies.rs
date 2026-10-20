@@ -119,6 +119,6 @@ fn has_dynamic_target(config: &zero_config::RuntimeConfig, target: &str) -> bool
     false
 }
 
-#[cfg(all(test, feature = "socks5"))]
+#[cfg(test)]
 #[path = "tests/dns_dependencies.rs"]
 mod tests;

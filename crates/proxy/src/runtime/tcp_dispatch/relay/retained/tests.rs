@@ -1,3 +1,4 @@
+#![cfg(feature = "vless")]
 //! These use actual inventory-prepared VLESS operations and host lifetimes.
 //! The wire fixture proves reconnect routing, not a component physical-close receipt.
 use super::*;

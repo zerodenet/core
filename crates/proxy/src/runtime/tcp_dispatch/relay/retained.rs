@@ -155,5 +155,5 @@ fn revoked(message: &'static str) -> EngineError {
     EngineError::Io(io::Error::new(io::ErrorKind::NotConnected, message))
 }
 
-#[cfg(all(test, feature = "vless"))]
+#[cfg(test)]
 mod tests;
