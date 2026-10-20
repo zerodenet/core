@@ -58,7 +58,30 @@ impl TokioDatagramSocket {
     }
 }
 fn phase(stage: &'static str, error: io::Error) -> io::Error {
-    io::Error::new(error.kind(), format!("{stage}: {error}"))
+    // The outer error adds context, so its raw_os_error() may be None. Keep the
+    // original error (including its native code or typed payload) in source().
+    io::Error::new(
+        error.kind(),
+        BindPhaseError {
+            stage,
+            source: error,
+        },
+    )
+}
+#[derive(Debug)]
+struct BindPhaseError {
+    stage: &'static str,
+    source: io::Error,
+}
+impl std::fmt::Display for BindPhaseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.stage, self.source)
+    }
+}
+impl std::error::Error for BindPhaseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
 }
 fn bind_native(source: SocketAddr, v6_only: bool) -> io::Result<std::net::UdpSocket> {
     let domain = if source.is_ipv4() {
@@ -74,3 +97,7 @@ fn bind_native(source: SocketAddr, v6_only: bool) -> io::Result<std::net::UdpSoc
     socket.bind(&source.into())?;
     Ok(socket.into())
 }
+
+#[cfg(test)]
+#[path = "../../tests/dial_policy/udp_error.rs"]
+mod tests;
