@@ -1,4 +1,5 @@
 //! Preserve Socket::new flags without its post-create implicit-Drop window.
+#[cfg(not(windows))]
 pub(super) fn creation_type() -> socket2::Type {
     let ty = socket2::Type::DGRAM;
     #[cfg(any(
@@ -14,8 +15,6 @@ pub(super) fn creation_type() -> socket2::Type {
         target_os = "cygwin",
     ))]
     let ty = ty.cloexec();
-    #[cfg(windows)]
-    let ty = ty.no_inherit();
     ty
 }
 pub(super) fn configure(socket: &socket2::SockRef<'_>) -> std::io::Result<()> {

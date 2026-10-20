@@ -29,6 +29,8 @@ pub mod controlled_carrier;
 pub mod controlled_datagram;
 mod controlled_tcp;
 mod datagram;
+#[cfg(windows)]
+mod windows_socket;
 #[cfg(any(unix, windows))]
 pub use controlled_tcp::PendingTcpConnect;
 pub use controlled_tcp::{ControlledTcpControl, ControlledTcpStream};

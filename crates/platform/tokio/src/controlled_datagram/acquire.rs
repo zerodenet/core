@@ -72,16 +72,25 @@ impl ControlledDatagramOwner {
         v6_only: bool,
         interface: Option<EgressInterface>,
     ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
-        let domain = if source.is_ipv4() {
-            socket2::Domain::IPV4
-        } else {
-            socket2::Domain::IPV6
+        #[cfg(not(windows))]
+        let original = {
+            let domain = if source.is_ipv4() {
+                socket2::Domain::IPV4
+            } else {
+                socket2::Domain::IPV6
+            };
+            socket2::Socket::new_raw(
+                domain,
+                super::flags::creation_type(),
+                Some(socket2::Protocol::UDP),
+            )
         };
-        let original = match socket2::Socket::new_raw(
-            domain,
-            super::flags::creation_type(),
-            Some(socket2::Protocol::UDP),
-        ) {
+        #[cfg(windows)]
+        let original = {
+            use windows_sys::Win32::Networking::WinSock::{IPPROTO_UDP, SOCK_DGRAM};
+            crate::windows_socket::new(source.is_ipv4(), SOCK_DGRAM, IPPROTO_UDP)
+        };
+        let original = match original {
             Ok(socket) => socket,
             Err(source) => return Err(self.no_native(&entry, phase("create_socket", source))),
         };
