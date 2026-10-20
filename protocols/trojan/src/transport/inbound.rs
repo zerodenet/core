@@ -25,9 +25,9 @@ pub enum TrojanInboundAcceptedRoute {
     Tcp {
         destination: zero_core::request::Destination,
         auth: zero_core::SessionAuth,
-        stream: TcpRelayStream,
+        stream: Box<TcpRelayStream>,
     },
-    Legacy(crate::mux::TrojanInboundAcceptedStream<TcpRelayStream>),
+    Legacy(Box<crate::mux::TrojanInboundAcceptedStream<TcpRelayStream>>),
 }
 
 impl TrojanInboundListenerRequest {
@@ -163,16 +163,16 @@ impl TrojanInboundListenerRequest {
             Ok(TrojanInboundAcceptedRoute::Tcp {
                 destination: facts.destination,
                 auth: facts.auth,
-                stream,
+                stream: Box::new(stream),
             })
         } else {
-            Ok(TrojanInboundAcceptedRoute::Legacy(
+            Ok(TrojanInboundAcceptedRoute::Legacy(Box::new(
                 crate::mux::TrojanInboundAcceptedStream::from_session_stream(
                     facts.into_legacy_session(),
                     stream,
                     self.mux_response_backlog,
                 ),
-            ))
+            )))
         }
     }
 

@@ -33,14 +33,14 @@ pub(super) fn prepare(
                                 destination,
                                 Some(auth),
                                 move |facts| {
-                                    ::trojan::component::inbound::TcpReply::new(stream, facts)
+                                    ::trojan::component::inbound::TcpReply::new(*stream, facts)
                                         .map(zero_platform_tokio::contract::inbound::accept_stream)
                                 },
                             )
                             .await
                     }
                     TrojanInboundAcceptedRoute::Legacy(route) => {
-                        context.dispatch_no_client_mux_route(route, defaults).await
+                        context.dispatch_no_client_mux_route(*route, defaults).await
                     }
                 }
             },

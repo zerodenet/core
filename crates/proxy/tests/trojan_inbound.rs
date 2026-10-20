@@ -8,7 +8,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use zero_api::{event_type, EventFilter};
+use zero_api::{event_type, EventFilter, EventSource};
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy as Engine;
 
