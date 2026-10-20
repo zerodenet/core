@@ -28,6 +28,7 @@ struct Inner<T: Send + 'static> {
 #[derive(Default)]
 struct Admission {
     revoked: bool,
+    drained: bool,
     first: Option<ActualTaskFailure>,
     additional: usize,
 }
@@ -147,6 +148,15 @@ impl<T: Send + 'static> RetainedTasks<T> {
     }
     /// Synchronous cancellation is not a join receipt. The same owner must
     /// subsequently await shutdown even when a guard is temporarily borrowed.
+    /// Set only after consuming all original handles with admission revoked.
+    /// Abort, body completion and an empty-at-construction set never set it.
+    pub(crate) fn is_drained(&self) -> bool {
+        self.inner
+            .admission
+            .lock()
+            .expect("raw-IP task admission poisoned")
+            .drained
+    }
     pub(crate) fn request_abort(&self) {
         self.revoke();
         if let Ok(mut tasks) = self.inner.tasks.try_lock() {
@@ -227,6 +237,11 @@ impl<T: TaskOutput> RetainedTasks<T> {
         while let Some(joined) = guard.tasks.join_next_with_id().await {
             self.joined(joined);
         }
+        self.inner
+            .admission
+            .lock()
+            .expect("raw-IP task admission poisoned")
+            .drained = true;
     }
     async fn join_all(&self) {
         self.revoke();
@@ -235,6 +250,11 @@ impl<T: TaskOutput> RetainedTasks<T> {
         while let Some(joined) = tasks.join_next_with_id().await {
             self.joined(joined);
         }
+        self.inner
+            .admission
+            .lock()
+            .expect("raw-IP task admission poisoned")
+            .drained = true;
     }
     fn fault_error(&self) -> Option<ChannelError> {
         let admission = self

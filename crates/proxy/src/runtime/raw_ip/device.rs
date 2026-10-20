@@ -31,7 +31,7 @@ use zero_stack::{client_udp::ClientUdpStack, ClientTcpStack, FragmentReassembler
 use super::DirectRawIpWireCarrier;
 use super::{RawIpTunnel, RawIpWireCarrier};
 use driver::{run_device, Device};
-pub(crate) use endpoint::{EndpointPacket, EndpointStackOwner};
+pub(crate) use endpoint::{EndpointPacket, EndpointStackOwner, EndpointStackRecipe};
 use health::DeviceHealth;
 pub(crate) use returns::PacketReturns;
 

@@ -87,3 +87,107 @@ fn cold_candidate_declares_exact_peer_slots_without_runtime_or_native_acquisitio
     assert_eq!(report.native.known_no_native, 0);
     assert!(second.close_native().is_complete());
 }
+
+#[tokio::test]
+async fn same_candidate_joins_declared_original_stacks_before_confirming_unused_native_slots() {
+    let (config, live) = candidate();
+    let pending =
+        PendingLinkedEndpoint::with_peer_slots(config.listen.clone(), live.clone(), 1).unwrap();
+    let (sender, mut packets) = mpsc::channel(4);
+    let (updates, endpoint) = watch::channel(sender);
+    let recipe = crate::runtime::raw_ip::EndpointStackRecipe::prepare(
+        vec!["10.0.0.1".parse().unwrap()],
+        1420,
+        0,
+        endpoint,
+        Default::default(),
+    )
+    .unwrap();
+    let stack = pending.peer_stack(0).unwrap();
+    let device = stack.start(recipe).unwrap();
+    let mut connecting = Box::pin(device.open_tcp_observed(
+        "10.0.0.1".parse().unwrap(),
+        "192.0.2.2:443".parse().unwrap(),
+        None,
+    ));
+    std::future::poll_fn(|cx| {
+        use std::future::Future;
+        assert!(connecting.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    let syn = tokio::time::timeout_at(deadline, packets.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(zero_stack::packet::parse_tcp(&syn.packet).unwrap().syn);
+    let link = Arc::new(LinkedEndpoint::new(
+        [3; 32],
+        7,
+        config.listen,
+        live,
+        vec![device.clone()],
+        vec![None],
+        vec![None],
+        updates,
+        packets,
+    ));
+    pending.install(link.clone()).unwrap();
+    assert!(Arc::ptr_eq(&pending.ready().unwrap(), &link));
+    let report = pending.stop_peer_resources(deadline).await;
+    assert!(report.is_complete());
+    assert!(report.failures.is_empty());
+    assert!(stack.is_drained());
+    assert_eq!(report.native.len(), 1);
+    assert_eq!(report.native[0].native.confirmed_closed, 0); // never acquired, no forged close.
+    assert!(connecting.await.is_err());
+    assert!(pending.stop_peer_resources(deadline).await.is_complete());
+}
+#[tokio::test]
+async fn legacy_ready_link_never_inherits_a_noop_candidate_close_grant() {
+    let (config, live) = candidate();
+    let pending = PendingLinkedEndpoint::new(config.listen, live);
+    let report = pending
+        .stop_peer_resources(tokio::time::Instant::now())
+        .await;
+    assert!(!report.is_complete());
+    assert!(!report.workers_drained);
+    assert_eq!(report.failures.len(), 1);
+    assert!(report.native.is_empty());
+}
+
+#[tokio::test]
+async fn owned_candidate_cannot_install_an_unrelated_legacy_stack_as_its_original() {
+    let (config, live) = candidate();
+    let pending =
+        PendingLinkedEndpoint::with_peer_slots(config.listen.clone(), live.clone(), 1).unwrap();
+    let other = crate::runtime::raw_ip::EndpointStackOwner::new();
+    let (sender, packets) = mpsc::channel(4);
+    let (updates, endpoint) = watch::channel(sender);
+    let recipe = crate::runtime::raw_ip::EndpointStackRecipe::prepare(
+        vec!["10.0.0.1".parse().unwrap()],
+        1420,
+        0,
+        endpoint,
+        Default::default(),
+    )
+    .unwrap();
+    let device = other.start(recipe).unwrap();
+    let link = Arc::new(LinkedEndpoint::new(
+        [3; 32],
+        7,
+        config.listen,
+        live,
+        vec![device],
+        vec![None],
+        vec![None],
+        updates,
+        packets,
+    ));
+    assert!(pending.install(link).is_err());
+    assert!(pending.ready().is_none());
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    assert!(other.stop(deadline).await.unwrap().is_complete());
+    assert!(pending.stop_peer_resources(deadline).await.is_complete());
+}

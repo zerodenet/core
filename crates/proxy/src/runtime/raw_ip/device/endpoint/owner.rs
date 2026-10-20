@@ -51,6 +51,19 @@ impl EndpointStackOwner {
             }
         }
     }
+    pub(crate) fn owns(&self, device: &Arc<SharedRawIpDevice>) -> bool {
+        self.state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .device
+            .as_ref()
+            .is_some_and(|owned| Arc::ptr_eq(owned, device))
+    }
+    /// This exact owner consumed all original handles; it may still retain an
+    /// original task failure. It says nothing about listener/carrier closure.
+    pub(crate) fn is_drained(&self) -> bool {
+        self.workers.is_drained()
+    }
     pub(crate) fn revoke(&self) {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state.stopped = true;

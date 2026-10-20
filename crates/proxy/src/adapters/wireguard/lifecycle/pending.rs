@@ -1,4 +1,5 @@
 //! Passive identity prepared before any replacement stack or listener starts.
+mod close;
 use super::super::inbound::{LinkedEndpoint, LiveInboundDevice};
 use std::sync::{Arc, OnceLock};
 use zero_config::ListenConfig;
@@ -8,6 +9,7 @@ pub(in crate::adapters::wireguard) struct PendingLinkedEndpoint {
     listen: ListenConfig,
     live: Arc<LiveInboundDevice>,
     ready: OnceLock<Arc<LinkedEndpoint>>,
+    owned: bool,
     peer_stacks: Vec<Arc<crate::runtime::raw_ip::EndpointStackOwner>>,
     peer_carriers: Vec<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>>,
 }
@@ -16,7 +18,9 @@ impl PendingLinkedEndpoint {
         listen: ListenConfig,
         live: Arc<LiveInboundDevice>,
     ) -> Self {
-        Self::with_peer_slots(listen, live, 0).expect("empty passive endpoint")
+        let mut pending = Self::with_peer_slots(listen, live, 0).expect("empty passive endpoint");
+        pending.owned = false; // Compatibility never grants ownership of a warm legacy graph.
+        pending
     }
     /// Pure declaration of exactly the configured peers. The pending map must
     /// retain this object before any peer's owned build can be polled.
@@ -32,6 +36,7 @@ impl PendingLinkedEndpoint {
             listen,
             live,
             ready: OnceLock::new(),
+            owned: true,
             peer_stacks: (0..peers)
                 .map(|_| crate::runtime::raw_ip::EndpointStackOwner::new())
                 .collect(),
@@ -71,6 +76,21 @@ impl PendingLinkedEndpoint {
             return Err(super::invalid(
                 "linked endpoint differs from its passive identity",
             ));
+        }
+        if self.owned {
+            let state = link.state.lock().unwrap_or_else(|error| error.into_inner());
+            if state.devices.len() > self.peer_stacks.len()
+                || !state
+                    .devices
+                    .iter()
+                    .zip(&self.peer_stacks)
+                    .all(|(device, owner)| owner.owns(device))
+                || !link.carrier_owners_match(&self.peer_carriers)
+            {
+                return Err(super::invalid(
+                    "linked resources do not belong to the declared candidate owners",
+                ));
+            }
         }
         self.ready
             .set(link)

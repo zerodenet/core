@@ -43,6 +43,18 @@ pub(crate) type CarrierWorkerCompletion =
 
 #[async_trait]
 pub(crate) trait RawIpWireCarrier: Send + Sync {
+    /// Unknown legacy native ownership cannot authorize a replacement.
+    fn native_owner(
+        &self,
+    ) -> Option<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>> {
+        None
+    }
+
+    /// Actual original background handles consumed, independent of their fault.
+    /// Unknown legacy implementations cannot certify an empty task graph.
+    fn background_drained(&self) -> bool {
+        false
+    }
     /// Synchronously fence/cancel this carrier's original background work,
     /// returning a waiter for actual joins. None is an unmigrated task graph,
     /// never successful cleanup. A worker join proves no native I/O close.
@@ -58,6 +70,9 @@ pub(crate) struct DirectRawIpWireCarrier(pub(crate) TokioDatagramSocket);
 
 #[async_trait]
 impl RawIpWireCarrier for DirectRawIpWireCarrier {
+    fn background_drained(&self) -> bool {
+        true
+    } // This concrete type creates none.
     fn stop_background(&self) -> Option<CarrierWorkerCompletion> {
         // This concrete view owns no background task at all. Its native socket
         // requires separate explicit close evidence after the I/O driver stops.
@@ -172,6 +187,15 @@ impl ProxiedCarrierState {
 
 #[async_trait]
 impl RawIpWireCarrier for ProxiedRawIpWireCarrier {
+    fn background_drained(&self) -> bool {
+        self.state.tasks.is_drained()
+    }
+    fn native_owner(
+        &self,
+    ) -> Option<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>> {
+        self.state.path.borrow().native_owner()
+    }
+
     fn stop_background(&self) -> Option<CarrierWorkerCompletion> {
         self.state.closing.send_replace(true);
         self.state.tasks.request_abort();

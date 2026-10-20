@@ -69,10 +69,13 @@ impl PacketCarrierOwnerSlot {
             owner: self.clone(),
         })
     }
+    pub(crate) fn revoke(&self) {
+        self.stopped.cancel();
+    }
     /// Actual native closure only; a pending build and any other task graph
     /// remain separate obligations. Retrying uses this same original owner.
     pub(crate) fn close_native(&self) -> PacketCarrierCloseReport {
-        self.stopped.cancel();
+        self.revoke();
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         PacketCarrierCloseReport {
             native: state.native.close_all(),

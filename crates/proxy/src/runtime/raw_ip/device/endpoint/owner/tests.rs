@@ -67,6 +67,7 @@ async fn cancelled_original_join_waiter_retains_the_candidate_and_prevents_late_
     let device = owner.start(recipe).unwrap();
     // Current-thread runtime: neither newly spawned original task can run
     // between this call and the first poll of their actual abort/join waiter.
+    assert!(!owner.is_drained());
     let mut stopping = Box::pin(owner.stop(deadline()));
     std::future::poll_fn(|cx| {
         assert!(stopping.as_mut().poll(cx).is_pending());
@@ -74,6 +75,7 @@ async fn cancelled_original_join_waiter_retains_the_candidate_and_prevents_late_
     })
     .await;
     drop(stopping);
+    assert!(!owner.is_drained());
     assert!(Arc::ptr_eq(
         owner.state.lock().unwrap().device.as_ref().unwrap(),
         &device
@@ -118,4 +120,32 @@ async fn actual_task_admission_failure_survives_candidate_cleanup_with_original_
             .0
     ));
     assert!(owner.state.lock().unwrap().device.is_none());
+}
+
+#[tokio::test]
+async fn original_panic_is_joined_even_when_its_source_remains_a_cleanup_failure() {
+    let owner = EndpointStackOwner::new();
+    let (body, ready) = tokio::sync::oneshot::channel();
+    owner
+        .workers
+        .spawn_driver(async move {
+            body.send(tokio::task::id()).unwrap();
+            panic!("original endpoint fixture panic");
+        })
+        .unwrap();
+    let actual_id = ready.await.unwrap();
+    assert!(!owner.is_drained()); // body exited, no actual join consumed yet.
+    let error = owner.stop(deadline()).await.unwrap_err();
+    assert!(owner.is_drained());
+    let mut source: &(dyn std::error::Error + 'static) = &error;
+    let mut original = None;
+    while let Some(next) = source.source() {
+        if let Some(join) = next.downcast_ref::<tokio::task::JoinError>() {
+            original = Some(join);
+        }
+        source = next;
+    }
+    let original = original.expect("original typed panic JoinError");
+    assert!(original.is_panic());
+    assert_eq!(original.id(), actual_id);
 }

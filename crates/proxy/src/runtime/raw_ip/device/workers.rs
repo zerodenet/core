@@ -49,6 +49,9 @@ impl DeviceWorkers {
     pub(super) fn abort(&self) {
         self.tasks.request_abort();
     }
+    pub(super) fn is_drained(&self) -> bool {
+        self.tasks.is_drained()
+    }
     pub(super) async fn join(&self) -> Result<CloseReport, EngineError> {
         self.tasks
             .join_unbounded()

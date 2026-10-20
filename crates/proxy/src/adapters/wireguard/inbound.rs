@@ -83,6 +83,29 @@ impl LinkedEndpointUpdate {
 }
 
 impl LinkedEndpoint {
+    pub(super) fn outer_carriers(&self) -> Vec<Arc<dyn RawIpWireCarrier>> {
+        self.peers
+            .borrow()
+            .carriers
+            .iter()
+            .flatten()
+            .cloned()
+            .collect()
+    }
+    pub(super) fn carrier_owners_match(
+        &self,
+        owners: &[Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>],
+    ) -> bool {
+        let peers = self.peers.borrow();
+        peers.carriers.len() <= owners.len()
+            && peers.carriers.iter().zip(owners).all(|(carrier, owner)| {
+                carrier.as_ref().is_none_or(|carrier| {
+                    carrier
+                        .native_owner()
+                        .is_some_and(|actual| Arc::ptr_eq(&actual, owner))
+                })
+            })
+    }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         identity: [u8; 32],
