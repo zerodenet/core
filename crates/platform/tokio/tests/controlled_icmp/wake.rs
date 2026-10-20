@@ -33,62 +33,74 @@ impl Wake for Reenter {
         }
     }
 }
-#[tokio::test]
+#[test]
 #[ignore = "actual native ICMP access required"]
-async fn real_pending_io_cooperative_wake_reenters_original_getter_and_explicit_close() {
-    let _serial = LIVE.lock().await;
-    let mut owner = owner(1);
-    let mut view = owner.bind(Ipv4Addr::LOCALHOST.into(), None).unwrap();
-    let watch = Arc::new(Reenter {
-        entry: Arc::downgrade(&view.entry),
-        close: AtomicBool::new(true),
-        socket_observed: Mutex::new(None),
-        receipt: Mutex::new(None),
-    });
-    let waker = Waker::from(watch.clone());
-    let mut bytes = [0; 128];
-    let mut pending = Box::pin(view.recv_from(&mut bytes));
-    assert!(
-        pending
+fn real_pending_io_cooperative_wake_reenters_original_getter_and_explicit_close() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.handle().block_on(async {
+        let _serial = LIVE.lock().await;
+        let mut owner = owner(1);
+        let mut view = owner.bind(Ipv4Addr::LOCALHOST.into(), None).unwrap();
+        let watch = Arc::new(Reenter {
+            entry: Arc::downgrade(&view.entry),
+            close: AtomicBool::new(true),
+            socket_observed: Mutex::new(None),
+            receipt: Mutex::new(None),
+        });
+        let waker = Waker::from(watch.clone());
+        let mut bytes = [0; 128];
+        let mut pending = Box::pin(view.recv_from(&mut bytes));
+        assert!(
+            pending
+                .as_mut()
+                .poll(&mut Context::from_waker(&waker))
+                .is_pending(),
+            "actual native receive is suspended before exhausting cooperation"
+        );
+        // Handle::block_on gives this external executor a real coop budget but no
+        // scheduler Context. Unlike #[tokio::test], exhausted poll_proceed calls
+        // context::defer's immediate wake path, not the scheduler's deferred queue.
+        // Repoll the same actual native IO while its ownership gate is held.
+        let mut exhausted = false;
+        for _ in 0..1024 {
+            let mut budget = Box::pin(tokio::task::coop::consume_budget());
+            if budget
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+            {
+                exhausted = true;
+                break;
+            }
+        }
+        assert!(exhausted);
+        assert!(
+            !tokio::task::coop::has_budget_remaining(),
+            "real coop credit is zero before native repoll"
+        );
+        assert!(pending
             .as_mut()
             .poll(&mut Context::from_waker(&waker))
-            .is_pending(),
-        "actual native receive is suspended before exhausting cooperation"
-    );
-    // Consume this actual Tokio task's budget, then repoll real native IO. Its
-    // poll_proceed synchronously wakes our relay while the native gate is held.
-    let mut exhausted = false;
-    for _ in 0..1024 {
-        let mut budget = Box::pin(tokio::task::coop::consume_budget());
-        if budget
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop()))
-            .is_pending()
-        {
-            exhausted = true;
-            break;
-        }
-    }
-    assert!(exhausted);
-    assert!(pending
-        .as_mut()
-        .poll(&mut Context::from_waker(&waker))
-        .is_pending());
-    drop(pending);
-    assert!(
-        watch.socket_observed.lock().unwrap().is_some(),
-        "callback inspected the real same live native socket"
-    );
-    assert!(watch
-        .receipt
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .matches(&view));
-    assert!(view.local_addr().is_err());
-    assert_eq!(owner.take_report().confirmed_closed, 1);
-    assert_eq!(owner.take_report().confirmed_closed, 0);
+            .is_pending());
+        drop(pending);
+        assert!(
+            watch.socket_observed.lock().unwrap().is_some(),
+            "callback inspected the real same live native socket"
+        );
+        assert!(watch
+            .receipt
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .matches(&view));
+        assert!(view.local_addr().is_err());
+        assert_eq!(owner.take_report().confirmed_closed, 1);
+        assert_eq!(owner.take_report().confirmed_closed, 0);
+    });
 }
 struct ReenterDrop {
     entry: Weak<Entry>,

@@ -151,3 +151,30 @@ source plus an earlier one-shot partial close receipt; and actual post-create
 missing-reactor panic refusing stale unused-pool proof. They require explicit
 execution by the sole Cargo owner. No compilation/runtime success is claimed
 here; the normal TUN path and production activation gate are unchanged.
+
+## Actual native wake qualification correction
+
+Root47's original sandbox run failed all ten native cases before acquisition
+(RAW EPERM, ping DGRAM EACCES). Its later unchanged immutable binary
+`260f2a0fbd733aa99e5e041ba9be1044b1aefb28382c0d7bf86da8c464061b59`
+in the authorized network-none container passed eight ordinary cases and the
+separately executed real RAW-denial/ping-DGRAM fallback. The remaining original
+cooperative-wake case failed its actual getter observation assertion. These
+results do not qualify all ten cases.
+
+Pinned Tokio1.54 `task/coop/mod.rs::poll_proceed` uses `runtime::context::defer`:
+inside a scheduler Context, exhaustion queues a wake for the next scheduler
+turn. The old test dropped its pending native future (and thus the sole strong
+WaitTarget) before that turn and incorrectly assumed an immediate callback.
+`consume_budget` commits each successful decrement with made_progress; a final
+Pending creates no RestoreOnPending that would restore the exhausted budget.
+The failure therefore does not show that native reentry happened or succeeded.
+
+The corrected case keeps every original real pending-receive, exhausted-credit,
+same-live-original getter, explicit close, exact receipt and one-shot count
+assertion. An ordinary test drives its body with `Runtime::handle().block_on`:
+Tokio's CachedParkThread installs a real coop budget without a scheduler Context,
+so the same exhausted native poll uses context::defer's immediate wake path.
+This directly exercises synchronous relay wake under NativeGuard without an
+extra task/thread, fake wake, replaced socket or weaker assertion. It still
+requires an actual native test rerun; no success is inferred from this change.
