@@ -1,5 +1,6 @@
 //! Ownership of one cold recipe, installed before its first start.
 use super::{ComponentRecipe, ValidatedRecipe};
+mod business;
 mod cleanup;
 mod resources;
 mod roles;

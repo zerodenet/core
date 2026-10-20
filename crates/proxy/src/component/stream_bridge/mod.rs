@@ -18,7 +18,7 @@ use zero_platform_tokio::contract::{
 };
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) mod datagram;
-mod network;
+pub(in crate::component) mod network;
 pub(crate) mod relay;
 mod traffic;
 pub(crate) use relay::connect as connect_relay;
@@ -61,10 +61,16 @@ pub(crate) async fn connect(
         Some(std::net::IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
         None => Address::Domain(endpoint.0.clone()),
     };
-    let opener = Arc::new(network::NodeOpener::new(
-        upstream.with_observer(Some(traffic.clone())),
-        Destination::new(address, endpoint.1),
-    ));
+    let business =
+        super::business_carrier::BusinessCarrierRequest::new(services.engine(), slot, &invocation)
+            .map_err(failure)?;
+    let opener = Arc::new(
+        network::NodeOpener::new(
+            upstream.with_observer(Some(traffic.clone())),
+            Destination::new(address, endpoint.1),
+        )
+        .with_business(business),
+    );
     let cancel = invocation.cancellation();
     let context = OpenContext {
         identity: invocation.identity,

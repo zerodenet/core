@@ -93,8 +93,16 @@ impl HostAdmission {
         owner: &Arc<()>,
         context: &OpenContext,
     ) -> Result<(), ChannelError> {
+        self.check_identity(instance, owner, &context.identity)
+    }
+    pub(in crate::component) fn check_identity(
+        &self,
+        instance: ComponentInstanceId,
+        owner: &Arc<()>,
+        identity: &RequestIdentity,
+    ) -> Result<(), ChannelError> {
         let view = self.0.read().expect("host admission poisoned");
-        let service = matches!(context.identity, RequestIdentity::Service(_));
+        let service = matches!(identity, RequestIdentity::Service(_));
         let permitted = ((!view.stopping || service)
             && view
                 .current
@@ -113,7 +121,7 @@ impl HostAdmission {
             "component generation is not admitted by the host",
         );
         error.component = Some(instance.component);
-        error.session = context.identity.session();
+        error.session = identity.session();
         Err(error)
     }
 }

@@ -24,6 +24,18 @@ impl AdmittedTcpDemand {
     pub(crate) fn check(&self, engine: &Engine, session: SessionId) -> Result<(), EngineError> {
         engine.check_admitted_session_origin(&self.admission, session)
     }
+    /// Native acquisition additionally requires the actual successful admission
+    /// to remain active in this Engine. Projection-only callers retain check().
+    pub(crate) fn check_live(
+        &self,
+        engine: &Engine,
+        session: SessionId,
+    ) -> Result<(), EngineError> {
+        engine.check_admitted_session(&self.admission, session)
+    }
+    pub(super) fn check_active(&self) -> Result<(), EngineError> {
+        self.admission.check_active()
+    }
     pub(crate) fn cancellation(&self) -> CancellationToken {
         self.cancel.clone()
     }

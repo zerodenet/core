@@ -1,6 +1,10 @@
+use super::super::business_carrier::BusinessCarrierRequest;
 use super::super::instance::invalid;
 use crate::protocol_registry::UpstreamConnectServices;
-use std::{net::SocketAddr, sync::Mutex};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
     datagram::{BoxDatagramSession, DatagramRequest},
@@ -8,35 +12,95 @@ use zero_platform_tokio::contract::{
     stream::BoxStream,
     BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
+use zero_platform_tokio::controlled_carrier::{
+    CarrierEndpointObserver, CarrierEndpoints, CarrierGrant, NativeCarrierOpener, PreparedCarrier,
+};
 
-pub(super) struct Evidence {
+pub(in crate::component) struct Evidence {
     pub(super) remote: SocketAddr,
     pub(super) local: Option<SocketAddr>,
 }
-pub(super) struct NodeOpener {
+pub(in crate::component) struct NodeOpener {
     services: UpstreamConnectServices,
     endpoint: Destination,
     generation: u64,
-    evidence: Mutex<Option<Evidence>>,
+    evidence: Arc<Mutex<Option<Evidence>>>,
+    business: Option<BusinessCarrierRequest>,
 }
 impl NodeOpener {
-    pub(super) fn new(services: UpstreamConnectServices, endpoint: Destination) -> Self {
+    pub(in crate::component) fn new(
+        services: UpstreamConnectServices,
+        endpoint: Destination,
+    ) -> Self {
         let generation = services.network_generation();
         Self {
             services,
             endpoint,
             generation,
-            evidence: Mutex::new(None),
+            evidence: Arc::new(Mutex::new(None)),
+            business: None,
         }
+    }
+    pub(in crate::component) fn with_business(
+        mut self,
+        business: Option<BusinessCarrierRequest>,
+    ) -> Self {
+        self.business = business;
+        self
     }
     pub(super) fn generation(&self) -> u64 {
         self.generation
     }
-    pub(super) fn take_evidence(&self) -> Option<Evidence> {
+    pub(in crate::component) fn take_evidence(&self) -> Option<Evidence> {
         self.evidence.lock().expect("node evidence poisoned").take()
     }
 }
+struct ConnectedEvidence(Arc<Mutex<Option<Evidence>>>);
+impl CarrierEndpointObserver for ConnectedEvidence {
+    fn connected(&self, endpoints: &CarrierEndpoints) {
+        *self.0.lock().expect("node evidence poisoned") = Some(Evidence {
+            remote: endpoints.peer(),
+            local: endpoints.local(),
+        });
+    }
+}
 impl UpstreamOpener for NodeOpener {
+    fn prepare_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        context: CarrierContext,
+        grant: CarrierGrant,
+    ) -> Result<PreparedCarrier, ChannelError> {
+        if !binding.prefix.is_empty()
+            || binding.network_generation.0 != self.generation
+            || self.services.network_generation() != self.generation
+            || destination != self.endpoint
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "controlled carrier cannot bypass selected prefix, endpoint or network generation",
+            ));
+        }
+        let business = self.business.as_ref().ok_or_else(|| {
+            invalid(
+                Reason::Unsupported,
+                "controlled business carrier requires the actual admitted ingress demand",
+            )
+        })?;
+        let ticket = business.authorize(&destination, binding, &grant)?;
+        let native = NativeCarrierOpener::business(
+            ticket,
+            Arc::new(self.services.egress_control()),
+            self.services.observer(),
+        )?;
+        native
+            .prepare_controlled_stream(binding, destination, context, grant)
+            .map(|prepared| {
+                prepared.with_endpoint_observer(Arc::new(ConnectedEvidence(self.evidence.clone())))
+            })
+    }
+
     fn open_stream(
         &self,
         binding: &UpstreamBinding,
