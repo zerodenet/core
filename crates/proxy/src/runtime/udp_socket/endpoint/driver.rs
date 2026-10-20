@@ -1,6 +1,44 @@
 use super::*;
 use futures_util::{stream::FuturesUnordered, StreamExt};
-use std::{future::Future, pin::Pin, sync::atomic::Ordering};
+use std::{
+    future::Future,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+    sync::atomic::Ordering,
+};
+struct IoGuard<'a> {
+    sockets: tokio::sync::MutexGuard<'a, DirectUdpSockets>,
+    shared: Arc<Shared>,
+}
+impl Deref for IoGuard<'_> {
+    type Target = DirectUdpSockets;
+    fn deref(&self) -> &Self::Target {
+        &self.sockets
+    }
+}
+impl DerefMut for IoGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.sockets
+    }
+}
+impl Drop for IoGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (session, entry) in std::mem::take(&mut state.sessions) {
+            entry.logical.cancel.cancel();
+            self.sockets.retire_reply_mappings(session.0);
+            entry.logical.drain_receive_queue();
+            entry.logical.closed.store(true, Ordering::Release);
+            entry.logical.changed.notify_waiters();
+        }
+        // No native close here: this guard can be dropped before the host has
+        // observed the containing registered task's real TaskExit.
+    }
+}
 use zero_platform_tokio::contract::lifecycle::ComponentError;
 
 type CancelWatch = Pin<Box<dyn Future<Output = (SessionId, AssociationId)> + Send>>;
@@ -44,7 +82,11 @@ impl Shared {
             .sessions
             .extract_if(.., |_, entry| entry.logical.cancel.is_cancelled())
         {
-            sockets.retire_session(session.0);
+            if self.retain_native_until_peer_exit {
+                sockets.retire_reply_mappings(session.0);
+            } else {
+                sockets.retire_session(session.0);
+            }
             // Logical completion means this exact mapping and every already-read
             // source guard were revoked. It says nothing about a shared fd.
             entry.logical.drain_receive_queue();
@@ -159,7 +201,10 @@ pub(super) async fn run(
     let _lifetime = DriverGuard(shared.clone());
     // Session handles never lock this state. Cancelled receive polling releases
     // its inner receive guard before the same driver executes a send command.
-    let mut sockets = shared.sockets.lock().await;
+    let mut sockets = IoGuard {
+        sockets: shared.sockets.lock().await,
+        shared: shared.clone(),
+    };
     let mut watches: FuturesUnordered<CancelWatch> = FuturesUnordered::new();
     let mut bytes = vec![0; 65_535];
     loop {

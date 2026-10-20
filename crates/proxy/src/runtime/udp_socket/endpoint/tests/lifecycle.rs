@@ -150,10 +150,6 @@ async fn actual_scope_task_waiting_for_logical_cleanup_cannot_deadlock_native_cl
         CancellationToken::new(),
     );
     let original = send(&mut tx, &target, b"actual pending cleanup").await;
-    // Stop only the actual I/O driver while its native receive is parked.
-    // DriverGuard cancels the logical token but cannot invent mapping closure.
-    owner.shared.scope_cancel.cancel();
-    drop(owner.shared.sockets.lock().await);
     let mut waiting = Box::pin(control.wait_closed(deadline()));
     poll_fn(|cx| {
         assert!(waiting.as_mut().poll(cx).is_pending());

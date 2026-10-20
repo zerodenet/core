@@ -63,12 +63,18 @@ impl DirectUdpSockets {
     }
 
     pub(crate) fn retire_session(&mut self, session_id: u64) {
+        self.retire_reply_mappings(session_id);
+        self.retire_sockets(|socket| socket.replies.is_empty());
+        self.reset_receiver_if_empty();
+    }
+
+    /// Logical ownership only. A peer resource keeps its original descriptors
+    /// until the actual containing task's joined receipt authorizes close.
+    pub(super) fn retire_reply_mappings(&mut self, session_id: u64) {
         // One bounded table traversal per socket, not a socket search per flow.
         for socket in &mut self.sockets {
             socket.replies.retire_session(session_id);
         }
         self.isolated_sessions.remove(&session_id);
-        self.retire_sockets(|socket| socket.replies.is_empty());
-        self.reset_receiver_if_empty();
     }
 }
