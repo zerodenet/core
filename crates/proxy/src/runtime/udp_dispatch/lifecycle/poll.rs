@@ -1,4 +1,4 @@
-use super::super::socket::DispatchDirectSockets;
+use super::super::socket::DispatchDirectReceive;
 use tokio::task::JoinSet;
 #[cfg(feature = "upstream-association-runtime")]
 use tokio::time::Instant as TokioInstant;
@@ -41,13 +41,13 @@ impl UdpDispatch {
     pub(crate) fn poll_sockets(
         &mut self,
     ) -> (
-        &DispatchDirectSockets,
+        DispatchDirectReceive<'_>,
         &mut JoinSet<ChainTask>,
         &mut tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,
     ) {
         self.direct_socket.refresh_if_stale();
         (
-            &self.direct_socket,
+            self.direct_socket.receiver(),
             self.flow_state.chain_tasks(),
             &mut self.cancel_rx,
         )
@@ -58,7 +58,7 @@ impl UdpDispatch {
     pub(crate) fn poll_refs(
         &mut self,
     ) -> (
-        &DispatchDirectSockets,
+        DispatchDirectReceive<'_>,
         UpstreamUdpPoll<'_>,
         Option<TokioInstant>,
         &mut JoinSet<ChainTask>,
@@ -71,7 +71,7 @@ impl UdpDispatch {
             .poll_refs(retired, services.udp_upstream_idle_timeout());
         self.direct_socket.refresh_if_stale();
         (
-            &self.direct_socket,
+            self.direct_socket.receiver(),
             upstream_udp,
             upstream_idle_deadline,
             chain_tasks,

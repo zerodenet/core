@@ -169,22 +169,17 @@ impl DirectDispatchEndpoint {
         })?;
         slot.tx.send_new_packet(target, candidates, payload).await
     }
-    /// Preserve the original legacy receive signature and its full source token.
-    /// No delivery accounting is performed here; existing consumers retain it.
+    /// A receive-only borrow of the same original receiver. Unique Tx/control
+    /// handles stay outside this view and need not implement Sync.
+    pub(crate) fn receiver(&self) -> DirectDispatchReceive<'_> {
+        DirectDispatchReceive(&self.receiver)
+    }
+    /// Convenience entry for an exclusive bridge consumer.
     pub(crate) async fn recv_from_addr(
-        &self,
+        &mut self,
         output: &mut [u8],
     ) -> Result<(usize, DirectUdpResponseSource), EngineError> {
-        let (payload, source) = poll_fn(|cx| {
-            self.receiver
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .poll_recv(cx)
-        })
-        .await?;
-        let size = payload.len().min(output.len());
-        output[..size].copy_from_slice(&payload[..size]);
-        Ok((size, source))
+        self.receiver().recv_from_addr(output).await
     }
     pub(crate) fn retire_session(&mut self, session: SessionId) {
         self.receiver
@@ -208,6 +203,27 @@ impl DirectDispatchEndpoint {
             Some(mut slot) => slot.control.wait_closed(deadline).await,
             None => Ok(CloseReport::default()),
         }
+    }
+}
+/// Only the actual serialized Rx poll owner; no Tx/control or copied payload.
+pub(crate) struct DirectDispatchReceive<'a>(&'a Mutex<Receiver>);
+impl DirectDispatchReceive<'_> {
+    /// Consume the small borrow so a select arm captures no reference to the
+    /// non-Sync owning bridge. The original receive lock is unchanged.
+    pub(crate) async fn recv_from_addr(
+        self,
+        output: &mut [u8],
+    ) -> Result<(usize, DirectUdpResponseSource), EngineError> {
+        let (payload, source) = poll_fn(|cx| {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .poll_recv(cx)
+        })
+        .await?;
+        let size = payload.len().min(output.len());
+        output[..size].copy_from_slice(&payload[..size]);
+        Ok((size, source))
     }
 }
 impl Drop for DirectDispatchEndpoint {

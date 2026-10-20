@@ -117,16 +117,30 @@ impl DispatchDirectSockets {
             }
         }
     }
+    pub(crate) fn receiver(&self) -> DispatchDirectReceive<'_> {
+        match self {
+            Self::Legacy(socket) => DispatchDirectReceive::Legacy(socket),
+            #[cfg(feature = "managed-datagram-runtime")]
+            Self::Bound(socket) => DispatchDirectReceive::Bound(socket.bridge.receiver()),
+        }
+    }
+}
+/// Borrow only the real receive side, never the unique Send-only controllers.
+pub(crate) enum DispatchDirectReceive<'a> {
+    Legacy(&'a DirectUdpSockets),
+    #[cfg(feature = "managed-datagram-runtime")]
+    Bound(crate::runtime::udp_socket::endpoint::dispatch::DirectDispatchReceive<'a>),
+}
+impl DispatchDirectReceive<'_> {
     pub(crate) async fn recv_from_addr(
-        &self,
+        self,
         output: &mut [u8],
     ) -> std::io::Result<(usize, DirectUdpResponseSource)> {
         match self {
             Self::Legacy(socket) => socket.recv_from_addr(output).await,
             #[cfg(feature = "managed-datagram-runtime")]
-            Self::Bound(socket) => {
-                socket
-                    .bridge
+            Self::Bound(receiver) => {
+                receiver
                     .recv_from_addr(output)
                     .await
                     .map_err(|error| match error {
