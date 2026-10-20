@@ -100,6 +100,17 @@ async fn bound_peer_native_close_continues_after_real_mapping_error_and_cancelle
         )
         .await
         .unwrap();
+    let registration = authority.registration();
+    assert!(registration.same_owner(&authority.registration()));
+    assert!(registration.belongs_to(&live.context.binding()));
+    assert!(registration.closed().is_none());
+    assert_eq!(
+        registration
+            .joined(registration.identity().task)
+            .unwrap_err()
+            .reason,
+        Reason::Revoked
+    );
     let generation = NetworkGeneration(
         live.runtime
             .services()
@@ -173,6 +184,10 @@ async fn bound_peer_native_close_continues_after_real_mapping_error_and_cancelle
     // Reaching the real second mapping read follows the completed first
     // provider shutdown attempt; the OS rebind checks its original close.
     let _confirmed = UdpSocket::bind(original_address).await.unwrap();
+    assert!(
+        registration.closed().is_none(),
+        "actual Scope join and native close cannot replace pending protocol cleanup"
+    );
     let original = failure.lock().unwrap().clone().unwrap();
     assert_eq!(original.kind(), std::io::ErrorKind::UnexpectedEof);
     assert!(live.proxy.inbound_owners.owner("source").is_some());
@@ -184,6 +199,25 @@ async fn bound_peer_native_close_continues_after_real_mapping_error_and_cancelle
         .await
         .unwrap()
         .unwrap();
+    let closed = registration
+        .closed()
+        .expect("same original provider and mapping completed");
+    assert!(closed.matches(&registration));
+    assert_eq!(closed.identity().instance, registration.identity().instance);
+    assert_eq!(
+        closed.identity().association,
+        registration.identity().association
+    );
+    assert!(Arc::ptr_eq(
+        &closed.joined(),
+        &live.context.binding().observed_join().unwrap()
+    ));
+    // Equal numeric values and even the same actual caller cannot substitute
+    // another provider's private completion origin.
+    let other = PeerBoundDatagramRegistration::new(registration.identity(), live.context.binding());
+    assert!(!registration.same_owner(&other));
+    assert!(!closed.matches(&other));
+    assert!(other.closed().is_none());
     let retained = receipt.terminal().failure().unwrap();
     assert!(retains_original(retained.as_ref(), &original));
     assert_eq!(

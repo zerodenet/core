@@ -5,6 +5,10 @@ impl GrantedBoundPeerResource {
         &mut self,
         deadline: Instant,
     ) -> Result<CloseReport, ChannelError> {
+        // Check the original containing Scope even if a caller invokes the
+        // erased lifecycle directly. No protocol or native shutdown can mint a
+        // receipt for a still-running peer or a task from another registration.
+        let joined = self.completion.joined(self.task)?;
         self.provider.revoke();
         let mut current_failure = None;
         if !self.protocol_closed {
@@ -58,6 +62,7 @@ impl GrantedBoundPeerResource {
         // while keeping new admission faulted until the host handles the fault.
         let mut report = std::mem::take(&mut self.protocol_report);
         report.append(std::mem::take(&mut self.native_report));
+        self.completion.confirm(joined);
         Ok(report)
     }
 }

@@ -26,6 +26,8 @@ Raw-IP UDP association 原 future 现在只登记一次到同一实际 listener 
 
 Raw-IP TCP 原连接 future 同样只登记一次到该 listener Scope 的独立 4096 childgroup，父额度按 TCP4096 + UDP1024 + 原 driver1 的 checked sum（5121）声明。原 Session 占位值仍经既有 Engine.prepare_session 获得真实业务身份及完整认证/策略处理后才进入所选 leaf；真实 caller 的 opaque 同槽观察随原 admitted Invocation 传递，停止或实际 joined caller 撤销同请求取消令牌。观察本身不授予 native open，不替换 selected-outbound/current 检查，也不能因任务结束清除 Unaccounted：最终仍需 C provider 的同原 grant/adoption/native Closed 与实际 caller join。
 
+BoundUDP 的同一持久 peer provider 新增 opaque 完成观察：同一个实际 Scope 消费原 peer TaskExit、协议 mapping 清理与原 native owner 显式关闭全部确认后才发布。完成凭据匹配私有 provider origin，不能由相同数值 ID、任务结束、view Drop 或已关闭部分 FD 代造；等待取消与未知结果继续保留原 owner/错误。本观察不授新 open，不清除尚未完整接入的 raw-IP Unaccounted，也不提供推断的生产容量默认值。
+
 ### 候选入站的真实 Ready 确认
 
 配置应用和启动的 listener 成功确认现在等待同一实际实例的 Ready receipt。协议资源 start 和 carrier activation 必须先完成，随后实际 accept/recv loop 首次 poll 到运行态才由宿主该调用点确认；TCP+UDP 和 listener group 必须确认所有实际分支，登记任务本身不是 Ready。就绪前错误、停止和取消不发布候选成功；取消等待保留实际 owner、候选信息与同一 receipt，旧实例的通知不能确认新实例。协议自有就绪预算保持原样，包括 SIP003 TCP 原十秒预算，不新增通用五秒 Ready 超时。

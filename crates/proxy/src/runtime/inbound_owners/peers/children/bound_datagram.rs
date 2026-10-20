@@ -1,5 +1,7 @@
 //! Explicit finite epoch grants; there is deliberately no default activation.
 mod close;
+mod completion;
+pub(crate) use completion::{PeerBoundDatagramClosed, PeerBoundDatagramRegistration};
 #[cfg(test)]
 mod tests;
 use super::*;
@@ -32,8 +34,13 @@ pub(crate) struct PeerBoundDatagramAuthority {
     binding: Arc<HostPeerBinding>,
     max_bindings: NonZeroUsize,
     epochs: Mutex<Vec<AuthorizedPeerDatagram>>,
+    completion: PeerBoundDatagramRegistration,
 }
 impl PeerBoundDatagramAuthority {
+    /// Observation only: this neither authorizes another open nor closes a caller.
+    pub(crate) fn registration(&self) -> PeerBoundDatagramRegistration {
+        self.completion.clone()
+    }
     /// One actual binding per healthy policy/network epoch. Multiple logical
     /// sessions/targets do not silently spend another provider binding slot.
     pub(crate) fn authorize(
@@ -78,6 +85,7 @@ impl PeerBoundDatagramAuthority {
 }
 struct GrantedBoundPeerResource {
     provider: Arc<HostBoundDatagramResources>,
+    completion: PeerBoundDatagramRegistration,
     group: std::sync::Weak<InboundPeerTasks>,
     task: TaskId,
     inner: Box<dyn DynResourceLifecycle>,
@@ -108,11 +116,13 @@ impl PeerResourceContext {
                 &declaration,
                 cancel,
             )?;
+            let completion = PeerBoundDatagramRegistration::new(identity, self.binding.clone());
             let authority = Arc::new(PeerBoundDatagramAuthority {
                 provider: provider.clone(),
                 binding: self.binding.clone(),
                 max_bindings,
                 epochs: Mutex::new(Vec::new()),
+                completion: completion.clone(),
             });
             let (inner, value) = build(PeerBoundDatagramGrant {
                 identity,
@@ -121,6 +131,7 @@ impl PeerResourceContext {
             Ok((
                 erase_lifecycle(GrantedBoundPeerResource {
                     provider,
+                    completion,
                     group: Arc::downgrade(&self.group),
                     task: identity.task,
                     inner,
