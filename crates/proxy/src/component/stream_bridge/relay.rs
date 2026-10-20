@@ -1,6 +1,6 @@
 //! Real Stream roles composed through a strictly shorter selected prefix.
 mod health;
-mod prefix;
+pub(crate) mod prefix;
 use super::{network::NodeOpener, LegacyStream};
 use crate::{
     component::instance::invalid,

@@ -190,6 +190,7 @@ where
             let admission_key = key.clone();
             chain.last_mut().expect("current DNS dependency").observers =
                 Some(flight.waiters.clone());
+            chain.last_mut().expect("current DNS dependency").cancel = Some(flight.cancel.clone());
             let coordinator = self.clone();
             let task_flight = flight.clone();
             let job = dependency::ACTIVE.scope(chain, async move {
@@ -299,7 +300,7 @@ fn negative_ttl(kind: io::ErrorKind) -> Duration {
     }
 }
 
-pub(crate) use dependency::query_is_observed;
+pub(crate) use dependency::{current_cancel, query_is_observed};
 
 #[cfg(test)]
 mod tests;

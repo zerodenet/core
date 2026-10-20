@@ -21,6 +21,7 @@ pub(super) struct Dependency {
     node: Node,
     graph: Arc<Mutex<Graph>>,
     pub(super) observers: Option<Arc<AtomicUsize>>,
+    pub(super) cancel: Option<zero_platform_tokio::contract::CancellationToken>,
 }
 impl Dependency {
     pub(super) fn new(coordinator: usize, query: QueryKey, graph: Arc<Mutex<Graph>>) -> Self {
@@ -28,6 +29,7 @@ impl Dependency {
             node: Node { coordinator, query },
             graph,
             observers: None,
+            cancel: None,
         }
     }
 }
@@ -120,4 +122,12 @@ pub(crate) fn query_is_observed() -> bool {
                 .is_none_or(|observers| observers.load(Ordering::Acquire) != 0)
         })
         .unwrap_or(true)
+}
+
+pub(crate) fn current_cancel() -> zero_platform_tokio::contract::CancellationToken {
+    ACTIVE
+        .try_with(|chain| chain.last().and_then(|entry| entry.cancel.clone()))
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }

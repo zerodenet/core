@@ -17,7 +17,7 @@ use zero_platform_tokio::contract::{
     CancellationToken, ChannelError, Reason,
 };
 mod network;
-mod relay;
+pub(crate) mod relay;
 mod traffic;
 pub(crate) use relay::connect as connect_relay;
 

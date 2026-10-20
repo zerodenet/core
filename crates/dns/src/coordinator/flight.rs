@@ -41,6 +41,7 @@ pub(super) struct Flight<T> {
     result: Mutex<Option<SharedResult<T>>>,
     abort_handle: Mutex<Option<AbortHandle>>,
     completed: Notify,
+    pub(super) cancel: zero_platform_tokio::contract::CancellationToken,
     pub(super) waiters: Arc<AtomicUsize>,
 }
 impl<T> Flight<T> {
@@ -49,6 +50,7 @@ impl<T> Flight<T> {
             result: Mutex::new(None),
             abort_handle: Mutex::new(None),
             completed: Notify::new(),
+            cancel: zero_platform_tokio::contract::CancellationToken::new(),
             waiters: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -63,6 +65,7 @@ impl<T> Flight<T> {
         true
     }
     pub(super) fn cancel(&self, error: io::Error) {
+        self.cancel.cancel();
         self.complete(Err(error.into()));
         if let Some(handle) = self
             .abort_handle

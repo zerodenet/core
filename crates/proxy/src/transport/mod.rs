@@ -9,6 +9,7 @@
 mod dial_policy_tests;
 mod direct;
 mod direct_dial;
+pub(crate) use direct_dial::open_service_candidates;
 mod failure;
 mod tcp_outbound;
 mod tcp_relay;

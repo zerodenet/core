@@ -13,7 +13,8 @@ use crate::message::{
 use crate::system::TokioSystemResolver;
 #[cfg(feature = "udp")]
 use crate::udp::UdpDnsResolver;
-use crate::DnsOutboundConnector;
+use crate::{DnsConnectContext, DnsOutboundConnector};
+tokio::task_local! { pub(crate) static ATTEMPT_DEADLINE:tokio::time::Instant; }
 
 pub(crate) enum ResolverBackend {
     System(TokioSystemResolver),
@@ -310,7 +311,16 @@ async fn connect_tcp(
                 format!("DNS detour `{outbound}` is unavailable outside the proxy runtime"),
             )
         })?;
-        return connector.connect(outbound.to_owned(), addr).await;
+        return connector
+            .connect_with_context(
+                outbound.to_owned(),
+                addr,
+                DnsConnectContext {
+                    deadline: ATTEMPT_DEADLINE.try_with(|deadline| *deadline).ok(),
+                    cancel: crate::coordinator::current_cancel(),
+                },
+            )
+            .await;
     }
 
     let selection = egress.select_for_peer(addr);

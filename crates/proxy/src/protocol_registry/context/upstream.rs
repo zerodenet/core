@@ -1,5 +1,6 @@
 #[cfg(feature = "udp-runtime")]
 mod datagram;
+mod root;
 use std::net::SocketAddr;
 use std::sync::Arc;
 

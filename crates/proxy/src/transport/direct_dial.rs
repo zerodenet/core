@@ -1,3 +1,5 @@
+mod service;
+pub(crate) use service::open_service_candidates;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;

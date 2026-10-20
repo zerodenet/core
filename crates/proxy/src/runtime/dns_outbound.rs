@@ -1,3 +1,4 @@
+pub(crate) mod service;
 use std::fmt;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -6,7 +7,7 @@ use std::sync::{Arc, Weak};
 use zero_core::{Address, Network, ProtocolType, Session};
 #[cfg(feature = "raw-ip-runtime")]
 use zero_dns::DnsOutboundDatagramFuture;
-use zero_dns::{DnsOutboundConnectFuture, DnsOutboundConnector, DnsSystem};
+use zero_dns::{DnsConnectContext, DnsOutboundConnectFuture, DnsOutboundConnector, DnsSystem};
 use zero_engine::Engine;
 #[cfg(feature = "raw-ip-runtime")]
 use zero_engine::ResolvedOutbound;
@@ -94,8 +95,18 @@ impl std::error::Error for DnsDetourFailure {
 
 impl DnsOutboundConnector for ProxyDnsOutboundConnector {
     fn connect(&self, outbound: String, endpoint: SocketAddr) -> DnsOutboundConnectFuture {
+        self.connect_with_context(outbound, endpoint, DnsConnectContext::default())
+    }
+
+    fn connect_with_context(
+        &self,
+        outbound: String,
+        endpoint: SocketAddr,
+        context: DnsConnectContext,
+    ) -> DnsOutboundConnectFuture {
         let connector = self.clone();
-        Box::pin(async move {
+        let call = context.clone();
+        let operation = async move {
             let services = connector.runtime_services()?;
             let target_id = services
                 .snapshot()
@@ -113,6 +124,40 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                 .ok_or_else(|| {
                     io::Error::other(format!("DNS detour `{outbound}` could not be resolved"))
                 })?;
+            let protocols = connector.protocols.upgrade().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "proxy runtime is shutting down",
+                )
+            })?;
+            if let Some(plan) =
+                service::prepare(&protocols, &services, &resolved).map_err(|failure| {
+                    io::Error::other(DnsDetourFailure {
+                        outbound: outbound.clone(),
+                        stage: failure.stage,
+                        source: failure.error,
+                    })
+                })?
+            {
+                // A native failure is final here. Falling back to the legacy
+                // bridge after any submission could duplicate a DNS request.
+                return service::connect(
+                    services.execution(),
+                    zero_core::request::Destination::new(
+                        endpoint_address(endpoint.ip()),
+                        endpoint.port(),
+                    ),
+                    plan,
+                    zero_core::request::ServicePurpose::DnsQuery,
+                    zero_platform_tokio::contract::network::CarrierContext {
+                        session: None,
+                        deadline: call.deadline,
+                        cancel: call.cancel,
+                    },
+                )
+                .await
+                .map_err(io::Error::other);
+            }
             let session = Session::new(
                 0,
                 endpoint_address(endpoint.ip()),
@@ -144,6 +189,21 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                         source,
                     })
                 })
+        };
+        Box::pin(async move {
+            if context
+                .deadline
+                .is_some_and(|end| tokio::time::Instant::now() >= end)
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "DNS detour deadline elapsed",
+                ));
+            }
+            tokio::select! {biased;
+                _=context.cancel.cancelled()=>Err(io::Error::new(io::ErrorKind::Interrupted,"DNS detour cancelled")),
+                result=zero_platform_tokio::contract::context::with_deadline(context.deadline,operation)=>result.map_err(|source|io::Error::new(io::ErrorKind::TimedOut,source))?,
+            }
         })
     }
 

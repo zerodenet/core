@@ -6,7 +6,7 @@ mod dependencies;
 pub(crate) mod direct_bridge;
 mod generations;
 pub(crate) mod instance;
-mod legacy_stream;
+pub(crate) mod legacy_stream;
 mod preparation;
 mod recipe;
 mod registry;

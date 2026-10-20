@@ -10,6 +10,7 @@ mod metadata;
 mod packet;
 mod protocols;
 mod runtime;
+pub(crate) mod service;
 mod tcp;
 #[cfg(feature = "udp-runtime")]
 mod udp;

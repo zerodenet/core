@@ -12,7 +12,7 @@ use zero_platform_tokio::contract::{
     BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 
-pub(super) struct PrefixOpener {
+pub(crate) struct PrefixOpener {
     pub(super) role: Arc<dyn DynStreamOutbound>,
     pub(super) datagram_slot: Option<Arc<crate::component::instance::ComponentSlot>>,
     pub(super) context: OpenContext,
@@ -24,6 +24,29 @@ pub(super) struct PrefixOpener {
     pub(super) health: Option<FirstHopHealth>,
 }
 impl PrefixOpener {
+    pub(crate) fn for_service(
+        role: Arc<dyn DynStreamOutbound>,
+        context: OpenContext,
+        expected_binding: UpstreamBinding,
+        expected_endpoint: Destination,
+        request_destination: Destination,
+        network: UpstreamConnectServices,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Self {
+        Self {
+            role,
+            context,
+            expected_binding,
+            expected_endpoint,
+            request_destination,
+            network,
+            observer,
+            health: None,
+            // Added by the parallel raw Datagram provider. DNS TCP services
+            // receive no unrelated Datagram grant.
+            datagram_slot: None,
+        }
+    }
     fn interrupted(&self, carrier: &CarrierContext, reason: Reason) -> ChannelError {
         let mut error = ChannelError::new(Stage::Dial, reason, Impact::Session);
         error.component = self

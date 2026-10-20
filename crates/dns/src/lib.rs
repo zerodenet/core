@@ -11,6 +11,7 @@ mod ech;
 mod fake_ip;
 mod family;
 mod message;
+mod outbound;
 mod reverse;
 mod router;
 mod service;
@@ -19,11 +20,9 @@ pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
-use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -56,34 +55,9 @@ pub struct DnsQueryAttempt {
     pub failure_reason: Option<String>,
 }
 
-/// Future returned by a runtime-provided DNS TCP detour connector.
-pub type DnsOutboundConnectFuture =
-    Pin<Box<dyn Future<Output = io::Result<zero_platform_tokio::TcpRelayStream>> + Send + 'static>>;
-
-/// One DNS datagram exchange through a named outbound.
-pub type DnsOutboundDatagramFuture =
-    Pin<Box<dyn Future<Output = io::Result<Vec<u8>>> + Send + 'static>>;
-
-/// Opens a TCP stream to a deterministic DNS endpoint through a named route
-/// target. The proxy runtime supplies this bridge; standalone DNS users get a
-/// clear error if they configure a detour without installing one.
-pub trait DnsOutboundConnector: fmt::Debug + Send + Sync {
-    fn connect(&self, outbound: String, endpoint: SocketAddr) -> DnsOutboundConnectFuture;
-
-    fn exchange_datagram(
-        &self,
-        _outbound: String,
-        _endpoint: SocketAddr,
-        _query: Vec<u8>,
-    ) -> DnsOutboundDatagramFuture {
-        Box::pin(async {
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "outbound does not provide a DNS datagram exchange",
-            ))
-        })
-    }
-}
+pub use outbound::{
+    DnsConnectContext, DnsOutboundConnectFuture, DnsOutboundConnector, DnsOutboundDatagramFuture,
+};
 
 /// The configured DNS subsystem.
 ///
@@ -1384,11 +1358,14 @@ async fn exchange_snapshot(
         let deadline = std::time::Duration::from_millis(timeout_ms);
         let attempt = match tokio::time::timeout(
             deadline,
-            server.backend.exchange(
-                query,
-                server.detour.as_deref(),
-                snapshot.outbound_connector.as_deref(),
-                snapshot.family,
+            backends::ATTEMPT_DEADLINE.scope(
+                tokio::time::Instant::now() + deadline,
+                server.backend.exchange(
+                    query,
+                    server.detour.as_deref(),
+                    snapshot.outbound_connector.as_deref(),
+                    snapshot.family,
+                ),
             ),
         )
         .await

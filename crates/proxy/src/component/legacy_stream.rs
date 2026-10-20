@@ -9,13 +9,13 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use zero_platform_tokio::{contract::stream::BoxStream, ClientStream};
 
-pub(super) struct LegacyStream {
+pub(crate) struct LegacyStream {
     io: Mutex<BoxStream>,
     local: Option<SocketAddr>,
     peer: SocketAddr,
 }
 impl LegacyStream {
-    pub(super) fn new(io: BoxStream, local: Option<SocketAddr>, peer: SocketAddr) -> Self {
+    pub(crate) fn new(io: BoxStream, local: Option<SocketAddr>, peer: SocketAddr) -> Self {
         Self {
             io: Mutex::new(io),
             local,
