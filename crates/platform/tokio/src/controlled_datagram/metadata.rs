@@ -1,6 +1,7 @@
 //! Owned native UDP ancillary I/O. This is a library boundary, not a runtime.
 //! Every native original (including capability probes) has a persistent owner.
 mod io;
+mod observation;
 mod owner;
 mod poller;
 mod probes;
@@ -104,6 +105,17 @@ impl MetadataDatagramRx {
     }
 }
 impl MetadataDatagramControl {
+    /// Observe the actual native metadata boundary, including GRO segments and
+    /// partial submissions. The original remains owned if a callback panics.
+    pub fn set_observer(
+        &mut self,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> std_io::Result<()> {
+        self.shared.check()?;
+        let old = self.shared.socket.replace_observer(observer.clone())?;
+        super::observation::boundary(&observer, old);
+        Ok(())
+    }
     pub fn reservation(&self) -> DatagramReservationId {
         self.shared.socket.reservation()
     }

@@ -41,3 +41,13 @@ This is library qualification only. No Quinn runtime adapter, FinalMask worker,
 listener transaction, accepted connection budget, host grant, configured default
 or production activation is supplied here. Driver TaskExit proof remains a
 separate host responsibility; this owner reports actual I/O only.
+
+`MetadataDatagramControl::set_observer` installs the existing neutral I/O observer
+on this original. Callbacks run after the native/poller gates are released. TX
+counts only the submitted outcome prefix, split by its actual segment stride;
+RX counts the actual GRO strides and final payload. Zero-length datagrams count
+as one packet. Native send errors retain their original source and count no
+submitted bytes; readiness backpressure is not an I/O failure. Observers must
+not be stacked with a unit-success wrapper that assumes the full request was
+submitted. A callback panic leaves the original in its persistent owner and
+does not manufacture a native close receipt.

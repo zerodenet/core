@@ -13,31 +13,49 @@ impl MetadataDatagramTx {
             )
         })?;
         validate(transmit, self.shared.capabilities())?;
-        let _defer = self.shared.pollers.defer();
-        let native = self.shared.socket.entry.lock();
-        self.shared.check()?;
-        let NativeHandleState::Live(socket) = &*native else {
-            return Err(super::super::io::unavailable(&native));
-        };
-        let native_transmit = quinn_udp::Transmit {
-            destination: transmit.destination,
-            contents: transmit.contents,
-            src_ip: transmit.source_ip,
-            ecn: transmit.ecn.map(DatagramEcn::native),
-            segment_size: transmit.segment_size,
-        };
-        let outcome = socket.inner.try_io(Interest::WRITABLE, || {
-            self.shared
+        let (result, observer) = send_native(&self.shared, transmit);
+        drop(_admission);
+        observation::send(observer, &result, transmit.segment_size);
+        result
+    }
+}
+fn send_native(
+    shared: &Shared,
+    transmit: &MetadataTransmit<'_>,
+) -> (
+    std_io::Result<MetadataSendOutcome>,
+    super::super::observation::Observer,
+) {
+    let _defer = shared.pollers.defer();
+    let native = shared.socket.entry.lock();
+    if let Err(error) = shared.check() {
+        return (Err(error), None);
+    }
+    let NativeHandleState::Live(socket) = &*native else {
+        return (Err(super::super::io::unavailable(&native)), None);
+    };
+    let native_transmit = quinn_udp::Transmit {
+        destination: transmit.destination,
+        contents: transmit.contents,
+        src_ip: transmit.source_ip,
+        ecn: transmit.ecn.map(DatagramEcn::native),
+        segment_size: transmit.segment_size,
+    };
+    let result = socket
+        .inner
+        .try_io(Interest::WRITABLE, || {
+            shared
                 .state
                 .try_send_outcome((&socket.inner).into(), &native_transmit)
-        })?;
-        Ok(MetadataSendOutcome {
+        })
+        .map(|outcome| MetadataSendOutcome {
             bytes: outcome.bytes,
             datagrams: outcome.datagrams,
             complete: outcome.complete,
-        })
-    }
+        });
+    (result, socket.observer.clone())
 }
+
 fn validate(transmit: &MetadataTransmit<'_>, caps: MetadataCapabilities) -> std_io::Result<()> {
     if let Some(size) = transmit.segment_size {
         if size == 0 || size > u16::MAX as usize {
@@ -76,36 +94,55 @@ impl MetadataDatagramRx {
         }
         let waker = self.registration.waker();
         let mut internal = Context::from_waker(&waker);
-        let _defer = self.shared.pollers.defer();
-        let native = self.shared.socket.entry.lock();
-        self.shared.check()?;
-        let NativeHandleState::Live(socket) = &*native else {
-            return Poll::Ready(Err(super::super::io::unavailable(&native)));
-        };
-        loop {
-            match socket.inner.poll_recv_ready(&mut internal) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-                Poll::Ready(Ok(())) => {}
-            }
-            let mut native_metadata = [quinn_udp::RecvMeta::default(); quinn_udp::BATCH_SIZE];
-            let count = buffers.len().min(quinn_udp::BATCH_SIZE);
-            match socket.inner.try_io(Interest::READABLE, || {
-                self.shared.state.recv(
-                    (&socket.inner).into(),
-                    &mut buffers[..count],
-                    &mut native_metadata[..count],
-                )
-            }) {
-                Err(error) if error.kind() == std_io::ErrorKind::WouldBlock => continue,
-                Err(error) => return Poll::Ready(Err(error)),
-                Ok(count) => {
-                    for (out, native) in metadata.iter_mut().zip(native_metadata).take(count) {
-                        *out = MetadataReceive::from_native(native);
-                    }
-                    return Poll::Ready(Ok(count));
+        let (result, observer) = recv_native(&self.shared, &mut internal, buffers, metadata);
+        observation::receive(observer, &result, metadata);
+        result
+    }
+}
+fn recv_native(
+    shared: &Shared,
+    internal: &mut Context<'_>,
+    buffers: &mut [IoSliceMut<'_>],
+    metadata: &mut [MetadataReceive],
+) -> (
+    Poll<std_io::Result<usize>>,
+    super::super::observation::Observer,
+) {
+    let _defer = shared.pollers.defer();
+    let native = shared.socket.entry.lock();
+    if let Err(error) = shared.check() {
+        return (Poll::Ready(Err(error)), None);
+    }
+    let NativeHandleState::Live(socket) = &*native else {
+        return (
+            Poll::Ready(Err(super::super::io::unavailable(&native))),
+            None,
+        );
+    };
+    let result = loop {
+        match socket.inner.poll_recv_ready(internal) {
+            Poll::Pending => break Poll::Pending,
+            Poll::Ready(Err(error)) => break Poll::Ready(Err(error)),
+            Poll::Ready(Ok(())) => {}
+        }
+        let mut native_metadata = [quinn_udp::RecvMeta::default(); quinn_udp::BATCH_SIZE];
+        let count = buffers.len().min(quinn_udp::BATCH_SIZE);
+        match socket.inner.try_io(Interest::READABLE, || {
+            shared.state.recv(
+                (&socket.inner).into(),
+                &mut buffers[..count],
+                &mut native_metadata[..count],
+            )
+        }) {
+            Err(error) if error.kind() == std_io::ErrorKind::WouldBlock => continue,
+            Err(error) => break Poll::Ready(Err(error)),
+            Ok(count) => {
+                for (out, native) in metadata.iter_mut().zip(native_metadata).take(count) {
+                    *out = MetadataReceive::from_native(native);
                 }
+                break Poll::Ready(Ok(count));
             }
         }
-    }
+    };
+    (result, socket.observer.clone())
 }
