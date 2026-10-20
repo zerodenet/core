@@ -58,3 +58,13 @@
 `4d6809a1` 是 proxy 库中的真实 consumer 回归：callback 仅保 WeakCurrentServiceSource、实际已 start / commit 的 Native SOCKS node 和其静态 / 网络 / owner 检查；在每次 demand 中短借当前服务，原样传入现有 native Service dispatcher，不使用旧 Session 外壳。实际 SOCKS greeting 已发送且等待方法响应时确认 Pending，再取消该 demand；下一次显式新 token / deadline 完成真实 CONNECT 与载荷读写。另有实际 owner 退休、宿主弱引用与完整配置 / DNS 引用回收检查。transport 库回归检查完整 binding、取消后的新调用预算、真实 pending TCP deadline 的 Elapsed 来源和 callback 原 Arc source。此处只新增测试源码，结果由根任务冻结运行记录；没有声称 pool 聚合验证已通过。
 
 **尚未执行的动作**是把该入口接到生产 XHTTP pool → Group.factory。具体阻塞位于 `split_http/xmux.rs::connect_with_download` 的 maintenance spawn、`xmux/connection.rs::acquire` 的 H1/H2 driver spawn 和 `client.rs::connect_profiles` 的后续上传 / 下载工作：它们尚无提供真实持久 join 和每次后续 send budget 的池 owner。`request::Sender::send_request` 后续仍可能触发新 acquire；将首次调用的 CarrierContext 存到 Sender / Group 只会把旧 query 生命周期扩散到后台，并不解决此阻塞。该生产接线保持未迁移状态；不是审批拒绝，也没有启用替代池、放宽 default budget 或制造背景身份。下一步须先复用 stream 任务正在建立的真实共享资源 owner / driver-return / controlled-underlay 证据，再由该 owner 为每次实际 demand 提供范围和关闭确认；具体 XHTTP 共享额度不得临时默认扩容。
+
+## XHTTP 原 HTTP driver future 切面（待统一验证）
+
+`70c7b404` 在 `split_http/xmux/prepared.rs` 抽出原 H1 / H2 握手及其原 connection future，返回 actual sender 与 `Future<Output = io::Result<()>>`；底层 I/O 保持泛型 S，后续可在真实 controlled-I/O adoption 内 prepare。既有 `xmux/connection.rs::acquire` 的 H1 / H2 分支使用同一个 helper，再由原 Tokio spawn 执行返回 future；没有第二份池、执行状态机、Runtime 或额外生产任务。原 H2 keepalive / ALPS、group.fail 时点及 H3 分支保留。driver 错误直接保存原 Hyper error 对象，不转换成字符串。
+
+H2 helper 显式接收 generic executor E，约束使用 vendor 已公开的 `hyper::rt::bounds::Http2ClientConnExec<Body, TokioIo<S>>`，没有安装默认 TokioExecutor。兼容调用点继续明确传原 TokioExecutor。实际 vendor `hyper/src/proto/h2/client.rs` 在握手时即经 E 委托 `H2ClientFuture::Task`，后续还会委托 Pipe / Send；因此准备返回的**外层** future 绝不是全部 H2 I/O 工作。managed owner 必须在原 carrier 首次握手写入前安装 actual owner / controlled adoption，并监督 E 收到的全部 futures 和该外层 future，随后才能按真实 join / native close 顺序回收原底层句柄。
+
+新增库回归以真实 TCP 验证 H1 请求、响应 body、driver await 和远端 EOF 分别发生；另在真实 socket 的 shutdown 注入失败，核对原 Arc source 经 Hyper error 映射仍保留。H2 回归观察真实 24 字节 client preface 和握手已将原任务交给显式 RecordingExecutor，且 outer driver Drop 后该任务仍被保存；测试销毁这些 future 不被描述为 TaskScope join 或物理关闭 ACK。测试源码尚待根任务冻结运行，不能把这些声明当成通过结果。
+
+本切面没有实现 H2 受管 executor / 新共享 owner，也不设置任意任务额度。`xmux.rs` maintenance、`client.rs` upload / download / producer、`client/carrier.rs` 非池驱动路径、StreamOne / H3 的各自后台任务与逻辑 user / response-body 关闭仍需完整 owner 集成；每次 demand 的来源和这些资源的真实关闭确认到齐前，生产 mixed DNS / XHTTP 接线继续保持未迁移。
