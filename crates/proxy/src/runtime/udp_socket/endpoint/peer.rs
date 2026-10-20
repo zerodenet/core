@@ -1,9 +1,9 @@
 //! Structured peer driver; the real host peer owns its registration and join.
 mod close;
-mod job;
+pub(crate) mod job;
 use super::*;
 use crate::runtime::inbound_owners::{HostPeerBinding, JoinedPeer};
-pub(crate) use job::{run_peer_with_driver, DirectPeerDriverSlot};
+pub(crate) use job::DirectPeerDriverSlot;
 use std::{
     future::Future,
     net::SocketAddr,

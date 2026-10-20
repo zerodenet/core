@@ -1,6 +1,8 @@
 //! Real peer registration + native grant, without fabricated host tickets.
 use super::*;
-use crate::runtime::udp_socket::endpoint::{dispatch::DirectDispatchEndpoint, peer::*};
+use crate::runtime::udp_socket::endpoint::{
+    dispatch::DirectDispatchEndpoint, peer::job::run_peer_with_driver, peer::*,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::watch,
@@ -31,6 +33,7 @@ async fn actual_peer_driver_ready_keeps_original_until_real_registered_peer_join
     let session = SessionId(business.id);
     let retirement = fixture.retirement.clone();
     let (stop, mut stopping) = watch::channel(false);
+    let stop_listener = stop.clone();
     let installed = fixture
         .proxy
         .inbound_owners
@@ -183,7 +186,7 @@ async fn actual_peer_driver_ready_keeps_original_until_real_registered_peer_join
     // Native close is driven only after the genuine dispatched peer receipt.
     group.retire_joined(deadline()).await.unwrap();
     tokio::net::UdpSocket::bind(original).await.unwrap();
-    host_owner.stop();
+    stop_listener.send_replace(true);
     tokio::time::timeout(Duration::from_secs(2), &mut observing)
         .await
         .unwrap()
