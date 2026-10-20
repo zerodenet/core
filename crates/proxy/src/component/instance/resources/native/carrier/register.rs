@@ -24,7 +24,7 @@ impl HostResources {
         }
         Ok(())
     }
-    pub(super) fn register_carrier(
+    pub(in crate::component::instance::resources::native) fn register_carrier(
         &self,
         ordinal: usize,
         actual: CarrierOwnerRegistration,
