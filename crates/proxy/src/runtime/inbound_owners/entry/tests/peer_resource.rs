@@ -1,6 +1,8 @@
 use super::*;
 #[path = "peer_resource/failure.rs"]
 mod failure;
+#[path = "peer_resource/recovery.rs"]
+mod recovery;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_platform_tokio::{
     contract::lifecycle::{erase_lifecycle, ResourceLifecycle},
