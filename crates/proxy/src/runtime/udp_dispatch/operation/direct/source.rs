@@ -182,7 +182,7 @@ fn unavailable() -> ChannelError {
     ))
 }
 fn error(reason: Reason, message: &'static str) -> ChannelError {
-    let mut failure = ChannelError::new(Stage::Open, reason, Impact::Session)
+    let mut failure = ChannelError::new(Stage::Prepare, reason, Impact::Session)
         .with_source(std::io::Error::other(message));
     failure.delivery = DeliveryState::NotSubmitted;
     failure

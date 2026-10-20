@@ -148,7 +148,7 @@ impl Live {
     }
     pub(crate) async fn finish(mut self) -> Result<(), zero_engine::EngineError> {
         self.handle.finish(zero_engine::SessionOutcome::Cancelled);
-        self.owner.stop();
+        self.owner.task_access().request_stop();
         // A monitor error is a task fact, never a substitute for native cleanup.
         let monitored = self
             .monitor
