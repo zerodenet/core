@@ -112,9 +112,12 @@ async fn dropping_head_after_real_pending_response_registration_reclaims_it_befo
         .await;
         let isolated = Arc::strong_count(&head.0) == 1;
         drop(head);
-        let reclaimed = weak.upgrade().is_none();
+        let rescue = weak.upgrade();
+        let reclaimed = rescue.is_none();
+        // Acquire the fallback owner before allowing the remote notification,
+        // including if this fixture is later run on a multithreaded runtime.
         release.send(()).unwrap();
-        if let Some(shared) = weak.upgrade() {
+        if let Some(shared) = rescue {
             // On the regressed implementation, consume the original future
             // with real H2 I/O before cleanup; an assertion must not deadlock
             // while unwinding the same pending future/waker ownership cycle.
