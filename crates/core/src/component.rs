@@ -39,6 +39,13 @@ generation!(
     PolicyRevision
 );
 
+/// One concrete component generation, including owners without callable roles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ComponentInstanceId {
+    pub component: ComponentId,
+    pub generation: ResourceGeneration,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RoleId {
     Inbound(InboundId),

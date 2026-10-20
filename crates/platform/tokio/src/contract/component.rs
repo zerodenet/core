@@ -1,7 +1,7 @@
 use std::{num::NonZeroUsize, path::PathBuf, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use zero_core::{
-    component::{ComponentId, ComponentRoleIds, ResourceGeneration},
+    component::{ComponentId, ComponentInstanceId, ComponentRoleIds, ResourceGeneration},
     request::Destination,
 };
 use zero_traits::IoObserver;
@@ -89,12 +89,30 @@ pub trait ResourceAccess: Send + Sync {
 pub struct BuildContext {
     pub component: ComponentId,
     pub generation: ResourceGeneration,
+    /// Actual generations resolved by the host's validated dependency graph.
+    pub dependencies: Arc<[ComponentInstanceId]>,
     pub roles: ComponentRoleIds,
     pub resources: Arc<dyn ResourceAccess>,
     pub tasks: TaskRegistrar,
     pub cancel: CancellationToken,
     /// Granted only when the descriptor declares a background control carrier.
     pub background_carrier: Option<UpstreamTransport>,
+}
+
+impl BuildContext {
+    pub fn instance(&self) -> ComponentInstanceId {
+        ComponentInstanceId {
+            component: self.component,
+            generation: self.generation,
+        }
+    }
+    /// Typed identity lookup only; never a recovery of private options or roles.
+    pub fn dependency(&self, component: ComponentId) -> Option<ComponentInstanceId> {
+        self.dependencies
+            .iter()
+            .find(|instance| instance.component == component)
+            .copied()
+    }
 }
 
 #[derive(Default)]

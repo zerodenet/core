@@ -1,3 +1,4 @@
+mod bindings;
 mod catalog;
 mod dependencies;
 mod generations;

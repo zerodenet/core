@@ -5,7 +5,7 @@ pub(super) struct Options {
     pub(super) direct: DirectOptions,
     pub(super) dependency: ComponentId,
 }
-pub(super) struct Factory(pub(super) Arc<AtomicUsize>);
+pub(super) struct Factory(Arc<AtomicUsize>, Arc<Mutex<Vec<ComponentInstanceId>>>);
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
@@ -19,6 +19,11 @@ impl ComponentFactory for Factory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         self.0.fetch_add(1, Ordering::SeqCst);
+        self.1.lock().unwrap().push(
+            context
+                .dependency(options.dependency)
+                .expect("actual resource instance is bound"),
+        );
         DirectFactory.build(Arc::new(options.direct.clone()), context)
     }
 }
@@ -27,13 +32,21 @@ pub(super) fn registry(
     conversions: Arc<AtomicUsize>,
     builds: Arc<AtomicUsize>,
 ) -> ComponentRegistry<()> {
+    registry_with_bindings(conversions, builds, Arc::new(Mutex::new(Vec::new())))
+}
+
+pub(super) fn registry_with_bindings(
+    conversions: Arc<AtomicUsize>,
+    builds: Arc<AtomicUsize>,
+    observed: Arc<Mutex<Vec<ComponentInstanceId>>>,
+) -> ComponentRegistry<()> {
     let state = Arc::new(::shadowsocks::transport::ShadowsocksTransportState::default());
     let replay = Arc::new(::shadowsocks::component::ReplayFactory);
     let mut registry = ComponentRegistry::default();
     registry
         .register_with_resources(
             crate::adapters::direct::DirectAdapter::default().descriptor(),
-            Factory(builds),
+            Factory(builds, observed),
             move |_: &(), resources: &mut ResourcePreparation<'_>| {
                 conversions.fetch_add(1, Ordering::SeqCst);
                 let dependency = resources.share(

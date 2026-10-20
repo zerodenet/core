@@ -114,6 +114,7 @@ pub async fn instance(auth: bool) -> (ComponentInstance, TaskScope) {
             BuildContext {
                 component: ComponentId(7),
                 generation: ResourceGeneration(1),
+                dependencies: Arc::from([]),
                 roles: ComponentRoleIds {
                     outbound: Some(OutboundId(8)),
                     ..Default::default()

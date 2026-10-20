@@ -71,6 +71,7 @@ pub fn build_context() -> (BuildContext, TaskScope) {
     let context = BuildContext {
         component: ComponentId(7),
         generation: ResourceGeneration(3),
+        dependencies: Arc::from([]),
         roles: ComponentRoleIds {
             outbound: Some(OutboundId(11)),
             ..Default::default()

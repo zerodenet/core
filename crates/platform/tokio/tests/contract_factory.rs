@@ -172,6 +172,7 @@ async fn stream_only_factory_builds_without_binding_and_keeps_owner_after_start_
             BuildContext {
                 component: ComponentId(1),
                 generation: ResourceGeneration(1),
+                dependencies: Arc::from([]),
                 roles: ComponentRoleIds {
                     outbound: Some(OutboundId(1)),
                     ..Default::default()

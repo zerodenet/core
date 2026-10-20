@@ -57,15 +57,41 @@ fn a_changed_dependency_rebuilds_each_transitive_consumer_once_and_preserves_oth
     let middle = ids.allocate_id().unwrap();
     let final_node = ids.allocate_id().unwrap();
     let separate = ids.allocate_id().unwrap();
-    let old = vec![
-        slot(root, 1, vec![], AddressFamily::Auto),
-        slot(middle, 1, vec![root], AddressFamily::Auto),
-        slot(final_node, 1, vec![middle], AddressFamily::Auto),
-        slot(separate, 1, vec![], AddressFamily::Auto),
-    ];
+    let old = order_and_reuse(
+        vec![
+            slot(root, 1, vec![], AddressFamily::Auto),
+            slot(middle, 1, vec![root], AddressFamily::Auto),
+            slot(final_node, 1, vec![middle], AddressFamily::Auto),
+            slot(separate, 1, vec![], AddressFamily::Auto),
+        ],
+        &[],
+    )
+    .unwrap();
     let mut candidate = old.clone();
     candidate[0] = slot(root, 1, vec![], AddressFamily::OnlyIpv4);
     let next = order_and_reuse(candidate, &old).unwrap();
+    assert_eq!(
+        next.iter()
+            .find(|node| node.id == middle)
+            .unwrap()
+            .dependency_instances(),
+        &[next
+            .iter()
+            .find(|node| node.id == root)
+            .unwrap()
+            .instance_id()]
+    );
+    assert_eq!(
+        next.iter()
+            .find(|node| node.id == final_node)
+            .unwrap()
+            .dependency_instances(),
+        &[next
+            .iter()
+            .find(|node| node.id == middle)
+            .unwrap()
+            .instance_id()]
+    );
     for id in [root, middle, final_node] {
         let before = old.iter().find(|slot| slot.id == id).unwrap();
         let after = next.iter().find(|slot| slot.id == id).unwrap();

@@ -56,6 +56,7 @@ fn context(limit: usize) -> (TaskScope, BuildContext) {
     let context = BuildContext {
         component: ComponentId(44),
         generation: ResourceGeneration(1),
+        dependencies: Arc::from([]),
         roles: ComponentRoleIds::default(),
         resources: Arc::new(NoResources),
         tasks: scope.registrar(),

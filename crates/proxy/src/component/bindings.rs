@@ -5,6 +5,20 @@ use zero_platform_tokio::contract::{
 };
 
 pub(super) fn validate_ids(spec: &ComponentSpec, context: &BuildContext) -> Result<(), BuildError> {
+    let expected: std::collections::BTreeSet<_> = spec.dependencies.iter().copied().collect();
+    let actual: std::collections::BTreeSet<_> = context
+        .dependencies
+        .iter()
+        .map(|instance| instance.component)
+        .collect();
+    if spec.dependencies.len() != context.dependencies.len()
+        || actual.len() != context.dependencies.len()
+        || actual != expected
+    {
+        let mut error = invalid("assigned dependency instances do not match the descriptor".into());
+        error.component = Some(context.component);
+        return Err(error);
+    }
     for kind in &spec.roles {
         let present = match kind {
             RoleKind::Stream | RoleKind::Datagram => context.roles.outbound.is_some(),

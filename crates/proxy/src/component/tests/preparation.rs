@@ -5,10 +5,12 @@ use crate::component::{
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use tokio::time::{Duration, Instant};
-use zero_core::component::{ComponentId, ComponentRoleIds, OutboundId, ResourceGeneration};
+use zero_core::component::{
+    ComponentId, ComponentInstanceId, ComponentRoleIds, OutboundId, ResourceGeneration,
+};
 use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentFactory, ComponentInstance, ComponentSpec},
     lifecycle::{BuildError, TaskClass},
@@ -25,10 +27,16 @@ use fixtures::registry;
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(2)
 }
-fn context(id: ComponentId, scope: &TaskScope, stream: bool) -> BuildContext {
+fn context(
+    id: ComponentId,
+    scope: &TaskScope,
+    stream: bool,
+    dependencies: &[ComponentInstanceId],
+) -> BuildContext {
     BuildContext {
         component: id,
         generation: ResourceGeneration(1),
+        dependencies: dependencies.into(),
         roles: ComponentRoleIds {
             outbound: stream.then_some(OutboundId(id.0)),
             ..Default::default()
@@ -47,7 +55,9 @@ async fn two_typed_consumers_share_one_real_replay_owner_with_host_assigned_iden
     let second = ids.allocate_id().unwrap();
     let conversions = Arc::new(AtomicUsize::new(0));
     let builds = Arc::new(AtomicUsize::new(0));
-    let registry = registry(conversions.clone(), builds.clone());
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let registry =
+        fixtures::registry_with_bindings(conversions.clone(), builds.clone(), observed.clone());
     let mut allocate = || ids.allocate_id();
     let mut resources = ResourcePreparation::new(&mut allocate);
     let a = registry
@@ -81,10 +91,9 @@ async fn two_typed_consumers_share_one_real_replay_owner_with_host_assigned_iden
         runtime.clone(),
         resource.recipe().spec().task_limit.unwrap(),
     );
-    let mut owner = resource
-        .recipe()
-        .build(context(shared, &scope, false))
-        .unwrap();
+    let owner_context = context(shared, &scope, false, &[]);
+    let shared_instance = owner_context.instance();
+    let mut owner = resource.recipe().build(owner_context).unwrap();
     assert!(
         owner.roles.stream.is_none()
             && owner.roles.datagram.is_none()
@@ -94,12 +103,20 @@ async fn two_typed_consumers_share_one_real_replay_owner_with_host_assigned_iden
     owner.lifecycle.start(deadline()).await.unwrap();
     let mut first_scope = TaskScope::empty(runtime.clone());
     let mut second_scope = TaskScope::empty(runtime);
-    let mut first_owner = a.build(context(first, &first_scope, true)).unwrap();
-    let mut second_owner = b.build(context(second, &second_scope, true)).unwrap();
+    let mut first_owner = a
+        .build(context(first, &first_scope, true, &[shared_instance]))
+        .unwrap();
+    let mut second_owner = b
+        .build(context(second, &second_scope, true, &[shared_instance]))
+        .unwrap();
     assert!(first_owner.roles.stream.is_some() && second_owner.roles.stream.is_some());
     first_owner.lifecycle.start(deadline()).await.unwrap();
     second_owner.lifecycle.start(deadline()).await.unwrap();
     assert_eq!(builds.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        [shared_instance, shared_instance]
+    );
     assert_eq!(
         conversions.load(Ordering::SeqCst),
         2,

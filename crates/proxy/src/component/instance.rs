@@ -1,22 +1,20 @@
 //! Ownership of one cold recipe, installed before its first start.
 use super::{ComponentRecipe, ValidatedRecipe};
 mod cleanup;
-use std::{
-    path::PathBuf,
-    sync::{Arc, OnceLock},
-};
+mod resources;
+pub(super) use resources::NoResources;
+use std::sync::{Arc, OnceLock};
 use tokio::{
     sync::{Mutex, OnceCell},
     time::Instant,
 };
-use zero_core::{component::*, request::Destination};
+use zero_core::component::*;
 use zero_platform_tokio::contract::{
-    component::{BuildContext, ComponentInstance, ResourceAccess},
+    component::{BuildContext, ComponentInstance},
     lifecycle::CloseReport,
-    packet::BoxPacketSession,
     scope::TaskScope,
     stream::DynStreamOutbound,
-    BoxFuture, CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
+    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
 };
 
 pub(crate) type SharedError = Arc<ChannelError>;
@@ -39,6 +37,7 @@ pub(crate) struct ComponentSlot {
     pub(crate) id: ComponentId,
     pub(crate) generation: ResourceGeneration,
     pub(crate) recipe: ComponentRecipe,
+    dependencies: Arc<[ComponentInstanceId]>,
     legacy_connect_stage: &'static str,
     pub(crate) dial: zero_traits::DialPolicy,
     cancel: CancellationToken,
@@ -92,10 +91,28 @@ impl ComponentSlot {
         dial: zero_traits::DialPolicy,
         legacy_connect_stage: &'static str,
     ) -> Self {
+        Self::from_bound_recipe(
+            id,
+            generation,
+            recipe,
+            dial,
+            legacy_connect_stage,
+            Arc::from([]),
+        )
+    }
+    pub(crate) fn from_bound_recipe(
+        id: ComponentId,
+        generation: ResourceGeneration,
+        recipe: ComponentRecipe,
+        dial: zero_traits::DialPolicy,
+        legacy_connect_stage: &'static str,
+        dependencies: Arc<[ComponentInstanceId]>,
+    ) -> Self {
         Self {
             id,
             generation,
             recipe,
+            dependencies,
             legacy_connect_stage,
             dial,
             cancel: CancellationToken::new(),
@@ -105,6 +122,15 @@ impl ComponentSlot {
     }
     pub(crate) fn legacy_connect_stage(&self) -> &'static str {
         self.legacy_connect_stage
+    }
+    pub(crate) fn instance_id(&self) -> ComponentInstanceId {
+        ComponentInstanceId {
+            component: self.id,
+            generation: self.generation,
+        }
+    }
+    pub(crate) fn dependency_instances(&self) -> &[ComponentInstanceId] {
+        &self.dependencies
     }
     pub(crate) fn role_id(&self) -> RoleInstanceId {
         RoleInstanceId {
@@ -160,6 +186,7 @@ impl ComponentSlot {
                 let context = BuildContext {
                     component: self.id,
                     generation: self.generation,
+                    dependencies: self.dependencies.clone(),
                     roles: ComponentRoleIds {
                         outbound: self
                             .recipe
@@ -249,29 +276,4 @@ fn started(component: ComponentId, live: &Result<Live, SharedError>) -> Result<(
         error.component.get_or_insert(component);
         error
     })
-}
-
-// This transitional slot grants no I/O. Production catalog activation admits
-// only zero-resource Stream descriptors; roleless maintenance can use its actual
-// registered task budget. Declared I/O requires a host granting that exact access.
-pub(super) struct NoResources;
-impl ResourceAccess for NoResources {
-    fn read_file(&self, _: PathBuf, _: usize) -> BoxFuture<'_, Result<Vec<u8>, ChannelError>> {
-        Box::pin(async { Err(invalid(Reason::Internal, "undeclared file access")) })
-    }
-    fn listen_tcp(
-        &self,
-        _: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::TcpListener, ChannelError>> {
-        Box::pin(async { Err(invalid(Reason::Internal, "undeclared listener")) })
-    }
-    fn listen_datagram(
-        &self,
-        _: Destination,
-    ) -> BoxFuture<'_, Result<tokio::net::UdpSocket, ChannelError>> {
-        Box::pin(async { Err(invalid(Reason::Internal, "undeclared datagram listener")) })
-    }
-    fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, ChannelError>> {
-        Box::pin(async { Err(invalid(Reason::Internal, "undeclared device")) })
-    }
 }
