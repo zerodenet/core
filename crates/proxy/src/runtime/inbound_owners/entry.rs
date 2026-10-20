@@ -26,6 +26,7 @@ pub(crate) use observation::consume_reported_error;
 pub(super) use pending_bound::pending_preparation_stopped;
 pub(super) use readiness::readiness_stopped;
 pub(crate) use readiness::InboundReady;
+mod driver;
 mod shutdown;
 mod terminal;
 pub(crate) use terminal::{ClosedInboundReceipt, InboundTerminal};
@@ -35,6 +36,8 @@ struct Resource {
     identity: ComponentInstanceId,
     owner: AsyncMutex<Box<dyn DynResourceLifecycle>>,
     stopped: AtomicBool,
+    native_on_driver_exit: bool,
+    exit_fault: OnceLock<SharedError>,
 }
 pub(crate) struct InboundOwner {
     identity: ComponentInstanceId,
@@ -143,6 +146,26 @@ impl InboundOwner {
         identity: ComponentInstanceId,
         owner: Box<dyn DynResourceLifecycle>,
     ) -> Result<(), EngineError> {
+        self.install_resource_inner(identity, owner, false)
+    }
+    pub(super) fn install_listener_native(
+        &self,
+        identity: ComponentInstanceId,
+        owner: Box<dyn DynResourceLifecycle>,
+    ) -> Result<(), EngineError> {
+        if identity != self.identity {
+            return Err(
+                std::io::Error::other("listener native identity differs from its owner").into(),
+            );
+        }
+        self.install_resource_inner(identity, owner, true)
+    }
+    fn install_resource_inner(
+        &self,
+        identity: ComponentInstanceId,
+        owner: Box<dyn DynResourceLifecycle>,
+        native_on_driver_exit: bool,
+    ) -> Result<(), EngineError> {
         let mut resources = self.resources.lock().expect("inbound resources poisoned");
         if self.cancel.is_cancelled() {
             return Err(std::io::Error::other("inbound resource installation is closed").into());
@@ -151,6 +174,8 @@ impl InboundOwner {
             identity,
             owner: AsyncMutex::new(owner),
             stopped: AtomicBool::new(false),
+            native_on_driver_exit,
+            exit_fault: OnceLock::new(),
         }));
         Ok(())
     }
@@ -229,61 +254,6 @@ impl InboundOwner {
         ));
         groups.push(group.clone());
         Ok(group)
-    }
-    pub(crate) fn spawn_driver(
-        self: &Arc<Self>,
-        work: impl Future<Output = Result<(), EngineError>> + Send + 'static,
-    ) -> Result<(), EngineError> {
-        if self.cancel.is_cancelled() || *self.shutdown.borrow() {
-            return Err(self.ready_stopped());
-        }
-        self.scope
-            .try_lock()
-            .map_err(|_| std::io::Error::other("inbound owner is already joining its scope"))?
-            .enable_registration()
-            .map_err(std::io::Error::other)?;
-        let identity = self.identity;
-        let stopping = self.shutdown.clone();
-        let cancel = self.cancel.clone();
-        let resources = self
-            .resources
-            .lock()
-            .expect("inbound resources poisoned")
-            .clone();
-        let task = self
-            .registrar
-            .spawn(TaskClass::Critical, async move {
-                for resource in resources {
-                    if cancel.is_cancelled() || *stopping.borrow() {
-                        return Ok(());
-                    }
-                    let mut owner = resource.owner.lock().await;
-                    if let Err(mut error) = owner
-                        .start(Instant::now() + std::time::Duration::from_secs(5))
-                        .await
-                    {
-                        if error.reason == Reason::Revoked
-                            && (cancel.is_cancelled() || *stopping.borrow())
-                        {
-                            return Ok(());
-                        }
-                        error.component.get_or_insert(resource.identity.component);
-                        return Err(error);
-                    }
-                }
-                if cancel.is_cancelled() || *stopping.borrow() {
-                    return Ok(());
-                }
-                work.await.map_err(|source| {
-                    let mut error = ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
-                        .with_source(source);
-                    error.component = Some(identity.component);
-                    error
-                })
-            })
-            .map_err(std::io::Error::other)?;
-        self.publish_driver(task);
-        Ok(())
     }
     fn publish_driver(&self, task: TaskId) {
         let report = self.report.lock().expect("inbound close report poisoned");

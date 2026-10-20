@@ -214,7 +214,7 @@ impl InboundOwner {
                         .fold(closed_io_receipts, |total, group| {
                             total.saturating_add(group.closed_io_receipts_count())
                         });
-                    let native_bound_failures = self
+                    let mut native_bound_failures = self
                         .pending_native_bound
                         .lock()
                         .expect("pending native listener poisoned")
@@ -222,9 +222,17 @@ impl InboundOwner {
                         .map_or_else(
                             || Vec::new().into_boxed_slice(),
                             |pending| pending.failures(),
-                        );
+                        )
+                        .into_vec();
+                    native_bound_failures.extend(
+                        self.resources
+                            .lock()
+                            .expect("inbound resources poisoned")
+                            .iter()
+                            .filter_map(|resource| resource.exit_fault.get().cloned()),
+                    );
                     Arc::new(InboundTerminal {
-                        native_bound_failures,
+                        native_bound_failures: native_bound_failures.into_boxed_slice(),
                         identity: self.identity,
                         observation: self.observation.clone(),
                         joined_tasks: *self

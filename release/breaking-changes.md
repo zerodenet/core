@@ -443,3 +443,10 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   original FD or creating another owner. Ordinary native callers explicitly
   unwrap the successful conversion. Metadata, effective addresses, peek and I/O
   observation preserve the same stream; no V1/FFI/default activation changes.
+
+- An installed inbound driver now explicitly retires its same prebound native
+  TCP/UDP listener after startup/work returns or panics. The original resource
+  owner retains native receipts and cleanup faults before that task exits; the
+  original Scope still must consume its real exit and child/user cleanup remains
+  separate. Cancelling an orchestration observer requests stop without leaving
+  the healthy native listener open indefinitely or claiming a shutdown ACK.

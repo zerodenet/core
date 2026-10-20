@@ -67,7 +67,7 @@ impl InboundOwnerRegistry {
         );
         // Construction above is cold. The unique actual native holder is a
         // registered resource before this owner or any bind capability escapes.
-        owner.install_resource(identity, grant.resource())?;
+        owner.install_listener_native(identity, grant.resource())?;
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(declaration) = prepared.resources().get(1) {
             owner.install_icmp_probe(declaration)?;
