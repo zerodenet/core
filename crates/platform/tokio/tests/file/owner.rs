@@ -101,8 +101,13 @@ async fn real_post_open_worker_panic_leaves_the_original_until_join_then_native_
         if result == 0 {
             // Concurrent tests can reuse the number, never this unique file.
             let metadata = unsafe { metadata.assume_init() };
+            // libc field widths/signedness vary across Unix targets. Widen
+            // first, then retain the same u64 representation as MetadataExt.
             assert_ne!(
-                (metadata.st_dev as u64, metadata.st_ino as u64),
+                (
+                    i128::from(metadata.st_dev) as u64,
+                    i128::from(metadata.st_ino) as u64
+                ),
                 (original.1, original.2)
             );
         } else {
