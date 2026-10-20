@@ -291,7 +291,7 @@ AcceptedRequest 是封闭枚举，变体为 Stream、Datagram、Multiplex、Pack
 
 ResourceLifecycle 的方法为 start(&mut self, deadline: Instant) -> impl Future<Output = Result<(), BuildError>> + Send、revoke(&self, reason: CloseReason)、shutdown(&mut self, deadline: Instant) -> impl Future<Output = Result<CloseReport, BuildError>> + Send。start 返回表示资源及所需驱动已就绪，不表示宿主已经允许新业务；revoke 同步撤销新调用资格，shutdown 负责等待自己拥有的任务和 I/O。
 
-宿主持有 TaskScope 所有者，协议只取得可克隆的任务登记及取消句柄。spawn 接收 TaskClass 和 Future<Output = Result<(), ComponentError>>，返回 TaskId 或 Capacity/Closing 错误。任务类别只区分关键驱动和可恢复辅助任务，错误进入所属组件状态；不自动添加无上限重启。关闭开始后禁止新登记，确认任务退出后才能关闭作用域。已完成任务记录也必须回收，不能只限制并发数而永久积累 JoinHandle。
+宿主持有 TaskScope 所有者，协议只取得可克隆的任务登记及取消句柄。spawn 接收 TaskClass 和 Future<Output = Result<(), ComponentError>>，返回 TaskId 或 NotStarted/Capacity/Closing/IdentityExhausted 错误。组件宿主的 suspended Scope 在真实所有者安装并进入 start 前拒绝登记；协议只持 registrar，不能开放或重新开放作用域。普通 TaskScope::new/empty 的直接登记语义保持。任务类别只区分关键驱动和可恢复辅助任务，错误进入所属组件状态；不自动添加无上限重启。关闭开始后禁止新登记，确认任务退出后才能关闭作用域。已完成任务记录也必须回收，不能只限制并发数而永久积累 JoinHandle。
 
 握手和业务任务受对应连接范围管理；组件协议驱动受组件范围管理；控制面保留独立收尾范围。不把整个 Proxy 捕获成 static。关闭监督发生在作用域之外，避免关闭命令等待包括自身在内的任务造成死锁。这里只规定权限与生命周期，不要求额外 actor、线程池或资源调度框架。
 <!-- /source-section: 12 -->

@@ -26,6 +26,7 @@ use super::{
 pub use super::lifecycle::TaskClass;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
+    NotStarted,
     Capacity,
     Closing,
     IdentityExhausted,
@@ -33,6 +34,7 @@ pub enum SpawnError {
 impl std::fmt::Display for SpawnError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::NotStarted => "component build cannot register tasks before host start",
             Self::Capacity => "task scope capacity exhausted",
             Self::Closing => "task scope is closing",
             Self::IdentityExhausted => "task identity space exhausted",
@@ -49,6 +51,7 @@ pub struct TaskExit {
 }
 
 struct State {
+    registration_open: bool,
     closing: bool,
     limit: usize,
     tasks: JoinSet<Result<(), ComponentError>>,
@@ -156,9 +159,36 @@ impl TaskScope {
         Self::with_limit(runtime, 0)
     }
 
+    /// The host retains the sole scope owner while Factory::build receives only
+    /// a registrar. Registration opens explicitly after that real owner is
+    /// installed and the host enters lifecycle start. Ordinary new/empty scopes
+    /// keep their existing immediate-registration semantics.
+    pub fn suspended(runtime: Handle, limit: Option<NonZeroUsize>) -> Self {
+        let scope = Self::with_limit(runtime, limit.map_or(0, NonZeroUsize::get));
+        scope
+            .0
+            .state
+            .lock()
+            .expect("scope state poisoned")
+            .registration_open = false;
+        scope
+    }
+
+    /// Only the non-cloneable scope owner can grant registration. A retained
+    /// protocol registrar cannot open build access or reopen a stopping scope.
+    pub fn enable_registration(&mut self) -> Result<(), SpawnError> {
+        let mut state = self.0.state.lock().expect("scope state poisoned");
+        if state.closing {
+            return Err(SpawnError::Closing);
+        }
+        state.registration_open = true;
+        Ok(())
+    }
+
     fn with_limit(runtime: Handle, limit: usize) -> Self {
         Self(Arc::new(Shared {
             state: Mutex::new(State {
+                registration_open: true,
                 closing: false,
                 limit,
                 tasks: JoinSet::new(),
@@ -250,6 +280,9 @@ impl TaskRegistrar {
         let mut state = self.0.state.lock().expect("scope state poisoned");
         if state.closing {
             return Err(SpawnError::Closing);
+        }
+        if !state.registration_open {
+            return Err(SpawnError::NotStarted);
         }
         state.reap();
         // Undelivered completion events count too: failures cannot accumulate or vanish.

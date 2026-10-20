@@ -1,4 +1,5 @@
 mod bindings;
+mod build_gate;
 mod catalog;
 mod dependencies;
 mod generations;

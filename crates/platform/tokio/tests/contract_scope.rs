@@ -16,6 +16,9 @@ use zero_platform_tokio::contract::{
     ChannelError, Impact, Reason, Stage,
 };
 
+#[path = "contract_scope/build.rs"]
+mod build;
+
 #[path = "contract_scope/shutdown.rs"]
 mod shutdown;
 

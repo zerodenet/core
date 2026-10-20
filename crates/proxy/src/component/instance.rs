@@ -175,10 +175,7 @@ impl ComponentSlot {
                 // No await or resource acquisition inside this initializer. The
                 // persistent slot owns Live before any start future can suspend.
                 let runtime = tokio::runtime::Handle::current();
-                let tasks = match self.recipe.spec().task_limit {
-                    Some(limit) => TaskScope::new(runtime, limit),
-                    None => TaskScope::empty(runtime),
-                };
+                let tasks = TaskScope::suspended(runtime, self.recipe.spec().task_limit);
                 let resources =
                     HostResources::new(self.id, &self.recipe.spec().resources, self.cancel.clone())
                         .map_err(Arc::new)?;
@@ -251,10 +248,15 @@ impl ComponentSlot {
                     armed: true,
                 };
                 let started = match live.resources.activate(deadline) {
-                    Ok(_access) => tokio::select! {
-                    biased;
-                    _ = self.cancel.cancelled() => Err(self.failure(Reason::Revoked, "component was stopped")),
-                    result = tokio::time::timeout_at(deadline, owner.instance.lifecycle.start(deadline)) => result.unwrap_or_else(|_| Err(self.failure(Reason::Timeout, "component start deadline elapsed"))),
+                    Ok(_access) => match owner.tasks.enable_registration() {
+                        Ok(()) => tokio::select! {
+                        biased;
+                        _ = self.cancel.cancelled() => Err(self.failure(Reason::Revoked, "component was stopped")),
+                        result = tokio::time::timeout_at(deadline, owner.instance.lifecycle.start(deadline)) => result.unwrap_or_else(|_| Err(self.failure(Reason::Timeout, "component start deadline elapsed"))),
+                            },
+                        Err(source) => Err(self
+                            .failure(Reason::Revoked, "component task registration is closed")
+                            .with_source(source)),
                     },
                     Err(error) => Err(error),
                 };

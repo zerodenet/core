@@ -205,6 +205,7 @@ impl ResourceLifecycle for Owner {
             .spawn(TaskClass::Critical, job)
             .map_err(|source| {
                 let reason = match source {
+                    SpawnError::NotStarted => Reason::InvalidConfig,
                     SpawnError::Capacity => Reason::Capacity,
                     SpawnError::Closing => Reason::Revoked,
                     SpawnError::IdentityExhausted => Reason::Internal,

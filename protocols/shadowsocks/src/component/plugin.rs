@@ -140,6 +140,7 @@ impl ResourceLifecycle for Owner {
                 },
             }
         }).map_err(|source| failure(self.component, Stage::Prepare, match source {
+            SpawnError::NotStarted => Reason::InvalidConfig,
             SpawnError::Capacity => Reason::Capacity,
             SpawnError::Closing => Reason::Revoked,
             SpawnError::IdentityExhausted => Reason::Internal,

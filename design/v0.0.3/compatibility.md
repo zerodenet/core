@@ -46,3 +46,9 @@ FFI 目前直接使用 EngineHandle。其旧功能边界与错误处理需要先
 
 新增可选字段需验证旧消费者忽略行为；修改 ACK、快照、重放、计量或恢复语义即使 JSON 形状相同，仍属于需要登记与评估的外部变更。相关现行规则见 [兼容性账本](../../release/breaking-changes.md#L39)。
 <!-- /source-section: 16 -->
+
+## TaskScope build 阶段登记迁移
+
+公共 Rust `SpawnError` 新增 `NotStarted`：宿主以 `TaskScope::suspended(runtime, declared_limit)` 创建实际组件作用域，工厂 build 只取得受限 `TaskRegistrar`；真实所有者安装后，宿主在 lifecycle start 前通过不可克隆的 Scope owner 调用 `enable_registration()`。保留的 registrar 无法开放登记，也无法重新开放已关闭的 Scope。依赖此枚举作穷尽匹配的 Rust 调用方须新增该分支；SS PluginFactory 与 ReplayFactory 将其映射到 `InvalidConfig` 并保留原始来源。
+
+`TaskScope::new` 与 `empty` 的直接登记语义保持，`None` 任务预算在开放后仍为零。此变化不增加 V1 配置字段、IPC 方法或 FFI 符号。新增回归覆盖 build future 未被轮询、实际 start 的 TaskId/退出确认，以及关闭后无法重开。该批尚待父任务的集成编译与资格检查；不代表完整 RuntimeHost 或 M4 用户/I/O 关闭确认。
