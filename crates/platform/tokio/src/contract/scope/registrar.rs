@@ -18,6 +18,19 @@ impl TaskRegistrar {
     }
 }
 impl WeakTaskRegistrar {
+    /// Observe the original Scope's cancellation with the same one-way child
+    /// semantics as TaskRegistrar::cancellation. Cancelling this returned token
+    /// cannot cancel the Scope or its other children. An expired owner returns
+    /// None; this creates no independent cancellation source or new authority.
+    ///
+    /// Call outside enclosing owner/resource locks: the temporary original
+    /// Scope upgrade is released before returning and may be its last owner.
+    pub fn cancellation(&self) -> Option<CancellationToken> {
+        let owner = self.0.upgrade()?;
+        let token = TaskRegistrar(owner).cancellation();
+        Some(token)
+    }
+
     /// Original weak scope identity only. This does not upgrade or retain the
     /// scope, inspect admission, register a task, or grant any I/O authority.
     pub fn scope_identity(&self) -> TaskScopeIdentity {

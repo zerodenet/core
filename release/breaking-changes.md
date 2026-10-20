@@ -525,3 +525,9 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   only after original handle drain and successful actual owner cleanup/source
   publication, with same-registry/no-pending-owner postconditions serialized
   against owner insertion. This bit is not native or transferred-user proof.
+
+- `WeakTaskRegistrar::cancellation()` temporarily borrows the same original
+  registrar and returns its existing one-way child cancellation token, or `None`
+  after owner expiry. Actual Scope stop propagates to it; cancelling that child
+  cannot cancel the Scope or siblings. It retains no Scope/runtime/task owner and
+  grants no registration, native authority, join or closure acknowledgement.
