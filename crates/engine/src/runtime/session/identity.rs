@@ -67,12 +67,21 @@ impl Engine {
     }
 
     pub(super) fn allocate_session_id(&self) -> Result<SessionId, EngineError> {
-        self.next_session_id
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
-                next.checked_add(1)
-            })
-            .map(SessionId)
-            .map_err(|_| denied("Engine session identity space exhausted"))
+        let mut current = self.next_session_id.load(Ordering::Relaxed);
+        loop {
+            let next = current
+                .checked_add(1)
+                .ok_or_else(|| denied("Engine session identity space exhausted"))?;
+            match self.next_session_id.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Ok(SessionId(current)),
+                Err(observed) => current = observed,
+            }
+        }
     }
 }
 
