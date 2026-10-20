@@ -16,6 +16,7 @@ mod reverse;
 mod router;
 mod service;
 mod system;
+mod transport_owners;
 pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
 
 use std::collections::{BTreeMap, VecDeque};
@@ -76,6 +77,7 @@ pub struct DnsSystem {
     query_coordinator: QueryCoordinator<Vec<IpAddress>>,
     wire_query_coordinator: QueryCoordinator<Vec<u8>>,
     outbound_connector: std::sync::RwLock<Option<Arc<dyn DnsOutboundConnector>>>,
+    transport_owners: Arc<transport_owners::TransportOwners>,
 }
 
 impl fmt::Debug for DnsSystem {
@@ -183,6 +185,7 @@ impl DnsSystem {
         } else {
             None
         };
+        let transport_owners = Arc::new(transport_owners::TransportOwners::default());
         let inner = Self::build_inner(
             config,
             dispatch,
@@ -190,11 +193,13 @@ impl DnsSystem {
             None,
             None,
             fake_ip_state_lease.clone(),
+            &transport_owners,
         )?;
         let query_coordinator = QueryCoordinator::default();
         let wire_query_coordinator = QueryCoordinator::with_graph(query_coordinator.shared_graph());
         Ok(Self {
             inner: std::sync::RwLock::new(inner),
+            transport_owners,
             prepared_reload: std::sync::Mutex::new(None),
             config_generation: Arc::new(AtomicU64::new(0)),
             egress_interface,
@@ -214,6 +219,7 @@ impl DnsSystem {
         previous_fake_ip: Option<Arc<FakeIpAllocator>>,
         previous_reverse_mapping: Option<RealIpReverseIndex>,
         fake_ip_state_lease: Option<Arc<fake_ip::StateLease>>,
+        transport_owners: &transport_owners::TransportOwners,
     ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
             return Ok(DnsSystemInner::System(TokioSystemResolver));
@@ -221,10 +227,12 @@ impl DnsSystem {
 
         let mut servers = BTreeMap::new();
         for (tag, server) in &cfg.servers {
+            let backend = Arc::new(ResolverBackend::build(server, egress_interface.clone())?);
+            backend.register_owners(transport_owners)?;
             servers.insert(
                 tag.clone(),
                 ResolverServer {
-                    backend: Arc::new(ResolverBackend::build(server, egress_interface.clone())?),
+                    backend,
                     detour: server.detour().map(ToOwned::to_owned),
                 },
             );
@@ -340,6 +348,7 @@ impl DnsSystem {
             previous_fake_ip,
             previous_reverse_mapping,
             None,
+            &self.transport_owners,
         )?;
         *prepared = Some(PreparedDnsReload {
             config: config.cloned(),
@@ -382,6 +391,7 @@ impl DnsSystem {
             previous_fake_ip,
             previous_reverse_mapping,
             fake_ip_state_lease,
+            &self.transport_owners,
         )?;
         {
             let mut inner = self.inner.write().expect("dns system lock poisoned");

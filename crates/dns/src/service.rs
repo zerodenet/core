@@ -71,6 +71,13 @@ impl DnsService for DnsSystem {
 }
 
 impl DnsSystem {
+    /// Close only persistent DoH pools and join their actual H2 drivers/users,
+    /// including owners retained across reload. Call after shutdown_queries.
+    /// DoQ endpoint idle confirmation and Fake-IP persistence are separate.
+    pub async fn shutdown_doh_pools(&self, deadline: Instant) -> io::Result<()> {
+        self.transport_owners.shutdown_doh(deadline).await
+    }
+
     /// Stop query admission and join both real coordinator worker sets. A
     /// timeout retains ownership for another confirmation attempt. Resolver
     /// pools/Fake-IP persistence have separate resource lifecycle obligations.

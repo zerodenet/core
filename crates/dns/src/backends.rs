@@ -152,6 +152,18 @@ impl ResolverBackend {
         }
     }
 
+    pub(crate) fn register_owners(
+        &self,
+        owners: &crate::transport_owners::TransportOwners,
+    ) -> io::Result<()> {
+        #[cfg(feature = "doh")]
+        if let Self::Doh(resolver) = self {
+            owners.register_doh(resolver.owner.clone())?;
+        }
+        let _ = owners;
+        Ok(())
+    }
+
     pub(crate) fn transport_name(&self) -> &'static str {
         match self {
             Self::System(_) => "system",
@@ -374,6 +386,8 @@ async fn read_framed<S: tokio::io::AsyncRead + Unpin>(stream: &mut S) -> io::Res
 
 #[cfg(feature = "doh")]
 mod doh;
+#[cfg(feature = "doh")]
+pub(crate) use doh::owner::DriverOwner as DohDriverOwner;
 #[cfg(feature = "doh")]
 pub(crate) use doh::DohDnsResolver;
 

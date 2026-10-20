@@ -15,11 +15,13 @@ pub(crate) struct DohDnsResolver {
     server_name: String,
     tls: Option<Arc<rustls::ClientConfig>>,
     egress: zero_platform_tokio::EgressInterfaceControl,
-    clients: tokio::sync::Mutex<Vec<DohClient>>,
-    connect_lock: tokio::sync::Mutex<()>,
+    clients: Arc<tokio::sync::Mutex<Vec<DohClient>>>,
+    pub(crate) owner: Arc<owner::DriverOwner>,
+    connect_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 mod client;
+pub(super) mod owner;
 use client::DohClient;
 
 impl DohDnsResolver {
@@ -74,6 +76,13 @@ impl DohDnsResolver {
         .with_root_certificates(roots)
         .with_no_client_auth();
         tls.alpn_protocols = vec![b"h2".to_vec()];
+        let clients = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let connect_lock = Arc::new(tokio::sync::Mutex::new(()));
+        let owner = Arc::new(owner::DriverOwner::new(
+            clients.clone(),
+            connect_lock.clone(),
+            ips.len(),
+        ));
         Ok(Self {
             addrs: ips
                 .into_iter()
@@ -84,8 +93,9 @@ impl DohDnsResolver {
             path,
             tls: secure.then(|| Arc::new(tls)),
             egress,
-            clients: tokio::sync::Mutex::new(Vec::new()),
-            connect_lock: tokio::sync::Mutex::new(()),
+            clients,
+            owner,
+            connect_lock,
         })
     }
 
@@ -154,17 +164,17 @@ impl DohDnsResolver {
             .header("accept", "application/dns-message")
             .header("content-length", query.len())
             .body(())
-            .map_err(|error| io::Error::other(format!("DoH request build failed: {error}")))?;
+            .map_err(|error| context_error("DoH request build failed", error))?;
         let (response, mut body) = client
             .sender
             .send_request(request, false)
-            .map_err(|error| io::Error::other(format!("DoH send request failed: {error}")))?;
+            .map_err(|error| context_error("DoH send request failed", error))?;
         body.send_data(Bytes::copy_from_slice(query), true)
-            .map_err(|error| io::Error::other(format!("DoH send body failed: {error}")))?;
+            .map_err(|error| context_error("DoH send body failed", error))?;
 
         let response = response
             .await
-            .map_err(|error| io::Error::other(format!("DoH response failed: {error}")))?;
+            .map_err(|error| context_error("DoH response failed", error))?;
         if !response.status().is_success() {
             return Err(io::Error::other(format!(
                 "DoH server returned HTTP {}",
@@ -190,7 +200,7 @@ impl DohDnsResolver {
 async fn read_body(mut body: h2::RecvStream) -> io::Result<Vec<u8>> {
     let mut response = Vec::new();
     while let Some(chunk) = body.data().await {
-        let chunk = chunk.map_err(|error| io::Error::other(format!("DoH read failed: {error}")))?;
+        let chunk = chunk.map_err(|error| context_error("DoH read failed", error))?;
         if response.len().saturating_add(chunk.len()) > crate::message::MAX_DNS_MESSAGE_SIZE {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -200,7 +210,7 @@ async fn read_body(mut body: h2::RecvStream) -> io::Result<Vec<u8>> {
         response.extend_from_slice(&chunk);
         body.flow_control()
             .release_capacity(chunk.len())
-            .map_err(|error| io::Error::other(format!("DoH flow control failed: {error}")))?;
+            .map_err(|error| context_error("DoH flow control failed", error))?;
     }
     Ok(response)
 }
@@ -211,3 +221,39 @@ mod tests;
 #[cfg(test)]
 #[path = "../../tests/doh_pool/mod.rs"]
 mod pool_tests;
+
+impl Drop for DohDnsResolver {
+    fn drop(&mut self) {
+        self.owner.retire();
+    }
+}
+
+#[derive(Debug)]
+struct DohError {
+    context: &'static str,
+    source: Box<dyn std::error::Error + Send + Sync>,
+}
+impl DohError {
+    fn new(context: &'static str, source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self {
+            context,
+            source: Box::new(source),
+        }
+    }
+}
+impl std::fmt::Display for DohError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.context, self.source)
+    }
+}
+impl std::error::Error for DohError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
+fn context_error(
+    context: &'static str,
+    source: impl std::error::Error + Send + Sync + 'static,
+) -> io::Error {
+    io::Error::other(DohError::new(context, source))
+}
