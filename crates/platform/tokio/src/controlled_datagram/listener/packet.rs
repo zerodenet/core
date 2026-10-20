@@ -37,6 +37,13 @@ impl Shared {
         peer: SocketAddr,
         control: &EgressInterfaceControl,
     ) -> Poll<std_io::Result<usize>> {
+        let mut prepared = match self
+            .socket
+            .prepare_poll(super::super::wake_relay::Direction::Write, cx)
+        {
+            Ok(prepared) => prepared,
+            Err(error) => return Poll::Ready(Err(error)),
+        };
         let retired = self.lock();
         if let Err(error) = self.check(*retired) {
             return Poll::Ready(Err(error));
@@ -46,32 +53,34 @@ impl Shared {
             return Poll::Ready(Err(super::super::io::unavailable(&native)));
         };
         let observer = socket.observer.clone();
-        let (result, cancel) = match poll_packet(socket, cx, bytes, peer, control) {
-            Poll::Ready(Err(error))
-                if error
-                    .get_ref()
-                    .is_some_and(|cause| cause.is::<PacketScopeRestoreFailure>()) =>
-            {
-                // Persist before dropping gates or invoking external code.
-                let source = Arc::new(error);
-                *self
-                    .socket
-                    .entry
-                    .packet_failure
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source.clone());
-                (Poll::Ready(Err(std_io::Error::other(source))), true)
-            }
-            result => (result, false),
-        };
+        let (result, cancel) =
+            match poll_packet(socket, &mut prepared.context(), bytes, peer, control) {
+                Poll::Ready(Err(error))
+                    if error
+                        .get_ref()
+                        .is_some_and(|cause| cause.is::<PacketScopeRestoreFailure>()) =>
+                {
+                    // Persist before dropping gates or invoking external code.
+                    let source = Arc::new(error);
+                    *self
+                        .socket
+                        .entry
+                        .packet_failure
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source.clone());
+                    (Poll::Ready(Err(std_io::Error::other(source))), true)
+                }
+                result => (result, false),
+            };
         drop(native);
         drop(retired);
         if cancel {
-            self.socket.entry.retired.cancel();
+            self.socket.entry.retire_io();
         }
         if let Poll::Ready(result) = &result {
             observe(observer, result);
         }
+        prepared.pending(result.is_pending());
         result
     }
 }

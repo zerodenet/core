@@ -118,13 +118,18 @@ impl ControlledDatagramListenerRx {
             biased;
             _ = shared.socket.entry.retired.cancelled() => Err(shared.cancelled()),
             result = poll_fn(|cx| {
+                let mut prepared = match shared.socket.prepare_poll(super::wake_relay::Direction::Read, cx) {
+                    Ok(prepared) => prepared,
+                    Err(error) => return std::task::Poll::Ready(Err(error)),
+                };
                 let retired = shared.lock();
                 if let Err(error) = shared.check(*retired) {
                     return std::task::Poll::Ready(Err(error));
                 }
-                let (result, observer) = shared.socket.poll_recv_unobserved(cx, bytes);
+                let (result, observer) = shared.socket.poll_recv_unobserved(&prepared, bytes);
                 drop(retired);
                 super::observation::receive(observer, &result);
+                prepared.pending(result.is_pending());
                 result
             }) => result,
         }
@@ -151,13 +156,18 @@ impl ControlledDatagramListenerTx {
                 // native send poll active; waiting clones own bounded permits.
                 let _writer = shared.writer.lock().await;
                 poll_fn(|cx| {
+                    let mut prepared = match shared.socket.prepare_poll(super::wake_relay::Direction::Write, cx) {
+                        Ok(prepared) => prepared,
+                        Err(error) => return std::task::Poll::Ready(Err(error)),
+                    };
                     let retired = shared.lock();
                     if let Err(error) = shared.check(*retired) {
                         return std::task::Poll::Ready(Err(error));
                     }
-                    let (result, observer) = shared.socket.poll_send_unobserved(cx, bytes, peer);
+                    let (result, observer) = shared.socket.poll_send_unobserved(&prepared, bytes, peer);
                     drop(retired);
                     super::observation::send(observer, &result);
+                    prepared.pending(result.is_pending());
                     result
                 }).await
             } => result,
@@ -179,7 +189,7 @@ impl ControlledDatagramListenerControl {
         let mut retired = self.shared.lock();
         *retired = true;
         drop(retired);
-        self.shared.socket.entry.retired.cancel();
+        self.shared.socket.entry.retire_io();
     }
     /// Serialize against actual I/O polls and close the same owned original.
     /// Unknown results retain the original source and reservation in the owner.
@@ -187,7 +197,7 @@ impl ControlledDatagramListenerControl {
         let mut retired = self.shared.lock();
         *retired = true;
         drop(retired);
-        self.shared.socket.entry.retired.cancel();
+        self.shared.socket.entry.retire_io();
         self.shared.socket.close()
     }
     /// Observation mutates the already owned original, even if callbacks panic.

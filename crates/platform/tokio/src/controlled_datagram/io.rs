@@ -5,6 +5,32 @@ use std::{
     task::{Context, Poll},
 };
 impl ControlledDatagramSocket {
+    pub(super) fn prepare_poll(
+        &self,
+        direction: super::wake_relay::Direction,
+        cx: &Context<'_>,
+    ) -> std_io::Result<super::wake_relay::PreparedPoll> {
+        self.entry
+            .wake_relay
+            .prepare(direction, cx)
+            .map_err(|error| {
+                // Retirement must not erase an existing packet-policy or native
+                // Unknown source. This runs after caller clone/drop completed.
+                let packet = self
+                    .entry
+                    .packet_failure
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+                if let Some(source) = packet {
+                    return std_io::Error::other(source);
+                }
+                match &*self.entry.lock() {
+                    NativeHandleState::Unknown(source) => std_io::Error::other(source.clone()),
+                    _ => error,
+                }
+            })
+    }
     pub fn reservation(&self) -> DatagramReservationId {
         self.entry.id
     }
@@ -45,19 +71,26 @@ impl ControlledDatagramSocket {
         bytes: &[u8],
         peer: SocketAddr,
     ) -> Poll<std_io::Result<usize>> {
-        let (result, observer) = self.poll_send_unobserved(cx, bytes, peer);
+        let mut prepared = match self.prepare_poll(super::wake_relay::Direction::Write, cx) {
+            Ok(prepared) => prepared,
+            Err(error) => return Poll::Ready(Err(error)),
+        };
+        let (result, observer) = self.poll_send_unobserved(&prepared, bytes, peer);
         super::observation::send(observer, &result);
+        prepared.pending(result.is_pending());
         result
     }
     pub(super) fn poll_send_unobserved(
         &self,
-        cx: &mut Context<'_>,
+        prepared: &super::wake_relay::PreparedPoll,
         bytes: &[u8],
         peer: SocketAddr,
     ) -> (Poll<std_io::Result<usize>>, super::observation::Observer) {
         match &*self.entry.lock() {
-            NativeHandleState::Live(socket) => (
-                socket.inner.poll_send_to(cx, bytes, peer),
+            NativeHandleState::Live(socket) if !self.entry.retired.is_cancelled() => (
+                socket
+                    .inner
+                    .poll_send_to(&mut prepared.context(), bytes, peer),
                 socket.observer.clone(),
             ),
             other => (Poll::Ready(Err(unavailable(other))), None),
@@ -68,24 +101,29 @@ impl ControlledDatagramSocket {
         cx: &mut Context<'_>,
         bytes: &mut [u8],
     ) -> Poll<std_io::Result<(usize, SocketAddr)>> {
-        let (result, observer) = self.poll_recv_unobserved(cx, bytes);
+        let mut prepared = match self.prepare_poll(super::wake_relay::Direction::Read, cx) {
+            Ok(prepared) => prepared,
+            Err(error) => return Poll::Ready(Err(error)),
+        };
+        let (result, observer) = self.poll_recv_unobserved(&prepared, bytes);
         super::observation::receive(observer, &result);
+        prepared.pending(result.is_pending());
         result
     }
     pub(super) fn poll_recv_unobserved(
         &self,
-        cx: &mut Context<'_>,
+        prepared: &super::wake_relay::PreparedPoll,
         bytes: &mut [u8],
     ) -> (
         super::observation::ReceivePoll,
         super::observation::Observer,
     ) {
         match &*self.entry.lock() {
-            NativeHandleState::Live(socket) => {
+            NativeHandleState::Live(socket) if !self.entry.retired.is_cancelled() => {
                 let mut buffer = tokio::io::ReadBuf::new(bytes);
                 let result = socket
                     .inner
-                    .poll_recv_from(cx, &mut buffer)
+                    .poll_recv_from(&mut prepared.context(), &mut buffer)
                     .map(|result| result.map(|peer| (buffer.filled().len(), peer)));
                 (result, socket.observer.clone())
             }

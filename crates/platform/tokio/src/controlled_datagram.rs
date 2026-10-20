@@ -8,6 +8,7 @@ pub mod metadata;
 mod observation;
 #[cfg(test)]
 mod tests;
+mod wake_relay;
 use crate::{EgressInterface, TokioDatagramSocket};
 use std::{
     collections::BTreeMap,
@@ -94,6 +95,7 @@ struct Entry {
     uncertain: Arc<std_io::Error>,
     acquisition_failure: Mutex<Option<Arc<std_io::Error>>>,
     packet_failure: Mutex<Option<Arc<std_io::Error>>>,
+    wake_relay: Arc<wake_relay::WakeRelay>,
 }
 enum NativeHandleState {
     Reserved,
@@ -202,6 +204,7 @@ impl ControlledDatagramOwner {
             )),
             acquisition_failure: Mutex::new(None),
             packet_failure: Mutex::new(None),
+            wake_relay: wake_relay::WakeRelay::new(),
         });
         self.entries.insert(id, entry.clone());
         self.next = next;
@@ -245,8 +248,15 @@ impl ControlledDatagramOwner {
     }
 }
 impl Entry {
-    fn close(&self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
+    fn retire_io(&self) {
+        // Mark before cancellation can invoke an external caller. No state
+        // lock is held while cancellation or relay wake/drop code runs.
+        self.wake_relay.mark_retired();
         self.retired.cancel();
+        self.wake_relay.notify_all();
+    }
+    fn close(&self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
+        self.retire_io();
         // Detach the original under its state lock, then perform native close
         // and runtime deregistration outside it. Deregistration can drop/wake
         // an externally supplied I/O waker; it may synchronously reenter us.

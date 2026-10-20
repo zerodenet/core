@@ -229,4 +229,5 @@ async fn oversized_native_send_keeps_source_and_listener_healthy() {
 }
 
 mod observers;
+mod raw_waker;
 mod reentry;
