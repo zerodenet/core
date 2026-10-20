@@ -100,8 +100,11 @@ pub fn context(opener: Arc<Opener>, facts: Arc<Facts>) -> OpenContext {
     }
 }
 pub async fn instance(auth: bool) -> (ComponentInstance, TaskScope) {
+    instance_at(endpoint(), auth).await
+}
+pub async fn instance_at(endpoint: Destination, auth: bool) -> (ComponentInstance, TaskScope) {
     let options = socks5::component::Options::new(
-        endpoint(),
+        endpoint,
         auth.then_some("user"),
         auth.then_some("secret"),
         Default::default(),
@@ -126,7 +129,7 @@ pub async fn instance(auth: bool) -> (ComponentInstance, TaskScope) {
             },
         )
         .unwrap();
-    assert!(instance.roles.datagram.is_none());
+    assert!(instance.roles.datagram.is_some());
     assert!(instance.roles.packet.is_none());
     instance.lifecycle.start(deadline()).await.unwrap();
     (instance, scope)

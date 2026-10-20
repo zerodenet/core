@@ -16,6 +16,7 @@ use zero_platform_tokio::contract::{
     },
     ChannelError, DeliveryState, Reason, Stage,
 };
+mod datagram;
 mod error;
 mod options;
 mod socket;
@@ -31,7 +32,7 @@ impl ComponentFactory for Factory {
     fn describe(&self, options: &Options) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream],
+            roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![],
             static_identity: options.identity.clone(),
             resources: vec![],
@@ -47,7 +48,13 @@ impl ComponentFactory for Factory {
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(owner),
             roles: ComponentRoles {
-                stream: Some(erase_stream(Outbound { options, admission })),
+                stream: Some(erase_stream(Outbound {
+                    options: options.clone(),
+                    admission: admission.clone(),
+                })),
+                datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
+                    datagram::Outbound::new(options, admission),
+                )),
                 ..Default::default()
             },
         })

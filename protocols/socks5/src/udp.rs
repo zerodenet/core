@@ -18,3 +18,4 @@ pub use packet::{Socks5InboundUdpDispatchView, Socks5InboundUdpRequest, Socks5In
 pub use session::{Socks5InboundUdpAssociationSession, Socks5InboundUdpRelayPacketAction};
 
 pub(crate) use association::Socks5OwnedUdpAssociationConfig;
+pub(crate) use packet::{build_udp_packet, decode_udp_associate_response};
