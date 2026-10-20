@@ -24,6 +24,8 @@ use super::{
 };
 
 pub use super::lifecycle::TaskClass;
+mod join;
+pub use join::{TaskJoinWitness, TaskJoined};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     NotStarted,
@@ -55,7 +57,7 @@ struct State {
     closing: bool,
     limit: usize,
     tasks: JoinSet<Result<(), ComponentError>>,
-    records: HashMap<Id, (TaskId, TaskClass)>,
+    records: HashMap<Id, join::Registration>,
     completed: VecDeque<TaskExit>,
     closing_report: Option<Box<CloseReport>>,
 }
@@ -100,7 +102,7 @@ impl State {
             Err(error) => error.id(),
         };
         // JoinSet and records are modified together under this same short lock.
-        let (id, class) = self
+        let record = self
             .records
             .remove(&native_id)
             .expect("registered scope task");
@@ -113,7 +115,7 @@ impl State {
                 )
             }
         };
-        TaskExit { id, class, result }
+        join::complete(record, result)
     }
 
     fn reap(&mut self) {
@@ -141,9 +143,11 @@ impl State {
             .take()
             .map(|report| *report)
             .unwrap_or_default();
-        report
-            .unfinished
-            .extend(self.records.values().map(|(id, _)| Unfinished::Task(*id)));
+        report.unfinished.extend(
+            self.records
+                .values()
+                .map(|record| Unfinished::Task(record.id)),
+        );
         report
     }
 }
@@ -264,37 +268,6 @@ impl TaskScope {
                 }
             }
         }
-    }
-}
-
-impl TaskRegistrar {
-    pub fn cancellation(&self) -> CancellationToken {
-        self.0.cancel.child_token()
-    }
-
-    pub fn spawn(
-        &self,
-        class: TaskClass,
-        task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
-    ) -> Result<TaskId, SpawnError> {
-        let mut state = self.0.state.lock().expect("scope state poisoned");
-        if state.closing {
-            return Err(SpawnError::Closing);
-        }
-        if !state.registration_open {
-            return Err(SpawnError::NotStarted);
-        }
-        state.reap();
-        // Undelivered completion events count too: failures cannot accumulate or vanish.
-        if state.records.len() + state.completed.len() >= state.limit {
-            return Err(SpawnError::Capacity);
-        }
-        let id = allocate_task_id()?;
-        let handle = state.tasks.spawn_on(task, &self.0.runtime);
-        state.records.insert(handle.id(), (id, class));
-        drop(state);
-        self.0.changed.notify_one();
-        Ok(id)
     }
 }
 
