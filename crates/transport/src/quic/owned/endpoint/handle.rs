@@ -65,8 +65,12 @@ impl OwnedEndpointHandle {
             _ = state.users.cancel.cancelled() => return Err(error(Stage::Prepare, Reason::Cancelled)),
             incoming = pending.endpoint.accept() => incoming.ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?,
         };
-        let connecting = incoming
-            .accept()
+        let callbacks = state
+            .callbacks
+            .upgrade()
+            .ok_or_else(|| error(Stage::Handshake, Reason::Revoked))?;
+        let connecting = callbacks
+            .call(|| incoming.accept())
             .map_err(|source| protocol(Stage::Handshake, source))?;
         state.admission.check()?;
         let result = tokio::select! { biased;

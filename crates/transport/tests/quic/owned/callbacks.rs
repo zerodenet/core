@@ -213,3 +213,66 @@ async fn actual_foreign_metadata_driver_owner_refuses_native_io_before_observer_
     assert_eq!(owner.close_io().main.confirmed_closed, 1);
     assert_eq!(foreign.close_io().main.confirmed_closed, 1);
 }
+
+#[tokio::test]
+async fn actual_incoming_refusal_resumes_original_observer_panic_after_quinn_state_unlock() {
+    use zero_platform_tokio::contract::scope::TaskScope;
+    let mut scope = TaskScope::new(tokio::runtime::Handle::current(), bound(2));
+    let (drivers, mut receiver) = QuinnDriverOwner::new(scope.registrar(), bound(2));
+    let mut native = socket();
+    let endpoint = super::drivers::endpoint(&drivers, &native);
+    let target = endpoint.local_addr().unwrap();
+    let connecting = endpoint.connect(target, "localhost").unwrap();
+    let incoming = tokio::time::timeout(std::time::Duration::from_secs(2), endpoint.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    let socket = native.socket();
+    writable(&socket).await;
+    let original = Arc::new(PanicTag(33));
+    let observer = Arc::new(Panics {
+        socket: Arc::downgrade(&socket),
+        target,
+        primary: original.clone(),
+        secondary: original.clone(),
+        calls: AtomicUsize::new(0),
+        nested: false,
+    });
+    native.set_observer(Some(observer.clone())).unwrap();
+    let payload = catch_unwind(AssertUnwindSafe(|| {
+        // Incoming::Drop submits the real CONNECTION_REFUSED under Quinn's
+        // Endpoint State mutex. A poisoned state would panic again in stats or
+        // the original endpoint/connecting destructors below.
+        native.callbacks.call(|| drop(incoming));
+    }))
+    .unwrap_err()
+    .downcast::<Arc<PanicTag>>()
+    .unwrap();
+    assert!(Arc::ptr_eq(&payload, &original));
+    assert_eq!(observer.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(endpoint.stats().refused_handshakes, 1);
+    assert!(native.observer_faulted());
+    assert!(
+        socket.local_addr().is_ok(),
+        "a user panic is no native receipt"
+    );
+    assert_eq!(drivers.task_status().unjoined.len(), 2);
+    endpoint.close(0u32.into(), b"test cleanup");
+    drop(connecting);
+    drop(endpoint);
+    for _ in 0..2 {
+        let exit = tokio::time::timeout(std::time::Duration::from_secs(3), scope.next_exit())
+            .await
+            .unwrap()
+            .unwrap();
+        exit.result.unwrap();
+        receiver
+            .receive(
+                exit.id,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+    }
+    assert_eq!(native.close_io().main.confirmed_closed, 1);
+}

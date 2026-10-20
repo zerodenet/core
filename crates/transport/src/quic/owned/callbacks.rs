@@ -82,6 +82,25 @@ impl Broker {
             Ok(())
         }
     }
+    /// A sealed foreground user can synchronously make Quinn submit a reply
+    /// (notably Incoming::accept/refuse). Resume external observation only
+    /// after that original call has released its protocol locks. This is a
+    /// user-call boundary, never a driver origin, task exit or failure ACK.
+    pub(super) fn call<T>(self: &Arc<Self>, call: impl FnOnce() -> T) -> T {
+        let slot = Arc::new(Mutex::new(None));
+        let active = Active {
+            broker: self.clone(),
+            slot: slot.clone(),
+        };
+        let restore = Restore(CURRENT.with(|current| current.replace(Some(active))));
+        let result = call();
+        drop(restore);
+        let payload = slot.lock().unwrap().take();
+        if let Some(payload) = payload {
+            resume_unwind(payload);
+        }
+        result
+    }
     fn invoke(self: &Arc<Self>, callback: impl FnOnce()) {
         self.invoke_inner(callback, false);
     }
