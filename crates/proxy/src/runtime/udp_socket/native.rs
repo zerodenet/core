@@ -11,7 +11,7 @@ use zero_platform_tokio::{
 pub(super) enum DirectDatagramIo {
     Raw(TokioDatagramSocket),
     Controlled(ControlledDatagramSocket),
-    Bound(zero_platform_tokio::contract::component::BoundDatagramSocket),
+    Bound(Box<zero_platform_tokio::contract::component::BoundDatagramSocket>),
 }
 impl DirectDatagramIo {
     pub(super) fn bound_guard(

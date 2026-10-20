@@ -17,7 +17,7 @@ pub(super) struct NativeCloseLedger {
     bound: BTreeMap<
         u64,
         (
-            zero_platform_tokio::contract::component::BoundDatagramSocket,
+            Box<zero_platform_tokio::contract::component::BoundDatagramSocket>,
             Arc<io::Error>,
         ),
     >,

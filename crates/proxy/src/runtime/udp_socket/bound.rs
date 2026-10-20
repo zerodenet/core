@@ -160,7 +160,7 @@ impl DirectUdpSockets {
         self.sockets.push(DirectUdpSocket {
             id,
             retired: false,
-            socket: native::DirectDatagramIo::Bound(granted.socket),
+            socket: native::DirectDatagramIo::Bound(Box::new(granted.socket)),
             binding,
             selection: granted.selection,
             association_id: isolation,

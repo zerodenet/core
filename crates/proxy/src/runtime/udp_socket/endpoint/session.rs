@@ -11,6 +11,8 @@ use zero_platform_tokio::contract::{
     CloseReason,
 };
 
+type DirectEndpointReceive = Result<Option<(Vec<u8>, DirectUdpResponseSource)>, EngineError>;
+
 pub(crate) struct DirectEndpointTx {
     shared: Arc<Shared>,
     logical: Arc<Logical>,
@@ -112,15 +114,10 @@ impl DirectEndpointRx {
         Self { logical, cancelled }
     }
     /// Preserve the actual revocable source token through downstream delivery.
-    pub(crate) async fn recv(
-        &mut self,
-    ) -> Result<Option<(Vec<u8>, DirectUdpResponseSource)>, EngineError> {
+    pub(crate) async fn recv(&mut self) -> DirectEndpointReceive {
         poll_fn(|cx| self.poll_recv(cx)).await
     }
-    pub(crate) fn poll_recv(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<(Vec<u8>, DirectUdpResponseSource)>, EngineError>> {
+    pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<DirectEndpointReceive> {
         if self.cancelled.as_mut().poll(cx).is_ready() {
             self.logical.drain_receive_queue();
             return Poll::Ready(Ok(None));

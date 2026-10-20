@@ -35,7 +35,7 @@ struct DirectUdpResponseState {
 }
 enum Current {
     Legacy {
-        services: UdpNetworkServices,
+        services: Box<UdpNetworkServices>,
         policy: DirectUdpPolicy,
         egress_generation: u64,
     },
@@ -110,7 +110,7 @@ impl DirectUdpResponseFlow {
                 state: Arc::new(DirectUdpResponseState {
                     active: AtomicBool::new(true),
                     current: Current::Legacy {
-                        services,
+                        services: Box::new(services),
                         policy,
                         egress_generation,
                     },

@@ -98,7 +98,7 @@ where
             }
             ManagedRelayStreamCarrier::Lazy(carrier) => {
                 self.0
-                    .open_lazy_relay(carrier, session, tls_server_name)
+                    .open_lazy_relay(*carrier, session, tls_server_name)
                     .await?
             }
         };

@@ -106,13 +106,11 @@ async fn acquired_socket_stays_in_its_receiver_owner_after_topology_becomes_stal
     let grants = provider(target, &control, CancellationToken::new());
     let (mut scope, task) = binding(tokio::runtime::Handle::current());
     grants.activate(task).unwrap();
-    let installed = Some(
-        grants
-            .open_outbound_datagram(request(target, &control))
-            .unwrap(),
-    );
-    let bound = installed.as_ref().unwrap().socket.local_addr().unwrap();
-    let selected_generation = installed.as_ref().unwrap().selection.generation();
+    let installed = grants
+        .open_outbound_datagram(request(target, &control))
+        .unwrap();
+    let bound = installed.socket.local_addr().unwrap();
+    let selected_generation = installed.selection.generation();
     control.invalidate_network();
     assert_ne!(selected_generation, control.generation());
     assert!(grants.fault().is_none());
@@ -126,7 +124,7 @@ async fn acquired_socket_stays_in_its_receiver_owner_after_topology_becomes_stal
         .exited_tasks
         .contains(&task));
     grants.revoke();
-    installed.unwrap().socket.close().unwrap();
+    installed.socket.close().unwrap();
     std::net::UdpSocket::bind(bound).unwrap();
 }
 
@@ -136,7 +134,7 @@ fn existing_static_resources_and_default_access_do_not_grant_dynamic_outbound_so
     let target = "127.0.0.1:53".parse().unwrap();
     let decl = declaration(target, &control);
     assert!(
-        matches!(crate::component::instance::HostResources::new(instance().component, &[decl.clone()], CancellationToken::new()), Err(failure) if failure.reason == Reason::Unsupported)
+        matches!(crate::component::instance::HostResources::new(instance().component, std::slice::from_ref(&decl), CancellationToken::new()), Err(failure) if failure.reason == Reason::Unsupported)
     );
     let empty = crate::component::instance::HostResources::new(
         instance().component,
