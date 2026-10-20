@@ -36,6 +36,7 @@ pub struct SendOutcome {
     pub complete: bool,
 }
 impl SendOutcome {
+    #[cfg(not(apple_fast))]
     pub(crate) fn bytes(transmit: &Transmit<'_>, bytes: usize) -> Self {
         let stride = transmit
             .segment_size
