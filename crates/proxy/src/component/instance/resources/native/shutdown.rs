@@ -81,7 +81,7 @@ impl HostResources {
                     ))
                 }),
         );
-        report.unfinished.extend(carriers.iter().map(|carrier| Unfinished::Resource(format!(
+        report.unfinished.extend(carriers.iter().filter(|carrier| !carrier.physical_confirmed()).map(|carrier| Unfinished::Resource(format!(
             "component {} carrier declaration {} native_closed={} transferred users remain unaccounted",
             self.component.0, carrier.ordinal, carrier.native_generation_closed
         ))));

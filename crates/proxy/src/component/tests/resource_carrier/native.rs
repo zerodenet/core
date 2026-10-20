@@ -68,6 +68,11 @@ async fn original_driver_join_and_native_eof_remain_distinct_from_unaccounted_us
         assert_eq!(owner_report.closed_io.len(), 1);
         assert_eq!(peer.read(&mut byte).await.unwrap(), 0);
         assert!(actual.closed().unwrap().matches(&actual));
+        assert!(actual.users_closed().is_none());
+        assert_eq!(
+            fixture.resources.io_evidence().carriers[0].users,
+            crate::component::instance::resources::native::carrier::CarrierUsersEvidence::Unaccounted
+        );
         let proof = fixture.resources.io_evidence();
         assert!(proof.carriers[0].native_generation_closed);
         assert!(
@@ -114,7 +119,7 @@ async fn actual_host_cancel_fences_native_prepare_with_an_independently_live_own
         .await
         .unwrap()
         .is_complete());
-    assert!(!fixture
+    assert!(fixture
         .resources
         .shutdown_io(deadline())
         .await
@@ -152,6 +157,22 @@ async fn provider_shutdown_revokes_an_existing_reservation_before_native_io() {
     assert!(!fixture.resources.io_evidence().carriers[0].native_generation_closed);
     fixture.owner.shutdown(deadline()).await.unwrap();
     assert!(fixture.resources.io_evidence().carriers[0].native_generation_closed);
-    assert!(!fixture.resources.io_evidence().physical_confirmed());
+    let actual = fixture.owner.registration();
+    let users = actual.users_closed().unwrap();
+    assert!(users.matches(&actual));
+    assert!(!users.had_native_acquisition());
+    let proof = fixture.resources.io_evidence();
+    assert!(proof.physical_confirmed());
+    assert!(proof.carriers[0].first_caller_failure.is_none());
+    assert_eq!(
+        proof.carriers[0].users,
+        crate::component::instance::resources::native::carrier::CarrierUsersEvidence::Confirmed
+    );
+    assert!(fixture
+        .resources
+        .shutdown_io(deadline())
+        .await
+        .unwrap()
+        .is_complete());
     fixture.scope.shutdown(deadline()).await;
 }

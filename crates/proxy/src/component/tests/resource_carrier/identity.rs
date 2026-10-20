@@ -79,7 +79,7 @@ async fn exact_ordinal_actual_instance_cap_scope_and_start_phase_are_required() 
         .await
         .unwrap()
         .is_complete());
-    assert!(!fixture
+    assert!(fixture
         .resources
         .shutdown_io(deadline())
         .await
@@ -246,7 +246,7 @@ async fn lookup_requires_the_actual_reserved_grant_and_full_published_binding_af
         .is_err());
     drop(grant);
     fixture.owner.shutdown(deadline()).await.unwrap();
-    assert!(!fixture
+    assert!(fixture
         .resources
         .shutdown_io(deadline())
         .await

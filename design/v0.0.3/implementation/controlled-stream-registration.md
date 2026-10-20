@@ -44,13 +44,21 @@ Arcs remain bounded and sticky independently of closure, without retaining full
 component recipes or resource history. Snapshots are not atomic across owners;
 a pending snapshot can require a retry after another branch finishes.
 
-External protocol/transfer users are currently explicitly Unaccounted. Even after
-real driver join, explicit native close and peer EOF, this provider's complete
-coverage remains false and `shutdown_io` adds an actual unfinished obligation.
-It neither drives a duplicate physical shutdown nor counts the actual owner's
-native receipt twice. The protocol's sole persistent owner must perform shutdown;
-resource evidence and user/task completion remain separate. This is a library
-precondition, not M4 or ALL17 qualification.
+External protocol/transfer users become Confirmed only from the same original
+registration's private `CarrierOwnerUsersClosed` receipt. That owner separately
+requires the unique logical view returned, actual caller join, transport-driver
+join and explicit native close. This provider requires both the matching users
+receipt and matching native generation receipt; neither substitutes for the
+other. A real acquired but untracked socket remains Unaccounted after native
+close, peer EOF and even an empty physical record list. Zero acquisition becomes
+NoTransfer only after actual explicit owner shutdown, never Weak loss or Drop.
+The first failed caller's actual TaskJoined (ID, class and original error Arc)
+remains visible independently of physical confirmation and sticky provider
+failure. Confirmed resources do not add a duplicate unfinished obligation or
+count native receipts twice. The protocol's sole persistent owner performs
+shutdown; this observer never adds a second pool or manager. Production ingress
+users still need their own actual caller graph; this is not M4 or ALL17
+qualification.
 
 ## Verification handoff
 

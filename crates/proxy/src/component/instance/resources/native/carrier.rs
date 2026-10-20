@@ -24,6 +24,7 @@ struct Registration {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::component) enum CarrierUsersEvidence {
     Unaccounted,
+    Confirmed,
 }
 #[derive(Clone, Debug)]
 pub(in crate::component) struct CarrierIoEvidence {
@@ -33,6 +34,7 @@ pub(in crate::component) struct CarrierIoEvidence {
     pub owner_available: bool,
     /// Issued only by the actual owner's successful explicit shutdown.
     pub native_generation_closed: bool,
+    pub first_caller_failure: Option<zero_platform_tokio::contract::scope::TaskJoined>,
     pub first_fault: Option<Arc<ChannelError>>,
     pub first_native_fault: Option<Arc<std::io::Error>>,
     pub acquisition_unknown: Option<Arc<ChannelError>>,
@@ -40,13 +42,14 @@ pub(in crate::component) struct CarrierIoEvidence {
 }
 impl CarrierIoEvidence {
     pub(super) fn physical_confirmed(&self) -> bool {
-        // No canonical transferred-user witness has been integrated yet. An
-        // actual native receipt remains visible but cannot seal this provider.
+        // Only the original owner's private users receipt covers the actual
+        // same-slot view return and caller joins; native closure stays separate.
         if !self.registered || !self.native_generation_closed {
             return false;
         }
         match self.users {
             CarrierUsersEvidence::Unaccounted => false,
+            CarrierUsersEvidence::Confirmed => true,
         }
     }
 }
@@ -117,6 +120,7 @@ impl CarrierDeclarations {
                     registered: false,
                     owner_available: false,
                     native_generation_closed: false,
+                    first_caller_failure: None,
                     first_fault: None,
                     first_native_fault: None,
                     acquisition_unknown: None,
@@ -130,6 +134,21 @@ impl CarrierDeclarations {
                     proof.native_generation_closed = actual
                         .closed()
                         .is_some_and(|receipt| receipt.matches(actual));
+                    if let Some(receipt) = actual
+                        .users_closed()
+                        .filter(|receipt| receipt.matches(actual))
+                    {
+                        if *bound {
+                            proof.users = CarrierUsersEvidence::Confirmed;
+                        }
+                        proof.first_caller_failure = receipt.first_caller_failure();
+                        if proof.first_fault.is_none() {
+                            proof.first_fault = proof
+                                .first_caller_failure
+                                .as_ref()
+                                .and_then(|joined| joined.result().err());
+                        }
+                    }
                     if let Some(observation) = actual.observe() {
                         proof.owner_available = true;
                         for slot in observation.slots() {
@@ -152,7 +171,10 @@ impl CarrierDeclarations {
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     if let Some(entry) = entries.get_mut(ordinal) {
                         if entry.first_fault.is_none() {
-                            entry.first_fault = proof.acquisition_unknown.clone();
+                            entry.first_fault = proof
+                                .first_fault
+                                .clone()
+                                .or_else(|| proof.acquisition_unknown.clone());
                         }
                         if entry.first_native_fault.is_none() {
                             entry.first_native_fault = proof
