@@ -23,3 +23,15 @@ fn exhaust() {
     }
     panic!("actual Tokio budget must exhaust without a scheduler turn");
 }
+
+// Handle::block_on supplies a real I/O runtime and cooperative budget, while
+// deliberately leaving SchedulerContext absent. No reactor turn is needed for
+// these cancellation-only cases: the original bound socket must suspend first.
+// Positive packet I/O cases keep #[tokio::test] and its actual reactor driver.
+fn synchronous_coop(test: impl Future<Output = ()>) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.handle().block_on(test);
+}

@@ -6,6 +6,7 @@ pub(super) struct Events {
     pub(super) last_drop: AtomicUsize,
     pub(super) receipt: Mutex<Option<DatagramCloseReceipt>>,
     pub(super) observed_live: AtomicBool,
+    pub(super) owner_gone_drops: AtomicUsize,
 }
 #[derive(Clone, Copy)]
 pub(super) enum Action {
@@ -23,11 +24,8 @@ pub(super) struct Probe {
     events: Arc<Events>,
 }
 impl Probe {
-    fn gates(&self) -> Arc<Entry> {
-        let entry = self
-            .entry
-            .upgrade()
-            .expect("persistent actual original owner");
+    fn gates(&self) -> Option<Arc<Entry>> {
+        let entry = self.entry.upgrade()?;
         if let Some(shared) = self.shared.upgrade() {
             drop(
                 shared
@@ -46,14 +44,17 @@ impl Probe {
             self.events.observed_live.store(true, Ordering::SeqCst);
         }
         drop(native);
-        entry
+        Some(entry)
     }
     fn cloned(&self) {
-        self.gates();
+        self.gates()
+            .expect("live poll clone has its persistent original owner");
         self.events.clones.fetch_add(1, Ordering::SeqCst);
     }
     fn wake(&self) {
-        let entry = self.gates();
+        let entry = self
+            .gates()
+            .expect("live poll wake has its persistent original owner");
         self.events.wakes.fetch_add(1, Ordering::SeqCst);
         if matches!(self.action, Action::RevokeOnWake) {
             self.control.upgrade().unwrap().revoke();
@@ -63,7 +64,13 @@ impl Probe {
         }
     }
     fn dropped(&self, last: bool) {
-        let entry = self.gates();
+        let Some(entry) = self.gates() else {
+            // An earlier assertion may unwind the actual owner before its last
+            // registered waker. Report that lifetime loss, but never panic a
+            // second time during destruction or fabricate any close receipt.
+            self.events.owner_gone_drops.fetch_add(1, Ordering::SeqCst);
+            return;
+        };
         if last {
             self.events.last_drop.fetch_add(1, Ordering::SeqCst);
             if matches!(self.action, Action::CloseOnLastDrop) {

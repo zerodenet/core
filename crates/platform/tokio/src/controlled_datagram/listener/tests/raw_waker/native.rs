@@ -34,56 +34,68 @@ async fn raw_caller_clone_and_last_drop_reenter_outside_all_original_udp_gates()
     assert_eq!(owner.take_report().confirmed_closed, 1);
     assert_eq!(owner.take_report().confirmed_closed, 0);
 }
-#[tokio::test]
-async fn actual_raw_receive_coop_zero_wake_closes_original_after_native_poll_returns() {
-    let mut owner = ControlledDatagramOwner::new(bound(1));
-    let (_rx, tx, mut control) = owner.bind_listener(address(), bound(1)).unwrap();
-    let (waker, events, _) = watch(&tx, Weak::new(), Action::CloseOnWake);
-    let mut bytes = [0; 8];
-    assert!(tx
-        .shared
-        .socket
-        .poll_recv_from_addr(&mut Context::from_waker(&waker), &mut bytes)
-        .is_pending());
-    assert_eq!(owner.take_report().confirmed_closed, 0);
-    exhaust();
-    assert!(tx
-        .shared
-        .socket
-        .poll_recv_from_addr(&mut Context::from_waker(&waker), &mut bytes)
-        .is_pending());
-    assert!(events.wakes.load(Ordering::SeqCst) > 0);
-    assert!(events.observed_live.load(Ordering::SeqCst));
-    let receipt = events.receipt.lock().unwrap().unwrap();
-    assert_eq!(receipt.reservation(), control.reservation());
-    assert_eq!(control.close().unwrap(), receipt);
-    assert_eq!(owner.take_report().confirmed_closed, 1);
-    assert_eq!(owner.occupied(), 0);
+#[test]
+fn actual_raw_receive_coop_zero_wake_closes_original_after_native_poll_returns() {
+    synchronous_coop(async {
+        let mut owner = ControlledDatagramOwner::new(bound(1));
+        let (_rx, tx, mut control) = owner.bind_listener(address(), bound(1)).unwrap();
+        let (waker, events, _) = watch(&tx, Weak::new(), Action::CloseOnWake);
+        let mut bytes = [0; 8];
+        assert!(tx
+            .shared
+            .socket
+            .poll_recv_from_addr(&mut Context::from_waker(&waker), &mut bytes)
+            .is_pending());
+        assert_eq!(owner.take_report().confirmed_closed, 0);
+        exhaust();
+        assert!(tx
+            .shared
+            .socket
+            .poll_recv_from_addr(&mut Context::from_waker(&waker), &mut bytes)
+            .is_pending());
+        assert!(events.wakes.load(Ordering::SeqCst) > 0);
+        assert!(events.observed_live.load(Ordering::SeqCst));
+        let receipt = events.receipt.lock().unwrap().unwrap();
+        assert_eq!(receipt.reservation(), control.reservation());
+        assert_eq!(control.close().unwrap(), receipt);
+        assert_eq!(owner.take_report().confirmed_closed, 1);
+        assert_eq!(owner.occupied(), 0);
+
+        drop(waker);
+        assert_eq!(events.owner_gone_drops.load(Ordering::SeqCst), 0);
+    });
 }
-#[tokio::test]
-async fn listener_native_send_coop_zero_preserves_pending_admission_and_real_close_receipt() {
-    let mut owner = ControlledDatagramOwner::new(bound(1));
-    let (_rx, tx, mut control) = owner.bind_listener(address(), bound(1)).unwrap();
-    let (waker, events, _) = watch(&tx, Weak::new(), Action::CloseOnWake);
-    let mut send = Box::pin(tx.send_to_addr(b"pending", tx.local_addr().unwrap()));
-    assert!(send
-        .as_mut()
-        .poll(&mut Context::from_waker(&waker))
-        .is_pending());
-    assert_eq!(tx.shared.sends.available_permits(), 0);
-    assert_eq!(owner.take_report().confirmed_closed, 0);
-    exhaust();
-    assert!(send
-        .as_mut()
-        .poll(&mut Context::from_waker(&waker))
-        .is_pending());
-    assert!(events.wakes.load(Ordering::SeqCst) > 0);
-    let receipt = events.receipt.lock().unwrap().unwrap();
-    assert_eq!(receipt, control.close().unwrap());
-    drop(send);
-    assert_eq!(tx.shared.sends.available_permits(), 1);
-    assert_eq!(owner.take_report().confirmed_closed, 1);
+
+#[test]
+fn listener_native_send_coop_zero_preserves_pending_admission_and_real_close_receipt() {
+    synchronous_coop(async {
+        let mut owner = ControlledDatagramOwner::new(bound(1));
+        let (_rx, tx, mut control) = owner.bind_listener(address(), bound(1)).unwrap();
+        let (waker, events, _) = watch(&tx, Weak::new(), Action::CloseOnWake);
+        let mut send = Box::pin(tx.send_to_addr(b"pending", tx.local_addr().unwrap()));
+        assert!(send
+            .as_mut()
+            .poll(&mut Context::from_waker(&waker))
+            .is_pending());
+        assert_eq!(tx.shared.sends.available_permits(), 0);
+        assert_eq!(owner.take_report().confirmed_closed, 0);
+        exhaust();
+        assert!(send
+            .as_mut()
+            .poll(&mut Context::from_waker(&waker))
+            .is_pending());
+        assert!(events.wakes.load(Ordering::SeqCst) > 0);
+        let receipt = events.receipt.lock().unwrap().unwrap();
+        assert_eq!(receipt, control.close().unwrap());
+        drop(send);
+        assert_eq!(tx.shared.sends.available_permits(), 1);
+        assert_eq!(owner.take_report().confirmed_closed, 1);
+
+        drop(waker);
+        assert_eq!(events.owner_gone_drops.load(Ordering::SeqCst), 0);
+    });
 }
+
 #[tokio::test]
 async fn raw_receive_cancel_reenters_same_actual_control_without_native_close_ack() {
     let mut owner = ControlledDatagramOwner::new(bound(1));
