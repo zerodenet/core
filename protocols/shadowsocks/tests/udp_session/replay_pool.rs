@@ -42,10 +42,10 @@ async fn registered_idle_driver_keeps_the_security_window_and_confirms_its_exit(
 
     let pool = Arc::new(ReplaySaltPool::with_limits(Duration::from_secs(61), 1));
     pool.check_and_insert(&[1; 16]).unwrap();
-    let legacy = pool.claim_maintenance().unwrap().unwrap();
+    let legacy = pool.claim_maintenance(None).unwrap().unwrap();
     legacy.await.unwrap();
     assert!(
-        pool.claim_maintenance().is_err(),
+        pool.claim_maintenance(None).is_err(),
         "one owner per shared pool"
     );
 
@@ -82,8 +82,8 @@ async fn registered_idle_driver_keeps_the_security_window_and_confirms_its_exit(
     assert!(report.is_complete());
     assert_eq!(report.exited_tasks.len(), 1);
     assert!(report.failed_tasks.is_empty());
-    pool.release_maintenance();
+    pool.release_maintenance(None);
     assert!(pool.check_and_insert(&[2; 16]).is_err());
-    assert!(pool.claim_maintenance().unwrap().is_none());
-    pool.release_maintenance();
+    assert!(pool.claim_maintenance(None).unwrap().is_none());
+    pool.release_maintenance(None);
 }

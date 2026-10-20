@@ -9,7 +9,7 @@ use tokio::{
     task::JoinHandle,
     time::{timeout_at, Instant},
 };
-use zero_core::component::ComponentId;
+use zero_core::component::{ComponentId, ComponentInstanceId};
 use zero_platform_tokio::contract::{
     component::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
@@ -90,6 +90,7 @@ fn failure(
 struct Owner {
     pool: Option<Arc<ReplaySaltPool>>,
     component: ComponentId,
+    instance: ComponentInstanceId,
     tasks: TaskRegistrar,
     cancel: CancellationToken,
     legacy: Option<JoinHandle<()>>,
@@ -102,6 +103,7 @@ impl Owner {
         Self {
             pool: Some(pool),
             component: context.component,
+            instance: context.instance(),
             tasks: context.tasks,
             cancel: context.cancel.child_token(),
             legacy: None,
@@ -131,7 +133,7 @@ impl Owner {
 }
 impl Drop for Owner {
     fn drop(&mut self) {
-        self.cancel.cancel();
+        self.revoke(CloseReason::Shutdown);
     }
 }
 impl ResourceLifecycle for Owner {
@@ -157,15 +159,17 @@ impl ResourceLifecycle for Owner {
         }
         self.attempted = true;
         let pool = self.pool.as_ref().unwrap();
-        self.legacy = pool.claim_maintenance().map_err(|source| {
-            failure(
-                self.component,
-                Stage::Prepare,
-                Reason::StalePlan,
-                "replay maintenance owner conflict",
-            )
-            .with_source(source)
-        })?;
+        self.legacy = pool
+            .claim_maintenance(Some(self.instance))
+            .map_err(|source| {
+                failure(
+                    self.component,
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    "replay maintenance owner conflict",
+                )
+                .with_source(source)
+            })?;
         self.claimed = true;
         // The JoinHandle is in this persistent owner before any await. Canceling
         // start cannot orphan the legacy worker during ownership transfer.
@@ -215,14 +219,30 @@ impl ResourceLifecycle for Owner {
                 error.component = Some(self.component);
                 error
             })?;
+        self.pool
+            .as_ref()
+            .unwrap()
+            .bind_registered_owner(self.instance)
+            .map_err(|source| {
+                failure(
+                    self.component,
+                    Stage::Prepare,
+                    Reason::Revoked,
+                    "registered replay driver has already exited",
+                )
+                .with_source(source)
+            })?;
         self.started = true;
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {
+        if let Some(pool) = &self.pool {
+            pool.revoke_registered_owner(self.instance);
+        }
         self.cancel.cancel();
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
-        self.cancel.cancel();
+        self.revoke(CloseReason::Shutdown);
         if !self.join_legacy(deadline, Stage::Close).await? {
             return Ok(CloseReport {
                 unfinished: vec![Unfinished::Resource("legacy replay maintenance".into())],
@@ -230,7 +250,10 @@ impl ResourceLifecycle for Owner {
             });
         }
         if self.claimed {
-            self.pool.as_ref().unwrap().release_maintenance();
+            self.pool
+                .as_ref()
+                .unwrap()
+                .release_maintenance(Some(self.instance));
             self.claimed = false;
         }
         drop(self.pool.take());

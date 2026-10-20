@@ -84,6 +84,8 @@ async fn replay_factory_transfers_the_actual_shared_history_to_one_registered_dr
     assert_eq!(spec.task_limit, NonZeroUsize::new(1));
     let (mut scope, ctx) = context(1);
     let registrar = scope.registrar();
+    let actual = ctx.instance();
+    assert!(!pool.registered_owner_is_ready(actual));
     let mut instance = ReplayFactory.build(options, ctx).unwrap();
     assert!(
         instance.roles.stream.is_none()
@@ -92,6 +94,13 @@ async fn replay_factory_transfers_the_actual_shared_history_to_one_registered_dr
             && instance.roles.inbound.is_none()
     );
     instance.lifecycle.start(deadline()).await.unwrap();
+    assert!(pool.registered_owner_is_ready(actual));
+    assert!(
+        !pool.registered_owner_is_ready(zero_core::component::ComponentInstanceId {
+            generation: ResourceGeneration(actual.generation.0 + 1),
+            ..actual
+        })
+    );
     instance.lifecycle.start(deadline()).await.unwrap();
     assert!(pool.check_and_insert(&[1; 16]).is_err());
     assert!(pool.check_and_insert(&[3; 16]).is_err());
@@ -105,6 +114,7 @@ async fn replay_factory_transfers_the_actual_shared_history_to_one_registered_dr
     assert!(tasks.is_complete());
     assert_eq!(tasks.exited_tasks.len(), 1);
     assert!(tasks.failed_tasks.is_empty());
+    assert!(!pool.registered_owner_is_ready(actual));
     assert!(
         pool.check_and_insert(&[1; 16]).is_err(),
         "cleanup must not reset valid replay state"
