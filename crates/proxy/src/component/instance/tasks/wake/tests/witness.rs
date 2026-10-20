@@ -74,7 +74,7 @@ fn callback_panic_retains_original_completed_credit_and_same_failure_for_retry()
                 .spawn_tracked(TaskClass::Auxiliary, async move {
                     done.send(()).unwrap();
                     Err(
-                        ChannelError::new(Stage::Read, Reason::Io, Impact::Component).with_source(
+                        ChannelError::new(Stage::Receive, Reason::Io, Impact::Component).with_source(
                             std::io::Error::other("same actual source after callback panic"),
                         ),
                     )

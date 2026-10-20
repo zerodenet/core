@@ -105,7 +105,7 @@ async fn existing_receive_driver_supervision_preserves_the_original_reconnect_jo
     let retry = carrier.stop_background().unwrap().await.unwrap_err();
     assert_eq!(find_join(&retry) as *const tokio::task::JoinError, original);
 }
-fn find_join(error: &(dyn std::error::Error + 'static)) -> &tokio::task::JoinError {
+fn find_join<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a tokio::task::JoinError {
     let mut error = error;
     loop {
         if let Some(original) = error.downcast_ref::<tokio::task::JoinError>() {

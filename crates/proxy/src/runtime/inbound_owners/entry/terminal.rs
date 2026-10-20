@@ -188,7 +188,7 @@ impl InboundOwner {
         true
     }
     #[cfg(test)]
-    pub(in crate::runtime) fn terminal_for_test(&self) -> Option<Arc<InboundTerminal>> {
+    pub(crate) fn terminal_for_test(&self) -> Option<Arc<InboundTerminal>> {
         self.terminal()
     }
 

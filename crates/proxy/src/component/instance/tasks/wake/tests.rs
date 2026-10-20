@@ -7,7 +7,6 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc,
     },
-    task::Poll,
     time::Duration,
 };
 use tokio::{runtime::Handle, sync::oneshot};
@@ -124,7 +123,7 @@ fn actual_zero_budget_join_self_wake_reenters_monitor_only_after_both_locks_rele
                 .spawn_tracked(TaskClass::Auxiliary, async move {
                     done.send(()).unwrap();
                     Err(
-                        ChannelError::new(Stage::Read, Reason::Io, Impact::Component)
+                        ChannelError::new(Stage::Receive, Reason::Io, Impact::Component)
                             .with_source(std::io::Error::other("actual completed native task")),
                     )
                 })

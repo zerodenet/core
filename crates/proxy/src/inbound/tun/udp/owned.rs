@@ -46,7 +46,7 @@ impl OwnedTunUdpTasks {
 // The completion channel is metadata, not a join witness. If its consumer has
 // stopped, send actual failure outputs through the same original Scope result.
 pub(super) fn lost_completion(output: AssociationExit) -> Result<(), EngineError> {
-    use crate::runtime::inbound_operation::raw_ip::tasks::TaskOutput;
+    use crate::runtime::raw_ip::tasks::TaskOutput;
     output
         .into_failure()
         .map_or(Ok(()), |source| Err(std::io::Error::other(source).into()))
