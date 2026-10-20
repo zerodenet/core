@@ -3,6 +3,7 @@ mod admission;
 mod bindings;
 pub(crate) mod catalog;
 mod dependencies;
+pub(crate) mod datagram_retirement;
 pub(crate) mod direct_bridge;
 mod generations;
 pub(crate) mod instance;
