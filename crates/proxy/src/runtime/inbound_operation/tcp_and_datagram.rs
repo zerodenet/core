@@ -92,6 +92,9 @@ where
                     "inbound resource owner was not installed",
                 ))
             })?;
+            if host.cancellation().is_cancelled() || *shutdown.borrow() {
+                return Ok(());
+            }
             if let Some(socket) = udp_socket.as_ref() {
                 let udp_runtime = runtime.udp_runtime();
                 let inbound_tag = runtime.inbound_tag().to_owned();
@@ -111,21 +114,31 @@ where
                     }
                 })?;
             }
-            let tcp = Box::new(TcpInboundListenerOperation {
+            let mut tcp = Box::new(TcpInboundListenerOperation {
                 protocol_name,
                 error_protocol_name,
                 request: tcp_request,
                 dispatch: tcp_dispatch,
             })
             .execute(runtime, bound, shutdown);
-            let result = tokio::select! {
-                result = tcp => result,
-                result = &mut completion => result.map_err(EngineError::from),
+            let (mut result, tcp_finished) = tokio::select! {
+                result = &mut tcp => (result, true),
+                result = &mut completion => (result.map_err(EngineError::from), false),
             };
 
-            // The persistent host owns and joins the actual UDP driver. This
-            // outer operation never aborts or drops its unique JoinHandle.
+            // A failed carrier stops acceptance, but the real TCP driver must
+            // still join its accepted connections before its Scope task exits.
             host.request_stop();
+            if !tcp_finished {
+                if let Err(error) = tcp.await {
+                    if result.is_ok() {
+                        result = Err(error);
+                    } else {
+                        tracing::warn!(%error, "TCP cleanup also failed after carrier exit");
+                    }
+                }
+            }
+            // The persistent host owns and joins the actual UDP driver.
             result
         })
     }
