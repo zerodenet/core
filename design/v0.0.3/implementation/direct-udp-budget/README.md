@@ -2,6 +2,8 @@
 
 本记录补充 [validation.md 的 PR01 资源预算要求](../../validation.md#保守资源预算的落地范围)。只增加测量脚本、原始证据和建议，不改变生产代码、配置、默认值或资源授权。新增最小可选字段已由完整设计授权；默认数值仍须代表性实测，当前未确定项为 `null`，不能据此激活新的默认限制。
 
+后续补充的 [实际旧源 library task/generation 结果](old-library-results.md) 已覆盖 16 source 的真实 Tokio tasks 及 API generation0–16；它与下述 CLI 采样作用域分开。应用队列字节、精确 native acquisition 和当前源配对仍未验收，新增预算默认继续为 `null`。
+
 ## 固定输入与执行范围
 
 - 旧内核来源：`2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a`。

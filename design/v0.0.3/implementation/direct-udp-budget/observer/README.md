@@ -1,6 +1,6 @@
 # UDP Tokio task 观察器：源代码准备
 
-复用 [既有 proxy-observer](../../../baseline/proxy-observer/src/main.rs) 实际使用的稳定 `Handle.metrics().num_alive_tasks()/global_queue_depth()`，改为真实 Direct Combined fixed-domain、16 source peers、16 次策略轮转与持续流量。只提供独立 harness，未改生产代码、激活路径或默认值；当前 **未编译、未运行**，唯一 Cargo owner 后续统一构建。
+复用 [既有 proxy-observer](../../../baseline/proxy-observer/src/main.rs) 实际使用的稳定 `Handle.metrics().num_alive_tasks()/global_queue_depth()`，改为真实 Direct Combined fixed-domain、16 source peers、16 次策略轮转与持续流量。独立 harness 未改生产代码、激活路径或默认值。root 后续已统一构建固定旧源，本代理已完成 policy-only/network+policy 各三轮真实测量，见 [old-only 结果](../old-library-results.md)；当前源与默认 CLI pair 仍待真实构建和执行。
 
 ## 观察边界
 

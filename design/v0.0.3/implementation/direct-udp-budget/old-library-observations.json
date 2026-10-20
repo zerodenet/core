@@ -1,0 +1,356 @@
+{
+  "status": "actual old-only observations; no current/default CLI pair or numeric default qualification",
+  "old_source": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "observer_binary_sha256": "25b58d67bd3e479e9cf375ed21e0bc52098084cb7a7a5339672af33f851c7fff",
+  "observer_build_lock_sha256": "7e78fe70b928136213e300f9c137d6b19dafbd5adf120684579f622e5f3a6693",
+  "build_evidence": "library-old-observer-build-25b58d67-evidence.json",
+  "application_pending_payload_bytes": null,
+  "exact_native_open_attempts": null,
+  "suggested_new_capacity_defaults": null,
+  "profiles": {
+    "policy": {
+      "summary": "library-old-policy-25b58d67-summary.json",
+      "raw_evidence": "library-old-policy-25b58d67-evidence.json",
+      "limits_after": {
+        "cpu.max": "100000 100000",
+        "memory.max": "1073741824",
+        "memory.swap.max": "0",
+        "memory.peak": "222224384",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "cpu.stat": "usage_usec 14923639\nuser_usec 6159460\nsystem_usec 8764179\nnice_usec 0\nnr_periods 324\nnr_throttled 2\nthrottled_usec 96166\nnr_bursts 0\nburst_usec 0"
+      },
+      "payload_counts": {
+        "steady_sent": 2448,
+        "steady_received": 2448,
+        "reload_sent": 4368,
+        "reload_received": 4248,
+        "burst_sent": 4608,
+        "burst_received": 2016,
+        "actual_sends_within_apply": 197,
+        "echo_receives_within_apply": 237
+      },
+      "trials": [
+        {
+          "trial": 0,
+          "tokio_tasks_peak_sampled": 20,
+          "tokio_scheduler_global_queue_peak_sampled": 1,
+          "actual_first_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 1982,
+            "global_queue_depth": 0,
+            "phase": "before_proxy"
+          },
+          "actual_final_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 7701130119,
+            "global_queue_depth": 0,
+            "phase": "after_shutdown_and_owner_drop"
+          },
+          "task_samples": 763,
+          "task_samples_truncated": false,
+          "native_threads_peak_sampled": 6,
+          "observer_process_fd_peak_sampled": 27,
+          "observer_process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_echo_port_correlated_inodes_sampled": 272,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "observer_process_vmhwm_bytes": 57516032,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 2304,
+          "actual_egress_generations_observed": [
+            0
+          ],
+          "sample_phases_missing_initial_ingress_inode": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 317795154,
+            "error": null,
+            "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+          }
+        },
+        {
+          "trial": 1,
+          "tokio_tasks_peak_sampled": 21,
+          "tokio_scheduler_global_queue_peak_sampled": 1,
+          "actual_first_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 6747,
+            "global_queue_depth": 0,
+            "phase": "before_proxy"
+          },
+          "actual_final_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 10893216551,
+            "global_queue_depth": 0,
+            "phase": "after_shutdown_and_owner_drop"
+          },
+          "task_samples": 1072,
+          "task_samples_truncated": false,
+          "native_threads_peak_sampled": 6,
+          "observer_process_fd_peak_sampled": 27,
+          "observer_process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_echo_port_correlated_inodes_sampled": 272,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "observer_process_vmhwm_bytes": 58843136,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 85248,
+          "actual_egress_generations_observed": [
+            0
+          ],
+          "sample_phases_missing_initial_ingress_inode": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 354405174,
+            "error": null,
+            "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+          }
+        },
+        {
+          "trial": 2,
+          "tokio_tasks_peak_sampled": 21,
+          "tokio_scheduler_global_queue_peak_sampled": 0,
+          "actual_first_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 7879,
+            "global_queue_depth": 0,
+            "phase": "before_proxy"
+          },
+          "actual_final_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 10053436139,
+            "global_queue_depth": 0,
+            "phase": "after_shutdown_and_owner_drop"
+          },
+          "task_samples": 990,
+          "task_samples_truncated": false,
+          "native_threads_peak_sampled": 6,
+          "observer_process_fd_peak_sampled": 27,
+          "observer_process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_echo_port_correlated_inodes_sampled": 272,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "observer_process_vmhwm_bytes": 58740736,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 138240,
+          "actual_egress_generations_observed": [
+            0
+          ],
+          "sample_phases_missing_initial_ingress_inode": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 335870720,
+            "error": null,
+            "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+          }
+        }
+      ]
+    },
+    "network": {
+      "summary": "library-old-network-25b58d67-summary.json",
+      "raw_evidence": "library-old-network-25b58d67-evidence.json",
+      "limits_after": {
+        "cpu.max": "100000 100000",
+        "memory.max": "1073741824",
+        "memory.swap.max": "0",
+        "memory.peak": "279191552",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "cpu.stat": "usage_usec 26378697\nuser_usec 11102800\nsystem_usec 15275896\nnice_usec 0\nnr_periods 549\nnr_throttled 7\nthrottled_usec 56483\nnr_bursts 0\nburst_usec 0"
+      },
+      "payload_counts": {
+        "steady_sent": 2448,
+        "steady_received": 2448,
+        "reload_sent": 4528,
+        "reload_received": 4016,
+        "burst_sent": 4608,
+        "burst_received": 2051,
+        "actual_sends_within_apply": 450,
+        "echo_receives_within_apply": 314
+      },
+      "trials": [
+        {
+          "trial": 0,
+          "tokio_tasks_peak_sampled": 20,
+          "tokio_scheduler_global_queue_peak_sampled": 1,
+          "actual_first_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 1467,
+            "global_queue_depth": 0,
+            "phase": "before_proxy"
+          },
+          "actual_final_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 17820565660,
+            "global_queue_depth": 0,
+            "phase": "after_shutdown_and_owner_drop"
+          },
+          "task_samples": 1717,
+          "task_samples_truncated": false,
+          "native_threads_peak_sampled": 6,
+          "observer_process_fd_peak_sampled": 27,
+          "observer_process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_echo_port_correlated_inodes_sampled": 273,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "observer_process_vmhwm_bytes": 61644800,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 58432,
+          "actual_egress_generations_observed": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16
+          ],
+          "sample_phases_missing_initial_ingress_inode": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 339143399,
+            "error": null,
+            "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+          }
+        },
+        {
+          "trial": 1,
+          "tokio_tasks_peak_sampled": 20,
+          "tokio_scheduler_global_queue_peak_sampled": 1,
+          "actual_first_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 23505,
+            "global_queue_depth": 0,
+            "phase": "before_proxy"
+          },
+          "actual_final_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 11864718706,
+            "global_queue_depth": 0,
+            "phase": "after_shutdown_and_owner_drop"
+          },
+          "task_samples": 1139,
+          "task_samples_truncated": false,
+          "native_threads_peak_sampled": 6,
+          "observer_process_fd_peak_sampled": 27,
+          "observer_process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_echo_port_correlated_inodes_sampled": 284,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "observer_process_vmhwm_bytes": 58855424,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 211968,
+          "actual_egress_generations_observed": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16
+          ],
+          "sample_phases_missing_initial_ingress_inode": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 342970115,
+            "error": null,
+            "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+          }
+        },
+        {
+          "trial": 2,
+          "tokio_tasks_peak_sampled": 21,
+          "tokio_scheduler_global_queue_peak_sampled": 1,
+          "actual_first_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 5426,
+            "global_queue_depth": 0,
+            "phase": "before_proxy"
+          },
+          "actual_final_task_sample": {
+            "alive_tasks": 0,
+            "application_pending_payload_bytes": null,
+            "elapsed_ns": 17047135709,
+            "global_queue_depth": 0,
+            "phase": "after_shutdown_and_owner_drop"
+          },
+          "task_samples": 1640,
+          "task_samples_truncated": false,
+          "native_threads_peak_sampled": 6,
+          "observer_process_fd_peak_sampled": 27,
+          "observer_process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_echo_port_correlated_inodes_sampled": 288,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "observer_process_vmhwm_bytes": 61620224,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 46080,
+          "actual_egress_generations_observed": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16
+          ],
+          "sample_phases_missing_initial_ingress_inode": [
+            "rotation-5"
+          ],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 457847779,
+            "error": null,
+            "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+          }
+        }
+      ]
+    }
+  }
+}

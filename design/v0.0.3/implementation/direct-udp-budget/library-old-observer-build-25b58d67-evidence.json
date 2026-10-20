@@ -1,0 +1,63 @@
+{
+  "archive": "evidence/library-old-observer-build-25b58d67.tar.gz",
+  "sha256": "7989e509881c7a81ac0a8191fe96c4156615a25f800a71ad0bc5dd8428634b3a",
+  "tar_sha256": "bbec2283ac4e02c3ec301a9c533b842da1d6b51c498d68f09dc6619ef03e2106",
+  "bytes": 179312,
+  "files": [
+    {
+      "path": "build-manifest.json",
+      "sha256": "fcbebe3ff1281d464fdca5a43727870cabfed75bf9f52b5b3eaf80ccea1bd268",
+      "bytes": 1874
+    },
+    {
+      "path": "logs/pr05-udp-observer-old-build-0.txt",
+      "sha256": "184cf9d64c12347b25a95e2e4c0c96b3358b6444d95b529208b0ebbb2d773c65",
+      "bytes": 850
+    },
+    {
+      "path": "logs/pr05-udp-observer-old-build-1.txt",
+      "sha256": "3cd181860439c2254b09838eeca7fdb71afbf00952cac1c534de884fba457edc",
+      "bytes": 1839575
+    },
+    {
+      "path": "logs/pr05-udp-observer-old-build-2.txt",
+      "sha256": "ce6fefaeed569de8390d31e535654541464f109a98825354f1f7628c812e0878",
+      "bytes": 850
+    },
+    {
+      "path": "logs/pr05-udp-observer-old-build-3.txt",
+      "sha256": "defa8e43872c12236b647cfb9ffd4e03a0ac73df5994a44d51ba06140d24ccae",
+      "bytes": 12640
+    },
+    {
+      "path": "harness/Cargo.toml",
+      "sha256": "b81f17ddf0562dbd43803347c739514809b83e0f1c52cc273f370cdd4285582d",
+      "bytes": 1426
+    },
+    {
+      "path": "harness/Cargo.lock",
+      "sha256": "7e78fe70b928136213e300f9c137d6b19dafbd5adf120684579f622e5f3a6693",
+      "bytes": 94230
+    },
+    {
+      "path": "harness/source.json",
+      "sha256": "8109e68f88d36a9307f1ba5f355789d4852d5d6449455af5930b50c3584b5a96",
+      "bytes": 1044
+    },
+    {
+      "path": "harness/src/driver.rs",
+      "sha256": "feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178",
+      "bytes": 3458
+    },
+    {
+      "path": "harness/src/main.rs",
+      "sha256": "49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36",
+      "bytes": 4201
+    },
+    {
+      "path": "harness/src/metrics.rs",
+      "sha256": "d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583",
+      "bytes": 2808
+    }
+  ]
+}

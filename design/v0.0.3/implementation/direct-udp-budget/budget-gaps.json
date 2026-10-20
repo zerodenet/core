@@ -4,10 +4,12 @@
   "fixed_old_source": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
   "existing_baseline": "../../baseline/resource-baseline.json",
   "raw_task_census": "../../baseline/task-observation.json",
-  "task_census_scope": "TCP32 public library only; no UDP peer/pending-byte defaults inferred",
+  "task_census_scope": "TCP32 original library baseline; supplemental actual old-library UDP16-source task peaks20-21, excludes CLI/IPC/Connector; no peer/pending-byte defaults inferred",
   "measurements": [
     "old-16x3-summary.json",
-    "old-fanin-16x3-summary.json"
+    "old-fanin-16x3-summary.json",
+    "library-old-policy-25b58d67-summary.json",
+    "library-old-network-25b58d67-summary.json"
   ],
   "proposal_config_parent": "runtime.network (small optional managed Direct/dispatch limits object; exact schema not frozen)",
   "rows": [
@@ -112,13 +114,14 @@
     }
   ],
   "unmeasured": [
-    "Tokio UDP/CLI task census",
+    "current/default CLI Tokio task census",
     "per-owner user queue bytes",
     "exact native open attempts",
-    "forced actual egress generation rotation",
+    "current-target actual egress-generation rotation and physical route/interface changes",
     "per-peer route/fake-IP/sniff multi-target projection",
     "maximum packet and capacity rejection",
     "new target paired run",
     "GUI/Panel roundtrip for any new field"
-  ]
+  ],
+  "additional_actual_old_library_observation": "old-library-observations.json"
 }

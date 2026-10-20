@@ -1,0 +1,771 @@
+{
+  "launcher": {
+    "observer_metadata": {
+      "source_root": "/workspace/core-baseline-source",
+      "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+      "source_lock_sha256": "0275dc0ac51fad8d380056defb4e4fb651edff477d0f8e6cb0166c05ca720cd7",
+      "exact_direct_dependency_pins": {
+        "tokio": "1.53.3",
+        "serde_json": "1.0.154",
+        "rustls": "0.23.40"
+      },
+      "proxy_features": [
+        "socks5",
+        "http",
+        "mixed",
+        "vless",
+        "hysteria2",
+        "shadowsocks",
+        "trojan",
+        "vmess",
+        "mieru",
+        "wireguard",
+        "dns",
+        "host-network-stats"
+      ],
+      "runtime_workers": 1,
+      "observer_tokio_tasks_spawned": 0,
+      "measurement_scope": "public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes",
+      "observer_source_sha256": {
+        "driver.rs": "feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178",
+        "main.rs": "49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36",
+        "metrics.rs": "d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583"
+      }
+    },
+    "observer_build_lock_sha256": "7e78fe70b928136213e300f9c137d6b19dafbd5adf120684579f622e5f3a6693",
+    "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+    "binary_sha256": "25b58d67bd3e479e9cf375ed21e0bc52098084cb7a7a5339672af33f851c7fff",
+    "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+    "command": [
+      "docker",
+      "run",
+      "--rm",
+      "--pull=never",
+      "--network=none",
+      "--cpus=1",
+      "--memory=1073741824",
+      "--memory-swap=1073741824",
+      "--mount",
+      "type=bind,src=/workspace/core-next/direct-udp-budget/library-old-policy-25b58d67/kernel,dst=/kernel,readonly",
+      "--mount",
+      "type=bind,src=/workspace/core-parallel/resources/design/v0.0.3/implementation/direct-udp-budget,dst=/probe,readonly",
+      "--mount",
+      "type=bind,src=/workspace/core-next/direct-udp-budget/library-old-policy-25b58d67,dst=/results",
+      "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "python3",
+      "/probe/library_worker.py",
+      "--binary",
+      "/kernel",
+      "--output",
+      "/results/data",
+      "--payload-bytes",
+      "1024",
+      "--trials",
+      "3"
+    ],
+    "scripts_sha256": {
+      "fanin.py": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+      "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+      "library_worker.py": "88f33e207ff5871d77286c245237b4815af7c51e3813fc4cf8999a24fb111be1",
+      "observer_kernel.py": "042d456c3c96880567f3eb440d03630d861d24dc17052d126b0f538485f0f45f",
+      "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+      "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+      "run.py": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+      "run_default_pair.py": "7b6afd9d32ecbcc8788163b0a4d739f7bc577b2531a338df8b16577c66f1813c",
+      "run_fanin.py": "d70e35ea4bb2cbf5e1c46d00508c684ab12ef93f8b5c6f7242e7a4b59ebec1c6",
+      "run_library.py": "0e26bc5a0e7b74b9b149526f44a07e7dd5bbac66dd226a1b71f8437ade9f24aa",
+      "summarize.py": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+      "summarize_fanin.py": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69",
+      "summarize_library.py": "55b6708b86b8682e35f94a4e813e2c1f3ceecc22cebc4838faa2e2895407fbc2",
+      "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+    },
+    "compile_processes": "excluded; none started by harness",
+    "reference_processes": "Python echo/DNS/harness share container; accounted separately from kernel PID",
+    "host_context": {
+      "load_average": [
+        0.96240234375,
+        2.22509765625,
+        1.927734375
+      ],
+      "cpu.max": "400000 100000",
+      "memory.max": "17179869184",
+      "concurrent_validation": "parent is validating main; sizing observations only, not isolated RS01 throughput qualification"
+    },
+    "exit_code": 0
+  },
+  "limits_before": {
+    "cpu.max": "100000 100000",
+    "memory.max": "1073741824",
+    "memory.swap.max": "0",
+    "memory.peak": "15618048",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.stat": "usage_usec 241221\nuser_usec 204877\nsystem_usec 36343\nnice_usec 0\nnr_periods 3\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+  },
+  "limits_after": {
+    "cpu.max": "100000 100000",
+    "memory.max": "1073741824",
+    "memory.swap.max": "0",
+    "memory.peak": "222224384",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.stat": "usage_usec 14923639\nuser_usec 6159460\nsystem_usec 8764179\nnice_usec 0\nnr_periods 324\nnr_throttled 2\nthrottled_usec 96166\nnr_bursts 0\nburst_usec 0"
+  },
+  "scope": "actual public library observer; not CLI RSS; Python/native echo outside observer PID",
+  "rotation": "policy only",
+  "caveats": [
+    "Tokio global queue is scheduler work, not UDP messages/payload bytes",
+    "native threads are separate; library probe adds two actual joined native threads",
+    "process RSS includes bounded Rust sampler storage; no application queue byte estimate",
+    "library task scope excludes CLI/IPC/Connector; default CLI pair is a separate measurement",
+    "sampled FD/task peaks are not linearizable and not native close receipts"
+  ],
+  "trials": [
+    {
+      "packets_and_os": {
+        "trial": 0,
+        "payload_bytes": 1024,
+        "actual_source_peer_count": 16,
+        "steady": {
+          "sent": 816,
+          "unique_received": 816,
+          "not_observed": 0
+        },
+        "overlapping_reload": {
+          "sent": 1408,
+          "unique_received": 1387,
+          "not_observed": 21,
+          "actual_sends_within_apply_interval": 0,
+          "echo_receives_within_apply_interval": 37
+        },
+        "apply_failures": [],
+        "packet_errors": [],
+        "bursts": {
+          "31": {
+            "sent": 496,
+            "unique_received": 230,
+            "not_observed": 266,
+            "duplicates": 0
+          },
+          "32": {
+            "sent": 512,
+            "unique_received": 98,
+            "not_observed": 414,
+            "duplicates": 0
+          },
+          "33": {
+            "sent": 528,
+            "unique_received": 214,
+            "not_observed": 314,
+            "duplicates": 0
+          }
+        },
+        "burst_errors": [],
+        "active_business_flows_peak_observed": 16,
+        "distinct_business_flow_ids_observed": 272,
+        "echo_correlated_direct_fd_peak_sampled": 16,
+        "distinct_echo_correlated_direct_socket_inodes_sampled": 272,
+        "process_fd_peak_sampled": 27,
+        "process_udp_fd_peak_sampled": 17,
+        "kernel_vmhwm_max_observed_bytes": 57516032,
+        "native_threads_peak_sampled": 6,
+        "own_udp_kernel_rx_queue_peak_sampled_bytes": 2304,
+        "ingress_inode_observed_in_all_samples_with_udp": true,
+        "egress_generations_observed": [
+          0
+        ],
+        "actual_wire_targets": [
+          [
+            "127.0.0.1",
+            57510
+          ],
+          [
+            "127.0.0.2",
+            57510
+          ],
+          [
+            "::1",
+            57510
+          ]
+        ],
+        "tokio_task_peak": null,
+        "user_queue_bytes_peak": null,
+        "exact_native_open_attempts": null,
+        "sample_count": 510,
+        "errors": [],
+        "shutdown": {
+          "graceful": true,
+          "exit_code": 0,
+          "elapsed_ns": 317795154,
+          "error": null,
+          "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+        }
+      },
+      "tokio": {
+        "shutdown_response_ok": true,
+        "runtime_workers": 1,
+        "scope": "public proxy library; CLI/IPC/Connector application tasks excluded",
+        "truncated": false,
+        "observer_tokio_tasks_spawned": 0,
+        "observer_source": "{\n  \"source_root\": \"/workspace/core-baseline-source\",\n  \"source_commit\": \"2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a\",\n  \"source_lock_sha256\": \"0275dc0ac51fad8d380056defb4e4fb651edff477d0f8e6cb0166c05ca720cd7\",\n  \"exact_direct_dependency_pins\": {\n    \"tokio\": \"1.53.3\",\n    \"serde_json\": \"1.0.154\",\n    \"rustls\": \"0.23.40\"\n  },\n  \"proxy_features\": [\n    \"socks5\",\n    \"http\",\n    \"mixed\",\n    \"vless\",\n    \"hysteria2\",\n    \"shadowsocks\",\n    \"trojan\",\n    \"vmess\",\n    \"mieru\",\n    \"wireguard\",\n    \"dns\",\n    \"host-network-stats\"\n  ],\n  \"runtime_workers\": 1,\n  \"observer_tokio_tasks_spawned\": 0,\n  \"measurement_scope\": \"public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes\",\n  \"observer_source_sha256\": {\n    \"driver.rs\": \"feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178\",\n    \"main.rs\": \"49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36\",\n    \"metrics.rs\": \"d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583\"\n  }\n}\n",
+        "task_peak_sampled": 20,
+        "tokio_global_queue_depth_peak_sampled": 1,
+        "application_pending_payload_bytes_peak": null,
+        "application_queue_reason": "no public owner accounting API; no RSS estimate",
+        "phases": {
+          "before_proxy": {
+            "samples": 22,
+            "alive_tasks_min": 0,
+            "alive_tasks_max": 3,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_0": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_1": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_2": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_3": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_4": {
+            "samples": 111,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_5": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_6": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_7": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_8": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_9": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_10": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_11": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_12": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_13": {
+            "samples": 111,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_14": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_15": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_16": {
+            "samples": 329,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 1
+          },
+          "after_shutdown_and_owner_drop": {
+            "samples": 30,
+            "alive_tasks_min": 0,
+            "alive_tasks_max": 1,
+            "global_queue_depth_max": 0
+          }
+        }
+      },
+      "actual_network_invalidations": []
+    },
+    {
+      "packets_and_os": {
+        "trial": 1,
+        "payload_bytes": 1024,
+        "actual_source_peer_count": 16,
+        "steady": {
+          "sent": 816,
+          "unique_received": 816,
+          "not_observed": 0
+        },
+        "overlapping_reload": {
+          "sent": 1504,
+          "unique_received": 1451,
+          "not_observed": 53,
+          "actual_sends_within_apply_interval": 100,
+          "echo_receives_within_apply_interval": 100
+        },
+        "apply_failures": [],
+        "packet_errors": [],
+        "bursts": {
+          "31": {
+            "sent": 496,
+            "unique_received": 267,
+            "not_observed": 229,
+            "duplicates": 0
+          },
+          "32": {
+            "sent": 512,
+            "unique_received": 103,
+            "not_observed": 409,
+            "duplicates": 0
+          },
+          "33": {
+            "sent": 528,
+            "unique_received": 174,
+            "not_observed": 354,
+            "duplicates": 0
+          }
+        },
+        "burst_errors": [],
+        "active_business_flows_peak_observed": 16,
+        "distinct_business_flow_ids_observed": 272,
+        "echo_correlated_direct_fd_peak_sampled": 16,
+        "distinct_echo_correlated_direct_socket_inodes_sampled": 272,
+        "process_fd_peak_sampled": 27,
+        "process_udp_fd_peak_sampled": 17,
+        "kernel_vmhwm_max_observed_bytes": 58843136,
+        "native_threads_peak_sampled": 6,
+        "own_udp_kernel_rx_queue_peak_sampled_bytes": 85248,
+        "ingress_inode_observed_in_all_samples_with_udp": true,
+        "egress_generations_observed": [
+          0
+        ],
+        "actual_wire_targets": [
+          [
+            "127.0.0.1",
+            36657
+          ],
+          [
+            "127.0.0.2",
+            36657
+          ],
+          [
+            "::1",
+            36657
+          ]
+        ],
+        "tokio_task_peak": null,
+        "user_queue_bytes_peak": null,
+        "exact_native_open_attempts": null,
+        "sample_count": 680,
+        "errors": [],
+        "shutdown": {
+          "graceful": true,
+          "exit_code": 0,
+          "elapsed_ns": 354405174,
+          "error": null,
+          "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+        }
+      },
+      "tokio": {
+        "shutdown_response_ok": true,
+        "runtime_workers": 1,
+        "scope": "public proxy library; CLI/IPC/Connector application tasks excluded",
+        "truncated": false,
+        "observer_tokio_tasks_spawned": 0,
+        "observer_source": "{\n  \"source_root\": \"/workspace/core-baseline-source\",\n  \"source_commit\": \"2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a\",\n  \"source_lock_sha256\": \"0275dc0ac51fad8d380056defb4e4fb651edff477d0f8e6cb0166c05ca720cd7\",\n  \"exact_direct_dependency_pins\": {\n    \"tokio\": \"1.53.3\",\n    \"serde_json\": \"1.0.154\",\n    \"rustls\": \"0.23.40\"\n  },\n  \"proxy_features\": [\n    \"socks5\",\n    \"http\",\n    \"mixed\",\n    \"vless\",\n    \"hysteria2\",\n    \"shadowsocks\",\n    \"trojan\",\n    \"vmess\",\n    \"mieru\",\n    \"wireguard\",\n    \"dns\",\n    \"host-network-stats\"\n  ],\n  \"runtime_workers\": 1,\n  \"observer_tokio_tasks_spawned\": 0,\n  \"measurement_scope\": \"public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes\",\n  \"observer_source_sha256\": {\n    \"driver.rs\": \"feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178\",\n    \"main.rs\": \"49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36\",\n    \"metrics.rs\": \"d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583\"\n  }\n}\n",
+        "task_peak_sampled": 21,
+        "tokio_global_queue_depth_peak_sampled": 1,
+        "application_pending_payload_bytes_peak": null,
+        "application_queue_reason": "no public owner accounting API; no RSS estimate",
+        "phases": {
+          "before_proxy": {
+            "samples": 22,
+            "alive_tasks_min": 0,
+            "alive_tasks_max": 3,
+            "global_queue_depth_max": 1
+          },
+          "policy_epoch_0": {
+            "samples": 10,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_1": {
+            "samples": 110,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_2": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_3": {
+            "samples": 111,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_4": {
+            "samples": 111,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 21,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_5": {
+            "samples": 13,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_6": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_7": {
+            "samples": 13,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_8": {
+            "samples": 112,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 21,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_9": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_10": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 1
+          },
+          "policy_epoch_11": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_12": {
+            "samples": 111,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_13": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_14": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_15": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_16": {
+            "samples": 332,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "shutdown_with_sources_live": {
+            "samples": 2,
+            "alive_tasks_min": 0,
+            "alive_tasks_max": 0,
+            "global_queue_depth_max": 0
+          },
+          "after_shutdown_and_owner_drop": {
+            "samples": 29,
+            "alive_tasks_min": 0,
+            "alive_tasks_max": 0,
+            "global_queue_depth_max": 0
+          }
+        }
+      },
+      "actual_network_invalidations": []
+    },
+    {
+      "packets_and_os": {
+        "trial": 2,
+        "payload_bytes": 1024,
+        "actual_source_peer_count": 16,
+        "steady": {
+          "sent": 816,
+          "unique_received": 816,
+          "not_observed": 0
+        },
+        "overlapping_reload": {
+          "sent": 1456,
+          "unique_received": 1410,
+          "not_observed": 46,
+          "actual_sends_within_apply_interval": 97,
+          "echo_receives_within_apply_interval": 100
+        },
+        "apply_failures": [],
+        "packet_errors": [],
+        "bursts": {
+          "31": {
+            "sent": 496,
+            "unique_received": 271,
+            "not_observed": 225,
+            "duplicates": 0
+          },
+          "32": {
+            "sent": 512,
+            "unique_received": 321,
+            "not_observed": 191,
+            "duplicates": 0
+          },
+          "33": {
+            "sent": 528,
+            "unique_received": 338,
+            "not_observed": 190,
+            "duplicates": 0
+          }
+        },
+        "burst_errors": [],
+        "active_business_flows_peak_observed": 16,
+        "distinct_business_flow_ids_observed": 272,
+        "echo_correlated_direct_fd_peak_sampled": 16,
+        "distinct_echo_correlated_direct_socket_inodes_sampled": 272,
+        "process_fd_peak_sampled": 27,
+        "process_udp_fd_peak_sampled": 17,
+        "kernel_vmhwm_max_observed_bytes": 58740736,
+        "native_threads_peak_sampled": 6,
+        "own_udp_kernel_rx_queue_peak_sampled_bytes": 138240,
+        "ingress_inode_observed_in_all_samples_with_udp": true,
+        "egress_generations_observed": [
+          0
+        ],
+        "actual_wire_targets": [
+          [
+            "127.0.0.1",
+            36443
+          ],
+          [
+            "127.0.0.2",
+            36443
+          ],
+          [
+            "::1",
+            36443
+          ]
+        ],
+        "tokio_task_peak": null,
+        "user_queue_bytes_peak": null,
+        "exact_native_open_attempts": null,
+        "sample_count": 598,
+        "errors": [],
+        "shutdown": {
+          "graceful": true,
+          "exit_code": 0,
+          "elapsed_ns": 335870720,
+          "error": null,
+          "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+        }
+      },
+      "tokio": {
+        "shutdown_response_ok": true,
+        "runtime_workers": 1,
+        "scope": "public proxy library; CLI/IPC/Connector application tasks excluded",
+        "truncated": false,
+        "observer_tokio_tasks_spawned": 0,
+        "observer_source": "{\n  \"source_root\": \"/workspace/core-baseline-source\",\n  \"source_commit\": \"2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a\",\n  \"source_lock_sha256\": \"0275dc0ac51fad8d380056defb4e4fb651edff477d0f8e6cb0166c05ca720cd7\",\n  \"exact_direct_dependency_pins\": {\n    \"tokio\": \"1.53.3\",\n    \"serde_json\": \"1.0.154\",\n    \"rustls\": \"0.23.40\"\n  },\n  \"proxy_features\": [\n    \"socks5\",\n    \"http\",\n    \"mixed\",\n    \"vless\",\n    \"hysteria2\",\n    \"shadowsocks\",\n    \"trojan\",\n    \"vmess\",\n    \"mieru\",\n    \"wireguard\",\n    \"dns\",\n    \"host-network-stats\"\n  ],\n  \"runtime_workers\": 1,\n  \"observer_tokio_tasks_spawned\": 0,\n  \"measurement_scope\": \"public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes\",\n  \"observer_source_sha256\": {\n    \"driver.rs\": \"feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178\",\n    \"main.rs\": \"49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36\",\n    \"metrics.rs\": \"d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583\"\n  }\n}\n",
+        "task_peak_sampled": 21,
+        "tokio_global_queue_depth_peak_sampled": 0,
+        "application_pending_payload_bytes_peak": null,
+        "application_queue_reason": "no public owner accounting API; no RSS estimate",
+        "phases": {
+          "before_proxy": {
+            "samples": 21,
+            "alive_tasks_min": 0,
+            "alive_tasks_max": 3,
+            "global_queue_depth_max": 0
+          },
+          "ready_idle": {
+            "samples": 1,
+            "alive_tasks_min": 3,
+            "alive_tasks_max": 3,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_0": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_1": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_2": {
+            "samples": 13,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_3": {
+            "samples": 109,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 21,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_4": {
+            "samples": 15,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_5": {
+            "samples": 14,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_6": {
+            "samples": 13,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_7": {
+            "samples": 14,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_8": {
+            "samples": 126,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_9": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_10": {
+            "samples": 111,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_11": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_12": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_13": {
+            "samples": 111,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_14": {
+            "samples": 11,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_15": {
+            "samples": 12,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 20,
+            "global_queue_depth_max": 0
+          },
+          "policy_epoch_16": {
+            "samples": 330,
+            "alive_tasks_min": 19,
+            "alive_tasks_max": 19,
+            "global_queue_depth_max": 0
+          },
+          "shutdown_with_sources_live": {
+            "samples": 2,
+            "alive_tasks_min": 0,
+            "alive_tasks_max": 0,
+            "global_queue_depth_max": 0
+          },
+          "after_shutdown_and_owner_drop": {
+            "samples": 29,
+            "alive_tasks_min": 0,
+            "alive_tasks_max": 0,
+            "global_queue_depth_max": 0
+          }
+        }
+      },
+      "actual_network_invalidations": []
+    }
+  ]
+}
