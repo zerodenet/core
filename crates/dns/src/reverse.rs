@@ -64,7 +64,19 @@ impl RealIpReverseIndex {
             && self.inner.max_ttl == Duration::from_secs(config.max_ttl_seconds)
     }
 
+    #[cfg(test)]
     pub(crate) async fn record(&self, domain: &str, addresses: &[IpAddress], ttl_seconds: u32) {
+        self.record_if(domain, addresses, ttl_seconds, || true)
+            .await;
+    }
+
+    pub(crate) async fn record_if(
+        &self,
+        domain: &str,
+        addresses: &[IpAddress],
+        ttl_seconds: u32,
+        current: impl FnOnce() -> bool,
+    ) {
         let Ok(domain) = normalize_domain(domain) else {
             return;
         };
@@ -77,6 +89,9 @@ impl RealIpReverseIndex {
         }
 
         let mut state = self.inner.state.lock().await;
+        if !crate::coordinator::query_is_observed() || !current() {
+            return;
+        }
         remove_expired(&mut state);
         for address in addresses.iter().copied() {
             if !state.entries.contains_key(&address)

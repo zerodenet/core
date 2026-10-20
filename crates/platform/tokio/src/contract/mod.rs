@@ -3,11 +3,13 @@ pub mod admission;
 pub mod component;
 pub mod context;
 pub mod datagram;
+pub mod dns;
 pub mod inbound;
 pub mod lifecycle;
 pub mod network;
 pub mod packet;
 pub mod scope;
+pub mod service;
 pub mod stream;
 
 pub use tokio_util::sync::CancellationToken;

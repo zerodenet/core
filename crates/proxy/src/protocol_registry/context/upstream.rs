@@ -2,6 +2,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use zero_dns::DnsSystem;
+use zero_platform_tokio::contract::{
+    dns::{DnsQueryContext, DnsQueryRole, DnsRequest, DnsService},
+    ChannelError, Reason,
+};
 use zero_traits::IpAddress;
 
 use crate::transport::DirectConnector;
@@ -166,23 +170,66 @@ impl UpstreamConnectServices {
     }
 }
 
-#[derive(Debug)]
 struct NodeHostResolver {
-    resolver: Arc<DnsSystem>,
+    resolver: Arc<dyn DnsService>,
+}
+impl std::fmt::Debug for NodeHostResolver {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NodeHostResolver")
+            .finish_non_exhaustive()
+    }
 }
 
 impl zero_transport::OutboundHostResolver for NodeHostResolver {
     fn resolve(&self, host: String, port: u16) -> zero_transport::OutboundHostResolveFuture {
         let resolver = self.resolver.clone();
         Box::pin(async move {
-            resolver.resolve_node(&host).await.map(|addresses| {
-                addresses
-                    .into_iter()
-                    .map(|address| SocketAddr::new(ip_address_to_std(address), port))
-                    .collect()
-            })
+            resolver
+                .resolve(
+                    DnsRequest::new(host, DnsQueryRole::Node),
+                    DnsQueryContext::default(),
+                )
+                .await
+                .map(|answer| {
+                    answer
+                        .addresses
+                        .into_iter()
+                        .map(|address| SocketAddr::new(ip_address_to_std(address), port))
+                        .collect()
+                })
+                .map_err(dns_error)
         })
     }
+}
+
+#[derive(Debug)]
+struct LegacyDnsError(ChannelError);
+impl std::fmt::Display for LegacyDnsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match std::error::Error::source(&self.0) {
+            Some(source) => std::fmt::Display::fmt(source, f),
+            None => std::fmt::Display::fmt(&self.0, f),
+        }
+    }
+}
+impl std::error::Error for LegacyDnsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+fn dns_error(error: ChannelError) -> std::io::Error {
+    let kind = match error.reason {
+        Reason::Timeout => std::io::ErrorKind::TimedOut,
+        Reason::Cancelled => std::io::ErrorKind::Interrupted,
+        Reason::StalePlan | Reason::Revoked => std::io::ErrorKind::NotConnected,
+        Reason::InvalidConfig => std::io::ErrorKind::InvalidInput,
+        _ => std::error::Error::source(&error)
+            .and_then(|source| source.downcast_ref::<std::io::Error>())
+            .map(std::io::Error::kind)
+            .unwrap_or(std::io::ErrorKind::Other),
+    };
+    std::io::Error::new(kind, LegacyDnsError(error))
 }
 
 fn ip_address_to_std(address: IpAddress) -> std::net::IpAddr {

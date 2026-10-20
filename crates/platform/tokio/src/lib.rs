@@ -19,6 +19,7 @@ use zero_traits::{
 };
 
 mod datagram;
+mod network_service;
 mod dial;
 pub use dial::validate_dial_policy;
 

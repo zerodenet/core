@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{Mutex, Notify};
+use tokio::task::JoinSet;
+use tokio::time::Instant as Deadline;
 use zero_traits::AddressFamily;
 #[cfg(test)]
 use zero_traits::IpAddress;
@@ -58,46 +60,37 @@ impl QueryKey {
     }
 }
 
+mod dependency;
+mod flight;
+use dependency::Dependency;
+use flight::{Flight, SharedError, Waiter};
+
 #[derive(Debug, Clone)]
 pub(super) struct QueryCoordinator<T> {
     state: Arc<Mutex<CoordinatorState<T>>>,
+    graph: Arc<Mutex<dependency::Graph>>,
 }
 
-#[derive(Debug)]
-struct CoordinatorState<T> {
-    observed_egress_generation: Option<u64>,
-    in_flight: HashMap<QueryKey, Arc<Flight<T>>>,
-    failures: HashMap<QueryKey, CachedFailure>,
-}
-
-#[derive(Debug)]
-struct Flight<T> {
-    result: StdMutex<Option<SharedResult<T>>>,
-    abort_handle: StdMutex<Option<tokio::task::AbortHandle>>,
-    completed: Notify,
-}
-
-type SharedResult<T> = Result<T, SharedError>;
-
-#[derive(Debug, Clone)]
-struct SharedError {
-    kind: io::ErrorKind,
-    message: Arc<str>,
-}
-
-#[derive(Debug)]
-struct CachedFailure {
-    error: SharedError,
-    expires_at: Instant,
-}
+mod state;
+use state::{CachedFailure, CoordinatorState};
 
 impl<T> Default for QueryCoordinator<T> {
     fn default() -> Self {
+        Self::with_graph(Arc::new(Mutex::new(dependency::Graph::default())))
+    }
+}
+
+impl<T> QueryCoordinator<T> {
+    pub(crate) fn with_graph(graph: Arc<Mutex<dependency::Graph>>) -> Self {
         Self {
+            graph,
             state: Arc::new(Mutex::new(CoordinatorState {
+                closing: false,
                 observed_egress_generation: None,
                 in_flight: HashMap::new(),
                 failures: HashMap::new(),
+                tasks: JoinSet::new(),
+                task_failure: None,
             })),
         }
     }
@@ -107,17 +100,48 @@ impl<T> QueryCoordinator<T>
 where
     T: Clone + Send + 'static,
 {
-    /// Coalesce identical DNS work and briefly retain failures so a burst of
-    /// sessions cannot amplify one backend timeout into a resolution storm.
-    /// A topology generation change isolates new queries from old in-flight
-    /// work and drops stale negative results immediately.
+    pub(crate) fn shared_graph(&self) -> Arc<Mutex<dependency::Graph>> {
+        self.graph.clone()
+    }
+
+    pub(super) fn ensure_open(&self) -> io::Result<()> {
+        let mut state = self.state.lock().expect("DNS coordinator poisoned");
+        state.reap_finished();
+        if state.closing {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "DNS coordinator is closing",
+            ));
+        }
+        match &state.task_failure {
+            Some(error) => Err(error.to_io_error()),
+            None => Ok(()),
+        }
+    }
     pub(super) async fn resolve<F>(&self, key: QueryKey, resolution: F) -> io::Result<T>
     where
         F: Future<Output = io::Result<T>> + Send + 'static,
     {
+        let dependency = Dependency::new(
+            Arc::as_ptr(&self.state) as usize,
+            key.clone(),
+            self.graph.clone(),
+        );
+        let _edge = dependency::connect(&dependency)?;
+        let mut chain = dependency::extend(dependency.clone())?;
         let now = Instant::now();
         let (flight, leader) = {
-            let mut state = self.state.lock().await;
+            let mut state = self.state.lock().expect("DNS coordinator poisoned");
+            state.reap_finished();
+            if state.closing {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "DNS coordinator is closing",
+                ));
+            }
+            if let Some(error) = &state.task_failure {
+                return Err(error.to_io_error());
+            }
             if state
                 .observed_egress_generation
                 .is_some_and(|observed| key.scope.egress_generation < observed)
@@ -130,7 +154,10 @@ where
             if state.observed_egress_generation != Some(key.scope.egress_generation) {
                 state.observed_egress_generation = Some(key.scope.egress_generation);
                 for flight in state.in_flight.drain().map(|(_, flight)| flight) {
-                    flight.cancel_for_topology_change();
+                    flight.cancel(io::Error::new(
+                        io::ErrorKind::NotConnected,
+                        "DNS query cancelled after TUN egress changed",
+                    ));
                 }
                 state.failures.clear();
             } else {
@@ -139,38 +166,33 @@ where
             if let Some(failure) = state.failures.get(&key) {
                 return Err(failure.error.to_io_error());
             }
-            match state.in_flight.get(&key) {
-                Some(flight) => (Arc::clone(flight), false),
+            let selected = match state.in_flight.get(&key) {
+                Some(flight) => (flight.clone(), false),
                 None => {
-                    let flight = Arc::new(Flight {
-                        result: StdMutex::new(None),
-                        abort_handle: StdMutex::new(None),
-                        completed: Notify::new(),
-                    });
-                    state.in_flight.insert(key.clone(), Arc::clone(&flight));
+                    let flight = Arc::new(Flight::new());
+                    state.in_flight.insert(key.clone(), flight.clone());
                     (flight, true)
                 }
-            }
+            };
+            selected.0.waiters.fetch_add(1, Ordering::AcqRel);
+            selected
         };
-
+        let _waiter = Waiter {
+            state: self.state.clone(),
+            key: key.clone(),
+            flight: flight.clone(),
+        };
         if leader {
+            chain.last_mut().expect("current DNS dependency").observers =
+                Some(flight.waiters.clone());
             let coordinator = self.clone();
-            let task_flight = Arc::clone(&flight);
-            let task = tokio::spawn(async move {
+            let task_flight = flight.clone();
+            let job = dependency::ACTIVE.scope(chain, async move {
                 let result = resolution.await.map_err(SharedError::from);
-                {
-                    let mut stored = task_flight
-                        .result
-                        .lock()
-                        .expect("DNS flight result lock poisoned");
-                    if stored.is_some() {
-                        return;
-                    }
-                    *stored = Some(result.clone());
+                if !task_flight.complete(result.clone()) {
+                    return;
                 }
-                task_flight.completed.notify_waiters();
-
-                let mut state = coordinator.state.lock().await;
+                let mut state = coordinator.state.lock().expect("DNS coordinator poisoned");
                 if state
                     .in_flight
                     .get(&key)
@@ -183,89 +205,69 @@ where
                         state.failures.insert(
                             key,
                             CachedFailure {
-                                expires_at: Instant::now() + negative_ttl(error.kind),
+                                expires_at: Instant::now() + negative_ttl(error.kind()),
                                 error,
                             },
                         );
                     }
                 }
             });
-            flight.set_abort_handle(task.abort_handle());
+            let mut state = self.state.lock().expect("DNS coordinator poisoned");
+            let task = state.tasks.spawn(job);
+            flight.set_abort_handle(task);
         }
-
-        flight.wait().await.map_err(|error| error.to_io_error())
-    }
-}
-
-impl<T> Flight<T>
-where
-    T: Clone,
-{
-    async fn wait(&self) -> SharedResult<T> {
         loop {
-            let notified = self.completed.notified();
-            if let Some(result) = self
-                .result
-                .lock()
-                .expect("DNS flight result lock poisoned")
-                .clone()
-            {
-                return result;
-            }
-            notified.await;
-        }
-    }
-
-    fn set_abort_handle(&self, handle: tokio::task::AbortHandle) {
-        if self
-            .result
-            .lock()
-            .expect("DNS flight result lock poisoned")
-            .is_some()
-        {
-            handle.abort();
-            return;
-        }
-        *self
-            .abort_handle
-            .lock()
-            .expect("DNS flight abort lock poisoned") = Some(handle);
-    }
-
-    fn cancel_for_topology_change(&self) {
-        {
-            let mut result = self.result.lock().expect("DNS flight result lock poisoned");
-            if result.is_none() {
-                *result = Some(Err(SharedError {
-                    kind: io::ErrorKind::NotConnected,
-                    message: Arc::from("DNS query cancelled after TUN egress changed"),
-                }));
+            tokio::select! { biased;
+                result = flight.wait() => return result.map_err(|error|error.to_io_error()),
+                _ = self.next_task_exit() => {},
             }
         }
-        if let Some(handle) = self
-            .abort_handle
-            .lock()
-            .expect("DNS flight abort lock poisoned")
-            .take()
+    }
+
+    async fn next_task_exit(&self) -> bool {
+        std::future::poll_fn(|cx| {
+            let mut state = self.state.lock().expect("DNS coordinator poisoned");
+            match state.tasks.poll_join_next(cx) {
+                std::task::Poll::Ready(Some(result)) => {
+                    state.observe_exit(result);
+                    std::task::Poll::Ready(true)
+                }
+                std::task::Poll::Ready(None) => std::task::Poll::Ready(false),
+                std::task::Poll::Pending => std::task::Poll::Pending,
+            }
+        })
+        .await
+    }
+
+    /// Cancellation/timeout retains the actual JoinSet so the owning DNS host
+    /// can retry confirmation. This confirms worker exit only, not pooled I/O.
+    pub(super) async fn shutdown(&self, deadline: Deadline) -> io::Result<()> {
         {
-            handle.abort();
+            let mut state = self.state.lock().expect("DNS coordinator poisoned");
+            state.closing = true;
+            for flight in state.in_flight.drain().map(|(_, flight)| flight) {
+                flight.cancel(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "DNS coordinator stopped",
+                ));
+            }
+            state.tasks.abort_all();
         }
-        self.completed.notify_waiters();
-    }
-}
-
-impl From<io::Error> for SharedError {
-    fn from(error: io::Error) -> Self {
-        Self {
-            kind: error.kind(),
-            message: Arc::from(error.to_string()),
+        while tokio::time::timeout_at(deadline, self.next_task_exit())
+            .await
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::TimedOut, "DNS worker exit is not confirmed")
+            })?
+        {}
+        match &self
+            .state
+            .lock()
+            .expect("DNS coordinator poisoned")
+            .task_failure
+        {
+            Some(error) => Err(error.to_io_error()),
+            None => Ok(()),
         }
-    }
-}
-
-impl SharedError {
-    fn to_io_error(&self) -> io::Error {
-        io::Error::new(self.kind, self.message.to_string())
     }
 }
 
@@ -276,6 +278,8 @@ fn negative_ttl(kind: io::ErrorKind) -> Duration {
         _ => Duration::from_secs(1),
     }
 }
+
+pub(crate) use dependency::query_is_observed;
 
 #[cfg(test)]
 mod tests;

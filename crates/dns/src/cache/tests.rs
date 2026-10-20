@@ -113,3 +113,48 @@ async fn isolates_entries_by_query_role() {
         .await
         .is_none());
 }
+
+#[tokio::test]
+async fn final_caller_cancelled_while_cache_lock_is_held_cannot_commit() {
+    use crate::coordinator::{QueryCoordinator, QueryKey};
+    let cache = cache(4);
+    let coordinator = QueryCoordinator::<Vec<IpAddress>>::default();
+    let egress = zero_platform_tokio::EgressInterfaceControl::default();
+    let scope = QueryScope::new(DnsQueryRole::Default, egress.generation());
+    let guard = cache.inner.state.lock().await;
+    let (entered, received) = tokio::sync::oneshot::channel();
+    let caller = {
+        let cache = cache.clone();
+        let coordinator = coordinator.clone();
+        tokio::spawn(async move {
+            coordinator
+                .resolve(QueryKey::new("cancelled.test", 1, scope), async move {
+                    entered.send(()).unwrap();
+                    cache
+                        .put(
+                            scope,
+                            "cancelled.test",
+                            1,
+                            vec![IpAddress::V4([192, 0, 2, 10])],
+                            60,
+                        )
+                        .await;
+                    Ok(vec![])
+                })
+                .await
+        })
+    };
+    received.await.unwrap();
+    assert!(
+        !caller.is_finished(),
+        "query is suspended on the actual cache lock"
+    );
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    drop(guard);
+    coordinator
+        .shutdown(tokio::time::Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert!(cache.get(scope, "cancelled.test", 1).await.is_none());
+}

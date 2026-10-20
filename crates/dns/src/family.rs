@@ -23,20 +23,31 @@ impl DnsSystem {
         domain: &str,
         family: AddressFamily,
     ) -> io::Result<Vec<IpAddress>> {
+        self.resolve_real_for_role_with_family(domain, DnsQueryRole::Direct, family)
+            .await
+    }
+
+    pub(crate) async fn resolve_real_for_role_with_family(
+        &self,
+        domain: &str,
+        role: DnsQueryRole,
+        family: AddressFamily,
+    ) -> io::Result<Vec<IpAddress>> {
         if family == AddressFamily::Auto {
-            return self.resolve_direct(domain).await;
+            return self.resolve_real_for_role(domain, role).await;
         }
         let domain = message::normalize_domain(domain)?;
         let (snapshot, config_generation) = self.snapshot_with_generation();
         match snapshot {
             Some(mut snapshot) => {
+                snapshot.ensure_query_role(role)?;
                 snapshot.family = family;
                 snapshot.policy.address_family = match family {
                     AddressFamily::OnlyIpv4 => DnsAddressFamilyPolicy::Ipv4Only,
                     AddressFamily::OnlyIpv6 => DnsAddressFamilyPolicy::Ipv6Only,
                     AddressFamily::Auto => unreachable!("automatic family returned above"),
                 };
-                resolve_snapshot(&domain, DnsQueryRole::Direct, snapshot).await
+                resolve_snapshot(&domain, role, snapshot).await
             }
             None => {
                 let query_type = match family {
@@ -47,7 +58,7 @@ impl DnsSystem {
                 self.resolve_system_type_with_family_coordinated(
                     &domain,
                     query_type,
-                    DnsQueryRole::Direct,
+                    role,
                     family,
                     config_generation,
                 )
@@ -58,6 +69,33 @@ impl DnsSystem {
 }
 
 impl ResolveSnapshot {
+    pub(crate) fn ensure_query_role(&self, role: DnsQueryRole) -> io::Result<()> {
+        if role != DnsQueryRole::Bootstrap {
+            return Ok(());
+        }
+        let node = self.policy.node_server.as_deref().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "bootstrap resolution requires an explicit node DNS server",
+            )
+        })?;
+        for tag in std::iter::once(node)
+            .chain(self.policy.node_fallback_servers.iter().map(String::as_str))
+        {
+            if self
+                .servers
+                .get(tag)
+                .is_none_or(|server| server.detour.is_some())
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "bootstrap DNS servers must be present and have no detour",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn query_scope(&self, role: DnsQueryRole) -> QueryScope {
         QueryScope {
             role,

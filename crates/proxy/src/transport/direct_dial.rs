@@ -3,7 +3,13 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use zero_platform_tokio::{EgressInterfaceControl, EgressSelection, TcpConnectError, TokioSocket};
+use zero_core::component::NetworkGeneration;
+use zero_platform_tokio::contract::{
+    network::CarrierContext,
+    service::{NetworkService, TcpNetworkRequest},
+    CancellationToken,
+};
+use zero_platform_tokio::{EgressInterfaceControl, EgressSelection, TokioSocket};
 
 const CANDIDATE_DELAY: Duration = Duration::from_millis(250);
 const CANDIDATE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -212,56 +218,42 @@ async fn dial_tcp_candidate(
         }));
     }
 
-    match tokio::time::timeout(
-        CANDIDATE_TIMEOUT,
-        TokioSocket::connect_addr_with_policy_observed(remote, &policy, &selection),
-    )
-    .await
+    match egress
+        .open_tcp(
+            TcpNetworkRequest {
+                peer: remote,
+                dial: policy.clone(),
+                generation: NetworkGeneration(selection.generation()),
+            },
+            CarrierContext {
+                session: None,
+                deadline: Some(tokio::time::Instant::now() + CANDIDATE_TIMEOUT),
+                cancel: CancellationToken::new(),
+            },
+        )
+        .await
     {
-        Ok(Ok(socket)) => {
-            let local_addr = socket.local_addr().ok();
-            Ok(TcpDialSuccess {
-                socket,
-                remote,
-                resolved_candidates: Vec::new(),
-                selection,
-                attempts: Vec::new(),
-                candidate_index,
-                local_addr,
-            })
-        }
-        Ok(Err(error)) => Err(connect_failure(candidate_index, remote, selection, error)),
-        Err(_) => Err(Box::new(TcpDialFailure {
+        Ok(opened) => Ok(TcpDialSuccess {
+            socket: opened.io,
+            remote: opened.remote,
+            resolved_candidates: Vec::new(),
+            selection,
+            attempts: Vec::new(),
+            candidate_index,
+            local_addr: Some(opened.local),
+        }),
+        Err(failure) => Err(Box::new(TcpDialFailure {
             remote,
             resolved_candidates: Vec::new(),
-            interface_bound: selection.interface().is_some(),
             selection,
-            stage: "connect_timeout",
-            local_addr: None,
-            error: io::Error::new(io::ErrorKind::TimedOut, "TCP candidate connect timed out"),
+            stage: failure.operation,
+            interface_bound: failure.interface_bound,
+            local_addr: failure.local,
+            error: failure.source,
             attempts: Vec::new(),
             candidate_index,
         })),
     }
-}
-
-fn connect_failure(
-    candidate_index: usize,
-    remote: SocketAddr,
-    selection: EgressSelection,
-    error: TcpConnectError,
-) -> Box<TcpDialFailure> {
-    Box::new(TcpDialFailure {
-        remote,
-        resolved_candidates: Vec::new(),
-        selection,
-        stage: error.stage(),
-        interface_bound: error.interface_bound(),
-        local_addr: error.local_addr(),
-        error: error.into_inner(),
-        attempts: Vec::new(),
-        candidate_index,
-    })
 }
 
 impl TcpDialSuccess {

@@ -42,3 +42,34 @@ async fn expires_candidates_and_evicts_addresses_by_lru() {
     tokio::time::sleep(Duration::from_millis(1_050)).await;
     assert_eq!(index.lookup(first).await, RealIpReverseLookup::Missing);
 }
+
+#[tokio::test]
+async fn network_change_while_waiting_for_reverse_lock_blocks_the_obsolete_write() {
+    let index = index(8, 60);
+    let address = IpAddress::V4([192, 0, 2, 10]);
+    let egress = zero_platform_tokio::EgressInterfaceControl::default();
+    let generation = egress.generation();
+    let guard = index.inner.state.lock().await;
+    let (entered, received) = tokio::sync::oneshot::channel();
+    let writer = {
+        let index = index.clone();
+        let egress = egress.clone();
+        tokio::spawn(async move {
+            entered.send(()).unwrap();
+            index
+                .record_if("obsolete.test", &[address], 60, || {
+                    egress.generation() == generation
+                })
+                .await;
+        })
+    };
+    received.await.unwrap();
+    assert!(
+        !writer.is_finished(),
+        "writer is suspended on the actual reverse lock"
+    );
+    egress.invalidate_network();
+    drop(guard);
+    writer.await.unwrap();
+    assert_eq!(index.lookup(address).await, RealIpReverseLookup::Missing);
+}

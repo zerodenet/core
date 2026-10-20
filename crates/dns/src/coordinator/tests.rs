@@ -164,3 +164,6 @@ async fn negative_results_are_scoped_by_family_and_config_generation() {
         vec![IpAddress::V4([192, 0, 2, 2])]
     );
 }
+
+mod cancellation;
+mod dependency;

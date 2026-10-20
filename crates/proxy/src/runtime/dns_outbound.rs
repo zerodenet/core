@@ -71,6 +71,27 @@ impl fmt::Debug for ProxyDnsOutboundConnector {
     }
 }
 
+#[derive(Debug)]
+struct DnsDetourFailure {
+    outbound: String,
+    stage: &'static str,
+    source: zero_engine::EngineError,
+}
+impl fmt::Display for DnsDetourFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "DNS detour `{}` failed at {}: {}",
+            self.outbound, self.stage, self.source
+        )
+    }
+}
+impl std::error::Error for DnsDetourFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
 impl DnsOutboundConnector for ProxyDnsOutboundConnector {
     fn connect(&self, outbound: String, endpoint: SocketAddr) -> DnsOutboundConnectFuture {
         let connector = self.clone();
@@ -108,15 +129,20 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
             )
             .await
             .map_err(|failure| {
-                io::Error::other(format!(
-                    "DNS detour `{outbound}` failed at {}: {}",
-                    failure.stage, failure.error
-                ))
+                io::Error::other(DnsDetourFailure {
+                    outbound: outbound.clone(),
+                    stage: failure.stage,
+                    source: failure.error,
+                })
             })?;
             extract_tcp_stream(established)
                 .map(|result| result.upstream)
-                .map_err(|error| {
-                    io::Error::other(format!("DNS detour `{outbound}` failed: {error}"))
+                .map_err(|source| {
+                    io::Error::other(DnsDetourFailure {
+                        outbound,
+                        stage: "extract_stream",
+                        source,
+                    })
                 })
         })
     }

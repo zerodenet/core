@@ -267,6 +267,9 @@ impl DnsCache {
         effective_ttl: Duration,
     ) {
         let mut state = self.inner.state.lock().await;
+        if !crate::coordinator::query_is_observed() {
+            return;
+        }
         remove_expired(&mut state);
         if !state.entries.contains_key(&key) && state.entries.len() >= self.inner.max_entries {
             if let Some(lru) = state
