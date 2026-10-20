@@ -7,7 +7,11 @@ type CancelWatch = Pin<Box<dyn Future<Output = (SessionId, AssociationId)> + Sen
 struct DriverGuard(Arc<Shared>);
 impl Drop for DriverGuard {
     fn drop(&mut self) {
-        let mut state = self.0.state.lock().expect("Direct endpoint state poisoned");
+        let mut state = self
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if !state.closing {
             state.failure.get_or_insert_with(|| {
                 Arc::new(
@@ -31,7 +35,11 @@ impl Shared {
         sockets: &mut DirectUdpSockets,
         watches: &mut FuturesUnordered<CancelWatch>,
     ) {
-        let mut state = self.state.lock().expect("Direct endpoint state poisoned");
+        sockets.refresh_if_stale();
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         for (session, entry) in state
             .sessions
             .extract_if(.., |_, entry| entry.logical.cancel.is_cancelled())
@@ -61,7 +69,10 @@ impl Shared {
         }
     }
     fn deliver(&self, bytes: &[u8], source: DirectUdpResponseSource) {
-        let state = self.state.lock().expect("Direct endpoint state poisoned");
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(entry) = source
             .session_id
             .and_then(|id| state.sessions.get(&SessionId(id)))
@@ -72,9 +83,16 @@ impl Shared {
         if logical.cancel.is_cancelled() || !source.is_current() {
             return;
         }
-        let Ok(permit) = logical.responses.try_reserve() else {
-            self.drop_queued();
-            return;
+        let permit = match logical.responses.try_reserve() {
+            Ok(permit) => permit,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.drop_queued(zero_traits::PacketDropReason::QueueFull);
+                return;
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                self.drop_queued(zero_traits::PacketDropReason::QueueClosed);
+                return;
+            }
         };
         if logical
             .bytes
@@ -84,7 +102,7 @@ impl Shared {
             })
             .is_err()
         {
-            self.drop_queued();
+            self.drop_queued(zero_traits::PacketDropReason::QueueFull);
             return;
         }
         permit.send(Response {
@@ -94,9 +112,9 @@ impl Shared {
         });
         logical.changed.notify_waiters();
     }
-    fn drop_queued(&self) {
+    fn drop_queued(&self, reason: zero_traits::PacketDropReason) {
         if let Some(observer) = &self.observer {
-            observer.dropped_reason(zero_traits::PacketDropReason::QueueFull);
+            observer.dropped_reason(reason);
         }
     }
 }

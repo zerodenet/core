@@ -11,7 +11,7 @@ impl std::fmt::Debug for DirectEndpointOwner {
             .shared
             .state
             .lock()
-            .expect("Direct endpoint state poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         f.debug_struct("DirectEndpointOwner")
             .field("identity", &self.shared.identity)
             .field("started", &state.started)
@@ -27,7 +27,7 @@ impl ResourceLifecycle for DirectEndpointOwner {
             .shared
             .state
             .lock()
-            .expect("Direct endpoint state poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.closing || self.shared.scope_cancel.is_cancelled() {
             return Err(error(
                 Stage::Prepare,
@@ -87,7 +87,7 @@ impl ResourceLifecycle for DirectEndpointOwner {
             .shared
             .state
             .lock()
-            .expect("Direct endpoint state poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.closing = true;
         for entry in state.sessions.values() {
             entry.logical.cancel.cancel();
@@ -105,7 +105,7 @@ impl ResourceLifecycle for DirectEndpointOwner {
             self.shared
                 .state
                 .lock()
-                .expect("Direct endpoint state poisoned")
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .failure = Some(source.clone());
             self.failures.push((failure.id, failure.class, source));
         }
@@ -126,7 +126,7 @@ impl ResourceLifecycle for DirectEndpointOwner {
                         .shared
                         .state
                         .lock()
-                        .expect("Direct endpoint state poisoned");
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     for (_, entry) in std::mem::take(&mut state.sessions) {
                         entry.logical.closed.store(true, Ordering::Release);
                         entry.logical.changed.notify_waiters();

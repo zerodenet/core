@@ -172,7 +172,11 @@ impl DirectEndpoint {
         policy: DirectUdpPolicy,
         cancel: CancellationToken,
     ) -> Result<DirectEndpointSession, ChannelError> {
-        let mut state = self.0.state.lock().expect("Direct endpoint state poisoned");
+        let mut state = self
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(source) = &state.failure {
             return Err(
                 error(Stage::Prepare, Reason::Io, DeliveryState::NotSubmitted)
