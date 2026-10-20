@@ -97,3 +97,65 @@ fn prepared_material_does_not_silently_replace_an_openssl_profile() {
         io::ErrorKind::Unsupported
     );
 }
+
+#[tokio::test]
+async fn same_declared_path_with_new_authorized_roots_never_reuses_the_previous_verifier() {
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let old = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let replacement = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let mut policy = profile();
+        policy.options.parameters.enable_session_resumption = true;
+        let previous =
+            PreparedClient::from_ca_pem(&policy, None, old.cert.pem().as_bytes()).unwrap();
+        let current =
+            PreparedClient::from_ca_pem(&policy, None, replacement.cert.pem().as_bytes()).unwrap();
+        for (prepared, accepted) in [(current, true), (previous, false)] {
+            let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![replacement.cert.der().clone()],
+                rustls::pki_types::PrivatePkcs8KeyDer::from(
+                    replacement.signing_key.serialize_der(),
+                )
+                .into(),
+            )
+            .unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let client = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+                .await
+                .unwrap();
+            let (peer, _) = listener.accept().await.unwrap();
+            let server = tokio::spawn(async move {
+                let result = tokio_rustls::TlsAcceptor::from(Arc::new(config))
+                    .accept(peer)
+                    .await;
+                if accepted {
+                    let mut io = result.unwrap();
+                    let mut body = Vec::new();
+                    io.read_to_end(&mut body).await.unwrap();
+                    assert!(body.is_empty());
+                    io.shutdown().await.unwrap();
+                } else {
+                    assert!(result.is_err());
+                }
+            });
+            let result = prepared.connect(client, "ignored.invalid").await;
+            if accepted {
+                let mut io = result.unwrap();
+                io.shutdown().await.unwrap();
+                let mut body = Vec::new();
+                io.read_to_end(&mut body).await.unwrap();
+                assert!(body.is_empty());
+            } else {
+                assert!(result.is_err());
+            }
+            server.await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+}
