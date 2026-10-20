@@ -134,6 +134,16 @@ jobs:
         run: |
           cargo test -p zero-platform-tokio --all-features --test platform_contracts dial_policy::
 
+      - name: Test native lifecycle and pending socket ownership
+        env:
+          RUST_MIN_STACK: "16777216"
+        run: cargo test --locked -p zero-platform-tokio --all-features --lib
+
+      - name: Test controlled TCP contracts on this platform
+        env:
+          RUST_MIN_STACK: "16777216"
+        run: cargo test --locked -p zero-platform-tokio --all-features --test platform_contracts controlled_tcp
+
       - name: Check opt-in WireGuard endpoint on this platform
         run: cargo check -p zero-proxy --no-default-features --features wireguard
 
