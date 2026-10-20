@@ -18,6 +18,7 @@ use zero_platform_tokio::contract::{
 use zero_traits::ProtocolMetadata;
 
 mod fixtures;
+mod identities;
 mod validation;
 use fixtures::registry;
 

@@ -1,5 +1,7 @@
 //! Typed cold preparation of canonical roleless resource owners.
+mod identities;
 use super::{dependencies, instance::invalid, ComponentRecipe};
+pub use identities::SharedResourceIdentities;
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
@@ -40,6 +42,7 @@ pub struct ResourcePreparation<'a> {
     resources: BTreeMap<Key, PreparedSharedResource>,
     identities: BTreeSet<ComponentId>,
     failed: Cell<bool>,
+    previous: SharedResourceIdentities,
 }
 impl<'a> ResourcePreparation<'a> {
     pub fn new(allocate: &'a mut dyn FnMut() -> Result<ComponentId, BuildError>) -> Self {
@@ -48,6 +51,7 @@ impl<'a> ResourcePreparation<'a> {
             resources: BTreeMap::new(),
             identities: BTreeSet::new(),
             failed: Cell::new(false),
+            previous: SharedResourceIdentities::default(),
         }
     }
 
@@ -102,7 +106,10 @@ impl<'a> ResourcePreparation<'a> {
             }
             return Ok(existing.component);
         }
-        let component = (self.allocate)()?;
+        let component = match self.previous.entries.get(&key) {
+            Some(&id) => id,
+            None => (self.allocate)()?,
+        };
         if !self.identities.insert(component) {
             let mut error = invalid(
                 Reason::InvalidConfig,

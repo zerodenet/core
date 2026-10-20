@@ -197,10 +197,17 @@ impl ComponentCatalog {
         let nodes: Vec<_> = std::iter::once(builtin.clone())
             .chain(outbounds.values().cloned())
             .collect();
-        let order =
-            super::dependencies::order(nodes.iter().map(|slot| (slot.id, slot.recipe.spec())))?;
-        let nodes: BTreeMap<_, _> = nodes.into_iter().map(|slot| (slot.id, slot)).collect();
-        let order = order.into_iter().map(|id| nodes[&id].clone()).collect();
+        let order = super::generations::order_and_reuse(
+            nodes,
+            previous
+                .map(|(_, plan)| plan.order.as_slice())
+                .unwrap_or_default(),
+        )?;
+        let nodes: BTreeMap<_, _> = order.iter().map(|slot| (slot.id, slot.clone())).collect();
+        let builtin = nodes[&builtin.id].clone();
+        for slot in outbounds.values_mut() {
+            *slot = nodes[&slot.id].clone();
+        }
         Ok(ComponentPlan {
             builtin,
             outbounds,

@@ -176,6 +176,7 @@ fn failed_consumer_prevents_extracting_prior_successful_resource_requests() {
         Err(RegistrationError::Unknown(_))
     ));
     assert_eq!(resources.resources().count(), 1);
+    assert!(resources.identities().is_err());
     assert!(registry
         .prepare_with_resources("direct", &(), &mut resources)
         .is_err());
