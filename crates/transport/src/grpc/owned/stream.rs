@@ -14,7 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 pub struct NativeGrpcStream {
     inner: GrpcStream,
     _lease: Lease,
-    life: Arc<Life>,
+    pub(super) life: Arc<Life>,
     failure: Mutex<Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send>>>>,
 }
 #[derive(Debug)]
