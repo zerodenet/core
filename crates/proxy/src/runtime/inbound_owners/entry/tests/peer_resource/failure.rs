@@ -42,6 +42,7 @@ async fn real_resource_read_failure_does_not_cancel_another_peers_pending_scope_
     let failed = Arc::new(Notify::new());
     owner
         .spawn_driver({
+            let host = host.clone();
             let group = group.clone();
             let pending = pending.clone();
             let failed = failed.clone();
