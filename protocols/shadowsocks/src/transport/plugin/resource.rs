@@ -27,8 +27,15 @@ impl ShadowsocksPluginResource {
         Self { plan }
     }
     pub async fn start(&self) -> io::Result<SocketAddr> {
+        self.start_with_probe(tokio::net::TcpStream::connect).await
+    }
+    async fn start_with_probe<Probe, Pending>(&self, probe: Probe) -> io::Result<SocketAddr>
+    where
+        Probe: FnMut(SocketAddr) -> Pending + Send,
+        Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>> + Send,
+    {
         self.plan
-            .acquire(self.plan.supports_tcp())
+            .acquire_with_probe(self.plan.supports_tcp(), probe)
             .await?
             .map(|lease| lease.endpoint())
             .ok_or_else(|| {

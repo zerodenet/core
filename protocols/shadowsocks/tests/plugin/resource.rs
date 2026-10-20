@@ -1,6 +1,6 @@
 use super::*;
 use crate::transport::{
-    plugin::fixtures::{config, StartupMarker},
+    plugin::fixtures::{config, PendingProbe, StartupMarker},
     ShadowsocksTransportState,
 };
 use std::{
@@ -64,9 +64,16 @@ async fn shutdown_cancels_pending_readiness_and_waits_for_the_retained_child() {
     let marker = StartupMarker::new();
     let state = ShadowsocksTransportState::default();
     let resource = state.plugin_resource("127.0.0.1", 9999, marker.config("time.sleep(60)"));
+    let pending = PendingProbe::default();
+    let probe = pending.probe();
     let starting = resource.clone();
-    let request = tokio::spawn(async move { starting.start().await });
+    let request = tokio::spawn(async move { starting.start_with_probe(probe).await });
+    pending.entered().await;
     let pid = marker.pid().await;
+    assert!(
+        !request.is_finished(),
+        "shutdown must cancel pending readiness"
+    );
     assert!(matches!(
         resource.shutdown(deadline()).await.unwrap(),
         PluginTermination::Exited(_)

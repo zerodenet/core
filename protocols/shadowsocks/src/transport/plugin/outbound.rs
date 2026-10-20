@@ -122,6 +122,18 @@ impl PluginPlan {
         self.key.config.mode.udp()
     }
     pub(crate) async fn acquire(&self, tcp: bool) -> io::Result<Option<Arc<PluginLease>>> {
+        self.acquire_with_probe(tcp, tokio::net::TcpStream::connect)
+            .await
+    }
+    pub(super) async fn acquire_with_probe<Probe, Pending>(
+        &self,
+        tcp: bool,
+        mut probe: Probe,
+    ) -> io::Result<Option<Arc<PluginLease>>>
+    where
+        Probe: FnMut(SocketAddr) -> Pending + Send,
+        Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>> + Send,
+    {
         if (tcp && !self.key.config.mode.tcp()) || (!tcp && !self.key.config.mode.udp()) {
             return Ok(None);
         }
@@ -168,10 +180,11 @@ impl PluginPlan {
             lease: running.clone(),
             armed: true,
         };
-        let readiness = process::ready_with_status(
+        let readiness = process::ready_with_probe(
             || running.child.lock().unwrap().try_wait(),
             local,
             self.key.config.mode.tcp(),
+            || probe(local),
         );
         let result = tokio::select! { biased;
             _ = self.cancel.cancelled() => Err(revoked()),

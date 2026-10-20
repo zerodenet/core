@@ -10,7 +10,13 @@ impl StartupMarker {
     pub(super) fn new() -> Self {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Self(std::env::temp_dir().join(format!("zero-ss-start-{}-{id}", std::process::id())))
+        let path = std::env::temp_dir().join(format!("zero-ss-start-{}-{id}", std::process::id()));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        Self(path)
     }
     pub(super) fn config(&self, tail: &str) -> PluginConfig {
         let mut config = config();
@@ -34,6 +40,37 @@ impl StartupMarker {
         })
         .await
         .unwrap()
+    }
+}
+
+/// Hold the real TCP probe at a known suspension point. No successful probe is
+/// fabricated: releasing the gate would execute the normal TCP connect.
+#[derive(Default)]
+pub(super) struct PendingProbe {
+    entered: std::sync::Arc<tokio::sync::Notify>,
+    release: std::sync::Arc<tokio::sync::Notify>,
+}
+type ProbeFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = std::io::Result<tokio::net::TcpStream>> + Send>,
+>;
+impl PendingProbe {
+    pub(super) fn probe(&self) -> impl FnMut(std::net::SocketAddr) -> ProbeFuture + Send + 'static {
+        let entered = self.entered.clone();
+        let release = self.release.clone();
+        move |endpoint| {
+            let entered = entered.clone();
+            let release = release.clone();
+            Box::pin(async move {
+                entered.notify_one();
+                release.notified().await;
+                tokio::net::TcpStream::connect(endpoint).await
+            })
+        }
+    }
+    pub(super) async fn entered(&self) {
+        tokio::time::timeout(std::time::Duration::from_secs(3), self.entered.notified())
+            .await
+            .unwrap();
     }
 }
 impl Drop for StartupMarker {

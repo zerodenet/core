@@ -82,6 +82,7 @@ If you change protocol behavior, config parsing, routing, or runtime wiring, run
 - Name tests after the behavior they test
 - Always add/update tests when changing config shape, protocol handling, routing, runtime behavior, or logging
 - Listener fixtures retain the actual bound socket until its worker takes ownership. A shared port-allocation mutex does not reserve endpoints against the OS or other processes.
+- Cancellation regressions establish that the actual awaited operation is still pending at an explicit I/O suspension point. A child PID marker or delay alone does not establish pending readiness; retain real child spawning, ownership and reaping assertions, and never fabricate successful probes.
 
 ## Boundaries
 

@@ -89,7 +89,7 @@ where
     .await
 }
 
-async fn ready_with_probe<Status, Probe, Pending>(
+pub(super) async fn ready_with_probe<Status, Probe, Pending>(
     mut status: Status,
     endpoint: SocketAddr,
     tcp: bool,

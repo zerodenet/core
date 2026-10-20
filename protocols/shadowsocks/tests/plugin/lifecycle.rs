@@ -1,5 +1,5 @@
 use super::*;
-use crate::transport::plugin::fixtures::{config, StartupMarker};
+use crate::transport::plugin::fixtures::{config, PendingProbe, StartupMarker};
 use crate::validation::PluginMode;
 #[tokio::test]
 async fn plugin_pool_reload_keeps_active_leases_and_exit_is_not_silently_restarted() {
@@ -92,9 +92,16 @@ async fn interrupted_plugin_start_keeps_the_actual_child_owned_and_never_respawn
     let marker = StartupMarker::new();
     let pool = PluginPool::default();
     let plan = pool.plan("127.0.0.1", 9999, marker.config("time.sleep(60)"));
+    let pending = PendingProbe::default();
+    let probe = pending.probe();
     let requesting = plan.clone();
-    let request = tokio::spawn(async move { requesting.acquire(true).await });
+    let request = tokio::spawn(async move { requesting.acquire_with_probe(true, probe).await });
+    pending.entered().await;
     let pid = marker.pid().await;
+    assert!(
+        !request.is_finished(),
+        "cancellation must interrupt pending readiness"
+    );
     request.abort();
     assert!(request.await.unwrap_err().is_cancelled());
     let retained = plan.running.lock().await.clone();
