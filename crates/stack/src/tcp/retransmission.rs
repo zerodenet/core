@@ -497,6 +497,12 @@ impl TcpSendControl {
         self.wake_io();
     }
 
+    pub(super) fn observe_transport_closed(&self) {
+        self.send_failure
+            .store(SEND_FAILURE_TRANSPORT_CLOSED, Ordering::Release);
+        self.stop();
+    }
+
     pub(super) fn expire(&self) {
         self.send_failure
             .store(SEND_FAILURE_TIMED_OUT, Ordering::Release);

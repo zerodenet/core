@@ -53,6 +53,7 @@ impl ClientUdpStack {
                 outbound,
                 mtu: usize::from(mtu),
                 next_fragment_id: AtomicU32::new(1),
+                closed: AtomicBool::new(false),
                 drop_observer,
                 receive_queue,
                 receive_budget: receive_queue.max_stack_payload_bytes.map(ByteBudget::new),
@@ -99,6 +100,9 @@ impl ClientUdpStack {
             return Err(ClientUdpStackError::UnknownLocalAddress);
         }
         let mut sockets = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
+        if self.inner.closed.load(Ordering::Acquire) {
+            return Err(ClientUdpStackError::OutboundClosed);
+        }
         if sockets.len() >= MAX_SOCKETS {
             return Err(ClientUdpStackError::SocketLimit);
         }

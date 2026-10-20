@@ -136,3 +136,96 @@ async fn rejected_client_retransmission_worker_removes_half_open_before_syn_subm
     assert!(packets.try_recv().is_err());
     owner.abort_and_join(1).await;
 }
+
+#[tokio::test]
+async fn shutdown_fails_the_actual_half_open_waiter_without_registering_replacement_workers() {
+    let owner = Owner::new(2);
+    let (client, mut packets) = client(owner.clone());
+    let mut connecting =
+        Box::pin(client.connect("10.0.0.2".parse().unwrap(), "10.0.0.1:443".parse().unwrap()));
+    std::future::poll_fn(|cx| {
+        assert!(connecting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    assert!(
+        packet::parse_tcp(&packets.recv().await.unwrap().packet)
+            .unwrap()
+            .syn
+    );
+    client.revoke();
+    assert!(matches!(
+        client
+            .connect("10.0.0.2".parse().unwrap(), "10.0.0.1:443".parse().unwrap())
+            .await,
+        Err(ClientTcpStackError::OutboundClosed)
+    ));
+    client.shutdown().await;
+    assert!(matches!(
+        connecting.await,
+        Err(ClientTcpStackError::OutboundClosed)
+    ));
+    assert!(client.connections.lock().await.is_empty());
+    assert_eq!(owner.calls.load(Ordering::SeqCst), 2);
+    let mut tasks = std::mem::take(&mut *owner.tasks.lock().unwrap());
+    assert_eq!(tasks.len(), 2);
+    tasks.abort_all();
+    while let Some(result) = tasks.join_next().await {
+        if let Err(error) = result {
+            assert!(error.is_cancelled());
+        }
+    }
+}
+
+#[tokio::test]
+async fn shutdown_wakes_original_established_stream_read_and_write_as_transport_closed() {
+    let owner = Owner::new(2);
+    let (client, mut packets) = client(owner.clone());
+    let local = "10.0.0.2".parse().unwrap();
+    let remote = "10.0.0.1:443".parse::<SocketAddr>().unwrap();
+    let mut connecting = Box::pin(client.connect(local, remote));
+    std::future::poll_fn(|cx| {
+        assert!(connecting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let syn = packets.recv().await.unwrap();
+    let syn = packet::parse_tcp(&syn.packet).unwrap();
+    let syn_ack = packet::build_tcp_with_window(
+        remote.ip(),
+        local,
+        remote.port(),
+        syn.src.port,
+        100,
+        syn.seq.wrapping_add(1),
+        packet::tcp_flags::SYN | packet::tcp_flags::ACK,
+        65535,
+        &[],
+    );
+    client.feed(&syn_ack).await;
+    let mut stream = connecting.await.unwrap();
+    let mut buffer = [0; 1];
+    let mut reading = Box::pin(stream.read(&mut buffer));
+    std::future::poll_fn(|cx| {
+        assert!(reading.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    client.shutdown().await;
+    assert_eq!(
+        reading.await.unwrap_err().kind(),
+        std::io::ErrorKind::BrokenPipe
+    );
+    assert_eq!(
+        stream.write(b"retired").await.unwrap_err().kind(),
+        std::io::ErrorKind::BrokenPipe
+    );
+    let mut tasks = std::mem::take(&mut *owner.tasks.lock().unwrap());
+    assert_eq!(tasks.len(), 2);
+    tasks.abort_all();
+    while let Some(result) = tasks.join_next().await {
+        if let Err(error) = result {
+            assert!(error.is_cancelled());
+        }
+    }
+}

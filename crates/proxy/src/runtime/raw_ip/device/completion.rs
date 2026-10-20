@@ -6,6 +6,7 @@ impl super::SharedRawIpDevice {
     /// failure in this device's persistent owner for subsequent cleanup retries.
     /// This does not certify closure of the carrier's native I/O.
     pub(crate) async fn wait_workers_stopped(&self) -> Result<(), EngineError> {
+        self.tcp.shutdown().await;
         self.task.join().await.map(|_| ())
     }
 

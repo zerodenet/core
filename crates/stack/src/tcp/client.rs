@@ -50,6 +50,7 @@ pub struct ClientTcpStack {
     mss: u16,
     mtu: usize,
     next_fragment_id: AtomicU32,
+    revoked: AtomicBool,
     task_spawner: crate::task_owner::TcpTaskSpawner,
 }
 
@@ -124,6 +125,7 @@ impl ClientTcpStack {
             mss,
             mtu: usize::from(mtu),
             next_fragment_id: AtomicU32::new(1),
+            revoked: AtomicBool::new(false),
             task_spawner,
         })
     }
@@ -148,10 +150,13 @@ impl ClientTcpStack {
         if local_ip.is_ipv4() != remote.ip().is_ipv4() {
             return Err(ClientTcpStackError::AddressFamilyMismatch);
         }
-        if !self.control_packets.ensure_worker() {
+        if self.revoked.load(Ordering::Acquire) || !self.control_packets.ensure_worker() {
             return Err(ClientTcpStackError::OutboundClosed);
         }
         let mut connections = self.connections.lock().await;
+        if self.revoked.load(Ordering::Acquire) {
+            return Err(ClientTcpStackError::OutboundClosed);
+        }
         let half_open = connections
             .values()
             .filter(|connection| connection.connect_waiter.is_some())
@@ -367,6 +372,22 @@ impl ClientTcpStack {
                 conn.receive_buffer.window(),
                 &[],
             ));
+    }
+
+    /// Fence new client flows synchronously. This is not a worker join.
+    pub fn revoke(&self) {
+        self.revoked.store(true, Ordering::Release);
+    }
+
+    /// Fail every original client flow and wake its read/write/connect waiters.
+    /// The task owner must still separately join its admitted worker futures.
+    pub async fn shutdown(&self) {
+        self.revoke();
+        let mut connections = self.connections.lock().await;
+        for (_, connection) in connections.drain() {
+            connection.send_control.observe_transport_closed();
+            connection.receive_buffer.close();
+        }
     }
 
     pub async fn cleanup_idle(&self, timeout: Duration) {

@@ -204,6 +204,8 @@ impl SharedRawIpDevice {
     pub(crate) fn close_now(&self) {
         self.retired.store(true, Ordering::Release);
         self.closed.store(true, Ordering::Release);
+        self.tcp.revoke();
+        self.udp.shutdown();
         self.task.abort();
         self.returns.clear();
     }
