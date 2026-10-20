@@ -1,3 +1,5 @@
+#![cfg(feature = "shadowsocks")]
+
 use crate::component::{
     catalog::ComponentCatalog, ComponentRegistry, RegistrationError, ResourcePreparation,
 };
