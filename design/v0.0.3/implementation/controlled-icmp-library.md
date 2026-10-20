@@ -106,3 +106,48 @@ use this same actual pool as its sole provider and link it to real task/user/
 restoration evidence. It must not relabel the resource Device or UDP, accept an
 unsupported declaration with an empty report, or bypass authorization via the
 legacy IcmpSocket path.
+
+## Canonical host authority (staged)
+
+`ResourceDeclaration::NativeIcmp { max_sockets: NonZeroUsize }` describes
+native RAW/ping originals explicitly. It grants neither ordinary UDP nor Device
+access. General `HostResources` continues to reject this declaration and its
+coverage classifier records `Unaccounted(NativeIcmp)`; a filtered empty subset
+cannot prove this capability covered. There is no generic `ResourceAccess`
+method that could create a second provider for the same declaration.
+
+The crate-private `HostIcmpProbeOwner::new(actual_instance, &declaration,
+parent_cancel)` purely constructs the same persistent `ControlledIcmpOwner`.
+The actual inbound registry must install this sole owner before start or any
+probe; `ResourceLifecycle::start` opens its admission only while the actual
+parent fence is live. `grant()` returns a Weak same-instance
+`HostIcmpProbeGrant`, not the pool/control. Grant `bind(actual_bind_ip,
+actual_host_egress)` requires Live admission, while `close(&same_view)` remains
+available during retirement and validates the platform's exact pool/entry.
+Host routing supplies egress; arbitrary protocol callers do not get this grant.
+
+Grant operations use a short nonblocking pool mutex. Contention/reentrant
+callbacks are rejected as NotSubmitted/Capacity before any native acquisition;
+this is a transient admission result, not an extra native socket budget. The
+caller must not interpret it as a successful probe. Owner cancellation is
+issued outside that mutex; canceled/absent/stale owners cannot acquire sockets.
+No task or waiter queue is added by the provider.
+
+`shutdown` explicitly closes that pool's originals; Unknown remains charged
+with the same original source and cannot become a complete report. A bounded
+cumulative counter retains actual close receipts when another entry makes
+shutdown return Err. `take_closed_io()` extracts only the not-yet-reported
+aggregate, once; busy extraction returns no new receipts, never physical proof.
+`fault()` retains the first actual ownership fault independently.
+`physical_confirmed()` refreshes the same pool under a nonblocking lock, even
+after an acquisition unwind poisoned the outer mutex; open admission, lock
+contention, live originals and Unknown all refuse confirmation. The caller
+still owes actual probe/task joins and transferred-user closure separately.
+
+The provider has three ordinary no-I/O regressions plus four ignored real-native
+regressions: pending receive/retirement/same-entry close; 65 actual acquisitions
+with cap one and real release; dead-reactor Unknown preserving the original
+source plus an earlier one-shot partial close receipt; and actual post-create
+missing-reactor panic refusing stale unused-pool proof. They require explicit
+execution by the sole Cargo owner. No compilation/runtime success is claimed
+here; the normal TUN path and production activation gate are unchanged.

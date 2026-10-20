@@ -8,7 +8,9 @@ use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
     component::ResourceAccess, packet::BoxPacketSession, BoxFuture, ChannelError, Reason,
 };
+mod icmp;
 mod native;
+pub(crate) use icmp::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 pub(crate) use native::HostDatagramListenerOwner;
 pub(in crate::component) use native::HostIoEvidence;
 pub(in crate::component) use native::HostResources;
