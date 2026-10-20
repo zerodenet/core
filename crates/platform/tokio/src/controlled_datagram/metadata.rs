@@ -8,10 +8,13 @@ mod probes;
 #[cfg(test)]
 mod tests;
 mod types;
+mod views;
 use super::*;
 pub use poller::DatagramWritePoller;
 use std::{net::SocketAddr, task::Poll};
 pub use types::*;
+pub use views::{MetadataViewClaim, MetadataViewIssuer, MetadataViewsClosedReceipt};
+use views::{ViewKind, ViewToken, Views};
 
 /// All limits are caller-assigned. No process or protocol defaults are implied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,14 +52,16 @@ pub struct GrantedMetadataDatagram {
 pub struct MetadataDatagramRx {
     shared: Arc<Shared>,
     registration: poller::Registration,
+    _view: ViewToken,
 }
-#[derive(Clone)]
 pub struct MetadataDatagramTx {
     shared: Arc<Shared>,
+    view: ViewToken,
 }
 pub struct MetadataDatagramControl {
     shared: Arc<Shared>,
     observation_transferred: bool,
+    view_claim: Option<Arc<views::Claim>>,
 }
 /// Unique observation authority over an already granted original. This carries
 /// no native close/revoke authority and cannot create another receiver/poller.
@@ -69,6 +74,7 @@ struct Shared {
     pollers: Arc<poller::Broker>,
     sends: tokio::sync::Semaphore,
     send_limit: NonZeroUsize,
+    views: Arc<Views>,
 }
 impl Shared {
     fn check(&self) -> std_io::Result<()> {
@@ -89,6 +95,14 @@ impl Shared {
         }
     }
 }
+impl Clone for MetadataDatagramTx {
+    fn clone(&self) -> Self {
+        Self {
+            shared: self.shared.clone(),
+            view: self.view.clone(),
+        }
+    }
+}
 impl MetadataDatagramTx {
     /// Structural bound on whole synchronous send calls, including observation.
     pub fn max_concurrent_send_calls(&self) -> NonZeroUsize {
@@ -106,6 +120,7 @@ impl MetadataDatagramTx {
         Ok(DatagramWritePoller {
             shared: self.shared.clone(),
             registration,
+            _view: ViewToken::new(&self.shared.views, ViewKind::Poller),
         })
     }
 }

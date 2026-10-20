@@ -104,6 +104,7 @@ impl MetadataOwner {
             pollers,
             sends: tokio::sync::Semaphore::new(self.limits.concurrent_send_calls.get()),
             send_limit: self.limits.concurrent_send_calls,
+            views: Views::new(),
         });
         self.views
             .insert(shared.socket.reservation(), shared.clone());
@@ -111,13 +112,16 @@ impl MetadataOwner {
             rx: MetadataDatagramRx {
                 shared: shared.clone(),
                 registration,
+                _view: ViewToken::new(&shared.views, ViewKind::Receiver),
             },
             tx: MetadataDatagramTx {
                 shared: shared.clone(),
+                view: ViewToken::new(&shared.views, ViewKind::Sender),
             },
             control: MetadataDatagramControl {
                 shared,
                 observation_transferred: false,
+                view_claim: None,
             },
         })
     }

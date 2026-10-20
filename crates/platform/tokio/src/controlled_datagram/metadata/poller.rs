@@ -218,6 +218,7 @@ impl Drop for Registration {
 pub struct DatagramWritePoller {
     pub(super) shared: Arc<Shared>,
     pub(super) registration: Registration,
+    pub(super) _view: ViewToken,
 }
 impl DatagramWritePoller {
     pub fn poll_writable(&mut self, cx: &mut Context<'_>) -> Poll<std_io::Result<()>> {
