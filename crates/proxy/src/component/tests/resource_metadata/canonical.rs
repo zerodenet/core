@@ -101,13 +101,13 @@ impl CanonicalMetadata {
             )),
             Arc::new(()),
         );
-        let slot = ComponentSlot::from_recipe(
+        let slot = Arc::new(ComponentSlot::from_recipe(
             id,
             ResourceGeneration(1),
             recipe,
             Default::default(),
             "metadata-fixture",
-        );
+        ));
         TestContext::new([slot.as_ref()])
             .drive(slot.start(deadline()))
             .await
