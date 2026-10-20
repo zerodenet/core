@@ -77,3 +77,42 @@ pub struct MetadataSendOutcome {
     /// If false, only this prefix was submitted. Do not replay the whole input.
     pub complete: bool,
 }
+
+/// Distinguishes a host/admission rejection from an actual native send error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MetadataSendErrorOrigin {
+    /// No native send was authorized or attempted by this call.
+    Local,
+    /// The original socket readiness/native send operation returned this error.
+    Native,
+}
+/// Original send failure and the boundary that produced it.
+#[derive(Debug)]
+pub struct MetadataSendFailure {
+    pub origin: MetadataSendErrorOrigin,
+    pub error: std::io::Error,
+}
+impl MetadataSendFailure {
+    pub(super) fn local(error: std::io::Error) -> Self {
+        Self {
+            origin: MetadataSendErrorOrigin::Local,
+            error,
+        }
+    }
+    pub(super) fn native(error: std::io::Error) -> Self {
+        Self {
+            origin: MetadataSendErrorOrigin::Native,
+            error,
+        }
+    }
+}
+impl std::fmt::Display for MetadataSendFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+impl std::error::Error for MetadataSendFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}

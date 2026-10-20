@@ -3,16 +3,25 @@ use std::{io::IoSliceMut, task::Context};
 use tokio::io::Interest;
 impl MetadataDatagramTx {
     pub fn try_send(&self, transmit: &MetadataTransmit<'_>) -> std_io::Result<MetadataSendOutcome> {
-        self.shared.check()?;
+        self.try_send_detailed(transmit)
+            .map_err(|failure| failure.error)
+    }
+    /// Preserve the original failure origin for adapters whose native-error
+    /// disposition differs from local authorization/admission rejection.
+    pub fn try_send_detailed(
+        &self,
+        transmit: &MetadataTransmit<'_>,
+    ) -> Result<MetadataSendOutcome, MetadataSendFailure> {
+        self.shared.check().map_err(MetadataSendFailure::local)?;
         // This bounds callers inside or waiting for the native gate, not the
         // number of long-lived TX views. There is no outside waiting queue.
         let _admission = self.shared.sends.try_acquire().map_err(|_| {
-            std_io::Error::new(
+            MetadataSendFailure::local(std_io::Error::new(
                 std_io::ErrorKind::WouldBlock,
                 "UDP native send call capacity exhausted",
-            )
+            ))
         })?;
-        validate(transmit, self.shared.capabilities())?;
+        validate(transmit, self.shared.capabilities()).map_err(MetadataSendFailure::local)?;
         let (result, observer) = send_native(&self.shared, transmit);
         drop(_admission);
         observation::send(observer, &result, transmit.segment_size);
@@ -23,16 +32,21 @@ fn send_native(
     shared: &Shared,
     transmit: &MetadataTransmit<'_>,
 ) -> (
-    std_io::Result<MetadataSendOutcome>,
+    Result<MetadataSendOutcome, MetadataSendFailure>,
     super::super::observation::Observer,
 ) {
     let _defer = shared.pollers.defer();
     let native = shared.socket.entry.lock();
     if let Err(error) = shared.check() {
-        return (Err(error), None);
+        return (Err(MetadataSendFailure::local(error)), None);
     }
     let NativeHandleState::Live(socket) = &*native else {
-        return (Err(super::super::io::unavailable(&native)), None);
+        return (
+            Err(MetadataSendFailure::local(super::super::io::unavailable(
+                &native,
+            ))),
+            None,
+        );
     };
     let native_transmit = quinn_udp::Transmit {
         destination: transmit.destination,
@@ -52,7 +66,8 @@ fn send_native(
             bytes: outcome.bytes,
             datagrams: outcome.datagrams,
             complete: outcome.complete,
-        });
+        })
+        .map_err(MetadataSendFailure::native);
     (result, socket.observer.clone())
 }
 

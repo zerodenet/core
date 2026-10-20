@@ -51,3 +51,10 @@ submitted bytes; readiness backpressure is not an I/O failure. Observers must
 not be stacked with a unit-success wrapper that assumes the full request was
 submitted. A callback panic leaves the original in its persistent owner and
 does not manufacture a native close receipt.
+
+`try_send_detailed` additionally preserves whether a failure was produced by
+local admission/validation/retirement or the original readiness/native helper
+operation. It moves the same original I/O error; the existing `try_send` API
+still returns that error unchanged. An error result provides no submitted-byte
+receipt. In particular, helper Unsupported is not permission to fall back to
+plain UDP or to swallow a rejected metadata request.

@@ -4,7 +4,7 @@ use super::*;
 
 pub(super) fn send(
     observer: Observer,
-    result: &std_io::Result<MetadataSendOutcome>,
+    result: &Result<MetadataSendOutcome, MetadataSendFailure>,
     stride: Option<usize>,
 ) {
     let Some(observer) = observer else { return };
@@ -17,7 +17,7 @@ pub(super) fn send(
                 remaining -= bytes;
             }
         }
-        Err(error) if error.kind() == std_io::ErrorKind::WouldBlock => {}
+        Err(failure) if failure.error.kind() == std_io::ErrorKind::WouldBlock => {}
         Err(_) => observer.error(),
     }
 }
