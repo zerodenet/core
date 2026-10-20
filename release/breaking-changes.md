@@ -207,6 +207,142 @@ wire、结果码、策略/健康中立性与配置字段不变，无 GUI/SDK 迁
 
 - VMess `cipher: zero` 现采用 Xray 标准的 NONE（0x05）、无 ChunkStream body 语义。此前使用 Zero 私有 0x06 格式的节点必须将配置显式改为 `cipher: zero-plus`，并协调两端升级；不保留含糊别名。标准 `zero` 与私有 `zero-plus` 不可互换。
 
+### VMess ordinary TCP host identity
+
+VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事实，由宿主签发一个真实业务身份并进入既有准入、路由、统计、限速和半关闭执行器。原 AuthID replay 状态、单次响应头和 AEAD/body codec 不变；UDP/Mux 与旧公开 Rust Session API 保留显式兼容路径。V1 配置、API、events 与 FFI ABI 不变，无 GUI/SDK 迁移；实际 TLS wire、全认证 sidecar、唯一身份、拒绝与 replay 回归位于 `crates/proxy/tests/vmess_inbound.rs`、`protocols/vmess/tests/auth/mod.rs`。此条记录实现，不代替冻结源码测试结果。
+
+- Hosted task owners can defer Scope callbacks across an enclosing synchronous
+  host lock with `HostedScope::defer_callbacks`. Actual witness notifications and
+  native wake callbacks run after that lock is released; accepted exits retain
+  their original capacity charge until deferred notifications finish. The
+  catalog's inline driver now owns its external wake target, while retained
+  monitors keep only weak relay metadata. These are task-delivery guarantees,
+  not native I/O or transferred-user closure evidence.
+
+- `TaskRegistrar::scope_identity` supplies opaque weak `TaskScopeIdentity`
+  metadata for exact host/provider scope matching. Its `registration_open` check
+  reports only original registration admission, without polling tasks, delivering
+  exits, retaining a Scope or claiming resource/user closure.
+
+- `ResourceAccess::register_controlled_carrier` is a default-deny Rust-only
+  registration hook for the sole declared physical owner, actual declaration
+  ordinal and host TaskRegistrar. HostResources requires the actual component
+  generation and scope before supporting it. The exact owner/fence binding does
+  not provide business admission or transferred-user completion; missing users
+  retain an actual unfinished cleanup obligation. V1 config and FFI are unchanged.
+
+- Internal replacement terminal publication runs outside its state lock. A
+  receiver rejection before acceptance permits retry with the same terminal;
+  callback panic retains an unknown publication outcome, its original owners
+  and fault source, and blocks automatic redelivery. Physical declared closure
+  and successful fault handoff remain distinct facts.
+
+- TokioSocket can carry the same unique accepted TCP byte view while the
+  listener entry retains the sole native control. Its Rust `into_inner` and
+  `into_controlled` conversions, and `ControlledTcpStream::new`, are now fallible:
+  a controlled accepted facade returns itself intact instead of extracting its
+  original FD or creating another owner. Ordinary native callers explicitly
+  unwrap the successful conversion. Metadata, effective addresses, peek and I/O
+  observation preserve the same stream; no V1/FFI/default activation changes.
+
+- An installed inbound driver now explicitly retires its same prebound native
+  TCP/UDP listener after startup/work returns or panics. The original resource
+  owner retains native receipts and cleanup faults before that task exits; the
+  original Scope still must consume its real exit and child/user cleanup remains
+  separate. Cancelling an orchestration observer requests stop without leaving
+  the healthy native listener open indefinitely or claiming a shutdown ACK.
+
+- `TaskRegistrar::downgrade` issues sealed `WeakTaskRegistrar` registration
+  authority. It upgrades only during `spawn`/`spawn_tracked`, preserving the
+  original scope's admission, allocator, budget and exit receipts, and rejects
+  expired owners as closing. Retained task futures can hold this authority
+  without retaining their own Scope; weak identity metadata cannot mint it.
+
+- Hosted ancillary UDP acquisition now uses the canonical `MetadataDatagram`
+  declaration ordinal, exact literal source, complete explicit metadata limits,
+  finite bind-attempt ceiling and the installed instance's actual task-scope
+  identity. The host installs the same main/probe native owner before creation
+  and retains native controls when granting unique RX, bounded TX and unique
+  observation authority. This is separate from plain UDP listener permission.
+  Main/probe native-close evidence and original acquisition/close errors survive
+  retry independently. Provider callbacks run outside HostState/cleanup locks;
+  reentrant access to a busy original returns pending/busy rather than blocking.
+  Canonical metadata coverage remains `Unaccounted` until the actual transferred
+  users and QUIC driver graph are integrated. No default budget, production
+  activation, outbound interface/dial-policy support, or full graph closure is
+  implied by this host grant.
+
+- Logical Datagram retirement keeps the original controller in its existing
+  bounded entry independently of the borrowed close future. The existing
+  waiter remains the only consumer; cancellation and protocol-future polling
+  run outside owner/entry metadata locks. I/O receives an internal weak wake
+  relay, while the actual drive future owns the caller wake target. Synchronous
+  wake, last-Waker Drop and protocol callbacks therefore do not retain a caller
+  task through the retirement owner or run under its parent locks. A cancelled
+  wait restores the same future; a panicked poll propagates the original panic
+  and keeps the controller/entry unconfirmed rather than repolling a poisoned
+  protocol future or refunding capacity. Completed controllers are dropped
+  outside metadata locks before their retained receipts and admission credit
+  are released. This retirement change adds no background cleanup task and does
+  not prove accepted-user closure. Listener observer retention is handled below.
+
+### Interrupted listener Scope observation
+
+- Orchestration borrows the registry's single original listener-observer JoinSet.
+  Cancellation and cleanup timeout return that same set and its actual join
+  handles to the registry instead of aborting the remaining Scope consumers.
+  A concurrent orchestration lease is rejected. Recovery drains the interrupted
+  generation's results and confirms its retained owners before preparing or
+  binding new listeners; its errors never consume the new expected-exit count.
+- The original production observer continues consuming its actual Scope after
+  the primary driver exits. Critical first faults and unexpected successful
+  driver exits can still notify the live supervisor through the same instance's
+  bounded existing error disposition while remaining children are joining.
+  This adds no task, Scope, task-ID registry, detached handle or cleanup actor.
+- The persistent JoinSet stores internal weak-target Wakers. The actual borrowed
+  join future owns the external Waker; retarget/cancellation and synchronous
+  callbacks occur outside the registry parking lock and Tokio join polling.
+- Actual all-task joins, native main/probe/listener closure and transferred-user
+  closure remain distinct obligations. Parking or dropping an orchestration,
+  an observer result, and Scope completion do not acknowledge native/user I/O
+  closure or enable resourceful production factories. Proxy/registry destruction
+  still drops its owned handles without manufacturing close confirmation.
+
+### Weak original Scope collaboration
+
+- `WeakTaskRegistrar::scope_identity()` copies only the original weak identity.
+  `defer_callbacks()` returns the existing original relay's short parent guard
+  after releasing its temporary Scope upgrade; an expired owner returns `None`.
+  The guard retains no Scope, caller Waker, registration or I/O authority.
+  Create it outside enclosing owner/resource locks and drop it after unlocking.
+  Neither method changes admission, task budgets, receipt ACK or closure proof.
+
+- Listener-observer parking additionally retains the current generation's
+  `needs_retirement` bit independently of JoinSet length and error consumption.
+  Startup marks it before preparation; actual registry install/reservation marks
+  it before publishing an owner or native bind capability. Empty Scope/observer
+  completion and forwarding a fault cannot clear it. Recovery clears the bit
+  only after original handle drain and successful actual owner cleanup/source
+  publication, with same-registry/no-pending-owner postconditions serialized
+  against owner insertion. This bit is not native or transferred-user proof.
+
+- `WeakTaskRegistrar::cancellation()` temporarily borrows the same original
+  registrar and returns its existing one-way child cancellation token, or `None`
+  after owner expiry. Actual Scope stop propagates to it; cancelling that child
+  cannot cancel the Scope or siblings. It retains no Scope/runtime/task owner and
+  grants no registration, native authority, join or closure acknowledgement.
+
+### Controlled carrier native-only settlement (library)
+
+- `CarrierAdoption::retire_native` returns an opaque native-stage settlement from
+  the original control only after its physical view returns and registered
+  transport/auxiliary tasks actually join. It does not wait for the external
+  caller's own join, release its logical user lease, remove the charged slot,
+  or issue whole-user/generation completion. Existing retire/shutdown remain full
+  confirmation paths; original successful native reports are consumed there once.
+- This adds no Root service or Business authority, production activation, schema
+  or default budget. The real host issuer and separate user graph remain required.
+
 ## 0.0.1
 
 - 经项目所有者授权清理旧 Release 和 tag，基于当前 main 源码发布统一的首个正式版。以下旧编号条目仅保留兼容性背景，不代表仍可下载的发布记录。
@@ -406,139 +542,3 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 - 对应回归测试位置。
 
 开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev.N` 构建号。完整测试通过后，由 `Prepare Release` 工作流或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
-
-### VMess ordinary TCP host identity
-
-VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事实，由宿主签发一个真实业务身份并进入既有准入、路由、统计、限速和半关闭执行器。原 AuthID replay 状态、单次响应头和 AEAD/body codec 不变；UDP/Mux 与旧公开 Rust Session API 保留显式兼容路径。V1 配置、API、events 与 FFI ABI 不变，无 GUI/SDK 迁移；实际 TLS wire、全认证 sidecar、唯一身份、拒绝与 replay 回归位于 `crates/proxy/tests/vmess_inbound.rs`、`protocols/vmess/tests/auth/mod.rs`。此条记录实现，不代替冻结源码测试结果。
-
-- Hosted task owners can defer Scope callbacks across an enclosing synchronous
-  host lock with `HostedScope::defer_callbacks`. Actual witness notifications and
-  native wake callbacks run after that lock is released; accepted exits retain
-  their original capacity charge until deferred notifications finish. The
-  catalog's inline driver now owns its external wake target, while retained
-  monitors keep only weak relay metadata. These are task-delivery guarantees,
-  not native I/O or transferred-user closure evidence.
-
-- `TaskRegistrar::scope_identity` supplies opaque weak `TaskScopeIdentity`
-  metadata for exact host/provider scope matching. Its `registration_open` check
-  reports only original registration admission, without polling tasks, delivering
-  exits, retaining a Scope or claiming resource/user closure.
-
-- `ResourceAccess::register_controlled_carrier` is a default-deny Rust-only
-  registration hook for the sole declared physical owner, actual declaration
-  ordinal and host TaskRegistrar. HostResources requires the actual component
-  generation and scope before supporting it. The exact owner/fence binding does
-  not provide business admission or transferred-user completion; missing users
-  retain an actual unfinished cleanup obligation. V1 config and FFI are unchanged.
-
-- Internal replacement terminal publication runs outside its state lock. A
-  receiver rejection before acceptance permits retry with the same terminal;
-  callback panic retains an unknown publication outcome, its original owners
-  and fault source, and blocks automatic redelivery. Physical declared closure
-  and successful fault handoff remain distinct facts.
-
-- TokioSocket can carry the same unique accepted TCP byte view while the
-  listener entry retains the sole native control. Its Rust `into_inner` and
-  `into_controlled` conversions, and `ControlledTcpStream::new`, are now fallible:
-  a controlled accepted facade returns itself intact instead of extracting its
-  original FD or creating another owner. Ordinary native callers explicitly
-  unwrap the successful conversion. Metadata, effective addresses, peek and I/O
-  observation preserve the same stream; no V1/FFI/default activation changes.
-
-- An installed inbound driver now explicitly retires its same prebound native
-  TCP/UDP listener after startup/work returns or panics. The original resource
-  owner retains native receipts and cleanup faults before that task exits; the
-  original Scope still must consume its real exit and child/user cleanup remains
-  separate. Cancelling an orchestration observer requests stop without leaving
-  the healthy native listener open indefinitely or claiming a shutdown ACK.
-
-- `TaskRegistrar::downgrade` issues sealed `WeakTaskRegistrar` registration
-  authority. It upgrades only during `spawn`/`spawn_tracked`, preserving the
-  original scope's admission, allocator, budget and exit receipts, and rejects
-  expired owners as closing. Retained task futures can hold this authority
-  without retaining their own Scope; weak identity metadata cannot mint it.
-
-- Hosted ancillary UDP acquisition now uses the canonical `MetadataDatagram`
-  declaration ordinal, exact literal source, complete explicit metadata limits,
-  finite bind-attempt ceiling and the installed instance's actual task-scope
-  identity. The host installs the same main/probe native owner before creation
-  and retains native controls when granting unique RX, bounded TX and unique
-  observation authority. This is separate from plain UDP listener permission.
-  Main/probe native-close evidence and original acquisition/close errors survive
-  retry independently. Provider callbacks run outside HostState/cleanup locks;
-  reentrant access to a busy original returns pending/busy rather than blocking.
-  Canonical metadata coverage remains `Unaccounted` until the actual transferred
-  users and QUIC driver graph are integrated. No default budget, production
-  activation, outbound interface/dial-policy support, or full graph closure is
-  implied by this host grant.
-
-- Logical Datagram retirement keeps the original controller in its existing
-  bounded entry independently of the borrowed close future. The existing
-  waiter remains the only consumer; cancellation and protocol-future polling
-  run outside owner/entry metadata locks. I/O receives an internal weak wake
-  relay, while the actual drive future owns the caller wake target. Synchronous
-  wake, last-Waker Drop and protocol callbacks therefore do not retain a caller
-  task through the retirement owner or run under its parent locks. A cancelled
-  wait restores the same future; a panicked poll propagates the original panic
-  and keeps the controller/entry unconfirmed rather than repolling a poisoned
-  protocol future or refunding capacity. Completed controllers are dropped
-  outside metadata locks before their retained receipts and admission credit
-  are released. This retirement change adds no background cleanup task and does
-  not prove accepted-user closure. Listener observer retention is handled below.
-
-### Interrupted listener Scope observation
-
-- Orchestration borrows the registry's single original listener-observer JoinSet.
-  Cancellation and cleanup timeout return that same set and its actual join
-  handles to the registry instead of aborting the remaining Scope consumers.
-  A concurrent orchestration lease is rejected. Recovery drains the interrupted
-  generation's results and confirms its retained owners before preparing or
-  binding new listeners; its errors never consume the new expected-exit count.
-- The original production observer continues consuming its actual Scope after
-  the primary driver exits. Critical first faults and unexpected successful
-  driver exits can still notify the live supervisor through the same instance's
-  bounded existing error disposition while remaining children are joining.
-  This adds no task, Scope, task-ID registry, detached handle or cleanup actor.
-- The persistent JoinSet stores internal weak-target Wakers. The actual borrowed
-  join future owns the external Waker; retarget/cancellation and synchronous
-  callbacks occur outside the registry parking lock and Tokio join polling.
-- Actual all-task joins, native main/probe/listener closure and transferred-user
-  closure remain distinct obligations. Parking or dropping an orchestration,
-  an observer result, and Scope completion do not acknowledge native/user I/O
-  closure or enable resourceful production factories. Proxy/registry destruction
-  still drops its owned handles without manufacturing close confirmation.
-
-### Weak original Scope collaboration
-
-- `WeakTaskRegistrar::scope_identity()` copies only the original weak identity.
-  `defer_callbacks()` returns the existing original relay's short parent guard
-  after releasing its temporary Scope upgrade; an expired owner returns `None`.
-  The guard retains no Scope, caller Waker, registration or I/O authority.
-  Create it outside enclosing owner/resource locks and drop it after unlocking.
-  Neither method changes admission, task budgets, receipt ACK or closure proof.
-
-- Listener-observer parking additionally retains the current generation's
-  `needs_retirement` bit independently of JoinSet length and error consumption.
-  Startup marks it before preparation; actual registry install/reservation marks
-  it before publishing an owner or native bind capability. Empty Scope/observer
-  completion and forwarding a fault cannot clear it. Recovery clears the bit
-  only after original handle drain and successful actual owner cleanup/source
-  publication, with same-registry/no-pending-owner postconditions serialized
-  against owner insertion. This bit is not native or transferred-user proof.
-
-- `WeakTaskRegistrar::cancellation()` temporarily borrows the same original
-  registrar and returns its existing one-way child cancellation token, or `None`
-  after owner expiry. Actual Scope stop propagates to it; cancelling that child
-  cannot cancel the Scope or siblings. It retains no Scope/runtime/task owner and
-  grants no registration, native authority, join or closure acknowledgement.
-
-### Controlled carrier native-only settlement (library)
-
-- `CarrierAdoption::retire_native` returns an opaque native-stage settlement from
-  the original control only after its physical view returns and registered
-  transport/auxiliary tasks actually join. It does not wait for the external
-  caller's own join, release its logical user lease, remove the charged slot,
-  or issue whole-user/generation completion. Existing retire/shutdown remain full
-  confirmation paths; original successful native reports are consumed there once.
-- This adds no Root service or Business authority, production activation, schema
-  or default budget. The real host issuer and separate user graph remain required.
