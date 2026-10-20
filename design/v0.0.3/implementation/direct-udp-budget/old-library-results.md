@@ -32,6 +32,8 @@
 
 Tokio task 由实际运行 Proxy 的同一 Handle.metrics 读取，观察器主动创建的 Tokio task 为零。它和原生线程数是两个独立指标；6 个原生线程包含两个实际 join 的观察线程。global queue depth 是 Tokio scheduler 工作，既不是 UDP message 数，也不证明业务 pending bytes 为零。`application_pending_payload_bytes`、精确 native open attempts 仍为 `null`，新容量建议也保持 `null`。16 source 的峰值 21 不是全应用/任意协议的任务上限。
 
+后续 [Tokio 包源码复核](observer-metrics-source-review.json) 进一步明确：上述是 runtime-owned alive async task gauge，不包含 `spawn_blocking` 的 unowned jobs 或其他 runtime。global depth 仅对应 injection queue，worker-local/阻塞队列未被测得；任务值不能替代真实 Scope join 和原生关闭回执。原始数值、执行脚本与编译源码不变。
+
 phase 名 `before_proxy` 一直保留到 Python 首次安装 phase，所以该 phase 有启动过程的 0–3 个任务，不能叙述成纯 before 阶段全为 0；六轮最初样本确实为 0。`after_shutdown_and_owner_drop` 个别轮的过渡样本仍有 1 个任务，随后降到 0，原始样本没有删除。关闭响应包含固定 300ms 的退出后观察窗口，因此响应耗时不是内核专属 shutdown 延迟。任务归零、public shutdown 返回和 OS inode 消失均不能替代单个原生 FD 的真实 close receipt。
 
 network profile 每次调用同一真实 `EgressInterfaceControl::invalidate_network()`，保留实际 before/after 0→1…15→16，业务 API 中也确实记录 generation0–16。这是实际 API 代次变更，**不是物理 route/interface 切换**。network 第三轮有一个标为 `rotation-5` 的非原子 procfs 快照未包含初始 listener inode，前后仍观察到同一原 inode；总表保留 false/阶段，既不标成“始终保持”，也不据此猜测已经 close/rebind。

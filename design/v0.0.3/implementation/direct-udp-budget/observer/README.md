@@ -6,7 +6,7 @@
 
 一个真实 Tokio runtime、一个 worker。Rust main future 驱动实际 `Proxy::spawn`、公开 `ProxyHandle::apply_runtime_config_and_wait`、公开 query 及 `RunningProxy::shutdown`。采样器是一个实际持有同 runtime Handle 的原生线程，每 10ms 读取稳定 runtime metrics，最多保留 30000 个样本并明确记录 truncated。输入为另一个原生线程，1MiB frame 上限、mpsc1 控制队列；它不在 Tokio stdin 上创建 blocking task。成功响应前两个原生线程均真实 join；异常退出不构成 join/关闭确认。观察器主动 spawn 的 Tokio task 数为零。
 
-任务观察包含库自身的全部 Tokio 工作，排除 CLI/IPC/Connector 应用任务，与既有 library census 作用域一致。Linux nativeThreads 包含两个观察线程，单独记录，不能替代 Tokio tasks。Tokio global queue depth 是 scheduler 工作，不是 UDP 应用消息队列。两个固定源都没有可读取业务 owner pending payload bytes 的稳定公开接口，因此逐样本和汇总保持 `null`，不从 RSS、内核 UDP queue 或任务数推算。
+任务观察统计所选 Handle 对应 runtime 的 owned 异步任务，排除 CLI/IPC/Connector 应用任务，与既有 library census 作用域一致。实际 Tokio 1.53.3/1.54.0 中 `spawn_blocking` 使用 unowned task，不在这个 gauge 内；其他 runtime、blocking jobs/queue、原生线程以及实际 Scope join 也不能由它证明。Linux nativeThreads 包含两个观察线程，单独记录。Tokio global queue depth 仅是全局 injection queue，不包含 worker-local 队列，更不是 UDP 应用消息队列。两个固定源都没有可读取业务 owner pending payload bytes 的稳定公开接口，因此逐样本和汇总保持 `null`，不从 RSS、内核 UDP queue 或任务数推算。[源码真实性复核](../observer-metrics-source-review.json) 保留两版实际包源 SHA/行号。
 
 同一 fixture 仍保留实际端口与 socket 所有权、逐包成功比对/缺失、DNS/echo 记录、IPC 时间窗、实际网络 generation、procfs FD/RSS/nativeThreads 和退出状态。Rust observer 进程 RSS 包含其有界采样记录和控制 facade；Python/echo/DNS 另在同 cgroup。它不等于未经观察器包装的 CLI RSS。因此另跑固定 old/new **默认 CLI 二进制** pair，完整保留所有稳态、切换中和突发失败，不拿 library 结果替代产品默认路径。
 
@@ -35,7 +35,7 @@ proxy features 与既有 library observer 保持相同：socks5/http/mixed/vless
 
 ## 唯一 Cargo owner 的最小构建命令
 
-以下交给 root，在全部 workspace 验证完成且磁盘有余量后串行执行；本代理尚未运行。`TARGET` 由 root 选择并记录，不能让第二个构建进程写其共享 target；old/new 如共享缓存，也必须串行且每次拷贝/核对成品，后一次同名 binary 会覆盖前一次。
+以下交给 root，在全部 workspace 验证完成且磁盘有余量后串行执行；本代理尚未运行。root 指定唯一已有 target 为 `/workspace/core-target`，不能新建 `/workspace/core/target` 或让第二个构建进程写共享 target；old/new 必须串行且每次拷贝/核对成品，后一次同名 binary 会覆盖前一次。
 
 ```sh
 python3 -B design/v0.0.3/implementation/direct-udp-budget/observer/prepare.py \
@@ -44,7 +44,7 @@ cargo metadata --offline --format-version 1 \
   --manifest-path /workspace/core-next/udp-task-observer-old/Cargo.toml > OLD_METADATA_LOG
 python3 -B design/v0.0.3/implementation/direct-udp-budget/observer/prepare.py \
   --output /workspace/core-next/udp-task-observer-old --verify-only
-CARGO_TARGET_DIR=TARGET cargo build --release --offline --locked \
+CARGO_TARGET_DIR=/workspace/core-target cargo build --release --offline --locked \
   --manifest-path /workspace/core-next/udp-task-observer-old/Cargo.toml
 ```
 
