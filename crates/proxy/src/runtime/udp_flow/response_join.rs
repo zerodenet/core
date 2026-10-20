@@ -39,11 +39,13 @@ impl ResponseJoined {
 struct Statistics {
     joined: usize,
     first: Option<ResponseFailure>,
+    fatal: Option<Arc<JoinError>>,
 }
 #[derive(Default)]
 pub(crate) struct ResponseTasks {
     records: Mutex<HashMap<Id, Weak<ResponseTask>>>,
     statistics: Mutex<Statistics>,
+    expected_cancel: std::sync::atomic::AtomicBool,
 }
 #[derive(Default)]
 pub(crate) struct ResponseTask {
@@ -164,6 +166,18 @@ impl ResponseTasks {
                 (Err(source.clone()), Some(ResponseFailure::Join(source)))
             }
         };
+        let record = self
+            .records
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&id)
+            .and_then(|record| record.upgrade());
+        let expected_cancel = self
+            .expected_cancel
+            .load(std::sync::atomic::Ordering::Acquire)
+            || record
+                .as_ref()
+                .is_some_and(|record| record.cancelled.load(std::sync::atomic::Ordering::Acquire));
         {
             let mut statistics = self
                 .statistics
@@ -173,13 +187,12 @@ impl ResponseTasks {
             if statistics.first.is_none() {
                 statistics.first = failure.clone();
             }
+            if let Some(ResponseFailure::Join(source)) = &failure {
+                if source.is_panic() || !expected_cancel {
+                    statistics.fatal.get_or_insert_with(|| source.clone());
+                }
+            }
         }
-        let record = self
-            .records
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&id)
-            .and_then(|record| record.upgrade());
         if let Some(record) = record {
             record.consume(id, failure);
         }

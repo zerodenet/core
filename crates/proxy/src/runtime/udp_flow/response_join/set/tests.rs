@@ -101,16 +101,63 @@ async fn cancelled_native_join_wait_removes_the_strong_caller_waker_before_nativ
     });
     let weak = Arc::downgrade(&callback);
     let waker = Waker::from(callback.clone());
-    let mut cx = Context::from_waker(&waker);
-    let mut joining = Box::pin(lease.join_next_with_id());
-    assert!(joining.as_mut().poll(&mut cx).is_pending());
-    drop(joining);
-    drop(cx);
+    {
+        let mut cx = Context::from_waker(&waker);
+        let mut joining = Box::pin(lease.join_next_with_id());
+        assert!(joining.as_mut().poll(&mut cx).is_pending());
+    }
     drop(waker);
     drop(callback);
     assert!(weak.upgrade().is_none());
     assert!(dropped.load(Ordering::Acquire));
     assert!(!owner.is_closed());
+    drop(lease);
+    assert!(owner.shutdown(deadline()).await.unwrap().matches(&owner));
+}
+
+#[tokio::test]
+async fn first_ordinary_body_error_does_not_mask_a_later_original_fatal_panic() {
+    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    lease.spawn(async { Err(EngineError::Io(std::io::Error::from_raw_os_error(10013))) });
+    let body = lease
+        .join_next_with_id()
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert!(owner.first_fatal_failure().is_none());
+    lease.spawn(async { panic!("second original response task panic") });
+    let panic = lease.join_next_with_id().await.unwrap().unwrap_err();
+    assert!(panic.is_panic());
+    let fatal = owner.first_fatal_failure().unwrap();
+    assert!(Arc::ptr_eq(&fatal, &panic));
+    let Some(ResponseFailure::Body(first)) = owner.first_failure() else {
+        panic!("original first diagnostic");
+    };
+    assert!(Arc::ptr_eq(&first, &body));
+    drop(lease);
+    assert!(owner.shutdown(deadline()).await.unwrap().matches(&owner));
+    assert!(Arc::ptr_eq(&owner.first_fatal_failure().unwrap(), &fatal));
+}
+#[tokio::test]
+async fn expected_revoke_keeps_actual_cancel_source_but_unexpected_cancel_is_fatal() {
+    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    lease.spawn(std::future::pending());
+    owner.revoke();
+    let expected = lease.join_next_with_id().await.unwrap().unwrap_err();
+    assert!(expected.is_cancelled());
+    assert!(owner.first_fatal_failure().is_none());
+    drop(lease);
+    assert!(owner.shutdown(deadline()).await.unwrap().matches(&owner));
+    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    lease.spawn(std::future::pending());
+    lease.abort_all(); // original task was aborted outside owner/record revoke
+    let unexpected = lease.join_next_with_id().await.unwrap().unwrap_err();
+    assert!(unexpected.is_cancelled());
+    assert!(Arc::ptr_eq(
+        &owner.first_fatal_failure().unwrap(),
+        &unexpected
+    ));
     drop(lease);
     assert!(owner.shutdown(deadline()).await.unwrap().matches(&owner));
 }

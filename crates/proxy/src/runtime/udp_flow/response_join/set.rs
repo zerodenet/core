@@ -59,6 +59,7 @@ impl ResponseSetOwner {
         )
     }
     pub(crate) fn revoke(&self) {
+        self.evidence.expected_cancel.store(true, Ordering::Release);
         self.revoked.store(true, Ordering::Release);
     }
     pub(crate) fn is_closed(&self) -> bool {
@@ -70,6 +71,16 @@ impl ResponseSetOwner {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .first
+            .clone()
+    }
+    /// A prior ordinary receive/body error cannot mask a later task panic or
+    /// unexpected cancellation. Both are original native JoinError objects.
+    pub(crate) fn first_fatal_failure(&self) -> Option<Arc<JoinError>> {
+        self.evidence
+            .statistics
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .fatal
             .clone()
     }
     pub(in crate::runtime::udp_flow) fn evidence(&self) -> &ResponseTasks {
