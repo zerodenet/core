@@ -3,6 +3,8 @@ use std::{
     collections::hash_map::RandomState,
     fmt,
     hash::{BuildHasher, Hash, Hasher},
+    num::NonZeroUsize,
+    path::{Path, PathBuf},
     sync::{Arc, OnceLock},
 };
 use zero_core::{request::Destination, Address, Error};
@@ -11,11 +13,18 @@ use zero_traits::{
 };
 use zero_transport::profile::{OwnedClientTlsProfile, OwnedGrpcProfile, OwnedWebSocketProfile};
 
+#[derive(Debug, Clone, Hash)]
+pub(super) struct CaFile {
+    pub(super) path: PathBuf,
+    pub(super) source_dir: Option<PathBuf>,
+    pub(super) max_bytes: usize,
+}
 pub struct Options {
     pub(super) endpoint: Destination,
     pub(super) server: String,
     pub(super) uuid: [u8; 16],
     pub(super) cipher: VmessCipher,
+    pub(super) ca_file: Option<CaFile>,
     pub(super) tls: Option<OwnedClientTlsProfile>,
     pub(super) ws: Option<OwnedWebSocketProfile>,
     pub(super) grpc: Option<OwnedGrpcProfile>,
@@ -35,6 +44,22 @@ impl Options {
     pub fn from_options_refs<TTls, TWs, TGrpc>(
         input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
         dial: DialPolicy,
+    ) -> Result<Self, Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
+        Self::from_options_refs_at(input, dial, None, None)
+    }
+    /// Library-only file material policy. No default file size limit or implicit
+    /// grant is invented: callers must explicitly supply the finite bound.
+    /// source_dir retains the ordinary lexical relative-path base semantics.
+    pub fn from_options_refs_at<TTls, TWs, TGrpc>(
+        input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
+        dial: DialPolicy,
+        source_dir: Option<&Path>,
+        ca_max_bytes: Option<NonZeroUsize>,
     ) -> Result<Self, Error>
     where
         TTls: ClientTlsProfile + ?Sized,
@@ -61,12 +86,43 @@ impl Options {
         let cipher = VmessCipher::from_name(input.protocol.cipher)
             .ok_or(Error::Config("vmess unknown cipher"))?;
         let tls = input.tls.map(OwnedClientTlsProfile::from_profile);
-        if let Some(tls) = &tls {
-            if tls.ca_cert_path.is_some() {
-                return Err(Error::Unsupported(
-                    "VMess CA file requires an explicit File grant",
-                ));
+        let ca_file = if let Some(path) = tls.as_ref().and_then(|tls| tls.ca_cert_path.as_deref()) {
+            let max_bytes = ca_max_bytes
+                .ok_or(Error::Unsupported(
+                    "VMess CA file requires an explicit bounded File grant",
+                ))?
+                .get();
+            if max_bytes.checked_add(1).is_none() {
+                return Err(Error::Config("VMess CA File bound overflows its reader"));
             }
+            if path.is_empty() {
+                return Err(Error::Config("VMess CA File path must not be empty"));
+            }
+            zero_transport::tls::PreparedClient::validate_profile(
+                tls.as_ref().expect("CA TLS profile"),
+            )
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::Unsupported {
+                    Error::Unsupported("VMess prepared CA does not support OpenSSL TLS")
+                } else {
+                    Error::Config("invalid VMess prepared TLS profile")
+                }
+            })?;
+            let path = PathBuf::from(path);
+            let path = if path.is_absolute() {
+                path
+            } else {
+                source_dir.map(|base| base.join(&path)).unwrap_or(path)
+            };
+            Some(CaFile {
+                path,
+                source_dir: source_dir.map(Path::to_path_buf),
+                max_bytes,
+            })
+        } else {
+            None
+        };
+        if let Some(tls) = &tls {
             if matches!(
                 tls.options.ech.source().map_err(Error::Config)?,
                 Some(EchConfigSource::Dns { .. })
@@ -94,6 +150,7 @@ impl Options {
             uuid.hash(&mut hash);
             cipher.hash(&mut hash);
             format!("{tls:?}{ws:?}{grpc:?}").hash(&mut hash);
+            ca_file.hash(&mut hash);
             dial.hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
@@ -102,6 +159,7 @@ impl Options {
             server: input.server.into(),
             uuid,
             cipher,
+            ca_file,
             tls,
             ws,
             grpc,
@@ -110,3 +168,7 @@ impl Options {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/component/options.rs"]
+mod tests;

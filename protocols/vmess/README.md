@@ -82,7 +82,15 @@ TLS/WS/gRPC profile；Factory 的 describe/build 不打开载体或启动任务�
 认证失败报告 PeerRejected 并保留原始 I/O 错误来源。请求字节与 TLS/WS/gRPC
 载体计量分开，现有 cipher、framing 和半关闭语义保持不变。
 
-MUX、CA 文件、DNS 获取 ECH 和 browser_dialer 需要额外共享资源或宿主服务，
-本阶段明确不进入这个无资源 Factory，仍走原有真实执行路径。Options 被直接
-传入这些项时返回 Unsupported，不以缺省 source_dir 或丢弃 profile 代替授权。
+CA 文件现有独立库 Factory 入口 `Options::from_options_refs_at`：调用方必须显式
+给出非零有限读取上限和可选配置目录。相对路径按原 `base_dir.join(path)` 处理，
+不会 canonicalize 为额外权限。describe 声明精确 File 资源，start 通过真实
+ResourceAccess 读取一次授权快照并准备 TLS 信任；connect 不再打开 CA 路径，
+继续使用原 verifier、ALPN、fingerprint、resumption 及 WS/gRPC authority。
+仅真实 Rustls 子集可用；OpenSSL/legacy TLS 明确拒绝。默认 Options 构造器没有
+隐含上限或授权，仍拒绝 CA。生产资格仍排除 CA，等待 host 资源图和替换确认。
+
+MUX、DNS 获取 ECH 和 browser_dialer 需要额外共享资源或宿主服务，仍走原有
+真实执行路径；直接传入 Options 返回 Unsupported。当前中立 DNS 服务仅提供
+A/AAAA，无法代替 ECH 的 HTTPS RR、材料缓存、force-query 和实际查询路由。
 UDP 及包含其他旧协议的混合链路尚未迁移到此角色。
