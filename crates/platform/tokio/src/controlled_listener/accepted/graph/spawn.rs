@@ -3,6 +3,7 @@ use crate::contract::scope::TaskClass;
 struct Starting {
     users: Arc<Users>,
     accepted: bool,
+    registration_attempted: bool,
 }
 impl Drop for Starting {
     fn drop(&mut self) {
@@ -13,6 +14,7 @@ impl Drop for Starting {
             let mut state = self.users.state();
             state.spawning -= 1;
             state.sealed = true;
+            state.unaccounted |= self.registration_attempted;
         }
         // No task was accepted by this registration. This is not a TaskExit or
         // an FD/user close receipt; escaped byte views remain independently live.
@@ -67,6 +69,7 @@ impl Users {
         let mut starting = Starting {
             users: self.clone(),
             accepted: false,
+            registration_attempted: false,
         };
         let task = Arc::new(OnceLock::new());
         let work = make(AcceptedTcpTasks {
@@ -75,6 +78,9 @@ impl Users {
         });
         let (admit, admitted) = tokio::sync::oneshot::channel();
         let cancel = self.cancel.clone();
+        // A registrar unwind may have installed a real task before returning
+        // its opaque identity. Preserve that gap instead of claiming no task.
+        starting.registration_attempted = true;
         let registration = self.authority.registrar.spawn_tracked(class, async move {
             if admitted.await.is_err() {
                 return Ok(());
@@ -87,6 +93,7 @@ impl Users {
         let (id, witness) = match registration {
             Ok(registration) => registration,
             Err(source) => {
+                starting.registration_attempted = false;
                 let reason = match source {
                     crate::contract::scope::SpawnError::Capacity => Reason::Capacity,
                     crate::contract::scope::SpawnError::IdentityExhausted => Reason::Internal,

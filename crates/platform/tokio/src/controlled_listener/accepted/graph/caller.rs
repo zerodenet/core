@@ -32,7 +32,10 @@ impl AcceptedTcpCaller {
         if users.cancel.is_cancelled() || !self.scope.registration_open() {
             return Err(gone());
         }
-        let (id, _) = self.task.get().ok_or_else(gone)?;
+        let (id, witness) = self.task.get().ok_or_else(gone)?;
+        if witness.is_joined() {
+            return Err(gone());
+        }
         let state = users.state();
         if state.sealed || state.unaccounted || !state.tasks.contains_key(id) {
             return Err(gone());

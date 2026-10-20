@@ -134,3 +134,44 @@ async fn same_connection_reuses_its_finite_derived_task_slots_after_real_join() 
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn joined_caller_is_rejected_before_graph_receiver_reaps_its_node() {
+    let (mut scope, mut owner, mut listener, address) = graph_bound(1);
+    let (mut peer, accepted) = graph_pair(&mut listener, address).await;
+    let claim = accepted.claim();
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let (finish, finished) = tokio::sync::oneshot::channel();
+    let (id, witness) = accepted
+        .spawn_handler(
+            &scope.registrar(),
+            TaskClass::Auxiliary,
+            |socket, tasks| async move {
+                send.send(tasks.caller().unwrap()).ok().unwrap();
+                finished.await.unwrap();
+                drop(socket);
+                Ok(())
+            },
+        )
+        .unwrap();
+    let caller = receive.await.unwrap();
+    caller.check_open().unwrap();
+    finish.send(()).unwrap();
+    assert_eq!(scope.next_exit().await.unwrap().id, id);
+    assert!(witness.is_joined());
+    assert!(caller.scope_identity().registration_open());
+    assert!(caller.check_open().is_err());
+    assert_eq!(owner.accepted_evidence().unwrap().retained, 1);
+    assert_eq!(
+        peer.try_read(&mut [0]).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert!(owner
+        .close_accepted_graph(&claim, deadline())
+        .await
+        .unwrap()
+        .is_some());
+    assert_eq!(peer.read(&mut [0]).await.unwrap(), 0);
+    assert!(owner.wait_closed(deadline()).await.unwrap().is_complete());
+    assert!(scope.shutdown(deadline()).await.is_complete());
+}
