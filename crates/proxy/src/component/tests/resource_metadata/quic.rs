@@ -103,7 +103,15 @@ async fn actual_configured_doq_uses_canonical_metadata_scope_tls_framing_and_nat
             retained.local_addr().unwrap_err().kind(),
             io::ErrorKind::NotConnected
         );
-        let native = fixture.slot.resources.io_evidence();
+        let native = fixture
+            .slot
+            .live
+            .get()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .resources
+            .io_evidence();
         assert_eq!(native.metadata.len(), 1);
         assert!(!native.metadata[0].busy);
         assert_eq!(native.metadata[0].main.confirmed_closed, 1);
@@ -186,7 +194,15 @@ async fn cancelling_actual_pending_doq_read_releases_users_without_faking_native
             retained.local_addr().unwrap_err().kind(),
             io::ErrorKind::NotConnected
         );
-        let native = fixture.slot.resources.io_evidence();
+        let native = fixture
+            .slot
+            .live
+            .get()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .resources
+            .io_evidence();
         assert_eq!(native.metadata.len(), 1);
         assert!(!native.metadata[0].busy);
         assert_eq!(native.metadata[0].main.confirmed_closed, 1);

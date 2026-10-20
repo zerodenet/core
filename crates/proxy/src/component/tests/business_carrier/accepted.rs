@@ -19,7 +19,7 @@ use zero_core::{
 use zero_platform_tokio::{
     contract::{
         component::{AcceptedTcpLimits, ResourceDeclaration},
-        lifecycle::{ChannelControl, TaskClass},
+        lifecycle::TaskClass,
         scope::{TaskJoinWitness, TaskScope},
         CancellationToken, ChannelError, Impact, Reason, Stage,
     },
