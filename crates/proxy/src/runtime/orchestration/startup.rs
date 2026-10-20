@@ -76,6 +76,15 @@ impl OrchestrationState {
                 tokio::time::Instant::now() + std::time::Duration::from_secs(5),
             )
             .await?;
+        // A cold diagnostic may have temporarily owned and then closed the
+        // initially prepared plan while startup awaited the catalog gate.
+        // Capture the actual retained started generation after that gate.
+        let tcp_services = proxy.tcp_runtime_services();
+        self.urltest_runtime = UrlTestRuntime::new(tcp_services.clone());
+        self.inbound_runtime_factory = InboundListenerRuntimeFactory::new(
+            SharedIngressRuntimeServices::new(tcp_services),
+            proxy.inbound_owners.clone(),
+        );
         #[cfg(feature = "managed-stream-runtime")]
         let prepared_services = proxy.protocols.prepare_inbound_services(&proxy.config)?;
         proxy

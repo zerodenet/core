@@ -1,4 +1,5 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
+mod maintenance;
 mod plan;
 #[cfg(test)]
 #[path = "tests/plan.rs"]
@@ -37,6 +38,7 @@ struct State {
     cold: Option<Current>,
     staged: Option<Current>,
     retired: Option<Arc<ComponentPlan>>,
+    maintenance: bool,
 }
 impl Current {
     fn matches(&self, config: &Arc<RuntimeConfig>) -> bool {

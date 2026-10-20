@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### 冷态公开 outbound 诊断的 Service 生命周期
+
+`ProxyHandle::new` / CLI / FFI 的独立 `diagnostics.probe_outbound` 继续支持尚未运行 listener 的宿主。调用入口显式把冷态探测接受到已有有限宿主任务及配置串行锁，安装并启动实际临时 component plan，仅授予 Service preparing 权限；探测完成后确认该 plan 的实际组件任务/声明资源关闭，全程不发布 Business。调用方取消不再遗弃已接受的组件维护，实际探测仍受原有超时预算限制。冷态维护串行，运行中探测继续使用原有并发上限与实际 runtime owner。
+
+wire、结果码、策略/健康中立性与配置字段不变，无 GUI/SDK 迁移步骤。组件关闭不冒称转交给旧 Stream facade 的全部 native FD 已有关闭收据，该后续 I/O 迁移仍独立。回归保留 `crates/proxy/tests/probe_outbound_diagnostics.rs` 原公开行为断言，并补 `runtime/handle/command/diagnostics/maintenance/tests.rs` 的真实 HTTP pending、取消、Business 拒绝及实际组件关闭验证。
+
+
 ### 入站故障的物理关闭与恢复
 
 入站故障不再把已完成的实际任务 join 和原生资源关闭永久视为未确认。宿主保留原实例的任务 ID、类别与原始错误，只有实际物理关闭证明完成、错误同步交付监督及已有 endpoint 健康记录后，才消费该实例收据并允许新一代替换；取消或交付失败保留原 owner 和同一收据供重试。候选替换遇到旧实例故障仍被拒绝，现有补偿路径从最后成功配置重新建立实例。未确认或 Unknown 的资源继续阻止替换。

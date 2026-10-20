@@ -5,6 +5,21 @@ use crate::component::{
 use std::sync::Arc;
 use zero_config::RuntimeConfig;
 impl super::ProtocolInventory {
+    pub(crate) async fn maintain_service_components<T, F, Fut>(
+        &self,
+        config: Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+        work: F,
+    ) -> Result<T, zero_platform_tokio::contract::ChannelError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = T>,
+    {
+        self.registry
+            .components
+            .maintain_service(config, deadline, work)
+            .await
+    }
     /// Read only: historical snapshots cannot prepare or publish a replacement.
     pub(crate) fn current_components(
         &self,

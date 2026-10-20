@@ -15,6 +15,7 @@ impl ComponentCatalog {
         let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
             .await
             .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;
+        self.finish_maintenance(deadline).await?;
         let plan = self
             .prepare(config.clone())
             .map_err(crate::component::instance::retained)?;
@@ -52,6 +53,9 @@ impl ComponentCatalog {
         commit: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
         let mut state = self.state.lock().expect("component catalog poisoned");
+        if state.maintenance {
+            return Err("Service maintenance cannot publish Business admission".to_owned());
+        }
         if state
             .staged
             .as_ref()
