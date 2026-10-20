@@ -81,3 +81,13 @@ pub(super) fn vless_request() -> Vec<u8> {
     bytes.extend_from_slice(b"native.example");
     bytes
 }
+
+#[cfg(feature = "vless")]
+pub(super) fn vless_vision_request() -> Vec<u8> {
+    let plain = vless_request();
+    let mut bytes = plain[..17].to_vec();
+    bytes.extend_from_slice(&[18, 0x0a, 16]);
+    bytes.extend_from_slice(b"xtls-rprx-vision");
+    bytes.extend_from_slice(&plain[18..]);
+    bytes
+}

@@ -79,11 +79,11 @@ impl StreamOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
-        let bytes = crate::shared::build_request_to(
+        let bytes = crate::outbound::build_tcp_request_to(
             &request.destination.address,
             request.destination.port,
             &self.options.uuid,
-            crate::shared::CMD_TCP,
+            self.options.flow,
         )
         .map_err(|source| {
             self.admission
@@ -136,6 +136,22 @@ impl StreamOutbound for Outbound {
             }
             error.with_source(source)
         })?;
+        let control = zero_traits::AsyncSocket::transport_bypass_control(&io);
+        if crate::flow::is_vision_flow(self.options.flow) && control.is_none() {
+            let mut error = self.admission.error(
+                session,
+                Stage::Handshake,
+                Reason::Unsupported,
+                DeliveryState::Unknown,
+            );
+            if context.upstream.binding().prefix.is_empty() {
+                error.delivery = DeliveryState::NotSubmitted;
+                error.retry = zero_platform_tokio::contract::RetryClass::BeforeSubmission;
+            }
+            return Err(error.with_source(zero_core::Error::Unsupported(
+                "Vision requires TLS 1.3, REALITY or VLESS Encryption",
+            )));
+        }
         let submit = async {
             io.write_all(&bytes).await?;
             io.flush().await
@@ -156,8 +172,18 @@ impl StreamOutbound for Outbound {
         // for application data do not deadlock against an eager response read.
         let stream = crate::deferred_response::DeferredVlessResponseStream::new(io)
             .with_connect_observer(session, context.observer);
+        let io: BoxStream = if crate::flow::is_vision_flow(self.options.flow) {
+            Box::pin(crate::vision::VisionStream::with_testseed(
+                stream,
+                self.options.uuid,
+                control,
+                self.options.testseed,
+            ))
+        } else {
+            Box::pin(stream)
+        };
         Ok(Connected {
-            io: Box::pin(stream),
+            io,
             peer_confirmation: PeerConfirmation::Deferred,
         })
     }

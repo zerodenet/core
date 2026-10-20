@@ -1110,18 +1110,22 @@ fn build_tcp_request_with_flow(
     id: &[u8; 16],
     flow: Option<&str>,
 ) -> Result<Vec<u8>, Error> {
+    build_tcp_request_to(&session.target, session.port, id, flow)
+}
+
+#[cfg(feature = "reality")]
+pub(crate) fn build_tcp_request_to(
+    target: &zero_core::Address,
+    port: u16,
+    id: &[u8; 16],
+    flow: Option<&str>,
+) -> Result<Vec<u8>, Error> {
     let mut request = Vec::with_capacity(64);
     request.push(VLESS_VERSION);
     request.extend_from_slice(id);
 
     if is_zero_aead_flow(flow) {
-        let (marker, payload) = flow_build_request(
-            id,
-            flow,
-            crate::shared::CMD_TCP,
-            session.port,
-            &session.target,
-        )?;
+        let (marker, payload) = flow_build_request(id, flow, crate::shared::CMD_TCP, port, target)?;
         request.push(marker);
         request.extend_from_slice(&payload);
         return Ok(request);
@@ -1129,8 +1133,8 @@ fn build_tcp_request_with_flow(
 
     request.extend_from_slice(&encode_addons(flow)?);
     request.push(crate::shared::CMD_TCP);
-    request.extend_from_slice(&session.port.to_be_bytes());
-    write_address(&mut request, &session.target)?;
+    request.extend_from_slice(&port.to_be_bytes());
+    write_address(&mut request, target)?;
 
     Ok(request)
 }

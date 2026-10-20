@@ -139,6 +139,16 @@ pub(super) fn instance(
     ws: Option<&zero_transport::profile::OwnedWebSocketProfile>,
     grpc: Option<&zero_transport::profile::OwnedGrpcProfile>,
 ) -> (ComponentInstance, TaskScope) {
+    instance_with_flow(address, tls, ws, grpc, None, &[])
+}
+pub(super) fn instance_with_flow(
+    address: SocketAddr,
+    tls: Option<&zero_transport::profile::OwnedClientTlsProfile>,
+    ws: Option<&zero_transport::profile::OwnedWebSocketProfile>,
+    grpc: Option<&zero_transport::profile::OwnedGrpcProfile>,
+    flow: Option<&str>,
+    testseed: &[u32],
+) -> (ComponentInstance, TaskScope) {
     let options = vless::component::Options::from_options_refs(
         vless::transport::VlessOutboundBuildOptionsRef {
             final_mask: None,
@@ -151,9 +161,9 @@ pub(super) fn instance(
             protocol: vless::transport::VlessOutboundOptionsRef {
                 encryption: None,
                 id: ID,
-                flow: None,
+                flow,
                 testpre: 0,
-                testseed: &[],
+                testseed,
                 mux_concurrency: None,
                 xudp_concurrency: None,
                 mux_idle_timeout_secs: None,

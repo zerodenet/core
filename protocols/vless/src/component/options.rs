@@ -15,6 +15,8 @@ pub struct Options {
     pub(super) endpoint: Destination,
     pub(super) server: String,
     pub(super) uuid: [u8; 16],
+    pub(super) flow: Option<&'static str>,
+    pub(super) testseed: [u32; 4],
     pub(super) tls: Option<OwnedClientTlsProfile>,
     pub(super) ws: Option<OwnedWebSocketProfile>,
     pub(super) grpc: Option<OwnedGrpcProfile>,
@@ -47,17 +49,30 @@ impl Options {
                 "VLESS MUX/XUDP requires its shared resource owner",
             ));
         }
-        if let Some(flow) = input.protocol.flow {
-            crate::validation::validate_flow(flow).map_err(Error::Config)?;
+        let flow = input
+            .protocol
+            .flow
+            .map(crate::flow::parse_flow)
+            .transpose()?;
+        if flow.is_some() && !crate::flow::is_vision_flow(flow) {
             return Err(Error::Unsupported(
-                "VLESS flow requires its protocol stream and bypass control",
+                "VLESS flow requires its protocol stream integration",
             ));
         }
-        if input.protocol.testpre != 0 || !input.protocol.testseed.is_empty() {
+        if crate::flow::is_vision_flow(flow)
+            && (input.tls.is_none() || input.ws.is_some() || input.grpc.is_some())
+        {
+            return Err(Error::Unsupported(
+                "Vision requires a real switchable TLS carrier",
+            ));
+        }
+        if input.protocol.testpre != 0 || (flow.is_none() && !input.protocol.testseed.is_empty()) {
             return Err(Error::Unsupported(
                 "VLESS preconnect/padding requires its owning lifecycle",
             ));
         }
+        let testseed = crate::validation::normalize_vision_testseed(input.protocol.testseed)
+            .map_err(Error::Config)?;
         if let Some(encryption) = input.protocol.encryption.filter(|value| *value != "none") {
             crate::encryption::config::EncryptionConfig::client(encryption)
                 .map_err(Error::Config)?;
@@ -123,6 +138,8 @@ impl Options {
             let mut hash = key.build_hasher();
             endpoint.hash(&mut hash);
             uuid.hash(&mut hash);
+            flow.hash(&mut hash);
+            testseed.hash(&mut hash);
             format!("{tls:?}{ws:?}{grpc:?}").hash(&mut hash);
             dial.hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
@@ -131,6 +148,8 @@ impl Options {
             endpoint,
             server: input.server.into(),
             uuid,
+            flow,
+            testseed,
             tls,
             ws,
             grpc,

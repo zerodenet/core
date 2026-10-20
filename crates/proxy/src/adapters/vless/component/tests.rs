@@ -51,3 +51,23 @@ fn reverse_input_cannot_be_projected_into_an_ordinary_outbound_role() {
     assert!(!native_input(&input));
     assert!(component_options(&input).is_err());
 }
+
+#[test]
+fn tls_vision_keeps_flow_and_padding_while_invalid_selected_parameters_still_fail() {
+    for flow in ["xtls-rprx-vision", "xtls-rprx-vision-udp443"] {
+        let mut input = input(&format!(
+            r#", "flow":"{flow}","tls":{{"insecure":true}},"testseed":[10,1,20,1]"#
+        ));
+        assert!(native_input(&input));
+        assert!(component_options(&input).is_ok());
+        let OutboundProtocolConfig::Vless { testseed, .. } = &mut input.protocol else {
+            unreachable!()
+        };
+        *testseed = vec![10, 0, 20, 1];
+        assert!(native_input(&input));
+        assert!(
+            component_options(&input).is_err(),
+            "invalid padding cannot silently choose a legacy path"
+        );
+    }
+}
