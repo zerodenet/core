@@ -1,5 +1,50 @@
 # 控制面兼容性与破坏性变更
 
+
+本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
+
+## 消费者如何判断兼容性
+
+外部消费者连接内核后应依次检查：
+
+1. `health.engine_build_id`，确定实际运行的内核版本；
+2. `capabilities.api_id` 和 `capabilities.schema_id`，确定请求与事件信封版本；
+3. `capabilities.features`、`build_features` 和协议矩阵，确定当前构建实际启用的能力；
+4. 本文对应版本的语义变更，再决定是否启用兼容分支。
+
+兼容性标识的含义：
+
+| 标识 | 当前值 | 何时必须变化 |
+|------|--------|--------------|
+| `api_id` | `zero.api.v1` | 请求、响应信封或既有字段出现不兼容 wire 变化 |
+| `schema_id` | `zero.event.v1` | 事件信封或既有事件字段出现不兼容 wire 变化 |
+| `engine_build_id` | Cargo 包版本 | wire 兼容但行为、时序或恢复语义发生变化 |
+
+新增可选字段、未知事件类型和新增 capability 通常保持向前兼容；消费者必须忽略不认识的可选字段和事件。改变 ACK 时序、快照含义、增量合并规则、重放范围或既有字段含义，即使 JSON 形状不变，也必须在本文登记。
+
+## 版本矩阵
+
+| 版本 | 影响面 | 迁移结论 |
+|------|--------|----------|
+| `Unreleased` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 <!-- version-contract:unreleased-row --> |
+| `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
+| `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
+| `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
+| `0.0.16-rc.202609051609` | - | No pending compatibility changes |
+| `0.0.16-rc.202609050728` | GUI 首次启动、进程内 Proxy 集成 | 空入站且无 TUN 配置进入管理待命；控制面可应用第一个监听，移除最后监听后继续待命 |
+| `0.0.16-rc.202609041712` | - | No pending compatibility changes |
+| `0.0.16-rc.202609041703` | - | No pending compatibility changes |
+| `0.0.16-rc.202609041004` | - | No pending compatibility changes |
+| `0.0.16-rc.3` | - | No pending compatibility changes |
+| `0.0.16-rc.2` | - | No pending compatibility changes |
+| `0.0.16-rc.1` | - | No pending compatibility changes |
+| `0.0.15` | - | No pending compatibility changes |
+| `0.0.15-rc.4` | - | No pending compatibility changes |
+| `0.0.15-rc.3` | Diagnostics API 消费者、Connector 运维与事件 Sink | `diagnostics.trace_route` 改为执行真实会话路由追踪；Connector 对事实事件施加有界内存与可选 outbox 背压，采样事件改为仅 best-effort 且不持久化；默认重试次数由 3 调整为 10 |
+| `0.0.15-rc.2` | 构建脚本、事件消费者、Webhook 接收端 | 公开 Cargo feature 改用 kebab-case；引擎生成的 `event_id` 增加每次启动唯一的随机 epoch；开发期固定中心 API 被撤销，Connector 收缩为通用 Webhook 事件投递；认证项速率改为 Zero 主体策略聚合 |
+| `0.0.15-rc.1` | 进程内 Rust `EventSource`、事件 Sink | Rust 实现者必须迁移到实时 `EventStream`；IPC/HTTP/gRPC GUI wire 无变化 |
+| `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
+
 ## Unreleased
 
 ### Component task observation stays active during start and shutdown
@@ -111,22 +156,22 @@ wire、结果码、策略/健康中立性与配置字段不变，无 GUI/SDK 迁
 - Browser Dialer retirement now reports `io::ErrorKind::ConnectionAborted` with the existing message. Permanent retirement must terminate byte I/O; returning `Interrupted` let retrying I/O helpers spin inside one poll. Existing lifecycle, reuse, peer-close and deadline checks remain.
 - HTTP/1 XHTTP packet upload ownership retains existing request, byte and queue budgets and deadlines, and yields after bounded admission handoff so the consumer can progress before the next pipelined request. The receipt remains bounded ownership acknowledgment. Captured negative/positive regressions and the separate pinned reference-client byte-count qualification issue are recorded under design/v0.0.3/implementation.
 
-## Unreleased: Host Wintun activation and XHTTP upload receipts
+### Host Wintun activation and XHTTP upload receipts
 
 - Existing host-owned Wintun adapters validate their configured addresses and MTU before opening an exclusive packet session, then wait for Preferred address state on the activated link. A dormant Deprecated address is not treated as ready; duplicate, invalid and expired addresses remain errors. Host addresses, routes and MTU are never modified.
 - XHTTP HTTP/1 packet uploads acknowledge completely received, validated and byte-budgeted ownership before waiting for ingress queue capacity. This allows a reused upload connection to deliver a missing sequence instead of waiting for a receipt that depends on that sequence. The admission task retains its request permit, payload reservation and deadline; receipt does not mean business delivery. Queue and listener budgets, duplicate rejection, cancellation and HTTP/2/3 admission backpressure remain enforced. No configuration or public API fields change.
 
-## Unreleased: Shared raw-IP listener egress
+### Shared raw-IP listener egress
 
 - Native shared raw-IP listeners apply the current physical-egress selection at the datagram send boundary. Their outer packets no longer rely on being recaptured and routed through TUN as business flows. Explicit outer proxy carriers keep their existing transport ownership.
 - Per-message interface hints preserve the listener's source port and receive binding. Route hints are bounded and expire after one second or immediately on egress generation changes; unavailable physical egress and failed interface hints do not fall back to an unbound send. Linux firewall marks accompany the individual datagram. No configuration or API fields change. On macOS, specifically addressed IPv4 listeners use a synchronous, checked temporary interface scope instead of IP_PKTINFO, preserving their configured receive address and restoring the previous interface scope before returning to the executor. Send or binding errors never trigger an unbound retry.
 
-## Unreleased: DoH connection recovery after network changes
+### DoH connection recovery after network changes
 
 - DoH HTTP/2 pool identity now includes the existing physical-egress generation for native and detoured queries. Connections prepared before a network change cannot enter the current pool or send a new DNS request afterwards, even when the physical interface name remains unchanged.
 - Failed or cancelled exchanges, including cancellation by the configured backend deadline, retire only their own connection. A delayed cancellation cannot evict a replacement connection. Healthy connection reuse, native platform binding, explicit detours, DNS dispatch, fallback selection and query deadlines retain their existing contracts; this does not introduce automatic query replay or new configuration fields.
 
-## Unreleased: Connector reload recovery and sample delivery
+### Connector reload recovery and sample delivery
 
 - Tokio 最低版本声明为 1.53.3，Unix TUN 与路由监测使用对应的注册接口，保持描述符直到注销后再关闭；macOS 接收宿主描述符时继续保留其拥有关系。V1 配置、控制面及 TUN 路由语义不变。
 
@@ -142,52 +187,6 @@ wire、结果码、策略/健康中立性与配置字段不变，无 GUI/SDK 迁
 - `sinks` query adds optional `source_buffer` admission gauges: channel capacity, byte budget, current reservations, high-water values, waiting event bytes, oversized admission count and pause state. These describe the shared dispatcher source, are repeated per sink and must not be summed. They exclude replay/handoff payloads and delivery copies, are read independently and reset with dispatcher replacement. `reserved_bytes` is budget charge, not RSS; oversized admission charges the whole budget. Missing fields mean unavailable on older cores or synchronous sinks.
 - Single-file ordinary log rotation (`max_files=1`) now replaces the active file at its size boundary. Rotation errors propagate without resetting length accounting. One oversized write/event remains intact and rotates before the following record. Outbox retention is unchanged.
 - Engine-generated opaque event IDs include an instance-local identity ordinal, preventing same-millisecond facts from colliding in durable deduplication. Identity allocation is separate from published sequence, so subscription snapshots and prepared completion facts create no replay gaps. Persisted IDs and caller-provided external IDs remain unchanged; consumers must treat IDs as opaque.
-
-本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
-
-## 消费者如何判断兼容性
-
-外部消费者连接内核后应依次检查：
-
-1. `health.engine_build_id`，确定实际运行的内核版本；
-2. `capabilities.api_id` 和 `capabilities.schema_id`，确定请求与事件信封版本；
-3. `capabilities.features`、`build_features` 和协议矩阵，确定当前构建实际启用的能力；
-4. 本文对应版本的语义变更，再决定是否启用兼容分支。
-
-兼容性标识的含义：
-
-| 标识 | 当前值 | 何时必须变化 |
-|------|--------|--------------|
-| `api_id` | `zero.api.v1` | 请求、响应信封或既有字段出现不兼容 wire 变化 |
-| `schema_id` | `zero.event.v1` | 事件信封或既有事件字段出现不兼容 wire 变化 |
-| `engine_build_id` | Cargo 包版本 | wire 兼容但行为、时序或恢复语义发生变化 |
-
-新增可选字段、未知事件类型和新增 capability 通常保持向前兼容；消费者必须忽略不认识的可选字段和事件。改变 ACK 时序、快照含义、增量合并规则、重放范围或既有字段含义，即使 JSON 形状不变，也必须在本文登记。
-
-## 版本矩阵
-
-| 版本 | 影响面 | 迁移结论 |
-|------|--------|----------|
-| `Unreleased` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 <!-- version-contract:unreleased-row --> |
-| `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
-| `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
-| `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
-| `0.0.16-rc.202609051609` | - | No pending compatibility changes |
-| `0.0.16-rc.202609050728` | GUI 首次启动、进程内 Proxy 集成 | 空入站且无 TUN 配置进入管理待命；控制面可应用第一个监听，移除最后监听后继续待命 |
-| `0.0.16-rc.202609041712` | - | No pending compatibility changes |
-| `0.0.16-rc.202609041703` | - | No pending compatibility changes |
-| `0.0.16-rc.202609041004` | - | No pending compatibility changes |
-| `0.0.16-rc.3` | - | No pending compatibility changes |
-| `0.0.16-rc.2` | - | No pending compatibility changes |
-| `0.0.16-rc.1` | - | No pending compatibility changes |
-| `0.0.15` | - | No pending compatibility changes |
-| `0.0.15-rc.4` | - | No pending compatibility changes |
-| `0.0.15-rc.3` | Diagnostics API 消费者、Connector 运维与事件 Sink | `diagnostics.trace_route` 改为执行真实会话路由追踪；Connector 对事实事件施加有界内存与可选 outbox 背压，采样事件改为仅 best-effort 且不持久化；默认重试次数由 3 调整为 10 |
-| `0.0.15-rc.2` | 构建脚本、事件消费者、Webhook 接收端 | 公开 Cargo feature 改用 kebab-case；引擎生成的 `event_id` 增加每次启动唯一的随机 epoch；开发期固定中心 API 被撤销，Connector 收缩为通用 Webhook 事件投递；认证项速率改为 Zero 主体策略聚合 |
-| `0.0.15-rc.1` | 进程内 Rust `EventSource`、事件 Sink | Rust 实现者必须迁移到实时 `EventStream`；IPC/HTTP/gRPC GUI wire 无变化 |
-| `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
-
-## Unreleased
 
 ### Connector 持久化预检与配置热更新
 
