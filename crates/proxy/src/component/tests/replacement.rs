@@ -11,6 +11,8 @@ use zero_platform_tokio::contract::lifecycle::TaskClass;
 mod generations;
 #[path = "replacement/native.rs"]
 mod native;
+#[path = "replacement/publication.rs"]
+mod publication;
 
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(3)
@@ -127,21 +129,18 @@ async fn cancelled_task_retirement_keeps_the_same_batch_real_scope_and_original_
 }
 
 #[tokio::test]
-async fn typed_receipt_reissues_after_publication_error_or_panic_but_cannot_replay_after_consumption(
-) {
+async fn typed_receipt_reissues_after_unaccepted_publication_error_but_cannot_replay_consumption() {
     let catalog = ComponentCatalog::default();
     let (panicking, state) = native::task_slot(&catalog, true).await;
     let old = plan(vec![panicking]);
-    TestContext::new(old.order.iter().map(AsRef::as_ref))
-        .drive(old.start(deadline()))
-        .await
-        .unwrap();
+    let host = TestContext::new(old.order.iter().map(AsRef::as_ref));
+    host.drive(old.start(deadline())).await.unwrap();
     let mut peer = state.peer.lock().unwrap().take().unwrap();
     peer.write_u8(1).await.unwrap();
     drop(peer);
     let target = catalog.prepare(config()).unwrap();
     let batch = Replacement::new(target, None, [old.clone()]).unwrap();
-    let receipt = batch.confirm(deadline()).await.unwrap();
+    let receipt = host.drive(batch.confirm(deadline())).await.unwrap();
     let failure = receipt.0.failure().unwrap().clone();
     let original_nonce = Arc::as_ptr(&receipt.0);
     assert!(batch
@@ -151,14 +150,8 @@ async fn typed_receipt_reissues_after_publication_error_or_panic_but_cannot_repl
         )))
         .is_err());
     assert!(!batch.released());
-    let retry = batch.confirm(deadline()).await.unwrap();
-    assert_eq!(Arc::as_ptr(&retry.0), original_nonce);
-    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = batch.release(retry, |_| panic!("actual supervisor callback panic"));
-    }));
-    assert!(panic.is_err());
-    assert!(!batch.released());
     let receipt = batch.confirm(deadline()).await.unwrap();
+    assert_eq!(Arc::as_ptr(&receipt.0), original_nonce);
     let replay = batch.confirm(deadline()).await.unwrap();
     let foreign = Replacement::new(batch.candidate.clone(), None, []).unwrap();
     let foreign_receipt = foreign.confirm(deadline()).await.unwrap();
@@ -190,6 +183,7 @@ async fn typed_receipt_reissues_after_publication_error_or_panic_but_cannot_repl
     ));
     let weak = Arc::downgrade(&old);
     drop(batch);
+    drop(host);
     drop(old);
     assert!(
         weak.upgrade().is_none(),

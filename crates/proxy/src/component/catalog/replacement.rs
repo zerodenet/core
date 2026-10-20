@@ -1,6 +1,7 @@
 //! One retained target and exact retirement subset, installed before any await.
 use super::*;
 mod order;
+mod publication;
 use std::collections::BTreeSet;
 use zero_core::component::ComponentInstanceId;
 
@@ -39,7 +40,7 @@ pub(super) struct Replacement {
     parts: Vec<Part>,
     order: Vec<ComponentInstanceId>,
     terminal: OnceLock<Arc<DeclaredComponentTerminal>>,
-    released: Mutex<bool>,
+    released: Mutex<publication::Publication>,
 }
 impl Replacement {
     pub(super) fn new(
@@ -91,7 +92,7 @@ impl Replacement {
             parts,
             order,
             terminal: OnceLock::new(),
-            released: Mutex::new(false),
+            released: Mutex::new(publication::Publication::Pending),
         })
     }
     pub(super) fn owned_plans(&self) -> impl Iterator<Item = &Arc<ComponentPlan>> {
@@ -118,12 +119,6 @@ impl Replacement {
             .map(|slot| slot.instance_id())
             .collect();
         self.affected_current() == actual.as_slice()
-    }
-    pub(super) fn released(&self) -> bool {
-        *self
-            .released
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     pub(super) async fn confirm(
         &self,
@@ -179,36 +174,6 @@ impl Replacement {
             })
         });
         Ok(DeclaredCloseReceipt(terminal.clone()))
-    }
-    pub(super) fn release(
-        &self,
-        receipt: DeclaredCloseReceipt,
-        publish: impl FnOnce(&DeclaredComponentTerminal) -> Result<(), ChannelError>,
-    ) -> Result<Option<ChannelError>, ChannelError> {
-        let mut released = self
-            .released
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if *released
-            || receipt.0.instances().len() != self.order.len()
-            || !self
-                .terminal
-                .get()
-                .is_some_and(|terminal| Arc::ptr_eq(terminal, &receipt.0))
-        {
-            return Err(invalid(
-                Reason::StalePlan,
-                "retirement receipt is foreign or already consumed",
-            ));
-        }
-        // Publication is explicit, synchronous and typed. Error/panic leaves
-        // the original owner and terminal retained; a log is never an ACK.
-        publish(&receipt.0)?;
-        for failure in receipt.0.failures() {
-            failure.confirm_reported();
-        }
-        *released = true;
-        Ok(receipt.0.failure().map(|failure| failure.retained()))
     }
 }
 

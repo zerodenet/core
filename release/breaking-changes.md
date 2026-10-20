@@ -425,3 +425,9 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   generation and scope before supporting it. The exact owner/fence binding does
   not provide business admission or transferred-user completion; missing users
   retain an actual unfinished cleanup obligation. V1 config and FFI are unchanged.
+
+- Internal replacement terminal publication runs outside its state lock. A
+  receiver rejection before acceptance permits retry with the same terminal;
+  callback panic retains an unknown publication outcome, its original owners
+  and fault source, and blocks automatic redelivery. Physical declared closure
+  and successful fault handoff remain distinct facts.
