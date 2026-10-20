@@ -70,6 +70,15 @@ impl std::fmt::Debug for ComponentCatalog {
     }
 }
 impl ComponentCatalog {
+    pub(crate) fn current(&self, config: &Arc<RuntimeConfig>) -> Option<Arc<ComponentPlan>> {
+        self.state
+            .lock()
+            .expect("component catalog poisoned")
+            .current
+            .as_ref()
+            .filter(|entry| entry.matches(config))
+            .map(|entry| entry.ready().clone())
+    }
     pub(crate) fn with_factories(factories: ComponentRegistry<OutboundConfig>) -> Self {
         Self {
             factories: OnceLock::from(factories),

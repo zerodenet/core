@@ -5,6 +5,13 @@ use crate::component::{
 use std::sync::Arc;
 use zero_config::RuntimeConfig;
 impl super::ProtocolInventory {
+    /// Read only: historical snapshots cannot prepare or publish a replacement.
+    pub(crate) fn current_components(
+        &self,
+        config: &Arc<RuntimeConfig>,
+    ) -> Option<Arc<ComponentPlan>> {
+        self.registry.components.current(config)
+    }
     pub(crate) fn allocate_resource_identity(
         &self,
     ) -> Result<zero_core::component::ComponentInstanceId, zero_engine::EngineError> {

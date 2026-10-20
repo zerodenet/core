@@ -1,0 +1,106 @@
+//! Persistent DNS transports depend on the entire actual selected native path.
+use super::{PreparedTcpCandidateExecution, ProtocolInventory};
+use crate::{
+    component::{catalog::ComponentPlan, instance::ComponentSlot},
+    protocol_registry::OutboundAdapterContext,
+};
+use std::{collections::BTreeSet, sync::Arc};
+use zero_engine::{Engine, EngineRuntimeSnapshot, ResolvedLeafOutbound, ResolvedOutbound};
+
+#[derive(PartialEq, Eq)]
+enum Shape {
+    Single,
+    Relay,
+    Fallback,
+}
+struct Owners {
+    shape: Shape,
+    slots: Vec<Arc<ComponentSlot>>,
+}
+impl Owners {
+    fn same(&self, other: &Self) -> bool {
+        self.shape == other.shape
+            && self.slots.len() == other.slots.len()
+            && self
+                .slots
+                .iter()
+                .zip(&other.slots)
+                .all(|(old, new)| Arc::ptr_eq(old, new))
+    }
+}
+impl ProtocolInventory {
+    pub(crate) fn affected_dns_detours(
+        &self,
+        engine: &Engine,
+        previous: &EngineRuntimeSnapshot,
+        candidate: &EngineRuntimeSnapshot,
+        prepared: &ComponentPlan,
+    ) -> BTreeSet<String> {
+        let targets: BTreeSet<_> = previous
+            .config()
+            .runtime
+            .dns
+            .iter()
+            .chain(candidate.config().runtime.dns.iter())
+            .flat_map(|config| config.servers.values())
+            .filter_map(|server| server.detour().map(str::to_owned))
+            .collect();
+        let current = self.current_components(previous.config());
+        targets
+            .into_iter()
+            .filter(|target| {
+                let old = current
+                    .as_ref()
+                    .and_then(|plan| self.dns_owners(engine, previous, plan, target));
+                let new = self.dns_owners(engine, candidate, prepared, target);
+                match (old, new) {
+                    (Some(old), Some(new)) => !old.same(&new),
+                    // Legacy paths have no complete native owner identity. Retire
+                    // conservatively instead of treating equal target names or
+                    // numeric configuration generations as proof of reuse.
+                    _ => true,
+                }
+            })
+            .collect()
+    }
+    fn dns_owners(
+        &self,
+        engine: &Engine,
+        snapshot: &EngineRuntimeSnapshot,
+        components: &ComponentPlan,
+        target: &str,
+    ) -> Option<Owners> {
+        let target = snapshot.plan().target_id(target)?;
+        let (resolved, _plan) = engine.resolve_target_id_in_snapshot(snapshot, target)?;
+        let (shape, leaves) = match &resolved {
+            ResolvedOutbound::Single(leaf) => (Shape::Single, std::slice::from_ref(leaf)),
+            ResolvedOutbound::Relay { chain } => (Shape::Relay, chain.as_slice()),
+            ResolvedOutbound::Fallback { candidates } => (Shape::Fallback, candidates.as_slice()),
+        };
+        let slots = leaves
+            .iter()
+            .map(|leaf| match leaf {
+                ResolvedLeafOutbound::Direct { tag, .. } => components.direct(*tag).ok(),
+                ResolvedLeafOutbound::Block { .. } => None,
+                ResolvedLeafOutbound::Proxy { .. } => {
+                    let candidate = self
+                        .native_tcp_candidate(
+                            OutboundAdapterContext::new(snapshot.config()),
+                            leaf,
+                            Some(components),
+                        )?
+                        .ok()?;
+                    match candidate.execution {
+                        PreparedTcpCandidateExecution::Native(slot) => Some(slot),
+                        _ => None,
+                    }
+                }
+            })
+            .collect::<Option<Vec<_>>>()?;
+        (!slots.is_empty()).then_some(Owners { shape, slots })
+    }
+}
+
+#[cfg(all(test, feature = "socks5"))]
+#[path = "tests/dns_dependencies.rs"]
+mod tests;
