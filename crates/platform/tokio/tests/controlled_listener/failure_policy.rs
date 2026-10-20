@@ -10,6 +10,8 @@ async fn consumed_handle_unknown_policy_retains_exact_source_and_never_confirms_
     let shared = Arc::new(Shared {
         state: Mutex::new(State {
             listener: None,
+            raw: None,
+            confirmed: 0,
             retired: true,
             closed: false,
             error: Some(source.clone()),

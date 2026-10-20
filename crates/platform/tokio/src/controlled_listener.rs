@@ -1,8 +1,10 @@
 //! One actual listener, a cancel-safe accept view, and explicit close ownership.
 mod control;
 mod native;
+mod owner;
 use crate::TokioSocket;
 pub use control::ControlledTcpListenerControl;
+pub use owner::ControlledTcpListenerOwner;
 use std::{
     future::{poll_fn, Future},
     io,
@@ -16,6 +18,8 @@ use tokio_util::sync::CancellationToken;
 
 struct State {
     listener: Option<TcpListener>,
+    raw: Option<std::net::TcpListener>,
+    confirmed: usize,
     retired: bool,
     closed: bool,
     error: Option<Arc<io::Error>>,
@@ -25,11 +29,37 @@ struct Shared {
     cancel: CancellationToken,
     label: String,
 }
+fn uncertain(message: &'static str) -> Arc<io::Error> {
+    Arc::new(io::Error::other(message))
+}
+impl State {
+    /// No await: the original is either explicitly closed, retained by a
+    /// known-open Winsock failure, or permanently Unknown with its source.
+    fn close_original(&mut self) {
+        let result = if let Some(original) = self.raw.take() {
+            native::close(original)
+        } else if let Some(listener) = self.listener.take() {
+            self.error = Some(uncertain(
+                "Tokio listener deregistration did not return a native outcome",
+            ));
+            listener.into_std().and_then(native::close)
+        } else {
+            return;
+        };
+        match result {
+            Ok(()) => {
+                self.confirmed += 1;
+                self.error = None;
+            }
+            Err(source) => self.error = Some(Arc::new(source)),
+        }
+    }
+}
 impl Shared {
     fn cancel_admission(&self) {
         self.state
             .lock()
-            .expect("TCP listener owner poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .retired = true;
         // Wake callers after releasing the ownership lock.
         self.cancel.cancel();
@@ -53,6 +83,8 @@ impl ControlledTcpListener {
             label: format!("native TCP listener {:?}", listener.local_addr().ok()),
             state: Mutex::new(State {
                 listener: Some(listener),
+                raw: None,
+                confirmed: 0,
                 retired: false,
                 closed: false,
                 error: None,
@@ -75,7 +107,7 @@ impl ControlledTcpListener {
         self.shared
             .state
             .lock()
-            .expect("TCP listener owner poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .listener
             .as_ref()
             .ok_or_else(retired)?
@@ -93,7 +125,7 @@ impl ControlledTcpListener {
                 .shared
                 .state
                 .lock()
-                .expect("TCP listener owner poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if state.retired || self.shared.cancel.is_cancelled() {
                 return Poll::Ready(Err(retired()));
             }

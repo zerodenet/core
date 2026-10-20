@@ -24,44 +24,44 @@ impl ChannelControl for ControlledTcpListenerControl {
                     .shared
                     .state
                     .lock()
-                    .expect("TCP listener owner poisoned");
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if !state.closed {
                     if let Some(source) = &state.error {
                         if !native::retryable(source) {
                             return Err(failure(source.clone()));
                         }
                     }
-                    if Instant::now() >= deadline {
+                    if (state.listener.is_some() || state.raw.is_some() || state.error.is_some())
+                        && Instant::now() >= deadline
+                    {
                         return Ok(CloseReport {
                             unfinished: vec![Unfinished::Resource(self.shared.label.clone())],
                             ..Default::default()
                         });
                     }
-                    if let Some(listener) = state.listener.take() {
-                        // Tokio 1.54 PollEvented::into_inner takes the native IO
-                        // before deregistering. On Err it drops that IO. Keep the
-                        // original error permanently: native close is unproven,
-                        // and the consumed descriptor must never be reconstructed.
-                        let result = listener.into_std().and_then(native::close);
-                        match result {
-                            Ok(()) => state.closed = true,
-                            Err(source) => state.error = Some(Arc::new(source)),
-                        }
+                    if state.listener.is_some() || state.raw.is_some() {
+                        state.close_original();
                     } else if let Some(source) = &state.error {
                         match native::retry(source) {
                             Ok(true) => {
-                                state.closed = true;
+                                state.confirmed += 1;
                                 state.error = None;
                             }
                             Ok(false) => {}
                             Err(source) => state.error = Some(Arc::new(source)),
                         }
                     }
+                    if state.listener.is_none() && state.raw.is_none() && state.error.is_none() {
+                        state.closed = true;
+                    }
                 }
                 if state.closed {
                     let mut report = CloseReport::default();
-                    if !self.reported {
-                        report.closed_io.push(self.shared.label.clone());
+                    if !self.reported && state.confirmed != 0 {
+                        report.closed_io.push(format!(
+                            "{} ({} original native closes)",
+                            self.shared.label, state.confirmed
+                        ));
                         self.reported = true;
                     }
                     return Ok(report);

@@ -3,7 +3,9 @@ mod tokio_listener;
 pub use tokio_listener::TokioListener;
 mod controlled_listener;
 pub mod file;
-pub use controlled_listener::{ControlledTcpListener, ControlledTcpListenerControl};
+pub use controlled_listener::{
+    ControlledTcpListener, ControlledTcpListenerControl, ControlledTcpListenerOwner,
+};
 #[cfg(feature = "host-network-stats")]
 pub mod network_statistics;
 use std::io;

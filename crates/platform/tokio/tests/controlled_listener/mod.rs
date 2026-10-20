@@ -10,6 +10,7 @@ mod adoption;
 #[cfg(unix)]
 #[path = "failure_policy.rs"]
 mod failure_policy;
+mod owner;
 
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(3)
