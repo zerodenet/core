@@ -96,11 +96,13 @@ async fn real_slot_rejects_preparing_foreign_engine_same_numeric_owner_and_publi
         .await;
         assert_eq!(fixture.registration().observe().unwrap().slots().len(), 0);
         assert!(other.shutdown(deadline()).await.unwrap().is_complete());
-        assert!(!host
-            .drive(fixture.slot.shutdown(deadline()))
-            .await
-            .unwrap()
-            .is_complete());
+        assert!(
+            host.drive(fixture.slot.shutdown(deadline()))
+                .await
+                .unwrap()
+                .is_complete(),
+            "no native acquisition was made; explicit original shutdown proves no transfer"
+        );
         fixture
             .proxy
             .engine()
@@ -172,11 +174,13 @@ async fn retained_request_rechecks_actual_engine_finish_and_current_host_at_nati
         })
         .await;
         assert_eq!(fixture.registration().observe().unwrap().slots().len(), 0);
-        assert!(!host
-            .drive(fixture.slot.shutdown(deadline()))
-            .await
-            .unwrap()
-            .is_complete());
+        assert!(
+            host.drive(fixture.slot.shutdown(deadline()))
+                .await
+                .unwrap()
+                .is_complete(),
+            "no native acquisition was made; explicit original shutdown proves no transfer"
+        );
     })
     .await
     .unwrap();

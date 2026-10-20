@@ -226,3 +226,5 @@ impl Fixture {
 }
 mod rejection;
 mod wire;
+
+pub(in crate::component) mod caller;

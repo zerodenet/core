@@ -59,8 +59,21 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
             });
             let observations=Arc::new(Observations::default());
             for _ in 0..2 {
+                #[cfg(feature = "raw-ip-runtime")]
+                let mut caller = crate::component::tests::business_carrier::caller::Caller::new(&proxy).await;
+                #[cfg(feature = "raw-ip-runtime")]
+                let (session, invocation) = (caller.session.clone(), caller.invocation.clone());
+                #[cfg(not(feature = "raw-ip-runtime"))]
                 let (session,invocation)=admitted(&proxy);
                 assert!(invocation.deadline.is_none());
+                #[cfg(feature = "raw-ip-runtime")]
+                {
+                    let auth=session.auth.as_ref().unwrap();
+                    assert_eq!(auth.scheme,"verified");
+                    assert_eq!(auth.principal_key.as_deref(),Some("business-grpc"));
+                    assert_eq!((auth.up_bps,auth.down_bps,auth.device_limit,auth.quota_remaining_bytes,auth.policy_revision),
+                        (Some(4096),Some(8192),Some(1),Some(4096),Some(7)));
+                }
                 let demand=BusinessCarrierRequest::new(proxy.engine(),&slot,&invocation).unwrap();
                 let endpoint=Destination::new(Address::Ipv4([127,0,0,1]),peer.port());
                 let opener=Arc::new(NodeOpener::new(upstream.clone().with_observer(Some(observations.clone())),endpoint).with_business(demand));
@@ -82,13 +95,21 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
                 let exit=host.drive(witness.wait()).await;
                 assert_eq!(exit.class(),zero_platform_tokio::contract::scope::TaskClass::Auxiliary);
                 assert!(exit.result().is_ok());
+                #[cfg(feature = "raw-ip-runtime")]
+                {
+                    assert!(!caller.witness().is_joined(), "transport exit is not caller completion");
+                    caller.join().await;
+                }
                 assert!(actual.closed().is_none());
                 proxy.engine().track_session(session.id).finish(zero_engine::SessionOutcome::DirectRelayed).unwrap();
             }
             assert_eq!(captured.reads.load(Ordering::SeqCst),1);
             assert!(observations.outer.load(Ordering::Relaxed)>2*REQUEST_LEN);
             let report:CloseReport=host.drive(slot.shutdown(deadline())).await.unwrap();
-            assert!(!report.is_complete(),"physical native closure cannot invent external caller join proof");
+            #[cfg(feature = "raw-ip-runtime")]
+            assert!(report.is_complete(), "same actual caller joins, returned logical views, actual drivers and native controls must close the real graph: {report:?}");
+            #[cfg(not(feature = "raw-ip-runtime"))]
+            assert!(!report.is_complete(), "without an actual caller registration native closure cannot invent a user graph");
             assert!(actual.closed().unwrap().matches(&actual));
             finish.send_replace(true);server.await.unwrap();
         }

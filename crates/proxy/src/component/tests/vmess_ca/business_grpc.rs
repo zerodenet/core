@@ -1,10 +1,11 @@
-//! Business library path through the real current host; user closure remains unaccounted.
+//! Real host Business path: actual raw-IP callers close users; untracked callers stay unaccounted.
 use super::fixtures::*;
+#[cfg(not(feature = "raw-ip-runtime"))]
+use crate::component::business_demand::AdmittedTcpDemand;
 use crate::{
     component::{
-        business_carrier::BusinessCarrierRequest, business_demand::AdmittedTcpDemand,
-        catalog::supervision::testing::TestContext, instance::ComponentSlot,
-        stream_bridge::network::NodeOpener, ComponentRecipe,
+        business_carrier::BusinessCarrierRequest, catalog::supervision::testing::TestContext,
+        instance::ComponentSlot, stream_bridge::network::NodeOpener, ComponentRecipe,
     },
     Proxy,
 };
@@ -21,9 +22,9 @@ use tokio::{
     net::TcpListener,
     time::{timeout, Duration},
 };
-use zero_core::{
-    component::*, request::Destination, Address, Network, ProtocolType, Session, SessionAuth,
-};
+use zero_core::{component::*, request::Destination, Address};
+#[cfg(not(feature = "raw-ip-runtime"))]
+use zero_core::{Network, ProtocolType, Session, SessionAuth};
 use zero_platform_tokio::{
     contract::{
         component::{
@@ -140,6 +141,7 @@ impl ResourceAccess for Access {
         self.original.open_device(name)
     }
 }
+#[cfg(not(feature = "raw-ip-runtime"))]
 fn admitted(proxy: &Proxy) -> (Session, crate::component::direct_bridge::Invocation) {
     let mut session = Session::new(
         0,
