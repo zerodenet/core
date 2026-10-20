@@ -19,7 +19,9 @@ use zero_traits::{
     TcpListener as TcpListenerTrait, TransportBypassControl,
 };
 
+mod controlled_tcp;
 mod datagram;
+pub use controlled_tcp::{ControlledTcpControl, ControlledTcpStream};
 mod dial;
 mod network_service;
 pub use dial::validate_dial_policy;

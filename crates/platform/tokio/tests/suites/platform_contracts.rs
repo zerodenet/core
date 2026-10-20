@@ -15,6 +15,8 @@ mod tcp_nodelay;
 #[path = "../dial_policy.rs"]
 mod dial_policy;
 
+#[path = "../controlled_tcp.rs"]
+mod controlled_tcp;
 #[path = "../datagram_poll.rs"]
 mod datagram_poll;
 #[path = "../datagram_session.rs"]
