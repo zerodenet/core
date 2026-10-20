@@ -76,10 +76,15 @@ struct ReenterDrop {
     observed: Arc<AtomicBool>,
 }
 impl Wake for ReenterDrop {
-    fn wake(self: Arc<Self>) {}
+    fn wake(self: Arc<Self>) {
+        self.check_native_unlocked();
+    }
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.check_native_unlocked();
+    }
 }
-impl Drop for ReenterDrop {
-    fn drop(&mut self) {
+impl ReenterDrop {
+    fn check_native_unlocked(&self) {
         let shared = self.listener.upgrade().unwrap();
         let state = shared
             .state
@@ -93,6 +98,11 @@ impl Drop for ReenterDrop {
             .unwrap()
             .ip()
             .is_loopback());
+    }
+}
+impl Drop for ReenterDrop {
+    fn drop(&mut self) {
+        self.check_native_unlocked();
         self.observed.store(true, Ordering::SeqCst);
     }
 }
