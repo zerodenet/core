@@ -450,3 +450,9 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   original Scope still must consume its real exit and child/user cleanup remains
   separate. Cancelling an orchestration observer requests stop without leaving
   the healthy native listener open indefinitely or claiming a shutdown ACK.
+
+- `TaskRegistrar::downgrade` issues sealed `WeakTaskRegistrar` registration
+  authority. It upgrades only during `spawn`/`spawn_tracked`, preserving the
+  original scope's admission, allocator, budget and exit receipts, and rejects
+  expired owners as closing. Retained task futures can hold this authority
+  without retaining their own Scope; weak identity metadata cannot mint it.
