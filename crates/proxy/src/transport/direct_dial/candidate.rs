@@ -32,7 +32,7 @@ pub(crate) trait CandidateOpener: Sync {
         policy: &'a zero_traits::DialPolicy,
     ) -> BoxFuture<'a, Result<CandidateOpened<Self::Socket>, CandidateOpenFailure>>;
 }
-pub(super) struct LegacyCandidateOpener;
+pub(in crate::transport) struct LegacyCandidateOpener;
 impl CandidateOpener for LegacyCandidateOpener {
     type Socket = TokioSocket;
     fn local(&self, io: &Self::Socket, _: Option<SocketAddr>) -> Option<SocketAddr> {

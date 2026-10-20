@@ -90,6 +90,16 @@ pub(super) async fn dial_tcp_candidates_using<D: CandidateOpener>(
 /// Continue one failed dial with newly discovered candidates without retrying
 /// any endpoint that already completed. The returned observation remains one
 /// deterministic candidate/attempt timeline across both phases.
+#[cfg(test)]
+pub(super) async fn dial_tcp_fallback_candidates(
+    previous: Box<TcpDialFailure>,
+    candidates: Vec<SocketAddr>,
+    egress: &EgressInterfaceControl,
+    policy: &zero_traits::DialPolicy,
+) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
+    dial_tcp_fallback_using(previous, candidates, egress, policy, &LegacyCandidateOpener).await
+}
+
 pub(super) async fn dial_tcp_fallback_using<D: CandidateOpener>(
     previous: Box<TcpDialFailure>,
     candidates: Vec<SocketAddr>,

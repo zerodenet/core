@@ -1,6 +1,7 @@
 //! Root service dialing shares candidate order, budgets, and hard policy with
 //! business Direct without constructing a business Session or flow observation.
 use super::*;
+use zero_platform_tokio::contract::network::CarrierContext;
 use zero_platform_tokio::contract::{
     context::with_deadline, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
