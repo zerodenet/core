@@ -111,15 +111,27 @@ async fn actual_child_close_preserves_same_entry_receipt_foreign_isolation_and_c
         "full cap refuses before native accept"
     );
     assert!(io.local_addr().is_ok() && other_io.local_addr().is_ok());
+    peer.write_all(b"x").await.unwrap();
+    let mut byte = [0];
+    io.read_exact(&mut byte).await.unwrap();
+    assert_eq!(byte, [b'x']);
     assert!(first
         .close_accepted(&claim, Instant::now())
         .await
         .unwrap()
         .is_none());
     assert_eq!(first.accepted_evidence().unwrap().retained, 1);
-    peer.write_all(b"x").await.unwrap();
-    let mut byte = [0];
-    io.read_exact(&mut byte).await.unwrap();
+    // wait_closed revokes I/O even when its deadline has already elapsed;
+    // unconfirmed native ownership does not promise the view remains writable.
+    assert_eq!(
+        io.read(&mut byte).await.unwrap_err().kind(),
+        io::ErrorKind::ConnectionAborted
+    );
+    assert_eq!(
+        peer.try_read(&mut byte).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert!(first.take_accepted_report().closed_io.is_empty());
     let receipt = first
         .close_accepted(&claim, deadline())
         .await
