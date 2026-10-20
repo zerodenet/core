@@ -11,6 +11,8 @@ use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::component::ResourceDeclaration;
 #[cfg(feature = "datagram-route-runtime")]
 mod datagram;
+#[cfg(feature = "raw-ip-runtime")]
+mod icmp;
 mod retirement;
 
 pub(in crate::runtime::inbound_owners) fn proxy() -> Proxy {

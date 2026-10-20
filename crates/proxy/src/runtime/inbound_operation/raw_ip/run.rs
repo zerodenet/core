@@ -78,6 +78,7 @@ pub(super) async fn run(
         runtime.route_factory(),
         shutdown.clone(),
         operation.children.echoes.clone(),
+        operation.children.icmp.clone(),
     );
     let ingress_id = crate::runtime::packet_route::next_ingress_id();
     let packet_route = runtime.route_factory();

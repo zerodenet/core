@@ -14,6 +14,8 @@ use zero_platform_tokio::contract::{
     scope::{TaskClass, TaskExit, TaskRegistrar, TaskScope},
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
+#[cfg(feature = "raw-ip-runtime")]
+mod native_progress;
 mod observation;
 mod pending_bound;
 use pending_bound::PendingNativeBound;
@@ -34,6 +36,8 @@ struct Resource {
 }
 pub(crate) struct InboundOwner {
     identity: ComponentInstanceId,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) icmp_probe: OnceLock<crate::component::instance::HostIcmpProbeGrant>,
     pub(super) recovery: OnceLock<Arc<dyn crate::protocol_registry::InboundRecovery>>,
     shutdown: watch::Sender<bool>,
     cancel: CancellationToken,
@@ -103,6 +107,8 @@ impl InboundOwner {
         Self {
             identity,
             recovery: OnceLock::new(),
+            #[cfg(feature = "raw-ip-runtime")]
+            icmp_probe: OnceLock::new(),
             shutdown,
             cancel: CancellationToken::new(),
             scope: AsyncMutex::new(scope),

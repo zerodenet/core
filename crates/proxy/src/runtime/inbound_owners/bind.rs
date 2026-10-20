@@ -1,5 +1,7 @@
 //! One actual configuration's pre-bind owners, retained before native creation.
 mod grant;
+#[cfg(feature = "raw-ip-runtime")]
+mod icmp;
 mod lease;
 mod native;
 mod retirement;
@@ -66,6 +68,10 @@ impl InboundOwnerRegistry {
         // Construction above is cold. The unique actual native holder is a
         // registered resource before this owner or any bind capability escapes.
         owner.install_resource(identity, grant.resource())?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(declaration) = prepared.resources().get(1) {
+            owner.install_icmp_probe(declaration)?;
+        }
         reserved.config = Arc::downgrade(config);
         reserved.entries.insert(tag.to_owned(), owner.clone());
         Ok(InboundBindLease::new(

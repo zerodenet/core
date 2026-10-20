@@ -20,6 +20,10 @@ impl PreparedInboundBind {
         let destination = match resources.as_ref() {
             [ResourceDeclaration::TcpListener { destination, .. }]
             | [ResourceDeclaration::DatagramListener { destination, .. }] => destination,
+            #[cfg(feature = "raw-ip-runtime")]
+            [ResourceDeclaration::DatagramListener { destination, .. }, ResourceDeclaration::NativeIcmp { .. }] => {
+                destination
+            }
             _ => return Err(unsupported()),
         };
         let ip = match destination.address {

@@ -5,6 +5,7 @@ use crate::inbound::tun::udp::OwnedTunUdpTasks;
 use crate::runtime::inbound_owners::InboundInstallContext;
 
 pub(super) struct RawIpChildren {
+    pub(super) icmp: Option<crate::component::instance::HostIcmpProbeGrant>,
     pub(super) drivers: RetainedTasks<Result<(), EngineError>>,
     pub(super) proxies: RetainedTasks<()>,
     pub(super) connections: RetainedTasks<Result<(), EngineError>>,
@@ -15,6 +16,7 @@ pub(super) struct RawIpChildren {
 impl RawIpChildren {
     pub(super) fn new() -> Self {
         Self {
+            icmp: None,
             drivers: RetainedTasks::new("raw-IP stack drivers joined", 2),
             proxies: RetainedTasks::new(
                 "raw-IP outer carrier readers joined",
@@ -29,7 +31,8 @@ impl RawIpChildren {
             echoes: RetainedTasks::new("raw-IP ICMP probes joined", super::icmp::MAX_ECHO_PROBES),
         }
     }
-    pub(super) fn install(&self, context: &InboundInstallContext) -> Result<(), EngineError> {
+    pub(super) fn install(&mut self, context: &InboundInstallContext) -> Result<(), EngineError> {
+        self.icmp = context.icmp_probe_grant();
         context.register(self.stack_workers.resource())?;
         context.register(self.connections.resource())?;
         self.udp.install(context)?;
