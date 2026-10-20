@@ -87,3 +87,42 @@ async fn native_close_ledger_aggregates_real_success_without_clearing_unreported
     assert!(sockets.take_native_close_report().closed_io.is_empty());
     assert!(sockets.native_close_failure().is_none());
 }
+
+#[tokio::test]
+async fn socket_identity_exhaustion_rejects_new_collision_before_bind_and_keeps_live_peer() {
+    let proxy = proxy();
+    let mut sockets = socket_set(&proxy, None);
+    let policy = policy(&proxy, Some("first"));
+    let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let target = peer.local_addr().unwrap();
+    let mut bytes = [0; 16];
+    sockets
+        .send_to_addr(b"first", target, 1, &policy)
+        .await
+        .unwrap();
+    let (_, local) = peer.recv_from(&mut bytes).await.unwrap();
+    sockets.next_socket_id = u64::MAX;
+    // Same-peer ownership collision really needs another native socket. The
+    // checked ID rejection happens before bind, so there is no untracked fd.
+    assert!(sockets
+        .send_to_addr(b"collision", target, 2, &policy)
+        .await
+        .is_err());
+    assert_eq!(sockets.sockets.len(), 1);
+    assert!(sockets.native_close_failure().is_none());
+    sockets
+        .send_to_addr(b"healthy", target, 1, &policy)
+        .await
+        .unwrap();
+    let (size, sender) = peer.recv_from(&mut bytes).await.unwrap();
+    assert_eq!(sender, local);
+    assert_eq!(&bytes[..size], b"healthy");
+    sockets.close_all_native();
+    let report = sockets.take_native_close_report();
+    assert!(report.is_complete());
+    assert_eq!(
+        report.closed_io,
+        vec!["explicitly closed 1 original Direct UDP sockets"]
+    );
+    tokio::net::UdpSocket::bind(local).await.unwrap();
+}

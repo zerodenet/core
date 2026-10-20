@@ -13,7 +13,7 @@ pub(super) struct NativeCloseLedger {
     failures: BTreeMap<u64, Arc<io::Error>>,
 }
 impl NativeCloseLedger {
-    fn retire(&mut self, entry: DirectUdpSocket) {
+    pub(super) fn retire(&mut self, entry: DirectUdpSocket) {
         let DirectUdpSocket {
             id,
             socket,
@@ -71,6 +71,20 @@ impl DirectUdpSockets {
         for entry in self.sockets.extract_if(.., |entry| remove(entry)) {
             self.close.retire(entry);
         }
+    }
+    pub(super) fn ensure_native_admission(&self) -> Result<(), zero_engine::EngineError> {
+        if let Some((_id, source)) = self.native_close_failure() {
+            use zero_platform_tokio::contract::{
+                ChannelError, DeliveryState, Impact, Reason, Stage,
+            };
+            let mut failure = ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component)
+                .with_source(source);
+            failure.delivery = DeliveryState::NotSubmitted;
+            // RetryClass::Never: opening another socket cannot repair the
+            // unknown outcome of this owner's original native descriptor.
+            return Err(io::Error::other(failure).into());
+        }
+        Ok(())
     }
     pub(crate) fn close_all_native(&mut self) {
         self.retire_sockets(|_| true);

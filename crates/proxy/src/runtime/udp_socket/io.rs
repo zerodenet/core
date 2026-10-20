@@ -117,6 +117,15 @@ impl DirectUdpSockets {
         {
             return Ok(index);
         }
+        // Existing healthy mappings above may keep running, but a new native
+        // endpoint must not grow an unresolved original-descriptor ledger.
+        self.ensure_native_admission()?;
+        let id = self.next_socket_id;
+        self.next_socket_id = self.next_socket_id.checked_add(1).ok_or_else(|| {
+            EngineError::Io(std::io::Error::other(
+                "direct UDP socket identity exhausted",
+            ))
+        })?;
         let socket = self
             .services
             .bind_direct_datagram_socket(
@@ -130,21 +139,7 @@ impl DirectUdpSockets {
                 &selection,
             )
             .await?;
-        // An old bind completion must never populate a new policy or topology.
-        self.services.ensure_direct_policy_current(policy)?;
-        if selection.generation() != self.services.egress_generation() {
-            return Err(EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "egress topology changed while binding direct UDP socket",
-            )));
-        }
-        let id = self.next_socket_id;
-        self.next_socket_id = self.next_socket_id.checked_add(1).ok_or_else(|| {
-            EngineError::Io(std::io::Error::other(
-                "direct UDP socket identity exhausted",
-            ))
-        })?;
-        self.sockets.push(DirectUdpSocket {
+        let entry = DirectUdpSocket {
             id,
             socket,
             binding: DirectUdpSocketBinding {
@@ -157,7 +152,21 @@ impl DirectUdpSockets {
             selection,
             association_id: scope,
             replies: ownership::DirectUdpReplies::default(),
-        });
+        };
+        // A stale completion still owns a real original socket. Retire it into
+        // this same ledger before returning the original admission error.
+        if let Err(error) = self.services.ensure_direct_policy_current(policy) {
+            self.close.retire(entry);
+            return Err(error);
+        }
+        if entry.binding.egress_generation != self.services.egress_generation() {
+            self.close.retire(entry);
+            return Err(EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "egress topology changed while binding direct UDP socket",
+            )));
+        }
+        self.sockets.push(entry);
         let entry = self.sockets.last().expect("just inserted socket");
         log_direct_socket(entry.id, family_name(target.is_ipv6()), &entry.socket);
         Ok(self.sockets.len() - 1)
