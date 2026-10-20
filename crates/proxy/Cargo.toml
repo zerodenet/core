@@ -63,6 +63,7 @@ shadowsocks = [
     "shadowsocks/blake3",
 ]
 trojan = [
+    "standard-stream-inbound-runtime",
     "managed-stream-runtime",
     "tcp-tunnel-runtime",
     "zero-transport/tls",

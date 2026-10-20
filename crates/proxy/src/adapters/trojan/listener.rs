@@ -1,4 +1,4 @@
-use ::trojan::transport::TrojanInboundListenerRequest;
+use ::trojan::transport::{TrojanInboundAcceptedRoute, TrojanInboundListenerRequest};
 
 use crate::runtime::inbound_operation::TcpInboundListenerOperation;
 use crate::runtime::inbound_route::NoClientMuxRouteDefaults;
@@ -21,8 +21,28 @@ pub(super) fn prepare(
                     abort_on_end: TrojanInboundListenerRequest::ABORT_ON_END,
                     read_error_log: TrojanInboundListenerRequest::READ_ERROR_LOG,
                 };
-                let route = request.accept_route(socket).await?;
-                context.dispatch_no_client_mux_route(route, defaults).await
+                match request.accept_standard_route(socket).await? {
+                    TrojanInboundAcceptedRoute::Tcp {
+                        destination,
+                        auth,
+                        stream,
+                    } => {
+                        context
+                            .serve_standard_stream(
+                                ::trojan::inbound::TrojanInbound.protocol(),
+                                destination,
+                                Some(auth),
+                                move |facts| {
+                                    ::trojan::component::inbound::TcpReply::new(stream, facts)
+                                        .map(zero_platform_tokio::contract::inbound::accept_stream)
+                                },
+                            )
+                            .await
+                    }
+                    TrojanInboundAcceptedRoute::Legacy(route) => {
+                        context.dispatch_no_client_mux_route(route, defaults).await
+                    }
+                }
             },
     })
 }

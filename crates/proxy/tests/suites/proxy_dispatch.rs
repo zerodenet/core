@@ -29,5 +29,7 @@ mod socks5_udp_idle;
 mod socks5_udp_reuse;
 #[path = "../trojan.rs"]
 mod trojan;
+#[path = "../trojan_inbound.rs"]
+mod trojan_inbound;
 #[path = "../vmess.rs"]
 mod vmess;
