@@ -5,7 +5,7 @@ use tokio::{
     sync::Notify,
     time::Instant,
 };
-use zero_core::component::TaskId;
+use zero_core::component::{ResourceGeneration, TaskId};
 use zero_platform_tokio::contract::{
     component::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,

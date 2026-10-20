@@ -20,6 +20,7 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
         order: vec![blocking, panicking],
         started: AtomicBool::new(false),
         failures: Mutex::new(BTreeMap::new()),
+        shared_identities: Default::default(),
     });
     plan.start(deadline()).await.unwrap();
     // The critical task must actually receive from its owned stream before it

@@ -1,4 +1,5 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
+mod cold;
 mod maintenance;
 mod plan;
 #[cfg(test)]
@@ -16,8 +17,8 @@ use std::{
         Arc, Mutex, OnceLock,
     },
 };
-use zero_config::{OutboundConfig, OutboundProtocolConfig, RuntimeConfig};
-use zero_core::component::{ComponentId, ResourceGeneration};
+use zero_config::{OutboundConfig, RuntimeConfig};
+use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{ChannelError, Reason};
 
 pub(crate) struct ComponentPlan {
@@ -27,6 +28,8 @@ pub(crate) struct ComponentPlan {
     started: AtomicBool,
     // Actual failed exits survive consumption of a slot's one-shot close report.
     failures: Mutex<BTreeMap<zero_core::component::TaskId, Arc<plan::PlanTaskFailure>>>,
+    // Canonical IDs from this exact assembly; no old recipes or runtime owners.
+    shared_identities: super::SharedResourceIdentities,
 }
 struct Current {
     config: Arc<RuntimeConfig>,
@@ -126,114 +129,6 @@ impl ComponentCatalog {
             plan: plan.clone(),
         });
         plan
-    }
-    fn prepare_plan(
-        &self,
-        config: &RuntimeConfig,
-        previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
-    ) -> Result<ComponentPlan, ChannelError> {
-        let builtin = match previous {
-            Some((_, plan)) => plan.builtin.clone(),
-            None => {
-                let input = OutboundConfig {
-                    tag: "direct".into(),
-                    protocol: OutboundProtocolConfig::Direct,
-                    udp: Default::default(),
-                    dial: Default::default(),
-                };
-                self.slot(&input, None)?
-            }
-        };
-        let mut outbounds = BTreeMap::new();
-        for input in &config.outbounds {
-            if !self
-                .factories()
-                .has_factory_for(input.protocol.protocol_name(), input)
-            {
-                continue;
-            }
-            let old = previous.and_then(|(old, plan)| {
-                old.outbounds
-                    .iter()
-                    .find(|entry| entry.tag == input.tag)
-                    .zip(plan.outbounds.get(&input.tag))
-            });
-            let slot = match old {
-                Some((old, slot)) if old.protocol == input.protocol && old.dial == input.dial => {
-                    slot.clone()
-                }
-                old => self.slot(input, old.map(|(_, slot)| slot.as_ref()))?,
-            };
-            outbounds.insert(input.tag.clone(), slot);
-        }
-        let nodes: Vec<_> = std::iter::once(builtin.clone())
-            .chain(outbounds.values().cloned())
-            .collect();
-        let order = super::generations::order_and_reuse(
-            nodes,
-            previous
-                .map(|(_, plan)| plan.order.as_slice())
-                .unwrap_or_default(),
-        )?;
-        let nodes: BTreeMap<_, _> = order.iter().map(|slot| (slot.id, slot.clone())).collect();
-        let builtin = nodes[&builtin.id].clone();
-        for slot in outbounds.values_mut() {
-            *slot = nodes[&slot.id].clone();
-        }
-        for slot in &order {
-            slot.bind_admission(self.admission.clone());
-        }
-        Ok(ComponentPlan {
-            builtin,
-            outbounds,
-            order,
-            started: AtomicBool::new(false),
-            failures: Mutex::new(BTreeMap::new()),
-        })
-    }
-    fn slot(
-        &self,
-        input: &OutboundConfig,
-        previous: Option<&ComponentSlot>,
-    ) -> Result<Arc<ComponentSlot>, ChannelError> {
-        let recipe = self
-            .factories()
-            .prepare(input.protocol.protocol_name(), input)
-            .map_err(|source| {
-                invalid(Reason::Internal, "component option validation failed").with_source(source)
-            })?;
-        if !recipe.spec().resources.is_empty()
-            || recipe.spec().task_limit.is_some()
-            || recipe.spec().roles.is_empty()
-            || recipe.spec().roles.iter().any(|role| {
-                !matches!(
-                    role,
-                    zero_platform_tokio::contract::component::RoleKind::Stream
-                        | zero_platform_tokio::contract::component::RoleKind::Datagram
-                )
-            })
-        {
-            return Err(invalid(
-                Reason::Internal,
-                "migrated component must declare real session-owned roles without shared resources or tasks",
-            ));
-        }
-        let (id, generation) = match previous {
-            Some(previous) => (
-                previous.id,
-                previous
-                    .generation
-                    .checked_next()
-                    .ok_or_else(|| invalid(Reason::Internal, "component generation exhausted"))?,
-            ),
-            None => (self.allocate_id()?, ResourceGeneration(1)),
-        };
-        Ok(Arc::new(ComponentSlot::new(
-            id,
-            generation,
-            recipe,
-            input.dial.to_policy(),
-        )))
     }
     #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) fn allocate_association(
