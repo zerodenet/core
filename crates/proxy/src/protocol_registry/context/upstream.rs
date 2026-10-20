@@ -136,7 +136,7 @@ impl UpstreamConnectServices {
             }))
     }
 
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(any(feature = "raw-ip-runtime", feature = "managed-datagram-runtime"))]
     pub(crate) fn egress_control(&self) -> zero_platform_tokio::EgressInterfaceControl {
         self.egress_interface.clone()
     }

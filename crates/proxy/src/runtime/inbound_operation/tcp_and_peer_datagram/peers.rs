@@ -3,13 +3,46 @@ use super::*;
 use crate::runtime::inbound_owners::{InboundPeerTasks, MAX_DATAGRAM_PEERS};
 pub(super) async fn run<F, Fut>(
     socket: Arc<UdpSocket>,
-    mut shutdown: tokio::sync::watch::Receiver<bool>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
     host: crate::runtime::inbound_owners::InboundTaskAccess,
     tasks: Arc<InboundPeerTasks>,
     make: F,
 ) -> Result<(), EngineError>
 where
     F: Fn(SocketAddr, mpsc::Receiver<Vec<u8>>) -> Fut + Send,
+    Fut: Future<Output = Result<(), EngineError>> + Send + 'static,
+{
+    run_bound(
+        socket,
+        shutdown,
+        host,
+        tasks,
+        move |peer, packets, _binding| {
+            let work = make(peer, packets);
+            async move {
+                if let Err(error) = work.await {
+                    tracing::debug!(%error, "UDP peer association ended");
+                }
+                Ok(())
+            }
+        },
+    )
+    .await
+}
+pub(super) async fn run_bound<F, Fut>(
+    socket: Arc<UdpSocket>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+    host: crate::runtime::inbound_owners::InboundTaskAccess,
+    tasks: Arc<InboundPeerTasks>,
+    make: F,
+) -> Result<(), EngineError>
+where
+    F: Fn(
+            SocketAddr,
+            mpsc::Receiver<Vec<u8>>,
+            Arc<crate::runtime::inbound_owners::HostPeerBinding>,
+        ) -> Fut
+        + Send,
     Fut: Future<Output = Result<(), EngineError>> + Send + 'static,
 {
     let mut peers: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>> = HashMap::new();
@@ -31,7 +64,7 @@ where
                 if !peers.contains_key(&peer) {
                     if peers.len() >= MAX_DATAGRAM_PEERS { continue; }
                     let (sender, packets) = mpsc::channel(32);
-                    match tasks.spawn(&host, || make(peer, packets)) {
+                    match tasks.spawn_bound(&host, |binding| make(peer, packets, binding)) {
                         Ok(true) => { peers.insert(peer, sender); }
                         Ok(false) => continue,
                         Err(_) if host.cancellation().is_cancelled() => break,

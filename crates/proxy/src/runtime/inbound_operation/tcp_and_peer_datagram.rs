@@ -53,18 +53,22 @@ where
                 .cloned()
                 .ok_or_else(|| std::io::Error::other("peer listener owner was not installed"))?;
             let udp_runtime = runtime.udp_runtime();
+            let ingress = udp_runtime.peer_ingress()?;
             let inbound_tag = runtime.inbound_tag().to_owned();
             let tcp_loop =
                 Box::new(tcp_operation).execute(runtime, BoundInbound::Tcp(tcp), shutdown.clone());
             let peer_socket = socket.clone();
-            let udp_loop = peers::run(
+            let peer_resources = peers.clone();
+            let udp_loop = peers::run_bound(
                 socket,
                 shutdown,
                 host.clone(),
                 peers,
-                move |peer, packets| {
+                move |peer, packets, binding| {
                     let relay = (relay_factory)(peer, packets);
-                    let runtime = udp_runtime.clone();
+                    let runtime = udp_runtime
+                        .clone()
+                        .with_peer_resources(peer_resources.resource_context(binding, ingress));
                     let socket = peer_socket.clone();
                     let tag = inbound_tag.clone();
                     async move {

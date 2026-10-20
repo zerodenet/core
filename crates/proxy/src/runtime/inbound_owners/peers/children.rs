@@ -1,9 +1,9 @@
 //! One cold resource per actual peer; the existing peer permit includes retirement.
 mod datagram;
+mod datagram;
 use super::*;
 use crate::component::instance::{retained, SharedError};
-pub(crate) use datagram::PeerDatagramGrant;
-use tokio::sync::Mutex as AsyncMutex;
+pub(crate) use tokio::sync::Mutex as AsyncMutex;
 use zero_core::component::{AssociationId, RoleInstanceId};
 use zero_platform_tokio::contract::{
     lifecycle::{CloseReport, DynResourceLifecycle, TaskFailure},

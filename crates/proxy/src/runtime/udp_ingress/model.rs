@@ -7,6 +7,10 @@ pub(crate) struct UdpIngressRuntime {
     pub(super) local_addr: Option<std::net::SocketAddr>,
     pub(super) source_addr: Option<std::net::SocketAddr>,
     listener_stop: Option<crate::runtime::route_runtime::ListenerStop>,
+    #[cfg(feature = "managed-datagram-runtime")]
+    peer_resources: Option<crate::runtime::inbound_owners::PeerResourceContext>,
+    #[cfg(feature = "managed-datagram-runtime")]
+    direct_peer_driver: Option<crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot>,
 }
 
 impl UdpIngressRuntime {
@@ -18,6 +22,10 @@ impl UdpIngressRuntime {
             source_addr: None,
             local_addr: None,
             listener_stop: None,
+            #[cfg(feature = "managed-datagram-runtime")]
+            peer_resources: None,
+            #[cfg(feature = "managed-datagram-runtime")]
+            direct_peer_driver: None,
         }
     }
 
@@ -31,6 +39,10 @@ impl UdpIngressRuntime {
             local_addr: self.local_addr,
             listener_stop: self.listener_stop.clone(),
             source_addr: self.source_addr,
+            #[cfg(feature = "managed-datagram-runtime")]
+            peer_resources: self.peer_resources.clone(),
+            #[cfg(feature = "managed-datagram-runtime")]
+            direct_peer_driver: self.direct_peer_driver.clone(),
         }
     }
 
@@ -41,6 +53,10 @@ impl UdpIngressRuntime {
             source_addr,
             local_addr: self.local_addr,
             listener_stop: self.listener_stop.clone(),
+            #[cfg(feature = "managed-datagram-runtime")]
+            peer_resources: self.peer_resources.clone(),
+            #[cfg(feature = "managed-datagram-runtime")]
+            direct_peer_driver: self.direct_peer_driver.clone(),
         }
     }
 
@@ -61,6 +77,46 @@ impl UdpIngressRuntime {
             .transpose()
     }
 
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn peer_ingress(
+        &self,
+    ) -> Result<zero_core::component::RoleInstanceId, zero_engine::EngineError> {
+        self.tcp_services
+            .execution()
+            .ingress
+            .map(|ingress| ingress.role)
+            .ok_or_else(|| {
+                std::io::Error::other("actual peer ingress identity was not installed").into()
+            })
+    }
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn with_peer_resources(
+        mut self,
+        context: crate::runtime::inbound_owners::PeerResourceContext,
+    ) -> Self {
+        self.peer_resources = Some(context);
+        self
+    }
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn peer_resources(
+        &self,
+    ) -> Option<&crate::runtime::inbound_owners::PeerResourceContext> {
+        self.peer_resources.as_ref()
+    }
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn with_direct_peer_driver(
+        mut self,
+        slot: crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot,
+    ) -> Self {
+        self.direct_peer_driver = Some(slot);
+        self
+    }
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn direct_peer_driver(
+        &self,
+    ) -> Option<&crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot> {
+        self.direct_peer_driver.as_ref()
+    }
     pub(crate) fn with_local_addr(mut self, local: Option<std::net::SocketAddr>) -> Self {
         self.local_addr = local;
         self
