@@ -82,11 +82,12 @@ async fn cancelling_the_outer_observer_retains_actual_listener_and_udp_drivers_u
         .await
         .unwrap();
     assert!(registry.owner("fixture").is_none());
-    let report = owner.report.lock().unwrap();
-    assert!(report.exited_tasks.contains(owner.driver.get().unwrap()));
-    assert!(report.exited_tasks.contains(&udp));
-    assert!(report.failed_tasks.is_empty());
-    drop(report);
+    {
+        let report = owner.report.lock().unwrap();
+        assert!(report.exited_tasks.contains(owner.driver.get().unwrap()));
+        assert!(report.exited_tasks.contains(&udp));
+        assert!(report.failed_tasks.is_empty());
+    }
     let _tcp = TcpListener::bind(tcp_addr).await.unwrap();
     let _udp = UdpSocket::bind(udp_addr).await.unwrap();
 }
@@ -119,11 +120,12 @@ async fn cancelled_observation_preserves_actual_task_failure_source_for_cleanup(
         .await
         .unwrap()
         .is_err());
-    let report = owner.report.lock().unwrap();
-    assert_eq!(report.failed_tasks.len(), 1);
-    assert_eq!(report.failed_tasks[0].id, *owner.driver.get().unwrap());
-    assert!(std::error::Error::source(&report.failed_tasks[0].error).is_some());
-    drop(report);
+    {
+        let report = owner.report.lock().unwrap();
+        assert_eq!(report.failed_tasks.len(), 1);
+        assert_eq!(report.failed_tasks[0].id, *owner.driver.get().unwrap());
+        assert!(std::error::Error::source(&report.failed_tasks[0].error).is_some());
+    }
     assert!(registry
         .shutdown("panic", Instant::now() + Duration::from_secs(2))
         .await

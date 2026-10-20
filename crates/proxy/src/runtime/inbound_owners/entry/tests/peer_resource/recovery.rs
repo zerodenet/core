@@ -152,7 +152,7 @@ async fn prove_recovery(consume_before_publication: bool) {
         .release_closed(first, |terminal| {
             sender
                 .send(terminal.failure().unwrap())
-                .map_err(|source| std::io::Error::other(source))?;
+                .map_err(std::io::Error::other)?;
             Ok(())
         })
         .is_err());

@@ -147,10 +147,12 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
     assert!(!owner.ready.0.complete.load(Ordering::Acquire));
     assert!(observing.await.unwrap().is_err());
     let original = owner.failure.lock().unwrap().clone().unwrap();
-    let failures = owner.task_failures.lock().unwrap();
-    let actual = failures.get(owner.driver.get().unwrap()).unwrap();
-    assert_eq!(actual.class, TaskClass::Critical);
-    assert!(Arc::ptr_eq(&actual.source, &original));
+    {
+        let failures = owner.task_failures.lock().unwrap();
+        let actual = failures.get(owner.driver.get().unwrap()).unwrap();
+        assert_eq!(actual.class, TaskClass::Critical);
+        assert!(Arc::ptr_eq(&actual.source, &original));
+    }
     let EngineError::Io(returned) = failed else {
         panic!("expected original retained scope error")
     };
@@ -168,7 +170,6 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
     assert!(source
         .downcast_ref::<tokio::task::JoinError>()
         .is_some_and(|join| join.is_panic()));
-    drop(failures);
     assert!(proxy
         .inbound_owners
         .shutdown("failed", Instant::now() + Duration::from_secs(2))
