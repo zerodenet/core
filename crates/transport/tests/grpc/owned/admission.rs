@@ -123,3 +123,139 @@ fn explicit_limits_and_unowned_material_are_never_silently_replaced() {
     });
     assert!(NativePoolOptions::from_pool(&pool, invalid, cap, cap).is_err());
 }
+struct NoControlledProvider;
+impl zero_platform_tokio::contract::network::UpstreamOpener for NoControlledProvider {
+    fn open_stream(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: zero_platform_tokio::contract::network::CarrierContext,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::contract::stream::BoxStream, ChannelError>> {
+        panic!("strict native gRPC never falls back to a legacy opener")
+    }
+    fn open_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: zero_platform_tokio::contract::datagram::DatagramRequest,
+        _: zero_platform_tokio::contract::network::CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::datagram::BoxDatagramSession, ChannelError>,
+    > {
+        panic!("gRPC requests no datagram grant")
+    }
+}
+#[tokio::test]
+async fn default_controlled_denial_never_calls_old_opener_or_fabricates_a_native_close_or_task() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut fixture = Fixture::cold(listener.local_addr().unwrap(), 1, 2, None, None);
+    fixture.owner = NativePoolFactory
+        .build(
+            fixture.options.clone(),
+            BuildContext {
+                component: fixture.actual.component,
+                generation: fixture.actual.generation,
+                dependencies: Arc::from([]),
+                roles: ComponentRoleIds::default(),
+                resources: Arc::new(Denied),
+                tasks: fixture.scope.registrar(),
+                cancel: CancellationToken::new(),
+                background_carrier: Some(UpstreamTransport::new(
+                    fixture.binding.clone(),
+                    Arc::new(NoControlledProvider),
+                )),
+            },
+        )
+        .unwrap();
+    fixture.start().await;
+    for _ in 0..2 {
+        let failure = fixture
+            .options
+            .open(fixture.actual, fixture.demand())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(failure.reason, Reason::Unsupported);
+        assert_eq!(
+            failure.delivery,
+            zero_platform_tokio::contract::DeliveryState::NotSubmitted
+        );
+    }
+    assert_eq!(fixture.traffic.boundaries.load(Ordering::SeqCst), 0);
+    let (protocol, tasks) = fixture.close().await;
+    assert!(protocol.is_complete());
+    assert!(protocol.closed_io.is_empty());
+    assert!(tasks.exited_tasks.is_empty());
+}
+#[tokio::test]
+async fn actual_task_registration_capacity_failure_keeps_original_source_and_closes_socket_without_task_id(
+) {
+    timeout(Duration::from_secs(6), async {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let peer = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut io, _) = listener.accept().await.unwrap();
+            let mut preface = [0; 24];
+            io.read_exact(&mut preface).await.unwrap();
+            assert_eq!(&preface, b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
+            let mut frames = Vec::new();
+            io.read_to_end(&mut frames).await.unwrap();
+        });
+        let mut fixture = Fixture::cold(peer, 1, 2, None, None);
+        let empty = TaskScope::empty(tokio::runtime::Handle::current());
+        // Deliberately supply a real empty registrar to exercise actual denial, not
+        // a fabricated task handle or a successful dummy owner.
+        let old = std::mem::replace(&mut fixture.scope, empty);
+        drop(old);
+        let egress = Arc::new(EgressInterfaceControl::default());
+        fixture.binding.network_generation = NetworkGeneration(egress.generation());
+        let native =
+            NativeCarrierOpener::new(fixture.actual, fixture.binding.clone(), peer, egress, None)
+                .unwrap();
+        fixture.owner = NativePoolFactory
+            .build(
+                fixture.options.clone(),
+                BuildContext {
+                    component: fixture.actual.component,
+                    generation: fixture.actual.generation,
+                    dependencies: Arc::from([]),
+                    roles: ComponentRoleIds::default(),
+                    resources: Arc::new(Denied),
+                    tasks: fixture.scope.registrar(),
+                    cancel: CancellationToken::new(),
+                    background_carrier: Some(UpstreamTransport::new(
+                        fixture.binding.clone(),
+                        Arc::new(native),
+                    )),
+                },
+            )
+            .unwrap();
+        fixture.start().await;
+        let managed = fixture.managed();
+        let failure = fixture
+            .options
+            .open(fixture.actual, fixture.demand())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(failure.reason, Reason::Capacity);
+        assert_eq!(
+            std::error::Error::source(&failure)
+                .unwrap()
+                .downcast_ref::<zero_platform_tokio::contract::scope::SpawnError>(),
+            Some(&zero_platform_tokio::contract::scope::SpawnError::Capacity)
+        );
+        let record = managed.records.lock().unwrap()[0].clone();
+        assert!(record.witness.lock().unwrap().is_none());
+        assert!(record.adoption.closed().is_none());
+        let (protocol, tasks) = fixture.close().await;
+        assert!(protocol.is_complete(), "{protocol:?}");
+        assert_eq!(protocol.closed_io.len(), 1);
+        assert!(tasks.exited_tasks.is_empty());
+        assert!(record.closed());
+        assert!(record.adoption.closed().unwrap().driver_exit().is_none());
+        server.await.unwrap();
+    })
+    .await
+    .unwrap();
+}
