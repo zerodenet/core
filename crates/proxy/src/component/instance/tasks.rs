@@ -10,9 +10,10 @@ use std::{
 use tokio::sync::Notify;
 use zero_platform_tokio::contract::{
     lifecycle::{TaskClass, TaskFailure, Unfinished},
-    scope::{HostedExitReceipt, HostedScope, SpawnError},
+    scope::{HostedExitReceipt, HostedScope, SpawnError, TaskScopeIdentity},
 };
 mod guard;
+mod identity;
 mod retirement;
 pub(in crate::component) mod wake;
 use wake::{MonitorWake, WaitTarget};
@@ -53,6 +54,7 @@ impl ComponentTaskFault {
 
 pub(in crate::component) struct TaskMonitor {
     inner: SyncMutex<Tasks>,
+    identity: TaskScopeIdentity,
     wake: Arc<MonitorWake>,
     pub(super) changed: Notify,
     critical: OnceLock<Arc<ComponentTaskFault>>,
@@ -74,7 +76,9 @@ impl TaskMonitor {
         self.lock().scope.registrar()
     }
     pub(super) fn new(scope: HostedScope) -> Self {
+        let identity = scope.registrar().scope_identity();
         Self {
+            identity,
             inner: SyncMutex::new(Tasks {
                 scope,
                 pending: Vec::new(),
