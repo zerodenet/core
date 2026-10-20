@@ -75,6 +75,12 @@ impl Node {
             BoundInbound::Datagram(socket) => {
                 self.kind = Kind::Raw(Some(BoundInbound::Datagram(socket)));
             }
+            #[cfg(feature = "datagram-route-runtime")]
+            BoundInbound::ControlledDatagram(view) => {
+                // The lease registry retains the sole control. A transferred
+                // view is never enough to issue an independent close receipt.
+                self.kind = Kind::Raw(Some(BoundInbound::ControlledDatagram(view)));
+            }
             #[cfg(feature = "transport_quic")]
             BoundInbound::Quic(listener) => {
                 self.kind = Kind::Raw(Some(BoundInbound::Quic(listener)));

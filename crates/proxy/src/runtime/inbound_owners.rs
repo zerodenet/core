@@ -1,7 +1,7 @@
 //! Persistent actual listener drivers and carrier resources, outside run futures.
 mod bind;
 mod entry;
-pub(crate) use bind::LeasedInbound;
+pub(crate) use bind::{LeasedInbound, NativeListenerView};
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer_binding;
 #[cfg(feature = "managed-datagram-runtime")]

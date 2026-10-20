@@ -3,6 +3,8 @@ use super::{ComponentRecipe, ValidatedRecipe};
 mod cleanup;
 mod resources;
 mod roles;
+#[cfg(feature = "datagram-route-runtime")]
+pub(crate) use resources::HostDatagramListenerOwner;
 pub(crate) use resources::HostOutboundDatagramResources;
 pub(super) use resources::HostResources;
 #[cfg(test)]

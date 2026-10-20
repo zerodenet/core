@@ -9,6 +9,8 @@ use tokio::{
 };
 use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::component::ResourceDeclaration;
+#[cfg(feature = "datagram-route-runtime")]
+mod datagram;
 mod retirement;
 
 fn proxy() -> Proxy {

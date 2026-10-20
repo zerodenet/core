@@ -1,14 +1,17 @@
 use super::*;
 use crate::runtime::inbound_operation::PreparedInboundListenerOperation;
+#[cfg(test)]
 use zero_platform_tokio::ControlledTcpListener;
 
+#[cfg(test)]
 #[derive(Clone)]
 pub(crate) struct InboundBindContext {
-    grant: Arc<grant::NativeTcpGrant>,
+    grant: Arc<native::NativeBindGrant>,
 }
+#[cfg(test)]
 impl InboundBindContext {
     pub(crate) fn listen_tcp(&self) -> Result<ControlledTcpListener, EngineError> {
-        self.grant.bind()
+        self.grant.bind_tcp()
     }
 }
 pub(crate) struct InboundBindLease {
@@ -17,9 +20,9 @@ pub(crate) struct InboundBindLease {
     protocols: ProtocolInventory,
     prepared: Option<PreparedInboundBind>,
     owner: Arc<InboundOwner>,
-    grant: Arc<grant::NativeTcpGrant>,
+    grant: Arc<native::NativeBindGrant>,
     shutdown: watch::Sender<bool>,
-    listener: Option<ControlledTcpListener>,
+    listener: Option<NativeListenerView>,
     promoted: bool,
 }
 impl InboundBindLease {
@@ -29,7 +32,7 @@ impl InboundBindLease {
         protocols: ProtocolInventory,
         prepared: PreparedInboundBind,
         owner: Arc<InboundOwner>,
-        grant: Arc<grant::NativeTcpGrant>,
+        grant: Arc<native::NativeBindGrant>,
         shutdown: watch::Sender<bool>,
     ) -> Self {
         Self {
@@ -50,16 +53,25 @@ impl InboundBindLease {
     pub(crate) fn shutdown_sender(&self) -> watch::Sender<bool> {
         self.shutdown.clone()
     }
+    #[cfg(test)]
     pub(crate) fn context(&self) -> InboundBindContext {
         InboundBindContext {
             grant: self.grant.clone(),
         }
     }
+    #[cfg(test)]
     pub(crate) fn bind_tcp(&mut self) -> Result<(), EngineError> {
         if self.listener.is_some() {
             return Err(io("listener lease already received its accept view"));
         }
-        self.listener = Some(self.context().listen_tcp()?);
+        self.listener = Some(NativeListenerView::Tcp(self.context().listen_tcp()?));
+        Ok(())
+    }
+    pub(crate) fn bind_native(&mut self) -> Result<(), EngineError> {
+        if self.listener.is_some() {
+            return Err(io("listener lease already received its native view"));
+        }
+        self.listener = Some(self.grant.bind()?);
         Ok(())
     }
     pub(crate) fn finish(self) -> Result<LeasedInbound, EngineError> {
@@ -97,12 +109,34 @@ impl LeasedInbound {
     pub(crate) fn shutdown_sender(&self) -> watch::Sender<bool> {
         self.lease.shutdown_sender()
     }
+    #[cfg(test)]
     pub(crate) fn promote(
-        mut self,
+        self,
     ) -> Result<
         (
             Box<dyn PreparedInboundListenerOperation>,
             ControlledTcpListener,
+            InboundInstallContext,
+        ),
+        EngineError,
+    > {
+        if !matches!(self.lease.listener, Some(NativeListenerView::Tcp(_))) {
+            return Err(self.lease.reject(io("TCP promotion requires a TCP view")));
+        }
+        let (operation, view, installed) = self.promote_native()?;
+        let listener = match view {
+            NativeListenerView::Tcp(listener) => listener,
+            #[cfg(feature = "datagram-route-runtime")]
+            NativeListenerView::Datagram(_) => unreachable!("checked TCP view"),
+        };
+        Ok((operation, listener, installed))
+    }
+    pub(crate) fn promote_native(
+        mut self,
+    ) -> Result<
+        (
+            Box<dyn PreparedInboundListenerOperation>,
+            NativeListenerView,
             InboundInstallContext,
         ),
         EngineError,

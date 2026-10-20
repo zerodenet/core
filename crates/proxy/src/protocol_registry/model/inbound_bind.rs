@@ -17,8 +17,10 @@ impl PreparedInboundBind {
         operation: Box<dyn PreparedInboundListenerOperation>,
         resources: Arc<[ResourceDeclaration]>,
     ) -> Result<Self, EngineError> {
-        let [ResourceDeclaration::TcpListener { destination, .. }] = resources.as_ref() else {
-            return Err(unsupported());
+        let destination = match resources.as_ref() {
+            [ResourceDeclaration::TcpListener { destination, .. }]
+            | [ResourceDeclaration::DatagramListener { destination, .. }] => destination,
+            _ => return Err(unsupported()),
         };
         let ip = match destination.address {
             zero_core::Address::Ipv4(ip) => std::net::IpAddr::V4(ip.into()),
@@ -47,7 +49,7 @@ impl PreparedInboundBind {
 fn unsupported() -> EngineError {
     std::io::Error::new(
         std::io::ErrorKind::Unsupported,
-        "host listener lease currently requires one declared literal TCP listener",
+        "host listener lease currently requires one declared literal TCP or datagram listener",
     )
     .into()
 }

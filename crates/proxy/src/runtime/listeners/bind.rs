@@ -70,7 +70,7 @@ pub(super) async fn bind_prepared_listener(
             return Err(lease.reject(error));
         }
         for attempt in 0..attempts.get() {
-            match lease.bind_tcp() {
+            match lease.bind_native() {
                 Ok(()) => return lease.finish().map(PendingInbound::Leased),
                 Err(error) => {
                     // Only the actual native error can prove a safe retry.

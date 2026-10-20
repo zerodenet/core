@@ -58,25 +58,19 @@ pub(super) fn spawn_inbound_listener_with_state(
             (operation, bound, installed, false)
         }
         PendingInbound::Leased(lease) => {
-            let (operation, view, installed) = lease.promote()?;
-            let listener =
-                zero_platform_tokio::TokioListener::from_controlled(view).map_err(|error| {
-                    let owner = installed.owner();
-                    let source = if error.reason == zero_platform_tokio::contract::Reason::Revoked
-                        && owner.task_access().cancellation().is_cancelled()
-                    {
-                        owner.ready_stopped()
-                    } else {
-                        EngineError::Io(std::io::Error::other(error))
-                    };
-                    owner.retain_managed_listener_error(source)
-                })?;
-            (
-                operation,
-                crate::protocol_registry::BoundInbound::Tcp(listener),
-                installed,
-                true,
-            )
+            let (operation, view, installed) = lease.promote_native()?;
+            let listener = view.into_bound().map_err(|error| {
+                let owner = installed.owner();
+                let source = if error.reason == zero_platform_tokio::contract::Reason::Revoked
+                    && owner.task_access().cancellation().is_cancelled()
+                {
+                    owner.ready_stopped()
+                } else {
+                    EngineError::Io(std::io::Error::other(error))
+                };
+                owner.retain_managed_listener_error(source)
+            })?;
+            (operation, listener, installed, true)
         }
     };
     let owner = installed.owner();

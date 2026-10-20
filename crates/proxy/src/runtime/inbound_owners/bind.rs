@@ -1,10 +1,12 @@
 //! One actual configuration's pre-bind owners, retained before native creation.
 mod grant;
 mod lease;
+mod native;
 mod retirement;
 use super::*;
 use crate::protocol_registry::PreparedInboundBind;
 pub(crate) use lease::{InboundBindLease, LeasedInbound};
+pub(crate) use native::NativeListenerView;
 use std::{collections::BTreeMap, sync::Weak};
 use zero_config::RuntimeConfig;
 
@@ -52,7 +54,7 @@ impl InboundOwnerRegistry {
         let identity = protocols.allocate_resource_identity()?;
         let owner = Arc::new(InboundOwner::new(identity, limit, shutdown.clone()));
         let grant = Arc::new(
-            grant::NativeTcpGrant::new(
+            native::NativeBindGrant::new(
                 identity,
                 &prepared.resources()[0],
                 prepared.address(),
@@ -63,12 +65,7 @@ impl InboundOwnerRegistry {
         );
         // Construction above is cold. The unique actual native holder is a
         // registered resource before this owner or any bind capability escapes.
-        owner.install_resource(
-            identity,
-            zero_platform_tokio::contract::lifecycle::erase_lifecycle(grant::TcpResource(
-                grant.clone(),
-            )),
-        )?;
+        owner.install_resource(identity, grant.resource())?;
         reserved.config = Arc::downgrade(config);
         reserved.entries.insert(tag.to_owned(), owner.clone());
         Ok(InboundBindLease::new(

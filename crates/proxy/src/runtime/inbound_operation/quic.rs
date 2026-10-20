@@ -38,7 +38,7 @@ where
         Box::pin(async move {
             let listener = match bound {
                 #[cfg(feature = "datagram-route-runtime")]
-                BoundInbound::Datagram(_) => {
+                BoundInbound::Datagram(_) | BoundInbound::ControlledDatagram(_) => {
                     return Err(EngineError::Io(std::io::Error::other(
                         "unexpected datagram listener",
                     )))
