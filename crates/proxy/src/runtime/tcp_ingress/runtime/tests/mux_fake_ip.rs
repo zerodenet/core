@@ -9,7 +9,7 @@ use zero_traits::IpAddress;
 
 use super::{dns_a_query, TcpIngressRuntime};
 
-fn fake_ip_proxy(dns_port: u16) -> crate::runtime::Proxy {
+async fn fake_ip_proxy(dns_port: u16) -> crate::runtime::Proxy {
     let config = RuntimeConfig::parse(&format!(r#"{{
         "runtime": {{"dns": {{
             "servers": {{"local": {{"type": "udp", "host": "127.0.0.1", "port": {dns_port}}}}},
@@ -24,7 +24,20 @@ fn fake_ip_proxy(dns_port: u16) -> crate::runtime::Proxy {
             "final": {{"type": "route", "outbound": "strict-v6"}}
         }}
     }}"#)).expect("parse strict Direct Fake-IP config");
-    crate::runtime::Proxy::new(config).expect("build strict Direct proxy")
+    let proxy = crate::runtime::Proxy::new(config).expect("build strict Direct proxy");
+    proxy
+        .protocols
+        .start_components(
+            proxy.engine().config(),
+            tokio::time::Instant::now() + Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+    proxy
+        .protocols
+        .commit_components(&proxy.engine().config(), || Ok(()))
+        .unwrap();
+    proxy
 }
 
 #[tokio::test]
@@ -32,7 +45,7 @@ async fn mux_open_restores_ipv4_fake_ip_and_rewrites_before_only_ipv6_resolution
     let upstream = tokio::net::TcpListener::bind("[::1]:0").await.unwrap();
     let endpoint = upstream.local_addr().unwrap();
     let dns = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-    let proxy = fake_ip_proxy(dns.local_addr().unwrap().port());
+    let proxy = fake_ip_proxy(dns.local_addr().unwrap().port()).await;
     let runtime = TcpIngressRuntime::new(proxy.tcp_runtime_services(), "mux-test".into(), None);
     let response = runtime
         .resolver()
@@ -110,7 +123,7 @@ async fn mux_open_restores_ipv4_fake_ip_and_rewrites_before_only_ipv6_resolution
 #[tokio::test]
 async fn mux_open_reverse_miss_fails_closed_and_completes_exactly_once() {
     let dns = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-    let proxy = fake_ip_proxy(dns.local_addr().unwrap().port());
+    let proxy = fake_ip_proxy(dns.local_addr().unwrap().port()).await;
     let runtime = TcpIngressRuntime::new(proxy.tcp_runtime_services(), "mux-test".into(), None);
     let synthetic = Address::Ipv4([198, 18, 0, 99]);
     let mut session = Session::new(

@@ -42,6 +42,18 @@ async fn active_tcp_relay_is_not_closed_at_absolute_idle_timeout() {
     )
     .expect("parse TCP idle-timeout config");
     let proxy = crate::runtime::Proxy::new(config).expect("build proxy");
+    proxy
+        .protocols
+        .start_components(
+            proxy.engine().config(),
+            tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+    proxy
+        .protocols
+        .commit_components(&proxy.engine().config(), || Ok(()))
+        .unwrap();
     let engine = proxy.engine().clone();
     let runtime = TcpIngressRuntime::new(
         proxy.tcp_runtime_services(),

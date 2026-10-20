@@ -397,6 +397,18 @@ async fn tun_tcp_uses_kernel_direct_route_and_records_traffic() {
     let config = RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#)
         .expect("parse direct config");
     let proxy = crate::runtime::Proxy::new(config).expect("create proxy");
+    proxy
+        .protocols
+        .start_components(
+            proxy.engine().config(),
+            tokio::time::Instant::now() + Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+    proxy
+        .protocols
+        .commit_components(&proxy.engine().config(), || Ok(()))
+        .unwrap();
     let (tcp, mut outbound) = new_stack();
     let runtime = tokio::spawn(accept_tcp(
         proxy.tcp_runtime_services(),
