@@ -50,7 +50,7 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
             .child_tasks(NonZeroUsize::new(2).unwrap())
             .unwrap();
         let native = NativeObligations::new(2, 0, 0);
-        installed.register(native.resource()).unwrap();
+        let native_identity = installed.register(native.resource()).unwrap();
         let owner = installed.owner();
         let host = installed.tasks();
         let factory = InboundRouteRuntimeFactory::new(
@@ -220,8 +220,16 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
                 .as_ref()
                 .unwrap()
         ));
+        assert!(!monitor.is_finished(), "ordinary flow failures kept the actual listener alive");
         stop_parent.send(()).unwrap();
-        monitor.await.unwrap().unwrap();
+        let stopped = monitor.await.unwrap().unwrap_err();
+        let zero_engine::EngineError::Io(stopped) = stopped else {
+            panic!("original resource cleanup boundary");
+        };
+        let cleanup = stopped.get_ref().unwrap().downcast_ref::<ChannelError>().unwrap();
+        assert_eq!(cleanup.stage, Stage::Close);
+        assert_eq!(cleanup.reason, Reason::Timeout);
+        assert_eq!(cleanup.component, Some(native_identity.component));
         assert!(registry
             .confirm_shutdown("raw-wire", Instant::now() + Duration::from_secs(2))
             .await
