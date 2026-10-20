@@ -135,7 +135,7 @@ impl StreamOutbound for Outbound {
                     })
                     .await
                     .map_err(zero_transport::RuntimeError::Io)?;
-                let control = zero_traits::AsyncSocket::transport_bypass_control(&stream);
+                let control = stream.transport_bypass_control();
                 Ok(zero_transport::TcpRelayStream::with_transport_bypass_control(stream, control))
             } else {
                 connect_relay_transport_stack(
