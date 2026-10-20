@@ -55,7 +55,7 @@ async fn original_protocol_owned_root_survives_neutral_wrappers_and_closes_same_
         })),
         context: CarrierContext {
             session: None,
-            cancel: tokio_util::sync::CancellationToken::new(),
+            cancel: zero_platform_tokio::contract::CancellationToken::new(),
             deadline: Some(tokio::time::Instant::now() + Duration::from_secs(3)),
         },
         binding: UpstreamBinding {

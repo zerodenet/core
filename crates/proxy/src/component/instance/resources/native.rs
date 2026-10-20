@@ -9,7 +9,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
-    component::{ProcessRequest, ResourceAccess, ResourceDeclaration},
+    component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
     BoxFuture, CancellationToken, ChannelError, Reason,
 };

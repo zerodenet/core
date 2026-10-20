@@ -35,14 +35,14 @@ impl Drop for Attempt<'_> {
     }
 }
 impl Replacement {
-    pub(super) fn released(&self) -> bool {
+    pub(in crate::component::catalog) fn released(&self) -> bool {
         *self
             .released
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             == Publication::Released
     }
-    pub(super) fn release(
+    pub(in crate::component::catalog) fn release(
         &self,
         receipt: DeclaredCloseReceipt,
         publish: impl FnOnce(&DeclaredComponentTerminal) -> Result<(), ChannelError>,

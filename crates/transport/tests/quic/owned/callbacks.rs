@@ -8,7 +8,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Weak,
     },
-    task::{Context, Poll, Wake, Waker},
+    task::{Context, Wake, Waker},
 };
 #[derive(Debug)]
 struct PanicTag(u32);
