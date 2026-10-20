@@ -57,6 +57,18 @@ impl NativeCarrierOpener {
         mut grant: CarrierGrant,
     ) -> Result<PreparedCarrier, ChannelError> {
         grant.check()?;
+        let bound = grant.slot.owner.upgrade().and_then(|owner| {
+            let state = owner.state();
+            state.binding.clone()
+        });
+        if bound.is_some_and(|bound| !bound.permits_native(binding, &destination, &context)) {
+            return Err(error(
+                grant.instance(),
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         let address = match self.peer.ip() {
             std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
             std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),

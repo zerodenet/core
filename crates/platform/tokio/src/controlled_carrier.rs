@@ -2,6 +2,7 @@
 //! One persistent caller owner holds every original control before connect await;
 //! the admitted protocol driver is joined before native close releases capacity.
 mod adoption;
+mod binding;
 mod grant;
 mod native;
 mod owner;
@@ -11,6 +12,7 @@ mod slot;
 mod view;
 use crate::contract::{ChannelError, DeliveryState, Impact, Reason, Stage};
 pub use adoption::{CarrierAdoption, CarrierClosed};
+pub use binding::CarrierOwnerBinding;
 pub use grant::{CarrierGrant, CarrierGrants};
 pub use native::NativeCarrierOpener;
 pub use owner::CarrierOwner;

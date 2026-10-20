@@ -66,6 +66,18 @@ impl CarrierAdoption {
                 DeliveryState::Unknown,
             ));
         }
+        let bound = self.slot.owner.upgrade().and_then(|owner| {
+            let state = owner.state();
+            state.binding.clone()
+        });
+        if bound.is_some_and(|bound| !bound.permits_driver(registrar)) {
+            return Err(error(
+                self.instance(),
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::Unknown,
+            ));
+        }
         {
             let mut state = self.slot.state();
             if self.slot.cancel.is_cancelled() || state.closed {

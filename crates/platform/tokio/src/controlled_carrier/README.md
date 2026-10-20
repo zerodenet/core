@@ -15,7 +15,15 @@ retaining sockets, scope or runtime. It covers physical generation closure;
 external protocol/business users remain a separate obligation.
 
 No declaration, native grant, host publication or Business permission is created
-by registration. Binding the same owner to the canonical declaration and actual
-scope, and enforcing that binding at native acquisition and driver registration,
-remain necessary before host resource qualification. The existing Service-only
+by registration. `registration.bind_declared` binds a cold, unattempted owner once to a full
+canonical `ControlledOutboundStream` description and actual weak scope identity.
+Only an identical description and same registrar can repeat it before start;
+changed facts, started/attempted or stopping owners are rejected. Bound native
+prepare checks the full endpoint/binding/demand and registration state. Bound
+driver adoption checks the original registrar before invoking its build closure.
+Unbound library owners retain their original Service-only behavior and are not
+qualified resource registrations. The host must independently check its actual
+declaration ordinal, instance, cap, scope and installed lifecycle before accepting
+the opaque binding as coverage. Physical completion still excludes transferred
+business users, whose actual owner/handler join remains separate. The existing Service-only
 Business rejection is unchanged.

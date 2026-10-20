@@ -22,7 +22,7 @@ impl Completion {
 /// A registration cannot retain the owner, original controls, tasks or runtime.
 #[derive(Clone)]
 pub struct CarrierOwnerRegistration {
-    owner: Weak<Shared>,
+    pub(super) owner: Weak<Shared>,
     completion: Arc<Completion>,
     instance: ComponentInstanceId,
     limit: NonZeroUsize,

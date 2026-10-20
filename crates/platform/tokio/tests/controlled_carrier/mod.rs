@@ -51,6 +51,11 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(cap: usize) -> Self {
+        let mut fixture = Self::cold(cap).await;
+        fixture.owner.start(deadline()).await.unwrap();
+        fixture
+    }
+    async fn cold(cap: usize) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let peer = listener.local_addr().unwrap();
         let egress = Arc::new(crate::EgressInterfaceControl::default());
@@ -66,13 +71,12 @@ impl Fixture {
             NativeCarrierOpener::new(instance(), binding.clone(), peer, egress.clone(), None)
                 .unwrap(),
         );
-        let mut owner = CarrierOwner::new(
+        let owner = CarrierOwner::new(
             instance(),
             NonZeroUsize::new(cap).unwrap(),
             &CancellationToken::new(),
         );
         let grants = owner.grants();
-        owner.start(deadline()).await.unwrap();
         Self {
             owner,
             grants,
@@ -113,3 +117,5 @@ mod opening;
 mod origin;
 
 mod registration;
+
+mod binding;
