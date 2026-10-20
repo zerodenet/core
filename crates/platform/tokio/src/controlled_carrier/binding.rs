@@ -138,6 +138,9 @@ impl BoundAuthority {
     }
 }
 impl CarrierOwnerBinding {
+    pub(super) fn registration(&self) -> &CarrierOwnerRegistration {
+        &self.registration
+    }
     pub fn matches_host_cancel(&self, host_cancel: &Arc<CancellationToken>) -> bool {
         Arc::ptr_eq(&self.authority.host_cancel, host_cancel)
     }

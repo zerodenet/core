@@ -108,13 +108,24 @@ impl CarrierAdoption {
         let _registration = Registering(self.slot.clone());
         let task = build(io.io);
         let host_cancel = bound.as_ref().map(|bound| bound.cancellation());
+        let business_cancel = { self.slot.state().business_cancel.clone() };
         let task = async move {
-            match host_cancel {
-                Some(cancel) => tokio::select! { biased;
-                    result = task => result,
-                    _ = cancel.cancelled() => Ok(()),
-                },
-                None => task.await,
+            let revoked = async {
+                match host_cancel {
+                    Some(cancel) => cancel.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
+            let cancelled = async {
+                match business_cancel {
+                    Some(cancel) => cancel.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
+            tokio::select! { biased;
+                result = task => result,
+                _ = revoked => Ok(()),
+                _ = cancelled => Ok(()),
             }
         };
         match registrar.spawn_tracked(class, task) {

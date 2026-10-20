@@ -21,6 +21,7 @@ pub struct NativeCarrierOpener {
     peer: SocketAddr,
     egress: Arc<EgressInterfaceControl>,
     observer: Option<Arc<dyn IoObserver>>,
+    business: Option<super::CarrierBusinessGrant>,
 }
 impl NativeCarrierOpener {
     pub fn new(
@@ -47,7 +48,40 @@ impl NativeCarrierOpener {
             peer,
             egress,
             observer,
+            business: None,
         })
+    }
+    /// A distinct host capability, pinned to the original registered slot. The
+    /// ordinary constructor remains Service-only for every existing caller.
+    pub fn business(
+        grant: super::CarrierBusinessGrant,
+        egress: Arc<EgressInterfaceControl>,
+        observer: Option<Arc<dyn IoObserver>>,
+    ) -> Result<Self, ChannelError> {
+        grant.check_liveness()?;
+        let instance = grant.binding().registration().instance();
+        let endpoint = grant.binding().endpoint();
+        let ip = match endpoint.address {
+            zero_core::Address::Ipv4(ip) => std::net::Ipv4Addr::from(ip).into(),
+            zero_core::Address::Ipv6(ip) => std::net::Ipv6Addr::from(ip).into(),
+            zero_core::Address::Domain(_) => {
+                return Err(error(
+                    instance,
+                    Stage::Prepare,
+                    Reason::Unsupported,
+                    DeliveryState::NotSubmitted,
+                ))
+            }
+        };
+        let mut native = Self::new(
+            instance,
+            grant.binding().binding().clone(),
+            SocketAddr::new(ip, endpoint.port),
+            egress,
+            observer,
+        )?;
+        native.business = Some(grant);
+        Ok(native)
     }
     fn prepare(
         &self,
@@ -57,6 +91,9 @@ impl NativeCarrierOpener {
         mut grant: CarrierGrant,
     ) -> Result<PreparedCarrier, ChannelError> {
         grant.check()?;
+        if let Some(business) = &self.business {
+            business.check(&grant, binding, &destination, &context)?;
+        }
         let bound = grant.slot.owner.upgrade().and_then(|owner| {
             let state = owner.state();
             state.binding.clone()
@@ -80,7 +117,7 @@ impl NativeCarrierOpener {
             || binding != &self.binding
             || destination != Destination::new(address, self.peer.port())
             || self.egress.generation() != binding.network_generation.0
-            || context.session.is_some()
+            || (context.session.is_some() && self.business.is_none())
         {
             return Err(error(
                 grant.instance(),
@@ -125,6 +162,11 @@ impl NativeCarrierOpener {
                 DeliveryState::NotSubmitted,
             ));
         }
+        // Host demand callbacks must run outside every carrier/native lock.
+        let business_cancel = self
+            .business
+            .as_ref()
+            .map(|business| business.cancellation());
         {
             let mut state = grant.slot.state();
             if grant.slot.cancel.is_cancelled() || state.closed {
@@ -136,6 +178,7 @@ impl NativeCarrierOpener {
                 ));
             }
             state.opening = true;
+            state.business_cancel = business_cancel;
             // A synchronous acquisition panic/error must not return capacity
             // based on implicit Drop of an already created native socket.
             state.unknown = Some(Arc::new(
@@ -190,6 +233,7 @@ impl NativeCarrierOpener {
             authorization: bound.as_ref().map(|bound| bound.cancellation()),
             end,
             endpoint_observer: None,
+            business: self.business.clone(),
             session: context.session,
             transferred: false,
         })

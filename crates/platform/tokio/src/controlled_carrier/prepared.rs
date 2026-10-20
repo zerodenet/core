@@ -18,6 +18,7 @@ pub struct PreparedCarrier {
     pub(super) end: Instant,
     pub(super) endpoint_observer: Option<Arc<dyn super::CarrierEndpointObserver>>,
     pub(super) session: Option<zero_core::component::SessionId>,
+    pub(super) business: Option<super::CarrierBusinessGrant>,
     pub(super) transferred: bool,
 }
 pub struct ControlledCarrier {
@@ -65,6 +66,9 @@ impl PreparedCarrier {
         mut self,
         deadline: Option<Instant>,
     ) -> Result<ControlledCarrier, ChannelError> {
+        if let Some(business) = &self.business {
+            business.check_liveness()?;
+        }
         if self.egress.generation() != self.generation.0 {
             return Err(error(
                 self.slot.instance,
@@ -74,6 +78,16 @@ impl PreparedCarrier {
             ));
         }
         let end = deadline.map_or(self.end, |deadline| self.end.min(deadline));
+        let business_cancel = self
+            .business
+            .as_ref()
+            .map(|business| business.cancellation());
+        let cancelled = async {
+            match &business_cancel {
+                Some(cancel) => cancel.cancelled().await,
+                None => std::future::pending::<()>().await,
+            }
+        };
         let authorization = self.authorization.clone();
         let revoked = async {
             match &authorization {
@@ -82,6 +96,7 @@ impl PreparedCarrier {
             }
         };
         let socket = tokio::select! {biased;
+            _ = cancelled => return Err(error(self.slot.instance, Stage::Dial, Reason::Cancelled, DeliveryState::Unknown)),
             _ = revoked => return Err(error(self.slot.instance, Stage::Dial, Reason::Revoked, DeliveryState::Unknown)),
             _ = self.cancel.cancelled() => return Err(error(self.slot.instance, Stage::Dial, Reason::Cancelled, DeliveryState::Unknown)),
             result = self.pending.connect(end) => result.map_err(|source|connect_error(self.slot.instance, source))?,
@@ -107,6 +122,12 @@ impl PreparedCarrier {
                 Reason::StalePlan,
                 DeliveryState::Unknown,
             ));
+        }
+        if let Some(business) = &self.business {
+            business.check_liveness().map_err(|mut failure| {
+                failure.delivery = DeliveryState::Unknown;
+                failure
+            })?;
         }
         // Read real socket facts before boxing; original native control is
         // already persistent. No enclosing carrier lock surrounds these getters.
