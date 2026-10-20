@@ -1,6 +1,8 @@
 //! Transactional device preparation; protocol config stays inside this adapter.
 
 mod linked;
+mod pending;
+pub(super) use pending::PendingLinkedEndpoint;
 
 use std::{
     collections::HashMap,
@@ -318,7 +320,17 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
         *self
             .pending_endpoints
             .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some(linked.clone());
+            .unwrap_or_else(|error| error.into_inner()) = Some(
+            linked
+                .iter()
+                .map(|(tag, link)| {
+                    (
+                        tag.clone(),
+                        Arc::new(PendingLinkedEndpoint::from_ready(link.clone())),
+                    )
+                })
+                .collect(),
+        );
         Ok(Box::new(PreparedWireguardDevices {
             pool: self.pool.clone(),
             profiles: self.profiles.clone(),

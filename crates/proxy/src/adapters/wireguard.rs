@@ -30,7 +30,8 @@ use crate::runtime::path::TcpPathCategory;
 use crate::runtime::raw_ip::RawIpDevicePool;
 
 type LinkedEndpointMap = HashMap<String, Arc<inbound::LinkedEndpoint>>;
-type PendingEndpointMap = Arc<Mutex<Option<LinkedEndpointMap>>>;
+type PendingEndpointMap =
+    Arc<Mutex<Option<HashMap<String, Arc<lifecycle::PendingLinkedEndpoint>>>>>;
 
 #[derive(Default)]
 pub(crate) struct WireguardAdapter {
@@ -65,11 +66,25 @@ impl WireguardAdapter {
         if let Some(pending) = pending.as_ref() {
             return pending
                 .get(tag)
-                .filter(|link| &link.listen == listen)
-                .cloned();
+                .filter(|link| link.listen() == listen)
+                .and_then(|link| link.ready());
         }
         drop(pending);
         self.published_linked_endpoint(tag, listen)
+    }
+
+    fn pending_linked_endpoint(
+        &self,
+        tag: &str,
+        listen: &zero_config::ListenConfig,
+    ) -> Option<Arc<lifecycle::PendingLinkedEndpoint>> {
+        self.pending_endpoints
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .and_then(|pending| pending.get(tag))
+            .filter(|link| link.listen() == listen)
+            .cloned()
     }
 
     fn published_linked_endpoint(
@@ -208,13 +223,24 @@ impl UdpPacketPathCapability for WireguardAdapter {}
 #[async_trait::async_trait]
 impl InboundListenerCapability for WireguardAdapter {
     fn inbound_listener_requires_restart(&self, inbound: &InboundConfig) -> bool {
-        let next_linked = self
-            .linked_endpoint(&inbound.tag, &inbound.listen)
-            .is_some();
-        let published_linked = self
-            .published_linked_endpoint(&inbound.tag, &inbound.listen)
-            .is_some();
-        next_linked != published_linked
+        let pending = self
+            .pending_endpoints
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(pending) = pending.as_ref() else {
+            return false;
+        };
+        let next = pending
+            .get(&inbound.tag)
+            .filter(|link| link.listen() == &inbound.listen);
+        let current = self.published_linked_endpoint(&inbound.tag, &inbound.listen);
+        match (next, current) {
+            (None, None) => false,
+            (Some(next), Some(current)) => next
+                .ready()
+                .is_none_or(|next| !Arc::ptr_eq(&next, &current)),
+            _ => true,
+        }
     }
 
     fn update_inbound_listener(
