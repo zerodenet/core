@@ -6,6 +6,7 @@ use zero_core::Address;
 pub(super) struct TcpGrant {
     pub(super) native: zero_platform_tokio::ControlledTcpListenerOwner,
     pub(super) acquired: bool,
+    pub(super) attempted: bool,
 }
 
 pub(super) fn literal(
@@ -71,6 +72,7 @@ impl HostResources {
                 "declared TCP listener was already acquired",
             ));
         }
+        native.attempted = true;
         let view = native.native.bind_listener(address).map_err(|mut error| {
             error.component.get_or_insert(self.component);
             error

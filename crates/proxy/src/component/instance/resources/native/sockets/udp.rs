@@ -16,6 +16,7 @@ pub(in crate::component) struct DatagramGrant {
     owner: ControlledDatagramOwner,
     control: Option<ControlledDatagramListenerControl>,
     remaining: usize,
+    attempted: bool,
     max_pending_sends: NonZeroUsize,
     acquired: bool,
     confirmed: u64,
@@ -41,12 +42,16 @@ impl DatagramGrant {
             owner: ControlledDatagramOwner::new(NonZeroUsize::new(1).unwrap()),
             control: None,
             remaining: attempts.get(),
+            attempted: false,
             max_pending_sends: sends,
             acquired: false,
             confirmed: 0,
             reported: false,
             acquisition_source: None,
         })
+    }
+    pub(in crate::component) fn known_no_acquisition(&self) -> bool {
+        !self.attempted
     }
     fn snapshot(&mut self) -> DatagramOwnerReport {
         let report = self.owner.take_report();
@@ -82,6 +87,7 @@ impl DatagramGrant {
             )
             .with_source(source)
         })?;
+        self.attempted = true;
         self.remaining -= 1;
         match self.owner.bind_listener(address, self.max_pending_sends) {
             Ok((rx, tx, control)) => {

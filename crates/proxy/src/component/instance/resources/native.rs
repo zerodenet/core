@@ -16,6 +16,7 @@ use zero_platform_tokio::contract::{
 
 pub(in crate::component) struct HostResources {
     component: ComponentId,
+    coverage: Vec<coverage::CoverageBinding>,
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Arc<tokio::sync::Notify>,
@@ -32,6 +33,7 @@ struct State {
 }
 // The nonconsuming proof API is staged for host slot integration; resourceful
 // production activation remains gated until that separate transaction exists.
+mod coverage;
 mod evidence;
 mod files;
 pub(in crate::component) use evidence::HostIoEvidence;
@@ -89,6 +91,7 @@ impl HostResources {
                             cancel.clone(),
                         )?,
                         acquired: false,
+                        attempted: false,
                     };
                     if tcp
                         .insert(address, Arc::new(AsyncMutex::new(owner)))
@@ -142,8 +145,13 @@ impl HostResources {
                 }
             }
         }
+        let coverage = declarations
+            .iter()
+            .map(|declaration| coverage::CoverageBinding::new(component, declaration))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Arc::new(Self {
             component,
+            coverage,
             cancel,
             state: Mutex::new(State {
                 closed: false,
