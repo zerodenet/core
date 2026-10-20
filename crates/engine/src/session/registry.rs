@@ -495,17 +495,23 @@ impl ActiveSessionEntry {
             .lock()
             .expect("session cancellation lock poisoned")
             .take();
-        // Preserve the original callback; notify the new independent receiver
-        // even when that original callback unwinds. Both run outside locks.
-        struct Notify<'a>(&'a AdmissionLife);
-        impl Drop for Notify<'_> {
-            fn drop(&mut self) {
-                self.0.notify();
+        // Each receiver runs outside locks, including if the other unwinds.
+        // Never invoke an arbitrary callback from a destructor during unwind.
+        let original = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Some(cancel) = cancel {
+                cancel();
             }
-        }
-        let _notify = Notify(&self.admission);
-        if let Some(cancel) = cancel {
-            cancel();
+        }));
+        let admitted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.admission.notify();
+        }));
+        match (original, admitted) {
+            (Err(payload), secondary) => {
+                drop(secondary);
+                std::panic::resume_unwind(payload);
+            }
+            (Ok(()), Err(payload)) => std::panic::resume_unwind(payload),
+            (Ok(()), Ok(())) => {}
         }
     }
 
