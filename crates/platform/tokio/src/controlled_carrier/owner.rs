@@ -179,8 +179,19 @@ pub(super) async fn close_slot(
             )
         };
         if closed {
+            if !super::users::finish(slot, deadline).await {
+                return Ok(CloseReport {
+                    unfinished: vec![Unfinished::Resource(format!(
+                        "{} caller/view closure remains unconfirmed",
+                        slot.label()
+                    ))],
+                    ..Default::default()
+                });
+            }
+            let report = slot.state().pending_close.take().unwrap_or_default();
             slot.remove();
-            return Ok(CloseReport::default());
+            slot.notify();
+            return Ok(report);
         }
         if waiting {
             if timeout_at(deadline, changed).await.is_err() {
@@ -238,12 +249,16 @@ pub(super) async fn close_slot(
             CloseReport::default()
         };
         if report.is_complete() {
-            slot.state().closed = true;
-            // The control is concrete and installed only by native preparation;
-            // no caller-supplied CloseReport can mint this closure receipt.
-            slot.remove();
-            slot.notify();
             report.released_resources.push(slot.label());
+            {
+                let mut state = slot.state();
+                // Persist the original native report before waiting for external
+                // callers. Cancelled cleanup never loses or fabricates that proof.
+                state.closed = true;
+                state.pending_close = Some(report);
+            }
+            slot.notify();
+            continue;
         }
         return Ok(report);
     }

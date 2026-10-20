@@ -12,10 +12,19 @@ use std::{
 use zero_core::component::{ComponentInstanceId, TaskId};
 
 #[derive(Default)]
-pub(super) struct Completion(AtomicBool);
+pub(super) struct Completion {
+    native_closed: AtomicBool,
+    pub(super) users_closed: AtomicBool,
+    pub(super) users_unknown: AtomicBool,
+    pub(super) acquired: AtomicBool,
+    pub(super) caller_failure: std::sync::Mutex<Option<crate::contract::scope::TaskJoined>>,
+}
 impl Completion {
     pub(super) fn confirm(&self) {
-        self.0.store(true, Ordering::Release);
+        self.native_closed.store(true, Ordering::Release);
+        if !self.users_unknown.load(Ordering::Acquire) {
+            self.users_closed.store(true, Ordering::Release);
+        }
     }
 }
 /// Identity/observation only. Possession never grants a native acquisition.
@@ -109,6 +118,12 @@ impl CarrierOwnerObservation {
     }
 }
 impl CarrierOwnerRegistration {
+    pub(super) fn users_completion(&self) -> Arc<Completion> {
+        self.completion.clone()
+    }
+    pub(super) fn matches_users_completion(&self, completion: &Arc<Completion>) -> bool {
+        Arc::ptr_eq(&self.completion, completion)
+    }
     pub(super) fn new(owner: &Arc<Shared>) -> Self {
         Self {
             owner: Arc::downgrade(owner),
@@ -177,7 +192,7 @@ impl CarrierOwnerRegistration {
     /// Drop, expired Weak, empty records and TaskJoined never issue a receipt.
     pub fn closed(&self) -> Option<CarrierOwnerClosed> {
         self.completion
-            .0
+            .native_closed
             .load(Ordering::Acquire)
             .then(|| CarrierOwnerClosed {
                 completion: self.completion.clone(),

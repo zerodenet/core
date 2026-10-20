@@ -121,3 +121,5 @@ mod registration;
 mod binding;
 
 mod endpoints;
+
+mod users;

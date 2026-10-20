@@ -93,6 +93,7 @@ impl NativeCarrierOpener {
         grant.check()?;
         if let Some(business) = &self.business {
             business.check(&grant, binding, &destination, &context)?;
+            business.bind_caller(&grant.slot)?;
         }
         let bound = grant.slot.owner.upgrade().and_then(|owner| {
             let state = owner.state();
@@ -221,6 +222,7 @@ impl NativeCarrierOpener {
             state.control = Some(Arc::new(Mutex::new(control)));
             state.unknown = None;
         }
+        super::users::acquired(&grant.slot);
         let end = Instant::now() + Duration::from_secs(10);
         let end = context.deadline.map_or(end, |caller| caller.min(end));
         grant.transferred = true;

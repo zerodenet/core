@@ -28,6 +28,7 @@ pub struct CarrierBusinessGrant {
     binding: CarrierOwnerBinding,
     slot: Weak<Slot>,
     demand: Arc<dyn CarrierBusinessDemand>,
+    caller: Option<crate::contract::scope::TaskJoinWitness>,
 }
 impl CarrierOwnerBinding {
     /// Physical capability construction requires the exact private HostResources
@@ -66,16 +67,49 @@ impl CarrierBusinessIssuer {
         self,
         demand: Arc<dyn CarrierBusinessDemand>,
     ) -> Result<CarrierBusinessGrant, ChannelError> {
+        self.authorize_inner(demand, None)
+    }
+    pub fn authorize_with_caller(
+        self,
+        demand: Arc<dyn CarrierBusinessDemand>,
+        caller: crate::contract::scope::TaskJoinWitness,
+    ) -> Result<CarrierBusinessGrant, ChannelError> {
+        self.authorize_inner(demand, Some(caller))
+    }
+    fn authorize_inner(
+        self,
+        demand: Arc<dyn CarrierBusinessDemand>,
+        caller: Option<crate::contract::scope::TaskJoinWitness>,
+    ) -> Result<CarrierBusinessGrant, ChannelError> {
         let grant = CarrierBusinessGrant {
             binding: self.binding,
             slot: self.slot,
             demand,
+            caller,
         };
         grant.check_liveness()?;
         Ok(grant)
     }
 }
 impl CarrierBusinessGrant {
+    pub(super) fn bind_caller(&self, slot: &Arc<Slot>) -> Result<(), ChannelError> {
+        if let Some(caller) = &self.caller {
+            let mut state = slot.state();
+            if !state
+                .users
+                .as_mut()
+                .is_some_and(|users| users.bind(caller.clone()))
+            {
+                return Err(error(
+                    slot.instance,
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    DeliveryState::NotSubmitted,
+                ));
+            }
+        }
+        Ok(())
+    }
     pub(super) fn binding(&self) -> &CarrierOwnerBinding {
         &self.binding
     }
@@ -98,6 +132,10 @@ impl CarrierBusinessGrant {
             || self.binding.host_cancelled()
             || !self.binding.scope_identity().registration_open()
             || slot.cancel.is_cancelled()
+            || self
+                .caller
+                .as_ref()
+                .is_some_and(crate::contract::scope::TaskJoinWitness::is_joined)
             || self.cancellation().is_cancelled()
         {
             let mut failure = error(

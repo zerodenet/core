@@ -22,6 +22,8 @@ pub(super) struct State {
     pub(super) view_live: bool,
     pub(super) endpoints: Option<super::CarrierEndpoints>,
     pub(super) business_cancel: Option<CancellationToken>,
+    pub(super) users: Option<super::users::Users>,
+    pub(super) pending_close: Option<crate::contract::lifecycle::CloseReport>,
     pub(super) spawning: bool,
     pub(super) spawn_attempted: bool,
     pub(super) driver: Option<(TaskId, TaskJoinWitness)>,
@@ -63,6 +65,10 @@ impl Slot {
                 && !state.view_live
                 && !state.spawning
                 && state.driver.is_none()
+                && state
+                    .users
+                    .as_ref()
+                    .is_none_or(|users| !users.live() && !users.acquired())
             {
                 state.closed = true;
                 true

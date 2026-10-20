@@ -11,6 +11,7 @@ mod owner;
 mod prepared;
 mod registration;
 mod slot;
+mod users;
 mod view;
 use crate::contract::{ChannelError, DeliveryState, Impact, Reason, Stage};
 pub use adoption::{CarrierAdoption, CarrierClosed};
@@ -26,6 +27,7 @@ pub use registration::{
     CarrierOwnerRegistration, CarrierSlotObservation,
 };
 use std::sync::Arc;
+pub use users::{CarrierOwnerUsersClosed, CarrierUserView, CarrierUsersClosed};
 pub use view::{CarrierDriver, CarrierIo};
 use zero_core::component::ComponentInstanceId;
 fn error(
