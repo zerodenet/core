@@ -4,6 +4,7 @@ use tokio::{io::AsyncReadExt, sync::oneshot, time::timeout};
 mod callbacks;
 mod errors;
 mod ownership;
+mod registrar;
 mod wake;
 
 fn scope(limit: usize) -> HostedScope {

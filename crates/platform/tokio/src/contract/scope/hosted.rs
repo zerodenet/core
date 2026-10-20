@@ -153,6 +153,17 @@ impl Drop for HostedCallbacks {
     }
 }
 
+impl TaskRegistrar {
+    /// Defer actual scope callbacks until an enclosing synchronous owner has
+    /// installed the returned registration and released all of its locks.
+    /// Never retain this guard across await or use it as task/exit ownership.
+    pub fn defer_callbacks(&self) -> HostedCallbacks {
+        HostedCallbacks {
+            deferred: Some(self.0.relay.enter_parent()),
+        }
+    }
+}
+
 impl HostedScope {
     pub fn defer_callbacks(&self) -> HostedCallbacks {
         HostedCallbacks {
