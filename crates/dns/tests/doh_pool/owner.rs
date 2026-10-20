@@ -178,6 +178,8 @@ async fn reload_retirement_waits_for_real_lease_and_recovery_rebuilds_retired_ba
     use crate::{backends::ResolverBackend, DnsSystem, DnsSystemInner};
     let (endpoint, server) = closing_server().await;
     let resolver = local(endpoint);
+    // Establish the real H2 connection before holding a retirement-blocking lease.
+    exchange(&resolver).await.unwrap();
     let lease = resolver.ready_client(endpoint, None, None).await.unwrap();
     let resolver = Arc::try_unwrap(resolver)
         .ok()
