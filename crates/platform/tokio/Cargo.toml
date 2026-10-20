@@ -13,6 +13,8 @@ default = []
 host-network-stats = []
 
 [dependencies]
+# Native UDP metadata helper only; no Quinn runtime or protocol dependency.
+quinn-udp = { version = "=0.5.16", default-features = false }
 socket2 = { version = "0.6", features = ["all"] }
 tokio = { workspace = true, features = ["process"] }
 zero-traits = { path = "../../traits" }
