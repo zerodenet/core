@@ -41,3 +41,13 @@ HTTP `runtime` 的可选依赖只给锁中的工作区 `http@0.0.1` 增加已有
 ## 后续必要工作
 
 下一冻结树先验证上述失败和新生产入口，再运行完整 workspace、严格检查、最小 feature/no_std/依赖检查及默认 release。生产 Direct UDP 预算和启用、其余 shared protocol 实际 owner、mixed DNS 每次连接预算、全部入站/Packet/Control/Mux、Ready ACK/RuntimeHost M4、后续 runtime 提取及最终消费者/FFI/资源/平台资格仍需完成。当前没有合并、发布、部署或访问用户 Mac。
+
+## root24–26 后续冻结结果
+
+证据清单现保存 303 个可校验原始压缩件。root24 暴露的 gRPC 原始 H2 reset 错误源丢失已由 root25 的全部 10 项原断言回归通过验证。root25 的 HTTP 14/0、Trojan 新入口 3/0 与原入口 3/0、SOCKS TCP 20/0、UDP 29/0 以及原 gRPC 共享复用 1/0 均在同一干净冻结树运行。实际 SIP003 初始化超过 5 秒时仍未 ACK，释放真实 gate 后才 Ready，该回归 1/0。
+
+root25 的 peer 14/1 是 panic 检查依赖 Display 文本；后续断言改查原始 ChannelError/JoinError、实际 TaskId/Critical 类别与同一 Arc，root26 peer 15/0 通过。root26 的 VMess 库 22/0 和合同 11/0 通过，但 root 编写的 wire 夹具误用私有构造器使整个 proxy_dispatch 目标编译阻塞，相关集成没有执行；已改用原有公开 request bundle，待下一冻结树运行。strict 仍失败，原始 type complexity 与 DNS needless_return 诊断及对应修复均保留，没有声称严格检查通过。
+
+当前代码还集入 Ready 前停机的同一事务补偿、有限 gRPC owner 库、Service relay 每次需求与 Direct UDP 副本/字节一致计费，以及 VLESS 普通 TCP 及原始 SNI 接线，均须分别运行验证。原 listener Bound 尚未完整交给持久原生关闭控制图；Scope 退出、空 report 或 Drop 不证明原 FD 关闭。资源生产启用和整个 RuntimeHost M4 尚未完成。
+
+[旧源 library 实测](direct-udp-budget/old-library-results.md)已保存 policy 与 network 各三轮；20–21 是 runtime-owned async task 峰值，排除 blocking pool，不是全部工作或关闭证明。全部缺包及非原子 proc 限制保留，当前源与 17 个实际 feature 匹配的 CLI 配对仍待冻结构建。

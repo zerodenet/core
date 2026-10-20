@@ -1,7 +1,7 @@
 {
   "scope": "PARTIAL ALL17 integration progress; not overall qualification, not published/current-head CI",
-  "integration_code_commit": "9cc8bbeb005ccca7860a2ab83d7001a69c860517",
-  "integration_tree": "c6cfe7de41576d847c85aa852b3f353da06c5860",
+  "integration_code_commit": "4ec6e57f6703d8c0051fd5a2616ce337facd61c8",
+  "integration_tree": "e2cce790c233c63fa196c86375a030317694296b",
   "last_qualified_published_head": "c0682292d3b32cf5b9f6748cc3bebae3fc68325d",
   "lock_change": "see pr05-parallel-http-lock-change.json.gz; only http workspace metadata added existing platform dependency, 441 total packages, registry versions/sources/checksums unchanged",
   "root21": "fmt/check/release/no_std/minimal/dependency passed. strict/full failed; proxy lib interrupted after deterministic cold fixture hang. Complete summary counts2484/23/157 are incomplete, NOT workspace aggregate; runner unanchored counts duplicated annotations and are retained only as such.",
@@ -9,6 +9,14 @@
   "root23": "clean frozen29d6b8b1; per-command independent scopes. Runtime guard186/3, architecture24/2, recovery0/1, Direct endpoint16/1, hostsource1/1, UDPidle0/2, publichealth11/1,coldcancel0/1. HTTP/SOCKS integrations compile blocked by missing EventSource trait. gRPC originalreuse1/0, diagnostic4/0, retainedrecipe9/0, peers12/0, SOCKScomponent6/0+relay3/0, Tcpidle1/0,TUNpositive1/0, HTTPcomponent3/0,pure10/0,Engine static5/0,boundwrapper1/0,weakcloseobserver1/0. Overlapping filters MUST NOT be summed.",
   "post23": "Fixes and further HTTP forward/Trojan/grpc driver seams are implemented in integration code commit but runtime validation pending; pre24 std-only source guards architecture26/0/runtime189/0 only.",
   "records": [
+    {
+      "source": "host-recovery-diagnostic.txt",
+      "path": "evidence/parallel-progress/host-recovery-diagnostic.txt.gz",
+      "raw_bytes": 1131,
+      "raw_sha256": "cea81a82680da4f6f4b4e5536a33e9c05e53137271de9a3cba781f2c21aaae64",
+      "gzip_bytes": 445,
+      "gzip_sha256": "75c2ea41b4b4e9b491f688913c28fda2a8bc905a17ad2dd1b4ab268a4b30ba78"
+    },
     {
       "source": "pr05-parallel-focused-1-datagram-platform.txt",
       "path": "evidence/parallel-progress/pr05-parallel-focused-1-datagram-platform.txt.gz",
@@ -1410,6 +1418,454 @@
       "gzip_sha256": "ae25955adccc2153fb1612e29079d5ee4b9ce69998553f5ee5e03d6e0f82c0c5"
     },
     {
+      "source": "pr05-parallel-focused-24-apply-owner.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-apply-owner.txt.gz",
+      "raw_bytes": 2269,
+      "raw_sha256": "0671be5583c04619c3370ac57ed4831eb60863288181612b3ed8eb90a1fc227d",
+      "gzip_bytes": 957,
+      "gzip_sha256": "2225829f5ce462ab8d33f35b967971ef8137ac8f49b571754f2add38a9617b39"
+    },
+    {
+      "source": "pr05-parallel-focused-24-bound-wrapper.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-bound-wrapper.txt.gz",
+      "raw_bytes": 1958,
+      "raw_sha256": "947767f0e8e9c5489b19a7aaf638340c7da872e618f025b0eb7dca14f9c7ef31",
+      "gzip_bytes": 846,
+      "gzip_sha256": "69332775d2c6796382b7fb952ba0c40068bb7e561d1909e0c3609e9a1452b684"
+    },
+    {
+      "source": "pr05-parallel-focused-24-close-observer.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-close-observer.txt.gz",
+      "raw_bytes": 1936,
+      "raw_sha256": "807991ff859508e3b6072841462aa3ebb45d5f39c505ee30f1cefa64d25cceca",
+      "gzip_bytes": 845,
+      "gzip_sha256": "040b32c6901a2d6f3c195877dce3ae0a72028e1fab9bae5aa5518432664ab951"
+    },
+    {
+      "source": "pr05-parallel-focused-24-cold-probe-owner.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-cold-probe-owner.txt.gz",
+      "raw_bytes": 1955,
+      "raw_sha256": "ec293b26d2121a40ab59c56c64a1c8a870817ba9b15aecb7d6c55d29d974f0a0",
+      "gzip_bytes": 852,
+      "gzip_sha256": "5f0606c9b6a3b64e21b9b261aa52272ecadc659aa499151b283135c567ec46b8"
+    },
+    {
+      "source": "pr05-parallel-focused-24-configuration.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-configuration.txt.gz",
+      "raw_bytes": 2400,
+      "raw_sha256": "cd649b6b751df275769464cb0750702809c8fc9ccbfc6712bf9f811d5a3f3ffc",
+      "gzip_bytes": 956,
+      "gzip_sha256": "7a9fe99083682bcc9e139ab60364da0b0172b2940da773be3f9dc3253d7ce0a4"
+    },
+    {
+      "source": "pr05-parallel-focused-24-direct-endpoint.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-direct-endpoint.txt.gz",
+      "raw_bytes": 4112,
+      "raw_sha256": "3516aeaa9789ca682ac5cfc54c22d8a4346f9e0724c3fa0c9ba6bafb583bb35c",
+      "gzip_bytes": 1469,
+      "gzip_sha256": "80464f39639a7c37e81066a8df2eba7ed97224234cbd6b750e8baae2ddfd8a2f"
+    },
+    {
+      "source": "pr05-parallel-focused-24-engine-static.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-engine-static.txt.gz",
+      "raw_bytes": 8043,
+      "raw_sha256": "02e0e957f35d6a85cd87573ef7ed43fdcb8777a1cb4b37a5c14a55363d32294d",
+      "gzip_bytes": 2341,
+      "gzip_sha256": "fa39454e173f4ee373d5898d7a144152dbf4fac08b26c25d608929b51d0fb45c"
+    },
+    {
+      "source": "pr05-parallel-focused-24-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-fmt.txt.gz",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr05-parallel-focused-24-grpc-prepared.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-grpc-prepared.txt.gz",
+      "raw_bytes": 2190,
+      "raw_sha256": "ee3e0f0a8e2e2aeea7e05374c64b8893b31158486240139fa241b6e32e7ae4b2",
+      "gzip_bytes": 939,
+      "gzip_sha256": "c00971e0d35ff2e540cc1d8bee1b6df67ca6aab0f3bd2bd10e6d98bd948189be"
+    },
+    {
+      "source": "pr05-parallel-focused-24-grpc-reuse.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-grpc-reuse.txt.gz",
+      "raw_bytes": 30146,
+      "raw_sha256": "c98652e4bd915bf0433cea6f282255fac3e5ad9d197a42aac8e914bb56619aac",
+      "gzip_bytes": 5187,
+      "gzip_sha256": "b3450658fd99bf7f3b54b2bd847e4314441062c759e1190bf2f70d916890e536"
+    },
+    {
+      "source": "pr05-parallel-focused-24-host-source.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-host-source.txt.gz",
+      "raw_bytes": 2093,
+      "raw_sha256": "700d552ad87b479239d0e28097628d154e098690aeda824916c5968d4f9243b8",
+      "gzip_bytes": 886,
+      "gzip_sha256": "e5b84fb0917cf5a5e637437a2748bb5791a2fb490e3b426f0e85a0d2cbf99b13"
+    },
+    {
+      "source": "pr05-parallel-focused-24-http-component.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-http-component.txt.gz",
+      "raw_bytes": 639,
+      "raw_sha256": "bb454195e459f410952a98a482e2fee152e39267d8fd12170272c267ebcc8783",
+      "gzip_bytes": 388,
+      "gzip_sha256": "1d97dd2f4277a3928d685283438da4a38b07cbb58c4dd54d36d416b8a3567b69"
+    },
+    {
+      "source": "pr05-parallel-focused-24-http-dispatch.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-http-dispatch.txt.gz",
+      "raw_bytes": 31808,
+      "raw_sha256": "e7cf2e87370cee6a9db605c6494b7329384d3cdbb2aab926a86ab598c8cc18f9",
+      "gzip_bytes": 5402,
+      "gzip_sha256": "e392335b8af43fd1d8768a7ed5fbb5f4ca2cf4893aaf438a1a5f985b660c0205"
+    },
+    {
+      "source": "pr05-parallel-focused-24-http-minimal.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-http-minimal.txt.gz",
+      "raw_bytes": 39571,
+      "raw_sha256": "5e8d673eec5ce5ede92e717a4261ccb9819060bb6c091b0027806b669e9d07f1",
+      "gzip_bytes": 7551,
+      "gzip_sha256": "95831e8632e1b69fb9de628e0ae5d1503f88379fd2a409fc40502e184d640772"
+    },
+    {
+      "source": "pr05-parallel-focused-24-http-pure.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-http-pure.txt.gz",
+      "raw_bytes": 971,
+      "raw_sha256": "8844c8154c1d6396e5e5881f4d0c2ff60120674f8283f818005dffef29f9a352",
+      "gzip_bytes": 503,
+      "gzip_sha256": "e9d1f90a1c2171be51f70318146e29e92ab600df3e199757cd8b6faf44659ab6"
+    },
+    {
+      "source": "pr05-parallel-focused-24-inbound-recovery.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-inbound-recovery.txt.gz",
+      "raw_bytes": 12841,
+      "raw_sha256": "189fbb0dc4d502ae155928305dd8ac374eb39cb573aa94d55ef0ed3b28584d7a",
+      "gzip_bytes": 2356,
+      "gzip_sha256": "3a4e04eac18ffe0818249aa02f999e0d5794d61326d98de445d6515c67fe613d"
+    },
+    {
+      "source": "pr05-parallel-focused-24-peer-scopes.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-peer-scopes.txt.gz",
+      "raw_bytes": 3527,
+      "raw_sha256": "e8cd1d225d9552b30364284dd7f86a8ceb45f11152fa1bbf048d9bc84a36c65b",
+      "gzip_bytes": 1266,
+      "gzip_sha256": "4e949cf73faa3c53940f6f388d1e4931a4e332dd4e1efb2aedd288412329b679"
+    },
+    {
+      "source": "pr05-parallel-focused-24-probe-diagnostics.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-probe-diagnostics.txt.gz",
+      "raw_bytes": 30370,
+      "raw_sha256": "975056aeadb5c92600effc35bc7cc278a20850fb1cff3a3144978f4a6eca709a",
+      "gzip_bytes": 5254,
+      "gzip_sha256": "622e9bbd47e4d0fa2c010a12f8a445d7de8ea2bf14f11ca95ec776e12bbb2caa"
+    },
+    {
+      "source": "pr05-parallel-focused-24-proxy-health.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-proxy-health.txt.gz",
+      "raw_bytes": 31195,
+      "raw_sha256": "512321161d5229160847a77c5e3ad9b1e154e2b6dcc43e6a86d8080bbe25424a",
+      "gzip_bytes": 5517,
+      "gzip_sha256": "89c0ca992f4bb24f6e7a29e98f607fa1d54ddf2cf0fea89bbc1537c3ced0bc5d"
+    },
+    {
+      "source": "pr05-parallel-focused-24-retained-recipe.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-retained-recipe.txt.gz",
+      "raw_bytes": 3022,
+      "raw_sha256": "3e24a8480947ff0e334ae9c1365109cdaa618405d1f222d07dc47949b5386865",
+      "gzip_bytes": 1148,
+      "gzip_sha256": "48fb03206325d4917ee58ed46c1f8f5539f08bd27f508c3bfa7be4a1dbf6cf4f"
+    },
+    {
+      "source": "pr05-parallel-focused-24-source-architecture-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-source-architecture-guard.txt.gz",
+      "raw_bytes": 2491,
+      "raw_sha256": "6b51aebf5d4076065621dee41e6b550aaa408d3a3382c745583643438cb9587e",
+      "gzip_bytes": 1106,
+      "gzip_sha256": "ddf5633169a25b58466510685c29c2215314a3ff934dba06d885cecac9b204e7"
+    },
+    {
+      "source": "pr05-parallel-focused-24-source-runtime-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-source-runtime-guard.txt.gz",
+      "raw_bytes": 13956,
+      "raw_sha256": "8c0b4f2b3bc9c96aa50d340f1b7be82b8aba84df55ac5af6aa981fb24d9e6c68",
+      "gzip_bytes": 3131,
+      "gzip_sha256": "c9d2534adcf43cbef5a5e9339dde2225c10c09662a2a6850944f3264a53483c1"
+    },
+    {
+      "source": "pr05-parallel-focused-24-startup-snapshot.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-startup-snapshot.txt.gz",
+      "raw_bytes": 1940,
+      "raw_sha256": "bfdea2a0eb1208a1424c1a6c07a5619db3f8f2db1937086cab61a3fac9cc4ce9",
+      "gzip_bytes": 841,
+      "gzip_sha256": "3402b979ec9c3adb490a379b6addbc0653eda039d1b99fcec20b9319522efbc1"
+    },
+    {
+      "source": "pr05-parallel-focused-24-strict.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-strict.txt.gz",
+      "raw_bytes": 2570,
+      "raw_sha256": "8c57832200c1fc94513f5349c803929f5fbdb7cd5dd5a7c846de2c28905673dd",
+      "gzip_bytes": 1034,
+      "gzip_sha256": "b1faf8df6025f1806de7bbc532702e8103126f29f78b82c6880bb98fce0a6b53"
+    },
+    {
+      "source": "pr05-parallel-focused-24-trojan-contracts.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-trojan-contracts.txt.gz",
+      "raw_bytes": 19331,
+      "raw_sha256": "937603567d3c7e66c7aedfe743755d0c6514537c6a37acc5a473069fb9484f61",
+      "gzip_bytes": 3834,
+      "gzip_sha256": "ab807b809431e383107f72d4694cffe3c9ba486e7911c14e189c013d2b411cdc"
+    },
+    {
+      "source": "pr05-parallel-focused-24-trojan-minimal.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-trojan-minimal.txt.gz",
+      "raw_bytes": 99043,
+      "raw_sha256": "88ae61a3f9cc1a38334a8e541cbaaa8037b853284b21b04484b113fb0814349f",
+      "gzip_bytes": 15785,
+      "gzip_sha256": "581225b763c6715c6e41e51d66fd47a1ea51337a5f5e421d66c46b9445131b27"
+    },
+    {
+      "source": "pr05-parallel-focused-24-udp-idle.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-udp-idle.txt.gz",
+      "raw_bytes": 2048,
+      "raw_sha256": "9a6fe5213ff6d0d1e6f7976f79efc5fb2da29e3e449940bc058099965f0b5f2e",
+      "gzip_bytes": 856,
+      "gzip_sha256": "8c3af59df0e120b25decac78881ced413a3e7cf13c8529528d4d4b4f1147af3e"
+    },
+    {
+      "source": "pr05-parallel-focused-24-workspace-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24-workspace-check.txt.gz",
+      "raw_bytes": 31421,
+      "raw_sha256": "9df7d9b85cc0a830fe20975f11b9df8b73faa85fab97bba682735a13c523d0d3",
+      "gzip_bytes": 5339,
+      "gzip_sha256": "c0cf1b31b310a5c4077d921533da3114ef1a6005c659a92719e87d907ce87500"
+    },
+    {
+      "source": "pr05-parallel-focused-24.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-24.json.gz",
+      "raw_bytes": 17798,
+      "raw_sha256": "957b15d9fe33a6f5952c66b445955283cdc1d49358fa8ab12d89a2d31277a540",
+      "gzip_bytes": 1974,
+      "gzip_sha256": "7684dbf7f08fb6cd00981e5b2764db6b8786b42d55768eb98847969b253f64d6"
+    },
+    {
+      "source": "pr05-parallel-focused-25-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-fmt.txt.gz",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr05-parallel-focused-25-grpc-prepared.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-grpc-prepared.txt.gz",
+      "raw_bytes": 1380,
+      "raw_sha256": "9d52ec6d148116f0c5e53bebb1e95cb88f91ecd99df011aa989d4d84ae32fd14",
+      "gzip_bytes": 669,
+      "gzip_sha256": "fdbce0d29037cbd7ede1e12bae3b578295c1200a1a612b6794943f3d9210ba7c"
+    },
+    {
+      "source": "pr05-parallel-focused-25-grpc-reuse.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-grpc-reuse.txt.gz",
+      "raw_bytes": 30146,
+      "raw_sha256": "869bbcb219e662e108d188990c16db2ede84de9bfa1448a87a7ea13e12b2d738",
+      "gzip_bytes": 5187,
+      "gzip_sha256": "cda1efab39b9588047319a032eb588b25c8590408ed2bbcc3a2ecb4524980e74"
+    },
+    {
+      "source": "pr05-parallel-focused-25-http-dispatch.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-http-dispatch.txt.gz",
+      "raw_bytes": 31199,
+      "raw_sha256": "ab5a6e1e6fc83c5912670e5f2bea78a262442b32a92aeeca4d62d4015569f559",
+      "gzip_bytes": 5579,
+      "gzip_sha256": "5c12e41667bbb0797cd332f301bc8e7d95b6cb85539c225d1e2283f1f540625b"
+    },
+    {
+      "source": "pr05-parallel-focused-25-inbound-ready.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-inbound-ready.txt.gz",
+      "raw_bytes": 1933,
+      "raw_sha256": "bc658b91f68a8279bbb615a134ebcbdf757990f27a310b504fd9c56199348bb8",
+      "gzip_bytes": 844,
+      "gzip_sha256": "d5edf5d13ee56ec0fa0e6b0bc512372ab3ef3189604f70be524803cbfd507b72"
+    },
+    {
+      "source": "pr05-parallel-focused-25-inbound-recovery.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-inbound-recovery.txt.gz",
+      "raw_bytes": 11927,
+      "raw_sha256": "41a6b319128690feb6f05c42610f5e4f5939a89164062a2ffb8f5db7a2966c32",
+      "gzip_bytes": 2177,
+      "gzip_sha256": "df15032bba9bc1c575422d10dc6f1580b013f2ff112a453b8191042256f7f8d7"
+    },
+    {
+      "source": "pr05-parallel-focused-25-peer-scopes.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-peer-scopes.txt.gz",
+      "raw_bytes": 6183,
+      "raw_sha256": "90b3c372dfecb43d497e3542d10d7d0be2dab195f6b2d292c80453a8b829e200",
+      "gzip_bytes": 1927,
+      "gzip_sha256": "060ebd14f607d808e5802535633be1e141e993671acb8abb1c548401527b92e0"
+    },
+    {
+      "source": "pr05-parallel-focused-25-socks-tcp.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-socks-tcp.txt.gz",
+      "raw_bytes": 32400,
+      "raw_sha256": "57a75f129735435d6a4145c7fb634752fa4dc9fc9bae455d9ca98ba78781cf9d",
+      "gzip_bytes": 5519,
+      "gzip_sha256": "7f82b64f5c29ed088cc2f929706c99d48da6bb097360909c6753d57ca4a55dd6"
+    },
+    {
+      "source": "pr05-parallel-focused-25-socks-udp.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-socks-udp.txt.gz",
+      "raw_bytes": 33542,
+      "raw_sha256": "4b85e352aca8cea418812ec6d88e029eea648e1fc696b5e3b5bbc08edc62c721",
+      "gzip_bytes": 5620,
+      "gzip_sha256": "7963cef3c2bdb93bc07147537ae7514cc68d6e4469860150dc6a06ce472fe6de"
+    },
+    {
+      "source": "pr05-parallel-focused-25-source-architecture-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-source-architecture-guard.txt.gz",
+      "raw_bytes": 2491,
+      "raw_sha256": "56f3775cee0e52a8262da9ae418b88fdf9f686dbe9caf231af00672ded741142",
+      "gzip_bytes": 1107,
+      "gzip_sha256": "4d3fc6a47beb63154e08a7538a8d9518762325f0ae1d2d530d8709ae1efcb71b"
+    },
+    {
+      "source": "pr05-parallel-focused-25-source-runtime-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-source-runtime-guard.txt.gz",
+      "raw_bytes": 13956,
+      "raw_sha256": "fe3dd9c77590fce01f209950a208cca938941c03f284688970adb62ecd0641d8",
+      "gzip_bytes": 3123,
+      "gzip_sha256": "744569de5dd285920fa5ffe252c49665d71436f56710b448e5881651994e7f0b"
+    },
+    {
+      "source": "pr05-parallel-focused-25-strict.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-strict.txt.gz",
+      "raw_bytes": 1754,
+      "raw_sha256": "953f3d0b1acb159fdd2d0024599f2a3c740b1191c028bb4a581c0cbd6b6013ab",
+      "gzip_bytes": 784,
+      "gzip_sha256": "282be93fe3decf19a4ba672f697715340e42f110de00a9075c9a1eeb2c52ef42"
+    },
+    {
+      "source": "pr05-parallel-focused-25-trojan-dispatch.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-trojan-dispatch.txt.gz",
+      "raw_bytes": 30181,
+      "raw_sha256": "77431bcf4619dc1f3d4e5f992c6e4040ab4b9ddfef9d34bcf4174f6087d2a8b5",
+      "gzip_bytes": 5163,
+      "gzip_sha256": "f20343c93c964a915368849633e876c6f949df14eb2046f271f14e3be82f22e7"
+    },
+    {
+      "source": "pr05-parallel-focused-25-trojan-inbound.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-trojan-inbound.txt.gz",
+      "raw_bytes": 30325,
+      "raw_sha256": "10f637d7bde7bb03146888ce02081ddf1c984b4c0f79946fdaaab05b7c383653",
+      "gzip_bytes": 5234,
+      "gzip_sha256": "9d9cf67f0aa9f783f965129137ed7c4607ed27e2cb6898e815351fad5f1a85fc"
+    },
+    {
+      "source": "pr05-parallel-focused-25-workspace-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25-workspace-check.txt.gz",
+      "raw_bytes": 31363,
+      "raw_sha256": "0bf96094fa48a86304cde0bcf209f9ed99ff8da34e83f9acb16eafd72aaafabe",
+      "gzip_bytes": 5329,
+      "gzip_sha256": "929633d36ec2a9c053775986bbe5a2705d8158a59a8dd2e7cb55c467d0974d28"
+    },
+    {
+      "source": "pr05-parallel-focused-25.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-25.json.gz",
+      "raw_bytes": 8853,
+      "raw_sha256": "131281786c980be7eaeabdf928e1ad4d39e08f70700e10ec3e4425db91477f88",
+      "gzip_bytes": 1141,
+      "gzip_sha256": "51bc32b87d8e2aba0ddcf14d7feaa84468ab8f02bd298a27330d73ae79853533"
+    },
+    {
+      "source": "pr05-parallel-focused-26-fmt.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-fmt.txt.gz",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr05-parallel-focused-26-peer-scopes.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-peer-scopes.txt.gz",
+      "raw_bytes": 4339,
+      "raw_sha256": "29040e207c6cdeb61ee96759054a721eaef113c6c2c9ae67fc30ac72c0ff3fa2",
+      "gzip_bytes": 1472,
+      "gzip_sha256": "01f18e088f2c0dc390da528be837ff8bdfc2f16f28a76ec024a5c9f960bb82e8"
+    },
+    {
+      "source": "pr05-parallel-focused-26-source-architecture-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-source-architecture-guard.txt.gz",
+      "raw_bytes": 2491,
+      "raw_sha256": "2e54a219ab79410b301958a6322ef8457604a088694ddc4b89360c6485e205c3",
+      "gzip_bytes": 1105,
+      "gzip_sha256": "cac4bd755e52f278d6eb02f967d26a82b7641e9e8d3efa05d0923f34b4e17f01"
+    },
+    {
+      "source": "pr05-parallel-focused-26-source-runtime-guard.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-source-runtime-guard.txt.gz",
+      "raw_bytes": 13956,
+      "raw_sha256": "867c72aa774d37f4d424badf0658b47f0ffcf0a5a3db26b478233e738ce4a936",
+      "gzip_bytes": 3142,
+      "gzip_sha256": "0a1b0ad011e4c6817cc04fe3a624f4ac18bfcc50f9bb137af57eb5a129b4dcb9"
+    },
+    {
+      "source": "pr05-parallel-focused-26-strict.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-strict.txt.gz",
+      "raw_bytes": 2739,
+      "raw_sha256": "d8417b48c779ff14db3fe473f25b2e857eb4253ae3363a25745b7e67a0e771eb",
+      "gzip_bytes": 890,
+      "gzip_sha256": "0bc40fcff1c3c4afe7785db48f03ac48a6d399e990ea7f40d8e03438cd706120"
+    },
+    {
+      "source": "pr05-parallel-focused-26-vmess-contracts.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-vmess-contracts.txt.gz",
+      "raw_bytes": 19357,
+      "raw_sha256": "a0c6e7029107f4fa2e019c0d5bc7efa595d7c3e512b2ea14283acfa256b0d1c8",
+      "gzip_bytes": 3858,
+      "gzip_sha256": "991daf73a49a7b55b7ba35734bab5e423f92507cdcb71c472f6bd0f77faa212b"
+    },
+    {
+      "source": "pr05-parallel-focused-26-vmess-inbound.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-vmess-inbound.txt.gz",
+      "raw_bytes": 30461,
+      "raw_sha256": "c04ae99b19d0a3d16110c51287a34484ede4e4ff923e0935b94a51dbe16eadc8",
+      "gzip_bytes": 5242,
+      "gzip_sha256": "fde8d2dbfed7efef3b3e78b7a609943fa7b1b32c725d67ac31a06dceb73e7b06"
+    },
+    {
+      "source": "pr05-parallel-focused-26-vmess-library.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-vmess-library.txt.gz",
+      "raw_bytes": 20362,
+      "raw_sha256": "484f2e92e84a24db2513585e088bd0422df344580217057909575337d67ddd25",
+      "gzip_bytes": 4256,
+      "gzip_sha256": "6b63755a4729576a01d25ebf518cb5cb198fbdcc5b39578dee46015dc6f37d0e"
+    },
+    {
+      "source": "pr05-parallel-focused-26-vmess-minimal.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-vmess-minimal.txt.gz",
+      "raw_bytes": 103319,
+      "raw_sha256": "b5cce1ae4218ac8949fd9ba23ff57a86447afe855077c2b0c05f4582a4d9e283",
+      "gzip_bytes": 16438,
+      "gzip_sha256": "999b80642ac951ab45cf6415482cb9d9e7c20c57d3efd00114dfd50efd3e607e"
+    },
+    {
+      "source": "pr05-parallel-focused-26-workspace-check.txt",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26-workspace-check.txt.gz",
+      "raw_bytes": 30886,
+      "raw_sha256": "7624e38f51403022e9403915a0189528b6b8adbfab3b57befe692ccf16e5ca3b",
+      "gzip_bytes": 5225,
+      "gzip_sha256": "7cdf8198b8a6c4e67dbeee9de77a54e940c912aca1660f4faa51201076e6f832"
+    },
+    {
+      "source": "pr05-parallel-focused-26.json",
+      "path": "evidence/parallel-progress/pr05-parallel-focused-26.json.gz",
+      "raw_bytes": 6604,
+      "raw_sha256": "b58b7f3557d979f9eb6548ec510d89d992b7eb42f24e47dad312fe43223b807b",
+      "gzip_bytes": 983,
+      "gzip_sha256": "b8a336c71c40e605af6f6dae1a91fecbd584816111e6740ee18a3a3966e16b65"
+    },
+    {
       "source": "pr05-parallel-focused-3-component-contracts.txt",
       "path": "evidence/parallel-progress/pr05-parallel-focused-3-component-contracts.txt.gz",
       "raw_bytes": 1754,
@@ -1976,14 +2432,10 @@
       "raw_sha256": "b72ed07f75636cb7872fb5365b5aded8b51955b5edccf3fc12deb30ddc9f7db5",
       "gzip_bytes": 1082,
       "gzip_sha256": "e863fed4442ea6eea67a8a1ef1046e6108d92159b84cb6c0221c46db9de70853"
-    },
-    {
-      "source": "host-recovery-diagnostic.txt",
-      "path": "evidence/parallel-progress/host-recovery-diagnostic.txt.gz",
-      "raw_bytes": 1131,
-      "raw_sha256": "cea81a82680da4f6f4b4e5536a33e9c05e53137271de9a3cba781f2c21aaae64",
-      "gzip_bytes": 445,
-      "gzip_sha256": "75c2ea41b4b4e9b491f688913c28fda2a8bc905a17ad2dd1b4ab268a4b30ba78"
     }
-  ]
+  ],
+  "root24": "Frozen3d0c49fa clean. Actual grpc9/1 original typed H2 reset source lost, HTTP/Trojan/SOCKS dispatch target COMPILE BLOCKED missing Trojan EventSource, strict large enum failure. Recovery2/0, DirectEndpoint17/0, sources2/0, wrappers1/0, retained9/0, coldcancel1/0, snapshot1/0, peers12/0, UDPidle2/0, HTTPcomponent3/0 pure11/0, health12/0, diagnostic4/0, originalgrpc1/0, contracts8/0, minimal/fmt/check PASS. All failures retained, no aggregate qualification.",
+  "root25": "Frozen2e7ce766 clean. fmt/check PASS, grpc10/0 including unchanged typed-source assertion; actual Ready ACK1/0 beyond5sec, recovery2/0, HTTP14/0, Trojan new3/0+original3/0, SOCKSTCP20/0 UDP29/0, originalgrpc1/0, static189/0+26/0. Peer14/1 panic Display assertion later fixed to exact original error Arc+TaskId/class; strict socks fixture type complexity later fixed. No global qualification.",
+  "root26": "Frozen dfee9029 clean. fmt/check/minimal PASS. VMess library22/0 (same actual replay authority/fullauth) contracts11/0, peer15/0 with actual original Arc/TaskID/class assertion; static189/0+26/0. proxy_dispatch COMPILE BLOCKED because root VMess fixture referenced private request type (fixed77490b66 via existing public bundle), dependent integrations NOT RUN. strict DNS needless_return failure (fixed4ec6). No global qualification.",
+  "post26": "Current integration includes actual preReady shutdown/compensation + stop priority, finite owned gRPC library and Auxiliary carrier, fresh contextual Service relay API and weak native test consumer, Direct queue coherent copy accounting, VLESS ordinary TCP+SNI. These new cuts await next source freeze runtime checks. Native bound listener FD persistent control gap is explicitly being addressed and must not be inferred closed from Scope/Drop; shared production qualification remains gated."
 }
