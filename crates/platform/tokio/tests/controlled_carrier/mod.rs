@@ -131,3 +131,8 @@ mod reap;
 mod request;
 
 mod native_settlement;
+
+#[path = "service.rs"]
+mod service;
+#[path = "service_wire.rs"]
+mod service_wire;

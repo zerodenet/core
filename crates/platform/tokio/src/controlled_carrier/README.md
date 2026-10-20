@@ -48,3 +48,19 @@ The opaque `CarrierNativeSettlement` exposes native-stage unfinished diagnostics
 and its exact native receipt. Successful native close reports stay in the original
 slot for the later full settlement to consume once. Ordinary `retire` and owner
 `shutdown` still wait for the full original user/caller graph.
+
+A fixed canonical Service slot can receive a `CarrierServiceIssuer` only from its
+original registered binding, original host-fence Arc and actual same-scope query
+witness. The actual root provider independently checks its private root authority
+before using that issuer. Public Service metadata and `session: None` do not
+authorize root I/O. Authorization attaches the actual caller, unique logical view
+and original query cancellation before native preparation. A private demand Arc
+identifies that one authorization: cloning the ticket is idempotent, while a new
+ticket cannot replace its cancellation or deadline even for the same query.
+
+`NativeCarrierOpener::service` keeps fixed endpoint, full binding, host scope and
+query liveness checks around the actual inline connect. Bare TCP creates no
+transport driver. The same query may return its actual view and call
+`retire_native`; its own actual caller join and full users settlement still occur
+later. These library seams introduce no root grant, production default or
+independent owner, task, runtime or physical budget.

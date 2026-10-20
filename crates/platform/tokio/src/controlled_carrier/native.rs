@@ -22,6 +22,7 @@ pub struct NativeCarrierOpener {
     egress: Arc<EgressInterfaceControl>,
     observer: Option<Arc<dyn IoObserver>>,
     business: Option<super::CarrierBusinessGrant>,
+    service: Option<super::CarrierServiceGrant>,
 }
 impl NativeCarrierOpener {
     pub fn new(
@@ -49,6 +50,7 @@ impl NativeCarrierOpener {
             egress,
             observer,
             business: None,
+            service: None,
         })
     }
     /// A distinct host capability, pinned to the original registered slot. The
@@ -83,6 +85,39 @@ impl NativeCarrierOpener {
         native.business = Some(grant);
         Ok(native)
     }
+    /// Actual Service-root ticket, already bound to its original caller/view.
+    /// The host provider independently validates its private root authority.
+    pub fn service(
+        grant: super::CarrierServiceGrant,
+        egress: Arc<EgressInterfaceControl>,
+        observer: Option<Arc<dyn IoObserver>>,
+    ) -> Result<Self, ChannelError> {
+        grant.check_liveness()?;
+        let instance = grant.binding().registration().instance();
+        let endpoint = grant.endpoint();
+        let ip = match endpoint.address {
+            Address::Ipv4(ip) => std::net::Ipv4Addr::from(ip).into(),
+            Address::Ipv6(ip) => std::net::Ipv6Addr::from(ip).into(),
+            Address::Domain(_) => {
+                return Err(error(
+                    instance,
+                    Stage::Prepare,
+                    Reason::Unsupported,
+                    DeliveryState::NotSubmitted,
+                ))
+            }
+        };
+        let mut native = Self::new(
+            instance,
+            grant.upstream().clone(),
+            SocketAddr::new(ip, endpoint.port),
+            egress,
+            observer,
+        )?;
+        native.service = Some(grant);
+        Ok(native)
+    }
+
     fn prepare(
         &self,
         binding: &UpstreamBinding,
@@ -94,6 +129,10 @@ impl NativeCarrierOpener {
         if let Some(business) = &self.business {
             business.check(&grant, binding, &destination, &context)?;
             business.bind_caller(&grant.slot)?;
+        }
+        if let Some(service) = &self.service {
+            service.check(&grant, binding, &destination, &context)?;
+            service.bind_caller(&grant.slot)?;
         }
         let bound = grant.slot.owner.upgrade().and_then(|owner| {
             let state = owner.state();
@@ -167,7 +206,8 @@ impl NativeCarrierOpener {
         let business_cancel = self
             .business
             .as_ref()
-            .map(|business| business.cancellation());
+            .map(|business| business.cancellation())
+            .or_else(|| self.service.as_ref().map(|service| service.cancellation()));
         {
             let mut state = grant.slot.state();
             if grant.slot.cancel.is_cancelled() || state.closed {
@@ -238,6 +278,7 @@ impl NativeCarrierOpener {
             end,
             endpoint_observer: None,
             business: self.business.clone(),
+            service: self.service.clone(),
             session: context.session,
             transferred: false,
         })

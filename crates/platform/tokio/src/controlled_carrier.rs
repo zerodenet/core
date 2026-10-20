@@ -12,6 +12,7 @@ mod native_settlement;
 mod owner;
 mod prepared;
 mod registration;
+mod service;
 mod slot;
 mod users;
 mod view;
@@ -29,6 +30,7 @@ pub use registration::{
     CarrierNativeCloseObservation, CarrierOwnerClosed, CarrierOwnerObservation,
     CarrierOwnerRegistration, CarrierSlotObservation,
 };
+pub use service::{CarrierServiceGrant, CarrierServiceIssuer};
 use std::sync::Arc;
 pub use users::{CarrierOwnerUsersClosed, CarrierUserView, CarrierUsersClosed};
 pub use view::{CarrierDriver, CarrierIo};

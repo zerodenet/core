@@ -22,6 +22,7 @@ pub(super) struct State {
     pub(super) view_live: bool,
     pub(super) endpoints: Option<super::CarrierEndpoints>,
     pub(super) business_cancel: Option<CancellationToken>,
+    pub(super) service_identity: Option<Weak<super::service::ServiceDemand>>,
     pub(super) business_identity: Option<Weak<dyn super::CarrierBusinessDemand>>,
     pub(super) users: Option<super::users::Users>,
     pub(super) pending_close: Option<crate::contract::lifecycle::CloseReport>,

@@ -19,6 +19,7 @@ pub struct PreparedCarrier {
     pub(super) endpoint_observer: Option<Arc<dyn super::CarrierEndpointObserver>>,
     pub(super) session: Option<zero_core::component::SessionId>,
     pub(super) business: Option<super::CarrierBusinessGrant>,
+    pub(super) service: Option<super::CarrierServiceGrant>,
     pub(super) transferred: bool,
 }
 pub struct ControlledCarrier {
@@ -69,6 +70,9 @@ impl PreparedCarrier {
         if let Some(business) = &self.business {
             business.check_liveness()?;
         }
+        if let Some(service) = &self.service {
+            service.check_liveness()?;
+        }
         if self.egress.generation() != self.generation.0 {
             return Err(error(
                 self.slot.instance,
@@ -81,7 +85,8 @@ impl PreparedCarrier {
         let business_cancel = self
             .business
             .as_ref()
-            .map(|business| business.cancellation());
+            .map(|business| business.cancellation())
+            .or_else(|| self.service.as_ref().map(|service| service.cancellation()));
         let cancelled = async {
             match &business_cancel {
                 Some(cancel) => cancel.cancelled().await,
@@ -125,6 +130,12 @@ impl PreparedCarrier {
         }
         if let Some(business) = &self.business {
             business.check_liveness().map_err(|mut failure| {
+                failure.delivery = DeliveryState::Unknown;
+                failure
+            })?;
+        }
+        if let Some(service) = &self.service {
+            service.check_liveness().map_err(|mut failure| {
                 failure.delivery = DeliveryState::Unknown;
                 failure
             })?;
