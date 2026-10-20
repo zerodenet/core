@@ -1,4 +1,5 @@
 //! One cold resource per actual peer; the existing peer permit includes retirement.
+mod bound_datagram;
 mod close;
 mod datagram;
 use super::*;
