@@ -2,24 +2,40 @@
 //! supervisor, runtime, I/O, or permission to declare a resource closed.
 use super::*;
 use std::sync::Weak;
+mod acceptance;
 
 pub(super) struct Registration {
     pub(super) id: TaskId,
     class: TaskClass,
     witness: Option<Weak<JoinedState>>,
 }
-#[derive(Debug, Default)]
 struct JoinedState {
+    hosted: bool,
+    owner: Weak<Shared>,
     joined: Mutex<Option<TaskJoined>>,
     changed: Notify,
+}
+impl std::fmt::Debug for JoinedState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JoinedState")
+            .field("hosted", &self.hosted)
+            .field("joined", &self.joined)
+            .finish_non_exhaustive()
+    }
 }
 /// A cancel-safe observer, completed only by the scope's actual join consumer.
 /// Dropping the scope, the task future, or a wait future does not complete it.
 #[derive(Clone, Debug)]
 pub struct TaskJoinWitness(Arc<JoinedState>);
 impl TaskJoinWitness {
-    fn new() -> Self {
-        Self(Arc::default())
+    fn new(owner: &Arc<Shared>) -> Self {
+        let hosted = owner.state.lock().expect("scope state poisoned").hosted;
+        Self(Arc::new(JoinedState {
+            hosted,
+            owner: Arc::downgrade(owner),
+            joined: Mutex::new(None),
+            changed: Notify::new(),
+        }))
     }
     /// Read-only observation; this neither polls JoinSet nor frees scope budget.
     pub fn is_joined(&self) -> bool {
@@ -60,6 +76,7 @@ struct Joined {
     id: TaskId,
     class: TaskClass,
     result: Result<(), Arc<ComponentError>>,
+    failure_accepted: std::sync::atomic::AtomicBool,
 }
 impl TaskJoined {
     pub fn id(&self) -> TaskId {
@@ -74,6 +91,9 @@ impl TaskJoined {
     }
     pub(super) fn same_receipt(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub(super) fn failure_accepted(&self) -> bool {
+        self.0.failure_accepted.load(Ordering::Acquire)
     }
 }
 #[derive(Debug)]
@@ -118,6 +138,7 @@ pub(super) fn complete(
         id: record.id,
         class: record.class,
         result: result.clone(),
+        failure_accepted: std::sync::atomic::AtomicBool::new(false),
     }));
     if let Some(witness) = witness {
         let mut joined = witness.joined.lock().expect("task join witness poisoned");
@@ -154,7 +175,7 @@ impl TaskRegistrar {
         class: TaskClass,
         task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
     ) -> Result<(TaskId, TaskJoinWitness), SpawnError> {
-        let witness = TaskJoinWitness::new();
+        let witness = TaskJoinWitness::new(&self.0);
         let id = self.register(class, task, Some(Arc::downgrade(&witness.0)))?;
         Ok((id, witness))
     }

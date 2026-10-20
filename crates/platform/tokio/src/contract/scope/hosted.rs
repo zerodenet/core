@@ -39,6 +39,11 @@ impl HostedExitReceipt {
     pub fn joined(&self) -> &TaskJoined {
         &self.joined
     }
+    /// A real local receiver explicitly accepted this exact failed join.
+    /// This does not acknowledge this host receipt or refund scope capacity.
+    pub fn local_failure_accepted(&self) -> bool {
+        self.joined.failure_accepted()
+    }
 }
 impl Drop for HostedExitReceipt {
     fn drop(&mut self) {
@@ -55,12 +60,18 @@ impl Drop for HostedExitReceipt {
 pub enum HostedReceiptError {
     ForeignScope,
     StaleReceipt,
+    Unjoined,
+    ForeignTask,
+    NotFailure,
 }
 impl fmt::Display for HostedReceiptError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::ForeignScope => "task receipt belongs to another scope",
             Self::StaleReceipt => "task receipt was acknowledged or its offer is stale",
+            Self::Unjoined => "task witness has no actual consumed native exit",
+            Self::ForeignTask => "join receipt belongs to another task witness",
+            Self::NotFailure => "task join receipt does not contain a failure",
         })
     }
 }
