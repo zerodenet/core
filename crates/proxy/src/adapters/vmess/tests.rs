@@ -1,6 +1,6 @@
 //! Cold profile updates commit only at the actual host installation point.
 use super::*;
-use crate::runtime::Proxy;
+use crate::{inventory::ProtocolInventory, runtime::inbound_owners::InboundOwnerRegistry};
 use tokio::time::{Duration, Instant};
 
 fn candidate() -> (tempfile::TempDir, zero_config::RuntimeConfig) {
@@ -56,19 +56,11 @@ async fn candidate_prepare_drop_and_tls_failure_never_publish_live_users_but_ins
     // reopen either file or silently redo TLS policy at the commit point.
     std::fs::remove_file(directory.path().join("cert.pem")).unwrap();
     std::fs::remove_file(directory.path().join("key.pem")).unwrap();
-    let host = Proxy::new(
-        zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
-    )
-    .unwrap();
+    let owners = InboundOwnerRegistry::default();
+    let protocols = ProtocolInventory::default();
     let (stop, _) = tokio::sync::watch::channel(false);
-    let installed = host
-        .inbound_owners
-        .install_listener(
-            "vmess-staged",
-            &host.protocols,
-            pending.internal_tasks(),
-            stop,
-        )
+    let installed = owners
+        .install_listener("vmess-staged", &protocols, pending.internal_tasks(), stop)
         .unwrap();
     pending.install_resources(&installed).unwrap();
     assert_eq!(old.user_count(), 2);
@@ -80,7 +72,7 @@ async fn candidate_prepare_drop_and_tls_failure_never_publish_live_users_but_ins
     pending.install_resources(&installed).unwrap();
     assert_eq!(old.user_count(), 0);
     installed.owner().seal_listener_installation();
-    host.inbound_owners
+    owners
         .shutdown("vmess-staged", Instant::now() + Duration::from_secs(2))
         .await
         .unwrap();
