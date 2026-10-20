@@ -65,3 +65,5 @@ mod users;
 mod hosted;
 
 mod bidi;
+
+mod claim;

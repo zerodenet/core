@@ -30,6 +30,10 @@ pub struct QuinnDriverOwner {
     ledger: tracked::DriverOwner<DriverOrigin, DriverBody>,
 }
 impl QuinnDriverOwner {
+    pub(super) fn from_ledger(ledger: tracked::DriverOwner<DriverOrigin, DriverBody>) -> Self {
+        Self { ledger }
+    }
+
     pub fn new(registrar: TaskRegistrar, limit: NonZeroUsize) -> (Self, DriverExitReceiver) {
         let (ledger, receiver) = tracked::DriverOwner::new(registrar, limit);
         (Self { ledger }, receiver)

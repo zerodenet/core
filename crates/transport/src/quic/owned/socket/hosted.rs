@@ -63,6 +63,17 @@ impl HostedMetadataSocket {
             callbacks,
         })
     }
+    pub(in crate::quic::owned) fn matches_claim(
+        &self,
+        claim: &zero_platform_tokio::controlled_datagram::metadata::MetadataViewClaim,
+    ) -> bool {
+        self.socket
+            .receiver
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|rx| claim.matches(rx, &self.socket.sender))
+    }
     pub(in crate::quic::owned) fn matches(&self, registrar: &TaskRegistrar) -> bool {
         self.scope.matches(registrar) && self.scope.registration_open()
     }

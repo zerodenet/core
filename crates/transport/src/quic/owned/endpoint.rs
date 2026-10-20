@@ -42,6 +42,7 @@ pub struct OwnedEndpointOwner {
     shared: Arc<Shared>,
     native: Native,
     drivers: QuinnDriverOwner,
+    users_graph: Option<MetadataGraph>,
     native_snapshot: Option<Arc<MetadataOwnerReport>>,
     confirmed_main: u128,
     confirmed_probes: u128,
@@ -55,6 +56,9 @@ struct Shared {
     admission: Admission,
     callbacks: Weak<super::callbacks::Broker>,
 }
+mod claim;
+use claim::MetadataGraph;
+pub use claim::{MetadataUsersCompletion, RejectedClaimedEndpoint};
 mod report;
 pub use report::{OwnedEndpointReport, OwnedEndpointUsersReport, OwnedNativeFailure};
 impl OwnedEndpointOwner {
@@ -87,6 +91,15 @@ impl OwnedEndpointOwner {
         let cancel = registrar.cancellation();
         let (drivers, receiver) = QuinnDriverOwner::new(registrar, limits.drivers);
         let users = Users::new(limits.users, cancel, drivers.admission());
+        Self::construct_users(native, drivers, users, receiver, None)
+    }
+    fn construct_users(
+        native: Native,
+        drivers: QuinnDriverOwner,
+        users: Arc<Users>,
+        receiver: DriverExitReceiver,
+        users_graph: Option<MetadataGraph>,
+    ) -> (Self, DriverExitReceiver) {
         let shared = Arc::new(Shared {
             endpoint: Mutex::new(None),
             phase: AtomicU8::new(0),
@@ -99,6 +112,7 @@ impl OwnedEndpointOwner {
                 shared,
                 native,
                 drivers,
+                users_graph,
                 native_snapshot: None,
                 confirmed_main: 0,
                 confirmed_probes: 0,

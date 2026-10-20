@@ -5,9 +5,9 @@ mod callbacks;
 mod drivers;
 mod endpoint;
 pub use endpoint::{
-    OwnedBiStream, OwnedConnection, OwnedEndpointHandle, OwnedEndpointLimits, OwnedEndpointOwner,
-    OwnedEndpointReport, OwnedEndpointUsersReport, OwnedNativeFailure, OwnedRecvStream,
-    OwnedSendStream,
+    MetadataUsersCompletion, OwnedBiStream, OwnedConnection, OwnedEndpointHandle,
+    OwnedEndpointLimits, OwnedEndpointOwner, OwnedEndpointReport, OwnedEndpointUsersReport,
+    OwnedNativeFailure, OwnedRecvStream, OwnedSendStream, RejectedClaimedEndpoint,
 };
 mod socket;
 pub use drivers::{
