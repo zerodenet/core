@@ -25,7 +25,7 @@ where
     // An empty configuration is a valid management-only runtime. Keep the
     // reload/shutdown loop alive so a controller can install its first inbound
     // through the same reconciled configuration transaction used on reload.
-    let mut state = OrchestrationState::assemble(proxy);
+    let mut state = OrchestrationState::assemble(proxy)?;
     tokio::pin!(shutdown);
     let preparing = state.preparing_inbounds.clone();
     let (startup, stopped) = {
@@ -93,6 +93,9 @@ where
 
         tokio::select! {
             failure = proxy.protocols.component_failure() => {
+                return Err(failure);
+            }
+            failure = proxy.inbound_owners.observe_listener_failure() => {
                 return Err(failure);
             }
             _ = &mut shutdown => {

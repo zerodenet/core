@@ -36,3 +36,37 @@ impl InboundOwner {
         }
     }
 }
+
+impl InboundOwner {
+    /// The production listener observer outlives its orchestration borrower.
+    /// A primary driver's exit alone cannot discard active peers' join handles.
+    pub(crate) async fn observe_listener(&self) -> Result<(), EngineError> {
+        let result = self.observe_driver().await;
+        if result.is_ok() && !*self.shutdown.borrow() {
+            // Preserve the old unexpected-success supervision behavior while
+            // this same observer continues to join remaining actual children.
+            let mut source = ChannelError::new(Stage::Close, Reason::Internal, Impact::Component)
+                .with_source(EngineError::InboundTaskExited);
+            source.component = Some(self.identity.component);
+            self.failure
+                .lock()
+                .expect("inbound failure poisoned")
+                .get_or_insert_with(|| Arc::new(source));
+            // This is a listener supervision fault, not a fabricated failed
+            // TaskExit. The real successful task receipt remains unchanged.
+            self.ready.wake();
+        }
+        self.stop();
+        {
+            let mut scope = self.scope.lock().await;
+            scope.begin_shutdown();
+            while let Some(exit) = scope.next_exit().await {
+                self.record(exit); // exact native exit persisted before the next await
+            }
+            self.scope_closed.store(true, Ordering::Release);
+        }
+        // Scope completion proves only actual tasks. Retained native and
+        // transferred-user owners still require their separate close receipts.
+        result.and(self.result())
+    }
+}

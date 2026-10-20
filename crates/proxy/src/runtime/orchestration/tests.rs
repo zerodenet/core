@@ -167,3 +167,5 @@ mod lifecycle;
 
 #[cfg(feature = "managed-datagram-runtime")]
 mod inbound_recovery;
+#[cfg(feature = "managed-datagram-runtime")]
+mod observer_handoff;

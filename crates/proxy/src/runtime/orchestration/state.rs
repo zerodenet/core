@@ -28,7 +28,7 @@ pub(super) struct OrchestrationState {
     pub(super) orchestration_ready: watch::Sender<bool>,
     pub(super) shutdown_tx: watch::Sender<bool>,
     pub(super) shutdown_rx: watch::Receiver<bool>,
-    pub(super) listeners: JoinSet<Result<(), EngineError>>,
+    pub(super) listeners: crate::runtime::inbound_owners::ListenerObservers,
     pub(super) expected_listener_exits: usize,
     pub(super) listener_stops: HashMap<String, watch::Sender<bool>>,
     pub(super) active_inbounds: HashMap<String, InboundConfig>,

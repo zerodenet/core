@@ -85,19 +85,48 @@ async fn listener_panic_becomes_failed_fact_after_other_owners_end() {
 }
 
 #[tokio::test]
-async fn unresponsive_task_is_aborted_and_joined_without_claiming_clean_shutdown() {
+async fn unresponsive_observer_is_retained_without_claiming_clean_shutdown() {
     // Real network/stack workers use std::time::Instant. Pausing only Tokio's
     // clock does not advance those workers and can prevent automatic advance.
     let (proxy, port) = fixture().await;
     let mut state = OrchestrationState::new(&proxy).await.unwrap();
-    state.listeners.spawn(pending::<Result<(), EngineError>>());
+    let original = state.listeners.spawn(pending::<Result<(), EngineError>>());
     let error = state.finish(&proxy, Ok(())).await.unwrap_err();
     assert!(error.to_string().contains("shutdown timed out"));
-    assert!(state.listeners.is_empty());
+    assert!(
+        !state.listeners.is_empty(),
+        "timeout retains original handles"
+    );
+    assert!(
+        !original.is_finished(),
+        "timeout must not abort the original task"
+    );
     assert_eq!(fact(&proxy).state, EndpointRuntimeState::Failed);
     UdpSocket::bind(("127.0.0.1", port))
         .await
-        .expect("forced cleanup joined socket owner");
+        .expect("actual owner cleanup closed the socket independently");
+    drop(state);
+    let mut retained = proxy.inbound_owners.take_listener_observers().unwrap();
+    assert!(!retained.is_empty());
+    original.abort(); // Only this synthetic, deliberately unresponsive task.
+    let mut consumed_original = false;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while let Some(joined) = retained.join_next().await {
+            match joined {
+                Err(cancelled) if cancelled.id() == original.id() => {
+                    assert!(cancelled.is_cancelled());
+                    consumed_original = true;
+                }
+                actual => actual.unwrap().unwrap(),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        consumed_original,
+        "same actual synthetic JoinHandle was retained"
+    );
 }
 
 #[tokio::test]
@@ -152,7 +181,7 @@ async fn interruption_during_reload_also_terminates_new_candidate_transition() {
 async fn original_failure_does_not_hide_unconfirmed_cleanup_in_observation() {
     let (proxy, _) = fixture().await;
     let mut state = OrchestrationState::new(&proxy).await.unwrap();
-    state.listeners.spawn(pending::<Result<(), EngineError>>());
+    let original = state.listeners.spawn(pending::<Result<(), EngineError>>());
     let result = state.finish(&proxy, Err(EngineError::NoInbounds)).await;
     assert!(matches!(result, Err(EngineError::NoInbounds)));
     assert!(fact(&proxy)
@@ -160,4 +189,22 @@ async fn original_failure_does_not_hide_unconfirmed_cleanup_in_observation() {
         .unwrap()
         .message
         .contains("shutdown timed out"));
+    assert!(!state.listeners.is_empty());
+    assert!(!original.is_finished());
+    original.abort();
+    let mut consumed_original = false;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while let Some(joined) = state.listeners.join_next().await {
+            match joined {
+                Err(cancelled) if cancelled.id() == original.id() => {
+                    assert!(cancelled.is_cancelled());
+                    consumed_original = true;
+                }
+                actual => actual.unwrap().unwrap(),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(consumed_original);
 }

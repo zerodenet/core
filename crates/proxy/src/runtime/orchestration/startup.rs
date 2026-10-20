@@ -1,5 +1,6 @@
 //! Startup preparation and confirmed failure cleanup.
 mod dns;
+mod observers;
 use super::{logging::log_started, state::OrchestrationState};
 use crate::groups::UrlTestRuntime;
 use crate::runtime::route_runtime::{InboundListenerRuntimeFactory, SharedIngressRuntimeServices};
@@ -13,14 +14,15 @@ use zero_engine::EngineError;
 impl OrchestrationState {
     #[cfg(test)]
     pub(super) async fn new(proxy: &Proxy) -> Result<Self, EngineError> {
-        let mut state = Self::assemble(proxy);
+        let mut state = Self::assemble(proxy)?;
         if let Err(error) = state.start(proxy).await {
             return Err(state.finish(proxy, Err(error)).await.unwrap_err());
         }
         Ok(state)
     }
 
-    pub(super) fn assemble(proxy: &Proxy) -> Self {
+    pub(super) fn assemble(proxy: &Proxy) -> Result<Self, EngineError> {
+        let listeners = proxy.inbound_owners.take_listener_observers()?;
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         // Subscribe before capturing: a later direct Engine reload is queued
         // for reconciliation instead of being lost during startup awaits.
@@ -56,7 +58,7 @@ impl OrchestrationState {
             orchestration_ready: proxy.orchestration_ready.clone(),
             shutdown_tx,
             shutdown_rx,
-            listeners: JoinSet::new(),
+            listeners,
             expected_listener_exits: 0,
             listener_stops: HashMap::new(),
             active_inbounds: applied_snapshot
@@ -80,11 +82,12 @@ impl OrchestrationState {
             configured_tun_failures: proxy.configured_tun_failures.subscribe(),
         };
 
-        state.publish_starting(proxy, &state.applied_snapshot);
-        state
+        Ok(state)
     }
 
     pub(super) async fn start(&mut self, proxy: &Proxy) -> Result<(), EngineError> {
+        self.retire_previous_listeners(proxy).await?;
+        self.publish_starting(proxy, &self.applied_snapshot);
         self.preparing_inbounds.ensure_open()?;
         proxy.inbound_owners.open_bind_admission()?;
         let snapshot = self.applied_snapshot.clone();

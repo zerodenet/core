@@ -151,7 +151,7 @@ pub(super) fn spawn_inbound_listener_with_state(
     let observing = owner.clone();
     listeners.spawn(async move {
         observing
-            .observe_driver()
+            .observe_listener()
             .await
             .map_err(|error| observing.observer_error(error))
     });

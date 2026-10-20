@@ -484,5 +484,27 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   and keeps the controller/entry unconfirmed rather than repolling a poisoned
   protocol future or refunding capacity. Completed controllers are dropped
   outside metadata locks before their retained receipts and admission credit
-  are released. This does not install a new background cleanup task, solve the
-  separate abandoned inbound Scope consumer, or prove accepted-user closure.
+  are released. This retirement change adds no background cleanup task and does
+  not prove accepted-user closure. Listener observer retention is handled below.
+
+### Interrupted listener Scope observation
+
+- Orchestration borrows the registry's single original listener-observer JoinSet.
+  Cancellation and cleanup timeout return that same set and its actual join
+  handles to the registry instead of aborting the remaining Scope consumers.
+  A concurrent orchestration lease is rejected. Recovery drains the interrupted
+  generation's results and confirms its retained owners before preparing or
+  binding new listeners; its errors never consume the new expected-exit count.
+- The original production observer continues consuming its actual Scope after
+  the primary driver exits. Critical first faults and unexpected successful
+  driver exits can still notify the live supervisor through the same instance's
+  bounded existing error disposition while remaining children are joining.
+  This adds no task, Scope, task-ID registry, detached handle or cleanup actor.
+- The persistent JoinSet stores internal weak-target Wakers. The actual borrowed
+  join future owns the external Waker; retarget/cancellation and synchronous
+  callbacks occur outside the registry parking lock and Tokio join polling.
+- Actual all-task joins, native main/probe/listener closure and transferred-user
+  closure remain distinct obligations. Parking or dropping an orchestration,
+  an observer result, and Scope completion do not acknowledge native/user I/O
+  closure or enable resourceful production factories. Proxy/registry destruction
+  still drops its owned handles without manufacturing close confirmation.

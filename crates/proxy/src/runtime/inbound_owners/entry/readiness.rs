@@ -106,6 +106,26 @@ pub(in crate::runtime::inbound_owners) fn readiness_stopped(error: &std::io::Err
         .is_some_and(|source| source.is::<ReadinessStopped>())
 }
 impl InboundOwner {
+    /// Observe the existing first fault without consuming a Scope exit. The
+    /// original disposition prevents its eventual JoinSet result being fatal
+    /// a second time after the live supervisor has already received it.
+    pub(in crate::runtime::inbound_owners) async fn wait_unreported_failure(&self) -> EngineError {
+        loop {
+            let changed = self.ready.0.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if let Err(source) = self.result() {
+                let error = self.observer_error(source);
+                if !consume_reported_error(&error) {
+                    return error;
+                }
+                // The same instance's fault has already been delivered. Only
+                // its actual receiver owns that error; no failure history here.
+                return std::future::pending().await;
+            }
+            changed.await;
+        }
+    }
     pub(crate) fn is_ready(&self) -> bool {
         self.ready.0.complete.load(Ordering::Acquire)
     }

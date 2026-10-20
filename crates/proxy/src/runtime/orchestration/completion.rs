@@ -72,9 +72,9 @@ impl OrchestrationState {
                 result = Err(error);
             }
         }
-        // These are observer tasks. Their termination does not acknowledge
-        // the actual persistent listener/resource owners confirmed below.
-        self.listeners.shutdown().await;
+        // Keep the original observer handles on timeout/cancellation. They
+        // remain the live consumer of the actual persistent listener Scope;
+        // dropping this state returns their same JoinSet to the registry.
         self.urltests.shutdown().await;
         self.services.shutdown().await;
         if let Err(error) = proxy

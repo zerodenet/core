@@ -1,7 +1,9 @@
 //! Persistent actual listener drivers and carrier resources, outside run futures.
 mod bind;
 mod entry;
+mod observers;
 pub(crate) use bind::{LeasedInbound, NativeListenerView};
+pub(crate) use observers::ListenerObservers;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer_binding;
 #[cfg(feature = "managed-datagram-runtime")]
@@ -39,6 +41,7 @@ use zero_platform_tokio::contract::{lifecycle::DynResourceLifecycle, Cancellatio
 #[derive(Default)]
 pub(crate) struct InboundOwnerRegistry {
     entries: Mutex<HashMap<String, Arc<InboundOwner>>>,
+    observers: Arc<observers::ObserverParking>,
     terminals: Mutex<HashMap<String, Arc<InboundTerminal>>>,
     reservations: Mutex<bind::BindReservations>,
     retained_states: Mutex<std::collections::BTreeMap<String, state_recovery::RetainedState>>,
