@@ -88,6 +88,18 @@ impl CarrierBusinessIssuer {
             caller,
         };
         grant.check_liveness()?;
+        let slot = grant.slot.upgrade().ok_or_else(|| {
+            error(
+                grant.binding.registration().instance(),
+                Stage::Prepare,
+                Reason::Revoked,
+                DeliveryState::NotSubmitted,
+            )
+        })?;
+        // Install the actual caller beside the already claimed logical view
+        // before returning the host ticket. Native prepare rechecks this same
+        // registration; no caller observation can precede this durable binding.
+        grant.bind_caller(&slot)?;
         Ok(grant)
     }
 }
