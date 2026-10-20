@@ -3,6 +3,7 @@ use super::{ComponentRecipe, ValidatedRecipe};
 mod cleanup;
 mod resources;
 mod roles;
+pub(crate) use resources::HostOutboundDatagramResources;
 pub(super) use resources::HostResources;
 #[cfg(test)]
 pub(super) use resources::NoResources;

@@ -88,6 +88,13 @@ impl HostResources {
                 ResourceDeclaration::File { path, max_bytes } => {
                     files.declare(component, path, *max_bytes)?
                 }
+                ResourceDeclaration::OutboundDatagram { .. } => {
+                    return Err(error(
+                        component,
+                        Reason::Unsupported,
+                        "outbound datagram access requires its installed dynamic host owner",
+                    ));
+                }
                 _ => {
                     return Err(error(
                         component,

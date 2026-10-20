@@ -10,6 +10,8 @@ use zero_platform_tokio::contract::{
 };
 mod native;
 pub(in crate::component) use native::HostResources;
+mod outbound_datagram;
+pub(crate) use outbound_datagram::HostOutboundDatagramResources;
 
 #[cfg(test)]
 #[path = "../tests/resource_grants.rs"]
