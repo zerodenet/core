@@ -14,6 +14,10 @@
 
 尚未迁移的 UDP/QUIC 叶节点仍由原槽持有且保持 Unknown，混合 group 的 TCP 关闭不代表这些独立资源已关闭。实际任务登记失败而 submitted future 已被消费的未封口路径仍不能确认关闭。owner 安装前的 adapter prepare、bind reservation 失败，以及普通活动 listener、SIP003 原生监听器交接、QUIC 隐藏 driver 的完整合同仍是独立缺口；后续必须通过同一宿主资源图的 bind lease 接入实际 control，删除原生未确认的永久持有分支，不能据此宣称 M4 完成。回归见 `runtime/inbound_owners/entry/pending_bound/tests.rs` 及 `tests/errors.rs`：真实 production spawn 迟到拒绝、原 TCP 端口关闭及复用、真实 Scope 等待取消、原 Arc source、混合 UDP 保留和监督交付重试。
 
+单个 literal TCP listener 新增薄 `PreparedInboundBind` 桥：适配器投影同一 `ResourceDeclaration::TcpListener`，宿主沿用实际组件分配器和原任务预算，在第一次 listener socket create 前把 native owner 放进 Registry 持久 reservation；成功后仅转移唯一 accept view，promote 沿用同一 owner/ID/watch channel。原 startup 一次及原重试路径的 50 次/10ms 策略显式传给原生 owner，不新增默认额度；只有原生未创建或原 FD 明确关闭的错误可安全重试，Unknown 保留原 source 和占用。部分预绑定 map 丢失、prepare 失败或取消只请求停止，不移除控制权；恢复和全局停止必须先实际关闭并同步交付原 terminal，再允许新配置批次。reservation 只容纳一个实际配置的 tag 集合，配置身份为 Weak，无无限失败历史。全局停止在快照前线性化关闭 reserve/promote，重新打开要求 active/reserved 均已确认并移除。
+
+此桥首切只覆盖声明的外层 TCP 原 FD，不等于所有 native/File grant：适配器既有证书、key/OCSP 文件读取、已接受载体/会话、共享池、Direct combined UDP、SS/SIP003 监听器交接及 QUIC driver 仍须各自迁移。未选择该能力的旧路径仍是明确旧边界；已选择后的 bind/prepare 错误不允许回退旧 binder。桥不新增独立 Manifest、静态资源 ID 或永久执行器，typed inbound factory 接管后删除。回归 `runtime/inbound_owners/bind/tests.rs` 与 `tests/retirement.rs` 覆盖原 FD、实际注册任务 I/O pending 的 join 取消、部分预留、原 source 交付重试及关闭门禁；不据此宣称整个 M4 完成。
+
 wire、配置 schema 及调用方式不变，无 GUI/SDK 迁移步骤；原调用方可能更晚收到成功，实际初始化失败会进入原补偿路径。此确认描述监听循环已进入运行态，不代替已转交会话、原生 FD 或整个 M4 资源关闭证明。回归见 `runtime/inbound_owners/entry/readiness/tests.rs` 的真实 TCP/UDP pending、取消和原 TaskExit source，以及 `runtime/orchestration/tests/inbound_ready.rs` 的实际 SIP003 Child、超过五秒仍 pending 的初始化、真实 ACK 和明确 reap。
 
 ### 启动期间的实际配置代次一致性

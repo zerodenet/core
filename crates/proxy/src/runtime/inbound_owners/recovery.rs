@@ -75,6 +75,9 @@ impl InboundOwnerRegistry {
         deadline: Instant,
         mut publish: impl FnMut(&str, &InboundTerminal) -> Result<(), EngineError>,
     ) -> Result<(), EngineError> {
+        // Fence promotion/reservation before either owner snapshot. A late
+        // native owner must remain in a persistent map until explicit close.
+        self.close_bind_admission();
         let tags = self
             .entries
             .lock()
@@ -82,7 +85,10 @@ impl InboundOwnerRegistry {
             .keys()
             .cloned()
             .collect::<Vec<_>>();
-        let mut failure = None;
+        let mut failure = self
+            .retire_bind_reservations_reported(deadline, &mut publish)
+            .await
+            .err();
         for tag in tags {
             let result = async {
                 let Some(receipt) = self.confirm_shutdown(&tag, deadline).await? else {

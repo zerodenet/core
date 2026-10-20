@@ -1,5 +1,7 @@
 //! Persistent actual listener drivers and carrier resources, outside run futures.
+mod bind;
 mod entry;
+pub(crate) use bind::LeasedInbound;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer_binding;
 #[cfg(feature = "managed-datagram-runtime")]
@@ -32,6 +34,7 @@ use zero_platform_tokio::contract::{lifecycle::DynResourceLifecycle, Cancellatio
 pub(crate) struct InboundOwnerRegistry {
     entries: Mutex<HashMap<String, Arc<InboundOwner>>>,
     terminals: Mutex<HashMap<String, Arc<InboundTerminal>>>,
+    reservations: Mutex<bind::BindReservations>,
 }
 impl std::fmt::Debug for InboundOwnerRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -71,10 +74,17 @@ impl InboundInstallContext {
 }
 impl InboundOwnerRegistry {
     pub(crate) fn identities(&self) -> std::collections::BTreeSet<ComponentInstanceId> {
-        self.entries
+        let active = self
+            .entries
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let reserved = self
+            .reservations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        active
             .values()
+            .chain(reserved.entries.values())
             .map(|owner| owner.identity())
             .collect()
     }

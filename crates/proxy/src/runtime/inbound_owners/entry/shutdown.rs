@@ -31,6 +31,10 @@ impl InboundOwner {
                 };
                 self.retain_resource_failures(&mut report);
                 let complete = report.is_complete();
+                // A current unfinished resource is represented by its actual
+                // retained owner/stopped flag. Do not grow deadline history
+                // on each retry or keep an old timeout after confirmed close.
+                report.unfinished.clear();
                 self.report
                     .lock()
                     .expect("inbound close report poisoned")

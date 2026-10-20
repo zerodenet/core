@@ -42,7 +42,7 @@ impl PreparingInbounds {
     }
     pub(crate) fn ensure_open(&self) -> Result<(), EngineError> {
         if self.closing.load(Ordering::Acquire) {
-            Err(std::io::Error::new(std::io::ErrorKind::Interrupted, PreparationStopped).into())
+            Err(stopped_preparation())
         } else {
             Ok(())
         }
@@ -56,6 +56,9 @@ impl std::fmt::Display for PreparationStopped {
     }
 }
 impl std::error::Error for PreparationStopped {}
+pub(super) fn stopped_preparation() -> EngineError {
+    std::io::Error::new(std::io::ErrorKind::Interrupted, PreparationStopped).into()
+}
 pub(crate) fn preparation_stopped(error: &EngineError) -> bool {
     let EngineError::Io(error) = error else {
         return false;

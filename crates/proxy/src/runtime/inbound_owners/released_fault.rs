@@ -25,6 +25,15 @@ pub(crate) fn released_fault_identity(error: &EngineError) -> Option<ComponentIn
         .downcast_ref::<ReleasedInboundFault>()
         .map(|fault| fault.identity)
 }
+pub(super) fn reported_fault(terminal: &InboundTerminal) -> Option<EngineError> {
+    terminal.failure().map(|source| {
+        std::io::Error::other(ReleasedInboundFault {
+            identity: terminal.identity(),
+            source,
+        })
+        .into()
+    })
+}
 impl InboundOwnerRegistry {
     pub(crate) fn release_closed_reported(
         &self,
