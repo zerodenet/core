@@ -56,9 +56,9 @@ G0 已有可重放基线，但 Packet 专项、容量预算及资格缺项仍按
 | [PR00](task-cards.md#pr00) | M0 | 无 | 检查点完成，留在本分支 |
 | [PR01](task-cards.md#pr01) | M0 | PR00 | 基线检查点 `f90f0126`；资格缺项见 baseline |
 | [PR02](task-cards.md#pr02) | M1 | PR01 | 契约检查点 `4d76d166`；本地 2665/0/159，当前提交 CI 待验 |
-| [PR03](task-cards.md#pr03) | M2 | PR02 | 待开始 |
-| [PR04A](task-cards.md#pr04a) | M2 | PR03 | 待开始 |
-| [PR04B](task-cards.md#pr04b) | M2 | PR04A | 待开始 |
+| [PR03](task-cards.md#pr03) | M2 | PR02 | 进行中：中立工厂、身份/依赖代际、实际实例绑定及持久所有者已有验证；全协议登记迁移未完成，见实施记录 |
+| [PR04A](task-cards.md#pr04a) | M2 | PR03 | 部分接入：Direct/SOCKS及原生两/三跳Stream已有实际验证；其余协议与旧桥删除待完成 |
+| [PR04B](task-cards.md#pr04b) | M2 | PR04A | 生命周期前置进行中：SS replay及出站插件真实所有者已有验证；资源宿主激活与其余carrier迁移未完成 |
 | [PR05A](task-cards.md#pr05a) | M3 | PR04B | 待开始 |
 | [PR05B](task-cards.md#pr05b) | M3 | PR05A | 待开始 |
 | [PR06A](task-cards.md#pr06a) | M3 | PR05B | 待开始 |

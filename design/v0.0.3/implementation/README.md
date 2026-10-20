@@ -196,6 +196,22 @@ SS 的 roleless replay 工厂使用既有适配器按 `(ReplayPolicy, capacity)`
 
 新代际逻辑已用于零资源Stream生产catalog。共享资源工厂仍待宿主确认使用者/I/O清理与恢复后激活。实际适配器 guards Map 仍保留原安全历史；轻量索引不保留Factory不能推定所有协议池/历史或I/O已退休。原生进程授权、共享资源完整宿主事务、其余角色/协议、M4及全部任务卡继续。
 
+## PR03 进行中：实际依赖实例绑定与取消测试前置条件
+
+代码 `cc46c33fdf9e8b6354135f80edc38f51bfb1fd47`，冻结 tree `8bfb0a566bb196eb426e8705efc9aeb0e0e70383`。[验证及61份证据](pr03-dependency-bindings-validation.json)保存命令、23个源码摘要、原始失败、修正和 CI 原文。
+
+实际 catalog 按拓扑顺序解析所选依赖的 `ComponentInstanceId`，通过 `BuildContext` 向实际工厂提供不可变绑定。缺失、额外、重复或错误身份在擦除边界、工厂 build 前拒绝；角色为空的资源不需要伪造 RoleId。新回归覆盖五种错误绑定、乱序查找、真实 Direct 生命周期替换后工厂收到新代际；原共享 replay 组合回归同时观察两个消费者实际收到的资源身份。组件过滤50/0。
+
+第一次完整冻结检查实际2763/1/159：SS取消测试在取消前已取得 Ready 租约，不能证明中断了 pending readiness。历史实际监听者/探测对端没有记录，原因保留未知。修正使用私有通用 probe 注入，在真实 TCP connect 前控制悬停点，明确断言任务尚未完成，再中断；保留真实子进程/PID、持有、不重启和 reap 断言。生产默认仍是实际 `TcpStream::connect`，原10秒/10毫秒预算、端点与进程检查不变；不制造成功探测。独占创建标记文件避免陈旧PID。原始失败、源码和严格检查发现的两处冗余闭包均单独保存。
+
+最终严格 workspace/all-target/all-feature Clippy 通过，完整23文件tree及锁摘要一致。源码/HEAD/锁冻结完成七项检查：fmt、workspace check、完整workspace **2764/0/159**（155条主摘要及晚期文档测试）、默认release、实际thumb no_std、最小proxy及依赖边界。默认release git=`cc46c33f`，SHA=`e965c3b068c6e698a1575259fd3ea2a9a3dcd175ed5f2f067943feef7234bd8a`。
+
+最终workspace不可变proxy二进制在1 CPU/1 GiB/no swap/user1000、独立网络与只读挂载下组件50/0；SS最终不可变库在相同约束五轮180/0。它们是限定回归，不是全部RS01或物理设备资格。
+
+上一bdf head的11项workflow全部成功，实际Linux2761/0/159、VLESS251/0/1；Windows原始报告executed=false。更早5f5的最终TUN为cancelled、Windows job cancelled、result job failure，route step跳过，executed未知；保留原先pending快照并追加最终原文，不用新head成功覆盖。Optional surface及独立smoke/macOS离线步骤跳过仍逐项记录。
+
+类型化绑定是冷计划快照，不是当前代际准入fence，也不证明转交业务/I/O退出。生产仍仅启用零资源Direct/SOCKS Stream；真实共享图、原生进程授权、使用者/I/O确认清理和恢复、其余角色/协议与M4继续，整体17项未完成。
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
