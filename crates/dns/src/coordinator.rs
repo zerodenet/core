@@ -91,6 +91,8 @@ impl<T> QueryCoordinator<T> {
                 failures: HashMap::new(),
                 tasks: JoinSet::new(),
                 task_failure: None,
+                #[cfg(test)]
+                spawn_gate: None,
             })),
         }
     }
@@ -183,6 +185,9 @@ where
             flight: flight.clone(),
         };
         if leader {
+            #[cfg(test)]
+            tests::before_spawn(self).await;
+            let admission_key = key.clone();
             chain.last_mut().expect("current DNS dependency").observers =
                 Some(flight.waiters.clone());
             let coordinator = self.clone();
@@ -213,8 +218,23 @@ where
                 }
             });
             let mut state = self.state.lock().expect("DNS coordinator poisoned");
-            let task = state.tasks.spawn(job);
-            flight.set_abort_handle(task);
+            // Shutdown and topology changes can retire the flight between
+            // selection and this final task admission. Check ownership while
+            // holding the same lock that shutdown uses to close and join.
+            if !state.closing
+                && state
+                    .in_flight
+                    .get(&admission_key)
+                    .is_some_and(|current| Arc::ptr_eq(current, &flight))
+            {
+                let task = state.tasks.spawn(job);
+                flight.set_abort_handle(task);
+            } else {
+                flight.cancel(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "DNS query retired before worker admission",
+                ));
+            }
         }
         loop {
             tokio::select! { biased;

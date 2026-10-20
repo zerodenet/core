@@ -167,3 +167,18 @@ async fn negative_results_are_scoped_by_family_and_config_generation() {
 
 mod cancellation;
 mod dependency;
+
+mod shutdown;
+
+#[derive(Debug)]
+pub(super) struct SpawnGate {
+    entered: tokio::sync::oneshot::Sender<()>,
+    resume: tokio::sync::oneshot::Receiver<()>,
+}
+pub(super) async fn before_spawn<T>(coordinator: &QueryCoordinator<T>) {
+    let gate = coordinator.state.lock().unwrap().spawn_gate.take();
+    if let Some(gate) = gate {
+        let _ = gate.entered.send(());
+        let _ = gate.resume.await;
+    }
+}

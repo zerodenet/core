@@ -10,6 +10,8 @@ pub(super) struct CoordinatorState<T> {
     // the last caller cancels. Abort requests never stand in for an actual join.
     pub(super) tasks: JoinSet<()>,
     pub(super) task_failure: Option<SharedError>,
+    #[cfg(test)]
+    pub(super) spawn_gate: Option<super::tests::SpawnGate>,
 }
 
 impl<T> CoordinatorState<T> {
