@@ -35,6 +35,15 @@ impl RetainedSource {
     ) -> Self {
         let capture = || -> Result<Recipe, EngineError> {
             check_owners(prefix)?;
+            if matches!(
+                prefix.first.execution,
+                PreparedTcpCandidateExecution::Native(_)
+            ) && services.invocation.is_none()
+            {
+                return Err(unsupported(
+                    "native retained prefix requires actual request identity",
+                ));
+            }
             if services.current_source.upgrade().is_none() {
                 return Err(unsupported("retained relay has no host source"));
             }
@@ -91,6 +100,24 @@ impl RetainedSource {
                         });
                     }
                 }
+                if let PreparedTcpCandidateExecution::Native(captured) = &prefix.first.execution {
+                    let tag = prefix
+                        .first
+                        .tag
+                        .as_deref()
+                        .ok_or_else(|| revoked("native prefix lost its tag"))?;
+                    let plan = services.components.as_ref().map_err(|error| {
+                        EngineError::Io(io::Error::other(crate::component::instance::retained(
+                            error.clone(),
+                        )))
+                    })?;
+                    let current = plan
+                        .configured(tag)
+                        .ok_or_else(|| revoked("native prefix owner is no longer configured"))?;
+                    if !Arc::ptr_eq(captured, &current) {
+                        return Err(revoked("native prefix actual owner changed"));
+                    }
+                }
                 check_owners(prefix)?;
                 services.invocation = recipe.invocation.clone();
                 services.ingress = recipe.ingress.clone();
@@ -105,6 +132,11 @@ impl RetainedSource {
 pub(in crate::runtime) fn check_owners(prefix: &PreparedTcpRelayPrefix) -> Result<(), EngineError> {
     match &prefix.first.execution {
         PreparedTcpCandidateExecution::Connect(operation) => operation.retained_admission()?,
+        PreparedTcpCandidateExecution::Native(slot) => slot
+            .service_admission()
+            .ok_or_else(|| unsupported("native prefix has no actual host admission"))?
+            .check_current()
+            .map_err(|source| EngineError::Io(io::Error::other(source)))?,
         _ => return Err(unsupported("retained first-hop owner is not migrated")),
     }
     for hop in &prefix.relay_hops {

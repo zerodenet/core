@@ -249,3 +249,6 @@ async fn actual_vless_tcp_reconnect_preserves_selected_prefix_after_unrelated_pu
     .await
     .unwrap();
 }
+
+#[cfg(feature = "socks5")]
+mod native;

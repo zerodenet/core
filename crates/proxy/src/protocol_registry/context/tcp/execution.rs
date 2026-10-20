@@ -1,4 +1,4 @@
-//! Short-lived execution inputs. Retained relay factories use a Weak host source.
+//! Short-lived inputs. Migrated retained factories use a Weak host source.
 use super::super::UpstreamConnectServices;
 use crate::runtime::principal_rate_limit::{PrincipalRateLimitRegistry, TrafficRateLimiters};
 use std::sync::Arc;
