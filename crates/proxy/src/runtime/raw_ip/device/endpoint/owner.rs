@@ -75,13 +75,16 @@ impl EndpointStackOwner {
             if let Some(device) = device {
                 device.tcp.shutdown().await;
             }
-            let report = self.workers.join().await?;
-            if let Some(failure) = failure {
-                return Err(EngineError::Io(std::io::Error::other(SharedFailure(
-                    failure,
-                ))));
+            let joined = self.workers.join().await;
+            match (failure, joined) {
+                (None, result) => result,
+                (Some(first), Ok(_)) => {
+                    Err(EngineError::Io(std::io::Error::other(SharedFailure(first))))
+                }
+                (Some(first), Err(join)) => Err(EngineError::Io(std::io::Error::other(
+                    BuildAndJoinFailure { first, join },
+                ))),
             }
-            Ok(report)
         };
         tokio::time::timeout_at(deadline, joining)
             .await

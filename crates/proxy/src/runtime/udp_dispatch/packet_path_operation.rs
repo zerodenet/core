@@ -255,7 +255,7 @@ fn chained_descriptor(
     }
 }
 
-pub(super) fn unsupported(message: &'static str) -> EngineError {
+pub(crate) fn unsupported(message: &'static str) -> EngineError {
     EngineError::Io(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         message,
