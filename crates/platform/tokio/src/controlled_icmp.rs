@@ -2,6 +2,7 @@
 mod acquire;
 mod close;
 mod io;
+mod relay;
 mod report;
 #[cfg(test)]
 mod tests;
@@ -106,6 +107,7 @@ pub struct ControlledIcmpOwner {
     known_no_native: u64,
 }
 struct Entry {
+    wakes: relay::IoRelays,
     owner: Arc<()>,
     id: IcmpReservationId,
     cancel: CancellationToken,
@@ -130,10 +132,8 @@ enum Native {
     NoNative,
 }
 impl Entry {
-    fn native(&self) -> MutexGuard<'_, Native> {
-        self.native
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn native(&self) -> relay::NativeGuard<'_> {
+        relay::NativeGuard::lock(self)
     }
     fn metadata(&self) -> MutexGuard<'_, Metadata> {
         self.metadata
@@ -220,6 +220,7 @@ impl ControlledIcmpOwner {
             .checked_add(1)
             .ok_or_else(|| denied("ICMP identity exhausted"))?;
         let entry = Arc::new(Entry {
+            wakes: relay::IoRelays::new(),
             owner: self.identity.clone(),
             id: IcmpReservationId(self.next),
             cancel: self.cancel.child_token(),

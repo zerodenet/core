@@ -63,45 +63,80 @@ impl ControlledIcmpSocket {
         }
     }
     pub async fn send(&mut self, bytes: &[u8]) -> std_io::Result<usize> {
-        tokio::select! { biased;
-            _ = self.entry.cancel.cancelled() => Err(retired()),
-            result = poll_fn(|cx| {
-                let native = self.entry.native();
-                if self.entry.cancel.is_cancelled() { return Poll::Ready(Err(retired())); }
-                match &*native { Native::Live(socket) => socket.poll_send(cx, bytes), _ => Poll::Ready(Err(unavailable(&native))) }
-            }) => result,
-        }
+        let waiter = self.entry.wakes.write.waiter();
+        let cancelled = self.entry.cancel.clone().cancelled_owned();
+        tokio::pin!(cancelled);
+        poll_fn(|cx| {
+            waiter.publish(cx.waker());
+            let relay_waker = std::task::Waker::from(self.entry.wakes.write.clone());
+            let cx = &mut std::task::Context::from_waker(&relay_waker);
+            if std::future::Future::poll(cancelled.as_mut(), cx).is_ready() {
+                return Poll::Ready(Err(retired()));
+            }
+            let native = self.entry.native();
+            if self.entry.cancel.is_cancelled() {
+                return Poll::Ready(Err(retired()));
+            }
+            match &*native {
+                Native::Live(socket) => socket.poll_send(cx, bytes),
+                _ => Poll::Ready(Err(unavailable(&native))),
+            }
+        })
+        .await
     }
     pub async fn send_to(&mut self, bytes: &[u8], peer: IpAddr) -> std_io::Result<usize> {
         self.check_family(peer)?;
-        tokio::select! { biased;
-            _ = self.entry.cancel.cancelled() => Err(retired()),
-            result = poll_fn(|cx| {
-                let native = self.entry.native();
-                if self.entry.cancel.is_cancelled() { return Poll::Ready(Err(retired())); }
-                match &*native { Native::Live(socket) => socket.poll_send_to(cx, bytes, SocketAddr::new(peer, 0)), _ => Poll::Ready(Err(unavailable(&native))) }
-            }) => result,
-        }
+        let waiter = self.entry.wakes.write.waiter();
+        let cancelled = self.entry.cancel.clone().cancelled_owned();
+        tokio::pin!(cancelled);
+        poll_fn(|cx| {
+            waiter.publish(cx.waker());
+            let relay_waker = std::task::Waker::from(self.entry.wakes.write.clone());
+            let cx = &mut std::task::Context::from_waker(&relay_waker);
+            if std::future::Future::poll(cancelled.as_mut(), cx).is_ready() {
+                return Poll::Ready(Err(retired()));
+            }
+            let native = self.entry.native();
+            if self.entry.cancel.is_cancelled() {
+                return Poll::Ready(Err(retired()));
+            }
+            match &*native {
+                Native::Live(socket) => socket.poll_send_to(cx, bytes, SocketAddr::new(peer, 0)),
+                _ => Poll::Ready(Err(unavailable(&native))),
+            }
+        })
+        .await
     }
     pub async fn recv_from(&mut self, bytes: &mut [u8]) -> std_io::Result<(usize, IpAddr)> {
+        let waiter = self.entry.wakes.read.waiter();
+        let cancelled = self.entry.cancel.clone().cancelled_owned();
+        tokio::pin!(cancelled);
         loop {
-            let (size, peer) = tokio::select! { biased;
-                _ = self.entry.cancel.cancelled() => return Err(retired()),
-                result = poll_fn(|cx| {
-                    let native = self.entry.native();
-                    if self.entry.cancel.is_cancelled() { return Poll::Ready(Err(retired())); }
-                    match &*native {
-                        Native::Live(socket) => {
-                            let mut buffer = ReadBuf::new(bytes);
-                            match socket.poll_recv_from(cx, &mut buffer) {
-                                Poll::Pending => Poll::Pending,
-                                Poll::Ready(result) => Poll::Ready(result.map(|peer| (buffer.filled().len(), peer.ip()))),
+            let (size, peer) = poll_fn(|cx| {
+                waiter.publish(cx.waker());
+                let relay_waker = std::task::Waker::from(self.entry.wakes.read.clone());
+                let cx = &mut std::task::Context::from_waker(&relay_waker);
+                if std::future::Future::poll(cancelled.as_mut(), cx).is_ready() {
+                    return Poll::Ready(Err(retired()));
+                }
+                let native = self.entry.native();
+                if self.entry.cancel.is_cancelled() {
+                    return Poll::Ready(Err(retired()));
+                }
+                match &*native {
+                    Native::Live(socket) => {
+                        let mut buffer = ReadBuf::new(&mut *bytes);
+                        match socket.poll_recv_from(cx, &mut buffer) {
+                            Poll::Pending => Poll::Pending,
+                            Poll::Ready(result) => {
+                                Poll::Ready(result.map(|peer| (buffer.filled().len(), peer.ip())))
                             }
                         }
-                        _ => Poll::Ready(Err(unavailable(&native))),
                     }
-                }) => result?,
-            };
+                    _ => Poll::Ready(Err(unavailable(&native))),
+                }
+            })
+            .await?;
             if !self.entry.ipv6 && size > 0 && bytes[0] >> 4 == 4 {
                 let header = usize::from(bytes[0] & 15) * 4;
                 if header < 20 || header > size || bytes[9] != 1 {

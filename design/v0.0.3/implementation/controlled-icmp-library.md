@@ -52,18 +52,24 @@ fault/source Arcs remain available independently. These are native facts only;
 actual probe TaskExit, packet users, queues and stack restoration still require
 caller-owned evidence. No error owns the pool/entry through a reverse cycle.
 
-Native polls use the same short original mutex pattern as the existing controlled
-UDP primitive. A custom synchronous waker that reenters the same native getter or
-close while Tokio poll wakes it can self-lock. Production Tokio task wakers
-schedule their task, but synchronous-waker reentry has not been qualified here;
-a bounded deferred-wake seam and actual regression are a separate required cut
-before claiming that stronger property. No blanket warning suppression was added.
+Native I/O and cancellation register only the entry's two fixed read/write
+relays. A relay holds a weak reference to a target owned by the actual waiting
+future, never an Entry, owner, TaskScope or protocol future. A counted native
+critical section defers relay wake delivery; its guard unlocks the original
+mutex before flushing external targets. External Waker clone/replacement/Drop
+also runs outside native/relay/target locks. The native registration therefore
+does not strongly retain the caller through a waker cycle. No worker, actor or
+payload queue is introduced. Two additional native regressions exercise actual
+pending receive plus Tokio cooperative synchronous wake and replacement Drop;
+the external callbacks inspect and explicitly close the same real original.
+These regressions still require root execution; source completion alone does
+not qualify the reentry behavior.
 
 ## Validation status and commands
 
 This agent ran only manual rustfmt --check and git diff --check. No Cargo,
 compilation, socket creation or runtime test was executed in this worktree.
-Two metadata/identity tests run by default. Eight actual native tests are
+Two metadata/identity tests run by default. Ten actual native tests are
 explicitly ignored until run in a suitable environment; a default suite passing
 with these ignored does not qualify native ICMP.
 

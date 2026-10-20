@@ -7,6 +7,8 @@ use std::{
 mod echo;
 #[path = "../../tests/controlled_icmp/live.rs"]
 mod live;
+#[path = "../../tests/controlled_icmp/wake.rs"]
+mod wake;
 static LIVE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 fn owner(limit: usize) -> ControlledIcmpOwner {
     ControlledIcmpOwner::new(NonZeroUsize::new(limit).unwrap(), CancellationToken::new())
