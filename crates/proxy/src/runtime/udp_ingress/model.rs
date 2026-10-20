@@ -6,6 +6,7 @@ pub(crate) struct UdpIngressRuntime {
     pub(super) services: UdpRuntimeServices,
     pub(super) local_addr: Option<std::net::SocketAddr>,
     pub(super) source_addr: Option<std::net::SocketAddr>,
+    listener_stop: Option<crate::runtime::route_runtime::ListenerStop>,
 }
 
 impl UdpIngressRuntime {
@@ -16,6 +17,7 @@ impl UdpIngressRuntime {
             services,
             source_addr: None,
             local_addr: None,
+            listener_stop: None,
         }
     }
 
@@ -27,6 +29,7 @@ impl UdpIngressRuntime {
             services: UdpRuntimeServices::new(tcp_services.clone()),
             tcp_services,
             local_addr: self.local_addr,
+            listener_stop: self.listener_stop.clone(),
             source_addr: self.source_addr,
         }
     }
@@ -37,7 +40,25 @@ impl UdpIngressRuntime {
             services: self.services.clone(),
             source_addr,
             local_addr: self.local_addr,
+            listener_stop: self.listener_stop.clone(),
         }
+    }
+
+    pub(crate) fn with_listener_stop(
+        mut self,
+        stop: crate::runtime::route_runtime::ListenerStop,
+    ) -> Self {
+        self.listener_stop = Some(stop);
+        self
+    }
+
+    pub(crate) fn claim_listener_stop(
+        &self,
+    ) -> Result<Option<crate::runtime::route_runtime::UdpStopGuard>, zero_engine::EngineError> {
+        self.listener_stop
+            .as_ref()
+            .map(|stop| stop.claim())
+            .transpose()
     }
 
     pub(crate) fn with_local_addr(mut self, local: Option<std::net::SocketAddr>) -> Self {
