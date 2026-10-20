@@ -1,5 +1,8 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
 mod plan;
+#[cfg(test)]
+#[path = "tests/plan.rs"]
+mod tests;
 mod transaction;
 use super::{
     instance::{invalid, ComponentSlot, SharedError},
@@ -21,6 +24,8 @@ pub(crate) struct ComponentPlan {
     outbounds: BTreeMap<String, Arc<ComponentSlot>>,
     order: Vec<Arc<ComponentSlot>>,
     started: AtomicBool,
+    // Actual failed exits survive consumption of a slot's one-shot close report.
+    failures: Mutex<BTreeMap<zero_core::component::TaskId, Arc<plan::PlanTaskFailure>>>,
 }
 struct Current {
     config: Arc<RuntimeConfig>,
@@ -168,6 +173,7 @@ impl ComponentCatalog {
             outbounds,
             order,
             started: AtomicBool::new(false),
+            failures: Mutex::new(BTreeMap::new()),
         })
     }
     fn slot(
