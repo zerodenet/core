@@ -32,8 +32,32 @@ pub(super) async fn bind_listener(
     shutdown: watch::Sender<bool>,
     attempts: NonZeroUsize,
 ) -> Result<PendingInbound, EngineError> {
-    let listener_config = runtime_factory.listener_config(inbound);
-    if let Some(prepared) = protocols.prepare_inbound_bind(listener_config.clone(), source_dir)? {
+    let prepared =
+        protocols.prepare_inbound_bind(runtime_factory.listener_config(inbound), source_dir)?;
+    bind_prepared_listener(
+        protocols,
+        runtime_factory,
+        source_dir,
+        inbound,
+        shutdown,
+        attempts,
+        prepared,
+    )
+    .await
+}
+
+/// Consume the same cold operation only after every affected old owner closed.
+/// None is an explicit legacy shape, never a retry through a different capability.
+pub(super) async fn bind_prepared_listener(
+    protocols: &ProtocolInventory,
+    runtime_factory: &InboundListenerRuntimeFactory,
+    source_dir: Option<&Path>,
+    inbound: &InboundConfig,
+    shutdown: watch::Sender<bool>,
+    attempts: NonZeroUsize,
+    prepared: Option<crate::protocol_registry::PreparedInboundBind>,
+) -> Result<PendingInbound, EngineError> {
+    if let Some(prepared) = prepared {
         let mut lease = runtime_factory.owners().reserve_listener(
             &inbound.tag,
             &runtime_factory.config_handle(),
@@ -65,6 +89,7 @@ pub(super) async fn bind_listener(
 
     // Unmigrated listener shapes keep the original bind/retry behavior. Once
     // an adapter chose the owned path, no error above falls back to this path.
+    let listener_config = runtime_factory.listener_config(inbound);
     let mut last_error = None;
     for attempt in 0..attempts.get() {
         match protocols.bind_inbound(&listener_config, source_dir).await {

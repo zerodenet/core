@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Listener replacement uses the single-instance StopOld boundary
+
+Changed listeners now prepare cold operation values, stop every affected old listener and confirm its actual retirement before binding any candidate, including candidates on a different port. Unchanged actual listener owners and existing protocol credential hot-update paths continue to be reused. This removes standby port reservation to match `design/v0.0.3/lifecycle.md`; a port conflict can therefore appear during the switch after old connections have stopped. Candidate cleanup and recovery use the actual last-good snapshot, including tags already removed from the active map by a cancelled attempt. A recovered listener is a new generation, not the original FD or a restoration of disconnected sessions. Stateful protocol security history must not be silently replaced; an unconfirmed or unsupported recovery remains an explicit failure. Pending native bind owners, their original failures and Unknown outcomes remain retained across cancellation and block further acquisition until resolved.
+
+V1 configuration/API/events and FFI ABI are unchanged; no caller schema migration is required. A controlled listener close receipt does not establish closure of every accepted child socket or completion of all M4 resources. Validation for this change is recorded separately.
+
 ### 候选入站的真实 Ready 确认
 
 配置应用和启动的 listener 成功确认现在等待同一实际实例的 Ready receipt。协议资源 start 和 carrier activation 必须先完成，随后实际 accept/recv loop 首次 poll 到运行态才由宿主该调用点确认；TCP+UDP 和 listener group 必须确认所有实际分支，登记任务本身不是 Ready。就绪前错误、停止和取消不发布候选成功；取消等待保留实际 owner、候选信息与同一 receipt，旧实例的通知不能确认新实例。协议自有就绪预算保持原样，包括 SIP003 TCP 原十秒预算，不新增通用五秒 Ready 超时。
