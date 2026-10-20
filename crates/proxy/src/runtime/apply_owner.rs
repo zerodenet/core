@@ -25,6 +25,14 @@ pub(super) struct ApplyOwner {
     commit_gate: std::sync::Mutex<()>,
     owner: Mutex<Owner>,
 }
+impl std::fmt::Debug for ApplyOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApplyOwner")
+            .field("closing", &self.closing.load(Ordering::Acquire))
+            .field("completed", &self.completed.load(Ordering::Acquire))
+            .finish_non_exhaustive()
+    }
+}
 #[derive(Default)]
 struct Owner {
     scope: Option<TaskScope>,
