@@ -9,7 +9,7 @@ async fn registered_driver_reuses_same_pool_and_clear_cannot_recycle_even_an_act
     let actual = ctx.instance();
     let mut owner = PoolFactory
         .build(
-            Arc::new(pool.component_options(NonZeroUsize::new(1).unwrap())),
+            Arc::new(pool.uncontrolled_component_options(NonZeroUsize::new(1).unwrap())),
             ctx,
         )
         .unwrap();
@@ -106,7 +106,7 @@ async fn actual_registration_capacity_failure_never_starts_an_unowned_replacemen
     let actual = ctx.instance();
     let mut owner = PoolFactory
         .build(
-            Arc::new(pool.component_options(NonZeroUsize::new(1).unwrap())),
+            Arc::new(pool.uncontrolled_component_options(NonZeroUsize::new(1).unwrap())),
             ctx,
         )
         .unwrap();
@@ -163,7 +163,7 @@ async fn registered_driver_failure_retains_original_io_payload_and_actual_scope_
     let actual = ctx.instance();
     let mut owner = PoolFactory
         .build(
-            Arc::new(pool.component_options(NonZeroUsize::new(1).unwrap())),
+            Arc::new(pool.uncontrolled_component_options(NonZeroUsize::new(1).unwrap())),
             ctx,
         )
         .unwrap();

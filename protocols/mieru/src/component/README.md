@@ -12,21 +12,35 @@ adoption: the old detached driver has no transferable join evidence. After a nat
 claim, legacy opens are rejected. Unclaimed legacy pooling, retirement, credentials,
 wire, padding and active-stream leases preserve their existing behavior.
 
-The only native opener is the persistent owner's granted `UpstreamTransport`,
+The only native opener is the persistent owner's granted controlled `UpstreamTransport`,
 with no business session. Keys include the exact owner generation, selected prefix,
 dial policy, network generation and complete protocol options. Authentication uses
 the same existing TCP reader/writer and wire implementation. Each driver registers
-once with the real `TaskRegistrar::spawn_tracked`; its failure retains the original
+once through the same-slot adoption's real `TaskRegistrar::spawn_tracked`; its failure retains the original
 I/O error object. No auxiliary Tokio task, pipe or runtime is introduced.
 
-Each physical attempt retains one bounded record. Driver-future destruction only
-marks retirement. The actual scope join witness then proves task completion, and
-the host owns reporting that task's ID/failure. The current `BoxStream` grant does
-not convey physical-close authority: even after a real join, retirement consumes
-its original capacity and shutdown reports unfinished physical I/O. Neither Drop,
-abort, a TCP peer EOF in a test, nor flush is promoted to a generic close receipt.
-The owner cannot be implicitly replaced. Controlled carrier adoption and real
-physical-close receipts are required before production activation or slot reuse.
+The public recipe creates a cold, finite `CarrierOwner` for the same actual pool
+component generation and starts it before admitting a connection. Each attempt
+reserves a grant and retains its opaque adoption in the pool record before native
+preparation or the first await. The provider installs the original native control
+before returning prepared I/O. The same-slot tag survives the existing Mieru
+authentication and driver preparation; the one real spawn installs its exact join
+witness in both owners without an intervening await.
+
+Driver-future destruction only marks retirement. The real scope must consume that
+driver's join before the controlled owner explicitly closes the original fd. Only
+the matching opaque physical-close receipt and the same join witness allow the
+record's capacity to be reused. Interrupted cleanup or unknown acquisition retains
+the original owner and capacity. The host reports the actual task ID/failure;
+protocol cleanup does not report it a second time. Previously observed closed
+records are removed, rather than accumulated as an unbounded shutdown history.
+Neither Drop, abort, a peer EOF, flush nor a caller-supplied report mints a receipt.
+
+Providers without controlled support fail before I/O, without falling back to the
+old `BoxStream` opener. A private `cfg(test)` recipe alone preserves the old
+uncontrolled diagnostic tests: a real join there still leaves physical I/O
+unfinished and cannot recycle capacity. It has a distinct recipe identity and is
+rejected by standard Stream preparation; it is unavailable to production callers.
 
 `PoolOptions::prepare_tcp` owns validated TCP options and the same pool recipe;
 the host canonicalizes that recipe before binding its real roleless component ID.
@@ -48,4 +62,4 @@ The existing TCP logical shutdown sends its CLOSE request and flushes it; it is 
 a remote close acknowledgement or an independently proven receive-half lifetime.
 This implementation preserves that behavior and makes no stronger close claim.
 UDP underlay and UDP roles remain on their existing paths. Production factories
-remain unregistered pending controlled carrier ownership and host replacement.
+remain unregistered pending actual host grants and confirmed resource replacement.

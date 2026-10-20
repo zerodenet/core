@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     client::ClientPool,
     component::{
-        test_support::{context_with, Loopback},
+        test_support::{context_with, controlled_context, Loopback},
         PoolFactory, PoolOptions,
     },
     transport::MieruOutboundOptionsRef,
@@ -70,7 +70,7 @@ impl Harness {
     pub(super) async fn new(address: std::net::SocketAddr, count: usize) -> Self {
         let pool = Arc::new(ClientPool::default());
         let opener = Arc::new(Loopback::default());
-        let (scope, context) = context_with(1, opener.clone());
+        let (scope, context) = controlled_context(1, address, opener.clone());
         let actual = context.instance();
         let upstream = context.background_carrier.clone().unwrap();
         let options = Arc::new(pool.component_options(NonZeroUsize::new(1).unwrap()));
@@ -140,12 +140,8 @@ impl Harness {
             tokio::join!(self.owner.lifecycle.shutdown(end), self.scope.shutdown(end));
         let opened = self.opener.opens.load(std::sync::atomic::Ordering::SeqCst) > 0;
         let report = protocol.unwrap();
-        if opened {
-            assert!(matches!(report.unfinished.as_slice(), [Unfinished::Io(_)]));
-        } else {
-            assert!(report.is_complete());
-        }
-        assert!(report.closed_io.is_empty());
+        assert!(report.is_complete(), "{report:?}");
+        assert_eq!(report.closed_io.is_empty(), !opened);
         assert!(report.exited_tasks.is_empty());
         assert!(tasks.is_complete());
         assert_eq!(tasks.exited_tasks.len(), usize::from(opened));

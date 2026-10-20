@@ -13,6 +13,7 @@ use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::contract::{
     network::UpstreamTransport, scope::TaskRegistrar, CancellationToken,
 };
+use zero_platform_tokio::controlled_carrier::CarrierGrants;
 
 #[derive(Default)]
 pub(crate) enum Ownership {
@@ -27,6 +28,7 @@ pub(crate) struct ManagedState {
     pub(crate) cancel: CancellationToken,
     pub(crate) scope_cancel: CancellationToken,
     pub(crate) upstream: UpstreamTransport,
+    pub(crate) grants: Option<CarrierGrants>,
     pub(crate) limit: NonZeroUsize,
     state: Mutex<State>,
     changed: Notify,
@@ -35,6 +37,7 @@ pub(crate) struct ManagedState {
 struct State {
     records: Vec<Arc<CarrierRecord>>,
     stopped: bool,
+    ready: bool,
 }
 impl ClientPool {
     pub(super) fn enter_legacy(&self) -> io::Result<()> {
@@ -57,7 +60,17 @@ impl ClientPool {
         tasks: TaskRegistrar,
         cancel: CancellationToken,
         upstream: UpstreamTransport,
+        grants: Option<CarrierGrants>,
     ) -> io::Result<Arc<ManagedState>> {
+        if grants
+            .as_ref()
+            .is_some_and(|grants| grants.instance() != instance)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Mieru controlled grants belong to another component generation",
+            ));
+        }
         let mut ownership = self.ownership.lock().unwrap();
         if !matches!(*ownership, Ownership::Pristine) {
             return Err(io::Error::new(
@@ -76,6 +89,7 @@ impl ClientPool {
             cancel,
             scope_cancel,
             upstream,
+            grants,
             state: Mutex::new(State::default()),
             changed: Notify::new(),
         });
@@ -97,13 +111,33 @@ impl ClientPool {
 }
 impl ManagedState {
     pub(crate) fn ready(&self) -> bool {
-        !self.cancel.is_cancelled()
-            && !self.scope_cancel.is_cancelled()
-            && !self.state.lock().unwrap().stopped
+        !self.cancel.is_cancelled() && !self.scope_cancel.is_cancelled() && {
+            let state = self.state.lock().unwrap();
+            state.ready && !state.stopped
+        }
     }
-    pub(crate) fn reserve(self: &Arc<Self>) -> io::Result<CarrierLease> {
+    pub(crate) fn activate(&self) -> Result<(), zero_platform_tokio::contract::ChannelError> {
         let mut state = self.state.lock().unwrap();
         if state.stopped || self.cancel.is_cancelled() || self.scope_cancel.is_cancelled() {
+            let mut error = zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::Revoked,
+                zero_platform_tokio::contract::Impact::Component,
+            );
+            error.component = Some(self.instance.component);
+            return Err(error);
+        }
+        state.ready = true;
+        Ok(())
+    }
+    pub(crate) fn reserve(self: &Arc<Self>) -> io::Result<CarrierLease> {
+        self.harvest_closed();
+        let mut state = self.state.lock().unwrap();
+        if !state.ready
+            || state.stopped
+            || self.cancel.is_cancelled()
+            || self.scope_cancel.is_cancelled()
+        {
             return Err(io::ErrorKind::Interrupted.into());
         }
         if state.records.len() >= self.limit.get() {
@@ -120,6 +154,29 @@ impl ManagedState {
         self.state.lock().unwrap().stopped = true;
         self.cancel.cancel();
         self.changed.notify_waiters();
+    }
+    pub(crate) fn harvest_closed(&self) {
+        self.state
+            .lock()
+            .unwrap()
+            .records
+            .retain(|record| !record.closed(self.instance));
+    }
+    pub(crate) async fn retire_finished(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<bool, zero_platform_tokio::contract::ChannelError> {
+        let records = self.state.lock().unwrap().records.clone();
+        let mut complete = true;
+        for record in records {
+            if record.body_finished() {
+                if let Some(adoption) = record.adoption() {
+                    complete &= adoption.retire(deadline).await?.is_complete();
+                }
+            }
+        }
+        self.harvest_closed();
+        Ok(complete)
     }
     pub(crate) fn physical_unconfirmed(&self) -> bool {
         self.state

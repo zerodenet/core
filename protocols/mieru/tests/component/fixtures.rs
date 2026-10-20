@@ -19,6 +19,9 @@ use zero_platform_tokio::{
 #[path = "pool/io.rs"]
 mod io;
 pub(super) use io::{FailureControl, OriginalFailure};
+#[path = "controlled.rs"]
+mod controlled;
+pub(super) use controlled::controlled_context;
 use std::sync::Mutex;
 use zero_core::{
     component::{ComponentId, ComponentRoleIds, NetworkGeneration, ResourceGeneration},
@@ -180,23 +183,30 @@ pub(super) fn pending_socket(
     TcpRelayStream::new(io::PendingRead::new(socket, Some(observed)))
 }
 pub(super) async fn echo() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    echo_connections(1).await
+}
+pub(super) async fn echo_connections(
+    count: usize,
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move {
-        let (socket, _) = listener.accept().await.unwrap();
-        let connection =
-            crate::inbound::MieruInboundProfile::from_config(vec![("u".into(), "p".into())])
-                .accept_multiplexer(TcpRelayStream::new(socket))
-                .await
-                .unwrap();
-        let mut streams = tokio::task::JoinSet::new();
-        while let Ok(Some(mut stream)) = connection.accept_next().await {
-            streams.spawn(async move {
-                let (mut read, mut write) = tokio::io::split(&mut stream);
-                let _ = tokio::io::copy(&mut read, &mut write).await;
-            });
+        for _ in 0..count {
+            let (socket, _) = listener.accept().await.unwrap();
+            let connection =
+                crate::inbound::MieruInboundProfile::from_config(vec![("u".into(), "p".into())])
+                    .accept_multiplexer(TcpRelayStream::new(socket))
+                    .await
+                    .unwrap();
+            let mut streams = tokio::task::JoinSet::new();
+            while let Ok(Some(mut stream)) = connection.accept_next().await {
+                streams.spawn(async move {
+                    let (mut read, mut write) = tokio::io::split(&mut stream);
+                    let _ = tokio::io::copy(&mut read, &mut write).await;
+                });
+            }
+            streams.shutdown().await;
         }
-        streams.shutdown().await;
     });
     (address, task)
 }

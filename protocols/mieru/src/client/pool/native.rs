@@ -26,6 +26,25 @@ impl ClientPool {
             ));
         }
         let state = self.managed(owner)?;
+        if let Some(deadline) = deadline {
+            if !state
+                .retire_finished(deadline)
+                .await
+                .map_err(io::Error::other)?
+            {
+                return Err(io::Error::new(
+                    if Instant::now() >= deadline {
+                        io::ErrorKind::TimedOut
+                    } else {
+                        io::ErrorKind::WouldBlock
+                    },
+                    "Mieru retiring carrier has no completed close receipt",
+                ));
+            }
+            if Instant::now() >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+        }
         // Do not trust a caller's legacy profile to isolate native carriers.
         key.profile = format!(
             "native:{owner:?}:{:?}:{options:?}",
@@ -48,6 +67,25 @@ impl ClientPool {
             let password = password.clone();
             async move {
                 let lease=lease?;
+                if let Some(grants)=&state.grants {
+                    let grant=grants.reserve().map_err(io::Error::other)?;
+                    let adoption=grant.adoption();lease.adopt(adoption.clone()).map_err(io::Error::other)?;
+                    lease.attempting_io();
+                    let prepared=state.upstream.prepare_controlled_stream(endpoint,CarrierContext {session:None,deadline,cancel:state.cancel.clone()},grant)
+                        .map_err(io::Error::other)?;
+                    // The existing Mieru initialization bound is additional to
+                    // the native opener's own (possibly stricter) connect bound.
+                    let end=deadline.unwrap_or_else(||Instant::now()+std::time::Duration::from_secs(15));
+                    let ready=tokio::select! {biased;
+                        _=state.cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
+                        _=state.scope_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
+                        result=prepared.open(end)=>result.map_err(io::Error::other)?,
+                    };
+                    let (io,_)=ready.into_parts();
+                    return ClientConnection::tcp_controlled(io,adoption,&username,&password,options,lease).await;
+                }
+                #[cfg(test)]
+                {
                 lease.attempting_io();
                 let socket = tokio::select! {biased;
                     _=state.cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
@@ -55,6 +93,9 @@ impl ClientPool {
                     result=state.upstream.open_stream(endpoint,CarrierContext {session:None,deadline,cancel:state.cancel.clone()})=>result.map_err(io::Error::other)?,
                 };
                 ClientConnection::tcp_managed(socket, &username, &password, options, lease).await
+                }
+                #[cfg(not(test))]
+                {Err(io::Error::new(io::ErrorKind::Unsupported,"Mieru native Stream requires a controlled carrier owner"))}
             }
         });
         let (stream, connection) = match deadline {

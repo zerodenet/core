@@ -1,4 +1,6 @@
 use super::*;
+#[path = "pool/controlled.rs"]
+mod controlled;
 #[path = "pool/driver.rs"]
 mod driver;
 use crate::component::test_support::*;
@@ -111,7 +113,7 @@ async fn pending_real_handshake_uses_owner_service_grant_and_retires_without_rec
     let actual = ctx.instance();
     let mut owner = PoolFactory
         .build(
-            Arc::new(pool.component_options(NonZeroUsize::new(1).unwrap())),
+            Arc::new(pool.uncontrolled_component_options(NonZeroUsize::new(1).unwrap())),
             ctx,
         )
         .unwrap();

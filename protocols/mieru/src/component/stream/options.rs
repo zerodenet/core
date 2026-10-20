@@ -37,6 +37,11 @@ impl fmt::Debug for PreparedTcp {
 }
 impl PoolOptions {
     pub fn prepare_tcp(&self, input: TcpPreparation<'_>) -> Result<PreparedTcp, Error> {
+        if !self.controlled {
+            return Err(Error::Unsupported(
+                "native Mieru Stream requires controlled carrier ownership",
+            ));
+        }
         if input.protocol.udp {
             return Err(Error::Unsupported(
                 "native Mieru Stream requires TCP underlay",
@@ -62,6 +67,7 @@ impl PoolOptions {
             let mut hash = key.build_hasher();
             (self.pool.as_ptr() as usize).hash(&mut hash);
             self.limit.hash(&mut hash);
+            self.controlled.hash(&mut hash);
             input.tag.hash(&mut hash);
             input.server.hash(&mut hash);
             input.port.hash(&mut hash);

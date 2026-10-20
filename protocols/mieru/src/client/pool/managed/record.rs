@@ -2,6 +2,7 @@
 use super::ManagedState;
 use std::sync::{Arc, Mutex};
 use zero_platform_tokio::contract::scope::TaskJoinWitness;
+use zero_platform_tokio::controlled_carrier::CarrierAdoption;
 
 pub(super) struct CarrierRecord(Mutex<Record>);
 #[derive(Default)]
@@ -10,6 +11,7 @@ struct Record {
     finished: bool,
     registering: bool,
     join: Option<TaskJoinWitness>,
+    adoption: Option<CarrierAdoption>,
 }
 pub(crate) struct CarrierLease {
     pub(crate) owner: Arc<ManagedState>,
@@ -32,6 +34,31 @@ impl CarrierRecord {
             let _ = join.wait().await;
         }
     }
+    pub(super) fn adoption(&self) -> Option<CarrierAdoption> {
+        self.0.lock().unwrap().adoption.clone()
+    }
+    pub(super) fn closed(&self, instance: zero_core::component::ComponentInstanceId) -> bool {
+        let record = self.0.lock().unwrap();
+        if !record.finished || record.registering {
+            return false;
+        }
+        let Some(adoption) = &record.adoption else {
+            return false;
+        };
+        let Some(receipt) = adoption.closed() else {
+            return false;
+        };
+        if receipt.instance() != instance || !receipt.matches(adoption) {
+            return false;
+        }
+        match (&record.join, receipt.driver_exit()) {
+            (None, None) => true,
+            (Some(witness), Some(exit)) => witness
+                .try_joined()
+                .is_some_and(|joined| joined.id() == exit.id() && joined.class() == exit.class()),
+            _ => false,
+        }
+    }
 }
 impl CarrierLease {
     pub(super) fn new(owner: Arc<ManagedState>, record: Arc<CarrierRecord>) -> Self {
@@ -39,6 +66,28 @@ impl CarrierLease {
     }
     pub(crate) fn attempting_io(&self) {
         self.record.0.lock().unwrap().attempted = true;
+    }
+    pub(crate) fn adopt(
+        &self,
+        adoption: CarrierAdoption,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        if adoption.instance() != self.owner.instance {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::StalePlan,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        let mut record = self.record.0.lock().unwrap();
+        if record.adoption.is_some() || record.attempted || record.registering || record.finished {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        record.adoption = Some(adoption);
+        Ok(())
     }
     pub(crate) fn registering(&self) -> Registration {
         self.record.0.lock().unwrap().registering = true;

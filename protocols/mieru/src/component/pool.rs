@@ -22,6 +22,7 @@ pub struct PoolOptions {
     pub(super) pool: Weak<ClientPool>,
     pub(super) limit: NonZeroUsize,
     identity: Arc<[u8]>,
+    pub(super) controlled: bool,
 }
 impl std::fmt::Debug for PoolOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,12 +33,28 @@ impl std::fmt::Debug for PoolOptions {
 }
 impl ClientPool {
     pub fn component_options(self: &Arc<Self>, carrier_limit: NonZeroUsize) -> PoolOptions {
+        self.pool_options(carrier_limit, true)
+    }
+    #[cfg(test)]
+    pub(crate) fn uncontrolled_component_options(
+        self: &Arc<Self>,
+        carrier_limit: NonZeroUsize,
+    ) -> PoolOptions {
+        self.pool_options(carrier_limit, false)
+    }
+    fn pool_options(
+        self: &Arc<Self>,
+        carrier_limit: NonZeroUsize,
+        controlled: bool,
+    ) -> PoolOptions {
         let mut identity = (Arc::as_ptr(self) as usize).to_le_bytes().to_vec();
         identity.extend_from_slice(&carrier_limit.get().to_le_bytes());
+        identity.push(u8::from(controlled));
         PoolOptions {
             pool: Arc::downgrade(self),
             limit: carrier_limit,
             identity: identity.into(),
+            controlled,
         }
     }
 }
@@ -76,6 +93,14 @@ impl ComponentFactory for PoolFactory {
             .background_carrier
             .clone()
             .ok_or_else(|| error(context.instance(), Stage::Prepare, Reason::InvalidConfig))?;
+        let cancel = context.cancel.child_token();
+        let carriers = options.controlled.then(|| {
+            zero_platform_tokio::controlled_carrier::CarrierOwner::new(
+                context.instance(),
+                options.limit,
+                &cancel,
+            )
+        });
         Ok(ComponentInstance {
             roles: ComponentRoles::default(),
             lifecycle: erase_lifecycle(Owner {
@@ -84,7 +109,8 @@ impl ComponentFactory for PoolFactory {
                 limit: options.limit,
                 tasks: context.tasks,
                 upstream,
-                cancel: context.cancel.child_token(),
+                cancel,
+                carriers,
                 state: None,
                 attempted: false,
             }),
@@ -98,6 +124,7 @@ struct Owner {
     tasks: TaskRegistrar,
     upstream: zero_platform_tokio::contract::network::UpstreamTransport,
     cancel: CancellationToken,
+    carriers: Option<zero_platform_tokio::controlled_carrier::CarrierOwner>,
     state: Option<Arc<ManagedState>>,
     attempted: bool,
 }
@@ -131,11 +158,16 @@ impl ResourceLifecycle for Owner {
                     self.tasks.clone(),
                     self.cancel.clone(),
                     self.upstream.clone(),
+                    self.carriers.as_ref().map(|owner| owner.grants()),
                 )
                 .map_err(|source| {
                     error(self.instance, Stage::Prepare, Reason::StalePlan).with_source(source)
                 })?,
         );
+        if let Some(carriers) = &mut self.carriers {
+            carriers.start(deadline).await?;
+        }
+        self.state.as_ref().unwrap().activate()?;
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {
@@ -143,11 +175,33 @@ impl ResourceLifecycle for Owner {
             state.stop();
         }
         self.cancel.cancel();
+        if let Some(carriers) = &self.carriers {
+            carriers.revoke();
+        }
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);
         let mut report = CloseReport::default();
         if let Some(state) = &self.state {
+            if let Some(carriers) = &mut self.carriers {
+                let (physical, drained) = tokio::join!(
+                    carriers.shutdown(deadline),
+                    timeout_at(deadline, state.drained())
+                );
+                report.append(physical?);
+                if drained.is_err() {
+                    report.unfinished.push(Unfinished::Resource(
+                        "mieru native carrier body or scope join".into(),
+                    ));
+                }
+                state.harvest_closed();
+                if state.physical_unconfirmed() && report.is_complete() {
+                    report.unfinished.push(Unfinished::Io(
+                        "mieru carrier lacks a matching physical close receipt".into(),
+                    ));
+                }
+                return Ok(report);
+            }
             if timeout_at(deadline, state.drained()).await.is_err() {
                 report.unfinished.push(Unfinished::Resource(
                     "mieru pending or retiring native carriers".into(),

@@ -45,7 +45,9 @@ impl StreamOptions {
             )
         })?;
         let owner = state.managed(pool)?;
-        if owner.limit != self.prepared.pool.limit {
+        if owner.limit != self.prepared.pool.limit
+            || owner.grants.is_some() != self.prepared.pool.controlled
+        {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Mieru canonical pool recipe does not match its actual owner",

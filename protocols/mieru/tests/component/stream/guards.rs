@@ -86,6 +86,15 @@ fn native_options_reject_udp_and_invalid_protocol_options_without_dropping_field
     let pool = Arc::new(crate::client::ClientPool::default());
     let recipe = pool.component_options(NonZeroUsize::new(1).unwrap());
     let valid = crate::config::MieruTransportOptions::default();
+    let plain = pool.uncontrolled_component_options(NonZeroUsize::new(1).unwrap());
+    assert_ne!(
+        PoolFactory.describe(&recipe).static_identity,
+        PoolFactory.describe(&plain).static_identity
+    );
+    assert!(matches!(
+        plain.prepare_tcp(input(false, &valid)),
+        Err(zero_core::Error::Unsupported(_))
+    ));
     assert!(matches!(
         recipe.prepare_tcp(input(true, &valid)),
         Err(zero_core::Error::Unsupported(_))

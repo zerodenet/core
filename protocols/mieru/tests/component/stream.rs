@@ -12,7 +12,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
     context::ConnectFact,
-    lifecycle::Unfinished,
     stream::{ConnectRequest, PeerConfirmation},
 };
 
