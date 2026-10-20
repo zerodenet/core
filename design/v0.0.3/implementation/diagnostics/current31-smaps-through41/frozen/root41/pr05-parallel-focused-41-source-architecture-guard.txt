@@ -1,0 +1,40 @@
+standalone std-only source guard; source sha256=a4a4b53aaf2856d94026367024b42ec2d11918b145f5736380d122a001bc59b0
+['rustc', '--edition', '2021', '--test', '/workspace/core/tests/workspace_architecture.rs', '--cfg', 'feature="managed-stream-runtime"', '-o', '/tmp/core-source-guard-architecture']
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+binary: rustc
+commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67
+commit-date: 2026-10-13
+host: x86_64-unknown-linux-gnu
+release: 1.99.1
+LLVM version: 23.1.1
+
+running 26 tests
+test config_protocol_dependencies_use_validation_features ... ok
+test connector_webhooks_cross_the_application_egress_boundary ... ok
+test dns_detours_cross_the_explicit_proxy_runtime_bridge ... ok
+test dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority ... ok
+test config_delegates_protocol_private_value_validation ... ok
+test engine_runtime_domains_do_not_regrow_in_the_facade ... ok
+test foundational_crates_do_not_depend_on_runtime_or_integration_crates ... ok
+test generic_config_models_do_not_hardcode_protocol_transport_defaults ... ok
+test engine_outbound_leaves_are_protocol_neutral ... ok
+test generic_proxy_modules_do_not_repeat_the_complete_protocol_feature_set ... ok
+test outbound_carrier_stack_does_not_require_tls_for_other_carrier_features ... ok
+test engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary ... ok
+test outbound_quic_node_resolution_stays_behind_the_runtime_dns_bridge ... ok
+test peer_identity_and_process_attribution_stay_in_their_owning_layers ... ok
+test protocol_crates_keep_runtime_support_deps_optional_and_out_of_config_space ... ok
+test protocol_registry_does_not_project_proxy_leaf_runtime_facts ... ok
+test root_process_entrypoint_delegates_command_execution ... ok
+test stack_keeps_packet_parsing_separate_from_connection_lifecycle ... ok
+test transport_and_engine_manifests_lock_the_orchestration_dependency_direction ... ok
+test proxy_adapters_materialize_protocol_config_once ... ok
+test transport_does_not_depend_on_config_protocol_adts ... ok
+test transport_does_not_hardcode_protocol_service_or_alpn_defaults ... ok
+test udp_egress_generation_stays_in_platform_and_proxy_orchestration ... ok
+test generic_transport_carriers_do_not_depend_on_protocol_crates ... ok
+test transport_does_not_project_engine_outbound_leaves ... ok
+test engine_and_transport_sources_do_not_name_concrete_proxy_protocols ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

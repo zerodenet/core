@@ -1,0 +1,45 @@
+{
+  "head": "670be674ac64d758ca14e8c04703448cc3173ce2",
+  "tree": "fdd033faa34c45b9597b62b039d4b7d75e929684",
+  "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 5.245303834992228,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-40-fmt.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": null,
+      "selected_test_count": 0,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "workspace-alltargets-check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit": 101,
+      "seconds": 3.2543077090085717,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-40-workspace-alltargets-check.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": null,
+      "selected_test_count": 0,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "scope": "prepared fixture identity; no product or workload executed",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 7691,
+      "sha256": "4eeea89dd28cc6819fe24802134684c15b69f5f775707e6ee6a28a3762062453"
+    },
+    {
+      "path": "check_prepared.py",
+      "bytes": 2532,
+      "sha256": "edeaaa37eb9ac6ef5d9f0682c71f08505ca0fe758373d709f28b97ea24152223"
+    },
+    {
+      "path": "elf_metadata.py",
+      "bytes": 1445,
+      "sha256": "4fad5b936bc42057f966b2016dcc5cf47a17aa3fcc227b235a16fe6930871e63"
+    },
+    {
+      "path": "execution-plan.json",
+      "bytes": 2483,
+      "sha256": "9692b6de46e6cc9b75dcd1df6372b0657c98db9ba47c33727fad4f76fcead33a"
+    },
+    {
+      "path": "fanin.py",
+      "bytes": 11110,
+      "sha256": "3774d12587e4691463b171758c4a59a0613628a876f03ded8cd2c97c771fbb13"
+    },
+    {
+      "path": "kernel.py",
+      "bytes": 4467,
+      "sha256": "507c29dc8ae4a9656dc1431c313ef44d92e100a77d650d9ee82696b863fee126"
+    },
+    {
+      "path": "mapping_probe.py",
+      "bytes": 5365,
+      "sha256": "0ab171ed826e7c8b7a3d0486a24c5a514bf9c46e8b948d0041afaefd2ff5d6af"
+    },
+    {
+      "path": "originals/fanin.py",
+      "bytes": 9493,
+      "sha256": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e"
+    },
+    {
+      "path": "originals/kernel.py",
+      "bytes": 3679,
+      "sha256": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c"
+    },
+    {
+      "path": "originals/peers.py",
+      "bytes": 4045,
+      "sha256": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de"
+    },
+    {
+      "path": "originals/proc_sample.py",
+      "bytes": 3244,
+      "sha256": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b"
+    },
+    {
+      "path": "originals/summarize_fanin.py",
+      "bytes": 5409,
+      "sha256": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69"
+    },
+    {
+      "path": "originals/worker.py",
+      "bytes": 8304,
+      "sha256": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+    },
+    {
+      "path": "peers.py",
+      "bytes": 4045,
+      "sha256": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de"
+    },
+    {
+      "path": "preparation-check.json",
+      "bytes": 187,
+      "sha256": "4a22745c73fe3114c5f3de74dbebbd75dc05ce4e82b5920412b4b113b2cdad2e"
+    },
+    {
+      "path": "proc_sample.py",
+      "bytes": 3570,
+      "sha256": "d9bbd03c5433446b87fde34a8699dcc759078be1204afca3143ff44ccc76e123"
+    },
+    {
+      "path": "profile.json",
+      "bytes": 3334,
+      "sha256": "6b6c5b3edb1d5eb2df26dec0c0e858973810207f2a3e85e621e90be458ab93fa"
+    },
+    {
+      "path": "run_pair.py",
+      "bytes": 5072,
+      "sha256": "d95e2068c7eb2fede5c83f3860efa68de29c814941a3c37a509dc1f1e9dbfe01"
+    },
+    {
+      "path": "smaps_parse.py",
+      "bytes": 5142,
+      "sha256": "e85bfd25229aedc175930097c8336f13ed4c7a0604532d556976a2a6bd0b9700"
+    },
+    {
+      "path": "summarize_fanin.py",
+      "bytes": 5409,
+      "sha256": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69"
+    },
+    {
+      "path": "worker.py",
+      "bytes": 8304,
+      "sha256": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+    }
+  ]
+}

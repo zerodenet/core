@@ -1,0 +1,60 @@
+{
+  "scope": "offline derived output identities; does not rewrite original raw or original summary failure",
+  "files": [
+    {
+      "path": "derive-current31-smaps.py",
+      "bytes": 16487,
+      "sha256": "2265ddbde154f3de632a01fd2a99683caf6e247b1a1c4a4952765e4d1ee86e35"
+    },
+    {
+      "path": "elf-zerofill.derived.json",
+      "bytes": 63786,
+      "sha256": "15f2cd3d62278c35a36c6aafa899878a5f487b5b6339f97d6cc7b3b6bbd9b197"
+    },
+    {
+      "path": "finish-current31-smaps-report.py",
+      "bytes": 13897,
+      "sha256": "356228b94c283e476226c9c8dd3acc9d289347fe5c539c2f25521e9059d51b8e"
+    },
+    {
+      "path": "input-verification.json",
+      "bytes": 101757,
+      "sha256": "004feb9edab9b4220cecaf5eb97cfe50f55d69e77958b0559b3811b2d681340a"
+    },
+    {
+      "path": "memory-phases.derived.json",
+      "bytes": 3031349,
+      "sha256": "0456e27020f375d21f433f1ca37374b8baaf7e1bae55c9d22a0e5880cfd828eb"
+    },
+    {
+      "path": "new/fanin-summary.derived.json",
+      "bytes": 7082,
+      "sha256": "d3aa7545a8876d93d9103fe369d2ff64874f48d2bdf341960c5f5aedb8c4ba19"
+    },
+    {
+      "path": "new/launcher-metadata.derived.json",
+      "bytes": 10335,
+      "sha256": "c5580d3b0ee56326c82eb865cff3f610bfbd2c3f682ac52b6dfc1a49d8fc98c0"
+    },
+    {
+      "path": "old/fanin-summary.derived.json",
+      "bytes": 7076,
+      "sha256": "11a69aa237a24eda3bee1537d1f31305540910a0eb145187edb6b0d538860cb6"
+    },
+    {
+      "path": "old/launcher-metadata.derived.json",
+      "bytes": 10301,
+      "sha256": "6b8e9501ae7a0f877c8fd8de387e50dd02ae4d92d4a0894b79f132bc894acbac"
+    },
+    {
+      "path": "report.md",
+      "bytes": 8877,
+      "sha256": "c4320da3b2103ab6629719bcf3a359ff94c0757e0bce4dfef8eaa9c1f2516468"
+    },
+    {
+      "path": "verify-derived.py",
+      "bytes": 3091,
+      "sha256": "702f5a7fa8b21cd22a0362fff55b7e8da2f4e6fa284ba3e422acd618ae714164"
+    }
+  ]
+}

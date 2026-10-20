@@ -1,0 +1,13 @@
+545971 close(3)                         = 0
+545971 close(3)                         = 0
+545971 close(3)                         = 0
+545971 close(3)                         = 0
+545971 close(3)                         = 0
+545971 close(3)                         = 0
+545972 socket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC, IPPROTO_UDP) = 9
+545972 bind(9, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("127.0.0.1")}, 16) = 0
+545972 close(9)                         = 0
+545972 close(3)                         = 0
+545972 close(8)                         = 0
+545972 close(5)                         = 0
+545972 close(4)                         = 0

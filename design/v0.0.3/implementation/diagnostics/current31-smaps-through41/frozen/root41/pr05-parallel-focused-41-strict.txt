@@ -1,0 +1,45 @@
+    Checking zero-platform-tokio v0.0.3-dev.202610162206 (/workspace/core/crates/platform/tokio)
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: `blake3` (lib) generated 1 warning
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/workspace/core/crates/grpc)
+   Compiling zero v0.0.3-dev.202610162206 (/workspace/core)
+    Checking zero-transport v0.0.3-dev.202610162206 (/workspace/core/crates/transport)
+    Checking http v0.0.1 (/workspace/core/protocols/http)
+error: manual implementation of a no-op waker
+  --> crates/platform/tokio/src/contract/scope/hosted/tests/wake.rs:86:6
+   |
+86 | impl Wake for ReentrantDrop {
+   |      ^^^^
+   |
+   = help: use `std::task::Waker::noop()` instead
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_noop_waker
+   = note: `-D clippy::manual-noop-waker` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::manual_noop_waker)]`
+
+error: casting to the same type is unnecessary (`u64` -> `u64`)
+   --> crates/platform/tokio/src/file/../../tests/file/owner.rs:105:18
+    |
+105 |                 (metadata.st_dev as u64, metadata.st_ino as u64),
+    |                  ^^^^^^^^^^^^^^^^^^^^^^ help: try: `metadata.st_dev`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#unnecessary_cast
+    = note: `-D clippy::unnecessary-cast` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_cast)]`
+
+error: casting to the same type is unnecessary (`u64` -> `u64`)
+   --> crates/platform/tokio/src/file/../../tests/file/owner.rs:105:42
+    |
+105 |                 (metadata.st_dev as u64, metadata.st_ino as u64),
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^ help: try: `metadata.st_ino`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#unnecessary_cast
+
+error: could not compile `zero-platform-tokio` (lib test) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...

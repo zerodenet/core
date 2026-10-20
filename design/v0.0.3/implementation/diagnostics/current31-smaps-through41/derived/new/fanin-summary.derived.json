@@ -1,0 +1,255 @@
+{
+  "scope": "OFFLINE_DERIVED summary; original pure summarize(trial) reused unchanged",
+  "launcher_metadata_file": "new/launcher-metadata.derived.json",
+  "limits_before": {
+    "cpu.max": "100000 100000",
+    "memory.max": "1073741824",
+    "memory.swap.max": "0",
+    "memory.peak": "14274560",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.stat": "usage_usec 218916\nuser_usec 206672\nsystem_usec 12243\nnice_usec 0\nnr_periods 2\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+  },
+  "limits_after": {
+    "cpu.max": "100000 100000",
+    "memory.max": "1073741824",
+    "memory.swap.max": "0",
+    "memory.peak": "343846912",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.stat": "usage_usec 27559530\nuser_usec 9242720\nsystem_usec 18316810\nnice_usec 0\nnr_periods 666\nnr_throttled 7\nthrottled_usec 149485\nnr_bursts 0\nburst_usec 0"
+  },
+  "trials": [
+    {
+      "trial": 0,
+      "payload_bytes": 1024,
+      "actual_source_peer_count": 16,
+      "steady": {
+        "sent": 816,
+        "unique_received": 816,
+        "not_observed": 0
+      },
+      "overlapping_reload": {
+        "sent": 1648,
+        "unique_received": 1453,
+        "not_observed": 195,
+        "actual_sends_within_apply_interval": 207,
+        "echo_receives_within_apply_interval": 218
+      },
+      "apply_failures": [],
+      "packet_errors": [],
+      "bursts": {
+        "31": {
+          "sent": 496,
+          "unique_received": 227,
+          "not_observed": 269,
+          "duplicates": 0
+        },
+        "32": {
+          "sent": 512,
+          "unique_received": 146,
+          "not_observed": 366,
+          "duplicates": 0
+        },
+        "33": {
+          "sent": 528,
+          "unique_received": 210,
+          "not_observed": 318,
+          "duplicates": 0
+        }
+      },
+      "burst_errors": [],
+      "active_business_flows_peak_observed": 16,
+      "distinct_business_flow_ids_observed": 272,
+      "echo_correlated_direct_fd_peak_sampled": 16,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 272,
+      "process_fd_peak_sampled": 29,
+      "process_udp_fd_peak_sampled": 17,
+      "kernel_vmhwm_max_observed_bytes": 69754880,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 193536,
+      "ingress_inode_observed_in_all_samples_with_udp": true,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          51099
+        ],
+        [
+          "127.0.0.2",
+          51099
+        ],
+        [
+          "::1",
+          51099
+        ]
+      ],
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "sample_count": 1390,
+      "errors": [],
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 536318614
+      }
+    },
+    {
+      "trial": 1,
+      "payload_bytes": 1024,
+      "actual_source_peer_count": 16,
+      "steady": {
+        "sent": 816,
+        "unique_received": 816,
+        "not_observed": 0
+      },
+      "overlapping_reload": {
+        "sent": 1712,
+        "unique_received": 1436,
+        "not_observed": 276,
+        "actual_sends_within_apply_interval": 272,
+        "echo_receives_within_apply_interval": 157
+      },
+      "apply_failures": [],
+      "packet_errors": [],
+      "bursts": {
+        "31": {
+          "sent": 496,
+          "unique_received": 236,
+          "not_observed": 260,
+          "duplicates": 0
+        },
+        "32": {
+          "sent": 512,
+          "unique_received": 141,
+          "not_observed": 371,
+          "duplicates": 0
+        },
+        "33": {
+          "sent": 528,
+          "unique_received": 165,
+          "not_observed": 363,
+          "duplicates": 0
+        }
+      },
+      "burst_errors": [],
+      "active_business_flows_peak_observed": 16,
+      "distinct_business_flow_ids_observed": 272,
+      "echo_correlated_direct_fd_peak_sampled": 16,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 272,
+      "process_fd_peak_sampled": 29,
+      "process_udp_fd_peak_sampled": 17,
+      "kernel_vmhwm_max_observed_bytes": 68501504,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 211968,
+      "ingress_inode_observed_in_all_samples_with_udp": true,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          41018
+        ],
+        [
+          "127.0.0.2",
+          41018
+        ],
+        [
+          "::1",
+          41018
+        ]
+      ],
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "sample_count": 1380,
+      "errors": [],
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 167552967
+      }
+    },
+    {
+      "trial": 2,
+      "payload_bytes": 1024,
+      "actual_source_peer_count": 16,
+      "steady": {
+        "sent": 816,
+        "unique_received": 816,
+        "not_observed": 0
+      },
+      "overlapping_reload": {
+        "sent": 1616,
+        "unique_received": 1413,
+        "not_observed": 203,
+        "actual_sends_within_apply_interval": 188,
+        "echo_receives_within_apply_interval": 214
+      },
+      "apply_failures": [],
+      "packet_errors": [],
+      "bursts": {
+        "31": {
+          "sent": 496,
+          "unique_received": 200,
+          "not_observed": 296,
+          "duplicates": 0
+        },
+        "32": {
+          "sent": 512,
+          "unique_received": 227,
+          "not_observed": 285,
+          "duplicates": 0
+        },
+        "33": {
+          "sent": 528,
+          "unique_received": 174,
+          "not_observed": 354,
+          "duplicates": 0
+        }
+      },
+      "burst_errors": [],
+      "active_business_flows_peak_observed": 16,
+      "distinct_business_flow_ids_observed": 272,
+      "echo_correlated_direct_fd_peak_sampled": 16,
+      "distinct_echo_correlated_direct_socket_inodes_sampled": 272,
+      "process_fd_peak_sampled": 29,
+      "process_udp_fd_peak_sampled": 17,
+      "kernel_vmhwm_max_observed_bytes": 68980736,
+      "native_threads_peak_sampled": 5,
+      "own_udp_kernel_rx_queue_peak_sampled_bytes": 211968,
+      "ingress_inode_observed_in_all_samples_with_udp": true,
+      "egress_generations_observed": [
+        0
+      ],
+      "actual_wire_targets": [
+        [
+          "127.0.0.1",
+          37160
+        ],
+        [
+          "127.0.0.2",
+          37160
+        ],
+        [
+          "::1",
+          37160
+        ]
+      ],
+      "tokio_task_peak": null,
+      "user_queue_bytes_peak": null,
+      "exact_native_open_attempts": null,
+      "sample_count": 1290,
+      "errors": [],
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 119851467
+      }
+    }
+  ],
+  "original_summary_exit_code": 1,
+  "original_summary_failure_not_overwritten": true
+}

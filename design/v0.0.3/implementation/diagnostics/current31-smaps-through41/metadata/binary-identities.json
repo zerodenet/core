@@ -1,0 +1,30 @@
+{
+  "scope": "identity only; original binaries retained; no ELF copied/executed",
+  "binaries": [
+    {
+      "role": "old",
+      "path": "/workspace/core-baseline-artifacts/zero-release",
+      "bytes": 58579864,
+      "sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+      "archived": false,
+      "executed_by_this_preparation": false
+    },
+    {
+      "role": "new",
+      "path": "/workspace/core-baseline-artifacts/zero-matched-current-9e3f3ed3",
+      "bytes": 64142136,
+      "sha256": "b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd",
+      "archived": false,
+      "executed_by_this_preparation": false
+    },
+    {
+      "role": "root41-single-packet",
+      "path": "/workspace/core-baseline-artifacts/zero-platform-root41-packet-proof",
+      "bytes": 11977680,
+      "sha256": "4b12815f90c5106fea998da3b0e48699ce2dc1f12f9712eca9bdaa6af8a30dd5",
+      "archived": false,
+      "executed_by_this_preparation": false
+    }
+  ],
+  "root41_packet_scope": "one explicit unsupported-probe case, one declared UDP listener socket/bind/close; no additional socket/connect in trace; not a benchmark or whole-head result"
+}

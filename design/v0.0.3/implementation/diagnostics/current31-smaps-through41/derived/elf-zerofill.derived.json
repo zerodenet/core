@@ -1,0 +1,1753 @@
+{
+  "scope": "saved absolute VMA ranges + actual frozen ELF program headers, no allocation inference",
+  "geometry": {
+    "old": {
+      "actual_binary_sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+      "source": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+      "load_segments": [
+        {
+          "kind": "LOAD",
+          "flags": 4,
+          "offset": 0,
+          "vaddr": 0,
+          "filesz": 14308800,
+          "memsz": 14308800,
+          "align": 4096
+        },
+        {
+          "kind": "LOAD",
+          "flags": 5,
+          "offset": 14308800,
+          "vaddr": 14312896,
+          "filesz": 42471920,
+          "memsz": 42471920,
+          "align": 4096
+        },
+        {
+          "kind": "LOAD",
+          "flags": 6,
+          "offset": 56780720,
+          "vaddr": 56788912,
+          "filesz": 1736776,
+          "memsz": 1738832,
+          "align": 4096
+        },
+        {
+          "kind": "LOAD",
+          "flags": 6,
+          "offset": 58517496,
+          "vaddr": 58529784,
+          "filesz": 59760,
+          "memsz": 93036,
+          "align": 4096
+        }
+      ],
+      "total_load_memsz_minus_filesz_bytes": 35332,
+      "trials": [
+        {
+          "trial": 0,
+          "accounts": [
+            {
+              "label": "ready_before_first_apply",
+              "candidate_load_bias": 94422297681920,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94422356207608,
+                  "end": 94422356209664,
+                  "page_cover_start": 94422356205568,
+                  "whole_anon_pages_start": 94422356209664,
+                  "page_cover_end": 94422356209664,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94422356271464,
+                  "end": 94422356304740,
+                  "page_cover_start": 94422356271104,
+                  "whole_anon_pages_start": 94422356275200,
+                  "page_cover_end": 94422356307968,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_0",
+              "candidate_load_bias": 94422297681920,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94422356207608,
+                  "end": 94422356209664,
+                  "page_cover_start": 94422356205568,
+                  "whole_anon_pages_start": 94422356209664,
+                  "page_cover_end": 94422356209664,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94422356271464,
+                  "end": 94422356304740,
+                  "page_cover_start": 94422356271104,
+                  "whole_anon_pages_start": 94422356275200,
+                  "page_cover_end": 94422356307968,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_8",
+              "candidate_load_bias": 94422297681920,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94422356207608,
+                  "end": 94422356209664,
+                  "page_cover_start": 94422356205568,
+                  "whole_anon_pages_start": 94422356209664,
+                  "page_cover_end": 94422356209664,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94422356271464,
+                  "end": 94422356304740,
+                  "page_cover_start": 94422356271104,
+                  "whole_anon_pages_start": 94422356275200,
+                  "page_cover_end": 94422356307968,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_16",
+              "candidate_load_bias": 94422297681920,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94422356207608,
+                  "end": 94422356209664,
+                  "page_cover_start": 94422356205568,
+                  "whole_anon_pages_start": 94422356209664,
+                  "page_cover_end": 94422356209664,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94422356271464,
+                  "end": 94422356304740,
+                  "page_cover_start": 94422356271104,
+                  "whole_anon_pages_start": 94422356275200,
+                  "page_cover_end": 94422356307968,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_burst_31",
+              "candidate_load_bias": 94422297681920,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94422356207608,
+                  "end": 94422356209664,
+                  "page_cover_start": 94422356205568,
+                  "whole_anon_pages_start": 94422356209664,
+                  "page_cover_end": 94422356209664,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94422356271464,
+                  "end": 94422356304740,
+                  "page_cover_start": 94422356271104,
+                  "whole_anon_pages_start": 94422356275200,
+                  "page_cover_end": 94422356307968,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_burst_32",
+              "candidate_load_bias": 94422297681920,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94422356207608,
+                  "end": 94422356209664,
+                  "page_cover_start": 94422356205568,
+                  "whole_anon_pages_start": 94422356209664,
+                  "page_cover_end": 94422356209664,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94422356271464,
+                  "end": 94422356304740,
+                  "page_cover_start": 94422356271104,
+                  "whole_anon_pages_start": 94422356275200,
+                  "page_cover_end": 94422356307968,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_burst_33",
+              "candidate_load_bias": 94422297681920,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94422356207608,
+                  "end": 94422356209664,
+                  "page_cover_start": 94422356205568,
+                  "whole_anon_pages_start": 94422356209664,
+                  "page_cover_end": 94422356209664,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94422356271464,
+                  "end": 94422356304740,
+                  "page_cover_start": 94422356271104,
+                  "whole_anon_pages_start": 94422356275200,
+                  "page_cover_end": 94422356307968,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "shutdown_begin",
+              "candidate_load_bias": 94422297681920,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94422356207608,
+                  "end": 94422356209664,
+                  "page_cover_start": 94422356205568,
+                  "whole_anon_pages_start": 94422356209664,
+                  "page_cover_end": 94422356209664,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94422356271464,
+                  "end": 94422356304740,
+                  "page_cover_start": 94422356271104,
+                  "whole_anon_pages_start": 94422356275200,
+                  "page_cover_end": 94422356307968,
+                  "exact_bytes": 33276
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "trial": 1,
+          "accounts": [
+            {
+              "label": "ready_before_first_apply",
+              "candidate_load_bias": 94236001513472,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94236060039160,
+                  "end": 94236060041216,
+                  "page_cover_start": 94236060037120,
+                  "whole_anon_pages_start": 94236060041216,
+                  "page_cover_end": 94236060041216,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94236060103016,
+                  "end": 94236060136292,
+                  "page_cover_start": 94236060102656,
+                  "whole_anon_pages_start": 94236060106752,
+                  "page_cover_end": 94236060139520,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_0",
+              "candidate_load_bias": 94236001513472,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94236060039160,
+                  "end": 94236060041216,
+                  "page_cover_start": 94236060037120,
+                  "whole_anon_pages_start": 94236060041216,
+                  "page_cover_end": 94236060041216,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94236060103016,
+                  "end": 94236060136292,
+                  "page_cover_start": 94236060102656,
+                  "whole_anon_pages_start": 94236060106752,
+                  "page_cover_end": 94236060139520,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_8",
+              "candidate_load_bias": 94236001513472,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94236060039160,
+                  "end": 94236060041216,
+                  "page_cover_start": 94236060037120,
+                  "whole_anon_pages_start": 94236060041216,
+                  "page_cover_end": 94236060041216,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94236060103016,
+                  "end": 94236060136292,
+                  "page_cover_start": 94236060102656,
+                  "whole_anon_pages_start": 94236060106752,
+                  "page_cover_end": 94236060139520,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_16",
+              "candidate_load_bias": 94236001513472,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94236060039160,
+                  "end": 94236060041216,
+                  "page_cover_start": 94236060037120,
+                  "whole_anon_pages_start": 94236060041216,
+                  "page_cover_end": 94236060041216,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94236060103016,
+                  "end": 94236060136292,
+                  "page_cover_start": 94236060102656,
+                  "whole_anon_pages_start": 94236060106752,
+                  "page_cover_end": 94236060139520,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_burst_31",
+              "candidate_load_bias": 94236001513472,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94236060039160,
+                  "end": 94236060041216,
+                  "page_cover_start": 94236060037120,
+                  "whole_anon_pages_start": 94236060041216,
+                  "page_cover_end": 94236060041216,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94236060103016,
+                  "end": 94236060136292,
+                  "page_cover_start": 94236060102656,
+                  "whole_anon_pages_start": 94236060106752,
+                  "page_cover_end": 94236060139520,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_burst_32",
+              "candidate_load_bias": 94236001513472,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94236060039160,
+                  "end": 94236060041216,
+                  "page_cover_start": 94236060037120,
+                  "whole_anon_pages_start": 94236060041216,
+                  "page_cover_end": 94236060041216,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94236060103016,
+                  "end": 94236060136292,
+                  "page_cover_start": 94236060102656,
+                  "whole_anon_pages_start": 94236060106752,
+                  "page_cover_end": 94236060139520,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_burst_33",
+              "candidate_load_bias": 94236001513472,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94236060039160,
+                  "end": 94236060041216,
+                  "page_cover_start": 94236060037120,
+                  "whole_anon_pages_start": 94236060041216,
+                  "page_cover_end": 94236060041216,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94236060103016,
+                  "end": 94236060136292,
+                  "page_cover_start": 94236060102656,
+                  "whole_anon_pages_start": 94236060106752,
+                  "page_cover_end": 94236060139520,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "shutdown_begin",
+              "candidate_load_bias": 94236001513472,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94236060039160,
+                  "end": 94236060041216,
+                  "page_cover_start": 94236060037120,
+                  "whole_anon_pages_start": 94236060041216,
+                  "page_cover_end": 94236060041216,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94236060103016,
+                  "end": 94236060136292,
+                  "page_cover_start": 94236060102656,
+                  "whole_anon_pages_start": 94236060106752,
+                  "page_cover_end": 94236060139520,
+                  "exact_bytes": 33276
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "trial": 2,
+          "accounts": [
+            {
+              "label": "ready_before_first_apply",
+              "candidate_load_bias": 94089853513728,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94089912039416,
+                  "end": 94089912041472,
+                  "page_cover_start": 94089912037376,
+                  "whole_anon_pages_start": 94089912041472,
+                  "page_cover_end": 94089912041472,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94089912103272,
+                  "end": 94089912136548,
+                  "page_cover_start": 94089912102912,
+                  "whole_anon_pages_start": 94089912107008,
+                  "page_cover_end": 94089912139776,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_0",
+              "candidate_load_bias": 94089853513728,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94089912039416,
+                  "end": 94089912041472,
+                  "page_cover_start": 94089912037376,
+                  "whole_anon_pages_start": 94089912041472,
+                  "page_cover_end": 94089912041472,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94089912103272,
+                  "end": 94089912136548,
+                  "page_cover_start": 94089912102912,
+                  "whole_anon_pages_start": 94089912107008,
+                  "page_cover_end": 94089912139776,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_8",
+              "candidate_load_bias": 94089853513728,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94089912039416,
+                  "end": 94089912041472,
+                  "page_cover_start": 94089912037376,
+                  "whole_anon_pages_start": 94089912041472,
+                  "page_cover_end": 94089912041472,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94089912103272,
+                  "end": 94089912136548,
+                  "page_cover_start": 94089912102912,
+                  "whole_anon_pages_start": 94089912107008,
+                  "page_cover_end": 94089912139776,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_16",
+              "candidate_load_bias": 94089853513728,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94089912039416,
+                  "end": 94089912041472,
+                  "page_cover_start": 94089912037376,
+                  "whole_anon_pages_start": 94089912041472,
+                  "page_cover_end": 94089912041472,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94089912103272,
+                  "end": 94089912136548,
+                  "page_cover_start": 94089912102912,
+                  "whole_anon_pages_start": 94089912107008,
+                  "page_cover_end": 94089912139776,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_burst_31",
+              "candidate_load_bias": 94089853513728,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94089912039416,
+                  "end": 94089912041472,
+                  "page_cover_start": 94089912037376,
+                  "whole_anon_pages_start": 94089912041472,
+                  "page_cover_end": 94089912041472,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94089912103272,
+                  "end": 94089912136548,
+                  "page_cover_start": 94089912102912,
+                  "whole_anon_pages_start": 94089912107008,
+                  "page_cover_end": 94089912139776,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_burst_32",
+              "candidate_load_bias": 94089853513728,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94089912039416,
+                  "end": 94089912041472,
+                  "page_cover_start": 94089912037376,
+                  "whole_anon_pages_start": 94089912041472,
+                  "page_cover_end": 94089912041472,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94089912103272,
+                  "end": 94089912136548,
+                  "page_cover_start": 94089912102912,
+                  "whole_anon_pages_start": 94089912107008,
+                  "page_cover_end": 94089912139776,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "after_burst_33",
+              "candidate_load_bias": 94089853513728,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94089912039416,
+                  "end": 94089912041472,
+                  "page_cover_start": 94089912037376,
+                  "whole_anon_pages_start": 94089912041472,
+                  "page_cover_end": 94089912041472,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94089912103272,
+                  "end": 94089912136548,
+                  "page_cover_start": 94089912102912,
+                  "whole_anon_pages_start": 94089912107008,
+                  "page_cover_end": 94089912139776,
+                  "exact_bytes": 33276
+                }
+              ]
+            },
+            {
+              "label": "shutdown_begin",
+              "candidate_load_bias": 94089853513728,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94089912039416,
+                  "end": 94089912041472,
+                  "page_cover_start": 94089912037376,
+                  "whole_anon_pages_start": 94089912041472,
+                  "page_cover_end": 94089912041472,
+                  "exact_bytes": 2056
+                },
+                {
+                  "start": 94089912103272,
+                  "end": 94089912136548,
+                  "page_cover_start": 94089912102912,
+                  "whole_anon_pages_start": 94089912107008,
+                  "page_cover_end": 94089912139776,
+                  "exact_bytes": 33276
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "new": {
+      "actual_binary_sha256": "b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd",
+      "source": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+      "load_segments": [
+        {
+          "kind": "LOAD",
+          "flags": 4,
+          "offset": 0,
+          "vaddr": 0,
+          "filesz": 15729940,
+          "memsz": 15729940,
+          "align": 4096
+        },
+        {
+          "kind": "LOAD",
+          "flags": 5,
+          "offset": 15729984,
+          "vaddr": 15734080,
+          "filesz": 46461104,
+          "memsz": 46461104,
+          "align": 4096
+        },
+        {
+          "kind": "LOAD",
+          "flags": 6,
+          "offset": 62191088,
+          "vaddr": 62199280,
+          "filesz": 1888328,
+          "memsz": 1890832,
+          "align": 4096
+        },
+        {
+          "kind": "LOAD",
+          "flags": 6,
+          "offset": 64079416,
+          "vaddr": 64091704,
+          "filesz": 60112,
+          "memsz": 93484,
+          "align": 4096
+        }
+      ],
+      "total_load_memsz_minus_filesz_bytes": 35876,
+      "trials": [
+        {
+          "trial": 0,
+          "accounts": [
+            {
+              "label": "ready_before_first_apply",
+              "candidate_load_bias": 94096296566784,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94096360654392,
+                  "end": 94096360656896,
+                  "page_cover_start": 94096360652800,
+                  "whole_anon_pages_start": 94096360656896,
+                  "page_cover_end": 94096360656896,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94096360718600,
+                  "end": 94096360751972,
+                  "page_cover_start": 94096360718336,
+                  "whole_anon_pages_start": 94096360722432,
+                  "page_cover_end": 94096360755200,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_0",
+              "candidate_load_bias": 94096296566784,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94096360654392,
+                  "end": 94096360656896,
+                  "page_cover_start": 94096360652800,
+                  "whole_anon_pages_start": 94096360656896,
+                  "page_cover_end": 94096360656896,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94096360718600,
+                  "end": 94096360751972,
+                  "page_cover_start": 94096360718336,
+                  "whole_anon_pages_start": 94096360722432,
+                  "page_cover_end": 94096360755200,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_8",
+              "candidate_load_bias": 94096296566784,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94096360654392,
+                  "end": 94096360656896,
+                  "page_cover_start": 94096360652800,
+                  "whole_anon_pages_start": 94096360656896,
+                  "page_cover_end": 94096360656896,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94096360718600,
+                  "end": 94096360751972,
+                  "page_cover_start": 94096360718336,
+                  "whole_anon_pages_start": 94096360722432,
+                  "page_cover_end": 94096360755200,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_16",
+              "candidate_load_bias": 94096296566784,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94096360654392,
+                  "end": 94096360656896,
+                  "page_cover_start": 94096360652800,
+                  "whole_anon_pages_start": 94096360656896,
+                  "page_cover_end": 94096360656896,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94096360718600,
+                  "end": 94096360751972,
+                  "page_cover_start": 94096360718336,
+                  "whole_anon_pages_start": 94096360722432,
+                  "page_cover_end": 94096360755200,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_burst_31",
+              "candidate_load_bias": 94096296566784,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94096360654392,
+                  "end": 94096360656896,
+                  "page_cover_start": 94096360652800,
+                  "whole_anon_pages_start": 94096360656896,
+                  "page_cover_end": 94096360656896,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94096360718600,
+                  "end": 94096360751972,
+                  "page_cover_start": 94096360718336,
+                  "whole_anon_pages_start": 94096360722432,
+                  "page_cover_end": 94096360755200,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_burst_32",
+              "candidate_load_bias": 94096296566784,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94096360654392,
+                  "end": 94096360656896,
+                  "page_cover_start": 94096360652800,
+                  "whole_anon_pages_start": 94096360656896,
+                  "page_cover_end": 94096360656896,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94096360718600,
+                  "end": 94096360751972,
+                  "page_cover_start": 94096360718336,
+                  "whole_anon_pages_start": 94096360722432,
+                  "page_cover_end": 94096360755200,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_burst_33",
+              "candidate_load_bias": 94096296566784,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94096360654392,
+                  "end": 94096360656896,
+                  "page_cover_start": 94096360652800,
+                  "whole_anon_pages_start": 94096360656896,
+                  "page_cover_end": 94096360656896,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94096360718600,
+                  "end": 94096360751972,
+                  "page_cover_start": 94096360718336,
+                  "whole_anon_pages_start": 94096360722432,
+                  "page_cover_end": 94096360755200,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "shutdown_begin",
+              "candidate_load_bias": 94096296566784,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94096360654392,
+                  "end": 94096360656896,
+                  "page_cover_start": 94096360652800,
+                  "whole_anon_pages_start": 94096360656896,
+                  "page_cover_end": 94096360656896,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94096360718600,
+                  "end": 94096360751972,
+                  "page_cover_start": 94096360718336,
+                  "whole_anon_pages_start": 94096360722432,
+                  "page_cover_end": 94096360755200,
+                  "exact_bytes": 33372
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "trial": 1,
+          "accounts": [
+            {
+              "label": "ready_before_first_apply",
+              "candidate_load_bias": 94695476064256,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94695540151864,
+                  "end": 94695540154368,
+                  "page_cover_start": 94695540150272,
+                  "whole_anon_pages_start": 94695540154368,
+                  "page_cover_end": 94695540154368,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94695540216072,
+                  "end": 94695540249444,
+                  "page_cover_start": 94695540215808,
+                  "whole_anon_pages_start": 94695540219904,
+                  "page_cover_end": 94695540252672,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_0",
+              "candidate_load_bias": 94695476064256,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94695540151864,
+                  "end": 94695540154368,
+                  "page_cover_start": 94695540150272,
+                  "whole_anon_pages_start": 94695540154368,
+                  "page_cover_end": 94695540154368,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94695540216072,
+                  "end": 94695540249444,
+                  "page_cover_start": 94695540215808,
+                  "whole_anon_pages_start": 94695540219904,
+                  "page_cover_end": 94695540252672,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_8",
+              "candidate_load_bias": 94695476064256,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94695540151864,
+                  "end": 94695540154368,
+                  "page_cover_start": 94695540150272,
+                  "whole_anon_pages_start": 94695540154368,
+                  "page_cover_end": 94695540154368,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94695540216072,
+                  "end": 94695540249444,
+                  "page_cover_start": 94695540215808,
+                  "whole_anon_pages_start": 94695540219904,
+                  "page_cover_end": 94695540252672,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_16",
+              "candidate_load_bias": 94695476064256,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94695540151864,
+                  "end": 94695540154368,
+                  "page_cover_start": 94695540150272,
+                  "whole_anon_pages_start": 94695540154368,
+                  "page_cover_end": 94695540154368,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94695540216072,
+                  "end": 94695540249444,
+                  "page_cover_start": 94695540215808,
+                  "whole_anon_pages_start": 94695540219904,
+                  "page_cover_end": 94695540252672,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_burst_31",
+              "candidate_load_bias": 94695476064256,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94695540151864,
+                  "end": 94695540154368,
+                  "page_cover_start": 94695540150272,
+                  "whole_anon_pages_start": 94695540154368,
+                  "page_cover_end": 94695540154368,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94695540216072,
+                  "end": 94695540249444,
+                  "page_cover_start": 94695540215808,
+                  "whole_anon_pages_start": 94695540219904,
+                  "page_cover_end": 94695540252672,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_burst_32",
+              "candidate_load_bias": 94695476064256,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94695540151864,
+                  "end": 94695540154368,
+                  "page_cover_start": 94695540150272,
+                  "whole_anon_pages_start": 94695540154368,
+                  "page_cover_end": 94695540154368,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94695540216072,
+                  "end": 94695540249444,
+                  "page_cover_start": 94695540215808,
+                  "whole_anon_pages_start": 94695540219904,
+                  "page_cover_end": 94695540252672,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_burst_33",
+              "candidate_load_bias": 94695476064256,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94695540151864,
+                  "end": 94695540154368,
+                  "page_cover_start": 94695540150272,
+                  "whole_anon_pages_start": 94695540154368,
+                  "page_cover_end": 94695540154368,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94695540216072,
+                  "end": 94695540249444,
+                  "page_cover_start": 94695540215808,
+                  "whole_anon_pages_start": 94695540219904,
+                  "page_cover_end": 94695540252672,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "shutdown_begin",
+              "candidate_load_bias": 94695476064256,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 94695540151864,
+                  "end": 94695540154368,
+                  "page_cover_start": 94695540150272,
+                  "whole_anon_pages_start": 94695540154368,
+                  "page_cover_end": 94695540154368,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 94695540216072,
+                  "end": 94695540249444,
+                  "page_cover_start": 94695540215808,
+                  "whole_anon_pages_start": 94695540219904,
+                  "page_cover_end": 94695540252672,
+                  "exact_bytes": 33372
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "trial": 2,
+          "accounts": [
+            {
+              "label": "ready_before_first_apply",
+              "candidate_load_bias": 93957507108864,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 93957571196472,
+                  "end": 93957571198976,
+                  "page_cover_start": 93957571194880,
+                  "whole_anon_pages_start": 93957571198976,
+                  "page_cover_end": 93957571198976,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 93957571260680,
+                  "end": 93957571294052,
+                  "page_cover_start": 93957571260416,
+                  "whole_anon_pages_start": 93957571264512,
+                  "page_cover_end": 93957571297280,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_0",
+              "candidate_load_bias": 93957507108864,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 93957571196472,
+                  "end": 93957571198976,
+                  "page_cover_start": 93957571194880,
+                  "whole_anon_pages_start": 93957571198976,
+                  "page_cover_end": 93957571198976,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 93957571260680,
+                  "end": 93957571294052,
+                  "page_cover_start": 93957571260416,
+                  "whole_anon_pages_start": 93957571264512,
+                  "page_cover_end": 93957571297280,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_8",
+              "candidate_load_bias": 93957507108864,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 93957571196472,
+                  "end": 93957571198976,
+                  "page_cover_start": 93957571194880,
+                  "whole_anon_pages_start": 93957571198976,
+                  "page_cover_end": 93957571198976,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 93957571260680,
+                  "end": 93957571294052,
+                  "page_cover_start": 93957571260416,
+                  "whole_anon_pages_start": 93957571264512,
+                  "page_cover_end": 93957571297280,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_rotation_16",
+              "candidate_load_bias": 93957507108864,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 93957571196472,
+                  "end": 93957571198976,
+                  "page_cover_start": 93957571194880,
+                  "whole_anon_pages_start": 93957571198976,
+                  "page_cover_end": 93957571198976,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 93957571260680,
+                  "end": 93957571294052,
+                  "page_cover_start": 93957571260416,
+                  "whole_anon_pages_start": 93957571264512,
+                  "page_cover_end": 93957571297280,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_burst_31",
+              "candidate_load_bias": 93957507108864,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 93957571196472,
+                  "end": 93957571198976,
+                  "page_cover_start": 93957571194880,
+                  "whole_anon_pages_start": 93957571198976,
+                  "page_cover_end": 93957571198976,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 93957571260680,
+                  "end": 93957571294052,
+                  "page_cover_start": 93957571260416,
+                  "whole_anon_pages_start": 93957571264512,
+                  "page_cover_end": 93957571297280,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_burst_32",
+              "candidate_load_bias": 93957507108864,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 93957571196472,
+                  "end": 93957571198976,
+                  "page_cover_start": 93957571194880,
+                  "whole_anon_pages_start": 93957571198976,
+                  "page_cover_end": 93957571198976,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 93957571260680,
+                  "end": 93957571294052,
+                  "page_cover_start": 93957571260416,
+                  "whole_anon_pages_start": 93957571264512,
+                  "page_cover_end": 93957571297280,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "after_burst_33",
+              "candidate_load_bias": 93957507108864,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 93957571196472,
+                  "end": 93957571198976,
+                  "page_cover_start": 93957571194880,
+                  "whole_anon_pages_start": 93957571198976,
+                  "page_cover_end": 93957571198976,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 93957571260680,
+                  "end": 93957571294052,
+                  "page_cover_start": 93957571260416,
+                  "whole_anon_pages_start": 93957571264512,
+                  "page_cover_end": 93957571297280,
+                  "exact_bytes": 33372
+                }
+              ]
+            },
+            {
+              "label": "shutdown_begin",
+              "candidate_load_bias": 93957507108864,
+              "main_elf_zerofill_intervals": [
+                {
+                  "start": 93957571196472,
+                  "end": 93957571198976,
+                  "page_cover_start": 93957571194880,
+                  "whole_anon_pages_start": 93957571198976,
+                  "page_cover_end": 93957571198976,
+                  "exact_bytes": 2504
+                },
+                {
+                  "start": 93957571260680,
+                  "end": 93957571294052,
+                  "page_cover_start": 93957571260416,
+                  "whole_anon_pages_start": 93957571264512,
+                  "page_cover_end": 93957571297280,
+                  "exact_bytes": 33372
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "candidate_5888kib_mapping_observations": [
+    {
+      "role": "new",
+      "trial": 0,
+      "label": "after_rotation_0",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-0/memory/02-after_rotation_0/mapping-account.json",
+      "load_bias": 94096296566784,
+      "start": 139820922515456,
+      "end": 139820928544768,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 0,
+      "label": "after_rotation_8",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-0/memory/03-after_rotation_8/mapping-account.json",
+      "load_bias": 94096296566784,
+      "start": 139820922515456,
+      "end": 139820928544768,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 0,
+      "label": "after_rotation_16",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-0/memory/04-after_rotation_16/mapping-account.json",
+      "load_bias": 94096296566784,
+      "start": 139820922515456,
+      "end": 139820928544768,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 0,
+      "label": "after_burst_31",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-0/memory/05-after_burst_31/mapping-account.json",
+      "load_bias": 94096296566784,
+      "start": 139820922515456,
+      "end": 139820928544768,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 0,
+      "label": "after_burst_32",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-0/memory/06-after_burst_32/mapping-account.json",
+      "load_bias": 94096296566784,
+      "start": 139820922515456,
+      "end": 139820928544768,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 0,
+      "label": "after_burst_33",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-0/memory/07-after_burst_33/mapping-account.json",
+      "load_bias": 94096296566784,
+      "start": 139820922515456,
+      "end": 139820928544768,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 0,
+      "label": "shutdown_begin",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-0/memory/08-shutdown_begin/mapping-account.json",
+      "load_bias": 94096296566784,
+      "start": 139820922515456,
+      "end": 139820928544768,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 1,
+      "label": "after_rotation_0",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-1/memory/02-after_rotation_0/mapping-account.json",
+      "load_bias": 94695476064256,
+      "start": 140277458251776,
+      "end": 140277464281088,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 1,
+      "label": "after_rotation_8",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-1/memory/03-after_rotation_8/mapping-account.json",
+      "load_bias": 94695476064256,
+      "start": 140277458251776,
+      "end": 140277464281088,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 1,
+      "label": "after_rotation_16",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-1/memory/04-after_rotation_16/mapping-account.json",
+      "load_bias": 94695476064256,
+      "start": 140277458251776,
+      "end": 140277464281088,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 1,
+      "label": "after_burst_31",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-1/memory/05-after_burst_31/mapping-account.json",
+      "load_bias": 94695476064256,
+      "start": 140277458251776,
+      "end": 140277464281088,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 1,
+      "label": "after_burst_32",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-1/memory/06-after_burst_32/mapping-account.json",
+      "load_bias": 94695476064256,
+      "start": 140277458251776,
+      "end": 140277464281088,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 1,
+      "label": "after_burst_33",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-1/memory/07-after_burst_33/mapping-account.json",
+      "load_bias": 94695476064256,
+      "start": 140277458251776,
+      "end": 140277464281088,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 1,
+      "label": "shutdown_begin",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-1/memory/08-shutdown_begin/mapping-account.json",
+      "load_bias": 94695476064256,
+      "start": 140277458251776,
+      "end": 140277464281088,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 2,
+      "label": "after_rotation_0",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-2/memory/02-after_rotation_0/mapping-account.json",
+      "load_bias": 93957507108864,
+      "start": 140134399606784,
+      "end": 140134405636096,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 2,
+      "label": "after_rotation_8",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-2/memory/03-after_rotation_8/mapping-account.json",
+      "load_bias": 93957507108864,
+      "start": 140134399606784,
+      "end": 140134405636096,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 2,
+      "label": "after_rotation_16",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-2/memory/04-after_rotation_16/mapping-account.json",
+      "load_bias": 93957507108864,
+      "start": 140134399606784,
+      "end": 140134405636096,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 2,
+      "label": "after_burst_31",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-2/memory/05-after_burst_31/mapping-account.json",
+      "load_bias": 93957507108864,
+      "start": 140134399606784,
+      "end": 140134405636096,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 2,
+      "label": "after_burst_32",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-2/memory/06-after_burst_32/mapping-account.json",
+      "load_bias": 93957507108864,
+      "start": 140134399606784,
+      "end": 140134405636096,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 2,
+      "label": "after_burst_33",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-2/memory/07-after_burst_33/mapping-account.json",
+      "load_bias": 93957507108864,
+      "start": 140134399606784,
+      "end": 140134405636096,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    },
+    {
+      "role": "new",
+      "trial": 2,
+      "label": "shutdown_begin",
+      "account_path": "/workspace/core-next/current31-smaps-diagnostic-run-after-authorization/new/data/trial-2/memory/08-shutdown_begin/mapping-account.json",
+      "load_bias": 93957507108864,
+      "start": 140134399606784,
+      "end": 140134405636096,
+      "permissions": "rw-p",
+      "metrics_bytes": {
+        "Size": 6029312,
+        "Rss": 6029312,
+        "Pss": 6029312,
+        "Shared_Clean": 0,
+        "Shared_Dirty": 0,
+        "Private_Clean": 0,
+        "Private_Dirty": 6029312,
+        "Anonymous": 6029312,
+        "Swap": 0,
+        "SwapPss": 0,
+        "Locked": 0
+      },
+      "main_elf_exact_zerofill_overlap_bytes": 0,
+      "main_elf_zerofill_page_cover_overlap_bytes": 0,
+      "main_elf_any_load_overlap_bytes": 0,
+      "classification": "anonymous; proven outside all main ELF PT_LOAD and zero-fill/page-cover intervals; allocation purpose unknown"
+    }
+  ],
+  "conclusion": "5888KiB anonymous VMA is outside all actual main ELF LOAD/zero-fill ranges in all21 observations; total ELF zero-fill delta is only544bytes, so it is not main ELF BSS zero-fill backing",
+  "no_proportional_rss_split": true,
+  "no_product_or_cargo_execution": true
+}

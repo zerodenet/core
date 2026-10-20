@@ -1,0 +1,11 @@
+    Checking zero-platform-tokio v0.0.3-dev.202610162206 (/workspace/core/crates/platform/tokio)
+warning: unused imports: `future::Future` and `task::Poll`
+ --> crates/platform/tokio/src/../tests/controlled_carrier/opening.rs:2:11
+  |
+2 | use std::{future::Future, task::Poll};
+  |           ^^^^^^^^^^^^^^  ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zero-platform-tokio` (lib test) generated 1 warning (run `cargo fix --lib -p zero-platform-tokio --tests` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized] target(s) in 2.86s

@@ -1,0 +1,123 @@
+{
+  "status": "PREPARED_ONLY_NOT_EXECUTED",
+  "authorization": "Do not execute before root explicitly confirms CARGOFINISHED and authorizes this diagnostic",
+  "scope": "Separate additive diagnostic; no original resource qualification or causal/allocator conclusion",
+  "image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+  "cpu_max": "100000 100000",
+  "memory_max": 1073741824,
+  "memory_swap_max": 0,
+  "binary": {
+    "old": {
+      "path": "/workspace/core-baseline-artifacts/zero-release",
+      "sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+      "source": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a"
+    },
+    "new": {
+      "path": "/workspace/core-baseline-artifacts/zero-matched-current-9e3f3ed3",
+      "sha256": "b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd",
+      "source": "9e3f3ed33024e32f61685b0bff5bb4611f365109"
+    }
+  },
+  "features": [
+    "status-api",
+    "event-dispatcher",
+    "sink-jsonl",
+    "connector",
+    "grpc-api",
+    "host-network-stats",
+    "http",
+    "hysteria2",
+    "mieru",
+    "mixed",
+    "shadowsocks",
+    "socks5",
+    "trojan",
+    "vless",
+    "vmess",
+    "wireguard",
+    "dns"
+  ],
+  "load": {
+    "trials_per_binary": 3,
+    "source_peers": 16,
+    "payload_bytes": 1024,
+    "rotations": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "bursts_per_source": [
+      31,
+      32,
+      33
+    ]
+  },
+  "sampling": {
+    "light_interval_seconds": 0.01,
+    "max_proc_file_bytes": 16777216,
+    "full_points": [
+      "ready_before_first_apply",
+      "after_rotation_0",
+      "after_rotation_8",
+      "after_rotation_16",
+      "after_burst_31",
+      "after_burst_32",
+      "after_burst_33",
+      "shutdown_begin"
+    ],
+    "light_points": [
+      "popen_return",
+      "shutdown_after_stdin_close",
+      "process_exit_or_unavailable"
+    ],
+    "load_pause": "Full snapshots run synchronously between completed workload phases; added pauses are explicitly timed and not comparable to original throughput/latency"
+  },
+  "baseline_script_sha256": {
+    "fanin.py": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+    "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+    "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+    "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+    "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7",
+    "summarize_fanin.py": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69"
+  },
+  "estimated_seconds": {
+    "original_six_trials_observed": [
+      17.397809362,
+      20.394473257
+    ],
+    "pair_wall_time_estimate": [
+      180,
+      300
+    ],
+    "hard_watchdog_per_container": 1800
+  },
+  "estimated_disk_bytes": {
+    "baseline_raw_data_observed": 134929743,
+    "reserve_for_new_diagnostic": 419430400,
+    "binary_copies": 0
+  },
+  "unchanged_operation_timeouts_seconds": {
+    "readiness": 20,
+    "ipc": 10,
+    "collect": 1,
+    "sender_started": 2,
+    "sender_join": 3,
+    "shutdown_wait": 15,
+    "terminate_wait": 3,
+    "kill_wait": 3
+  }
+}

@@ -1,0 +1,249 @@
+{
+  "head": "7e1b9986bec750905350472f3392e49efdce894b",
+  "tree": "d234bda1a850c56d94413d52f50e21ba7e08beb0",
+  "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 4.438133487012237,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-fmt.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": null,
+      "selected_test_count": 0,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "workspace-alltargets-check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--all-targets"
+      ],
+      "exit": 0,
+      "seconds": 91.96204884699546,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-workspace-alltargets-check.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": null,
+      "selected_test_count": 0,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "test-layout",
+      "argv": [
+        "python3",
+        "scripts/check-test-layout.py"
+      ],
+      "exit": 0,
+      "seconds": 0.11587880700244568,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-test-layout.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": null,
+      "selected_test_count": 0,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "platform-unit",
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "zero-platform-tokio",
+        "--all-features",
+        "--lib"
+      ],
+      "exit": 0,
+      "seconds": 4.592279748991132,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-platform-unit.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": [
+        124,
+        0,
+        1
+      ],
+      "selected_test_count": 125,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "platform-contracts-all",
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "zero-platform-tokio",
+        "--all-features",
+        "--test",
+        "platform_contracts"
+      ],
+      "exit": 0,
+      "seconds": 3.319682865010691,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-platform-contracts-all.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": [
+        82,
+        0,
+        0
+      ],
+      "selected_test_count": 82,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "windows-platform",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "zero-platform-tokio",
+        "--tests",
+        "--target",
+        "x86_64-pc-windows-gnu"
+      ],
+      "exit": 0,
+      "seconds": 2.893608819998917,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-windows-platform.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": null,
+      "selected_test_count": 0,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "transport-library",
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "zero-transport",
+        "--all-features",
+        "--lib"
+      ],
+      "exit": 0,
+      "seconds": 27.51810715001193,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-transport-library.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": [
+        195,
+        0,
+        1
+      ],
+      "selected_test_count": 196,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "proxy-library",
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "zero-proxy",
+        "--all-features",
+        "--lib"
+      ],
+      "exit": 0,
+      "seconds": 179.55105870999978,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-proxy-library.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": [
+        652,
+        0,
+        2
+      ],
+      "selected_test_count": 654,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "source-runtime-guard",
+      "argv": [
+        "python3",
+        "/workspace/core-next/run-source-guard.py",
+        "runtime"
+      ],
+      "exit": 0,
+      "seconds": 1.2700122159876628,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-source-runtime-guard.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": [
+        189,
+        0,
+        0
+      ],
+      "selected_test_count": 189,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "source-architecture-guard",
+      "argv": [
+        "python3",
+        "/workspace/core-next/run-source-guard.py",
+        "architecture"
+      ],
+      "exit": 0,
+      "seconds": 0.352520922999247,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-source-architecture-guard.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": [
+        26,
+        0,
+        0
+      ],
+      "selected_test_count": 26,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "strict",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 101,
+      "seconds": 11.17471754399594,
+      "log": "/workspace/core-baseline-artifacts/pr05-parallel-focused-41-strict.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "counts": null,
+      "selected_test_count": 0,
+      "coverage_ok": true,
+      "lock_unchanged": true
+    }
+  ]
+}
