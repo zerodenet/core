@@ -14,7 +14,7 @@ fn declaration(address: SocketAddr, attempts: usize) -> ResourceDeclaration {
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(3)
 }
-fn original_io(mut error: &(dyn Error + 'static)) -> &std::io::Error {
+fn original_io<'a>(mut error: &'a (dyn Error + 'static)) -> &'a std::io::Error {
     loop {
         if let Some(source) = error.downcast_ref::<std::io::Error>() {
             return source;
