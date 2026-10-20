@@ -94,6 +94,7 @@ impl MetadataOwner {
             state,
             pollers,
             sends: tokio::sync::Semaphore::new(self.limits.concurrent_send_calls.get()),
+            send_limit: self.limits.concurrent_send_calls,
         });
         self.views
             .insert(shared.socket.reservation(), shared.clone());

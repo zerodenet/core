@@ -23,7 +23,6 @@ impl MetadataDatagramTx {
         })?;
         validate(transmit, self.shared.capabilities()).map_err(MetadataSendFailure::local)?;
         let (result, observer) = send_native(&self.shared, transmit);
-        drop(_admission);
         observation::send(observer, &result, transmit.segment_size);
         result
     }

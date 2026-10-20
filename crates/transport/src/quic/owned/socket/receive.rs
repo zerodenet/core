@@ -20,6 +20,7 @@ impl MetadataSocket {
         buffers: &mut [io::IoSliceMut<'_>],
         metadata: &mut [quinn::udp::RecvMeta],
     ) -> Poll<io::Result<usize>> {
+        self.callbacks.check()?;
         let count = buffers.len().min(quinn::udp::BATCH_SIZE);
         if count == 0 || metadata.len() < count {
             return Poll::Ready(Err(io::Error::new(

@@ -9,6 +9,7 @@ use zero_platform_tokio::controlled_datagram::metadata::{
 mod poller;
 mod receive;
 mod send;
+use super::callbacks;
 use send::NativeDrops;
 
 /// Actual native ownership, separate from endpoint/connection task and user
@@ -17,6 +18,7 @@ pub struct MetadataSocketOwner {
     owner: MetadataOwner,
     control: MetadataDatagramControl,
     socket: Arc<MetadataSocket>,
+    pub(super) callbacks: Arc<callbacks::Broker>,
 }
 /// Failed composition returns both original owners/views to its caller.
 pub struct RejectedMetadataSocket {
@@ -39,6 +41,16 @@ impl MetadataSocketOwner {
                 grant,
             }));
         }
+        let callbacks = match callbacks::Broker::new(grant.tx.max_concurrent_send_calls().get()) {
+            Ok(callbacks) => callbacks,
+            Err(error) => {
+                return Err(Box::new(RejectedMetadataSocket {
+                    error,
+                    owner,
+                    grant,
+                }))
+            }
+        };
         let GrantedMetadataDatagram { rx, tx, control } = grant;
         Ok(Self {
             owner,
@@ -47,7 +59,9 @@ impl MetadataSocketOwner {
                 receiver: Mutex::new(Some(rx)),
                 sender: tx,
                 drops: Mutex::new(NativeDrops::default()),
+                callbacks: callbacks.clone(),
             }),
+            callbacks,
         })
     }
     /// Only an abstract metadata socket escapes, never the original FD, RX or
@@ -59,7 +73,30 @@ impl MetadataSocketOwner {
         &mut self,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<()> {
-        self.control.set_observer(observer)
+        if self.callbacks.failed() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "metadata observation has faulted",
+            ));
+        }
+        self.control.set_observer(observer.map(|observer| {
+            Arc::new(callbacks::Observer::new(observer, self.callbacks.clone()))
+                as Arc<dyn zero_traits::IoObserver>
+        }))
+    }
+    pub fn observer_faulted(&self) -> bool {
+        self.callbacks.failed()
+    }
+    pub fn observer_coverage_lost(&self) -> bool {
+        self.callbacks.coverage_lost()
+    }
+    /// Explicitly receive an additional original observer panic. Native close
+    /// does not accept or erase this payload. The caller chooses its handoff.
+    pub fn take_suppressed_observer_panic(&mut self) -> Option<Box<dyn std::any::Any + Send>> {
+        self.callbacks.take_suppressed()
+    }
+    pub fn suppressed_observer_panics(&self) -> usize {
+        self.callbacks.suppressed_count()
     }
     pub fn revoke_io(&self) {
         self.control.revoke();
@@ -90,6 +127,7 @@ struct MetadataSocket {
     receiver: Mutex<Option<MetadataDatagramRx>>,
     sender: MetadataDatagramTx,
     drops: Mutex<NativeDrops>,
+    callbacks: Arc<callbacks::Broker>,
 }
 impl fmt::Debug for MetadataSocket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -105,7 +143,10 @@ impl fmt::Debug for RejectedMetadataSocket {
 }
 impl quinn::AsyncUdpSocket for MetadataSocket {
     fn create_io_poller(self: Arc<Self>) -> std::pin::Pin<Box<dyn quinn::UdpPoller>> {
-        Box::pin(poller::Poller::new(self.sender.create_write_poller()))
+        Box::pin(poller::Poller::new(
+            self.sender.create_write_poller(),
+            self.callbacks.clone(),
+        ))
     }
     fn try_send(&self, transmit: &quinn::udp::Transmit<'_>) -> io::Result<()> {
         self.send(transmit)

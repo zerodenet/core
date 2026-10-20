@@ -10,6 +10,7 @@ pub(super) struct NativeDrops {
 }
 impl MetadataSocket {
     pub(super) fn send(&self, transmit: &quinn::udp::Transmit<'_>) -> io::Result<()> {
+        self.callbacks.check()?;
         let message = MetadataTransmit {
             destination: transmit.destination,
             contents: transmit.contents,

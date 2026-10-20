@@ -60,6 +60,7 @@ struct Shared {
     state: quinn_udp::UdpSocketState,
     pollers: Arc<poller::Broker>,
     sends: tokio::sync::Semaphore,
+    send_limit: NonZeroUsize,
 }
 impl Shared {
     fn check(&self) -> std_io::Result<()> {
@@ -81,6 +82,10 @@ impl Shared {
     }
 }
 impl MetadataDatagramTx {
+    /// Structural bound on whole synchronous send calls, including observation.
+    pub fn max_concurrent_send_calls(&self) -> NonZeroUsize {
+        self.shared.send_limit
+    }
     pub fn local_addr(&self) -> std_io::Result<SocketAddr> {
         self.shared.socket.local_addr()
     }

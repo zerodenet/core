@@ -16,7 +16,7 @@ pub(super) fn endpoint(
         Default::default(),
         Some(config),
         native.socket(),
-        drivers.runtime(),
+        drivers.runtime(native),
     )
     .unwrap();
     endpoint.set_default_client_config(

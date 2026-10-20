@@ -55,6 +55,7 @@ pub enum DriverRegistrationReason {
     Scope(SpawnError),
     Retired,
     UnsupportedGenericSpawn,
+    ObserverFault,
 }
 #[derive(Debug)]
 pub struct DriverRegistrationFailure {
@@ -113,8 +114,11 @@ impl QuinnDriverOwner {
     }
     /// Only abstract-socket constructors are supported. This runtime grants no
     /// raw UDP acquisition and supplies no canonical host resource permission.
-    pub fn runtime(&self) -> Arc<dyn quinn::Runtime> {
-        Arc::new(runtime::OwnedRuntime(Arc::downgrade(&self.shared)))
+    pub fn runtime(&self, socket: &super::MetadataSocketOwner) -> Arc<dyn quinn::Runtime> {
+        Arc::new(runtime::OwnedRuntime {
+            owner: Arc::downgrade(&self.shared),
+            callbacks: socket.callbacks.clone(),
+        })
     }
     pub fn revoke_registration(&self) {
         self.shared.state.lock().unwrap().retired = true;

@@ -58,3 +58,27 @@ host resource/mask/user graph remain required before any production integration.
 In particular, the legacy infallible spawn hook cannot turn a rejected late
 connection registration into a fabricated protocol success/failure. Existing
 production QUIC paths are unchanged and their activation gate remains closed.
+
+External I/O observers can be invoked while Quinn holds its own protocol state
+mutex, even after the platform native gate has been released. The owned runtime
+therefore binds to the same actual MetadataSocketOwner. Only external observer
+callbacks/last-observer Drop are caught; the original Box panic payload is
+retained in that exact actual driver's poll slot. After the original driver
+poll returns and releases Quinn's locks, the same payload resumes outside all
+those locks. It becomes the actual task's native JoinError; it is not an I/O
+error replacement or a successful native outcome. Direct calls outside an owned
+driver boundary immediately resume the original panic. A different metadata
+owner is rejected before native I/O rather than consuming another driver's slot.
+
+A whole TX call keeps its declared send permit through observation. Together
+with the unique RX and mutable control this gives a checked structural bound
+on simultaneous callbacks. Sticky fault stops new callbacks/installations/driver
+admissions. Already-entered ancestor callbacks may also panic: the first actual
+payload wins and additional originals remain in bounded persistent slots, never
+dropped while the primary unwinds. They transfer only through explicit
+take_suppressed_observer_panic; native close does not accept them. Last observer
+snapshots after fault remain owned until this persistent owner is retired.
+Skipped observation after a fault is marked unavailable, not complete traffic
+coverage. There is no new task, packet queue, runtime, socket or production
+default. Scoped thread-local state describes only this synchronous actual poll
+stack, restores on all exits and retains no Engine, policy or host registry.

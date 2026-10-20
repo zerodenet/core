@@ -2,7 +2,10 @@ use super::*;
 use std::{future::Future, pin::Pin};
 use tracing::Instrument;
 
-pub(super) struct OwnedRuntime(pub(super) Weak<Shared>);
+pub(super) struct OwnedRuntime {
+    pub(super) owner: Weak<Shared>,
+    pub(super) callbacks: Arc<super::super::callbacks::Broker>,
+}
 impl fmt::Debug for OwnedRuntime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OwnedQuinnRuntime").finish_non_exhaustive()
@@ -25,19 +28,21 @@ impl quinn::Runtime for OwnedRuntime {
         ))
     }
     fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-        if let Some(owner) = self.0.upgrade() {
+        if let Some(owner) = self.owner.upgrade() {
             owner.reject(None, DriverRegistrationReason::UnsupportedGenericSpawn);
         }
         // An unaccepted future has no invented TaskId or successful TaskExit.
         drop(future);
     }
     fn spawn_driver(&self, origin: DriverOrigin, future: DriverFuture) {
-        let Some(owner) = self.0.upgrade() else {
+        let Some(owner) = self.owner.upgrade() else {
             return;
         };
         let rejection = {
             let mut state = owner.state.lock().unwrap();
-            if state.retired {
+            if self.callbacks.failed() {
+                Some(DriverRegistrationReason::ObserverFault)
+            } else if state.retired {
                 Some(DriverRegistrationReason::Retired)
             } else if state.records.len() + state.pending >= owner.limit.get() {
                 Some(DriverRegistrationReason::LocalCapacity)
@@ -59,6 +64,7 @@ impl quinn::Runtime for OwnedRuntime {
             delivered: AtomicBool::new(false),
         });
         let task_record = record.clone();
+        let future = super::super::callbacks::Boundary::new(future, self.callbacks.clone());
         let class = match origin {
             DriverOrigin::Endpoint => TaskClass::Critical,
             DriverOrigin::Connection => TaskClass::Auxiliary,
