@@ -40,6 +40,16 @@ impl UpstreamFixture {
         let proxy = Proxy::new(config)
             .unwrap()
             .with_udp_upstream_idle_timeout(Duration::from_secs(60));
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        proxy
+            .protocols
+            .start_components(proxy.engine().config(), deadline)
+            .await
+            .unwrap();
+        proxy
+            .protocols
+            .commit_components(&proxy.engine().config(), || Ok(()))
+            .unwrap();
         let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
         let mut dispatch = runtime.new_dispatch("idle-test").await.unwrap();
         let packet = inbound_packet();
