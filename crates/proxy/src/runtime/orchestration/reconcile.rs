@@ -173,6 +173,16 @@ impl OrchestrationState {
         for (binding, directions) in revoked_directions {
             proxy.engine.cancel_endpoint_flows(&binding, directions);
         }
+        if !proxy.pending_reload_matches(&self.applied_snapshot) {
+            if let Err(message) = proxy
+                .protocols
+                .commit_components(self.applied_snapshot.config(), || Ok(()))
+            {
+                self.reject_reload(proxy, &self.applied_snapshot.clone(), message)
+                    .await;
+                return;
+            }
+        }
         self.publish_endpoint_facts(proxy);
         log_reload_reconciled(&new_config);
         proxy.complete_reload(&self.applied_snapshot, Ok(()));
@@ -219,6 +229,19 @@ impl OrchestrationState {
             acknowledgement.push_str(&format!("; TUN rollback failed: {error}"));
         }
         let previous_config = self.applied_snapshot.config().clone();
+        if let Err(error) = proxy
+            .protocols
+            .start_components(
+                previous_config.clone(),
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await
+        {
+            acknowledgement.push_str(&format!(
+                "; component rollback remains unconfirmed: {error}"
+            ));
+        }
+
         let previous_runtime = self.inbound_runtime_factory.clone();
         if let Err(error) = listeners::reconcile_inbounds(
             &proxy.protocols,

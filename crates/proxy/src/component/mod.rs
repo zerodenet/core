@@ -1,4 +1,5 @@
 //! Cold component assembly. Data channels stay in platform-tokio::contract.
+mod admission;
 mod bindings;
 pub(crate) mod catalog;
 mod dependencies;

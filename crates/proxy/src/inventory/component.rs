@@ -20,17 +20,26 @@ impl super::ProtocolInventory {
             },
         })
     }
+    pub(crate) fn stop_component_admission(&self) {
+        self.registry.components.stop_business();
+    }
     pub(crate) async fn start_components(
         &self,
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
-        let plan = self.prepare_components(config).map_err(|error| {
-            zero_engine::EngineError::Io(std::io::Error::other(retained(error)))
-        })?;
-        plan.start(deadline)
+        self.registry
+            .components
+            .start(config, deadline)
             .await
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
+    }
+    pub(crate) fn commit_components<T>(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        commit: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.registry.components.commit(config, commit)
     }
     pub(crate) async fn shutdown_components(
         &self,

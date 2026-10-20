@@ -2,6 +2,7 @@
 use super::{ComponentRecipe, ValidatedRecipe};
 mod cleanup;
 mod resources;
+mod roles;
 pub(super) use resources::HostResources;
 #[cfg(test)]
 pub(super) use resources::NoResources;
@@ -13,6 +14,7 @@ use tokio::{
 use zero_core::component::*;
 use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentInstance},
+    datagram::DynDatagramOutbound,
     lifecycle::CloseReport,
     scope::TaskScope,
     stream::DynStreamOutbound,
@@ -43,11 +45,14 @@ pub(crate) struct ComponentSlot {
     legacy_connect_stage: &'static str,
     pub(crate) dial: zero_traits::DialPolicy,
     cancel: CancellationToken,
+    admission: OnceLock<Arc<super::admission::HostAdmission>>,
+    admission_owner: Arc<()>,
     live: OnceCell<Result<Live, SharedError>>,
     start_gate: Mutex<()>,
 }
 struct Live {
     stream: Option<Arc<dyn DynStreamOutbound>>,
+    datagram: Option<Arc<dyn DynDatagramOutbound>>,
     started: OnceLock<Result<(), SharedError>>,
     owner: Mutex<Owner>,
     resources: Arc<HostResources>,
@@ -119,12 +124,11 @@ impl ComponentSlot {
             legacy_connect_stage,
             dial,
             cancel: CancellationToken::new(),
+            admission: OnceLock::new(),
+            admission_owner: Arc::new(()),
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
         }
-    }
-    pub(crate) fn legacy_connect_stage(&self) -> &'static str {
-        self.legacy_connect_stage
     }
     pub(crate) fn instance_id(&self) -> ComponentInstanceId {
         ComponentInstanceId {
@@ -141,17 +145,6 @@ impl ComponentSlot {
             role: RoleId::Outbound(OutboundId(self.id.0)),
             generation: self.generation,
         }
-    }
-    pub(crate) async fn stream(
-        &self,
-        deadline: Instant,
-    ) -> Result<Arc<dyn DynStreamOutbound>, ChannelError> {
-        self.start(deadline).await?;
-        self.live
-            .get()
-            .and_then(|live| live.as_ref().ok())
-            .and_then(|live| live.stream.clone())
-            .ok_or_else(|| self.failure(Reason::Internal, "missing built Stream role"))
     }
     pub(crate) async fn start(&self, deadline: Instant) -> Result<(), ChannelError> {
         if self.cancel.is_cancelled() {
@@ -198,7 +191,12 @@ impl ComponentSlot {
                             .recipe
                             .spec()
                             .roles
-                            .contains(&zero_platform_tokio::contract::component::RoleKind::Stream)
+                            .iter()
+                            .any(|role| {
+                                matches!(role,
+                                zero_platform_tokio::contract::component::RoleKind::Stream
+                                | zero_platform_tokio::contract::component::RoleKind::Datagram)
+                            })
                             .then_some(OutboundId(self.id.0)),
                         ..Default::default()
                     },
@@ -210,7 +208,32 @@ impl ComponentSlot {
                 let instance = self.recipe.build(context).map_err(Arc::new)?;
                 Ok(Live {
                     resources,
-                    stream: instance.roles.stream.clone(),
+                    stream: instance
+                        .roles
+                        .stream
+                        .clone()
+                        .map(|inner| match self.admission.get() {
+                            Some(host) => Arc::new(super::admission::FencedStream {
+                                inner,
+                                host: host.clone(),
+                                instance: self.instance_id(),
+                                owner: self.admission_owner.clone(),
+                            })
+                                as Arc<dyn DynStreamOutbound>,
+                            None => inner,
+                        }),
+                    datagram: instance.roles.datagram.clone().map(|inner| {
+                        match self.admission.get() {
+                            Some(host) => Arc::new(super::admission::FencedDatagram {
+                                inner,
+                                host: host.clone(),
+                                instance: self.instance_id(),
+                                owner: self.admission_owner.clone(),
+                            })
+                                as Arc<dyn DynDatagramOutbound>,
+                            None => inner,
+                        }
+                    }),
                     started: OnceLock::new(),
                     owner: Mutex::new(Owner {
                         instance,

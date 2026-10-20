@@ -17,6 +17,8 @@ async fn cold_plan_is_cached_and_unrelated_updates_reuse_real_role() {
     let plan = catalog.prepare(config.clone()).unwrap();
     let same = catalog.prepare(config.clone()).unwrap();
     assert!(Arc::ptr_eq(&plan, &same));
+    catalog.start(config.clone(), deadline()).await.unwrap();
+    catalog.commit(&config, || Ok(())).unwrap();
     let original = plan.direct(Some("selected")).unwrap();
     let role = original.stream(deadline()).await.unwrap();
     let mut updated = config.as_ref().clone();
@@ -37,6 +39,8 @@ async fn changed_static_options_advance_generation_without_identity_reuse() {
     let catalog = ComponentCatalog::default();
     let original = config();
     let first = catalog.prepare(original.clone()).unwrap();
+    catalog.start(original.clone(), deadline()).await.unwrap();
+    catalog.commit(&original, || Ok(())).unwrap();
     let old = first.direct(Some("selected")).unwrap();
     let mut changed = original.as_ref().clone();
     changed.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv4;
@@ -52,7 +56,13 @@ async fn changed_static_options_advance_generation_without_identity_reuse() {
     );
     let mut removed = original.as_ref().clone();
     removed.outbounds.clear();
-    let removed = catalog.prepare(Arc::new(removed)).unwrap();
+    let removed_config = Arc::new(removed);
+    let removed = catalog.prepare(removed_config.clone()).unwrap();
+    catalog
+        .start(removed_config.clone(), deadline())
+        .await
+        .unwrap();
+    catalog.commit(&removed_config, || Ok(())).unwrap();
     assert!(removed.direct(Some("selected")).is_err());
     let readded = catalog
         .prepare(original)
@@ -67,10 +77,12 @@ async fn stopped_catalog_builds_fresh_instances_for_a_later_runtime() {
     let catalog = ComponentCatalog::default();
     let config = config();
     let first = catalog.prepare(config.clone()).unwrap();
-    first.start(deadline()).await.unwrap();
+    catalog.start(config.clone(), deadline()).await.unwrap();
+    catalog.commit(&config, || Ok(())).unwrap();
     catalog.shutdown(deadline()).await.unwrap();
-    let second = catalog.prepare(config).unwrap();
-    second.start(deadline()).await.unwrap();
+    let second = catalog.prepare(config.clone()).unwrap();
+    catalog.start(config.clone(), deadline()).await.unwrap();
+    catalog.commit(&config, || Ok(())).unwrap();
     assert_ne!(
         first.direct(None).unwrap().id,
         second.direct(None).unwrap().id
@@ -131,7 +143,8 @@ async fn supplied_factory_state_builds_the_actual_cached_runtime_roles() {
     let config = config();
     let plan = catalog.prepare(config.clone()).unwrap();
     assert_eq!(builds.load(Ordering::SeqCst), 0, "prepare must stay cold");
-    plan.start(deadline()).await.unwrap();
+    catalog.start(config.clone(), deadline()).await.unwrap();
+    catalog.commit(&config, || Ok(())).unwrap();
     let role = plan
         .direct(Some("selected"))
         .unwrap()

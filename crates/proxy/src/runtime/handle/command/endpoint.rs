@@ -168,10 +168,15 @@ impl ProxyHandle {
             self.proxy
                 .apply_owner
                 .commit(|| {
-                    if persist {
-                        self.proxy.engine.commit_config_change();
-                    }
-                    Ok(())
+                    self.proxy.protocols.commit_components(
+                        self.proxy.engine.runtime_snapshot().config(),
+                        || {
+                            if persist {
+                                self.proxy.engine.commit_config_change();
+                            }
+                            Ok(())
+                        },
+                    )
                 })
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
             Ok::<(), ApiError>(())

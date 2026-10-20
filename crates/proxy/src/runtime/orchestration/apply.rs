@@ -6,6 +6,9 @@ use zero_engine::EngineError;
 
 impl OrchestrationState {
     pub(super) async fn drain_configuration(&mut self, proxy: &Proxy) -> Result<(), EngineError> {
+        // Stop new business first. Actual current/candidate Service operations
+        // remain available while the accepted transaction compensates.
+        proxy.protocols.stop_component_admission();
         proxy.apply_owner.begin_shutdown();
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {

@@ -1,4 +1,6 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
+mod plan;
+mod transaction;
 use super::{
     instance::{invalid, ComponentSlot, SharedError},
     ComponentRegistry,
@@ -6,7 +8,7 @@ use super::{
 use std::{
     collections::BTreeMap,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, OnceLock,
     },
 };
@@ -18,76 +20,42 @@ pub(crate) struct ComponentPlan {
     builtin: Arc<ComponentSlot>,
     outbounds: BTreeMap<String, Arc<ComponentSlot>>,
     order: Vec<Arc<ComponentSlot>>,
-}
-impl std::fmt::Debug for ComponentPlan {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ComponentPlan")
-            .field("outbound_count", &self.outbounds.len())
-            .finish()
-    }
-}
-impl ComponentPlan {
-    pub(crate) async fn start(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
-        for slot in &self.order {
-            slot.start(deadline).await?;
-        }
-        Ok(())
-    }
-    pub(crate) fn configured(&self, tag: &str) -> Option<Arc<ComponentSlot>> {
-        self.outbounds.get(tag).cloned()
-    }
-    pub(crate) fn direct(&self, tag: Option<&str>) -> Result<Arc<ComponentSlot>, ChannelError> {
-        match tag {
-            None => Ok(self.builtin.clone()),
-            Some(tag) => self.outbounds.get(tag).cloned().ok_or_else(|| {
-                invalid(
-                    Reason::StalePlan,
-                    format!("no prepared component for outbound `{tag}`"),
-                )
-            }),
-        }
-    }
-    pub(crate) async fn shutdown(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<(), ChannelError> {
-        for slot in self.order.iter().rev() {
-            slot.revoke();
-        }
-        let mut failure = None;
-        for slot in self.order.iter().rev() {
-            let result = slot.shutdown(deadline).await.and_then(|report| {
-                if report.is_complete() {
-                    Ok(())
-                } else {
-                    Err(invalid(
-                        Reason::Timeout,
-                        "component cleanup remains unfinished",
-                    ))
-                }
-            });
-            if let Err(error) = result {
-                failure.get_or_insert(error);
-            }
-        }
-        failure.map_or(Ok(()), Err)
-    }
+    started: AtomicBool,
 }
 struct Current {
     config: Arc<RuntimeConfig>,
     plan: Result<Arc<ComponentPlan>, SharedError>,
 }
+#[derive(Default)]
+struct State {
+    current: Option<Current>,
+    cold: Option<Current>,
+    staged: Option<Current>,
+    retired: Option<Arc<ComponentPlan>>,
+}
+impl Current {
+    fn matches(&self, config: &Arc<RuntimeConfig>) -> bool {
+        Arc::ptr_eq(&self.config, config)
+    }
+    fn ready(&self) -> &Arc<ComponentPlan> {
+        self.plan.as_ref().expect("installed plan was prepared")
+    }
+}
 pub(crate) struct ComponentCatalog {
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
     next_id: AtomicU64,
-    current: Mutex<Option<Current>>,
+    state: Mutex<State>,
+    transition: tokio::sync::Mutex<()>,
+    admission: Arc<super::admission::HostAdmission>,
 }
 impl Default for ComponentCatalog {
     fn default() -> Self {
         Self {
             factories: OnceLock::new(),
             next_id: AtomicU64::new(0),
-            current: Mutex::new(None),
+            state: Mutex::new(State::default()),
+            transition: tokio::sync::Mutex::new(()),
+            admission: Arc::default(),
         }
     }
 }
@@ -110,49 +78,30 @@ impl ComponentCatalog {
         self.factories
             .get_or_init(crate::register::component_registry)
     }
-    pub(crate) async fn shutdown(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<(), ChannelError> {
-        let plan = self
-            .current
-            .lock()
-            .expect("component catalog poisoned")
-            .as_ref()
-            .map(|current| current.plan.clone());
-        if let Some(Ok(plan)) = plan {
-            plan.shutdown(deadline).await?;
-            let mut current = self.current.lock().expect("component catalog poisoned");
-            if current.as_ref().is_some_and(|current| {
-                current
-                    .plan
-                    .as_ref()
-                    .is_ok_and(|active| Arc::ptr_eq(active, &plan))
-            }) {
-                *current = None;
-            }
-        }
-        Ok(())
-    }
     pub(crate) fn prepare(
         &self,
         config: Arc<RuntimeConfig>,
     ) -> Result<Arc<ComponentPlan>, SharedError> {
-        let mut current = self.current.lock().expect("component catalog poisoned");
-        if let Some(current) = current
-            .as_ref()
-            .filter(|entry| Arc::ptr_eq(&entry.config, &config))
+        let mut state = self.state.lock().expect("component catalog poisoned");
+        for entry in state
+            .current
+            .iter()
+            .chain(state.staged.iter())
+            .chain(state.cold.iter())
         {
-            return current.plan.clone();
+            if entry.matches(&config) {
+                return entry.plan.clone();
+            }
         }
-        let previous = current
+        let previous = state
+            .current
             .as_ref()
-            .and_then(|entry| entry.plan.as_ref().ok().map(|plan| (&entry.config, plan)));
+            .map(|entry| (&entry.config, entry.ready()));
         let plan = self
             .prepare_plan(&config, previous)
             .map(Arc::new)
             .map_err(Arc::new);
-        *current = Some(Current {
+        state.cold = Some(Current {
             config,
             plan: plan.clone(),
         });
@@ -177,7 +126,10 @@ impl ComponentCatalog {
         };
         let mut outbounds = BTreeMap::new();
         for input in &config.outbounds {
-            if !self.factories().has_factory(input.protocol.protocol_name()) {
+            if !self
+                .factories()
+                .has_factory_for(input.protocol.protocol_name(), input)
+            {
                 continue;
             }
             let old = previous.and_then(|(old, plan)| {
@@ -208,10 +160,14 @@ impl ComponentCatalog {
         for slot in outbounds.values_mut() {
             *slot = nodes[&slot.id].clone();
         }
+        for slot in &order {
+            slot.bind_admission(self.admission.clone());
+        }
         Ok(ComponentPlan {
             builtin,
             outbounds,
             order,
+            started: AtomicBool::new(false),
         })
     }
     fn slot(
@@ -226,11 +182,19 @@ impl ComponentCatalog {
                 invalid(Reason::Internal, "component option validation failed").with_source(source)
             })?;
         if !recipe.spec().resources.is_empty()
-            || recipe.spec().roles != [zero_platform_tokio::contract::component::RoleKind::Stream]
+            || recipe.spec().task_limit.is_some()
+            || recipe.spec().roles.is_empty()
+            || recipe.spec().roles.iter().any(|role| {
+                !matches!(
+                    role,
+                    zero_platform_tokio::contract::component::RoleKind::Stream
+                        | zero_platform_tokio::contract::component::RoleKind::Datagram
+                )
+            })
         {
             return Err(invalid(
                 Reason::Internal,
-                "migrated component must declare only its real zero-resource Stream role",
+                "migrated component must declare real session-owned roles without shared resources or tasks",
             ));
         }
         let (id, generation) = match previous {

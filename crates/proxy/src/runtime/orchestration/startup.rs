@@ -108,6 +108,10 @@ impl OrchestrationState {
                 self.shutdown_rx.clone(),
             )
             .await;
+        proxy
+            .protocols
+            .commit_components(proxy.engine.runtime_snapshot().config(), || Ok(()))
+            .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
         self.start_urltests();
         self.publish_endpoint_facts(proxy);
         log_started(proxy);

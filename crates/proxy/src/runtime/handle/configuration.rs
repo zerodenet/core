@@ -191,12 +191,17 @@ impl ProxyHandle {
 
     fn commit_configuration(&self) -> Result<(), String> {
         self.proxy.apply_owner.commit(|| {
-            self.proxy
-                .resolver
-                .commit_prepared_reload()
-                .map_err(|error| format!("DNS config commit failed: {error}"))?;
-            self.proxy.engine.commit_config_change();
-            Ok(())
+            self.proxy.protocols.commit_components(
+                self.proxy.engine.runtime_snapshot().config(),
+                || {
+                    self.proxy
+                        .resolver
+                        .commit_prepared_reload()
+                        .map_err(|error| format!("DNS config commit failed: {error}"))?;
+                    self.proxy.engine.commit_config_change();
+                    Ok(())
+                },
+            )
         })
     }
 
