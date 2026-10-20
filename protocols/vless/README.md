@@ -38,9 +38,9 @@ VLESS 是 Xray 项目的核心入站/出站协议，无状态、轻量级，使�
 
 | Flow | 状态 |
 |------|------|
-| `xtls-rprx-vision` | Xray-compatible outbound TCP over REALITY |
+| `xtls-rprx-vision` | Xray-compatible outbound TCP over TLS 1.3 / REALITY / VLESS Encryption；原生 Stream 已接 TLS 1.3 |
 | `zero-aead-v1` | Zero-private request AEAD; not XTLS Vision |
-| `xtls-rprx-vision-udp443` | Rejected as obsolete; migrate explicitly |
+| `xtls-rprx-vision-udp443` | 出站 UDP/443 本地策略；TCP 使用与 Vision 相同的 wire flow |
 
 ### UDP
 
