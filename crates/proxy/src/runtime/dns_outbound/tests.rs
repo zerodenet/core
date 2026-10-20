@@ -105,3 +105,6 @@ async fn proxy_installs_dns_detour_connector_without_recursive_resolution() {
 
 #[cfg(feature = "socks5")]
 mod service;
+
+#[cfg(feature = "socks5")]
+mod doh_binding;
