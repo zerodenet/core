@@ -32,9 +32,9 @@ impl<'a> TestContext<'a> {
         self.driver
             .drive(
                 self.admission.signal(),
-                |cx| {
+                |target| {
                     for slot in &self.slots {
-                        slot.poll_tasks(cx);
+                        slot.poll_tasks(target);
                     }
                 },
                 work,

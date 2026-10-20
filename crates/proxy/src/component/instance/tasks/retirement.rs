@@ -14,7 +14,7 @@ impl TaskMonitor {
             changed.as_mut().enable();
             let mut retired = Vec::new();
             let drained = {
-                let mut tasks = self.inner.lock().expect("component tasks poisoned");
+                let mut tasks = self.lock();
                 let mut report = std::mem::take(&mut tasks.report);
                 for receipt in &tasks.pending {
                     report.exited_tasks.push(receipt.id());
@@ -49,7 +49,7 @@ impl TaskMonitor {
                 .await
                 .is_err()
             {
-                let tasks = self.inner.lock().expect("component tasks poisoned");
+                let tasks = self.lock();
                 let mut unfinished: Vec<_> = tasks
                     .scope
                     .unjoined_tasks()

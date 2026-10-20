@@ -14,6 +14,7 @@ pub(super) use resources::NoResources;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use std::sync::{Arc, OnceLock};
+pub(in crate::component) use tasks::wake::WaitTarget;
 pub(crate) use tasks::ComponentTaskFault;
 use tasks::TaskMonitor;
 use tokio::{

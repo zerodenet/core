@@ -1,6 +1,7 @@
 use super::*;
 use std::{future::Future, task::Waker, time::Duration};
 use tokio::{io::AsyncReadExt, sync::oneshot, time::timeout};
+mod callbacks;
 mod errors;
 mod ownership;
 mod wake;

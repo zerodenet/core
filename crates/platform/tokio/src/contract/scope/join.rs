@@ -17,7 +17,7 @@ struct JoinedState {
 }
 pub(super) struct Notification(Arc<JoinedState>);
 impl Notification {
-    pub(super) fn notify(self) {
+    pub(super) fn notify(&self) {
         self.0.changed.notify_waiters();
     }
 }

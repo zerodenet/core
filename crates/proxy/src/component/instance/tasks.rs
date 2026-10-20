@@ -12,7 +12,10 @@ use zero_platform_tokio::contract::{
     lifecycle::{TaskClass, TaskFailure, Unfinished},
     scope::{HostedExitReceipt, HostedScope, SpawnError},
 };
+mod guard;
 mod retirement;
+pub(in crate::component) mod wake;
+use wake::{MonitorWake, WaitTarget};
 
 /// Lightweight actual fault, with no Slot, recipe, configuration or I/O owner.
 #[derive(Debug)]
@@ -50,6 +53,7 @@ impl ComponentTaskFault {
 
 pub(in crate::component) struct TaskMonitor {
     inner: SyncMutex<Tasks>,
+    wake: Arc<MonitorWake>,
     pub(super) changed: Notify,
     critical: OnceLock<Arc<ComponentTaskFault>>,
     requested: AtomicU64,
@@ -61,16 +65,13 @@ struct Tasks {
     // There can be at most the original declared task_limit such receipts.
     pending: Vec<HostedExitReceipt>,
     closing: bool,
+    drained: bool,
     report: CloseReport,
 }
 impl TaskMonitor {
     #[cfg(test)]
     pub(super) fn registrar_for_test(&self) -> zero_platform_tokio::contract::scope::TaskRegistrar {
-        self.inner
-            .lock()
-            .expect("component tasks poisoned")
-            .scope
-            .registrar()
+        self.lock().scope.registrar()
     }
     pub(super) fn new(scope: HostedScope) -> Self {
         Self {
@@ -78,8 +79,10 @@ impl TaskMonitor {
                 scope,
                 pending: Vec::new(),
                 closing: false,
+                drained: false,
                 report: CloseReport::default(),
             }),
+            wake: Arc::default(),
             changed: Notify::new(),
             critical: OnceLock::new(),
             requested: AtomicU64::new(0),
@@ -87,11 +90,7 @@ impl TaskMonitor {
         }
     }
     pub(super) fn enable_registration(&self) -> Result<(), SpawnError> {
-        self.inner
-            .lock()
-            .expect("component tasks poisoned")
-            .scope
-            .enable_registration()
+        self.lock().scope.enable_registration()
     }
     pub(super) fn fault(&self) -> Option<Arc<ComponentTaskFault>> {
         self.critical.get().cloned()
@@ -109,7 +108,7 @@ impl TaskMonitor {
     }
     pub(super) fn begin_shutdown(&self) {
         {
-            let mut tasks = self.inner.lock().expect("component tasks poisoned");
+            let mut tasks = self.lock();
             if tasks.closing {
                 return;
             }
@@ -121,17 +120,20 @@ impl TaskMonitor {
     /// Only the catalog's elected inline driver polls this common join consumer.
     pub(super) fn poll(
         &self,
-        cx: &mut Context<'_>,
+        target: &Arc<WaitTarget>,
         instance: ComponentInstanceId,
         budget: usize,
     ) -> bool {
+        self.wake.bind(target);
+        let waker = std::task::Waker::from(self.wake.clone());
+        let mut cx = Context::from_waker(&waker);
         let epoch = self.requested.load(Ordering::Acquire);
         let mut retired = Vec::new();
         let mut progress = false;
         {
-            let mut tasks = self.inner.lock().expect("component tasks poisoned");
+            let mut tasks = self.lock();
             for _ in 0..budget {
-                let Poll::Ready(Some(receipt)) = tasks.scope.poll_exit(cx) else {
+                let Poll::Ready(Some(receipt)) = tasks.scope.poll_exit(&mut cx) else {
                     break;
                 };
                 progress = true;
@@ -188,6 +190,10 @@ impl TaskMonitor {
                 } else {
                     index += 1;
                 }
+            }
+            if tasks.closing && !tasks.drained && tasks.scope.is_drained() {
+                tasks.drained = true;
+                progress = true;
             }
         }
         // A task error's original source can own arbitrary redacted state.
@@ -258,13 +264,13 @@ impl ComponentSlot {
             host.signal().notify_waiters();
         }
     }
-    pub(in crate::component) fn poll_tasks(&self, cx: &mut Context<'_>) -> bool {
+    pub(in crate::component) fn poll_tasks(&self, target: &Arc<WaitTarget>) -> bool {
         let budget = self.recipe.spec().task_limit.map_or(1, |limit| limit.get());
         let progress = self
             .live
             .get()
             .and_then(|live| live.as_ref().ok())
-            .is_some_and(|live| live.tasks.poll(cx, self.instance_id(), budget));
+            .is_some_and(|live| live.tasks.poll(target, self.instance_id(), budget));
         if self.task_fault().is_some() {
             self.revoke();
         }
@@ -291,5 +297,11 @@ impl ComponentSlot {
         } else {
             Err(self.failure(Reason::StalePlan, "component runtime owner was not built"))
         }
+    }
+}
+
+impl Drop for TaskMonitor {
+    fn drop(&mut self) {
+        self.wake.unbind();
     }
 }

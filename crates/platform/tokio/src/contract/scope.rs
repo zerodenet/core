@@ -28,7 +28,7 @@ mod join;
 pub use join::{TaskJoinWitness, TaskJoined};
 mod hosted;
 mod relay;
-pub use hosted::{HostedExitReceipt, HostedReceiptError, HostedScope};
+pub use hosted::{HostedCallbacks, HostedExitReceipt, HostedReceiptError, HostedScope};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     NotStarted,
@@ -205,8 +205,7 @@ impl TaskScope {
     fn with_mode(runtime: Handle, limit: usize, hosted: bool) -> Self {
         let changed = Arc::new(Notify::new());
         let hosted_waker = Arc::new(Mutex::new(None));
-        let relay = Arc::new(relay::JoinRelay::new(&changed, &hosted_waker));
-        Self(Arc::new(Shared {
+        Self(Arc::new_cyclic(|owner| Shared {
             state: Mutex::new(State {
                 hosted,
                 registration_open: true,
@@ -217,11 +216,16 @@ impl TaskScope {
                 completed: VecDeque::new(),
                 closing_report: None,
             }),
+            relay: Arc::new(relay::JoinRelay::new(
+                &changed,
+                &hosted_waker,
+                owner.clone(),
+                hosted,
+            )),
             changed,
             cancel: CancellationToken::new(),
             runtime,
             hosted_waker,
-            relay,
         }))
     }
 

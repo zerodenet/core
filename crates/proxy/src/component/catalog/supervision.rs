@@ -1,6 +1,6 @@
 //! One inline join consumer, shared by runtime, maintenance and nested callers.
 use super::*;
-use crate::component::instance::ComponentTaskFault;
+use crate::component::instance::{ComponentTaskFault, WaitTarget};
 use std::{
     future::{poll_fn, Future},
     task::Poll,
@@ -13,15 +13,17 @@ impl InlineSupervisor {
     pub(in crate::component) async fn drive<T>(
         &self,
         signal: &tokio::sync::Notify,
-        mut scan: impl FnMut(&mut std::task::Context<'_>),
+        mut scan: impl FnMut(&Arc<WaitTarget>),
         work: impl Future<Output = T>,
     ) -> T {
+        let target = Arc::new(WaitTarget::default());
         tokio::pin!(work);
         let lease = self.0.lock();
         tokio::pin!(lease);
         let mut held = None;
         let mut changed = Box::pin(signal.notified());
         poll_fn(|cx| {
+            target.register(cx);
             // A nested caller must poll its real work while the outer driver
             // owns the lease. Waiting exclusively for the lease deadlocks it.
             if held.is_none() {
@@ -35,7 +37,7 @@ impl InlineSupervisor {
                     changed.set(signal.notified());
                     changed.as_mut().enable();
                 }
-                scan(cx);
+                scan(&target);
             }
             work.as_mut().poll(cx)
         })
@@ -53,11 +55,11 @@ impl ComponentCatalog {
         self.supervisor
             .drive(
                 self.admission.signal(),
-                |cx| {
+                |target| {
                     // This census is temporary. No permanent task/slot registry or
                     // historical configuration owner is kept by the driver.
                     for slot in self.supervised_slots() {
-                        slot.poll_tasks(cx);
+                        slot.poll_tasks(target);
                     }
                 },
                 work,

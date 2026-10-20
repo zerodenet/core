@@ -401,3 +401,11 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 ### VMess ordinary TCP host identity
 
 VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事实，由宿主签发一个真实业务身份并进入既有准入、路由、统计、限速和半关闭执行器。原 AuthID replay 状态、单次响应头和 AEAD/body codec 不变；UDP/Mux 与旧公开 Rust Session API 保留显式兼容路径。V1 配置、API、events 与 FFI ABI 不变，无 GUI/SDK 迁移；实际 TLS wire、全认证 sidecar、唯一身份、拒绝与 replay 回归位于 `crates/proxy/tests/vmess_inbound.rs`、`protocols/vmess/tests/auth/mod.rs`。此条记录实现，不代替冻结源码测试结果。
+
+- Hosted task owners can defer Scope callbacks across an enclosing synchronous
+  host lock with `HostedScope::defer_callbacks`. Actual witness notifications and
+  native wake callbacks run after that lock is released; accepted exits retain
+  their original capacity charge until deferred notifications finish. The
+  catalog's inline driver now owns its external wake target, while retained
+  monitors keep only weak relay metadata. These are task-delivery guarantees,
+  not native I/O or transferred-user closure evidence.

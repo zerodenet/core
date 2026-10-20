@@ -80,16 +80,18 @@ impl std::error::Error for HostedReceiptError {}
 pub(super) struct Completion {
     joined: TaskJoined,
     offered: Weak<()>,
+    accepted: bool,
 }
 impl Completion {
     pub(super) fn new(joined: TaskJoined) -> Self {
         Self {
             joined,
             offered: Weak::new(),
+            accepted: false,
         }
     }
     fn offer(&mut self, owner: &Arc<Shared>) -> Option<HostedExitReceipt> {
-        if self.offered.strong_count() != 0 {
+        if self.accepted || self.offered.strong_count() != 0 {
             return None;
         }
         let offer = Arc::new(());
@@ -101,7 +103,8 @@ impl Completion {
         })
     }
     fn matches(&self, receipt: &HostedExitReceipt) -> bool {
-        self.joined.same_receipt(&receipt.joined)
+        !self.accepted
+            && self.joined.same_receipt(&receipt.joined)
             && receipt
                 .offer
                 .as_ref()
@@ -137,7 +140,25 @@ impl Shared {
     }
 }
 
+/// Short callback deferral for an installed host's enclosing synchronous lock.
+/// Drop only after releasing that lock. This owns relay metadata, not a Scope,
+/// caller future, task registration, receipt or I/O-closure acknowledgement.
+#[must_use]
+pub struct HostedCallbacks {
+    deferred: Option<super::relay::DeferredGuard>,
+}
+impl Drop for HostedCallbacks {
+    fn drop(&mut self) {
+        drop(self.deferred.take());
+    }
+}
+
 impl HostedScope {
+    pub fn defer_callbacks(&self) -> HostedCallbacks {
+        HostedCallbacks {
+            deferred: Some(self.0 .0.relay.enter_parent()),
+        }
+    }
     pub fn registrar(&self) -> TaskRegistrar {
         self.0.registrar()
     }
@@ -153,7 +174,9 @@ impl HostedScope {
         let waker = std::task::Waker::from(shared.relay.clone());
         let mut internal_cx = Context::from_waker(&waker);
         let mut state = shared.lock_state();
-        state.reap();
+        // The elected hosted driver respects its real cooperative budget.
+        // Registrar reaping may already have populated completed, but using
+        // unconstrained try_join here would bypass this actual poll's budget.
         for entry in &mut state.completed {
             if let CompletedExit::Hosted(entry, _) = entry {
                 if let Some(receipt) = entry.offer(shared) {
@@ -181,6 +204,8 @@ impl HostedScope {
     }
     /// Call only after retaining/delivering the actual outcome in its receiver.
     /// Replaying a borrowed receipt never releases another task's budget.
+    /// Under a host callback deferral, the same entry remains charged until
+    /// its actual pending notifications have been delivered after parent unlock.
     pub fn acknowledge(&mut self, receipt: &HostedExitReceipt) -> Result<(), HostedReceiptError> {
         let shared = &self.0 .0;
         if !receipt.owner.ptr_eq(&Arc::downgrade(shared)) {
@@ -195,7 +220,14 @@ impl HostedScope {
                     |entry| matches!(entry, CompletedExit::Hosted(entry, _) if entry.matches(receipt)),
                 )
                 .ok_or(HostedReceiptError::StaleReceipt)?;
-            state.completed.remove(index)
+            if shared.relay.delivery_ready() {
+                state.completed.remove(index)
+            } else {
+                if let Some(CompletedExit::Hosted(entry, _)) = state.completed.get_mut(index) {
+                    entry.accepted = true;
+                }
+                None
+            }
         };
         // An error source may own arbitrary protocol state. Drop outside State.
         drop(completed);
@@ -203,7 +235,11 @@ impl HostedScope {
         Ok(())
     }
     pub fn begin_shutdown(&mut self) {
-        self.0.begin_shutdown();
+        self.0 .0.lock_state().closing = true;
+        // Cancellation also wakes arbitrary protocol waiters synchronously.
+        // A parent lock must be released before signalling the original token.
+        self.0 .0.relay.cancel();
+        self.0 .0.notify_hosted();
     }
     /// Only actual consumed native joins. Registration may still be open and
     /// unacknowledged events may remain; this is not a scope/I/O close proof.
@@ -250,3 +286,32 @@ impl Drop for HostedScope {
 
 #[cfg(test)]
 mod tests;
+
+impl Shared {
+    pub(super) fn release_accepted(&self) {
+        let retired = {
+            // Only completed delivery metadata is touched, no JoinSet poll or
+            // user callback. Drop original sources after releasing this lock.
+            let mut state = self.state.lock().expect("scope state poisoned");
+            if !self.relay.delivery_ready() {
+                return;
+            }
+            let mut retired = Vec::new();
+            let mut index = 0;
+            while index < state.completed.len() {
+                if matches!(&state.completed[index], CompletedExit::Hosted(entry, notification) if entry.accepted && notification.is_none())
+                {
+                    retired.extend(state.completed.remove(index));
+                } else {
+                    index += 1;
+                }
+            }
+            retired
+        };
+        let released = !retired.is_empty();
+        drop(retired);
+        if released {
+            self.notify_hosted();
+        }
+    }
+}

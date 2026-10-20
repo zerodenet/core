@@ -245,9 +245,9 @@ impl TestTasks {
         self.driver
             .drive(
                 &self.monitor.changed,
-                |cx| {
+                |target| {
                     self.monitor.poll(
-                        cx,
+                        target,
                         zero_core::component::ComponentInstanceId {
                             component: ComponentId(201),
                             generation: zero_core::component::ResourceGeneration(1),
