@@ -127,3 +127,88 @@ impl HostResources {
         Ok((bound, issuer))
     }
 }
+
+impl HostResources {
+    /// Before business DNS, prove the original registered Direct owner without
+    /// inventing a literal endpoint or minting a reservation. Actual Slot/Engine
+    /// membership and candidate validation remain independent private checks.
+    pub(in crate::component) fn registered_direct_owner(
+        &self,
+        instance: ComponentInstanceId,
+        dial: &zero_traits::DialPolicy,
+        registration: &CarrierOwnerRegistration,
+    ) -> Result<CarrierOwnerBinding, ChannelError> {
+        let fail = || {
+            error(
+                self.component,
+                Reason::StalePlan,
+                "no exact registered Direct owner before resolution",
+            )
+        };
+        let (actual, scope) = self.carriers.identity.as_ref().ok_or_else(fail)?;
+        if instance != *actual || registration.instance() != *actual || !scope.resource_open() {
+            return Err(fail());
+        }
+        let candidates: Vec<_> = {
+            let entries = self
+                .carriers
+                .records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            entries
+                .iter()
+                .filter_map(|(ordinal, entry)| {
+                    if !entry.actual.same_owner(registration) {
+                        return None;
+                    }
+                    entry
+                        .bound
+                        .clone()
+                        .map(|bound| (*ordinal, entry.actual.clone(), bound))
+                })
+                .collect()
+        };
+        let [(ordinal, original, bound)] = candidates.as_slice() else {
+            return Err(fail());
+        };
+        let declaration = self.carriers.declarations.get(ordinal).ok_or_else(fail)?;
+        let ResourceDeclaration::ControlledDirectStream {
+            dial: expected,
+            max_sockets,
+        } = declaration
+        else {
+            return Err(fail());
+        };
+        if expected != dial
+            || *max_sockets != original.limit()
+            || !bound.matches_declaration(declaration)
+            || bound.fixed_endpoint_binding().is_some()
+            || bound.demand() != ControlledStreamDemandClass::Business
+            || !bound.scope_identity().same_scope(scope)
+            || !bound.matches_registration(original)
+            || !bound.matches_host_cancel(self.carriers.host_cancel.as_ref().ok_or_else(fail)?)
+            || bound.host_cancelled()
+        {
+            return Err(fail());
+        }
+        // Weak native observers can flush callbacks. No owner/monitor/resource
+        // lock surrounds these getters or their final temporary owner drops.
+        if !original
+            .observe()
+            .is_some_and(|owner| owner.is_live() && !owner.is_stopped())
+            || !original
+                .bound()
+                .is_some_and(|current| current.matches_registration(original))
+        {
+            return Err(fail());
+        }
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.closed || self.cancel.is_cancelled() || state.start_deadline.is_some() {
+            return Err(fail());
+        }
+        Ok(bound.clone())
+    }
+}
