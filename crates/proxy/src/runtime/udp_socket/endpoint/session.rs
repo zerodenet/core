@@ -1,5 +1,10 @@
 use super::*;
 use std::sync::atomic::Ordering;
+use std::{
+    future::{poll_fn, Future},
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tokio::time::{timeout_at, Instant};
 use zero_platform_tokio::contract::{
     lifecycle::{ChannelControl, CloseReport, Unfinished},
@@ -12,7 +17,7 @@ pub(crate) struct DirectEndpointTx {
 }
 pub(crate) struct DirectEndpointRx {
     logical: Arc<Logical>,
-    responses: mpsc::Receiver<Response>,
+    cancelled: Pin<Box<dyn Future<Output = ()> + Send>>,
 }
 pub(crate) struct DirectEndpointControl {
     shared: Arc<Shared>,
@@ -80,28 +85,47 @@ impl DirectEndpointTx {
     }
 }
 impl DirectEndpointRx {
-    pub(super) fn new(logical: Arc<Logical>, responses: mpsc::Receiver<Response>) -> Self {
-        Self { logical, responses }
+    pub(super) fn new(logical: Arc<Logical>) -> Self {
+        let cancelled = Box::pin(logical.cancel.clone().cancelled_owned());
+        Self { logical, cancelled }
     }
     /// Preserve the actual revocable source token through downstream delivery.
     pub(crate) async fn recv(
         &mut self,
     ) -> Result<Option<(Vec<u8>, DirectUdpResponseSource)>, EngineError> {
-        loop {
-            let mut response = tokio::select! {
-                _ = self.logical.cancel.cancelled() => return Ok(None),
-                response = self.responses.recv() => match response { Some(response) => response, None => return Ok(None) },
+        poll_fn(|cx| self.poll_recv(cx)).await
+    }
+    pub(crate) fn poll_recv(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Option<(Vec<u8>, DirectUdpResponseSource)>, EngineError>> {
+        if self.cancelled.as_mut().poll(cx).is_ready() {
+            self.logical.drain_receive_queue();
+            return Poll::Ready(Ok(None));
+        }
+        let mut receiver = self
+            .logical
+            .receiver
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Bound stale-frame work by the actual configured queue capacity.
+        for _ in 0..self.logical.responses.max_capacity() {
+            let mut response = match receiver.poll_recv(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(None) => return Poll::Ready(Ok(None)),
+                Poll::Ready(Some(response)) => response,
             };
             if !response.source.is_current() {
                 continue;
             }
             let payload = std::mem::take(&mut response.payload);
-            // Dequeued payload no longer consumes the configured queue budget.
             self.logical
                 .bytes
                 .fetch_sub(payload.len(), Ordering::AcqRel);
-            return Ok(Some((payload, response.source.clone())));
+            return Poll::Ready(Ok(Some((payload, response.source.clone()))));
         }
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 }
 impl DirectEndpointControl {

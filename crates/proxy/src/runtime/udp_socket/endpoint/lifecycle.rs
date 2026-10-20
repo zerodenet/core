@@ -137,6 +137,7 @@ impl ResourceLifecycle for DirectEndpointOwner {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             for (_, entry) in std::mem::take(&mut state.sessions) {
+                entry.logical.drain_receive_queue();
                 entry.logical.closed.store(true, Ordering::Release);
                 entry.logical.changed.notify_waiters();
             }

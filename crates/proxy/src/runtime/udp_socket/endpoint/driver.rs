@@ -47,6 +47,7 @@ impl Shared {
             sockets.retire_session(session.0);
             // Logical completion means this exact mapping and every already-read
             // source guard were revoked. It says nothing about a shared fd.
+            entry.logical.drain_receive_queue();
             entry.logical.closed.store(true, Ordering::Release);
             entry.logical.changed.notify_waiters();
         }
@@ -81,6 +82,15 @@ impl Shared {
         };
         let logical = &entry.logical;
         if logical.cancel.is_cancelled() || !source.is_current() {
+            return;
+        }
+        // Serialize accepted enqueue with actual cancellation drain. There can
+        // be no still-reserved sender posting behind a completed drain.
+        let _receiver = logical
+            .receiver
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if logical.cancel.is_cancelled() {
             return;
         }
         let permit = match logical.responses.try_reserve() {

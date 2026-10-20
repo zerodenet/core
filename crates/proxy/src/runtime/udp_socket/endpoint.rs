@@ -85,12 +85,23 @@ struct Logical {
     closed: AtomicBool,
     changed: Notify,
     responses: mpsc::Sender<Response>,
+    receiver: Mutex<mpsc::Receiver<Response>>,
     bytes: AtomicUsize,
 }
 struct Response {
     payload: Vec<u8>,
     source: DirectUdpResponseSource,
     owner: Arc<Logical>,
+}
+impl Logical {
+    fn drain_receive_queue(&self) {
+        let mut receiver = self
+            .receiver
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        receiver.close();
+        while receiver.try_recv().is_ok() {}
+    }
 }
 impl Drop for Response {
     fn drop(&mut self) {
@@ -231,6 +242,7 @@ impl DirectEndpoint {
             closed: AtomicBool::new(false),
             changed: Notify::new(),
             responses,
+            receiver: Mutex::new(rx),
             bytes: AtomicUsize::new(0),
         });
         state.sessions.insert(
@@ -244,7 +256,7 @@ impl DirectEndpoint {
         self.0.changed.notify_one();
         Ok(DirectEndpointSession {
             tx: DirectEndpointTx::new(self.0.clone(), logical.clone()),
-            rx: DirectEndpointRx::new(logical.clone(), rx),
+            rx: DirectEndpointRx::new(logical.clone()),
             control: DirectEndpointControl::new(self.0.clone(), logical),
         })
     }
