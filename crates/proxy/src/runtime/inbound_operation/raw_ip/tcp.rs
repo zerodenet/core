@@ -1,6 +1,5 @@
 use std::{io, sync::Arc};
 
-use tokio::task::JoinSet;
 use zero_core::{Address, Network, ProtocolType, Session};
 use zero_engine::EngineError;
 use zero_stack::UserTcpStack;
@@ -14,8 +13,9 @@ use crate::transport::ReplayStream;
 pub(super) async fn accept(
     tcp: Arc<UserTcpStack>,
     runtime_factory: InboundRouteRuntimeFactory,
+    owner: super::tasks::RetainedTasks<Result<(), EngineError>>,
 ) -> Result<(), EngineError> {
-    let mut connections = JoinSet::new();
+    let mut connections = owner.lock().await.map_err(std::io::Error::other)?;
     loop {
         tokio::select! {
             accepted = tcp.accept() => {
@@ -37,7 +37,7 @@ pub(super) async fn accept(
                 match result {
                     Ok(Ok(())) => {},
                     Ok(Err(error)) => tracing::debug!(%error, "raw-IP TCP connection failed"),
-                    Err(error) => tracing::warn!(%error, "raw-IP TCP connection task failed"),
+                    Err(error) => return Err(std::io::Error::other(owner.remember(error)).into()),
                 }
             }
         }

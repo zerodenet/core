@@ -6,34 +6,44 @@ use super::statistics::IngressTraffic;
 use super::*;
 use crate::runtime::raw_ip::timer::{self, PeerTimers};
 use std::time::Instant;
-use tokio::task::JoinSet;
 use zero_api::TrafficPlane;
 use zero_stack::{packet, FragmentReassembler, OwnedFragmentOutcome, UserNetworkStack};
 pub(super) async fn run(
     mut operation: RawIpInboundListenerOperation,
     runtime: InboundListenerRuntime,
-    socket: zero_platform_tokio::PacketSocket,
+    bound: BoundInbound,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), EngineError> {
-    let mut wire_sender =
-        zero_platform_tokio::PacketSocketSender::new(socket.clone(), runtime.datagram_egress());
+    let (mut socket, mut wire_sender) =
+        super::socket::RawIpReceive::split(bound, runtime.datagram_egress())?;
     let mut traffic = IngressTraffic::bind(operation.device.as_ref(), &runtime.route_factory());
     let mtu = operation.device.mtu();
     let (response_tx, mut responses) = mpsc::channel::<zero_traits::PacketBuffer>(256);
     let response_tx: zero_stack::packet_output::PacketSender = response_tx.into();
-    let (tcp, udp) = UserNetworkStack::new_with_packet_output(
+    let (tcp, udp) = UserNetworkStack::new_with_packet_output_and_task_owner(
         response_tx.clone(),
         zero_stack::tcp_mss_for_mtu(mtu),
+        Arc::new(super::stack_tasks::StackTasks(
+            operation.children.stack_workers.clone(),
+        )),
     )
     .into_parts();
-    let mut tasks = JoinSet::new();
-    tasks.spawn(tcp::accept(tcp.clone(), runtime.route_factory()));
-    tasks.spawn(crate::inbound::tun::udp::run_with_runtime(
+    let mut tasks = operation
+        .children
+        .drivers
+        .lock()
+        .await
+        .map_err(std::io::Error::other)?;
+    tasks.spawn(tcp::accept(
+        tcp.clone(),
+        runtime.route_factory(),
+        operation.children.connections.clone(),
+    ));
+    tasks.spawn(crate::inbound::tun::udp::run_with_owned_tasks(
         runtime.udp_runtime(),
         udp.clone(),
         runtime.route_factory().inbound_tag().to_owned(),
-        false,
-        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        operation.children.udp.clone(),
     ));
     let initial_endpoints = operation
         .endpoint
@@ -47,15 +57,21 @@ pub(super) async fn run(
         .collect::<Vec<_>>();
     let mut generation = operation.device.generation();
     let (proxied_tx, mut proxied_rx) = mpsc::channel::<ProxiedWirePacket>(256);
-    let mut proxied_tasks = JoinSet::new();
+    let mut proxied_tasks = operation
+        .children
+        .proxies
+        .lock()
+        .await
+        .map_err(std::io::Error::other)?;
     let mut peer_uses_proxy = Vec::new();
     let mut buffer = vec![0; 65_536];
     let mut fragments = FragmentReassembler::new();
     let mut endpoint_fragments = FragmentReassembler::new();
-    let echo = IcmpEchoRelay::new(
+    let echo = IcmpEchoRelay::new_owned(
         response_tx.clone(),
         runtime.route_factory(),
         shutdown.clone(),
+        operation.children.echoes.clone(),
     );
     let ingress_id = crate::runtime::packet_route::next_ingress_id();
     let packet_route = runtime.route_factory();
@@ -72,10 +88,12 @@ pub(super) async fn run(
         &mut endpoints,
         &mut fragments,
         &mut endpoint_fragments,
+        &operation.children.proxies,
         &mut proxied_tasks,
         &proxied_tx,
         &mut peer_uses_proxy,
-    );
+    )
+    .await?;
     let mut peer_changes = operation
         .endpoint
         .as_ref()
@@ -90,10 +108,11 @@ pub(super) async fn run(
             &mut endpoints,
             &mut fragments,
             &mut endpoint_fragments,
+            &operation.children.proxies,
             &mut proxied_tasks,
             &proxied_tx,
             &mut peer_uses_proxy,
-        );
+        ).await?;
         refresh_device_generation(
             operation.device.as_ref(),
             &mut generation,
@@ -129,7 +148,7 @@ pub(super) async fn run(
                     },
                 }
             } => {
-                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy);
+                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.children.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy).await?;
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
                 traffic.refresh(operation.device.as_ref(), &packet_route);
                 let (size, source, proxied_peer, received_revision) = received.inspect_err(|_| traffic.aggregate.error(TrafficPlane::Outer, false)).map_err(EngineError::Io)?;
@@ -201,7 +220,7 @@ pub(super) async fn run(
                 }
             }
             outgoing = receive_endpoint_packet(&mut operation.endpoint) => {
-                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy);
+                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.children.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy).await?;
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
                 traffic.refresh(operation.device.as_ref(), &packet_route);
                 let Some(outgoing) = outgoing else {
@@ -227,7 +246,7 @@ pub(super) async fn run(
                 }
             }
             response = responses.recv() => {
-                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy);
+                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.children.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy).await?;
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
                 traffic.refresh(operation.device.as_ref(), &packet_route);
                 let Some(response) = response else { break Err(EngineError::Io(std::io::Error::other("raw-IP response channel closed"))); };
@@ -293,14 +312,18 @@ pub(super) async fn run(
             finished = tasks.join_next() => {
                 break match finished {
                     Some(Ok(result)) => result,
-                    Some(Err(error)) => Err(EngineError::Io(std::io::Error::other(error))),
+                    Some(Err(error)) => Err(EngineError::Io(std::io::Error::other(operation.children.drivers.remember(error)))),
                     None => Err(EngineError::Io(std::io::Error::other("raw-IP ingress tasks ended"))),
                 };
             }
-            _ = proxied_tasks.join_next(), if !proxied_tasks.is_empty() => {}
+            joined = proxied_tasks.join_next(), if !proxied_tasks.is_empty() => {
+                if let Some(Err(error)) = joined {
+                    if !error.is_cancelled() { break Err(std::io::Error::other(operation.children.proxies.remember(error)).into()); }
+                }
+            }
         }
     } }).await;
-    tasks.shutdown().await;
-    proxied_tasks.shutdown().await;
+    operation.children.drivers.finish(&mut tasks).await;
+    operation.children.proxies.finish(&mut proxied_tasks).await;
     outcome
 }

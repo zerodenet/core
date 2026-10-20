@@ -24,6 +24,7 @@ pub(crate) struct IcmpEchoRelay {
     route: InboundRouteRuntimeFactory,
     slots: Arc<Semaphore>,
     shutdown: watch::Receiver<bool>,
+    tasks: Option<super::tasks::RetainedTasks<()>>,
 }
 
 impl IcmpEchoRelay {
@@ -41,7 +42,19 @@ impl IcmpEchoRelay {
             route,
             slots: Arc::new(Semaphore::new(MAX_ECHO_PROBES)),
             shutdown,
+            tasks: None,
         }
+    }
+
+    pub(super) fn new_owned(
+        responses: zero_stack::packet_output::PacketSender,
+        route: InboundRouteRuntimeFactory,
+        shutdown: watch::Receiver<bool>,
+        tasks: super::tasks::RetainedTasks<()>,
+    ) -> Self {
+        let mut relay = Self::new(responses, route, shutdown);
+        relay.tasks = Some(tasks);
+        relay
     }
 
     /// Returns true when the packet was an echo request, including requests
@@ -66,7 +79,7 @@ impl IcmpEchoRelay {
         let egress = self.route.icmp_egress(request.destination);
         let responses = self.responses.clone();
         let mut shutdown = self.shutdown.clone();
-        tokio::spawn(async move {
+        let probe = async move {
             let _permit = permit;
             let result = tokio::select! {
                 result = probe(&packet, mtu, egress.as_ref()) => result,
@@ -82,7 +95,24 @@ impl IcmpEchoRelay {
                     reject(&responses, &packet, mtu);
                 }
             }
-        });
+        };
+        if let Some(owner) = &self.tasks {
+            let Some(mut tasks) = owner.try_lock() else {
+                return true;
+            };
+            while let Some(joined) = tasks.try_join_next() {
+                if let Err(error) = joined {
+                    let cancelled = error.is_cancelled();
+                    owner.remember(error);
+                    if !cancelled {
+                        return true;
+                    }
+                }
+            }
+            tasks.spawn(probe);
+        } else {
+            tokio::spawn(probe); // Ordinary TUN retains its existing execution path.
+        }
         true
     }
 }

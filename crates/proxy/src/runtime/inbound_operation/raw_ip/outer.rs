@@ -15,25 +15,35 @@ pub(super) struct ProxiedWirePacket {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn refresh_endpoint_peers(
+pub(super) async fn refresh_endpoint_peers(
     endpoint: Option<&mut RawIpInboundEndpoint>,
     revision: &mut u64,
     initial_endpoints: &mut Vec<Option<SocketAddr>>,
     endpoints: &mut Vec<Option<SocketAddr>>,
     fragments: &mut FragmentReassembler,
     endpoint_fragments: &mut FragmentReassembler,
+    owner: &super::tasks::RetainedTasks<()>,
     proxied_tasks: &mut JoinSet<()>,
     proxied_tx: &mpsc::Sender<ProxiedWirePacket>,
     peer_uses_proxy: &mut Vec<bool>,
-) {
+) -> Result<(), zero_engine::EngineError> {
     let Some(endpoint) = endpoint else {
-        return;
+        return Ok(());
     };
     let peers = endpoint.peers.borrow_and_update().clone();
     if *revision == peers.revision {
-        return;
+        return Ok(());
     }
     proxied_tasks.abort_all();
+    // Retire one actual reader generation before admitting its replacement;
+    // rapid peer-watch changes cannot accumulate aborted but unjoined readers.
+    while let Some(joined) = proxied_tasks.join_next().await {
+        if let Err(error) = joined {
+            if !error.is_cancelled() {
+                return Err(std::io::Error::other(owner.remember(error)).into());
+            }
+        }
+    }
     *peer_uses_proxy = peers.carriers.iter().map(Option::is_some).collect();
     for (peer, carrier) in peers.carriers.iter().enumerate() {
         let Some(carrier) = carrier.clone() else {
@@ -84,6 +94,7 @@ pub(super) fn refresh_endpoint_peers(
         .collect();
     *fragments = FragmentReassembler::new();
     *endpoint_fragments = FragmentReassembler::new();
+    Ok(())
 }
 
 pub(super) fn peer_carrier(

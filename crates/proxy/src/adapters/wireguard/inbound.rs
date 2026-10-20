@@ -131,14 +131,14 @@ impl LinkedEndpoint {
                 self.sender.send_replace(sender);
                 packets
             });
-        Ok(Box::new(RawIpInboundListenerOperation {
-            device: Box::new(WireguardInboundDevice(self.live.clone())),
-            endpoint: Some(RawIpInboundEndpoint {
+        Ok(Box::new(RawIpInboundListenerOperation::new(
+            Box::new(WireguardInboundDevice(self.live.clone())),
+            Some(RawIpInboundEndpoint {
                 packets,
                 peers: self.peers.subscribe(),
                 lease: self.active.clone(),
             }),
-        }))
+        )))
     }
 }
 
@@ -156,10 +156,10 @@ pub(super) fn prepare(
         .ok_or_else(|| invalid("cannot identify WireGuard inbound"))?;
     let live = Arc::new(LiveInboundDevice::new(device, identity));
     Ok((
-        Box::new(RawIpInboundListenerOperation {
-            device: Box::new(WireguardInboundDevice(live.clone())),
-            endpoint: None,
-        }),
+        Box::new(RawIpInboundListenerOperation::new(
+            Box::new(WireguardInboundDevice(live.clone())),
+            None,
+        )),
         live,
     ))
 }
@@ -167,10 +167,10 @@ pub(super) fn prepare(
 pub(super) fn prepare_unlinked_with_live(
     live: Arc<LiveInboundDevice>,
 ) -> Box<dyn PreparedInboundListenerOperation> {
-    Box::new(RawIpInboundListenerOperation {
-        device: Box::new(WireguardInboundDevice(live)),
-        endpoint: None,
-    })
+    Box::new(RawIpInboundListenerOperation::new(
+        Box::new(WireguardInboundDevice(live)),
+        None,
+    ))
 }
 
 pub(super) fn prepare_linked(
