@@ -76,6 +76,12 @@ impl RetiredDatagrams {
             return Poll::Ready(Ok(()));
         }
         if let Some(error) = failure {
+            for entry in state.entries.values() {
+                entry
+                    .lock()
+                    .expect("Datagram entry poisoned")
+                    .acknowledge_failure(&error);
+            }
             return Poll::Ready(Err(error));
         }
         if complete {

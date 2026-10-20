@@ -27,6 +27,7 @@ pub(super) struct Entry {
     closing: Option<Closing>,
     retry: Option<Pin<Box<Sleep>>>,
     failure: Option<Arc<ChannelError>>,
+    failure_pending: bool,
     unfinished: Vec<Unfinished>,
     receipts: CloseReport,
 }
@@ -40,6 +41,7 @@ impl Entry {
             closing: None,
             retry: None,
             failure: None,
+            failure_pending: false,
             unfinished: Vec::new(),
             receipts: CloseReport::default(),
         }
@@ -72,6 +74,15 @@ impl Entry {
         }
         report
     }
+    pub(super) fn acknowledge_failure(&mut self, source: &Arc<ChannelError>) {
+        if self
+            .failure
+            .as_ref()
+            .is_some_and(|failure| Arc::ptr_eq(failure, source))
+        {
+            self.failure_pending = false;
+        }
+    }
     pub(super) fn has_receipts(&self) -> bool {
         let report = &self.receipts;
         !report.closed_io.is_empty()
@@ -90,6 +101,13 @@ impl Entry {
         }
         if self.reserved || self.active {
             return Poll::Pending;
+        }
+        if self.failure_pending {
+            return Poll::Ready(Err(self
+                .failure
+                .as_ref()
+                .expect("actual unreported failure")
+                .clone()));
         }
         if let Some(retry) = &mut self.retry {
             if retry.as_mut().poll(cx).is_pending() {
@@ -116,6 +134,7 @@ impl Entry {
         match result {
             Ok(mut report) => {
                 self.failure = None;
+                self.failure_pending = false;
                 self.closed = report.is_complete();
                 self.unfinished = std::mem::take(&mut report.unfinished);
                 self.receipts.append(report);
@@ -133,6 +152,7 @@ impl Entry {
             Err(error) => {
                 let error = Arc::new(error);
                 self.failure = Some(error.clone());
+                self.failure_pending = true;
                 let mut retry = Box::pin(sleep_until(Instant::now() + Duration::from_millis(10)));
                 let _ = retry.as_mut().poll(cx);
                 self.retry = Some(retry);

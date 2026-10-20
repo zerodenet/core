@@ -141,6 +141,12 @@ impl RetiredDatagrams {
             }
         }
         if let Some(source) = failure {
+            for entry in state.entries.values() {
+                entry
+                    .lock()
+                    .expect("Datagram entry poisoned")
+                    .acknowledge_failure(&source);
+            }
             return Poll::Ready(Err(source));
         }
         if complete {
@@ -204,6 +210,10 @@ impl RetiredDatagrams {
         )
         .await;
         if let Ok(Err(error)) = result {
+            entry
+                .lock()
+                .expect("Datagram entry poisoned")
+                .acknowledge_failure(&error);
             return Err(super::instance::retained(error));
         }
         let mut state = self.state.lock().expect("Datagram owner poisoned");

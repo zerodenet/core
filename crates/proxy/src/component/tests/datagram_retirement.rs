@@ -195,8 +195,19 @@ async fn normal_udp_driver_recycles_capacity_one_for_two_real_socket_batches_wit
 #[tokio::test]
 async fn a_real_pending_or_failed_tcp_close_does_not_pin_another_closed_udp_reservation() {
     let owner = owner(2);
-    let (control, _eof, release, server) = tcp_control(true).await;
+    let (control, eof, release, server) = tcp_control(true).await;
     drop(owner.reserve().unwrap().adopt(control));
+    let progressing = owner.progress_retired(deadline());
+    tokio::pin!(progressing);
+    std::future::poll_fn(|cx| {
+        use std::{future::Future, task::Poll};
+        assert!(progressing.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    tokio::time::timeout_at(deadline(), eof.notified())
+        .await
+        .unwrap();
     let reservation = owner.reserve().unwrap();
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let socket = TokioDatagramSocket::bind("127.0.0.1:0").await.unwrap();
@@ -207,7 +218,7 @@ async fn a_real_pending_or_failed_tcp_close_does_not_pin_another_closed_udp_rese
         CancellationToken::new(),
     );
     drop(reservation.adopt(channel.control));
-    let report = owner.progress_retired(deadline()).await.unwrap();
+    let report = progressing.await.unwrap();
     assert_eq!(report.closed_io.len(), 1);
     assert!(!report.is_complete());
     TokioDatagramSocket::bind_addr(local)
