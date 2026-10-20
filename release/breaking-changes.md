@@ -6,6 +6,11 @@
 
 宿主先订阅实际 reload 通知，再捕获一次 Engine snapshot；本次启动的 DNS candidate 准备/真实资源退休、组件 start/commit、listener 与服务均使用该同一 snapshot 的配置。启动 await 期间的后续公开 Engine reload 留待原 bridge 逐次 reconcile，不能把后来读取的配置提交到先前启动的组件。启动前已完成 Engine reload 也从捕获的实际配置建立 DNS 与组件。wire 与配置 schema 不变；公开 Engine reload / probe 调用方式不需要迁移。回归保留 `automatic_urltest_rebuilds_runtime_across_large_and_small_reloads`，并新增 `runtime/orchestration/tests/startup_snapshot.rs` 的真实 UDP DNS/HTTP 流量与同一 plan Arc 验证。
 
+### HTTP forward 消息的宿主身份
+
+HTTP forward 请求现在向宿主交付目的地与规范化 wire 元数据，不先制造协议 Session。原消息执行器为每条实际消息签发一个真实身份，继续使用既有准入、头/体改写、redirect、upgrade、取消与流量统计路径。旧 Rust `HttpForwardRequest` 访问器和 `into_parts` 保留在显式兼容包装中。
+
+V1 配置/API/events、wire 响应及 FFI ABI 不变，无 GUI/SDK 迁移。回归见 `protocols/http/tests/inbound.rs` 及 `crates/proxy/tests/http/standard_inbound.rs`；实际验证结果独立记录。
 
 ### 冷态公开 outbound 诊断的 Service 生命周期
 
@@ -19,7 +24,7 @@ wire、结果码、策略/健康中立性与配置字段不变，无 GUI/SDK 迁
 入站故障不再把已完成的实际任务 join 和原生资源关闭永久视为未确认。宿主保留原实例的任务 ID、类别与原始错误，只有实际物理关闭证明完成、错误同步交付监督及已有 endpoint 健康记录后，才消费该实例收据并允许新一代替换；取消或交付失败保留原 owner 和同一收据供重试。候选替换遇到旧实例故障仍被拒绝，现有补偿路径从最后成功配置重新建立实例。未确认或 Unknown 的资源继续阻止替换。
 
 此项影响配置更新、停止及内部 listener 监督，无配置字段或 API wire 标识变化，无 GUI/SDK 迁移步骤。普通 Direct listener 没有新增 endpoint 状态模型；候选 listener 的 Ready ACK 仍是后续独立问题。回归位于 `runtime/inbound_owners/entry/tests/peer_resource/recovery.rs`（真实任务 panic、UDP close、取消、交付失败与重放）及 `runtime/orchestration/tests/inbound_recovery.rs`（真实 listener/UDP 流量与最后成功配置恢复）。
-: Native Stream component integration
+### Native Stream component integration
 
 - HTTP and mixed CONNECT now pass protocol-owned destination facts into the host's standard accepted Stream handoff. The host mints one sealed business identity and retains the existing admission/routing/accounting/half-close pipeline. Protocol-owned replies preserve the established 200/403/502 wire and original carrier failure sources. Rust `http/runtime` gates that reply's Tokio dependencies; default parsing stays runtime independent and the legacy request API remains available. Forward HTTP messages retain the existing executor. V1 config/API/events and FFI ABI are unchanged; regressions live in `protocols/http/tests/component/inbound.rs` and `crates/proxy/tests/http/standard_inbound.rs`. This entry records implementation; validation results are recorded separately.
 

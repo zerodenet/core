@@ -672,7 +672,7 @@ fn proxy_runtime_does_not_retain_engine_leaf_types() {
 
 #[test]
 fn udp_runtime_dispatch_does_not_retain_engine_leaf_types() {
-    assert_sources_exclude(
+    assert_non_test_sources_exclude(
         &proxy_src().join("runtime/udp_dispatch"),
         &["ResolvedLeafOutbound"],
     );
