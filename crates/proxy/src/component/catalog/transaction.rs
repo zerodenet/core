@@ -28,6 +28,16 @@ impl ComponentCatalog {
         deadline: tokio::time::Instant,
         mut publish: impl FnMut(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,
     ) -> Result<(), ChannelError> {
+        self.drive_supervised(self.start_reported_inner(config, deadline, &mut publish))
+            .await
+    }
+
+    async fn start_reported_inner(
+        &self,
+        config: Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+        mut publish: impl FnMut(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,
+    ) -> Result<(), ChannelError> {
         let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
             .await
             .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;
@@ -76,6 +86,7 @@ impl ComponentCatalog {
                 }
             }
         };
+        self.admission.signal().notify_waiters();
         Self::finish_replacement(&replacement, deadline, &mut publish).await?;
         {
             let mut state = self.state.lock().expect("component catalog poisoned");
@@ -147,6 +158,14 @@ impl ComponentCatalog {
         if !plan.started.load(Ordering::Acquire) {
             return Err("component plan has not confirmed start".to_owned());
         }
+        if let Some(failure) = plan.order.iter().find_map(|slot| slot.task_fault()) {
+            // This compatibility API returns String and cannot retain the
+            // typed fault. Leave its publication pending for the real receiver.
+            return Err(failure.error().to_string());
+        }
+        if !plan.can_reuse() {
+            return Err("component plan contains a revoked or failed runtime owner".to_owned());
+        }
         if state.retired.is_some()
             && state
                 .current
@@ -177,6 +196,9 @@ impl ComponentCatalog {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<(), ChannelError> {
+        self.drive_supervised(self.shutdown_inner(deadline)).await
+    }
+    async fn shutdown_inner(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
         let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
             .await
             .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;

@@ -17,7 +17,7 @@ async fn native_2022_cannot_bypass_unstarted_or_wrong_generation_replay_dependen
     let error = assembly.streams[0].start(deadline()).await.unwrap_err();
     assert_eq!(error.reason, Reason::Revoked);
     let replay = assembly.replay.as_ref().unwrap();
-    replay.start(deadline()).await.unwrap();
+    assembly.drive(replay.start(deadline())).await.unwrap();
     let prepared = prepare(&state, address, "2022-blake3-aes-128-gcm", KEY2022, None);
     let options = prepared.bind(Some(replay.id)).unwrap();
     assert_eq!(
@@ -44,7 +44,11 @@ async fn native_2022_cannot_bypass_unstarted_or_wrong_generation_replay_dependen
         .await
         .unwrap()
         .is_complete());
-    assert!(replay.shutdown(deadline()).await.unwrap().is_complete());
+    assert!(assembly
+        .drive(replay.shutdown(deadline()))
+        .await
+        .unwrap()
+        .is_complete());
 }
 
 #[tokio::test]
@@ -57,10 +61,7 @@ async fn replay_retirement_revokes_new_native_opens_without_dial_or_unregistered
     let role = assembly.streams[0].stream(deadline()).await.unwrap();
     let observations = Arc::new(Observations::default());
     let report = assembly
-        .replay
-        .as_ref()
-        .unwrap()
-        .shutdown(deadline())
+        .drive(assembly.replay.as_ref().unwrap().shutdown(deadline()))
         .await
         .unwrap();
     assert!(report.is_complete());

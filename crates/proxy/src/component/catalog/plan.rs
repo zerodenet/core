@@ -64,7 +64,17 @@ impl ComponentPlan {
         for slot in &self.order {
             slot.start(deadline).await?;
         }
+        self.scan_tasks(deadline).await?;
         self.started.store(true, Ordering::Release);
+        Ok(())
+    }
+    pub(super) async fn scan_tasks(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), ChannelError> {
+        for slot in &self.order {
+            slot.scan_tasks(deadline).await?;
+        }
         Ok(())
     }
     pub(crate) fn configured(&self, tag: &str) -> Option<Arc<ComponentSlot>> {

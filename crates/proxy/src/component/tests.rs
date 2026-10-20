@@ -21,3 +21,27 @@ mod shadowsocks_stream;
 mod mieru_stream;
 
 mod vless_grpc;
+
+/// Follow the actual typed payloads, including std::io's boxed error payload.
+pub(in crate::component) fn source<T: std::error::Error + 'static>(
+    error: &(dyn std::error::Error + 'static),
+) -> &T {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if let Some(value) = error.downcast_ref::<T>() {
+            return value;
+        }
+        if let Some(inner) = error
+            .downcast_ref::<std::io::Error>()
+            .and_then(std::io::Error::get_ref)
+        {
+            current = Some(inner);
+        } else {
+            current = error.source();
+        }
+    }
+    panic!(
+        "missing typed source {} in {error:?}",
+        std::any::type_name::<T>()
+    );
+}

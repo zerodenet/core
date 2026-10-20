@@ -3,6 +3,8 @@ use super::{ComponentRecipe, ValidatedRecipe};
 mod cleanup;
 mod resources;
 mod roles;
+mod start;
+mod tasks;
 #[cfg(feature = "datagram-route-runtime")]
 pub(crate) use resources::HostDatagramListenerOwner;
 pub(crate) use resources::HostOutboundDatagramResources;
@@ -12,6 +14,8 @@ pub(super) use resources::NoResources;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use std::sync::{Arc, OnceLock};
+pub(crate) use tasks::ComponentTaskFault;
+use tasks::TaskMonitor;
 use tokio::{
     sync::{Mutex, OnceCell},
     time::Instant,
@@ -60,7 +64,7 @@ struct Live {
     datagram: Option<Arc<dyn DynDatagramOutbound>>,
     started: OnceLock<Result<(), SharedError>>,
     owner: Mutex<Owner>,
-    tasks: Mutex<TaskScope>,
+    tasks: TaskMonitor,
     resources: Arc<HostResources>,
 }
 struct Owner {
@@ -71,14 +75,14 @@ struct Owner {
 
 // Cancels admission when the initiating future is dropped. The actual owner
 // remains installed for explicit, confirmed cleanup by the host.
-struct StartCancellation {
-    cancel: CancellationToken,
+struct StartCancellation<'a> {
+    slot: &'a ComponentSlot,
     armed: bool,
 }
-impl Drop for StartCancellation {
+impl Drop for StartCancellation<'_> {
     fn drop(&mut self) {
         if self.armed {
-            self.cancel.cancel();
+            self.slot.revoke();
         }
     }
 }
@@ -162,140 +166,6 @@ impl ComponentSlot {
             generation: self.generation,
         }
     }
-    pub(crate) async fn start(&self, deadline: Instant) -> Result<(), ChannelError> {
-        if self.cancel.is_cancelled() {
-            return Err(self.failure(Reason::Revoked, "component was stopped"));
-        }
-        if Instant::now() >= deadline {
-            return Err(self.failure(Reason::Timeout, "component start deadline elapsed"));
-        }
-        if let Some(result) = self.live.get() {
-            match result {
-                Ok(live) if live.started.get().is_none() => {}
-                _ => return started(self.id, result),
-            }
-        }
-        // An exhausted waiter cannot fault the initializer or acquire its I/O.
-        let _starting = tokio::time::timeout_at(deadline, self.start_gate.lock())
-            .await
-            .map_err(|_| self.failure(Reason::Timeout, "component start deadline elapsed"))?;
-        if self.cancel.is_cancelled() {
-            return Err(self.failure(Reason::Revoked, "component was stopped"));
-        }
-        if Instant::now() >= deadline {
-            return Err(self.failure(Reason::Timeout, "component start deadline elapsed"));
-        }
-        let live = self
-            .live
-            .get_or_init(|| async {
-                // No await or resource acquisition inside this initializer. The
-                // persistent slot owns Live before any start future can suspend.
-                let runtime = tokio::runtime::Handle::current();
-                let tasks = TaskScope::suspended(runtime, self.recipe.spec().task_limit);
-                let resources =
-                    HostResources::new(self.id, &self.recipe.spec().resources, self.cancel.clone())
-                        .map_err(Arc::new)?;
-                let context = BuildContext {
-                    component: self.id,
-                    generation: self.generation,
-                    dependencies: self.dependencies.clone(),
-                    roles: ComponentRoleIds {
-                        outbound: self
-                            .recipe
-                            .spec()
-                            .roles
-                            .iter()
-                            .any(|role| {
-                                matches!(role,
-                                zero_platform_tokio::contract::component::RoleKind::Stream
-                                | zero_platform_tokio::contract::component::RoleKind::Datagram)
-                            })
-                            .then_some(OutboundId(self.id.0)),
-                        ..Default::default()
-                    },
-                    resources: resources.clone(),
-                    tasks: tasks.registrar(),
-                    cancel: self.cancel.child_token(),
-                    background_carrier: None,
-                };
-                let instance = self.recipe.build(context).map_err(Arc::new)?;
-                Ok(Live {
-                    resources,
-                    stream: instance
-                        .roles
-                        .stream
-                        .clone()
-                        .map(|inner| match self.admission.get() {
-                            Some(host) => Arc::new(super::admission::FencedStream {
-                                inner,
-                                host: host.clone(),
-                                instance: self.instance_id(),
-                                owner: self.admission_owner.clone(),
-                            })
-                                as Arc<dyn DynStreamOutbound>,
-                            None => inner,
-                        }),
-                    datagram: instance.roles.datagram.clone().map(|inner| {
-                        match self.admission.get() {
-                            Some(host) => Arc::new(super::admission::FencedDatagram {
-                                inner,
-                                host: host.clone(),
-                                instance: self.instance_id(),
-                                owner: self.admission_owner.clone(),
-                            })
-                                as Arc<dyn DynDatagramOutbound>,
-                            None => inner,
-                        }
-                    }),
-                    started: OnceLock::new(),
-                    owner: Mutex::new(Owner {
-                        instance,
-                        pending_close: None,
-                        protocol_closed: false,
-                    }),
-                    tasks: Mutex::new(tasks),
-                })
-            })
-            .await;
-        if let Ok(live) = live {
-            if live.started.get().is_none() {
-                let mut owner = live.owner.lock().await;
-                let mut cancellation = StartCancellation {
-                    cancel: self.cancel.clone(),
-                    armed: true,
-                };
-                let started = match live.resources.activate(deadline) {
-                    Ok(_access) => {
-                        // The installed join owner is independent of the borrowed
-                        // lifecycle. Never hold it across protocol start await.
-                        let registration = {
-                            let mut tasks = live.tasks.lock().await;
-                            tasks.enable_registration()
-                        };
-                        match registration {
-                            Ok(()) => tokio::select! {
-                            biased;
-                            _ = self.cancel.cancelled() => Err(self.failure(Reason::Revoked, "component was stopped")),
-                            result = tokio::time::timeout_at(deadline, owner.instance.lifecycle.start(deadline)) => result.unwrap_or_else(|_| Err(self.failure(Reason::Timeout, "component start deadline elapsed"))),
-                                },
-                            Err(source) => Err(self
-                                .failure(Reason::Revoked, "component task registration is closed")
-                                .with_source(source)),
-                        }
-                    }
-                    Err(error) => Err(error),
-                };
-                if started.is_err() {
-                    owner.instance.lifecycle.revoke(CloseReason::Shutdown);
-                }
-                live.started
-                    .set(started.map_err(Arc::new))
-                    .expect("component start is serialized");
-                cancellation.armed = false;
-            }
-        }
-        started(self.id, live)
-    }
     fn failure(&self, reason: Reason, message: &'static str) -> ChannelError {
         let mut error = invalid(reason, message);
         error.component = Some(self.id);
@@ -322,6 +192,12 @@ impl ComponentSlot {
     }
     pub(crate) fn revoke(&self) {
         self.cancel.cancel();
+        if let Some(Ok(live)) = self.live.get() {
+            live.tasks.begin_shutdown();
+        }
+        if let Some(host) = self.admission.get() {
+            host.revoke(self.instance_id(), &self.admission_owner);
+        }
     }
 }
 

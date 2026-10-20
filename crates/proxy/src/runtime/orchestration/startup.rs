@@ -149,6 +149,13 @@ impl OrchestrationState {
         self.preparing_inbounds.ensure_open()?;
         proxy
             .protocols
+            .scan_components(
+                &config,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await?;
+        proxy
+            .protocols
             .commit_components(&config, || Ok(()))
             .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
         self.inbound_runtime_factory = self.inbound_runtime_factory.clone().without_preparing();

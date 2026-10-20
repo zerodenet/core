@@ -1,5 +1,4 @@
-//! Lock-boundary qualification only. These tests are the explicit join receiver;
-//! live catalog supervision and automatic Critical-fault delivery are separate.
+//! Same actual hosted consumer during pending lifecycle start and cleanup.
 use super::*;
 use std::{
     future::{poll_fn, Future},
@@ -30,12 +29,14 @@ struct State {
     witness: StdMutex<Option<TaskJoinWitness>>,
     shutdowns: AtomicUsize,
 }
-struct Factory(Arc<State>);
+struct Factory(Arc<State>, TaskClass, bool);
 struct Lifecycle {
     state: Arc<State>,
     registrar: TaskRegistrar,
     start: Option<DuplexStream>,
     driver: Option<DuplexStream>,
+    class: TaskClass,
+    wait_start: bool,
 }
 impl ComponentFactory for Factory {
     type Options = ();
@@ -61,6 +62,8 @@ impl ComponentFactory for Factory {
                 registrar: context.tasks,
                 start: Some(start),
                 driver: Some(driver),
+                class: self.1,
+                wait_start: self.2,
             }),
         })
     }
@@ -84,21 +87,23 @@ impl ResourceLifecycle for Lifecycle {
         let stop = self.registrar.cancellation();
         let (_, witness) = self
             .registrar
-            .spawn_tracked(TaskClass::Critical, async move {
+            .spawn_tracked(self.class, async move {
                 *state.native.lock().unwrap() = Some(tokio::task::id());
                 tokio::select! {
                     _ = stop.cancelled() => Ok(()),
                     result = read_pending(&mut driver, &state.task_pending) => {
                         result.unwrap();
-                        panic!("actual Critical task while lifecycle start reads");
+                        panic!("actual component task suspended in a stream read");
                     }
                 }
             })
             .unwrap();
         *self.state.witness.lock().unwrap() = Some(witness);
-        read_pending(self.start.as_mut().unwrap(), &self.state.start_pending)
-            .await
-            .unwrap();
+        if self.wait_start {
+            read_pending(self.start.as_mut().unwrap(), &self.state.start_pending)
+                .await
+                .unwrap();
+        }
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {}
@@ -111,12 +116,18 @@ impl ResourceLifecycle for Lifecycle {
     }
 }
 fn fixture() -> (ComponentSlot, Arc<State>) {
+    fixture_with(TaskClass::Critical, true)
+}
+fn fixture_with(class: TaskClass, wait_start: bool) -> (ComponentSlot, Arc<State>) {
     let state = Arc::new(State::default());
     (
         ComponentSlot::from_recipe(
             ComponentId(63),
             ResourceGeneration(2),
-            ComponentRecipe::from_validated(Arc::new(Factory(state.clone())), Arc::new(())),
+            ComponentRecipe::from_validated(
+                Arc::new(Factory(state.clone(), class, wait_start)),
+                Arc::new(()),
+            ),
             Default::default(),
             "test",
         ),
@@ -125,29 +136,40 @@ fn fixture() -> (ComponentSlot, Arc<State>) {
 }
 
 #[tokio::test]
-async fn actual_scope_join_remains_accessible_while_the_same_lifecycle_start_is_pending_in_io() {
+async fn actual_critical_join_rejects_pending_lifecycle_start_with_the_same_original_fault() {
+    use crate::component::catalog::supervision::testing::TestContext;
     use std::error::Error;
     timeout(Duration::from_secs(3), async {
         let (slot, state) = fixture();
-        let mut starting = Box::pin(slot.start(Instant::now() + Duration::from_secs(30)));
+        let host = TestContext::new([&slot]);
+        let mut starting =
+            Box::pin(host.drive(slot.start(Instant::now() + Duration::from_secs(30))));
         tokio::select! {
             result = starting.as_mut() => panic!("start was not suspended: {result:?}"),
             _ = state.start_pending.notified() => {},
         }
         state.task_pending.notified().await;
+        let live = slot.live.get().unwrap().as_ref().unwrap();
+        assert!(live.owner.try_lock().is_err());
+        assert_eq!(state.shutdowns.load(Ordering::SeqCst), 0);
         let mut peer = state.task_peer.lock().unwrap().take().unwrap();
         peer.write_u8(1).await.unwrap();
-        let live = slot.live.get().unwrap().as_ref().unwrap();
-        // The lifecycle is still borrowed by the real start future. This is
-        // the same installed scope; no new owner, task or join registry exists.
-        assert!(live.owner.try_lock().is_err());
-        let exit = live.tasks.lock().await.next_exit().await.unwrap();
-        let source = exit.result.unwrap_err();
+        let error = starting.await.unwrap_err();
+        let fault = slot.task_fault().unwrap();
+        assert!(Arc::ptr_eq(
+            error
+                .source()
+                .unwrap()
+                .downcast_ref::<Arc<ComponentTaskFault>>()
+                .unwrap(),
+            &fault
+        ));
         let witness = state.witness.lock().unwrap().clone().unwrap();
         let joined = witness.wait().await;
-        assert_eq!(joined.id(), exit.id);
+        assert_eq!(joined.id(), fault.id);
         assert_eq!(joined.class(), TaskClass::Critical);
         let original = joined.result().unwrap_err();
+        assert!(Arc::ptr_eq(&original, &fault.source));
         let native = original
             .source()
             .unwrap()
@@ -155,24 +177,21 @@ async fn actual_scope_join_remains_accessible_while_the_same_lifecycle_start_is_
             .unwrap();
         assert!(native.is_panic());
         assert_eq!(native.id(), state.native.lock().unwrap().unwrap());
-        let forwarded = source
-            .source()
-            .unwrap()
-            .source()
-            .unwrap()
-            .downcast_ref::<ChannelError>()
-            .unwrap();
-        assert!(std::ptr::eq(forwarded, original.as_ref()));
-        drop(starting); // Cancels only the borrow; persistent owners remain.
-        let report = slot
-            .shutdown(Instant::now() + Duration::from_secs(1))
+        assert!(slot.cancel.is_cancelled());
+        assert_eq!(
+            state.shutdowns.load(Ordering::SeqCst),
+            0,
+            "native task join is not lifecycle shutdown"
+        );
+        let report = host
+            .drive(slot.shutdown(Instant::now() + Duration::from_secs(1)))
             .await
             .unwrap();
         assert!(report.is_complete());
-        assert!(
-            report.exited_tasks.is_empty(),
-            "this test already received the actual exit"
-        );
+        assert_eq!(report.exited_tasks, [joined.id()]);
+        assert_eq!(report.failed_tasks.len(), 1);
+        assert_eq!(report.failed_tasks[0].id, joined.id());
+        assert_eq!(report.failed_tasks[0].class, TaskClass::Critical);
         assert_eq!(state.shutdowns.load(Ordering::SeqCst), 1);
         let mut peer = state.start_peer.lock().unwrap().take().unwrap();
         assert_eq!(
@@ -185,40 +204,35 @@ async fn actual_scope_join_remains_accessible_while_the_same_lifecycle_start_is_
 }
 
 #[tokio::test]
-async fn independent_scope_cleanup_joins_before_start_borrow_is_cancelled_without_claiming_protocol_close(
-) {
+async fn hosted_cleanup_joins_while_start_is_pending_without_claiming_protocol_close() {
+    use crate::component::catalog::supervision::testing::TestContext;
     timeout(Duration::from_secs(3), async {
         let (slot, state) = fixture();
-        let mut starting = Box::pin(slot.start(Instant::now() + Duration::from_secs(30)));
+        let host = TestContext::new([&slot]);
+        let mut starting = Box::pin(host.drive(slot.start(Instant::now() + Duration::from_secs(30))));
         tokio::select! {
             result = starting.as_mut() => panic!("start was not suspended: {result:?}"),
             _ = state.start_pending.notified() => {},
         }
         state.task_pending.notified().await;
         let live = slot.live.get().unwrap().as_ref().unwrap();
-        let report = live
-            .tasks
-            .lock()
-            .await
-            .shutdown(Instant::now() + Duration::from_secs(1))
-            .await;
+        let mut report = CloseReport::default();
+        // This explicit fixture receiver persists actual exits, while the
+        // lifecycle's original borrowed start future still owns its read.
+        tokio::select! {
+            result = starting.as_mut() => panic!("pending lifecycle unexpectedly finished: {result:?}"),
+            _ = host.drive(live.tasks.collect(Instant::now() + Duration::from_secs(1), |out| report.append(out))) => {},
+        }
         assert!(report.is_complete());
         assert_eq!(report.exited_tasks.len(), 1);
         assert!(report.failed_tasks.is_empty());
-        assert_eq!(
-            state.shutdowns.load(Ordering::SeqCst),
-            0,
-            "joined scope is not protocol cleanup"
-        );
+        assert_eq!(state.shutdowns.load(Ordering::SeqCst), 0);
         assert!(live.owner.try_lock().is_err());
         drop(starting);
-        assert!(slot
-            .shutdown(Instant::now() + Duration::from_secs(1))
-            .await
-            .unwrap()
-            .is_complete());
+        assert!(host.drive(slot.shutdown(Instant::now() + Duration::from_secs(1))).await.unwrap().is_complete());
         assert_eq!(state.shutdowns.load(Ordering::SeqCst), 1);
-    })
-    .await
-    .unwrap();
+    }).await.unwrap();
 }
+
+#[path = "lifecycle_scope/hosted.rs"]
+mod hosted;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::component::catalog::supervision::testing::TestContext;
 use std::error::Error;
 use tokio::{
     io::AsyncWriteExt,
@@ -44,7 +45,10 @@ async fn cancelled_task_retirement_keeps_the_same_batch_real_scope_and_original_
     let (blocked, gate) = native::task_slot(&catalog, false).await;
     let (panicking, panic) = native::task_slot(&catalog, true).await;
     let old = plan(vec![blocked.clone(), panicking.clone()]);
-    old.start(deadline()).await.unwrap();
+    TestContext::new(old.order.iter().map(AsRef::as_ref))
+        .drive(old.start(deadline()))
+        .await
+        .unwrap();
     let mut peer = panic.peer.lock().unwrap().take().unwrap();
     peer.write_u8(1).await.unwrap();
     drop(peer);
@@ -72,13 +76,7 @@ async fn cancelled_task_retirement_keeps_the_same_batch_real_scope_and_original_
     assert_eq!(failure.0.id, panic.task.lock().unwrap().unwrap());
     assert_eq!(failure.0.class, TaskClass::Critical);
     let native_id = panic.native_task.lock().unwrap().unwrap();
-    let join = failure
-        .0
-        .error
-        .source()
-        .unwrap()
-        .downcast_ref::<tokio::task::JoinError>()
-        .unwrap();
+    let join = crate::component::tests::source::<tokio::task::JoinError>(&failure.0.error);
     assert!(join.is_panic());
     assert_eq!(join.id(), native_id);
     let source_address = std::ptr::from_ref(join);
@@ -111,13 +109,8 @@ async fn cancelled_task_retirement_keeps_the_same_batch_real_scope_and_original_
     assert!(batch.released());
     assert!(Arc::ptr_eq(&supervisor[0], &failure));
     assert!(Arc::ptr_eq(original_failure(&reported), &failure));
-    let retained_join = supervisor[0]
-        .0
-        .error
-        .source()
-        .unwrap()
-        .downcast_ref::<tokio::task::JoinError>()
-        .unwrap();
+    let retained_join =
+        crate::component::tests::source::<tokio::task::JoinError>(&supervisor[0].0.error);
     assert_eq!(std::ptr::from_ref(retained_join), source_address);
     // This rejects the failed attempt; only the next explicit retry starts target.
     assert!(!next.started.load(Ordering::Acquire));
@@ -139,7 +132,10 @@ async fn typed_receipt_reissues_after_publication_error_or_panic_but_cannot_repl
     let catalog = ComponentCatalog::default();
     let (panicking, state) = native::task_slot(&catalog, true).await;
     let old = plan(vec![panicking]);
-    old.start(deadline()).await.unwrap();
+    TestContext::new(old.order.iter().map(AsRef::as_ref))
+        .drive(old.start(deadline()))
+        .await
+        .unwrap();
     let mut peer = state.peer.lock().unwrap().take().unwrap();
     peer.write_u8(1).await.unwrap();
     drop(peer);
@@ -199,14 +195,10 @@ async fn typed_receipt_reissues_after_publication_error_or_panic_but_cannot_repl
         weak.upgrade().is_none(),
         "published original task failures cannot retain the old plan"
     );
-    assert!(supervisor[0]
-        .0
-        .error
-        .source()
-        .unwrap()
-        .downcast_ref::<tokio::task::JoinError>()
-        .unwrap()
-        .is_panic());
+    assert!(
+        crate::component::tests::source::<tokio::task::JoinError>(&supervisor[0].0.error)
+            .is_panic()
+    );
 }
 
 #[tokio::test]
@@ -214,7 +206,10 @@ async fn native_declaration_retains_actual_close_receipts_and_scope_fault_withou
     let catalog = ComponentCatalog::default();
     let (slot, state) = native::native_slot(&catalog, true).await;
     let original = plan(vec![slot.clone()]);
-    original.start(deadline()).await.unwrap();
+    TestContext::new(original.order.iter().map(AsRef::as_ref))
+        .drive(original.start(deadline()))
+        .await
+        .unwrap();
     native::assert_bound(&state);
     let mut peer = state.peer.lock().unwrap().take().unwrap();
     peer.write_u8(1).await.unwrap();
@@ -254,14 +249,7 @@ async fn native_declaration_retains_actual_close_receipts_and_scope_fault_withou
         .clone();
     assert_eq!(failure.0.class, TaskClass::Critical);
     assert!(!failure.reported());
-    assert!(failure
-        .0
-        .error
-        .source()
-        .unwrap()
-        .downcast_ref::<tokio::task::JoinError>()
-        .unwrap()
-        .is_panic());
+    assert!(crate::component::tests::source::<tokio::task::JoinError>(&failure.0.error).is_panic());
     assert!(!candidate.started.load(Ordering::Acquire));
     assert!(catalog.commit(&target, || Ok(())).is_err());
     assert!(catalog.shutdown(deadline()).await.is_err());

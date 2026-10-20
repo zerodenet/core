@@ -5,6 +5,30 @@ use crate::component::{
 use std::sync::Arc;
 use zero_config::RuntimeConfig;
 impl super::ProtocolInventory {
+    /// Inline across the whole runtime and passive nested operations. This
+    /// elects a join consumer; it never spawns another owner/task registry.
+    pub(crate) async fn drive_component_supervision<T>(
+        &self,
+        work: impl std::future::Future<Output = T>,
+    ) -> T {
+        self.registry.components.drive_supervised(work).await
+    }
+    pub(crate) async fn component_failure(&self) -> zero_engine::EngineError {
+        zero_engine::EngineError::Io(std::io::Error::other(
+            self.registry.components.next_failure().await,
+        ))
+    }
+    pub(crate) async fn scan_components(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.registry
+            .components
+            .scan_candidate(config, deadline)
+            .await
+            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
+    }
     pub(crate) async fn maintain_service_components<T, F, Fut>(
         &self,
         config: Arc<RuntimeConfig>,

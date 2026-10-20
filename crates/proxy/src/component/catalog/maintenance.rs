@@ -13,6 +13,19 @@ impl ComponentCatalog {
         F: FnOnce() -> Fut,
         Fut: Future<Output = T>,
     {
+        self.drive_supervised(self.maintain_service_inner(config, deadline, work))
+            .await
+    }
+    async fn maintain_service_inner<T, F, Fut>(
+        &self,
+        config: Arc<RuntimeConfig>,
+        deadline: Instant,
+        work: F,
+    ) -> Result<T, ChannelError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = T>,
+    {
         // Startup/replacement cannot reuse this exact temporary generation
         // until its actual cleanup finishes. The accepted host task owns this
         // guard, not a disconnected diagnostic client's request future.
@@ -54,7 +67,10 @@ impl ComponentCatalog {
             // Runtime-owned generations have their own persistent shutdown
             // owner. A diagnostic must never close those shared components.
             drop(transition);
-            return Ok(work().await);
+            return tokio::select! { biased;
+                failure = self.next_failure() => Err(failure),
+                result = work() => Ok(result),
+            };
         }
         let plan = self
             .prepare(config.clone())
@@ -72,7 +88,10 @@ impl ComponentCatalog {
         }
         let started = plan.start(deadline).await;
         let result = match started {
-            Ok(()) => Ok(work().await),
+            Ok(()) => tokio::select! { biased;
+                failure = self.next_failure() => Err(failure),
+                result = work() => Ok(result),
+            },
             Err(source) => Err(source),
         };
         // This confirms declared component resources/tasks only. It does not

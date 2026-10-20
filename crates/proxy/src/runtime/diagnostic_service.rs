@@ -11,7 +11,15 @@ impl Proxy {
             .current_components(snapshot.config())
             .is_some()
         {
-            return Ok(work.await);
+            return self
+                .protocols
+                .drive_component_supervision(async {
+                    tokio::select! { biased;
+                        failure = self.protocols.component_failure() => Err(failure),
+                        result = work => Ok(result),
+                    }
+                })
+                .await;
         }
         let proxy = self.clone();
         // The result is nested so a native lifecycle error retains its source;

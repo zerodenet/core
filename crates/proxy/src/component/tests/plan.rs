@@ -1,4 +1,5 @@
 use super::*;
+use crate::component::catalog::supervision::testing::TestContext;
 #[path = "plan/fixtures.rs"]
 mod fixtures;
 use std::error::Error;
@@ -25,14 +26,21 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
         close_evidence: Default::default(),
         shared_identities: Default::default(),
     });
-    plan.start(deadline()).await.unwrap();
+    TestContext::new(plan.order.iter().map(AsRef::as_ref))
+        .drive(plan.start(deadline()))
+        .await
+        .unwrap();
     // The critical task must actually receive from its owned stream before it
     // panics; its native join ID is captured inside that real task.
     let mut peer = panic.peer.lock().unwrap().take().unwrap();
     peer.write_u8(1).await.unwrap();
     let first = tokio::spawn({
         let plan = plan.clone();
-        async move { plan.shutdown(deadline()).await }
+        async move {
+            TestContext::new(plan.order.iter().map(AsRef::as_ref))
+                .drive(plan.shutdown(deadline()))
+                .await
+        }
     });
     blocked.pending.notified().await;
     // The second owner is suspended in an actual read. The first owner's real
@@ -48,13 +56,7 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
     assert_eq!(original.0.id, panic.task.lock().unwrap().unwrap());
     assert_eq!(original.0.class, TaskClass::Critical);
     let native_id = panic.native_id.lock().unwrap().unwrap();
-    let join = original
-        .0
-        .error
-        .source()
-        .unwrap()
-        .downcast_ref::<tokio::task::JoinError>()
-        .unwrap();
+    let join = crate::component::tests::source::<tokio::task::JoinError>(&original.0.error);
     assert!(join.is_panic());
     assert_eq!(join.id(), native_id);
     let source_address = std::ptr::from_ref(join);
@@ -63,20 +65,17 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
     assert!(!blocked.closed.load(Ordering::Acquire));
     drop(blocked.peer.lock().unwrap().take());
     for _ in 0..2 {
-        let error = plan.shutdown(deadline()).await.unwrap_err();
+        let error = TestContext::new(plan.order.iter().map(AsRef::as_ref))
+            .drive(plan.shutdown(deadline()))
+            .await
+            .unwrap_err();
         let retained = error
             .source()
             .unwrap()
             .downcast_ref::<Arc<plan::PlanTaskFailure>>()
             .unwrap();
         assert!(Arc::ptr_eq(retained, &original));
-        let join = retained
-            .0
-            .error
-            .source()
-            .unwrap()
-            .downcast_ref::<tokio::task::JoinError>()
-            .unwrap();
+        let join = crate::component::tests::source::<tokio::task::JoinError>(&retained.0.error);
         assert_eq!(std::ptr::from_ref(join), source_address);
         assert_eq!(join.id(), native_id);
     }

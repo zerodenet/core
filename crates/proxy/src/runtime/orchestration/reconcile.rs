@@ -193,6 +193,14 @@ impl OrchestrationState {
                 preparing.ensure_open().map_err(|error| error.to_string())?;
                 proxy
                     .protocols
+                    .scan_components(
+                        new_snapshot.config(),
+                        tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                proxy
+                    .protocols
                     .commit_components(new_snapshot.config(), || {
                         proxy
                             .resolver

@@ -165,18 +165,23 @@ impl ProxyHandle {
             if revoked.inbound || revoked.outbound {
                 self.wait_endpoint_flows_ended(&binding, revoked).await?;
             }
+            let component_config = self.proxy.engine.runtime_snapshot().config().clone();
+            self.proxy
+                .protocols
+                .scan_components(&component_config, tokio::time::Instant::now() + TIMEOUT)
+                .await
+                .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
             self.proxy
                 .apply_owner
                 .commit(|| {
-                    self.proxy.protocols.commit_components(
-                        self.proxy.engine.runtime_snapshot().config(),
-                        || {
+                    self.proxy
+                        .protocols
+                        .commit_components(&component_config, || {
                             if persist {
                                 self.proxy.engine.commit_config_change();
                             }
                             Ok(())
-                        },
-                    )
+                        })
                 })
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
             Ok::<(), ApiError>(())
@@ -245,6 +250,11 @@ impl ProxyHandle {
             .retire_prepared_dns(TIMEOUT)
             .await
             .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+        self.proxy
+            .protocols
+            .scan_components(snapshot.config(), tokio::time::Instant::now() + TIMEOUT)
+            .await
+            .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
         self.proxy
             .apply_owner
             .commit(|| {

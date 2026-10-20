@@ -130,6 +130,14 @@ async fn restore_dns(
         )
         .await
         .map_err(|error| error.to_string())?;
+    proxy
+        .protocols
+        .scan_components(
+            config,
+            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
     proxy.protocols.commit_components(config, || {
         proxy
             .resolver

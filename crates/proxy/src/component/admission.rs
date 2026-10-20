@@ -22,6 +22,52 @@ struct View {
 #[derive(Default)]
 pub(super) struct HostAdmission(RwLock<View>, tokio::sync::Notify);
 impl HostAdmission {
+    pub(in crate::component) fn signal(&self) -> &tokio::sync::Notify {
+        &self.1
+    }
+    pub(in crate::component) fn check_installed(
+        &self,
+        instance: ComponentInstanceId,
+        owner: &Arc<()>,
+    ) -> Result<(), ChannelError> {
+        let view = self.0.read().expect("host admission poisoned");
+        if view
+            .current
+            .get(&instance)
+            .into_iter()
+            .chain(view.preparing.get(&instance))
+            .any(|token| Arc::ptr_eq(token, owner))
+        {
+            return Ok(());
+        }
+        let mut error = invalid(
+            Reason::StalePlan,
+            "component runtime owner is not installed by the host",
+        );
+        error.component = Some(instance.component);
+        Err(error)
+    }
+    pub(in crate::component) fn revoke(&self, instance: ComponentInstanceId, owner: &Arc<()>) {
+        let mut view = self.0.write().expect("host admission poisoned");
+        let current = view
+            .current
+            .get(&instance)
+            .is_some_and(|token| Arc::ptr_eq(token, owner));
+        let preparing = view
+            .preparing
+            .get(&instance)
+            .is_some_and(|token| Arc::ptr_eq(token, owner));
+        if current {
+            view.current.remove(&instance);
+        }
+        if preparing {
+            view.preparing.remove(&instance);
+        }
+        drop(view);
+        if current || preparing {
+            self.1.notify_waiters();
+        }
+    }
     pub(super) fn stage(&self, instances: impl Iterator<Item = (ComponentInstanceId, Arc<()>)>) {
         self.0.write().expect("host admission poisoned").preparing = instances.collect();
         self.1.notify_waiters();

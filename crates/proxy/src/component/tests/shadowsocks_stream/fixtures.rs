@@ -1,3 +1,4 @@
+use crate::component::catalog::supervision::testing::TestContext;
 use crate::component::{
     catalog::ComponentCatalog, instance::ComponentSlot, ComponentRecipe, ResourcePreparation,
 };
@@ -129,24 +130,40 @@ pub(super) fn assembly(
     Assembly { streams, replay }
 }
 impl Assembly {
+    pub(super) async fn drive<T>(&self, work: impl std::future::Future<Output = T>) -> T {
+        TestContext::new(
+            self.replay
+                .iter()
+                .chain(self.streams.iter())
+                .map(AsRef::as_ref),
+        )
+        .drive(work)
+        .await
+    }
     pub(super) async fn start(&self) {
-        if let Some(replay) = &self.replay {
-            replay.start(deadline()).await.unwrap();
-        }
-        for stream in &self.streams {
-            stream.start(deadline()).await.unwrap();
-        }
+        self.drive(async {
+            if let Some(replay) = &self.replay {
+                replay.start(deadline()).await.unwrap();
+            }
+            for stream in &self.streams {
+                stream.start(deadline()).await.unwrap();
+            }
+        })
+        .await;
     }
     pub(super) async fn close(&self) {
-        for stream in self.streams.iter().rev() {
-            assert!(stream.shutdown(deadline()).await.unwrap().is_complete());
-        }
-        if let Some(replay) = &self.replay {
-            let report = replay.shutdown(deadline()).await.unwrap();
-            assert!(report.is_complete());
-            assert_eq!(report.exited_tasks.len(), 1);
-            assert!(report.failed_tasks.is_empty());
-        }
+        self.drive(async {
+            for stream in self.streams.iter().rev() {
+                assert!(stream.shutdown(deadline()).await.unwrap().is_complete());
+            }
+            if let Some(replay) = &self.replay {
+                let report = replay.shutdown(deadline()).await.unwrap();
+                assert!(report.is_complete());
+                assert_eq!(report.exited_tasks.len(), 1);
+                assert!(report.failed_tasks.is_empty());
+            }
+        })
+        .await;
     }
 }
 #[derive(Debug, Default)]

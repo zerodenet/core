@@ -194,18 +194,23 @@ impl ProxyHandle {
             return Err("proxy stopped before configuration commit".to_owned());
         }
         let token = self.retire_prepared_dns(timeout).await?;
+        let component_config = self.proxy.engine.runtime_snapshot().config().clone();
+        self.proxy
+            .protocols
+            .scan_components(&component_config, tokio::time::Instant::now() + timeout)
+            .await
+            .map_err(|error| error.to_string())?;
         self.proxy.apply_owner.commit(|| {
-            self.proxy.protocols.commit_components(
-                self.proxy.engine.runtime_snapshot().config(),
-                || {
+            self.proxy
+                .protocols
+                .commit_components(&component_config, || {
                     self.proxy
                         .resolver
                         .commit_reload_resources(&token)
                         .map_err(|error| format!("DNS config commit failed: {error}"))?;
                     self.proxy.engine.commit_config_change();
                     Ok(())
-                },
-            )
+                })
         })
     }
 
@@ -246,16 +251,21 @@ impl ProxyHandle {
         // later commit failed. Recovery must confirm and publish the exact new
         // old-config candidate; discarding it cannot revive a closed pool.
         let token = self.retire_prepared_dns(timeout).await?;
+        let component_config = self.proxy.engine.runtime_snapshot().config().clone();
+        self.proxy
+            .protocols
+            .scan_components(&component_config, tokio::time::Instant::now() + timeout)
+            .await
+            .map_err(|error| error.to_string())?;
         self.proxy.apply_owner.compensate(|| {
-            self.proxy.protocols.commit_components(
-                self.proxy.engine.runtime_snapshot().config(),
-                || {
+            self.proxy
+                .protocols
+                .commit_components(&component_config, || {
                     self.proxy
                         .resolver
                         .commit_reload_resources(&token)
                         .map_err(|error| format!("DNS recovery commit failed: {error}"))
-                },
-            )
+                })
         })
     }
 }

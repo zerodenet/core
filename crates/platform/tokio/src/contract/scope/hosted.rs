@@ -211,6 +211,17 @@ impl HostedScope {
         let state = self.0 .0.lock_state();
         state.records.is_empty() && state.tasks.is_empty()
     }
+    /// Exact outstanding native joins, not publication-pending joined exits.
+    /// This is a bounded snapshot of the original registration table.
+    pub fn unjoined_tasks(&self) -> Vec<TaskId> {
+        self.0
+             .0
+            .lock_state()
+            .records
+            .values()
+            .map(|record| record.id)
+            .collect()
+    }
     /// Registration closed, all tasks actually joined, all deliveries acked.
     /// This still makes no claim about native I/O or protocol resource closure.
     pub fn is_drained(&self) -> bool {

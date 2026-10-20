@@ -2,6 +2,12 @@
 use super::*;
 
 impl ComponentSlot {
+    #[cfg(test)]
+    pub(in crate::component) fn host_admission(
+        &self,
+    ) -> Option<Arc<crate::component::admission::HostAdmission>> {
+        self.admission.get().cloned()
+    }
     pub(crate) fn service_admission(&self) -> Option<super::super::ServiceAdmission> {
         Some(super::super::ServiceAdmission::new(
             self.admission.get()?.clone(),

@@ -1,4 +1,5 @@
 use super::super::{instance::ComponentSlot, ComponentRecipe};
+use crate::component::catalog::supervision::testing::TestContext;
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -97,7 +98,8 @@ async fn actual_slot_denies_build_tasks_then_registers_and_joins_the_real_start_
         "test",
     );
     let deadline = Instant::now() + Duration::from_secs(2);
-    slot.start(deadline).await.unwrap();
+    let host = TestContext::new([&slot]);
+    host.drive(slot.start(deadline)).await.unwrap();
     state.actual_entered.notified().await;
     assert_eq!(
         *state.build_registration.lock().unwrap(),
@@ -105,7 +107,7 @@ async fn actual_slot_denies_build_tasks_then_registers_and_joins_the_real_start_
     );
     assert!(!state.rejected_polled.load(Ordering::SeqCst));
     let task = state.actual_task.lock().unwrap().unwrap();
-    let report = slot.shutdown(deadline).await.unwrap();
+    let report = host.drive(slot.shutdown(deadline)).await.unwrap();
     assert!(report.is_complete());
     assert_eq!(report.exited_tasks, vec![task]);
     assert!(report.failed_tasks.is_empty());

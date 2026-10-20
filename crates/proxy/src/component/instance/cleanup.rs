@@ -13,15 +13,12 @@ impl Owner {
         component: ComponentId,
         deadline: Instant,
         resources: &HostResources,
-        tasks: &tokio::sync::Mutex<zero_platform_tokio::contract::scope::TaskScope>,
+        tasks: &super::TaskMonitor,
     ) -> Result<CloseReport, ChannelError> {
         if !self.protocol_closed {
             self.instance.lifecycle.revoke(CloseReason::Shutdown);
         }
-        {
-            let mut tasks = tasks.lock().await;
-            tasks.begin_shutdown();
-        }
+        tasks.begin_shutdown();
         let Self {
             instance,
             pending_close,
@@ -71,10 +68,9 @@ impl Owner {
                 }
             };
             let collect_tasks = async {
-                // This remains the sole production join consumer until the
-                // catalog's hosted supervisor replaces this whole branch.
-                let mut tasks = tasks.lock().await;
-                persist(tasks.shutdown(deadline).await);
+                // The same elected host pump joins actual native exits. This
+                // branch only receives/persists outcomes before scope ACKs.
+                tasks.collect(deadline, persist).await;
             };
             let collect_io = async {
                 let report = resources.shutdown_io(deadline).await?;

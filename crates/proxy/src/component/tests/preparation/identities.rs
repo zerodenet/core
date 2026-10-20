@@ -1,4 +1,5 @@
 use super::*;
+use crate::component::catalog::supervision::testing::TestContext;
 use shadowsocks::{
     component::ReplayFactory, transport::ShadowsocksTransportState, validation::ReplayPolicy,
 };
@@ -122,7 +123,8 @@ async fn unchanged_shared_identity_reuses_the_running_replay_owner_and_its_one_s
         "resource_start",
     ));
     let previous = order_and_reuse(vec![old.clone()], &[]).unwrap();
-    previous[0].start(deadline()).await.unwrap();
+    let host = TestContext::new([previous[0].as_ref()]);
+    host.drive(previous[0].start(deadline())).await.unwrap();
     let mut next = ResourcePreparation::with_identities(&mut allocate, &metadata);
     assert_eq!(request(&mut next, &state, 2), id);
     next.validate([]).unwrap();
@@ -138,8 +140,8 @@ async fn unchanged_shared_identity_reuses_the_running_replay_owner_and_its_one_s
     let selected = order_and_reuse(vec![candidate], &previous).unwrap();
     assert!(Arc::ptr_eq(&selected[0], &old));
     assert!(weak_candidate.upgrade().is_none());
-    selected[0].start(deadline()).await.unwrap();
-    let report = selected[0].shutdown(deadline()).await.unwrap();
+    host.drive(selected[0].start(deadline())).await.unwrap();
+    let report = host.drive(selected[0].shutdown(deadline())).await.unwrap();
     assert!(report.is_complete());
     assert_eq!(report.exited_tasks.len(), 1);
     assert!(report.failed_tasks.is_empty());

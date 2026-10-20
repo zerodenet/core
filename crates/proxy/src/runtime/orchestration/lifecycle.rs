@@ -12,6 +12,16 @@ pub(in crate::runtime) async fn run_until<F>(proxy: &Proxy, shutdown: F) -> Resu
 where
     F: Future<Output = ()> + Send,
 {
+    proxy
+        .protocols
+        .drive_component_supervision(run_supervised_until(proxy, shutdown))
+        .await
+}
+
+async fn run_supervised_until<F>(proxy: &Proxy, shutdown: F) -> Result<(), EngineError>
+where
+    F: Future<Output = ()> + Send,
+{
     // An empty configuration is a valid management-only runtime. Keep the
     // reload/shutdown loop alive so a controller can install its first inbound
     // through the same reconciled configuration transaction used on reload.
@@ -82,6 +92,9 @@ where
         let network_change = std::future::pending::<()>();
 
         tokio::select! {
+            failure = proxy.protocols.component_failure() => {
+                return Err(failure);
+            }
             _ = &mut shutdown => {
                 info!(
                     core_instance_id = proxy.core_instance_id(),

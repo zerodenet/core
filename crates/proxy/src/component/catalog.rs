@@ -4,6 +4,7 @@ mod maintenance;
 mod plan;
 mod replacement;
 mod retirement;
+pub(crate) mod supervision;
 #[cfg(test)]
 #[path = "tests/plan.rs"]
 mod tests;
@@ -94,6 +95,7 @@ pub(crate) struct ComponentCatalog {
     state: Mutex<State>,
     transition: tokio::sync::Mutex<()>,
     admission: Arc<super::admission::HostAdmission>,
+    supervisor: supervision::InlineSupervisor,
 }
 impl Default for ComponentCatalog {
     fn default() -> Self {
@@ -105,6 +107,7 @@ impl Default for ComponentCatalog {
             state: Mutex::new(State::default()),
             transition: tokio::sync::Mutex::new(()),
             admission: Arc::default(),
+            supervisor: Default::default(),
         }
     }
 }

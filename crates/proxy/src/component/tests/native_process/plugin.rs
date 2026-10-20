@@ -1,4 +1,5 @@
 #![cfg(all(feature = "shadowsocks", unix))]
+use crate::component::catalog::supervision::testing::TestContext;
 use crate::component::{catalog::ComponentCatalog, instance::ComponentSlot, ComponentRecipe};
 use shadowsocks::{
     component::PluginFactory,
@@ -90,13 +91,14 @@ async fn actual_host_slot_grants_one_real_plugin_child_and_joins_its_actual_moni
     let state = ShadowsocksTransportState::default();
     let resource = state.plugin_resource("127.0.0.1", 9999, config.clone());
     let slot = slot(&state, config);
+    let host = TestContext::new([slot.as_ref()]);
     assert!(slot.recipe.spec().roles.is_empty());
-    slot.start(deadline()).await.unwrap();
+    host.drive(slot.start(deadline())).await.unwrap();
     let pid = marker.pid().await;
     assert_ne!(pid, 0);
-    slot.start(deadline()).await.unwrap();
+    host.drive(slot.start(deadline())).await.unwrap();
     assert_eq!(marker.starts(), 1);
-    let report = slot.shutdown(deadline()).await.unwrap();
+    let report = host.drive(slot.shutdown(deadline())).await.unwrap();
     assert!(report.is_complete());
     assert_eq!(report.exited_tasks.len(), 1);
     assert_eq!(report.released_resources.len(), 1);

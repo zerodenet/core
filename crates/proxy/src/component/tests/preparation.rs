@@ -1,4 +1,5 @@
 #![cfg(feature = "shadowsocks")]
+use crate::component::catalog::supervision::testing::TestContext;
 
 use crate::component::{
     catalog::ComponentCatalog, ComponentRegistry, RegistrationError, ResourcePreparation,
@@ -191,7 +192,8 @@ async fn shared_recipe_uses_persistent_slot_and_cannot_replace_a_running_replay_
         )
     };
     let old = owner(1);
-    old.start(deadline()).await.unwrap();
+    let host = TestContext::new([&old]);
+    host.drive(old.start(deadline())).await.unwrap();
     let premature = owner(2);
     let error = premature.start(deadline()).await.unwrap_err();
     assert_eq!(error.reason, Reason::StalePlan);
@@ -199,14 +201,21 @@ async fn shared_recipe_uses_persistent_slot_and_cannot_replace_a_running_replay_
     let failed = premature.shutdown(deadline()).await.unwrap();
     assert!(failed.is_complete());
     assert!(failed.exited_tasks.is_empty());
-    old.start(deadline()).await.unwrap();
-    let closed = old.shutdown(deadline()).await.unwrap();
+    host.drive(old.start(deadline())).await.unwrap();
+    let closed = host.drive(old.shutdown(deadline())).await.unwrap();
     assert!(closed.is_complete());
     assert_eq!(closed.exited_tasks.len(), 1);
     assert!(closed.failed_tasks.is_empty());
     let replacement = owner(2);
-    replacement.start(deadline()).await.unwrap();
-    let closed = replacement.shutdown(deadline()).await.unwrap();
+    let replacement_host = TestContext::new([&replacement]);
+    replacement_host
+        .drive(replacement.start(deadline()))
+        .await
+        .unwrap();
+    let closed = replacement_host
+        .drive(replacement.shutdown(deadline()))
+        .await
+        .unwrap();
     assert!(closed.is_complete());
     assert_eq!(closed.exited_tasks.len(), 1);
     assert!(closed.failed_tasks.is_empty());
