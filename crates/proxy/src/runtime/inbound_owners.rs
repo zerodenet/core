@@ -5,6 +5,7 @@ mod peer_binding;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peers;
 mod recovery;
+mod released_fault;
 use crate::inventory::ProtocolInventory;
 pub(crate) use entry::{
     consume_reported_error, ClosedInboundReceipt, InboundOwner, InboundTaskAccess, InboundTerminal,
@@ -13,6 +14,7 @@ pub(crate) use entry::{
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peers::{children::PeerResourceContext, InboundPeerTasks, MAX_DATAGRAM_PEERS};
+pub(crate) use released_fault::released_fault_identity;
 use std::{
     collections::HashMap,
     num::NonZeroUsize,
@@ -65,6 +67,14 @@ impl InboundInstallContext {
     }
 }
 impl InboundOwnerRegistry {
+    pub(crate) fn identities(&self) -> std::collections::BTreeSet<ComponentInstanceId> {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .map(|owner| owner.identity())
+            .collect()
+    }
     pub(crate) fn install(
         &self,
         tag: &str,

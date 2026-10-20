@@ -59,23 +59,38 @@ impl OrchestrationState {
         }
 
         let previous_runtime = self.inbound_runtime_factory.clone();
-        if let Err(error) = listeners::reconcile_inbounds(
-            &proxy.protocols,
-            self.source_dir.as_deref(),
-            &previous_runtime,
-            &previous_runtime,
-            &previous_config,
-            listeners::InboundReconcileState {
-                listener_stops: &mut self.listener_stops,
-                active_inbounds: &mut self.active_inbounds,
-                expected_listener_exits: &mut self.expected_listener_exits,
-                listeners: &mut self.listeners,
-            },
-        )
-        .await
-        {
+        // Only pre-existing actual owners may grant one recovery re-entry.
+        // This temporary finite set holds IDs, never old owners/configuration
+        // history. A failed newly created generation stays fatal/retained.
+        let mut pending_faults = proxy.inbound_owners.identities();
+        loop {
+            let result = listeners::reconcile_inbounds(
+                &proxy.protocols,
+                self.source_dir.as_deref(),
+                &previous_runtime,
+                &previous_runtime,
+                &previous_config,
+                listeners::InboundReconcileState {
+                    listener_stops: &mut self.listener_stops,
+                    active_inbounds: &mut self.active_inbounds,
+                    expected_listener_exits: &mut self.expected_listener_exits,
+                    listeners: &mut self.listeners,
+                },
+            )
+            .await;
+            let Err(error) = result else {
+                break;
+            };
+            if crate::runtime::inbound_owners::released_fault_identity(&error)
+                .is_some_and(|identity| pending_faults.remove(&identity))
+            {
+                // Its original source was actually published; the old owner/tag
+                // is now physically absent. Continue to bind last-good afresh.
+                continue;
+            }
             warn!(%error, reason = "listener_reload_rollback_error", "failed to restore last-known-good listeners after reload failure");
             acknowledgement.push_str(&format!("; listener rollback failed: {error}"));
+            break;
         }
         if recover_dns {
             if let Err(error) = restore_dns(proxy, &previous_config).await {

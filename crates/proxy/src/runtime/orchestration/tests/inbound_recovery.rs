@@ -20,6 +20,13 @@ use zero_platform_tokio::contract::{lifecycle::erase_lifecycle, ChannelError};
 #[tokio::test]
 async fn cancelled_reconcile_retains_real_fault_and_native_owner_then_rebuilds_last_good_listener()
 {
+    prove_cancelled_recovery(false).await;
+}
+#[tokio::test]
+async fn superseding_cancelled_candidate_hands_off_closed_fault_before_fresh_last_good_recovery() {
+    prove_cancelled_recovery(true).await;
+}
+async fn prove_cancelled_recovery(supersede: bool) {
     let _trace = tracing::subscriber::set_default(
         tracing_subscriber::fmt()
             .without_time()
@@ -109,6 +116,7 @@ async fn cancelled_reconcile_retains_real_fault_and_native_owner_then_rebuilds_l
         _ = pending.notified() => {}
     }
     drop(applying);
+    assert!(state.pending_dns_reload.is_some());
     assert!(!closed.load(Ordering::Acquire));
     assert!(UdpSocket::bind(original_address).await.is_err());
     assert_eq!(
@@ -119,6 +127,14 @@ async fn cancelled_reconcile_retains_real_fault_and_native_owner_then_rebuilds_l
             .identity(),
         old_id
     );
+    if supersede {
+        // Equal configuration values still produce a distinct actual host
+        // candidate. It must reject/compensate the retained original token.
+        proxy
+            .engine
+            .stage_runtime_config((*proxy.engine.config()).clone())
+            .unwrap();
+    }
     release_close.write_u8(1).await.unwrap();
     timeout(Duration::from_secs(5), state.reconcile_reload(&proxy))
         .await

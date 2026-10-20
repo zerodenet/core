@@ -1,6 +1,5 @@
 //! A closed fault rejects the candidate while enabling real old-config recovery.
 use super::*;
-use crate::component::instance::retained;
 pub(super) async fn wait_listener_stopped(
     runtime_factory: &InboundListenerRuntimeFactory,
     tag: &str,
@@ -23,13 +22,10 @@ pub(super) async fn wait_listener_stopped(
     if receipt.terminal().joined_tasks() > 0 && receipt.terminal().failure().is_none() {
         *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
     }
-    let fault = runtime_factory
+    runtime_factory
         .owners()
-        .release_closed(receipt, |terminal| {
+        .release_closed_reported(receipt, |terminal| {
             runtime_factory.publish_inbound_terminal(tag, terminal);
-            Ok(terminal.failure())
-        })?;
-    fault.map_or(Ok(()), |source| {
-        Err(std::io::Error::other(retained(source)).into())
-    })
+            Ok(())
+        })
 }
