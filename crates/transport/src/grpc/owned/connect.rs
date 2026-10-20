@@ -145,7 +145,7 @@ impl Managed {
         let stop = client.life.stop.clone();
         let scope_stop = self.scope_cancel.clone();
         let instance = self.instance;
-        let (_,witness)=physical.adoption.spawn_driver(&self.tasks,TaskClass::Critical,driver,|driver|async move {
+        let (_,witness)=physical.adoption.spawn_driver(&self.tasks,TaskClass::Auxiliary,driver,|driver|async move {
             let _body=body;
             tokio::select! {biased;
                 _=stop.cancelled()=>Ok(()),

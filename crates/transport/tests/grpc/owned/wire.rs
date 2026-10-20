@@ -88,6 +88,10 @@ async fn same_owned_pool_reuses_one_scoped_tls_free_driver_with_bounded_logical_
         let joined = fixture.scope.next_exit().await.unwrap();
         assert_eq!(joined.id, witness.wait().await.id());
         assert!(joined.result.is_ok());
+        assert_eq!(
+            joined.class,
+            zero_platform_tokio::contract::scope::TaskClass::Auxiliary
+        );
         assert!(
             record.adoption.closed().is_none(),
             "actual join alone is not physical closure"
@@ -180,6 +184,10 @@ async fn retired_carrier_limit_is_reusable_only_after_real_join_and_same_slot_na
         assert_eq!(managed.records.lock().unwrap().len(), 1);
         let exit = fixture.scope.next_exit().await.unwrap();
         assert!(exit.result.is_ok());
+        assert_eq!(
+            exit.class,
+            zero_platform_tokio::contract::scope::TaskClass::Auxiliary
+        );
         assert!(witness.is_joined());
         assert!(record.adoption.closed().is_none());
         assert_eq!(

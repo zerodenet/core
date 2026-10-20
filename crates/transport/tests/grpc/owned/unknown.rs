@@ -141,6 +141,14 @@ async fn returned_stream_preserves_the_same_actual_scoped_driver_failure_arc() {
         // The real native read callback panics in the one registered physical driver.
         let exit = fixture.scope.next_exit().await.unwrap();
         assert!(exit.result.is_err());
+        assert_eq!(
+            exit.class,
+            zero_platform_tokio::contract::scope::TaskClass::Auxiliary
+        );
+        assert!(
+            managed.ready(),
+            "one recoverable carrier failure does not revoke the shared pool"
+        );
         let original = witness.wait().await.result().unwrap_err();
         let failure = io.read_exact(&mut bytes).await.unwrap_err();
         let forwarded = failure
