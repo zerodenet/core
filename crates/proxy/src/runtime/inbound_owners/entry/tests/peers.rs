@@ -167,9 +167,12 @@ async fn explicit_child_groups_share_the_actual_scope_without_borrowing_another_
         .unwrap();
     let host = installed.tasks();
     let (release, released) = tokio::sync::oneshot::channel();
+    let (first_active, first_activated) = tokio::sync::oneshot::channel();
+    let (second_active, second_activated) = tokio::sync::oneshot::channel();
     assert!(first
         .spawn_bound(&host, |binding| async move {
             binding.wait_bound().await.map_err(std::io::Error::other)?;
+            first_active.send(()).unwrap();
             released.await.map_err(std::io::Error::other)?;
             Ok(())
         })
@@ -187,12 +190,18 @@ async fn explicit_child_groups_share_the_actual_scope_without_borrowing_another_
     assert!(second
         .spawn_bound(&host, |binding| async move {
             binding.wait_bound().await.map_err(std::io::Error::other)?;
+            second_active.send(()).unwrap();
             Ok(())
         })
         .unwrap());
     // Body completion and an available peer slot are different facts; only
     // the original scope's consumed TaskExit can reclaim either group record.
     assert_eq!(second.occupied(), 1);
+    // These factories intentionally have no native resource. Wait until both
+    // actual tasks have crossed their original binding fence before stopping;
+    // shutdown-before-activation correctly reports Revoked instead of success.
+    first_activated.await.unwrap();
+    second_activated.await.unwrap();
     release.send(()).unwrap();
     finish.send(()).unwrap();
     assert!(installed
