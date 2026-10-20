@@ -52,6 +52,14 @@ pub enum DeviceOwnership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceDeclaration {
+    /// One actual bounded Direct business carrier owner. Its endpoint and full
+    /// generation binding are supplied only by a sealed admitted demand and
+    /// the original Direct resolver/candidate path, never a wildcard endpoint.
+    /// This permits no service/background demand or relay prefix by itself.
+    ControlledDirectStream {
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
     /// Sole actual physical stream owner, exact host-selected endpoint and full
     /// prefix/dial/network binding. Registration and users remain separately
     /// proved; this declaration alone never opens I/O or grants a task.
