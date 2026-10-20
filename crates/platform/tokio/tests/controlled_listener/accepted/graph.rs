@@ -87,7 +87,26 @@ async fn real_pending_handler_body_exit_is_not_scope_join_or_original_native_clo
         );
         let actual = observe_exit(&mut scope, &owner).await;
         assert_eq!(actual.id, id);
-        assert!(actual.result.is_ok());
+        // The original read is polled before the cancellation branch, so its
+        // already-ready native cancellation error remains the genuine exit.
+        let error = actual.result.as_ref().unwrap_err();
+        assert_eq!(error.stage, Stage::Receive);
+        assert_eq!(error.reason, Reason::Io);
+        let joined = witness.try_joined().unwrap();
+        let original = joined.result().unwrap_err();
+        let native = std::error::Error::source(original.as_ref())
+            .unwrap()
+            .downcast_ref::<io::Error>()
+            .unwrap();
+        assert_eq!(native.kind(), io::ErrorKind::ConnectionAborted);
+        let saved = owner
+            .accepted_evidence()
+            .unwrap()
+            .first_user_failure
+            .unwrap();
+        assert_eq!(saved.id(), id);
+        assert_eq!(saved.class(), TaskClass::Auxiliary);
+        assert!(Arc::ptr_eq(&original, &saved.result().unwrap_err()));
         assert!(witness.is_joined());
         assert_eq!(
             peer.try_read(&mut [0]).unwrap_err().kind(),
