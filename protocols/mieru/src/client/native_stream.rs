@@ -74,7 +74,16 @@ impl NativeTcpStream {
     ) -> Option<ChannelError> {
         let mut current = Some(source);
         while let Some(error) = current {
-            if let Some(driver) = error.downcast_ref::<DriverFailure>() {
+            // io::Error::source forwards the payload's source, so its
+            // DriverFailure wrapper is retained in get_ref, not yielded as a
+            // chain node. Preserve its exact original receipt Arc.
+            let driver = error.downcast_ref::<DriverFailure>().or_else(|| {
+                error
+                    .downcast_ref::<io::Error>()?
+                    .get_ref()?
+                    .downcast_ref::<DriverFailure>()
+            });
+            if let Some(driver) = driver {
                 let source = driver.0.clone();
                 let mut result = ChannelError::new(source.stage, source.reason, source.impact);
                 result.component = source.component;
