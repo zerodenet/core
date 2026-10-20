@@ -1,3 +1,9 @@
+mod root_datagram;
+pub use root_datagram::{
+    GrantedRootDatagram, RootDatagramAttemptFailure, RootDatagramAuthority, RootDatagramClosed,
+    RootDatagramGrant, RootDatagramIo, RootDatagramRequest, RootDatagramRetryReceipt,
+    RootDatagramUse,
+};
 mod accepted_tcp;
 pub use accepted_tcp::AcceptedTcpLimits;
 mod bound_attempt;
@@ -52,6 +58,14 @@ pub enum DeviceOwnership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceDeclaration {
+    /// Exact service-root UDP peer on the actual host network generation.
+    /// Live, retiring and Unknown originals share this caller-assigned bound.
+    /// Default dial/no preferred source port only; no business authority.
+    ControlledOutboundDatagram {
+        peer: std::net::SocketAddr,
+        network_generation: zero_core::component::NetworkGeneration,
+        max_sockets: NonZeroUsize,
+    },
     /// One actual bounded Direct business carrier owner. Its endpoint and full
     /// generation binding are supplied only by a sealed admitted demand and
     /// the original Direct resolver/candidate path, never a wildcard endpoint.
@@ -157,6 +171,30 @@ pub struct GrantedDatagramListener {
 /// The host implements access only for resources declared by this component.
 /// Calls are deferred until ResourceLifecycle::start, after ownership is installed.
 pub trait ResourceAccess: Send + Sync {
+    fn open_root_datagram(
+        &self,
+        _request: &RootDatagramRequest,
+        _query: &super::scope::TaskJoinWitness,
+    ) -> Result<GrantedRootDatagram, RootDatagramAttemptFailure> {
+        Err(RootDatagramAttemptFailure::denied(
+            super::ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Unsupported,
+                super::Impact::Component,
+            ),
+        ))
+    }
+    fn close_root_datagram(
+        &self,
+        _usage: RootDatagramUse,
+    ) -> Result<RootDatagramClosed, super::ChannelError> {
+        Err(super::ChannelError::new(
+            super::Stage::Close,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+
     /// Bind the already installed sole physical owner to this exact canonical
     /// declaration ordinal and actual host scope. This grants no task/session
     /// and supplies no external-user completion receipt. Default deny.
