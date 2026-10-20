@@ -31,6 +31,21 @@ impl Caller {
             Kind::Raw => Self::Raw(Box::new(caller::Caller::new(proxy).await)),
         }
     }
+    pub(in crate::component) async fn new_for_session(
+        proxy: &Proxy,
+        kind: Kind,
+        session: Session,
+    ) -> Self {
+        match kind {
+            Kind::Accepted => Self::Accepted(Box::new(
+                accepted::Caller::new_for_session(proxy, session).await,
+            )),
+            #[cfg(feature = "raw-ip-runtime")]
+            Kind::Raw => Self::Raw(Box::new(
+                caller::Caller::new_for_session(proxy, session).await,
+            )),
+        }
+    }
     pub(in crate::component) fn session(&self) -> &Session {
         match self {
             Self::Accepted(caller) => &caller.session,

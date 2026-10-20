@@ -28,6 +28,19 @@ pub(in crate::component) struct Caller {
 }
 impl Caller {
     pub(in crate::component) async fn new(proxy: &Proxy) -> Self {
+        Self::new_for_session(
+            proxy,
+            Session::new(
+                0,
+                Address::Domain("native.example".into()),
+                443,
+                Network::Tcp,
+                ProtocolType::new("verified"),
+            ),
+        )
+        .await
+    }
+    pub(in crate::component) async fn new_for_session(proxy: &Proxy, session: Session) -> Self {
         let registry = Arc::new(InboundOwnerRegistry::default());
         let (stop, _) = watch::channel(false);
         let installed = registry
@@ -59,13 +72,7 @@ impl Caller {
                 binding.wait_bound().await.map_err(std::io::Error::other)?;
                 permit.bind_caller(binding).map_err(std::io::Error::other)?;
                 permit.enter().map_err(std::io::Error::other)?;
-                let mut session = Session::new(
-                    0,
-                    Address::Domain("native.example".into()),
-                    443,
-                    Network::Tcp,
-                    ProtocolType::new("verified"),
-                );
+                let mut session = session;
                 session.source_ip = Some(Address::Ipv4([192, 0, 2, 12]));
                 session.source_port = Some(48012);
                 let mut auth = SessionAuth::new("verified");

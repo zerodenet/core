@@ -47,3 +47,5 @@ pub(in crate::component) fn source<'a, T: std::error::Error + 'static>(
         std::any::type_name::<T>()
     );
 }
+
+mod direct_stream;

@@ -48,6 +48,19 @@ pub(in crate::component) struct Caller {
 }
 impl Caller {
     pub(in crate::component) async fn new(proxy: &Proxy) -> Self {
+        Self::new_for_session(
+            proxy,
+            Session::new(
+                0,
+                Address::Domain("native.example".into()),
+                443,
+                Network::Tcp,
+                ProtocolType::new("verified"),
+            ),
+        )
+        .await
+    }
+    pub(in crate::component) async fn new_for_session(proxy: &Proxy, session: Session) -> Self {
         let mut scope = TaskScope::suspended(tokio::runtime::Handle::current(), Some(one()));
         let declaration = ResourceDeclaration::TcpListener {
             destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
@@ -92,13 +105,7 @@ impl Caller {
                     let runtime = TcpIngressRuntime::new(services, "in".into(), Some(remote))
                         .with_local_addr(Some(local))
                         .with_accepted_caller(caller.clone());
-                    let mut session = Session::new(
-                        0,
-                        Address::Domain("native.example".into()),
-                        443,
-                        Network::Tcp,
-                        ProtocolType::new("verified"),
-                    );
+                    let mut session = session;
                     session.source_ip = Some(match remote.ip() {
                         std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
                         std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
