@@ -130,6 +130,20 @@ SS 的 roleless replay 工厂使用既有适配器按 `(ReplayPolicy, capacity)`
 
 本工厂未加入现有仅覆盖零资源 Stream 的生产 catalog；共享资源图、确认替换和M4宿主事务尚待实现。插件内部 Child 的取消保留和显式确认清理，以及其余17项继续实施。
 
+## PR04A 进行中：出站插件的持久 Child 与确认退出
+
+代码提交 `d9cf1c41202b257ccad6179328aae7f1faa34c82`，冻结源码 tree `ba6a5cb6a6d9cb26de5edbabe277d5e9b45b1597`。[验证及23份原始证据](pr04-plugin-owner-validation.json)记录实际命令和原文/gzip摘要。
+
+旧生产实现加上真实子进程回归后为6/2：取消 readiness 丢失唯一 Child 所有者，重复请求实际启动两个退出7的进程。测试读取真实PID并核对实际进程次数；负向测试源码、旧生产源码摘要和实际断言输出均有记录。修复先把 Child 放入共享计划的持久 slot，再等待 readiness；一旦 Child 存在，失败/取消不能在该计划中重新拉起。取消只请求终止，句柄仍供真正 wait/reap；重复失败保留同一原始 io::Error 来源对象。Child 创建之前的资源申请或 spawn 错误按原样返回，不冒充已开始的 readiness 尝试。原10秒预算、10毫秒探针、SIP003u UDP行为、插件环境、crypto/framing均保留。
+
+`ShadowsocksTransportState::plugin_resource` 返回与既有 prepared leaves 使用同一计划的真实资源句柄。显式 shutdown(deadline) 撤销准入，取消正在等待的 readiness，终止并通过实际 Child.try_wait 确认回收；只返回未启动或真实退出状态。清理中断/超时保留原句柄，供确认重试。四项新增实际进程测试覆盖共享计划、冷关闭、取消待启动以及持有真实门锁时的清理中断/超时后重试；真实关闭 Future 也在 Tokio task 中执行，确认 Send。没有虚构 TaskId、I/O关闭记录或空 SessionOwner。
+
+完整 SS 库36/0，同一不可变二进制在独立网络命名空间、只读挂载、1 CPU/1 GiB/no swap/user1000中也为36/0。runtime最小feature和严格workspace/all-target/all-feature Clippy通过；严格检查的完整源码tree与代码提交完全一致。提交后冻结源码、HEAD和锁文件，fmt、workspace check、完整workspace **2735/0/159**（155条摘要，包含晚期文档测试）、默认release、实际thumb no_std、最小proxy feature及依赖边界全部通过。实际默认release git_hash=`d9cf1c41`，SHA=`481f3ba21be7a221a55d9666b3e99e6875d3210215e673ec631522c7dbc5cc7c`；不代表可选connector/grpc/WireGuard release或完整RS01资格。资格完成后仅将指南/账本措辞收窄为Child创建后的readiness失败，运行代码未改动。
+
+上一head8fb的七项参考互通、Connector Qualification和Version Contract成功，实际VLESS251/0/1原始日志已保存。本批归档时主CI的Linux/Windows检查及hosted Windows TUN仍在进行，不能称为整体全绿；这次Windows出口切换是否执行尚未取得原始报告，不用1cac的executed=false代替。后续完成结果另记，历史XHTTP earlyEOF和固定参考客户端计数资格仍保留。
+
+本次出站协议资源入口未替代旧pool.clear/活跃租借语义，没有激活原生进程授权、资源工厂或RuntimeHost单实例事务；入站carrier激活仍需持久所有者。共享资源图、宿主替换与其余17项继续实施。
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
