@@ -6,7 +6,9 @@ mod peer_binding;
 mod peers;
 mod recovery;
 use crate::inventory::ProtocolInventory;
-pub(crate) use entry::{ClosedInboundReceipt, InboundOwner, InboundTaskAccess, InboundTerminal};
+pub(crate) use entry::{
+    consume_reported_error, ClosedInboundReceipt, InboundOwner, InboundTaskAccess, InboundTerminal,
+};
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 #[cfg(feature = "managed-datagram-runtime")]
@@ -102,6 +104,7 @@ impl InboundOwnerRegistry {
             .get(tag)
             .cloned()
     }
+    #[cfg(test)]
     pub(crate) async fn shutdown(&self, tag: &str, deadline: Instant) -> Result<(), EngineError> {
         let Some(receipt) = self.confirm_shutdown(tag, deadline).await? else {
             return Ok(());
@@ -112,23 +115,6 @@ impl InboundOwnerRegistry {
             );
         }
         self.release_closed(receipt, |_| Ok(()))
-    }
-
-    pub(crate) async fn shutdown_all(&self, deadline: Instant) -> Result<(), EngineError> {
-        let tags = self
-            .entries
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut error = None;
-        for tag in tags {
-            if let Err(failure) = self.shutdown(&tag, deadline).await {
-                error.get_or_insert(failure);
-            }
-        }
-        error.map_or(Ok(()), Err)
     }
 }
 impl InboundInstallContext {

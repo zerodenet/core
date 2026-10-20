@@ -73,6 +73,13 @@ impl InboundListenerRuntimeFactory {
         Self { shared, owners }
     }
 
+    pub(crate) fn publish_inbound_terminal(
+        &self,
+        tag: &str,
+        terminal: &crate::runtime::inbound_owners::InboundTerminal,
+    ) {
+        self.shared.publish_inbound_terminal(tag, terminal);
+    }
     pub(crate) fn listener_config(
         &self,
         inbound: &zero_config::InboundConfig,

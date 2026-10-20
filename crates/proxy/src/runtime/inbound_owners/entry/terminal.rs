@@ -9,12 +9,16 @@ pub(crate) struct InboundTaskFailure {
 #[derive(Debug)]
 pub(crate) struct InboundTerminal {
     identity: ComponentInstanceId,
+    observation: Arc<observation::ObservationDisposition>,
     joined_tasks: usize,
     closed_io: usize,
     failure: Option<SharedError>,
     tasks: Box<[InboundTaskFailure]>,
 }
 impl InboundTerminal {
+    pub(in crate::runtime::inbound_owners) fn publish(&self) {
+        self.observation.publish();
+    }
     pub(crate) fn identity(&self) -> ComponentInstanceId {
         self.identity
     }
@@ -101,7 +105,7 @@ impl InboundOwner {
             self.driver_finished.store(true, Ordering::Release);
         }
     }
-    pub(in crate::runtime::inbound_owners) fn identity(&self) -> ComponentInstanceId {
+    pub(crate) fn identity(&self) -> ComponentInstanceId {
         self.identity
     }
     pub(super) fn retain_resource_failures(&self, report: &mut CloseReport) {
@@ -180,6 +184,7 @@ impl InboundOwner {
                         });
                     Arc::new(InboundTerminal {
                         identity: self.identity,
+                        observation: self.observation.clone(),
                         joined_tasks: *self
                             .joined_count
                             .lock()

@@ -162,6 +162,9 @@ pub(super) fn handle_listener_result(
             Ok(())
         }
         Some(Ok(Ok(()))) => Err(EngineError::InboundTaskExited),
+        Some(Ok(Err(error))) if crate::runtime::inbound_owners::consume_reported_error(&error) => {
+            Ok(())
+        }
         Some(Ok(Err(error))) => Err(error),
         Some(Err(error)) => Err(io::Error::other(error).into()),
         None if shutting_down => Ok(()),

@@ -43,7 +43,11 @@ impl OrchestrationState {
         let drained = tokio::time::timeout(Duration::from_secs(5), async {
             self.services.shutdown().await;
             while let Some(task) = self.listeners.join_next().await {
-                task.map_err(|error| EngineError::Io(std::io::Error::other(error)))??;
+                super::lifecycle::handle_listener_result(
+                    Some(task),
+                    true,
+                    &mut self.expected_listener_exits,
+                )?;
             }
             while let Some(task) = self.urltests.join_next().await {
                 task.map_err(|error| EngineError::Io(std::io::Error::other(error)))??;
@@ -68,13 +72,21 @@ impl OrchestrationState {
                 result = Err(error);
             }
         }
-        // Joining after abort confirms resource guards have actually dropped.
+        // These are observer tasks. Their termination does not acknowledge
+        // the actual persistent listener/resource owners confirmed below.
         self.listeners.shutdown().await;
         self.urltests.shutdown().await;
         self.services.shutdown().await;
         if let Err(error) = proxy
             .inbound_owners
-            .shutdown_all(tokio::time::Instant::now() + Duration::from_secs(5))
+            .shutdown_all_reported(
+                tokio::time::Instant::now() + Duration::from_secs(5),
+                |tag, terminal| {
+                    self.inbound_runtime_factory
+                        .publish_inbound_terminal(tag, terminal);
+                    Ok(())
+                },
+            )
             .await
         {
             cleanup_errors.push(format!("inbound owner shutdown failed: {error}"));

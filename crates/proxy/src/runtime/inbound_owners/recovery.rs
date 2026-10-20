@@ -65,8 +65,42 @@ impl InboundOwnerRegistry {
             return Err(std::io::Error::other("stale or consumed inbound shutdown receipt").into());
         }
         let result = publish(&receipt.terminal)?;
+        receipt.terminal.publish();
         pending.remove(&receipt.tag);
         entries.remove(&receipt.tag);
         Ok(result)
+    }
+    pub(crate) async fn shutdown_all_reported(
+        &self,
+        deadline: Instant,
+        mut publish: impl FnMut(&str, &InboundTerminal) -> Result<(), EngineError>,
+    ) -> Result<(), EngineError> {
+        let tags = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut failure = None;
+        for tag in tags {
+            let result = async {
+                let Some(receipt) = self.confirm_shutdown(&tag, deadline).await? else {
+                    return Ok(());
+                };
+                let fault = self.release_closed(receipt, |terminal| {
+                    publish(&tag, terminal)?;
+                    Ok(terminal.failure())
+                })?;
+                fault.map_or(Ok(()), |source| {
+                    Err(std::io::Error::other(crate::component::instance::retained(source)).into())
+                })
+            }
+            .await;
+            if let Err(error) = result {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
     }
 }

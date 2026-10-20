@@ -14,6 +14,8 @@ use zero_platform_tokio::contract::{
     scope::{TaskClass, TaskExit, TaskRegistrar, TaskScope},
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
+mod observation;
+pub(crate) use observation::consume_reported_error;
 mod shutdown;
 mod terminal;
 pub(crate) use terminal::{ClosedInboundReceipt, InboundTerminal};
@@ -40,6 +42,7 @@ pub(crate) struct InboundOwner {
     joined_count: Mutex<usize>,
     task_failures: Mutex<std::collections::BTreeMap<TaskId, terminal::InboundTaskFailure>>,
     terminal: OnceLock<Arc<InboundTerminal>>,
+    observation: Arc<observation::ObservationDisposition>,
     #[cfg(feature = "managed-datagram-runtime")]
     peers: Mutex<Vec<Arc<super::InboundPeerTasks>>>,
 }
@@ -102,6 +105,7 @@ impl InboundOwner {
             joined_count: Mutex::new(0),
             task_failures: Mutex::default(),
             terminal: OnceLock::new(),
+            observation: Arc::new(observation::ObservationDisposition::new(identity)),
             #[cfg(feature = "managed-datagram-runtime")]
             peers: Mutex::new(Vec::new()),
         }
@@ -121,6 +125,20 @@ impl InboundOwner {
             stopped: AtomicBool::new(false),
         }));
         Ok(())
+    }
+    #[cfg(all(test, feature = "managed-datagram-runtime"))]
+    pub(crate) fn peer_tasks_for_test(&self) -> Arc<super::InboundPeerTasks> {
+        self.peers
+            .lock()
+            .expect("peer owners poisoned")
+            .first()
+            .expect("actual peer group installed")
+            .clone()
+    }
+    pub(crate) fn is_running(&self) -> bool {
+        !self.cancel.is_cancelled()
+            && self.driver.get().is_some()
+            && !self.driver_finished.load(Ordering::Acquire)
     }
     pub(crate) fn task_access(&self) -> InboundTaskAccess {
         InboundTaskAccess {

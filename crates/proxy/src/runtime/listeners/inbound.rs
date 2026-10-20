@@ -3,7 +3,12 @@ use std::path::Path;
 
 use tokio::sync::watch;
 use tokio::task::JoinSet;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
+mod spawn;
+mod stop;
+pub(in crate::runtime) use spawn::spawn_inbound_listener;
+use spawn::spawn_inbound_listener_with_state;
+use stop::wait_listener_stopped;
 use zero_config::{InboundConfig, RuntimeConfig};
 use zero_engine::EngineError;
 
@@ -29,116 +34,13 @@ pub(in crate::runtime) async fn bind_inbound_listener(
         .await
 }
 
-pub(in crate::runtime) fn spawn_inbound_listener(
-    protocols: &ProtocolInventory,
-    source_dir: Option<&Path>,
-    runtime_factory: &InboundListenerRuntimeFactory,
-    inbound: &InboundConfig,
-    bound: crate::protocol_registry::BoundInbound,
-    shutdown_tx: watch::Sender<bool>,
-    listeners: &mut JoinSet<Result<(), EngineError>>,
-) -> Result<(), EngineError> {
-    spawn_inbound_listener_with_state(
-        protocols,
-        source_dir,
-        runtime_factory,
-        inbound,
-        bound,
-        shutdown_tx,
-        listeners,
-        false,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn spawn_inbound_listener_with_state(
-    protocols: &ProtocolInventory,
-    source_dir: Option<&Path>,
-    runtime_factory: &InboundListenerRuntimeFactory,
-    inbound: &InboundConfig,
-    bound: crate::protocol_registry::BoundInbound,
-    shutdown_tx: watch::Sender<bool>,
-    listeners: &mut JoinSet<Result<(), EngineError>>,
-    rollback: bool,
-) -> Result<(), EngineError> {
-    let listener_config = runtime_factory.listener_config(inbound);
-    let mut operation = (if rollback {
-        protocols.prepare_rollback_inbound_listener(listener_config, source_dir)
-    } else {
-        protocols.prepare_inbound_listener(listener_config, source_dir)
-    })
-    .map_err(|error| {
-        warn!(
-            inbound_tag = %inbound.tag,
-            protocol = inbound.protocol.protocol_name(),
-            listen_address = %inbound.listen.address,
-            listen_port = inbound.listen.port,
-            reason = "adapter_prepare_error",
-            error = %error,
-            "inbound listener adapter preparation failed"
-        );
-        error
-    })?;
-    // Persistent host ownership is installed synchronously before registration
-    // or any activation await. The observer below never owns the actual driver.
-    let installed = runtime_factory.owners().install(
-        &inbound.tag,
-        protocols,
-        operation.internal_tasks(),
-        shutdown_tx.clone(),
-    )?;
-    operation.install_resources(&installed)?;
-    let owner = installed.owner();
-    let inbound_tag = inbound.tag.clone();
-    let protocol = inbound.protocol.protocol_name();
-    let listen_address = inbound.listen.address.clone();
-    let listen_port = inbound.listen.port;
-    let listener_runtime = runtime_factory.for_inbound(inbound_tag.clone());
-
-    let shutdown_rx = shutdown_tx.subscribe();
-    owner.spawn_driver(async move {
-        info!(
-            inbound_tag = %inbound_tag,
-            protocol = protocol,
-            listen_address = %listen_address,
-            listen_port = listen_port,
-            "inbound listener task started"
-        );
-        let result = operation
-            .execute(listener_runtime, bound, shutdown_rx)
-            .await;
-        match &result {
-            Ok(()) => info!(
-                inbound_tag = %inbound_tag,
-                protocol = protocol,
-                listen_address = %listen_address,
-                listen_port = listen_port,
-                reason = "listener_task_returned",
-                "inbound listener task returned"
-            ),
-            Err(listener_error) => error!(
-                inbound_tag = %inbound_tag,
-                protocol = protocol,
-                listen_address = %listen_address,
-                listen_port = listen_port,
-                reason = "listener_task_error",
-                error = %listener_error,
-                "inbound listener task failed"
-            ),
-        }
-        result
-    })?;
-    listeners.spawn(async move { owner.observe_driver().await });
-    Ok(())
-}
-
 pub(in crate::runtime) async fn reconcile_inbounds(
     protocols: &ProtocolInventory,
     source_dir: Option<&Path>,
     runtime_factory: &InboundListenerRuntimeFactory,
     rollback_runtime_factory: &InboundListenerRuntimeFactory,
     new_config: &RuntimeConfig,
-    state: InboundReconcileState<'_>,
+    mut state: InboundReconcileState<'_>,
 ) -> Result<(), EngineError> {
     // Reserve every independently bindable candidate before replacing any
     // live listener. A later bind failure must not expose an earlier candidate
@@ -172,10 +74,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         if let Some(shutdown) = state.listener_stops.get(&tag) {
             shutdown.send_replace(true);
         }
-        wait_listener_stopped(runtime_factory, &tag).await?;
-        state.listener_stops.remove(&tag);
-        state.active_inbounds.remove(&tag);
-        *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
+        wait_listener_stopped(rollback_runtime_factory, &tag, &mut state).await?;
         info!(%tag, reason = "config_removed", "confirmed removed inbound owner shutdown");
     }
 
@@ -196,6 +95,10 @@ pub(in crate::runtime) async fn reconcile_inbounds(
                 &runtime_factory.listener_config(inbound),
             )
         }) && !mode_changed
+            && runtime_factory
+                .owners()
+                .owner(&inbound.tag)
+                .is_some_and(|owner| owner.is_running())
         {
             state
                 .active_inbounds
@@ -206,8 +109,12 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         if previous.as_ref().is_some_and(|current| {
             current.listen == inbound.listen
                 && current.protocol.protocol_name() == inbound.protocol.protocol_name()
-        }) && protocols
-            .update_inbound_listener(runtime_factory.listener_config(inbound), source_dir)?
+        }) && runtime_factory
+            .owners()
+            .owner(&inbound.tag)
+            .is_some_and(|owner| owner.is_running())
+            && protocols
+                .update_inbound_listener(runtime_factory.listener_config(inbound), source_dir)?
         {
             state
                 .active_inbounds
@@ -222,9 +129,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
             if let Some(shutdown) = state.listener_stops.get(&inbound.tag) {
                 shutdown.send_replace(true);
             }
-            wait_listener_stopped(runtime_factory, &inbound.tag).await?;
-            state.listener_stops.remove(&inbound.tag);
-            *state.expected_listener_exits = state.expected_listener_exits.saturating_add(1);
+            wait_listener_stopped(rollback_runtime_factory, &inbound.tag, &mut state).await?;
             info!(inbound_tag = %inbound.tag, reason = "config_changed", "confirmed changed inbound owner shutdown");
         }
 
@@ -289,7 +194,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         // Preparation may have installed a concrete carrier owner before its
         // driver failed. Confirm that candidate before binding any recovery.
         if runtime_factory.owners().owner(&inbound.tag).is_some() {
-            wait_listener_stopped(runtime_factory, &inbound.tag).await?;
+            wait_listener_stopped(rollback_runtime_factory, &inbound.tag, &mut state).await?;
         }
         if let Some(previous) = previous {
             let (rollback_tx, _) = watch::channel(false);
@@ -347,19 +252,6 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         return Err(error);
     }
     Ok(())
-}
-
-async fn wait_listener_stopped(
-    runtime_factory: &InboundListenerRuntimeFactory,
-    tag: &str,
-) -> Result<(), EngineError> {
-    runtime_factory
-        .owners()
-        .shutdown(
-            tag,
-            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-        )
-        .await
 }
 
 fn requires_listener_restart(current: &InboundConfig, next: &InboundConfig) -> bool {

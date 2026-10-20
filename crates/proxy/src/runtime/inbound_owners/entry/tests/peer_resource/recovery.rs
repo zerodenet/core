@@ -2,8 +2,14 @@ use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 #[tokio::test]
-async fn real_fault_receipt_requires_native_close_and_transfers_original_source_before_replacement()
-{
+async fn real_fault_receipt_publishes_before_the_actual_supervisor_consumes_it() {
+    prove_recovery(false).await;
+}
+#[tokio::test]
+async fn actual_supervisor_consumption_before_publication_preserves_the_original_fault() {
+    prove_recovery(true).await;
+}
+async fn prove_recovery(consume_before_publication: bool) {
     let proxy = Proxy::new(
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
     )
@@ -81,7 +87,12 @@ async fn real_fault_receipt_requires_native_close_and_transfers_original_source_
     panic_peer.write_u8(1).await.unwrap();
     let observer = {
         let owner = owner.clone();
-        tokio::spawn(async move { owner.observe_driver().await })
+        tokio::spawn(async move {
+            owner
+                .observe_driver()
+                .await
+                .map_err(|source| owner.observer_error(source))
+        })
     };
     let mut confirming =
         Box::pin(registry.confirm_shutdown("recovery", Instant::now() + Duration::from_secs(2)));
@@ -96,11 +107,16 @@ async fn real_fault_receipt_requires_native_close_and_transfers_original_source_
         .install("recovery", &proxy.protocols, 0, new_stop)
         .is_err());
     gate_peer.write_u8(1).await.unwrap();
-    assert!(timeout(Duration::from_secs(2), observer)
+    let observed = timeout(Duration::from_secs(2), observer)
         .await
         .unwrap()
         .unwrap()
-        .is_err());
+        .unwrap_err();
+    if consume_before_publication {
+        assert!(!crate::runtime::inbound_owners::consume_reported_error(
+            &observed
+        ));
+    }
     let first = registry
         .confirm_shutdown("recovery", Instant::now() + Duration::from_secs(2))
         .await
@@ -167,6 +183,15 @@ async fn real_fault_receipt_requires_native_close_and_transfers_original_source_
         })
         .unwrap();
     assert!(Arc::ptr_eq(&original, &handed_off));
+    assert!(crate::runtime::inbound_owners::consume_reported_error(
+        &observed
+    ));
+    assert!(crate::runtime::inbound_owners::consume_reported_error(
+        &observed
+    ));
+    assert!(!crate::runtime::inbound_owners::consume_reported_error(
+        &EngineError::NoInbounds
+    ));
     assert!(registry.owner("recovery").is_none());
     let (new_stop, _) = watch::channel(false);
     let replacement = registry
