@@ -21,7 +21,7 @@ pub(crate) use entry::{
     InboundTerminal,
 };
 #[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
+pub(crate) use peer_binding::{HostPeerBinding, HostPeerJoinObserver, JoinedPeer};
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peers::{
     children::{PeerBoundDatagramAuthority, PeerBoundDatagramRegistration, PeerResourceContext},

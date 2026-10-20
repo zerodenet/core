@@ -343,6 +343,16 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
 - This adds no Root service or Business authority, production activation, schema
   or default budget. The real host issuer and separate user graph remain required.
 
+### Original peer join observation without graph retention
+
+- `HostPeerJoinObserver` shares the existing peer's sole registration/join cell;
+  it does not copy a task registry, allocate identities or construct exits. Its
+  read-only view retains the original `JoinedPeer`/witness/source after Binding
+  removal without retaining Binding, peer group, Registry, runtime, resource
+  owner or cancellation authority. Only the original Scope's actual exit
+  dispatch can write that cell. This view proves neither response-task joins
+  nor native/transferred-user closure.
+
 ## 0.0.1
 
 - 经项目所有者授权清理旧 Release 和 tag，基于当前 main 源码发布统一的首个正式版。以下旧编号条目仅保留兼容性背景，不代表仍可下载的发布记录。

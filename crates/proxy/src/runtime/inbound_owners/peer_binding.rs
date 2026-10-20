@@ -2,6 +2,8 @@
 use super::*;
 use crate::component::instance::{retained, SharedError};
 use tokio::sync::Notify;
+mod observer;
+pub(crate) use observer::HostPeerJoinObserver;
 use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{scope::TaskClass, ChannelError, Impact, Reason, Stage};
 
@@ -29,15 +31,19 @@ struct State {
     joined: Option<Arc<JoinedPeer>>,
     rejected: Option<SharedError>,
 }
-pub(crate) struct HostPeerBinding {
-    parent: ComponentInstanceId,
+#[derive(Default)]
+struct JoinCell {
     state: Mutex<State>,
     changed: Notify,
+}
+pub(crate) struct HostPeerBinding {
+    parent: ComponentInstanceId,
+    join: Arc<JoinCell>,
     cancel: CancellationToken,
 }
 impl std::fmt::Debug for HostPeerBinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let state = self.state.lock().expect("peer binding poisoned");
+        let state = self.join.state.lock().expect("peer binding poisoned");
         f.debug_struct("HostPeerBinding")
             .field("parent", &self.parent)
             .field("task", &state.task)
@@ -49,8 +55,7 @@ impl HostPeerBinding {
     pub(super) fn new(parent: ComponentInstanceId, cancel: CancellationToken) -> Self {
         Self {
             parent,
-            state: Mutex::default(),
-            changed: Notify::new(),
+            join: Arc::default(),
             cancel: cancel.child_token(),
         }
     }
@@ -59,7 +64,7 @@ impl HostPeerBinding {
         task: TaskId,
         witness: zero_platform_tokio::contract::scope::TaskJoinWitness,
     ) {
-        let mut state = self.state.lock().expect("peer binding poisoned");
+        let mut state = self.join.state.lock().expect("peer binding poisoned");
         assert!(
             state.task.is_none() && state.rejected.is_none(),
             "one actual scope registration"
@@ -67,18 +72,18 @@ impl HostPeerBinding {
         state.task = Some(task);
         state.witness = Some(witness);
         drop(state);
-        self.changed.notify_waiters();
+        self.join.changed.notify_waiters();
     }
     pub(super) fn reject(&self, error: SharedError) {
-        let mut state = self.state.lock().expect("peer binding poisoned");
+        let mut state = self.join.state.lock().expect("peer binding poisoned");
         assert!(state.task.is_none(), "accepted task cannot be rejected");
         state.rejected.get_or_insert(error);
         drop(state);
         self.request_stop();
-        self.changed.notify_waiters();
+        self.join.changed.notify_waiters();
     }
     pub(super) fn joined(&self, task: TaskId, class: TaskClass, failure: Option<SharedError>) {
-        let mut state = self.state.lock().expect("peer binding poisoned");
+        let mut state = self.join.state.lock().expect("peer binding poisoned");
         assert_eq!(
             state.task,
             Some(task),
@@ -92,10 +97,11 @@ impl HostPeerBinding {
         }));
         drop(state);
         self.request_stop();
-        self.changed.notify_waiters();
+        self.join.changed.notify_waiters();
     }
     pub(super) fn joined_receipt(&self) -> Option<Arc<JoinedPeer>> {
-        self.state
+        self.join
+            .state
             .lock()
             .expect("peer binding poisoned")
             .joined
@@ -106,7 +112,8 @@ impl HostPeerBinding {
     pub(crate) fn join_witness(
         &self,
     ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {
-        self.state
+        self.join
+            .state
             .lock()
             .expect("peer binding poisoned")
             .witness
@@ -124,7 +131,8 @@ impl HostPeerBinding {
         self.cancel.cancel();
     }
     pub(crate) fn registration_rejection(&self) -> Option<SharedError> {
-        self.state
+        self.join
+            .state
             .lock()
             .expect("peer binding poisoned")
             .rejected
@@ -132,9 +140,9 @@ impl HostPeerBinding {
     }
     pub(crate) async fn wait_bound(&self) -> Result<TaskId, ChannelError> {
         loop {
-            let changed = self.changed.notified();
+            let changed = self.join.changed.notified();
             {
-                let state = self.state.lock().expect("peer binding poisoned");
+                let state = self.join.state.lock().expect("peer binding poisoned");
                 if let Some(error) = &state.rejected {
                     return Err(retained(error.clone()));
                 }
@@ -154,26 +162,7 @@ impl HostPeerBinding {
         &self,
         deadline: Instant,
     ) -> Result<Arc<JoinedPeer>, ChannelError> {
-        tokio::time::timeout_at(deadline, async {
-            loop {
-                let changed = self.changed.notified();
-                {
-                    let state = self.state.lock().expect("peer binding poisoned");
-                    if let Some(joined) = &state.joined {
-                        return Ok(joined.clone());
-                    }
-                    if let Some(error) = &state.rejected {
-                        return Err(retained(error.clone()));
-                    }
-                }
-                changed.await;
-            }
-        })
-        .await
-        .map_err(|source| {
-            self.error(Reason::Timeout, "actual peer join remains unconfirmed")
-                .with_source(source)
-        })?
+        self.join_observer().wait_joined(deadline).await
     }
     fn error(&self, reason: Reason, message: &'static str) -> ChannelError {
         let mut error = ChannelError::new(Stage::Close, reason, Impact::Component)
