@@ -211,3 +211,6 @@ async fn native_dns_service_cancels_an_actual_pending_socks_handshake_without_le
         .await
         .unwrap();
 }
+
+#[path = "service/binding.rs"]
+mod binding;

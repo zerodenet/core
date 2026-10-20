@@ -1,5 +1,6 @@
 //! Native service requests carry a Destination and real Service identity all the way
 //! through their selected prefix. Unsupported plans are identified before I/O.
+mod receipt;
 mod root;
 use crate::{
     component::{
@@ -12,6 +13,7 @@ use crate::{
     protocol_registry::{OutboundAdapterContext, TcpExecutionServices, TcpRuntimeServices},
     transport::TcpOutboundFailure,
 };
+pub(crate) use receipt::{ServiceBinding, ServiceConnected};
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -59,7 +61,7 @@ pub(crate) async fn connect(
     plan: ServicePlan,
     purpose: ServicePurpose,
     context: CarrierContext,
-) -> Result<TcpRelayStream, ChannelError> {
+) -> Result<ServiceConnected, ChannelError> {
     if context.session.is_some() {
         return Err(failure(Reason::InvalidConfig));
     }
@@ -109,7 +111,7 @@ async fn chain(
     nodes: Vec<ServiceNode>,
     purpose: ServicePurpose,
     call: &CarrierContext,
-) -> Result<TcpRelayStream, ChannelError> {
+) -> Result<ServiceConnected, ChannelError> {
     let first = nodes
         .first()
         .ok_or_else(|| failure(Reason::InvalidConfig))?;
@@ -129,6 +131,7 @@ async fn chain(
         None => services.upstream(),
     };
     let generation = NetworkGeneration(network.network_generation());
+    let network_updates = network.network_updates();
     let binding = UpstreamBinding {
         prefix: vec![],
         dial: first.dial.clone(),
@@ -167,11 +170,16 @@ async fn chain(
             let evidence = root
                 .take_evidence()
                 .ok_or_else(|| failure(Reason::Internal))?;
-            return Ok(TcpRelayStream::from_client(LegacyStream::new(
-                connected.io,
-                Some(evidence.local),
-                evidence.peer,
-            )));
+            let binding =
+                ServiceBinding::new(&nodes, destination.clone(), generation, network_updates)?;
+            return Ok(ServiceConnected {
+                stream: TcpRelayStream::from_client(LegacyStream::new(
+                    connected.io,
+                    Some(evidence.local),
+                    evidence.peer,
+                )),
+                binding,
+            });
         };
         let endpoint = next
             .endpoint

@@ -2,6 +2,14 @@
 use super::*;
 
 impl ComponentSlot {
+    pub(crate) fn service_admission(&self) -> Option<super::super::ServiceAdmission> {
+        Some(super::super::ServiceAdmission::new(
+            self.admission.get()?.clone(),
+            self.instance_id(),
+            self.admission_owner.clone(),
+            self.cancel.clone(),
+        ))
+    }
     pub(in crate::component) fn bind_admission(
         &self,
         host: Arc<crate::component::admission::HostAdmission>,

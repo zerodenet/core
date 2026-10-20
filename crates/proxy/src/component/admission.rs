@@ -10,6 +10,8 @@ use zero_platform_tokio::contract::{
     stream::{BoxStream, ConnectRequest, Connected, DynStreamOutbound},
     BoxFuture, ChannelError, Reason,
 };
+mod service;
+pub(crate) use service::ServiceAdmission;
 
 #[derive(Default)]
 struct View {
@@ -18,21 +20,26 @@ struct View {
     preparing: BTreeMap<ComponentInstanceId, Arc<()>>,
 }
 #[derive(Default)]
-pub(super) struct HostAdmission(RwLock<View>);
+pub(super) struct HostAdmission(RwLock<View>, tokio::sync::Notify);
 impl HostAdmission {
     pub(super) fn stage(&self, instances: impl Iterator<Item = (ComponentInstanceId, Arc<()>)>) {
         self.0.write().expect("host admission poisoned").preparing = instances.collect();
+        self.1.notify_waiters();
     }
     pub(super) fn publish(&self, instances: impl Iterator<Item = (ComponentInstanceId, Arc<()>)>) {
         let mut view = self.0.write().expect("host admission poisoned");
         view.current = instances.collect();
         view.preparing.clear();
+        drop(view);
+        self.1.notify_waiters();
     }
     pub(super) fn stop_business(&self) {
         self.0.write().expect("host admission poisoned").stopping = true;
+        self.1.notify_waiters();
     }
     pub(super) fn close(&self) {
         *self.0.write().expect("host admission poisoned") = View::default();
+        self.1.notify_waiters();
     }
     pub(super) fn check(
         &self,

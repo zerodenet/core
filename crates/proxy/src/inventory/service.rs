@@ -1,11 +1,13 @@
 //! Resolve the entire selected service path before opening any carrier. Protocol
 //! support is determined by actual registered slots, never protocol-name matches.
+mod selection;
 use super::{PreparedTcpCandidateExecution, ProtocolInventory};
 use crate::{
     component::{catalog::ComponentPlan, instance::ComponentSlot},
     protocol_registry::OutboundAdapterContext,
     transport::TcpOutboundFailure,
 };
+pub(crate) use selection::ServiceSelections;
 use std::sync::Arc;
 use zero_core::{request::Destination, Address};
 use zero_engine::{ResolvedLeafOutbound, ResolvedOutbound};

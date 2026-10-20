@@ -7,7 +7,10 @@ use std::sync::{Arc, Weak};
 use zero_core::{Address, Network, ProtocolType, Session};
 #[cfg(feature = "raw-ip-runtime")]
 use zero_dns::DnsOutboundDatagramFuture;
-use zero_dns::{DnsConnectContext, DnsOutboundConnectFuture, DnsOutboundConnector, DnsSystem};
+use zero_dns::{
+    DnsConnectContext, DnsOutboundCarrier, DnsOutboundCarrierFuture, DnsOutboundConnectFuture,
+    DnsOutboundConnector, DnsSystem,
+};
 use zero_engine::Engine;
 #[cfg(feature = "raw-ip-runtime")]
 use zero_engine::ResolvedOutbound;
@@ -82,26 +85,7 @@ impl fmt::Debug for ProxyDnsOutboundConnector {
     }
 }
 
-#[derive(Debug)]
-struct DnsDetourFailure {
-    outbound: String,
-    stage: &'static str,
-    source: zero_engine::EngineError,
-}
-impl fmt::Display for DnsDetourFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "DNS detour `{}` failed at {}: {}",
-            self.outbound, self.stage, self.source
-        )
-    }
-}
-impl std::error::Error for DnsDetourFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
-    }
-}
+use service::DnsDetourFailure;
 
 impl DnsOutboundConnector for ProxyDnsOutboundConnector {
     fn connect(&self, outbound: String, endpoint: SocketAddr) -> DnsOutboundConnectFuture {
@@ -114,6 +98,16 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
         endpoint: SocketAddr,
         context: DnsConnectContext,
     ) -> DnsOutboundConnectFuture {
+        let carrier = self.connect_carrier_with_context(outbound, endpoint, context);
+        Box::pin(async move { carrier.await.map(|carrier| carrier.stream) })
+    }
+
+    fn connect_carrier_with_context(
+        &self,
+        outbound: String,
+        endpoint: SocketAddr,
+        context: DnsConnectContext,
+    ) -> DnsOutboundCarrierFuture {
         let connector = self.clone();
         let call = context.clone();
         let operation = async move {
@@ -128,6 +122,10 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                         format!("DNS detour `{outbound}` was not found"),
                     )
                 })?;
+            let selections = crate::inventory::service::ServiceSelections::capture(
+                services.snapshot(),
+                target_id,
+            );
             let (resolved, _plan) = services
                 .engine()
                 .resolve_target_id_in_snapshot(services.snapshot(), target_id)
@@ -151,7 +149,7 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
             {
                 // A native failure is final here. Falling back to the legacy
                 // bridge after any submission could duplicate a DNS request.
-                return service::connect(
+                let connected = service::connect(
                     services.execution(),
                     zero_core::request::Destination::new(
                         endpoint_address(endpoint.ip()),
@@ -166,7 +164,19 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                     },
                 )
                 .await
-                .map_err(io::Error::other);
+                .map_err(io::Error::other)?;
+                let binding = selections
+                    .and_then(|selections| selections.chosen(&connected.binding.tags()))
+                    .map(|selections| {
+                        Arc::new(service::NativeDnsBinding {
+                            carrier: connected.binding,
+                            selections,
+                        }) as Arc<dyn zero_dns::DnsCarrierBinding>
+                    });
+                return Ok(DnsOutboundCarrier {
+                    stream: connected.stream,
+                    binding,
+                });
             }
             let session = Session::new(
                 0,
@@ -191,7 +201,10 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
                 })
             })?;
             extract_tcp_stream(established)
-                .map(|result| result.upstream)
+                .map(|result| DnsOutboundCarrier {
+                    stream: result.upstream,
+                    binding: None,
+                })
                 .map_err(|source| {
                     io::Error::other(DnsDetourFailure {
                         outbound,

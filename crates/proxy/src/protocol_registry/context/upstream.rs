@@ -34,6 +34,9 @@ impl UpstreamConnectServices {
     pub(crate) fn network_generation(&self) -> u64 {
         self.egress_interface.generation()
     }
+    pub(crate) fn network_updates(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.egress_interface.subscribe_generation()
+    }
     pub(crate) async fn connect_direct(
         &self,
         session: &zero_core::Session,

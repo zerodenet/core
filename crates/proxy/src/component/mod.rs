@@ -1,5 +1,6 @@
 //! Cold component assembly. Data channels stay in platform-tokio::contract.
 mod admission;
+pub(crate) use admission::ServiceAdmission;
 mod bindings;
 pub(crate) mod catalog;
 pub(crate) mod datagram_retirement;
