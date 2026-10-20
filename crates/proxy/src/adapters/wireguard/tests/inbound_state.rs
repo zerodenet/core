@@ -13,6 +13,23 @@ fn config(private: u8) -> InboundConfig {
 }
 
 #[test]
+fn accepted_private_key_text_encodings_share_one_actual_passive_owner() {
+    let adapter = WireguardAdapter::default();
+    let original = config(91);
+    let live = adapter.passive_inbound_live(&original).unwrap();
+    let mut equivalent = original.clone();
+    let InboundProtocolConfig::Wireguard { private_key, .. } = &mut equivalent.protocol else {
+        unreachable!()
+    };
+    *private_key = serde_json::from_value(serde_json::json!("5b".repeat(32))).unwrap();
+    assert!(Arc::ptr_eq(
+        &adapter.passive_inbound_live(&equivalent).unwrap(),
+        &live
+    ));
+    assert_eq!(adapter.inbound_devices.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn passive_candidates_preserve_same_private_owner_and_prune_unowned_keys() {
     let adapter = WireguardAdapter::default();
     let original = config(91);

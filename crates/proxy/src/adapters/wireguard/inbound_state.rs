@@ -5,15 +5,18 @@ use std::sync::{Arc, Weak};
 use zero_config::{InboundConfig, InboundProtocolConfig};
 use zero_engine::EngineError;
 
-fn key(inbound: &InboundConfig) -> Result<InboundDeviceKey, EngineError> {
+pub(super) fn private_identity(inbound: &InboundConfig) -> Result<[u8; 32], EngineError> {
     let InboundProtocolConfig::Wireguard { private_key, .. } = &inbound.protocol else {
         return Err(invalid("expected WireGuard inbound"));
     };
-    // Protocol-private identity only. Neither cache keys nor secrets are logged.
-    Ok((
-        inbound.tag.clone(),
-        Sha256::digest(private_key.as_str().as_bytes()).into(),
-    ))
+    let key = wireguard::validation::parse_key(private_key.as_str())
+        .map_err(|_| invalid("invalid WireGuard private identity"))?;
+    Ok(Sha256::digest(key.as_bytes()).into())
+}
+
+fn key(inbound: &InboundConfig) -> Result<InboundDeviceKey, EngineError> {
+    // Hash the validated protocol-private bytes, not their accepted text encoding.
+    Ok((inbound.tag.clone(), private_identity(inbound)?))
 }
 
 impl WireguardAdapter {

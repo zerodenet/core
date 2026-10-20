@@ -1,5 +1,6 @@
 //! WireGuard adapter: config projection and explicit outbound capabilities.
 
+mod controlled_bind;
 mod inbound;
 mod inbound_state;
 mod lifecycle;
@@ -123,13 +124,22 @@ impl WireguardAdapter {
                 .map(inbound::cold::Binding::Pending)
                 .unwrap_or(inbound::cold::Binding::Standalone),
         };
-        let live = match &binding {
-            inbound::cold::Binding::Ready(linked) => linked.live.clone(),
-            inbound::cold::Binding::Pending(pending) => pending.live(),
-            inbound::cold::Binding::Standalone => self.passive_inbound_live(&inbound)?,
+        let live = self.passive_inbound_live(&inbound)?;
+        let linked_live = match &binding {
+            inbound::cold::Binding::Ready(linked) => Some(linked.live.clone()),
+            inbound::cold::Binding::Pending(pending) => Some(pending.live()),
+            inbound::cold::Binding::Standalone => None,
         };
+        if linked_live.is_some_and(|linked| !Arc::ptr_eq(&linked, &live)) {
+            return Err(invalid(
+                "WireGuard cold linked dependency has another private identity owner",
+            ));
+        }
         Ok(Box::new(inbound::cold::ColdListener::new(
-            &inbound, live, binding,
+            &inbound,
+            live,
+            binding,
+            self.pending_endpoints.clone(),
         )?))
     }
 
@@ -288,6 +298,15 @@ impl InboundListenerCapability for WireguardAdapter {
         Ok(crate::protocol_registry::BoundInbound::Datagram(
             std::sync::Arc::new(socket).into(),
         ))
+    }
+
+    fn prepare_inbound_bind(
+        &self,
+        inbound: InboundConfig,
+        source_dir: Option<&std::path::Path>,
+    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
+        let operation = self.prepare_inbound_listener(inbound.clone(), source_dir)?;
+        controlled_bind::cold_bind(&inbound, operation).map(Some)
     }
 
     fn prepare_inbound_listener(

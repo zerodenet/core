@@ -18,6 +18,7 @@ use zero_engine::EngineError;
 
 pub(super) mod cold;
 mod device;
+mod recovery;
 use super::inbound_protocol_identity;
 use crate::runtime::inbound_operation::{
     EndpointPeerState, PreparedInboundListenerOperation, RawIpInboundAction, RawIpInboundDevice,

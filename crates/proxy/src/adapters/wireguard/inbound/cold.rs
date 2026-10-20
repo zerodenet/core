@@ -4,13 +4,14 @@ use super::*;
 use crate::runtime::inbound_owners::InboundInstallContext;
 use std::{future::Future, pin::Pin};
 
+#[derive(Clone)]
 pub(in crate::adapters::wireguard) enum Binding {
     Standalone,
     Ready(Arc<LinkedEndpoint>),
     Pending(Arc<super::super::lifecycle::PendingLinkedEndpoint>),
 }
 impl Binding {
-    fn ready(&self) -> Result<Option<Arc<LinkedEndpoint>>, EngineError> {
+    pub(super) fn ready(&self) -> Result<Option<Arc<LinkedEndpoint>>, EngineError> {
         match self {
             Self::Standalone => Ok(None),
             Self::Ready(linked) => Ok(Some(linked.clone())),
@@ -28,12 +29,14 @@ pub(in crate::adapters::wireguard) struct ColdListener {
     update: Option<(InboundDevice, [u8; 32])>,
     operation: Option<Box<dyn PreparedInboundListenerOperation>>,
     lease: Option<ListenerLease>,
+    recovery: Arc<super::recovery::Recovery>,
 }
 impl ColdListener {
     pub(in crate::adapters::wireguard) fn new(
         inbound: &InboundConfig,
         live: Arc<LiveInboundDevice>,
         binding: Binding,
+        pending: super::super::PendingEndpointMap,
     ) -> Result<Self, EngineError> {
         let identity = inbound_protocol_identity(&inbound.protocol)
             .ok_or_else(|| invalid("cannot identify WireGuard inbound"))?;
@@ -42,16 +45,26 @@ impl ColdListener {
         } else {
             Some((prepare_device(inbound)?, identity))
         };
+        let recovery = Arc::new(super::recovery::Recovery::new(
+            inbound,
+            live.clone(),
+            binding.clone(),
+            pending,
+        )?);
         Ok(Self {
             live,
             binding,
             update,
             operation: None,
             lease: None,
+            recovery,
         })
     }
 }
 impl PreparedInboundListenerOperation for ColdListener {
+    fn recovery_state(&self) -> Option<Arc<dyn crate::protocol_registry::InboundRecovery>> {
+        Some(self.recovery.clone())
+    }
     fn install_resources(&mut self, context: &InboundInstallContext) -> Result<(), EngineError> {
         if self.operation.is_some() || self.lease.is_some() {
             return Err(invalid("WireGuard cold listener was already installed"));
@@ -83,7 +96,9 @@ impl PreparedInboundListenerOperation for ColdListener {
             .unwrap()
             .install_resources(context)?;
         if let Some((device, identity)) = self.update.take() {
-            self.live.replace(device, identity);
+            if !self.live.matches_identity(identity) {
+                self.live.replace(device, identity);
+            }
         }
         Ok(())
     }

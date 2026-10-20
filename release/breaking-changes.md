@@ -14,6 +14,12 @@ Changed listeners now prepare cold operation values, stop every affected old lis
 
 V1 configuration/API/events and FFI ABI are unchanged; no caller schema migration is required. A controlled listener close receipt does not establish closure of every accepted child socket or completion of all M4 resources. Validation for this change is recorded separately.
 
+### WireGuard 同实际安全状态的 listener 恢复
+
+WireGuard listener 使用原 canonical UDP native owner 与独立 NativeIcmp 声明；资源、原任务及转交用户仍须由实际宿主图确认关闭。冷准备不再取得 linked receiver 或改变运行设备。最后成功 listener 的 opaque 行为持有同一 LiveInboundDevice；宿主确认确切旧实例 terminal 后，恢复与同私钥端口迁移继续使用该真实 crypto owner，保留原重放、握手、计数、cookie/limiter 与认证源状态。候选依赖必须来自真实 BuildNew，未就绪、Unknown 或已退休 linked 资源不能因 Arc 仍在而复活。不同私钥候选使用独立被动状态，弱缓存只随实际 current/pending/recovery owner 存活并清理 dead entries。
+
+配置、wire、API/events 与 FFI ABI 不变，无 GUI/SDK 迁移；恢复不是原 FD 或已断开会话的复活。本条记录 listener/capsule 接线，完整 linked outbound 冷启动与真实图验证独立交付，不能据此宣称整个 M4 完成。回归见 `adapters/wireguard/tests/inbound_state.rs` 与 `adapters/wireguard/inbound/recovery/tests.rs`；保留原 `wireguard_inbound.rs` 的失败候选后状态/业务断言。
+
 ### 候选入站的真实 Ready 确认
 
 配置应用和启动的 listener 成功确认现在等待同一实际实例的 Ready receipt。协议资源 start 和 carrier activation 必须先完成，随后实际 accept/recv loop 首次 poll 到运行态才由宿主该调用点确认；TCP+UDP 和 listener group 必须确认所有实际分支，登记任务本身不是 Ready。就绪前错误、停止和取消不发布候选成功；取消等待保留实际 owner、候选信息与同一 receipt，旧实例的通知不能确认新实例。协议自有就绪预算保持原样，包括 SIP003 TCP 原十秒预算，不新增通用五秒 Ready 超时。

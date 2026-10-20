@@ -90,6 +90,7 @@ pub(crate) struct RawIpInboundListenerOperation {
     children: children::RawIpChildren,
 }
 impl RawIpInboundListenerOperation {
+    pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
     pub(crate) fn new(
         device: Box<dyn RawIpInboundDevice>,
         endpoint: Option<RawIpInboundEndpoint>,
