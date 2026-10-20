@@ -148,11 +148,12 @@ impl Users {
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
-            let state = self.state();
-            let ready = state.spawning == 0
-                && state.tasks.is_empty()
-                && !self.view_live.load(Ordering::Acquire);
-            drop(state);
+            let ready = {
+                let state = self.state();
+                state.spawning == 0
+                    && state.tasks.is_empty()
+                    && !self.view_live.load(Ordering::Acquire)
+            };
             if ready {
                 return self.complete();
             }

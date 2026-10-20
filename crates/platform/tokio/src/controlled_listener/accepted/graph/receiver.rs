@@ -7,7 +7,7 @@ use crate::contract::scope::{TaskClass, TaskJoined};
 #[derive(Clone)]
 pub struct AcceptedTcpTaskReceiver(Weak<Pool>);
 impl AcceptedTcpTaskReceiver {
-    pub(super) fn new(pool: &Arc<Pool>) -> Self {
+    pub(in crate::controlled_listener::accepted) fn new(pool: &Arc<Pool>) -> Self {
         Self(Arc::downgrade(pool))
     }
     pub fn limit(&self) -> Option<NonZeroUsize> {
